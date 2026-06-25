@@ -38,29 +38,27 @@ def _compile_failed(error: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _preview_block(arguments: dict[str, Any]) -> dict[str, Any]:
+def _preview_block(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
     preview = arguments.get("preview", {})
     if preview is None:
-        return {}
+        return {}, None
     if not isinstance(preview, dict):
-        return _error("invalid_preview", "preview must be an object", field="preview")
+        return {}, _error("invalid_preview", "preview must be an object", field="preview")
     if preview.get("loop") is True:
-        return _error(
-            "unsupported_preview_option",
-            "preview.loop is not supported",
-            option="loop",
+        return {}, _error(
+            "unsupported_preview_option", "preview.loop is not supported", option="loop"
         )
     if "include_track" in preview and not isinstance(preview["include_track"], bool):
-        return _error("invalid_preview", "preview.include_track must be boolean", field="include_track")
+        return {}, _error("invalid_preview", "preview.include_track must be boolean", field="include_track")
     if "restore_on_finish" in preview and not isinstance(preview["restore_on_finish"], bool):
-        return _error("invalid_preview", "preview.restore_on_finish must be boolean", field="restore_on_finish")
+        return {}, _error("invalid_preview", "preview.restore_on_finish must be boolean", field="restore_on_finish")
     if "fps" in preview:
         fps = preview["fps"]
         if isinstance(fps, bool) or not isinstance(fps, Real) or fps <= 0:
-            return _error("invalid_preview", "preview.fps must be a positive number", field="fps")
+            return {}, _error("invalid_preview", "preview.fps must be a positive number", field="fps")
     if "replay_session_id" in preview and not isinstance(preview["replay_session_id"], str):
-        return _error("invalid_preview", "preview.replay_session_id must be a string", field="replay_session_id")
-    return preview
+        return {}, _error("invalid_preview", "preview.replay_session_id must be a string", field="replay_session_id")
+    return preview, None
 
 
 def _compiler_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -136,9 +134,9 @@ async def preview_motion(
     if not isinstance(arguments, dict):
         return _compile_failed(_error("invalid_preview", "preview request must be an object"))
 
-    preview = _preview_block(arguments)
-    if "code" in preview:
-        return _compile_failed(preview)
+    preview, preview_error = _preview_block(arguments)
+    if preview_error is not None:
+        return _compile_failed(preview_error)
 
     try:
         compiled = await compile_motion(_compiler_arguments(arguments), port=port)

@@ -164,6 +164,30 @@ async def test_preview_motion_include_track_opt_in_adds_track():
     assert result["compile"]["track"] == track
 
 
+@pytest.mark.asyncio
+async def test_preview_motion_preview_code_key_is_not_treated_as_validation_error():
+    compiler = FakeCompiler(
+        {
+            "track": _track(frame_count=1, fps=24),
+            "provenance": {"frame_count": 1, "fps": 24, "duration_ms": 41.6666666667},
+        }
+    )
+    replay = FakeReplay({"status": "completed", "frames_played": 1, "restored": True})
+
+    result = await director_preview.preview_motion(
+        _spec(preview={"code": "note", "restore_on_finish": True}),
+        compile_motion=compiler,
+        run_replay=replay,
+    )
+
+    assert result["state"] == "completed"
+    assert compiler.calls[0][0]["timeline"] == {"fps": 24, "frame_count": 2}
+    assert replay.calls[0][0] == {
+        "track": _track(frame_count=1, fps=24),
+        "restore_on_finish": True,
+    }
+
+
 class ShouldNotCall:
     async def __call__(self, arguments: dict, *, port=None) -> dict:
         raise AssertionError("this dependency should not be called")
