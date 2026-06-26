@@ -2,7 +2,8 @@
 
 Small live-validation fixture for `scene_project_relationship_facts`.
 
-This smoke fixture avoids the full Pearson robot document. It creates exactly five Rhino objects:
+This smoke fixture avoids the full Pearson robot document. Each run clears the dedicated
+`Rook_RelationshipFactSmoke` layer, then creates exactly five Rhino objects:
 
 - one member owner curve;
 - one joint owner point;
@@ -16,6 +17,9 @@ rook.graph.source = relationship_fact_smoke
 rook.graph.revision = smoke001
 rook.graph.pose = smoke_pose
 ```
+
+The script output includes `clearedObjectCount`, so repeated runs in the same document should
+still leave exactly the five current fixture objects on the smoke layer.
 
 Expected projection:
 

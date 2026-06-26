@@ -27,6 +27,17 @@ def _ensure_layer(name: str) -> int:
     return sc.doc.Layers.Add(layer)
 
 
+def _clear_smoke_layer(layer_index: int) -> int:
+    layer = sc.doc.Layers[layer_index]
+    objects = sc.doc.Objects.FindByLayer(layer)
+    cleared = 0
+    if objects:
+        for rhino_object in list(objects):
+            if sc.doc.Objects.Delete(rhino_object, True):
+                cleared += 1
+    return cleared
+
+
 def _stamp(object_id, values: dict[str, str]) -> None:
     rhino_object = sc.doc.Objects.FindId(object_id)
     if rhino_object is None:
@@ -47,6 +58,7 @@ def _base_attrs(visual_type: str) -> dict[str, str]:
 
 def main() -> dict[str, str]:
     layer_index = _ensure_layer(LAYER_NAME)
+    cleared_count = _clear_smoke_layer(layer_index)
     attrs = Rhino.DocObjects.ObjectAttributes()
     attrs.LayerIndex = layer_index
 
@@ -127,6 +139,7 @@ def main() -> dict[str, str]:
         "source": SOURCE,
         "revision": REVISION,
         "pose": POSE,
+        "clearedObjectCount": cleared_count,
         "memberObjectId": str(member_id),
         "jointObjectId": str(joint_id),
         "memberFeatureObjectId": str(member_feature_id),

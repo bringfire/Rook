@@ -458,7 +458,7 @@ results, matching the existing projection/refinement pattern.
 
 Malformed or incomplete facts are skipped in lenient mode.
 
-Skip diagnostics should include bounded samples for:
+v1 skip diagnostics should include count keys for:
 
 - relationship object missing `relationship_id`;
 - relationship object missing `relationship_type`;
@@ -470,6 +470,10 @@ Skip diagnostics should include bounded samples for:
 - unsupported or empty graph source after filtering;
 - duplicate feature records for the same `(graphSource, revision, pose, feature_id)`;
 - duplicate owner records for the same `(graphSource, revision, pose, owner_kind, owner_id)`.
+
+Bounded per-diagnostic samples are intentionally deferred in v1. The response keeps a
+`"samples": {}` placeholder so a later implementation can add capped examples without changing
+the response envelope.
 
 Hard failures:
 
