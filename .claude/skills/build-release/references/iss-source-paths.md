@@ -56,6 +56,30 @@ Default source root:
 | `Microsoft.VC143.MFC\mfc140.dll` | VS 14.44 x64 redistributable payload |
 | `Microsoft.VC143.MFC\mfc140u.dll` | VS 14.44 x64 redistributable payload |
 
+## Native OCCT Runtime Payload (build-machine prerequisite)
+
+The native plugin directly imports the OCCT runtime DLLs used by the exact
+topology/adjacency code. Package these DLLs app-local beside `RookNative.rhp`;
+do not rely on a prior developer deploy, PATH entry, or machine-wide OCCT
+installation.
+
+Default source root:
+`C:\Users\aryan\source\repos\OCCT\build-rook\win64\vc14\bin`
+
+| File | Source |
+|------|--------|
+| `TKernel.dll` | OCCT 8 runtime payload |
+| `TKMath.dll` | OCCT 8 runtime payload |
+| `TKG2d.dll` | OCCT 8 runtime payload |
+| `TKG3d.dll` | OCCT 8 runtime payload |
+| `TKGeomBase.dll` | OCCT 8 runtime payload |
+| `TKGeomAlgo.dll` | OCCT 8 runtime payload |
+| `TKBRep.dll` | OCCT 8 runtime payload |
+| `TKTopAlgo.dll` | OCCT 8 runtime payload |
+| `TKPrim.dll` | OCCT 8 runtime payload |
+| `TKBO.dll` | OCCT 8 runtime payload |
+| `TKShHealing.dll` | OCCT 8 runtime payload |
+
 ## Python MCP Server
 
 | File/Dir | Notes |
@@ -171,6 +195,7 @@ Run this to check all paths at once:
 ```powershell
 $Repo = "C:\Users\aryan\source\repos\Rook"
 $VcRedistRoot = "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Redist\MSVC\14.44.35112\x64"
+$OcctRuntimeRoot = "C:\Users\aryan\source\repos\OCCT\build-rook\win64\vc14\bin"
 $missing = New-Object System.Collections.Generic.List[string]
 
 $files = @(
@@ -247,6 +272,25 @@ $vcRuntimeFiles = @(
 foreach ($file in $vcRuntimeFiles) {
   $path = Join-Path $VcRedistRoot $file
   if (-not (Test-Path $path)) { $missing.Add("MISSING VC RUNTIME: $path") }
+}
+
+$occtRuntimeFiles = @(
+  "TKernel.dll",
+  "TKMath.dll",
+  "TKG2d.dll",
+  "TKG3d.dll",
+  "TKGeomBase.dll",
+  "TKGeomAlgo.dll",
+  "TKBRep.dll",
+  "TKTopAlgo.dll",
+  "TKPrim.dll",
+  "TKBO.dll",
+  "TKShHealing.dll"
+)
+
+foreach ($file in $occtRuntimeFiles) {
+  $path = Join-Path $OcctRuntimeRoot $file
+  if (-not (Test-Path $path)) { $missing.Add("MISSING OCCT RUNTIME: $path") }
 }
 
 $directories = @(

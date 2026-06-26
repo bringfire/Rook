@@ -314,6 +314,41 @@ function Test-InstallerPackagesNativeVcRuntimeAppLocal {
     }
 }
 
+function Test-InstallerPackagesOcctRuntimeAppLocal {
+    $content = Get-Content -Path $InstallerScript -Raw
+    $releaseDocs = @(
+        Get-Content -Path $IssSourcePaths -Raw
+        Get-Content -Path $ClaudeIssSourcePaths -Raw
+    ) -join "`n"
+
+    Assert-Contains -Text $content -Expected '#ifndef OcctRuntimeRoot' -Message 'Installer must allow the OCCT runtime root to be overridden at compile time.'
+    Assert-Contains -Text $content -Expected '#define OcctRuntimeRoot "C:\Users\aryan\source\repos\OCCT\build-rook\win64\vc14\bin"' -Message 'Installer must pin the OCCT 8 runtime bin source used by the native build.'
+    Assert-Contains -Text $releaseDocs -Expected 'Native OCCT Runtime Payload (build-machine prerequisite)' -Message 'Release source checklist must document the native OCCT runtime payload.'
+    Assert-Contains -Text $releaseDocs -Expected '$OcctRuntimeRoot = "C:\Users\aryan\source\repos\OCCT\build-rook\win64\vc14\bin"' -Message 'Release source verification script must check the OCCT runtime root.'
+
+    foreach ($dll in @(
+        'TKernel.dll',
+        'TKMath.dll',
+        'TKG2d.dll',
+        'TKG3d.dll',
+        'TKGeomBase.dll',
+        'TKGeomAlgo.dll',
+        'TKBRep.dll',
+        'TKTopAlgo.dll',
+        'TKPrim.dll',
+        'TKBO.dll',
+        'TKShHealing.dll'
+    )) {
+        Assert-Contains -Text $releaseDocs -Expected $dll -Message "Release source checklist must include OCCT runtime DLL: $dll."
+        $line = (Get-Content -Path $InstallerScript | Where-Object { $_ -like "Source: `"{#OcctRuntimeRoot}\$dll`";*" }) -join "`n"
+        Assert-Contains -Text $line -Expected "Source: `"{#OcctRuntimeRoot}\$dll`"" -Message "Installer must package OCCT runtime DLL app-local: $dll."
+        Assert-Contains -Text $line -Expected 'DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"' -Message "Installer must install OCCT runtime DLL beside RookNative.rhp: $dll."
+        Assert-Contains -Text $line -Expected 'Components: plugins' -Message "OCCT runtime DLL must be gated by the plugins component: $dll."
+        Assert-Contains -Text $line -Expected 'Flags: ignoreversion' -Message "OCCT runtime DLL must use ignoreversion: $dll."
+        Assert-NotContains -Text $line -Unexpected 'skipifsourcedoesntexist' -Message "Release installer must fail packaging when OCCT runtime DLL is missing: $dll."
+    }
+}
+
 function Test-InstallerRegistersRhinoPluginFileNamesUnderPluginSubkey {
     $content = Get-Content -Path $InstallerScript -Raw
 
@@ -724,6 +759,7 @@ Test-FfmpegBuildScriptUsesAgentlessSignatureVerification
 Test-FfmpegBuildRecipeTargetsOnlyFfmpegProgram
 Test-InstallerRequiresNativePluginBuildOutput
 Test-InstallerPackagesNativeVcRuntimeAppLocal
+Test-InstallerPackagesOcctRuntimeAppLocal
 Test-InstallerRegistersRhinoPluginFileNamesUnderPluginSubkey
 Test-InstallerWritesRhinoPluginEnumerationMetadata
 Test-InstallerBlocksWhenRhinoOrRevitAreRunning
