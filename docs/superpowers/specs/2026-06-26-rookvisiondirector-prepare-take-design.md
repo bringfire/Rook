@@ -100,7 +100,7 @@ Current Rhino selection is a convenience, not the canonical contract. Repeatable
 Default storage is global:
 
 ```text
-%LOCALAPPDATA%/Rook/director_takes/<source_fingerprint>/<take_id>/
+%LOCALAPPDATA%/Rook/director_takes/<source_document_key>/<take_id>/
 ```
 
 Document-local storage is explicit:
@@ -113,9 +113,20 @@ Rules:
 
 - Never write beside the `.3dm` unless `portable: true` or `output_root` is explicit.
 - If the source document is unsaved, global mode still works.
-- If the source document is unsaved and document-local mode is requested, fail with `source_document_unsaved`.
+- If the source document is unsaved and document-local mode is requested with `portable: true`, fail with `source_document_unsaved`.
+- `source_document_key` is computed early from cheap document facts before inventory: normalized document path when available, file size, file modified time, unit system, and Rhino runtime serial or document serial when available.
+- `source_document_key` is only a storage partition key. It is not the full source fidelity fingerprint.
+- `source_document_fingerprint` is recorded after source facts and occurrence inventory are available. It includes the cheap document facts plus selected occurrence and structural traversal facts.
 - The manifest records `storage_mode: "global" | "document_local" | "custom_output_root"`.
 - Responses always return absolute paths for all produced files.
+
+Storage option precedence:
+
+1. `output_root` set and `portable: false` or omitted -> `storage_mode: "custom_output_root"`, rooted at `output_root/<source_document_key>/<take_id>/`. `output_root` must be an absolute local directory path.
+2. `portable: true` and no `output_root` -> `storage_mode: "document_local"`, rooted at `<3dm folder>/.rook/director_takes/<take_id>/`.
+3. neither `output_root` nor `portable: true` -> `storage_mode: "global"`.
+
+If both `output_root` and `portable: true` are provided, fail with `invalid_storage_options`. Custom roots are explicit non-document roots; portable mode means document-local.
 
 Required outputs:
 
@@ -128,6 +139,11 @@ Conditional outputs:
 
 - `classification_events.jsonl` only when correction or classification events exist.
 
+Optional file fields:
+
+- If `write_markdown_audit: false`, `files.audit_report_markdown` is present with `enabled: false`, `path: null`, and `sha256: null`.
+- The success response follows the same shape: `paths.audit_report_markdown` is `null` when Markdown output is disabled.
+
 ## Atomic Artifact Lifecycle
 
 Python writes into a temporary prepare directory first, then finalizes atomically.
@@ -135,8 +151,8 @@ Python writes into a temporary prepare directory first, then finalizes atomicall
 Example:
 
 ```text
-%LOCALAPPDATA%/Rook/director_takes/<source_fingerprint>/.tmp/<take_id>.<nonce>/
-%LOCALAPPDATA%/Rook/director_takes/<source_fingerprint>/<take_id>/
+%LOCALAPPDATA%/Rook/director_takes/<source_document_key>/.tmp/<take_id>.<nonce>/
+%LOCALAPPDATA%/Rook/director_takes/<source_document_key>/<take_id>/
 ```
 
 Rules:
@@ -161,6 +177,7 @@ Required high-level fields:
   "created_at": "...",
   "generator_version": "...",
   "storage_mode": "global",
+  "source_document_key": "...",
   "source_document_fingerprint": {...},
   "input": {...},
   "files": {
@@ -173,6 +190,7 @@ Required high-level fields:
       "sha256": "..."
     },
     "audit_report_markdown": {
+      "enabled": true,
       "path": "audit_report.md",
       "sha256": "..."
     }
@@ -227,6 +245,8 @@ Rules:
 
 `provenance_records.jsonl` contains one JSON object per reachable occurrence/object record.
 
+The manifest `actors` array is the compact actor index. The JSONL also includes a structural `record_kind: "actor_root"` record for each selected actor root so consumers can stream one complete structural inventory without joining through the manifest first.
+
 All reachable source contents are included:
 
 - renderable geometry;
@@ -244,6 +264,7 @@ Each record includes operational classification:
 ```json
 {
   "schema_version": 1,
+  "record_kind": "definition_object",
   "take_id": "...",
   "actor_id": "...",
   "provenance_id": "...",
@@ -268,6 +289,14 @@ Each record includes operational classification:
 ```
 
 All records in slice one use `materialization_status: "referenced_only"`.
+
+`record_kind` is structural and must not be inferred from `object_role`.
+
+Allowed values:
+
+- `actor_root` for the selected top-level source occurrence record;
+- `nested_instance` for a nested instance-reference path node;
+- `definition_object` for a reachable non-instance object inside a definition.
 
 ## Fact-Rich Occurrence Paths
 
@@ -375,6 +404,7 @@ Higher-severity examples include missing source objects, changed block definitio
 
 Use tiered fingerprints:
 
+- storage key: `source_document_key`, computed before inventory from cheap source document facts and used only to choose the artifact directory;
 - cheap document fingerprint: path, size, modified time, Rhino doc serial or runtime serial when available, unit system;
 - selected occurrence fingerprint: selected ids, top-level layers, names, object types, transforms, bboxes, block definition names/ids;
 - structural traversal fingerprint: ordered reachable path facts and segment fingerprints.
@@ -415,7 +445,8 @@ Response:
 {
   "schema_version": 1,
   "inventory_session_id": "...",
-  "source_document_fingerprint": {},
+  "source_document_key": "...",
+  "inventory_context_fingerprint": {},
   "records": [],
   "next_cursor": "...",
   "complete": false,
@@ -440,14 +471,15 @@ Consistency is strict. Avoid mixed-time provenance.
 First page establishes:
 
 - `inventory_session_id`;
-- source document fingerprint;
+- `source_document_key`;
+- inventory context fingerprint;
 - document runtime serial;
 - selected source ids;
 - traversal ordering/version;
 - page size cap;
 - source object count.
 
-Later pages must match that context. If selected ids differ, page size changes unexpectedly, session expires, document runtime serial/fingerprint changes, cursor is invalid, or traversal context no longer matches, native returns `inventory_stale` or `inventory_session_invalid`.
+Later pages must match that context. If selected ids differ, page size changes unexpectedly, session expires, document runtime serial, inventory context fingerprint, cursor, or traversal context no longer matches, native returns `inventory_stale` or `inventory_session_invalid`.
 
 Python treats either error as a failed `prepare_take`, removes or quarantines partial outputs, and reports that the user should retry.
 
@@ -457,17 +489,18 @@ Native does not need to snapshot the full inventory in memory. It holds enough s
 
 1. Validate input shape and selection scope.
 2. Resolve explicit object ids or current Rhino selection.
-3. Resolve storage mode and create a temporary prepare directory.
-4. Obtain source document fingerprint.
+3. Compute `source_document_key` from cheap document facts.
+4. Resolve storage mode and create a temporary prepare directory.
 5. Inventory selected top-level occurrences and every reachable nested object.
 6. Write `provenance_records.jsonl` as inventory pages arrive.
-7. Build logical actor records.
-8. Run deterministic root classification and tiered nested classification.
-9. Build `audit_report.json` and `audit_report.md`.
-10. Compute sidecar hashes.
-11. Write `take_manifest.json` with `prepare_status: "complete"`.
-12. Atomically finalize the artifact directory.
-13. Return summary and absolute paths.
+7. Build the full `source_document_fingerprint` from cheap document facts, selected occurrence facts, and traversal facts.
+8. Build logical actor records.
+9. Run deterministic root classification and tiered nested classification.
+10. Build `audit_report.json` and optional `audit_report.md`.
+11. Compute sidecar hashes.
+12. Write `take_manifest.json` with `prepare_status: "complete"`.
+13. Atomically finalize the artifact directory.
+14. Return summary and absolute paths.
 
 ## Response Contract
 
@@ -478,6 +511,7 @@ Success:
   "take_id": "...",
   "prepare_status": "complete",
   "storage_mode": "global",
+  "source_document_key": "...",
   "source_document_fingerprint": {},
   "actor_count": 3,
   "provenance_record_count": 12034,
@@ -499,6 +533,7 @@ Errors include:
 | `missing_source_selection` | no explicit ids and no current selection requested/found |
 | `unsupported_scope` | `scope` is not `selected_occurrences` |
 | `source_document_unsaved` | document-local storage requested for an unsaved source document |
+| `invalid_storage_options` | incompatible storage options, such as both `output_root` and `portable: true` |
 | `source_object_not_found` | requested top-level source id is absent |
 | `unsupported_actor_root` | requested id cannot be a top-level actor root |
 | `inventory_stale` | document changed during paged inventory |
