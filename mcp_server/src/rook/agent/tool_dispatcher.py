@@ -1349,6 +1349,34 @@ def build_local_tools() -> Dict[str, Any]:
     except ImportError:
         logger.debug("scene_project_bim_relationships local tool unavailable (import failed)")
 
+    # --- scene_project_relationship_facts (Python-side relationship fact projection) ---
+    try:
+        from ..scene.relationship_fact_projection import project_relationship_facts_for_tool
+
+        async def _scene_project_relationship_facts(
+            graph_source=None,
+            graph_revision=None,
+            poses=None,
+            object_ids=None,
+            source_mode="authored_graph_user_strings",
+            strict=False,
+            port: int | None = None,
+            **kwargs,
+        ) -> dict:
+            return await project_relationship_facts_for_tool(
+                graph_source=graph_source,
+                graph_revision=graph_revision,
+                poses=poses,
+                object_ids=object_ids,
+                source_mode=source_mode,
+                strict=strict,
+                port=port,
+            )
+
+        tools["scene_project_relationship_facts"] = _scene_project_relationship_facts
+    except ImportError:
+        logger.debug("scene_project_relationship_facts local tool unavailable (import failed)")
+
     # --- scene_bim_facts (Python-side BIM facts query) ---
     try:
         from ..scene.scene_graph import get_scene_graph

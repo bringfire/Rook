@@ -11601,6 +11601,46 @@ Syncs the scene graph, reads object user strings via /usertext/object-get, joins
             },
         ),
         Tool(
+            name="scene_project_relationship_facts",
+            description="""Project authored relationship facts from Rhino object user strings into the in-memory scene graph read model.
+
+Creates semantic owner-object-to-owner-object edges such as member -> joint with relationship="connects". Use scene_context(sync=false) after this tool to inspect Python-only projected facts. This tool reads Rhino object user text and mutates only the Python scene graph mirror; it does not mutate Rhino geometry, object attributes, layers, blocks, or document user text.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "graph_source": {
+                        "type": "string",
+                        "description": "Optional graph source filter, for example pearson_robot_skeleton_graph",
+                    },
+                    "graph_revision": {
+                        "type": "string",
+                        "description": "Optional graph revision filter, for example g002",
+                    },
+                    "poses": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional pose filter. Scoped projection preserves out-of-scope poses.",
+                    },
+                    "object_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional primary owner object scope. Resolution still hydrates the full current scene.",
+                    },
+                    "source_mode": {
+                        "type": "string",
+                        "enum": ["authored_graph_user_strings"],
+                        "description": "Relationship fact source mode. v1 supports authored_graph_user_strings only.",
+                    },
+                    "strict": {
+                        "type": "boolean",
+                        "description": "If true, malformed facts fail the tool instead of returning diagnostics.",
+                    },
+                    "port": {"type": "integer", "description": "Rhino instance port"},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
             name="scene_bim_facts",
             description="""Query already-projected RookBIM facts from the current in-memory Python scene graph mirror.
 
@@ -20012,6 +20052,23 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                     result = {"success": False, "data": payload}
                 else:
                     result = {"success": True, "data": payload}
+
+        case "scene_project_relationship_facts":
+            from .scene.relationship_fact_projection import project_relationship_facts_for_tool
+
+            payload = await project_relationship_facts_for_tool(
+                graph_source=arguments.get("graph_source"),
+                graph_revision=arguments.get("graph_revision"),
+                poses=arguments.get("poses"),
+                object_ids=arguments.get("object_ids"),
+                source_mode=arguments.get("source_mode", "authored_graph_user_strings"),
+                strict=arguments.get("strict", False),
+                port=port,
+            )
+            if payload.get("success") is False:
+                result = {"success": False, "data": payload}
+            else:
+                result = {"success": True, "data": payload}
 
         case "scene_bim_facts":
             from .scene.scene_graph import get_scene_graph

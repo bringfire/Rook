@@ -283,3 +283,72 @@ async def test_scene_context_sync_false_renders_relationship_fact_details(monkey
     assert "point_to_point" in result["data"]
     assert "accepted" in result["data"]
     assert "authored_assembly_graph" in result["data"]
+
+
+@pytest.mark.asyncio
+async def test_server_tool_schema_exposes_scene_project_relationship_facts_parameters():
+    from rook.server import list_tools
+
+    tools = {tool.name: tool for tool in await list_tools()}
+    schema = tools["scene_project_relationship_facts"].inputSchema
+
+    assert schema["properties"]["graph_source"]["type"] == "string"
+    assert schema["properties"]["graph_revision"]["type"] == "string"
+    assert schema["properties"]["poses"]["items"]["type"] == "string"
+    assert schema["properties"]["object_ids"]["items"]["type"] == "string"
+    assert schema["properties"]["source_mode"]["enum"] == ["authored_graph_user_strings"]
+    assert schema["properties"]["strict"]["type"] == "boolean"
+    assert schema["properties"]["port"]["type"] == "integer"
+
+
+def test_tool_group_contains_scene_project_relationship_facts():
+    from rook.agent.tool_groups import TOOL_GROUPS
+
+    assert "scene_project_relationship_facts" in TOOL_GROUPS["scene_graph"]
+
+
+def test_scene_project_relationship_facts_targeting_policy_is_rhino_read():
+    from rook import targeting
+
+    pol = targeting.policy_for_tool("scene_project_relationship_facts")
+
+    assert pol.requires_rhino is True
+    assert pol.risk == "read"
+    assert "scene_project_relationship_facts" in targeting._ALL_KNOWN_TOOLS
+
+
+def test_local_dispatcher_registers_scene_project_relationship_facts():
+    from rook.agent.tool_dispatcher import build_local_tools
+
+    tools = build_local_tools()
+
+    assert "scene_project_relationship_facts" in tools
+    assert callable(tools["scene_project_relationship_facts"])
+
+
+@pytest.mark.asyncio
+async def test_server_dispatch_projects_relationship_facts(monkeypatch):
+    sg = _scene_graph()
+
+    async def fake_sync(port=None):
+        return {"success": True, "sequence": sg.sequence}
+
+    async def fake_call_rhino(path, method="GET", payload=None, *, port=None):
+        return {"success": True, "data": {"id": payload["id"], "userStrings": _user_strings_for(payload["id"])}}
+
+    monkeypatch.setattr(sg, "sync", fake_sync)
+    monkeypatch.setattr("rook.scene.scene_graph.get_scene_graph", lambda: sg)
+    monkeypatch.setattr(rel, "call_rhino", fake_call_rhino)
+
+    from rook.server import _call_tool_dispatch
+
+    result = await _call_tool_dispatch(
+        "scene_project_relationship_facts",
+        {"graph_source": "pearson_robot_skeleton_graph"},
+    )
+
+    assert result["success"] is True
+    payload = result["data"]
+    assert payload["success"] is True
+    assert payload["projectionKind"] == rel.PROJECTION_KIND
+    assert payload["counts"]["projectedEdgeCount"] == 1
