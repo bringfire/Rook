@@ -272,6 +272,48 @@ function Test-InstallerRequiresNativePluginBuildOutput {
     Assert-NotContains -Text $nativeLine -Unexpected 'skipifsourcedoesntexist' -Message 'Release installer must fail packaging when RookNative.rhp is missing.'
 }
 
+function Test-InstallerPackagesNativeVcRuntimeAppLocal {
+    $content = Get-Content -Path $InstallerScript -Raw
+    $releaseDocs = @(
+        Get-Content -Path $IssSourcePaths -Raw
+        Get-Content -Path $ClaudeIssSourcePaths -Raw
+    ) -join "`n"
+
+    Assert-Contains -Text $content -Expected '#define VcRedistRoot "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Redist\MSVC\14.44.35112\x64"' -Message 'Installer must pin the VS 14.44 x64 redistributable source used by the native build.'
+    Assert-Contains -Text $content -Expected '#define VcRedistCrtDir VcRedistRoot + "\Microsoft.VC143.CRT"' -Message 'Installer must define the VC143 CRT redist source directory.'
+    Assert-Contains -Text $content -Expected '#define VcRedistMfcDir VcRedistRoot + "\Microsoft.VC143.MFC"' -Message 'Installer must define the VC143 MFC redist source directory.'
+    Assert-Contains -Text $releaseDocs -Expected 'Native VC Runtime Payload (build-machine prerequisite)' -Message 'Release source checklist must document the native VC runtime payload.'
+    Assert-Contains -Text $releaseDocs -Expected '$VcRedistRoot = "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Redist\MSVC\14.44.35112\x64"' -Message 'Release source verification script must check the VS 14.44 redist root.'
+
+    foreach ($dll in @(
+        'concrt140.dll',
+        'msvcp140.dll',
+        'vcruntime140.dll',
+        'vcruntime140_1.dll'
+    )) {
+        Assert-Contains -Text $releaseDocs -Expected "Microsoft.VC143.CRT\$dll" -Message "Release source checklist must include VC CRT runtime DLL: $dll."
+        $line = (Get-Content -Path $InstallerScript | Where-Object { $_ -like "Source: `"{#VcRedistCrtDir}\$dll`";*" }) -join "`n"
+        Assert-Contains -Text $line -Expected "Source: `"{#VcRedistCrtDir}\$dll`"" -Message "Installer must package VC CRT runtime DLL app-local: $dll."
+        Assert-Contains -Text $line -Expected 'DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"' -Message "Installer must install VC CRT runtime DLL beside RookNative.rhp: $dll."
+        Assert-Contains -Text $line -Expected 'Components: plugins' -Message "VC CRT runtime DLL must be gated by the plugins component: $dll."
+        Assert-Contains -Text $line -Expected 'Flags: ignoreversion' -Message "VC CRT runtime DLL must use ignoreversion: $dll."
+        Assert-NotContains -Text $line -Unexpected 'skipifsourcedoesntexist' -Message "Release installer must fail packaging when VC CRT runtime DLL is missing: $dll."
+    }
+
+    foreach ($dll in @(
+        'mfc140.dll',
+        'mfc140u.dll'
+    )) {
+        Assert-Contains -Text $releaseDocs -Expected "Microsoft.VC143.MFC\$dll" -Message "Release source checklist must include VC MFC runtime DLL: $dll."
+        $line = (Get-Content -Path $InstallerScript | Where-Object { $_ -like "Source: `"{#VcRedistMfcDir}\$dll`";*" }) -join "`n"
+        Assert-Contains -Text $line -Expected "Source: `"{#VcRedistMfcDir}\$dll`"" -Message "Installer must package VC MFC runtime DLL app-local: $dll."
+        Assert-Contains -Text $line -Expected 'DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"' -Message "Installer must install VC MFC runtime DLL beside RookNative.rhp: $dll."
+        Assert-Contains -Text $line -Expected 'Components: plugins' -Message "VC MFC runtime DLL must be gated by the plugins component: $dll."
+        Assert-Contains -Text $line -Expected 'Flags: ignoreversion' -Message "VC MFC runtime DLL must use ignoreversion: $dll."
+        Assert-NotContains -Text $line -Unexpected 'skipifsourcedoesntexist' -Message "Release installer must fail packaging when VC MFC runtime DLL is missing: $dll."
+    }
+}
+
 function Test-InstallerRegistersRhinoPluginFileNamesUnderPluginSubkey {
     $content = Get-Content -Path $InstallerScript -Raw
 
@@ -681,6 +723,7 @@ Test-FfmpegValidatorRequiresReleaseSourceBundleArgument
 Test-FfmpegBuildScriptUsesAgentlessSignatureVerification
 Test-FfmpegBuildRecipeTargetsOnlyFfmpegProgram
 Test-InstallerRequiresNativePluginBuildOutput
+Test-InstallerPackagesNativeVcRuntimeAppLocal
 Test-InstallerRegistersRhinoPluginFileNamesUnderPluginSubkey
 Test-InstallerWritesRhinoPluginEnumerationMetadata
 Test-InstallerBlocksWhenRhinoOrRevitAreRunning
