@@ -197,6 +197,10 @@ def _common_scope(user_strings: dict[str, Any]) -> tuple[str, str, str]:
     )
 
 
+def _has_graph_user_strings(user_strings: dict[str, Any]) -> bool:
+    return any(str(key).startswith("rook.graph.") for key in user_strings)
+
+
 def _scope_is_valid(source: str, revision: str, pose: str, diagnostics: dict[str, int]) -> bool:
     valid = True
     if not source:
@@ -325,6 +329,9 @@ def parse_runtime_records(
 
     for record in records:
         user_strings = record.user_strings
+        if not _has_graph_user_strings(user_strings):
+            _bump(diagnostics, "ignoredNonGraphObjects")
+            continue
         source, revision, pose = _common_scope(user_strings)
         if not _scope_is_valid(source, revision, pose, diagnostics):
             continue

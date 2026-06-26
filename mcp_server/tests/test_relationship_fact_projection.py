@@ -178,6 +178,27 @@ def test_parse_runtime_records_requires_pose_for_graph_records():
     assert parsed.diagnostics["recordsMissingPose"] == 1
 
 
+def test_parse_runtime_records_ignores_plain_non_graph_objects_in_strict_flow():
+    records = [
+        rel.RuntimeObjectRecord(
+            "plain-rhino-id",
+            {
+                "material": "steel",
+                "notes": "ordinary Rhino object with user text",
+            },
+        ),
+        *_valid_records(),
+    ]
+
+    parsed = rel.parse_runtime_records(records, graph_source="pearson_robot_skeleton_graph")
+    fact_set = rel.build_relationship_fact_set(parsed, strict=True)
+
+    assert fact_set.success is True
+    assert len(fact_set.facts) == 1
+    assert "recordsMissingGraphSource" not in parsed.diagnostics
+    assert parsed.diagnostics["ignoredNonGraphObjects"] == 1
+
+
 def _analytics_for_relationship_projection() -> SceneGraphAnalytics:
     sg = SceneGraphAnalytics()
     sg.graph.add_node("member-rhino-id", name="Spine member", domain_label="member", shape_class="curve")
