@@ -4,7 +4,7 @@ Every required file listed here is referenced by `installer/RookSetup.iss`. If a
 is missing, ISCC will either fail or silently exclude the component (if
 `skipifsourcedoesntexist` is set).
 
-All paths are relative to the repo root.
+Unless marked as a build-machine prerequisite, paths are relative to the repo root.
 
 ## Build Outputs (must be fresh — rebuilt after version bump)
 
@@ -36,6 +36,25 @@ For direct registry installs, sibling-runtime redirection is not release-proven
 by package-manager/Yak layout docs. The live Inno-install smoke must prove which
 physical `Rook.rhp` path Rhino loads under standalone Rhino, Rhino.Inside.Revit
 on Revit 2025+, and Rhino.Inside.Revit on Revit 2024 or older.
+
+## Native VC Runtime Payload (build-machine prerequisite)
+
+The native plugin is built with dynamic MSVC/MFC runtime linkage, and the public
+installer is per-user (`PrivilegesRequired=lowest`). Package the required VC143
+runtime DLLs app-local beside `RookNative.rhp`; do not rely on a machine-wide
+Visual C++ Redistributable already being installed.
+
+Default source root:
+`C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Redist\MSVC\14.44.35112\x64`
+
+| File | Source |
+|------|--------|
+| `Microsoft.VC143.CRT\concrt140.dll` | VS 14.44 x64 redistributable payload |
+| `Microsoft.VC143.CRT\msvcp140.dll` | VS 14.44 x64 redistributable payload |
+| `Microsoft.VC143.CRT\vcruntime140.dll` | VS 14.44 x64 redistributable payload |
+| `Microsoft.VC143.CRT\vcruntime140_1.dll` | VS 14.44 x64 redistributable payload |
+| `Microsoft.VC143.MFC\mfc140.dll` | VS 14.44 x64 redistributable payload |
+| `Microsoft.VC143.MFC\mfc140u.dll` | VS 14.44 x64 redistributable payload |
 
 ## Python MCP Server
 
@@ -151,6 +170,7 @@ Run this to check all paths at once:
 
 ```powershell
 $Repo = "C:\Users\aryan\source\repos\Rook"
+$VcRedistRoot = "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Redist\MSVC\14.44.35112\x64"
 $missing = New-Object System.Collections.Generic.List[string]
 
 $files = @(
@@ -213,6 +233,20 @@ foreach ($file in $files) {
 foreach ($file in $optionalFiles) {
   $path = Join-Path $Repo $file
   if (-not (Test-Path $path)) { Write-Warning "OPTIONAL MISSING: $path" }
+}
+
+$vcRuntimeFiles = @(
+  "Microsoft.VC143.CRT\concrt140.dll",
+  "Microsoft.VC143.CRT\msvcp140.dll",
+  "Microsoft.VC143.CRT\vcruntime140.dll",
+  "Microsoft.VC143.CRT\vcruntime140_1.dll",
+  "Microsoft.VC143.MFC\mfc140.dll",
+  "Microsoft.VC143.MFC\mfc140u.dll"
+)
+
+foreach ($file in $vcRuntimeFiles) {
+  $path = Join-Path $VcRedistRoot $file
+  if (-not (Test-Path $path)) { $missing.Add("MISSING VC RUNTIME: $path") }
 }
 
 $directories = @(

@@ -39,6 +39,11 @@
 #define BootstrapLockfile RepoRoot + "\installer\runtime\requirements-bootstrap-lock.txt"
 #define RookLockfile RepoRoot + "\installer\runtime\requirements-rook-lock.txt"
 #define ChirpLockfile RepoRoot + "\installer\runtime\requirements-chirp-lock.txt"
+#ifndef VcRedistRoot
+#define VcRedistRoot "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Redist\MSVC\14.44.35112\x64"
+#endif
+#define VcRedistCrtDir VcRedistRoot + "\Microsoft.VC143.CRT"
+#define VcRedistMfcDir VcRedistRoot + "\Microsoft.VC143.MFC"
 
 [Setup]
 AppId={{E9A3F2B1-4C5D-6E7F-8A9B-0C1D2E3F4A5B}
@@ -115,6 +120,12 @@ Type: files; Name: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net4
 ; C++ native plugin (x64 only) — required public Rhino surface
 Source: "{#NativePlugin}"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
 Source: "{#NativePdb}"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#VcRedistCrtDir}\concrt140.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
+Source: "{#VcRedistCrtDir}\msvcp140.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
+Source: "{#VcRedistCrtDir}\vcruntime140.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
+Source: "{#VcRedistCrtDir}\vcruntime140_1.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
+Source: "{#VcRedistMfcDir}\mfc140.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
+Source: "{#VcRedistMfcDir}\mfc140u.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
 
 ; C# companion plugin: package sibling runtime payloads for direct-registry
 ; install smoke validation. Release is blocked until Rhino proves which physical
