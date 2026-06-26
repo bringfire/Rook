@@ -44,6 +44,9 @@
 #endif
 #define VcRedistCrtDir VcRedistRoot + "\Microsoft.VC143.CRT"
 #define VcRedistMfcDir VcRedistRoot + "\Microsoft.VC143.MFC"
+#ifndef OcctRuntimeRoot
+#define OcctRuntimeRoot "C:\Users\aryan\source\repos\OCCT\build-rook\win64\vc14\bin"
+#endif
 
 [Setup]
 AppId={{E9A3F2B1-4C5D-6E7F-8A9B-0C1D2E3F4A5B}
@@ -126,6 +129,17 @@ Source: "{#VcRedistCrtDir}\vcruntime140.dll"; DestDir: "{userappdata}\McNeel\Rhi
 Source: "{#VcRedistCrtDir}\vcruntime140_1.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
 Source: "{#VcRedistMfcDir}\mfc140.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
 Source: "{#VcRedistMfcDir}\mfc140u.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
+Source: "{#OcctRuntimeRoot}\TKernel.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
+Source: "{#OcctRuntimeRoot}\TKMath.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
+Source: "{#OcctRuntimeRoot}\TKG2d.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
+Source: "{#OcctRuntimeRoot}\TKG3d.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
+Source: "{#OcctRuntimeRoot}\TKGeomBase.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
+Source: "{#OcctRuntimeRoot}\TKGeomAlgo.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
+Source: "{#OcctRuntimeRoot}\TKBRep.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
+Source: "{#OcctRuntimeRoot}\TKTopAlgo.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
+Source: "{#OcctRuntimeRoot}\TKPrim.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
+Source: "{#OcctRuntimeRoot}\TKBO.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
+Source: "{#OcctRuntimeRoot}\TKShHealing.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
 
 ; C# companion plugin: package sibling runtime payloads for direct-registry
 ; install smoke validation. Release is blocked until Rhino proves which physical
