@@ -236,6 +236,63 @@ async def test_strict_tool_failure_on_malformed_fact(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_strict_tool_projection_ignores_plain_non_graph_objects(monkeypatch):
+    sg = _scene_graph()
+    sg.graph.add_node(
+        "plain-rhino-id",
+        name="Plain Rhino Object",
+        domain_label="debug",
+        shape_class="box",
+    )
+    hydrated_ids = []
+
+    async def fake_sync(port=None):
+        return {"success": True, "sequence": sg.sequence}
+
+    async def fake_call_rhino(path, method="GET", payload=None, *, port=None):
+        object_id = payload["id"]
+        hydrated_ids.append(object_id)
+        if object_id == "plain-rhino-id":
+            return {
+                "success": True,
+                "data": {
+                    "id": object_id,
+                    "userStrings": {
+                        "material": "steel",
+                        "notes": "ordinary Rhino object",
+                    },
+                },
+            }
+        return {"success": True, "data": {"id": object_id, "userStrings": _user_strings_for(object_id)}}
+
+    monkeypatch.setattr(sg, "sync", fake_sync)
+    monkeypatch.setattr(rel, "call_rhino", fake_call_rhino)
+
+    result = await rel.project_relationship_facts_for_tool(
+        graph_source="pearson_robot_skeleton_graph",
+        strict=True,
+        analytics=sg,
+    )
+
+    assert result["success"] is True
+    assert set(hydrated_ids) == {
+        "member-rhino-id",
+        "joint-rhino-id",
+        "feature-member-start-id",
+        "feature-joint-point-id",
+        "relationship-marker-id",
+        "plain-rhino-id",
+    }
+    assert result["counts"]["candidateObjectCount"] == 6
+    assert result["counts"]["hydratedObjectCount"] == 6
+    assert result["counts"]["relationshipFactCount"] == 1
+    assert result["counts"]["projectedEdgeCount"] == 1
+    assert result["diagnostics"]["ignoredNonGraphObjects"] == 1
+    assert sg.graph.has_edge("member-rhino-id", "joint-rhino-id")
+    assert not sg.graph.has_edge("plain-rhino-id", "joint-rhino-id")
+
+
+@pytest.mark.asyncio
 async def test_scene_context_sync_false_renders_relationship_fact_details(monkeypatch):
     sg = _scene_graph()
     sg.graph.nodes["joint-rhino-id"]["domain_label"] = "joint"
