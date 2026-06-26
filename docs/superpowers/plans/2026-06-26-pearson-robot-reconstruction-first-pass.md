@@ -938,6 +938,9 @@ def add_part_object(part, brep, recipe, material_indices):
     attributes = Rhino.DocObjects.ObjectAttributes()
     attributes.Name = part["id"]
     attributes.LayerIndex = sc.doc.Layers.FindByFullPath(layer_path, True)
+    diffuse = recipe["materials"][part["material"]]["diffuse"]
+    attributes.ColorSource = Rhino.DocObjects.ObjectColorSource.ColorFromObject
+    attributes.ObjectColor = System.Drawing.Color.FromArgb(diffuse[0], diffuse[1], diffuse[2])
     attributes.MaterialSource = Rhino.DocObjects.ObjectMaterialSource.MaterialFromObject
     attributes.MaterialIndex = material_indices[part["material"]]
     attributes.SetUserString("rook.part_id", part["id"])

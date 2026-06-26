@@ -37,3 +37,21 @@ Visual notes:
 
 Next adjustment target:
 - Tune `torso_frame.rotation_degrees`, hip frame positions, and leg block sizes based on screenshots.
+
+## r001 - Screenshot review
+
+Screenshots:
+- `experiments/pearson_robot/screenshots/r001_robot_front_child_view.png`
+- `experiments/pearson_robot/screenshots/r001_robot_side_recline_view.png`
+
+Reference comparison:
+- Front target: `H:\AI EXPERIMENTS\Pearson\reference_images\ROBOT\image.png`
+- Side target: `H:\AI EXPERIMENTS\Pearson\reference_images\ROBOT\image (2).png`
+
+Result:
+- The model reads as a first-pass turquoise block robot with visible face, reclined torso, large side arms, and forward legs.
+- The side view is the strongest match to the reference silhouette.
+- The front view is recognizable but the legs/feet are visually narrow and compressed compared with the reference photos.
+
+Next planned adjustment:
+- Use Set B - width for r002 to increase hip spacing and foot block width.
