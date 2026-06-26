@@ -288,6 +288,10 @@ Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-
 ; ---------------------------------------------------------------------------
 
 [UninstallDelete]
+; Preserve user data and RookVision artifact stores. Do not delete:
+;   {userappdata}\Rook\artifacts
+;   {localappdata}\Rook\rookvision_director
+;   {localappdata}\Rook\data
 Type: filesandordirs; Name: "{app}\mcp_server"
 Type: filesandordirs; Name: "{app}\chirp"
 Type: filesandordirs; Name: "{app}\knowledge"

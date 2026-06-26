@@ -1077,7 +1077,7 @@ def _remove_tree(path: Path, label: str) -> None:
 
 
 def uninstall_cleanup() -> None:
-    """Remove Rook entries and generated runtime artifacts during uninstall."""
+    """Remove installed runtime files while preserving user data and artifacts."""
     # Remove user-level MCP registration - try CLI first, then manual cleanup
     claude = shutil.which("claude")
     if claude:

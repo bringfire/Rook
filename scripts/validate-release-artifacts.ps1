@@ -64,6 +64,15 @@ function Assert-FileNewerThanBuildStart {
     }
 }
 
+function Assert-FileNotOlderThanSource {
+    param([string]$Path, [string]$SourcePath, [string]$Label)
+    $item = Get-Item -LiteralPath $Path
+    $sourceItem = Get-Item -LiteralPath $SourcePath
+    if ($item.LastWriteTimeUtc -lt $sourceItem.LastWriteTimeUtc) {
+        Fail "$Label is stale: $Path was last written at $($item.LastWriteTime.ToString('o')), but $SourcePath was modified at $($sourceItem.LastWriteTime.ToString('o'))"
+    }
+}
+
 function Assert-ManagedAssemblyVersion {
     param([string]$Path, [string]$Expected)
     try {
@@ -571,6 +580,8 @@ if ($installerItem.Length -lt $MinInstallerBytes) {
     Fail "installer is smaller than expected: $($installerItem.Length) bytes"
 }
 Assert-FileNewerThanBuildStart -Path $installerPathResolved -StartedAt $buildStartedAtValue
+$installerScriptPath = Require-File -Path (Join-Path $RepoRoot 'installer\RookSetup.iss') -Label 'installer script'
+Assert-FileNotOlderThanSource -Path $installerPathResolved -SourcePath $installerScriptPath -Label 'installer'
 $installerSha256 = Get-Sha256 -Path $installerPathResolved
 
 $nativePath = Require-File -Path (Join-Path $RepoRoot 'src\RookNative\bin\Release\x64\RookNative.rhp') -Label 'native RHP'

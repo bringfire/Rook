@@ -451,17 +451,21 @@ function Test-UninstallRemovesGeneratedRuntimeArtifacts {
 
     foreach ($path in @(
         '{localappdata}\Rook\data',
+        '{localappdata}\Rook\rookvision_director',
         '{userappdata}\Rook',
         '{userappdata}\Rook\artifacts'
     )) {
         Assert-NotContains -Text $uninstallDeleteBlock -Unexpected "Type: filesandordirs; Name: `"$path`"" -Message "Default uninstall must preserve durable user data: $path"
     }
 
+    Assert-Contains -Text $uninstallDeleteBlock -Expected 'Preserve user data and RookVision artifact stores.' -Message 'Uninstall block must document durable artifact preservation.'
     Assert-Contains -Text $uninstallCleanup -Expected 'Path(tempfile.gettempdir()) / "rook"' -Message 'Uninstall cleanup must remove the actual user temp Rook diagnostics directory.'
     Assert-Contains -Text $uninstallCleanup -Expected 'runtime_root / "python"' -Message 'Uninstall cleanup must remove the private Python runtime installed by the public installer.'
     Assert-Contains -Text $uninstallCleanup -Expected 'runtime_root / "venv"' -Message 'Uninstall cleanup must remove the managed Python venv created by post_install.py.'
     Assert-Contains -Text $uninstallCleanup -Expected 'runtime_root / "discovery"' -Message 'Uninstall cleanup must remove shared Rook discovery metadata for a fresh reinstall surface.'
+    Assert-Contains -Text $uninstallCleanup -Expected 'preserving user data and artifacts' -Message 'Python uninstall cleanup must document durable artifact preservation.'
     Assert-NotContains -Text $uninstallCleanup -Unexpected 'runtime_root / "data"' -Message 'Default uninstall must preserve local durable Rook data.'
+    Assert-NotContains -Text $uninstallCleanup -Unexpected 'runtime_root / "rookvision_director"' -Message 'Default uninstall must preserve RookVisionDirector output artifacts.'
     Assert-NotContains -Text $uninstallCleanup -Unexpected 'roaming_root' -Message 'Default uninstall must preserve user-level Rook roaming state, including artifacts and sessions.'
     Assert-NotContains -Text $uninstallCleanup -Unexpected 'Path(os.environ.get("APPDATA", "")) / "Rook"' -Message 'Default uninstall must not compute the durable roaming Rook root for deletion.'
 }
