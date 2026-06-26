@@ -1,6 +1,6 @@
 {
   "project": "pearson_robot",
-  "revision": "r001",
+  "revision": "r002",
   "units": {
     "rhino_unit": "meter",
     "scale_note": "1 Rhino unit = 1 meter"
@@ -100,14 +100,14 @@
     {
       "id": "left_hip_frame",
       "parent": "root_frame",
-      "origin": [0.55, 0.80, 0.42],
+      "origin": [0.72, 0.80, 0.42],
       "rotation_degrees": [0.0, 0.0, 8.0],
       "description": "Robot anatomical left hip/leg frame."
     },
     {
       "id": "right_hip_frame",
       "parent": "root_frame",
-      "origin": [-0.55, 0.80, 0.42],
+      "origin": [-0.72, 0.80, 0.42],
       "rotation_degrees": [0.0, 0.0, -8.0],
       "description": "Robot anatomical right hip/leg frame."
     }
@@ -244,7 +244,7 @@
       "layer": "left_leg",
       "material": "robot_turquoise",
       "center": [0.0, 1.55, -0.02],
-      "size": [0.82, 1.05, 0.58],
+      "size": [0.95, 1.05, 0.58],
       "rotation_degrees": [0.0, 0.0, 0.0],
       "slope_axis": "y",
       "slope": -0.18
@@ -258,7 +258,7 @@
       "layer": "right_leg",
       "material": "robot_turquoise",
       "center": [0.0, 1.55, -0.02],
-      "size": [0.82, 1.05, 0.58],
+      "size": [0.95, 1.05, 0.58],
       "rotation_degrees": [0.0, 0.0, 0.0],
       "slope_axis": "y",
       "slope": -0.18

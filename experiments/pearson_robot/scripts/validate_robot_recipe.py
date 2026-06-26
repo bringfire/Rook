@@ -52,7 +52,11 @@ def validate_recipe(recipe: dict[str, Any]) -> list[str]:
     errors: list[str] = []
 
     _require(recipe.get("project") == "pearson_robot", "project must be pearson_robot", errors)
-    _require(recipe.get("revision") == "r001", "revision must be r001 for the first pass", errors)
+    _require(
+        isinstance(recipe.get("revision"), str) and recipe["revision"].startswith("r"),
+        "revision must be an r-prefixed string",
+        errors,
+    )
     _require(recipe.get("units", {}).get("rhino_unit") == "meter", "units.rhino_unit must be meter", errors)
 
     convention = recipe.get("coordinate_convention", {})

@@ -55,3 +55,22 @@ Result:
 
 Next planned adjustment:
 - Use Set B - width for r002 to increase hip spacing and foot block width.
+
+## r002 - First parameter adjustment
+
+Adjustment set: Set B - width
+
+Changed:
+- `left_hip_frame.origin[0]`: `0.55` to `0.72`
+- `right_hip_frame.origin[0]`: `-0.55` to `-0.72`
+- `left_leg_foot_block.size[0]`: `0.82` to `0.95`
+- `right_leg_foot_block.size[0]`: `0.82` to `0.95`
+
+Screenshots:
+- `experiments/pearson_robot/screenshots/r002_robot_front_child_view.png`
+- `experiments/pearson_robot/screenshots/r002_robot_side_recline_view.png`
+
+Result:
+- r002 improves front-view leg and foot readability by separating and widening the forward masses.
+- Side-view silhouette remains comparable to r001.
+- Next likely modeling target is posture/head framing rather than additional width.
