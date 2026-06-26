@@ -181,7 +181,7 @@ def make_named_views(recipe):
             sc.doc.NamedViews.Delete(existing)
         active_view = sc.doc.Views.ActiveView
         if active_view is not None:
-            sc.doc.NamedViews.Add(view["name"], active_view.ActiveViewport)
+            sc.doc.NamedViews.Add(view["name"], active_view.ActiveViewportID)
 
 
 def clear_previous_robot():
