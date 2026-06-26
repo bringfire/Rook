@@ -116,7 +116,7 @@ Rules:
 - If the source document is unsaved and document-local mode is requested with `portable: true`, fail with `source_document_unsaved`.
 - `source_document_key` is computed early from stable discovery facts before inventory.
 - For saved documents, `source_document_key` is a hash of the normalized document path. If a stable OS file identity is available, it may be included or used instead of the path hash.
-- For unsaved documents, `source_document_key` is an explicit session-scoped key. It must be marked as session-scoped in the manifest and is not expected to rediscover takes after the unsaved document session ends.
+- For unsaved documents, `source_document_key` is an explicit session-scoped key. The manifest must record `source_document_key_scope: "unsaved_session"`, and the key is not expected to rediscover takes after the unsaved document session ends.
 - `source_document_key` is only a storage partition key. It is not the full source fidelity fingerprint and must not include file size, modified time, unit system, Rhino runtime serial, or structural facts.
 - `source_document_fingerprint` is recorded after source facts and occurrence inventory are available. It includes the cheap document facts plus selected occurrence and structural traversal facts.
 - The manifest records `storage_mode: "global" | "document_local" | "custom_output_root"`.
@@ -180,6 +180,7 @@ Required high-level fields:
   "generator_version": "...",
   "storage_mode": "global",
   "source_document_key": "...",
+  "source_document_key_scope": "saved_document",
   "source_document_fingerprint": {...},
   "input": {...},
   "files": {
@@ -215,6 +216,11 @@ Required high-level fields:
 - provenance JSONL hash;
 - referenced-only count;
 - materialized count, expected to be zero in slice one.
+
+`source_document_key_scope` is required. Allowed values:
+
+- `saved_document`: the key is based on a saved document's normalized path or stable OS file identity and is suitable for rediscovery across normal saves and reopens.
+- `unsaved_session`: the key is scoped to the current unsaved document session and is not suitable for rediscovery after that session ends.
 
 ## Logical Actor Contract
 
@@ -514,6 +520,7 @@ Success:
   "prepare_status": "complete",
   "storage_mode": "global",
   "source_document_key": "...",
+  "source_document_key_scope": "saved_document",
   "source_document_fingerprint": {},
   "actor_count": 3,
   "provenance_record_count": 12034,
