@@ -160,7 +160,7 @@ MCP tool
   -> parse feature + relationship records
   -> owner-object projection
   -> NetworkX edge upsert
-  -> context/stats/query surfaces
+  -> projection response counts + scene_context(sync=false)
 ```
 
 The projector mutates only the Python read-model graph. It does not mutate Rhino, Revit, files,
