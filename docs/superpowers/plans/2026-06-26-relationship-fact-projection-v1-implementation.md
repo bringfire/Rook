@@ -66,7 +66,7 @@ Modify:
 - `mcp_server/src/rook/scene/scene_graph.py`
   - Add friendly context formatting for `relationship_fact_v1` `connects` edges.
 - `mcp_server/src/rook/server.py`
-  - Add MCP tool schema and `_mcp_tool_executor` dispatch for `scene_project_relationship_facts`.
+  - Add MCP tool schema and `_call_tool_dispatch` dispatch for `scene_project_relationship_facts`.
 - `mcp_server/src/rook/agent/tool_dispatcher.py`
   - Add local agent-direct handler for `scene_project_relationship_facts`.
 - `mcp_server/src/rook/agent/tool_groups.py`
@@ -80,6 +80,14 @@ Do not modify:
 - Managed C# code.
 - Rhino document mutation routes.
 - The generic `scene_stats` contract.
+
+Modularity rule for `relationship_fact_projection.py`:
+
+- Keep public orchestration functions thin: `project_relationship_facts_for_tool`, `parse_runtime_records`, and `project_relationship_facts`.
+- Split parser branches into `_parse_owner_record`, `_parse_feature_record`, and `_parse_relationship_record`.
+- Use `RelationshipFactScope` / `ReplacementScope` helpers with `matches_record()` and `matches_edge()` instead of open-coded scope checks.
+- Add `_filter_facts_for_primary_scope(facts, object_ids)` so scoped calls hydrate the full scene for dependency resolution but project only facts whose owner endpoint is in the requested primary object scope.
+- Keep response shaping in `_build_projection_response(...)`.
 
 ## Task 1: Pure Relationship Fact Model and Parsing
 
@@ -259,6 +267,16 @@ def test_parse_runtime_records_defaults_missing_fact_fields():
     assert relationship.confidence == 1.0
     assert relationship.status == "accepted"
     assert relationship.source_mode == "authored_graph_user_strings"
+
+
+def test_parse_runtime_records_requires_pose_for_graph_records():
+    bad_relationship = _relationship_record("relationship-marker-id")
+    bad_relationship.user_strings.pop("rook.graph.pose")
+
+    parsed = rel.parse_runtime_records([bad_relationship])
+
+    assert parsed.relationship_records == []
+    assert parsed.diagnostics["recordsMissingPose"] == 1
 ```
 
 - [ ] **Step 2: Run the new test file and verify it fails because the module is missing**
@@ -363,11 +381,159 @@ def _clean_float(value: Any, default: float) -> float:
         return default
 
 
+INFO_DIAGNOSTIC_KEYS = {
+    "filteredByGraphSource",
+    "filteredByGraphRevision",
+    "filteredByPose",
+}
+
+VALIDATION_DIAGNOSTIC_KEYS = {
+    "recordsMissingGraphSource",
+    "recordsMissingGraphRevision",
+    "recordsMissingPose",
+    "recordsMissingVisualType",
+    "ownerObjectsMissingOwnerId",
+    "featureObjectsMissingFeatureId",
+    "featureObjectsMissingOwner",
+    "relationshipObjectsMissingRelationshipId",
+    "relationshipObjectsMissingRelationshipType",
+    "relationshipObjectsMissingFeatureEndpoint",
+    "relationshipFactsMissingFeatureEndpoint",
+    "relationshipFactsMissingOwnerObject",
+    "duplicateOwnerRecords",
+    "duplicateFeatureRecords",
+}
+
+
+@dataclass(frozen=True)
+class RelationshipFactScope:
+    graph_source: str | None = None
+    graph_revision: str | None = None
+    poses: list[str] | None = None
+    source_mode: str = DEFAULT_SOURCE_MODE
+
+    def matches_record(self, source: str, revision: str, pose: str, diagnostics: dict[str, int]) -> bool:
+        if self.graph_source is not None and source != self.graph_source:
+            _bump(diagnostics, "filteredByGraphSource")
+            return False
+        if self.graph_revision is not None and revision != self.graph_revision:
+            _bump(diagnostics, "filteredByGraphRevision")
+            return False
+        if self.poses and pose not in set(self.poses):
+            _bump(diagnostics, "filteredByPose")
+            return False
+        return True
+
+
 def _common_scope(user_strings: dict[str, Any]) -> tuple[str, str, str]:
     return (
         _clean_str(user_strings.get("rook.graph.source")),
         _clean_str(user_strings.get("rook.graph.revision")),
         _clean_str(user_strings.get("rook.graph.pose")),
+    )
+
+
+def _scope_is_valid(source: str, revision: str, pose: str, diagnostics: dict[str, int]) -> bool:
+    valid = True
+    if not source:
+        _bump(diagnostics, "recordsMissingGraphSource")
+        valid = False
+    if not revision:
+        _bump(diagnostics, "recordsMissingGraphRevision")
+        valid = False
+    if not pose:
+        _bump(diagnostics, "recordsMissingPose")
+        valid = False
+    return valid
+
+
+def _parse_owner_record(
+    record: RuntimeObjectRecord,
+    source: str,
+    revision: str,
+    pose: str,
+    visual_type: str,
+    diagnostics: dict[str, int],
+) -> OwnerRecord | None:
+    if visual_type == "member":
+        owner_id = _clean_str(record.user_strings.get("rook.graph.member_id"))
+        owner_kind = "member"
+    elif visual_type == "joint":
+        owner_id = _clean_str(record.user_strings.get("rook.graph.node_id"))
+        owner_kind = "node"
+    else:
+        return None
+    if not owner_id:
+        _bump(diagnostics, "ownerObjectsMissingOwnerId")
+        return None
+    return OwnerRecord(record.object_id, source, revision, pose, owner_kind, owner_id)
+
+
+def _parse_feature_record(
+    record: RuntimeObjectRecord,
+    source: str,
+    revision: str,
+    pose: str,
+    diagnostics: dict[str, int],
+) -> FeatureRecord | None:
+    user_strings = record.user_strings
+    feature_id = _clean_str(user_strings.get("rook.graph.feature_id"))
+    owner = _clean_str(user_strings.get("rook.graph.owner"))
+    owner_kind = _clean_str(user_strings.get("rook.graph.owner_kind"))
+    if not feature_id:
+        _bump(diagnostics, "featureObjectsMissingFeatureId")
+        return None
+    if not owner or not owner_kind:
+        _bump(diagnostics, "featureObjectsMissingOwner")
+        return None
+    return FeatureRecord(
+        object_id=record.object_id,
+        graph_source=source,
+        graph_revision=revision,
+        pose=pose,
+        feature_id=feature_id,
+        owner=owner,
+        owner_kind=owner_kind,
+        feature_kind=_clean_str(user_strings.get("rook.graph.feature_kind")),
+        role=_clean_str(user_strings.get("rook.graph.role")),
+    )
+
+
+def _parse_relationship_record(
+    record: RuntimeObjectRecord,
+    source: str,
+    revision: str,
+    pose: str,
+    diagnostics: dict[str, int],
+) -> RelationshipRecord | None:
+    user_strings = record.user_strings
+    relationship_id = _clean_str(user_strings.get("rook.graph.relationship_id"))
+    relationship_type = _clean_str(user_strings.get("rook.graph.relationship_type"))
+    from_feature = _clean_str(user_strings.get("rook.graph.from_feature"))
+    to_feature = _clean_str(user_strings.get("rook.graph.to_feature"))
+    if not relationship_id:
+        _bump(diagnostics, "relationshipObjectsMissingRelationshipId")
+        return None
+    if not relationship_type:
+        _bump(diagnostics, "relationshipObjectsMissingRelationshipType")
+        return None
+    if not from_feature or not to_feature:
+        _bump(diagnostics, "relationshipObjectsMissingFeatureEndpoint")
+        return None
+    return RelationshipRecord(
+        object_id=record.object_id,
+        graph_source=source,
+        graph_revision=revision,
+        pose=pose,
+        relationship_id=relationship_id,
+        relationship_type=relationship_type,
+        from_feature=from_feature,
+        to_feature=to_feature,
+        contact_kind=_clean_str(user_strings.get("rook.graph.contact_kind")),
+        provenance=_clean_str(user_strings.get("rook.graph.provenance")) or "authored_assembly_graph",
+        confidence=_clean_float(user_strings.get("rook.graph.confidence"), DEFAULT_CONFIDENCE),
+        status=_clean_str(user_strings.get("rook.graph.status")) or DEFAULT_STATUS,
+        source_mode=_clean_str(user_strings.get("rook.graph.sourceMode")) or DEFAULT_SOURCE_MODE,
     )
 
 
@@ -382,7 +548,12 @@ def parse_runtime_records(
     if source_mode != DEFAULT_SOURCE_MODE:
         raise RelationshipFactProjectionError(f"unsupported source_mode: {source_mode}")
 
-    allowed_poses = set(poses or [])
+    scope = RelationshipFactScope(
+        graph_source=graph_source,
+        graph_revision=graph_revision,
+        poses=poses,
+        source_mode=source_mode,
+    )
     owners_by_key: dict[tuple[str, str, str, str, str], OwnerRecord] = {}
     features_by_key: dict[tuple[str, str, str, str], FeatureRecord] = {}
     relationship_records: list[RelationshipRecord] = []
@@ -391,93 +562,34 @@ def parse_runtime_records(
     for record in records:
         user_strings = record.user_strings
         source, revision, pose = _common_scope(user_strings)
-        if not source:
-            _bump(diagnostics, "objectsMissingGraphSource")
+        if not _scope_is_valid(source, revision, pose, diagnostics):
             continue
-        if graph_source is not None and source != graph_source:
-            _bump(diagnostics, "filteredByGraphSource")
-            continue
-        if graph_revision is not None and revision != graph_revision:
-            _bump(diagnostics, "filteredByGraphRevision")
-            continue
-        if allowed_poses and pose not in allowed_poses:
-            _bump(diagnostics, "filteredByPose")
+        if not scope.matches_record(source, revision, pose, diagnostics):
             continue
 
         visual_type = _clean_str(user_strings.get("rook.graph.visual_type"))
-        if visual_type == "member":
-            owner_id = _clean_str(user_strings.get("rook.graph.member_id"))
-            if not owner_id:
-                _bump(diagnostics, "ownerObjectsMissingOwnerId")
+        if visual_type in {"member", "joint"}:
+            owner = _parse_owner_record(record, source, revision, pose, visual_type, diagnostics)
+            if owner is None:
                 continue
-            key = (source, revision, pose, "member", owner_id)
+            key = (source, revision, pose, owner.owner_kind, owner.owner_id)
             if key in owners_by_key:
                 _bump(diagnostics, "duplicateOwnerRecords")
-            owners_by_key[key] = OwnerRecord(record.object_id, source, revision, pose, "member", owner_id)
-        elif visual_type == "joint":
-            owner_id = _clean_str(user_strings.get("rook.graph.node_id"))
-            if not owner_id:
-                _bump(diagnostics, "ownerObjectsMissingOwnerId")
-                continue
-            key = (source, revision, pose, "node", owner_id)
-            if key in owners_by_key:
-                _bump(diagnostics, "duplicateOwnerRecords")
-            owners_by_key[key] = OwnerRecord(record.object_id, source, revision, pose, "node", owner_id)
+            owners_by_key[key] = owner
         elif visual_type == "feature":
-            feature_id = _clean_str(user_strings.get("rook.graph.feature_id"))
-            owner = _clean_str(user_strings.get("rook.graph.owner"))
-            owner_kind = _clean_str(user_strings.get("rook.graph.owner_kind"))
-            if not feature_id:
-                _bump(diagnostics, "featureObjectsMissingFeatureId")
+            feature = _parse_feature_record(record, source, revision, pose, diagnostics)
+            if feature is None:
                 continue
-            if not owner or not owner_kind:
-                _bump(diagnostics, "featureObjectsMissingOwner")
-                continue
-            key = (source, revision, pose, feature_id)
+            key = (source, revision, pose, feature.feature_id)
             if key in features_by_key:
                 _bump(diagnostics, "duplicateFeatureRecords")
-            features_by_key[key] = FeatureRecord(
-                object_id=record.object_id,
-                graph_source=source,
-                graph_revision=revision,
-                pose=pose,
-                feature_id=feature_id,
-                owner=owner,
-                owner_kind=owner_kind,
-                feature_kind=_clean_str(user_strings.get("rook.graph.feature_kind")),
-                role=_clean_str(user_strings.get("rook.graph.role")),
-            )
+            features_by_key[key] = feature
         elif visual_type == "relationship":
-            relationship_id = _clean_str(user_strings.get("rook.graph.relationship_id"))
-            relationship_type = _clean_str(user_strings.get("rook.graph.relationship_type"))
-            from_feature = _clean_str(user_strings.get("rook.graph.from_feature"))
-            to_feature = _clean_str(user_strings.get("rook.graph.to_feature"))
-            if not relationship_id:
-                _bump(diagnostics, "relationshipObjectsMissingRelationshipId")
-                continue
-            if not relationship_type:
-                _bump(diagnostics, "relationshipObjectsMissingRelationshipType")
-                continue
-            if not from_feature or not to_feature:
-                _bump(diagnostics, "relationshipObjectsMissingFeatureEndpoint")
-                continue
-            relationship_records.append(
-                RelationshipRecord(
-                    object_id=record.object_id,
-                    graph_source=source,
-                    graph_revision=revision,
-                    pose=pose,
-                    relationship_id=relationship_id,
-                    relationship_type=relationship_type,
-                    from_feature=from_feature,
-                    to_feature=to_feature,
-                    contact_kind=_clean_str(user_strings.get("rook.graph.contact_kind")),
-                    provenance=_clean_str(user_strings.get("rook.graph.provenance")) or "authored_assembly_graph",
-                    confidence=_clean_float(user_strings.get("rook.graph.confidence"), DEFAULT_CONFIDENCE),
-                    status=_clean_str(user_strings.get("rook.graph.status")) or DEFAULT_STATUS,
-                    source_mode=_clean_str(user_strings.get("rook.graph.sourceMode")) or DEFAULT_SOURCE_MODE,
-                )
-            )
+            relationship = _parse_relationship_record(record, source, revision, pose, diagnostics)
+            if relationship is not None:
+                relationship_records.append(relationship)
+        else:
+            _bump(diagnostics, "recordsMissingVisualType")
 
     return ParsedRuntimeRecords(
         owners_by_key=owners_by_key,
@@ -495,7 +607,7 @@ Run:
 python -m pytest mcp_server/tests/test_relationship_fact_projection.py -q
 ```
 
-Expected: PASS for the three tests in the file.
+Expected: PASS for the four tests in the file.
 
 - [ ] **Step 5: Commit Task 1**
 
@@ -676,6 +788,39 @@ def test_scoped_prune_preserves_out_of_scope_pose():
     assert result["removedEdges"] == 1
     assert not any(data["pose"] == "reclined_robot" for _, _, data in sg.graph.edges(data=True))
     assert any(data["pose"] == "rest_t_pose" for _, _, data in sg.graph.edges(data=True))
+
+
+def test_scoped_prune_preserves_edges_outside_primary_object_scope():
+    sg = _analytics_for_relationship_projection()
+    sg.graph.add_node("other-member-id", name="Other member")
+    sg.graph.add_node("other-joint-id", name="Other joint")
+    for source_id, target_id in (("member-rhino-id", "joint-rhino-id"), ("other-member-id", "other-joint-id")):
+        sg.graph.add_edge(
+            source_id,
+            target_id,
+            key=f"relationship_fact:authored_graph_user_strings:pearson_robot_skeleton_graph:g002:reclined_robot:{source_id}",
+            relationship="connects",
+            projectionKind=rel.PROJECTION_KIND,
+            sourceMode=rel.DEFAULT_SOURCE_MODE,
+            graphSource="pearson_robot_skeleton_graph",
+            graphRevision="g002",
+            pose="reclined_robot",
+            engineVersion=rel.ENGINE_VERSION,
+        )
+
+    result = rel.prune_relationship_fact_projection(
+        sg,
+        rel.ReplacementScope(
+            graph_source="pearson_robot_skeleton_graph",
+            graph_revision="g002",
+            poses=["reclined_robot"],
+            primary_object_ids=["member-rhino-id"],
+        ),
+    )
+
+    assert result["removedEdges"] == 1
+    assert not sg.graph.has_edge("member-rhino-id", "joint-rhino-id")
+    assert sg.graph.has_edge("other-member-id", "other-joint-id")
 ```
 
 - [ ] **Step 2: Run the projection tests and verify they fail on missing functions**
@@ -723,7 +868,25 @@ class ReplacementScope:
     graph_source: str | None = None
     graph_revision: str | None = None
     poses: list[str] | None = None
+    primary_object_ids: list[str] | None = None
     source_mode: str = DEFAULT_SOURCE_MODE
+
+    def matches_edge(self, source_id: str, target_id: str, attrs: dict[str, Any]) -> bool:
+        if attrs.get("projectionKind") != PROJECTION_KIND:
+            return False
+        if attrs.get("sourceMode") != self.source_mode:
+            return False
+        if self.graph_source is not None and attrs.get("graphSource") != self.graph_source:
+            return False
+        if self.graph_revision is not None and attrs.get("graphRevision") != self.graph_revision:
+            return False
+        if self.poses and attrs.get("pose") not in set(self.poses):
+            return False
+        if self.primary_object_ids is not None:
+            primary_ids = {str(object_id) for object_id in self.primary_object_ids}
+            if source_id not in primary_ids and target_id not in primary_ids:
+                return False
+        return True
 
 
 def _merge_diagnostics(*sources: dict[str, int]) -> dict[str, int]:
@@ -790,25 +953,11 @@ def _is_relationship_fact_edge(attrs: dict[str, Any]) -> bool:
     return attrs.get("projectionKind") == PROJECTION_KIND
 
 
-def _scope_matches(attrs: dict[str, Any], scope: ReplacementScope) -> bool:
-    if attrs.get("projectionKind") != PROJECTION_KIND:
-        return False
-    if attrs.get("sourceMode") != scope.source_mode:
-        return False
-    if scope.graph_source is not None and attrs.get("graphSource") != scope.graph_source:
-        return False
-    if scope.graph_revision is not None and attrs.get("graphRevision") != scope.graph_revision:
-        return False
-    if scope.poses and attrs.get("pose") not in set(scope.poses):
-        return False
-    return True
-
-
 def prune_relationship_fact_projection(analytics: Any, scope: ReplacementScope) -> dict[str, Any]:
     graph = analytics.graph
     removed_edges = 0
     for u, v, key, attrs in list(graph.edges(keys=True, data=True)):
-        if _scope_matches(attrs, scope):
+        if scope.matches_edge(str(u), str(v), attrs):
             graph.remove_edge(u, v, key=key)
             removed_edges += 1
     if removed_edges:
@@ -950,6 +1099,21 @@ def test_strict_missing_feature_endpoint_fails():
     assert "relationshipFactsMissingFeatureEndpoint" in str(exc.value)
 
 
+def test_strict_mode_ignores_informational_filter_diagnostics():
+    records = [
+        *_valid_records(),
+        _owner_record("member-rhino-id-rest", pose="rest_t_pose"),
+        _joint_record("joint-rhino-id-rest", pose="rest_t_pose"),
+    ]
+    parsed = rel.parse_runtime_records(records, poses=["reclined_robot"])
+
+    result = rel.build_relationship_fact_set(parsed, strict=True)
+
+    assert result.success is True
+    assert len(result.facts) == 1
+    assert parsed.diagnostics["filteredByPose"] == 2
+
+
 def test_missing_owner_object_reports_diagnostic():
     records = [
         _feature_record(
@@ -1007,6 +1171,14 @@ class RelationshipFactSet:
     diagnostics: dict[str, int]
 
 
+def _validation_diagnostics(diagnostics: dict[str, int]) -> dict[str, int]:
+    return {
+        key: count
+        for key, count in diagnostics.items()
+        if key in VALIDATION_DIAGNOSTIC_KEYS and count
+    }
+
+
 def build_relationship_fact_set(
     parsed: ParsedRuntimeRecords,
     *,
@@ -1055,8 +1227,9 @@ def build_relationship_fact_set(
             )
         )
 
-    if strict and diagnostics:
-        keys = ", ".join(sorted(diagnostics))
+    validation_errors = _validation_diagnostics(diagnostics)
+    if strict and validation_errors:
+        keys = ", ".join(sorted(validation_errors))
         raise RelationshipFactProjectionError(f"relationship fact projection strict validation failed: {keys}")
     return RelationshipFactSet(success=True, facts=facts, diagnostics=diagnostics)
 
@@ -1078,6 +1251,7 @@ def project_relationship_facts(
     owner_object_count: int = 0,
     feature_object_count: int = 0,
     relationship_object_count: int = 0,
+    relationship_fact_count: int | None = None,
 ) -> dict[str, Any]:
     graph = analytics.graph
     prune_result = (
@@ -1116,7 +1290,7 @@ def project_relationship_facts(
             "ownerObjectCount": owner_object_count,
             "featureObjectCount": feature_object_count,
             "relationshipObjectCount": relationship_object_count,
-            "relationshipFactCount": len(facts),
+            "relationshipFactCount": relationship_fact_count if relationship_fact_count is not None else len(facts),
             "projectedEdgeCount": projected,
             "skippedFactCount": skipped,
         },
@@ -1178,6 +1352,17 @@ def _scene_graph() -> SceneGraphAnalytics:
     return sg
 
 
+def _add_unrelated_fact_nodes(sg: SceneGraphAnalytics) -> None:
+    for object_id in [
+        "unrelated-member-id",
+        "unrelated-joint-id",
+        "unrelated-feature-member-id",
+        "unrelated-feature-joint-id",
+        "unrelated-relationship-id",
+    ]:
+        sg.graph.add_node(object_id, name=object_id, domain_label="debug", shape_class="point")
+
+
 def _user_strings_for(object_id: str) -> dict:
     records = {
         "member-rhino-id": {
@@ -1224,6 +1409,50 @@ def _user_strings_for(object_id: str) -> dict:
             "rook.graph.contact_kind": "point_to_point",
             "rook.graph.provenance": "authored_assembly_graph",
         },
+        "unrelated-member-id": {
+            "rook.graph.source": "pearson_robot_skeleton_graph",
+            "rook.graph.revision": "g002",
+            "rook.graph.pose": "reclined_robot",
+            "rook.graph.visual_type": "member",
+            "rook.graph.member_id": "unrelated_member",
+        },
+        "unrelated-joint-id": {
+            "rook.graph.source": "pearson_robot_skeleton_graph",
+            "rook.graph.revision": "g002",
+            "rook.graph.pose": "reclined_robot",
+            "rook.graph.visual_type": "joint",
+            "rook.graph.node_id": "unrelated_joint",
+        },
+        "unrelated-feature-member-id": {
+            "rook.graph.source": "pearson_robot_skeleton_graph",
+            "rook.graph.revision": "g002",
+            "rook.graph.pose": "reclined_robot",
+            "rook.graph.visual_type": "feature",
+            "rook.graph.feature_id": "unrelated_member.start",
+            "rook.graph.owner": "unrelated_member",
+            "rook.graph.owner_kind": "member",
+        },
+        "unrelated-feature-joint-id": {
+            "rook.graph.source": "pearson_robot_skeleton_graph",
+            "rook.graph.revision": "g002",
+            "rook.graph.pose": "reclined_robot",
+            "rook.graph.visual_type": "feature",
+            "rook.graph.feature_id": "unrelated_joint.point",
+            "rook.graph.owner": "unrelated_joint",
+            "rook.graph.owner_kind": "node",
+        },
+        "unrelated-relationship-id": {
+            "rook.graph.source": "pearson_robot_skeleton_graph",
+            "rook.graph.revision": "g002",
+            "rook.graph.pose": "reclined_robot",
+            "rook.graph.visual_type": "relationship",
+            "rook.graph.relationship_id": "unrelated_member.start_connects_unrelated_joint",
+            "rook.graph.relationship_type": "connects",
+            "rook.graph.from_feature": "unrelated_member.start",
+            "rook.graph.to_feature": "unrelated_joint.point",
+            "rook.graph.contact_kind": "point_to_point",
+            "rook.graph.provenance": "authored_assembly_graph",
+        },
     }
     return records[object_id]
 
@@ -1265,8 +1494,9 @@ async def test_project_relationship_facts_for_tool_hydrates_scene_and_projects(m
 
 
 @pytest.mark.asyncio
-async def test_scoped_object_ids_still_hydrate_full_scene_for_resolution(monkeypatch):
+async def test_scoped_object_ids_hydrate_full_scene_but_filter_projected_facts(monkeypatch):
     sg = _scene_graph()
+    _add_unrelated_fact_nodes(sg)
     hydrated_ids = []
 
     async def fake_sync(port=None):
@@ -1292,8 +1522,16 @@ async def test_scoped_object_ids_still_hydrate_full_scene_for_resolution(monkeyp
         "feature-member-start-id",
         "feature-joint-point-id",
         "relationship-marker-id",
+        "unrelated-member-id",
+        "unrelated-joint-id",
+        "unrelated-feature-member-id",
+        "unrelated-feature-joint-id",
+        "unrelated-relationship-id",
     }
+    assert result["counts"]["relationshipFactCount"] == 2
     assert result["counts"]["projectedEdgeCount"] == 1
+    assert sg.graph.has_edge("member-rhino-id", "joint-rhino-id")
+    assert not sg.graph.has_edge("unrelated-member-id", "unrelated-joint-id")
 
 
 @pytest.mark.asyncio
@@ -1387,6 +1625,33 @@ def _count_visual_type(records: list[RuntimeObjectRecord], visual_type: str) -> 
     return sum(1 for record in records if _clean_str(record.user_strings.get("rook.graph.visual_type")) == visual_type)
 
 
+def _filter_facts_for_primary_scope(
+    facts: list[RelationshipFact],
+    object_ids: list[str] | None,
+) -> list[RelationshipFact]:
+    if object_ids is None:
+        return facts
+    primary_ids = {str(object_id) for object_id in object_ids}
+    return [
+        fact
+        for fact in facts
+        if fact.from_owner_object_id in primary_ids or fact.to_owner_object_id in primary_ids
+    ]
+
+
+def _build_projection_response(
+    projection: dict[str, Any],
+    *,
+    candidate_object_count: int,
+    hydrated_object_count: int,
+) -> dict[str, Any]:
+    counts = dict(projection["counts"])
+    counts["candidateObjectCount"] = candidate_object_count
+    counts["hydratedObjectCount"] = hydrated_object_count
+    projection["counts"] = counts
+    return projection
+
+
 async def project_relationship_facts_for_tool(
     *,
     graph_source: str | None = None,
@@ -1432,13 +1697,15 @@ async def project_relationship_facts_for_tool(
         }
 
     diagnostics = _merge_diagnostics(hydration_diagnostics, fact_set.diagnostics)
+    facts_to_project = _filter_facts_for_primary_scope(fact_set.facts, object_ids)
     projection = project_relationship_facts(
         analytics,
-        fact_set.facts,
+        facts_to_project,
         prune_scope=ReplacementScope(
             graph_source=graph_source,
             graph_revision=graph_revision,
             poses=poses,
+            primary_object_ids=object_ids,
             source_mode=source_mode,
         ),
         prune=True,
@@ -1446,12 +1713,13 @@ async def project_relationship_facts_for_tool(
         owner_object_count=len(parsed.owners_by_key),
         feature_object_count=len(parsed.features_by_key),
         relationship_object_count=len(parsed.relationship_records),
+        relationship_fact_count=len(fact_set.facts),
     )
-    counts = dict(projection["counts"])
-    counts["candidateObjectCount"] = len(candidate_object_ids)
-    counts["hydratedObjectCount"] = len(records)
-    projection["counts"] = counts
-    return projection
+    return _build_projection_response(
+        projection,
+        candidate_object_count=len(candidate_object_ids),
+        hydrated_object_count=len(records),
+    )
 ```
 
 - [ ] **Step 4: Run pure and tool tests**
@@ -1545,23 +1813,10 @@ Expected: FAIL because `_edge_detail` does not yet include relationship fact det
 
 - [ ] **Step 3: Update context labels and edge detail**
 
-In `mcp_server/src/rook/scene/scene_graph.py`, add relationship fact labels:
+In `mcp_server/src/rook/scene/scene_graph.py`, add only the `connects` inverse label to the existing `_INVERSE_RELS` dictionary. Do not replace the whole dictionary, because existing entries such as `adjacent_exact` are already used by tests and live context formatting:
 
 ```python
-_INVERSE_RELS = {
-    "contains": "contained by",
-    "supports": "supported by",
-    "adjacent": "adjacent to",
-    "above": "below",
-    "below": "above",
-    "near": "near",
-    "intersects": "intersected by",
-    "contains_semantic": "within (semantic)",
-    "revit_hosted_by": "Revit host for",
-    "revit_in_room": "Contains Revit room member",
-    "revit_on_level": "Has Revit level member",
     "connects": "connected by",
-}
 ```
 
 Then modify `_edge_detail` so projected relationship facts render semantic detail before the generic distance branch:
@@ -1647,7 +1902,7 @@ def test_scene_project_relationship_facts_targeting_policy_is_rhino_read():
     pol = targeting.policy_for_tool("scene_project_relationship_facts")
 
     assert pol.requires_rhino is True
-    assert pol.mutation_kind == "read"
+    assert pol.risk == "read"
     assert "scene_project_relationship_facts" in targeting._ALL_KNOWN_TOOLS
 
 
@@ -1674,9 +1929,9 @@ async def test_server_dispatch_projects_relationship_facts(monkeypatch):
     monkeypatch.setattr("rook.scene.scene_graph.get_scene_graph", lambda: sg)
     monkeypatch.setattr(rel, "call_rhino", fake_call_rhino)
 
-    from rook.server import _mcp_tool_executor
+    from rook.server import _call_tool_dispatch
 
-    result = await _mcp_tool_executor(
+    result = await _call_tool_dispatch(
         "scene_project_relationship_facts",
         {"graph_source": "pearson_robot_skeleton_graph"},
     )
@@ -1745,7 +2000,7 @@ Creates semantic owner-object-to-owner-object edges such as member -> joint with
         ),
 ```
 
-- [ ] **Step 4: Add `_mcp_tool_executor` dispatch in `server.py`**
+- [ ] **Step 4: Add `_call_tool_dispatch` dispatch in `server.py`**
 
 In the scene graph dispatch section, add this case next to `scene_project_bim_relationships`:
 
@@ -2040,8 +2295,11 @@ Verification:
 
 - Spec coverage:
   - Data model and defaults: Tasks 1 and 3.
+  - Required `graphSource`, `graphRevision`, and `pose` validation for graph records: Task 1.
   - Owner-object endpoints with feature metadata: Task 2.
   - Idempotency and scoped pruning: Task 2.
+  - Primary `object_ids` scope filtering after full-scene hydration: Task 4.
+  - Strict mode ignores informational filter diagnostics and fails only validation diagnostics: Task 3.
   - Read-only hydration: Task 4.
   - MCP schema, dispatcher, tool group, targeting: Task 6.
   - Context visibility through `scene_context(sync=false)`: Task 5.
