@@ -233,3 +233,53 @@ async def test_strict_tool_failure_on_malformed_fact(monkeypatch):
     assert result["success"] is False
     assert result["error"] == "relationship_fact_projection_validation_failed"
     assert "relationshipObjectsMissingFeatureEndpoint" in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_scene_context_sync_false_renders_relationship_fact_details(monkeypatch):
+    sg = _scene_graph()
+    sg.graph.nodes["joint-rhino-id"]["domain_label"] = "joint"
+    sg.graph.add_edge(
+        "member-rhino-id",
+        "joint-rhino-id",
+        key="relationship_fact:authored_graph_user_strings:pearson_robot_skeleton_graph:g002:reclined_robot:spine",
+        relationship="connects",
+        projectionKind=rel.PROJECTION_KIND,
+        semanticRelationshipType="connects",
+        provenance="authored_assembly_graph",
+        confidence=1.0,
+        status="accepted",
+        sourceMode=rel.DEFAULT_SOURCE_MODE,
+        contactKind="point_to_point",
+        graphSource="pearson_robot_skeleton_graph",
+        graphRevision="g002",
+        pose="reclined_robot",
+        relationshipFactId="spine_base_to_spine_top.start_connects_spine_base",
+        fromFeature="spine_base_to_spine_top.start",
+        toFeature="spine_base.point",
+        engineVersion=rel.ENGINE_VERSION,
+    )
+    called = {"sync": 0}
+
+    async def fake_sync(port=None):
+        called["sync"] += 1
+        return {"success": True}
+
+    monkeypatch.setattr(sg, "sync", fake_sync)
+    monkeypatch.setattr("rook.scene.scene_graph.get_scene_graph", lambda: sg)
+
+    from rook.server import _call_tool_dispatch
+
+    result = await _call_tool_dispatch(
+        "scene_context",
+        {"object_ids": ["member-rhino-id", "joint-rhino-id"], "sync": False},
+    )
+
+    assert result["success"] is True
+    assert called["sync"] == 0
+    assert "connects: JOINT" in result["data"]
+    assert "connected by: DEBUG" in result["data"]
+    assert "via spine_base_to_spine_top.start -> spine_base.point" in result["data"]
+    assert "point_to_point" in result["data"]
+    assert "accepted" in result["data"]
+    assert "authored_assembly_graph" in result["data"]
