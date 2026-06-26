@@ -93,6 +93,31 @@ class ParsedRuntimeRecords:
 
 
 @dataclass(frozen=True)
+class RelationshipFact:
+    relationship_fact_id: str
+    relationship_type: str
+    from_feature: str
+    to_feature: str
+    from_owner: str
+    from_owner_kind: str
+    from_owner_object_id: str
+    from_feature_object_id: str
+    to_owner: str
+    to_owner_kind: str
+    to_owner_object_id: str
+    to_feature_object_id: str
+    relationship_object_id: str
+    contact_kind: str
+    provenance: str
+    confidence: float
+    status: str
+    source_mode: str
+    graph_source: str
+    graph_revision: str
+    pose: str
+
+
+@dataclass(frozen=True)
 class RelationshipFactScope:
     graph_source: str | None = None
     graph_revision: str | None = None
@@ -109,6 +134,32 @@ class RelationshipFactScope:
         if self.poses and pose not in set(self.poses):
             _bump(diagnostics, "filteredByPose")
             return False
+        return True
+
+
+@dataclass(frozen=True)
+class ReplacementScope:
+    graph_source: str | None = None
+    graph_revision: str | None = None
+    poses: list[str] | None = None
+    primary_object_ids: list[str] | None = None
+    source_mode: str = DEFAULT_SOURCE_MODE
+
+    def matches_edge(self, source_id: str, target_id: str, attrs: dict[str, Any]) -> bool:
+        if attrs.get("projectionKind") != PROJECTION_KIND:
+            return False
+        if attrs.get("sourceMode") != self.source_mode:
+            return False
+        if self.graph_source is not None and attrs.get("graphSource") != self.graph_source:
+            return False
+        if self.graph_revision is not None and attrs.get("graphRevision") != self.graph_revision:
+            return False
+        if self.poses and attrs.get("pose") not in set(self.poses):
+            return False
+        if self.primary_object_ids is not None:
+            primary_ids = {str(object_id) for object_id in self.primary_object_ids}
+            if source_id not in primary_ids and target_id not in primary_ids:
+                return False
         return True
 
 
@@ -301,3 +352,157 @@ def parse_runtime_records(
         relationship_records=relationship_records,
         diagnostics=diagnostics,
     )
+
+
+def _merge_diagnostics(*sources: dict[str, int]) -> dict[str, int]:
+    merged: dict[str, int] = {}
+    for source in sources:
+        for key, count in source.items():
+            merged[key] = merged.get(key, 0) + count
+    return merged
+
+
+def relationship_fact_edge_key(fact: RelationshipFact) -> str:
+    return (
+        f"relationship_fact:{fact.source_mode}:{fact.graph_source}:"
+        f"{fact.graph_revision}:{fact.pose}:{fact.relationship_fact_id}"
+    )
+
+
+def resolve_relationship_facts(parsed: ParsedRuntimeRecords) -> list[RelationshipFact]:
+    facts: list[RelationshipFact] = []
+    for relationship in parsed.relationship_records:
+        source = relationship.graph_source
+        revision = relationship.graph_revision
+        pose = relationship.pose
+        from_feature = parsed.features_by_key.get((source, revision, pose, relationship.from_feature))
+        to_feature = parsed.features_by_key.get((source, revision, pose, relationship.to_feature))
+        if from_feature is None or to_feature is None:
+            continue
+        from_owner = parsed.owners_by_key.get((source, revision, pose, from_feature.owner_kind, from_feature.owner))
+        to_owner = parsed.owners_by_key.get((source, revision, pose, to_feature.owner_kind, to_feature.owner))
+        if from_owner is None or to_owner is None:
+            continue
+        facts.append(
+            RelationshipFact(
+                relationship_fact_id=relationship.relationship_id,
+                relationship_type=relationship.relationship_type,
+                from_feature=relationship.from_feature,
+                to_feature=relationship.to_feature,
+                from_owner=from_feature.owner,
+                from_owner_kind=from_feature.owner_kind,
+                from_owner_object_id=from_owner.object_id,
+                from_feature_object_id=from_feature.object_id,
+                to_owner=to_feature.owner,
+                to_owner_kind=to_feature.owner_kind,
+                to_owner_object_id=to_owner.object_id,
+                to_feature_object_id=to_feature.object_id,
+                relationship_object_id=relationship.object_id,
+                contact_kind=relationship.contact_kind,
+                provenance=relationship.provenance,
+                confidence=relationship.confidence,
+                status=relationship.status,
+                source_mode=relationship.source_mode,
+                graph_source=relationship.graph_source,
+                graph_revision=relationship.graph_revision,
+                pose=relationship.pose,
+            )
+        )
+    return facts
+
+
+def prune_relationship_fact_projection(analytics: Any, scope: ReplacementScope) -> dict[str, Any]:
+    graph = analytics.graph
+    removed_edges = 0
+    for u, v, key, attrs in list(graph.edges(keys=True, data=True)):
+        if scope.matches_edge(str(u), str(v), attrs):
+            graph.remove_edge(u, v, key=key)
+            removed_edges += 1
+    if removed_edges:
+        analytics._invalidate_caches()
+    return {"pruned": bool(removed_edges), "removedEdges": removed_edges}
+
+
+def _edge_attrs(fact: RelationshipFact, graph_sequence: int) -> dict[str, Any]:
+    return {
+        "relationship": fact.relationship_type,
+        "projectionKind": PROJECTION_KIND,
+        "semanticRelationshipType": fact.relationship_type,
+        "provenance": fact.provenance,
+        "confidence": fact.confidence,
+        "status": fact.status,
+        "sourceMode": fact.source_mode,
+        "contactKind": fact.contact_kind,
+        "graphSource": fact.graph_source,
+        "graphRevision": fact.graph_revision,
+        "pose": fact.pose,
+        "relationshipFactId": fact.relationship_fact_id,
+        "fromFeature": fact.from_feature,
+        "toFeature": fact.to_feature,
+        "fromFeatureObjectId": fact.from_feature_object_id,
+        "toFeatureObjectId": fact.to_feature_object_id,
+        "relationshipObjectId": fact.relationship_object_id,
+        "graphSequence": graph_sequence,
+        "engineVersion": ENGINE_VERSION,
+    }
+
+
+def project_relationship_facts(
+    analytics: Any,
+    facts: list[RelationshipFact],
+    *,
+    prune_scope: ReplacementScope,
+    prune: bool = False,
+    diagnostics: dict[str, int] | None = None,
+    owner_object_count: int = 0,
+    feature_object_count: int = 0,
+    relationship_object_count: int = 0,
+    relationship_fact_count: int | None = None,
+) -> dict[str, Any]:
+    graph = analytics.graph
+    prune_result = (
+        prune_relationship_fact_projection(analytics, prune_scope)
+        if prune
+        else {"pruned": False, "removedEdges": 0}
+    )
+    by_relationship_type: dict[str, int] = {}
+    by_pose: dict[str, int] = {}
+    projected = 0
+    skipped = 0
+
+    for fact in facts:
+        if not graph.has_node(fact.from_owner_object_id) or not graph.has_node(fact.to_owner_object_id):
+            skipped += 1
+            continue
+        graph.add_edge(
+            fact.from_owner_object_id,
+            fact.to_owner_object_id,
+            key=relationship_fact_edge_key(fact),
+            **_edge_attrs(fact, getattr(analytics, "sequence", 0)),
+        )
+        projected += 1
+        by_relationship_type[fact.relationship_type] = by_relationship_type.get(fact.relationship_type, 0) + 1
+        by_pose[fact.pose] = by_pose.get(fact.pose, 0) + 1
+
+    if projected or prune_result.get("removedEdges"):
+        analytics._invalidate_caches()
+
+    return {
+        "success": True,
+        "projectionKind": PROJECTION_KIND,
+        "sourceMode": DEFAULT_SOURCE_MODE,
+        "graphSequence": getattr(analytics, "sequence", 0),
+        "counts": {
+            "ownerObjectCount": owner_object_count,
+            "featureObjectCount": feature_object_count,
+            "relationshipObjectCount": relationship_object_count,
+            "relationshipFactCount": relationship_fact_count if relationship_fact_count is not None else len(facts),
+            "projectedEdgeCount": projected,
+            "skippedFactCount": skipped,
+        },
+        "byRelationshipType": by_relationship_type,
+        "byPose": by_pose,
+        "diagnostics": diagnostics or {},
+        "samples": {},
+        "prune": prune_result,
+    }
