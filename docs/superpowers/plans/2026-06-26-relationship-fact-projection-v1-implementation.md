@@ -1460,6 +1460,12 @@ def _user_strings_for(object_id: str) -> dict:
 @pytest.mark.asyncio
 async def test_project_relationship_facts_for_tool_hydrates_scene_and_projects(monkeypatch):
     sg = _scene_graph()
+    sg.graph.add_node(
+        "rookbim:room:synthetic",
+        name="Synthetic BIM room",
+        projectionKind="bim_relationship_v1",
+        nodeKind="rookbim_room",
+    )
     calls = []
 
     async def fake_sync(port=None):
@@ -1491,6 +1497,8 @@ async def test_project_relationship_facts_for_tool_hydrates_scene_and_projects(m
     assert result["byPose"] == {"reclined_robot": 1}
     assert sg.graph.has_edge("member-rhino-id", "joint-rhino-id")
     assert all(call[0] in {"sync", "/usertext/object-get"} for call in calls)
+    hydrated_ids = {call[1] for call in calls if call[0] == "/usertext/object-get"}
+    assert "rookbim:room:synthetic" not in hydrated_ids
 
 
 @pytest.mark.asyncio
@@ -1582,11 +1590,15 @@ from ..bridge import call_rhino
 Add these functions:
 
 ```python
+def _is_runtime_rhino_node(attrs: dict[str, Any]) -> bool:
+    return not attrs.get("projectionKind")
+
+
 def _scene_candidate_object_ids(analytics: Any) -> list[str]:
     return [
         str(node_id)
         for node_id, attrs in analytics.graph.nodes(data=True)
-        if attrs.get("projectionKind") != PROJECTION_KIND
+        if _is_runtime_rhino_node(attrs)
     ]
 
 
@@ -2299,6 +2311,7 @@ Verification:
   - Owner-object endpoints with feature metadata: Task 2.
   - Idempotency and scoped pruning: Task 2.
   - Primary `object_ids` scope filtering after full-scene hydration: Task 4.
+  - Candidate hydration excludes all Python-only projection nodes, not only `relationship_fact_v1`: Task 4.
   - Strict mode ignores informational filter diagnostics and fails only validation diagnostics: Task 3.
   - Read-only hydration: Task 4.
   - MCP schema, dispatcher, tool group, targeting: Task 6.
