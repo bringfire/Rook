@@ -1,0 +1,314 @@
+{
+  "project": "pearson_robot",
+  "revision": "r001",
+  "units": {
+    "rhino_unit": "meter",
+    "scale_note": "1 Rhino unit = 1 meter"
+  },
+  "coordinate_convention": {
+    "x": "robot_anatomical_left",
+    "y": "robot_forward_toward_feet",
+    "z": "up",
+    "origin": "centered near root seat and lower torso base"
+  },
+  "reference_images": [
+    {
+      "id": "front_child",
+      "path": "H:\\AI EXPERIMENTS\\Pearson\\reference_images\\ROBOT\\image.png",
+      "description": "Front-ish portrait view with child seated on viewer-left side."
+    },
+    {
+      "id": "wide_front",
+      "path": "H:\\AI EXPERIMENTS\\Pearson\\reference_images\\ROBOT\\image (1).png",
+      "description": "Wide front frame with wall context and people for scale."
+    },
+    {
+      "id": "side_recline",
+      "path": "H:\\AI EXPERIMENTS\\Pearson\\reference_images\\ROBOT\\image (2).png",
+      "description": "Side reclined view, best for torso lean and seat/leg structure."
+    },
+    {
+      "id": "architectural_wide",
+      "path": "H:\\AI EXPERIMENTS\\Pearson\\reference_images\\ROBOT\\image (3).png",
+      "description": "Wide architectural view, best for footprint and room relationship."
+    }
+  ],
+  "materials": {
+    "robot_turquoise": {
+      "diffuse": [0, 188, 186],
+      "description": "Matte saturated cyan/turquoise robot paint."
+    },
+    "slot_dark": {
+      "diffuse": [18, 76, 86],
+      "description": "Dark teal recess material for slots and face details."
+    },
+    "skeleton_debug": {
+      "diffuse": [255, 225, 80],
+      "description": "Temporary skeleton/frame marker material."
+    }
+  },
+  "layers": {
+    "root": "Pearson Robot",
+    "reference": "Pearson Robot::00 Reference",
+    "skeleton": "Pearson Robot::01 Skeleton",
+    "torso": "Pearson Robot::02 Torso",
+    "head": "Pearson Robot::03 Head",
+    "left_arm": "Pearson Robot::04 Arms::Left",
+    "right_arm": "Pearson Robot::04 Arms::Right",
+    "left_leg": "Pearson Robot::05 Legs::Left",
+    "right_leg": "Pearson Robot::05 Legs::Right",
+    "details": "Pearson Robot::06 Details",
+    "cameras": "Pearson Robot::90 Cameras",
+    "debug": "Pearson Robot::99 Debug"
+  },
+  "frames": [
+    {
+      "id": "root_frame",
+      "parent": null,
+      "origin": [0.0, 0.0, 0.45],
+      "rotation_degrees": [0.0, 0.0, 0.0],
+      "description": "Seat/root frame near lower torso base."
+    },
+    {
+      "id": "torso_frame",
+      "parent": "root_frame",
+      "origin": [0.0, -0.25, 0.65],
+      "rotation_degrees": [-22.0, 0.0, 0.0],
+      "description": "Reclined torso frame."
+    },
+    {
+      "id": "head_frame",
+      "parent": "torso_frame",
+      "origin": [0.0, -1.55, 2.10],
+      "rotation_degrees": [-12.0, 0.0, 0.0],
+      "description": "Small tilted head frame."
+    },
+    {
+      "id": "left_shoulder_frame",
+      "parent": "torso_frame",
+      "origin": [1.15, -0.85, 1.05],
+      "rotation_degrees": [-12.0, 0.0, 4.0],
+      "description": "Robot anatomical left shoulder/arm frame."
+    },
+    {
+      "id": "right_shoulder_frame",
+      "parent": "torso_frame",
+      "origin": [-1.15, -0.85, 1.05],
+      "rotation_degrees": [-12.0, 0.0, -4.0],
+      "description": "Robot anatomical right shoulder/arm frame."
+    },
+    {
+      "id": "left_hip_frame",
+      "parent": "root_frame",
+      "origin": [0.55, 0.80, 0.42],
+      "rotation_degrees": [0.0, 0.0, 8.0],
+      "description": "Robot anatomical left hip/leg frame."
+    },
+    {
+      "id": "right_hip_frame",
+      "parent": "root_frame",
+      "origin": [-0.55, 0.80, 0.42],
+      "rotation_degrees": [0.0, 0.0, -8.0],
+      "description": "Robot anatomical right hip/leg frame."
+    }
+  ],
+  "parts": [
+    {
+      "id": "torso_back_slab",
+      "parent": "robot",
+      "frame": "torso_frame",
+      "type": "box",
+      "role": "torso",
+      "layer": "torso",
+      "material": "robot_turquoise",
+      "center": [0.0, 0.0, 0.0],
+      "size": [2.2, 0.32, 2.15],
+      "rotation_degrees": [0.0, 0.0, 0.0]
+    },
+    {
+      "id": "torso_front_panel",
+      "parent": "torso_back_slab",
+      "frame": "torso_frame",
+      "type": "wedge",
+      "role": "torso_panel",
+      "layer": "torso",
+      "material": "robot_turquoise",
+      "center": [0.0, 0.42, -0.18],
+      "size": [2.0, 0.70, 1.85],
+      "rotation_degrees": [0.0, 0.0, 0.0],
+      "slope_axis": "y",
+      "slope": 0.22
+    },
+    {
+      "id": "head_box",
+      "parent": "torso_back_slab",
+      "frame": "head_frame",
+      "type": "box",
+      "role": "head",
+      "layer": "head",
+      "material": "robot_turquoise",
+      "center": [0.0, 0.0, 0.0],
+      "size": [0.72, 0.28, 0.48],
+      "rotation_degrees": [0.0, 0.0, 0.0]
+    },
+    {
+      "id": "left_eye",
+      "parent": "head_box",
+      "frame": "head_frame",
+      "type": "face_detail",
+      "role": "eye",
+      "layer": "details",
+      "material": "slot_dark",
+      "center": [0.18, 0.155, 0.10],
+      "size": [0.08, 0.025, 0.08],
+      "rotation_degrees": [0.0, 0.0, 0.0]
+    },
+    {
+      "id": "right_eye",
+      "parent": "head_box",
+      "frame": "head_frame",
+      "type": "face_detail",
+      "role": "eye",
+      "layer": "details",
+      "material": "slot_dark",
+      "center": [-0.18, 0.155, 0.10],
+      "size": [0.08, 0.025, 0.08],
+      "rotation_degrees": [0.0, 0.0, 0.0]
+    },
+    {
+      "id": "mouth_slot",
+      "parent": "head_box",
+      "frame": "head_frame",
+      "type": "slot",
+      "role": "mouth",
+      "layer": "details",
+      "material": "slot_dark",
+      "center": [0.0, 0.16, -0.08],
+      "size": [0.44, 0.035, 0.07],
+      "rotation_degrees": [0.0, 0.0, 0.0]
+    },
+    {
+      "id": "left_arm_upper_side_block",
+      "parent": "torso_back_slab",
+      "frame": "left_shoulder_frame",
+      "type": "box",
+      "role": "armrest",
+      "layer": "left_arm",
+      "material": "robot_turquoise",
+      "center": [0.0, 0.0, -0.22],
+      "size": [0.58, 1.50, 1.45],
+      "rotation_degrees": [0.0, 0.0, 0.0]
+    },
+    {
+      "id": "right_arm_upper_side_block",
+      "parent": "torso_back_slab",
+      "frame": "right_shoulder_frame",
+      "type": "box",
+      "role": "armrest",
+      "layer": "right_arm",
+      "material": "robot_turquoise",
+      "center": [0.0, 0.0, -0.22],
+      "size": [0.58, 1.50, 1.45],
+      "rotation_degrees": [0.0, 0.0, 0.0]
+    },
+    {
+      "id": "left_leg_thigh_block",
+      "parent": "robot",
+      "frame": "left_hip_frame",
+      "type": "box",
+      "role": "seat",
+      "layer": "left_leg",
+      "material": "robot_turquoise",
+      "center": [0.0, 0.55, 0.0],
+      "size": [0.72, 1.45, 0.46],
+      "rotation_degrees": [0.0, 0.0, 0.0]
+    },
+    {
+      "id": "right_leg_thigh_block",
+      "parent": "robot",
+      "frame": "right_hip_frame",
+      "type": "box",
+      "role": "seat",
+      "layer": "right_leg",
+      "material": "robot_turquoise",
+      "center": [0.0, 0.55, 0.0],
+      "size": [0.72, 1.45, 0.46],
+      "rotation_degrees": [0.0, 0.0, 0.0]
+    },
+    {
+      "id": "left_leg_foot_block",
+      "parent": "left_leg_thigh_block",
+      "frame": "left_hip_frame",
+      "type": "wedge",
+      "role": "foot",
+      "layer": "left_leg",
+      "material": "robot_turquoise",
+      "center": [0.0, 1.55, -0.02],
+      "size": [0.82, 1.05, 0.58],
+      "rotation_degrees": [0.0, 0.0, 0.0],
+      "slope_axis": "y",
+      "slope": -0.18
+    },
+    {
+      "id": "right_leg_foot_block",
+      "parent": "right_leg_thigh_block",
+      "frame": "right_hip_frame",
+      "type": "wedge",
+      "role": "foot",
+      "layer": "right_leg",
+      "material": "robot_turquoise",
+      "center": [0.0, 1.55, -0.02],
+      "size": [0.82, 1.05, 0.58],
+      "rotation_degrees": [0.0, 0.0, 0.0],
+      "slope_axis": "y",
+      "slope": -0.18
+    },
+    {
+      "id": "left_foot_slot",
+      "parent": "left_leg_foot_block",
+      "frame": "left_hip_frame",
+      "type": "slot",
+      "role": "foot_slot",
+      "layer": "details",
+      "material": "slot_dark",
+      "center": [0.0, 2.05, 0.06],
+      "size": [0.08, 0.035, 0.36],
+      "rotation_degrees": [0.0, 0.0, 0.0]
+    },
+    {
+      "id": "right_foot_slot",
+      "parent": "right_leg_foot_block",
+      "frame": "right_hip_frame",
+      "type": "slot",
+      "role": "foot_slot",
+      "layer": "details",
+      "material": "slot_dark",
+      "center": [0.0, 2.05, 0.06],
+      "size": [0.08, 0.035, 0.36],
+      "rotation_degrees": [0.0, 0.0, 0.0]
+    }
+  ],
+  "named_views": [
+    {
+      "name": "robot_front_child_view",
+      "reference_image_id": "front_child",
+      "camera_location": [0.0, 6.6, 2.0],
+      "target": [0.0, 0.6, 0.95],
+      "lens_length": 28.0
+    },
+    {
+      "name": "robot_side_recline_view",
+      "reference_image_id": "side_recline",
+      "camera_location": [-5.2, 3.6, 1.9],
+      "target": [0.0, 0.5, 0.9],
+      "lens_length": 28.0
+    },
+    {
+      "name": "robot_architectural_wide_view",
+      "reference_image_id": "architectural_wide",
+      "camera_location": [-4.8, 6.2, 2.2],
+      "target": [0.0, 0.7, 0.95],
+      "lens_length": 24.0
+    }
+  ]
+}
