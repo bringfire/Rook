@@ -114,8 +114,10 @@ Rules:
 - Never write beside the `.3dm` unless `portable: true` or `output_root` is explicit.
 - If the source document is unsaved, global mode still works.
 - If the source document is unsaved and document-local mode is requested with `portable: true`, fail with `source_document_unsaved`.
-- `source_document_key` is computed early from cheap document facts before inventory: normalized document path when available, file size, file modified time, unit system, and Rhino runtime serial or document serial when available.
-- `source_document_key` is only a storage partition key. It is not the full source fidelity fingerprint.
+- `source_document_key` is computed early from stable discovery facts before inventory.
+- For saved documents, `source_document_key` is a hash of the normalized document path. If a stable OS file identity is available, it may be included or used instead of the path hash.
+- For unsaved documents, `source_document_key` is an explicit session-scoped key. It must be marked as session-scoped in the manifest and is not expected to rediscover takes after the unsaved document session ends.
+- `source_document_key` is only a storage partition key. It is not the full source fidelity fingerprint and must not include file size, modified time, unit system, Rhino runtime serial, or structural facts.
 - `source_document_fingerprint` is recorded after source facts and occurrence inventory are available. It includes the cheap document facts plus selected occurrence and structural traversal facts.
 - The manifest records `storage_mode: "global" | "document_local" | "custom_output_root"`.
 - Responses always return absolute paths for all produced files.
@@ -404,7 +406,7 @@ Higher-severity examples include missing source objects, changed block definitio
 
 Use tiered fingerprints:
 
-- storage key: `source_document_key`, computed before inventory from cheap source document facts and used only to choose the artifact directory;
+- stable storage key: `source_document_key`, computed before inventory from normalized saved-document path or stable OS file identity; unsaved documents use an explicit session-scoped key;
 - cheap document fingerprint: path, size, modified time, Rhino doc serial or runtime serial when available, unit system;
 - selected occurrence fingerprint: selected ids, top-level layers, names, object types, transforms, bboxes, block definition names/ids;
 - structural traversal fingerprint: ordered reachable path facts and segment fingerprints.
@@ -489,7 +491,7 @@ Native does not need to snapshot the full inventory in memory. It holds enough s
 
 1. Validate input shape and selection scope.
 2. Resolve explicit object ids or current Rhino selection.
-3. Compute `source_document_key` from cheap document facts.
+3. Compute `source_document_key` from stable discovery facts.
 4. Resolve storage mode and create a temporary prepare directory.
 5. Inventory selected top-level occurrences and every reachable nested object.
 6. Write `provenance_records.jsonl` as inventory pages arrive.
