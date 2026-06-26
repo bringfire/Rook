@@ -450,6 +450,7 @@ function Test-UninstallRemovesGeneratedRuntimeArtifacts {
     }
 
     foreach ($path in @(
+        '{localappdata}\Rook',
         '{localappdata}\Rook\data',
         '{localappdata}\Rook\rookvision_director',
         '{userappdata}\Rook',
@@ -466,6 +467,8 @@ function Test-UninstallRemovesGeneratedRuntimeArtifacts {
     Assert-Contains -Text $uninstallCleanup -Expected 'preserving user data and artifacts' -Message 'Python uninstall cleanup must document durable artifact preservation.'
     Assert-NotContains -Text $uninstallCleanup -Unexpected 'runtime_root / "data"' -Message 'Default uninstall must preserve local durable Rook data.'
     Assert-NotContains -Text $uninstallCleanup -Unexpected 'runtime_root / "rookvision_director"' -Message 'Default uninstall must preserve RookVisionDirector output artifacts.'
+    Assert-NotContains -Text $uninstallCleanup -Unexpected '_remove_tree(runtime_root' -Message 'Default uninstall must not remove the parent runtime root because it contains durable data and RookVision artifacts.'
+    Assert-NotContains -Text $uninstallCleanup -Unexpected 'shutil.rmtree(runtime_root' -Message 'Default uninstall must not recursively delete the parent runtime root.'
     Assert-NotContains -Text $uninstallCleanup -Unexpected 'roaming_root' -Message 'Default uninstall must preserve user-level Rook roaming state, including artifacts and sessions.'
     Assert-NotContains -Text $uninstallCleanup -Unexpected 'Path(os.environ.get("APPDATA", "")) / "Rook"' -Message 'Default uninstall must not compute the durable roaming Rook root for deletion.'
 }

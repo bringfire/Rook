@@ -351,7 +351,7 @@ function Test-ValidatorWritesExactArtifactManifest {
     }
 }
 
-function Test-ValidatorRejectsInstallerOlderThanInstallerScript {
+function Test-ValidatorAcceptsInstallerOlderThanInstallerScriptByDefault {
     $fixture = New-ValidatorFixture
 
     try {
@@ -368,6 +368,32 @@ function Test-ValidatorRejectsInstallerOlderThanInstallerScript {
             '-SmokeManifestPath', $fixture.SmokeManifestPath,
             '-OutputManifestPath', $fixture.OutputManifestPath,
             '-MinInstallerBytes', '1'
+        )
+
+        Assert-True -Condition ($result.ExitCode -eq 0) -Message "Validator treated working-tree mtimes as a portable artifact invariant. Output: $($result.Output)"
+    } finally {
+        Remove-Item -LiteralPath $fixture.TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-ValidatorRejectsInstallerOlderThanInstallerScriptWhenRequired {
+    $fixture = New-ValidatorFixture
+
+    try {
+        $installerScript = Get-Item -LiteralPath (Join-Path $RepoRoot 'installer\RookSetup.iss')
+        (Get-Item -LiteralPath $fixture.InstallerPath).LastWriteTimeUtc = $installerScript.LastWriteTimeUtc.AddMinutes(-5)
+
+        $result = Invoke-Validator -Arguments @(
+            '-File', $Validator,
+            '-Version', $fixture.Version,
+            '-RepoRoot', $RepoRoot,
+            '-GitSha', $fixture.GitSha,
+            '-InstallerPath', $fixture.InstallerPath,
+            '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-SmokeManifestPath', $fixture.SmokeManifestPath,
+            '-OutputManifestPath', $fixture.OutputManifestPath,
+            '-MinInstallerBytes', '1',
+            '-RequireInstallerNewerThanScript'
         )
 
         Assert-True -Condition ($result.ExitCode -ne 0) -Message 'Validator accepted an installer built before the current installer script.'
@@ -858,7 +884,8 @@ function Test-ValidatorRejectsPythonRuntimeReleaseVersionMismatch {
 
 Test-ReleaseValidatorRequiresPythonRuntimeEvidence
 Test-ValidatorWritesExactArtifactManifest
-Test-ValidatorRejectsInstallerOlderThanInstallerScript
+Test-ValidatorAcceptsInstallerOlderThanInstallerScriptByDefault
+Test-ValidatorRejectsInstallerOlderThanInstallerScriptWhenRequired
 Test-DocumentedValidatorCommandDefaultsRepoRoot
 Test-ValidatorRejectsGitShaThatDoesNotMatchCheckout
 Test-ValidatorRejectsFailedSmokeEvidence

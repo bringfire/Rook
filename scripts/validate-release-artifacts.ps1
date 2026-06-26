@@ -10,7 +10,8 @@ param(
     [string]$SmokeManifestPath,
     [string]$OutputManifestPath = '',
     [long]$MinInstallerBytes = 5242880,
-    [string]$BuildStartedAt = ''
+    [string]$BuildStartedAt = '',
+    [switch]$RequireInstallerNewerThanScript
 )
 
 $ErrorActionPreference = 'Stop'
@@ -580,8 +581,10 @@ if ($installerItem.Length -lt $MinInstallerBytes) {
     Fail "installer is smaller than expected: $($installerItem.Length) bytes"
 }
 Assert-FileNewerThanBuildStart -Path $installerPathResolved -StartedAt $buildStartedAtValue
-$installerScriptPath = Require-File -Path (Join-Path $RepoRoot 'installer\RookSetup.iss') -Label 'installer script'
-Assert-FileNotOlderThanSource -Path $installerPathResolved -SourcePath $installerScriptPath -Label 'installer'
+if ($RequireInstallerNewerThanScript) {
+    $installerScriptPath = Require-File -Path (Join-Path $RepoRoot 'installer\RookSetup.iss') -Label 'installer script'
+    Assert-FileNotOlderThanSource -Path $installerPathResolved -SourcePath $installerScriptPath -Label 'installer'
+}
 $installerSha256 = Get-Sha256 -Path $installerPathResolved
 
 $nativePath = Require-File -Path (Join-Path $RepoRoot 'src\RookNative\bin\Release\x64\RookNative.rhp') -Label 'native RHP'
