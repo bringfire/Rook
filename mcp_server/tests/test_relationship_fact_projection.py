@@ -1,6 +1,8 @@
 import ast
 from pathlib import Path
 
+import pytest
+
 from rook.scene import relationship_fact_projection as rel
 from rook.scene.scene_graph import SceneGraphAnalytics
 
@@ -365,3 +367,80 @@ def test_scoped_prune_preserves_edges_outside_primary_object_scope():
     assert result["removedEdges"] == 1
     assert not sg.graph.has_edge("member-rhino-id", "joint-rhino-id")
     assert sg.graph.has_edge("other-member-id", "other-joint-id")
+
+
+def test_lenient_missing_feature_endpoint_reports_diagnostic_without_crashing():
+    records = [
+        _owner_record("member-rhino-id"),
+        _joint_record("joint-rhino-id"),
+        _relationship_record("relationship-marker-id"),
+    ]
+
+    result = rel.build_relationship_fact_set(rel.parse_runtime_records(records), strict=False)
+
+    assert result.success is True
+    assert result.facts == []
+    assert result.diagnostics["relationshipFactsMissingFeatureEndpoint"] == 1
+
+
+def test_strict_missing_feature_endpoint_fails():
+    records = [
+        _owner_record("member-rhino-id"),
+        _joint_record("joint-rhino-id"),
+        _relationship_record("relationship-marker-id"),
+    ]
+
+    with pytest.raises(rel.RelationshipFactProjectionError) as exc:
+        rel.build_relationship_fact_set(rel.parse_runtime_records(records), strict=True)
+
+    assert "relationshipFactsMissingFeatureEndpoint" in str(exc.value)
+
+
+def test_strict_mode_ignores_informational_filter_diagnostics():
+    records = [
+        *_valid_records(),
+        _owner_record("member-rhino-id-rest", pose="rest_t_pose"),
+        _joint_record("joint-rhino-id-rest", pose="rest_t_pose"),
+    ]
+    parsed = rel.parse_runtime_records(records, poses=["reclined_robot"])
+
+    result = rel.build_relationship_fact_set(parsed, strict=True)
+
+    assert result.success is True
+    assert len(result.facts) == 1
+    assert parsed.diagnostics["filteredByPose"] == 2
+
+
+def test_missing_owner_object_reports_diagnostic():
+    records = [
+        _feature_record(
+            "feature-member-start-id",
+            "spine_base_to_spine_top.start",
+            "spine_base_to_spine_top",
+            "member",
+        ),
+        _feature_record("feature-joint-point-id", "spine_base.point", "spine_base", "node"),
+        _relationship_record("relationship-marker-id"),
+    ]
+
+    result = rel.build_relationship_fact_set(rel.parse_runtime_records(records), strict=False)
+
+    assert result.success is True
+    assert result.facts == []
+    assert result.diagnostics["relationshipFactsMissingOwnerObject"] == 1
+
+
+def test_duplicate_records_report_bounded_diagnostics():
+    records = [
+        *_valid_records(),
+        _feature_record(
+            "feature-member-start-id-duplicate",
+            "spine_base_to_spine_top.start",
+            "spine_base_to_spine_top",
+            "member",
+        ),
+    ]
+
+    parsed = rel.parse_runtime_records(records)
+
+    assert parsed.diagnostics["duplicateFeatureRecords"] == 1

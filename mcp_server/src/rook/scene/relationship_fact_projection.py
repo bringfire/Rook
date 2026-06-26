@@ -118,6 +118,13 @@ class RelationshipFact:
 
 
 @dataclass(frozen=True)
+class RelationshipFactSet:
+    success: bool
+    facts: list[RelationshipFact]
+    diagnostics: dict[str, int]
+
+
+@dataclass(frozen=True)
 class RelationshipFactScope:
     graph_source: str | None = None
     graph_revision: str | None = None
@@ -369,8 +376,21 @@ def relationship_fact_edge_key(fact: RelationshipFact) -> str:
     )
 
 
-def resolve_relationship_facts(parsed: ParsedRuntimeRecords) -> list[RelationshipFact]:
+def _validation_diagnostics(diagnostics: dict[str, int]) -> dict[str, int]:
+    return {
+        key: count
+        for key, count in diagnostics.items()
+        if key in VALIDATION_DIAGNOSTIC_KEYS and count
+    }
+
+
+def build_relationship_fact_set(
+    parsed: ParsedRuntimeRecords,
+    *,
+    strict: bool = False,
+) -> RelationshipFactSet:
     facts: list[RelationshipFact] = []
+    diagnostics = dict(parsed.diagnostics)
     for relationship in parsed.relationship_records:
         source = relationship.graph_source
         revision = relationship.graph_revision
@@ -378,10 +398,12 @@ def resolve_relationship_facts(parsed: ParsedRuntimeRecords) -> list[Relationshi
         from_feature = parsed.features_by_key.get((source, revision, pose, relationship.from_feature))
         to_feature = parsed.features_by_key.get((source, revision, pose, relationship.to_feature))
         if from_feature is None or to_feature is None:
+            _bump(diagnostics, "relationshipFactsMissingFeatureEndpoint")
             continue
         from_owner = parsed.owners_by_key.get((source, revision, pose, from_feature.owner_kind, from_feature.owner))
         to_owner = parsed.owners_by_key.get((source, revision, pose, to_feature.owner_kind, to_feature.owner))
         if from_owner is None or to_owner is None:
+            _bump(diagnostics, "relationshipFactsMissingOwnerObject")
             continue
         facts.append(
             RelationshipFact(
@@ -408,7 +430,16 @@ def resolve_relationship_facts(parsed: ParsedRuntimeRecords) -> list[Relationshi
                 pose=relationship.pose,
             )
         )
-    return facts
+
+    validation_errors = _validation_diagnostics(diagnostics)
+    if strict and validation_errors:
+        keys = ", ".join(sorted(validation_errors))
+        raise RelationshipFactProjectionError(f"relationship fact projection strict validation failed: {keys}")
+    return RelationshipFactSet(success=True, facts=facts, diagnostics=diagnostics)
+
+
+def resolve_relationship_facts(parsed: ParsedRuntimeRecords) -> list[RelationshipFact]:
+    return build_relationship_fact_set(parsed, strict=False).facts
 
 
 def prune_relationship_fact_projection(analytics: Any, scope: ReplacementScope) -> dict[str, Any]:
