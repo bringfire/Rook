@@ -184,7 +184,9 @@ The live pytest adapter should:
 2. Execute `experiments/relationship_fact_projection_smoke/scripts/create_smoke_fixture_rhino.py`
    in Rhino.
 3. Assert the fixture reports `source`, `revision`, `pose`, and the two owner object ids.
-4. Call `scene_project_relationship_facts(graph_source="relationship_fact_smoke")`.
+4. Call `scene_project_relationship_facts(graph_source="relationship_fact_smoke")` through the
+   source-level dispatcher/functions in the pytest process, using the same
+   `SceneGraphAnalytics` instance that will later be inspected.
 5. Assert the projection response count contract.
 6. Extract actual semantic facts from `SceneGraphAnalytics.graph` projected edge attributes where
    `projectionKind == "relationship_fact_v1"` and `graphSource == "relationship_fact_smoke"`.
@@ -193,6 +195,11 @@ The live pytest adapter should:
 9. Fail with the compact mismatch report when `success` is false.
 
 The adapter may include discovered owner ids in the report for debugging.
+
+The adapter must not call an external MCP server for projection and then inspect the pytest
+process's local graph. In that split-process flow, the projected NetworkX edges live in the server
+process and are not directly inspectable by the test process. If a future test needs external MCP
+coverage, it should validate response/context behavior only or add an explicit graph-query surface.
 
 ## 8. Pearson manual gate
 
