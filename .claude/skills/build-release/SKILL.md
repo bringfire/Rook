@@ -438,7 +438,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\validate-release-art
   -FfmpegSourceBundleManifestPath artifacts\ffmpeg\ffmpeg-8.1.1-rook-minimal\rook-ffmpeg-source-bundle-manifest.json `
   -SmokeManifestPath installer\output\release-smoke-X.Y.Z.json `
   -OutputManifestPath installer\output\release-manifest-X.Y.Z.json `
-  -BuildStartedAt $buildStartedAt
+  -BuildStartedAt $buildStartedAt `
+  -RequireInstallerNewerThanScript
 ```
 
 The release manifest must include `git_sha`, `installer_sha256`,

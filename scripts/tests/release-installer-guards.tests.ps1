@@ -594,6 +594,7 @@ function Test-BuildReleaseWorkflowUsesReleaseBranchAndExactArtifacts {
     Assert-NotContains -Text $combined -Unexpected 'git push origin main' -Message 'Release workflow must not document direct pushes to main.'
     Assert-Contains -Text $combined -Expected 'git switch -c release/vX.Y.Z' -Message 'Release workflow must make the release branch explicit.'
     Assert-Contains -Text $combined -Expected 'validate-release-artifacts.ps1' -Message 'Release workflow must run executable release artifact validation.'
+    Assert-Contains -Text $combined -Expected '-RequireInstallerNewerThanScript' -Message 'Release workflow must opt into same-worktree stale installer detection.'
     Assert-Contains -Text $combined -Expected 'release-manifest-X.Y.Z.json' -Message 'Release workflow must produce a release manifest with exact artifact identity.'
     Assert-Contains -Text $combined -Expected 'git_sha' -Message 'Release manifest requirements must include the exact git SHA being released.'
     Assert-Contains -Text $combined -Expected 'installer_sha256' -Message 'Release manifest requirements must include the installer SHA-256.'
