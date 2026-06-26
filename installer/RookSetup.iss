@@ -16,6 +16,9 @@
 #ifndef MyAppVersion
 #define MyAppVersion "1.5.15"
 #endif
+#ifndef MyOutputBaseFilename
+#define MyOutputBaseFilename "Rook-Setup-" + MyAppVersion
+#endif
 #define MyAppPublisher "Bringfire"
 #define MyAppURL "https://github.com/bringfire/rook-release"
 
@@ -32,7 +35,9 @@
 #define ScriptsDir   RepoRoot + "\scripts"
 #define FfmpegDir   RepoRoot + "\third_party\ffmpeg"
 #define CodexCuratedSkillsDir RepoRoot + "\installer\agent-assets\codex-skills"
+#ifndef ChirpDir
 #define ChirpDir     RepoRoot + "\..\Chirp"
+#endif
 #define PythonRuntimeDir RepoRoot + "\installer\runtime\python\cpython-3.11.9"
 #define PythonWheelhouseDir RepoRoot + "\installer\runtime\python-wheelhouse"
 #define PythonRuntimeManifest RepoRoot + "\installer\runtime\python-runtime-manifest.json"
@@ -58,7 +63,7 @@ AppSupportURL={#MyAppURL}/issues
 DefaultDirName={localappdata}\Rook\app
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-OutputBaseFilename=Rook-Setup-{#MyAppVersion}
+OutputBaseFilename={#MyOutputBaseFilename}
 OutputDir=output
 Compression=lzma2
 SolidCompression=yes
