@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..bridge import call_rhino
+
 PROJECTION_KIND = "relationship_fact_v1"
 DEFAULT_SOURCE_MODE = "authored_graph_user_strings"
 DEFAULT_CONFIDENCE = 1.0
@@ -537,3 +539,142 @@ def project_relationship_facts(
         "samples": {},
         "prune": prune_result,
     }
+
+
+def _is_runtime_rhino_node(attrs: dict[str, Any]) -> bool:
+    return not attrs.get("projectionKind")
+
+
+def _scene_candidate_object_ids(analytics: Any) -> list[str]:
+    return [
+        str(node_id)
+        for node_id, attrs in analytics.graph.nodes(data=True)
+        if _is_runtime_rhino_node(attrs)
+    ]
+
+
+def _extract_user_strings(response: dict[str, Any]) -> dict[str, Any] | None:
+    if not response.get("success"):
+        return None
+    data = response.get("data")
+    if not isinstance(data, dict):
+        return None
+    user_strings = data.get("userStrings")
+    return user_strings if isinstance(user_strings, dict) else None
+
+
+async def hydrate_runtime_object_records(
+    object_ids: list[str],
+    *,
+    port: int | None = None,
+) -> tuple[list[RuntimeObjectRecord], dict[str, int]]:
+    records: list[RuntimeObjectRecord] = []
+    diagnostics: dict[str, int] = {}
+    for object_id in object_ids:
+        try:
+            response = await call_rhino(USER_TEXT_OBJECT_GET_ROUTE, "POST", {"id": object_id}, port=port)
+        except Exception:
+            _bump(diagnostics, "hydrationFailures")
+            continue
+        user_strings = _extract_user_strings(response)
+        if user_strings is None:
+            _bump(diagnostics, "hydrationFailures")
+            continue
+        records.append(RuntimeObjectRecord(object_id=object_id, user_strings=user_strings))
+    return records, diagnostics
+
+
+def _filter_facts_for_primary_scope(
+    facts: list[RelationshipFact],
+    object_ids: list[str] | None,
+) -> list[RelationshipFact]:
+    if object_ids is None:
+        return facts
+    primary_ids = {str(object_id) for object_id in object_ids}
+    return [
+        fact
+        for fact in facts
+        if fact.from_owner_object_id in primary_ids or fact.to_owner_object_id in primary_ids
+    ]
+
+
+def _build_projection_response(
+    projection: dict[str, Any],
+    *,
+    candidate_object_count: int,
+    hydrated_object_count: int,
+) -> dict[str, Any]:
+    counts = dict(projection["counts"])
+    counts["candidateObjectCount"] = candidate_object_count
+    counts["hydratedObjectCount"] = hydrated_object_count
+    projection["counts"] = counts
+    return projection
+
+
+async def project_relationship_facts_for_tool(
+    *,
+    graph_source: str | None = None,
+    graph_revision: str | None = None,
+    poses: list[str] | None = None,
+    object_ids: list[str] | None = None,
+    source_mode: str = DEFAULT_SOURCE_MODE,
+    strict: bool = False,
+    port: int | None = None,
+    analytics: Any | None = None,
+) -> dict[str, Any]:
+    if source_mode != DEFAULT_SOURCE_MODE:
+        return {
+            "success": False,
+            "error": "relationship_fact_projection_invalid_source_mode",
+            "message": f"Unsupported source_mode: {source_mode}",
+        }
+
+    if analytics is None:
+        from .scene_graph import get_scene_graph
+
+        analytics = get_scene_graph()
+
+    await analytics.sync(port=port)
+    candidate_object_ids = _scene_candidate_object_ids(analytics)
+    records, hydration_diagnostics = await hydrate_runtime_object_records(candidate_object_ids, port=port)
+
+    try:
+        parsed = parse_runtime_records(
+            records,
+            graph_source=graph_source,
+            graph_revision=graph_revision,
+            poses=poses,
+            source_mode=source_mode,
+        )
+        fact_set = build_relationship_fact_set(parsed, strict=strict)
+    except RelationshipFactProjectionError as exc:
+        return {
+            "success": False,
+            "error": "relationship_fact_projection_validation_failed",
+            "message": str(exc),
+        }
+
+    diagnostics = _merge_diagnostics(hydration_diagnostics, fact_set.diagnostics)
+    facts_to_project = _filter_facts_for_primary_scope(fact_set.facts, object_ids)
+    projection = project_relationship_facts(
+        analytics,
+        facts_to_project,
+        prune_scope=ReplacementScope(
+            graph_source=graph_source,
+            graph_revision=graph_revision,
+            poses=poses,
+            primary_object_ids=object_ids,
+            source_mode=source_mode,
+        ),
+        prune=True,
+        diagnostics=diagnostics,
+        owner_object_count=len(parsed.owners_by_key),
+        feature_object_count=len(parsed.features_by_key),
+        relationship_object_count=len(parsed.relationship_records),
+        relationship_fact_count=len(fact_set.facts),
+    )
+    return _build_projection_response(
+        projection,
+        candidate_object_count=len(candidate_object_ids),
+        hydrated_object_count=len(records),
+    )
