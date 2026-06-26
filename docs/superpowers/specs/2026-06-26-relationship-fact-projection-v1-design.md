@@ -214,6 +214,12 @@ Defaults:
 Lenient mode is the default. Malformed or incomplete records are skipped with diagnostics. Strict
 mode fails the tool if any malformed relationship fact is encountered after candidate hydration.
 
+`object_ids` narrows the primary owner objects the caller wants relationship facts for. It must not
+prevent relationship resolution. In v1, scoped calls still hydrate the full current scene's
+non-projection object ids before filtering by `rook.graph.source`, matching the BIM projector's
+`hydrate_all_scene_when_scoped` behavior. That allows a selected member to resolve its feature
+markers, relationship markers, and connected joint even if only the member id was supplied.
+
 The tool should be registered consistently with other scene tools:
 
 - MCP tool schema in `server.py`;
@@ -227,12 +233,17 @@ The tool should be registered consistently with other scene tools:
 The Python scene graph does not currently carry arbitrary Rhino object user strings, so the
 projector must hydrate candidates with `/usertext/object-get`.
 
-Candidate object ids come from `SceneGraphAnalytics.graph` after sync. The projector should narrow
-hydration where possible:
+Candidate object ids come from `SceneGraphAnalytics.graph` after sync. Because the current Python
+scene graph does not expose user strings until after `/usertext/object-get`, v1 should use a simple
+and predictable hydration rule:
 
-- if `object_ids` are supplied, hydrate those plus any same-source feature and relationship marker
-  objects needed to resolve facts;
-- otherwise hydrate non-projection scene nodes and filter by `rook.graph.source`.
+- hydrate all non-projection scene node ids;
+- filter hydrated records by `rook.graph.source`, `graph_revision`, and `poses`;
+- if `object_ids` are supplied, apply them after hydration as the primary owner-object scope.
+
+This is intentionally less clever than trying to discover marker dependencies before hydration. It
+keeps selected-object calls correct and mirrors the existing BIM projector's full-hydration behavior
+for scoped projections.
 
 v1 reads these user-string records:
 
@@ -407,11 +418,27 @@ Pruning should remove only this projector's edges. It must not delete:
 - BIM projection edges;
 - Rhino objects or user strings.
 
-The tool should prune stale relationship-fact edges before projection when:
+Each call defines an explicit replacement scope:
 
-- graph sequence changes from the stored projection sequence;
-- projected graph source/revision/pose no longer matches the current request scope;
-- source mode or engine version changes.
+```text
+projectionKind + sourceMode + graphSource filter + graphRevision filter + pose filter
+```
+
+The projector may remove stale `relationship_fact_v1` edges only inside that replacement scope.
+Scoped calls must preserve previously projected facts outside the requested scope. For example,
+after projecting both poses, a later call with `poses=["reclined_robot"]` must not prune
+`rest_t_pose` edges.
+
+Within the replacement scope, prune before projection when:
+
+- graph sequence differs from the stored projection sequence;
+- source mode differs;
+- engine version differs;
+- the call is replacing the same source/revision/pose scope with freshly hydrated facts.
+
+Out-of-scope stale edges are not touched by v1. A future whole-projector prune command can remove
+all stale relationship-fact edges explicitly, but ordinary scoped projection calls should not
+silently delete useful facts the caller did not ask to replace.
 
 The response should include prune counts:
 
@@ -513,11 +540,18 @@ connected by: MEMBER "member_reclined_robot_spine_base_to_spine_top"
   via spine_base_to_spine_top.start -> spine_base.point
 ```
 
-`scene_stats` should count `connects` edges naturally through existing relationship counting.
+`scene_stats` is not a v1 visibility surface. The current MCP `scene_stats` dispatch always calls
+`analytics.sync()` before `get_stats()`, which can discard Python-only projection facts. v1 should
+therefore rely on:
 
-v1 does not need a separate query tool if `scene_context`, `scene_stats`, and graph export provide
-enough visibility. If implementation discovers that context output becomes too noisy, add a small
-read-only query tool in the plan:
+- the structured projection response counts;
+- `scene_context(sync=false)` after projection.
+
+Do not claim `scene_stats` counts projected `connects` edges unless a later slice adds a `sync`
+flag or an equivalent Python-only stats/query tool.
+
+If implementation discovers that context output is too noisy for review, add a small read-only
+query tool in a follow-up plan:
 
 ```text
 scene_relationship_facts(mode="object_context" | "relationship_scan", ...)
@@ -543,6 +577,8 @@ Required pure tests:
 - Pose separation: same relationship id in two poses creates two distinct projected edges.
 - Revision separation: same relationship id in different revisions remains distinct.
 - Stale projection pruning removes only `projectionKind="relationship_fact_v1"` edges.
+- Scoped projection pruning preserves out-of-scope facts. A call for `poses=["reclined_robot"]`
+  must not delete previously projected `rest_t_pose` facts.
 - Lenient malformed fact handling skips bad facts with diagnostics.
 - Strict malformed fact handling fails the tool.
 - Missing feature endpoint is diagnostic, not a crash in lenient mode.
@@ -560,7 +596,8 @@ Live/manual gate:
 4. Run `scene_context(sync=false)` for a sample member and joint.
 5. Confirm context reports semantic `connects` facts without relying on generic `near` edges.
 6. Re-run projection and confirm idempotent counts.
-7. Confirm no Rhino document mutation occurred.
+7. Do not use `scene_stats` as a v1 acceptance check unless it has gained a no-sync mode.
+8. Confirm no Rhino document mutation occurred.
 
 ## 14. Extension path
 
