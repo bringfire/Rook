@@ -531,6 +531,9 @@ def test_expected_ref_validation(expected_refs):
     "metadata",
     [
         object(),
+        [],
+        "",
+        0,
         {1: "bad"},
         {"bad": object()},
         {"bad": {"nested": object()}},
@@ -539,6 +542,9 @@ def test_expected_ref_validation(expected_refs):
     ],
     ids=[
         "non-mapping",
+        "falsey-list",
+        "falsey-string",
+        "falsey-int",
         "non-string-key",
         "object-value",
         "nested-object",

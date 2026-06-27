@@ -126,7 +126,7 @@ def compile_workflow_contract(contract: RookWorkflowContract) -> CompiledWorkflo
     """Compile a declarative contract into provider-ready workflow scaffold data."""
     workflow_id = _require_non_empty_str(contract.workflow_id, "workflow_id")
     max_steps = _validate_max_steps(contract.max_steps)
-    metadata = _immutable_json_snapshot(contract.metadata or {})
+    metadata = _snapshot_metadata(contract.metadata)
 
     descriptor = _snapshot_descriptor(contract.template.descriptor)
     expected_template_id = _require_non_empty_str(
@@ -192,6 +192,14 @@ def _snapshot_descriptor(descriptor: Any) -> dict[str, str]:
             raise TypeError("WorkflowTemplateRef.descriptor values must be strings")
         snap[key] = value
     return snap
+
+
+def _snapshot_metadata(metadata: Any) -> Mapping[str, Any]:
+    if metadata is None:
+        return _immutable_json_snapshot({})
+    if not isinstance(metadata, Mapping):
+        raise TypeError("RookWorkflowContract.metadata must be a mapping")
+    return _immutable_json_snapshot(metadata)
 
 
 def _immutable_json_snapshot(value: Any) -> Any:
