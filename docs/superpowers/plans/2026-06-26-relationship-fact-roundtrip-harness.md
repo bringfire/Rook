@@ -446,14 +446,24 @@ def _json_from_output(output: str) -> dict[str, Any]:
     return json.loads(output[start : end + 1])
 
 
+def _script_output_from_execute_result(result: dict[str, Any]) -> str:
+    output = result.get("output")
+    if output is None:
+        output = result.get("data", "")
+    if isinstance(output, (dict, list)):
+        output = json.dumps(output)
+    assert isinstance(output, str), f"rhino_execute output/data was not text-like: {result!r}"
+    assert output, f"rhino_execute returned no script output: {result!r}"
+    return output
+
+
 async def _create_smoke_fixture() -> dict[str, Any]:
     from rook.server import _mcp_tool_executor
 
     script = SMOKE_SCRIPT.read_text(encoding="utf-8")
     result = await _mcp_tool_executor("rhino_execute", {"code": script})
     assert not _is_error(result), f"rhino_execute smoke fixture failed: {result!r}"
-    output = result.get("output") or ""
-    fixture = _json_from_output(output)
+    fixture = _json_from_output(_script_output_from_execute_result(result))
     assert fixture["source"] == SOURCE
     assert fixture["revision"] == "smoke001"
     assert fixture["pose"] == "smoke_pose"
