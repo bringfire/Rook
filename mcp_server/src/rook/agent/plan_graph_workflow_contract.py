@@ -7,6 +7,8 @@ run a compiled scaffold.
 
 from __future__ import annotations
 
+import copy
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -120,6 +122,9 @@ class _ImmutableJsonMapping(Mapping):
 
     def __repr__(self) -> str:
         return repr(dict(self._items))
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> dict:
+        return copy.deepcopy(dict(self._items), memo)
 
 
 def compile_workflow_contract(contract: RookWorkflowContract) -> CompiledWorkflowScaffold:
@@ -238,7 +243,9 @@ def _is_sequence(value: Any) -> bool:
 
 
 def _is_json_scalar(value: Any) -> bool:
-    return value is None or isinstance(value, (str, int, float, bool))
+    if isinstance(value, float):
+        return math.isfinite(value)
+    return value is None or isinstance(value, (str, int, bool))
 
 
 def _stage_initial_params(

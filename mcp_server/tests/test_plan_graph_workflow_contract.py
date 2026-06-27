@@ -8,6 +8,7 @@ apply terminal outcomes.
 from __future__ import annotations
 
 import ast
+import copy
 import pathlib
 from collections.abc import Mapping
 
@@ -328,6 +329,7 @@ def test_template_reference_validation(template):
         ((InitialNodeParams("create_script", object()),), TypeError),
         ((InitialNodeParams("create_script", {"nested": {1: "bad"}}),), TypeError),
         ((InitialNodeParams("create_script", {"bad": object()}),), TypeError),
+        ((InitialNodeParams("create_script", {"bad": float("inf")}),), TypeError),
     ],
     ids=[
         "duplicate-node",
@@ -336,6 +338,7 @@ def test_template_reference_validation(template):
         "non-mapping",
         "non-string-nested-key",
         "non-json-value",
+        "non-finite-float",
     ],
 )
 def test_initial_params_validation(initial_params, exc_type):
@@ -419,6 +422,15 @@ def test_initial_params_validation(initial_params, exc_type):
             (
                 WorkflowNodeRule(
                     "repair_same_component",
+                    (BindStepSpec("repair_same_component", {"bad": float("nan")}, {}),),
+                ),
+            ),
+            TypeError,
+        ),
+        (
+            (
+                WorkflowNodeRule(
+                    "repair_same_component",
                     (BindStepSpec("repair_same_component", {}, object()),),
                 ),
             ),
@@ -465,6 +477,7 @@ def test_initial_params_validation(initial_params, exc_type):
         "unknown-verifier-source",
         "invalid-verifier-outcome",
         "bind-base-non-mapping",
+        "bind-base-non-finite-float",
         "bind-bindings-non-mapping",
         "empty-binding-path",
         "non-string-binding-path-element",
@@ -539,6 +552,7 @@ def test_expected_ref_validation(expected_refs):
         {"bad": {"nested": object()}},
         {"bad": {"set"}},
         {"bad": lambda: None},
+        {"bad": float("-inf")},
     ],
     ids=[
         "non-mapping",
@@ -550,11 +564,33 @@ def test_expected_ref_validation(expected_refs):
         "nested-object",
         "set-value",
         "callable-value",
+        "non-finite-float",
     ],
 )
 def test_metadata_validation(metadata):
     with pytest.raises(TypeError):
         compile_workflow_contract(_repair_contract(metadata=metadata))
+
+
+def test_metadata_none_compiles_to_empty_immutable_mapping():
+    scaffold = compile_workflow_contract(_repair_contract(metadata=None))
+
+    assert dict(scaffold.metadata) == {}
+    with pytest.raises(TypeError):
+        scaffold.metadata["late"] = True
+
+
+def test_compiled_metadata_supports_deepcopy_as_plain_dict():
+    scaffold = _compile()
+
+    metadata_copy = copy.deepcopy(scaffold.metadata)
+
+    assert metadata_copy == {
+        "trace_id": "lm4w",
+        "tags": ("contract", "repair"),
+        "nested": {"stage": "compile"},
+    }
+    assert isinstance(metadata_copy, dict)
 
 
 def test_expected_refs_are_assertions_not_overrides():
@@ -578,6 +614,7 @@ def test_workflow_contract_module_stays_compile_only_boundary():
         "collections.abc",
         "copy",
         "dataclasses",
+        "math",
         "types",
         "typing",
         "rook.agent.plan_graph_current_step_provider",
