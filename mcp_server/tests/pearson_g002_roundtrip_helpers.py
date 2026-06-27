@@ -17,6 +17,16 @@ GENERATED_SCRIPT_PATH = (
     / "generated"
     / "skeleton_graph_rhino.py"
 )
+REQUIRED_FIXTURE_SUMMARY = {
+    "success": True,
+    "revision": "g002",
+    "pose_count": 2,
+    "joint_count": 30,
+    "member_count": 28,
+    "feature_count": 86,
+    "relationship_marker_count": 56,
+    "created_count": 200,
+}
 
 STRUCTURED_FACT_FIELDS = (
     "relationship",
@@ -65,6 +75,33 @@ def embedded_graph_from_generated_script(path: Path = GENERATED_SCRIPT_PATH) -> 
         ):
             return json.loads(value.args[0].value)
     raise AssertionError(f"Could not find GRAPH = json.loads(...) in {path}")
+
+
+def json_from_execute_output(output: str) -> dict[str, Any]:
+    start = output.find("{")
+    end = output.rfind("}")
+    assert start >= 0 and end > start, f"rhino_execute output contained no JSON object: {output!r}"
+    return json.loads(output[start : end + 1])
+
+
+def script_output_from_execute_result(result: dict[str, Any]) -> str:
+    output = result.get("output")
+    if output is None:
+        output = result.get("data", "")
+    if isinstance(output, (dict, list)):
+        return json.dumps(output)
+    assert isinstance(output, str), f"rhino_execute output/data was not text-like: {result!r}"
+    assert output, f"rhino_execute returned no script output: {result!r}"
+    return output
+
+
+def assert_fixture_summary(summary: dict[str, Any]) -> None:
+    for key, expected in REQUIRED_FIXTURE_SUMMARY.items():
+        assert summary.get(key) == expected, (
+            f"fixture summary {key}={summary.get(key)!r}, expected {expected!r}; "
+            f"summary={summary!r}"
+        )
+    assert "deleted_count" in summary, f"fixture summary missing deleted_count: {summary!r}"
 
 
 def build_expected_facts(graph: dict[str, Any]) -> list[dict[str, Any]]:

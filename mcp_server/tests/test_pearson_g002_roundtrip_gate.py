@@ -5,11 +5,15 @@ from pathlib import Path
 from .pearson_g002_roundtrip_helpers import (
     GENERATED_SCRIPT_PATH,
     GRAPH_PATH,
+    REQUIRED_FIXTURE_SUMMARY,
+    assert_fixture_summary,
     build_expected_facts,
     embedded_graph_from_generated_script,
+    json_from_execute_output,
     load_assembly_graph,
     pearson_fact_counts_by_pose,
     pearson_mismatch_report,
+    script_output_from_execute_result,
 )
 
 
@@ -92,3 +96,24 @@ def test_pearson_mismatch_report_adds_pose_counts():
     assert report["expectedByPose"] == {"reclined_robot": 1, "rest_t_pose": 2}
     assert report["actualByPose"] == {"reclined_robot": 2, "rest_t_pose": 1}
     assert report["fixtureSummary"] == {"revision": "g002", "created_count": 200}
+
+
+def test_json_from_execute_output_extracts_fixture_summary():
+    output = 'noise before\n{"success": true, "revision": "g002", "created_count": 200}\nnoise after'
+
+    assert json_from_execute_output(output) == {
+        "success": True,
+        "revision": "g002",
+        "created_count": 200,
+    }
+
+
+def test_script_output_from_execute_result_accepts_output_and_data_shapes():
+    assert script_output_from_execute_result({"output": "hello"}) == "hello"
+    assert script_output_from_execute_result({"data": {"success": True}}) == '{"success": true}'
+
+
+def test_assert_fixture_summary_checks_fixed_counts():
+    summary = dict(REQUIRED_FIXTURE_SUMMARY, deleted_count=12)
+
+    assert_fixture_summary(summary)
