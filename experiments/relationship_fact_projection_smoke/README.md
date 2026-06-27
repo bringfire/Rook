@@ -73,5 +73,11 @@ The live test creates the fixture in Rhino, projects `relationship_fact_smoke` t
 `relationship_fact_v1` edge attributes from the same `SceneGraphAnalytics` instance, and checks
 `scene_context(sync=false)` for high-signal relationship evidence.
 
-Pearson `g002` remains a manual follow-up gate. It should not be required for this smoke harness
-to pass.
+The Pearson `g002` scale gate is automated separately as a skippable live test:
+
+```powershell
+python -m pytest -m requires_rhino mcp_server/tests/test_pearson_g002_roundtrip_gate_live.py -q
+```
+
+It remains outside this smoke fixture so the five-object harness stays the smallest closed-loop
+debug target.
