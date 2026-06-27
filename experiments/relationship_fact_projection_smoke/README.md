@@ -59,3 +59,19 @@ Expected context includes:
 connects: ... via smoke_member.start -> smoke_joint.point, point_to_point, accepted, authored_assembly_graph
 connected by: ... via smoke_member.start -> smoke_joint.point, point_to_point, accepted, authored_assembly_graph
 ```
+
+## Round-trip harness
+
+The automated round-trip harness uses this fixture as its canonical live target:
+
+```powershell
+python -m pytest -m requires_rhino mcp_server/tests/test_relationship_fact_roundtrip_live.py -q
+```
+
+The live test creates the fixture in Rhino, projects `relationship_fact_smoke` through
+`project_relationship_facts_for_tool` in the pytest Python process, extracts projected
+`relationship_fact_v1` edge attributes from the same `SceneGraphAnalytics` instance, and checks
+`scene_context(sync=false)` for high-signal relationship evidence.
+
+Pearson `g002` remains a manual follow-up gate. It should not be required for this smoke harness
+to pass.
