@@ -270,11 +270,18 @@ connected by
 point_to_point
 accepted
 authored_assembly_graph
-pearson_robot_skeleton_graph
-g002
-rest_t_pose
-reclined_robot
 ```
+
+The selected feature path strings should also appear, for example:
+
+```text
+spine_base_to_spine_top.start -> spine_base.point
+spine_top_to_left_shoulder.end -> left_shoulder.point
+```
+
+Graph source, graph revision, and pose are structured edge-attribute assertions, not context text
+assertions in this slice. Current relationship-fact context rendering does not emit those fields.
+Adding them to `scene_context` would be a separate context-formatting change with its own tests.
 
 The test may query context by selected owner object ids discovered from projected edges. It should
 avoid depending on runtime Rhino object ids in expected semantic facts.
