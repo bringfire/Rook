@@ -178,7 +178,8 @@ Response shape:
     "requestedObjectCount": 3,
     "existingSelectedObjectCount": 2,
     "missingSelectedObjectCount": 1,
-    "relationshipFactCount": 4
+    "relationshipFactCount": 3,
+    "relationshipViewCount": 4
   },
   "objects": [
     {
@@ -229,6 +230,15 @@ include a directional view of the same underlying fact:
 - edge target selected: `direction == "incoming"`.
 
 This duplication is intentional because the inspector is object-centric.
+
+Count semantics must distinguish unique relationship facts from emitted object-local views:
+
+- `relationshipFactCount` counts unique projected relationship-fact edges that match the filters
+  and touch at least one requested existing object.
+- `relationshipViewCount` counts emitted fact entries across all returned object entries.
+
+When both endpoints of one underlying edge are selected, `relationshipFactCount` increases by `1`
+and `relationshipViewCount` increases by `2`.
 
 ## 7. Missing and empty cases
 
@@ -402,7 +412,8 @@ Pure tests should cover:
 - existing selected objects with no facts are included with `exists: true`;
 - response object order follows first occurrence in input `object_ids`;
 - outgoing and incoming direction are relative to the selected object;
-- selecting both endpoints duplicates the same fact into both object entries;
+- selecting both endpoints duplicates the same fact into both object entries and reports
+  `relationshipFactCount == 1` with `relationshipViewCount == 2`;
 - filters for graph source, revision, pose, relationship type, status, and provenance;
 - empty graph diagnostics distinguish `noProjectedRelationshipFacts` from
   `noFactsForSelectedObjects`.
