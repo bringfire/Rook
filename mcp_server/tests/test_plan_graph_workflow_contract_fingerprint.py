@@ -386,6 +386,21 @@ def test_compile_record_is_deterministic_for_repeated_compiles():
         ),
         (
             lambda: _repair_contract(
+                rules=(
+                    WorkflowNodeRule(
+                        "create_script",
+                        (ProducerStepSpec("create_script"),),
+                    ),
+                    WorkflowNodeRule(
+                        "create_script",
+                        (ProducerStepSpec("create_script"),),
+                    ),
+                )
+            ),
+            ValueError,
+        ),
+        (
+            lambda: _repair_contract(
                 rules=(WorkflowNodeRule("create_script", ()),)
             ),
             ValueError,
@@ -491,6 +506,15 @@ def test_compile_record_is_deterministic_for_repeated_compiles():
             ),
             ValueError,
         ),
+        (
+            lambda: _repair_contract(
+                expected_refs=(
+                    ExpectedNodeRef("create_script", "gh_create_csharp_script:v1"),
+                    ExpectedNodeRef("create_script", "gh_create_csharp_script:v1"),
+                )
+            ),
+            ValueError,
+        ),
     ],
     ids=[
         "empty-workflow-id",
@@ -500,6 +524,7 @@ def test_compile_record_is_deterministic_for_repeated_compiles():
         "max-steps-zero",
         "duplicate-initial-param",
         "empty-rules",
+        "duplicate-rule",
         "empty-step-list",
         "non-step-spec",
         "step-target-mismatch",
@@ -510,6 +535,7 @@ def test_compile_record_is_deterministic_for_repeated_compiles():
         "duplicate-terminal",
         "terminal-rule-overlap",
         "empty-expected-ref",
+        "duplicate-expected-ref",
     ],
 )
 def test_structural_failures_are_rejected_by_snapshot_and_compile(
