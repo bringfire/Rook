@@ -34,13 +34,14 @@ def _bump(diagnostics: dict[str, int], key: str) -> None:
     diagnostics[key] = diagnostics.get(key, 0) + 1
 
 
-def _dedupe_object_ids(object_ids: list[str] | None) -> list[str]:
-    if not object_ids:
-        return []
+def _object_ids_are_valid(object_ids: Any) -> bool:
+    return isinstance(object_ids, list) and all(isinstance(object_id, str) for object_id in object_ids)
+
+
+def _dedupe_object_ids(object_ids: list[str]) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
-    for raw_id in object_ids:
-        object_id = str(raw_id)
+    for object_id in object_ids:
         if object_id in seen:
             continue
         seen.add(object_id)
@@ -167,7 +168,7 @@ def _empty_entry(graph: Any, object_id: str) -> dict[str, Any]:
 def query_semantic_relationships(
     analytics: Any,
     *,
-    object_ids: list[str] | None,
+    object_ids: Any,
     graph_source: str | None = None,
     graph_revision: str | None = None,
     poses: list[str] | None = None,
@@ -176,13 +177,19 @@ def query_semantic_relationships(
     provenance: list[str] | None = None,
     direction: str = "both",
 ) -> dict[str, Any]:
-    selected_ids = _dedupe_object_ids(object_ids)
-    if not selected_ids:
+    if object_ids is None or object_ids == []:
         return {
             "success": False,
             "error": "missing_object_ids",
             "message": "scene_semantic_relationships requires object_ids in v1",
         }
+    if not _object_ids_are_valid(object_ids):
+        return {
+            "success": False,
+            "error": "invalid_object_ids",
+            "message": "scene_semantic_relationships requires object_ids to be a list of strings in v1",
+        }
+    selected_ids = _dedupe_object_ids(object_ids)
     if direction not in VALID_DIRECTIONS:
         return {
             "success": False,

@@ -53,6 +53,17 @@ def test_missing_object_ids_is_validation_failure():
     }
 
 
+@pytest.mark.parametrize("bad_object_ids", ["member-id", ("member-id",), ["member-id", 123]])
+def test_invalid_object_ids_shape_is_validation_failure(bad_object_ids):
+    result = query_semantic_relationships(_scene_graph(), object_ids=bad_object_ids)
+
+    assert result == {
+        "success": False,
+        "error": "invalid_object_ids",
+        "message": "scene_semantic_relationships requires object_ids to be a list of strings in v1",
+    }
+
+
 def test_invalid_direction_is_validation_failure():
     result = query_semantic_relationships(_scene_graph(), object_ids=["member-id"], direction="sideways")
 

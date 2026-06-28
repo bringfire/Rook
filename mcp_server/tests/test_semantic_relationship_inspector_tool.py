@@ -94,6 +94,21 @@ async def test_local_scene_semantic_relationships_dispatch_uses_current_mirror_w
 
 
 @pytest.mark.asyncio
+async def test_local_scene_semantic_relationships_rejects_bare_string_object_ids(monkeypatch):
+    monkeypatch.setattr("rook.scene.scene_graph.get_scene_graph", lambda: _scene_graph())
+
+    from rook.agent.tool_dispatcher import build_local_tools
+
+    result = await build_local_tools()["scene_semantic_relationships"](object_ids="member-id")
+
+    assert result == {
+        "success": False,
+        "error": "invalid_object_ids",
+        "message": "scene_semantic_relationships requires object_ids to be a list of strings in v1",
+    }
+
+
+@pytest.mark.asyncio
 async def test_server_dispatch_scene_semantic_relationships_does_not_sync(monkeypatch):
     sg = _scene_graph()
     called = {"sync": 0}
@@ -113,3 +128,21 @@ async def test_server_dispatch_scene_semantic_relationships_does_not_sync(monkey
     assert result["data"]["counts"]["relationshipFactCount"] == 1
     assert result["data"]["objects"][0]["facts"][0]["direction"] == "incoming"
     assert called["sync"] == 0
+
+
+@pytest.mark.asyncio
+async def test_server_dispatch_scene_semantic_relationships_rejects_bare_string_object_ids(monkeypatch):
+    monkeypatch.setattr("rook.scene.scene_graph.get_scene_graph", lambda: _scene_graph())
+
+    from rook.server import _call_tool_dispatch
+
+    result = await _call_tool_dispatch("scene_semantic_relationships", {"object_ids": "member-id"})
+
+    assert result == {
+        "success": False,
+        "data": {
+            "success": False,
+            "error": "invalid_object_ids",
+            "message": "scene_semantic_relationships requires object_ids to be a list of strings in v1",
+        },
+    }
