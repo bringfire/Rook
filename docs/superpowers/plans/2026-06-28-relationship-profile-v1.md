@@ -302,6 +302,31 @@ def test_missing_project_profile_inside_existing_root_succeeds(tmp_path):
     assert "supports" in result["profile"]["relationships"]
 
 
+def test_omitted_project_root_does_not_read_process_cwd(monkeypatch, tmp_path):
+    _write_project_profile(
+        tmp_path,
+        {
+            "schema": PROFILE_SCHEMA,
+            "relationships": {
+                "supports": {"label": "cwd should not be used"}
+            },
+        },
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = resolve_relationship_profile()
+
+    assert result["success"] is True
+    assert result["projectProfileLoaded"] is False
+    assert result["profileSources"][1] == {
+        "kind": "project",
+        "path": None,
+        "loaded": False,
+        "reason": "project_root_not_supplied",
+    }
+    assert result["profile"]["relationships"]["supports"]["label"] == "supports"
+
+
 def test_project_profile_shallow_overrides_and_extends_defaults(tmp_path):
     profile_path = _write_project_profile(
         tmp_path,
@@ -788,7 +813,7 @@ python -m pytest mcp_server/tests/test_relationship_profile.py -q
 Expected:
 
 ```text
-9 passed
+10 passed
 ```
 
 - [ ] **Step 3: Commit resolver checkpoint**
@@ -1188,6 +1213,25 @@ async def test_local_scene_relationship_profile_returns_defaults():
 
 
 @pytest.mark.asyncio
+async def test_server_dispatch_scene_relationship_profile_returns_defaults_without_project_root():
+    from rook.server import _call_tool_dispatch
+
+    result = await _call_tool_dispatch("scene_relationship_profile", {})
+
+    assert result["success"] is True
+    payload = result["data"]
+    assert payload["success"] is True
+    assert payload["projectProfileLoaded"] is False
+    assert payload["profileSources"][1] == {
+        "kind": "project",
+        "path": None,
+        "loaded": False,
+        "reason": "project_root_not_supplied",
+    }
+    assert "supports" in payload["profile"]["relationships"]
+
+
+@pytest.mark.asyncio
 async def test_server_dispatch_scene_relationship_profile_rejects_relative_project_root():
     from rook.server import _call_tool_dispatch
 
@@ -1368,7 +1412,7 @@ python -m pytest mcp_server/tests/test_relationship_profile_tool.py mcp_server/t
 Expected:
 
 ```text
-15 passed
+16 passed
 ```
 
 - [ ] **Step 7: Commit tool surface checkpoint**
@@ -1397,7 +1441,7 @@ python -m pytest mcp_server/tests/test_relationship_profile.py -q
 Expected:
 
 ```text
-9 passed
+10 passed
 ```
 
 - [ ] **Step 2: Run profile/card tool tests**
@@ -1411,7 +1455,7 @@ python -m pytest mcp_server/tests/test_relationship_profile_tool.py mcp_server/t
 Expected:
 
 ```text
-33 passed
+34 passed
 ```
 
 - [ ] **Step 3: Run semantic/projector guard tests**
