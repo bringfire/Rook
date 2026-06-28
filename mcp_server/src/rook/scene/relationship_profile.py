@@ -216,7 +216,13 @@ def relationship_profile(profile_result: dict[str, Any], relationship: Any) -> d
     relationships = profile.get("relationships", {}) if isinstance(profile, dict) else {}
     entry = relationships.get(key)
     if isinstance(entry, dict):
-        return copy.deepcopy(entry)
+        result = copy.deepcopy(entry)
+        result.setdefault("key", key)
+        result.setdefault("label", key)
+        result.setdefault("inverse", "connected by")
+        result.setdefault("category", "unknown")
+        result.setdefault("source", "profile")
+        return result
     return {
         "key": key,
         "label": key,
@@ -232,5 +238,10 @@ def contact_kind_profile(profile_result: dict[str, Any], contact_kind: Any) -> d
     contact_kinds = profile.get("contactKinds", {}) if isinstance(profile, dict) else {}
     entry = contact_kinds.get(key)
     if isinstance(entry, dict):
-        return copy.deepcopy(entry)
+        result = copy.deepcopy(entry)
+        result.setdefault("key", key)
+        result.setdefault("label", key)
+        result.setdefault("category", "unknown")
+        result.setdefault("source", "profile")
+        return result
     return {"key": key, "label": key, "category": "unknown", "source": "fallback"}

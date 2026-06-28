@@ -192,6 +192,43 @@ def test_project_profile_shallow_overrides_and_extends_defaults(tmp_path):
     assert result["profile"]["metadata"]["project"] == "fixture"
 
 
+def test_sparse_project_entries_get_lookup_fallback_fields(tmp_path):
+    _write_project_profile(
+        tmp_path,
+        {
+            "schema": PROFILE_SCHEMA,
+            "relationships": {
+                "aligns_with": {"description": "Project-specific relationship without labels"}
+            },
+            "contactKinds": {
+                "edge_to_slot": {"description": "Project-specific contact without labels"}
+            },
+        },
+    )
+
+    result = resolve_relationship_profile(project_root=str(tmp_path))
+
+    assert result["success"] is True
+    assert result["profile"]["relationships"]["aligns_with"]["description"] == (
+        "Project-specific relationship without labels"
+    )
+    assert relationship_profile(result, "aligns_with") == {
+        "key": "aligns_with",
+        "label": "aligns_with",
+        "inverse": "connected by",
+        "category": "unknown",
+        "source": "project",
+        "description": "Project-specific relationship without labels",
+    }
+    assert contact_kind_profile(result, "edge_to_slot") == {
+        "key": "edge_to_slot",
+        "label": "edge_to_slot",
+        "category": "unknown",
+        "source": "project",
+        "description": "Project-specific contact without labels",
+    }
+
+
 def test_invalid_project_profile_schema_fails(tmp_path):
     _write_project_profile(tmp_path, {"schema": "wrong.schema", "relationships": {}})
 
