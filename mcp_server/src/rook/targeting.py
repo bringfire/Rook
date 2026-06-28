@@ -555,6 +555,7 @@ _ALL_KNOWN_TOOLS = {
     "scene_project_relationship_facts",
     "scene_query",
     "scene_refine_containment",
+    "scene_relationship_profile",
     "scene_semantic_relationships",
     "scene_stats",
     "session_current",
@@ -613,6 +614,7 @@ _RHINO_INDEPENDENT_READ_TOOLS = {
     "rhino_learning_progress",
     "script_library_search",
     "scene_object_semantic_context",
+    "scene_relationship_profile",
     "scene_semantic_relationships",
 }
 

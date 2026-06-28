@@ -45,6 +45,8 @@ async def test_server_tool_schema_exposes_scene_object_semantic_context_paramete
     assert schema["properties"]["direction"]["enum"] == ["both", "outgoing", "incoming"]
     assert schema["properties"]["max_groups"]["type"] == "integer"
     assert schema["properties"]["max_facts_per_group"]["type"] == "integer"
+    assert schema["properties"]["project_root"]["type"] == "string"
+    assert "project_root" not in schema["required"]
     assert "sync" not in schema["properties"]
     assert "project_first" not in schema["properties"]
     assert "port" not in schema["properties"]
@@ -162,3 +164,30 @@ async def test_server_dispatch_scene_object_semantic_context_rejects_bad_bounds(
             "message": "max_groups and max_facts_per_group must be positive integers in v1",
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_server_dispatch_scene_object_semantic_context_passes_project_root(monkeypatch, tmp_path):
+    sg = _scene_graph()
+    seen = {}
+
+    def fake_query(analytics, **kwargs):
+        assert analytics is sg
+        seen.update(kwargs)
+        return {"success": True, "counts": {}, "cards": [], "diagnostics": {}}
+
+    monkeypatch.setattr("rook.scene.scene_graph.get_scene_graph", lambda: sg)
+    monkeypatch.setattr(
+        "rook.scene.object_semantic_context.query_object_semantic_context",
+        fake_query,
+    )
+
+    from rook.server import _call_tool_dispatch
+
+    result = await _call_tool_dispatch(
+        "scene_object_semantic_context",
+        {"object_ids": ["member-id"], "project_root": str(tmp_path)},
+    )
+
+    assert result["success"] is True
+    assert seen["project_root"] == str(tmp_path)

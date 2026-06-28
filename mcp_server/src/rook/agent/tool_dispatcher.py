@@ -1409,6 +1409,20 @@ def build_local_tools() -> Dict[str, Any]:
     except ImportError:
         logger.debug("scene_semantic_relationships local tool unavailable (import failed)")
 
+    # --- scene_relationship_profile (Python-side relationship vocabulary profile) ---
+    try:
+        from ..scene.relationship_profile import resolve_relationship_profile
+
+        async def _scene_relationship_profile(
+            project_root=None,
+            **kwargs,
+        ) -> dict:
+            return resolve_relationship_profile(project_root=project_root)
+
+        tools["scene_relationship_profile"] = _scene_relationship_profile
+    except ImportError:
+        logger.debug("scene_relationship_profile local tool unavailable (import failed)")
+
     # --- scene_object_semantic_context (Python-side semantic context cards) ---
     try:
         from ..scene.object_semantic_context import query_object_semantic_context
@@ -1425,6 +1439,7 @@ def build_local_tools() -> Dict[str, Any]:
             direction="both",
             max_groups=None,
             max_facts_per_group=None,
+            project_root=None,
             **kwargs,
         ) -> dict:
             return query_object_semantic_context(
@@ -1439,6 +1454,7 @@ def build_local_tools() -> Dict[str, Any]:
                 direction=direction,
                 max_groups=max_groups,
                 max_facts_per_group=max_facts_per_group,
+                project_root=project_root,
             )
 
         tools["scene_object_semantic_context"] = _scene_object_semantic_context

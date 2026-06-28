@@ -11685,6 +11685,22 @@ Reads only relationship_fact_v1 edges from the current in-memory Python scene gr
             },
         ),
         Tool(
+            name="scene_relationship_profile",
+            description="""Read the active relationship vocabulary profile.
+
+Returns the built-in default profile unless project_root is supplied. If project_root is supplied, it must be an absolute existing directory and may contain .rook/relationship_profile.json as an opt-in project override. Does not sync, mutate Rhino, infer relationships, or read process cwd.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Optional absolute project root containing .rook/relationship_profile.json",
+                    },
+                },
+                "required": [],
+            },
+        ),
+        Tool(
             name="scene_object_semantic_context",
             description="""Build compact semantic context cards for selected scene objects.
 
@@ -11731,6 +11747,10 @@ Reads only already-projected relationship_fact_v1 edges from the current in-memo
                     "max_facts_per_group": {
                         "type": "integer",
                         "description": "Maximum sample facts per group. Must be a positive integer.",
+                    },
+                    "project_root": {
+                        "type": "string",
+                        "description": "Optional absolute project root containing .rook/relationship_profile.json for additive card labels/categories.",
                     },
                 },
                 "required": ["object_ids"],
@@ -20186,6 +20206,15 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             else:
                 result = {"success": True, "data": payload}
 
+        case "scene_relationship_profile":
+            from .scene.relationship_profile import resolve_relationship_profile
+
+            payload = resolve_relationship_profile(project_root=arguments.get("project_root"))
+            if payload.get("success") is False:
+                result = {"success": False, "data": payload}
+            else:
+                result = {"success": True, "data": payload}
+
         case "scene_object_semantic_context":
             from .scene.object_semantic_context import query_object_semantic_context
             from .scene.scene_graph import get_scene_graph
@@ -20202,6 +20231,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 direction=arguments.get("direction", "both"),
                 max_groups=arguments.get("max_groups"),
                 max_facts_per_group=arguments.get("max_facts_per_group"),
+                project_root=arguments.get("project_root"),
             )
             if payload.get("success") is False:
                 result = {"success": False, "data": payload}
