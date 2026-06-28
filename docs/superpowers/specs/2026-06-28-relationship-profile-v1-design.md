@@ -103,10 +103,12 @@ Rules:
 
 - `project_root` is optional.
 - If supplied, `project_root` must be an absolute path.
+- If supplied, `project_root` must exist and must be a directory.
 - No process-cwd fallback.
 - No upward directory walking.
 - No writes.
-- Missing project profile is success with `projectProfileLoaded: false`.
+- Missing project profile inside an existing project root is success with
+  `projectProfileLoaded: false`.
 - Present but invalid project profile is `success: false` with diagnostics.
 - The response includes `profileSources` so agents can tell whether they are using defaults only or
   project-specific vocabulary.
@@ -318,6 +320,17 @@ Invalid absolute path/project profile examples:
 ```json
 {
   "success": false,
+  "error": "invalid_project_root",
+  "message": "project_root must exist and be a directory in v1",
+  "diagnostics": {
+    "missingProjectRoot": 1
+  }
+}
+```
+
+```json
+{
+  "success": false,
   "error": "invalid_relationship_profile",
   "message": "Project relationship profile is invalid",
   "diagnostics": {
@@ -435,6 +448,7 @@ Pure profile tests:
 - loads built-in default profile;
 - rejects missing/invalid schema;
 - rejects non-absolute `project_root`;
+- rejects nonexistent or non-directory `project_root`;
 - missing project file succeeds with `projectProfileLoaded: false`;
 - valid project file extends relationships/contact kinds/object kinds;
 - valid project file shallow-overrides one field while preserving other built-in fields;
