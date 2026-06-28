@@ -52,9 +52,9 @@ def color_for_side(side):
     return [255, 214, 80]
 
 
-def member_side(member, nodes_by_id):
-    from_side = nodes_by_id[member["from"]]["side"]
-    to_side = nodes_by_id[member["to"]]["side"]
+def member_side(member, objects_by_id):
+    from_side = objects_by_id[member["from_object_id"]]["side"]
+    to_side = objects_by_id[member["to_object_id"]]["side"]
     if from_side == to_side:
         return from_side
     if to_side in ("left", "right"):
@@ -124,9 +124,10 @@ def add_joint(pose_id, node, position, offset, layer_path, radius, feature_ids, 
         "rook.graph.source": SOURCE,
         "rook.graph.kind": "assembly_graph",
         "rook.graph.revision": GRAPH["revision"],
-        "rook.graph.visual_type": "joint",
+        "rook.graph.visual_type": "object",
         "rook.graph.pose": pose_id,
-        "rook.graph.node_id": node["id"],
+        "rook.graph.object_id": node["object_id"],
+        "rook.graph.object_kind": node["object_kind"],
         "rook.graph.role": node["role"],
         "rook.graph.side": node["side"],
         "rook.graph.domain_aliases": ",".join(node.get("domain_aliases", [])),
@@ -139,7 +140,7 @@ def add_joint(pose_id, node, position, offset, layer_path, radius, feature_ids, 
     object_id = sc.doc.Objects.AddBrep(
         sphere,
         attrs(
-            "joint_{}_{}".format(pose_id, node["id"]),
+            "joint_{}_{}".format(pose_id, node["object_id"]),
             layer_path,
             color,
             user_strings,
@@ -148,10 +149,10 @@ def add_joint(pose_id, node, position, offset, layer_path, radius, feature_ids, 
     return str(object_id)
 
 
-def add_member(pose_id, member, node_positions, nodes_by_id, offset, layer_path, feature_ids, relationship_ids):
-    start = node_positions[member["from"]]
-    end = node_positions[member["to"]]
-    side = member_side(member, nodes_by_id)
+def add_member(pose_id, member, node_positions, objects_by_id, offset, layer_path, feature_ids, relationship_ids):
+    start = node_positions[member["from_object_id"]]
+    end = node_positions[member["to_object_id"]]
+    side = member_side(member, objects_by_id)
     color = color_for_side(side)
     start_point = shifted_point(start, offset)
     end_point = shifted_point(end, offset)
@@ -161,11 +162,12 @@ def add_member(pose_id, member, node_positions, nodes_by_id, offset, layer_path,
         "rook.graph.source": SOURCE,
         "rook.graph.kind": "assembly_graph",
         "rook.graph.revision": GRAPH["revision"],
-        "rook.graph.visual_type": "member",
+        "rook.graph.visual_type": "object",
         "rook.graph.pose": pose_id,
-        "rook.graph.member_id": member["id"],
-        "rook.graph.from": member["from"],
-        "rook.graph.to": member["to"],
+        "rook.graph.object_id": member["object_id"],
+        "rook.graph.object_kind": member["object_kind"],
+        "rook.graph.from_object_id": member["from_object_id"],
+        "rook.graph.to_object_id": member["to_object_id"],
         "rook.graph.role": member["role"],
         "rook.graph.member_type": member["member_type"],
         "rook.graph.length_m": round(length, 4),
@@ -179,7 +181,7 @@ def add_member(pose_id, member, node_positions, nodes_by_id, offset, layer_path,
     object_id = sc.doc.Objects.AddCurve(
         line,
         attrs(
-            "member_{}_{}".format(pose_id, member["id"]),
+            "member_{}_{}".format(pose_id, member["object_id"]),
             layer_path,
             color,
             user_strings,
@@ -189,26 +191,26 @@ def add_member(pose_id, member, node_positions, nodes_by_id, offset, layer_path,
 
 
 def feature_position(feature, node_positions, members_by_id):
-    owner = feature["owner"]
-    if feature["owner_kind"] == "node":
+    owner = feature["owner_id"]
+    if feature["owner_kind"] == "joint":
         return node_positions[owner]
     member = members_by_id[owner]
-    if feature["id"].endswith(".start"):
-        return node_positions[member["from"]]
-    if feature["id"].endswith(".end"):
-        return node_positions[member["to"]]
-    raise ValueError("Unsupported member feature id: {}".format(feature["id"]))
+    if feature["feature_id"].endswith(".start"):
+        return node_positions[member["from_object_id"]]
+    if feature["feature_id"].endswith(".end"):
+        return node_positions[member["to_object_id"]]
+    raise ValueError("Unsupported member feature id: {}".format(feature["feature_id"]))
 
 
 def add_feature_marker(pose_id, feature, node_positions, members_by_id, offset, layer_path, radius, visual_lift):
     position = feature_position(feature, node_positions, members_by_id)
-    color = [245, 245, 245] if feature["owner_kind"] == "node" else [140, 180, 255]
+    color = [245, 245, 245] if feature["owner_kind"] == "joint" else [140, 180, 255]
     point = shifted_point(lifted_position(position, visual_lift), offset)
     sphere = Rhino.Geometry.Sphere(point, radius).ToBrep()
     object_id = sc.doc.Objects.AddBrep(
         sphere,
         attrs(
-            "feature_{}_{}".format(pose_id, feature["id"].replace(".", "_")),
+            "feature_{}_{}".format(pose_id, feature["feature_id"].replace(".", "_")),
             layer_path,
             color,
             {
@@ -217,10 +219,10 @@ def add_feature_marker(pose_id, feature, node_positions, members_by_id, offset, 
                 "rook.graph.revision": GRAPH["revision"],
                 "rook.graph.visual_type": "feature",
                 "rook.graph.pose": pose_id,
-                "rook.graph.feature_id": feature["id"],
-                "rook.graph.owner": feature["owner"],
+                "rook.graph.feature_id": feature["feature_id"],
+                "rook.graph.owner_id": feature["owner_id"],
                 "rook.graph.owner_kind": feature["owner_kind"],
-                "rook.graph.feature_kind": feature["kind"],
+                "rook.graph.feature_kind": feature["feature_kind"],
                 "rook.graph.role": feature["role"],
                 "rook.graph.true_position_m": json_string(position),
                 "rook.graph.visual_lift_m": visual_lift,
@@ -231,18 +233,18 @@ def add_feature_marker(pose_id, feature, node_positions, members_by_id, offset, 
 
 
 def relationship_tick_points(relationship, features_by_id, node_positions, members_by_id, tick_length):
-    from_feature = features_by_id[relationship["from"]]
-    to_feature = features_by_id[relationship["to"]]
+    from_feature = features_by_id[relationship["from_feature"]]
+    to_feature = features_by_id[relationship["to_feature"]]
     start = feature_position(from_feature, node_positions, members_by_id)
     end = feature_position(to_feature, node_positions, members_by_id)
     if distance(start, end) > 0.0001:
         return start, end
 
     if from_feature["owner_kind"] == "member":
-        member = members_by_id[from_feature["owner"]]
-        member_start = node_positions[member["from"]]
-        member_end = node_positions[member["to"]]
-        if from_feature["id"].endswith(".start"):
+        member = members_by_id[from_feature["owner_id"]]
+        member_start = node_positions[member["from_object_id"]]
+        member_end = node_positions[member["to_object_id"]]
+        if from_feature["feature_id"].endswith(".start"):
             direction = unit_vector(member_start, member_end)
         else:
             direction = unit_vector(member_end, member_start)
@@ -252,8 +254,8 @@ def relationship_tick_points(relationship, features_by_id, node_positions, membe
 
 
 def add_relationship_marker(pose_id, relationship, features_by_id, node_positions, members_by_id, offset, layer_path, tick_length, visual_lift):
-    from_feature = features_by_id[relationship["from"]]
-    to_feature = features_by_id[relationship["to"]]
+    from_feature = features_by_id[relationship["from_feature"]]
+    to_feature = features_by_id[relationship["to_feature"]]
     from_feature_position = feature_position(from_feature, node_positions, members_by_id)
     to_feature_position = feature_position(to_feature, node_positions, members_by_id)
     start, end = relationship_tick_points(relationship, features_by_id, node_positions, members_by_id, tick_length)
@@ -263,7 +265,7 @@ def add_relationship_marker(pose_id, relationship, features_by_id, node_position
     object_id = sc.doc.Objects.AddCurve(
         line,
         attrs(
-            "relationship_{}_{}".format(pose_id, relationship["id"]),
+            "relationship_{}_{}".format(pose_id, relationship["relationship_id"]),
             layer_path,
             [255, 255, 255],
             {
@@ -272,10 +274,10 @@ def add_relationship_marker(pose_id, relationship, features_by_id, node_position
                 "rook.graph.revision": GRAPH["revision"],
                 "rook.graph.visual_type": "relationship",
                 "rook.graph.pose": pose_id,
-                "rook.graph.relationship_id": relationship["id"],
-                "rook.graph.relationship_type": relationship["type"],
-                "rook.graph.from_feature": relationship["from"],
-                "rook.graph.to_feature": relationship["to"],
+                "rook.graph.relationship_id": relationship["relationship_id"],
+                "rook.graph.relationship_type": relationship["relationship_type"],
+                "rook.graph.from_feature": relationship["from_feature"],
+                "rook.graph.to_feature": relationship["to_feature"],
                 "rook.graph.contact_kind": relationship["contact_kind"],
                 "rook.graph.provenance": relationship["provenance"],
                 "rook.graph.from_feature_position_m": json_string(from_feature_position),
@@ -319,9 +321,11 @@ def main():
     root_layer = "Pearson Robot Skeleton Graph"
     ensure_layer(root_layer)
 
-    nodes_by_id = {node["id"]: node for node in GRAPH["nodes"]}
-    members_by_id = {member["id"]: member for member in GRAPH["members"]}
-    features_by_id = {feature["id"]: feature for feature in GRAPH.get("features", [])}
+    objects_by_id = {obj["object_id"]: obj for obj in GRAPH["objects"]}
+    joint_objects = [obj for obj in GRAPH["objects"] if obj["object_kind"] == "joint"]
+    member_objects = [obj for obj in GRAPH["objects"] if obj["object_kind"] == "member"]
+    members_by_id = {member["object_id"]: member for member in member_objects}
+    features_by_id = {feature["feature_id"]: feature for feature in GRAPH.get("features", [])}
     pose_offsets = GRAPH["visualization"]["pose_offsets"]
     joint_radius = GRAPH["visualization"]["joint_radius"]
     feature_radius = GRAPH["visualization"].get("feature_radius", joint_radius * 0.45)
@@ -335,39 +339,39 @@ def main():
     features_by_owner = {}
     relationships_by_owner = {}
     for feature in GRAPH.get("features", []):
-        features_by_owner.setdefault(feature["owner"], []).append(feature["id"])
+        features_by_owner.setdefault(feature["owner_id"], []).append(feature["feature_id"])
     for relationship in GRAPH.get("relationships", []):
-        for feature_id in (relationship["from"], relationship["to"]):
+        for feature_id in (relationship["from_feature"], relationship["to_feature"]):
             feature = features_by_id[feature_id]
-            relationships_by_owner.setdefault(feature["owner"], []).append(relationship["id"])
+            relationships_by_owner.setdefault(feature["owner_id"], []).append(relationship["relationship_id"])
 
     for pose_id, pose in GRAPH["poses"].items():
         layer_name = "01 Rest T-Pose" if pose_id == "rest_t_pose" else "02 Reclined Pose"
         layer_path = root_layer + "::" + layer_name
         semantic_layer_path = layer_path + "::Feature Relationships"
         offset = pose_offsets[pose_id]
-        node_positions = pose["nodes"]
-        for node in GRAPH["nodes"]:
+        node_positions = pose["object_positions"]
+        for node in joint_objects:
             created_joints.append(add_joint(
                 pose_id,
                 node,
-                node_positions[node["id"]],
+                node_positions[node["object_id"]],
                 offset,
                 layer_path,
                 joint_radius,
-                features_by_owner.get(node["id"], []),
-                relationships_by_owner.get(node["id"], []),
+                features_by_owner.get(node["object_id"], []),
+                relationships_by_owner.get(node["object_id"], []),
             ))
-        for member in GRAPH["members"]:
+        for member in member_objects:
             created_members.append(add_member(
                 pose_id,
                 member,
                 node_positions,
-                nodes_by_id,
+                objects_by_id,
                 offset,
                 layer_path,
-                features_by_owner.get(member["id"], []),
-                relationships_by_owner.get(member["id"], []),
+                features_by_owner.get(member["object_id"], []),
+                relationships_by_owner.get(member["object_id"], []),
             ))
         for feature in GRAPH.get("features", []):
             created_features.append(add_feature_marker(

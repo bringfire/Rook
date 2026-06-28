@@ -112,9 +112,9 @@ def build_expected_facts(graph: dict[str, Any]) -> list[dict[str, Any]]:
         for relationship in graph["relationships"]:
             expected.append(
                 {
-                    "relationship": relationship["type"],
-                    "fromFeature": relationship["from"],
-                    "toFeature": relationship["to"],
+                    "relationship": relationship["relationship_type"],
+                    "fromFeature": relationship["from_feature"],
+                    "toFeature": relationship["to_feature"],
                     "contactKind": relationship["contact_kind"],
                     "provenance": relationship["provenance"],
                     "status": relationship.get("status", "accepted"),

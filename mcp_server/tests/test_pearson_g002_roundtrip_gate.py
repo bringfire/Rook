@@ -59,14 +59,22 @@ def test_generated_pearson_fixture_payload_matches_assembly_graph():
 
     assert embedded_graph["revision"] == assembly_graph["revision"] == "g002"
     assert set(embedded_graph["poses"]) == set(assembly_graph["poses"])
-    assert len(embedded_graph["nodes"]) == len(assembly_graph["nodes"]) == 15
-    assert len(embedded_graph["members"]) == len(assembly_graph["members"]) == 14
+    embedded_objects_by_kind = {
+        kind: [obj for obj in embedded_graph["objects"] if obj["object_kind"] == kind]
+        for kind in {"joint", "member"}
+    }
+    assembly_objects_by_kind = {
+        kind: [obj for obj in assembly_graph["objects"] if obj["object_kind"] == kind]
+        for kind in {"joint", "member"}
+    }
+    assert len(embedded_objects_by_kind["joint"]) == len(assembly_objects_by_kind["joint"]) == 15
+    assert len(embedded_objects_by_kind["member"]) == len(assembly_objects_by_kind["member"]) == 14
     assert len(embedded_graph["features"]) == len(assembly_graph["features"]) == 43
     assert len(embedded_graph["relationships"]) == len(assembly_graph["relationships"]) == 28
     assert {
-        relationship["id"] for relationship in embedded_graph["relationships"]
+        relationship["relationship_id"] for relationship in embedded_graph["relationships"]
     } == {
-        relationship["id"] for relationship in assembly_graph["relationships"]
+        relationship["relationship_id"] for relationship in assembly_graph["relationships"]
     }
 
 
