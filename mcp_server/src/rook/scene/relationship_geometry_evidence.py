@@ -4,12 +4,15 @@ import json
 import math
 from typing import Any
 
+from ..bridge import call_rhino
+
 
 PROJECTION_KIND = "relationship_fact_v1"
 EVIDENCE_KIND = "relationship_geometry_evidence_v1"
 EVIDENCE_METHOD = "feature_marker_position_distance"
 EVIDENCE_SOURCE = "rhino_user_text_feature_positions"
 DEFAULT_TOLERANCE_M = 0.01
+USER_TEXT_OBJECT_GET_ROUTE = "/usertext/object-get"
 
 
 def _bump(diagnostics: dict[str, int], key: str) -> None:
@@ -275,6 +278,92 @@ def _response(
     }
 
 
+def _matching_records(
+    analytics: Any,
+    *,
+    object_ids: list[str] | None,
+    graph_source: str | None,
+    graph_revision: str | None,
+    poses: list[str] | None,
+    relationship_types: list[str] | None,
+    relationship_fact_ids: list[str] | None,
+    diagnostics: dict[str, int],
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for source_id, target_id, _key, attrs in _projected_edges(analytics.graph):
+        if not _matches_filters(
+            source_id,
+            target_id,
+            attrs,
+            object_ids=object_ids,
+            graph_source=graph_source,
+            graph_revision=graph_revision,
+            poses=poses,
+            relationship_types=relationship_types,
+            relationship_fact_ids=relationship_fact_ids,
+            diagnostics=diagnostics,
+        ):
+            continue
+        records.append(_base_record(source_id, target_id, attrs))
+    return records
+
+
+def _feature_object_ids_for_records(records: list[dict[str, Any]]) -> list[str]:
+    seen: set[str] = set()
+    feature_object_ids: list[str] = []
+    for record in records:
+        for key in ("fromFeatureObjectId", "toFeatureObjectId"):
+            value = record.get(key)
+            if not value:
+                continue
+            object_id = str(value)
+            if object_id in seen:
+                continue
+            seen.add(object_id)
+            feature_object_ids.append(object_id)
+    return feature_object_ids
+
+
+def _response_route_failed(response: dict[str, Any]) -> bool:
+    if not response.get("success"):
+        return True
+    return not isinstance(response.get("data"), dict)
+
+
+def _extract_user_strings(response: dict[str, Any]) -> dict[str, Any] | None:
+    data = response.get("data")
+    if not isinstance(data, dict):
+        return None
+    user_strings = data.get("userStrings")
+    return user_strings if isinstance(user_strings, dict) else None
+
+
+async def _hydrate_feature_user_strings(
+    feature_object_ids: list[str],
+    *,
+    port: int | None = None,
+) -> tuple[dict[str, dict[str, Any] | None], dict[str, int], bool]:
+    user_strings_by_id: dict[str, dict[str, Any] | None] = {}
+    diagnostics: dict[str, int] = {}
+    failures = 0
+    for object_id in feature_object_ids:
+        try:
+            response = await call_rhino(USER_TEXT_OBJECT_GET_ROUTE, "POST", {"id": object_id}, port=port)
+        except Exception:
+            failures += 1
+            _bump(diagnostics, "hydrationFailures")
+            user_strings_by_id[object_id] = None
+            continue
+        if _response_route_failed(response):
+            failures += 1
+            _bump(diagnostics, "hydrationFailures")
+            user_strings_by_id[object_id] = None
+            continue
+        user_strings_by_id[object_id] = _extract_user_strings(response)
+    all_failed = bool(feature_object_ids) and failures == len(feature_object_ids)
+    return user_strings_by_id, diagnostics, all_failed
+
+
 def query_relationship_evidence(
     analytics: Any,
     *,
@@ -305,29 +394,23 @@ def query_relationship_evidence(
         diagnostics["noProjectedRelationshipFacts"] = 1
         return _empty_response(diagnostics)
 
-    records: list[dict[str, Any]] = []
-    for source_id, target_id, _key, attrs in projected_edges:
-        if not _matches_filters(
-            source_id,
-            target_id,
-            attrs,
-            object_ids=object_ids,
-            graph_source=graph_source,
-            graph_revision=graph_revision,
-            poses=poses,
-            relationship_types=relationship_types,
-            relationship_fact_ids=relationship_fact_ids,
-            diagnostics=diagnostics,
-        ):
-            continue
-        record = _base_record(source_id, target_id, attrs)
+    records = _matching_records(
+        analytics,
+        object_ids=object_ids,
+        graph_source=graph_source,
+        graph_revision=graph_revision,
+        poses=poses,
+        relationship_types=relationship_types,
+        relationship_fact_ids=relationship_fact_ids,
+        diagnostics=diagnostics,
+    )
+    for record in records:
         record["evidence"] = _evidence_for_record(
             record,
             feature_user_strings_by_id=feature_user_strings_by_id or {},
             tolerance_m=float(tolerance_m),
             diagnostics=diagnostics,
         )
-        records.append(record)
 
     if not records:
         diagnostics["noMatchingRelationshipFacts"] = 1
@@ -337,3 +420,78 @@ def query_relationship_evidence(
         [value for value in (feature_user_strings_by_id or {}).values() if value is not None]
     )
     return _response(records, diagnostics, hydrated_feature_object_count=hydrated_feature_object_count)
+
+
+async def query_relationship_evidence_for_tool(
+    *,
+    analytics: Any | None = None,
+    object_ids: Any = None,
+    graph_source: str | None = None,
+    graph_revision: str | None = None,
+    poses: Any = None,
+    relationship_types: Any = None,
+    relationship_fact_ids: Any = None,
+    tolerance_m: Any = DEFAULT_TOLERANCE_M,
+    port: int | None = None,
+) -> dict[str, Any]:
+    for name, value in (
+        ("object_ids", object_ids),
+        ("poses", poses),
+        ("relationship_types", relationship_types),
+        ("relationship_fact_ids", relationship_fact_ids),
+    ):
+        if not _optional_list_of_strings_is_valid(value):
+            return _invalid_list_result(name)
+    if not _valid_tolerance(tolerance_m):
+        return _invalid_tolerance_result()
+
+    if analytics is None:
+        from .scene_graph import get_scene_graph
+
+        analytics = get_scene_graph()
+
+    diagnostics: dict[str, int] = {}
+    projected_edges = _projected_edges(analytics.graph)
+    if not projected_edges:
+        diagnostics["noProjectedRelationshipFacts"] = 1
+        return _empty_response(diagnostics)
+
+    records = _matching_records(
+        analytics,
+        object_ids=object_ids,
+        graph_source=graph_source,
+        graph_revision=graph_revision,
+        poses=poses,
+        relationship_types=relationship_types,
+        relationship_fact_ids=relationship_fact_ids,
+        diagnostics=diagnostics,
+    )
+    if not records:
+        diagnostics["noMatchingRelationshipFacts"] = 1
+        return _empty_response(diagnostics)
+
+    feature_object_ids = _feature_object_ids_for_records(records)
+    user_strings_by_id, hydration_diagnostics, all_failed = await _hydrate_feature_user_strings(
+        feature_object_ids,
+        port=port,
+    )
+    if all_failed:
+        return {
+            "success": False,
+            "error": "relationship_evidence_hydration_unavailable",
+            "message": "Unable to read Rhino user text for any requested feature marker objects",
+            "diagnostics": hydration_diagnostics,
+        }
+
+    return query_relationship_evidence(
+        analytics,
+        object_ids=object_ids,
+        graph_source=graph_source,
+        graph_revision=graph_revision,
+        poses=poses,
+        relationship_types=relationship_types,
+        relationship_fact_ids=relationship_fact_ids,
+        tolerance_m=tolerance_m,
+        feature_user_strings_by_id=user_strings_by_id,
+        hydration_diagnostics=hydration_diagnostics,
+    )

@@ -242,3 +242,89 @@ def test_query_relationship_evidence_reports_invalid_position():
     assert result["records"][0]["evidence"]["status"] == "missing"
     assert result["records"][0]["evidence"]["missing"] == ["toFeaturePosition"]
     assert result["diagnostics"]["invalidFeaturePosition"] == 1
+
+
+@pytest.mark.asyncio
+async def test_query_relationship_evidence_for_tool_hydrates_only_matching_feature_ids(monkeypatch):
+    from rook.scene import relationship_geometry_evidence as evidence
+
+    sg = _scene_graph_with_projected_edges()
+    calls: list[tuple[str, str, dict, int | None]] = []
+
+    async def fake_call_rhino(path, method="GET", payload=None, *, port=None):
+        calls.append((path, method, payload, port))
+        return {
+            "success": True,
+            "data": {
+                "id": payload["id"],
+                "userStrings": _positions()[payload["id"]],
+            },
+        }
+
+    monkeypatch.setattr(evidence, "call_rhino", fake_call_rhino)
+
+    result = await evidence.query_relationship_evidence_for_tool(
+        analytics=sg,
+        graph_source="architectural_relationship_fixture",
+        relationship_types=["supports"],
+        port=9876,
+    )
+
+    assert result["success"] is True
+    assert calls == [
+        ("/usertext/object-get", "POST", {"id": "feature-column-top"}, 9876),
+        ("/usertext/object-get", "POST", {"id": "feature-slab-underside"}, 9876),
+    ]
+    assert result["counts"]["hydratedFeatureObjectCount"] == 2
+    assert result["counts"]["withinToleranceCount"] == 1
+
+
+@pytest.mark.asyncio
+async def test_query_relationship_evidence_for_tool_fails_when_all_hydration_fails(monkeypatch):
+    from rook.scene import relationship_geometry_evidence as evidence
+
+    async def fake_call_rhino(path, method="GET", payload=None, *, port=None):
+        raise RuntimeError("no_rhino_instance")
+
+    monkeypatch.setattr(evidence, "call_rhino", fake_call_rhino)
+
+    result = await evidence.query_relationship_evidence_for_tool(
+        analytics=_scene_graph_with_projected_edges(),
+        graph_source="architectural_relationship_fixture",
+    )
+
+    assert result == {
+        "success": False,
+        "error": "relationship_evidence_hydration_unavailable",
+        "message": "Unable to read Rhino user text for any requested feature marker objects",
+        "diagnostics": {"hydrationFailures": 4},
+    }
+
+
+@pytest.mark.asyncio
+async def test_query_relationship_evidence_for_tool_keeps_partial_hydration_failures_as_missing(monkeypatch):
+    from rook.scene import relationship_geometry_evidence as evidence
+
+    async def fake_call_rhino(path, method="GET", payload=None, *, port=None):
+        if payload["id"] == "feature-door-body":
+            raise RuntimeError("transient read failure")
+        return {
+            "success": True,
+            "data": {
+                "id": payload["id"],
+                "userStrings": _positions()[payload["id"]],
+            },
+        }
+
+    monkeypatch.setattr(evidence, "call_rhino", fake_call_rhino)
+
+    result = await evidence.query_relationship_evidence_for_tool(
+        analytics=_scene_graph_with_projected_edges(),
+        graph_source="architectural_relationship_fixture",
+    )
+
+    assert result["success"] is True
+    assert result["counts"]["matchingRelationshipFactCount"] == 2
+    assert result["counts"]["measuredEvidenceCount"] == 1
+    assert result["counts"]["missingEvidenceCount"] == 1
+    assert result["diagnostics"]["hydrationFailures"] == 1
