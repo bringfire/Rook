@@ -1409,6 +1409,36 @@ def build_local_tools() -> Dict[str, Any]:
     except ImportError:
         logger.debug("scene_semantic_relationships local tool unavailable (import failed)")
 
+    # --- scene_relationship_evidence (Python-side relationship geometry evidence) ---
+    try:
+        from ..scene.relationship_geometry_evidence import query_relationship_evidence_for_tool
+
+        async def _scene_relationship_evidence(
+            object_ids=None,
+            graph_source=None,
+            graph_revision=None,
+            poses=None,
+            relationship_types=None,
+            relationship_fact_ids=None,
+            tolerance_m=0.01,
+            port: int | None = None,
+            **kwargs,
+        ) -> dict:
+            return await query_relationship_evidence_for_tool(
+                object_ids=object_ids,
+                graph_source=graph_source,
+                graph_revision=graph_revision,
+                poses=poses,
+                relationship_types=relationship_types,
+                relationship_fact_ids=relationship_fact_ids,
+                tolerance_m=tolerance_m,
+                port=port,
+            )
+
+        tools["scene_relationship_evidence"] = _scene_relationship_evidence
+    except ImportError:
+        logger.debug("scene_relationship_evidence local tool unavailable (import failed)")
+
     # --- scene_relationship_profile (Python-side relationship vocabulary profile) ---
     try:
         from ..scene.relationship_profile import resolve_relationship_profile

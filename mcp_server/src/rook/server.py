@@ -11685,6 +11685,45 @@ Reads only relationship_fact_v1 edges from the current in-memory Python scene gr
             },
         ),
         Tool(
+            name="scene_relationship_evidence",
+            description="""Measure feature-marker-position evidence for already-projected relationship facts.
+
+Reads relationship_fact_v1 edges from the current in-memory scene graph and reads Rhino user text only for their feature marker object ids. Does not sync, project, infer, mutate Rhino, inspect owner geometry, or change relationship status.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "object_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional owner object ids; include facts touching any supplied owner id",
+                    },
+                    "graph_source": {"type": "string", "description": "Optional graphSource filter"},
+                    "graph_revision": {"type": "string", "description": "Optional graphRevision filter"},
+                    "poses": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional pose filter",
+                    },
+                    "relationship_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional relationship type filter",
+                    },
+                    "relationship_fact_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional relationshipFactId filter",
+                    },
+                    "tolerance_m": {
+                        "type": "number",
+                        "description": "Distance tolerance in meters for withinTolerance; default 0.01",
+                    },
+                    "port": {"type": "integer", "description": "Rhino instance port"},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
             name="scene_relationship_profile",
             description="""Read the active relationship vocabulary profile.
 
@@ -20200,6 +20239,24 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 status=arguments.get("status"),
                 provenance=arguments.get("provenance"),
                 direction=arguments.get("direction", "both"),
+            )
+            if payload.get("success") is False:
+                result = {"success": False, "data": payload}
+            else:
+                result = {"success": True, "data": payload}
+
+        case "scene_relationship_evidence":
+            from .scene.relationship_geometry_evidence import query_relationship_evidence_for_tool
+
+            payload = await query_relationship_evidence_for_tool(
+                object_ids=arguments.get("object_ids"),
+                graph_source=arguments.get("graph_source"),
+                graph_revision=arguments.get("graph_revision"),
+                poses=arguments.get("poses"),
+                relationship_types=arguments.get("relationship_types"),
+                relationship_fact_ids=arguments.get("relationship_fact_ids"),
+                tolerance_m=arguments.get("tolerance_m", 0.01),
+                port=port,
             )
             if payload.get("success") is False:
                 result = {"success": False, "data": payload}
