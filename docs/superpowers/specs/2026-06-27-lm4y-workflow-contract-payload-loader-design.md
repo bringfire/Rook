@@ -127,7 +127,7 @@ snapshot.normalized_contract
 and by already-parsed JSON-style containers:
 
 ```python
-json.loads(json.dumps(snapshot.normalized_contract))
+json.loads(json.dumps(copy.deepcopy(snapshot.normalized_contract)))
 ```
 
 Production loader code must not call `json.loads` or `json.dumps`.
@@ -411,7 +411,7 @@ assert roundtrip.normalized_contract == source.normalized_contract
 Already-parsed JSON-style payload:
 
 ```python
-payload = json.loads(json.dumps(source.normalized_contract))
+payload = json.loads(json.dumps(copy.deepcopy(source.normalized_contract)))
 loaded = load_workflow_contract_payload(payload)
 roundtrip = snapshot_workflow_contract(loaded)
 
@@ -503,7 +503,7 @@ Test groups:
    - returns `RookWorkflowContract`;
    - exact fingerprint and normalized-contract round trip.
 2. JSON-style parsed payload:
-   - `json.loads(json.dumps(snapshot.normalized_contract))`;
+   - `json.loads(json.dumps(copy.deepcopy(snapshot.normalized_contract)))`;
    - list containers load;
    - exact fingerprint and normalized-contract round trip.
 3. Compile assertion:

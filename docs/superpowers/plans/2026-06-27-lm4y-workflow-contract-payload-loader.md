@@ -42,6 +42,7 @@ Add this complete file:
 from __future__ import annotations
 
 import ast
+import copy
 import json
 import pathlib
 from collections.abc import Mapping
@@ -148,7 +149,7 @@ def _source_snapshot():
 
 
 def _json_payload() -> dict:
-    return json.loads(json.dumps(_source_snapshot().normalized_contract))
+    return json.loads(json.dumps(copy.deepcopy(_source_snapshot().normalized_contract)))
 
 
 def _with_removed(payload: dict, key: str) -> dict:
@@ -184,7 +185,7 @@ def test_loads_direct_normalized_snapshot_payload_roundtrip():
 
 def test_loads_json_style_parsed_payload_roundtrip():
     source = _source_snapshot()
-    payload = json.loads(json.dumps(source.normalized_contract))
+    payload = json.loads(json.dumps(copy.deepcopy(source.normalized_contract)))
 
     loaded = load_workflow_contract_payload(payload)
     roundtrip = snapshot_workflow_contract(loaded)
@@ -340,7 +341,7 @@ def test_rejects_bad_container_shapes(mutate, exc_type):
 
 def test_empty_metadata_mapping_loads():
     source = snapshot_workflow_contract(_repair_contract(metadata={}))
-    payload = json.loads(json.dumps(source.normalized_contract))
+    payload = json.loads(json.dumps(copy.deepcopy(source.normalized_contract)))
 
     loaded = load_workflow_contract_payload(payload)
 
@@ -349,7 +350,7 @@ def test_empty_metadata_mapping_loads():
 
 def test_loaded_contract_does_not_alias_caller_payload():
     source = _source_snapshot()
-    payload = json.loads(json.dumps(source.normalized_contract))
+    payload = json.loads(json.dumps(copy.deepcopy(source.normalized_contract)))
 
     loaded = load_workflow_contract_payload(payload)
 
