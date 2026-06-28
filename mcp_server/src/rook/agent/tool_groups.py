@@ -502,7 +502,7 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "scene_stats", "scene_classify", "scene_overlay",
         "scene_exact_neighbors", "scene_refine_containment",
         "scene_project_bim_relationships", "scene_bim_facts",
-        "scene_project_relationship_facts",
+        "scene_project_relationship_facts", "scene_semantic_relationships",
     ],
 }
 

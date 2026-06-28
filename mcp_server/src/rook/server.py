@@ -11641,6 +11641,50 @@ Creates semantic owner-object-to-owner-object edges such as member -> joint with
             },
         ),
         Tool(
+            name="scene_semantic_relationships",
+            description="""Inspect already-projected semantic relationship facts for selected scene objects.
+
+Reads only relationship_fact_v1 edges from the current in-memory Python scene graph. Requires object_ids. Does not sync, project, infer, mutate Rhino, or include fuzzy spatial edges.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "object_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Required selected scene object ids to inspect",
+                    },
+                    "graph_source": {"type": "string", "description": "Optional graphSource filter"},
+                    "graph_revision": {"type": "string", "description": "Optional graphRevision filter"},
+                    "poses": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional pose filter",
+                    },
+                    "relationship_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional relationship type filter, for example connects",
+                    },
+                    "status": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional status filter, for example accepted",
+                    },
+                    "provenance": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional provenance filter, for example authored_assembly_graph",
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": ["both", "outgoing", "incoming"],
+                        "description": "Relationship direction relative to each selected object",
+                    },
+                },
+                "required": ["object_ids"],
+            },
+        ),
+        Tool(
             name="scene_bim_facts",
             description="""Query already-projected RookBIM facts from the current in-memory Python scene graph mirror.
 
@@ -20064,6 +20108,26 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 source_mode=arguments.get("source_mode", "authored_graph_user_strings"),
                 strict=arguments.get("strict", False),
                 port=port,
+            )
+            if payload.get("success") is False:
+                result = {"success": False, "data": payload}
+            else:
+                result = {"success": True, "data": payload}
+
+        case "scene_semantic_relationships":
+            from .scene.scene_graph import get_scene_graph
+            from .scene.semantic_relationship_inspector import query_semantic_relationships
+
+            payload = query_semantic_relationships(
+                get_scene_graph(),
+                object_ids=arguments.get("object_ids"),
+                graph_source=arguments.get("graph_source"),
+                graph_revision=arguments.get("graph_revision"),
+                poses=arguments.get("poses"),
+                relationship_types=arguments.get("relationship_types"),
+                status=arguments.get("status"),
+                provenance=arguments.get("provenance"),
+                direction=arguments.get("direction", "both"),
             )
             if payload.get("success") is False:
                 result = {"success": False, "data": payload}

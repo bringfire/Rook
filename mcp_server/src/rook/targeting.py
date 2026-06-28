@@ -554,6 +554,7 @@ _ALL_KNOWN_TOOLS = {
     "scene_project_relationship_facts",
     "scene_query",
     "scene_refine_containment",
+    "scene_semantic_relationships",
     "scene_stats",
     "session_current",
     "session_export",
@@ -610,6 +611,7 @@ _RHINO_INDEPENDENT_READ_TOOLS = {
     "rhino_knowledge_query",
     "rhino_learning_progress",
     "script_library_search",
+    "scene_semantic_relationships",
 }
 
 _RHINO_INDEPENDENT_MUTATE_TOOLS = {

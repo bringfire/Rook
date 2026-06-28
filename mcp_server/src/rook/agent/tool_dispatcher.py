@@ -1377,6 +1377,38 @@ def build_local_tools() -> Dict[str, Any]:
     except ImportError:
         logger.debug("scene_project_relationship_facts local tool unavailable (import failed)")
 
+    # --- scene_semantic_relationships (Python-side semantic relationship inspector) ---
+    try:
+        from ..scene.scene_graph import get_scene_graph
+        from ..scene.semantic_relationship_inspector import query_semantic_relationships
+
+        async def _scene_semantic_relationships(
+            object_ids=None,
+            graph_source=None,
+            graph_revision=None,
+            poses=None,
+            relationship_types=None,
+            status=None,
+            provenance=None,
+            direction="both",
+            **kwargs,
+        ) -> dict:
+            return query_semantic_relationships(
+                get_scene_graph(),
+                object_ids=object_ids,
+                graph_source=graph_source,
+                graph_revision=graph_revision,
+                poses=poses,
+                relationship_types=relationship_types,
+                status=status,
+                provenance=provenance,
+                direction=direction,
+            )
+
+        tools["scene_semantic_relationships"] = _scene_semantic_relationships
+    except ImportError:
+        logger.debug("scene_semantic_relationships local tool unavailable (import failed)")
+
     # --- scene_bim_facts (Python-side BIM facts query) ---
     try:
         from ..scene.scene_graph import get_scene_graph
