@@ -6,6 +6,7 @@ from .architectural_fixture_helpers import (
     EXPECTED_FEATURE_IDS,
     EXPECTED_OWNER_IDS,
     EXPECTED_RELATIONSHIP_TYPES,
+    GENERATED_SCRIPT_PATH,
     GRAPH_REVISION,
     GRAPH_SOURCE,
     POSE,
@@ -166,3 +167,15 @@ def test_object_semantic_context_cards_summarize_architectural_relationships():
         "cardCount": 7,
     }
     assert_architectural_card_expectations(cards)
+
+
+def test_generated_script_embeds_expected_fixture_constants():
+    script = GENERATED_SCRIPT_PATH.read_text(encoding="utf-8")
+
+    assert 'SOURCE = "architectural_relationship_fixture"' in script
+    assert 'REVISION = "a001"' in script
+    assert 'POSE = "architectural_reference"' in script
+    assert 'LAYER_NAME = "Rook_ArchitecturalRelationshipFixture"' in script
+    assert '"rook.graph.visual_type": visual_type' in script
+    assert '"rook.graph.member_id": obj["id"]' in script
+    assert '"rook.graph.owner_kind": "member"' in script
