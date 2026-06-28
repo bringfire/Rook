@@ -1,0 +1,167 @@
+{
+  "schema": "rook.architectural_relationship_fixture.v1",
+  "source": "architectural_relationship_fixture",
+  "revision": "a001",
+  "unit": "meters",
+  "poses": {
+    "architectural_reference": {
+      "description": "Single authored architectural semantic fixture pose"
+    }
+  },
+  "objects": [
+    {
+      "id": "column_01",
+      "kind": "column",
+      "name": "Column 01"
+    },
+    {
+      "id": "slab_01",
+      "kind": "slab",
+      "name": "Slab 01"
+    },
+    {
+      "id": "wall_01",
+      "kind": "wall",
+      "name": "Wall 01"
+    },
+    {
+      "id": "door_01",
+      "kind": "door",
+      "name": "Door 01"
+    },
+    {
+      "id": "opening_01",
+      "kind": "opening",
+      "name": "Opening 01"
+    },
+    {
+      "id": "duct_01",
+      "kind": "duct",
+      "name": "Duct 01"
+    },
+    {
+      "id": "space_01",
+      "kind": "space",
+      "name": "Space 01"
+    }
+  ],
+  "features": [
+    {
+      "id": "column_01.top_point",
+      "owner": "column_01",
+      "owner_kind": "column",
+      "feature_kind": "point",
+      "role": "top_point"
+    },
+    {
+      "id": "slab_01.underside_region",
+      "owner": "slab_01",
+      "owner_kind": "slab",
+      "feature_kind": "region",
+      "role": "underside_region"
+    },
+    {
+      "id": "door_01.body",
+      "owner": "door_01",
+      "owner_kind": "door",
+      "feature_kind": "body",
+      "role": "body"
+    },
+    {
+      "id": "wall_01.host_region",
+      "owner": "wall_01",
+      "owner_kind": "wall",
+      "feature_kind": "region",
+      "role": "host_region"
+    },
+    {
+      "id": "opening_01.profile",
+      "owner": "opening_01",
+      "owner_kind": "opening",
+      "feature_kind": "profile",
+      "role": "profile"
+    },
+    {
+      "id": "wall_01.opening_region",
+      "owner": "wall_01",
+      "owner_kind": "wall",
+      "feature_kind": "region",
+      "role": "opening_region"
+    },
+    {
+      "id": "duct_01.centerline",
+      "owner": "duct_01",
+      "owner_kind": "duct",
+      "feature_kind": "line",
+      "role": "centerline"
+    },
+    {
+      "id": "wall_01.penetration_region",
+      "owner": "wall_01",
+      "owner_kind": "wall",
+      "feature_kind": "region",
+      "role": "penetration_region"
+    },
+    {
+      "id": "space_01.boundary",
+      "owner": "space_01",
+      "owner_kind": "space",
+      "feature_kind": "boundary",
+      "role": "boundary"
+    },
+    {
+      "id": "wall_01.inner_face",
+      "owner": "wall_01",
+      "owner_kind": "wall",
+      "feature_kind": "face",
+      "role": "inner_face"
+    }
+  ],
+  "relationships": [
+    {
+      "id": "column_01.top_point_supports_slab_01.underside_region",
+      "type": "supports",
+      "from": "column_01.top_point",
+      "to": "slab_01.underside_region",
+      "contact_kind": "point_to_region",
+      "provenance": "authored_architectural_fixture",
+      "status": "accepted"
+    },
+    {
+      "id": "door_01.body_hosted_by_wall_01.host_region",
+      "type": "hosted_by",
+      "from": "door_01.body",
+      "to": "wall_01.host_region",
+      "contact_kind": "body_to_region",
+      "provenance": "authored_architectural_fixture",
+      "status": "accepted"
+    },
+    {
+      "id": "opening_01.profile_voids_wall_01.opening_region",
+      "type": "voids",
+      "from": "opening_01.profile",
+      "to": "wall_01.opening_region",
+      "contact_kind": "profile_to_region",
+      "provenance": "authored_architectural_fixture",
+      "status": "accepted"
+    },
+    {
+      "id": "duct_01.centerline_penetrates_wall_01.penetration_region",
+      "type": "penetrates",
+      "from": "duct_01.centerline",
+      "to": "wall_01.penetration_region",
+      "contact_kind": "line_to_region",
+      "provenance": "authored_architectural_fixture",
+      "status": "accepted"
+    },
+    {
+      "id": "space_01.boundary_bounded_by_wall_01.inner_face",
+      "type": "bounded_by",
+      "from": "space_01.boundary",
+      "to": "wall_01.inner_face",
+      "contact_kind": "boundary_to_face",
+      "provenance": "authored_architectural_fixture",
+      "status": "accepted"
+    }
+  ]
+}
