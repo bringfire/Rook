@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 from typing import Any
 
@@ -130,6 +131,113 @@ def _base_record(source_id: str, target_id: str, attrs: dict[str, Any]) -> dict[
     }
 
 
+def _parse_position(value: Any) -> tuple[float, float, float] | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(value, list) or len(value) != 3:
+        return None
+    coords: list[float] = []
+    for item in value:
+        if not isinstance(item, (int, float)) or isinstance(item, bool):
+            return None
+        coord = float(item)
+        if not math.isfinite(coord):
+            return None
+        coords.append(coord)
+    return (coords[0], coords[1], coords[2])
+
+
+def _distance(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
+    return math.sqrt(sum((a[index] - b[index]) ** 2 for index in range(3)))
+
+
+def _missing_evidence(missing: list[str], tolerance_m: float) -> dict[str, Any]:
+    return {
+        "kind": EVIDENCE_KIND,
+        "method": EVIDENCE_METHOD,
+        "status": "missing",
+        "missing": missing,
+        "toleranceM": tolerance_m,
+        "withinTolerance": None,
+        "source": EVIDENCE_SOURCE,
+    }
+
+
+def _measured_evidence(distance_m: float, tolerance_m: float) -> dict[str, Any]:
+    return {
+        "kind": EVIDENCE_KIND,
+        "method": EVIDENCE_METHOD,
+        "status": "measured",
+        "distanceM": distance_m,
+        "toleranceM": tolerance_m,
+        "withinTolerance": distance_m <= tolerance_m,
+        "source": EVIDENCE_SOURCE,
+    }
+
+
+def _evidence_for_record(
+    record: dict[str, Any],
+    *,
+    feature_user_strings_by_id: dict[str, dict[str, Any] | None],
+    tolerance_m: float,
+    diagnostics: dict[str, int],
+) -> dict[str, Any]:
+    missing: list[str] = []
+    from_feature_object_id = record.get("fromFeatureObjectId")
+    to_feature_object_id = record.get("toFeatureObjectId")
+    if not from_feature_object_id:
+        missing.append("fromFeatureObjectId")
+        _bump(diagnostics, "missingFeatureObjectId")
+    if not to_feature_object_id:
+        missing.append("toFeatureObjectId")
+        _bump(diagnostics, "missingFeatureObjectId")
+    if missing:
+        return _missing_evidence(missing, tolerance_m)
+
+    from_user_text = feature_user_strings_by_id.get(str(from_feature_object_id))
+    to_user_text = feature_user_strings_by_id.get(str(to_feature_object_id))
+    if from_user_text is None:
+        missing.append("fromFeatureUserText")
+        _bump(diagnostics, "missingFeatureUserText")
+    if to_user_text is None:
+        missing.append("toFeatureUserText")
+        _bump(diagnostics, "missingFeatureUserText")
+    if missing:
+        return _missing_evidence(missing, tolerance_m)
+
+    from_position = _parse_position(from_user_text.get("rook.graph.true_position_m"))
+    to_position = _parse_position(to_user_text.get("rook.graph.true_position_m"))
+    if from_position is None:
+        key = (
+            "missingFeaturePosition"
+            if from_user_text.get("rook.graph.true_position_m") is None
+            else "invalidFeaturePosition"
+        )
+        _bump(diagnostics, key)
+        missing.append("fromFeaturePosition")
+    if to_position is None:
+        key = (
+            "missingFeaturePosition"
+            if to_user_text.get("rook.graph.true_position_m") is None
+            else "invalidFeaturePosition"
+        )
+        _bump(diagnostics, key)
+        missing.append("toFeaturePosition")
+    if missing:
+        return _missing_evidence(missing, tolerance_m)
+
+    distance_m = _distance(from_position, to_position)
+    evidence = _measured_evidence(distance_m, tolerance_m)
+    if evidence["withinTolerance"] is False:
+        _bump(diagnostics, "outsideTolerance")
+    return evidence
+
+
 def _response(
     records: list[dict[str, Any]],
     diagnostics: dict[str, int],
@@ -213,19 +321,19 @@ def query_relationship_evidence(
         ):
             continue
         record = _base_record(source_id, target_id, attrs)
-        record["evidence"] = {
-            "kind": EVIDENCE_KIND,
-            "method": EVIDENCE_METHOD,
-            "status": "missing",
-            "missing": ["fromFeaturePosition", "toFeaturePosition"],
-            "toleranceM": float(tolerance_m),
-            "withinTolerance": None,
-            "source": EVIDENCE_SOURCE,
-        }
+        record["evidence"] = _evidence_for_record(
+            record,
+            feature_user_strings_by_id=feature_user_strings_by_id or {},
+            tolerance_m=float(tolerance_m),
+            diagnostics=diagnostics,
+        )
         records.append(record)
 
     if not records:
         diagnostics["noMatchingRelationshipFacts"] = 1
         return _empty_response(diagnostics)
 
-    return _response(records, diagnostics, hydrated_feature_object_count=0)
+    hydrated_feature_object_count = len(
+        [value for value in (feature_user_strings_by_id or {}).values() if value is not None]
+    )
+    return _response(records, diagnostics, hydrated_feature_object_count=hydrated_feature_object_count)

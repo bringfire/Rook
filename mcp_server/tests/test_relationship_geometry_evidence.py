@@ -159,3 +159,86 @@ def test_query_relationship_evidence_filters_by_object_ids_and_fact_ids():
     assert result["records"][0]["fromObjectId"] == "door-owner"
     assert result["records"][0]["toObjectId"] == "wall-owner"
     assert result["records"][0]["relationship"] == "hosted_by"
+
+
+def test_query_relationship_evidence_measures_distance_inside_tolerance():
+    result = query_relationship_evidence(
+        _scene_graph_with_projected_edges(),
+        relationship_types=["supports"],
+        tolerance_m=0.01,
+        feature_user_strings_by_id=_positions(),
+    )
+
+    evidence = result["records"][0]["evidence"]
+    assert evidence == {
+        "kind": "relationship_geometry_evidence_v1",
+        "method": "feature_marker_position_distance",
+        "status": "measured",
+        "distanceM": 0.0,
+        "toleranceM": 0.01,
+        "withinTolerance": True,
+        "source": "rhino_user_text_feature_positions",
+    }
+    assert result["counts"]["measuredEvidenceCount"] == 1
+    assert result["counts"]["withinToleranceCount"] == 1
+    assert result["counts"]["outsideToleranceCount"] == 0
+
+
+def test_query_relationship_evidence_measures_distance_outside_tolerance():
+    result = query_relationship_evidence(
+        _scene_graph_with_projected_edges(),
+        relationship_types=["hosted_by"],
+        tolerance_m=0.01,
+        feature_user_strings_by_id=_positions(),
+    )
+
+    evidence = result["records"][0]["evidence"]
+    assert evidence["status"] == "measured"
+    assert evidence["distanceM"] == pytest.approx(0.1)
+    assert evidence["toleranceM"] == 0.01
+    assert evidence["withinTolerance"] is False
+    assert result["counts"]["outsideToleranceCount"] == 1
+    assert result["diagnostics"]["outsideTolerance"] == 1
+
+
+def test_query_relationship_evidence_reports_missing_feature_object_id():
+    sg = _scene_graph_with_projected_edges()
+    edge_attrs = list(sg.graph["column-owner"]["slab-owner"].values())[0]
+    edge_attrs.pop("fromFeatureObjectId")
+
+    result = query_relationship_evidence(
+        sg,
+        relationship_types=["supports"],
+        feature_user_strings_by_id=_positions(),
+    )
+
+    assert result["records"][0]["evidence"]["status"] == "missing"
+    assert result["records"][0]["evidence"]["missing"] == ["fromFeatureObjectId"]
+    assert result["diagnostics"]["missingFeatureObjectId"] == 1
+
+
+def test_query_relationship_evidence_reports_missing_user_text():
+    result = query_relationship_evidence(
+        _scene_graph_with_projected_edges(),
+        relationship_types=["supports"],
+        feature_user_strings_by_id={"feature-slab-underside": _positions()["feature-slab-underside"]},
+    )
+
+    assert result["records"][0]["evidence"]["status"] == "missing"
+    assert result["records"][0]["evidence"]["missing"] == ["fromFeatureUserText"]
+    assert result["diagnostics"]["missingFeatureUserText"] == 1
+
+
+def test_query_relationship_evidence_reports_invalid_position():
+    positions = dict(_positions())
+    positions["feature-slab-underside"] = {"rook.graph.true_position_m": "[0.0, 0.0]"}
+
+    result = query_relationship_evidence(
+        _scene_graph_with_projected_edges(),
+        relationship_types=["supports"],
+        feature_user_strings_by_id=positions,
+    )
+
+    assert result["records"][0]["evidence"]["status"] == "missing"
+    assert result["records"][0]["evidence"]["missing"] == ["toFeaturePosition"]
+    assert result["diagnostics"]["invalidFeaturePosition"] == 1
