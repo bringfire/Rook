@@ -12,82 +12,92 @@ POSE = "architectural_reference"
 LAYER_NAME = "Rook_ArchitecturalRelationshipFixture"
 
 OBJECTS = [
-    {"id": "column_01", "kind": "column", "name": "Column 01"},
-    {"id": "slab_01", "kind": "slab", "name": "Slab 01"},
-    {"id": "wall_01", "kind": "wall", "name": "Wall 01"},
-    {"id": "door_01", "kind": "door", "name": "Door 01"},
-    {"id": "opening_01", "kind": "opening", "name": "Opening 01"},
-    {"id": "duct_01", "kind": "duct", "name": "Duct 01"},
-    {"id": "space_01", "kind": "space", "name": "Space 01"},
+    {"object_id": "column_01", "object_kind": "column", "name": "Column 01"},
+    {"object_id": "slab_01", "object_kind": "slab", "name": "Slab 01"},
+    {"object_id": "wall_01", "object_kind": "wall", "name": "Wall 01"},
+    {"object_id": "door_01", "object_kind": "door", "name": "Door 01"},
+    {"object_id": "opening_01", "object_kind": "opening", "name": "Opening 01"},
+    {"object_id": "duct_01", "object_kind": "duct", "name": "Duct 01"},
+    {"object_id": "space_01", "object_kind": "space", "name": "Space 01"},
 ]
 
 FEATURES = [
     {
-        "id": "column_01.top_point",
-        "owner": "column_01",
+        "feature_id": "column_01.top_point",
+        "owner_id": "column_01",
+        "owner_kind": "column",
         "feature_kind": "point",
         "role": "top_point",
         "point": [0.0, 0.0, 3.0],
     },
     {
-        "id": "slab_01.underside_region",
-        "owner": "slab_01",
+        "feature_id": "slab_01.underside_region",
+        "owner_id": "slab_01",
+        "owner_kind": "slab",
         "feature_kind": "region",
         "role": "underside_region",
         "point": [0.0, 0.0, 3.0],
     },
     {
-        "id": "door_01.body",
-        "owner": "door_01",
+        "feature_id": "door_01.body",
+        "owner_id": "door_01",
+        "owner_kind": "door",
         "feature_kind": "body",
         "role": "body",
         "point": [2.0, -0.1, 1.0],
     },
     {
-        "id": "wall_01.host_region",
-        "owner": "wall_01",
+        "feature_id": "wall_01.host_region",
+        "owner_id": "wall_01",
+        "owner_kind": "wall",
         "feature_kind": "region",
         "role": "host_region",
         "point": [2.0, 0.0, 1.0],
     },
     {
-        "id": "opening_01.profile",
-        "owner": "opening_01",
+        "feature_id": "opening_01.profile",
+        "owner_id": "opening_01",
+        "owner_kind": "opening",
         "feature_kind": "profile",
         "role": "profile",
         "point": [2.0, 0.02, 1.0],
     },
     {
-        "id": "wall_01.opening_region",
-        "owner": "wall_01",
+        "feature_id": "wall_01.opening_region",
+        "owner_id": "wall_01",
+        "owner_kind": "wall",
         "feature_kind": "region",
         "role": "opening_region",
         "point": [2.0, 0.0, 1.0],
     },
     {
-        "id": "duct_01.centerline",
-        "owner": "duct_01",
+        "feature_id": "duct_01.centerline",
+        "owner_id": "duct_01",
+        "owner_kind": "duct",
         "feature_kind": "line",
         "role": "centerline",
         "point": [4.0, 0.0, 2.2],
     },
     {
-        "id": "wall_01.penetration_region",
-        "owner": "wall_01",
+        "feature_id": "wall_01.penetration_region",
+        "owner_id": "wall_01",
+        "owner_kind": "wall",
         "feature_kind": "region",
         "role": "penetration_region",
         "point": [4.0, 0.0, 2.2],
     },
     {
-        "id": "space_01.boundary",
-        "owner": "space_01",
+        "feature_id": "space_01.boundary",
+        "owner_id": "space_01",
+        "owner_kind": "space",
         "feature_kind": "boundary",
         "role": "boundary",
         "point": [5.5, 0.0, 1.2],
     },
     {
-        "id": "wall_01.inner_face",
-        "owner": "wall_01",
+        "feature_id": "wall_01.inner_face",
+        "owner_id": "wall_01",
+        "owner_kind": "wall",
         "feature_kind": "face",
         "role": "inner_face",
         "point": [5.5, 0.0, 1.2],
@@ -96,46 +106,46 @@ FEATURES = [
 
 RELATIONSHIPS = [
     {
-        "id": "column_01.top_point_supports_slab_01.underside_region",
-        "type": "supports",
-        "from": "column_01.top_point",
-        "to": "slab_01.underside_region",
+        "relationship_id": "column_01.top_point_supports_slab_01.underside_region",
+        "relationship_type": "supports",
+        "from_feature": "column_01.top_point",
+        "to_feature": "slab_01.underside_region",
         "contact_kind": "point_to_region",
         "provenance": "authored_architectural_fixture",
         "status": "accepted",
     },
     {
-        "id": "door_01.body_hosted_by_wall_01.host_region",
-        "type": "hosted_by",
-        "from": "door_01.body",
-        "to": "wall_01.host_region",
+        "relationship_id": "door_01.body_hosted_by_wall_01.host_region",
+        "relationship_type": "hosted_by",
+        "from_feature": "door_01.body",
+        "to_feature": "wall_01.host_region",
         "contact_kind": "body_to_region",
         "provenance": "authored_architectural_fixture",
         "status": "accepted",
     },
     {
-        "id": "opening_01.profile_voids_wall_01.opening_region",
-        "type": "voids",
-        "from": "opening_01.profile",
-        "to": "wall_01.opening_region",
+        "relationship_id": "opening_01.profile_voids_wall_01.opening_region",
+        "relationship_type": "voids",
+        "from_feature": "opening_01.profile",
+        "to_feature": "wall_01.opening_region",
         "contact_kind": "profile_to_region",
         "provenance": "authored_architectural_fixture",
         "status": "accepted",
     },
     {
-        "id": "duct_01.centerline_penetrates_wall_01.penetration_region",
-        "type": "penetrates",
-        "from": "duct_01.centerline",
-        "to": "wall_01.penetration_region",
+        "relationship_id": "duct_01.centerline_penetrates_wall_01.penetration_region",
+        "relationship_type": "penetrates",
+        "from_feature": "duct_01.centerline",
+        "to_feature": "wall_01.penetration_region",
         "contact_kind": "line_to_region",
         "provenance": "authored_architectural_fixture",
         "status": "accepted",
     },
     {
-        "id": "space_01.boundary_bounded_by_wall_01.inner_face",
-        "type": "bounded_by",
-        "from": "space_01.boundary",
-        "to": "wall_01.inner_face",
+        "relationship_id": "space_01.boundary_bounded_by_wall_01.inner_face",
+        "relationship_type": "bounded_by",
+        "from_feature": "space_01.boundary",
+        "to_feature": "wall_01.inner_face",
         "contact_kind": "boundary_to_face",
         "provenance": "authored_architectural_fixture",
         "status": "accepted",
@@ -198,7 +208,7 @@ def _box(corner1, corner2) -> Rhino.Geometry.Brep:
 
 def _feature_by_id(feature_id: str) -> dict:
     for feature in FEATURES:
-        if feature["id"] == feature_id:
+        if feature["feature_id"] == feature_id:
             return feature
     raise RuntimeError("feature not found: {}".format(feature_id))
 
@@ -252,26 +262,26 @@ def main() -> dict:
     feature_ids_by_owner: dict[str, list[str]] = {}
     relationship_ids_by_owner: dict[str, list[str]] = {}
     for feature in FEATURES:
-        feature_ids_by_owner.setdefault(feature["owner"], []).append(feature["id"])
+        feature_ids_by_owner.setdefault(feature["owner_id"], []).append(feature["feature_id"])
     for relationship in RELATIONSHIPS:
-        for feature_key in ("from", "to"):
-            owner = _feature_by_id(relationship[feature_key])["owner"]
-            relationship_ids_by_owner.setdefault(owner, []).append(relationship["id"])
+        for feature_key in ("from_feature", "to_feature"):
+            owner = _feature_by_id(relationship[feature_key])["owner_id"]
+            relationship_ids_by_owner.setdefault(owner, []).append(relationship["relationship_id"])
 
     owner_object_ids: dict[str, str] = {}
     for obj in OBJECTS:
-        object_id = _add_geometry(_object_geometry(obj["id"]), _attrs(layer_index, obj["name"]))
-        owner_object_ids[obj["id"]] = str(object_id)
+        object_id = _add_geometry(_object_geometry(obj["object_id"]), _attrs(layer_index, obj["name"]))
+        owner_object_ids[obj["object_id"]] = str(object_id)
         _stamp(
             object_id,
             {
-                **_base_attrs("member"),
-                "rook.graph.member_id": obj["id"],
-                "rook.graph.feature_ids": ",".join(sorted(feature_ids_by_owner.get(obj["id"], []))),
+                **_base_attrs("object"),
+                "rook.graph.object_id": obj["object_id"],
+                "rook.graph.object_kind": obj["object_kind"],
+                "rook.graph.feature_ids": ",".join(sorted(feature_ids_by_owner.get(obj["object_id"], []))),
                 "rook.graph.relationship_ids": ",".join(
-                    sorted(set(relationship_ids_by_owner.get(obj["id"], [])))
+                    sorted(set(relationship_ids_by_owner.get(obj["object_id"], [])))
                 ),
-                "rook.graph.arch_kind": obj["kind"],
                 "rook.graph.display_name": obj["name"],
             },
         )
@@ -279,15 +289,15 @@ def main() -> dict:
     feature_object_ids: dict[str, str] = {}
     for feature in FEATURES:
         point = Rhino.Geometry.Point3d(*feature["point"])
-        object_id = sc.doc.Objects.AddPoint(point, _attrs(layer_index, feature["id"]))
-        feature_object_ids[feature["id"]] = str(object_id)
+        object_id = sc.doc.Objects.AddPoint(point, _attrs(layer_index, feature["feature_id"]))
+        feature_object_ids[feature["feature_id"]] = str(object_id)
         _stamp(
             object_id,
             {
                 **_base_attrs("feature"),
-                "rook.graph.feature_id": feature["id"],
-                "rook.graph.owner": feature["owner"],
-                "rook.graph.owner_kind": "member",
+                "rook.graph.feature_id": feature["feature_id"],
+                "rook.graph.owner_id": feature["owner_id"],
+                "rook.graph.owner_kind": feature["owner_kind"],
                 "rook.graph.feature_kind": feature["feature_kind"],
                 "rook.graph.role": feature["role"],
                 "rook.graph.true_position_m": json.dumps(feature["point"]),
@@ -296,21 +306,21 @@ def main() -> dict:
 
     relationship_object_ids: dict[str, str] = {}
     for relationship in RELATIONSHIPS:
-        from_point = Rhino.Geometry.Point3d(*_feature_by_id(relationship["from"])["point"])
-        to_point = Rhino.Geometry.Point3d(*_feature_by_id(relationship["to"])["point"])
+        from_point = Rhino.Geometry.Point3d(*_feature_by_id(relationship["from_feature"])["point"])
+        to_point = Rhino.Geometry.Point3d(*_feature_by_id(relationship["to_feature"])["point"])
         object_id = sc.doc.Objects.AddCurve(
             Rhino.Geometry.LineCurve(from_point, to_point),
-            _attrs(layer_index, relationship["id"]),
+            _attrs(layer_index, relationship["relationship_id"]),
         )
-        relationship_object_ids[relationship["id"]] = str(object_id)
+        relationship_object_ids[relationship["relationship_id"]] = str(object_id)
         _stamp(
             object_id,
             {
                 **_base_attrs("relationship"),
-                "rook.graph.relationship_id": relationship["id"],
-                "rook.graph.relationship_type": relationship["type"],
-                "rook.graph.from_feature": relationship["from"],
-                "rook.graph.to_feature": relationship["to"],
+                "rook.graph.relationship_id": relationship["relationship_id"],
+                "rook.graph.relationship_type": relationship["relationship_type"],
+                "rook.graph.from_feature": relationship["from_feature"],
+                "rook.graph.to_feature": relationship["to_feature"],
                 "rook.graph.contact_kind": relationship["contact_kind"],
                 "rook.graph.provenance": relationship["provenance"],
                 "rook.graph.status": relationship["status"],

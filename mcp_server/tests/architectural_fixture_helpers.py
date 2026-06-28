@@ -96,9 +96,9 @@ def build_expected_facts(graph: dict[str, Any]) -> list[dict[str, Any]]:
         for relationship in graph["relationships"]:
             expected.append(
                 {
-                    "relationship": relationship["type"],
-                    "fromFeature": relationship["from"],
-                    "toFeature": relationship["to"],
+                    "relationship": relationship["relationship_type"],
+                    "fromFeature": relationship["from_feature"],
+                    "toFeature": relationship["to_feature"],
                     "contactKind": relationship["contact_kind"],
                     "provenance": relationship.get("provenance", PROVENANCE),
                     "status": relationship.get("status", STATUS),
@@ -119,34 +119,34 @@ def semantic_facts(facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def owner_for_feature(graph: dict[str, Any], feature_id: str) -> str:
-    features = {feature["id"]: feature for feature in graph["features"]}
-    return str(features[feature_id]["owner"])
+    features = {feature["feature_id"]: feature for feature in graph["features"]}
+    return str(features[feature_id]["owner_id"])
 
 
 def object_name(graph: dict[str, Any], object_id: str) -> str:
-    objects = {obj["id"]: obj for obj in graph["objects"]}
+    objects = {obj["object_id"]: obj for obj in graph["objects"]}
     return str(objects[object_id]["name"])
 
 
 def build_synthetic_projected_graph(graph: dict[str, Any]) -> SceneGraphAnalytics:
     sg = SceneGraphAnalytics()
     for obj in graph["objects"]:
-        sg.graph.add_node(obj["id"], name=obj["name"], objectKind=obj["kind"])
+        sg.graph.add_node(obj["object_id"], name=obj["name"], objectKind=obj["object_kind"])
 
     for relationship in graph["relationships"]:
-        source_id = owner_for_feature(graph, relationship["from"])
-        target_id = owner_for_feature(graph, relationship["to"])
+        source_id = owner_for_feature(graph, relationship["from_feature"])
+        target_id = owner_for_feature(graph, relationship["to_feature"])
         sg.graph.add_edge(
             source_id,
             target_id,
             key=(
                 "relationship_fact:authored_graph_user_strings:"
-                f"{GRAPH_SOURCE}:{GRAPH_REVISION}:{POSE}:{relationship['id']}"
+                f"{GRAPH_SOURCE}:{GRAPH_REVISION}:{POSE}:{relationship['relationship_id']}"
             ),
-            relationship=relationship["type"],
+            relationship=relationship["relationship_type"],
             projectionKind="relationship_fact_v1",
-            semanticRelationshipType=relationship["type"],
-            relationshipFactId=relationship["id"],
+            semanticRelationshipType=relationship["relationship_type"],
+            relationshipFactId=relationship["relationship_id"],
             provenance=relationship.get("provenance", PROVENANCE),
             confidence=1.0,
             status=relationship.get("status", STATUS),
@@ -155,8 +155,8 @@ def build_synthetic_projected_graph(graph: dict[str, Any]) -> SceneGraphAnalytic
             graphSource=graph["source"],
             graphRevision=graph["revision"],
             pose=POSE,
-            fromFeature=relationship["from"],
-            toFeature=relationship["to"],
+            fromFeature=relationship["from_feature"],
+            toFeature=relationship["to_feature"],
         )
     return sg
 

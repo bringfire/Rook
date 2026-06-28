@@ -29,9 +29,9 @@ def test_architectural_graph_shape_is_stable():
     assert graph["revision"] == GRAPH_REVISION
     assert graph["unit"] == "meters"
     assert sorted(graph["poses"]) == [POSE]
-    assert {obj["id"] for obj in graph["objects"]} == EXPECTED_OWNER_IDS
-    assert {feature["id"] for feature in graph["features"]} == EXPECTED_FEATURE_IDS
-    assert {rel["type"] for rel in graph["relationships"]} == EXPECTED_RELATIONSHIP_TYPES
+    assert {obj["object_id"] for obj in graph["objects"]} == EXPECTED_OWNER_IDS
+    assert {feature["feature_id"] for feature in graph["features"]} == EXPECTED_FEATURE_IDS
+    assert {rel["relationship_type"] for rel in graph["relationships"]} == EXPECTED_RELATIONSHIP_TYPES
     assert len(graph["objects"]) == 7
     assert len(graph["features"]) == 10
     assert len(graph["relationships"]) == 5
@@ -39,11 +39,11 @@ def test_architectural_graph_shape_is_stable():
 
 def test_architectural_relationships_reference_existing_features():
     graph = load_architectural_graph()
-    feature_ids = {feature["id"] for feature in graph["features"]}
+    feature_ids = {feature["feature_id"] for feature in graph["features"]}
 
     for relationship in graph["relationships"]:
-        assert relationship["from"] in feature_ids
-        assert relationship["to"] in feature_ids
+        assert relationship["from_feature"] in feature_ids
+        assert relationship["to_feature"] in feature_ids
         assert relationship["provenance"] == "authored_architectural_fixture"
         assert relationship["status"] == "accepted"
 
@@ -177,5 +177,8 @@ def test_generated_script_embeds_expected_fixture_constants():
     assert 'POSE = "architectural_reference"' in script
     assert 'LAYER_NAME = "Rook_ArchitecturalRelationshipFixture"' in script
     assert '"rook.graph.visual_type": visual_type' in script
-    assert '"rook.graph.member_id": obj["id"]' in script
-    assert '"rook.graph.owner_kind": "member"' in script
+    assert '"rook.graph.object_id": obj["object_id"]' in script
+    assert '"rook.graph.object_kind": obj["object_kind"]' in script
+    assert '"rook.graph.owner_id": feature["owner_id"]' in script
+    assert ('"rook.graph.' + 'member_id"') not in script
+    assert ('"rook.graph.' + 'owner":') not in script

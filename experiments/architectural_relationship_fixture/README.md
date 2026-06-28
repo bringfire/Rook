@@ -33,11 +33,12 @@ penetrates:incoming:accepted:authored_architectural_fixture
 bounded_by:incoming:accepted:authored_architectural_fixture
 ```
 
-## Projection Compatibility
+## Authored Graph Schema
 
-The Rhino user text uses `rook.graph.visual_type=member` and `rook.graph.member_id` for all owner
-objects. This is parser-facing compatibility language only. The authored graph still names objects
-as columns, slabs, walls, doors, openings, ducts, and spaces.
+The persisted fixture graph and emitted Rhino user text use authored graph schema v2. Owner
+records use `rook.graph.visual_type=object`, `rook.graph.object_id`, and
+`rook.graph.object_kind`. Feature records use `rook.graph.owner_id`; `rook.graph.owner_kind` is
+denormalized metadata that should match the resolved owner object's `object_kind`.
 
 ## Commands
 

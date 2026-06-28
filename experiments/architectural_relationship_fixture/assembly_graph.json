@@ -10,158 +10,158 @@
   },
   "objects": [
     {
-      "id": "column_01",
-      "kind": "column",
-      "name": "Column 01"
+      "name": "Column 01",
+      "object_id": "column_01",
+      "object_kind": "column"
     },
     {
-      "id": "slab_01",
-      "kind": "slab",
-      "name": "Slab 01"
+      "name": "Slab 01",
+      "object_id": "slab_01",
+      "object_kind": "slab"
     },
     {
-      "id": "wall_01",
-      "kind": "wall",
-      "name": "Wall 01"
+      "name": "Wall 01",
+      "object_id": "wall_01",
+      "object_kind": "wall"
     },
     {
-      "id": "door_01",
-      "kind": "door",
-      "name": "Door 01"
+      "name": "Door 01",
+      "object_id": "door_01",
+      "object_kind": "door"
     },
     {
-      "id": "opening_01",
-      "kind": "opening",
-      "name": "Opening 01"
+      "name": "Opening 01",
+      "object_id": "opening_01",
+      "object_kind": "opening"
     },
     {
-      "id": "duct_01",
-      "kind": "duct",
-      "name": "Duct 01"
+      "name": "Duct 01",
+      "object_id": "duct_01",
+      "object_kind": "duct"
     },
     {
-      "id": "space_01",
-      "kind": "space",
-      "name": "Space 01"
+      "name": "Space 01",
+      "object_id": "space_01",
+      "object_kind": "space"
     }
   ],
   "features": [
     {
-      "id": "column_01.top_point",
-      "owner": "column_01",
       "owner_kind": "column",
       "feature_kind": "point",
-      "role": "top_point"
+      "role": "top_point",
+      "feature_id": "column_01.top_point",
+      "owner_id": "column_01"
     },
     {
-      "id": "slab_01.underside_region",
-      "owner": "slab_01",
       "owner_kind": "slab",
       "feature_kind": "region",
-      "role": "underside_region"
+      "role": "underside_region",
+      "feature_id": "slab_01.underside_region",
+      "owner_id": "slab_01"
     },
     {
-      "id": "door_01.body",
-      "owner": "door_01",
       "owner_kind": "door",
       "feature_kind": "body",
-      "role": "body"
+      "role": "body",
+      "feature_id": "door_01.body",
+      "owner_id": "door_01"
     },
     {
-      "id": "wall_01.host_region",
-      "owner": "wall_01",
       "owner_kind": "wall",
       "feature_kind": "region",
-      "role": "host_region"
+      "role": "host_region",
+      "feature_id": "wall_01.host_region",
+      "owner_id": "wall_01"
     },
     {
-      "id": "opening_01.profile",
-      "owner": "opening_01",
       "owner_kind": "opening",
       "feature_kind": "profile",
-      "role": "profile"
+      "role": "profile",
+      "feature_id": "opening_01.profile",
+      "owner_id": "opening_01"
     },
     {
-      "id": "wall_01.opening_region",
-      "owner": "wall_01",
       "owner_kind": "wall",
       "feature_kind": "region",
-      "role": "opening_region"
+      "role": "opening_region",
+      "feature_id": "wall_01.opening_region",
+      "owner_id": "wall_01"
     },
     {
-      "id": "duct_01.centerline",
-      "owner": "duct_01",
       "owner_kind": "duct",
       "feature_kind": "line",
-      "role": "centerline"
+      "role": "centerline",
+      "feature_id": "duct_01.centerline",
+      "owner_id": "duct_01"
     },
     {
-      "id": "wall_01.penetration_region",
-      "owner": "wall_01",
       "owner_kind": "wall",
       "feature_kind": "region",
-      "role": "penetration_region"
+      "role": "penetration_region",
+      "feature_id": "wall_01.penetration_region",
+      "owner_id": "wall_01"
     },
     {
-      "id": "space_01.boundary",
-      "owner": "space_01",
       "owner_kind": "space",
       "feature_kind": "boundary",
-      "role": "boundary"
+      "role": "boundary",
+      "feature_id": "space_01.boundary",
+      "owner_id": "space_01"
     },
     {
-      "id": "wall_01.inner_face",
-      "owner": "wall_01",
       "owner_kind": "wall",
       "feature_kind": "face",
-      "role": "inner_face"
+      "role": "inner_face",
+      "feature_id": "wall_01.inner_face",
+      "owner_id": "wall_01"
     }
   ],
   "relationships": [
     {
-      "id": "column_01.top_point_supports_slab_01.underside_region",
-      "type": "supports",
-      "from": "column_01.top_point",
-      "to": "slab_01.underside_region",
       "contact_kind": "point_to_region",
       "provenance": "authored_architectural_fixture",
-      "status": "accepted"
+      "status": "accepted",
+      "relationship_id": "column_01.top_point_supports_slab_01.underside_region",
+      "relationship_type": "supports",
+      "from_feature": "column_01.top_point",
+      "to_feature": "slab_01.underside_region"
     },
     {
-      "id": "door_01.body_hosted_by_wall_01.host_region",
-      "type": "hosted_by",
-      "from": "door_01.body",
-      "to": "wall_01.host_region",
       "contact_kind": "body_to_region",
       "provenance": "authored_architectural_fixture",
-      "status": "accepted"
+      "status": "accepted",
+      "relationship_id": "door_01.body_hosted_by_wall_01.host_region",
+      "relationship_type": "hosted_by",
+      "from_feature": "door_01.body",
+      "to_feature": "wall_01.host_region"
     },
     {
-      "id": "opening_01.profile_voids_wall_01.opening_region",
-      "type": "voids",
-      "from": "opening_01.profile",
-      "to": "wall_01.opening_region",
       "contact_kind": "profile_to_region",
       "provenance": "authored_architectural_fixture",
-      "status": "accepted"
+      "status": "accepted",
+      "relationship_id": "opening_01.profile_voids_wall_01.opening_region",
+      "relationship_type": "voids",
+      "from_feature": "opening_01.profile",
+      "to_feature": "wall_01.opening_region"
     },
     {
-      "id": "duct_01.centerline_penetrates_wall_01.penetration_region",
-      "type": "penetrates",
-      "from": "duct_01.centerline",
-      "to": "wall_01.penetration_region",
       "contact_kind": "line_to_region",
       "provenance": "authored_architectural_fixture",
-      "status": "accepted"
+      "status": "accepted",
+      "relationship_id": "duct_01.centerline_penetrates_wall_01.penetration_region",
+      "relationship_type": "penetrates",
+      "from_feature": "duct_01.centerline",
+      "to_feature": "wall_01.penetration_region"
     },
     {
-      "id": "space_01.boundary_bounded_by_wall_01.inner_face",
-      "type": "bounded_by",
-      "from": "space_01.boundary",
-      "to": "wall_01.inner_face",
       "contact_kind": "boundary_to_face",
       "provenance": "authored_architectural_fixture",
-      "status": "accepted"
+      "status": "accepted",
+      "relationship_id": "space_01.boundary_bounded_by_wall_01.inner_face",
+      "relationship_type": "bounded_by",
+      "from_feature": "space_01.boundary",
+      "to_feature": "wall_01.inner_face"
     }
   ]
 }
