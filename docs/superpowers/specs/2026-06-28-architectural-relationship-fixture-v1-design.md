@@ -267,8 +267,11 @@ It should:
 rook.graph.source = architectural_relationship_fixture
 rook.graph.revision = a001
 rook.graph.pose = architectural_reference
-rook.graph.visual_type = owner | feature | relationship
+rook.graph.visual_type = member | feature | relationship
 ```
+
+For this fixture, `visual_type=member` is the parser-facing value for owner objects. It does not
+mean the architectural object is literally a robot member.
 
 It should stamp owners with the existing relationship-fact projection keys:
 
