@@ -250,23 +250,28 @@ def assert_architectural_card_expectations(
     assert group_keys(column) == {"supports:outgoing:accepted:authored_architectural_fixture"}
     assert column["summary"]["byRelationship"] == {"supports": 1}
     assert column["summary"]["byDirection"] == {"outgoing": 1}
+    assert column["groups"][0]["relationshipCategory"] == "support"
 
     slab = card_by_id(cards_result, owner_object_ids["slab_01"])
     assert group_keys(slab) == {"supports:incoming:accepted:authored_architectural_fixture"}
     assert slab["summary"]["byRelationship"] == {"supports": 1}
     assert slab["summary"]["byDirection"] == {"incoming": 1}
+    assert slab["groups"][0]["inverseRelationship"] == "supported by"
 
     door = card_by_id(cards_result, owner_object_ids["door_01"])
     assert group_keys(door) == {"hosted_by:outgoing:accepted:authored_architectural_fixture"}
     assert door["summary"]["byRelationship"] == {"hosted_by": 1}
+    assert door["groups"][0]["relationshipCategory"] == "hosting"
 
     duct = card_by_id(cards_result, owner_object_ids["duct_01"])
     assert group_keys(duct) == {"penetrates:outgoing:accepted:authored_architectural_fixture"}
     assert duct["summary"]["byRelationship"] == {"penetrates": 1}
+    assert duct["groups"][0]["relationshipCategory"] == "penetration"
 
     space = card_by_id(cards_result, owner_object_ids["space_01"])
     assert group_keys(space) == {"bounded_by:outgoing:accepted:authored_architectural_fixture"}
     assert space["summary"]["byRelationship"] == {"bounded_by": 1}
+    assert space["groups"][0]["relationshipCategory"] == "boundary"
 
     wall = card_by_id(cards_result, owner_object_ids["wall_01"])
     assert group_keys(wall) == WALL_EXPECTED_GROUP_KEYS
@@ -277,6 +282,12 @@ def assert_architectural_card_expectations(
         "hosted_by": 1,
         "penetrates": 1,
         "voids": 1,
+    }
+    assert wall["summary"]["byRelationshipCategory"] == {
+        "boundary": 1,
+        "hosting": 1,
+        "penetration": 1,
+        "voiding": 1,
     }
     assert wall["summary"]["byDirection"] == {"incoming": 4}
     assert wall["summary"]["byStatus"] == {STATUS: 4}

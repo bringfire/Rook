@@ -89,6 +89,7 @@ def _zero_summary():
         "relationshipFactCount": 0,
         "relationshipViewCount": 0,
         "byRelationship": {},
+        "byRelationshipCategory": {},
         "byDirection": {},
         "byStatus": {},
         "byProvenance": {},
@@ -197,6 +198,14 @@ def test_card_preserves_order_metadata_summary_and_ignores_fuzzy_edges():
         "inferred_from_geometry": 1,
     }
     assert member["summary"]["poses"] == ["reclined_robot", "rest_t_pose"]
+    connects_group = member["groups"][0]
+    assert connects_group["relationshipLabel"] == "connects"
+    assert connects_group["inverseRelationship"] == "connected by"
+    assert connects_group["relationshipCategory"] == "assembly"
+    assert member["summary"]["byRelationshipCategory"] == {"assembly": 1, "support": 1}
+    assert member["groups"][0]["sampleFacts"][0]["relationshipLabel"] == "connects"
+    assert member["groups"][0]["sampleFacts"][0]["contactKindLabel"] == "point to point"
+    assert member["groups"][1]["relationshipCategory"] == "support"
 
     joint = result["cards"][1]
     assert joint["summary"]["relationshipFactCount"] == 2
@@ -258,6 +267,9 @@ def test_max_groups_populates_expandable_groups():
             "direction": "outgoing",
             "status": "candidate",
             "provenance": "inferred_from_geometry",
+            "relationshipLabel": "supports",
+            "inverseRelationship": "supported by",
+            "relationshipCategory": "support",
             "count": 1,
             "reason": "group_limit",
         }
@@ -292,3 +304,66 @@ def test_empty_graph_reports_projection_required_without_no_facts_for_selection(
     assert result["diagnostics"]["noProjectedRelationshipFacts"] == 1
     assert result["diagnostics"]["projectionRequired"] == 1
     assert "noFactsForSelectedObjects" not in result["diagnostics"]
+
+
+def test_project_profile_enriches_card_labels(tmp_path):
+    profile_dir = tmp_path / ".rook"
+    profile_dir.mkdir()
+    (profile_dir / "relationship_profile.json").write_text(
+        """
+{
+  "schema": "rook.relationship_profile.v1",
+  "relationships": {
+    "supports": {
+      "label": "props up",
+      "category": "structural_support"
+    }
+  },
+  "contactKinds": {
+    "point_to_region": {
+      "label": "bearing point to region"
+    }
+  }
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = query_object_semantic_context(
+        _scene_graph(),
+        object_ids=["member-a"],
+        relationship_types=["supports"],
+        project_root=str(tmp_path),
+    )
+
+    assert result["success"] is True
+    group = result["cards"][0]["groups"][0]
+    assert group["relationship"] == "supports"
+    assert group["relationshipLabel"] == "props up"
+    assert group["inverseRelationship"] == "supported by"
+    assert group["relationshipCategory"] == "structural_support"
+    assert group["sampleFacts"][0]["relationshipLabel"] == "props up"
+    assert group["sampleFacts"][0]["contactKindLabel"] == "bearing point to region"
+    assert result["cards"][0]["summary"]["byRelationshipCategory"] == {"structural_support": 1}
+
+
+def test_invalid_project_profile_fails_card_request(tmp_path):
+    profile_dir = tmp_path / ".rook"
+    profile_dir.mkdir()
+    (profile_dir / "relationship_profile.json").write_text(
+        '{"schema": "wrong.schema", "relationships": {}}',
+        encoding="utf-8",
+    )
+
+    result = query_object_semantic_context(
+        _scene_graph(),
+        object_ids=["member-a"],
+        project_root=str(tmp_path),
+    )
+
+    assert result == {
+        "success": False,
+        "error": "invalid_relationship_profile",
+        "message": "Project relationship profile is invalid",
+        "diagnostics": {"invalidSchema": 1},
+    }

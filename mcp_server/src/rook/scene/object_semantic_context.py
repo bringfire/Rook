@@ -3,6 +3,11 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
+from .relationship_profile import (
+    contact_kind_profile,
+    relationship_profile,
+    resolve_relationship_profile,
+)
 from .semantic_relationship_inspector import PROJECTION_KIND, query_semantic_relationships
 
 
@@ -48,6 +53,7 @@ def _zero_summary() -> dict[str, Any]:
         "relationshipFactCount": 0,
         "relationshipViewCount": 0,
         "byRelationship": {},
+        "byRelationshipCategory": {},
         "byDirection": {},
         "byStatus": {},
         "byProvenance": {},
@@ -95,19 +101,36 @@ def _sample_sort_key(fact: dict[str, Any]) -> tuple[str, ...]:
     return tuple(str(fact.get(field) or "") for field in SAMPLE_SORT_FIELDS)
 
 
+def _enrich_fact(fact: dict[str, Any], profile_result: dict[str, Any]) -> dict[str, Any]:
+    enriched = dict(fact)
+    relationship_entry = relationship_profile(profile_result, fact.get("relationship"))
+    contact_entry = contact_kind_profile(profile_result, fact.get("contactKind"))
+    enriched["relationshipLabel"] = relationship_entry.get("label")
+    enriched["inverseRelationship"] = relationship_entry.get("inverse")
+    enriched["relationshipCategory"] = relationship_entry.get("category")
+    enriched["contactKindLabel"] = contact_entry.get("label")
+    enriched["contactKindCategory"] = contact_entry.get("category")
+    return enriched
+
+
 def _line_for_fact(fact: dict[str, Any]) -> str:
-    relationship = fact.get("relationship") or "relates to"
+    relationship = fact.get("relationshipLabel") or fact.get("relationship") or "relates to"
+    inverse = fact.get("inverseRelationship") or "connected by"
     other_name = fact.get("otherName") or fact.get("otherObjectId")
     if fact.get("direction") == "outgoing":
         prefix = f"{relationship} {other_name}"
     else:
-        prefix = f"connected by {other_name}"
+        prefix = f"{inverse} {other_name}"
     feature_part = ""
     if fact.get("fromFeature") and fact.get("toFeature"):
         feature_part = f" via {fact['fromFeature']} -> {fact['toFeature']}"
     details = [
         str(value)
-        for value in (fact.get("contactKind"), fact.get("status"), fact.get("provenance"))
+        for value in (
+            fact.get("contactKindLabel") or fact.get("contactKind"),
+            fact.get("status"),
+            fact.get("provenance"),
+        )
         if value
     ]
     suffix = f", {', '.join(details)}" if details else ""
@@ -118,12 +141,14 @@ def _summary_for_facts(facts: list[dict[str, Any]]) -> dict[str, Any]:
     if not facts:
         return _zero_summary()
     by_relationship: dict[str, int] = {}
+    by_relationship_category: dict[str, int] = {}
     by_direction: dict[str, int] = {}
     by_status: dict[str, int] = {}
     by_provenance: dict[str, int] = {}
     poses: set[str] = set()
     for fact in facts:
         _bump(by_relationship, fact.get("relationship"))
+        _bump(by_relationship_category, fact.get("relationshipCategory"))
         _bump(by_direction, fact.get("direction"))
         _bump(by_status, fact.get("status"))
         _bump(by_provenance, fact.get("provenance"))
@@ -133,6 +158,7 @@ def _summary_for_facts(facts: list[dict[str, Any]]) -> dict[str, Any]:
         "relationshipFactCount": len(facts),
         "relationshipViewCount": len(facts),
         "byRelationship": dict(sorted(by_relationship.items())),
+        "byRelationshipCategory": dict(sorted(by_relationship_category.items())),
         "byDirection": dict(sorted(by_direction.items())),
         "byStatus": dict(sorted(by_status.items())),
         "byProvenance": dict(sorted(by_provenance.items())),
@@ -173,6 +199,9 @@ def _groups_for_facts(
                 "direction": _group_component(first.get("direction")),
                 "status": _group_component(first.get("status")),
                 "provenance": _group_component(first.get("provenance")),
+                "relationshipLabel": first.get("relationshipLabel"),
+                "inverseRelationship": first.get("inverseRelationship"),
+                "relationshipCategory": first.get("relationshipCategory"),
                 "count": len(group_facts),
                 "sampleFacts": visible_facts,
                 "lines": [_line_for_fact(fact) for fact in visible_facts],
@@ -189,6 +218,9 @@ def _groups_for_facts(
             "direction": group["direction"],
             "status": group["status"],
             "provenance": group["provenance"],
+            "relationshipLabel": group.get("relationshipLabel"),
+            "inverseRelationship": group.get("inverseRelationship"),
+            "relationshipCategory": group.get("relationshipCategory"),
             "count": group["count"],
             "reason": "group_limit",
         }
@@ -203,8 +235,9 @@ def _card_from_object_entry(
     *,
     max_groups: int,
     max_facts_per_group: int,
+    profile_result: dict[str, Any],
 ) -> dict[str, Any]:
-    facts = list(entry.get("facts", []))
+    facts = [_enrich_fact(fact, profile_result) for fact in entry.get("facts", [])]
     groups, expandable_groups = _groups_for_facts(
         facts,
         max_groups=max_groups,
@@ -235,6 +268,7 @@ def query_object_semantic_context(
     direction: str = "both",
     max_groups: Any = None,
     max_facts_per_group: Any = None,
+    project_root: str | None = None,
 ) -> dict[str, Any]:
     if object_ids is None or object_ids == []:
         return _validation_error(
@@ -263,6 +297,10 @@ def query_object_semantic_context(
             "max_groups and max_facts_per_group must be positive integers in v1",
         )
 
+    profile_result = resolve_relationship_profile(project_root=project_root)
+    if profile_result.get("success") is False:
+        return profile_result
+
     raw = query_semantic_relationships(
         analytics,
         object_ids=object_ids,
@@ -284,6 +322,7 @@ def query_object_semantic_context(
             entry,
             max_groups=resolved_max_groups,
             max_facts_per_group=resolved_max_facts_per_group,
+            profile_result=profile_result,
         )
         for entry in raw.get("objects", [])
     ]
