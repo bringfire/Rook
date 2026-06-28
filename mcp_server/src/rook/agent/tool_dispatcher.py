@@ -1409,6 +1409,42 @@ def build_local_tools() -> Dict[str, Any]:
     except ImportError:
         logger.debug("scene_semantic_relationships local tool unavailable (import failed)")
 
+    # --- scene_object_semantic_context (Python-side semantic context cards) ---
+    try:
+        from ..scene.object_semantic_context import query_object_semantic_context
+        from ..scene.scene_graph import get_scene_graph
+
+        async def _scene_object_semantic_context(
+            object_ids=None,
+            graph_source=None,
+            graph_revision=None,
+            poses=None,
+            relationship_types=None,
+            status=None,
+            provenance=None,
+            direction="both",
+            max_groups=None,
+            max_facts_per_group=None,
+            **kwargs,
+        ) -> dict:
+            return query_object_semantic_context(
+                get_scene_graph(),
+                object_ids=object_ids,
+                graph_source=graph_source,
+                graph_revision=graph_revision,
+                poses=poses,
+                relationship_types=relationship_types,
+                status=status,
+                provenance=provenance,
+                direction=direction,
+                max_groups=max_groups,
+                max_facts_per_group=max_facts_per_group,
+            )
+
+        tools["scene_object_semantic_context"] = _scene_object_semantic_context
+    except ImportError:
+        logger.debug("scene_object_semantic_context local tool unavailable (import failed)")
+
     # --- scene_bim_facts (Python-side BIM facts query) ---
     try:
         from ..scene.scene_graph import get_scene_graph

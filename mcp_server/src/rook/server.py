@@ -11685,6 +11685,58 @@ Reads only relationship_fact_v1 edges from the current in-memory Python scene gr
             },
         ),
         Tool(
+            name="scene_object_semantic_context",
+            description="""Build compact semantic context cards for selected scene objects.
+
+Reads only already-projected relationship_fact_v1 edges from the current in-memory Python scene graph through the semantic relationship inspector. Requires object_ids. Does not sync, project, infer, mutate Rhino, use a port, expand block definitions, or include fuzzy spatial edges.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "object_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Required selected scene object ids to summarize",
+                    },
+                    "graph_source": {"type": "string", "description": "Optional graphSource filter"},
+                    "graph_revision": {"type": "string", "description": "Optional graphRevision filter"},
+                    "poses": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional pose filter",
+                    },
+                    "relationship_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional relationship type filter, for example connects",
+                    },
+                    "status": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional status filter, for example accepted",
+                    },
+                    "provenance": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional provenance filter, for example authored_assembly_graph",
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": ["both", "outgoing", "incoming"],
+                        "description": "Relationship direction relative to each selected object",
+                    },
+                    "max_groups": {
+                        "type": "integer",
+                        "description": "Maximum groups per card. Must be a positive integer.",
+                    },
+                    "max_facts_per_group": {
+                        "type": "integer",
+                        "description": "Maximum sample facts per group. Must be a positive integer.",
+                    },
+                },
+                "required": ["object_ids"],
+            },
+        ),
+        Tool(
             name="scene_bim_facts",
             description="""Query already-projected RookBIM facts from the current in-memory Python scene graph mirror.
 
@@ -20128,6 +20180,28 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 status=arguments.get("status"),
                 provenance=arguments.get("provenance"),
                 direction=arguments.get("direction", "both"),
+            )
+            if payload.get("success") is False:
+                result = {"success": False, "data": payload}
+            else:
+                result = {"success": True, "data": payload}
+
+        case "scene_object_semantic_context":
+            from .scene.object_semantic_context import query_object_semantic_context
+            from .scene.scene_graph import get_scene_graph
+
+            payload = query_object_semantic_context(
+                get_scene_graph(),
+                object_ids=arguments.get("object_ids"),
+                graph_source=arguments.get("graph_source"),
+                graph_revision=arguments.get("graph_revision"),
+                poses=arguments.get("poses"),
+                relationship_types=arguments.get("relationship_types"),
+                status=arguments.get("status"),
+                provenance=arguments.get("provenance"),
+                direction=arguments.get("direction", "both"),
+                max_groups=arguments.get("max_groups"),
+                max_facts_per_group=arguments.get("max_facts_per_group"),
             )
             if payload.get("success") is False:
                 result = {"success": False, "data": payload}

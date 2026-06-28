@@ -550,6 +550,7 @@ _ALL_KNOWN_TOOLS = {
     "scene_exact_neighbors",
     "scene_graph",
     "scene_overlay",
+    "scene_object_semantic_context",
     "scene_project_bim_relationships",
     "scene_project_relationship_facts",
     "scene_query",
@@ -611,6 +612,7 @@ _RHINO_INDEPENDENT_READ_TOOLS = {
     "rhino_knowledge_query",
     "rhino_learning_progress",
     "script_library_search",
+    "scene_object_semantic_context",
     "scene_semantic_relationships",
 }
 
