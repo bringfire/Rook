@@ -716,3 +716,40 @@ def test_workflow_contract_module_stays_compile_only_boundary():
     }
     assert referenced_names.isdisjoint(banned_names)
     assert referenced_attrs.isdisjoint(banned_names)
+
+    loader_banned_names = {
+        "compile_workflow_contract",
+        "select_template",
+        "initialize_graph",
+        "open",
+        "Path",
+        "yaml",
+    }
+    loader_banned_json_attrs = {"loads", "dumps"}
+    loader_checked_helper_names = {
+        "_copy_json_payload",
+        "_copy_required_mapping",
+        "_require_mapping",
+        "_require_sequence",
+        "_require_fields",
+    }
+    loader_functions_checked = 0
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        if (
+            node.name != "load_workflow_contract_payload"
+            and not node.name.startswith("_load_")
+            and node.name not in loader_checked_helper_names
+        ):
+            continue
+        loader_functions_checked += 1
+        for child in ast.walk(node):
+            if isinstance(child, ast.Name):
+                assert child.id not in loader_banned_names
+            if isinstance(child, ast.Attribute):
+                assert child.attr not in loader_banned_names
+                if isinstance(child.value, ast.Name) and child.value.id == "json":
+                    assert child.attr not in loader_banned_json_attrs
+
+    assert loader_functions_checked >= 2
