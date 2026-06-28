@@ -42,6 +42,30 @@ WORKFLOW_CONTRACT_COMPILER_ID = "rook_workflow_contract_compiler:v1"
 CONTRACT_FINGERPRINT_ALGORITHM = "sha256"
 
 _OUTCOME_STATUSES = frozenset(get_args(OutcomeStatus))
+_WORKFLOW_PAYLOAD_FIELDS = frozenset(
+    {
+        "schema",
+        "workflow_id",
+        "template",
+        "initial_params",
+        "rules",
+        "terminal_node_ids",
+        "expected_refs",
+        "max_steps",
+        "metadata",
+    }
+)
+_TEMPLATE_PAYLOAD_FIELDS = frozenset({"descriptor", "expected_template_id"})
+_INITIAL_PARAM_PAYLOAD_FIELDS = frozenset({"node_id", "execution_params"})
+_RULE_PAYLOAD_FIELDS = frozenset({"node_id", "steps_by_seen_count"})
+_EXPECTED_REF_PAYLOAD_FIELDS = frozenset({"node_id", "execution_ref"})
+_PRODUCER_STEP_PAYLOAD_FIELDS = frozenset({"kind", "node_id"})
+_VERIFIER_STEP_PAYLOAD_FIELDS = frozenset(
+    {"kind", "verifier_node_id", "source_node_id", "expected_outcome"}
+)
+_BIND_STEP_PAYLOAD_FIELDS = frozenset(
+    {"kind", "node_id", "base_params", "bindings"}
+)
 
 
 @dataclass(frozen=True)
@@ -235,6 +259,46 @@ def snapshot_workflow_contract(
     return _snapshot_from_normalized(normalized)
 
 
+def load_workflow_contract_payload(payload: Mapping[str, Any]) -> RookWorkflowContract:
+    """Load an already-parsed LM4X workflow contract payload."""
+    payload = _require_mapping(payload, "workflow contract payload")
+    _require_fields(
+        payload,
+        required=_WORKFLOW_PAYLOAD_FIELDS,
+        context="workflow contract payload",
+    )
+    schema = payload["schema"]
+    if schema != WORKFLOW_CONTRACT_SCHEMA:
+        raise ValueError(f"unsupported workflow contract schema: {schema!r}")
+
+    contract = RookWorkflowContract(
+        workflow_id=payload["workflow_id"],
+        template=_load_template_ref_payload(payload["template"]),
+        initial_params=tuple(
+            _load_initial_param_payload(item)
+            for item in _require_sequence(
+                payload["initial_params"],
+                "initial_params",
+            )
+        ),
+        rules=tuple(
+            _load_rule_payload(item)
+            for item in _require_sequence(payload["rules"], "rules")
+        ),
+        terminal_node_ids=tuple(
+            _require_sequence(payload["terminal_node_ids"], "terminal_node_ids")
+        ),
+        expected_refs=tuple(
+            _load_expected_ref_payload(item)
+            for item in _require_sequence(payload["expected_refs"], "expected_refs")
+        ),
+        max_steps=payload["max_steps"],
+        metadata=_copy_required_mapping(payload["metadata"], "metadata"),
+    )
+    snapshot_workflow_contract(contract)
+    return contract
+
+
 def _snapshot_from_normalized(
     normalized: _NormalizedWorkflowContract,
 ) -> WorkflowContractSnapshot:
@@ -303,6 +367,178 @@ def compile_workflow_contract(contract: RookWorkflowContract) -> CompiledWorkflo
         contract_snapshot=snapshot,
         compile_record=compile_record,
     )
+
+
+def _load_template_ref_payload(payload: Any) -> WorkflowTemplateRef:
+    payload = _require_mapping(payload, "template")
+    _require_fields(
+        payload,
+        required=_TEMPLATE_PAYLOAD_FIELDS,
+        context="template",
+    )
+    descriptor = _copy_required_mapping(payload["descriptor"], "template.descriptor")
+    return WorkflowTemplateRef(
+        descriptor=descriptor,
+        expected_template_id=payload["expected_template_id"],
+    )
+
+
+def _load_initial_param_payload(payload: Any) -> InitialNodeParams:
+    payload = _require_mapping(payload, "initial_params entry")
+    _require_fields(
+        payload,
+        required=_INITIAL_PARAM_PAYLOAD_FIELDS,
+        context="initial_params entry",
+    )
+    return InitialNodeParams(
+        node_id=payload["node_id"],
+        execution_params=_copy_required_mapping(
+            payload["execution_params"],
+            "initial_params.execution_params",
+        ),
+    )
+
+
+def _load_rule_payload(payload: Any) -> WorkflowNodeRule:
+    payload = _require_mapping(payload, "rules entry")
+    _require_fields(payload, required=_RULE_PAYLOAD_FIELDS, context="rules entry")
+    return WorkflowNodeRule(
+        node_id=payload["node_id"],
+        steps_by_seen_count=tuple(
+            _load_step_spec_payload(item)
+            for item in _require_sequence(
+                payload["steps_by_seen_count"],
+                "rules.steps_by_seen_count",
+            )
+        ),
+    )
+
+
+def _load_step_spec_payload(payload: Any) -> WorkflowStepSpec:
+    payload = _require_mapping(payload, "step spec")
+    if "kind" not in payload:
+        raise ValueError("step spec missing required fields: ['kind']")
+    kind = payload["kind"]
+    if not isinstance(kind, str):
+        raise ValueError(f"step spec kind must be a string: {kind!r}")
+
+    if kind == "producer":
+        _require_fields(
+            payload,
+            required=_PRODUCER_STEP_PAYLOAD_FIELDS,
+            context="producer step",
+        )
+        return ProducerStepSpec(node_id=payload["node_id"])
+
+    if kind == "verifier":
+        _require_fields(
+            payload,
+            required=_VERIFIER_STEP_PAYLOAD_FIELDS,
+            context="verifier step",
+        )
+        return VerifierStepSpec(
+            verifier_node_id=payload["verifier_node_id"],
+            source_node_id=payload["source_node_id"],
+            expected_outcome=payload["expected_outcome"],
+        )
+
+    if kind == "bind":
+        _require_fields(
+            payload,
+            required=_BIND_STEP_PAYLOAD_FIELDS,
+            context="bind step",
+        )
+        return BindStepSpec(
+            node_id=payload["node_id"],
+            base_params=_copy_required_mapping(
+                payload["base_params"],
+                "bind.base_params",
+            ),
+            bindings=_load_bindings_payload(payload["bindings"]),
+        )
+
+    raise ValueError(f"unknown step spec kind: {kind!r}")
+
+
+def _load_expected_ref_payload(payload: Any) -> ExpectedNodeRef:
+    payload = _require_mapping(payload, "expected_refs entry")
+    _require_fields(
+        payload,
+        required=_EXPECTED_REF_PAYLOAD_FIELDS,
+        context="expected_refs entry",
+    )
+    return ExpectedNodeRef(
+        node_id=payload["node_id"],
+        execution_ref=payload["execution_ref"],
+    )
+
+
+def _load_bindings_payload(payload: Any) -> Mapping[str, tuple[str, ...]]:
+    payload = _require_mapping(payload, "bind.bindings")
+    bindings: dict[str, tuple[str, ...]] = {}
+    for key, value in payload.items():
+        if not isinstance(key, str):
+            raise TypeError("bind.bindings keys must be strings")
+        bindings[key] = tuple(_require_sequence(value, f"bind.bindings[{key!r}]"))
+    return bindings
+
+
+def _copy_required_mapping(value: Any, context: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{context} must be a mapping")
+    copied = _copy_json_payload(value)
+    if not isinstance(copied, Mapping):
+        raise TypeError(f"{context} must be a mapping")
+    return copied
+
+
+def _copy_json_payload(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        copied: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise TypeError("JSON mapping keys must be strings")
+            copied[key] = _copy_json_payload(item)
+        return copied
+    if isinstance(value, (list, tuple)):
+        return tuple(_copy_json_payload(item) for item in value)
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise TypeError("JSON float values must be finite")
+        return value
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    raise TypeError(f"value is not JSON-safe: {type(value).__name__}")
+
+
+def _require_mapping(value: Any, context: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{context} must be a mapping")
+    for key in value:
+        if not isinstance(key, str):
+            raise TypeError(f"{context} keys must be strings")
+    return value
+
+
+def _require_sequence(value: Any, context: str) -> tuple[Any, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise TypeError(f"{context} must be a list or tuple")
+    return tuple(value)
+
+
+def _require_fields(
+    payload: Mapping[str, Any],
+    *,
+    required: frozenset[str],
+    context: str,
+) -> None:
+    keys = set(payload)
+    missing = required - keys
+    extra = keys - required
+    if missing:
+        raise ValueError(f"{context} missing required fields: {sorted(missing)!r}")
+    if extra:
+        raise ValueError(f"{context} has unknown fields: {sorted(extra)!r}")
 
 
 def _validate_max_steps(max_steps: Any) -> int:
