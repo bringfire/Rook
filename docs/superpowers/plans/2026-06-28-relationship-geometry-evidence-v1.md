@@ -269,7 +269,7 @@ python -m pytest mcp_server/tests/test_relationship_geometry_evidence.py -q
 Expected:
 
 ```text
-5 passed
+8 passed
 ```
 
 - [ ] **Step 5: Commit Task 1**
@@ -842,10 +842,10 @@ async def test_query_relationship_evidence_for_tool_hydrates_only_matching_featu
     from rook.scene import relationship_geometry_evidence as evidence
 
     sg = _scene_graph_with_projected_edges()
-    called_ids: list[str] = []
+    calls: list[tuple[str, str, dict, int | None]] = []
 
     async def fake_call_rhino(path, method="GET", payload=None, *, port=None):
-        called_ids.append(payload["id"])
+        calls.append((path, method, payload, port))
         return {
             "success": True,
             "data": {
@@ -864,7 +864,10 @@ async def test_query_relationship_evidence_for_tool_hydrates_only_matching_featu
     )
 
     assert result["success"] is True
-    assert called_ids == ["feature-column-top", "feature-slab-underside"]
+    assert calls == [
+        ("/usertext/object-get", "POST", {"id": "feature-column-top"}, 9876),
+        ("/usertext/object-get", "POST", {"id": "feature-slab-underside"}, 9876),
+    ]
     assert result["counts"]["hydratedFeatureObjectCount"] == 2
     assert result["counts"]["withinToleranceCount"] == 1
 
