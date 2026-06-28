@@ -61,3 +61,101 @@ def test_query_relationship_evidence_returns_empty_success_without_projected_fac
             "noProjectedRelationshipFacts": 1,
         },
     }
+
+
+def _scene_graph_with_projected_edges() -> SceneGraphAnalytics:
+    sg = SceneGraphAnalytics()
+    sg.graph.add_node("column-owner", name="column_01")
+    sg.graph.add_node("slab-owner", name="slab_01")
+    sg.graph.add_node("door-owner", name="door_01")
+    sg.graph.add_node("wall-owner", name="wall_01")
+    sg.graph.add_edge(
+        "column-owner",
+        "slab-owner",
+        key="relationship_fact:architectural:supports",
+        relationship="supports",
+        projectionKind="relationship_fact_v1",
+        semanticRelationshipType="supports",
+        relationshipFactId="column_01.top_point_supports_slab_01.underside_region",
+        fromFeature="column_01.top_point",
+        toFeature="slab_01.underside_region",
+        fromFeatureObjectId="feature-column-top",
+        toFeatureObjectId="feature-slab-underside",
+        contactKind="point_to_region",
+        provenance="authored_architectural_fixture",
+        confidence=1.0,
+        status="accepted",
+        graphSource="architectural_relationship_fixture",
+        graphRevision="a001",
+        pose="architectural_reference",
+    )
+    sg.graph.add_edge(
+        "door-owner",
+        "wall-owner",
+        key="relationship_fact:architectural:hosted",
+        relationship="hosted_by",
+        projectionKind="relationship_fact_v1",
+        semanticRelationshipType="hosted_by",
+        relationshipFactId="door_01.body_hosted_by_wall_01.host_region",
+        fromFeature="door_01.body",
+        toFeature="wall_01.host_region",
+        fromFeatureObjectId="feature-door-body",
+        toFeatureObjectId="feature-wall-host",
+        contactKind="body_to_region",
+        provenance="authored_architectural_fixture",
+        confidence=1.0,
+        status="accepted",
+        graphSource="architectural_relationship_fixture",
+        graphRevision="a001",
+        pose="architectural_reference",
+    )
+    sg.graph.add_edge(
+        "column-owner",
+        "wall-owner",
+        key="spatial-near",
+        relationship="near",
+        distance=0.2,
+    )
+    return sg
+
+
+def _positions() -> dict[str, dict[str, str]]:
+    return {
+        "feature-column-top": {"rook.graph.true_position_m": "[0.0, 0.0, 3.0]"},
+        "feature-slab-underside": {"rook.graph.true_position_m": "[0.0, 0.0, 3.0]"},
+        "feature-door-body": {"rook.graph.true_position_m": "[2.0, -0.1, 1.0]"},
+        "feature-wall-host": {"rook.graph.true_position_m": "[2.0, 0.0, 1.0]"},
+    }
+
+
+def test_query_relationship_evidence_filters_by_graph_scope_and_relationship_type():
+    result = query_relationship_evidence(
+        _scene_graph_with_projected_edges(),
+        graph_source="architectural_relationship_fixture",
+        graph_revision="a001",
+        poses=["architectural_reference"],
+        relationship_types=["supports"],
+        feature_user_strings_by_id=_positions(),
+    )
+
+    assert result["success"] is True
+    assert result["counts"]["matchingRelationshipFactCount"] == 1
+    assert result["counts"]["evidenceRecordCount"] == 1
+    assert result["records"][0]["relationship"] == "supports"
+    assert result["records"][0]["relationshipFactId"] == "column_01.top_point_supports_slab_01.underside_region"
+    assert "filteredByRelationshipType" in result["diagnostics"]
+
+
+def test_query_relationship_evidence_filters_by_object_ids_and_fact_ids():
+    result = query_relationship_evidence(
+        _scene_graph_with_projected_edges(),
+        object_ids=["door-owner"],
+        relationship_fact_ids=["door_01.body_hosted_by_wall_01.host_region"],
+        feature_user_strings_by_id=_positions(),
+    )
+
+    assert result["success"] is True
+    assert result["counts"]["matchingRelationshipFactCount"] == 1
+    assert result["records"][0]["fromObjectId"] == "door-owner"
+    assert result["records"][0]["toObjectId"] == "wall-owner"
+    assert result["records"][0]["relationship"] == "hosted_by"
