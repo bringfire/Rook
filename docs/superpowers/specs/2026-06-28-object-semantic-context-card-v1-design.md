@@ -246,12 +246,12 @@ Response shape:
   "success": true,
   "projectionKind": "relationship_fact_v1",
   "counts": {
-    "requestedObjectCount": 2,
-    "existingSelectedObjectCount": 2,
+    "requestedObjectCount": 1,
+    "existingSelectedObjectCount": 1,
     "missingSelectedObjectCount": 0,
     "relationshipFactCount": 4,
     "relationshipViewCount": 4,
-    "cardCount": 2
+    "cardCount": 1
   },
   "cards": [
     {
@@ -430,6 +430,22 @@ Group ordering must be deterministic:
 Within each group, `sampleFacts` should preserve raw structured fact fields from
 `scene_semantic_relationships` rather than replacing them with prose. `lines` are secondary and may
 be derived from the same facts.
+
+Within each group, sample facts must be sorted before truncation so repeated calls return stable
+samples. Sort ascending by:
+
+```text
+relationship
+direction
+otherName
+otherObjectId
+fromFeature
+toFeature
+pose
+relationshipFactId
+```
+
+Missing sort values compare as empty strings.
 
 When the group contains more facts than `max_facts_per_group`, include only the deterministic first
 `max_facts_per_group` sample facts and set:
