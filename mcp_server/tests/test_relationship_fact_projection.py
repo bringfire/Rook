@@ -14,8 +14,9 @@ def _owner_record(object_id: str, *, pose: str = "reclined_robot") -> rel.Runtim
             "rook.graph.source": "pearson_robot_skeleton_graph",
             "rook.graph.revision": "g002",
             "rook.graph.pose": pose,
-            "rook.graph.visual_type": "member",
-            "rook.graph.member_id": "spine_base_to_spine_top",
+            "rook.graph.visual_type": "object",
+            "rook.graph.object_id": "spine_base_to_spine_top",
+            "rook.graph.object_kind": "member",
             "rook.graph.feature_ids": "spine_base_to_spine_top.start,spine_base_to_spine_top.end",
             "rook.graph.relationship_ids": "spine_base_to_spine_top.start_connects_spine_base",
         },
@@ -29,8 +30,9 @@ def _joint_record(object_id: str, *, pose: str = "reclined_robot") -> rel.Runtim
             "rook.graph.source": "pearson_robot_skeleton_graph",
             "rook.graph.revision": "g002",
             "rook.graph.pose": pose,
-            "rook.graph.visual_type": "joint",
-            "rook.graph.node_id": "spine_base",
+            "rook.graph.visual_type": "object",
+            "rook.graph.object_id": "spine_base",
+            "rook.graph.object_kind": "joint",
             "rook.graph.feature_ids": "spine_base.point",
             "rook.graph.relationship_ids": "spine_base_to_spine_top.start_connects_spine_base",
         },
@@ -40,12 +42,12 @@ def _joint_record(object_id: str, *, pose: str = "reclined_robot") -> rel.Runtim
 def _feature_record(
     object_id: str,
     feature_id: str,
-    owner: str,
-    owner_kind: str,
+    owner_id: str,
+    owner_kind: str | None = None,
     *,
     pose: str = "reclined_robot",
 ) -> rel.RuntimeObjectRecord:
-    return rel.RuntimeObjectRecord(
+    record = rel.RuntimeObjectRecord(
         object_id,
         {
             "rook.graph.source": "pearson_robot_skeleton_graph",
@@ -53,14 +55,16 @@ def _feature_record(
             "rook.graph.pose": pose,
             "rook.graph.visual_type": "feature",
             "rook.graph.feature_id": feature_id,
-            "rook.graph.owner": owner,
-            "rook.graph.owner_kind": owner_kind,
+            "rook.graph.owner_id": owner_id,
             "rook.graph.feature_kind": "endpoint",
             "rook.graph.role": "start",
             "rook.graph.true_position_m": "[0.0, 0.0, 0.0]",
             "rook.graph.visual_lift_m": "0.08",
         },
     )
+    if owner_kind is not None:
+        record.user_strings["rook.graph.owner_kind"] = owner_kind
+    return record
 
 
 def _relationship_record(object_id: str, *, pose: str = "reclined_robot") -> rel.RuntimeObjectRecord:
@@ -91,7 +95,7 @@ def _valid_records() -> list[rel.RuntimeObjectRecord]:
             "spine_base_to_spine_top",
             "member",
         ),
-        _feature_record("feature-joint-point-id", "spine_base.point", "spine_base", "node"),
+        _feature_record("feature-joint-point-id", "spine_base.point", "spine_base", "joint"),
         _relationship_record("relationship-marker-id"),
     ]
 
@@ -152,8 +156,8 @@ def test_parse_runtime_records_defaults_missing_fact_fields():
 
     assert parsed.diagnostics == {}
     assert set(parsed.owners_by_key) == {
-        ("pearson_robot_skeleton_graph", "g002", "reclined_robot", "member", "spine_base_to_spine_top"),
-        ("pearson_robot_skeleton_graph", "g002", "reclined_robot", "node", "spine_base"),
+        ("pearson_robot_skeleton_graph", "g002", "reclined_robot", "spine_base_to_spine_top"),
+        ("pearson_robot_skeleton_graph", "g002", "reclined_robot", "spine_base"),
     }
     assert set(parsed.features_by_key) == {
         ("pearson_robot_skeleton_graph", "g002", "reclined_robot", "spine_base_to_spine_top.start"),
@@ -166,6 +170,26 @@ def test_parse_runtime_records_defaults_missing_fact_fields():
     assert relationship.confidence == 1.0
     assert relationship.status == "accepted"
     assert relationship.source_mode == "authored_graph_user_strings"
+
+
+def test_parse_runtime_records_requires_object_id_for_object_records():
+    bad_owner = _owner_record("member-rhino-id")
+    bad_owner.user_strings.pop("rook.graph.object_id")
+
+    parsed = rel.parse_runtime_records([bad_owner])
+
+    assert parsed.owners_by_key == {}
+    assert parsed.diagnostics["ownerObjectsMissingOwnerId"] == 1
+
+
+def test_parse_runtime_records_requires_object_kind_for_object_records():
+    bad_owner = _owner_record("member-rhino-id")
+    bad_owner.user_strings.pop("rook.graph.object_kind")
+
+    parsed = rel.parse_runtime_records([bad_owner])
+
+    assert parsed.owners_by_key == {}
+    assert parsed.diagnostics["ownerObjectsMissingOwnerKind"] == 1
 
 
 def test_parse_runtime_records_requires_pose_for_graph_records():
@@ -220,7 +244,7 @@ def test_resolve_relationship_facts_projects_owner_to_owner():
     assert fact.from_feature == "spine_base_to_spine_top.start"
     assert fact.from_feature_object_id == "feature-member-start-id"
     assert fact.to_owner == "spine_base"
-    assert fact.to_owner_kind == "node"
+    assert fact.to_owner_kind == "joint"
     assert fact.to_owner_object_id == "joint-rhino-id"
     assert fact.to_feature == "spine_base.point"
     assert fact.to_feature_object_id == "feature-joint-point-id"
@@ -278,7 +302,7 @@ def test_pose_separation_creates_distinct_edge_keys():
             "member",
             pose="rest_t_pose",
         ),
-        _feature_record("feature-joint-point-id-rest", "spine_base.point", "spine_base", "node", pose="rest_t_pose"),
+        _feature_record("feature-joint-point-id-rest", "spine_base.point", "spine_base", "joint", pose="rest_t_pose"),
         _relationship_record("relationship-marker-id-rest", pose="rest_t_pose"),
     ]
     facts = rel.resolve_relationship_facts(rel.parse_runtime_records(records))
@@ -440,7 +464,7 @@ def test_missing_owner_object_reports_diagnostic():
             "spine_base_to_spine_top",
             "member",
         ),
-        _feature_record("feature-joint-point-id", "spine_base.point", "spine_base", "node"),
+        _feature_record("feature-joint-point-id", "spine_base.point", "spine_base", "joint"),
         _relationship_record("relationship-marker-id"),
     ]
 
@@ -449,6 +473,65 @@ def test_missing_owner_object_reports_diagnostic():
     assert result.success is True
     assert result.facts == []
     assert result.diagnostics["relationshipFactsMissingOwnerObject"] == 1
+
+
+def test_feature_owner_kind_is_optional_and_resolves_by_owner_id():
+    records = [
+        _owner_record("member-rhino-id"),
+        _joint_record("joint-rhino-id"),
+        _feature_record(
+            "feature-member-start-id",
+            "spine_base_to_spine_top.start",
+            "spine_base_to_spine_top",
+            owner_kind=None,
+        ),
+        _feature_record("feature-joint-point-id", "spine_base.point", "spine_base", owner_kind=None),
+        _relationship_record("relationship-marker-id"),
+    ]
+
+    fact_set = rel.build_relationship_fact_set(rel.parse_runtime_records(records), strict=True)
+
+    assert fact_set.success is True
+    assert len(fact_set.facts) == 1
+    fact = fact_set.facts[0]
+    assert fact.from_owner_kind == "member"
+    assert fact.to_owner_kind == "joint"
+
+
+def test_feature_owner_kind_mismatch_reports_diagnostic():
+    records = [
+        _owner_record("member-rhino-id"),
+        _joint_record("joint-rhino-id"),
+        _feature_record(
+            "feature-member-start-id",
+            "spine_base_to_spine_top.start",
+            "spine_base_to_spine_top",
+            "joint",
+        ),
+        _feature_record("feature-joint-point-id", "spine_base.point", "spine_base", "joint"),
+        _relationship_record("relationship-marker-id"),
+    ]
+
+    result = rel.build_relationship_fact_set(rel.parse_runtime_records(records), strict=False)
+
+    assert result.success is True
+    assert result.facts == []
+    assert result.diagnostics["featureObjectsOwnerKindMismatch"] == 1
+
+
+def test_duplicate_object_id_with_conflicting_kind_reports_diagnostic():
+    duplicate = _owner_record("member-rhino-id-duplicate")
+    duplicate.user_strings["rook.graph.object_kind"] = "joint"
+    parsed = rel.parse_runtime_records([_owner_record("member-rhino-id"), duplicate])
+
+    assert len(parsed.owners_by_key) == 1
+    assert (
+        parsed.owners_by_key[
+            ("pearson_robot_skeleton_graph", "g002", "reclined_robot", "spine_base_to_spine_top")
+        ].owner_kind
+        == "member"
+    )
+    assert parsed.diagnostics["duplicateOwnerRecords"] == 1
 
 
 def test_duplicate_records_report_bounded_diagnostics():

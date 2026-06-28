@@ -24,8 +24,10 @@ VALIDATION_DIAGNOSTIC_KEYS = {
     "recordsMissingPose",
     "recordsMissingVisualType",
     "ownerObjectsMissingOwnerId",
+    "ownerObjectsMissingOwnerKind",
     "featureObjectsMissingFeatureId",
     "featureObjectsMissingOwner",
+    "featureObjectsOwnerKindMismatch",
     "relationshipObjectsMissingRelationshipId",
     "relationshipObjectsMissingRelationshipType",
     "relationshipObjectsMissingFeatureEndpoint",
@@ -63,8 +65,8 @@ class FeatureRecord:
     graph_revision: str
     pose: str
     feature_id: str
-    owner: str
-    owner_kind: str
+    owner_id: str
+    owner_kind: str | None
     feature_kind: str
     role: str
 
@@ -88,7 +90,7 @@ class RelationshipRecord:
 
 @dataclass(frozen=True)
 class ParsedRuntimeRecords:
-    owners_by_key: dict[tuple[str, str, str, str, str], OwnerRecord]
+    owners_by_key: dict[tuple[str, str, str, str], OwnerRecord]
     features_by_key: dict[tuple[str, str, str, str], FeatureRecord]
     relationship_records: list[RelationshipRecord]
     diagnostics: dict[str, int] = field(default_factory=dict)
@@ -220,19 +222,15 @@ def _parse_owner_record(
     source: str,
     revision: str,
     pose: str,
-    visual_type: str,
     diagnostics: dict[str, int],
 ) -> OwnerRecord | None:
-    if visual_type == "member":
-        owner_id = _clean_str(record.user_strings.get("rook.graph.member_id"))
-        owner_kind = "member"
-    elif visual_type == "joint":
-        owner_id = _clean_str(record.user_strings.get("rook.graph.node_id"))
-        owner_kind = "node"
-    else:
-        return None
+    owner_id = _clean_str(record.user_strings.get("rook.graph.object_id"))
+    owner_kind = _clean_str(record.user_strings.get("rook.graph.object_kind"))
     if not owner_id:
         _bump(diagnostics, "ownerObjectsMissingOwnerId")
+        return None
+    if not owner_kind:
+        _bump(diagnostics, "ownerObjectsMissingOwnerKind")
         return None
     return OwnerRecord(record.object_id, source, revision, pose, owner_kind, owner_id)
 
@@ -246,12 +244,12 @@ def _parse_feature_record(
 ) -> FeatureRecord | None:
     user_strings = record.user_strings
     feature_id = _clean_str(user_strings.get("rook.graph.feature_id"))
-    owner = _clean_str(user_strings.get("rook.graph.owner"))
+    owner_id = _clean_str(user_strings.get("rook.graph.owner_id"))
     owner_kind = _clean_str(user_strings.get("rook.graph.owner_kind"))
     if not feature_id:
         _bump(diagnostics, "featureObjectsMissingFeatureId")
         return None
-    if not owner or not owner_kind:
+    if not owner_id:
         _bump(diagnostics, "featureObjectsMissingOwner")
         return None
     return FeatureRecord(
@@ -260,8 +258,8 @@ def _parse_feature_record(
         graph_revision=revision,
         pose=pose,
         feature_id=feature_id,
-        owner=owner,
-        owner_kind=owner_kind,
+        owner_id=owner_id,
+        owner_kind=owner_kind or None,
         feature_kind=_clean_str(user_strings.get("rook.graph.feature_kind")),
         role=_clean_str(user_strings.get("rook.graph.role")),
     )
@@ -322,7 +320,7 @@ def parse_runtime_records(
         poses=poses,
         source_mode=source_mode,
     )
-    owners_by_key: dict[tuple[str, str, str, str, str], OwnerRecord] = {}
+    owners_by_key: dict[tuple[str, str, str, str], OwnerRecord] = {}
     features_by_key: dict[tuple[str, str, str, str], FeatureRecord] = {}
     relationship_records: list[RelationshipRecord] = []
     diagnostics: dict[str, int] = {}
@@ -339,13 +337,14 @@ def parse_runtime_records(
             continue
 
         visual_type = _clean_str(user_strings.get("rook.graph.visual_type"))
-        if visual_type in {"member", "joint"}:
-            owner = _parse_owner_record(record, source, revision, pose, visual_type, diagnostics)
+        if visual_type == "object":
+            owner = _parse_owner_record(record, source, revision, pose, diagnostics)
             if owner is None:
                 continue
-            key = (source, revision, pose, owner.owner_kind, owner.owner_id)
+            key = (source, revision, pose, owner.owner_id)
             if key in owners_by_key:
                 _bump(diagnostics, "duplicateOwnerRecords")
+                continue
             owners_by_key[key] = owner
         elif visual_type == "feature":
             feature = _parse_feature_record(record, source, revision, pose, diagnostics)
@@ -393,6 +392,27 @@ def _validation_diagnostics(diagnostics: dict[str, int]) -> dict[str, int]:
     }
 
 
+def _owner_for_feature(
+    parsed: ParsedRuntimeRecords,
+    source: str,
+    revision: str,
+    pose: str,
+    feature: FeatureRecord,
+) -> OwnerRecord | None:
+    return parsed.owners_by_key.get((source, revision, pose, feature.owner_id))
+
+
+def _feature_owner_kind_matches(
+    feature: FeatureRecord,
+    owner: OwnerRecord,
+    diagnostics: dict[str, int],
+) -> bool:
+    if feature.owner_kind is None or feature.owner_kind == owner.owner_kind:
+        return True
+    _bump(diagnostics, "featureObjectsOwnerKindMismatch")
+    return False
+
+
 def build_relationship_fact_set(
     parsed: ParsedRuntimeRecords,
     *,
@@ -409,10 +429,14 @@ def build_relationship_fact_set(
         if from_feature is None or to_feature is None:
             _bump(diagnostics, "relationshipFactsMissingFeatureEndpoint")
             continue
-        from_owner = parsed.owners_by_key.get((source, revision, pose, from_feature.owner_kind, from_feature.owner))
-        to_owner = parsed.owners_by_key.get((source, revision, pose, to_feature.owner_kind, to_feature.owner))
+        from_owner = _owner_for_feature(parsed, source, revision, pose, from_feature)
+        to_owner = _owner_for_feature(parsed, source, revision, pose, to_feature)
         if from_owner is None or to_owner is None:
             _bump(diagnostics, "relationshipFactsMissingOwnerObject")
+            continue
+        if not _feature_owner_kind_matches(from_feature, from_owner, diagnostics):
+            continue
+        if not _feature_owner_kind_matches(to_feature, to_owner, diagnostics):
             continue
         facts.append(
             RelationshipFact(
@@ -420,12 +444,12 @@ def build_relationship_fact_set(
                 relationship_type=relationship.relationship_type,
                 from_feature=relationship.from_feature,
                 to_feature=relationship.to_feature,
-                from_owner=from_feature.owner,
-                from_owner_kind=from_feature.owner_kind,
+                from_owner=from_feature.owner_id,
+                from_owner_kind=from_owner.owner_kind,
                 from_owner_object_id=from_owner.object_id,
                 from_feature_object_id=from_feature.object_id,
-                to_owner=to_feature.owner,
-                to_owner_kind=to_feature.owner_kind,
+                to_owner=to_feature.owner_id,
+                to_owner_kind=to_owner.owner_kind,
                 to_owner_object_id=to_owner.object_id,
                 to_feature_object_id=to_feature.object_id,
                 relationship_object_id=relationship.object_id,
