@@ -16,6 +16,7 @@ import pytest
 
 import rook.agent.plan_graph_workflow_contract as contract_module
 from rook.agent.plan_graph_current_step_provider import (
+    CATALOG_CURRENT_STEP_PROVIDER_ID,
     CatalogCurrentStepProvider,
     NodeStepRule,
 )
@@ -26,6 +27,9 @@ from rook.agent.plan_graph_sequence_runner import (
     VerifierStep,
 )
 from rook.agent.plan_graph_workflow_contract import (
+    CONTRACT_FINGERPRINT_ALGORITHM,
+    WORKFLOW_CONTRACT_COMPILER_ID,
+    WORKFLOW_CONTRACT_SCHEMA,
     BindStepSpec,
     ExpectedNodeRef,
     InitialNodeParams,
@@ -167,6 +171,20 @@ def test_compile_repair_contract_produces_initialized_scaffold_and_snapshots():
 
     assert scaffold.workflow_id == "lm4w_repair_contract"
     assert scaffold.max_steps == 6
+    assert scaffold.contract_snapshot.workflow_id == scaffold.workflow_id
+    assert scaffold.compile_record.workflow_id == scaffold.workflow_id
+    assert scaffold.compile_record.compiler_id == WORKFLOW_CONTRACT_COMPILER_ID
+    assert scaffold.compile_record.contract_schema == WORKFLOW_CONTRACT_SCHEMA
+    assert scaffold.compile_record.contract_fingerprint_algorithm == (
+        CONTRACT_FINGERPRINT_ALGORITHM
+    )
+    assert scaffold.compile_record.contract_fingerprint == (
+        scaffold.contract_snapshot.contract_fingerprint
+    )
+    assert scaffold.compile_record.provider_id == CATALOG_CURRENT_STEP_PROVIDER_ID
+    assert scaffold.metadata is scaffold.contract_snapshot.normalized_contract[
+        "metadata"
+    ]
     assert isinstance(scaffold.provider, CatalogCurrentStepProvider)
     assert scaffold.graph.nodes["create_script"].status == "ready"
     assert scaffold.graph.nodes["done"].is_terminal is True
@@ -458,6 +476,15 @@ def test_initial_params_validation(initial_params, exc_type):
             (
                 WorkflowNodeRule(
                     "repair_same_component",
+                    (BindStepSpec("repair_same_component", {}, {1: ("x",)}),),
+                ),
+            ),
+            TypeError,
+        ),
+        (
+            (
+                WorkflowNodeRule(
+                    "repair_same_component",
                     (BindStepSpec("repair_same_component", {}, {"": ("x",)}),),
                 ),
             ),
@@ -481,6 +508,7 @@ def test_initial_params_validation(initial_params, exc_type):
         "bind-bindings-non-mapping",
         "empty-binding-path",
         "non-string-binding-path-element",
+        "non-string-binding-key",
         "empty-binding-key",
     ],
 )
@@ -614,6 +642,8 @@ def test_workflow_contract_module_stays_compile_only_boundary():
         "collections.abc",
         "copy",
         "dataclasses",
+        "hashlib",
+        "json",
         "math",
         "types",
         "typing",
