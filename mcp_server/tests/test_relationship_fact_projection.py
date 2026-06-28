@@ -192,6 +192,21 @@ def test_parse_runtime_records_requires_object_kind_for_object_records():
     assert parsed.diagnostics["ownerObjectsMissingOwnerKind"] == 1
 
 
+def test_parse_runtime_records_requires_feature_kind_for_feature_records():
+    bad_feature = _feature_record(
+        "feature-member-start-id",
+        "spine_base_to_spine_top.start",
+        "spine_base_to_spine_top",
+        "member",
+    )
+    bad_feature.user_strings.pop("rook.graph.feature_kind")
+
+    parsed = rel.parse_runtime_records([bad_feature])
+
+    assert parsed.features_by_key == {}
+    assert parsed.diagnostics["featureObjectsMissingFeatureKind"] == 1
+
+
 def test_parse_runtime_records_requires_pose_for_graph_records():
     bad_relationship = _relationship_record("relationship-marker-id")
     bad_relationship.user_strings.pop("rook.graph.pose")

@@ -27,6 +27,7 @@ VALIDATION_DIAGNOSTIC_KEYS = {
     "ownerObjectsMissingOwnerKind",
     "featureObjectsMissingFeatureId",
     "featureObjectsMissingOwner",
+    "featureObjectsMissingFeatureKind",
     "featureObjectsOwnerKindMismatch",
     "relationshipObjectsMissingRelationshipId",
     "relationshipObjectsMissingRelationshipType",
@@ -246,11 +247,15 @@ def _parse_feature_record(
     feature_id = _clean_str(user_strings.get("rook.graph.feature_id"))
     owner_id = _clean_str(user_strings.get("rook.graph.owner_id"))
     owner_kind = _clean_str(user_strings.get("rook.graph.owner_kind"))
+    feature_kind = _clean_str(user_strings.get("rook.graph.feature_kind"))
     if not feature_id:
         _bump(diagnostics, "featureObjectsMissingFeatureId")
         return None
     if not owner_id:
         _bump(diagnostics, "featureObjectsMissingOwner")
+        return None
+    if not feature_kind:
+        _bump(diagnostics, "featureObjectsMissingFeatureKind")
         return None
     return FeatureRecord(
         object_id=record.object_id,
@@ -260,7 +265,7 @@ def _parse_feature_record(
         feature_id=feature_id,
         owner_id=owner_id,
         owner_kind=owner_kind or None,
-        feature_kind=_clean_str(user_strings.get("rook.graph.feature_kind")),
+        feature_kind=feature_kind,
         role=_clean_str(user_strings.get("rook.graph.role")),
     )
 

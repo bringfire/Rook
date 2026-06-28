@@ -55,6 +55,7 @@ def _user_strings_for(object_id: str) -> dict:
             "rook.graph.feature_id": "spine_base_to_spine_top.start",
             "rook.graph.owner_id": "spine_base_to_spine_top",
             "rook.graph.owner_kind": "member",
+            "rook.graph.feature_kind": "endpoint",
         },
         "feature-joint-point-id": {
             "rook.graph.source": "pearson_robot_skeleton_graph",
@@ -64,6 +65,7 @@ def _user_strings_for(object_id: str) -> dict:
             "rook.graph.feature_id": "spine_base.point",
             "rook.graph.owner_id": "spine_base",
             "rook.graph.owner_kind": "joint",
+            "rook.graph.feature_kind": "point",
         },
         "relationship-marker-id": {
             "rook.graph.source": "pearson_robot_skeleton_graph",
@@ -101,6 +103,7 @@ def _user_strings_for(object_id: str) -> dict:
             "rook.graph.feature_id": "unrelated_member.start",
             "rook.graph.owner_id": "unrelated_member",
             "rook.graph.owner_kind": "member",
+            "rook.graph.feature_kind": "endpoint",
         },
         "unrelated-feature-joint-id": {
             "rook.graph.source": "pearson_robot_skeleton_graph",
@@ -110,6 +113,7 @@ def _user_strings_for(object_id: str) -> dict:
             "rook.graph.feature_id": "unrelated_joint.point",
             "rook.graph.owner_id": "unrelated_joint",
             "rook.graph.owner_kind": "joint",
+            "rook.graph.feature_kind": "point",
         },
         "unrelated-relationship-id": {
             "rook.graph.source": "pearson_robot_skeleton_graph",
