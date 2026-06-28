@@ -142,9 +142,16 @@ by the matching facts.
 If either feature marker object id is missing from a projected edge, do not call Rhino for that
 feature marker. Return a missing-evidence record for that fact.
 
-If Rhino hydration for one feature marker fails, keep the tool response successful and mark the
-affected evidence record as missing unless the failure is an invalid input or unexpected route-level
-failure that prevents all requested hydration.
+Separate ordinary data gaps from environment/read failures:
+
+- If a feature marker object exists but lacks the expected user text or position payload, keep the
+  tool response successful and mark the affected evidence record as missing.
+- If one feature marker user text read fails while other requested feature marker reads succeed,
+  keep the tool response successful, mark only affected records as missing, and count a
+  `hydrationFailures` diagnostic.
+- If the Rhino connection is unavailable, the user text route is unavailable, or all requested
+  feature marker user text reads fail for route-level reasons, return `success=false` because the
+  read-backed measurement could not run. This is an environment/read failure, not missing evidence.
 
 ## 7. Position source
 
@@ -259,8 +266,8 @@ Top-level response:
     "evidenceRecordCount": 5,
     "measuredEvidenceCount": 5,
     "missingEvidenceCount": 0,
-    "withinToleranceCount": 5,
-    "outsideToleranceCount": 0,
+    "withinToleranceCount": 3,
+    "outsideToleranceCount": 2,
     "hydratedFeatureObjectCount": 10
   },
   "records": [],
@@ -286,6 +293,19 @@ Invalid input should return `success=false`:
 - `object_ids` supplied but not `list[str]`;
 - `poses`, `relationship_types`, or `relationship_fact_ids` supplied but not `list[str]`;
 - `tolerance_m` not numeric, non-finite, or less than zero.
+
+Read environment failures should also return `success=false`:
+
+- no reachable Rhino/Rook instance for the requested `port`;
+- the user text read route is unavailable;
+- every required feature marker hydration fails for route-level reasons.
+
+Suggested error identifiers:
+
+```text
+relationship_evidence_hydration_unavailable
+relationship_evidence_hydration_failed
+```
 
 ## 10. Targeting policy
 
@@ -324,6 +344,8 @@ Tool/dispatch tests:
 - dispatch hydrates only the unique `fromFeatureObjectId` / `toFeatureObjectId` values needed by
   matching projected facts;
 - dispatch returns success with missing evidence for ordinary data gaps.
+- dispatch returns `success=false` when Rhino/user-text hydration is unavailable for all requested
+  feature marker reads.
 
 Live test:
 
@@ -337,8 +359,14 @@ graph_revision = a001
 ```
 
 - run `scene_relationship_evidence` for the same graph source and revision;
-- assert 5 matching facts, 5 evidence records, 10 hydrated feature marker objects, 5 measured
-  records, and 5 within tolerance;
+- use the default `tolerance_m = 0.01`;
+- assert 5 matching facts, 5 evidence records, 10 hydrated feature marker objects, and 5 measured
+  records;
+- assert `withinToleranceCount == 3` and `outsideToleranceCount == 2`;
+- assert the two outside-tolerance authored facts are reported as measured evidence rather than
+  failed facts:
+  - `hosted_by` distance `0.1000`;
+  - `voids` distance `0.0200`;
 - assert representative records for:
   - `supports` / `point_to_region`;
   - `penetrates` / `line_to_region`;
