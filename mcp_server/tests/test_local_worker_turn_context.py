@@ -42,8 +42,8 @@ def _repair_contract() -> RookWorkflowContract:
         workflow_id="lm5a_worker_context",
         template=WorkflowTemplateRef(
             descriptor={
-                "goal": "create csharp script and repair it",
-                "tool": "grasshopper",
+                "domain": "grasshopper",
+                "operation": "create_verify_repair_verify",
                 "language": "csharp",
             },
             expected_template_id="gh_csharp_create_verify_repair_verify",
