@@ -271,3 +271,96 @@ def test_supports_requires_explicit_direct_contact_obligation_for_adjacent_exact
     assert report["evidence"][0]["strength"] == "exact_topology"
     assert report["verdicts"][0]["verdict"] == "not_applicable"
     assert report["verdicts"][0]["reason"] == "no_v1_physical_obligation"
+
+
+def test_absent_adjacent_exact_does_not_contradict_claim():
+    from rook.scene.relationship_kernel import query_relationship_kernel_report
+
+    report = query_relationship_kernel_report(_claim_graph(), relationship_types=["connects"])
+
+    assert report["counts"]["evidenceCount"] == 0
+    assert report["verdicts"][0]["verdict"] == "unverified"
+    assert report["verdicts"][0]["reason"] == "no_applicable_exact_topology_evidence"
+
+
+def test_exact_refuted_annotation_becomes_contradicting_evidence():
+    from rook.scene.relationship_kernel import query_relationship_kernel_report
+
+    sg = _claim_graph()
+    sg.graph.add_edge(
+        "beam-owner",
+        "plate-owner",
+        key="spatial-adjacent",
+        relationship="adjacent",
+        exact_status="exact_refuted",
+        exact_reason="no_shared_face",
+        exact_graphSequence=42,
+    )
+
+    report = query_relationship_kernel_report(sg, relationship_types=["connects"])
+
+    assert report["counts"]["evidenceCount"] == 1
+    evidence = report["evidence"][0]
+    assert evidence["method"] == "adjacent_exact_refutation"
+    assert evidence["strength"] == "exact_topology"
+    assert evidence["polarity"] == "contradicts"
+    assert evidence["status"] == "measured"
+    assert evidence["measures"]["reason"] == "no_shared_face"
+    assert report["verdicts"][0]["verdict"] == "contradicted"
+    assert report["verdicts"][0]["reason"] == "explicit_exact_topology_refutation"
+
+
+def test_exact_refuted_annotation_on_unrelated_pair_does_not_contradict_claim():
+    from rook.scene.relationship_kernel import query_relationship_kernel_report
+
+    sg = _claim_graph()
+    sg.graph.add_edge(
+        "column-owner",
+        "beam-owner",
+        key="unrelated-spatial-adjacent",
+        relationship="adjacent",
+        exact_status="exact_refuted",
+        exact_graphSequence=42,
+    )
+
+    report = query_relationship_kernel_report(sg, relationship_types=["connects"])
+
+    assert report["counts"]["evidenceCount"] == 0
+    assert report["verdicts"][0]["verdict"] == "unverified"
+
+
+def test_non_adjacent_exact_refuted_annotation_does_not_contradict_claim():
+    from rook.scene.relationship_kernel import query_relationship_kernel_report
+
+    sg = _claim_graph()
+    sg.graph.add_edge(
+        "beam-owner",
+        "plate-owner",
+        key="analysis-note",
+        relationship="analysis_note",
+        exact_status="exact_refuted",
+        exact_graphSequence=42,
+    )
+
+    report = query_relationship_kernel_report(sg, relationship_types=["connects"])
+
+    assert report["counts"]["evidenceCount"] == 0
+    assert report["verdicts"][0]["verdict"] == "unverified"
+
+
+def test_exact_refuted_annotation_without_graph_sequence_does_not_contradict_claim():
+    from rook.scene.relationship_kernel import query_relationship_kernel_report
+
+    sg = _claim_graph()
+    sg.graph.add_edge(
+        "beam-owner",
+        "plate-owner",
+        key="spatial-adjacent-no-sequence",
+        relationship="adjacent",
+        exact_status="exact_refuted",
+    )
+
+    report = query_relationship_kernel_report(sg, relationship_types=["connects"])
+
+    assert report["counts"]["evidenceCount"] == 0
+    assert report["verdicts"][0]["verdict"] == "unverified"

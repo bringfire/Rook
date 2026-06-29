@@ -12,6 +12,7 @@ from typing import Any
 REPORT_SCHEMA = "rook.relationship_kernel_report.v1"
 CLAIM_PROJECTION_KIND = "relationship_fact_v1"
 EXACT_RELATIONSHIP = "adjacent_exact"
+EXACT_REFUTATION_METHOD = "adjacent_exact_refutation"
 EXACT_PROVENANCE = "occt"
 EVIDENCE_KIND = "relationship_evidence_v1"
 INTERFACE_KIND = "interface_record_v1"
@@ -261,7 +262,9 @@ def _evidence_for_claim(
     claim: dict[str, Any],
     _marker_evidence_records: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    return _exact_support_for_claim(graph, claim)
+    support_evidence, support_interfaces = _exact_support_for_claim(graph, claim)
+    refute_evidence, refute_interfaces = _exact_refutation_for_claim(graph, claim)
+    return support_evidence + refute_evidence, support_interfaces + refute_interfaces
 
 
 def _pair_edges(
@@ -339,6 +342,61 @@ def _exact_support_for_claim(
             "evidenceMethodField": EXACT_RELATIONSHIP,
             "interfaceRecordIds": [interface_record_id],
             "reason": "exact_topology_supports_owner_contact",
+            "measures": measures,
+        }
+        interface_records.append(interface_record)
+        evidence.append(evidence_record)
+    return evidence, interface_records
+
+
+def _exact_refutation_for_claim(
+    graph: Any,
+    claim: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    evidence: list[dict[str, Any]] = []
+    interface_records: list[dict[str, Any]] = []
+    from_object = claim["fromObjectId"]
+    to_object = claim["toObjectId"]
+    feature_paths = [claim.get("fromFeature"), claim.get("toFeature")]
+    for _source, _target, key, attrs in _pair_edges(graph, from_object, to_object):
+        if attrs.get("relationship") != "adjacent":
+            continue
+        if attrs.get("exact_status") != "exact_refuted":
+            continue
+        if attrs.get("exact_graphSequence") is None:
+            continue
+        interface_record_id = _interface_id(claim, EXACT_REFUTATION_METHOD, key)
+        measures = {
+            "reason": attrs.get("exact_reason"),
+            "graphSequence": attrs.get("exact_graphSequence"),
+            "engineVersion": attrs.get("exact_engineVersion"),
+        }
+        interface_record = {
+            "interfaceRecordId": interface_record_id,
+            "kind": INTERFACE_KIND,
+            "interfaceType": "refuted_shared_topology",
+            "method": EXACT_REFUTATION_METHOD,
+            "source": EXACT_PROVENANCE,
+            "objectIds": [from_object, to_object],
+            "interfaceScope": "owner_pair",
+            "featurePaths": feature_paths,
+            "featureScopeVerified": False,
+            "measures": measures,
+        }
+        evidence_record = {
+            "evidenceId": _evidence_id(claim, EXACT_REFUTATION_METHOD, key),
+            "kind": EVIDENCE_KIND,
+            "relationshipClaimId": claim["relationshipClaimId"],
+            "relationship": claim["relationship"],
+            "method": EXACT_REFUTATION_METHOD,
+            "strength": "exact_topology",
+            "polarity": "contradicts",
+            "status": "measured",
+            "source": EXACT_PROVENANCE,
+            "claimTypeField": claim["relationship"],
+            "evidenceMethodField": EXACT_REFUTATION_METHOD,
+            "interfaceRecordIds": [interface_record_id],
+            "reason": "explicit_exact_topology_refutation",
             "measures": measures,
         }
         interface_records.append(interface_record)
