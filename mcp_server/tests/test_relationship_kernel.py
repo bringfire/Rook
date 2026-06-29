@@ -364,3 +364,68 @@ def test_exact_refuted_annotation_without_graph_sequence_does_not_contradict_cla
 
     assert report["counts"]["evidenceCount"] == 0
     assert report["verdicts"][0]["verdict"] == "unverified"
+
+
+def test_marker_evidence_is_marker_hint_and_does_not_satisfy_physical_claim():
+    from rook.scene.relationship_kernel import query_relationship_kernel_report
+
+    marker_records = [
+        {
+            "relationshipFactId": "beam_01.end_connects_plate_01.socket",
+            "relationship": "connects",
+            "evidence": {
+                "kind": "relationship_geometry_evidence_v1",
+                "method": "feature_marker_position_distance",
+                "status": "measured",
+                "distanceM": 0.0,
+                "toleranceM": 0.01,
+                "withinTolerance": True,
+                "source": "rhino_user_text_feature_positions",
+            },
+        }
+    ]
+
+    report = query_relationship_kernel_report(
+        _claim_graph(),
+        relationship_types=["connects"],
+        marker_evidence_records=marker_records,
+    )
+
+    evidence = report["evidence"][0]
+    assert evidence["method"] == "feature_marker_position_distance"
+    assert evidence["strength"] == "marker_hint"
+    assert evidence["polarity"] == "supports"
+    assert evidence["status"] == "measured"
+    assert report["verdicts"][0]["verdict"] == "unverified"
+    assert report["verdicts"][0]["strongestEvidence"] == "marker_hint"
+
+
+def test_missing_marker_evidence_is_missing_and_keeps_claim_unverified():
+    from rook.scene.relationship_kernel import query_relationship_kernel_report
+
+    marker_records = [
+        {
+            "relationshipFactId": "beam_01.end_connects_plate_01.socket",
+            "relationship": "connects",
+            "evidence": {
+                "kind": "relationship_geometry_evidence_v1",
+                "method": "feature_marker_position_distance",
+                "status": "missing",
+                "missing": ["fromFeaturePosition"],
+                "source": "rhino_user_text_feature_positions",
+            },
+        }
+    ]
+
+    report = query_relationship_kernel_report(
+        _claim_graph(),
+        relationship_types=["connects"],
+        marker_evidence_records=marker_records,
+    )
+
+    evidence = report["evidence"][0]
+    assert evidence["strength"] == "marker_hint"
+    assert evidence["polarity"] == "missing"
+    assert evidence["status"] == "missing"
+    assert evidence["diagnostics"]["missing"] == ["fromFeaturePosition"]
+    assert report["verdicts"][0]["verdict"] == "unverified"

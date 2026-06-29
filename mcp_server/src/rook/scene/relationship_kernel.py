@@ -260,11 +260,15 @@ def _counts(
 def _evidence_for_claim(
     graph: Any,
     claim: dict[str, Any],
-    _marker_evidence_records: list[dict[str, Any]],
+    marker_evidence_records: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     support_evidence, support_interfaces = _exact_support_for_claim(graph, claim)
     refute_evidence, refute_interfaces = _exact_refutation_for_claim(graph, claim)
-    return support_evidence + refute_evidence, support_interfaces + refute_interfaces
+    marker_evidence = _marker_hint_for_claim(claim, marker_evidence_records)
+    return (
+        support_evidence + refute_evidence + marker_evidence,
+        support_interfaces + refute_interfaces,
+    )
 
 
 def _pair_edges(
@@ -402,6 +406,59 @@ def _exact_refutation_for_claim(
         interface_records.append(interface_record)
         evidence.append(evidence_record)
     return evidence, interface_records
+
+
+def _marker_record_claim_id(record: dict[str, Any]) -> str | None:
+    value = (
+        record.get("relationshipFactId")
+        or record.get("relationshipClaimId")
+        or record.get("claimId")
+    )
+    return str(value) if value else None
+
+
+def _marker_hint_for_claim(
+    claim: dict[str, Any],
+    marker_evidence_records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    evidence: list[dict[str, Any]] = []
+    for index, record in enumerate(marker_evidence_records):
+        if _marker_record_claim_id(record) != claim["relationshipClaimId"]:
+            continue
+        marker = dict(record.get("evidence") or {})
+        status = str(marker.get("status") or "missing")
+        if status == "measured":
+            polarity = "supports" if marker.get("withinTolerance") is True else "contradicts"
+        else:
+            polarity = "missing"
+        evidence_record = {
+            "evidenceId": f"evidence:{claim['relationshipClaimId']}:marker_hint:{index}",
+            "kind": EVIDENCE_KIND,
+            "relationshipClaimId": claim["relationshipClaimId"],
+            "relationship": claim["relationship"],
+            "method": str(marker.get("method") or "feature_marker_position_distance"),
+            "strength": "marker_hint",
+            "polarity": polarity,
+            "status": status,
+            "source": marker.get("source") or "rhino_user_text_feature_positions",
+            "claimTypeField": claim["relationship"],
+            "evidenceMethodField": str(
+                marker.get("method") or "feature_marker_position_distance"
+            ),
+            "interfaceRecordIds": [],
+            "reason": "feature_marker_distance_hint",
+            "measures": {
+                "distanceM": marker.get("distanceM"),
+                "toleranceM": marker.get("toleranceM"),
+                "withinTolerance": marker.get("withinTolerance"),
+            },
+        }
+        if status == "missing":
+            evidence_record["diagnostics"] = {
+                "missing": list(marker.get("missing") or [])
+            }
+        evidence.append(evidence_record)
+    return evidence
 
 
 def query_relationship_kernel_report(
