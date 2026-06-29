@@ -403,16 +403,19 @@ git commit -m "$(printf 'feat(openrouter): provider-aware DSPy key resolution (b
 
 ---
 
-### Task 4: Optional, non-degrading provider health + `.env.example`
+### Task 4: Active-model-gated, non-degrading provider health + `.env.example`
 
 **Files:**
-- Modify: `mcp_server/src/rook/agent/chat/runtime_health.py:58-66` (llm_state) and `:131-134` (fact lines)
+- Modify: `mcp_server/src/rook/agent/chat/runtime_health.py` — `collect_runtime_facts` signature (`:15`), llm_state (`:58-66`), fact lines (`:131-134`)
+- Modify: `mcp_server/src/rook/agent/chat/chat_runner.py:854` (pass the active conversation model)
 - Modify: `mcp_server/.env.example`
 - Test: `mcp_server/tests/test_runtime_health_providers.py`
 
 **Interfaces:**
-- Consumes: `api_key_env_for_model` (Task 2).
-- Produces: `_llm_state(active_model: Optional[str] = None) -> dict` (module-private); `collect_runtime_facts` keeps its signature.
+- Consumes: `api_key_env_for_model` (Task 2); `model_profiles.get_models()` for the default-model fallback.
+- Produces: `_llm_state(active_model: str | None = None) -> dict`, `_effective_default_model() -> str` (module-private); `collect_runtime_facts(include_gh=False, active_model=None)`.
+
+**Why active-model gating (not any-key):** the approved spec requires the *active/effective* model's key to drive `llm.configured`. An "any key present" rule marks chat healthy with only `OPENROUTER_API_KEY` set while the active profile still resolves to Anthropic — the real turn then fails. Health gates on the model that will actually run: `conversation.model` during a turn, or the worker-role default at the generic health endpoint.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -422,32 +425,17 @@ Create `mcp_server/tests/test_runtime_health_providers.py`:
 import rook.agent.chat.runtime_health as rh
 
 
-def test_anthropic_only_stays_green(monkeypatch):
+def test_active_anthropic_model_with_key_is_green(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    state = rh._llm_state()
+    state = rh._llm_state(active_model="anthropic/claude-opus-4-6")
     assert state["configured"] is True
-    assert state["provider_keys"]["ANTHROPIC_API_KEY"] is True
     assert state["provider_keys"]["OPENROUTER_API_KEY"] is False
 
 
-def test_openrouter_only_is_configured(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or")
-    state = rh._llm_state()
-    assert state["configured"] is True
-
-
-def test_no_keys_not_configured(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    state = rh._llm_state()
-    assert state["configured"] is False
-
-
-def test_active_openrouter_model_missing_key_is_unconfigured(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")  # present, but irrelevant model
+def test_openrouter_active_model_missing_key_is_unconfigured(monkeypatch):
+    # Anthropic key present but irrelevant: the ACTIVE model is openrouter.
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     state = rh._llm_state(active_model="openrouter/anthropic/claude-3.7-sonnet")
     assert state["configured"] is False
@@ -458,6 +446,22 @@ def test_active_local_model_is_configured(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     state = rh._llm_state(active_model="ollama_chat/qwen3:30b")
     assert state["configured"] is True
+
+
+def test_default_path_gates_on_effective_model(monkeypatch):
+    # No active model -> resolve the effective default and gate on IT, not any key.
+    monkeypatch.setattr(rh, "_effective_default_model", lambda: "openrouter/x/y")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")  # present but irrelevant
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    state = rh._llm_state()
+    assert state["configured"] is False
+    assert "OPENROUTER_API_KEY" in state["message"]
+
+
+def test_provider_key_map_is_informational(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "x")
+    state = rh._llm_state(active_model="anthropic/claude-opus-4-6")
+    assert state["provider_keys"]["OPENROUTER_API_KEY"] is True
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -478,62 +482,93 @@ def _provider_key_state() -> dict[str, bool]:
     }
 
 
-def _llm_state(active_model: str | None = None) -> dict[str, Any]:
-    """Optional, non-degrading LLM provider health.
+def _effective_default_model() -> str:
+    """Resolve the model a default chat turn would use (worker role).
 
-    Without an active model, ``configured`` is True if ANY known provider key is
-    present (so Anthropic-only users stay green and a missing OPENROUTER_API_KEY
-    never reads as degraded).  With an active model, gate on that model's
-    required key only; local/multi-auth models are treated as configured.
+    Used only when no explicit active model is available (e.g. the generic
+    health endpoint).  Mirrors resolve_model_and_base's worker fallback.
     """
-    provider_keys = _provider_key_state()
+    try:
+        from ...agent.model_profiles import get_models
+        models = get_models()
+        return models.worker or "anthropic/claude-sonnet-4-6"
+    except Exception:
+        return "anthropic/claude-sonnet-4-6"
 
-    if active_model:
-        from ...agent.model_profiles import api_key_env_for_model
-        key_env = api_key_env_for_model(active_model)
-        provider = active_model.split("/", 1)[0] if "/" in active_model else "unknown"
-        if key_env is None:
-            return {
-                "configured": True,
-                "provider": provider,
-                "message": f"Model '{active_model}' needs no single required key env var.",
-                "provider_keys": provider_keys,
-            }
-        configured = bool(os.environ.get(key_env))
+
+def _llm_state(active_model: str | None = None) -> dict[str, Any]:
+    """Health gated on the active/effective model's required key (I3).
+
+    Gates ``configured`` on the key the active model actually needs: the
+    conversation model during a turn, or the worker-role default otherwise.
+    Local and multi-auth/unknown providers are treated as configured (no single
+    required env var).  The full provider-key map is reported informationally.
+    """
+    from ...agent.model_profiles import api_key_env_for_model
+    provider_keys = _provider_key_state()
+    model = active_model or _effective_default_model()
+    provider = model.split("/", 1)[0] if "/" in model else "unknown"
+    key_env = api_key_env_for_model(model)
+
+    if key_env is None:
         return {
-            "configured": configured,
+            "configured": True,
             "provider": provider,
-            "message": (
-                f"{key_env} is configured."
-                if configured
-                else f"{key_env} is missing. Set it in the environment or mcp_server/.env."
-            ),
+            "message": f"Active model '{model}' needs no single required key env var.",
+            "active_model": model,
             "provider_keys": provider_keys,
         }
 
-    configured = any(provider_keys.values())
+    configured = bool(os.environ.get(key_env))
     return {
         "configured": configured,
-        "provider": "multi",
+        "provider": provider,
         "message": (
-            "At least one LLM provider key is configured."
+            f"{key_env} is configured for active model '{model}'."
             if configured
-            else "No LLM provider key found. Set ANTHROPIC_API_KEY (or "
-                 "OPENROUTER_API_KEY/OPENAI_API_KEY) in the environment or mcp_server/.env."
+            else f"{key_env} is missing for active model '{model}'. "
+                 "Set it in the environment or mcp_server/.env."
         ),
+        "active_model": model,
         "provider_keys": provider_keys,
     }
 ```
 
-- [ ] **Step 3b: Use it in `collect_runtime_facts`**
+- [ ] **Step 3b: Thread the active model through `collect_runtime_facts`**
 
-Replace the `llm_state = { ... }` literal at lines 58-66 with:
+Change the signature at line 15 to:
 
 ```python
-    llm_state = _llm_state()
+async def collect_runtime_facts(
+    include_gh: bool = False, active_model: str | None = None
+) -> dict[str, Any]:
 ```
 
-- [ ] **Step 3c: Make the fact lines provider-neutral**
+and replace the `llm_state = { ... }` literal at lines 58-66 with:
+
+```python
+    llm_state = _llm_state(active_model)
+```
+
+- [ ] **Step 3c: Pass the conversation model from the chat turn**
+
+In `mcp_server/src/rook/agent/chat/chat_runner.py:854`, replace:
+
+```python
+        runtime_facts = await collect_runtime_facts(include_gh=False)
+```
+
+with:
+
+```python
+        runtime_facts = await collect_runtime_facts(
+            include_gh=False, active_model=conversation.model
+        )
+```
+
+(The generic health endpoint at `server.py:185` stays `collect_runtime_facts(include_gh=include_gh)` — it has no conversation, so `_llm_state` resolves the worker-role default.)
+
+- [ ] **Step 3d: Make the fact lines provider-neutral**
 
 Replace lines 131-134 in `_build_verified_fact_lines`:
 
@@ -550,10 +585,10 @@ with:
     if llm_state.get("configured"):
         lines.append("An LLM provider API key is configured for chat turns.")
     else:
-        lines.append("No LLM provider API key is configured; explain this explicitly instead of attempting a model call.")
+        lines.append("No LLM provider API key is configured for the active model; explain this explicitly instead of attempting a model call.")
 ```
 
-- [ ] **Step 3d: Document the env var**
+- [ ] **Step 3e: Document the env var**
 
 In `mcp_server/.env.example`, add under the existing key section:
 
@@ -570,8 +605,8 @@ Expected: PASS (5 passed).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add mcp_server/src/rook/agent/chat/runtime_health.py mcp_server/.env.example mcp_server/tests/test_runtime_health_providers.py
-git commit -m "$(printf 'feat(openrouter): optional non-degrading provider health + env doc\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>')"
+git add mcp_server/src/rook/agent/chat/runtime_health.py mcp_server/src/rook/agent/chat/chat_runner.py mcp_server/.env.example mcp_server/tests/test_runtime_health_providers.py
+git commit -m "$(printf 'feat(openrouter): active-model-gated, non-degrading provider health\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>')"
 ```
 
 ---
@@ -1191,20 +1226,23 @@ git commit -m "$(printf 'feat(openrouter): networked refresh() with atomic, fail
 
 ---
 
-### Task 8: MCP tool `openrouter_refresh_catalog`
+### Task 8: MCP tool `openrouter_refresh_catalog` (with targeting policy)
 
 **Files:**
+- Modify: `mcp_server/src/rook/targeting.py:148` (`_ALL_KNOWN_TOOLS`) and `:571` (`_META_TOOLS`)
 - Modify: `mcp_server/src/rook/server.py` — `list_tools()` (~line 3129) and `_call_tool_dispatch` `match` (~line 13898)
 - Test: `mcp_server/tests/test_openrouter_tool.py`
 
 **Interfaces:**
 - Consumes: `rook.providers.openrouter_catalog.refresh()` and `RefreshResult` (Task 7).
-- Produces: the `openrouter_refresh_catalog` tool returning `{"success": bool, "data": {...}}`.
+- Produces: the `openrouter_refresh_catalog` tool returning `{"success": bool, "data": {...}}`, classified non-Rhino (`requires_rhino=False`).
 
-- [ ] **Step 1: Verify the tool needs no Rhino routing**
+**Why the targeting edit is mandatory:** `policy_for_tool` returns `UNKNOWN_TOOL_POLICY = RhinoToolPolicy(requires_rhino=True, risk="mutate")` for any name not in `TOOL_POLICIES` (`targeting.py:70,758`). A server-side provider refresh must NOT be Rhino-routed, or `call_tool` tries to resolve a Rhino target for it. Adding the name to `_META_TOOLS` classifies it `(False, "meta")`.
+
+- [ ] **Step 1: Confirm the current (defective) default**
 
 Run: `cd mcp_server && python -c "from rook import targeting; print(targeting.policy_for_tool('openrouter_refresh_catalog').requires_rhino)"`
-Expected: `False` (unknown tools default to not requiring Rhino, so dispatch flows through `_call_tool_dispatch`). If it prints `True`, stop and add the tool name to the non-Rhino allowlist that `policy_for_tool` consults before proceeding.
+Expected: `True` — confirms the tool would be wrongly Rhino-routed until we classify it.
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -1212,8 +1250,13 @@ Create `mcp_server/tests/test_openrouter_tool.py`:
 
 ```python
 import asyncio
+from rook import targeting
 import rook.server as server
 import rook.providers.openrouter_catalog as cat
+
+
+def test_tool_is_non_rhino():
+    assert targeting.policy_for_tool("openrouter_refresh_catalog").requires_rhino is False
 
 
 def test_tool_is_listed():
@@ -1237,9 +1280,17 @@ def test_tool_dispatch_maps_result(monkeypatch):
 - [ ] **Step 3: Run test to verify it fails**
 
 Run: `cd mcp_server && python -m pytest tests/test_openrouter_tool.py -v`
-Expected: FAIL — `test_tool_is_listed` fails (name absent); dispatch returns an unknown-tool result.
+Expected: FAIL — `test_tool_is_non_rhino` (currently `True`), `test_tool_is_listed` (name absent), and dispatch returns an unknown-tool result.
 
-- [ ] **Step 4a: Register the tool schema**
+- [ ] **Step 4a: Classify the tool as non-Rhino in targeting**
+
+In `mcp_server/src/rook/targeting.py`, add this exact line to BOTH the `_ALL_KNOWN_TOOLS` set (after `"agent_status",`, ~line 151) and the `_META_TOOLS` set (after `"agent_status",`, ~line 574):
+
+```python
+    "openrouter_refresh_catalog",
+```
+
+- [ ] **Step 4b: Register the tool schema**
 
 In `mcp_server/src/rook/server.py`, inside `list_tools()`'s `all_tools = [` list (after the first `Tool(...)` entry, ~line 3134), add:
 
@@ -1256,7 +1307,7 @@ In `mcp_server/src/rook/server.py`, inside `list_tools()`'s `all_tools = [` list
         ),
 ```
 
-- [ ] **Step 4b: Add the dispatch case**
+- [ ] **Step 4c: Add the dispatch case**
 
 In `_call_tool_dispatch`'s `match name:` block (after the `case "rhino_instances":` entry, ~line 13899), add:
 
@@ -1282,13 +1333,13 @@ In `_call_tool_dispatch`'s `match name:` block (after the `case "rhino_instances
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `cd mcp_server && python -m pytest tests/test_openrouter_tool.py -v`
-Expected: PASS (2 passed).
+Expected: PASS (3 passed).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add mcp_server/src/rook/server.py mcp_server/tests/test_openrouter_tool.py
-git commit -m "$(printf 'feat(openrouter): openrouter_refresh_catalog MCP tool\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>')"
+git add mcp_server/src/rook/targeting.py mcp_server/src/rook/server.py mcp_server/tests/test_openrouter_tool.py
+git commit -m "$(printf 'feat(openrouter): openrouter_refresh_catalog MCP tool (non-Rhino policy)\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>')"
 ```
 
 ---
@@ -1427,9 +1478,9 @@ Expected: only the files named across Tasks 1–8 and 10 in the Rook repo (Task 
 - §3.2 favorites + generated cache split → Tasks 5 (favorites + `.gitignore`), 7 (cache writes).
 - §3.3 MCP tool → Task 8.
 - §3.4 `api_key_env_for_model` helper → Task 2.
-- §3.5 touch-points: routing → Task 1; DSPy (both functions) → Task 3; health + `.env.example` → Task 4; Chirp confirmation → Task 9.
+- §3.5 touch-points: routing → Task 1; DSPy (both functions) → Task 3; health (active-model-gated) + `.env.example` → Task 4; Chirp confirmation → Task 9. (Task 8 also adds the non-Rhino targeting policy the MCP routing layer requires.)
 - §5 cache schema (success + failure/status-only) → Task 7.
-- §6 invariants I1–I7 → I1/I2 (Task 6 load is pure-disk; routing untouched by cache), I3 (Task 4), I4 (Task 7), I5/I6 (Task 2), I7 (Tasks 5/6 schema_version + `.gitignore`).
+- §6 invariants I1–I7 → I1/I2 (Task 6 load is pure-disk; routing untouched by cache), I3 (Task 4, gated on the active/effective model — not any-key), I4 (Task 7), I5/I6 (Task 2), I7 (Tasks 5/6 schema_version + `.gitignore`).
 - §8 test matrix → Tasks 1–9 tests; live smoke → Task 10.
 
 **Placeholder scan** — no TBD/TODO; every code/test step shows complete code and exact commands.
