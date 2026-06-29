@@ -551,3 +551,16 @@ def test_supports_with_explicit_direct_contact_obligation_can_be_satisfied_by_ad
     assert report["counts"]["evidenceCount"] == 1
     assert report["verdicts"][0]["verdict"] == "satisfied"
     assert report["verdicts"][0]["reason"] == "exact_topology_supports_owner_contact"
+
+
+def test_relationship_kernel_is_not_registered_as_public_tool():
+    from rook import targeting
+    from rook.agent.tool_groups import TOOL_GROUPS
+
+    public_tool_names = set()
+    for names in TOOL_GROUPS.values():
+        public_tool_names.update(names)
+    public_tool_names.update(targeting._ALL_KNOWN_TOOLS)
+
+    assert "scene_relationship_kernel" not in public_tool_names
+    assert "scene_relationship_kernel_report" not in public_tool_names
