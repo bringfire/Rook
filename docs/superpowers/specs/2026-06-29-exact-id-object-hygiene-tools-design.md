@@ -392,3 +392,7 @@ Before claiming this interlude complete:
 - exact-ID object usertext delete batch
 - generic object attribute mega-tool
 - selector-based convenience wrappers
+- Live undo-stack characterization for all-unchanged exact-ID hygiene batches.
+  The current handlers open one `UndoScope` per valid request, including
+  all-unchanged requests. If Rhino exposes empty undo records to users, defer
+  opening `UndoScope` until the first actual `ModifyObjectAttributes` call.
