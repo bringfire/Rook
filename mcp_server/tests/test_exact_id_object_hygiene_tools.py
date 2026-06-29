@@ -180,3 +180,61 @@ def test_hygiene_tools_do_not_leak_into_readonly_groups():
 def test_object_set_layer_is_also_available_from_layers_mutating_group():
     assert "rhino_object_set_layer" in tool_groups.TOOL_GROUPS["layers"]
     assert "rhino_object_set_layer" not in tool_groups.TOOL_GROUPS["layers_readonly"]
+
+
+@pytest.mark.parametrize(
+    "tool_name,args",
+    [
+        (
+            "rhino_object_visibility",
+            {
+                "object_ids": [
+                    f"11111111-1111-1111-1111-{i:012d}" for i in range(501)
+                ],
+                "visible": False,
+            },
+        ),
+        (
+            "rhino_object_set_layer",
+            {
+                "object_ids": [
+                    f"11111111-1111-1111-1111-{i:012d}" for i in range(501)
+                ],
+                "layer": "Animation::Actors",
+            },
+        ),
+        (
+            "rhino_object_usertext_set_batch",
+            {
+                "items": [
+                    {
+                        "id": f"11111111-1111-1111-1111-{i:012d}",
+                        "userStrings": {"Director::role": "actor"},
+                    }
+                    for i in range(501)
+                ],
+            },
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_server_dispatch_forwards_501_boundary_to_native(tool_name, args):
+    # Schema advertises maxItems=500, but server.call_tool intentionally forwards
+    # the body unchanged so native validation remains the authoritative runtime
+    # guard for every caller path.
+    with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
+        mock.return_value = {
+            "success": False,
+            "data": {
+                "errorCode": "invalid_input",
+                "errorMessage": "too many ids",
+            },
+        }
+        await server.call_tool(tool_name, args)
+
+    sent_args, _ = mock.call_args
+    assert sent_args[2] == args
+    if "object_ids" in args:
+        assert len(sent_args[2]["object_ids"]) == 501
+    else:
+        assert len(sent_args[2]["items"]) == 501

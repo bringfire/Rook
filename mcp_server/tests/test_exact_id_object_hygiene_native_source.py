@@ -1046,3 +1046,13 @@ def test_usertext_batch_uses_full_readback_and_batch_cap():
     _assert_usertext_readback_after_modify(source, body)
     assert "EmitDirtyUserTextOperationError(res, ex)" in body
     assert "dirty_partial_state" in source
+
+
+def test_batch_caps_are_explicit_500_not_schema_only():
+    objects_source = OBJECTS_CPP.read_text(encoding="utf-8")
+    usertext_source = USER_TEXT_CPP.read_text(encoding="utf-8")
+
+    assert "kMaxExactIdObjectBatchSize = 500" in objects_source
+    assert "cannot exceed 500 ids" in objects_source
+    assert "kMaxUserTextObjectSetBatchItems = 500" in usertext_source
+    assert "cannot exceed 500 objects" in usertext_source
