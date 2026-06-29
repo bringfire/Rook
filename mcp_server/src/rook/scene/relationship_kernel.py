@@ -185,7 +185,7 @@ def _verdict_for_claim(
             "relationshipClaimId": claim["relationshipClaimId"],
             "verdict": "not_applicable",
             "reason": obligation["reason"],
-            "strongestEvidence": _strongest_strength(evidence),
+            "strongestEvidenceStrength": _strongest_strength(evidence),
         }
     exact_refutations = [
         item
@@ -198,7 +198,7 @@ def _verdict_for_claim(
             "relationshipClaimId": claim["relationshipClaimId"],
             "verdict": "contradicted",
             "reason": "explicit_exact_topology_refutation",
-            "strongestEvidence": _strongest_strength(evidence),
+            "strongestEvidenceStrength": _strongest_strength(evidence),
         }
     exact_support = [
         item
@@ -210,13 +210,13 @@ def _verdict_for_claim(
             "relationshipClaimId": claim["relationshipClaimId"],
             "verdict": "satisfied",
             "reason": "exact_topology_supports_owner_contact",
-            "strongestEvidence": _strongest_strength(evidence),
+            "strongestEvidenceStrength": _strongest_strength(evidence),
         }
     return {
         "relationshipClaimId": claim["relationshipClaimId"],
         "verdict": "unverified",
         "reason": "no_applicable_exact_topology_evidence",
-        "strongestEvidence": _strongest_strength(evidence),
+        "strongestEvidenceStrength": _strongest_strength(evidence),
     }
 
 
@@ -310,6 +310,8 @@ def _exact_support_for_claim(
     feature_paths = [claim.get("fromFeature"), claim.get("toFeature")]
     for _source, _target, key, attrs in _pair_edges(graph, from_object, to_object):
         if attrs.get("relationship") != EXACT_RELATIONSHIP:
+            continue
+        if attrs.get("provenance") != EXACT_PROVENANCE:
             continue
         interface_record_id = _interface_id(claim, EXACT_RELATIONSHIP, key)
         measures = {

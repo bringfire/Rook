@@ -195,6 +195,7 @@ def test_connects_adjacent_exact_edge_becomes_exact_topology_evidence_and_interf
         "plate-owner",
         key="occt:adjacent_exact",
         relationship="adjacent_exact",
+        provenance="occt",
         sharedArea=12.5,
         lengthUnit="meters",
         areaUnit="square_meters",
@@ -243,6 +244,7 @@ def test_connects_adjacent_exact_edge_is_orientation_independent_for_claim_endpo
         "beam-owner",
         key="occt:adjacent_exact:reverse",
         relationship="adjacent_exact",
+        provenance="occt",
         sharedArea=4.0,
     )
 
@@ -262,6 +264,7 @@ def test_supports_requires_explicit_direct_contact_obligation_for_adjacent_exact
         "slab-owner",
         key="occt:adjacent_exact:supports",
         relationship="adjacent_exact",
+        provenance="occt",
         sharedArea=2.0,
     )
 
@@ -271,6 +274,26 @@ def test_supports_requires_explicit_direct_contact_obligation_for_adjacent_exact
     assert report["evidence"][0]["strength"] == "exact_topology"
     assert report["verdicts"][0]["verdict"] == "not_applicable"
     assert report["verdicts"][0]["reason"] == "no_v1_physical_obligation"
+
+
+def test_non_occt_adjacent_exact_edge_is_not_exact_topology_evidence():
+    from rook.scene.relationship_kernel import query_relationship_kernel_report
+
+    sg = _claim_graph()
+    sg.graph.add_edge(
+        "beam-owner",
+        "plate-owner",
+        key="debug:adjacent_exact",
+        relationship="adjacent_exact",
+        provenance="debug_fixture",
+        sharedArea=4.0,
+    )
+
+    report = query_relationship_kernel_report(sg, relationship_types=["connects"])
+
+    assert report["counts"]["evidenceCount"] == 0
+    assert report["counts"]["interfaceRecordCount"] == 0
+    assert report["verdicts"][0]["verdict"] == "unverified"
 
 
 def test_absent_adjacent_exact_does_not_contradict_claim():
@@ -397,7 +420,7 @@ def test_marker_evidence_is_marker_hint_and_does_not_satisfy_physical_claim():
     assert evidence["polarity"] == "supports"
     assert evidence["status"] == "measured"
     assert report["verdicts"][0]["verdict"] == "unverified"
-    assert report["verdicts"][0]["strongestEvidence"] == "marker_hint"
+    assert report["verdicts"][0]["strongestEvidenceStrength"] == "marker_hint"
 
 
 def test_missing_marker_evidence_is_missing_and_keeps_claim_unverified():
@@ -440,6 +463,7 @@ def test_hosted_by_remains_not_applicable_even_with_adjacent_exact():
         "wall-owner",
         key="occt:adjacent_exact:hosted",
         relationship="adjacent_exact",
+        provenance="occt",
         sharedArea=1.0,
     )
 
@@ -477,6 +501,7 @@ def test_penetrates_is_not_applicable_to_adjacent_exact_in_v1():
         "wall-owner",
         key="occt:adjacent_exact:penetrates",
         relationship="adjacent_exact",
+        provenance="occt",
         sharedArea=0.25,
     )
 
@@ -542,6 +567,7 @@ def test_supports_with_explicit_direct_contact_obligation_can_be_satisfied_by_ad
         "slab-owner",
         key="occt:adjacent_exact:supports",
         relationship="adjacent_exact",
+        provenance="occt",
         sharedArea=2.0,
     )
 
