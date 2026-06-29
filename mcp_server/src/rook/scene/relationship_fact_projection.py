@@ -179,6 +179,20 @@ def _bump(diagnostics: dict[str, int], key: str) -> None:
     diagnostics[key] = diagnostics.get(key, 0) + 1
 
 
+def _optional_list_of_strings_is_valid(value: Any) -> bool:
+    return value is None or (
+        isinstance(value, list) and all(isinstance(item, str) for item in value)
+    )
+
+
+def _invalid_list_result(field: str) -> dict[str, Any]:
+    return {
+        "success": False,
+        "error": f"invalid_{field}",
+        "message": f"{field} must be a list of strings when supplied",
+    }
+
+
 def _clean_str(value: Any) -> str:
     return "" if value is None else str(value).strip()
 
@@ -664,6 +678,10 @@ async def project_relationship_facts_for_tool(
             "error": "relationship_fact_projection_invalid_source_mode",
             "message": f"Unsupported source_mode: {source_mode}",
         }
+    if not _optional_list_of_strings_is_valid(poses):
+        return _invalid_list_result("poses")
+    if not _optional_list_of_strings_is_valid(object_ids):
+        return _invalid_list_result("object_ids")
 
     if analytics is None:
         from .scene_graph import get_scene_graph

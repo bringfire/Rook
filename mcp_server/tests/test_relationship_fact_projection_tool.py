@@ -176,6 +176,36 @@ async def test_project_relationship_facts_for_tool_hydrates_scene_and_projects(m
 
 
 @pytest.mark.asyncio
+async def test_project_relationship_facts_for_tool_rejects_invalid_list_filters_before_sync(monkeypatch):
+    sg = _scene_graph()
+
+    async def fail_sync(port=None):
+        raise AssertionError("sync should not run for invalid projection filters")
+
+    monkeypatch.setattr(sg, "sync", fail_sync)
+
+    invalid_poses = await rel.project_relationship_facts_for_tool(
+        poses="reclined_robot",
+        analytics=sg,
+    )
+    invalid_object_ids = await rel.project_relationship_facts_for_tool(
+        object_ids="member-rhino-id",
+        analytics=sg,
+    )
+
+    assert invalid_poses == {
+        "success": False,
+        "error": "invalid_poses",
+        "message": "poses must be a list of strings when supplied",
+    }
+    assert invalid_object_ids == {
+        "success": False,
+        "error": "invalid_object_ids",
+        "message": "object_ids must be a list of strings when supplied",
+    }
+
+
+@pytest.mark.asyncio
 async def test_scoped_object_ids_hydrate_full_scene_but_filter_projected_facts(monkeypatch):
     sg = _scene_graph()
     _add_unrelated_fact_nodes(sg)
