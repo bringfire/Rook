@@ -184,3 +184,90 @@ def test_relationship_kernel_filters_claims_without_treating_fuzzy_edges_as_clai
     assert report["claims"][0]["relationship"] == "supports"
     assert report["diagnostics"]["filteredByRelationshipType"] == 1
     assert all(claim["relationship"] != "near" for claim in report["claims"])
+
+
+def test_connects_adjacent_exact_edge_becomes_exact_topology_evidence_and_interface_record():
+    from rook.scene.relationship_kernel import query_relationship_kernel_report
+
+    sg = _claim_graph()
+    sg.graph.add_edge(
+        "beam-owner",
+        "plate-owner",
+        key="occt:adjacent_exact",
+        relationship="adjacent_exact",
+        sharedArea=12.5,
+        lengthUnit="meters",
+        areaUnit="square_meters",
+        facePairs=[["face-a", "face-b"]],
+        graphSequence=17,
+        engineVersion="occt-test",
+    )
+
+    report = query_relationship_kernel_report(sg, relationship_types=["connects"])
+
+    assert report["counts"]["relationshipClaimCount"] == 1
+    assert report["counts"]["evidenceCount"] == 1
+    assert report["counts"]["interfaceRecordCount"] == 1
+    interface = report["interfaceRecords"][0]
+    assert interface["kind"] == "interface_record_v1"
+    assert interface["interfaceType"] == "shared_topology"
+    assert interface["method"] == "adjacent_exact"
+    assert interface["source"] == "occt"
+    assert interface["objectIds"] == ["beam-owner", "plate-owner"]
+    assert interface["interfaceScope"] == "owner_pair"
+    assert interface["featurePaths"] == ["beam_01.end", "plate_01.socket"]
+    assert interface["featureScopeVerified"] is False
+    assert interface["measures"]["sharedArea"] == 12.5
+
+    evidence = report["evidence"][0]
+    assert evidence["kind"] == "relationship_evidence_v1"
+    assert evidence["relationshipClaimId"] == "beam_01.end_connects_plate_01.socket"
+    assert evidence["method"] == "adjacent_exact"
+    assert evidence["strength"] == "exact_topology"
+    assert evidence["polarity"] == "supports"
+    assert evidence["status"] == "measured"
+    assert evidence["claimTypeField"] == "connects"
+    assert evidence["evidenceMethodField"] == "adjacent_exact"
+    assert evidence["interfaceRecordIds"] == [interface["interfaceRecordId"]]
+
+    assert report["verdicts"][0]["verdict"] == "satisfied"
+    assert report["verdicts"][0]["reason"] == "exact_topology_supports_owner_contact"
+
+
+def test_connects_adjacent_exact_edge_is_orientation_independent_for_claim_endpoints():
+    from rook.scene.relationship_kernel import query_relationship_kernel_report
+
+    sg = _claim_graph()
+    sg.graph.add_edge(
+        "plate-owner",
+        "beam-owner",
+        key="occt:adjacent_exact:reverse",
+        relationship="adjacent_exact",
+        sharedArea=4.0,
+    )
+
+    report = query_relationship_kernel_report(sg, relationship_types=["connects"])
+
+    assert report["counts"]["evidenceCount"] == 1
+    assert report["interfaceRecords"][0]["objectIds"] == ["beam-owner", "plate-owner"]
+    assert report["verdicts"][0]["verdict"] == "satisfied"
+
+
+def test_supports_requires_explicit_direct_contact_obligation_for_adjacent_exact_satisfaction():
+    from rook.scene.relationship_kernel import query_relationship_kernel_report
+
+    sg = _claim_graph()
+    sg.graph.add_edge(
+        "column-owner",
+        "slab-owner",
+        key="occt:adjacent_exact:supports",
+        relationship="adjacent_exact",
+        sharedArea=2.0,
+    )
+
+    report = query_relationship_kernel_report(sg, relationship_types=["supports"])
+
+    assert report["counts"]["evidenceCount"] == 1
+    assert report["evidence"][0]["strength"] == "exact_topology"
+    assert report["verdicts"][0]["verdict"] == "not_applicable"
+    assert report["verdicts"][0]["reason"] == "no_v1_physical_obligation"

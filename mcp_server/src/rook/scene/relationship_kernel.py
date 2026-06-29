@@ -257,11 +257,93 @@ def _counts(
 
 
 def _evidence_for_claim(
-    _graph: Any,
-    _claim: dict[str, Any],
+    graph: Any,
+    claim: dict[str, Any],
     _marker_evidence_records: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    return [], []
+    return _exact_support_for_claim(graph, claim)
+
+
+def _pair_edges(
+    graph: Any,
+    first: str,
+    second: str,
+) -> list[tuple[str, str, str, dict[str, Any]]]:
+    edges: list[tuple[str, str, str, dict[str, Any]]] = []
+    for source, target, key, attrs in graph.edges(keys=True, data=True):
+        if {str(source), str(target)} == {first, second}:
+            edges.append((str(source), str(target), str(key), dict(attrs)))
+    return edges
+
+
+def _interface_id(
+    claim: dict[str, Any],
+    method: str,
+    edge_key: str,
+) -> str:
+    return f"interface:{claim['relationshipClaimId']}:{method}:{edge_key}"
+
+
+def _evidence_id(
+    claim: dict[str, Any],
+    method: str,
+    edge_key: str,
+) -> str:
+    return f"evidence:{claim['relationshipClaimId']}:{method}:{edge_key}"
+
+
+def _exact_support_for_claim(
+    graph: Any,
+    claim: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    evidence: list[dict[str, Any]] = []
+    interface_records: list[dict[str, Any]] = []
+    from_object = claim["fromObjectId"]
+    to_object = claim["toObjectId"]
+    feature_paths = [claim.get("fromFeature"), claim.get("toFeature")]
+    for _source, _target, key, attrs in _pair_edges(graph, from_object, to_object):
+        if attrs.get("relationship") != EXACT_RELATIONSHIP:
+            continue
+        interface_record_id = _interface_id(claim, EXACT_RELATIONSHIP, key)
+        measures = {
+            "sharedArea": attrs.get("sharedArea"),
+            "lengthUnit": attrs.get("lengthUnit"),
+            "areaUnit": attrs.get("areaUnit"),
+            "facePairs": attrs.get("facePairs"),
+            "graphSequence": attrs.get("graphSequence"),
+            "engineVersion": attrs.get("engineVersion"),
+        }
+        interface_record = {
+            "interfaceRecordId": interface_record_id,
+            "kind": INTERFACE_KIND,
+            "interfaceType": "shared_topology",
+            "method": EXACT_RELATIONSHIP,
+            "source": EXACT_PROVENANCE,
+            "objectIds": [from_object, to_object],
+            "interfaceScope": "owner_pair",
+            "featurePaths": feature_paths,
+            "featureScopeVerified": False,
+            "measures": measures,
+        }
+        evidence_record = {
+            "evidenceId": _evidence_id(claim, EXACT_RELATIONSHIP, key),
+            "kind": EVIDENCE_KIND,
+            "relationshipClaimId": claim["relationshipClaimId"],
+            "relationship": claim["relationship"],
+            "method": EXACT_RELATIONSHIP,
+            "strength": "exact_topology",
+            "polarity": "supports",
+            "status": "measured",
+            "source": EXACT_PROVENANCE,
+            "claimTypeField": claim["relationship"],
+            "evidenceMethodField": EXACT_RELATIONSHIP,
+            "interfaceRecordIds": [interface_record_id],
+            "reason": "exact_topology_supports_owner_contact",
+            "measures": measures,
+        }
+        interface_records.append(interface_record)
+        evidence.append(evidence_record)
+    return evidence, interface_records
 
 
 def query_relationship_kernel_report(
