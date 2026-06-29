@@ -35,7 +35,8 @@ if TYPE_CHECKING:
 ProviderId = Literal["catalog_current_step_provider:v1"]
 StepKind = Literal["producer", "verifier", "bind"]
 
-_PROVIDER_ID: ProviderId = "catalog_current_step_provider:v1"
+CATALOG_CURRENT_STEP_PROVIDER_ID: ProviderId = "catalog_current_step_provider:v1"
+_PROVIDER_ID: ProviderId = CATALOG_CURRENT_STEP_PROVIDER_ID
 
 
 class _ImmutableMapping(Mapping):
