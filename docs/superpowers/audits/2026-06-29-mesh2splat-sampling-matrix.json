@@ -1,0 +1,505 @@
+{
+  "binary": "C:\\Users\\aryan\\source\\repos\\mesh2splat\\bin\\Debug\\Mesh2Splat.exe",
+  "rows": [
+    {
+      "actualPlyBytes": 1180098,
+      "attemptedGaussianCount": 24576,
+      "durationMs": 47,
+      "effectiveResolution": 64,
+      "emittedPrimitiveInstanceCount": 1,
+      "errorCode": null,
+      "fixture": "cube_textured_1m_v1",
+      "fixtureMetadata": {
+        "boundsMeters": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "intendedUse": "canonical textured cube sampling baseline",
+        "name": "cube_textured_1m_v1",
+        "triangleCount": 12,
+        "version": 1
+      },
+      "fixturePath": "C:\\Users\\aryan\\source\\repos\\mesh2splat\\tests\\fixtures\\cube_textured.glb",
+      "fixtureVersion": 1,
+      "format": "compressed-pbr",
+      "gaussianCount": 24576,
+      "headerVertexCount": 24576,
+      "materialCount": 1,
+      "maxGaussianCapacity": 24576,
+      "ok": true,
+      "processWallDurationMs": 533,
+      "returnCode": 0,
+      "samplingResolution": 64,
+      "stderrTail": "",
+      "textureDimensions": [
+        {
+          "height": 64,
+          "image": 0,
+          "mimeType": "image/png",
+          "width": 64
+        }
+      ],
+      "triangleCount": 12
+    },
+    {
+      "actualPlyBytes": 4719042,
+      "attemptedGaussianCount": 98304,
+      "durationMs": 174,
+      "effectiveResolution": 128,
+      "emittedPrimitiveInstanceCount": 1,
+      "errorCode": null,
+      "fixture": "cube_textured_1m_v1",
+      "fixtureMetadata": {
+        "boundsMeters": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "intendedUse": "canonical textured cube sampling baseline",
+        "name": "cube_textured_1m_v1",
+        "triangleCount": 12,
+        "version": 1
+      },
+      "fixturePath": "C:\\Users\\aryan\\source\\repos\\mesh2splat\\tests\\fixtures\\cube_textured.glb",
+      "fixtureVersion": 1,
+      "format": "compressed-pbr",
+      "gaussianCount": 98304,
+      "headerVertexCount": 98304,
+      "materialCount": 1,
+      "maxGaussianCapacity": 98304,
+      "ok": true,
+      "processWallDurationMs": 767,
+      "returnCode": 0,
+      "samplingResolution": 128,
+      "stderrTail": "",
+      "textureDimensions": [
+        {
+          "height": 64,
+          "image": 0,
+          "mimeType": "image/png",
+          "width": 64
+        }
+      ],
+      "triangleCount": 12
+    },
+    {
+      "actualPlyBytes": 18874819,
+      "attemptedGaussianCount": 393216,
+      "durationMs": 686,
+      "effectiveResolution": 256,
+      "emittedPrimitiveInstanceCount": 1,
+      "errorCode": null,
+      "fixture": "cube_textured_1m_v1",
+      "fixtureMetadata": {
+        "boundsMeters": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "intendedUse": "canonical textured cube sampling baseline",
+        "name": "cube_textured_1m_v1",
+        "triangleCount": 12,
+        "version": 1
+      },
+      "fixturePath": "C:\\Users\\aryan\\source\\repos\\mesh2splat\\tests\\fixtures\\cube_textured.glb",
+      "fixtureVersion": 1,
+      "format": "compressed-pbr",
+      "gaussianCount": 393216,
+      "headerVertexCount": 393216,
+      "materialCount": 1,
+      "maxGaussianCapacity": 393216,
+      "ok": true,
+      "processWallDurationMs": 1260,
+      "returnCode": 0,
+      "samplingResolution": 256,
+      "stderrTail": "",
+      "textureDimensions": [
+        {
+          "height": 64,
+          "image": 0,
+          "mimeType": "image/png",
+          "width": 64
+        }
+      ],
+      "triangleCount": 12
+    },
+    {
+      "actualPlyBytes": 75497924,
+      "attemptedGaussianCount": 1572864,
+      "durationMs": 2685,
+      "effectiveResolution": 512,
+      "emittedPrimitiveInstanceCount": 1,
+      "errorCode": null,
+      "fixture": "cube_textured_1m_v1",
+      "fixtureMetadata": {
+        "boundsMeters": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "intendedUse": "canonical textured cube sampling baseline",
+        "name": "cube_textured_1m_v1",
+        "triangleCount": 12,
+        "version": 1
+      },
+      "fixturePath": "C:\\Users\\aryan\\source\\repos\\mesh2splat\\tests\\fixtures\\cube_textured.glb",
+      "fixtureVersion": 1,
+      "format": "compressed-pbr",
+      "gaussianCount": 1572864,
+      "headerVertexCount": 1572864,
+      "materialCount": 1,
+      "maxGaussianCapacity": 1572864,
+      "ok": true,
+      "processWallDurationMs": 3215,
+      "returnCode": 0,
+      "samplingResolution": 512,
+      "stderrTail": "",
+      "textureDimensions": [
+        {
+          "height": 64,
+          "image": 0,
+          "mimeType": "image/png",
+          "width": 64
+        }
+      ],
+      "triangleCount": 12
+    },
+    {
+      "actualPlyBytes": 301990340,
+      "attemptedGaussianCount": 6291456,
+      "durationMs": 10375,
+      "effectiveResolution": 1024,
+      "emittedPrimitiveInstanceCount": 1,
+      "errorCode": null,
+      "fixture": "cube_textured_1m_v1",
+      "fixtureMetadata": {
+        "boundsMeters": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "intendedUse": "canonical textured cube sampling baseline",
+        "name": "cube_textured_1m_v1",
+        "triangleCount": 12,
+        "version": 1
+      },
+      "fixturePath": "C:\\Users\\aryan\\source\\repos\\mesh2splat\\tests\\fixtures\\cube_textured.glb",
+      "fixtureVersion": 1,
+      "format": "compressed-pbr",
+      "gaussianCount": 6291456,
+      "headerVertexCount": 6291456,
+      "materialCount": 1,
+      "maxGaussianCapacity": 6291456,
+      "ok": true,
+      "processWallDurationMs": 10970,
+      "returnCode": 0,
+      "samplingResolution": 1024,
+      "stderrTail": "",
+      "textureDimensions": [
+        {
+          "height": 64,
+          "image": 0,
+          "mimeType": "image/png",
+          "width": 64
+        }
+      ],
+      "triangleCount": 12
+    },
+    {
+      "actualPlyBytes": 833922,
+      "attemptedGaussianCount": 17364,
+      "durationMs": 42,
+      "effectiveResolution": 64,
+      "emittedPrimitiveInstanceCount": 5,
+      "errorCode": null,
+      "fixture": "building_lowpoly_textured_v1",
+      "fixtureMetadata": {
+        "boundsMeters": [
+          20.4,
+          12.4,
+          9.0
+        ],
+        "intendedUse": "early architectural massing/building-scale export fixture with low-poly facade, roof, trim, and atlas-textured openings",
+        "materialCount": 5,
+        "name": "building_lowpoly_textured_v1",
+        "textureSize": [
+          128,
+          128
+        ],
+        "triangleCount": 152,
+        "uvChannel": 1,
+        "version": 1
+      },
+      "fixturePath": "C:\\Users\\aryan\\source\\repos\\mesh2splat\\tests\\fixtures\\building_lowpoly_textured_v1.glb",
+      "fixtureVersion": 1,
+      "format": "compressed-pbr",
+      "gaussianCount": 17364,
+      "headerVertexCount": 17364,
+      "materialCount": 5,
+      "maxGaussianCapacity": 122880,
+      "ok": true,
+      "processWallDurationMs": 477,
+      "returnCode": 0,
+      "samplingResolution": 64,
+      "stderrTail": "",
+      "textureDimensions": [
+        {
+          "height": 128,
+          "image": 0,
+          "mimeType": "image/png",
+          "width": 128
+        },
+        {
+          "height": 128,
+          "image": 1,
+          "mimeType": "image/png",
+          "width": 128
+        },
+        {
+          "height": 128,
+          "image": 2,
+          "mimeType": "image/png",
+          "width": 128
+        }
+      ],
+      "triangleCount": 152
+    },
+    {
+      "actualPlyBytes": 3365442,
+      "attemptedGaussianCount": 70104,
+      "durationMs": 137,
+      "effectiveResolution": 128,
+      "emittedPrimitiveInstanceCount": 5,
+      "errorCode": null,
+      "fixture": "building_lowpoly_textured_v1",
+      "fixtureMetadata": {
+        "boundsMeters": [
+          20.4,
+          12.4,
+          9.0
+        ],
+        "intendedUse": "early architectural massing/building-scale export fixture with low-poly facade, roof, trim, and atlas-textured openings",
+        "materialCount": 5,
+        "name": "building_lowpoly_textured_v1",
+        "textureSize": [
+          128,
+          128
+        ],
+        "triangleCount": 152,
+        "uvChannel": 1,
+        "version": 1
+      },
+      "fixturePath": "C:\\Users\\aryan\\source\\repos\\mesh2splat\\tests\\fixtures\\building_lowpoly_textured_v1.glb",
+      "fixtureVersion": 1,
+      "format": "compressed-pbr",
+      "gaussianCount": 70104,
+      "headerVertexCount": 70104,
+      "materialCount": 5,
+      "maxGaussianCapacity": 491520,
+      "ok": true,
+      "processWallDurationMs": 629,
+      "returnCode": 0,
+      "samplingResolution": 128,
+      "stderrTail": "",
+      "textureDimensions": [
+        {
+          "height": 128,
+          "image": 0,
+          "mimeType": "image/png",
+          "width": 128
+        },
+        {
+          "height": 128,
+          "image": 1,
+          "mimeType": "image/png",
+          "width": 128
+        },
+        {
+          "height": 128,
+          "image": 2,
+          "mimeType": "image/png",
+          "width": 128
+        }
+      ],
+      "triangleCount": 152
+    },
+    {
+      "actualPlyBytes": 13365763,
+      "attemptedGaussianCount": 278444,
+      "durationMs": 490,
+      "effectiveResolution": 256,
+      "emittedPrimitiveInstanceCount": 5,
+      "errorCode": null,
+      "fixture": "building_lowpoly_textured_v1",
+      "fixtureMetadata": {
+        "boundsMeters": [
+          20.4,
+          12.4,
+          9.0
+        ],
+        "intendedUse": "early architectural massing/building-scale export fixture with low-poly facade, roof, trim, and atlas-textured openings",
+        "materialCount": 5,
+        "name": "building_lowpoly_textured_v1",
+        "textureSize": [
+          128,
+          128
+        ],
+        "triangleCount": 152,
+        "uvChannel": 1,
+        "version": 1
+      },
+      "fixturePath": "C:\\Users\\aryan\\source\\repos\\mesh2splat\\tests\\fixtures\\building_lowpoly_textured_v1.glb",
+      "fixtureVersion": 1,
+      "format": "compressed-pbr",
+      "gaussianCount": 278444,
+      "headerVertexCount": 278444,
+      "materialCount": 5,
+      "maxGaussianCapacity": 1966080,
+      "ok": true,
+      "processWallDurationMs": 1072,
+      "returnCode": 0,
+      "samplingResolution": 256,
+      "stderrTail": "",
+      "textureDimensions": [
+        {
+          "height": 128,
+          "image": 0,
+          "mimeType": "image/png",
+          "width": 128
+        },
+        {
+          "height": 128,
+          "image": 1,
+          "mimeType": "image/png",
+          "width": 128
+        },
+        {
+          "height": 128,
+          "image": 2,
+          "mimeType": "image/png",
+          "width": 128
+        }
+      ],
+      "triangleCount": 152
+    },
+    {
+      "actualPlyBytes": 53373956,
+      "attemptedGaussianCount": 1111948,
+      "durationMs": 1854,
+      "effectiveResolution": 512,
+      "emittedPrimitiveInstanceCount": 5,
+      "errorCode": null,
+      "fixture": "building_lowpoly_textured_v1",
+      "fixtureMetadata": {
+        "boundsMeters": [
+          20.4,
+          12.4,
+          9.0
+        ],
+        "intendedUse": "early architectural massing/building-scale export fixture with low-poly facade, roof, trim, and atlas-textured openings",
+        "materialCount": 5,
+        "name": "building_lowpoly_textured_v1",
+        "textureSize": [
+          128,
+          128
+        ],
+        "triangleCount": 152,
+        "uvChannel": 1,
+        "version": 1
+      },
+      "fixturePath": "C:\\Users\\aryan\\source\\repos\\mesh2splat\\tests\\fixtures\\building_lowpoly_textured_v1.glb",
+      "fixtureVersion": 1,
+      "format": "compressed-pbr",
+      "gaussianCount": 1111948,
+      "headerVertexCount": 1111948,
+      "materialCount": 5,
+      "maxGaussianCapacity": 7000000,
+      "ok": true,
+      "processWallDurationMs": 2339,
+      "returnCode": 0,
+      "samplingResolution": 512,
+      "stderrTail": "",
+      "textureDimensions": [
+        {
+          "height": 128,
+          "image": 0,
+          "mimeType": "image/png",
+          "width": 128
+        },
+        {
+          "height": 128,
+          "image": 1,
+          "mimeType": "image/png",
+          "width": 128
+        },
+        {
+          "height": 128,
+          "image": 2,
+          "mimeType": "image/png",
+          "width": 128
+        }
+      ],
+      "triangleCount": 152
+    },
+    {
+      "actualPlyBytes": 213575108,
+      "attemptedGaussianCount": 4449472,
+      "durationMs": 6962,
+      "effectiveResolution": 1024,
+      "emittedPrimitiveInstanceCount": 5,
+      "errorCode": null,
+      "fixture": "building_lowpoly_textured_v1",
+      "fixtureMetadata": {
+        "boundsMeters": [
+          20.4,
+          12.4,
+          9.0
+        ],
+        "intendedUse": "early architectural massing/building-scale export fixture with low-poly facade, roof, trim, and atlas-textured openings",
+        "materialCount": 5,
+        "name": "building_lowpoly_textured_v1",
+        "textureSize": [
+          128,
+          128
+        ],
+        "triangleCount": 152,
+        "uvChannel": 1,
+        "version": 1
+      },
+      "fixturePath": "C:\\Users\\aryan\\source\\repos\\mesh2splat\\tests\\fixtures\\building_lowpoly_textured_v1.glb",
+      "fixtureVersion": 1,
+      "format": "compressed-pbr",
+      "gaussianCount": 4449472,
+      "headerVertexCount": 4449472,
+      "materialCount": 5,
+      "maxGaussianCapacity": 7000000,
+      "ok": true,
+      "processWallDurationMs": 7461,
+      "returnCode": 0,
+      "samplingResolution": 1024,
+      "stderrTail": "",
+      "textureDimensions": [
+        {
+          "height": 128,
+          "image": 0,
+          "mimeType": "image/png",
+          "width": 128
+        },
+        {
+          "height": 128,
+          "image": 1,
+          "mimeType": "image/png",
+          "width": 128
+        },
+        {
+          "height": 128,
+          "image": 2,
+          "mimeType": "image/png",
+          "width": 128
+        }
+      ],
+      "triangleCount": 152
+    }
+  ]
+}
