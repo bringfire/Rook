@@ -132,6 +132,8 @@ private:
     void HandleDocument(const httplib::Request& req, httplib::Response& res);
     void HandleLayers(const httplib::Request& req, httplib::Response& res);
     void HandleObjects(const httplib::Request& req, httplib::Response& res);
+    void HandleObjectVisibility(const httplib::Request& req, httplib::Response& res);
+    void HandleObjectSetLayer(const httplib::Request& req, httplib::Response& res);
     void HandleObjectHistory(const httplib::Request& req, httplib::Response& res);
     void HandleObjectsWithHistory(const httplib::Request& req, httplib::Response& res);
     void HandleGeometry(const httplib::Request& req, httplib::Response& res);

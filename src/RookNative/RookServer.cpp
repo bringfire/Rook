@@ -882,6 +882,12 @@ void CRookServer::RegisterRoutes()
     m_server->Get("/objects", [this](const httplib::Request& req, httplib::Response& res) {
         HandleObjects(req, res);
     });
+    m_server->Post("/objects/visibility", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleObjectVisibility(req, res);
+    });
+    m_server->Post("/objects/set-layer", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleObjectSetLayer(req, res);
+    });
     m_server->Get("/objects/with-history", [this](const httplib::Request& req, httplib::Response& res) {
         HandleObjectsWithHistory(req, res);
     });
@@ -2579,6 +2585,16 @@ void CRookServer::HandleLayers(const httplib::Request& req, httplib::Response& r
 void CRookServer::HandleObjects(const httplib::Request& req, httplib::Response& res)
 {
     Rook::Handlers::HandleObjects(req, res);
+}
+
+void CRookServer::HandleObjectVisibility(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleObjectVisibility(req, res);
+}
+
+void CRookServer::HandleObjectSetLayer(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleObjectSetLayer(req, res);
 }
 
 void CRookServer::HandleObjectHistory(const httplib::Request& req, httplib::Response& res)

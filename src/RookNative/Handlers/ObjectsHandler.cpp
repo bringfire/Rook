@@ -4,7 +4,10 @@
 
 #include "stdafx.h"
 #include "Handlers/ObjectsHandler.h"
+#include "Infrastructure/JsonHelpers.h"
 #include "Infrastructure/LayerHelpers.h"
+#include "Infrastructure/UndoScope.h"
+#include "Infrastructure/WriteResult.h"
 #include "Models/Snapshots.h"
 #include "Models/DocumentHelpers.h"
 #include "Serialization/RhinoSerializer.h"
@@ -12,6 +15,9 @@
 #include "RookServer.h"
 
 #include <algorithm>
+#include <set>
+#include <stdexcept>
+#include <unordered_set>
 
 namespace Rook {
 namespace Handlers {
@@ -27,6 +33,183 @@ namespace {
 
 constexpr int kMaxHistoryValueId = 1024;
 constexpr int kHistoryMissBudget = 32;
+constexpr size_t kMaxExactIdObjectBatchSize = 500;
+
+struct StructuredError : public std::exception
+{
+    StructuredError(std::string codeIn, std::string messageIn)
+        : code(std::move(codeIn)),
+          message(std::move(messageIn)),
+          whatCache(code + ": " + message)
+    {
+    }
+
+    const char* what() const noexcept override { return whatCache.c_str(); }
+
+    std::string code;
+    std::string message;
+
+private:
+    std::string whatCache;
+};
+
+struct DirtyOperationError : public std::exception
+{
+    DirtyOperationError(ON_UUID idIn, std::string operationIn, std::string messageIn)
+        : id(idIn),
+          operation(std::move(operationIn)),
+          message(std::move(messageIn)),
+          whatCache(operation + ": " + message)
+    {
+    }
+
+    const char* what() const noexcept override { return whatCache.c_str(); }
+
+    ON_UUID id;
+    std::string operation;
+    std::string message;
+
+private:
+    std::string whatCache;
+};
+
+void EmitStructuredError(httplib::Response& res,
+                         const char* code,
+                         const std::string& message)
+{
+    nlohmann::json err = {
+        {"errorCode", code},
+        {"errorMessage", message},
+    };
+    CRookServer::SendErrorData(res, err);
+}
+
+void EmitDirtyOperationError(httplib::Response& res, const DirtyOperationError& ex)
+{
+    nlohmann::json err = {
+        {"errorCode", "operation_failed"},
+        {"errorMessage", ex.message},
+        {"id", UuidToString(ex.id)},
+        {"operation", ex.operation},
+        {"dirty_partial_state", true},
+    };
+    CRookServer::SendErrorData(res, err);
+}
+
+void RejectDuplicateUuid(std::unordered_set<std::string>& seen,
+                         const std::string& id)
+{
+    if (!seen.insert(id).second)
+        throw std::invalid_argument("Duplicate object id: " + id);
+}
+
+std::vector<ON_UUID> ParseExactObjectIds(const nlohmann::json& body,
+                                         const char* fieldName)
+{
+    if (!body.contains(fieldName) || !body[fieldName].is_array())
+        throw std::invalid_argument(std::string("Missing or invalid array: ") + fieldName);
+
+    const auto& arr = body[fieldName];
+    if (arr.empty())
+        throw std::invalid_argument(std::string("'") + fieldName + "' must contain at least one id");
+    if (arr.size() > kMaxExactIdObjectBatchSize)
+        throw std::invalid_argument(std::string("'") + fieldName + "' cannot exceed 500 ids");
+
+    std::vector<ON_UUID> ids;
+    ids.reserve(arr.size());
+    std::unordered_set<std::string> seen;
+    seen.reserve(arr.size());
+
+    for (size_t i = 0; i < arr.size(); ++i)
+    {
+        if (!arr[i].is_string())
+            throw std::invalid_argument(std::string(fieldName) + "[" + std::to_string(i) + "] must be a string UUID");
+
+        const std::string idText = arr[i].get<std::string>();
+        ON_UUID id = ON_UuidFromString(idText.c_str());
+        if (ON_UuidIsNil(id))
+            throw std::invalid_argument("Invalid UUID format: " + idText);
+
+        RejectDuplicateUuid(seen, UuidToString(id));
+        ids.push_back(id);
+    }
+
+    return ids;
+}
+
+bool ParseOptionalRedraw(const nlohmann::json& body)
+{
+    if (!body.contains("redraw"))
+        return true;
+    if (!body["redraw"].is_boolean())
+        throw std::invalid_argument("'redraw' must be a boolean");
+    return body["redraw"].get<bool>();
+}
+
+const CRhinoObject* LookupActiveObjectStrict(CRhinoDoc* pDoc, ON_UUID id)
+{
+    const CRhinoObject* obj = pDoc->LookupObject(id);
+    if (!obj || obj->IsDeleted())
+        throw StructuredError("not_found", "Object not found: " + UuidToString(id));
+    return obj;
+}
+
+const CRhinoObject* LookupPostMutationObject(
+    CRhinoDoc* pDoc,
+    ON_UUID id,
+    const std::string& operation,
+    bool dirty)
+{
+    const CRhinoObject* obj = pDoc->LookupObject(id);
+    if (obj && !obj->IsDeleted())
+        return obj;
+
+    if (dirty)
+    {
+        throw DirtyOperationError(
+            id,
+            operation,
+            "Object disappeared after ModifyObjectAttributes");
+    }
+    throw StructuredError("not_found", "Object not found: " + UuidToString(id));
+}
+
+nlohmann::json SerializeObjectLayerState(CRhinoDoc* pDoc, const CRhinoObject* obj)
+{
+    const ON_3dmObjectAttributes& attrs = obj->Attributes();
+    const int layerIndex = attrs.m_layer_index;
+    bool layerVisible = false;
+    std::string layerId;
+    std::string layerPath;
+
+    if (layerIndex >= 0 && layerIndex < pDoc->m_layer_table.LayerCount())
+    {
+        const CRhinoLayer& layer = pDoc->m_layer_table[layerIndex];
+        if (!layer.IsDeleted())
+        {
+            layerVisible = layer.IsVisible();
+            layerId = UuidToString(layer.Id());
+            layerPath = Rook::Infrastructure::GetLayerFullPath(pDoc, layerIndex);
+        }
+    }
+
+    return {
+        {"layerIndex", layerIndex},
+        {"layerId", layerId},
+        {"layerPath", layerPath},
+        {"layerVisible", layerVisible},
+    };
+}
+
+nlohmann::json SerializeObjectHygieneState(CRhinoDoc* pDoc, const CRhinoObject* obj)
+{
+    nlohmann::json state = SerializeObjectLayerState(pDoc, obj);
+    state["layerVisible"] = state.value("layerVisible", false);
+    state["id"] = UuidToString(obj->Attributes().m_uuid);
+    state["objectVisible"] = obj->Attributes().IsVisible();
+    state["effectivelyVisible"] = obj->IsVisible();
+    return state;
+}
 
 struct ObjectHistorySummary
 {
@@ -573,6 +756,254 @@ void HandleObjects(const httplib::Request& req, httplib::Response& res)
     catch (const std::exception& ex)
     {
         CRookServer::SendError(res, ex.what());
+    }
+}
+
+void HandleObjectVisibility(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    std::vector<ON_UUID> ids;
+    bool visible = true;
+    bool redraw = true;
+    try
+    {
+        ids = ParseExactObjectIds(body, "object_ids");
+        if (!body.contains("visible") || !body["visible"].is_boolean())
+            throw std::invalid_argument("Missing or invalid boolean: visible");
+        visible = body["visible"].get<bool>();
+        redraw = ParseOptionalRedraw(body);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        EmitStructuredError(res, "invalid_input", ex.what());
+        return;
+    }
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, ids, visible, redraw]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+
+        for (ON_UUID id : ids)
+            (void)LookupActiveObjectStrict(pDoc, id);
+
+        UndoScope undo(pDoc, L"Set Object Visibility");
+
+        int modifiedCount = 0;
+        int skippedCount = 0;
+        nlohmann::json results = nlohmann::json::array();
+
+        for (ON_UUID id : ids)
+        {
+            const CRhinoObject* obj = LookupActiveObjectStrict(pDoc, id);
+            nlohmann::json before = SerializeObjectHygieneState(pDoc, obj);
+
+            std::string status = "unchanged";
+            bool dirty = false;
+            if (obj->Attributes().IsVisible() != visible)
+            {
+                ON_3dmObjectAttributes attrs = obj->Attributes();
+                attrs.SetVisible(visible);
+                if (!pDoc->ModifyObjectAttributes(CRhinoObjRef(obj), attrs))
+                {
+                    throw DirtyOperationError(
+                        id,
+                        "set_object_visibility",
+                        "Failed to modify object attributes");
+                }
+                dirty = true;
+                status = "modified";
+                ++modifiedCount;
+            }
+            else
+            {
+                ++skippedCount;
+            }
+
+            const CRhinoObject* updated = LookupPostMutationObject(
+                pDoc,
+                id,
+                "set_object_visibility",
+                dirty);
+            nlohmann::json after = SerializeObjectHygieneState(pDoc, updated);
+
+            nlohmann::json item;
+            item["id"] = UuidToString(id);
+            item["status"] = status;
+            item["before"] = std::move(before);
+            item["after"] = std::move(after);
+            results.push_back(std::move(item));
+        }
+
+        if (redraw && modifiedCount > 0)
+            pDoc->Redraw();
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["requestedCount"] = static_cast<int>(ids.size());
+        wr.data["modifiedCount"] = modifiedCount;
+        wr.data["skippedCount"] = skippedCount;
+        wr.data["visible"] = visible;
+        wr.data["results"] = std::move(results);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const DirtyOperationError& ex)
+    {
+        EmitDirtyOperationError(res, ex);
+    }
+    catch (const StructuredError& ex)
+    {
+        EmitStructuredError(res, ex.code.c_str(), ex.message);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        EmitStructuredError(res, "invalid_input", ex.what());
+    }
+    catch (const std::exception& ex)
+    {
+        EmitStructuredError(res, "operation_failed", ex.what());
+    }
+}
+
+void HandleObjectSetLayer(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    std::vector<ON_UUID> ids;
+    std::string layerName =
+        (body.contains("layer") && body["layer"].is_string())
+            ? body["layer"].get<std::string>()
+            : std::string();
+    bool redraw = true;
+    try
+    {
+        ids = ParseExactObjectIds(body, "object_ids");
+        if (!body.contains("layer") || !body["layer"].is_string())
+            throw std::invalid_argument("Missing or invalid string: layer");
+        if (layerName.empty())
+            throw std::invalid_argument("'layer' cannot be empty");
+        redraw = ParseOptionalRedraw(body);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        EmitStructuredError(res, "invalid_input", ex.what());
+        return;
+    }
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, ids, layerName, redraw]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+
+        const auto targetLayer =
+            Rook::Infrastructure::ResolveLayerRef(pDoc, layerName, "layer");
+        const std::string layerId =
+            UuidToString(pDoc->m_layer_table[targetLayer.index].Id());
+        const std::string layerPath = targetLayer.fullPath;
+
+        for (ON_UUID id : ids)
+            (void)LookupActiveObjectStrict(pDoc, id);
+
+        nlohmann::json layerMetadata;
+        layerMetadata["input"] = layerName;
+        layerMetadata["index"] = targetLayer.index;
+        layerMetadata["id"] = layerId;
+        layerMetadata["path"] = layerPath;
+
+        UndoScope undo(pDoc, L"Set Object Layer");
+
+        int modifiedCount = 0;
+        int skippedCount = 0;
+        nlohmann::json results = nlohmann::json::array();
+
+        for (ON_UUID id : ids)
+        {
+            const CRhinoObject* obj = LookupActiveObjectStrict(pDoc, id);
+            nlohmann::json before = SerializeObjectLayerState(pDoc, obj);
+
+            std::string status = "unchanged";
+            bool dirty = false;
+            if (obj->Attributes().m_layer_index != targetLayer.index)
+            {
+                ON_3dmObjectAttributes attrs = obj->Attributes();
+                attrs.m_layer_index = targetLayer.index;
+                if (!pDoc->ModifyObjectAttributes(CRhinoObjRef(obj), attrs))
+                {
+                    throw DirtyOperationError(
+                        id,
+                        "set_object_layer",
+                        "Failed to modify object attributes");
+                }
+                dirty = true;
+                status = "modified";
+                ++modifiedCount;
+            }
+            else
+            {
+                ++skippedCount;
+            }
+
+            const CRhinoObject* updated = LookupPostMutationObject(
+                pDoc,
+                id,
+                "set_object_layer",
+                dirty);
+            nlohmann::json after = SerializeObjectLayerState(pDoc, updated);
+
+            nlohmann::json item;
+            item["id"] = UuidToString(id);
+            item["status"] = status;
+            item["before"] = std::move(before);
+            item["after"] = std::move(after);
+            results.push_back(std::move(item));
+        }
+
+        if (redraw && modifiedCount > 0)
+            pDoc->Redraw();
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["requestedCount"] = static_cast<int>(ids.size());
+        wr.data["modifiedCount"] = modifiedCount;
+        wr.data["skippedCount"] = skippedCount;
+        wr.data["layer"] = layerMetadata;
+        wr.data["results"] = std::move(results);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const DirtyOperationError& ex)
+    {
+        EmitDirtyOperationError(res, ex);
+    }
+    catch (const StructuredError& ex)
+    {
+        EmitStructuredError(res, ex.code.c_str(), ex.message);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        EmitStructuredError(res, "invalid_input", ex.what());
+    }
+    catch (const std::exception& ex)
+    {
+        EmitStructuredError(res, "operation_failed", ex.what());
     }
 }
 
