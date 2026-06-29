@@ -234,11 +234,34 @@ completed:candidate_action_request
 completed:blocked
 response_type_invalid:dict
 response_type_invalid:NoneType
+response_type_invalid:unknown_type
 worker_exception:ValueError
+worker_exception:unknown_exception
 ```
 
 Do not append suffixes, exception messages, object reprs, tracebacks, raw worker
 payload fragments, context details, or response payload details.
+
+The `<TypeName>` / `<ExceptionClassName>` payload must be a non-empty compact
+name containing only ASCII letters, digits, or underscores. Builtin and normal
+Python class names therefore remain exact, for example `dict`, `NoneType`, and
+`ValueError`.
+
+If a dynamic return type has an unsafe class name, LM5D records:
+
+```text
+response_type_invalid:unknown_type
+```
+
+If a dynamic exception class has an unsafe class name, LM5D records:
+
+```text
+worker_exception:unknown_exception
+```
+
+Unsafe names must not make the harness raise while recording worker outcomes,
+and they must not leak colons, whitespace, newlines, reprs, messages, or
+traceback fragments into the reason.
 
 ---
 
@@ -309,8 +332,9 @@ failure == "response_type_invalid"
 reason == "response_type_invalid:<TypeName>"
 ```
 
-`<TypeName>` is the returned object's class name, for example `dict`,
-`NoneType`, or `object`. It must not include a repr or payload.
+`<TypeName>` is the returned object's class name when that class name is a safe
+reason payload, for example `dict`, `NoneType`, or `object`. Unsafe dynamic type
+names normalize to `unknown_type`. The reason must not include a repr or payload.
 
 ### Worker Error Records
 
@@ -323,8 +347,10 @@ failure == "worker_exception"
 reason == "worker_exception:<ExceptionClassName>"
 ```
 
-`<ExceptionClassName>` is the raised exception class name. It must not include
-the exception message or traceback.
+`<ExceptionClassName>` is the raised exception class name when that class name
+is a safe reason payload. Unsafe dynamic exception class names normalize to
+`unknown_exception`. The reason must not include the exception message or
+traceback.
 
 ---
 
@@ -477,9 +503,11 @@ Required cases:
   - invalid-response with response or disposition;
   - invalid-response wrong failure;
   - invalid-response wrong reason shape;
+  - invalid-response reason with colon, whitespace, or newline payload;
   - worker-error with response or disposition;
   - worker-error wrong failure;
   - worker-error wrong reason shape;
+  - worker-error reason with colon, whitespace, or newline payload;
 - bad harness API inputs raise `TypeError`:
   - non-`LocalWorkerTurnContext` context;
   - non-callable worker;
@@ -500,11 +528,17 @@ Required cases:
   - `failure == "response_type_invalid"`;
   - exact reason such as `response_type_invalid:dict`;
   - no raw invalid output stored;
+- unsafe non-response type names produce
+  `reason == "response_type_invalid:unknown_type"` and do not leak the unsafe
+  name;
 - worker `Exception` produces:
   - `status == "worker_error"`;
   - `failure == "worker_exception"`;
   - exact reason such as `worker_exception:ValueError`;
   - no exception message or traceback stored;
+- unsafe worker exception class names produce
+  `reason == "worker_exception:unknown_exception"` and do not leak the unsafe
+  name;
 - `KeyboardInterrupt` and `SystemExit` propagate;
 - monkeypatched LM5C returns a known disposition and the harness preserves the
   exact disposition object;

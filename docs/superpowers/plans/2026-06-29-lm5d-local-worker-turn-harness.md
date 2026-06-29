@@ -536,6 +536,8 @@ def test_completed_record_rejects_incoherence(
         {"failure": None},
         {"failure": "worker_exception"},
         {"reason": "response_type_invalid:"},
+        {"reason": "response_type_invalid:Bad Name"},
+        {"reason": "response_type_invalid:Bad\nName"},
         {"reason": "response_type_invalid:dict:extra"},
         {"reason": "worker_exception:ValueError"},
     ],
@@ -567,6 +569,8 @@ def test_invalid_response_record_rejects_incoherence(
         {"failure": None},
         {"failure": "response_type_invalid"},
         {"reason": "worker_exception:"},
+        {"reason": "worker_exception:Bad Name"},
+        {"reason": "worker_exception:Bad\nName"},
         {"reason": "worker_exception:ValueError:extra"},
         {"reason": "response_type_invalid:dict"},
     ],
@@ -687,6 +691,22 @@ def test_non_response_worker_return_is_invalid_response_record(
     assert record.context_contract_fingerprint == context.workflow.contract_fingerprint
 
 
+def test_unsafe_invalid_response_type_name_uses_stable_safe_reason() -> None:
+    context = _minimal_context()
+    unsafe_type = type("Bad: Type\nName", (), {})
+    raw_output = unsafe_type()
+
+    record = run_local_worker_turn(context, lambda received_context: raw_output)
+
+    assert record.status == "invalid_response"
+    assert record.failure == "response_type_invalid"
+    assert record.reason == "response_type_invalid:unknown_type"
+    assert "Bad" not in record.reason
+    assert " " not in record.reason
+    assert "\n" not in record.reason
+    assert record.reason.count(":") == 1
+
+
 def test_worker_exception_is_recorded_without_message_or_traceback() -> None:
     context = _minimal_context()
 
@@ -702,6 +722,26 @@ def test_worker_exception_is_recorded_without_message_or_traceback() -> None:
     assert record.reason == "worker_exception:ValueError"
     assert "do not persist" not in record.reason
     assert "Traceback" not in record.reason
+
+
+def test_unsafe_worker_exception_class_name_uses_stable_safe_reason() -> None:
+    context = _minimal_context()
+    unsafe_exception = type("Bad: Exception\nName", (Exception,), {})
+
+    def worker(received_context: LocalWorkerTurnContext) -> LocalWorkerTurnResponse:
+        raise unsafe_exception("secret message must not leak")
+
+    record = run_local_worker_turn(context, worker)
+
+    assert record.status == "worker_error"
+    assert record.failure == "worker_exception"
+    assert record.reason == "worker_exception:unknown_exception"
+    assert "Bad" not in record.reason
+    assert "secret message" not in record.reason
+    assert "Traceback" not in record.reason
+    assert " " not in record.reason
+    assert "\n" not in record.reason
+    assert record.reason.count(":") == 1
 
 
 @pytest.mark.parametrize("exception_type", [KeyboardInterrupt, SystemExit])
@@ -1057,7 +1097,10 @@ def run_local_worker_turn(
             response=None,
             disposition=None,
             failure="worker_exception",
-            reason=f"worker_exception:{type(exc).__name__}",
+            reason=(
+                "worker_exception:"
+                f"{_safe_reason_payload(type(exc).__name__, 'unknown_exception')}"
+            ),
             context_workflow_id=workflow_id,
             context_contract_fingerprint=contract_fingerprint,
         )
@@ -1068,7 +1111,10 @@ def run_local_worker_turn(
             response=None,
             disposition=None,
             failure="response_type_invalid",
-            reason=f"response_type_invalid:{type(response).__name__}",
+            reason=(
+                "response_type_invalid:"
+                f"{_safe_reason_payload(type(response).__name__, 'unknown_type')}"
+            ),
             context_workflow_id=workflow_id,
             context_contract_fingerprint=contract_fingerprint,
         )
@@ -1142,9 +1188,30 @@ def _require_exact_reason_payload(reason: str, prefix: str) -> str:
     if not reason.startswith(expected_prefix):
         raise ValueError(f"reason must start with {expected_prefix!r}")
     payload = reason.removeprefix(expected_prefix)
-    if payload == "" or ":" in payload:
+    if not _is_safe_reason_payload(payload):
         raise ValueError(f"reason must be exactly {prefix}:<Name>")
     return payload
+
+
+def _safe_reason_payload(value: str, replacement: str) -> str:
+    if _is_safe_reason_payload(value):
+        return value
+    return replacement
+
+
+def _is_safe_reason_payload(value: str) -> bool:
+    if value == "":
+        return False
+    return all(_is_ascii_alnum_or_underscore(char) for char in value)
+
+
+def _is_ascii_alnum_or_underscore(char: str) -> bool:
+    return (
+        char == "_"
+        or "0" <= char <= "9"
+        or "A" <= char <= "Z"
+        or "a" <= char <= "z"
+    )
 
 
 def _require_optional_response(
@@ -1358,7 +1425,9 @@ No LM5D files should be unstaged or uncommitted.
 - [ ] Only the worker call is inside the `Exception` catch.
 - [ ] `KeyboardInterrupt`, `SystemExit`, and other `BaseException` subclasses propagate.
 - [ ] Non-response worker returns produce `invalid_response` records and store no raw invalid output.
+- [ ] Unsafe non-response type names use `response_type_invalid:unknown_type`.
 - [ ] Worker exceptions produce `worker_error` records and store no message or traceback.
+- [ ] Unsafe worker exception class names use `worker_exception:unknown_exception`.
 - [ ] Typed responses flow through LM5C.
 - [ ] LM5C errors after typed response propagate.
 - [ ] Completed records preserve the exact response and exact disposition objects.
