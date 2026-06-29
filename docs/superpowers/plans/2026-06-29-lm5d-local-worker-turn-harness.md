@@ -30,6 +30,123 @@ There are unrelated dirty RookChat files in the working tree. Do not stage or ed
 
 ---
 
+## Task 0: Sync Branch To Current Main Before Implementation
+
+**Files:**
+
+- Verify: `docs/superpowers/specs/2026-06-29-lm5d-local-worker-turn-harness-design.md`
+- Verify: `docs/superpowers/plans/2026-06-29-lm5d-local-worker-turn-harness.md`
+- Preserve if dirty:
+  - `mcp_server/src/rook/agent/chat/chat_runner.py`
+  - `mcp_server/tests/test_rookchat_tool_schema_golden.py`
+
+This branch was created while unrelated RookChat fallback-schema files were
+dirty. Those changes have since landed on `main`. Before implementation, sync
+this branch onto current `main` so a PR cannot show reverse diffs for the
+already-landed RookChat work.
+
+- [ ] **Step 1: Inspect current branch state**
+
+Run:
+
+```powershell
+git status --short --branch
+git log --oneline --decorate --graph --max-count=8 --all
+```
+
+Expected:
+
+```text
+branch is codex/lm5d-local-worker-turn-harness
+unrelated dirty RookChat files may be present
+```
+
+Do not stage the RookChat files.
+
+- [ ] **Step 2: Preserve unrelated dirty RookChat files if present**
+
+If `git status --short` shows either RookChat file dirty, run:
+
+```powershell
+git stash push -m "lm5d-pre-sync-unrelated-rookchat" -- `
+  mcp_server/src/rook/agent/chat/chat_runner.py `
+  mcp_server/tests/test_rookchat_tool_schema_golden.py
+```
+
+Expected output:
+
+```text
+Saved working directory and index state On codex/lm5d-local-worker-turn-harness: lm5d-pre-sync-unrelated-rookchat
+```
+
+If those files are not dirty, skip this step. Do not stash LM5D files.
+
+- [ ] **Step 3: Fetch and rebase onto current main**
+
+Run:
+
+```powershell
+git fetch origin main
+git rebase origin/main
+```
+
+Expected output:
+
+```text
+Successfully rebased and updated refs/heads/codex/lm5d-local-worker-turn-harness.
+```
+
+If rebase reports conflicts, stop and resolve only LM5D doc conflicts. Do not
+edit the RookChat files as part of conflict resolution.
+
+- [ ] **Step 4: Restore preserved dirty RookChat files only if still needed**
+
+If Step 2 created a stash, inspect it:
+
+```powershell
+git stash list
+git stash show -p stash^{/lm5d-pre-sync-unrelated-rookchat} -- `
+  mcp_server/src/rook/agent/chat/chat_runner.py `
+  mcp_server/tests/test_rookchat_tool_schema_golden.py
+```
+
+If the stashed patch is already present after rebasing onto `main`, keep the
+stash or drop it only after verifying it contains no unique local work:
+
+```powershell
+git stash drop stash^{/lm5d-pre-sync-unrelated-rookchat}
+```
+
+If the stashed patch contains unique local work not present on `main`, restore it
+without staging:
+
+```powershell
+git stash apply stash^{/lm5d-pre-sync-unrelated-rookchat}
+```
+
+Then keep those RookChat files unstaged and outside LM5D commits.
+
+- [ ] **Step 5: Verify committed branch diff is LM5D docs only**
+
+Run:
+
+```powershell
+$base = git merge-base HEAD main
+git diff --name-status "$base..HEAD"
+```
+
+Expected output before implementation:
+
+```text
+A	docs/superpowers/plans/2026-06-29-lm5d-local-worker-turn-harness.md
+A	docs/superpowers/specs/2026-06-29-lm5d-local-worker-turn-harness-design.md
+```
+
+If any RookChat files appear in this committed branch diff, the branch is not
+ready for implementation.
+
+---
+
 ## Task 1: Add LM5D Tests First
 
 **Files:**
