@@ -3448,6 +3448,31 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
             }
         ),
         Tool(
+            name="rhino_object_visibility",
+            description=(
+                "Set exact object-level visibility only; does not alter layer "
+                "visibility. visible=true may remain effectively hidden if the "
+                "layer is hidden. Rejects empty, duplicate, or over-500 ids."
+            ),
+            inputSchema={
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "object_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "maxItems": 500,
+                        "description": "Exact document object UUIDs. No selectors or patterns.",
+                    },
+                    "visible": {"type": "boolean"},
+                    "redraw": {"type": "boolean", "description": "Defaults to true."},
+                    "documentSerialNumber": {"type": "integer"},
+                },
+                "required": ["object_ids", "visible"],
+            },
+        ),
+        Tool(
             name="rhino_selection",
             description="Get currently selected objects in Rhino.",
             inputSchema={"type": "object", "properties": {}, "required": []}
@@ -4610,6 +4635,30 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_object_set_layer",
+            description=(
+                "Move exact object ids to an existing layer. The layer may be "
+                "an exact full path or unambiguous leaf name resolved by native "
+                "layer rules; missing or ambiguous layers fail. Never auto-create."
+            ),
+            inputSchema={
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "object_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "maxItems": 500,
+                    },
+                    "layer": {"type": "string"},
+                    "redraw": {"type": "boolean", "description": "Defaults to true."},
+                    "documentSerialNumber": {"type": "integer"},
+                },
+                "required": ["object_ids", "layer"],
+            },
+        ),
+        Tool(
             name="rhino_layer_merge",
             description="Move all objects from source to target layer, then delete the source layer. Source must have no child layers and must not be the current layer.",
             inputSchema={
@@ -5522,6 +5571,40 @@ Examples:
                     },
                 },
                 "required": ["id", "userStrings"],
+            },
+        ),
+        Tool(
+            name="rhino_object_usertext_set_batch",
+            description=(
+                "Set per-object usertext metadata for exact ids; one item per "
+                "id. Set-only; returns full post-mutation userStrings for "
+                "requested objects only. Rejects empty, duplicate, or over-500 items."
+            ),
+            inputSchema={
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 500,
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "id": {"type": "string"},
+                                "userStrings": {
+                                    "type": "object",
+                                    "additionalProperties": {"type": "string"},
+                                },
+                            },
+                            "required": ["id", "userStrings"],
+                        },
+                    },
+                    "redraw": {"type": "boolean", "description": "Defaults to true."},
+                    "documentSerialNumber": {"type": "integer"},
+                },
+                "required": ["items"],
             },
         ),
         Tool(
@@ -14293,6 +14376,9 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "rhino_objects":
             result = await call_rhino("/objects", "GET", arguments if arguments else None)
 
+        case "rhino_object_visibility":
+            result = await call_rhino("/objects/visibility", "POST", arguments)
+
         case "rhino_selection":
             result = await call_rhino("/selection")
 
@@ -14422,6 +14508,9 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "rhino_layer_move_objects":
             result = await call_rhino("/layers/move-objects", "POST", arguments)
 
+        case "rhino_object_set_layer":
+            result = await call_rhino("/objects/set-layer", "POST", arguments)
+
         case "rhino_layer_merge":
             result = await call_rhino("/layers/merge", "POST", arguments)
 
@@ -14541,6 +14630,9 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
 
         case "rhino_usertext_object_set":
             result = await call_rhino("/usertext/object-set", "POST", arguments)
+
+        case "rhino_object_usertext_set_batch":
+            result = await call_rhino("/usertext/object-set-batch", "POST", arguments)
 
         case "rhino_usertext_object_get":
             result = await call_rhino("/usertext/object-get", "POST", arguments)

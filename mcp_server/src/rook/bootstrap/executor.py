@@ -102,6 +102,7 @@ class HttpExecutor:
             "rhino_document": ("GET", "/document", None),
             "rhino_layers": ("GET", "/layers", None),
             "rhino_objects": ("GET", "/objects", params),
+            "rhino_object_visibility": ("POST", "/objects/visibility", params),
             "rhino_selection": ("GET", "/selection", None),
             "rhino_geometry": ("GET", "/geometry", params),
             "rhino_viewport": ("GET", "/viewport", params),
@@ -131,8 +132,12 @@ class HttpExecutor:
             "rhino_layer_set_properties_batch": ("POST", "/layers/properties-batch", params),
             "rhino_layer_rename": ("POST", "/layers/rename", params),
             "rhino_layer_move_objects": ("POST", "/layers/move-objects", params),
+            "rhino_object_set_layer": ("POST", "/objects/set-layer", params),
             "rhino_layer_merge": ("POST", "/layers/merge", params),
             "rhino_layer_dependencies": ("GET", "/layers/dependencies", params),
+
+            # User text tools
+            "rhino_object_usertext_set_batch": ("POST", "/usertext/object-set-batch", params),
 
             # Material / linetype / block audit
             "rhino_materials": ("GET", "/materials", params),

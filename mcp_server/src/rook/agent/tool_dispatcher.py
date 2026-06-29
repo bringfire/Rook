@@ -163,6 +163,7 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "rhino_document":           ("/document", "GET"),
     "rhino_layers":             ("/layers", "GET"),
     "rhino_objects":            ("/objects", "GET"),
+    "rhino_object_visibility":   ("/objects/visibility", "POST"),
     "rhino_selection":          ("/selection", "GET"),
     "rhino_select":             ("/select", "POST"),
     "rhino_geometry":           ("/geometry", "GET"),
@@ -195,6 +196,7 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "rhino_layer_set_properties_batch": ("/layers/properties-batch", "POST"),
     "rhino_layer_rename":         ("/layers/rename", "POST"),
     "rhino_layer_move_objects":   ("/layers/move-objects", "POST"),
+    "rhino_object_set_layer":     ("/objects/set-layer", "POST"),
     "rhino_layer_merge":          ("/layers/merge", "POST"),
     "rhino_layer_dependencies":   ("/layers/dependencies", "GET"),
 
@@ -272,6 +274,7 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     # denylist on document-set writes). Delete routes for both levels
     # land in a follow-up PR.
     "rhino_usertext_object_set": ("/usertext/object-set", "POST"),
+    "rhino_object_usertext_set_batch": ("/usertext/object-set-batch", "POST"),
     "rhino_usertext_object_get": ("/usertext/object-get", "POST"),
     "rhino_usertext_document_set": ("/usertext/document-set", "POST"),
     "rhino_usertext_document_get": ("/usertext/document-get", "POST"),
