@@ -90,6 +90,7 @@ namespace Handlers {
 // accept attribute-bundle inputs. A separate route handles
 // attribute-bundle mutation.
 void HandleUserTextObjectSet(const httplib::Request& req, httplib::Response& res);
+void HandleUserTextObjectSetBatch(const httplib::Request& req, httplib::Response& res);
 
 // POST /usertext/object-get — Read all user strings on a document
 // object's attributes.

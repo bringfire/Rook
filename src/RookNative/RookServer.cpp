@@ -1465,6 +1465,9 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/usertext/object-set", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleUserTextObjectSet(req, res);
     });
+    m_server->Post("/usertext/object-set-batch", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleUserTextObjectSetBatch(req, res);
+    });
     m_server->Post("/usertext/object-get", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleUserTextObjectGet(req, res);
     });

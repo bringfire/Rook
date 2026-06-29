@@ -96,6 +96,8 @@ namespace Handlers {
 
 namespace {
 
+constexpr size_t kMaxUserTextObjectSetBatchItems = 500;
+
 // Structured-error carrier. Mirrors AnnotationHandler.cpp:75-90 (and
 // ArrayHandler.cpp:46-63) so the top-level catch can emit specific
 // codes (e.g. "not_found") without routing through std::invalid_argument
@@ -115,6 +117,34 @@ struct StructuredError : public std::exception
 
 private:
     std::string whatCache;
+};
+
+struct DirtyUserTextOperationError : public std::exception
+{
+    DirtyUserTextOperationError(ON_UUID idIn,
+                                std::string operationIn,
+                                std::string messageIn)
+        : id(idIn),
+          operation(std::move(operationIn)),
+          message(std::move(messageIn)),
+          whatCache(operation + ": " + message)
+    {
+    }
+
+    const char* what() const noexcept override { return whatCache.c_str(); }
+
+    ON_UUID id;
+    std::string operation;
+    std::string message;
+
+private:
+    std::string whatCache;
+};
+
+struct UserTextSetBatchItem
+{
+    ON_UUID id = ON_nil_uuid;
+    nlohmann::json userStrings = nlohmann::json::object();
 };
 
 // Resolve `id` on `pDoc`. Throws StructuredError with explicit code
@@ -171,6 +201,109 @@ void ValidateUserStringsObjectStrict(const nlohmann::json& body,
                 + deleteRouteHint + ")");
         }
     }
+}
+
+void RejectDuplicateUuid(std::unordered_set<std::string>& seen,
+                         const std::string& id)
+{
+    if (!seen.insert(id).second)
+        throw std::invalid_argument("Duplicate object id: " + id);
+}
+
+void ValidateBatchUserStringsObjectStrict(const nlohmann::json& userStrings,
+                                          size_t itemIndex)
+{
+    if (!userStrings.is_object())
+    {
+        throw std::invalid_argument(
+            "items[" + std::to_string(itemIndex) + "].userStrings must be an object");
+    }
+
+    for (auto it = userStrings.begin(); it != userStrings.end(); ++it)
+    {
+        const std::string key = it.key();
+        const auto& valueJson = it.value();
+        if (key.empty())
+        {
+            throw std::invalid_argument(
+                "items[" + std::to_string(itemIndex) + "].userStrings keys must be non-empty");
+        }
+        if (!valueJson.is_string())
+        {
+            throw std::invalid_argument(
+                "items[" + std::to_string(itemIndex) + "].userStrings['"
+                + key + "'] must be a string");
+        }
+        const std::string value = valueJson.get<std::string>();
+        if (value.empty())
+        {
+            throw std::invalid_argument(
+                "items[" + std::to_string(itemIndex) + "].userStrings['"
+                + key + "'] must be non-empty");
+        }
+    }
+}
+
+std::vector<UserTextSetBatchItem> ParseUserTextSetBatchItems(
+    const nlohmann::json& body)
+{
+    if (!body.contains("items") || !body["items"].is_array())
+        throw std::invalid_argument("Missing or invalid array: items");
+
+    const auto& items = body["items"];
+    if (items.empty())
+        throw std::invalid_argument("'items' must contain at least one object");
+    if (items.size() > kMaxUserTextObjectSetBatchItems)
+        throw std::invalid_argument("'items' cannot exceed 500 objects");
+
+    std::vector<UserTextSetBatchItem> parsed;
+    parsed.reserve(items.size());
+    std::unordered_set<std::string> seen;
+    seen.reserve(items.size());
+
+    for (size_t i = 0; i < items.size(); ++i)
+    {
+        if (!items[i].is_object())
+        {
+            throw std::invalid_argument(
+                "items[" + std::to_string(i) + "] must be an object");
+        }
+        if (!items[i].contains("id") || !items[i]["id"].is_string())
+        {
+            throw std::invalid_argument(
+                "items[" + std::to_string(i) + "].id must be a string UUID");
+        }
+
+        const std::string idText = items[i]["id"].get<std::string>();
+        ON_UUID id = ON_UuidFromString(idText.c_str());
+        if (ON_UuidIsNil(id))
+            throw std::invalid_argument("Invalid UUID format: " + idText);
+
+        RejectDuplicateUuid(seen, UuidToString(id));
+
+        if (!items[i].contains("userStrings"))
+        {
+            throw std::invalid_argument(
+                "items[" + std::to_string(i) + "] missing required field: userStrings");
+        }
+        ValidateBatchUserStringsObjectStrict(items[i]["userStrings"], i);
+
+        UserTextSetBatchItem item;
+        item.id = id;
+        item.userStrings = items[i]["userStrings"];
+        parsed.push_back(std::move(item));
+    }
+
+    return parsed;
+}
+
+bool ParseOptionalRedraw(const nlohmann::json& body)
+{
+    if (!body.contains("redraw"))
+        return true;
+    if (!body["redraw"].is_boolean())
+        throw std::invalid_argument("'redraw' must be a boolean");
+    return body["redraw"].get<bool>();
 }
 
 // Reserved-prefix denylist table for document-level user-string writes.
@@ -373,6 +506,20 @@ void EmitStructuredError(httplib::Response& res,
     CRookServer::SendErrorData(res, err);
 }
 
+void EmitDirtyUserTextOperationError(httplib::Response& res,
+                                     const DirtyUserTextOperationError& ex)
+{
+    nlohmann::json err = {
+        {"errorCode", "operation_failed"},
+        {"errorMessage", ex.message},
+        {"id", UuidToString(ex.id)},
+        {"operation", ex.operation},
+        {"message", ex.message},
+        {"dirty_partial_state", true},
+    };
+    CRookServer::SendErrorData(res, err);
+}
+
 } // namespace
 
 // --- POST /usertext/object-set ------------------------------------------
@@ -478,6 +625,134 @@ void HandleUserTextObjectSet(const httplib::Request& req, httplib::Response& res
     catch (const std::invalid_argument& ex)
     {
         invalidInput(ex.what());
+    }
+    catch (const std::exception& ex)
+    {
+        EmitStructuredError(res, "operation_failed", ex.what());
+    }
+}
+
+// --- POST /usertext/object-set-batch ------------------------------------
+
+void HandleUserTextObjectSetBatch(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    std::vector<UserTextSetBatchItem> items;
+    bool redraw = true;
+    try
+    {
+        items = ParseUserTextSetBatchItems(body);
+        redraw = ParseOptionalRedraw(body);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        EmitStructuredError(res, "invalid_input", ex.what());
+        return;
+    }
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, items, redraw]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+
+        for (const UserTextSetBatchItem& item : items)
+            (void)LookupObjectStrict(item.id, pDoc);
+
+        UndoScope undo(pDoc, L"Set Object User Strings Batch");
+
+        int modifiedCount = 0;
+        int skippedCount = 0;
+        nlohmann::json results = nlohmann::json::array();
+
+        for (const UserTextSetBatchItem& item : items)
+        {
+            const CRhinoObject* obj = LookupObjectStrict(item.id, pDoc);
+            const nlohmann::json currentUserStrings =
+                SerializeUserStringsFromAttributes(obj->Attributes());
+
+            bool unchanged = true;
+            for (auto it = item.userStrings.begin(); it != item.userStrings.end(); ++it)
+            {
+                if (!currentUserStrings.contains(it.key())
+                    || !currentUserStrings[it.key()].is_string()
+                    || currentUserStrings[it.key()].get<std::string>()
+                        != it.value().get<std::string>())
+                {
+                    unchanged = false;
+                    break;
+                }
+            }
+
+            std::string status = "unchanged";
+            if (unchanged)
+            {
+                ++skippedCount;
+            }
+            else
+            {
+                ON_3dmObjectAttributes attrs = obj->Attributes();
+                for (auto it = item.userStrings.begin(); it != item.userStrings.end(); ++it)
+                {
+                    attrs.SetUserString(
+                        Utf8ToWide(it.key()),
+                        Utf8ToWide(it.value().get<std::string>()));
+                }
+
+                if (!pDoc->ModifyObjectAttributes(CRhinoObjRef(obj), attrs))
+                {
+                    throw DirtyUserTextOperationError(
+                        item.id,
+                        "set_object_user_strings_batch",
+                        "Failed to modify object attributes");
+                }
+
+                status = "modified";
+                ++modifiedCount;
+            }
+
+            const CRhinoObject* updated = LookupObjectStrict(item.id, pDoc);
+            const nlohmann::json postUserStrings =
+                SerializeUserStringsFromAttributes(updated->Attributes());
+
+            nlohmann::json result;
+            result["id"] = UuidToString(item.id);
+            result["status"] = status;
+            result["userStrings"] = postUserStrings;
+            results.push_back(std::move(result));
+        }
+
+        if (redraw && modifiedCount > 0)
+            pDoc->Redraw();
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["requestedCount"] = static_cast<int>(items.size());
+        wr.data["modifiedCount"] = modifiedCount;
+        wr.data["skippedCount"] = skippedCount;
+        wr.data["results"] = std::move(results);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const DirtyUserTextOperationError& ex)
+    {
+        EmitDirtyUserTextOperationError(res, ex);
+    }
+    catch (const StructuredError& ex)
+    {
+        EmitStructuredError(res, ex.code.c_str(), ex.message);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        EmitStructuredError(res, "invalid_input", ex.what());
     }
     catch (const std::exception& ex)
     {
