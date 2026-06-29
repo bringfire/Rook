@@ -11601,6 +11601,201 @@ Syncs the scene graph, reads object user strings via /usertext/object-get, joins
             },
         ),
         Tool(
+            name="scene_project_relationship_facts",
+            description="""Project authored relationship facts from Rhino object user strings into the in-memory scene graph read model.
+
+Creates semantic owner-object-to-owner-object edges such as member -> joint with relationship="connects". Use scene_context(sync=false) after this tool to inspect Python-only projected facts. This tool reads Rhino object user text and mutates only the Python scene graph mirror; it does not mutate Rhino geometry, object attributes, layers, blocks, or document user text.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "graph_source": {
+                        "type": "string",
+                        "description": "Optional graph source filter, for example pearson_robot_skeleton_graph",
+                    },
+                    "graph_revision": {
+                        "type": "string",
+                        "description": "Optional graph revision filter, for example g002",
+                    },
+                    "poses": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional pose filter. Scoped projection preserves out-of-scope poses.",
+                    },
+                    "object_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional primary owner object scope. Resolution still hydrates the full current scene.",
+                    },
+                    "source_mode": {
+                        "type": "string",
+                        "enum": ["authored_graph_user_strings"],
+                        "description": "Relationship fact source mode. v1 supports authored_graph_user_strings only.",
+                    },
+                    "strict": {
+                        "type": "boolean",
+                        "description": "If true, malformed facts fail the tool instead of returning diagnostics.",
+                    },
+                    "port": {"type": "integer", "description": "Rhino instance port"},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="scene_semantic_relationships",
+            description="""Inspect already-projected semantic relationship facts for selected scene objects.
+
+Reads only relationship_fact_v1 edges from the current in-memory Python scene graph. Requires object_ids. Does not sync, project, infer, mutate Rhino, or include fuzzy spatial edges.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "object_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Required selected scene object ids to inspect",
+                    },
+                    "graph_source": {"type": "string", "description": "Optional graphSource filter"},
+                    "graph_revision": {"type": "string", "description": "Optional graphRevision filter"},
+                    "poses": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional pose filter",
+                    },
+                    "relationship_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional relationship type filter, for example connects",
+                    },
+                    "status": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional status filter, for example accepted",
+                    },
+                    "provenance": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional provenance filter, for example authored_assembly_graph",
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": ["both", "outgoing", "incoming"],
+                        "description": "Relationship direction relative to each selected object",
+                    },
+                },
+                "required": ["object_ids"],
+            },
+        ),
+        Tool(
+            name="scene_relationship_evidence",
+            description="""Measure feature-marker-position evidence for already-projected relationship facts.
+
+Reads relationship_fact_v1 edges from the current in-memory scene graph and reads Rhino user text only for their feature marker object ids. Does not sync, project, infer, mutate Rhino, inspect owner geometry, or change relationship status.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "object_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional owner object ids; include facts touching any supplied owner id",
+                    },
+                    "graph_source": {"type": "string", "description": "Optional graphSource filter"},
+                    "graph_revision": {"type": "string", "description": "Optional graphRevision filter"},
+                    "poses": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional pose filter",
+                    },
+                    "relationship_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional relationship type filter",
+                    },
+                    "relationship_fact_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional relationshipFactId filter",
+                    },
+                    "tolerance_m": {
+                        "type": "number",
+                        "description": "Distance tolerance in meters for withinTolerance; default 0.01",
+                    },
+                    "port": {"type": "integer", "description": "Rhino instance port"},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="scene_relationship_profile",
+            description="""Read the active relationship vocabulary profile.
+
+Returns the built-in default profile unless project_root is supplied. If project_root is supplied, it must be an absolute existing directory and may contain .rook/relationship_profile.json as an opt-in project override. Does not sync, mutate Rhino, infer relationships, or read process cwd.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Optional absolute project root containing .rook/relationship_profile.json",
+                    },
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="scene_object_semantic_context",
+            description="""Build compact semantic context cards for selected scene objects.
+
+Reads only already-projected relationship_fact_v1 edges from the current in-memory Python scene graph through the semantic relationship inspector. Requires object_ids. Does not sync, project, infer, mutate Rhino, use a port, expand block definitions, or include fuzzy spatial edges.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "object_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Required selected scene object ids to summarize",
+                    },
+                    "graph_source": {"type": "string", "description": "Optional graphSource filter"},
+                    "graph_revision": {"type": "string", "description": "Optional graphRevision filter"},
+                    "poses": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional pose filter",
+                    },
+                    "relationship_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional relationship type filter, for example connects",
+                    },
+                    "status": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional status filter, for example accepted",
+                    },
+                    "provenance": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional provenance filter, for example authored_assembly_graph",
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": ["both", "outgoing", "incoming"],
+                        "description": "Relationship direction relative to each selected object",
+                    },
+                    "max_groups": {
+                        "type": "integer",
+                        "description": "Maximum groups per card. Must be a positive integer.",
+                    },
+                    "max_facts_per_group": {
+                        "type": "integer",
+                        "description": "Maximum sample facts per group. Must be a positive integer.",
+                    },
+                    "project_root": {
+                        "type": "string",
+                        "description": "Optional absolute project root containing .rook/relationship_profile.json for additive card labels/categories.",
+                    },
+                },
+                "required": ["object_ids"],
+            },
+        ),
+        Tool(
             name="scene_bim_facts",
             description="""Query already-projected RookBIM facts from the current in-memory Python scene graph mirror.
 
@@ -20012,6 +20207,93 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                     result = {"success": False, "data": payload}
                 else:
                     result = {"success": True, "data": payload}
+
+        case "scene_project_relationship_facts":
+            from .scene.relationship_fact_projection import project_relationship_facts_for_tool
+
+            payload = await project_relationship_facts_for_tool(
+                graph_source=arguments.get("graph_source"),
+                graph_revision=arguments.get("graph_revision"),
+                poses=arguments.get("poses"),
+                object_ids=arguments.get("object_ids"),
+                source_mode=arguments.get("source_mode", "authored_graph_user_strings"),
+                strict=arguments.get("strict", False),
+                port=port,
+            )
+            if payload.get("success") is False:
+                result = {"success": False, "data": payload}
+            else:
+                result = {"success": True, "data": payload}
+
+        case "scene_semantic_relationships":
+            from .scene.scene_graph import get_scene_graph
+            from .scene.semantic_relationship_inspector import query_semantic_relationships
+
+            payload = query_semantic_relationships(
+                get_scene_graph(),
+                object_ids=arguments.get("object_ids"),
+                graph_source=arguments.get("graph_source"),
+                graph_revision=arguments.get("graph_revision"),
+                poses=arguments.get("poses"),
+                relationship_types=arguments.get("relationship_types"),
+                status=arguments.get("status"),
+                provenance=arguments.get("provenance"),
+                direction=arguments.get("direction", "both"),
+            )
+            if payload.get("success") is False:
+                result = {"success": False, "data": payload}
+            else:
+                result = {"success": True, "data": payload}
+
+        case "scene_relationship_evidence":
+            from .scene.relationship_geometry_evidence import query_relationship_evidence_for_tool
+
+            payload = await query_relationship_evidence_for_tool(
+                object_ids=arguments.get("object_ids"),
+                graph_source=arguments.get("graph_source"),
+                graph_revision=arguments.get("graph_revision"),
+                poses=arguments.get("poses"),
+                relationship_types=arguments.get("relationship_types"),
+                relationship_fact_ids=arguments.get("relationship_fact_ids"),
+                tolerance_m=arguments.get("tolerance_m", 0.01),
+                port=port,
+            )
+            if payload.get("success") is False:
+                result = {"success": False, "data": payload}
+            else:
+                result = {"success": True, "data": payload}
+
+        case "scene_relationship_profile":
+            from .scene.relationship_profile import resolve_relationship_profile
+
+            payload = resolve_relationship_profile(project_root=arguments.get("project_root"))
+            if payload.get("success") is False:
+                result = {"success": False, "data": payload}
+            else:
+                result = {"success": True, "data": payload}
+
+        case "scene_object_semantic_context":
+            from .scene.object_semantic_context import query_object_semantic_context
+            from .scene.scene_graph import get_scene_graph
+
+            payload = query_object_semantic_context(
+                get_scene_graph(),
+                object_ids=arguments.get("object_ids"),
+                graph_source=arguments.get("graph_source"),
+                graph_revision=arguments.get("graph_revision"),
+                poses=arguments.get("poses"),
+                relationship_types=arguments.get("relationship_types"),
+                status=arguments.get("status"),
+                provenance=arguments.get("provenance"),
+                direction=arguments.get("direction", "both"),
+                max_groups=arguments.get("max_groups"),
+                max_facts_per_group=arguments.get("max_facts_per_group"),
+                project_root=arguments.get("project_root"),
+            )
+            if payload.get("success") is False:
+                result = {"success": False, "data": payload}
+            else:
+                result = {"success": True, "data": payload}
 
         case "scene_bim_facts":
             from .scene.scene_graph import get_scene_graph

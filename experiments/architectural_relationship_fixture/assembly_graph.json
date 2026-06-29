@@ -1,0 +1,167 @@
+{
+  "schema": "rook.architectural_relationship_fixture.v1",
+  "source": "architectural_relationship_fixture",
+  "revision": "a001",
+  "unit": "meters",
+  "poses": {
+    "architectural_reference": {
+      "description": "Single authored architectural semantic fixture pose"
+    }
+  },
+  "objects": [
+    {
+      "name": "Column 01",
+      "object_id": "column_01",
+      "object_kind": "column"
+    },
+    {
+      "name": "Slab 01",
+      "object_id": "slab_01",
+      "object_kind": "slab"
+    },
+    {
+      "name": "Wall 01",
+      "object_id": "wall_01",
+      "object_kind": "wall"
+    },
+    {
+      "name": "Door 01",
+      "object_id": "door_01",
+      "object_kind": "door"
+    },
+    {
+      "name": "Opening 01",
+      "object_id": "opening_01",
+      "object_kind": "opening"
+    },
+    {
+      "name": "Duct 01",
+      "object_id": "duct_01",
+      "object_kind": "duct"
+    },
+    {
+      "name": "Space 01",
+      "object_id": "space_01",
+      "object_kind": "space"
+    }
+  ],
+  "features": [
+    {
+      "owner_kind": "column",
+      "feature_kind": "point",
+      "role": "top_point",
+      "feature_id": "column_01.top_point",
+      "owner_id": "column_01"
+    },
+    {
+      "owner_kind": "slab",
+      "feature_kind": "region",
+      "role": "underside_region",
+      "feature_id": "slab_01.underside_region",
+      "owner_id": "slab_01"
+    },
+    {
+      "owner_kind": "door",
+      "feature_kind": "body",
+      "role": "body",
+      "feature_id": "door_01.body",
+      "owner_id": "door_01"
+    },
+    {
+      "owner_kind": "wall",
+      "feature_kind": "region",
+      "role": "host_region",
+      "feature_id": "wall_01.host_region",
+      "owner_id": "wall_01"
+    },
+    {
+      "owner_kind": "opening",
+      "feature_kind": "profile",
+      "role": "profile",
+      "feature_id": "opening_01.profile",
+      "owner_id": "opening_01"
+    },
+    {
+      "owner_kind": "wall",
+      "feature_kind": "region",
+      "role": "opening_region",
+      "feature_id": "wall_01.opening_region",
+      "owner_id": "wall_01"
+    },
+    {
+      "owner_kind": "duct",
+      "feature_kind": "line",
+      "role": "centerline",
+      "feature_id": "duct_01.centerline",
+      "owner_id": "duct_01"
+    },
+    {
+      "owner_kind": "wall",
+      "feature_kind": "region",
+      "role": "penetration_region",
+      "feature_id": "wall_01.penetration_region",
+      "owner_id": "wall_01"
+    },
+    {
+      "owner_kind": "space",
+      "feature_kind": "boundary",
+      "role": "boundary",
+      "feature_id": "space_01.boundary",
+      "owner_id": "space_01"
+    },
+    {
+      "owner_kind": "wall",
+      "feature_kind": "face",
+      "role": "inner_face",
+      "feature_id": "wall_01.inner_face",
+      "owner_id": "wall_01"
+    }
+  ],
+  "relationships": [
+    {
+      "contact_kind": "point_to_region",
+      "provenance": "authored_architectural_fixture",
+      "status": "accepted",
+      "relationship_id": "column_01.top_point_supports_slab_01.underside_region",
+      "relationship_type": "supports",
+      "from_feature": "column_01.top_point",
+      "to_feature": "slab_01.underside_region"
+    },
+    {
+      "contact_kind": "body_to_region",
+      "provenance": "authored_architectural_fixture",
+      "status": "accepted",
+      "relationship_id": "door_01.body_hosted_by_wall_01.host_region",
+      "relationship_type": "hosted_by",
+      "from_feature": "door_01.body",
+      "to_feature": "wall_01.host_region"
+    },
+    {
+      "contact_kind": "profile_to_region",
+      "provenance": "authored_architectural_fixture",
+      "status": "accepted",
+      "relationship_id": "opening_01.profile_voids_wall_01.opening_region",
+      "relationship_type": "voids",
+      "from_feature": "opening_01.profile",
+      "to_feature": "wall_01.opening_region"
+    },
+    {
+      "contact_kind": "line_to_region",
+      "provenance": "authored_architectural_fixture",
+      "status": "accepted",
+      "relationship_id": "duct_01.centerline_penetrates_wall_01.penetration_region",
+      "relationship_type": "penetrates",
+      "from_feature": "duct_01.centerline",
+      "to_feature": "wall_01.penetration_region"
+    },
+    {
+      "contact_kind": "boundary_to_face",
+      "provenance": "authored_architectural_fixture",
+      "status": "accepted",
+      "relationship_id": "space_01.boundary_bounded_by_wall_01.inner_face",
+      "relationship_type": "bounded_by",
+      "from_feature": "space_01.boundary",
+      "to_feature": "wall_01.inner_face"
+    }
+  ]
+}

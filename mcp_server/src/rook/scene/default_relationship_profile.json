@@ -1,0 +1,110 @@
+{
+  "schema": "rook.relationship_profile.v1",
+  "metadata": {
+    "name": "Rook Default Relationship Profile",
+    "version": "1.0.0",
+    "description": "Default labels and categories for neutral Rook relationship facts"
+  },
+  "relationships": {
+    "connects": {
+      "label": "connects",
+      "inverse": "connected by",
+      "category": "assembly",
+      "description": "A member, part, or feature is connected to another object"
+    },
+    "supports": {
+      "label": "supports",
+      "inverse": "supported by",
+      "category": "support",
+      "description": "An object bears, props, or otherwise supports another object"
+    },
+    "hosted_by": {
+      "label": "hosted by",
+      "inverse": "hosts",
+      "category": "hosting",
+      "description": "An object is semantically hosted by another object"
+    },
+    "voids": {
+      "label": "voids",
+      "inverse": "voided by",
+      "category": "voiding",
+      "description": "An object or profile creates or represents a void in another object"
+    },
+    "penetrates": {
+      "label": "penetrates",
+      "inverse": "penetrated by",
+      "category": "penetration",
+      "description": "An object passes through another object"
+    },
+    "bounded_by": {
+      "label": "bounded by",
+      "inverse": "bounds",
+      "category": "boundary",
+      "description": "An object or region is bounded by another object or face"
+    }
+  },
+  "contactKinds": {
+    "point_to_point": {
+      "label": "point to point",
+      "category": "discrete_contact"
+    },
+    "point_to_region": {
+      "label": "point to region",
+      "category": "region_contact"
+    },
+    "body_to_region": {
+      "label": "body to region",
+      "category": "region_contact"
+    },
+    "profile_to_region": {
+      "label": "profile to region",
+      "category": "region_contact"
+    },
+    "line_to_region": {
+      "label": "line to region",
+      "category": "region_contact"
+    },
+    "boundary_to_face": {
+      "label": "boundary to face",
+      "category": "boundary_contact"
+    }
+  },
+  "objectKinds": {
+    "member": {
+      "label": "member",
+      "category": "assembly"
+    },
+    "joint": {
+      "label": "joint",
+      "category": "assembly"
+    },
+    "column": {
+      "label": "column",
+      "category": "architecture"
+    },
+    "slab": {
+      "label": "slab",
+      "category": "architecture"
+    },
+    "wall": {
+      "label": "wall",
+      "category": "architecture"
+    },
+    "door": {
+      "label": "door",
+      "category": "architecture"
+    },
+    "opening": {
+      "label": "opening",
+      "category": "architecture"
+    },
+    "duct": {
+      "label": "duct",
+      "category": "architecture"
+    },
+    "space": {
+      "label": "space",
+      "category": "architecture"
+    }
+  }
+}

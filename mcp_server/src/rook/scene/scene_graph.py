@@ -542,6 +542,7 @@ _INVERSE_RELS = {
     "revit_hosted_by": "Revit host for",
     "revit_in_room": "Contains Revit room member",
     "revit_on_level": "Has Revit level member",
+    "connects": "connected by",
 }
 
 
@@ -576,6 +577,23 @@ def _edge_detail(edata: dict) -> str:
         if area is not None:
             return f", shared face {area:.2f} {unit}".rstrip()
         return ""
+    if edata.get("projectionKind") == "relationship_fact_v1":
+        feature_part = ""
+        from_feature = edata.get("fromFeature")
+        to_feature = edata.get("toFeature")
+        if from_feature and to_feature:
+            feature_part = f" via {from_feature} -> {to_feature}"
+        detail_parts = [
+            str(part)
+            for part in (
+                edata.get("contactKind"),
+                edata.get("status"),
+                edata.get("provenance"),
+            )
+            if part
+        ]
+        suffix = f", {', '.join(detail_parts)}" if detail_parts else ""
+        return f"{feature_part}{suffix}"
     dist = edata.get("distance", 0)
     direction = edata.get("direction", "")
     detail = ""

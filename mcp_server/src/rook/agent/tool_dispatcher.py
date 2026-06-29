@@ -1349,6 +1349,148 @@ def build_local_tools() -> Dict[str, Any]:
     except ImportError:
         logger.debug("scene_project_bim_relationships local tool unavailable (import failed)")
 
+    # --- scene_project_relationship_facts (Python-side relationship fact projection) ---
+    try:
+        from ..scene.relationship_fact_projection import project_relationship_facts_for_tool
+
+        async def _scene_project_relationship_facts(
+            graph_source=None,
+            graph_revision=None,
+            poses=None,
+            object_ids=None,
+            source_mode="authored_graph_user_strings",
+            strict=False,
+            port: int | None = None,
+            **kwargs,
+        ) -> dict:
+            return await project_relationship_facts_for_tool(
+                graph_source=graph_source,
+                graph_revision=graph_revision,
+                poses=poses,
+                object_ids=object_ids,
+                source_mode=source_mode,
+                strict=strict,
+                port=port,
+            )
+
+        tools["scene_project_relationship_facts"] = _scene_project_relationship_facts
+    except ImportError:
+        logger.debug("scene_project_relationship_facts local tool unavailable (import failed)")
+
+    # --- scene_semantic_relationships (Python-side semantic relationship inspector) ---
+    try:
+        from ..scene.scene_graph import get_scene_graph
+        from ..scene.semantic_relationship_inspector import query_semantic_relationships
+
+        async def _scene_semantic_relationships(
+            object_ids=None,
+            graph_source=None,
+            graph_revision=None,
+            poses=None,
+            relationship_types=None,
+            status=None,
+            provenance=None,
+            direction="both",
+            **kwargs,
+        ) -> dict:
+            return query_semantic_relationships(
+                get_scene_graph(),
+                object_ids=object_ids,
+                graph_source=graph_source,
+                graph_revision=graph_revision,
+                poses=poses,
+                relationship_types=relationship_types,
+                status=status,
+                provenance=provenance,
+                direction=direction,
+            )
+
+        tools["scene_semantic_relationships"] = _scene_semantic_relationships
+    except ImportError:
+        logger.debug("scene_semantic_relationships local tool unavailable (import failed)")
+
+    # --- scene_relationship_evidence (Python-side relationship geometry evidence) ---
+    try:
+        from ..scene.relationship_geometry_evidence import query_relationship_evidence_for_tool
+
+        async def _scene_relationship_evidence(
+            object_ids=None,
+            graph_source=None,
+            graph_revision=None,
+            poses=None,
+            relationship_types=None,
+            relationship_fact_ids=None,
+            tolerance_m=0.01,
+            port: int | None = None,
+            **kwargs,
+        ) -> dict:
+            return await query_relationship_evidence_for_tool(
+                object_ids=object_ids,
+                graph_source=graph_source,
+                graph_revision=graph_revision,
+                poses=poses,
+                relationship_types=relationship_types,
+                relationship_fact_ids=relationship_fact_ids,
+                tolerance_m=tolerance_m,
+                port=port,
+            )
+
+        tools["scene_relationship_evidence"] = _scene_relationship_evidence
+    except ImportError:
+        logger.debug("scene_relationship_evidence local tool unavailable (import failed)")
+
+    # --- scene_relationship_profile (Python-side relationship vocabulary profile) ---
+    try:
+        from ..scene.relationship_profile import resolve_relationship_profile
+
+        async def _scene_relationship_profile(
+            project_root=None,
+            **kwargs,
+        ) -> dict:
+            return resolve_relationship_profile(project_root=project_root)
+
+        tools["scene_relationship_profile"] = _scene_relationship_profile
+    except ImportError:
+        logger.debug("scene_relationship_profile local tool unavailable (import failed)")
+
+    # --- scene_object_semantic_context (Python-side semantic context cards) ---
+    try:
+        from ..scene.object_semantic_context import query_object_semantic_context
+        from ..scene.scene_graph import get_scene_graph
+
+        async def _scene_object_semantic_context(
+            object_ids=None,
+            graph_source=None,
+            graph_revision=None,
+            poses=None,
+            relationship_types=None,
+            status=None,
+            provenance=None,
+            direction="both",
+            max_groups=None,
+            max_facts_per_group=None,
+            project_root=None,
+            **kwargs,
+        ) -> dict:
+            return query_object_semantic_context(
+                get_scene_graph(),
+                object_ids=object_ids,
+                graph_source=graph_source,
+                graph_revision=graph_revision,
+                poses=poses,
+                relationship_types=relationship_types,
+                status=status,
+                provenance=provenance,
+                direction=direction,
+                max_groups=max_groups,
+                max_facts_per_group=max_facts_per_group,
+                project_root=project_root,
+            )
+
+        tools["scene_object_semantic_context"] = _scene_object_semantic_context
+    except ImportError:
+        logger.debug("scene_object_semantic_context local tool unavailable (import failed)")
+
     # --- scene_bim_facts (Python-side BIM facts query) ---
     try:
         from ..scene.scene_graph import get_scene_graph
