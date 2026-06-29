@@ -73,6 +73,7 @@ Request:
 Rules:
 
 - `object_ids` is required, must be a non-empty array of valid UUID strings.
+- `object_ids` is capped at 500 entries to bound main-thread work and response size.
 - Duplicate object IDs are rejected.
 - Every ID must resolve to an existing active document object before mutation starts.
 - `visible` is required and must be boolean.
@@ -143,6 +144,7 @@ Request:
 Rules:
 
 - `object_ids` is required, must be a non-empty array of valid UUID strings.
+- `object_ids` is capped at 500 entries to bound main-thread work and response size.
 - Duplicate object IDs are rejected.
 - Every ID must resolve to an existing active document object before mutation starts.
 - `layer` is required and must resolve to an existing layer.
@@ -210,6 +212,7 @@ Request:
 Rules:
 
 - `items` is required and must be a non-empty array.
+- `items` is capped at 500 entries to bound main-thread work and response size.
 - One item per object ID.
 - Duplicate item IDs are rejected.
 - Every item ID must be a valid UUID and must resolve to an existing active document object before mutation starts.
@@ -222,6 +225,7 @@ Rules:
 - Empty `userStrings: {}` is allowed as a per-object no-op to match `/usertext/object-set`; it returns post-state and does not count as modified.
 - JSON duplicate keys are not promised to be detected because normal parsing may collapse them before route validation. The enforceable contract is one parsed key/value entry per key.
 - Response is bounded to requested objects only.
+- Each result intentionally returns the full post-mutation `userStrings` map for that requested object, rather than a `before`/`after` diff, to match the existing single-object `/usertext/object-set` route.
 
 Success response:
 
