@@ -792,15 +792,19 @@ void HandleObjectVisibility(const httplib::Request& req, httplib::Response& res)
 
         int modifiedCount = 0;
         int skippedCount = 0;
+        bool batchDirty = false;
         nlohmann::json results = nlohmann::json::array();
 
         for (ON_UUID id : ids)
         {
-            const CRhinoObject* obj = LookupActiveObjectStrict(pDoc, id);
+            const CRhinoObject* obj = LookupPostMutationObject(
+                pDoc,
+                id,
+                "set_object_visibility",
+                batchDirty);
             nlohmann::json before = SerializeObjectHygieneState(pDoc, obj);
 
             std::string status = "unchanged";
-            bool dirty = false;
             if (obj->Attributes().IsVisible() != visible)
             {
                 ON_3dmObjectAttributes attrs = obj->Attributes();
@@ -812,7 +816,7 @@ void HandleObjectVisibility(const httplib::Request& req, httplib::Response& res)
                         "set_object_visibility",
                         "Failed to modify object attributes");
                 }
-                dirty = true;
+                batchDirty = true;
                 status = "modified";
                 ++modifiedCount;
             }
@@ -825,7 +829,7 @@ void HandleObjectVisibility(const httplib::Request& req, httplib::Response& res)
                 pDoc,
                 id,
                 "set_object_visibility",
-                dirty);
+                batchDirty);
             nlohmann::json after = SerializeObjectHygieneState(pDoc, updated);
 
             nlohmann::json item;
@@ -924,15 +928,19 @@ void HandleObjectSetLayer(const httplib::Request& req, httplib::Response& res)
 
         int modifiedCount = 0;
         int skippedCount = 0;
+        bool batchDirty = false;
         nlohmann::json results = nlohmann::json::array();
 
         for (ON_UUID id : ids)
         {
-            const CRhinoObject* obj = LookupActiveObjectStrict(pDoc, id);
+            const CRhinoObject* obj = LookupPostMutationObject(
+                pDoc,
+                id,
+                "set_object_layer",
+                batchDirty);
             nlohmann::json before = SerializeObjectLayerState(pDoc, obj);
 
             std::string status = "unchanged";
-            bool dirty = false;
             if (obj->Attributes().m_layer_index != targetLayer.index)
             {
                 ON_3dmObjectAttributes attrs = obj->Attributes();
@@ -944,7 +952,7 @@ void HandleObjectSetLayer(const httplib::Request& req, httplib::Response& res)
                         "set_object_layer",
                         "Failed to modify object attributes");
                 }
-                dirty = true;
+                batchDirty = true;
                 status = "modified";
                 ++modifiedCount;
             }
@@ -957,7 +965,7 @@ void HandleObjectSetLayer(const httplib::Request& req, httplib::Response& res)
                 pDoc,
                 id,
                 "set_object_layer",
-                dirty);
+                batchDirty);
             nlohmann::json after = SerializeObjectLayerState(pDoc, updated);
 
             nlohmann::json item;

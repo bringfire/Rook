@@ -1024,6 +1024,24 @@ def test_object_set_layer_uses_resolve_layer_ref_and_modify_attributes():
     assert "dirty_partial_state" in source
 
 
+def test_object_attribute_batches_use_request_dirty_state_for_later_lookups():
+    source = OBJECTS_CPP.read_text(encoding="utf-8")
+    cases = [
+        ("void HandleObjectVisibility", "set_object_visibility"),
+        ("void HandleObjectSetLayer", "set_object_layer"),
+    ]
+
+    for function_name, operation in cases:
+        body = _extract_function(source, function_name)
+        assert "bool batchDirty = false" in body
+        assert "batchDirty = true" in body
+        assert re.search(
+            rf"LookupPostMutationObject\s*\(\s*pDoc\s*,\s*id\s*,\s*"
+            rf"\"{operation}\"\s*,\s*batchDirty\s*\)",
+            body,
+        ), f"{function_name} must use request-level dirty state for readback"
+
+
 def test_usertext_batch_uses_full_readback_and_batch_cap():
     source = USER_TEXT_CPP.read_text(encoding="utf-8")
     body = _extract_function(source, "void HandleUserTextObjectSetBatch")
