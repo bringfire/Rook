@@ -23,6 +23,18 @@ MISSING_ID = "00000000-0000-0000-0000-000000000001"
 MALFORMED_ID = "not-a-uuid"
 
 
+async def _purge_objects() -> None:
+    from rook.server import _mcp_tool_executor
+
+    res = await _mcp_tool_executor("rhino_objects", {"limit": 500})
+    if _is_error(res) or not isinstance(res, dict):
+        return
+    objects = res.get("objects") or []
+    ids = [o["id"] for o in objects if isinstance(o, dict) and "id" in o]
+    if ids:
+        await _mcp_tool_executor("rhino_delete", {"ids": ids})
+
+
 async def _tool(name: str, body: dict[str, Any]) -> dict[str, Any]:
     from rook.server import _mcp_tool_executor
 
@@ -136,6 +148,7 @@ def _snapshot_visible(snapshot: dict[str, Any]) -> bool:
 
 
 async def test_object_visibility_changes_only_requested_ids(fresh_document):
+    await _purge_objects()
     target_a = await _create_point("vis_target_a", 0.0)
     target_b = await _create_point("vis_target_b", 1.0)
     neighbor = await _create_point("vis_neighbor", 2.0)
@@ -162,6 +175,7 @@ async def test_object_visibility_changes_only_requested_ids(fresh_document):
 
 
 async def test_object_visibility_unchanged_count(fresh_document):
+    await _purge_objects()
     obj_id = await _create_point("vis_unchanged", 0.0)
 
     result = await _tool(
@@ -178,6 +192,7 @@ async def test_object_visibility_unchanged_count(fresh_document):
 async def test_object_visibility_true_on_hidden_layer_reports_not_effective(
     fresh_document,
 ):
+    await _purge_objects()
     await _create_layer("HygieneHidden")
     obj_id = await _create_point("vis_hidden_layer", 0.0, "HygieneHidden")
     await _tool("rhino_layer_visibility", {"name": "HygieneHidden", "visible": False})
@@ -195,6 +210,7 @@ async def test_object_visibility_true_on_hidden_layer_reports_not_effective(
 
 
 async def test_object_set_layer_changes_only_requested_ids(fresh_document):
+    await _purge_objects()
     await _create_layer("Animation")
     await _create_layer("Actors", parent="Animation")
     target_a = await _create_point("layer_target_a", 0.0)
@@ -222,6 +238,7 @@ async def test_object_set_layer_changes_only_requested_ids(fresh_document):
 async def test_object_set_layer_missing_layer_rejects_without_mutation(
     fresh_document,
 ):
+    await _purge_objects()
     obj_id = await _create_point("layer_missing_target", 0.0)
     before = await _object_snapshot(obj_id)
 
@@ -238,6 +255,7 @@ async def test_object_set_layer_missing_layer_rejects_without_mutation(
 async def test_object_set_layer_ambiguous_leaf_rejected_without_mutation(
     fresh_document,
 ):
+    await _purge_objects()
     await _create_layer("HygieneParentA")
     await _create_layer("HygieneParentB")
     await _create_layer("SharedLeaf", parent="HygieneParentA")
@@ -259,6 +277,7 @@ async def test_object_set_layer_ambiguous_leaf_rejected_without_mutation(
 async def test_usertext_batch_sets_requested_objects_and_returns_full_post_state(
     fresh_document,
 ):
+    await _purge_objects()
     target_a = await _create_point("ut_target_a", 0.0)
     target_b = await _create_point("ut_target_b", 1.0)
     neighbor = await _create_point("ut_neighbor", 2.0)
@@ -294,6 +313,7 @@ async def test_usertext_batch_sets_requested_objects_and_returns_full_post_state
 
 
 async def test_usertext_batch_overwrite_and_unchanged_count(fresh_document):
+    await _purge_objects()
     obj_id = await _create_point("ut_unchanged", 0.0)
     body = {
         "items": [
@@ -311,6 +331,7 @@ async def test_usertext_batch_overwrite_and_unchanged_count(fresh_document):
 
 
 async def test_usertext_batch_preserves_unrelated_keys(fresh_document):
+    await _purge_objects()
     obj_id = await _create_point("ut_preserve", 0.0)
     await _tool(
         "rhino_usertext_object_set",
@@ -342,6 +363,7 @@ async def test_usertext_batch_preserves_unrelated_keys(fresh_document):
     ],
 )
 async def test_empty_batches_rejected(fresh_document, tool_name, body):
+    await _purge_objects()
     error = await _tool_error(tool_name, body)
     _assert_error_code(error, "invalid_input")
 
@@ -364,6 +386,7 @@ async def test_duplicate_object_ids_rejected_without_mutation(
     tool_name,
     body_builder,
 ):
+    await _purge_objects()
     obj_id = await _create_point("duplicate_ids", 0.0)
     before = await _object_snapshot(obj_id)
 
@@ -378,6 +401,7 @@ async def test_duplicate_object_ids_rejected_without_mutation(
 async def test_usertext_batch_duplicate_item_ids_rejected_without_mutation(
     fresh_document,
 ):
+    await _purge_objects()
     obj_id = await _create_point("ut_duplicate_ids", 0.0)
     before = await _get_usertext(obj_id)
 
@@ -415,6 +439,7 @@ async def test_usertext_batch_duplicate_item_ids_rejected_without_mutation(
     ],
 )
 async def test_malformed_uuid_rejected(fresh_document, tool_name, body):
+    await _purge_objects()
     error = await _tool_error(tool_name, body)
     _assert_error_code(error, "invalid_input")
 
@@ -456,6 +481,7 @@ async def test_missing_object_id_rejected_before_mutation(
     body_builder,
     assert_unchanged,
 ):
+    await _purge_objects()
     obj_id = await _create_point("missing_id_guard", 0.0)
     before = (
         await _get_usertext(obj_id)
@@ -496,6 +522,7 @@ async def test_missing_object_id_rejected_before_mutation(
     ],
 )
 async def test_deleted_object_id_rejected(fresh_document, tool_name, body_builder):
+    await _purge_objects()
     obj_id = await _create_point("deleted_id", 0.0)
     await _tool("rhino_delete", {"ids": [obj_id]})
 
@@ -517,6 +544,7 @@ async def test_usertext_batch_rejects_invalid_keys_and_values(
     fresh_document,
     user_strings,
 ):
+    await _purge_objects()
     obj_id = await _create_point("ut_invalid", 0.0)
     before = await _get_usertext(obj_id)
 
@@ -565,6 +593,7 @@ async def test_usertext_batch_rejects_invalid_keys_and_values(
     ],
 )
 async def test_501_boundary_rejected(fresh_document, tool_name, body):
+    await _purge_objects()
     error = await _tool_error(tool_name, body)
     _assert_error_code(error, "invalid_input")
     assert "500" in error["errorMessage"]
