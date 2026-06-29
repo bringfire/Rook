@@ -429,3 +429,125 @@ def test_missing_marker_evidence_is_missing_and_keeps_claim_unverified():
     assert evidence["status"] == "missing"
     assert evidence["diagnostics"]["missing"] == ["fromFeaturePosition"]
     assert report["verdicts"][0]["verdict"] == "unverified"
+
+
+def test_hosted_by_remains_not_applicable_even_with_adjacent_exact():
+    from rook.scene.relationship_kernel import query_relationship_kernel_report
+
+    sg = _claim_graph()
+    sg.graph.add_edge(
+        "door-owner",
+        "wall-owner",
+        key="occt:adjacent_exact:hosted",
+        relationship="adjacent_exact",
+        sharedArea=1.0,
+    )
+
+    report = query_relationship_kernel_report(sg, relationship_types=["hosted_by"])
+
+    assert report["counts"]["evidenceCount"] == 1
+    assert report["evidence"][0]["strength"] == "exact_topology"
+    assert report["verdicts"][0]["verdict"] == "not_applicable"
+    assert report["verdicts"][0]["reason"] == "no_v1_physical_obligation"
+
+
+def test_penetrates_is_not_applicable_to_adjacent_exact_in_v1():
+    from rook.scene.relationship_kernel import query_relationship_kernel_report
+
+    sg = SceneGraphAnalytics()
+    sg.graph.add_node("duct-owner", name="duct_01")
+    sg.graph.add_node("wall-owner", name="wall_01")
+    sg.graph.add_edge(
+        "duct-owner",
+        "wall-owner",
+        key="relationship_fact:architectural:penetrates",
+        relationship="penetrates",
+        projectionKind="relationship_fact_v1",
+        semanticRelationshipType="penetrates",
+        relationshipFactId="duct_01.axis_penetrates_wall_01.core",
+        fromFeature="duct_01.axis",
+        toFeature="wall_01.core",
+        contactKind="line_to_region",
+        provenance="authored_architectural_fixture",
+        confidence=1.0,
+        status="accepted",
+    )
+    sg.graph.add_edge(
+        "duct-owner",
+        "wall-owner",
+        key="occt:adjacent_exact:penetrates",
+        relationship="adjacent_exact",
+        sharedArea=0.25,
+    )
+
+    report = query_relationship_kernel_report(sg, relationship_types=["penetrates"])
+
+    assert report["counts"]["evidenceCount"] == 1
+    assert report["verdicts"][0]["verdict"] == "not_applicable"
+    assert report["verdicts"][0]["reason"] == "no_v1_physical_obligation"
+
+
+def test_exact_refutation_beats_marker_hint_without_using_strength_order_as_higher_wins():
+    from rook.scene.relationship_kernel import query_relationship_kernel_report
+
+    sg = _claim_graph()
+    sg.graph.add_edge(
+        "beam-owner",
+        "plate-owner",
+        key="spatial-adjacent",
+        relationship="adjacent",
+        exact_status="exact_refuted",
+        exact_reason="no_shared_face",
+        exact_graphSequence=42,
+    )
+    marker_records = [
+        {
+            "relationshipFactId": "beam_01.end_connects_plate_01.socket",
+            "evidence": {
+                "method": "feature_marker_position_distance",
+                "status": "measured",
+                "distanceM": 0.0,
+                "toleranceM": 0.01,
+                "withinTolerance": True,
+            },
+        }
+    ]
+
+    report = query_relationship_kernel_report(
+        sg,
+        relationship_types=["connects"],
+        marker_evidence_records=marker_records,
+    )
+
+    assert {item["strength"] for item in report["evidence"]} == {
+        "exact_topology",
+        "marker_hint",
+    }
+    assert {item["polarity"] for item in report["evidence"]} == {
+        "contradicts",
+        "supports",
+    }
+    assert report["verdicts"][0]["verdict"] == "contradicted"
+    assert report["verdicts"][0]["reason"] == "explicit_exact_topology_refutation"
+
+
+def test_supports_with_explicit_direct_contact_obligation_can_be_satisfied_by_adjacent_exact():
+    from rook.scene.relationship_kernel import query_relationship_kernel_report
+
+    sg = _claim_graph()
+    edge_attrs = list(sg.graph["column-owner"]["slab-owner"].values())[0]
+    edge_attrs["physicalObligation"] = "direct_contact"
+    sg.graph.add_edge(
+        "column-owner",
+        "slab-owner",
+        key="occt:adjacent_exact:supports",
+        relationship="adjacent_exact",
+        sharedArea=2.0,
+    )
+
+    report = query_relationship_kernel_report(sg, relationship_types=["supports"])
+
+    assert report["claims"][0]["physicalObligation"] == "direct_contact"
+    assert report["counts"]["evidenceCount"] == 1
+    assert report["verdicts"][0]["verdict"] == "satisfied"
+    assert report["verdicts"][0]["reason"] == "exact_topology_supports_owner_contact"
