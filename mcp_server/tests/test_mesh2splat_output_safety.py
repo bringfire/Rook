@@ -1,0 +1,397 @@
+from __future__ import annotations
+
+import json
+import os
+from datetime import datetime
+from pathlib import Path
+
+import pytest
+
+
+def fixed_now() -> datetime:
+    return datetime(2026, 3, 8, 14, 5, 6)
+
+
+def new_manifest(tmp_path: Path):
+    from rook.mesh2splat.output_safety import RunManifest, create_run_directory
+
+    paths = create_run_directory(
+        tmp_path / "outputs",
+        now=fixed_now(),
+        run_id="abcdef1234567890",
+    )
+    return RunManifest(
+        run_id="abcdef1234567890",
+        run_directory=paths.run_directory,
+        manifest_path=paths.manifest,
+        artifact_paths=(paths.capture_glb, paths.capture_ply),
+    )
+
+
+def test_validate_output_directory_is_side_effect_free_before_native_capture(
+    tmp_path: Path,
+):
+    from rook.mesh2splat.output_safety import validate_output_directory
+
+    output_directory = tmp_path / "requested" / "mesh2splat"
+
+    result = validate_output_directory(str(output_directory))
+
+    assert result == output_directory.resolve()
+    assert not output_directory.exists()
+
+
+def test_validate_output_directory_rejects_relative_paths():
+    from rook.mesh2splat.output_safety import validate_output_directory
+
+    with pytest.raises(ValueError, match="absolute"):
+        validate_output_directory("relative/out")
+
+
+def test_validate_output_directory_rejects_existing_file_path(tmp_path: Path):
+    from rook.mesh2splat.output_safety import validate_output_directory
+
+    output_file = tmp_path / "not-a-directory"
+    output_file.write_text("already here", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="directory"):
+        validate_output_directory(str(output_file))
+
+
+def test_missing_requested_output_directory_is_created_only_after_capture_succeeds(
+    tmp_path: Path,
+):
+    from rook.mesh2splat.output_safety import (
+        create_run_directory,
+        validate_output_directory,
+    )
+
+    output_directory = tmp_path / "new-output-root"
+    validated = validate_output_directory(str(output_directory))
+
+    assert not output_directory.exists()
+
+    paths = create_run_directory(
+        validated,
+        now=fixed_now(),
+        run_id="1234567890",
+    )
+
+    assert output_directory.is_dir()
+    assert paths.run_directory.is_dir()
+
+
+def test_newly_created_parent_output_directory_is_retained_after_run_directory_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from rook.mesh2splat.output_safety import create_run_directory
+
+    missing_parent = tmp_path / "later-created-root"
+    original_mkdir = Path.mkdir
+
+    def fail_run_directory_mkdir(self, *args, **kwargs):
+        if self.name == "mesh2splat-20260308-140506-abcdef12":
+            raise FileExistsError(self)
+        return original_mkdir(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", fail_run_directory_mkdir)
+
+    with pytest.raises(FileExistsError):
+        create_run_directory(
+            missing_parent,
+            now=fixed_now(),
+            run_id="abcdef1234567890",
+        )
+
+    assert missing_parent.is_dir()
+
+
+def test_run_directory_and_fixed_output_names(tmp_path: Path):
+    from rook.mesh2splat.output_safety import create_run_directory
+
+    paths = create_run_directory(
+        tmp_path,
+        now=fixed_now(),
+        run_id="abcdef1234567890",
+    )
+
+    assert paths.run_directory.name == "mesh2splat-20260308-140506-abcdef12"
+    assert paths.manifest == paths.run_directory / "manifest.json"
+    assert paths.capture_glb == paths.run_directory / "capture.glb"
+    assert paths.capture_ply == paths.run_directory / "capture.ply"
+
+
+def test_exclusive_creation_refuses_run_directory_collisions(tmp_path: Path):
+    from rook.mesh2splat.output_safety import create_run_directory
+
+    create_run_directory(tmp_path, now=fixed_now(), run_id="abcdef1234567890")
+
+    with pytest.raises(FileExistsError):
+        create_run_directory(
+            tmp_path,
+            now=fixed_now(),
+            run_id="abcdef1234567890",
+        )
+
+
+def test_exclusive_write_bytes_refuses_file_collisions(tmp_path: Path):
+    from rook.mesh2splat.output_safety import exclusive_write_bytes
+
+    output_file = tmp_path / "capture.glb"
+
+    exclusive_write_bytes(output_file, b"first")
+
+    with pytest.raises(FileExistsError):
+        exclusive_write_bytes(output_file, b"second")
+
+    assert output_file.read_bytes() == b"first"
+
+
+def test_manifest_creation_is_exclusive_and_update_replaces_owned_manifest(
+    tmp_path: Path,
+):
+    from rook.mesh2splat.output_safety import (
+        RunManifest,
+        create_manifest,
+        update_manifest,
+    )
+
+    manifest = new_manifest(tmp_path)
+
+    create_manifest(manifest)
+
+    with pytest.raises(FileExistsError):
+        create_manifest(manifest)
+
+    updated = RunManifest(
+        run_id=manifest.run_id,
+        run_directory=manifest.run_directory,
+        manifest_path=manifest.manifest_path,
+        artifact_paths=manifest.artifact_paths + (manifest.run_directory / "extra.txt",),
+        status="updated",
+    )
+    update_manifest(updated)
+
+    data = json.loads(manifest.manifest_path.read_text(encoding="utf-8"))
+    assert data["status"] == "updated"
+    assert data["artifactPaths"][-1].endswith("extra.txt")
+    assert not list(manifest.run_directory.glob("*.tmp"))
+
+
+def test_manifest_update_refuses_to_replace_manifest_outside_run_directory(
+    tmp_path: Path,
+):
+    from rook.mesh2splat.output_safety import RunManifest, update_manifest
+
+    run_directory = tmp_path / "run"
+    run_directory.mkdir()
+    outside_manifest = tmp_path / "manifest.json"
+    outside_manifest.write_text("outside", encoding="utf-8")
+    manifest = RunManifest(
+        run_id="run",
+        run_directory=run_directory,
+        manifest_path=outside_manifest,
+        artifact_paths=(),
+    )
+
+    with pytest.raises(ValueError, match="inside"):
+        update_manifest(manifest)
+
+    assert outside_manifest.read_text(encoding="utf-8") == "outside"
+
+
+def test_capture_glb_and_ply_remain_exclusive_for_the_whole_run(tmp_path: Path):
+    from rook.mesh2splat.output_safety import (
+        create_run_directory,
+        exclusive_write_bytes,
+    )
+
+    paths = create_run_directory(tmp_path, now=fixed_now(), run_id="abcdef12")
+
+    exclusive_write_bytes(paths.capture_glb, b"glb")
+    exclusive_write_bytes(paths.capture_ply, b"ply")
+
+    with pytest.raises(FileExistsError):
+        exclusive_write_bytes(paths.capture_glb, b"replace glb")
+    with pytest.raises(FileExistsError):
+        exclusive_write_bytes(paths.capture_ply, b"replace ply")
+
+    assert paths.capture_glb.read_bytes() == b"glb"
+    assert paths.capture_ply.read_bytes() == b"ply"
+
+
+def test_cleanup_deletes_only_regular_files_inside_current_run_directory(
+    tmp_path: Path,
+):
+    from rook.mesh2splat.output_safety import cleanup_manifest_files
+
+    manifest = new_manifest(tmp_path)
+    manifest.manifest_path.write_text("{}", encoding="utf-8")
+    glb, ply = manifest.artifact_paths
+    glb.write_bytes(b"glb")
+    ply.write_bytes(b"ply")
+    nested = manifest.run_directory / "nested"
+    nested.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside", encoding="utf-8")
+    malicious = type(manifest)(
+        run_id=manifest.run_id,
+        run_directory=manifest.run_directory,
+        manifest_path=manifest.manifest_path,
+        artifact_paths=manifest.artifact_paths + (nested, outside),
+    )
+
+    deleted = cleanup_manifest_files(
+        malicious,
+        preserve_debug_artifacts=False,
+    )
+
+    assert sorted(Path(path).name for path in deleted) == [
+        "capture.glb",
+        "capture.ply",
+        "manifest.json",
+    ]
+    assert not glb.exists()
+    assert not ply.exists()
+    assert not manifest.manifest_path.exists()
+    assert nested.is_dir()
+    assert outside.read_text(encoding="utf-8") == "outside"
+    assert manifest.run_directory.is_dir()
+
+
+def test_cleanup_preserve_debug_artifacts_deletes_nothing(tmp_path: Path):
+    from rook.mesh2splat.output_safety import cleanup_manifest_files
+
+    manifest = new_manifest(tmp_path)
+    manifest.manifest_path.write_text("{}", encoding="utf-8")
+    for path in manifest.artifact_paths:
+        path.write_bytes(path.name.encode("utf-8"))
+
+    deleted = cleanup_manifest_files(manifest, preserve_debug_artifacts=True)
+
+    assert deleted == []
+    assert manifest.manifest_path.exists()
+    assert all(path.exists() for path in manifest.artifact_paths)
+
+
+def test_cleanup_refuses_outside_paths(tmp_path: Path):
+    from rook.mesh2splat.output_safety import RunManifest, cleanup_manifest_files
+
+    manifest = new_manifest(tmp_path)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside", encoding="utf-8")
+    malicious = RunManifest(
+        run_id=manifest.run_id,
+        run_directory=manifest.run_directory,
+        manifest_path=manifest.manifest_path,
+        artifact_paths=(outside,),
+    )
+
+    deleted = cleanup_manifest_files(
+        malicious,
+        preserve_debug_artifacts=False,
+    )
+
+    assert deleted == []
+    assert outside.read_text(encoding="utf-8") == "outside"
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "symlink"),
+    reason="symlink support is unavailable on this platform",
+)
+def test_cleanup_refuses_symlink_or_reparse_swaps(tmp_path: Path):
+    from rook.mesh2splat.output_safety import RunManifest, cleanup_manifest_files
+
+    manifest = new_manifest(tmp_path)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside", encoding="utf-8")
+    link = manifest.run_directory / "capture.glb"
+    try:
+        os.symlink(outside, link)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+
+    swapped = RunManifest(
+        run_id=manifest.run_id,
+        run_directory=manifest.run_directory,
+        manifest_path=manifest.manifest_path,
+        artifact_paths=(link,),
+    )
+
+    deleted = cleanup_manifest_files(swapped, preserve_debug_artifacts=False)
+
+    assert deleted == []
+    assert link.exists()
+    assert outside.read_text(encoding="utf-8") == "outside"
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "symlink"),
+    reason="symlink support is unavailable on this platform",
+)
+def test_manifest_update_refuses_swapped_run_directory_symlink(tmp_path: Path):
+    from rook.mesh2splat.output_safety import RunManifest, update_manifest
+
+    manifest = new_manifest(tmp_path)
+    outside_directory = tmp_path / "outside-run-target"
+    outside_directory.mkdir()
+    outside_manifest = outside_directory / "manifest.json"
+    outside_manifest.write_text("outside manifest", encoding="utf-8")
+    manifest.run_directory.rmdir()
+    try:
+        os.symlink(outside_directory, manifest.run_directory, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+
+    swapped = RunManifest(
+        run_id=manifest.run_id,
+        run_directory=manifest.run_directory,
+        manifest_path=manifest.manifest_path,
+        artifact_paths=manifest.artifact_paths,
+        status="updated",
+    )
+
+    with pytest.raises(ValueError, match="run directory"):
+        update_manifest(swapped)
+
+    assert outside_manifest.read_text(encoding="utf-8") == "outside manifest"
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "symlink"),
+    reason="symlink support is unavailable on this platform",
+)
+def test_cleanup_refuses_swapped_run_directory_symlink(tmp_path: Path):
+    from rook.mesh2splat.output_safety import cleanup_manifest_files
+
+    manifest = new_manifest(tmp_path)
+    outside_directory = tmp_path / "outside-run-target"
+    outside_directory.mkdir()
+    outside_file = outside_directory / "capture.glb"
+    outside_file.write_bytes(b"outside")
+    manifest.run_directory.rmdir()
+    try:
+        os.symlink(outside_directory, manifest.run_directory, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+
+    with pytest.raises(ValueError, match="run directory"):
+        cleanup_manifest_files(manifest, preserve_debug_artifacts=False)
+
+    assert outside_file.read_bytes() == b"outside"
+
+
+def test_cleanup_does_not_recursively_delete_run_directory(tmp_path: Path):
+    from rook.mesh2splat.output_safety import cleanup_manifest_files
+
+    manifest = new_manifest(tmp_path)
+    kept = manifest.run_directory / "nested" / "kept.txt"
+    kept.parent.mkdir()
+    kept.write_text("keep", encoding="utf-8")
+
+    deleted = cleanup_manifest_files(manifest, preserve_debug_artifacts=False)
+
+    assert deleted == []
+    assert manifest.run_directory.is_dir()
+    assert kept.read_text(encoding="utf-8") == "keep"
