@@ -95,7 +95,8 @@ async def test_hygiene_tools_registered_with_exact_schemas():
     assert item_schema["properties"]["id"]["type"] == "string"
     assert item_schema["properties"]["userStrings"]["type"] == "object"
     assert item_schema["properties"]["userStrings"]["additionalProperties"] == {
-        "type": "string"
+        "type": "string",
+        "minLength": 1,
     }
 
 

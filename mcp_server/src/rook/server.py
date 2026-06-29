@@ -5595,7 +5595,7 @@ Examples:
                                 "id": {"type": "string"},
                                 "userStrings": {
                                     "type": "object",
-                                    "additionalProperties": {"type": "string"},
+                                    "additionalProperties": {"type": "string", "minLength": 1},
                                 },
                             },
                             "required": ["id", "userStrings"],
