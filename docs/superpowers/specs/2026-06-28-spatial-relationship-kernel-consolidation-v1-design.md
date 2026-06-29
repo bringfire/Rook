@@ -275,8 +275,14 @@ Meaning:
 | `exact_topology` | Exact geometric/topological computation found or refuted a physical interface. | OCCT `adjacent_exact`, shared face/edge, exact intersection. |
 | `explicit_connector` | A domain system or authored connector explicitly represents a physical/topological connection. | Revit connector, MEP port, assembly joint connector. |
 
-The scale is ordered, but not probabilistic. It prevents feature-marker coincidence from being
-treated as equivalent to shared topology or explicit connector metadata.
+The scale is ordered, but not probabilistic. It is for reporting strongest available evidence and
+for deciding whether a claim has enough support to evaluate. It is not automatic conflict
+resolution. For example, an explicit connector record and an exact-topology contradiction can
+coexist; a later verdict rule must handle that conflict deterministically. Do not implement
+`higher strength wins` as a default rule.
+
+The scale prevents feature-marker coincidence from being treated as equivalent to shared topology
+or explicit connector metadata.
 
 V1 verdict logic should be conservative:
 
@@ -299,6 +305,10 @@ These are non-negotiable for the next implementation work:
 - Fuzzy scenegraph edges are observations/candidates, not claims and not proof.
 - OCCT/shared topology is a strong physical evidence source and must feed the same evidence
   contract as feature-marker evidence.
+- Absence of exact evidence is not refutation. Missing `adjacent_exact` or missing exact projection
+  data means `unverified`, not `contradicted`.
+- `contradicted` requires an explicit evaluated/refuted evidence record for the exact
+  claim/object/interface pair being evaluated.
 - Views/cards/contexts format the model; they are not the model.
 - Profiles define vocabulary and future obligations; they do not create truth.
 - `kernel` is a contract boundary; do not build a monolithic kernel module.
@@ -352,16 +362,29 @@ Initial verdict rules:
 | Condition | Verdict |
 |---|---|
 | Claim has applicable `exact_topology` evidence supporting the required interface | `satisfied` |
-| Claim has applicable `exact_topology` evidence contradicting the required interface | `contradicted` |
+| Claim has applicable explicit `exact_topology` refutation for the required interface | `contradicted` |
 | Claim has only `marker_hint` or `bbox_observation` evidence | `unverified` |
 | Claim has no relevant evidence | `unverified` |
 | Claim type/contact kind has no defined physical obligation in v1 | `not_applicable` |
 
-Physical obligation means the claim/profile/contact kind expects a physical interface. For example,
-`supports`, `connects`, `penetrates`, and direct contact-like `contactKind` values may be
-physically testable. `hosted_by` may be semantic/parametric and not fully testable by adjacency
-alone. V1 should avoid over-claiming and return `not_applicable` where the physical obligation is
-unclear.
+Physical obligation means the claim/profile/contact kind expects a physical interface. V1 is scoped
+specifically to OCCT exact adjacency/shared-topology evidence. It must not pretend that
+`adjacent_exact` is applicable to every physical relationship word.
+
+V1 applicability table:
+
+| Claim/contact shape | `adjacent_exact` applicability in v1 | Default verdict posture |
+|---|---|---|
+| `connects` with point/edge/face contact-like `contactKind` | Applicable when the claim/profile says physical contact is expected. | Exact support can satisfy; explicit exact refutation can contradict. |
+| `supports` with contact-like `contactKind` | Applicable only when fixture/profile/claim metadata says support is by direct contact. | Exact support can satisfy; explicit exact refutation can contradict. |
+| Generic direct contact-like relationship with face/region contact | Applicable when exact adjacency is a meaningful interface for the contact kind. | Exact support can satisfy; explicit exact refutation can contradict. |
+| `penetrates` | Not applicable in v1. Shared-face adjacency is not penetration evidence. | `not_applicable` unless a future penetration/intersection method is present. |
+| `hosted_by` | Not applicable in v1. Hosting can be semantic/parametric without physical adjacency. | `not_applicable` unless a future host/opening-specific method is present. |
+| Relationship/contact kind with unclear physical obligation | Not applicable in v1. | `not_applicable`. |
+
+For every applicable row, lack of an `adjacent_exact` edge is still not enough to contradict the
+claim. Contradiction requires an explicit evaluated exact refutation, such as a route/refinement
+payload or annotation that says the specific evaluated pair has no required exact interface.
 
 ## 9. Next implementation proof
 
