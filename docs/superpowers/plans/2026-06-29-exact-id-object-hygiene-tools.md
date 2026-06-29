@@ -58,6 +58,11 @@ Create tests:
 
 Do not create new native `.cpp`/`.h` files, and do not modify `.vcxproj` or `.vcxproj.filters`.
 
+Execution constraint:
+
+- Use subagent-driven execution sequentially, with review between tasks.
+- Do not run parallel subagents against this plan in the same worktree. Several tasks touch shared choke points (`src/RookNative/RookServer.cpp`, `mcp_server/src/rook/server.py`, `mcp_server/src/rook/targeting.py`, and `mcp_server/src/rook/agent/tool_groups.py`), so parallel edits would raise merge risk without buying much time.
+
 ## Contract Summary
 
 All three tools:
@@ -187,6 +192,8 @@ async def test_hygiene_tools_registered_with_exact_schemas():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tool_name,route", sorted(HYGIENE_TOOLS.items()))
 async def test_server_call_tool_dispatches_to_native_route(tool_name, route):
+    from rook.bridge import get_rhino_request_context
+
     body = {
         "rhino_object_visibility": {
             "object_ids": ["11111111-1111-1111-1111-111111111111"],
@@ -206,13 +213,23 @@ async def test_server_call_tool_dispatches_to_native_route(tool_name, route):
         },
     }[tool_name]
 
+    captured_context = {}
+
+    async def fake_call_rhino(endpoint, method, data=None, **kwargs):
+        captured_context.update(get_rhino_request_context())
+        captured_context["kwargs"] = kwargs
+        return {"success": True, "data": {"ok": True}}
+
     with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
-        mock.return_value = {"success": True, "data": {"ok": True}}
+        mock.side_effect = fake_call_rhino
         await server.call_tool(tool_name, body)
 
     args, kwargs = mock.call_args
     assert args == (route[0], route[1], body)
-    assert kwargs.get("port") == 9950
+    assert kwargs == {}
+    assert captured_context["kwargs"] == {}
+    assert captured_context["port"] == 9950
+    assert captured_context["process_id"] == 7101
 
 
 @pytest.mark.parametrize("tool_name,route", sorted(HYGIENE_TOOLS.items()))
@@ -373,7 +390,8 @@ def test_object_visibility_uses_modify_attributes_not_hide_show_selection_path()
     assert "objectVisible" in body
     assert "layerVisible" in body
     assert "effectivelyVisible" in body
-    assert "dirty_partial_state" in body
+    assert "EmitDirtyOperationError(res, ex)" in body
+    assert "dirty_partial_state" in source
 
 
 def test_object_set_layer_uses_resolve_layer_ref_and_modify_attributes():
@@ -389,7 +407,8 @@ def test_object_set_layer_uses_resolve_layer_ref_and_modify_attributes():
     assert "layerId" in body
     assert "before" in body
     assert "after" in body
-    assert "dirty_partial_state" in body
+    assert "EmitDirtyOperationError(res, ex)" in body
+    assert "dirty_partial_state" in source
 
 
 def test_usertext_batch_uses_full_readback_and_batch_cap():
@@ -404,7 +423,8 @@ def test_usertext_batch_uses_full_readback_and_batch_cap():
     assert "UndoScope undo(pDoc, L\"Set Object User Strings Batch\")" in body
     assert "ModifyObjectAttributes" in body
     assert "SerializeUserStringsFromAttributes(updated->Attributes())" in body
-    assert "dirty_partial_state" in body
+    assert "EmitDirtyUserTextOperationError(res, ex)" in body
+    assert "dirty_partial_state" in source
 ```
 
 - [ ] **Step 2: Run the native source tests and confirm they fail for missing routes/functions**
@@ -1681,6 +1701,22 @@ async def test_object_visibility_unchanged_count(fresh_document):
     assert res["results"][0]["before"] == res["results"][0]["after"]
 
 
+async def test_object_visibility_true_on_hidden_layer_reports_not_effective(fresh_document):
+    await _create_layer("HiddenVisibilityLayer")
+    obj_id = await _create_point("HiddenLayerVisibilityTarget", 0, layer="HiddenVisibilityLayer")
+    await _tool("rhino_layer_visibility", {"name": "HiddenVisibilityLayer", "visible": False})
+
+    res = await _tool(
+        "rhino_object_visibility",
+        {"object_ids": [obj_id], "visible": True},
+    )
+
+    after = res["results"][0]["after"]
+    assert after["objectVisible"] is True
+    assert after["layerVisible"] is False
+    assert after["effectivelyVisible"] is False
+
+
 async def test_object_set_layer_changes_only_requested_ids(fresh_document):
     await _create_layer("Animation")
     await _create_layer("Actors", parent="Animation")
@@ -1717,6 +1753,24 @@ async def test_object_set_layer_missing_layer_rejects_without_mutation(fresh_doc
     )
 
     assert err["errorCode"] == "invalid_input"
+    assert (await _object_snapshot(obj_id))["layer"] == before["layer"]
+
+
+async def test_object_set_layer_ambiguous_leaf_rejected_without_mutation(fresh_document):
+    await _create_layer("AmbigParentA")
+    await _create_layer("AmbigParentB")
+    await _create_layer("SharedActorsExactIdHygiene", parent="AmbigParentA")
+    await _create_layer("SharedActorsExactIdHygiene", parent="AmbigParentB")
+    obj_id = await _create_point("AmbiguousLayerTarget", 0)
+    before = await _object_snapshot(obj_id)
+
+    err = await _tool_error(
+        "rhino_object_set_layer",
+        {"object_ids": [obj_id], "layer": "SharedActorsExactIdHygiene"},
+    )
+
+    assert err["errorCode"] == "invalid_input"
+    assert "ambiguous" in err["errorMessage"].lower()
     assert (await _object_snapshot(obj_id))["layer"] == before["layer"]
 
 
@@ -1764,6 +1818,23 @@ async def test_usertext_batch_overwrite_and_unchanged_count(fresh_document):
     assert res["results"][0]["status"] == "unchanged"
 
 
+async def test_usertext_batch_preserves_unrelated_keys(fresh_document):
+    obj_id = await _create_point("UserTextBatchPreserve", 0)
+    await _tool(
+        "rhino_usertext_object_set",
+        {"id": obj_id, "userStrings": {"Existing::keep": "yes"}},
+    )
+
+    res = await _tool(
+        "rhino_object_usertext_set_batch",
+        {"items": [{"id": obj_id, "userStrings": {"Director::role": "actor"}}]},
+    )
+
+    user_strings = res["results"][0]["userStrings"]
+    assert user_strings["Existing::keep"] == "yes"
+    assert user_strings["Director::role"] == "actor"
+
+
 @pytest.mark.parametrize(
     "tool_name,body",
     [
@@ -1777,16 +1848,127 @@ async def test_empty_batches_rejected(fresh_document, tool_name, body):
     assert err["errorCode"] == "invalid_input"
 
 
-async def test_duplicate_ids_rejected_without_mutation(fresh_document):
+@pytest.mark.parametrize("tool_name", ["rhino_object_visibility", "rhino_object_set_layer"])
+async def test_duplicate_object_ids_rejected_without_mutation(fresh_document, tool_name):
     obj_id = await _create_point("DuplicateTarget", 0)
+    before = await _object_snapshot(obj_id)
+    body = (
+        {"object_ids": [obj_id, obj_id], "visible": False}
+        if tool_name == "rhino_object_visibility"
+        else {"object_ids": [obj_id, obj_id], "layer": "Default"}
+    )
 
     err = await _tool_error(
-        "rhino_object_visibility",
-        {"object_ids": [obj_id, obj_id], "visible": False},
+        tool_name,
+        body,
     )
 
     assert err["errorCode"] == "invalid_input"
-    assert (await _object_snapshot(obj_id))["visible"] is True
+    assert (await _object_snapshot(obj_id)) == before
+
+
+async def test_usertext_batch_duplicate_item_ids_rejected_without_mutation(fresh_document):
+    obj_id = await _create_point("DuplicateUserTextTarget", 0)
+
+    err = await _tool_error(
+        "rhino_object_usertext_set_batch",
+        {
+            "items": [
+                {"id": obj_id, "userStrings": {"Director::role": "actor"}},
+                {"id": obj_id, "userStrings": {"Director::role": "prop"}},
+            ]
+        },
+    )
+
+    assert err["errorCode"] == "invalid_input"
+    get_res = await _tool("rhino_usertext_object_get", {"id": obj_id})
+    assert get_res["userStrings"] == {}
+
+
+@pytest.mark.parametrize(
+    "tool_name,body",
+    [
+        ("rhino_object_visibility", {"object_ids": ["not-a-uuid"], "visible": False}),
+        ("rhino_object_set_layer", {"object_ids": ["not-a-uuid"], "layer": "Default"}),
+        (
+            "rhino_object_usertext_set_batch",
+            {"items": [{"id": "not-a-uuid", "userStrings": {"Director::role": "actor"}}]},
+        ),
+    ],
+)
+async def test_malformed_uuid_rejected(fresh_document, tool_name, body):
+    err = await _tool_error(tool_name, body)
+    assert err["errorCode"] == "invalid_input"
+
+
+@pytest.mark.parametrize(
+    "tool_name,body",
+    [
+        (
+            "rhino_object_visibility",
+            {"object_ids": ["11111111-1111-1111-1111-111111111111"], "visible": False},
+        ),
+        (
+            "rhino_object_set_layer",
+            {"object_ids": ["11111111-1111-1111-1111-111111111111"], "layer": "Default"},
+        ),
+        (
+            "rhino_object_usertext_set_batch",
+            {
+                "items": [
+                    {
+                        "id": "11111111-1111-1111-1111-111111111111",
+                        "userStrings": {"Director::role": "actor"},
+                    }
+                ]
+            },
+        ),
+    ],
+)
+async def test_missing_object_id_rejected_before_mutation(fresh_document, tool_name, body):
+    err = await _tool_error(tool_name, body)
+    assert err["errorCode"] == "not_found"
+
+
+@pytest.mark.parametrize(
+    "tool_name,body_factory",
+    [
+        ("rhino_object_visibility", lambda obj_id: {"object_ids": [obj_id], "visible": False}),
+        ("rhino_object_set_layer", lambda obj_id: {"object_ids": [obj_id], "layer": "Default"}),
+        (
+            "rhino_object_usertext_set_batch",
+            lambda obj_id: {"items": [{"id": obj_id, "userStrings": {"Director::role": "actor"}}]},
+        ),
+    ],
+)
+async def test_deleted_object_id_rejected(fresh_document, tool_name, body_factory):
+    obj_id = await _create_point("DeletedObjectTarget", 0)
+    await _tool("rhino_delete", {"ids": [obj_id]})
+
+    err = await _tool_error(tool_name, body_factory(obj_id))
+    assert err["errorCode"] == "not_found"
+
+
+@pytest.mark.parametrize(
+    "user_strings",
+    [
+        {"": "value"},
+        {"Director::role": ""},
+        {"Director::role": 12},
+        {"Director::role": None},
+    ],
+)
+async def test_usertext_batch_rejects_invalid_keys_and_values(fresh_document, user_strings):
+    obj_id = await _create_point("InvalidUserTextTarget", 0)
+
+    err = await _tool_error(
+        "rhino_object_usertext_set_batch",
+        {"items": [{"id": obj_id, "userStrings": user_strings}]},
+    )
+
+    assert err["errorCode"] == "invalid_input"
+    get_res = await _tool("rhino_usertext_object_get", {"id": obj_id})
+    assert get_res["userStrings"] == {}
 
 
 @pytest.mark.parametrize(
