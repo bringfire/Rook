@@ -101,7 +101,10 @@ def run_local_worker_turn(
             response=None,
             disposition=None,
             failure="worker_exception",
-            reason=f"worker_exception:{type(exc).__name__}",
+            reason=(
+                "worker_exception:"
+                f"{_safe_reason_payload(type(exc).__name__, 'unknown_exception')}"
+            ),
             context_workflow_id=workflow_id,
             context_contract_fingerprint=contract_fingerprint,
         )
@@ -112,7 +115,10 @@ def run_local_worker_turn(
             response=None,
             disposition=None,
             failure="response_type_invalid",
-            reason=f"response_type_invalid:{type(response).__name__}",
+            reason=(
+                "response_type_invalid:"
+                f"{_safe_reason_payload(type(response).__name__, 'unknown_type')}"
+            ),
             context_workflow_id=workflow_id,
             context_contract_fingerprint=contract_fingerprint,
         )
@@ -186,9 +192,30 @@ def _require_exact_reason_payload(reason: str, prefix: str) -> str:
     if not reason.startswith(expected_prefix):
         raise ValueError(f"reason must start with {expected_prefix!r}")
     payload = reason.removeprefix(expected_prefix)
-    if payload == "" or ":" in payload:
+    if not _is_safe_reason_payload(payload):
         raise ValueError(f"reason must be exactly {prefix}:<Name>")
     return payload
+
+
+def _safe_reason_payload(value: str, replacement: str) -> str:
+    if _is_safe_reason_payload(value):
+        return value
+    return replacement
+
+
+def _is_safe_reason_payload(value: str) -> bool:
+    if value == "":
+        return False
+    return all(_is_ascii_alnum_or_underscore(char) for char in value)
+
+
+def _is_ascii_alnum_or_underscore(char: str) -> bool:
+    return (
+        char == "_"
+        or "0" <= char <= "9"
+        or "A" <= char <= "Z"
+        or "a" <= char <= "z"
+    )
 
 
 def _require_optional_response(

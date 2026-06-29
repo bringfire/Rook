@@ -374,6 +374,8 @@ def test_completed_record_rejects_incoherence(overrides: dict[str, object]) -> N
         {"failure": None},
         {"failure": "worker_exception"},
         {"reason": "response_type_invalid:"},
+        {"reason": "response_type_invalid:Bad Name"},
+        {"reason": "response_type_invalid:Bad\nName"},
         {"reason": "response_type_invalid:dict:extra"},
         {"reason": "worker_exception:ValueError"},
     ],
@@ -405,6 +407,8 @@ def test_invalid_response_record_rejects_incoherence(
         {"failure": None},
         {"failure": "response_type_invalid"},
         {"reason": "worker_exception:"},
+        {"reason": "worker_exception:Bad Name"},
+        {"reason": "worker_exception:Bad\nName"},
         {"reason": "worker_exception:ValueError:extra"},
         {"reason": "response_type_invalid:dict"},
     ],
@@ -567,6 +571,22 @@ def test_non_response_returns_invalid_response_without_storing_raw_output(
         )
 
 
+def test_unsafe_invalid_response_type_name_uses_stable_safe_reason() -> None:
+    context = _minimal_context()
+    unsafe_type = type("Bad: Type\nName", (), {})
+    raw_output = unsafe_type()
+
+    record = run_local_worker_turn(context, lambda received_context: raw_output)
+
+    assert record.status == "invalid_response"
+    assert record.failure == "response_type_invalid"
+    assert record.reason == "response_type_invalid:unknown_type"
+    assert "Bad" not in record.reason
+    assert " " not in record.reason
+    assert "\n" not in record.reason
+    assert record.reason.count(":") == 1
+
+
 def test_worker_exception_is_captured_without_message_or_traceback() -> None:
     context = _minimal_context()
 
@@ -582,6 +602,26 @@ def test_worker_exception_is_captured_without_message_or_traceback() -> None:
     assert record.reason == "worker_exception:ValueError"
     assert "secret message" not in record.reason
     assert "Traceback" not in record.reason
+
+
+def test_unsafe_worker_exception_class_name_uses_stable_safe_reason() -> None:
+    context = _minimal_context()
+    unsafe_exception = type("Bad: Exception\nName", (Exception,), {})
+
+    def worker(received_context: LocalWorkerTurnContext) -> LocalWorkerTurnResponse:
+        raise unsafe_exception("secret message must not leak")
+
+    record = run_local_worker_turn(context, worker)
+
+    assert record.status == "worker_error"
+    assert record.failure == "worker_exception"
+    assert record.reason == "worker_exception:unknown_exception"
+    assert "Bad" not in record.reason
+    assert "secret message" not in record.reason
+    assert "Traceback" not in record.reason
+    assert " " not in record.reason
+    assert "\n" not in record.reason
+    assert record.reason.count(":") == 1
 
 
 @pytest.mark.parametrize("exception", [KeyboardInterrupt, SystemExit])
