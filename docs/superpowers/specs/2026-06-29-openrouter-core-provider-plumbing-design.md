@@ -2,7 +2,7 @@
 
 - **Date:** 2026-06-29
 - **Branch / worktree:** `feature/codex-openrouter` @ `.worktrees/codex-openrouter` (off `origin/main` `a62854fb`)
-- **Status:** Approved design (brainstorming → writing-plans next)
+- **Status:** Draft, pending review (brainstorming gate)
 - **Authors:** bringfire (lead), Claude (senior engineer), Codex (senior reviewer) — three-way design session
 - **Related specs (not this one):**
   - **Spec B — RookChat model-metadata picker** (richer `/agent/chat/models` contract, C# DTO/UI, tool-capability filtering, pricing/context display, backward-compat for `List<string>`).
@@ -67,8 +67,9 @@ A reusable, network-bounded service. Pure Python, testable without Rhino.
   (arg or env), `GET https://openrouter.ai/api/v1/models`, atomically writes the cache, returns a
   structured result. Never raises on network/auth/JSON failure — returns `success=false`.
 - `load() -> CatalogView` — **pure-disk, never networks.** Reads favorites + cache; returns each
-  curated model tagged with metadata, or `unknown` when the cache is missing/stale/corrupt. This is the
-  contract Spec B consumes.
+  curated model tagged with metadata, or `unknown` when the cache is missing/corrupt/schema-mismatched or
+  a favorite is absent. A **stale** cache returns metadata **with stale provenance** (not `unknown`) — see
+  §8. This is the contract Spec B consumes.
 - ID normalization helpers (provider-specific, live here — not in the routing module):
   - `to_litellm_id(catalog_id) -> str` → prepends the single leading `openrouter/` segment.
   - `to_openrouter_id(litellm_id) -> str` → strips the single leading `openrouter/` segment.
@@ -131,7 +132,9 @@ two cannot drift.
 2. **DSPy provider-aware key resolution** *(load-bearing)* — **both** `configure_dspy()` **and**
    `configure_dspy_for_optimization()` (teacher + student) replace their hardcoded `ANTHROPIC_API_KEY`
    demand with `api_key_env_for_model(model, profile_api_base)`: validate/fail-fast on *that* provider's
-   key with a provider-correct message; `dspy.LM(model)` then lets LiteLLM read the resolved key.
+   key with a provider-correct message; `dspy.LM(model)` then lets LiteLLM read the resolved key. An
+   explicit `api_key=` argument remains a valid override — validation fails **only** when no explicit
+   `api_key` is passed **and** the provider's env var is absent.
    (`base_agent.py`/`chat_runner.py`/`guardian.py` need no change — they never hardcoded the key.)
 3. **Config / health — optional, never degrading** — `OPENROUTER_API_KEY` added to
    [.env.example](../../../mcp_server/.env.example). [runtime_health.py](../../../mcp_server/src/rook/agent/chat/runtime_health.py)
@@ -243,6 +246,8 @@ checked in as a fixture).
 - `configure_dspy("openrouter/…")` missing key → raises, message names `OPENROUTER_API_KEY`.
 - **`configure_dspy_for_optimization` teacher + student `openrouter/…`** → same (both paths).
 - `configure_dspy("anthropic/…")` missing `ANTHROPIC_API_KEY` → still raises (back-compat).
+- **Explicit `api_key` override:** `configure_dspy("openrouter/…", api_key=...)` with the env var absent →
+  succeeds; same for `configure_dspy_for_optimization`.
 - `configure_dspy(local/ollama)` → no key demanded (back-compat).
 
 ### Health
@@ -254,7 +259,8 @@ checked in as a fixture).
 - `refresh()` vs fixture → cache + provenance + counts correct.
 - **ID normalization:** fixture `id: "anthropic/claude-x"` matches favorite `openrouter/anthropic/claude-x`
   and is **not** in `unknown_favorites`.
-- Missing `OPENROUTER_API_KEY` → `success=false`, cache untouched.
+- Missing `OPENROUTER_API_KEY` → `success=false`; prior `models` preserved with error provenance, or
+  status-only cache written when no trusted prior data exists (per I4).
 - HTTP / JSON error → `success=false`, **prior cache `models` intact**, header updated.
 - **Failed refresh after a good cache preserves the exact `models` payload**, updating only provenance.
 - **First-ever failed refresh writes status-only cache** (`fetched_at: null`, `models: {}`) without crashing `load()`.
