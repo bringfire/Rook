@@ -45,9 +45,55 @@ namespace
         int materialIndex = -1;
         std::string materialSource;
         int vertexCount = 0;
-        int triangleCount = 0;
+        long long triangleCount = 0;
         const ON_Mesh* mesh = nullptr;
     };
+
+    static long long SaturatingSizeToInt64(size_t value)
+    {
+        const size_t maxValue = static_cast<size_t>((std::numeric_limits<long long>::max)());
+        return value > maxValue
+            ? (std::numeric_limits<long long>::max)()
+            : static_cast<long long>(value);
+    }
+
+    static size_t SaturatingAddSize(size_t a, size_t b)
+    {
+        return b > (std::numeric_limits<size_t>::max)() - a
+            ? (std::numeric_limits<size_t>::max)()
+            : a + b;
+    }
+
+    static long long EstimateMesh2SplatJsonBytes(
+        size_t objectCount,
+        size_t materialCount,
+        long long sourceVertexCount,
+        long long sourceTriangleCount,
+        size_t stringBytes)
+    {
+        long long estimate = 0;
+        auto add = [&estimate](long long value)
+        {
+            if (value > (std::numeric_limits<long long>::max)() - estimate)
+                estimate = (std::numeric_limits<long long>::max)();
+            else
+                estimate += value;
+        };
+        auto addScaled = [&add](long long scale, long long count)
+        {
+            if (count > (std::numeric_limits<long long>::max)() / scale)
+                add((std::numeric_limits<long long>::max)());
+            else
+                add(scale * count);
+        };
+
+        addScaled(4096LL, SaturatingSizeToInt64(objectCount));
+        addScaled(2048LL, SaturatingSizeToInt64(materialCount));
+        addScaled(96LL, sourceVertexCount);
+        addScaled(24LL, sourceTriangleCount);
+        add(SaturatingSizeToInt64(stringBytes));
+        return estimate;
+    }
 
     static int GetPositiveIntCap(
         const nlohmann::json& body,
@@ -166,7 +212,7 @@ namespace
 
     static bool CountMeshTriangles(
         const ON_Mesh* mesh,
-        int& triangleCount,
+        long long& triangleCount,
         std::string& error)
     {
         triangleCount = 0;
@@ -225,8 +271,6 @@ namespace
             return "Object is deleted";
         if (obj->IsHidden())
             return "Object is hidden";
-        if (obj->IsLocked())
-            return "Object is locked";
         if (obj->IsReference())
             return "Object is from a reference model";
         if (ON_Mesh::Cast(obj->Geometry()) == nullptr)
@@ -455,13 +499,20 @@ void HandleMesh2SplatCapture(const httplib::Request& req, httplib::Response& res
         std::set<int> materialIndices;
 
         size_t totalStringBytes = 0;
-        int sourceVertexCount = 0;
-        int sourceTriangleCount = 0;
+        long long sourceVertexCount = 0;
+        long long sourceTriangleCount = 0;
+        bool captureTooLarge = false;
+        std::string tooLargeMessage;
+        long long tooLargeEstimatedJsonBytes = 0;
+        long long tooLargeObjectCount = 0;
+        long long tooLargeSourceVertexCount = 0;
+        long long tooLargeSourceTriangleCount = 0;
+        long long tooLargeMaterialCount = 0;
 
         auto addWarning = [&](const std::string& message)
         {
             warnings.push_back(message);
-            totalStringBytes += message.size();
+            totalStringBytes = SaturatingAddSize(totalStringBytes, message.size());
         };
 
         auto addError = [&](const std::string& idString, const std::string& message)
@@ -470,7 +521,52 @@ void HandleMesh2SplatCapture(const httplib::Request& req, httplib::Response& res
             e["id"] = idString;
             e["message"] = message;
             errors.push_back(std::move(e));
-            totalStringBytes += idString.size() + message.size();
+            totalStringBytes = SaturatingAddSize(totalStringBytes, idString.size());
+            totalStringBytes = SaturatingAddSize(totalStringBytes, message.size());
+        };
+
+        auto makeTooLarge = [&](
+            const std::string& message,
+            long long estimatedJsonBytes,
+            long long objectCount,
+            long long vertexCount,
+            long long triangleCount,
+            long long materialCount) -> WriteResult
+        {
+            WriteResult wr;
+            wr.success = false;
+            wr.data["code"] = "capture_too_large";
+            wr.data["message"] = message;
+            wr.data["estimatedJsonBytes"] = estimatedJsonBytes;
+            wr.data["objectCount"] = objectCount;
+            wr.data["sourceVertexCount"] = vertexCount;
+            wr.data["sourceTriangleCount"] = triangleCount;
+            wr.data["materialCount"] = materialCount;
+            wr.data["caps"] = {
+                {"maxObjects", caps.maxObjects},
+                {"maxSourceVertices", caps.maxSourceVertices},
+                {"maxSourceTriangles", caps.maxSourceTriangles},
+                {"maxEstimatedJsonBytes", caps.maxEstimatedJsonBytes}
+            };
+            wr.data["warnings"] = std::move(warnings);
+            return wr;
+        };
+
+        auto recordTooLarge = [&](
+            const std::string& message,
+            long long estimatedJsonBytes,
+            long long objectCount,
+            long long vertexCount,
+            long long triangleCount,
+            long long materialCount)
+        {
+            captureTooLarge = true;
+            tooLargeMessage = message;
+            tooLargeEstimatedJsonBytes = estimatedJsonBytes;
+            tooLargeObjectCount = objectCount;
+            tooLargeSourceVertexCount = vertexCount;
+            tooLargeSourceTriangleCount = triangleCount;
+            tooLargeMaterialCount = materialCount;
         };
 
         auto addCandidate = [&](const CRhinoObject* obj, bool explicitRequest)
@@ -487,7 +583,7 @@ void HandleMesh2SplatCapture(const httplib::Request& req, httplib::Response& res
             }
 
             const ON_Mesh* mesh = ON_Mesh::Cast(obj->Geometry());
-            int triangleCount = 0;
+            long long triangleCount = 0;
             std::string meshError;
             if (!CountMeshTriangles(mesh, triangleCount, meshError))
             {
@@ -508,11 +604,79 @@ void HandleMesh2SplatCapture(const httplib::Request& req, httplib::Response& res
             candidate.triangleCount = triangleCount;
             candidate.mesh = mesh;
 
-            totalStringBytes += candidate.idString.size();
-            totalStringBytes += candidate.name.size();
-            totalStringBytes += candidate.materialSource.size();
-            sourceVertexCount += candidate.vertexCount;
-            sourceTriangleCount += candidate.triangleCount;
+            const long long nextObjectCount = SaturatingSizeToInt64(candidates.size()) + 1LL;
+            const long long nextSourceVertexCount = sourceVertexCount + static_cast<long long>(candidate.vertexCount);
+            const long long nextSourceTriangleCount = sourceTriangleCount + static_cast<long long>(candidate.triangleCount);
+            size_t candidateStringBytes = candidate.idString.size();
+            candidateStringBytes = SaturatingAddSize(candidateStringBytes, candidate.name.size());
+            candidateStringBytes = SaturatingAddSize(candidateStringBytes, candidate.materialSource.size());
+            const size_t nextStringBytes = SaturatingAddSize(totalStringBytes, candidateStringBytes);
+
+            bool includesNewMaterial = false;
+            if (candidate.materialIndex >= 0
+                && candidate.materialIndex < pDoc->m_material_table.MaterialCount()
+                && !pDoc->m_material_table[candidate.materialIndex].IsDeleted()
+                && materialIndices.find(candidate.materialIndex) == materialIndices.end())
+            {
+                includesNewMaterial = true;
+            }
+
+            const size_t nextMaterialCount = materialIndices.size() + (includesNewMaterial ? 1 : 0);
+            const long long nextEstimatedJsonBytes = EstimateMesh2SplatJsonBytes(
+                candidates.size() + 1,
+                nextMaterialCount,
+                nextSourceVertexCount,
+                nextSourceTriangleCount,
+                nextStringBytes);
+
+            if (nextObjectCount > static_cast<long long>(caps.maxObjects))
+            {
+                recordTooLarge(
+                    "Capture exceeds maxObjects",
+                    nextEstimatedJsonBytes,
+                    nextObjectCount,
+                    nextSourceVertexCount,
+                    nextSourceTriangleCount,
+                    SaturatingSizeToInt64(nextMaterialCount));
+                return;
+            }
+            if (nextSourceVertexCount > static_cast<long long>(caps.maxSourceVertices))
+            {
+                recordTooLarge(
+                    "Capture exceeds maxSourceVertices",
+                    nextEstimatedJsonBytes,
+                    nextObjectCount,
+                    nextSourceVertexCount,
+                    nextSourceTriangleCount,
+                    SaturatingSizeToInt64(nextMaterialCount));
+                return;
+            }
+            if (nextSourceTriangleCount > static_cast<long long>(caps.maxSourceTriangles))
+            {
+                recordTooLarge(
+                    "Capture exceeds maxSourceTriangles",
+                    nextEstimatedJsonBytes,
+                    nextObjectCount,
+                    nextSourceVertexCount,
+                    nextSourceTriangleCount,
+                    SaturatingSizeToInt64(nextMaterialCount));
+                return;
+            }
+            if (nextEstimatedJsonBytes > caps.maxEstimatedJsonBytes)
+            {
+                recordTooLarge(
+                    "Capture exceeds maxEstimatedJsonBytes",
+                    nextEstimatedJsonBytes,
+                    nextObjectCount,
+                    nextSourceVertexCount,
+                    nextSourceTriangleCount,
+                    SaturatingSizeToInt64(nextMaterialCount));
+                return;
+            }
+
+            totalStringBytes = nextStringBytes;
+            sourceVertexCount = nextSourceVertexCount;
+            sourceTriangleCount = nextSourceTriangleCount;
 
             if (candidate.materialIndex >= 0
                 && candidate.materialIndex < pDoc->m_material_table.MaterialCount()
@@ -540,6 +704,8 @@ void HandleMesh2SplatCapture(const httplib::Request& req, httplib::Response& res
                 }
 
                 addCandidate(obj, true);
+                if (captureTooLarge)
+                    break;
             }
         }
         else
@@ -553,7 +719,20 @@ void HandleMesh2SplatCapture(const httplib::Request& req, httplib::Response& res
                 if (!obj->IsSelected(true))
                     continue;
                 addCandidate(obj, false);
+                if (captureTooLarge)
+                    break;
             }
+        }
+
+        if (captureTooLarge)
+        {
+            return makeTooLarge(
+                tooLargeMessage,
+                tooLargeEstimatedJsonBytes,
+                tooLargeObjectCount,
+                tooLargeSourceVertexCount,
+                tooLargeSourceTriangleCount,
+                tooLargeMaterialCount);
         }
 
         if (!errors.empty())
@@ -571,42 +750,23 @@ void HandleMesh2SplatCapture(const httplib::Request& req, httplib::Response& res
         for (int matIndex : materialIndices)
             materials.push_back(SerializeMaterialMetadata(pDoc, matIndex, totalStringBytes));
 
-        const long long estimatedJsonBytes =
-            4096LL * static_cast<long long>(candidates.size())
-            + 2048LL * static_cast<long long>(materialIndices.size())
-            + 96LL * static_cast<long long>(sourceVertexCount)
-            + 24LL * static_cast<long long>(sourceTriangleCount)
-            + static_cast<long long>(totalStringBytes);
+        const long long estimatedJsonBytes = EstimateMesh2SplatJsonBytes(
+            candidates.size(),
+            materialIndices.size(),
+            sourceVertexCount,
+            sourceTriangleCount,
+            totalStringBytes);
 
-        auto failTooLarge = [&](const std::string& message) -> WriteResult
-        {
-            WriteResult wr;
-            wr.success = false;
-            wr.data["code"] = "capture_too_large";
-            wr.data["message"] = message;
-            wr.data["estimatedJsonBytes"] = estimatedJsonBytes;
-            wr.data["objectCount"] = static_cast<int>(candidates.size());
-            wr.data["sourceVertexCount"] = sourceVertexCount;
-            wr.data["sourceTriangleCount"] = sourceTriangleCount;
-            wr.data["materialCount"] = static_cast<int>(materialIndices.size());
-            wr.data["caps"] = {
-                {"maxObjects", caps.maxObjects},
-                {"maxSourceVertices", caps.maxSourceVertices},
-                {"maxSourceTriangles", caps.maxSourceTriangles},
-                {"maxEstimatedJsonBytes", caps.maxEstimatedJsonBytes}
-            };
-            wr.data["warnings"] = std::move(warnings);
-            return wr;
-        };
-
-        if (static_cast<int>(candidates.size()) > caps.maxObjects)
-            return failTooLarge("Capture exceeds maxObjects");
-        if (sourceVertexCount > caps.maxSourceVertices)
-            return failTooLarge("Capture exceeds maxSourceVertices");
-        if (sourceTriangleCount > caps.maxSourceTriangles)
-            return failTooLarge("Capture exceeds maxSourceTriangles");
         if (estimatedJsonBytes > caps.maxEstimatedJsonBytes)
-            return failTooLarge("Capture exceeds maxEstimatedJsonBytes");
+        {
+            return makeTooLarge(
+                "Capture exceeds maxEstimatedJsonBytes",
+                estimatedJsonBytes,
+                SaturatingSizeToInt64(candidates.size()),
+                sourceVertexCount,
+                sourceTriangleCount,
+                SaturatingSizeToInt64(materialIndices.size()));
+        }
 
         const ON_3dmUnitsAndTolerances& ut = pDoc->Properties().ModelUnitsAndTolerances();
         const ON::LengthUnitSystem unitSystem = ut.m_unit_system.UnitSystem();
