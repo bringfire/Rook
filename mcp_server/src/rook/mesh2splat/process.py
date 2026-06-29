@@ -179,6 +179,8 @@ def _map_process_error(
         return "mesh2splat_glb_parse_failed"
     if cli_code == "CAPACITY_EXCEEDED":
         return "mesh2splat_capacity_exceeded"
+    if cli_code == "GL_CONTEXT_INIT_FAILED":
+        return "mesh2splat_gl_context_init_failed"
     if _cli_reported_failure(parsed_stdout):
         return "mesh2splat_failed"
     if returncode not in (0, None):

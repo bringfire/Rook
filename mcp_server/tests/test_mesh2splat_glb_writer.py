@@ -117,13 +117,26 @@ def primitive(gltf: dict, mesh_index: int = 0, primitive_index: int = 0):
     return gltf["meshes"][mesh_index]["primitives"][primitive_index]
 
 
-def write(capture, *, units_mode="meters", allow_dummy_scalar_uv=True):
+def write(
+    capture,
+    *,
+    units_mode="meters",
+    allow_dummy_scalar_uv=True,
+    max_expanded_vertices=None,
+    max_glb_bytes=None,
+):
     from rook.mesh2splat.glb_writer import write_glb
 
+    kwargs = {}
+    if max_expanded_vertices is not None:
+        kwargs["max_expanded_vertices"] = max_expanded_vertices
+    if max_glb_bytes is not None:
+        kwargs["max_glb_bytes"] = max_glb_bytes
     return write_glb(
         capture,
         units_mode=units_mode,
         allow_dummy_scalar_uv=allow_dummy_scalar_uv,
+        **kwargs,
     )
 
 
@@ -257,6 +270,29 @@ def test_vertices_split_across_position_normal_uv_and_material_seams():
         5,
     ]
     assert accessor_values(gltf, bin_chunk, primitives[1]["indices"]) == [0, 1, 2]
+
+
+def test_rejects_expanded_vertex_count_over_cap_before_glb_bytes_are_materialized():
+    from rook.mesh2splat.glb_writer import GlbBuildError
+
+    with pytest.raises(GlbBuildError) as exc:
+        write(payload(), units_mode="raw", max_expanded_vertices=2)
+
+    assert exc.value.code == "glb_too_large"
+    assert "expanded vertex count" in str(exc.value)
+
+
+def test_rejects_estimated_total_glb_bytes_over_cap():
+    from rook.mesh2splat.glb_writer import GlbBuildError
+
+    large_png = PNG_BYTES + (b"x" * 1024)
+    capture = payload(materials=(material(png=large_png),))
+
+    with pytest.raises(GlbBuildError) as exc:
+        write(capture, units_mode="raw", max_glb_bytes=256)
+
+    assert exc.value.code == "glb_too_large"
+    assert "estimated GLB size" in str(exc.value)
 
 
 def test_textured_material_with_invalid_uv_falls_back_to_scalar_color_warning():
@@ -446,6 +482,41 @@ def test_validator_reports_lightweight_source_export_consistency_warnings():
         "primitive_instance_count_mismatch",
         "textured_material_count_mismatch",
         "scalar_material_count_mismatch",
+    ]
+
+
+def test_validator_warns_when_glb_has_no_triangle_primitives():
+    from rook.mesh2splat.glb_writer import SourceExpectations, validate_glb_bytes
+
+    result = write(payload(meshes=()), units_mode="raw")
+
+    warnings = validate_glb_bytes(
+        result.glb,
+        source_expectations=SourceExpectations(expected_primitive_instance_count=0),
+    )
+
+    assert [warning.code for warning in warnings] == ["primitive_missing"]
+
+
+def test_validator_warns_for_missing_indices_and_required_attributes():
+    from rook.mesh2splat.glb_writer import SourceExpectations, validate_glb_bytes
+
+    result = write(payload(), units_mode="raw")
+    gltf, bin_chunk = parse_glb(result.glb)
+    prim = primitive(gltf)
+    del prim["indices"]
+    del prim["attributes"]["NORMAL"]
+    del prim["attributes"]["TEXCOORD_0"]
+
+    warnings = validate_glb_bytes(
+        rebuild_glb(gltf, bin_chunk),
+        source_expectations=SourceExpectations(expected_primitive_instance_count=1),
+    )
+
+    assert [warning.code for warning in warnings] == [
+        "primitive_indices_missing",
+        "primitive_attribute_missing",
+        "primitive_attribute_missing",
     ]
 
 

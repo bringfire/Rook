@@ -10,6 +10,8 @@ from typing import Iterable
 FLOAT = 5126
 UNSIGNED_SHORT = 5123
 UNSIGNED_INT = 5125
+DEFAULT_MAX_EXPANDED_VERTICES = 1_000_000
+DEFAULT_MAX_GLB_BYTES = 268_435_456
 
 
 @dataclass(frozen=True)
@@ -69,6 +71,8 @@ def write_glb(
     *,
     units_mode: str,
     allow_dummy_scalar_uv: bool,
+    max_expanded_vertices: int = DEFAULT_MAX_EXPANDED_VERTICES,
+    max_glb_bytes: int = DEFAULT_MAX_GLB_BYTES,
 ) -> GlbBuildResult:
     if units_mode not in {"meters", "raw"}:
         raise GlbBuildError("invalid_units_mode", "units_mode must be meters or raw")
@@ -117,6 +121,7 @@ def write_glb(
                 units_mode=units_mode,
                 unit_scale_to_meters=capture.unit_scale_to_meters,
                 allow_dummy_scalar_uv=allow_dummy_scalar_uv,
+                max_expanded_vertices=max_expanded_vertices,
                 gltf=gltf,
                 builder=builder,
             )
@@ -137,6 +142,12 @@ def write_glb(
     json_chunk += b" " * _padding_len(len(json_chunk))
 
     total_length = 12 + 8 + len(json_chunk) + 8 + len(bin_chunk)
+    if total_length > max_glb_bytes:
+        raise GlbBuildError(
+            "glb_too_large",
+            f"estimated GLB size {total_length} exceeds maxGlbBytes {max_glb_bytes}",
+        )
+
     glb = (
         struct.pack("<4sII", b"glTF", 2, total_length)
         + struct.pack("<I4s", len(json_chunk), b"JSON")
@@ -163,11 +174,7 @@ def validate_glb_bytes(
         return warnings
 
     gltf, bin_chunk = parsed
-    primitives = [
-        primitive
-        for mesh in gltf.get("meshes", [])
-        for primitive in mesh.get("primitives", [])
-    ]
+    primitives = _validation_primitives(gltf)
     material_defs = gltf.get("materials", [])
     textured_count = 0
     scalar_count = 0
@@ -212,13 +219,229 @@ def validate_glb_bytes(
 
     _validate_material_texture_references(gltf, warnings)
 
+    if not primitives:
+        warnings.append(
+            ValidationWarning(
+                "primitive_missing",
+                "GLB must contain at least one triangle primitive",
+            )
+        )
+
     for primitive in primitives:
-        attributes = primitive.get("attributes", {})
-        position_index = attributes.get("POSITION")
-        if isinstance(position_index, int):
+        position_index = _validate_primitive_minimums(gltf, bin_chunk, primitive, warnings)
+        if position_index is not None:
             _validate_position_accessor_range(gltf, bin_chunk, position_index, warnings)
 
     return warnings
+
+
+def _validation_primitives(gltf: dict[str, object]) -> list[dict[str, object]]:
+    meshes = gltf.get("meshes", [])
+    if not isinstance(meshes, list):
+        return []
+
+    primitives: list[dict[str, object]] = []
+    for mesh in meshes:
+        if not isinstance(mesh, dict):
+            continue
+        mesh_primitives = mesh.get("primitives", [])
+        if not isinstance(mesh_primitives, list):
+            continue
+        primitives.extend(
+            primitive for primitive in mesh_primitives if isinstance(primitive, dict)
+        )
+    return primitives
+
+
+def _validate_primitive_minimums(
+    gltf: dict[str, object],
+    bin_chunk: bytes,
+    primitive: dict[str, object],
+    warnings: list[ValidationWarning],
+) -> int | None:
+    if primitive.get("mode", 4) != 4:
+        warnings.append(
+            ValidationWarning(
+                "primitive_mode_invalid",
+                "primitive mode must be TRIANGLES",
+            )
+        )
+
+    indices_index = primitive.get("indices")
+    if not isinstance(indices_index, int):
+        warnings.append(
+            ValidationWarning(
+                "primitive_indices_missing",
+                "primitive must include triangle indices",
+            )
+        )
+    else:
+        _validate_indices_accessor(gltf, bin_chunk, indices_index, warnings)
+
+    attributes = primitive.get("attributes")
+    if not isinstance(attributes, dict):
+        for _ in ("POSITION", "NORMAL", "TEXCOORD_0"):
+            warnings.append(
+                ValidationWarning(
+                    "primitive_attribute_missing",
+                    "primitive is missing required attributes",
+                )
+            )
+        return None
+
+    position_index: int | None = None
+    required = (
+        ("POSITION", FLOAT, "VEC3"),
+        ("NORMAL", FLOAT, "VEC3"),
+        ("TEXCOORD_0", FLOAT, "VEC2"),
+    )
+    for name, component_type, accessor_type in required:
+        accessor_index = attributes.get(name)
+        if not isinstance(accessor_index, int):
+            warnings.append(
+                ValidationWarning(
+                    "primitive_attribute_missing",
+                    f"primitive is missing required {name} attribute",
+                )
+            )
+            continue
+        if name == "POSITION":
+            position_index = accessor_index
+        _validate_accessor_shape(
+            gltf,
+            bin_chunk,
+            accessor_index,
+            component_type=component_type,
+            accessor_type=accessor_type,
+            warning_code="primitive_attribute_invalid",
+            warning_message=f"{name} accessor is invalid",
+            warnings=warnings,
+        )
+    return position_index
+
+
+def _validate_indices_accessor(
+    gltf: dict[str, object],
+    bin_chunk: bytes,
+    accessor_index: int,
+    warnings: list[ValidationWarning],
+) -> None:
+    accessor = _accessor(gltf, accessor_index)
+    if accessor is None:
+        warnings.append(
+            ValidationWarning(
+                "primitive_indices_invalid",
+                "indices accessor is missing",
+            )
+        )
+        return
+    if (
+        accessor.get("componentType") not in {UNSIGNED_SHORT, UNSIGNED_INT}
+        or accessor.get("type") != "SCALAR"
+    ):
+        warnings.append(
+            ValidationWarning(
+                "primitive_indices_invalid",
+                "indices accessor must be unsigned scalar",
+            )
+        )
+        return
+    count = int(accessor.get("count", 0))
+    if count < 3 or count % 3 != 0:
+        warnings.append(
+            ValidationWarning(
+                "primitive_indices_invalid",
+                "indices accessor must contain whole triangles",
+            )
+        )
+        return
+    bytes_per_component = (
+        2 if accessor.get("componentType") == UNSIGNED_SHORT else 4
+    )
+    if not _accessor_in_bounds(
+        gltf,
+        bin_chunk,
+        accessor,
+        bytes_per_component=bytes_per_component,
+        component_count=1,
+    ):
+        warnings.append(
+            ValidationWarning(
+                "primitive_indices_invalid",
+                "indices accessor extends beyond BIN chunk",
+            )
+        )
+
+
+def _validate_accessor_shape(
+    gltf: dict[str, object],
+    bin_chunk: bytes,
+    accessor_index: int,
+    *,
+    component_type: int,
+    accessor_type: str,
+    warning_code: str,
+    warning_message: str,
+    warnings: list[ValidationWarning],
+) -> None:
+    accessor = _accessor(gltf, accessor_index)
+    if accessor is None:
+        warnings.append(ValidationWarning(warning_code, warning_message))
+        return
+    if (
+        accessor.get("componentType") != component_type
+        or accessor.get("type") != accessor_type
+    ):
+        warnings.append(ValidationWarning(warning_code, warning_message))
+        return
+    component_counts = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}
+    component_count = component_counts[accessor_type]
+    if not _accessor_in_bounds(
+        gltf,
+        bin_chunk,
+        accessor,
+        bytes_per_component=4,
+        component_count=component_count,
+    ):
+        warnings.append(ValidationWarning(warning_code, warning_message))
+
+
+def _accessor(gltf: dict[str, object], accessor_index: int) -> dict[str, object] | None:
+    accessors = gltf.get("accessors", [])
+    if (
+        not isinstance(accessors, list)
+        or accessor_index < 0
+        or accessor_index >= len(accessors)
+    ):
+        return None
+    accessor = accessors[accessor_index]
+    return accessor if isinstance(accessor, dict) else None
+
+
+def _accessor_in_bounds(
+    gltf: dict[str, object],
+    bin_chunk: bytes,
+    accessor: dict[str, object],
+    *,
+    bytes_per_component: int,
+    component_count: int,
+) -> bool:
+    buffer_views = gltf.get("bufferViews", [])
+    view_index = accessor.get("bufferView")
+    if (
+        not isinstance(buffer_views, list)
+        or not isinstance(view_index, int)
+        or view_index < 0
+        or view_index >= len(buffer_views)
+    ):
+        return False
+    view = buffer_views[view_index]
+    if not isinstance(view, dict):
+        return False
+    offset = int(view.get("byteOffset", 0)) + int(accessor.get("byteOffset", 0))
+    count = int(accessor.get("count", 0))
+    required = offset + (count * component_count * bytes_per_component)
+    return 0 <= offset <= len(bin_chunk) and required <= len(bin_chunk)
 
 
 class _GlbBuilder:
@@ -226,6 +449,7 @@ class _GlbBuilder:
         self.data = bytearray()
         self.images: list[dict[str, object]] = []
         self.textures: list[dict[str, object]] = []
+        self.expanded_vertex_count = 0
 
     def append_buffer_view(
         self,
@@ -368,6 +592,7 @@ def _build_primitive(
     units_mode: str,
     unit_scale_to_meters: float,
     allow_dummy_scalar_uv: bool,
+    max_expanded_vertices: int,
     gltf: dict[str, object],
     builder: _GlbBuilder,
 ) -> dict[str, object]:
@@ -435,6 +660,15 @@ def _build_primitive(
                 normals.append(tuple(float(component) for component in normal))
                 uvs.append(tuple(float(component) for component in uv))
             indices.append(vertex_index)
+
+    builder.expanded_vertex_count += len(vertices)
+    if builder.expanded_vertex_count > max_expanded_vertices:
+        raise GlbBuildError(
+            "glb_too_large",
+            "expanded vertex count "
+            f"{builder.expanded_vertex_count} exceeds maxExpandedVertices "
+            f"{max_expanded_vertices}",
+        )
 
     position_accessor = builder.append_accessor(
         gltf,

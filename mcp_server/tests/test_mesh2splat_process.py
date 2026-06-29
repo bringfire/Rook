@@ -248,6 +248,34 @@ def test_capacity_exceeded_json_maps_to_rook_error_code(tmp_path, monkeypatch):
     assert result.error_code == "mesh2splat_capacity_exceeded"
 
 
+def test_gl_context_init_failed_json_maps_to_rook_error_code(tmp_path, monkeypatch):
+    from rook.mesh2splat import process
+
+    class FakePopen:
+        returncode = 1
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def communicate(self, timeout):
+            return (
+                json.dumps({"errorCode": "GL_CONTEXT_INIT_FAILED"}) + "\n",
+                "failed to create OpenGL context",
+            )
+
+    monkeypatch.setattr(process.subprocess, "Popen", FakePopen)
+
+    result = process.run_mesh2splat(
+        ["Mesh2Splat.exe"],
+        cwd=tmp_path,
+        env={},
+        timeout_seconds=5,
+    )
+
+    assert result.success is False
+    assert result.error_code == "mesh2splat_gl_context_init_failed"
+
+
 @pytest.mark.parametrize(
     "stdout,expected_error_code",
     [
@@ -258,6 +286,10 @@ def test_capacity_exceeded_json_maps_to_rook_error_code(tmp_path, monkeypatch):
         (
             json.dumps({"ok": False, "errorCode": "CAPACITY_EXCEEDED"}) + "\n",
             "mesh2splat_capacity_exceeded",
+        ),
+        (
+            json.dumps({"ok": False, "errorCode": "GL_CONTEXT_INIT_FAILED"}) + "\n",
+            "mesh2splat_gl_context_init_failed",
         ),
         (
             json.dumps({"ok": False, "errorCode": "SOME_FAILURE"}) + "\n",

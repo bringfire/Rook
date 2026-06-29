@@ -260,6 +260,12 @@ namespace
             }
         }
 
+        if (triangleCount <= 0)
+        {
+            error = "Mesh contains no triangle faces";
+            return false;
+        }
+
         return true;
     }
 
@@ -273,6 +279,8 @@ namespace
             return "Object is hidden";
         if (obj->IsReference())
             return "Object is from a reference model";
+        if (obj->IsLocked())
+            return "Object is locked";
         if (ON_Mesh::Cast(obj->Geometry()) == nullptr)
             return "Object is not a mesh";
         return "";
@@ -466,6 +474,15 @@ void HandleMesh2SplatCapture(const httplib::Request& req, httplib::Response& res
     bool hasExplicitIds = false;
     bool allowPartial = false;
 
+    auto sendStructuredError = [&](const std::string& code, const std::string& message)
+    {
+        nlohmann::json err;
+        err["code"] = code;
+        err["message"] = message;
+        err["retryable"] = false;
+        CRookServer::SendErrorData(res, err);
+    };
+
     try
     {
         allowPartial = body.value("allowPartial", false);
@@ -477,8 +494,21 @@ void HandleMesh2SplatCapture(const httplib::Request& req, httplib::Response& res
         if (body.contains("object_ids"))
         {
             if (!body["object_ids"].is_array())
-                throw std::invalid_argument("'object_ids' must be an array of UUID strings");
-            explicitIds = ParseUuids(body, "object_ids");
+            {
+                sendStructuredError(
+                    "invalid_object_id",
+                    "'object_ids' must be an array of UUID strings");
+                return;
+            }
+            try
+            {
+                explicitIds = ParseUuids(body, "object_ids");
+            }
+            catch (const std::exception& ex)
+            {
+                sendStructuredError("invalid_object_id", ex.what());
+                return;
+            }
             hasExplicitIds = true;
         }
     }
@@ -515,14 +545,29 @@ void HandleMesh2SplatCapture(const httplib::Request& req, httplib::Response& res
             totalStringBytes = SaturatingAddSize(totalStringBytes, message.size());
         };
 
-        auto addError = [&](const std::string& idString, const std::string& message)
+        auto addError = [&](const std::string& idString, const std::string& message, const std::string& code)
         {
             nlohmann::json e;
             e["id"] = idString;
+            e["code"] = code;
             e["message"] = message;
             errors.push_back(std::move(e));
             totalStringBytes = SaturatingAddSize(totalStringBytes, idString.size());
             totalStringBytes = SaturatingAddSize(totalStringBytes, message.size());
+            totalStringBytes = SaturatingAddSize(totalStringBytes, code.size());
+        };
+
+        auto makeCaptureFailure = [&](
+            const std::string& code,
+            const std::string& message) -> WriteResult
+        {
+            WriteResult wr;
+            wr.success = false;
+            wr.data["code"] = code;
+            wr.data["message"] = message;
+            wr.data["errors"] = std::move(errors);
+            wr.data["warnings"] = std::move(warnings);
+            return wr;
         };
 
         auto makeTooLarge = [&](
@@ -576,7 +621,7 @@ void HandleMesh2SplatCapture(const httplib::Request& req, httplib::Response& res
             if (!skipReason.empty())
             {
                 if (explicitRequest && !allowPartial)
-                    addError(idString, skipReason);
+                    addError(idString, skipReason, "unsupported_requested_object");
                 else
                     addWarning(idString.empty() ? skipReason : (idString + ": " + skipReason));
                 return;
@@ -588,7 +633,7 @@ void HandleMesh2SplatCapture(const httplib::Request& req, httplib::Response& res
             if (!CountMeshTriangles(mesh, triangleCount, meshError))
             {
                 if (explicitRequest && !allowPartial)
-                    addError(idString, meshError);
+                    addError(idString, meshError, "unsupported_requested_object");
                 else
                     addWarning(idString + ": " + meshError);
                 return;
@@ -699,7 +744,7 @@ void HandleMesh2SplatCapture(const httplib::Request& req, httplib::Response& res
                     if (allowPartial)
                         addWarning(idString + ": Object not found");
                     else
-                        addError(idString, "Object not found");
+                        addError(idString, "Object not found", "invalid_object_id");
                     continue;
                 }
 
@@ -710,6 +755,7 @@ void HandleMesh2SplatCapture(const httplib::Request& req, httplib::Response& res
         }
         else
         {
+            int selectedObjectCount = 0;
             CRhinoObjectIterator it(*pDoc,
                 CRhinoObjectIterator::undeleted_objects,
                 CRhinoObjectIterator::active_objects);
@@ -718,9 +764,16 @@ void HandleMesh2SplatCapture(const httplib::Request& req, httplib::Response& res
             {
                 if (!obj->IsSelected(true))
                     continue;
+                ++selectedObjectCount;
                 addCandidate(obj, false);
                 if (captureTooLarge)
                     break;
+            }
+            if (selectedObjectCount == 0 && !captureTooLarge)
+            {
+                return makeCaptureFailure(
+                    "selection_required",
+                    "Select at least one mesh object or provide object_ids");
             }
         }
 
@@ -737,13 +790,17 @@ void HandleMesh2SplatCapture(const httplib::Request& req, httplib::Response& res
 
         if (!errors.empty())
         {
-            WriteResult wr;
-            wr.success = false;
-            wr.data["code"] = "capture_failed";
-            wr.data["message"] = "One or more requested mesh objects could not be captured";
-            wr.data["errors"] = std::move(errors);
-            wr.data["warnings"] = std::move(warnings);
-            return wr;
+            const std::string code = errors.front().value("code", "capture_failed");
+            return makeCaptureFailure(
+                code,
+                "One or more requested mesh objects could not be captured");
+        }
+
+        if (candidates.empty())
+        {
+            return makeCaptureFailure(
+                "no_supported_meshes",
+                "No supported mesh objects were captured");
         }
 
         nlohmann::json materials = nlohmann::json::array();
