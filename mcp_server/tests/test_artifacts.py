@@ -310,3 +310,55 @@ def test_register_promotes_observed_row(tmp_path, _isolated_artifact_db):
         size=1, mtime=1, document_name=None, origin_session_id="rhino-1", label=None, now=1)
     res = asyncio.run(artifacts.register_artifact(str(f)))
     assert res["data"]["artifact"]["source"] == "explicit"
+
+
+def test_mesh2splat_capture_promotes_explicit_and_replaces_provenance(tmp_path):
+    reg = _reg(tmp_path)
+    reg.upsert("/p/capture.ply", source="explicit", file_state="present", size=1, mtime=1,
+               document_name="manual-doc", origin_session_id="manual-session",
+               label="manual-label", now=1)
+    reg.upsert("/p/capture.ply", source="mesh2splat_capture", file_state="present", size=2, mtime=2,
+               document_name="capture-doc", origin_session_id="capture-session",
+               label="capture-label", now=2)
+
+    row = reg.get(path="/p/capture.ply")
+    assert row.source == "mesh2splat_capture"
+    assert row.document_name == "capture-doc"
+    assert row.origin_session_id == "capture-session"
+    assert row.label == "capture-label"
+    reg.close()
+
+
+def test_mesh2splat_capture_rerun_replaces_owned_provenance(tmp_path):
+    reg = _reg(tmp_path)
+    reg.upsert("/p/capture.ply", source="mesh2splat_capture", file_state="present", size=1, mtime=1,
+               document_name="capture-doc-1", origin_session_id="capture-session-1",
+               label="capture-label-1", now=1)
+    reg.upsert("/p/capture.ply", source="mesh2splat_capture", file_state="present", size=2, mtime=2,
+               document_name="capture-doc-2", origin_session_id="capture-session-2",
+               label="capture-label-2", now=2)
+
+    row = reg.get(path="/p/capture.ply")
+    assert row.source == "mesh2splat_capture"
+    assert row.document_name == "capture-doc-2"
+    assert row.origin_session_id == "capture-session-2"
+    assert row.label == "capture-label-2"
+    reg.close()
+
+
+def test_lower_ranked_updates_do_not_downgrade_or_replace_mesh2splat_provenance(tmp_path):
+    reg = _reg(tmp_path)
+    reg.upsert("/p/capture.ply", source="mesh2splat_capture", file_state="present", size=1, mtime=1,
+               document_name="capture-doc", origin_session_id="capture-session",
+               label="capture-label", now=1)
+
+    for source in ("explicit", "owned_workbench"):
+        reg.upsert("/p/capture.ply", source=source, file_state="present", size=2, mtime=2,
+                   document_name=f"{source}-doc", origin_session_id=f"{source}-session",
+                   label=f"{source}-label", now=2)
+        row = reg.get(path="/p/capture.ply")
+        assert row.source == "mesh2splat_capture"
+        assert row.document_name == "capture-doc"
+        assert row.origin_session_id == "capture-session"
+        assert row.label == "capture-label"
+    reg.close()
