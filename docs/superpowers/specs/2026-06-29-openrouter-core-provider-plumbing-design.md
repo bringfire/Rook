@@ -2,7 +2,7 @@
 
 - **Date:** 2026-06-29
 - **Branch / worktree:** `feature/codex-openrouter` @ `.worktrees/codex-openrouter` (off `origin/main` `a62854fb`)
-- **Status:** Draft, pending review (brainstorming gate)
+- **Status:** Approved (brainstorming complete → writing-plans)
 - **Authors:** bringfire (lead), Claude (senior engineer), Codex (senior reviewer) — three-way design session
 - **Related specs (not this one):**
   - **Spec B — RookChat model-metadata picker** (richer `/agent/chat/models` contract, C# DTO/UI, tool-capability filtering, pricing/context display, backward-compat for `List<string>`).
