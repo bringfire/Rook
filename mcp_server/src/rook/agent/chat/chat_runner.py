@@ -245,9 +245,9 @@ _TOOL_DESCRIPTIONS: Dict[str, str] = {
 def _build_fallback_catalog() -> Dict[str, dict]:
     """Build a minimal LiteLLM catalog from known tool names when no cache exists.
 
-    This catalog has descriptions but no parameter schemas (additionalProperties: True).
-    Once the MCP server caches a full catalog (via spawn_agent), subsequent ChatRunner
-    instances will get proper parameter schemas automatically.
+    Most fallback entries have descriptions but no parameter schemas
+    (additionalProperties: True). Critical first-run tools get typed schemas so
+    RookChat remains usable before the MCP server caches the full catalog.
     """
     catalog: Dict[str, dict] = {}
 
@@ -265,6 +265,15 @@ def _build_fallback_catalog() -> Dict[str, dict]:
     for tool_name, desc in all_tools.items():
         if tool_name == "gh_errors":
             catalog[tool_name] = _GH_ERRORS_SCHEMA
+            continue
+        if tool_name == "rhino_command":
+            catalog[tool_name] = _RHINO_COMMAND_SCHEMA
+            continue
+        if tool_name == "rhino_execute_intent":
+            catalog[tool_name] = _RHINO_EXECUTE_INTENT_SCHEMA
+            continue
+        if tool_name == "rhino_create":
+            catalog[tool_name] = _RHINO_CREATE_SCHEMA
             continue
         catalog[tool_name] = {
             "type": "function",
@@ -402,6 +411,156 @@ _GH_UPDATE_SCRIPT_SCHEMA: dict = {
                 },
             },
             "required": ["guid", "code"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+_POINT3_SCHEMA: dict = {
+    "type": "array",
+    "items": {"type": "number"},
+    "minItems": 3,
+    "maxItems": 3,
+}
+
+_RHINO_COMMAND_SCHEMA: dict = {
+    "type": "function",
+    "function": {
+        "name": "rhino_command",
+        "description": _TOOL_DESCRIPTIONS["rhino_command"],
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "pattern": "^\\s*_",
+                    "description": (
+                        "Known-safe, non-interactive Rhino command string. "
+                        "Must start with '_' for locale-independent execution."
+                    ),
+                },
+                "echo": {
+                    "type": "boolean",
+                    "description": "Echo command to the command line. Defaults to false.",
+                },
+            },
+            "required": ["command"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+_RHINO_EXECUTE_INTENT_SCHEMA: dict = {
+    "type": "function",
+    "function": {
+        "name": "rhino_execute_intent",
+        "description": _TOOL_DESCRIPTIONS["rhino_execute_intent"],
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "intent": {
+                    "type": "string",
+                    "description": "Natural language intent describing what to create or do.",
+                },
+            },
+            "required": ["intent"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+_RHINO_CREATE_SCHEMA: dict = {
+    "type": "function",
+    "function": {
+        "name": "rhino_create",
+        "description": (
+            "Create geometry in Rhino. Supports POINT, LINE, POLYLINE, CIRCLE, "
+            "ARC, RECTANGLE, BOX, SPHERE, CYLINDER, and CONE. "
+            'For a box, use {"type":"BOX","origin":[0,0,0],'
+            '"width":10,"depth":10,"height":1} or corner1/corner2.'
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "description": (
+                        "Geometry type: POINT, LINE, POLYLINE, CIRCLE, ARC, "
+                        "RECTANGLE, BOX, SPHERE, CYLINDER, CONE."
+                    ),
+                },
+                "name": {"type": "string", "description": "Object name."},
+                "layer": {"type": "string", "description": "Layer path."},
+                "color": {
+                    "description": (
+                        "Color as [r,g,b] array, {r,g,b} object, or #rrggbb string."
+                    ),
+                },
+                "point": {**_POINT3_SCHEMA, "description": "For POINT: [x, y, z]."},
+                "location": {
+                    **_POINT3_SCHEMA,
+                    "description": "Alias for POINT point [x, y, z].",
+                },
+                "start": {**_POINT3_SCHEMA, "description": "For LINE: start point."},
+                "end": {**_POINT3_SCHEMA, "description": "For LINE: end point."},
+                "points": {
+                    "type": "array",
+                    "items": _POINT3_SCHEMA,
+                    "description": "For POLYLINE: array of [x, y, z] points.",
+                },
+                "center": {
+                    **_POINT3_SCHEMA,
+                    "description": (
+                        "For CIRCLE, ARC, SPHERE, CYLINDER, CONE: center [x, y, z]."
+                    ),
+                },
+                "base": {
+                    **_POINT3_SCHEMA,
+                    "description": "Alias for CYLINDER and CONE base center [x, y, z].",
+                },
+                "plane": {
+                    "type": "string",
+                    "description": "For CIRCLE and ARC orientation: XY, XZ, or YZ.",
+                },
+                "radius": {
+                    "type": "number",
+                    "description": "For CIRCLE, ARC, SPHERE, CYLINDER, CONE.",
+                },
+                "origin": {
+                    **_POINT3_SCHEMA,
+                    "description": "For RECTANGLE and BOX: origin [x, y, z].",
+                },
+                "corner": {
+                    **_POINT3_SCHEMA,
+                    "description": "Alias for origin on RECTANGLE and BOX.",
+                },
+                "corner1": {
+                    **_POINT3_SCHEMA,
+                    "description": "For BOX: first diagonal corner [x, y, z].",
+                },
+                "corner2": {
+                    **_POINT3_SCHEMA,
+                    "description": "For BOX: second diagonal corner [x, y, z].",
+                },
+                "width": {
+                    "type": "number",
+                    "description": "For RECTANGLE and BOX: width in +X.",
+                },
+                "height": {
+                    "type": "number",
+                    "description": (
+                        "For RECTANGLE and BOX: height in +Z. For CYLINDER and "
+                        "CONE: height along Z."
+                    ),
+                },
+                "depth": {"type": "number", "description": "For BOX: depth in +Y."},
+                "x": {"type": "number", "description": "Alias for BOX width."},
+                "y": {"type": "number", "description": "Alias for BOX depth."},
+                "z": {"type": "number", "description": "Alias for BOX height."},
+                "startAngle": {"type": "number", "description": "For ARC: start angle."},
+                "endAngle": {"type": "number", "description": "For ARC: end angle."},
+            },
+            "required": ["type"],
             "additionalProperties": False,
         },
     },
@@ -580,6 +739,9 @@ def _build_local_tool_catalog(local_tools: dict) -> Dict[str, dict]:
             continue
         if name in _CHAT_MODEL_TOOL_SCHEMAS:
             catalog[name] = _CHAT_MODEL_TOOL_SCHEMAS[name]
+            continue
+        if name == "rhino_execute_intent":
+            catalog[name] = _RHINO_EXECUTE_INTENT_SCHEMA
             continue
         if name == "gh_update_script":
             catalog[name] = _GH_UPDATE_SCRIPT_SCHEMA

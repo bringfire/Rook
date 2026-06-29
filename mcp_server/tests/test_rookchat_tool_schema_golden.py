@@ -63,6 +63,51 @@ def test_fallback_catalog_gh_canvas_critical_tools_are_closed():
         assert audit_litellm_tool_schema(catalog[tool_name]) == []
 
 
+def test_fallback_catalog_rhino_geometry_create_schema_is_actionable():
+    from rook.agent.chat.chat_runner import _build_fallback_catalog
+    from rook.agent.tool_groups import TOOL_GROUPS
+
+    catalog = _build_fallback_catalog()
+
+    assert "rhino_create" in TOOL_GROUPS["rhino_geometry"]
+    params = catalog["rhino_create"]["function"]["parameters"]
+    assert params["type"] == "object"
+    assert params["required"] == ["type"]
+    assert params["additionalProperties"] is False
+    assert "type" in params["properties"]
+    assert "BOX" in params["properties"]["type"]["description"]
+    for box_field in ("origin", "width", "depth", "height", "corner1", "corner2"):
+        assert box_field in params["properties"]
+    assert audit_litellm_tool_schema(catalog["rhino_create"]) == []
+
+
+def test_fallback_catalog_rhino_command_schemas_are_actionable():
+    from rook.agent.chat.chat_runner import _build_fallback_catalog
+
+    catalog = _build_fallback_catalog()
+
+    command_params = catalog["rhino_command"]["function"]["parameters"]
+    assert command_params["type"] == "object"
+    assert command_params["required"] == ["command"]
+    assert command_params["additionalProperties"] is False
+    assert "command" in command_params["properties"]
+    assert command_params["properties"]["command"]["pattern"] == "^\\s*_"
+    assert audit_litellm_tool_schema(catalog["rhino_command"]) == []
+
+
+def test_local_catalog_rhino_execute_intent_schema_is_actionable():
+    from rook.agent.chat.chat_runner import _build_local_tool_catalog
+
+    catalog = _build_local_tool_catalog({"rhino_execute_intent": object()})
+
+    intent_params = catalog["rhino_execute_intent"]["function"]["parameters"]
+    assert intent_params["type"] == "object"
+    assert intent_params["required"] == ["intent"]
+    assert intent_params["additionalProperties"] is False
+    assert "intent" in intent_params["properties"]
+    assert audit_litellm_tool_schema(catalog["rhino_execute_intent"]) == []
+
+
 def test_local_catalog_unknown_tools_are_closed_by_default():
     from rook.agent.chat.chat_runner import _build_local_tool_catalog
 
