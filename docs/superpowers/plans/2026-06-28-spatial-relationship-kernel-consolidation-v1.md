@@ -90,6 +90,8 @@ def _claim_graph() -> SceneGraphAnalytics:
     sg.graph.add_node("slab-owner", name="slab_01")
     sg.graph.add_node("door-owner", name="door_01")
     sg.graph.add_node("wall-owner", name="wall_01")
+    sg.graph.add_node("beam-owner", name="beam_01")
+    sg.graph.add_node("plate-owner", name="plate_01")
     sg.graph.add_edge(
         "column-owner",
         "slab-owner",
@@ -103,6 +105,26 @@ def _claim_graph() -> SceneGraphAnalytics:
         fromFeatureObjectId="feature-column-top",
         toFeatureObjectId="feature-slab-underside",
         contactKind="point_to_region",
+        provenance="authored_architectural_fixture",
+        confidence=1.0,
+        status="accepted",
+        graphSource="architectural_relationship_fixture",
+        graphRevision="a001",
+        pose="architectural_reference",
+    )
+    sg.graph.add_edge(
+        "beam-owner",
+        "plate-owner",
+        key="relationship_fact:architectural:connects",
+        relationship="connects",
+        projectionKind="relationship_fact_v1",
+        semanticRelationshipType="connects",
+        relationshipFactId="beam_01.end_connects_plate_01.socket",
+        fromFeature="beam_01.end",
+        toFeature="plate_01.socket",
+        fromFeatureObjectId="feature-beam-end",
+        toFeatureObjectId="feature-plate-socket",
+        contactKind="point_to_point",
         provenance="authored_architectural_fixture",
         confidence=1.0,
         status="accepted",
@@ -189,14 +211,15 @@ def test_relationship_kernel_normalizes_relationship_fact_edges_to_claims():
     )
 
     assert result["success"] is True
-    assert result["counts"]["relationshipClaimCount"] == 2
-    assert result["counts"]["verdictCount"] == 2
-    assert result["counts"]["byVerdict"] == {"not_applicable": 1, "unverified": 1}
+    assert result["counts"]["relationshipClaimCount"] == 3
+    assert result["counts"]["verdictCount"] == 3
+    assert result["counts"]["byVerdict"] == {"not_applicable": 2, "unverified": 1}
     assert [claim["relationshipClaimId"] for claim in result["claims"]] == [
+        "beam_01.end_connects_plate_01.socket",
         "column_01.top_point_supports_slab_01.underside_region",
         "door_01.body_hosted_by_wall_01.host_region",
     ]
-    supports = result["claims"][0]
+    supports = result["claims"][1]
     assert supports["relationshipType"] == "supports"
     assert supports["fromObjectId"] == "column-owner"
     assert supports["toObjectId"] == "slab-owner"
@@ -257,7 +280,7 @@ EVIDENCE_STRENGTH_ORDER = (
     "exact_topology",
     "explicit_connector",
 )
-CONTACT_LIKE_RELATIONSHIPS = {"connects", "supports", "touches", "abuts"}
+CONTACT_LIKE_RELATIONSHIPS = {"connects", "touches", "abuts"}
 CONTACT_LIKE_KINDS = {
     "point_to_point",
     "point_to_region",
@@ -349,6 +372,7 @@ def _claim_from_edge(source_id: str, target_id: str, edge_key: Any, attrs: dict[
         "provenance": attrs.get("provenance"),
         "confidence": attrs.get("confidence"),
         "status": attrs.get("status"),
+        "physicalObligation": attrs.get("physicalObligation") or attrs.get("physical_obligation"),
         "graphSource": attrs.get("graphSource"),
         "graphRevision": attrs.get("graphRevision"),
         "pose": attrs.get("pose"),
@@ -366,6 +390,8 @@ def _physical_obligation(claim: dict[str, Any]) -> str:
     contact_kind = str(claim.get("contactKind") or "")
     if relationship_type in NOT_APPLICABLE_RELATIONSHIPS:
         return "not_applicable"
+    if relationship_type == "supports" and claim.get("physicalObligation") == "direct_contact":
+        return "exact_adjacency_applicable"
     if relationship_type in CONTACT_LIKE_RELATIONSHIPS and contact_kind in CONTACT_LIKE_KINDS:
         return "exact_adjacency_applicable"
     return "not_applicable"
@@ -381,7 +407,7 @@ def _verdict_for_claim(claim: dict[str, Any], evidence: list[dict[str, Any]]) ->
         reason = "explicit_exact_topology_refutation"
     elif any(item.get("polarity") == "supports" and item.get("strength") == "exact_topology" for item in evidence):
         verdict = "satisfied"
-        reason = "exact_topology_supports_contact"
+        reason = "exact_topology_supports_owner_contact"
     else:
         verdict = "unverified"
         reason = "no_applicable_exact_topology_evidence"
@@ -560,13 +586,13 @@ git commit -m "feat: normalize relationship claims"
 Append to `mcp_server/tests/test_relationship_kernel.py`:
 
 ```python
-def test_adjacent_exact_edge_becomes_exact_topology_evidence_and_interface_record():
+def test_connects_adjacent_exact_edge_becomes_exact_topology_evidence_and_interface_record():
     from rook.scene.relationship_kernel import query_relationship_kernel_report
 
     sg = _claim_graph()
     sg.graph.add_edge(
-        "column-owner",
-        "slab-owner",
+        "beam-owner",
+        "plate-owner",
         key="occt:adjacent_exact",
         relationship="adjacent_exact",
         provenance="occt",
@@ -580,7 +606,7 @@ def test_adjacent_exact_edge_becomes_exact_topology_evidence_and_interface_recor
         engineVersion=2,
     )
 
-    result = query_relationship_kernel_report(sg, relationship_types=["supports"])
+    result = query_relationship_kernel_report(sg, relationship_types=["connects"])
 
     assert result["counts"]["relationshipClaimCount"] == 1
     assert result["counts"]["evidenceCount"] == 1
@@ -590,34 +616,37 @@ def test_adjacent_exact_edge_becomes_exact_topology_evidence_and_interface_recor
     assert interface_record["interfaceType"] == "shared_topology"
     assert interface_record["method"] == "adjacent_exact"
     assert interface_record["source"] == "occt"
-    assert interface_record["objectIds"] == ["column-owner", "slab-owner"]
+    assert interface_record["objectIds"] == ["beam-owner", "plate-owner"]
+    assert interface_record["interfaceScope"] == "owner_pair"
+    assert interface_record["featurePaths"] == ["beam_01.end", "plate_01.socket"]
+    assert interface_record["featureScopeVerified"] is False
     assert interface_record["measures"]["sharedArea"] == 12.5
 
     evidence = result["evidence"][0]
-    assert evidence["relationshipClaimId"] == "column_01.top_point_supports_slab_01.underside_region"
+    assert evidence["relationshipClaimId"] == "beam_01.end_connects_plate_01.socket"
     assert evidence["kind"] == "relationship_evidence_v1"
     assert evidence["method"] == "adjacent_exact"
     assert evidence["source"] == "occt"
     assert evidence["strength"] == "exact_topology"
     assert evidence["polarity"] == "supports"
     assert evidence["status"] == "measured"
-    assert evidence["claimTypeField"] == "supports"
+    assert evidence["claimTypeField"] == "connects"
     assert evidence["evidenceMethodField"] == "adjacent_exact"
     assert evidence["interfaceRecordIds"] == [interface_record["interfaceRecordId"]]
 
     verdict = result["verdicts"][0]
     assert verdict["verdict"] == "satisfied"
-    assert verdict["reason"] == "exact_topology_supports_contact"
+    assert verdict["reason"] == "exact_topology_supports_owner_contact"
     assert verdict["strongestEvidenceStrength"] == "exact_topology"
 
 
-def test_adjacent_exact_edge_is_orientation_independent_for_claim_endpoints():
+def test_connects_adjacent_exact_edge_is_orientation_independent_for_claim_endpoints():
     from rook.scene.relationship_kernel import query_relationship_kernel_report
 
     sg = _claim_graph()
     sg.graph.add_edge(
-        "slab-owner",
-        "column-owner",
+        "plate-owner",
+        "beam-owner",
         key="occt:adjacent_exact",
         relationship="adjacent_exact",
         provenance="occt",
@@ -625,11 +654,32 @@ def test_adjacent_exact_edge_is_orientation_independent_for_claim_endpoints():
         areaUnit="meters^2",
     )
 
-    result = query_relationship_kernel_report(sg, relationship_types=["supports"])
+    result = query_relationship_kernel_report(sg, relationship_types=["connects"])
 
     assert result["counts"]["evidenceCount"] == 1
     assert result["evidence"][0]["polarity"] == "supports"
     assert result["verdicts"][0]["verdict"] == "satisfied"
+
+
+def test_supports_requires_explicit_direct_contact_obligation_for_adjacent_exact_satisfaction():
+    from rook.scene.relationship_kernel import query_relationship_kernel_report
+
+    sg = _claim_graph()
+    sg.graph.add_edge(
+        "column-owner",
+        "slab-owner",
+        key="occt:adjacent_exact",
+        relationship="adjacent_exact",
+        provenance="occt",
+        sharedArea=12.5,
+    )
+
+    result = query_relationship_kernel_report(sg, relationship_types=["supports"])
+
+    assert result["counts"]["evidenceCount"] == 1
+    assert result["evidence"][0]["strength"] == "exact_topology"
+    assert result["verdicts"][0]["verdict"] == "not_applicable"
+    assert result["verdicts"][0]["reason"] == "no_v1_physical_obligation"
 ```
 
 - [ ] **Step 2: Run the new tests and verify they fail**
@@ -637,7 +687,7 @@ def test_adjacent_exact_edge_is_orientation_independent_for_claim_endpoints():
 Run:
 
 ```powershell
-python -m pytest mcp_server/tests/test_relationship_kernel.py::test_adjacent_exact_edge_becomes_exact_topology_evidence_and_interface_record mcp_server/tests/test_relationship_kernel.py::test_adjacent_exact_edge_is_orientation_independent_for_claim_endpoints -q
+python -m pytest mcp_server/tests/test_relationship_kernel.py::test_connects_adjacent_exact_edge_becomes_exact_topology_evidence_and_interface_record mcp_server/tests/test_relationship_kernel.py::test_connects_adjacent_exact_edge_is_orientation_independent_for_claim_endpoints mcp_server/tests/test_relationship_kernel.py::test_supports_requires_explicit_direct_contact_obligation_for_adjacent_exact_satisfaction -q
 ```
 
 Expected: failures because `_evidence_for_claim` returns no evidence.
@@ -688,7 +738,9 @@ def _exact_support_for_claim(
             "method": EXACT_RELATIONSHIP,
             "source": EXACT_PROVENANCE,
             "objectIds": [str(claim["fromObjectId"]), str(claim["toObjectId"])],
+            "interfaceScope": "owner_pair",
             "featurePaths": [claim.get("fromFeature"), claim.get("toFeature")],
+            "featureScopeVerified": False,
             "measures": {
                 "sharedArea": attrs.get("sharedArea"),
                 "areaUnit": attrs.get("areaUnit"),
@@ -742,7 +794,7 @@ Run:
 python -m pytest mcp_server/tests/test_relationship_kernel.py -q
 ```
 
-Expected: `6 passed`.
+Expected: `7 passed`.
 
 - [ ] **Step 5: Commit Task 2**
 
@@ -769,7 +821,7 @@ Append to `mcp_server/tests/test_relationship_kernel.py`:
 def test_absent_adjacent_exact_does_not_contradict_claim():
     from rook.scene.relationship_kernel import query_relationship_kernel_report
 
-    result = query_relationship_kernel_report(_claim_graph(), relationship_types=["supports"])
+    result = query_relationship_kernel_report(_claim_graph(), relationship_types=["connects"])
 
     assert result["counts"]["evidenceCount"] == 0
     assert result["verdicts"][0]["verdict"] == "unverified"
@@ -781,8 +833,8 @@ def test_exact_refuted_annotation_becomes_contradicting_evidence():
 
     sg = _claim_graph()
     sg.graph.add_edge(
-        "column-owner",
-        "slab-owner",
+        "beam-owner",
+        "plate-owner",
         key="spatial-adjacent",
         relationship="adjacent",
         exact_status="exact_refuted",
@@ -790,7 +842,7 @@ def test_exact_refuted_annotation_becomes_contradicting_evidence():
         exact_graphSequence=42,
     )
 
-    result = query_relationship_kernel_report(sg, relationship_types=["supports"])
+    result = query_relationship_kernel_report(sg, relationship_types=["connects"])
 
     assert result["counts"]["evidenceCount"] == 1
     assert result["counts"]["interfaceRecordCount"] == 1
@@ -818,7 +870,46 @@ def test_exact_refuted_annotation_on_unrelated_pair_does_not_contradict_claim():
         exact_reason="no_shared_face",
     )
 
-    result = query_relationship_kernel_report(sg, relationship_types=["supports"])
+    result = query_relationship_kernel_report(sg, relationship_types=["connects"])
+
+    assert result["counts"]["evidenceCount"] == 0
+    assert result["verdicts"][0]["verdict"] == "unverified"
+
+
+def test_non_adjacent_exact_refuted_annotation_does_not_contradict_claim():
+    from rook.scene.relationship_kernel import query_relationship_kernel_report
+
+    sg = _claim_graph()
+    sg.graph.add_edge(
+        "beam-owner",
+        "plate-owner",
+        key="random-analysis-edge",
+        relationship="analysis_note",
+        exact_status="exact_refuted",
+        exact_reason="no_shared_face",
+        exact_graphSequence=42,
+    )
+
+    result = query_relationship_kernel_report(sg, relationship_types=["connects"])
+
+    assert result["counts"]["evidenceCount"] == 0
+    assert result["verdicts"][0]["verdict"] == "unverified"
+
+
+def test_exact_refuted_annotation_without_graph_sequence_does_not_contradict_claim():
+    from rook.scene.relationship_kernel import query_relationship_kernel_report
+
+    sg = _claim_graph()
+    sg.graph.add_edge(
+        "beam-owner",
+        "plate-owner",
+        key="spatial-adjacent",
+        relationship="adjacent",
+        exact_status="exact_refuted",
+        exact_reason="no_shared_face",
+    )
+
+    result = query_relationship_kernel_report(sg, relationship_types=["connects"])
 
     assert result["counts"]["evidenceCount"] == 0
     assert result["verdicts"][0]["verdict"] == "unverified"
@@ -829,7 +920,7 @@ def test_exact_refuted_annotation_on_unrelated_pair_does_not_contradict_claim():
 Run:
 
 ```powershell
-python -m pytest mcp_server/tests/test_relationship_kernel.py::test_exact_refuted_annotation_becomes_contradicting_evidence mcp_server/tests/test_relationship_kernel.py::test_exact_refuted_annotation_on_unrelated_pair_does_not_contradict_claim -q
+python -m pytest mcp_server/tests/test_relationship_kernel.py::test_exact_refuted_annotation_becomes_contradicting_evidence mcp_server/tests/test_relationship_kernel.py::test_exact_refuted_annotation_on_unrelated_pair_does_not_contradict_claim mcp_server/tests/test_relationship_kernel.py::test_non_adjacent_exact_refuted_annotation_does_not_contradict_claim mcp_server/tests/test_relationship_kernel.py::test_exact_refuted_annotation_without_graph_sequence_does_not_contradict_claim -q
 ```
 
 Expected: first test fails because no refutation evidence is produced; second may already pass.
@@ -856,7 +947,11 @@ def _exact_refutation_for_claim(
         str(claim["fromObjectId"]),
         str(claim["toObjectId"]),
     ):
+        if attrs.get("relationship") != "adjacent":
+            continue
         if attrs.get("exact_status") != "exact_refuted":
+            continue
+        if attrs.get("exact_graphSequence") is None:
             continue
         interface_id = _interface_id(claim, EXACT_REFUTATION_METHOD, source_id, target_id, edge_key)
         reason = attrs.get("exact_reason") or "exact_refuted"
@@ -867,7 +962,9 @@ def _exact_refutation_for_claim(
             "method": EXACT_REFUTATION_METHOD,
             "source": EXACT_PROVENANCE,
             "objectIds": [str(claim["fromObjectId"]), str(claim["toObjectId"])],
+            "interfaceScope": "owner_pair",
             "featurePaths": [claim.get("fromFeature"), claim.get("toFeature")],
+            "featureScopeVerified": False,
             "measures": {
                 "reason": reason,
             },
@@ -926,7 +1023,7 @@ Run:
 python -m pytest mcp_server/tests/test_relationship_kernel.py -q
 ```
 
-Expected: `9 passed`.
+Expected: `12 passed`.
 
 - [ ] **Step 5: Commit Task 3**
 
@@ -955,8 +1052,8 @@ def test_marker_evidence_is_marker_hint_and_does_not_satisfy_physical_claim():
 
     marker_evidence_records = [
         {
-            "relationshipFactId": "column_01.top_point_supports_slab_01.underside_region",
-            "relationship": "supports",
+            "relationshipFactId": "beam_01.end_connects_plate_01.socket",
+            "relationship": "connects",
             "evidence": {
                 "kind": "relationship_geometry_evidence_v1",
                 "method": "feature_marker_position_distance",
@@ -971,7 +1068,7 @@ def test_marker_evidence_is_marker_hint_and_does_not_satisfy_physical_claim():
 
     result = query_relationship_kernel_report(
         _claim_graph(),
-        relationship_types=["supports"],
+        relationship_types=["connects"],
         marker_evidence_records=marker_evidence_records,
     )
 
@@ -992,8 +1089,8 @@ def test_missing_marker_evidence_is_missing_and_keeps_claim_unverified():
 
     marker_evidence_records = [
         {
-            "relationshipFactId": "column_01.top_point_supports_slab_01.underside_region",
-            "relationship": "supports",
+            "relationshipFactId": "beam_01.end_connects_plate_01.socket",
+            "relationship": "connects",
             "evidence": {
                 "kind": "relationship_geometry_evidence_v1",
                 "method": "feature_marker_position_distance",
@@ -1007,7 +1104,7 @@ def test_missing_marker_evidence_is_missing_and_keeps_claim_unverified():
 
     result = query_relationship_kernel_report(
         _claim_graph(),
-        relationship_types=["supports"],
+        relationship_types=["connects"],
         marker_evidence_records=marker_evidence_records,
     )
 
@@ -1109,7 +1206,7 @@ Run:
 python -m pytest mcp_server/tests/test_relationship_kernel.py -q
 ```
 
-Expected: `11 passed`.
+Expected: `14 passed`.
 
 - [ ] **Step 5: Commit Task 4**
 
@@ -1199,17 +1296,18 @@ def test_exact_refutation_beats_marker_hint_without_using_strength_order_as_high
 
     sg = _claim_graph()
     sg.graph.add_edge(
-        "column-owner",
-        "slab-owner",
+        "beam-owner",
+        "plate-owner",
         key="spatial-adjacent",
         relationship="adjacent",
         exact_status="exact_refuted",
         exact_reason="no_shared_face",
+        exact_graphSequence=42,
     )
     marker_evidence_records = [
         {
-            "relationshipFactId": "column_01.top_point_supports_slab_01.underside_region",
-            "relationship": "supports",
+            "relationshipFactId": "beam_01.end_connects_plate_01.socket",
+            "relationship": "connects",
             "evidence": {
                 "kind": "relationship_geometry_evidence_v1",
                 "method": "feature_marker_position_distance",
@@ -1224,7 +1322,7 @@ def test_exact_refutation_beats_marker_hint_without_using_strength_order_as_high
 
     result = query_relationship_kernel_report(
         sg,
-        relationship_types=["supports"],
+        relationship_types=["connects"],
         marker_evidence_records=marker_evidence_records,
     )
 
@@ -1232,6 +1330,29 @@ def test_exact_refutation_beats_marker_hint_without_using_strength_order_as_high
     assert {item["polarity"] for item in result["evidence"]} == {"contradicts", "supports"}
     assert result["verdicts"][0]["verdict"] == "contradicted"
     assert result["verdicts"][0]["reason"] == "explicit_exact_topology_refutation"
+
+
+def test_supports_with_explicit_direct_contact_obligation_can_be_satisfied_by_adjacent_exact():
+    from rook.scene.relationship_kernel import query_relationship_kernel_report
+
+    sg = _claim_graph()
+    claim_attrs = sg.graph["column-owner"]["slab-owner"]["relationship_fact:architectural:supports"]
+    claim_attrs["physicalObligation"] = "direct_contact"
+    sg.graph.add_edge(
+        "column-owner",
+        "slab-owner",
+        key="occt:adjacent_exact",
+        relationship="adjacent_exact",
+        provenance="occt",
+        sharedArea=12.5,
+    )
+
+    result = query_relationship_kernel_report(sg, relationship_types=["supports"])
+
+    assert result["claims"][0]["physicalObligation"] == "direct_contact"
+    assert result["counts"]["evidenceCount"] == 1
+    assert result["verdicts"][0]["verdict"] == "satisfied"
+    assert result["verdicts"][0]["reason"] == "exact_topology_supports_owner_contact"
 ```
 
 - [ ] **Step 2: Run the applicability tests**
@@ -1239,7 +1360,7 @@ def test_exact_refutation_beats_marker_hint_without_using_strength_order_as_high
 Run:
 
 ```powershell
-python -m pytest mcp_server/tests/test_relationship_kernel.py::test_hosted_by_remains_not_applicable_even_with_adjacent_exact mcp_server/tests/test_relationship_kernel.py::test_penetrates_is_not_applicable_to_adjacent_exact_in_v1 mcp_server/tests/test_relationship_kernel.py::test_exact_refutation_beats_marker_hint_without_using_strength_order_as_higher_wins -q
+python -m pytest mcp_server/tests/test_relationship_kernel.py::test_hosted_by_remains_not_applicable_even_with_adjacent_exact mcp_server/tests/test_relationship_kernel.py::test_penetrates_is_not_applicable_to_adjacent_exact_in_v1 mcp_server/tests/test_relationship_kernel.py::test_exact_refutation_beats_marker_hint_without_using_strength_order_as_higher_wins mcp_server/tests/test_relationship_kernel.py::test_supports_with_explicit_direct_contact_obligation_can_be_satisfied_by_adjacent_exact -q
 ```
 
 Expected: tests should pass if Task 1 verdict logic was implemented as specified. If any fail, patch only `_physical_obligation` or `_verdict_for_claim`; do not change evidence normalization.
@@ -1252,7 +1373,7 @@ Run:
 python -m pytest mcp_server/tests/test_relationship_kernel.py -q
 ```
 
-Expected: `14 passed`.
+Expected: `18 passed`.
 
 - [ ] **Step 4: Commit Task 5**
 
@@ -1305,7 +1426,7 @@ Run:
 python -m pytest mcp_server/tests/test_relationship_kernel.py mcp_server/tests/test_relationship_geometry_evidence.py mcp_server/tests/test_relationship_geometry_evidence_tool.py mcp_server/tests/test_exact_projection.py -q
 ```
 
-Expected: all tests pass. Expected count after this plan is at least `mcp_server/tests/test_relationship_kernel.py` 15 tests plus existing evidence/exact tests.
+Expected: all tests pass. Expected count after this plan is at least `mcp_server/tests/test_relationship_kernel.py` 19 tests plus existing evidence/exact tests.
 
 - [ ] **Step 4: Run semantic/projection regression suites**
 
