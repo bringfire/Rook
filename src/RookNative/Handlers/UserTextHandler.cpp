@@ -160,6 +160,26 @@ const CRhinoObject* LookupObjectStrict(const ON_UUID& id, CRhinoDoc* pDoc)
     return obj;
 }
 
+const CRhinoObject* LookupPostMutationUserTextObject(
+    CRhinoDoc* pDoc,
+    const ON_UUID& id,
+    const std::string& operation,
+    bool dirty)
+{
+    const CRhinoObject* obj = pDoc->LookupObject(id);
+    if (obj)
+        return obj;
+
+    if (dirty)
+    {
+        throw DirtyUserTextOperationError(
+            id,
+            operation,
+            "Object disappeared after ModifyObjectAttributes");
+    }
+    throw StructuredError("not_found", "Object not found: " + UuidToString(id));
+}
+
 // Validate `userStrings` is a JSON object of string→non-empty-string
 // pairs. Throws std::invalid_argument (mapped to invalid_input by the
 // top-level catch) on:
@@ -474,6 +494,27 @@ nlohmann::json SerializeUserStringsFromAttributes(const ON_3dmObjectAttributes& 
     return userStrings;
 }
 
+nlohmann::json ReadbackPostMutationUserStrings(
+    CRhinoDoc* pDoc,
+    const ON_UUID& id,
+    const std::string& operation,
+    bool dirty)
+{
+    const CRhinoObject* obj = pDoc->LookupObject(id);
+    if (!obj)
+    {
+        if (dirty)
+        {
+            throw DirtyUserTextOperationError(
+                id,
+                operation,
+                "Object disappeared after ModifyObjectAttributes");
+        }
+        throw StructuredError("not_found", "Object not found: " + UuidToString(id));
+    }
+    return SerializeUserStringsFromAttributes(obj->Attributes());
+}
+
 // Serialize every user string on `pDoc` into a JSON object. Doc-level
 // analog of SerializeUserStringsFromAttributes; uses the CRhinoDoc
 // GetUserStringKeys / GetUserString API that matches the block-handler
@@ -663,11 +704,16 @@ void HandleUserTextObjectSetBatch(const httplib::Request& req, httplib::Response
 
         int modifiedCount = 0;
         int skippedCount = 0;
+        bool batchDirty = false;
         nlohmann::json results = nlohmann::json::array();
 
         for (const UserTextSetBatchItem& item : items)
         {
-            const CRhinoObject* obj = LookupObjectStrict(item.id, pDoc);
+            const CRhinoObject* obj = LookupPostMutationUserTextObject(
+                pDoc,
+                item.id,
+                "set_object_user_strings_batch",
+                batchDirty);
             const nlohmann::json currentUserStrings =
                 SerializeUserStringsFromAttributes(obj->Attributes());
 
@@ -707,13 +753,16 @@ void HandleUserTextObjectSetBatch(const httplib::Request& req, httplib::Response
                         "Failed to modify object attributes");
                 }
 
+                batchDirty = true;
                 status = "modified";
                 ++modifiedCount;
             }
 
-            const CRhinoObject* updated = LookupObjectStrict(item.id, pDoc);
-            const nlohmann::json postUserStrings =
-                SerializeUserStringsFromAttributes(updated->Attributes());
+            const nlohmann::json postUserStrings = ReadbackPostMutationUserStrings(
+                pDoc,
+                item.id,
+                "set_object_user_strings_batch",
+                batchDirty);
 
             nlohmann::json result;
             result["id"] = UuidToString(item.id);
