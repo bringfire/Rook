@@ -1,5 +1,11 @@
 # Spatial Graph — Projection, Ontology & Intelligence (design direction)
 
+> **Current north star (2026-06-28):** This document is retained as historical design direction
+> for topology projection and graph-policy ideas. For the current canonical spatial-intelligence
+> framing, use `docs/rook_docs/SPATIAL_INTELLIGENCE_NORTH_STAR.md`. In particular, treat graph
+> relationships as claims, evidence, verdicts, observations, profiles, or views before adding a
+> new layer.
+
 > **⚠ Extraction note (Slice A, `feature/occt-adjacency-engine`):** Included on the OCCT engine
 > branch as a **docs-only downstream companion** — it gives the engine PR its consuming-layer
 > context with no code coupling. The graph/projection layer described here is **implemented in

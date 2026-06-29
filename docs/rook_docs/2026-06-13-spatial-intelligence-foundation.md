@@ -1,5 +1,10 @@
 # Rook Spatial Intelligence — Foundational Document
 
+> **Current north star (2026-06-28):** This document is retained as historical grounding for
+> the OCCT/Topologic evidence gates. For the current canonical architecture framing, use
+> `docs/rook_docs/SPATIAL_INTELLIGENCE_NORTH_STAR.md`, especially the
+> `RelationshipClaim -> RelationshipEvidence -> RelationshipVerdict` spine.
+
 > **⚠ Extraction note (Slice A, `feature/occt-adjacency-engine`):** This roadmap is retained as the
 > parent context for the OCCT engine docs. The FreeCAD grounding-spike harnesses it cites as Gate
 > 0–3 evidence (`freecad-spike/*.py` and the `.FCStd`/`.step`/`.ifc` fixtures) and the companion

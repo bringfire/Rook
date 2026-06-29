@@ -1,5 +1,9 @@
 # Spatial Relationship Kernel Consolidation v1 - design
 
+> **Current north star (2026-06-28):** This slice spec records the kernel consolidation proof.
+> For the current canonical spatial-intelligence architecture, use
+> `docs/rook_docs/SPATIAL_INTELLIGENCE_NORTH_STAR.md`.
+
 > Status (2026-06-28): DESIGN - approved direction, written for review.
 > Branch/worktree: `codex/spatial-relationship-kernel-consolidation-v1` at
 > `C:/Users/aryan/source/repos/Rook/.worktrees/pearson-robot-feature-graph`.
