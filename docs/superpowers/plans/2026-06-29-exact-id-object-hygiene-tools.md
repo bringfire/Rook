@@ -1359,13 +1359,13 @@ In `mcp_server/src/rook/server.py`, add these match cases near related route fam
 
 ```python
 case "rhino_object_visibility":
-    result = await call_rhino("/objects/visibility", "POST", arguments, port=port)
+    result = await call_rhino("/objects/visibility", "POST", arguments)
 
 case "rhino_object_set_layer":
-    result = await call_rhino("/objects/set-layer", "POST", arguments, port=port)
+    result = await call_rhino("/objects/set-layer", "POST", arguments)
 
 case "rhino_object_usertext_set_batch":
-    result = await call_rhino("/usertext/object-set-batch", "POST", arguments, port=port)
+    result = await call_rhino("/usertext/object-set-batch", "POST", arguments)
 ```
 
 - [ ] **Step 3: Add agent dispatcher bridge routes**
@@ -1528,7 +1528,11 @@ async def test_server_dispatch_forwards_501_boundary_to_native(tool_name, args):
         await server.call_tool(tool_name, args)
 
     sent_args, _ = mock.call_args
-    assert sent_args[2] is args
+    assert sent_args[2] == args
+    if "object_ids" in args:
+        assert len(sent_args[2]["object_ids"]) == 501
+    else:
+        assert len(sent_args[2]["items"]) == 501
 ```
 
 This test does not prove native rejects 501; it proves the MCP layer does not silently trim or rewrite the payload. Native and live tests cover actual rejection.
