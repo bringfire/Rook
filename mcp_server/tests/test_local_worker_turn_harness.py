@@ -558,7 +558,13 @@ def test_non_response_returns_invalid_response_without_storing_raw_output(
     assert record.disposition is None
     assert record.failure == "response_type_invalid"
     assert record.reason == f"response_type_invalid:{type_name}"
-    assert raw_output not in (record.response, record.disposition, record.failure, record.reason)
+    if raw_output is not None:
+        assert raw_output not in (
+            record.response,
+            record.disposition,
+            record.failure,
+            record.reason,
+        )
 
 
 def test_worker_exception_is_captured_without_message_or_traceback() -> None:
