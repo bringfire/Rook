@@ -979,6 +979,9 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/director/view-state", [this](const httplib::Request& req, httplib::Response& res) {
         HandleDirectorViewState(req, res);
     });
+    m_server->Post("/director/occurrence-inventory", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleDirectorOccurrenceInventory(req, res);
+    });
     m_server->Post("/director/curve-samples", [this](const httplib::Request& req, httplib::Response& res) {
         HandleDirectorCurveSamples(req, res);
     });
@@ -2725,6 +2728,11 @@ void CRookServer::HandleDirectorObjectStates(const httplib::Request& req, httpli
 void CRookServer::HandleDirectorViewState(const httplib::Request& req, httplib::Response& res)
 {
     Rook::Handlers::HandleDirectorViewState(req, res);
+}
+
+void CRookServer::HandleDirectorOccurrenceInventory(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleDirectorOccurrenceInventory(req, res);
 }
 
 void CRookServer::HandleDirectorCurveSamples(const httplib::Request& req, httplib::Response& res)

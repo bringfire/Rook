@@ -214,6 +214,7 @@ struct LayerSnapshot {
 struct DocumentSnapshot {
     std::string name;
     std::string path;
+    std::string documentSessionId;
     std::string units;         // "Millimeters", "Meters", etc.
     double tolerance = 0.01;
     double angleTolerance = 1.0;  // Degrees
@@ -221,6 +222,7 @@ struct DocumentSnapshot {
     int layerCount = 0;
     std::string activeLayer;
     bool modified = false;
+    bool isSaved = false;
 };
 
 } // namespace Rook

@@ -11,15 +11,21 @@
 #include "RookServer.h"
 
 #include <algorithm>
+#include <atomic>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cwctype>
 #include <cstring>
+#include <deque>
 #include <filesystem>
 #include <iomanip>
 #include <limits>
+#include <mutex>
+#include <set>
 #include <stdexcept>
 #include <sstream>
+#include <unordered_map>
 #include <vector>
 #include <wincodec.h>
 #include <mfapi.h>
@@ -1333,7 +1339,866 @@ nlohmann::json ExecuteFrameTransaction(CRhinoDoc* pDoc, const FrameInstruction& 
     }
 }
 
+constexpr int kMaxDirectorOccurrencePageSize = 1000;
+constexpr std::size_t kMaxDirectorOccurrenceInventorySessions = 32;
+constexpr const char* kDirectorOccurrenceTraversalOrdering = "native_instance_definition_depth_first_v1";
+constexpr int kDirectorOccurrenceTraversalOrderingVersion = 1;
+
+struct OccurrenceInventoryRequest
+{
+    bool continuation = false;
+    std::string inventorySessionId;
+    int pageSize = 0;
+    std::size_t cursor = 0;
+    std::vector<ON_UUID> sourceObjectUuids;
+    std::vector<std::string> sourceObjectIds;
+};
+
+struct OccurrenceInventorySession
+{
+    std::string inventorySessionId;
+    unsigned int documentRuntimeSerial = 0;
+    std::string sourceDocumentKey;
+    std::string documentContextKey;
+    std::string traversalOrdering;
+    int traversalOrderingVersion = 0;
+    int pageSize = 0;
+    std::vector<ON_UUID> sourceObjectUuids;
+    std::vector<std::string> sourceObjectIds;
+    nlohmann::json inventoryContextFingerprint;
+    std::vector<nlohmann::json> records;
+    std::vector<std::string> warnings;
+};
+
+std::mutex g_occurrenceInventoryMutex;
+std::unordered_map<std::string, OccurrenceInventorySession> g_occurrenceInventorySessions;
+std::deque<std::string> g_occurrenceInventorySessionOrder;
+std::atomic<unsigned long long> g_occurrenceInventorySessionCounter{ 1 };
+std::mutex g_occurrenceDocumentKeyMutex;
+std::unordered_map<unsigned int, std::string> g_unsavedOccurrenceDocumentKeys;
+
+void ThrowOccurrenceSessionInvalid(const std::string& message)
+{
+    throw DirectorFrameValidationError("inventory_session_invalid", message);
+}
+
+std::string MakeOccurrenceInventorySessionId(unsigned int documentRuntimeSerial)
+{
+    const unsigned long long ordinal = g_occurrenceInventorySessionCounter.fetch_add(1);
+    return "inv_" + std::to_string(documentRuntimeSerial) + "_" + std::to_string(ordinal);
+}
+
+uint64_t Fnv1a64ForOccurrence(const std::string& value)
+{
+    uint64_t hash = 14695981039346656037ULL;
+    for (char c : value)
+    {
+        hash ^= static_cast<uint64_t>(static_cast<unsigned char>(c));
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
+std::string Hex64ForOccurrence(uint64_t value)
+{
+    std::ostringstream out;
+    out << std::hex << std::setw(16) << std::setfill('0') << value;
+    return out.str();
+}
+
+std::string NormalizeDocumentPathForOccurrenceKey(std::string path)
+{
+    std::replace(path.begin(), path.end(), '\\', '/');
+    std::transform(path.begin(), path.end(), path.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return path;
+}
+
+std::string UnsavedSourceDocumentKeyForOccurrence(unsigned int documentRuntimeSerial)
+{
+    std::lock_guard<std::mutex> lock(g_occurrenceDocumentKeyMutex);
+    auto existing = g_unsavedOccurrenceDocumentKeys.find(documentRuntimeSerial);
+    if (existing != g_unsavedOccurrenceDocumentKeys.end())
+        return existing->second;
+
+    ON_UUID keyUuid = ON_nil_uuid;
+    if (FAILED(CoCreateGuid(&keyUuid)))
+        throw std::runtime_error("Could not allocate unsaved source document key");
+
+    const std::string key = UuidToString(keyUuid);
+    g_unsavedOccurrenceDocumentKeys[documentRuntimeSerial] = key;
+    return key;
+}
+
+nlohmann::json XformToJson(const ON_Xform& xform)
+{
+    nlohmann::json rows = nlohmann::json::array();
+    for (int row = 0; row < 4; ++row)
+    {
+        rows.push_back(nlohmann::json::array({
+            RoundTo(xform.m_xform[row][0], 6),
+            RoundTo(xform.m_xform[row][1], 6),
+            RoundTo(xform.m_xform[row][2], 6),
+            RoundTo(xform.m_xform[row][3], 6)
+        }));
+    }
+    return rows;
+}
+
+nlohmann::json RequiredBoundingBoxJsonForOccurrence(
+    const ON_BoundingBox& bbox,
+    const std::string& objectId,
+    const char* factName,
+    std::vector<std::string>& warnings)
+{
+    if (bbox.IsValid())
+        return BoundingBoxToJson(bbox);
+
+    warnings.push_back(std::string(factName) + ": bbox_unavailable_zero_fallback for object " + objectId);
+    return {
+        {"min", {0.0, 0.0, 0.0}},
+        {"max", {0.0, 0.0, 0.0}},
+        {"fallback", "bbox_unavailable_zero_fallback"}
+    };
+}
+
+ON_BoundingBox TransformBoundingBoxForOccurrence(const ON_BoundingBox& bbox, const ON_Xform& xform)
+{
+    if (!bbox.IsValid())
+        return bbox;
+
+    const ON_3dPoint minPt = bbox.Min();
+    const ON_3dPoint maxPt = bbox.Max();
+    const ON_3dPoint corners[8] = {
+        ON_3dPoint(minPt.x, minPt.y, minPt.z),
+        ON_3dPoint(maxPt.x, minPt.y, minPt.z),
+        ON_3dPoint(minPt.x, maxPt.y, minPt.z),
+        ON_3dPoint(maxPt.x, maxPt.y, minPt.z),
+        ON_3dPoint(minPt.x, minPt.y, maxPt.z),
+        ON_3dPoint(maxPt.x, minPt.y, maxPt.z),
+        ON_3dPoint(minPt.x, maxPt.y, maxPt.z),
+        ON_3dPoint(maxPt.x, maxPt.y, maxPt.z)
+    };
+
+    const ON_3dPoint first = xform * corners[0];
+    ON_BoundingBox transformed(first, first);
+    for (int i = 1; i < 8; ++i)
+    {
+        const ON_3dPoint point = xform * corners[i];
+        transformed.m_min.x = (std::min)(transformed.m_min.x, point.x);
+        transformed.m_min.y = (std::min)(transformed.m_min.y, point.y);
+        transformed.m_min.z = (std::min)(transformed.m_min.z, point.z);
+        transformed.m_max.x = (std::max)(transformed.m_max.x, point.x);
+        transformed.m_max.y = (std::max)(transformed.m_max.y, point.y);
+        transformed.m_max.z = (std::max)(transformed.m_max.z, point.z);
+    }
+    return transformed;
+}
+
+std::string ObjectLayerPathForOccurrence(
+    CRhinoDoc* pDoc,
+    const ON_3dmObjectAttributes& attrs,
+    const std::string& objectId,
+    std::vector<std::string>& warnings)
+{
+    const int layerIndex = attrs.m_layer_index;
+    if (layerIndex >= 0 && layerIndex < pDoc->m_layer_table.LayerCount())
+    {
+        ON_wString layerPath;
+        pDoc->m_layer_table.GetLayerPathName(layerIndex, layerPath);
+        return WideToUtf8(layerPath);
+    }
+
+    warnings.push_back("missing_layer_path: object " + objectId + " has no resolvable layer path");
+    return "Default";
+}
+
+nlohmann::json MaterialRefForOccurrence(
+    CRhinoDoc* pDoc,
+    const ON_3dmObjectAttributes& attrs,
+    const std::string& objectId,
+    std::vector<std::string>& warnings)
+{
+    nlohmann::json material;
+    material["material_index"] = attrs.m_material_index >= 0 ? nlohmann::json(attrs.m_material_index) : nlohmann::json(nullptr);
+    material["material_name"] = nullptr;
+
+    switch (attrs.MaterialSource())
+    {
+    case ON::material_from_object:
+        material["source"] = "object";
+        if (attrs.m_material_index >= 0 && attrs.m_material_index < pDoc->m_material_table.MaterialCount())
+        {
+            material["material_name"] = WideToUtf8(pDoc->m_material_table[attrs.m_material_index].Name());
+        }
+        else if (attrs.m_material_index >= 0)
+        {
+            warnings.push_back("missing_material: object " + objectId + " references unavailable material index " +
+                std::to_string(attrs.m_material_index));
+        }
+        break;
+    case ON::material_from_parent:
+        material["source"] = "parent";
+        break;
+    case ON::material_from_layer:
+        material["source"] = "layer";
+        break;
+    default:
+        material["source"] = "unknown";
+        warnings.push_back("unsupported_material_source: object " + objectId + " has an unrecognized material source");
+        break;
+    }
+
+    return material;
+}
+
+ON_BoundingBox ObjectLocalBoundsForOccurrence(
+    const CRhinoObject* obj,
+    const std::string& objectId,
+    std::vector<std::string>& warnings)
+{
+    ON_BoundingBox bbox;
+    if (obj && obj->GetTightBoundingBox(bbox) && bbox.IsValid())
+        return bbox;
+
+    if (obj)
+    {
+        bbox = obj->BoundingBox();
+        if (bbox.IsValid())
+            return bbox;
+    }
+
+    warnings.push_back("missing_bbox: object " + objectId + " did not provide a valid bounding box");
+    return ON_BoundingBox::EmptyBoundingBox;
+}
+
+void AddDefinitionFieldsForOccurrence(
+    nlohmann::json& target,
+    const CRhinoInstanceDefinition* definition,
+    int definitionObjectIndex)
+{
+    if (definition)
+    {
+        target["definition_name"] = WideToUtf8(definition->Name());
+        target["definition_id"] = UuidToString(definition->Id());
+        target["definition_index"] = definition->Index();
+    }
+    else
+    {
+        target["definition_name"] = nullptr;
+        target["definition_id"] = nullptr;
+        target["definition_index"] = nullptr;
+    }
+
+    target["definition_object_index"] =
+        definitionObjectIndex >= 0 ? nlohmann::json(definitionObjectIndex) : nlohmann::json(nullptr);
+}
+
+std::string SegmentFingerprintForOccurrence(
+    const std::string& kind,
+    const std::string& objectId,
+    const CRhinoInstanceDefinition* definition,
+    int definitionObjectIndex,
+    int siblingOrdinal)
+{
+    std::string value = kind + "|" + objectId + "|";
+    value += definition ? UuidToString(definition->Id()) : "top";
+    value += "|" + std::to_string(definitionObjectIndex);
+    value += "|" + std::to_string(siblingOrdinal);
+    return value;
+}
+
+nlohmann::json BuildOccurrencePathSegment(
+    CRhinoDoc* pDoc,
+    const std::string& kind,
+    const CRhinoObject* obj,
+    const CRhinoInstanceDefinition* definition,
+    int definitionObjectIndex,
+    int siblingOrdinal,
+    const ON_Xform& localTransform,
+    const ON_Xform& worldTransform,
+    const ON_BoundingBox& localBbox,
+    const ON_BoundingBox& worldBbox,
+    std::vector<std::string>& warnings)
+{
+    const ON_3dmObjectAttributes& attrs = obj->Attributes();
+    const std::string objectId = UuidToString(attrs.m_uuid);
+
+    nlohmann::json segment;
+    segment["kind"] = kind;
+    AddDefinitionFieldsForOccurrence(segment, definition, definitionObjectIndex);
+    segment["instance_reference_id"] = CRhinoInstanceObject::Cast(obj) ? nlohmann::json(objectId) : nlohmann::json(nullptr);
+    segment["sibling_ordinal"] = siblingOrdinal;
+    segment["object_id"] = objectId;
+    segment["object_name"] = WideToUtf8(attrs.m_name);
+    segment["object_type"] = ObjectTypeToString(obj->ObjectType());
+    segment["layer_path"] = ObjectLayerPathForOccurrence(pDoc, attrs, objectId, warnings);
+    segment["material_ref"] = MaterialRefForOccurrence(pDoc, attrs, objectId, warnings);
+    segment["local_transform"] = XformToJson(localTransform);
+    segment["world_transform"] = XformToJson(worldTransform);
+    segment["local_bbox"] = RequiredBoundingBoxJsonForOccurrence(
+        localBbox, objectId, "local_bbox", warnings);
+    segment["world_bbox"] = RequiredBoundingBoxJsonForOccurrence(
+        worldBbox, objectId, "world_bbox", warnings);
+    segment["segment_fingerprint"] = SegmentFingerprintForOccurrence(
+        kind, objectId, definition, definitionObjectIndex, siblingOrdinal);
+
+    if (const CRhinoInstanceObject* instance = CRhinoInstanceObject::Cast(obj))
+    {
+        const CRhinoInstanceDefinition* referenced = instance->InstanceDefinition();
+        if (referenced)
+        {
+            segment["referenced_definition_name"] = WideToUtf8(referenced->Name());
+            segment["referenced_definition_id"] = UuidToString(referenced->Id());
+            segment["referenced_definition_index"] = referenced->Index();
+        }
+        else
+        {
+            segment["referenced_definition_name"] = nullptr;
+            segment["referenced_definition_id"] = nullptr;
+            segment["referenced_definition_index"] = nullptr;
+        }
+    }
+
+    return segment;
+}
+
+nlohmann::json BuildOccurrenceRecord(
+    const std::string& recordKind,
+    const std::string& sourceTopLevelObjectId,
+    const std::string& nativeRoleHint,
+    const nlohmann::json& sourceOccurrencePath)
+{
+    const nlohmann::json& leaf = sourceOccurrencePath.back();
+
+    nlohmann::json record;
+    record["record_kind"] = recordKind;
+    record["source_top_level_object_id"] = sourceTopLevelObjectId;
+    record["source_occurrence_path"] = sourceOccurrencePath;
+    record["object_id"] = leaf["object_id"];
+    record["object_name"] = leaf["object_name"];
+    record["object_type"] = leaf["object_type"];
+    record["layer_path"] = leaf["layer_path"];
+    record["material_ref"] = leaf["material_ref"];
+    record["local_transform"] = leaf["local_transform"];
+    record["world_transform"] = leaf["world_transform"];
+    record["local_bbox"] = leaf["local_bbox"];
+    record["world_bbox"] = leaf["world_bbox"];
+    record["definition_name"] = leaf["definition_name"];
+    record["definition_id"] = leaf["definition_id"];
+    record["definition_object_index"] = leaf["definition_object_index"];
+    record["native_role_hint"] = nativeRoleHint;
+    return record;
+}
+
+void TraverseOccurrenceDefinition(
+    CRhinoDoc* pDoc,
+    const CRhinoInstanceDefinition* definition,
+    const ON_Xform& parentWorldTransform,
+    const std::string& sourceTopLevelObjectId,
+    const nlohmann::json& parentPath,
+    std::vector<nlohmann::json>& records,
+    std::vector<std::string>& warnings,
+    std::set<int>& definitionStack)
+{
+    if (!definition)
+    {
+        warnings.push_back("missing_definition: instance reference did not resolve to a definition");
+        return;
+    }
+
+    if (definitionStack.count(definition->Index()) > 0)
+    {
+        warnings.push_back("circular_definition_reference: skipped recursive definition " +
+            WideToUtf8(definition->Name()));
+        return;
+    }
+
+    definitionStack.insert(definition->Index());
+
+    for (int objectIndex = 0; objectIndex < definition->ObjectCount(); ++objectIndex)
+    {
+        const CRhinoObject* obj = definition->Object(objectIndex);
+        if (!obj)
+        {
+            warnings.push_back("missing_definition_object: definition " + WideToUtf8(definition->Name()) +
+                " has null object at index " + std::to_string(objectIndex));
+            continue;
+        }
+
+        const std::string objectId = UuidToString(obj->Attributes().m_uuid);
+        const CRhinoInstanceObject* nestedInstance = CRhinoInstanceObject::Cast(obj);
+        const ON_Xform localTransform = nestedInstance
+            ? nestedInstance->InstanceXform()
+            : ON_Xform::IdentityTransformation;
+        const ON_Xform worldTransform = parentWorldTransform * localTransform;
+        const ON_BoundingBox localBbox = ObjectLocalBoundsForOccurrence(obj, objectId, warnings);
+        // CRhinoInstanceObject object-level bounds already include its local instance transform.
+        const ON_BoundingBox worldBbox = nestedInstance
+            ? TransformBoundingBoxForOccurrence(localBbox, parentWorldTransform)
+            : TransformBoundingBoxForOccurrence(localBbox, worldTransform);
+
+        nlohmann::json path = parentPath;
+        path.push_back(BuildOccurrencePathSegment(
+            pDoc,
+            nestedInstance ? "nested_instance" : "definition_object",
+            obj,
+            definition,
+            objectIndex,
+            objectIndex,
+            localTransform,
+            worldTransform,
+            localBbox,
+            worldBbox,
+            warnings));
+
+        records.push_back(BuildOccurrenceRecord(
+            nestedInstance ? "nested_instance" : "definition_object",
+            sourceTopLevelObjectId,
+            nestedInstance ? "nested_instance_reference" : "definition_leaf_object",
+            path));
+
+        if (nestedInstance)
+        {
+            const CRhinoInstanceDefinition* nestedDefinition = nestedInstance->InstanceDefinition();
+            if (!nestedDefinition)
+            {
+                warnings.push_back("missing_definition: nested instance " + objectId +
+                    " did not resolve to a definition");
+                continue;
+            }
+
+            TraverseOccurrenceDefinition(
+                pDoc,
+                nestedDefinition,
+                worldTransform,
+                sourceTopLevelObjectId,
+                path,
+                records,
+                warnings,
+                definitionStack);
+        }
+    }
+
+    definitionStack.erase(definition->Index());
+}
+
+void AppendOccurrenceActorRoot(
+    CRhinoDoc* pDoc,
+    const CRhinoObject* obj,
+    int sourceOrdinal,
+    std::vector<nlohmann::json>& records,
+    std::vector<std::string>& warnings)
+{
+    const std::string sourceTopLevelObjectId = UuidToString(obj->Attributes().m_uuid);
+    const CRhinoInstanceObject* instance = CRhinoInstanceObject::Cast(obj);
+    const CRhinoInstanceDefinition* definition = instance ? instance->InstanceDefinition() : nullptr;
+    const ON_Xform localTransform = instance
+        ? instance->InstanceXform()
+        : ON_Xform::IdentityTransformation;
+    const ON_Xform worldTransform = localTransform;
+    const ON_BoundingBox localBbox = ObjectLocalBoundsForOccurrence(obj, sourceTopLevelObjectId, warnings);
+    // Selected instance object bounds are already in document space.
+    const ON_BoundingBox worldBbox = instance
+        ? localBbox
+        : TransformBoundingBoxForOccurrence(localBbox, worldTransform);
+
+    nlohmann::json path = nlohmann::json::array();
+    path.push_back(BuildOccurrencePathSegment(
+        pDoc,
+        "actor_root",
+        obj,
+        definition,
+        -1,
+        sourceOrdinal,
+        localTransform,
+        worldTransform,
+        localBbox,
+        worldBbox,
+        warnings));
+
+    records.push_back(BuildOccurrenceRecord(
+        "actor_root",
+        sourceTopLevelObjectId,
+        instance ? "selected_instance_root" : "selected_object_root",
+        path));
+
+    if (instance)
+    {
+        if (!definition)
+        {
+            warnings.push_back("missing_definition: selected instance " + sourceTopLevelObjectId +
+                " did not resolve to a definition");
+            return;
+        }
+
+        std::set<int> definitionStack;
+        TraverseOccurrenceDefinition(
+            pDoc,
+            definition,
+            worldTransform,
+            sourceTopLevelObjectId,
+            path,
+            records,
+            warnings,
+            definitionStack);
+    }
+}
+
+std::string SourceDocumentKeyForOccurrence(CRhinoDoc* pDoc)
+{
+    const std::string path = WideToUtf8(pDoc->GetPathName());
+    if (path.empty())
+        return "unsaved_session:" + UnsavedSourceDocumentKeyForOccurrence(pDoc->RuntimeSerialNumber());
+
+    return "source_path_hash:" + Hex64ForOccurrence(
+        Fnv1a64ForOccurrence(NormalizeDocumentPathForOccurrenceKey(path)));
+}
+
+std::string DocumentContextKeyForOccurrence(CRhinoDoc* pDoc)
+{
+    const std::string path = WideToUtf8(pDoc->GetPathName());
+    return "document_runtime_serial:" + std::to_string(pDoc->RuntimeSerialNumber()) +
+        ":path:" + (path.empty() ? "<unsaved>" : path);
+}
+
+nlohmann::json InventoryContextFingerprintForOccurrence(CRhinoDoc* pDoc)
+{
+    nlohmann::json fingerprint;
+    fingerprint["document_runtime_serial"] = pDoc->RuntimeSerialNumber();
+    fingerprint["traversal_ordering"] = kDirectorOccurrenceTraversalOrdering;
+    fingerprint["traversal_ordering_version"] = kDirectorOccurrenceTraversalOrderingVersion;
+    return fingerprint;
+}
+
+std::vector<ON_UUID> ParseOccurrenceSourceObjectIds(
+    const nlohmann::json& body,
+    std::vector<std::string>& sourceObjectIds)
+{
+    if (!body.contains("source_object_ids") || !body["source_object_ids"].is_array() ||
+        body["source_object_ids"].empty())
+    {
+        ThrowOccurrenceSessionInvalid("source_object_ids must be a non-empty array on the first inventory page");
+    }
+
+    std::vector<ON_UUID> uuids;
+    uuids.reserve(body["source_object_ids"].size());
+    sourceObjectIds.reserve(body["source_object_ids"].size());
+
+    for (const auto& item : body["source_object_ids"])
+    {
+        if (!item.is_string())
+            ThrowOccurrenceSessionInvalid("source_object_ids entries must be UUID strings");
+
+        const std::string id = item.get<std::string>();
+        const ON_UUID uuid = ON_UuidFromString(id.c_str());
+        if (ON_UuidIsNil(uuid))
+            ThrowOccurrenceSessionInvalid("source_object_ids contains an invalid UUID: " + id);
+
+        uuids.push_back(uuid);
+        sourceObjectIds.push_back(UuidToString(uuid));
+    }
+
+    return uuids;
+}
+
+int ParseOccurrencePageSize(const nlohmann::json& body)
+{
+    if (!body.contains("page_size") || body["page_size"].is_boolean() ||
+        !body["page_size"].is_number_integer())
+    {
+        ThrowOccurrenceSessionInvalid("page_size must be an integer");
+    }
+
+    const int pageSize = body["page_size"].get<int>();
+    if (pageSize < 1 || pageSize > kMaxDirectorOccurrencePageSize)
+    {
+        ThrowOccurrenceSessionInvalid(
+            "page_size must be between 1 and " + std::to_string(kMaxDirectorOccurrencePageSize));
+    }
+
+    return pageSize;
+}
+
+std::size_t ParseOccurrenceCursorString(const std::string& cursor)
+{
+    if (cursor.empty())
+        ThrowOccurrenceSessionInvalid("cursor must be a non-empty decimal string");
+
+    const bool allDigits = std::all_of(cursor.begin(), cursor.end(), [](unsigned char ch) {
+        return std::isdigit(ch) != 0;
+    });
+    if (!allDigits)
+        ThrowOccurrenceSessionInvalid("cursor must be a decimal offset string");
+
+    try
+    {
+        return static_cast<std::size_t>(std::stoull(cursor));
+    }
+    catch (const std::exception&)
+    {
+        ThrowOccurrenceSessionInvalid("cursor is outside the supported range");
+    }
+
+    return 0;
+}
+
+OccurrenceInventoryRequest ParseOccurrenceInventoryRequest(const nlohmann::json& body)
+{
+    OccurrenceInventoryRequest request;
+    request.pageSize = ParseOccurrencePageSize(body);
+
+    if (body.contains("inventory_session_id"))
+    {
+        if (!body["inventory_session_id"].is_string() ||
+            body["inventory_session_id"].get<std::string>().empty())
+        {
+            ThrowOccurrenceSessionInvalid("inventory_session_id must be a non-empty string");
+        }
+        request.inventorySessionId = body["inventory_session_id"].get<std::string>();
+        request.continuation = true;
+    }
+
+    if (request.continuation)
+    {
+        if (!body.contains("cursor") || !body["cursor"].is_string())
+            ThrowOccurrenceSessionInvalid("cursor must be a string on continuation inventory pages");
+        request.cursor = ParseOccurrenceCursorString(body["cursor"].get<std::string>());
+        return request;
+    }
+
+    if (body.contains("cursor") && !body["cursor"].is_null())
+        ThrowOccurrenceSessionInvalid("cursor must be null on the first inventory page");
+
+    request.sourceObjectUuids = ParseOccurrenceSourceObjectIds(body, request.sourceObjectIds);
+    return request;
+}
+
+void PopulateOccurrenceInventorySession(CRhinoDoc* pDoc, OccurrenceInventorySession& session)
+{
+    for (std::size_t i = 0; i < session.sourceObjectUuids.size(); ++i)
+    {
+        const ON_UUID uuid = session.sourceObjectUuids[i];
+        const std::string id = session.sourceObjectIds[i];
+        const CRhinoObject* obj = pDoc->LookupObject(uuid);
+        if (!obj || obj->IsDeleted())
+        {
+            throw DirectorFrameValidationError(
+                "inventory_stale",
+                "missing_source_object: selected source object " + id + " was not found");
+        }
+
+        AppendOccurrenceActorRoot(
+            pDoc,
+            obj,
+            static_cast<int>(i),
+            session.records,
+            session.warnings);
+    }
+}
+
+nlohmann::json WarningArrayForOccurrence(const std::vector<std::string>& warnings)
+{
+    nlohmann::json result = nlohmann::json::array();
+    for (const std::string& warning : warnings)
+        result.push_back(warning);
+    return result;
+}
+
+nlohmann::json BuildOccurrenceInventoryPage(
+    const OccurrenceInventorySession& session,
+    std::size_t cursor)
+{
+    if (cursor > session.records.size())
+        ThrowOccurrenceSessionInvalid("cursor is outside the inventory record range");
+    if (cursor != 0 && (cursor % static_cast<std::size_t>(session.pageSize)) != 0)
+        ThrowOccurrenceSessionInvalid("cursor does not align with the session page size");
+
+    const std::size_t end = (std::min)(
+        cursor + static_cast<std::size_t>(session.pageSize),
+        session.records.size());
+
+    nlohmann::json records = nlohmann::json::array();
+    for (std::size_t i = cursor; i < end; ++i)
+        records.push_back(session.records[i]);
+
+    nlohmann::json data;
+    data["schema_version"] = 1;
+    data["inventory_session_id"] = session.inventorySessionId;
+    data["source_document_key"] = session.sourceDocumentKey;
+    data["inventory_context_fingerprint"] = session.inventoryContextFingerprint;
+    data["records"] = std::move(records);
+    data["next_cursor"] = end < session.records.size()
+        ? nlohmann::json(std::to_string(end))
+        : nlohmann::json(nullptr);
+    data["complete"] = end >= session.records.size();
+    data["warnings"] = cursor == 0
+        ? WarningArrayForOccurrence(session.warnings)
+        : nlohmann::json::array();
+    return data;
+}
+
+void EraseOccurrenceInventorySession(const std::string& inventorySessionId)
+{
+    g_occurrenceInventorySessions.erase(inventorySessionId);
+    g_occurrenceInventorySessionOrder.erase(
+        std::remove(
+            g_occurrenceInventorySessionOrder.begin(),
+            g_occurrenceInventorySessionOrder.end(),
+            inventorySessionId),
+        g_occurrenceInventorySessionOrder.end());
+}
+
+bool EvictOldestOccurrenceInventorySession()
+{
+    while (!g_occurrenceInventorySessionOrder.empty())
+    {
+        const std::string oldestSessionId = g_occurrenceInventorySessionOrder.front();
+        g_occurrenceInventorySessionOrder.pop_front();
+        if (g_occurrenceInventorySessions.erase(oldestSessionId) > 0)
+            return true;
+    }
+
+    return false;
+}
+
+void RecordOccurrenceInventorySession(OccurrenceInventorySession&& session)
+{
+    const std::string inventorySessionId = session.inventorySessionId;
+    EraseOccurrenceInventorySession(inventorySessionId);
+    while (g_occurrenceInventorySessions.size() >= kMaxDirectorOccurrenceInventorySessions)
+    {
+        if (!EvictOldestOccurrenceInventorySession())
+            throw std::runtime_error("Could not allocate occurrence inventory session cache slot");
+    }
+
+    g_occurrenceInventorySessionOrder.push_back(inventorySessionId);
+    g_occurrenceInventorySessions[inventorySessionId] = std::move(session);
+}
+
+void ValidateOccurrenceSessionStillCurrent(
+    CRhinoDoc* pDoc,
+    const OccurrenceInventorySession& session)
+{
+    if (pDoc->RuntimeSerialNumber() != session.documentRuntimeSerial ||
+        DocumentContextKeyForOccurrence(pDoc) != session.documentContextKey)
+    {
+        throw DirectorFrameValidationError("inventory_stale", "inventory document context changed");
+    }
+
+    for (std::size_t i = 0; i < session.sourceObjectUuids.size(); ++i)
+    {
+        const CRhinoObject* obj = pDoc->LookupObject(session.sourceObjectUuids[i]);
+        if (!obj || obj->IsDeleted())
+        {
+            throw DirectorFrameValidationError(
+                "inventory_stale",
+                "inventory source object no longer resolves: " + session.sourceObjectIds[i]);
+        }
+    }
+}
+
+nlohmann::json StartOccurrenceInventory(
+    CRhinoDoc* pDoc,
+    const OccurrenceInventoryRequest& request)
+{
+    OccurrenceInventorySession session;
+    session.documentRuntimeSerial = pDoc->RuntimeSerialNumber();
+    session.inventorySessionId = MakeOccurrenceInventorySessionId(session.documentRuntimeSerial);
+    session.sourceDocumentKey = SourceDocumentKeyForOccurrence(pDoc);
+    session.documentContextKey = DocumentContextKeyForOccurrence(pDoc);
+    session.traversalOrdering = kDirectorOccurrenceTraversalOrdering;
+    session.traversalOrderingVersion = kDirectorOccurrenceTraversalOrderingVersion;
+    session.pageSize = request.pageSize;
+    session.sourceObjectUuids = request.sourceObjectUuids;
+    session.sourceObjectIds = request.sourceObjectIds;
+    session.inventoryContextFingerprint = InventoryContextFingerprintForOccurrence(pDoc);
+
+    PopulateOccurrenceInventorySession(pDoc, session);
+
+    nlohmann::json firstPage = BuildOccurrenceInventoryPage(session, 0);
+
+    if (firstPage.value("complete", false))
+        return firstPage;
+
+    {
+        std::lock_guard<std::mutex> lock(g_occurrenceInventoryMutex);
+        RecordOccurrenceInventorySession(std::move(session));
+    }
+
+    return firstPage;
+}
+
+nlohmann::json ContinueOccurrenceInventory(
+    CRhinoDoc* pDoc,
+    const OccurrenceInventoryRequest& request)
+{
+    std::lock_guard<std::mutex> lock(g_occurrenceInventoryMutex);
+    auto it = g_occurrenceInventorySessions.find(request.inventorySessionId);
+    if (it == g_occurrenceInventorySessions.end())
+        ThrowOccurrenceSessionInvalid("inventory_session_id does not match an active inventory session");
+
+    const OccurrenceInventorySession& session = it->second;
+    if (request.pageSize != session.pageSize)
+        ThrowOccurrenceSessionInvalid("page_size must match the inventory session page size");
+    if (session.traversalOrdering != kDirectorOccurrenceTraversalOrdering ||
+        session.traversalOrderingVersion != kDirectorOccurrenceTraversalOrderingVersion)
+    {
+        ThrowOccurrenceSessionInvalid("inventory session traversal ordering is inconsistent");
+    }
+
+    ValidateOccurrenceSessionStillCurrent(pDoc, session);
+    nlohmann::json page = BuildOccurrenceInventoryPage(session, request.cursor);
+    if (page.value("complete", false))
+        EraseOccurrenceInventorySession(request.inventorySessionId);
+    return page;
+}
+
+nlohmann::json ExecuteOccurrenceInventory(
+    CRhinoDoc* pDoc,
+    const OccurrenceInventoryRequest& request)
+{
+    return request.continuation
+        ? ContinueOccurrenceInventory(pDoc, request)
+        : StartOccurrenceInventory(pDoc, request);
+}
+
 } // namespace
+
+void HandleDirectorOccurrenceInventory(const httplib::Request& req, httplib::Response& res)
+{
+    try
+    {
+        auto [docSn, body] = ParseBodyAndDocSn(req);
+        OccurrenceInventoryRequest request = ParseOccurrenceInventoryRequest(body);
+
+        auto future = CMainThreadDispatcher::Instance().Dispatch(
+            [docSn, request]() -> nlohmann::json
+        {
+            CRhinoDoc* pDoc = ResolveDoc(docSn);
+            return ExecuteOccurrenceInventory(pDoc, request);
+        });
+
+        CRookServer::SendSuccess(res, future.get());
+    }
+    catch (const DirectorFrameValidationError& ex)
+    {
+        CRookServer::SendErrorData(res, MakeErrorData(ex.code, ex.what()));
+    }
+    catch (const nlohmann::json::exception& ex)
+    {
+        CRookServer::SendErrorData(res, MakeErrorData("inventory_session_invalid", ex.what()));
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendErrorData(res, MakeErrorData("inventory_session_invalid", ex.what()));
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendErrorData(res, MakeErrorData("director_read_failed", ex.what()));
+    }
+}
 
 void HandleDirectorObjectStates(const httplib::Request& req, httplib::Response& res)
 {

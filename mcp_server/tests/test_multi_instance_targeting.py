@@ -82,6 +82,38 @@ def test_director_video_tools_are_explicit_rhino_mutate():
         assert policy == targeting.RhinoToolPolicy(True, "mutate")
 
 
+def test_director_prepare_take_policy_is_explicit_rhino_mutate():
+    policy = targeting.policy_for_tool("rhino_director_prepare_take")
+    assert policy == targeting.RhinoToolPolicy(True, "mutate")
+
+
+def test_director_replay_motion_policies_are_explicitly_classified():
+    assert targeting.policy_for_tool("rhino_director_replay") == targeting.RhinoToolPolicy(True, "mutate")
+    assert targeting.policy_for_tool("rhino_director_replay_cancel") == targeting.RhinoToolPolicy(True, "mutate")
+    assert targeting.policy_for_tool("rhino_director_compile_motion") == targeting.RhinoToolPolicy(True, "read")
+    assert targeting.policy_for_tool("rhino_director_preview_motion") == targeting.RhinoToolPolicy(True, "mutate")
+
+
+def test_reconstruction_tool_policies_match_readonly_group():
+    readonly = {
+        "rhino_2d_to_3d_models",
+        "rhino_2d_to_3d_jobs",
+        "rhino_2d_to_3d_status",
+        "rhino_2d_to_3d_result",
+    }
+    mutating = {
+        "rhino_2d_to_3d_submit",
+        "rhino_2d_to_3d_remove_background",
+        "rhino_2d_to_3d_assemble_view_set",
+        "rhino_2d_to_3d_cancel",
+        "rhino_2d_to_3d_import",
+    }
+    for name in readonly:
+        assert targeting.policy_for_tool(name) == targeting.RhinoToolPolicy(True, "read")
+    for name in mutating:
+        assert targeting.policy_for_tool(name) == targeting.RhinoToolPolicy(True, "mutate")
+
+
 def test_gh_update_script_policy_is_explicit_rhino_mutate():
     policy = targeting.policy_for_tool("gh_update_script")
     assert policy == targeting.RhinoToolPolicy(True, "mutate")
@@ -652,6 +684,29 @@ async def test_mutating_dispatch_refuses_ambiguous_unbound_instances(monkeypatch
         text = result[0].text
         assert "multiple_rhino_instances" in text
         mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_director_prepare_take_refuses_ambiguous_unbound_instances(monkeypatch):
+    from rook import server
+
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9950, 7101, "A.3dm"),
+        _inst(9951, 7102, "B.3dm"),
+    ])
+    targeting.clear_active_target()
+
+    with patch.object(
+        server.director_prepare, "prepare_take", new_callable=AsyncMock
+    ) as mock:
+        result = await server.call_tool(
+            "rhino_director_prepare_take",
+            {"source_object_ids": ["root-a"], "take_id": "take-ambiguous"},
+        )
+
+    text = result[0].text
+    assert "multiple_rhino_instances" in text
+    mock.assert_not_awaited()
 
 
 @pytest.mark.asyncio

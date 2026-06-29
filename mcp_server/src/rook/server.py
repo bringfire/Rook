@@ -71,7 +71,7 @@ from .mcp_tool_profiles import (
     tool_blocked,
 )
 from .capability_index import build_index, validate_arguments
-from . import artifacts, director, director_compiler, director_preview, director_publish, director_video, merge_execution, script_library, targeting, workbench, work_units
+from . import artifacts, director, director_compiler, director_prepare, director_preview, director_publish, director_video, merge_execution, script_library, targeting, workbench, work_units
 from .mesh2splat import pipeline as mesh2splat_pipeline
 targeting.initialize_from_environment()
 from .knowledge import query_knowledge, query_knowledge_tiered, record_knowledge, invalidate_condensed_command_cache
@@ -3950,6 +3950,86 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                                 "description": "End normalized curve parameter in [0, 1].",
                             },
                         },
+                    },
+                },
+            },
+        ),
+        Tool(
+            name="rhino_director_prepare_take",
+            description=(
+                "RookVisionDirector prepare_take: metadata-only source occurrence "
+                "inventory preparation. Writes external sidecars for audit/provenance, "
+                "with no Rhino document mutation and no generated actor/replay target."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": [],
+                "properties": {
+                    "scope": {
+                        "type": "string",
+                        "description": (
+                            "The only supported value is selected_occurrences. Other scopes "
+                            "are rejected by runtime validation."
+                        ),
+                    },
+                    "source_object_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Optional Rhino source object UUIDs to inventory. Provide "
+                            "these or use_current_selection=true; explicit IDs override "
+                            "the current selection."
+                        ),
+                    },
+                    "use_current_selection": {
+                        "type": "boolean",
+                        "description": (
+                            "When true and source_object_ids is omitted, read the current "
+                            "Rhino selection as the selected occurrences."
+                        ),
+                    },
+                    "page_size": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": (
+                            "Positive inventory page size for native occurrence traversal. "
+                            "Defaults to 500."
+                        ),
+                    },
+                    "classify_nested": {
+                        "type": "boolean",
+                        "description": (
+                            "Include semantic classification attempts for nested inventory "
+                            "records. Defaults to false."
+                        ),
+                    },
+                    "write_markdown_audit": {
+                        "type": "boolean",
+                        "description": (
+                            "Write audit_report.md alongside JSON audit and provenance "
+                            "sidecars. Defaults to true."
+                        ),
+                    },
+                    "portable": {
+                        "type": "boolean",
+                        "description": (
+                            "Store sidecars beside the saved source document under .rook. "
+                            "Cannot be combined with output_root."
+                        ),
+                    },
+                    "output_root": {
+                        "type": "string",
+                        "description": (
+                            "Optional absolute output root for external sidecars. The "
+                            "Rhino document is not modified."
+                        ),
+                    },
+                    "take_id": {
+                        "type": "string",
+                        "description": (
+                            "Optional stable take id/path segment for deterministic "
+                            "sidecar storage."
+                        ),
                     },
                 },
             },
@@ -20630,6 +20710,18 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
 
         case "rhino_director_curve_samples":
             result = await call_rhino("/director/curve-samples", "POST", arguments, port=port)
+
+        case "rhino_director_prepare_take":
+            try:
+                result = {
+                    "success": True,
+                    "data": await director_prepare.prepare_take(arguments, port=port),
+                }
+            except director_prepare.DirectorPrepareError as exc:
+                result = {
+                    "success": False,
+                    "data": exc.to_data(),
+                }
 
         case "rhino_director_assemble_video":
             try:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -12,8 +13,8 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from rook import director, server
-from .conftest import _create_brep
+from rook import director, director_prepare, server
+from .conftest import _block_create, _block_insert, _create_brep
 
 
 pytestmark = [pytest.mark.requires_rhino, pytest.mark.asyncio]
@@ -67,6 +68,10 @@ async def _fixture_objects_by_layer(
     if object_type:
         request["type"] = object_type
     result = await _mcp_tool_executor("rhino_objects", request)
+    if isinstance(result, dict) and result.get("success") is False:
+        data = result.get("data")
+        if isinstance(data, str) and "Layer" in data and "not found" in data:
+            return []
     if not isinstance(result, dict) or not isinstance(result.get("objects"), list):
         pytest.fail(f"rhino_objects returned unexpected result for {layer!r}: {result!r}")
     return result["objects"]
@@ -126,6 +131,16 @@ def _assert_vector_close(actual: list[float], expected: list[float], tolerance: 
         assert abs(actual_value - expected_value) <= tolerance
 
 
+def _assert_bbox_close(
+    bbox: dict[str, Any],
+    expected_min: list[float],
+    expected_max: list[float],
+    tolerance: float = 1.0e-4,
+) -> None:
+    _assert_vector_close(bbox["min"], expected_min, tolerance)
+    _assert_vector_close(bbox["max"], expected_max, tolerance)
+
+
 def _png_size(path: Path) -> tuple[int, int]:
     with path.open("rb") as fh:
         header = fh.read(24)
@@ -134,8 +149,24 @@ def _png_size(path: Path) -> tuple[int, int]:
     return struct.unpack(">II", header[16:24])
 
 
-def _read_jsonl(path: Path) -> list[dict[str, Any]]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _read_json(path: str | Path) -> dict[str, Any]:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _read_jsonl(path: str | Path) -> list[dict[str, Any]]:
+    return [
+        json.loads(line)
+        for line in Path(path).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
 
 def _frame_instruction(
@@ -228,6 +259,130 @@ async def test_director_object_states_rejects_empty_ids():
     _, envelope = await _post_director("object-states", {"object_ids": []})
     assert envelope["success"] is False
     assert "object_ids" in str(envelope["data"])
+
+
+async def _create_nested_inventory_fixture(prefix: str) -> str:
+    leaf_id = await _create_brep(
+        [0.0, 0.0, 0.0],
+        [1.0, 1.0, 1.0],
+        f"{prefix}_leaf_box",
+    )
+    await _block_create(
+        f"{prefix}_Leaf",
+        [leaf_id],
+        [0.0, 0.0, 0.0],
+        replace_with_instance=False,
+    )
+    nested_instance_id = await _block_insert(
+        f"{prefix}_Leaf",
+        [2.0, 0.0, 0.0],
+    )
+    root_id = await _create_brep(
+        [0.0, 2.0, 0.0],
+        [1.0, 3.0, 1.0],
+        f"{prefix}_root_box",
+    )
+    await _block_create(
+        f"{prefix}_Root",
+        [nested_instance_id, root_id],
+        [0.0, 0.0, 0.0],
+        replace_with_instance=False,
+    )
+    return await _block_insert(f"{prefix}_Root", [5.0, 0.0, 0.0])
+
+
+async def _collect_occurrence_inventory(source_id: str, *, page_size: int = 1) -> list[dict[str, Any]]:
+    pages: list[dict[str, Any]] = []
+    body: dict[str, Any] = {
+        "source_object_ids": [source_id],
+        "page_size": page_size,
+        "cursor": None,
+    }
+    while True:
+        _, envelope = await _post_director("occurrence-inventory", body)
+        assert envelope["success"] is True, envelope
+        data = envelope["data"]
+        assert "source_document_fingerprint" not in data
+        pages.append(data)
+        if data["complete"]:
+            return pages
+        body = {
+            "inventory_session_id": data["inventory_session_id"],
+            "page_size": page_size,
+            "cursor": data["next_cursor"],
+        }
+
+
+async def test_director_occurrence_inventory_live_paged_nested_blocks(fresh_document):
+    source_id = await _create_nested_inventory_fixture(f"occ_inv_{uuid4().hex}")
+
+    pages = await _collect_occurrence_inventory(source_id, page_size=1)
+
+    assert len(pages) > 1
+    session_ids = {page["inventory_session_id"] for page in pages}
+    assert len(session_ids) == 1
+    records = [record for page in pages for record in page["records"]]
+    kinds = {record["record_kind"] for record in records}
+    assert "actor_root" in kinds
+    assert "nested_instance" in kinds
+    assert "definition_object" in kinds
+    assert all(record["source_top_level_object_id"].lower() == source_id.lower() for record in records)
+    assert all(record.get("source_occurrence_path") for record in records)
+    assert any(record["record_kind"] == "nested_instance" and record.get("world_transform") for record in records)
+    assert all(record.get("material_ref") is not None for record in records)
+    assert all(record.get("local_bbox") is not None for record in records)
+    assert all(record.get("world_bbox") is not None for record in records)
+    actor_root = next(record for record in records if record["record_kind"] == "actor_root")
+    nested_instance = next(record for record in records if record["record_kind"] == "nested_instance")
+    _assert_bbox_close(actor_root["world_bbox"], [5.0, 0.0, 0.0], [8.0, 3.0, 1.0])
+    _assert_bbox_close(nested_instance["world_bbox"], [7.0, 0.0, 0.0], [8.0, 1.0, 1.0])
+
+    _, bad_page_envelope = await _post_director(
+        "occurrence-inventory",
+        {
+            "inventory_session_id": pages[0]["inventory_session_id"],
+            "page_size": 2,
+            "cursor": pages[0]["next_cursor"],
+        },
+    )
+    assert bad_page_envelope["success"] is False
+    assert _error_code(bad_page_envelope) == "inventory_session_invalid"
+
+
+async def test_director_prepare_take_live_metadata_only_nested_block(fresh_document, tmp_path):
+    from rook.server import _mcp_tool_executor
+
+    source_id = await _create_nested_inventory_fixture(f"prepare_take_{uuid4().hex}")
+    objects_before = await _mcp_tool_executor("rhino_objects", {"limit": 10000})
+    object_count_before = len(objects_before.get("objects", []))
+    inventory_pages = await _collect_occurrence_inventory(source_id, page_size=100)
+    native_record_count = sum(len(page["records"]) for page in inventory_pages)
+
+    result = await director_prepare.prepare_take(
+        {
+            "take_id": f"take_live_{uuid4().hex}",
+            "source_object_ids": [source_id],
+            "output_root": str(tmp_path),
+            "page_size": 100,
+        },
+        port=_director_port(),
+    )
+
+    objects_after = await _mcp_tool_executor("rhino_objects", {"limit": 10000})
+    assert len(objects_after.get("objects", [])) == object_count_before
+
+    manifest = _read_json(result["paths"]["take_manifest"])
+    records = _read_jsonl(result["paths"]["provenance_records"])
+    assert result["actor_count"] == 1
+    assert len(records) == native_record_count
+    assert manifest["source_document_fingerprint"]["hash"]
+    assert (
+        manifest["inventory_summary"]["provenance_jsonl_sha256"]
+        == _sha256_file(Path(result["paths"]["provenance_records"]))
+    )
+    assert manifest["inventory_summary"]["materialized_count"] == 0
+    assert all(record["materialization_status"] == "referenced_only" for record in records)
+    assert all(record["audit"]["representation"] == "metadata_only" for record in records)
 
 
 async def test_director_curve_samples_live_smoke_samples_line_curve(fresh_document):
@@ -939,8 +1094,7 @@ async def test_director_publish_video_live_smoke(fresh_document):
         "rhino_vision_get_artifact",
         {"artifact_id": artifact_id},
     )
-    artifact_payload = json.loads(artifact_result[0].text)
-    artifact = artifact_payload["artifact"]
+    artifact = json.loads(artifact_result[0].text)
     assert artifact["kind"] == "generated_video"
     files = artifact["files"]
     assert len(files) == 1

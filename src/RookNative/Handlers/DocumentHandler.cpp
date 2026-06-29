@@ -10,8 +10,32 @@
 #include "Threading/MainThreadDispatcher.h"
 #include "RookServer.h"
 
+#include <mutex>
+#include <unordered_map>
+
 namespace Rook {
 namespace Handlers {
+namespace {
+
+std::string DocumentSessionIdForRuntimeSerial(unsigned int runtimeSerial)
+{
+    static std::mutex sessionIdsMutex;
+    static std::unordered_map<unsigned int, std::string> sessionIdsByRuntimeSerial;
+
+    std::lock_guard<std::mutex> lock(sessionIdsMutex);
+    auto existing = sessionIdsByRuntimeSerial.find(runtimeSerial);
+    if (existing != sessionIdsByRuntimeSerial.end())
+        return existing->second;
+
+    ON_UUID sessionUuid = ON_nil_uuid;
+    if (FAILED(CoCreateGuid(&sessionUuid)))
+        throw std::runtime_error("Could not allocate document session id");
+
+    sessionIdsByRuntimeSerial[runtimeSerial] = UuidToString(sessionUuid);
+    return sessionIdsByRuntimeSerial[runtimeSerial];
+}
+
+} // namespace
 
 void HandleDocument(const httplib::Request& req, httplib::Response& res)
 {
@@ -41,6 +65,7 @@ void HandleDocument(const httplib::Request& req, httplib::Response& res)
             throw std::runtime_error("No active document");
 
         DocumentSnapshot snap;
+        snap.documentSessionId = DocumentSessionIdForRuntimeSerial(pDoc->RuntimeSerialNumber());
 
         // Name — use the title, fall back to "Untitled"
         ON_wString title = pDoc->GetTitle();
@@ -49,6 +74,7 @@ void HandleDocument(const httplib::Request& req, httplib::Response& res)
             snap.name = "Untitled";
 
         snap.path = WideToUtf8(pDoc->GetPathName());
+        snap.isSaved = !snap.path.empty();
 
         // Unit system
         const ON_3dmUnitsAndTolerances& ut = pDoc->Properties().ModelUnitsAndTolerances();

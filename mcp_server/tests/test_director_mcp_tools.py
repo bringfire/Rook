@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from rook import server, targeting
 from rook.agent import tool_groups
+from rook.agent.tool_dispatcher import ToolDispatcher, build_local_tools
 from rook.agent.tool_registry import ToolRegistry
 
 
@@ -181,6 +182,39 @@ async def test_director_publish_video_tool_registered():
 
 
 @pytest.mark.asyncio
+async def test_director_prepare_take_tool_registered_with_clean_schema():
+    tools = await server.list_tools()
+    by_name = {tool.name: tool for tool in tools}
+    assert "rhino_director_prepare_take" in by_name
+
+    tool = by_name["rhino_director_prepare_take"]
+    assert "metadata-only" in tool.description
+    assert "external sidecars" in tool.description
+    assert "no Rhino document mutation" in tool.description
+    assert "no generated actor/replay target" in tool.description
+
+    schema = tool.inputSchema
+    assert schema["type"] == "object"
+    assert _find_rejected_schema_keywords(schema) == []
+    assert "enum" not in json.dumps(schema)
+    assert schema.get("required", []) == []
+    properties = schema["properties"]
+    assert set(properties) == {
+        "scope",
+        "source_object_ids",
+        "use_current_selection",
+        "page_size",
+        "classify_nested",
+        "write_markdown_audit",
+        "portable",
+        "output_root",
+        "take_id",
+    }
+    assert "selected_occurrences" in properties["scope"]["description"]
+    assert "only supported" in properties["scope"]["description"]
+
+
+@pytest.mark.asyncio
 async def test_director_tool_dispatches_to_python_runner():
     request = {
         "object_ids": ["a"],
@@ -248,6 +282,50 @@ async def test_director_assemble_video_tool_returns_error_envelope_for_video_err
         "code": "director_video_error",
         "message": "bad video request",
     }
+
+
+@pytest.mark.asyncio
+async def test_director_prepare_take_tool_dispatches_to_python_runner():
+    request = {
+        "scope": "selected_occurrences",
+        "source_object_ids": ["root-a"],
+        "take_id": "take-dispatch",
+        "output_root": "C:/runs/director-takes",
+    }
+    with patch.object(
+        server.director_prepare, "prepare_take", new_callable=AsyncMock
+    ) as mock:
+        mock.return_value = {
+            "take_id": "take-dispatch",
+            "paths": {
+                "take_manifest": "C:/runs/director-takes/take-dispatch/take_manifest.json"
+            },
+        }
+        result = await server.call_tool("rhino_director_prepare_take", request)
+
+    mock.assert_awaited_once_with(request, port=None)
+    text = result[0].text
+    assert "take-dispatch" in text
+    assert "take_manifest.json" in text
+
+
+@pytest.mark.asyncio
+async def test_director_prepare_take_tool_surfaces_public_prepare_error_code():
+    request = {"take_id": "take-missing-selection"}
+    with patch.object(
+        server.director_prepare, "prepare_take", new_callable=AsyncMock
+    ) as mock:
+        mock.side_effect = server.director_prepare.DirectorPrepareError(
+            "missing_source_selection", "source ids or current selection required"
+        )
+        result = await server.call_tool("rhino_director_prepare_take", request)
+
+    mock.assert_awaited_once_with(request, port=None)
+    text = result[0].text
+    assert text.startswith("Error: ")
+    payload = json.loads(text.removeprefix("Error: "))
+    assert payload["code"] == "missing_source_selection"
+    assert payload["message"] == "source ids or current selection required"
 
 
 @pytest.mark.asyncio
@@ -332,7 +410,15 @@ def test_director_tool_groups_include_curve_samples_readonly():
     assert "rhino_director_preview_motion" in tool_groups.TOOL_GROUPS["director"]
     assert "director_readonly" in tool_groups.TOOL_GROUPS
     assert "rhino_director_curve_samples" in tool_groups.TOOL_GROUPS["director_readonly"]
+    assert "rhino_director_compile_motion" in tool_groups.TOOL_GROUPS["director_readonly"]
     assert "director" in tool_groups.MCP_ONLY_GROUPS
+
+
+def test_director_prepare_take_is_in_director_group_only():
+    assert "rhino_director_prepare_take" in tool_groups.TOOL_GROUPS["director"]
+    assert "rhino_director_prepare_take" not in tool_groups.TOOL_GROUPS[
+        "director_readonly"
+    ]
 
 
 def test_director_tool_groups_include_assemble_video_mutating_only():
@@ -366,6 +452,34 @@ def test_director_readonly_group_loads_for_readonly_registry():
 
     assert result["success"] is True
     assert "rhino_director_curve_samples" in result["loaded"]
+    assert "rhino_director_compile_motion" in result["loaded"]
+
+
+def test_director_compile_motion_is_agent_local_dispatchable():
+    assert "rhino_director_compile_motion" in build_local_tools()
+
+
+@pytest.mark.asyncio
+async def test_director_compile_motion_agent_dispatch_uses_python_compiler(monkeypatch):
+    from rook import director_compiler
+
+    async def fake_compile(arguments, *, port=None):
+        assert arguments == {"timeline": {"fps": 24, "frame_count": 2}, "motion": []}
+        assert port == 9977
+        return {"track": {"frame_count": 2}, "provenance": {"source": "agent-local"}}
+
+    monkeypatch.setattr(director_compiler, "compile_motion", fake_compile)
+    dispatcher = ToolDispatcher(port=9977, local_tools=build_local_tools())
+
+    result = await dispatcher.dispatch(
+        "rhino_director_compile_motion",
+        {"timeline": {"fps": 24, "frame_count": 2}, "motion": []},
+    )
+
+    assert result == {
+        "success": True,
+        "data": {"track": {"frame_count": 2}, "provenance": {"source": "agent-local"}},
+    }
 
 
 def test_director_curve_samples_search_loads_readonly_bridge_tool():
@@ -389,6 +503,11 @@ def test_director_curve_samples_search_loads_readonly_bridge_tool():
     assert result["success"] is True
     assert "rhino_director_curve_samples" in result["loaded"]
     assert "rhino_director_run" not in result["loaded"]
+
+
+def test_director_prepare_take_sidecar_writes_require_mutating_routing():
+    policy = targeting.policy_for_tool("rhino_director_prepare_take")
+    assert policy == targeting.RhinoToolPolicy(True, "mutate")
 
 
 @pytest.mark.asyncio

@@ -221,12 +221,13 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "rhino_director_replay_cancel",
         "rhino_director_compile_motion",
         "rhino_director_preview_motion",
+        "rhino_director_prepare_take",
         "rhino_director_assemble_video",
         "rhino_director_publish_video",
     ],
     "director_readonly": [
         "rhino_objects", "rhino_views", "rhino_display_modes", "rhino_document",
-        "rhino_director_curve_samples",
+        "rhino_director_curve_samples", "rhino_director_compile_motion",
     ],
 
     # --- Vision (PR-6): Gemini generation + artifact management ---

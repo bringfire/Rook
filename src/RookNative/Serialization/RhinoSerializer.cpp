@@ -313,6 +313,8 @@ nlohmann::json SerializeDocument(const DocumentSnapshot& doc)
     return {
         {"name", doc.name},
         {"path", doc.path},
+        {"documentSessionId", doc.documentSessionId},
+        {"isSaved", doc.isSaved},
         {"units", doc.units},
         {"tolerance", doc.tolerance},
         {"angleTolerance", doc.angleTolerance},

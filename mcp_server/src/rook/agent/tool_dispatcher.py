@@ -1261,6 +1261,23 @@ def build_local_tools() -> Dict[str, Any]:
     except ImportError:
         logger.debug("gh_knowledge_query local tool unavailable (import failed)")
 
+    # --- RookVisionDirector compile motion ---
+    try:
+        from .. import director_compiler
+
+        async def _rhino_director_compile_motion(
+            port: int | None = None, **arguments
+        ) -> dict:
+            try:
+                result = await director_compiler.compile_motion(arguments, port=port)
+                return {"success": True, "data": result}
+            except director_compiler.DirectorCompileError as exc:
+                return {"success": False, "data": exc.to_data()}
+
+        tools["rhino_director_compile_motion"] = _rhino_director_compile_motion
+    except ImportError:
+        logger.debug("rhino_director_compile_motion local tool unavailable (import failed)")
+
     # --- scene_exact_neighbors (Python-side projection over the OCCT exact route) ---
     try:
         from ..scene.scene_graph import get_scene_graph
