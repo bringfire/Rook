@@ -95,6 +95,19 @@ def test_fallback_catalog_rhino_command_schemas_are_actionable():
     assert audit_litellm_tool_schema(catalog["rhino_command"]) == []
 
 
+def test_fallback_catalog_rhino_execute_schema_is_actionable():
+    from rook.agent.chat.chat_runner import _build_fallback_catalog
+
+    catalog = _build_fallback_catalog()
+
+    params = catalog["rhino_execute"]["function"]["parameters"]
+    assert params["type"] == "object"
+    assert params["required"] == ["code"]
+    assert params["additionalProperties"] is False
+    assert params["properties"]["code"]["type"] == "string"
+    assert audit_litellm_tool_schema(catalog["rhino_execute"]) == []
+
+
 def test_local_catalog_rhino_execute_intent_schema_is_actionable():
     from rook.agent.chat.chat_runner import _build_local_tool_catalog
 

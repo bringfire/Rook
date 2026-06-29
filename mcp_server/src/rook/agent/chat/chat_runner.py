@@ -266,6 +266,9 @@ def _build_fallback_catalog() -> Dict[str, dict]:
         if tool_name == "gh_errors":
             catalog[tool_name] = _GH_ERRORS_SCHEMA
             continue
+        if tool_name == "rhino_execute":
+            catalog[tool_name] = _RHINO_EXECUTE_SCHEMA
+            continue
         if tool_name == "rhino_command":
             catalog[tool_name] = _RHINO_COMMAND_SCHEMA
             continue
@@ -421,6 +424,25 @@ _POINT3_SCHEMA: dict = {
     "items": {"type": "number"},
     "minItems": 3,
     "maxItems": 3,
+}
+
+_RHINO_EXECUTE_SCHEMA: dict = {
+    "type": "function",
+    "function": {
+        "name": "rhino_execute",
+        "description": _TOOL_DESCRIPTIONS["rhino_execute"],
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "Python code to execute in Rhino.",
+                },
+            },
+            "required": ["code"],
+            "additionalProperties": False,
+        },
+    },
 }
 
 _RHINO_COMMAND_SCHEMA: dict = {
