@@ -40,7 +40,7 @@ Do not modify:
 
 - Create: `mcp_server/tests/test_local_worker_turn_disposition.py`
 
-- [ ] **Step 1: Create the test file**
+- [x] **Step 1: Create the test file**
 
 ```python
 from __future__ import annotations
@@ -778,7 +778,7 @@ def test_local_worker_disposition_module_boundary_is_gate_only() -> None:
     assert not ({"open", "loads", "dumps"} & called_names)
 ```
 
-- [ ] **Step 2: Run the targeted test and verify RED**
+- [x] **Step 2: Run the targeted test and verify RED**
 
 Run:
 
@@ -795,7 +795,7 @@ ModuleNotFoundError: No module named 'rook.agent.local_worker_turn_disposition'
 If the failure is anything other than the missing production module, fix the
 test file before continuing.
 
-- [ ] **Step 3: Commit the failing tests**
+- [x] **Step 3: Commit the failing tests**
 
 ```powershell
 git add mcp_server/tests/test_local_worker_turn_disposition.py
@@ -810,7 +810,7 @@ git commit -m "test(lm5c): add local worker disposition tests"
 
 - Create: `mcp_server/src/rook/agent/local_worker_turn_disposition.py`
 
-- [ ] **Step 1: Create the production module**
+- [x] **Step 1: Create the production module**
 
 ```python
 """LM5C local-worker response disposition gate.
@@ -1072,7 +1072,7 @@ def _require_optional_str(value: object, field_name: str) -> str | None:
     return _require_str(value, field_name)
 ```
 
-- [ ] **Step 2: Run targeted tests and verify GREEN**
+- [x] **Step 2: Run targeted tests and verify GREEN**
 
 Run:
 
@@ -1086,7 +1086,7 @@ Expected output:
 all tests pass
 ```
 
-- [ ] **Step 3: Commit implementation**
+- [x] **Step 3: Commit implementation**
 
 ```powershell
 git add mcp_server/src/rook/agent/local_worker_turn_disposition.py mcp_server/tests/test_local_worker_turn_disposition.py
@@ -1102,7 +1102,7 @@ git commit -m "feat(lm5c): add local worker response disposition"
 - Verify: `mcp_server/src/rook/agent/local_worker_turn_disposition.py`
 - Verify: `mcp_server/tests/test_local_worker_turn_disposition.py`
 
-- [ ] **Step 1: Run targeted LM5C tests**
+- [x] **Step 1: Run targeted LM5C tests**
 
 ```powershell
 mcp_server\.venv\Scripts\python.exe -m pytest mcp_server/tests/test_local_worker_turn_disposition.py -q
@@ -1114,7 +1114,7 @@ Expected output:
 all tests pass
 ```
 
-- [ ] **Step 2: Run nearby LM5/LM4 regression tests**
+- [x] **Step 2: Run nearby LM5/LM4 regression tests**
 
 ```powershell
 mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -1135,7 +1135,7 @@ Expected output:
 all tests pass
 ```
 
-- [ ] **Step 3: Run focused PlanGraph/local-worker gate**
+- [x] **Step 3: Run focused PlanGraph/local-worker gate**
 
 ```powershell
 $files = Get-ChildItem mcp_server\tests -Filter 'test_plan_graph*.py' | Sort-Object Name | ForEach-Object { $_.FullName }
@@ -1162,7 +1162,7 @@ all tests pass
 - Verify no diff: `mcp_server/src/rook/agent/local_worker_turn_context.py`
 - Verify no diff: `mcp_server/src/rook/agent/local_worker_turn_response.py`
 
-- [ ] **Step 1: Check whitespace/diff hygiene**
+- [x] **Step 1: Check whitespace/diff hygiene**
 
 ```powershell
 git diff --check main..HEAD
@@ -1170,7 +1170,7 @@ git diff --check main..HEAD
 
 Expected output: no output.
 
-- [ ] **Step 2: Check production scope**
+- [x] **Step 2: Check production scope**
 
 ```powershell
 git diff --name-only main..HEAD -- mcp_server/src
@@ -1182,7 +1182,7 @@ Expected output:
 mcp_server/src/rook/agent/local_worker_turn_disposition.py
 ```
 
-- [ ] **Step 3: Check LM5A and LM5B source stayed untouched**
+- [x] **Step 3: Check LM5A and LM5B source stayed untouched**
 
 ```powershell
 git diff --name-only main..HEAD -- `
@@ -1192,7 +1192,7 @@ git diff --name-only main..HEAD -- `
 
 Expected output: no output.
 
-- [ ] **Step 4: Check guarded repo areas stayed untouched**
+- [x] **Step 4: Check guarded repo areas stayed untouched**
 
 ```powershell
 git diff --name-only main..HEAD -- src/Rook/base_agent.py knowledge/gh/operations_knowledge.json src/Rook src/RookNative
@@ -1200,7 +1200,7 @@ git diff --name-only main..HEAD -- src/Rook/base_agent.py knowledge/gh/operation
 
 Expected output: no output.
 
-- [ ] **Step 5: Run quick production boundary scan**
+- [x] **Step 5: Run quick production boundary scan**
 
 ```powershell
 rg -n "WorkerAllowedAction|propose_next_node|map_accepted_proposal_to_step|revalidate_proposal|execute_mapped_step|run_current_mapped_step|run_current_step_stream|EnvelopeSupplyResult|CurrentStepRecord|EnvelopeSupplyRecord|PlanGraph|CompiledWorkflowScaffold|CatalogCurrentStepProvider|WorkflowProvenanceEnvelopeSource|compile_workflow_contract|load_workflow_contract_payload|snapshot_workflow_contract|RookAgent|base_agent|dispatcher|server|litellm|OpenAI|Path|open\(|import json|json\.loads|json\.dumps|yaml|MappingProxyType|from typing import Any|from collections\.abc import Mapping|import math|_freeze_json" mcp_server/src/rook/agent/local_worker_turn_disposition.py
@@ -1212,7 +1212,7 @@ The AST guard in the test file is the primary boundary check. This `rg` scan is
 a quick human-readable guard and intentionally avoids raw substring bans like
 `model`.
 
-- [ ] **Step 6: Check final worktree status**
+- [x] **Step 6: Check final worktree status**
 
 ```powershell
 git status --short
@@ -1224,20 +1224,20 @@ Expected output: no output.
 
 ## Self-Review Checklist
 
-- [ ] Public surface exports only `WorkerResponseDisposition`, `LocalWorkerTurnDispositionRecord`, and `dispose_local_worker_turn_response`.
-- [ ] `LocalWorkerTurnDispositionRecord` nests the exact LM5B attempt record and does not carry response/context/payload fields.
-- [ ] `__post_init__` checks scalar types before coherence.
-- [ ] `response_kind == attempt.response_kind` and `action_id == attempt.action_id` are enforced.
-- [ ] Invalid attempts map only to `blocked`.
-- [ ] Blocked reasons preserve LM5B attempt reason as `blocked:<attempt.reason>`.
-- [ ] Valid action requests map only to `candidate_action_request:<action_id>`.
-- [ ] Valid clarification/refusal/observation map to their compact reason strings.
-- [ ] `dispose_local_worker_turn_response(...)` delegates to LM5B and does not inspect context fields.
-- [ ] LM5B `TypeError`s propagate.
-- [ ] No retry/fallback/critic/oversight/routing/policy hints were added.
-- [ ] No action authorization, dispatch, execution, schema validation, graph mutation, or stream continuation was added.
-- [ ] No JSON/freezing/payload machinery was added to LM5C.
-- [ ] No LM5A or LM5B production source files changed.
+- [x] Public surface exports only `WorkerResponseDisposition`, `LocalWorkerTurnDispositionRecord`, and `dispose_local_worker_turn_response`.
+- [x] `LocalWorkerTurnDispositionRecord` nests the exact LM5B attempt record and does not carry response/context/payload fields.
+- [x] `__post_init__` checks scalar types before coherence.
+- [x] `response_kind == attempt.response_kind` and `action_id == attempt.action_id` are enforced.
+- [x] Invalid attempts map only to `blocked`.
+- [x] Blocked reasons preserve LM5B attempt reason as `blocked:<attempt.reason>`.
+- [x] Valid action requests map only to `candidate_action_request:<action_id>`.
+- [x] Valid clarification/refusal/observation map to their compact reason strings.
+- [x] `dispose_local_worker_turn_response(...)` delegates to LM5B and does not inspect context fields.
+- [x] LM5B `TypeError`s propagate.
+- [x] No retry/fallback/critic/oversight/routing/policy hints were added.
+- [x] No action authorization, dispatch, execution, schema validation, graph mutation, or stream continuation was added.
+- [x] No JSON/freezing/payload machinery was added to LM5C.
+- [x] No LM5A or LM5B production source files changed.
 
 ---
 
