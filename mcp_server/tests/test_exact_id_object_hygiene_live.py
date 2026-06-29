@@ -101,6 +101,10 @@ async def _object_snapshot(obj_id: str) -> dict[str, Any]:
     pytest.fail(f"Object {obj_id!r} not found in rhino_objects snapshot: {res!r}")
 
 
+async def _geometry_snapshot(obj_id: str) -> dict[str, Any]:
+    return await _tool("rhino_geometry", {"id": obj_id})
+
+
 async def _get_usertext(obj_id: str) -> dict[str, str]:
     res = await _tool("rhino_usertext_object_get", {"id": obj_id})
     user_strings = res.get("userStrings")
@@ -169,8 +173,8 @@ async def test_object_visibility_changes_only_requested_ids(fresh_document):
         assert item["after"]["objectVisible"] is False
         assert item["after"]["effectivelyVisible"] is False
 
-    assert _snapshot_visible(await _object_snapshot(target_a)) is False
-    assert _snapshot_visible(await _object_snapshot(target_b)) is False
+    assert _snapshot_visible(await _geometry_snapshot(target_a)) is False
+    assert _snapshot_visible(await _geometry_snapshot(target_b)) is False
     assert _snapshot_visible(await _object_snapshot(neighbor)) is True
 
 
