@@ -26,16 +26,16 @@ chosenDefaultSamplingResolution: 128
 
 | Fixture | Sampling | Gaussians | PLY Bytes | CLI Duration ms | Process Wall ms |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `cube_textured_1m_v1` | 64 | 24,576 | 1,180,098 | 47 | 533 |
-| `cube_textured_1m_v1` | 128 | 98,304 | 4,719,042 | 174 | 767 |
-| `cube_textured_1m_v1` | 256 | 393,216 | 18,874,819 | 686 | 1,260 |
-| `cube_textured_1m_v1` | 512 | 1,572,864 | 75,497,924 | 2,685 | 3,215 |
-| `cube_textured_1m_v1` | 1024 | 6,291,456 | 301,990,340 | 10,375 | 10,970 |
-| `building_lowpoly_textured_v1` | 64 | 17,364 | 833,922 | 42 | 477 |
-| `building_lowpoly_textured_v1` | 128 | 70,104 | 3,365,442 | 137 | 629 |
-| `building_lowpoly_textured_v1` | 256 | 278,444 | 13,365,763 | 490 | 1,072 |
-| `building_lowpoly_textured_v1` | 512 | 1,111,948 | 53,373,956 | 1,854 | 2,339 |
-| `building_lowpoly_textured_v1` | 1024 | 4,449,472 | 213,575,108 | 6,962 | 7,461 |
+| `cube_textured_1m_v1` | 64 | 24,576 | 1,180,098 | 51 | 802 |
+| `cube_textured_1m_v1` | 128 | 98,304 | 4,719,042 | 156 | 647 |
+| `cube_textured_1m_v1` | 256 | 393,216 | 18,874,819 | 625 | 1,133 |
+| `cube_textured_1m_v1` | 512 | 1,572,864 | 75,497,924 | 2,528 | 3,029 |
+| `cube_textured_1m_v1` | 1024 | 6,291,456 | 301,990,340 | 10,663 | 11,219 |
+| `building_lowpoly_textured_v1` | 64 | 17,364 | 833,922 | 45 | 574 |
+| `building_lowpoly_textured_v1` | 128 | 70,104 | 3,365,442 | 137 | 659 |
+| `building_lowpoly_textured_v1` | 256 | 278,444 | 13,365,763 | 499 | 1,041 |
+| `building_lowpoly_textured_v1` | 512 | 1,111,948 | 53,373,956 | 1,911 | 3,140 |
+| `building_lowpoly_textured_v1` | 1024 | 4,449,472 | 213,575,108 | 7,412 | 7,943 |
 
 ## Rationale
 
