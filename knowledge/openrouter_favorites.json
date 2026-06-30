@@ -1,0 +1,7 @@
+[
+  {
+    "id": "openrouter/anthropic/claude-3.7-sonnet",
+    "notes": "Tool-capable; example curated entry. Run openrouter_refresh_catalog to populate metadata.",
+    "tags": ["tools"]
+  }
+]
