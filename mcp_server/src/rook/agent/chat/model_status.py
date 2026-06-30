@@ -580,9 +580,13 @@ async def resolve_allowed_model_override(
     if option is None:
         raise ModelOverrideUnavailable(model_override, allowed)
     if option.eligibility != "eligible":
-        raise ModelOverrideIneligible(
-            model_override, allowed, option.ineligible_reason or ""
-        )
+        reason = option.ineligible_reason
+        if reason:
+            raise ModelOverrideIneligible(model_override, allowed, reason)
+        # Defensive: an ineligible option with no reason should never occur
+        # (the engine always sets one), but never raise an Ineligible error
+        # carrying a blank reason — fall back to the generic unavailable error.
+        raise ModelOverrideUnavailable(model_override, allowed)
 
     return _bound_routing(
         model_override,

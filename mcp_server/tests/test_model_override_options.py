@@ -255,6 +255,41 @@ async def test_resolve_rejects_unknown_id_generic(monkeypatch):
     _resolver_env(monkeypatch)  # no favorites
     with pytest.raises(ModelOverrideUnavailable) as exc:
         await model_status.resolve_allowed_model_override("anthropic/nope")
+    assert type(exc.value) is ModelOverrideUnavailable
+    payload = exc.value.to_payload()
+    assert payload["code"] == "model_override_unavailable"
+    assert "ineligible_reason" not in payload
+
+
+@pytest.mark.asyncio
+async def test_resolve_ineligible_with_no_reason_falls_back_to_unavailable(monkeypatch):
+    """Defensive branch: ineligible option with ineligible_reason=None raises
+    ModelOverrideUnavailable (not the subclass), so the 400 payload never carries
+    code=model_override_ineligible with a missing ineligible_reason."""
+    _resolver_env(monkeypatch)  # sets up role/local/catalog mocks
+
+    # Override compute_model_override_options to return a single ineligible option
+    # with no reason — simulating a future engine bug or missing path.
+    bad_option = ModelOverrideOption(
+        id="openrouter/x/bad",
+        display_name="Bad Model",
+        source="openrouter_favorite",
+        supports_tools=None,
+        eligibility="ineligible",
+        ineligible_reason=None,
+        metadata_state="unknown",
+        pricing=None,
+        context_length=None,
+    )
+
+    def _patched_compute(role_status, local_providers, catalog_view, env=None):
+        return [bad_option]
+
+    monkeypatch.setattr(model_status, "compute_model_override_options", _patched_compute)
+
+    with pytest.raises(ModelOverrideUnavailable) as exc:
+        await model_status.resolve_allowed_model_override("openrouter/x/bad")
+    assert type(exc.value) is ModelOverrideUnavailable  # NOT ModelOverrideIneligible
     payload = exc.value.to_payload()
     assert payload["code"] == "model_override_unavailable"
     assert "ineligible_reason" not in payload
