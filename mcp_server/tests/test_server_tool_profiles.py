@@ -58,3 +58,76 @@ def test_readonly_partition_over_live_surface(monkeypatch):
     assert ro | excluded == full
     assert ro.isdisjoint(excluded)
     assert len(ro) + len(excluded) == len(full) == 427
+
+
+def _call_text(name, args=None):
+    result = asyncio.run(server.call_tool(name, args or {}))
+    return result[0].text
+
+
+def _blocked_payload(text):
+    # _format_tool_result renders failures as 'Error: ' + json.dumps(data, indent=2).
+    import json
+
+    assert text.startswith("Error: ")
+    return json.loads(text[len("Error: "):])
+
+
+def test_readonly_block_returns_exact_payload(monkeypatch):
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "readonly")
+    payload = _blocked_payload(_call_text("rhino_create"))
+    assert payload == {
+        "code": "tool_profile_blocked",
+        "tool": "rhino_create",
+        "profile": "readonly",
+    }
+
+
+@pytest.mark.parametrize(
+    "mutator",
+    ["rhino_layer_visibility", "rhino_select", "gh_edit", "rhino_transform", "rhino_create"],
+)
+def test_readonly_blocks_representative_mutators(monkeypatch, mutator):
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "readonly")
+    assert "tool_profile_blocked" in _call_text(mutator)
+
+
+def test_readonly_allows_allowlisted_tool_past_the_guard(monkeypatch):
+    # rhino_objects is in the allowlist -- the guard must NOT block it.
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "readonly")
+    assert "tool_profile_blocked" not in _call_text("rhino_objects")
+
+
+def test_lean_is_list_only_does_not_block_calls(monkeypatch):
+    # A mutator NOT in lean must still be callable under lean (list-only).
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "lean")
+    assert "tool_profile_blocked" not in _call_text("rhino_create")
+
+
+def test_full_does_not_block_calls(monkeypatch):
+    monkeypatch.delenv("ROOK_MCP_TOOL_PROFILE", raising=False)
+    assert "tool_profile_blocked" not in _call_text("rhino_create")
+
+
+def test_blocked_readonly_call_has_no_side_effects(monkeypatch):
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "readonly")
+    calls = {"observed": False, "policy": False, "dispatched": False}
+
+    def _spy_observe(*a, **k):
+        calls["observed"] = True
+
+    def _spy_policy(*a, **k):
+        calls["policy"] = True
+        raise AssertionError("policy_for_tool must not run for a blocked call")
+
+    async def _spy_dispatch(*a, **k):
+        calls["dispatched"] = True
+        return {"success": True, "data": {}}
+
+    monkeypatch.setattr(server, "_record_observation", _spy_observe)
+    monkeypatch.setattr(server.targeting, "policy_for_tool", _spy_policy)
+    monkeypatch.setattr(server, "_call_tool_dispatch", _spy_dispatch)
+
+    text = _call_text("rhino_create")
+    assert "tool_profile_blocked" in text
+    assert calls == {"observed": False, "policy": False, "dispatched": False}

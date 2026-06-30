@@ -20925,6 +20925,10 @@ def _with_rhino_launch_canonical_tool(result: dict[str, Any]) -> dict[str, Any]:
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle tool calls with centralized Rhino target routing."""
     arguments = dict(arguments) if arguments else {}
+    _active_profile = resolve_profile(os.environ)
+    if tool_blocked(name, _active_profile):
+        return _format_tool_result(profile_blocked_envelope(name, _active_profile))
+
     if (
         name in _DEPRECATED_INTERACTIVE_COMMAND_TOOLS
         and not _interactive_command_learning_enabled()
