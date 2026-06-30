@@ -55,6 +55,13 @@ if logger.isEnabledFor(logging.DEBUG):
     )
 
 from .bridge import call_rhino, get_rhino_host, discover_instances, TIMEOUT, DISCOVERY_FOLDER, rhino_request_context, list_sessions_result, get_session_capabilities
+from .mcp_tool_profiles import (
+    InvalidProfileError,
+    filter_tools,
+    profile_blocked_envelope,
+    resolve_profile,
+    tool_blocked,
+)
 from . import artifacts, director, director_compiler, director_preview, director_publish, director_video, merge_execution, script_library, targeting, workbench, work_units
 targeting.initialize_from_environment()
 from .knowledge import query_knowledge, query_knowledge_tiered, record_knowledge, invalidate_condensed_command_cache
@@ -13356,12 +13363,14 @@ Returns the full profile JSON including features, surfaces, and elements.""",
     ]
 
     if not _interactive_command_learning_enabled():
-        return [
+        live_tools = [
             tool for tool in all_tools
             if tool.name not in _DEPRECATED_INTERACTIVE_COMMAND_TOOLS
         ]
+    else:
+        live_tools = all_tools
 
-    return all_tools
+    return filter_tools(live_tools, resolve_profile(os.environ))
 
 
 def _record_observation(
@@ -20916,6 +20925,10 @@ def _with_rhino_launch_canonical_tool(result: dict[str, Any]) -> dict[str, Any]:
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle tool calls with centralized Rhino target routing."""
     arguments = dict(arguments) if arguments else {}
+    _active_profile = resolve_profile(os.environ)
+    if tool_blocked(name, _active_profile):
+        return _format_tool_result(profile_blocked_envelope(name, _active_profile))
+
     if (
         name in _DEPRECATED_INTERACTIVE_COMMAND_TOOLS
         and not _interactive_command_learning_enabled()
@@ -21000,8 +21013,20 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     return _format_tool_result(raw_result)
 
 
+def _validate_profile_or_exit() -> None:
+    """Fail fast at startup if ROOK_MCP_TOOL_PROFILE is invalid."""
+    import sys
+
+    try:
+        resolve_profile(os.environ)
+    except InvalidProfileError as exc:
+        sys.stderr.write(f"FATAL: {exc}\n")
+        raise SystemExit(2)
+
+
 def main():
     """Run the MCP server."""
+    _validate_profile_or_exit()
     import asyncio
     import sys
 

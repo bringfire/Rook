@@ -810,6 +810,33 @@ def test_mcp_env_points_to_chirp_home_and_clears_python_paths(tmp_path: Path) ->
     assert env["CHIRP_HOME"].endswith("app/chirp")
 
 
+def test_post_install_codex_toml_sets_lean_profile_only_in_codex_env(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    post_install = load_post_install()
+    env = post_install._build_mcp_env(
+        install_dir=tmp_path / "app",
+        data_dir=tmp_path / "data",
+        mode="release",
+        chirp_dir=tmp_path / "app" / "chirp",
+    )
+
+    assert post_install.PROFILE_ENV_VAR not in env
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    assert post_install.configure_codex(
+        install_dir=tmp_path / "app",
+        data_dir=tmp_path / "data",
+        python_path="C:/Rook/venv/Scripts/python.exe",
+        mcp_server_dir=tmp_path / "app" / "mcp_server",
+        chirp_dir=tmp_path / "app" / "chirp",
+    )
+    toml = (tmp_path / ".codex" / "config.toml").read_text(encoding="utf-8")
+
+    assert 'ROOK_MCP_TOOL_PROFILE = "lean"' in toml
+
+
 def test_runtime_layout_uses_private_python_and_two_venvs(tmp_path: Path) -> None:
     runtime = load_runtime_install()
     layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
