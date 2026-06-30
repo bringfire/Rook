@@ -6,7 +6,7 @@ import asyncio
 import copy
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional
 
 from ..config import AgentConfig
@@ -14,12 +14,14 @@ from ..model_profiles import (
     FALLBACK_MODELS,
     ModelSet,
     api_base_for_model,
+    api_key_env_for_model,
     detect_lmstudio_models,
     detect_ollama_models,
     get_active_profile_name,
     get_models,
     get_profile_names,
 )
+from ...providers import openrouter_catalog
 from ..personas import available_personas, get_model_role, load_display_config
 from .prompt_builder import PromptBuilder
 
@@ -54,6 +56,113 @@ class ModelOverrideResolution:
             "provider": self.provider,
             "api_base_source": self.api_base_source,
         }
+
+
+@dataclass(frozen=True)
+class ModelOverrideOption:
+    """One selectable/known chat model override with eligibility metadata."""
+
+    id: str
+    display_name: str
+    source: str  # "role" | "local" | "openrouter_favorite"
+    supports_tools: Optional[bool]  # capability fact: True | False | None(unknown)
+    eligibility: str  # "eligible" | "ineligible"
+    ineligible_reason: Optional[str]  # "missing_tools"|"unknown_capability"|"missing_api_key"|None
+    metadata_state: str  # "known" | "stale" | "unknown" | "not_applicable"
+    pricing: Optional[dict]
+    context_length: Optional[int]
+
+    def to_payload(self) -> dict:
+        return {
+            "id": self.id,
+            "display_name": self.display_name,
+            "source": self.source,
+            "supports_tools": self.supports_tools,
+            "eligibility": self.eligibility,
+            "ineligible_reason": self.ineligible_reason,
+            "metadata_state": self.metadata_state,
+            "pricing": self.pricing,
+            "context_length": self.context_length,
+        }
+
+
+def _favorite_eligibility(meta, env: dict):
+    """(supports_tools, eligibility, ineligible_reason, metadata_state) for a favorite.
+
+    Precedence (first match wins): unknown_capability -> missing_tools -> missing_api_key.
+    supports_tools is the metadata fact and is never coerced by key state.
+    """
+    if meta.metadata_state == "unknown":
+        return (None, "ineligible", "unknown_capability", "unknown")
+    supports_tools = "tools" in (meta.supported_parameters or [])
+    if not supports_tools:
+        return (False, "ineligible", "missing_tools", meta.metadata_state)
+    key_env = api_key_env_for_model(meta.litellm_id)
+    if key_env and not env.get(key_env):
+        return (True, "ineligible", "missing_api_key", meta.metadata_state)
+    return (True, "eligible", None, meta.metadata_state)
+
+
+def _ungated_option(model: str, source: str) -> ModelOverrideOption:
+    return ModelOverrideOption(
+        id=model,
+        display_name=model,
+        source=source,
+        supports_tools=None,
+        eligibility="eligible",
+        ineligible_reason=None,
+        metadata_state="not_applicable",
+        pricing=None,
+        context_length=None,
+    )
+
+
+def compute_model_override_options(
+    role_status: dict,
+    local_providers: dict,
+    catalog_view,
+    env: Optional[dict] = None,
+) -> list["ModelOverrideOption"]:
+    """Deduped option list across role / local / openrouter_favorite sources.
+
+    Role and local options are ungated. OpenRouter favorites are tools+credential
+    gated. On id collision, the role/local entry wins (display_name may be enriched
+    from catalog metadata).
+    """
+    env = os.environ if env is None else env
+    by_id: dict[str, ModelOverrideOption] = {}
+
+    for role in (role_status.get("roles") or {}).values():
+        model = role.get("effective_model")
+        if model:
+            by_id.setdefault(model, _ungated_option(model, "role"))
+
+    for provider in (local_providers or {}).values():
+        for entry in provider.get("models") or []:
+            override = entry.get("model_override")
+            if override:
+                by_id.setdefault(override, _ungated_option(override, "local"))
+
+    for meta in catalog_view.models:
+        if meta.litellm_id in by_id:
+            existing = by_id[meta.litellm_id]
+            if existing.display_name == existing.id and meta.display_name:
+                by_id[meta.litellm_id] = replace(existing, display_name=meta.display_name)
+            continue
+        supports_tools, eligibility, reason, mstate = _favorite_eligibility(meta, env)
+        by_id[meta.litellm_id] = ModelOverrideOption(
+            id=meta.litellm_id,
+            display_name=meta.display_name or meta.litellm_id,
+            source="openrouter_favorite",
+            supports_tools=supports_tools,
+            eligibility=eligibility,
+            ineligible_reason=reason,
+            metadata_state=mstate,
+            pricing=meta.pricing or None,
+            context_length=meta.context_length,
+        )
+
+    return sorted(by_id.values(), key=lambda o: o.id)
 
 
 class ModelOverrideUnavailable(ValueError):
