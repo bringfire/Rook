@@ -469,7 +469,7 @@ git commit -m "feat(chat): surface allowed_model_override_options + openrouter_c
 
 **Interfaces:**
 - Consumes: `compute_model_override_options`, `openrouter_catalog.load()`, `_bound_routing` (existing).
-- Produces: `ModelOverrideNotToolCapable(ModelOverrideUnavailable)` with `code == "model_not_tool_capable"`; `resolve_allowed_model_override` raises it for forced `missing_tools` favorites, generic `ModelOverrideUnavailable` otherwise; returns `ModelOverrideResolution` for eligible ids (unchanged shape).
+- Produces: `ModelOverrideIneligible(ModelOverrideUnavailable)` carrying `ineligible_reason` (`code == "model_not_tool_capable"` for `missing_tools`, else `model_override_ineligible`); `resolve_allowed_model_override` raises it for forced known-but-ineligible favorites (any reason), generic `ModelOverrideUnavailable` for unknown ids; returns `ModelOverrideResolution` for eligible ids (unchanged shape). Both flow through the existing server `except ModelOverrideUnavailable: return exc.to_payload(), status=400` (verified at server.py:230 and server.py:297).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -478,63 +478,97 @@ Append to `mcp_server/tests/test_model_override_options.py`:
 ```python
 from rook.agent.chat.model_status import (
     ModelOverrideUnavailable,
-    ModelOverrideNotToolCapable,
+    ModelOverrideIneligible,
 )
 
 
-@pytest.mark.asyncio
-async def test_resolve_rejects_missing_tools_favorite_with_specific_code(monkeypatch):
-    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-x")
-    monkeypatch.setattr(model_status, "build_role_status", lambda: _role_status())
+def _resolver_env(monkeypatch, *favorites, key=True):
+    """Patch the resolver's role/local/catalog sources for deterministic tests."""
+    if key:
+        monkeypatch.setenv("OPENROUTER_API_KEY", "sk-x")
+    else:
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setattr(model_status, "build_role_status",
+                        lambda: _role_status("anthropic/claude-x"))
 
     async def _no_local(*a, **k):
         return {}
     monkeypatch.setattr(model_status, "get_cached_local_provider_status_async", _no_local)
-    bad = _meta("openrouter/x/no-tools", params=["temperature"])
-    monkeypatch.setattr(model_status.openrouter_catalog, "load", lambda: _catalog(bad))
+    monkeypatch.setattr(model_status.openrouter_catalog, "load",
+                        lambda: _catalog(*favorites))
 
-    with pytest.raises(ModelOverrideNotToolCapable) as exc:
+
+@pytest.mark.asyncio
+async def test_resolve_rejects_missing_tools_with_specific_code(monkeypatch):
+    _resolver_env(monkeypatch, _meta("openrouter/x/no-tools", params=["temperature"]))
+    with pytest.raises(ModelOverrideIneligible) as exc:
         await model_status.resolve_allowed_model_override("openrouter/x/no-tools")
-    assert exc.value.to_payload()["code"] == "model_not_tool_capable"
+    payload = exc.value.to_payload()
+    assert payload["code"] == "model_not_tool_capable"
+    assert payload["ineligible_reason"] == "missing_tools"
+
+
+@pytest.mark.asyncio
+async def test_resolve_rejects_unknown_capability_with_reason(monkeypatch):
+    _resolver_env(monkeypatch, _meta("openrouter/x/unknown", params=[], state="unknown"))
+    with pytest.raises(ModelOverrideIneligible) as exc:
+        await model_status.resolve_allowed_model_override("openrouter/x/unknown")
+    payload = exc.value.to_payload()
+    assert payload["code"] == "model_override_ineligible"
+    assert payload["ineligible_reason"] == "unknown_capability"
+
+
+@pytest.mark.asyncio
+async def test_resolve_rejects_missing_api_key_with_reason(monkeypatch):
+    _resolver_env(
+        monkeypatch,
+        _meta("openrouter/anthropic/claude-sonnet-4.6", params=["tools"]),
+        key=False,
+    )
+    with pytest.raises(ModelOverrideIneligible) as exc:
+        await model_status.resolve_allowed_model_override(
+            "openrouter/anthropic/claude-sonnet-4.6"
+        )
+    payload = exc.value.to_payload()
+    assert payload["code"] == "model_override_ineligible"
+    assert payload["ineligible_reason"] == "missing_api_key"
 
 
 @pytest.mark.asyncio
 async def test_resolve_rejects_unknown_id_generic(monkeypatch):
-    monkeypatch.setattr(model_status, "build_role_status", lambda: _role_status("anthropic/claude-x"))
-
-    async def _no_local(*a, **k):
-        return {}
-    monkeypatch.setattr(model_status, "get_cached_local_provider_status_async", _no_local)
-    monkeypatch.setattr(model_status.openrouter_catalog, "load", lambda: _catalog())
-
+    _resolver_env(monkeypatch)  # no favorites
     with pytest.raises(ModelOverrideUnavailable) as exc:
         await model_status.resolve_allowed_model_override("anthropic/nope")
-    assert exc.value.to_payload()["code"] == "model_override_unavailable"
+    payload = exc.value.to_payload()
+    assert payload["code"] == "model_override_unavailable"
+    assert "ineligible_reason" not in payload
 
 
 @pytest.mark.asyncio
 async def test_resolve_binds_eligible_favorite_as_cloud(monkeypatch):
-    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-x")
-    monkeypatch.setattr(model_status, "build_role_status", lambda: _role_status())
-
-    async def _no_local(*a, **k):
-        return {}
-    monkeypatch.setattr(model_status, "get_cached_local_provider_status_async", _no_local)
-    fav = _meta("openrouter/anthropic/claude-sonnet-4.6", params=["tools"])
-    monkeypatch.setattr(model_status.openrouter_catalog, "load", lambda: _catalog(fav))
-
+    _resolver_env(monkeypatch, _meta("openrouter/anthropic/claude-sonnet-4.6", params=["tools"]))
     resolution = await model_status.resolve_allowed_model_override(
         "openrouter/anthropic/claude-sonnet-4.6"
     )
     assert resolution.routing == "cloud"
     assert resolution.api_base == ""
     assert resolution.provider == "openrouter"
+
+
+@pytest.mark.asyncio
+async def test_compute_allowed_async_includes_eligible_favorite(monkeypatch):
+    # Regression: the async wrapper (used by some callers) must surface eligible
+    # favorites via the refactored shared helper, not just the sync path.
+    _resolver_env(monkeypatch, _meta("openrouter/anthropic/claude-sonnet-4.6", params=["tools"]))
+    allowed = await model_status.compute_allowed_model_overrides_async()
+    assert "openrouter/anthropic/claude-sonnet-4.6" in allowed
+    assert "anthropic/claude-x" in allowed
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `python -m pytest mcp_server/tests/test_model_override_options.py -k resolve -v`
-Expected: FAIL — `ModelOverrideNotToolCapable` undefined.
+Run: `python -m pytest mcp_server/tests/test_model_override_options.py -k "resolve or compute_allowed_async" -v`
+Expected: FAIL — `ModelOverrideIneligible` undefined.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -545,6 +579,7 @@ class ModelOverrideUnavailable(ValueError):
     """Raised when a requested chat model override is not currently allowed."""
 
     code = "model_override_unavailable"
+    ineligible_reason: Optional[str] = None
 
     def __init__(self, model_override: str, allowed_model_overrides: list[str]):
         super().__init__("Model override is not currently available.")
@@ -552,24 +587,45 @@ class ModelOverrideUnavailable(ValueError):
         self.allowed_model_overrides = allowed_model_overrides
 
     def to_payload(self) -> dict:
-        return {
+        payload = {
             "error": "Model override is not currently available. Refresh the model list and try again.",
             "code": self.code,
             "model_override": self.model_override,
             "allowed_model_overrides": self.allowed_model_overrides,
         }
+        if self.ineligible_reason:
+            payload["ineligible_reason"] = self.ineligible_reason
+        return payload
 
 
-class ModelOverrideNotToolCapable(ModelOverrideUnavailable):
-    """Raised when a forced override is a known model that lacks tool calling."""
+class ModelOverrideIneligible(ModelOverrideUnavailable):
+    """Raised when a forced override is a known model that is not eligible.
 
-    code = "model_not_tool_capable"
+    Carries the specific ``ineligible_reason``. ``missing_tools`` keeps the
+    spec-named ``model_not_tool_capable`` code; other reasons use the generic
+    ``model_override_ineligible`` code.
+    """
+
+    _MESSAGES = {
+        "missing_tools": "That model does not support tool calling, which RookChat requires.",
+        "missing_api_key": "That model needs an API key that is not configured.",
+        "unknown_capability": "That model's capabilities are unknown — refresh the OpenRouter catalog.",
+    }
+    _CODES = {"missing_tools": "model_not_tool_capable"}
+
+    def __init__(
+        self,
+        model_override: str,
+        allowed_model_overrides: list[str],
+        ineligible_reason: str,
+    ):
+        super().__init__(model_override, allowed_model_overrides)
+        self.ineligible_reason = ineligible_reason
+        self.code = self._CODES.get(ineligible_reason, "model_override_ineligible")
 
     def to_payload(self) -> dict:
         payload = super().to_payload()
-        payload["error"] = (
-            "That model does not support tool calling, which RookChat requires."
-        )
+        payload["error"] = self._MESSAGES.get(self.ineligible_reason, payload["error"])
         return payload
 ```
 
@@ -592,10 +648,12 @@ async def resolve_allowed_model_override(
     allowed = sorted(o.id for o in options if o.eligibility == "eligible")
 
     option = by_id.get(model_override)
-    if option is None or option.eligibility != "eligible":
-        if option is not None and option.ineligible_reason == "missing_tools":
-            raise ModelOverrideNotToolCapable(model_override, allowed)
+    if option is None:
         raise ModelOverrideUnavailable(model_override, allowed)
+    if option.eligibility != "eligible":
+        raise ModelOverrideIneligible(
+            model_override, allowed, option.ineligible_reason or ""
+        )
 
     return _bound_routing(
         model_override,
@@ -649,11 +707,52 @@ git commit -m "test(chat): update payload-shape assertions for enriched models e
 **Interfaces:**
 - Produces: `Rook.UI.Chat.ModelOverrideOption` (Id, DisplayName, Source, SupportsTools `bool?`, Eligibility, IneligibleReason, MetadataState, Pricing `JsonElement?`, ContextLength `int?`); `ChatModelsInfo.AllowedModelOverrideOptions: List<ModelOverrideOption>`.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
-Add to `src/Rook.Tests/UI/Chat/AgentChatClientParseTests.cs`:
+Add to `src/Rook.Tests/UI/Chat/AgentChatClientParseTests.cs`. The first test references
+`ChatModelsInfo.AllowedModelOverrideOptions` and `ModelOverrideOption`, which do not exist
+yet — so the test project will not compile until Step 3. That compile failure IS the failing
+state for this task. The second test locks the `model_not_tool_capable` error-code contract
+(it already passes via the generic `ParseSetModelResult`, but pins the cross-layer name):
 
 ```csharp
+[Fact]
+public void ChatModelsInfo_binds_allowed_model_override_options()
+{
+    var json = @"{
+      ""conversation"": null,
+      ""allowed_model_overrides"": [""anthropic/claude-x""],
+      ""allowed_model_override_options"": [
+        {
+          ""id"": ""openrouter/anthropic/claude-sonnet-4.6"",
+          ""display_name"": ""Claude Sonnet 4.6"",
+          ""source"": ""openrouter_favorite"",
+          ""supports_tools"": true,
+          ""eligibility"": ""eligible"",
+          ""ineligible_reason"": null,
+          ""metadata_state"": ""known"",
+          ""pricing"": { ""prompt"": ""0.000003"" },
+          ""context_length"": 200000
+        }
+      ]
+    }";
+    var opts = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+    var info = System.Text.Json.JsonSerializer.Deserialize<ChatModelsInfo>(json, opts);
+
+    Assert.NotNull(info);
+    Assert.Single(info!.AllowedModelOverrideOptions);
+    var o = info.AllowedModelOverrideOptions[0];
+    Assert.Equal("openrouter/anthropic/claude-sonnet-4.6", o.Id);
+    Assert.Equal("Claude Sonnet 4.6", o.DisplayName);
+    Assert.Equal("openrouter_favorite", o.Source);
+    Assert.True(o.SupportsTools);
+    Assert.Equal("eligible", o.Eligibility);
+    Assert.Null(o.IneligibleReason);
+    Assert.Equal("known", o.MetadataState);
+    Assert.True(o.Pricing.HasValue);
+    Assert.Equal(200000, o.ContextLength);
+}
+
 [Fact]
 public void Model_not_tool_capable_400_code_parses()
 {
@@ -665,10 +764,10 @@ public void Model_not_tool_capable_400_code_parses()
 }
 ```
 
-- [ ] **Step 2: Run test to verify it passes (parse is already generic) — then add the DTO**
+- [ ] **Step 2: Run tests to verify they fail (compile error)**
 
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~Model_not_tool_capable"`
-Expected: PASS — `ParseSetModelResult` already extracts `code`. (This locks the contract; no parse change needed.)
+Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~AgentChatClientParseTests"`
+Expected: FAIL — build error, `ChatModelsInfo` has no `AllowedModelOverrideOptions` and `ModelOverrideOption` is undefined.
 
 - [ ] **Step 3: Add the DTO**
 
@@ -712,7 +811,7 @@ And add to `ChatModelsInfo` (keep the existing `AllowedModelOverrides`):
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~AgentChatClientParseTests"`
-Expected: PASS (all parse tests, including the new one).
+Expected: PASS (all parse tests, including the two new ones — binding + error-code).
 
 - [ ] **Step 5: Commit**
 
@@ -730,7 +829,7 @@ git commit -m "feat(chat-ui): ModelOverrideOption DTO + allowed_model_override_o
 - Test: `src/Rook.Tests/UI/Chat/ModelOverrideOptionHelpersTests.cs` (create)
 
 **Interfaces:**
-- Produces: `AgentChatTab.EligibleOptions(IEnumerable<ModelOverrideOption>) -> List<ModelOverrideOption>`; `AgentChatTab.BuildOptionLabel(ModelOverrideOption) -> string`; `AgentChatTab.BuildSelectionDetail(ModelOverrideOption) -> string`.
+- Produces: `AgentChatTab.EligibleOptions(IEnumerable<ModelOverrideOption>) -> List<ModelOverrideOption>`; `AgentChatTab.BuildOptionLabel(ModelOverrideOption) -> string`; `AgentChatTab.BuildSelectionDetail(ModelOverrideOption) -> string`; `AgentChatTab.BuildRowText(ModelOverrideOption) -> string` (label + detail; used for dropdown row text in Task 7).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -784,6 +883,19 @@ namespace Rook.Tests.UI.Chat
             Assert.Contains("200000", detail);
             Assert.Contains("stale", detail);
         }
+
+        [Fact]
+        public void BuildRowText_appends_detail_when_present_else_label_only()
+        {
+            // No detail (role/local-style: no ctx, not stale) -> label only.
+            Assert.Equal("anthropic/x",
+                AgentChatTab.BuildRowText(Opt("anthropic/x", "eligible")));
+            // Detail present -> label then detail.
+            var withDetail = AgentChatTab.BuildRowText(
+                Opt("id", "eligible", "Name", state: "stale", ctx: 1000));
+            Assert.StartsWith("Name", withDetail);
+            Assert.Contains("stale", withDetail);
+        }
     }
 }
 ```
@@ -793,9 +905,16 @@ namespace Rook.Tests.UI.Chat
 Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~ModelOverrideOptionHelpersTests"`
 Expected: FAIL — helpers don't exist.
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **Step 3: Add the `System.Linq` using, then the helpers**
 
-In `src/Rook/UI/Chat/AgentChatTab.cs`, add (near the existing `ShouldEnableApply` static; ensure `using System.Linq;` and `using System.Collections.Generic;` are present — they are):
+First add `using System.Linq;` to the `using` block at the top of
+`src/Rook/UI/Chat/AgentChatTab.cs` (it is NOT currently present; the existing usings are
+`System`, `System.Collections.Generic`, `System.Net.Http`, `System.Text`,
+`System.Text.Json`, `System.Text.Json.Nodes`, `System.Threading`,
+`System.Threading.Tasks`, `Eto.Drawing`, `Eto.Forms`). The helpers below use `.Where()` /
+`.ToList()` and Task 7 uses `.Any()`.
+
+Then add, near the existing `ShouldEnableApply` static:
 
 ```csharp
         internal static List<ModelOverrideOption> EligibleOptions(
@@ -819,6 +938,16 @@ In `src/Rook/UI/Chat/AgentChatTab.cs`, add (near the existing `ShouldEnableApply
             if (string.Equals(option.MetadataState, "stale", StringComparison.Ordinal))
                 parts.Add("metadata stale — refresh");
             return string.Join(" · ", parts);
+        }
+
+        // Dropdown row text = friendly label, plus selection detail (ctx / stale hint)
+        // when available. Eto DropDown has no per-row tooltip, so detail rides in the
+        // row text. Role/local rows have no detail -> label only.
+        internal static string BuildRowText(ModelOverrideOption option)
+        {
+            var label = BuildOptionLabel(option);
+            var detail = BuildSelectionDetail(option);
+            return detail.Length == 0 ? label : $"{label} — {detail}";
         }
 ```
 
@@ -883,7 +1012,7 @@ In `src/Rook/UI/Chat/AgentChatTab.cs`, add a new overload beside the existing `P
             {
                 _modelDropDown.Items.Clear();
                 foreach (var o in eligible)
-                    _modelDropDown.Items.Add(new ListItem { Text = BuildOptionLabel(o), Key = o.Id });
+                    _modelDropDown.Items.Add(new ListItem { Text = BuildRowText(o), Key = o.Id });
                 _modelDropDown.SelectedKey = selectedKey;
             }
             finally
@@ -959,5 +1088,5 @@ In the RookChat panel: confirm `openrouter/anthropic/claude-sonnet-4.6` appears 
 
 - The eligibility logic lives in exactly one place (`compute_model_override_options`); the payload builder and the Apply resolver both derive from it. Do not re-implement gating in the resolver or in C#.
 - C# filtering is convenience; the server is authoritative — an ineligible favorite forced via `POST /agent/chat/model` is rejected server-side (Task 3).
-- Eto `DropDown` cannot disable individual rows — there are intentionally no per-row tooltips. Selection-detail text is surfaced via the status label / `BuildSelectionDetail`, not item tooltips.
+- Eto `DropDown` cannot disable individual rows or show per-row tooltips. Selection detail (ctx / "metadata stale — refresh") is surfaced inside the dropdown **row text** via `BuildRowText` (= `BuildOptionLabel` + `BuildSelectionDetail`), not as tooltips or a separate label — no layout change. Role/local rows have no detail, so they show the label only.
 - Do not modify `targeting.py`, `mcp_tool_profiles.py`, or the surface-count tests — no MCP tool is added.
