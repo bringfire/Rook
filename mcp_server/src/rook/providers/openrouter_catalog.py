@@ -155,3 +155,132 @@ def load(
     return CatalogView(
         models=models, fetched_at=fetched_at, last_refresh_attempt_at=attempt_at,
         last_refresh_error=last_error, cache_present=cache is not None, stale=stale)
+
+
+@dataclass
+class RefreshResult:
+    success: bool
+    models_fetched: int
+    favorites_matched: int
+    unknown_favorites: list[str]
+    cache_path: str
+    source_endpoint: str
+    fetched_at: Optional[str]
+    last_refresh_error: Optional[dict]
+
+
+def _atomic_write_json(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=2)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def _fetch_models(api_key: str, client: Optional[httpx.Client] = None) -> list[dict]:
+    """GET OpenRouter /models and return the ``data`` list. The only networked call."""
+    owns = client is None
+    client = client or httpx.Client(timeout=30.0)
+    try:
+        resp = client.get(
+            OPENROUTER_MODELS_ENDPOINT,
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        resp.raise_for_status()
+        body = resp.json()
+    finally:
+        if owns:
+            client.close()
+    data = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(data, list):
+        raise ValueError("OpenRouter /models response missing 'data' list")
+    return data
+
+
+def _write_failure(cpath: Path, attempt_at: str, fav_ids: list[str], error: dict) -> "RefreshResult":
+    prior = _read_cache(cpath)
+    if prior and isinstance(prior.get("models"), dict):
+        payload = dict(prior)
+        payload["last_refresh_attempt_at"] = attempt_at
+        payload["last_refresh_error"] = error
+        models_map = prior["models"]
+    else:
+        payload = {
+            "schema_version": CACHE_SCHEMA_VERSION,
+            "source_endpoint": OPENROUTER_MODELS_ENDPOINT,
+            "fetched_at": None,
+            "last_refresh_attempt_at": attempt_at,
+            "last_refresh_error": error,
+            "models": {},
+        }
+        models_map = {}
+    _atomic_write_json(cpath, payload)
+    unknown = [fid for fid in fav_ids if fid not in models_map]
+    return RefreshResult(
+        success=False, models_fetched=len(models_map),
+        favorites_matched=len(fav_ids) - len(unknown), unknown_favorites=unknown,
+        cache_path=str(cpath), source_endpoint=OPENROUTER_MODELS_ENDPOINT,
+        fetched_at=payload.get("fetched_at"), last_refresh_error=error)
+
+
+def refresh(
+    api_key: Optional[str] = None,
+    favorites_path: Optional[Path] = None,
+    cache_path: Optional[Path] = None,
+    now: Optional[datetime] = None,
+    client: Optional[httpx.Client] = None,
+) -> RefreshResult:
+    """Fetch the OpenRouter catalog and atomically update the cache.
+
+    Never raises on network/auth/JSON failure — returns ``success=False`` and
+    preserves prior catalog data (or writes a status-only cache when there is no
+    trusted prior data).  This is the only networked path in the module.
+    """
+    cpath = _cache_path(cache_path)
+    attempt_at = (now or datetime.now(timezone.utc)).isoformat()
+    fav_ids = [f.id for f in load_favorites(favorites_path)]
+
+    key = api_key or os.environ.get("OPENROUTER_API_KEY")
+    if not key:
+        return _write_failure(cpath, attempt_at, fav_ids,
+                              {"code": "missing_api_key",
+                               "message": "OPENROUTER_API_KEY is not set."})
+    try:
+        models_raw = _fetch_models(key, client)
+    except Exception as exc:  # network, HTTP status, malformed JSON
+        return _write_failure(cpath, attempt_at, fav_ids,
+                              {"code": "fetch_failed", "message": str(exc)})
+
+    models_map: dict[str, dict] = {}
+    for model in models_raw:
+        catalog_id = model.get("id")
+        if not catalog_id:
+            continue
+        models_map[to_litellm_id(catalog_id)] = {
+            "openrouter_id": catalog_id,
+            "canonical_slug": model.get("canonical_slug"),
+            "supported_parameters": list(model.get("supported_parameters", []) or []),
+            "pricing": dict(model.get("pricing", {}) or {}),
+            "context_length": model.get("context_length"),
+            "display_name": model.get("name"),
+        }
+
+    unknown = [fid for fid in fav_ids if fid not in models_map]
+    payload = {
+        "schema_version": CACHE_SCHEMA_VERSION,
+        "source_endpoint": OPENROUTER_MODELS_ENDPOINT,
+        "fetched_at": attempt_at,
+        "last_refresh_attempt_at": attempt_at,
+        "last_refresh_error": None,
+        "models": models_map,
+    }
+    _atomic_write_json(cpath, payload)
+    return RefreshResult(
+        success=True, models_fetched=len(models_map),
+        favorites_matched=len(fav_ids) - len(unknown), unknown_favorites=unknown,
+        cache_path=str(cpath), source_endpoint=OPENROUTER_MODELS_ENDPOINT,
+        fetched_at=attempt_at, last_refresh_error=None)

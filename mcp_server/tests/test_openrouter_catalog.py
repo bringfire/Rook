@@ -89,3 +89,87 @@ def test_load_stale_returns_metadata_with_stale_state(tmp_path):
     assert view.stale is True
     assert view.models[0].metadata_state == "stale"
     assert "tools" in view.models[0].supported_parameters  # metadata still returned
+
+
+FIXTURE = [
+    {"id": "anthropic/claude-3.7-sonnet", "canonical_slug": "anthropic/claude-3.7-sonnet",
+     "name": "Anthropic: Claude 3.7 Sonnet", "context_length": 200000,
+     "pricing": {"prompt": "0.000003", "completion": "0.000015"},
+     "supported_parameters": ["tools", "tool_choice"]},
+    {"id": "meta-llama/llama-3-8b", "canonical_slug": "meta-llama/llama-3-8b",
+     "name": "Meta Llama 3 8B", "context_length": 8192,
+     "pricing": {"prompt": "0", "completion": "0"}, "supported_parameters": []},
+]
+
+
+def _favorites(tmp_path, ids):
+    p = tmp_path / "openrouter_favorites.json"
+    p.write_text(json.dumps([{"id": i} for i in ids]), encoding="utf-8")
+    return p
+
+
+def test_refresh_normalizes_ids_and_matches_favorite(tmp_path, monkeypatch):
+    monkeypatch.setattr(cat, "_fetch_models", lambda key, client=None: FIXTURE)
+    fav = _favorites(tmp_path, ["openrouter/anthropic/claude-3.7-sonnet"])
+    cache = tmp_path / "cache.json"
+    res = cat.refresh(api_key="k", favorites_path=fav, cache_path=cache)
+    assert res.success is True
+    assert res.models_fetched == 2
+    assert res.favorites_matched == 1
+    assert res.unknown_favorites == []          # bare catalog id matched LiteLLM favorite
+    stored = json.loads(cache.read_text())["models"]
+    assert "openrouter/anthropic/claude-3.7-sonnet" in stored
+    assert stored["openrouter/anthropic/claude-3.7-sonnet"]["openrouter_id"] == "anthropic/claude-3.7-sonnet"
+
+
+def test_refresh_flags_unknown_favorite(tmp_path, monkeypatch):
+    monkeypatch.setattr(cat, "_fetch_models", lambda key, client=None: FIXTURE)
+    fav = _favorites(tmp_path, ["openrouter/does/not-exist"])
+    res = cat.refresh(api_key="k", favorites_path=fav, cache_path=tmp_path / "c.json")
+    assert res.unknown_favorites == ["openrouter/does/not-exist"]
+
+
+def test_refresh_missing_key_writes_status_only(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    fav = _favorites(tmp_path, ["openrouter/anthropic/claude-3.7-sonnet"])
+    cache = tmp_path / "c.json"
+    res = cat.refresh(api_key=None, favorites_path=fav, cache_path=cache)
+    assert res.success is False
+    assert res.last_refresh_error["code"] == "missing_api_key"
+    data = json.loads(cache.read_text())
+    assert data["models"] == {}
+    assert data["fetched_at"] is None
+
+
+def test_failed_refresh_preserves_prior_models(tmp_path, monkeypatch):
+    fav = _favorites(tmp_path, ["openrouter/anthropic/claude-3.7-sonnet"])
+    cache = tmp_path / "c.json"
+    monkeypatch.setattr(cat, "_fetch_models", lambda key, client=None: FIXTURE)
+    cat.refresh(api_key="k", favorites_path=fav, cache_path=cache)
+    good = json.loads(cache.read_text())["models"]
+
+    def _boom(key, client=None):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(cat, "_fetch_models", _boom)
+    res = cat.refresh(api_key="k", favorites_path=fav, cache_path=cache)
+    assert res.success is False
+    after = json.loads(cache.read_text())
+    assert after["models"] == good                      # data preserved
+    assert after["last_refresh_error"]["code"] == "fetch_failed"
+    assert after["fetched_at"] is not None              # last success retained
+
+
+def test_corrupt_prior_cache_failed_refresh_status_only(tmp_path, monkeypatch):
+    cache = tmp_path / "c.json"
+    cache.write_text("{ not json", encoding="utf-8")
+    fav = _favorites(tmp_path, ["openrouter/anthropic/claude-3.7-sonnet"])
+
+    def _boom(key, client=None):
+        raise RuntimeError("down")
+
+    monkeypatch.setattr(cat, "_fetch_models", _boom)
+    res = cat.refresh(api_key="k", favorites_path=fav, cache_path=cache)
+    assert res.success is False
+    data = json.loads(cache.read_text())
+    assert data["models"] == {}                         # no trusted prior data -> status-only
