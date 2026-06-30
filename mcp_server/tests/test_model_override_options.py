@@ -136,3 +136,57 @@ def test_to_payload_shape():
         "id", "display_name", "source", "supports_tools", "eligibility",
         "ineligible_reason", "metadata_state", "pricing", "context_length",
     }
+
+
+import pytest
+from rook.agent.chat import model_status
+
+
+def test_allowed_overrides_equals_eligible_ids_invariant(monkeypatch):
+    # No key in the process env -> the tool-capable favorite is missing_api_key
+    # (ineligible). Delete BEFORE calling compute_allowed_model_overrides, which
+    # reads os.environ, so the result is deterministic.
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    role = _role_status("anthropic/claude-x")
+    tool_fav = _meta("openrouter/anthropic/claude-sonnet-4.6", params=["tools"])
+    bad_fav = _meta("openrouter/x/no-tools", params=["temperature"])
+    view = _catalog(tool_fav, bad_fav)
+
+    allowed = model_status.compute_allowed_model_overrides(
+        local_providers={}, role_status=role, catalog_view=view,
+    )
+    options = compute_model_override_options(role, {}, view, env={})
+    eligible_ids = {o.id for o in options if o.eligibility == "eligible"}
+
+    assert set(allowed) == eligible_ids
+    assert "anthropic/claude-x" in allowed          # role preserved
+    assert "openrouter/x/no-tools" not in allowed    # ineligible favorite excluded
+    # every favorite excluded from allowed carries a reason in the structured list
+    for o in options:
+        if o.source == "openrouter_favorite" and o.id not in allowed:
+            assert o.ineligible_reason is not None
+
+
+@pytest.mark.asyncio
+async def test_build_models_payload_has_options_and_catalog_block(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-x")
+    monkeypatch.setattr(model_status, "build_role_status",
+                        lambda: _role_status("anthropic/claude-x"))
+
+    async def _no_local(*a, **k):
+        return {}
+    monkeypatch.setattr(model_status, "get_cached_local_provider_status_async", _no_local)
+
+    fav = _meta("openrouter/anthropic/claude-sonnet-4.6", params=["tools"], name="Sonnet 4.6")
+    monkeypatch.setattr(model_status.openrouter_catalog, "load", lambda: _catalog(fav))
+    monkeypatch.setattr(model_status, "build_persona_status", lambda builder=None: [])
+
+    payload = await model_status.build_models_payload()
+
+    assert "allowed_model_override_options" in payload
+    ids = {o["id"] for o in payload["allowed_model_override_options"]}
+    assert "anthropic/claude-x" in ids
+    assert "openrouter/anthropic/claude-sonnet-4.6" in ids
+    assert "openrouter/anthropic/claude-sonnet-4.6" in payload["allowed_model_overrides"]
+    assert payload["openrouter_catalog"]["cache_present"] is True
+    assert payload["openrouter_catalog"]["stale"] is False

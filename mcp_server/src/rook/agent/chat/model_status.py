@@ -501,23 +501,13 @@ def get_cached_local_provider_status_snapshot() -> Optional[dict]:
 def compute_allowed_model_overrides(
     local_providers: dict,
     role_status: Optional[dict] = None,
+    catalog_view=None,
 ) -> list[str]:
-    """Return sorted allowed model overrides for chat conversations."""
+    """Return sorted eligible model override ids (role + local + eligible favorites)."""
     status = role_status or build_role_status()
-
-    allowed = {
-        role.get("effective_model")
-        for role in (status.get("roles") or {}).values()
-        if role.get("effective_model")
-    }
-
-    for provider in (local_providers or {}).values():
-        for model in provider.get("models") or []:
-            override = model.get("model_override")
-            if override:
-                allowed.add(override)
-
-    return sorted(allowed)
+    view = catalog_view if catalog_view is not None else openrouter_catalog.load()
+    options = compute_model_override_options(status, local_providers, view)
+    return sorted(o.id for o in options if o.eligibility == "eligible")
 
 
 async def compute_allowed_model_overrides_async(
@@ -583,12 +573,13 @@ def build_persona_status(builder: Optional[PromptBuilder] = None) -> list[dict]:
 
 
 async def build_models_payload(builder: Optional[PromptBuilder] = None) -> dict:
-    """Build the full chat models payload for the future endpoint."""
+    """Build the full chat models payload for the model status endpoint."""
     role_status = build_role_status()
     local_providers = await get_cached_local_provider_status_async()
-    allowed_model_overrides = compute_allowed_model_overrides(
-        local_providers=local_providers,
-        role_status=role_status,
+    catalog_view = openrouter_catalog.load()
+    options = compute_model_override_options(role_status, local_providers, catalog_view)
+    allowed_model_overrides = sorted(
+        o.id for o in options if o.eligibility == "eligible"
     )
 
     return {
@@ -596,6 +587,13 @@ async def build_models_payload(builder: Optional[PromptBuilder] = None) -> dict:
         "personas": build_persona_status(builder),
         "local_providers": local_providers,
         "allowed_model_overrides": allowed_model_overrides,
+        "allowed_model_override_options": [o.to_payload() for o in options],
+        "openrouter_catalog": {
+            "cache_present": catalog_view.cache_present,
+            "fetched_at": catalog_view.fetched_at,
+            "stale": catalog_view.stale,
+            "last_refresh_error": catalog_view.last_refresh_error,
+        },
     }
 
 
