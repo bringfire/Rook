@@ -22,11 +22,14 @@ Proves `/api/v1/models` fetches, populates cache, resolves a known model to its
 metadata, and confirms `tools` appears in `supported_parameters`. Zero spend.
 
 ```powershell
+Remove-Item Env:OPENROUTER_LIVE_LLM_SMOKE -ErrorAction SilentlyContinue  # ensure no paid tests run
 $env:OPENROUTER_LIVE_SMOKE="1"
 python -m pytest tests/test_openrouter_live_smoke.py -v
 ```
 
 Expected: `test_live_refresh_populates_cache` PASSED; the two routing tests SKIPPED.
+(The `Remove-Item` line clears any leftover paid gate from a prior run in the same
+session, so this Tier 0 command never spends.)
 
 ---
 
@@ -44,6 +47,7 @@ Cost: sub-cent per run at `max_tokens=5`. Default model is `openrouter/openai/gp
 Override with `OPENROUTER_SMOKE_MODEL` to use a different (e.g. cheaper) model.
 
 ```powershell
+Remove-Item Env:OPENROUTER_LIVE_SMOKE -ErrorAction SilentlyContinue  # isolate the paid run
 $env:OPENROUTER_LIVE_LLM_SMOKE="1"
 $env:OPENROUTER_SMOKE_MODEL="openrouter/openai/gpt-4o-mini"
 python -m pytest tests/test_openrouter_live_smoke.py -v
