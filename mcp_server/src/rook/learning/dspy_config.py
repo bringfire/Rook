@@ -165,14 +165,18 @@ def configure_dspy(
 
     # Resolve API key — required for Anthropic, optional for local
     if not is_local:
-        api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise ValueError(
-                "ANTHROPIC_API_KEY environment variable required for cloud models. "
-                "Set it with: export ANTHROPIC_API_KEY='your-key-here'\n"
-                "For local models, set the 'active' profile to 'local' or 'lmstudio' "
-                "in knowledge/model_profiles.json"
-            )
+        from ..agent.model_profiles import api_key_env_for_model
+        key_env = api_key_env_for_model(model, api_base)
+        if not api_key and key_env:
+            api_key = os.environ.get(key_env)
+            if not api_key:
+                raise ValueError(
+                    f"{key_env} environment variable required for model '{model}'. "
+                    f"Set it (e.g. export {key_env}='your-key-here'), pass api_key=, "
+                    "or select a local profile in knowledge/model_profiles.json."
+                )
+        # key_env is None for multi-auth/unknown providers (Azure, Bedrock, ...);
+        # leave api_key unset and let LiteLLM/DSPy surface provider-specific errors.
 
     # Build LM kwargs
     lm_kwargs = dict(
@@ -257,20 +261,36 @@ def configure_dspy_for_optimization(
     teacher_is_local = _is_local_model(teacher_model, teacher_base)
     student_is_local = _is_local_model(student_model, student_base)
 
-    # Require API key if either model is cloud
-    if not teacher_is_local or not student_is_local:
-        api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise ValueError("ANTHROPIC_API_KEY environment variable required for cloud models")
+    # Resolve a provider-correct key per cloud model.  An explicit api_key=
+    # overrides env lookup for all cloud models; multi-auth/unknown providers
+    # resolve to None and let LiteLLM surface their own auth errors.
+    from ..agent.model_profiles import api_key_env_for_model
+
+    def _resolve_key(mdl: str, mdl_is_local: bool, mdl_base: Optional[str]) -> Optional[str]:
+        if mdl_is_local:
+            return None
+        if api_key:
+            return api_key
+        key_env = api_key_env_for_model(mdl, mdl_base)
+        if key_env:
+            val = os.environ.get(key_env)
+            if not val:
+                raise ValueError(
+                    f"{key_env} environment variable required for model '{mdl}'. "
+                    "Set it or pass api_key=."
+                )
+            return val
+        return None
+
+    teacher_key = _resolve_key(teacher_model, teacher_is_local, teacher_base)
+    student_key = _resolve_key(student_model, student_is_local, student_base)
 
     teacher_kwargs = dict(model=teacher_model, temperature=0.7, max_tokens=4096, cache=True)
     student_kwargs = dict(model=student_model, temperature=0.3, max_tokens=2048, cache=True)
-    # API key goes to cloud models; local models ignore it
-    if api_key:
-        if not teacher_is_local:
-            teacher_kwargs["api_key"] = api_key
-        if not student_is_local:
-            student_kwargs["api_key"] = api_key
+    if teacher_key:
+        teacher_kwargs["api_key"] = teacher_key
+    if student_key:
+        student_kwargs["api_key"] = student_key
     if teacher_base:
         teacher_kwargs["api_base"] = teacher_base
     if student_base:

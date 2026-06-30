@@ -39,7 +39,7 @@
 ## Current Architecture
 - `RookNative` is the sole Rhino plugin and sole HTTP server
 - The native HTTP surface currently has 263 unique routes, 292 route registrations, and 42 handler files
-- The Python MCP server currently exposes 427 tools advertised by `list_tools()` (430 static defs minus 3 deprecated-interactive tools gated by default)
+- The Python MCP server currently exposes 428 tools advertised by `list_tools()` (431 static defs minus 3 deprecated-interactive tools gated by default)
 - The managed companion is internal, has no HTTP server, and is not a separate public plugin surface
 - Grasshopper remains companion-backed by design through the native callback bridge
 - The managed companion owns the chat panel

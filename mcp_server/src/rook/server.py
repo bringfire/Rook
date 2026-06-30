@@ -3141,6 +3141,16 @@ async def list_tools() -> list[Tool]:
             inputSchema={"type": "object", "properties": {}, "required": []}
         ),
         Tool(
+            name="openrouter_refresh_catalog",
+            description=(
+                "Refresh the cached OpenRouter model catalog (pricing, context length, "
+                "supported_parameters) for curated favorites. Networked, explicit, safe to "
+                "re-run; never required for routing. Returns counts, provenance, and any "
+                "favorites missing from the catalog."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
+        Tool(
             name="rhino_sessions",
             description="List discovered Rhino sessions (one per open Rhino window) with a liveness envelope (live / unreachable / dead). Read-only: does NOT launch, target, mutate, or close anything. Distinguishes a dead process from an alive process whose RookNative listener is temporarily unreachable. Use before targeting a specific Rhino window. NOTE: distinct from `session_list`, which lists past recording sessions for replay.",
             inputSchema={"type": "object", "properties": {}, "required": []},
@@ -13927,6 +13937,23 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
     match name:
         case "rhino_instances":
             result = await targeting.instances_result()
+
+        case "openrouter_refresh_catalog":
+            import asyncio as _asyncio
+            from .providers import openrouter_catalog as _orc
+            _rr = await _asyncio.to_thread(_orc.refresh)
+            result = {
+                "success": _rr.success,
+                "data": {
+                    "models_fetched": _rr.models_fetched,
+                    "favorites_matched": _rr.favorites_matched,
+                    "unknown_favorites": _rr.unknown_favorites,
+                    "cache_path": _rr.cache_path,
+                    "source_endpoint": _rr.source_endpoint,
+                    "fetched_at": _rr.fetched_at,
+                    "last_refresh_error": _rr.last_refresh_error,
+                },
+            }
 
         case "rhino_sessions":
             result = list_sessions_result()

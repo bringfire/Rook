@@ -50,7 +50,7 @@ from rook.mcp_tool_profiles import (
 
 
 def test_set_sizes_are_pinned():
-    assert len(PUBLIC_LEAN_TOOL_NAMES) == 17
+    assert len(PUBLIC_LEAN_TOOL_NAMES) == 18
     assert len(PUBLIC_READONLY_TOOL_NAMES) == 145
     assert len(SENTINEL_TOOL_NAMES) == 26
 
@@ -62,7 +62,8 @@ def test_readonly_is_disjoint_from_sentinels():
 
 def test_lean_is_not_a_subset_of_readonly():
     # lean is a *context* surface that must do work; it deliberately includes
-    # 5 mutators not in the *safety* readonly surface.
+    # 5 mutators plus the openrouter_refresh_catalog provider tool, none in the
+    # *safety* readonly surface.
     lean_only = PUBLIC_LEAN_TOOL_NAMES - PUBLIC_READONLY_TOOL_NAMES
     assert lean_only == {
         "gh_edit",
@@ -70,6 +71,7 @@ def test_lean_is_not_a_subset_of_readonly():
         "gh_execute_intent",
         "rhino_set_active_instance",
         "rhino_clear_active_instance",
+        "openrouter_refresh_catalog",
     }
 
 

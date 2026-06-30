@@ -106,6 +106,9 @@ knowledge/local/
 !knowledge/local/.gitkeep
 mcp_server/knowledge/local/
 
+# Generated provider catalog caches (disposable; see Spec A)
+knowledge/generated/
+
 # Canonical knowledge is tracked (validated, production)
 # knowledge/canonical/ is NOT ignored
 # mcp_server/knowledge/canonical/ is also tracked
