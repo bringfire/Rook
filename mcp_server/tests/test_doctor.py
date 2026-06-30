@@ -12,6 +12,7 @@ from rook.doctor import (
     _validate_codex_config,
     _validate_mcp_entry,
 )
+from rook.mcp_tool_profiles import ENV_VAR as PROFILE_ENV_VAR
 from rook.runtime_paths import RuntimePaths
 
 
@@ -33,6 +34,23 @@ def _runtime_paths(tmp_path: Path) -> RuntimePaths:
         mcp_server_dir=mcp_server_dir,
         repo_root=tmp_path,
     )
+
+
+def test_codex_toml_sets_lean_profile(tmp_path: Path):
+    rp = _runtime_paths(tmp_path)
+    toml = doctor._generate_codex_toml(rp, python_path="/usr/bin/python")
+    assert f'{PROFILE_ENV_VAR} = "lean"' in toml
+
+
+def test_shared_env_has_no_profile_key(tmp_path: Path):
+    rp = _runtime_paths(tmp_path)
+    assert PROFILE_ENV_VAR not in doctor._build_expected_env(rp)
+
+
+def test_claude_entry_env_has_no_profile_key(tmp_path: Path):
+    rp = _runtime_paths(tmp_path)
+    entry = doctor._build_expected_mcp_entry(rp, python_path="/usr/bin/python")
+    assert PROFILE_ENV_VAR not in entry["env"]
 
 
 def test_managed_companion_payloads_use_runtime_child_folders(tmp_path: Path):
