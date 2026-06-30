@@ -10,8 +10,13 @@
 ## 1. Problem
 
 Rook's public MCP server exposes **every tool through one flat, unconditional `list_tools()`**
-([`server.py:3125`](../../../mcp_server/src/rook/server.py)). AST extraction counts **430 unique
-`Tool(...)` definitions** (~360k JSON chars, ~90k tokens by char/4). Clients that eagerly load all
+([`server.py:3125`](../../../mcp_server/src/rook/server.py)). Live `list_tools()` advertises **427
+unique tools** by default (~360k JSON chars, ~90k tokens by char/4). (An AST scan finds **430** static
+`Tool(...)` definitions; `list_tools()` gates out **3** deprecated-interactive tools —
+`rhino_command_experiment`, `rhino_learn_next`, `rhino_prepare_geometry` — whenever
+`_interactive_command_learning_enabled()` is false ([`server.py:13358`](../../../mcp_server/src/rook/server.py)),
+which is the default. **The profile contract targets the live 427**; the 3 gated definitions are
+separate dead-definition hygiene, out of scope for this campaign.) Clients that eagerly load all
 MCP tool schemas into model context — OpenAI Codex (pre-deferral builds), Cursor, Windsurf — pay that
 cost up front, with the documented consequences: context bloat, degraded tool selection, confusion
 between nearby tools, broader exposure of mutating/specialized tools, and higher latency/cost.
@@ -59,8 +64,8 @@ MCP process fails fast *from its result* — env reads are not buried in side-ef
 
 | Env value        | Resolves to | Behavior |
 |------------------|-------------|----------|
-| *absent / unset* | `full`      | Current public surface (all 430 tools). **Existing installs never silently shrink.** |
-| `full`           | `full`      | Current public surface (all 430 tools). |
+| *absent / unset* | `full`      | Current live `list_tools()` surface (**427** by default; see §1). **Existing installs never silently shrink.** |
+| `full`           | `full`      | Current live `list_tools()` surface (**427** by default; see §1). |
 | `lean`           | `lean`      | Minimal compatibility surface (§4). |
 | `readonly`       | `readonly`  | Read-only surface + server-side enforcement (§5). |
 | *any other value* | **error**  | **Hard configuration failure at startup** with a clear message. Never a silent fallback to `full`. |
@@ -90,7 +95,7 @@ intentional and **must not be "simplified" into a uniform wall.**
 
 | Profile    | `list_tools()` returns | `call_tool()` guard |
 |------------|------------------------|---------------------|
-| `full`     | all 430                | unchanged |
+| `full`     | all 427 (live)         | unchanged |
 | `lean`     | the 17 (§4)            | **unchanged** — lean is *advertisement-only* |
 | `readonly` | the read-only set (§5) | **rejects mutators** — readonly is *enforcement* |
 
@@ -105,7 +110,7 @@ intentional and **must not be "simplified" into a uniform wall.**
 
 ## 4. `lean` membership (pinned)
 
-`lean` is a **minimal compatibility surface** for clients that would otherwise choke on 430 schemas.
+`lean` is a **minimal compatibility surface** for clients that would otherwise choke on 427 schemas.
 Its job is "operate an already-running Rook/Rhino session," not "deliver the best typed-route UX"
 (that is `full`). Membership is **pinned exactly** here and enforced by snapshot test:
 
@@ -134,7 +139,7 @@ gh_execute_intent
 - **Connection/session basics** (`rhino_ping`, instance/session introspection + binding) — connect and
   target an already-running Rhino.
 - **Knowledge queries** (`knowledge_query`, `rhino_knowledge_query`, `gh_knowledge_query`) — discover
-  what exists without loading 430 schemas.
+  what exists without loading 427 schemas.
 - **Inspection** (`rhino_objects`, `rhino_geometry`, `gh_snapshot`, `gh_errors`) — see document and
   canvas state, read solved data and errors.
 - **GH batch path** (`gh_snapshot` → `gh_edit`) — the *direct, preferred* GH workflow per CLAUDE.md.
@@ -188,7 +193,8 @@ A tool qualifies for `PUBLIC_READONLY_TOOL_NAMES` **only if it does NONE of the 
    visibility/lock/current, viewport/camera/zoom/focus, views save/restore, display mode, gumball).
 8. Controls **agents / background work** (spawn/abort/answer agents, plan_and_execute).
 9. Executes **arbitrary code/commands** that could mutate (`rhino_execute`, `rhino_command`,
-   `rhino_command_queue`, `run_library_script`, `rhino_execute_intent`, `gh_execute_intent`).
+   `run_library_script`, `rhino_execute_intent`, `gh_execute_intent`). *(`rhino_command_queue` only
+   **reads** the prioritized learn-queue — it is in the readonly allowlist, §5.5, not here.)*
 
 ### 5.4 Named sentinel exclusions
 
@@ -211,16 +217,17 @@ families by §5.3 rules 4–6.)
 
 ### 5.5 The audited allowlist
 
-**Provenance.** All 430 tools were classified default-deny by a scripted audit (reproducible
-classifier `scratchpad/classify.py`; raw result `scratchpad/result.json`), then every *inclusion* was
-adversarially re-verified by hand against §5.3/§5.4 (the only direction that can leak a mutator). The
-audit produced 147 read-only candidates; hand-verification **demoted 2** whose verbs imply a state
-transition the description cannot clear (see "Excluded by adversarial review" below).
+**Provenance.** All **430** static tool definitions were classified default-deny by a temporary local
+audit script (not committed; the reproducible classifier is a deliverable of the implementation — §8),
+then every *inclusion* was adversarially re-verified by hand against §5.3/§5.4 (the only direction that
+can leak a mutator). The audit produced 147 read-only candidates; hand-verification **demoted 2** whose
+verbs imply a state transition the description cannot clear (see "Excluded by adversarial review" below).
 
-**Result: `PUBLIC_READONLY_TOOL_NAMES` = 145 tools.** Arithmetic closes:
-`145 readonly + 285 excluded (279 mutator + 4 uncertain + 2 demoted) = 430`. Sentinel check (§5.4): no
-sentinel present in the allowlist. The list below is authoritative; the code constant must equal it
-exactly and is pinned by the §8 snapshot test.
+**Result: `PUBLIC_READONLY_TOOL_NAMES` = 145 tools.** Over the **live 427-tool** surface (§1) the
+arithmetic closes: `145 readonly + 282 excluded = 427`, where 282 excluded = **276 mutators** (279
+audited minus the 3 deprecated-interactive definitions gated out of `list_tools()`) + **4 uncertain** +
+**2 demoted**. Sentinel check (§5.4): no sentinel present in the allowlist. The list below is
+authoritative; the code constant must equal it exactly and is pinned by the §8 snapshot test.
 
 > Note: `PUBLIC_READONLY_TOOL_NAMES` is **not** a superset of `lean`. Five `lean` tools are mutators
 > (`gh_edit`, `rhino_execute_intent`, `gh_execute_intent`, `rhino_set_active_instance`,
@@ -393,9 +400,10 @@ config is inherited by the panel.
 
 ### 7.4 Stale-doc correction (part of this campaign)
 
-Active docs say **392 tools**; the live surface is **430** (AST-verified; prior estimate "427").
-Correct the count across `CLAUDE.md`, `AGENTS.md`, `docs/`, and memory so future reviewers do not argue
-from stale numbers. The snapshot test (§8) becomes the authoritative count going forward.
+Active docs say **392 tools**; the live `list_tools()` surface is **427** (430 static `Tool(...)` defs
+minus the 3 deprecated-interactive tools gated out by default, §1). Correct the count across
+`CLAUDE.md`, `AGENTS.md`, `docs/`, and memory so future reviewers do not argue from stale numbers. The
+§8 snapshot test becomes the authoritative count going forward.
 
 ---
 
@@ -404,10 +412,13 @@ from stale numbers. The snapshot test (§8) becomes the authoritative count goin
 1. **Pure resolver:** `resolve_profile(env)` unit tests — absent ⇒ full; `full`/`lean`/`readonly` map
    through; invalid ⇒ raises (startup-failure path asserted separately).
 2. **Profile snapshots (counts + names):** pin the exact tool name set for `absent`, `full`, `lean`,
-   `readonly`.
+   `readonly`, taken against **live `list_tools()`** output (not the static `Tool(...)` defs).
+   - `full` set **==** live `list_tools()` — **427** in the default (interactive-learning-disabled)
+     config; 430 if `_interactive_command_learning_enabled()` is set. Pin the default (427); assert the
+     flag state so the snapshot is deterministic.
    - `absent` set **==** `full` set.
    - `lean` set **==** the pinned 17 (§4).
-   - `readonly` set **==** `PUBLIC_READONLY_TOOL_NAMES`, and is a strict subset of `full`.
+   - `readonly` set **==** `PUBLIC_READONLY_TOOL_NAMES` (145), a strict subset of `full`.
    - **Maintenance contract (called out, not free):** adding a new MCP tool now *requires* updating the
      `full` snapshot, and a deliberate decision whether it joins `lean`/`readonly`. The snapshot is the
      drift gate.
@@ -424,6 +435,11 @@ from stale numbers. The snapshot test (§8) becomes the authoritative count goin
 7. **Config generation (both seams, separately):** `doctor`-generated and `install.ps1`-generated
    Codex configs contain `ROOK_MCP_TOOL_PROFILE=lean`; the corresponding Claude configs do **not**.
    Assert `_build_expected_env()` output contains no profile key (the shared-env guard).
+8. **Committed partition check (replaces the throwaway audit script):** a committed test asserts the
+   structural invariants the local audit verified — `PUBLIC_READONLY_TOOL_NAMES` is disjoint from the
+   sentinel set (§5.4), is a strict subset of live `full`, and that `readonly ∪ excluded` partitions the
+   full live surface with no gaps or overlaps. The per-tool read/write *judgment* stays the documented
+   human audit (§5.5); this test pins its structural consequences so drift is caught when tools change.
 
 ---
 
