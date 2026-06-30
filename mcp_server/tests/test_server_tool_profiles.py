@@ -13,7 +13,7 @@ _GATED = {"rhino_command_experiment", "rhino_learn_next", "rhino_prepare_geometr
 
 
 def _list_names(monkeypatch, profile_value):
-    # Default flag-off state so the live surface is the canonical 427.
+    # Default flag-off state so the live surface is the canonical 428.
     monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
     monkeypatch.delenv("ROOK_MCP_TARGET_MODE", raising=False)
     if profile_value is None:
@@ -24,7 +24,7 @@ def _list_names(monkeypatch, profile_value):
     return {t.name for t in tools}
 
 
-def test_full_surface_is_427_and_gates_deprecated(monkeypatch):
+def test_full_surface_is_428_and_gates_deprecated(monkeypatch):
     full = _list_names(monkeypatch, None)  # absent => full
     assert len(full) == 428
     assert _GATED.isdisjoint(full)
@@ -37,7 +37,7 @@ def test_explicit_full_equals_absent(monkeypatch):
     assert _list_names(monkeypatch, "full") == _list_names(monkeypatch, None)
 
 
-def test_lean_surface_is_exactly_17(monkeypatch):
+def test_lean_surface_is_exactly_18(monkeypatch):
     lean = _list_names(monkeypatch, "lean")
     assert lean == set(PUBLIC_LEAN_TOOL_NAMES)
     assert len(lean) == 18
