@@ -1163,6 +1163,7 @@ lines = [
     f'ROOK_INSTALL_ROOT = "{install_root}"',
     f'ROOK_DATA_DIR = "{data_dir}"',
     f'ROOK_MODE = "{rook_mode}"',
+    'ROOK_MCP_TOOL_PROFILE = "lean"',
     '',
 ]
 content = '\n'.join(lines)
