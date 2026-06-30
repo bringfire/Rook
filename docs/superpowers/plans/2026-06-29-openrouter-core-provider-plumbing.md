@@ -407,7 +407,7 @@ git commit -m "$(printf 'feat(openrouter): provider-aware DSPy key resolution (b
 
 **Files:**
 - Modify: `mcp_server/src/rook/agent/chat/runtime_health.py` — `collect_runtime_facts` signature (`:15`), llm_state (`:58-66`), fact lines (`:131-134`)
-- Modify: `mcp_server/src/rook/agent/chat/chat_runner.py:854` (pass the active conversation model)
+- Modify: `mcp_server/src/rook/agent/chat/chat_runner.py:1038` (pass the active conversation model)
 - Modify: `mcp_server/.env.example`
 - Test: `mcp_server/tests/test_runtime_health_providers.py`
 
@@ -552,7 +552,7 @@ and replace the `llm_state = { ... }` literal at lines 58-66 with:
 
 - [ ] **Step 3c: Pass the conversation model from the chat turn**
 
-In `mcp_server/src/rook/agent/chat/chat_runner.py:854`, replace:
+In `mcp_server/src/rook/agent/chat/chat_runner.py:1038`, replace:
 
 ```python
         runtime_facts = await collect_runtime_facts(include_gh=False)
@@ -1230,14 +1230,18 @@ git commit -m "$(printf 'feat(openrouter): networked refresh() with atomic, fail
 
 **Files:**
 - Modify: `mcp_server/src/rook/targeting.py:148` (`_ALL_KNOWN_TOOLS`) and `:571` (`_META_TOOLS`)
-- Modify: `mcp_server/src/rook/server.py` — `list_tools()` (~line 3129) and `_call_tool_dispatch` `match` (~line 13898)
+- Modify: `mcp_server/src/rook/mcp_tool_profiles.py` (`PUBLIC_LEAN_TOOL_NAMES`)
+- Modify: `mcp_server/src/rook/server.py` — `list_tools()` (~line 3133) and `_call_tool_dispatch` `match` (~line 13894)
+- Modify: `mcp_server/tests/test_server_tool_profiles.py` (surface-count assertions: FULL 427→428, LEAN 17→18)
 - Test: `mcp_server/tests/test_openrouter_tool.py`
 
 **Interfaces:**
 - Consumes: `rook.providers.openrouter_catalog.refresh()` and `RefreshResult` (Task 7).
-- Produces: the `openrouter_refresh_catalog` tool returning `{"success": bool, "data": {...}}`, classified non-Rhino (`requires_rhino=False`).
+- Produces: the `openrouter_refresh_catalog` tool returning `{"success": bool, "data": {...}}`, classified non-Rhino (`requires_rhino=False`), exposed under FULL + LEAN, hidden+blocked under READONLY.
 
-**Why the targeting edit is mandatory:** `policy_for_tool` returns `UNKNOWN_TOOL_POLICY = RhinoToolPolicy(requires_rhino=True, risk="mutate")` for any name not in `TOOL_POLICIES` (`targeting.py:70,758`). A server-side provider refresh must NOT be Rhino-routed, or `call_tool` tries to resolve a Rhino target for it. Adding the name to `_META_TOOLS` classifies it `(False, "meta")`.
+**Two enforcement layers must BOTH be satisfied (verified on `origin/main` @ `e7afe408`):**
+1. **Rhino targeting** — `policy_for_tool` returns `UNKNOWN_TOOL_POLICY = RhinoToolPolicy(requires_rhino=True, "mutate")` for any name not in `TOOL_POLICIES` (`targeting.py:70,758`). Adding the name to `_META_TOOLS` classifies it `(False, "meta")` so it is not Rhino-routed.
+2. **MCP tool-exposure profile** (landed overnight) — `list_tools()` returns `filter_tools(live_tools, resolve_profile(os.environ))` (`server.py:13373`) and `call_tool` rejects calls where `tool_blocked(name, profile)` (`server.py:20928`). The readonly wall is **already generic**, so the tool is auto-hidden+blocked under READONLY by *not* being in `PUBLIC_READONLY_TOOL_NAMES`. We DO add it to `PUBLIC_LEAN_TOOL_NAMES` (operator-facing, non-Rhino-mutating); FULL exposure is automatic.
 
 - [ ] **Step 1: Confirm the current (defective) default**
 
@@ -1251,17 +1255,43 @@ Create `mcp_server/tests/test_openrouter_tool.py`:
 ```python
 import asyncio
 from rook import targeting
+from rook import mcp_tool_profiles as mtp
 import rook.server as server
 import rook.providers.openrouter_catalog as cat
+
+
+class _T:
+    def __init__(self, name):
+        self.name = name
 
 
 def test_tool_is_non_rhino():
     assert targeting.policy_for_tool("openrouter_refresh_catalog").requires_rhino is False
 
 
-def test_tool_is_listed():
+def test_tool_is_listed_under_full(monkeypatch):
+    monkeypatch.delenv("ROOK_MCP_TOOL_PROFILE", raising=False)
     names = {t.name for t in asyncio.run(server.list_tools())}
     assert "openrouter_refresh_catalog" in names
+
+
+def test_lean_advertises_refresh():
+    tools = [_T("openrouter_refresh_catalog"), _T("rhino_create")]
+    names = {t.name for t in mtp.filter_tools(tools, mtp.Profile.LEAN)}
+    assert "openrouter_refresh_catalog" in names
+
+
+def test_readonly_hides_refresh():
+    tools = [_T("openrouter_refresh_catalog")]
+    assert mtp.filter_tools(tools, mtp.Profile.READONLY) == []
+
+
+def test_tool_blocked_readonly_true():
+    assert mtp.tool_blocked("openrouter_refresh_catalog", mtp.Profile.READONLY) is True
+
+
+def test_tool_blocked_lean_false():
+    assert mtp.tool_blocked("openrouter_refresh_catalog", mtp.Profile.LEAN) is False
 
 
 def test_tool_dispatch_maps_result(monkeypatch):
@@ -1280,7 +1310,7 @@ def test_tool_dispatch_maps_result(monkeypatch):
 - [ ] **Step 3: Run test to verify it fails**
 
 Run: `cd mcp_server && python -m pytest tests/test_openrouter_tool.py -v`
-Expected: FAIL — `test_tool_is_non_rhino` (currently `True`), `test_tool_is_listed` (name absent), and dispatch returns an unknown-tool result.
+Expected: FAIL — `test_tool_is_non_rhino` (currently `True`), `test_tool_is_listed_under_full` (name absent), `test_lean_advertises_refresh` (not yet in LEAN set), and dispatch returns an unknown-tool result.
 
 - [ ] **Step 4a: Classify the tool as non-Rhino in targeting**
 
@@ -1290,9 +1320,19 @@ In `mcp_server/src/rook/targeting.py`, add this exact line to BOTH the `_ALL_KNO
     "openrouter_refresh_catalog",
 ```
 
-- [ ] **Step 4b: Register the tool schema**
+- [ ] **Step 4b: Advertise under LEAN (and, by omission, hide+block under READONLY)**
 
-In `mcp_server/src/rook/server.py`, inside `list_tools()`'s `all_tools = [` list (after the first `Tool(...)` entry, ~line 3134), add:
+In `mcp_server/src/rook/mcp_tool_profiles.py`, add to the `PUBLIC_LEAN_TOOL_NAMES` frozenset (after `"gh_execute_intent",`):
+
+```python
+    "openrouter_refresh_catalog",
+```
+
+Do NOT add it to `PUBLIC_READONLY_TOOL_NAMES` — `filter_tools(READONLY)` then excludes it and `tool_blocked(name, READONLY)` returns `True` automatically. Do NOT add it to `SENTINEL_TOOL_NAMES` (a catalog refresh is idempotent and low-risk).
+
+- [ ] **Step 4c: Register the tool schema**
+
+In `mcp_server/src/rook/server.py`, inside `list_tools()`'s `all_tools = [` list (after the first `Tool(...)` entry, ~line 3137), add:
 
 ```python
         Tool(
@@ -1307,9 +1347,9 @@ In `mcp_server/src/rook/server.py`, inside `list_tools()`'s `all_tools = [` list
         ),
 ```
 
-- [ ] **Step 4c: Add the dispatch case**
+- [ ] **Step 4d: Add the dispatch case**
 
-In `_call_tool_dispatch`'s `match name:` block (after the `case "rhino_instances":` entry, ~line 13899), add:
+In `_call_tool_dispatch`'s `match name:` block (after the `case "rhino_instances":` entry, ~line 13907), add:
 
 ```python
         case "openrouter_refresh_catalog":
@@ -1330,16 +1370,23 @@ In `_call_tool_dispatch`'s `match name:` block (after the `case "rhino_instances
             }
 ```
 
+- [ ] **Step 4e: Update the surface-count assertions**
+
+Adding one FULL tool and one LEAN tool shifts two pinned counts in `mcp_server/tests/test_server_tool_profiles.py` (READONLY is unchanged at 145). Make exactly these edits:
+- line 29: `assert len(full) == 427` → `assert len(full) == 428`
+- line 43: `assert len(lean) == 17` → `assert len(lean) == 18`
+- line 60: `assert len(ro) + len(excluded) == len(full) == 427` → `assert len(ro) + len(excluded) == len(full) == 428`
+
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cd mcp_server && python -m pytest tests/test_openrouter_tool.py -v`
-Expected: PASS (3 passed).
+Run: `cd mcp_server && python -m pytest tests/test_openrouter_tool.py tests/test_server_tool_profiles.py -v`
+Expected: PASS — 7 in `test_openrouter_tool.py`, and the existing profile suite green with the updated counts.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add mcp_server/src/rook/targeting.py mcp_server/src/rook/server.py mcp_server/tests/test_openrouter_tool.py
-git commit -m "$(printf 'feat(openrouter): openrouter_refresh_catalog MCP tool (non-Rhino policy)\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>')"
+git add mcp_server/src/rook/targeting.py mcp_server/src/rook/mcp_tool_profiles.py mcp_server/src/rook/server.py mcp_server/tests/test_openrouter_tool.py mcp_server/tests/test_server_tool_profiles.py
+git commit -m "$(printf 'feat(openrouter): openrouter_refresh_catalog MCP tool (non-Rhino, FULL+LEAN)\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>')"
 ```
 
 ---
@@ -1478,7 +1525,7 @@ Expected: only the files named across Tasks 1–8 and 10 in the Rook repo (Task 
 - §3.2 favorites + generated cache split → Tasks 5 (favorites + `.gitignore`), 7 (cache writes).
 - §3.3 MCP tool → Task 8.
 - §3.4 `api_key_env_for_model` helper → Task 2.
-- §3.5 touch-points: routing → Task 1; DSPy (both functions) → Task 3; health (active-model-gated) + `.env.example` → Task 4; Chirp confirmation → Task 9. (Task 8 also adds the non-Rhino targeting policy the MCP routing layer requires.)
+- §3.5 touch-points: routing → Task 1; DSPy (both functions) → Task 3; health (active-model-gated) + `.env.example` → Task 4; Chirp confirmation → Task 9. (Task 8 also satisfies BOTH overnight-`main` enforcement layers: the non-Rhino `targeting.py` policy AND the `mcp_tool_profiles.py` FULL/LEAN exposure + READONLY block, with surface-count tests updated 427→428 / 17→18.)
 - §5 cache schema (success + failure/status-only) → Task 7.
 - §6 invariants I1–I7 → I1/I2 (Task 6 load is pure-disk; routing untouched by cache), I3 (Task 4, gated on the active/effective model — not any-key), I4 (Task 7), I5/I6 (Task 2), I7 (Tasks 5/6 schema_version + `.gitignore`).
 - §8 test matrix → Tasks 1–9 tests; live smoke → Task 10.
