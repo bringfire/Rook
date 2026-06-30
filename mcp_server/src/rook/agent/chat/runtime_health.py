@@ -12,7 +12,69 @@ from ...bridge import call_rhino
 logger = logging.getLogger(__name__)
 
 
-async def collect_runtime_facts(include_gh: bool = False) -> dict[str, Any]:
+def _provider_key_state() -> dict[str, bool]:
+    return {
+        "ANTHROPIC_API_KEY": bool(os.environ.get("ANTHROPIC_API_KEY")),
+        "OPENROUTER_API_KEY": bool(os.environ.get("OPENROUTER_API_KEY")),
+        "OPENAI_API_KEY": bool(os.environ.get("OPENAI_API_KEY")),
+    }
+
+
+def _effective_default_model() -> str:
+    """Resolve the model a default chat turn would use (worker role).
+
+    Used only when no explicit active model is available (e.g. the generic
+    health endpoint).  Mirrors resolve_model_and_base's worker fallback.
+    """
+    try:
+        from ...agent.model_profiles import get_models
+        models = get_models()
+        return models.worker or "anthropic/claude-sonnet-4-6"
+    except Exception:
+        return "anthropic/claude-sonnet-4-6"
+
+
+def _llm_state(active_model: str | None = None) -> dict[str, Any]:
+    """Health gated on the active/effective model's required key (I3).
+
+    Gates ``configured`` on the key the active model actually needs: the
+    conversation model during a turn, or the worker-role default otherwise.
+    Local and multi-auth/unknown providers are treated as configured (no single
+    required env var).  The full provider-key map is reported informationally.
+    """
+    from ...agent.model_profiles import api_key_env_for_model
+    provider_keys = _provider_key_state()
+    model = active_model or _effective_default_model()
+    provider = model.split("/", 1)[0] if "/" in model else "unknown"
+    key_env = api_key_env_for_model(model)
+
+    if key_env is None:
+        return {
+            "configured": True,
+            "provider": provider,
+            "message": f"Active model '{model}' needs no single required key env var.",
+            "active_model": model,
+            "provider_keys": provider_keys,
+        }
+
+    configured = bool(os.environ.get(key_env))
+    return {
+        "configured": configured,
+        "provider": provider,
+        "message": (
+            f"{key_env} is configured for active model '{model}'."
+            if configured
+            else f"{key_env} is missing for active model '{model}'. "
+                 "Set it in the environment or mcp_server/.env."
+        ),
+        "active_model": model,
+        "provider_keys": provider_keys,
+    }
+
+
+async def collect_runtime_facts(
+    include_gh: bool = False, active_model: str | None = None
+) -> dict[str, Any]:
     """Collect verified runtime facts for the chat service and prompt layer.
 
     Returns a stable dict describing Rhino bridge reachability, prompt-state
@@ -55,15 +117,7 @@ async def collect_runtime_facts(include_gh: bool = False) -> dict[str, Any]:
                 "data": "Rhino bridge unavailable",
             }
 
-    llm_state = {
-        "configured": bool(os.environ.get("ANTHROPIC_API_KEY")),
-        "provider": "anthropic",
-        "message": (
-            "Anthropic API key is configured."
-            if os.environ.get("ANTHROPIC_API_KEY")
-            else "Anthropic API key is missing. Set ANTHROPIC_API_KEY in the environment or mcp_server/.env."
-        ),
-    }
+    llm_state = _llm_state(active_model)
 
     facts: dict[str, Any] = {
         "rhino": {
@@ -129,8 +183,8 @@ def _build_verified_fact_lines(
             lines.append("Grasshopper availability is not verified in this session.")
 
     if llm_state.get("configured"):
-        lines.append("Anthropic API key is configured for chat turns.")
+        lines.append("An LLM provider API key is configured for chat turns.")
     else:
-        lines.append("Anthropic API key is missing; explain this explicitly instead of attempting a model call.")
+        lines.append("No LLM provider API key is configured for the active model; explain this explicitly instead of attempting a model call.")
 
     return lines

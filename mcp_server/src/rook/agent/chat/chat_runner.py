@@ -1035,7 +1035,9 @@ class ChatRunner:
         total_output = 0
         start_time = time.time()
         substrate_observations: List[Any] = []
-        runtime_facts = await collect_runtime_facts(include_gh=False)
+        runtime_facts = await collect_runtime_facts(
+            include_gh=False, active_model=conversation.model
+        )
         closing_due_to_generator_exit = False
 
         try:
