@@ -1,4 +1,5 @@
 import pytest
+from collections import namedtuple
 
 from rook.mcp_tool_profiles import (
     ENV_VAR,
@@ -77,3 +78,51 @@ def test_named_sentinels_present():
     for name in ("rhino_select", "rhino_layer_visibility", "gh_edit", "rhino_create"):
         assert name in SENTINEL_TOOL_NAMES
         assert name not in PUBLIC_READONLY_TOOL_NAMES
+
+
+from rook.mcp_tool_profiles import (
+    filter_tools,
+    profile_blocked_envelope,
+    tool_blocked,
+)
+
+_StubTool = namedtuple("_StubTool", "name")
+
+
+def _names(tools):
+    return {t.name for t in tools}
+
+
+def test_filter_tools_full_returns_all():
+    tools = [_StubTool("rhino_create"), _StubTool("rhino_ping"), _StubTool("gh_align")]
+    assert filter_tools(tools, Profile.FULL) == tools
+
+
+def test_filter_tools_lean_keeps_only_lean_names():
+    tools = [_StubTool("rhino_ping"), _StubTool("rhino_create"), _StubTool("gh_edit")]
+    assert _names(filter_tools(tools, Profile.LEAN)) == {"rhino_ping", "gh_edit"}
+
+
+def test_filter_tools_readonly_keeps_only_readonly_names():
+    tools = [_StubTool("rhino_objects"), _StubTool("rhino_create"), _StubTool("gh_edit")]
+    assert _names(filter_tools(tools, Profile.READONLY)) == {"rhino_objects"}
+
+
+def test_tool_blocked_only_in_readonly_for_non_allowlisted():
+    assert tool_blocked("rhino_create", Profile.READONLY) is True
+    assert tool_blocked("rhino_objects", Profile.READONLY) is False
+    # lean is list-only -- never blocks at call_tool
+    assert tool_blocked("rhino_create", Profile.LEAN) is False
+    assert tool_blocked("rhino_create", Profile.FULL) is False
+
+
+def test_profile_blocked_envelope_shape():
+    env = profile_blocked_envelope("rhino_create", Profile.READONLY)
+    assert env == {
+        "success": False,
+        "data": {
+            "code": "tool_profile_blocked",
+            "tool": "rhino_create",
+            "profile": "readonly",
+        },
+    }

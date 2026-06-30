@@ -8,7 +8,7 @@ is intentionally pure: it MUST NOT import ``server.py`` (one-way dependency --
 from __future__ import annotations
 
 from enum import Enum
-from typing import Mapping
+from typing import Any, Iterable, List, Mapping
 
 ENV_VAR = "ROOK_MCP_TOOL_PROFILE"
 
@@ -241,3 +241,40 @@ PUBLIC_READONLY_TOOL_NAMES = frozenset({
     "session_history",
     "session_list",
 })
+
+
+def filter_tools(all_tools: Iterable[Any], profile: Profile) -> List[Any]:
+    """Return the subset of tools advertised under ``profile``.
+
+    Each item must expose a ``.name`` attribute. FULL returns every tool
+    unchanged; LEAN/READONLY keep only their pinned name sets.
+    """
+    if profile is Profile.FULL:
+        return list(all_tools)
+    allowed = (
+        PUBLIC_LEAN_TOOL_NAMES
+        if profile is Profile.LEAN
+        else PUBLIC_READONLY_TOOL_NAMES
+    )
+    return [tool for tool in all_tools if tool.name in allowed]
+
+
+def tool_blocked(name: str, profile: Profile) -> bool:
+    """Whether a call to ``name`` must be rejected under ``profile``.
+
+    Only ``readonly`` is an enforced wall (default-deny). ``lean`` is
+    advertisement-only and never blocks a call.
+    """
+    return profile is Profile.READONLY and name not in PUBLIC_READONLY_TOOL_NAMES
+
+
+def profile_blocked_envelope(name: str, profile: Profile) -> dict:
+    """The Rhino-bridge-style result envelope for a profile-blocked call."""
+    return {
+        "success": False,
+        "data": {
+            "code": "tool_profile_blocked",
+            "tool": name,
+            "profile": profile.value,
+        },
+    }
