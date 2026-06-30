@@ -63,6 +63,7 @@ PUBLIC_LEAN_TOOL_NAMES = frozenset({
     "gh_edit",
     "rhino_execute_intent",
     "gh_execute_intent",
+    "openrouter_refresh_catalog",
 })
 
 SENTINEL_TOOL_NAMES = frozenset({
