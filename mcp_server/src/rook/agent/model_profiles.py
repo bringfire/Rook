@@ -143,6 +143,57 @@ def api_base_for_model(model: str, profile_api_base: Optional[str]) -> Optional[
     return profile_api_base
 
 
+# Provider prefixes whose auth is a single well-known env var.  Intentionally
+# conservative: providers with non-trivial auth (Azure, Bedrock, Vertex, ...)
+# are omitted so we never invent a FOO_API_KEY — LiteLLM/DSPy surface their own
+# auth errors instead.
+_SINGLE_ENV_KEY_PREFIXES: Dict[str, str] = {
+    "openrouter/": "OPENROUTER_API_KEY",
+    "anthropic/": "ANTHROPIC_API_KEY",
+}
+
+
+def api_key_env_for_model(model: str, profile_api_base: Optional[str] = None) -> Optional[str]:
+    """Return the env var name holding the API key for ``model``, or ``None``.
+
+    Conservative and routing-aware.  Returns a key env name ONLY for providers
+    whose auth is a single well-known env var (OpenRouter, Anthropic, real
+    OpenAI cloud).  Returns ``None`` for local providers (Ollama, LM Studio /
+    OpenAI-compatible) and for multi-auth/unknown providers (Azure, Bedrock,
+    Vertex, ...), letting LiteLLM/DSPy surface provider-specific auth errors.
+
+    Shares the same ``openai/`` cloud-vs-local disambiguation as
+    ``api_base_for_model`` so the two cannot drift.
+
+    Args:
+        model: LiteLLM model identifier.
+        profile_api_base: Accepted for signature parity with
+            ``api_base_for_model``; ``openai/`` locality is decided by the model
+            family, so this argument does not currently change the result.
+
+    Returns:
+        Env var name (e.g. ``"OPENROUTER_API_KEY"``) or ``None``.
+    """
+    if model.startswith("ollama_chat/") or model.startswith("ollama/"):
+        return None
+
+    slash_idx = model.find("/")
+    if slash_idx <= 0:
+        return None  # bare / unknown
+
+    prefix = model[:slash_idx + 1]
+    if prefix in _SINGLE_ENV_KEY_PREFIXES:
+        return _SINGLE_ENV_KEY_PREFIXES[prefix]
+
+    if prefix == "openai/":
+        model_name = model[slash_idx + 1:]
+        if any(model_name.startswith(p) for p in _OPENAI_CLOUD_MODEL_PREFIXES):
+            return "OPENAI_API_KEY"
+        return None  # local OpenAI-compatible server (LM Studio, vLLM)
+
+    return None  # multi-auth / unknown provider
+
+
 # ── Default profiles data ────────────────────────────────────────────────
 _OLLAMA_PLACEHOLDER = "ollama_chat/qwen3-coder:30b-a3b-q8_0"
 _LMSTUDIO_PLACEHOLDER = "openai/lmstudio-model"
