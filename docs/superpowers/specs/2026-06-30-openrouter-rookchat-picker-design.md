@@ -112,8 +112,9 @@ metadata. Role effective-models and local-provider models are **not** tools-gate
 preserves existing trust boundaries (the system has no reliable capability metadata for those
 sources today) and is **not** a claim that they are always tool-capable.
 
-For each OpenRouter favorite (litellm id from `OpenRouterCatalog.load()`). `supports_tools` is
-always the capability fact from metadata, computed independently of credentials.
+The rules below are applied to each OpenRouter favorite (litellm id from
+`OpenRouterCatalog.load()`). `supports_tools` is always the capability fact from metadata,
+computed independently of credentials.
 `ineligible_reason` is assigned by **precedence, capability before credentials:**
 `unknown_capability` → `missing_tools` → `missing_api_key` (rows below are in that order and
 are mutually exclusive):
@@ -145,6 +146,18 @@ Options are deduped to **one entry per model ID**. If the same litellm id arrive
 role/local source and an OpenRouter favorite (e.g. a profile role is set to an `openrouter/`
 model that is also favorited), the **role/local entry wins** (ungated, eligible). No duplicate
 dropdown rows. `display_name` may still be enriched from catalog metadata when available.
+
+**Intentional consequence (credentials follow the source, not the prefix).** Because the
+role/local entry wins, a favorited `openrouter/` model that is *also* a configured role model
+stays `eligible` even when `OPENROUTER_API_KEY` is absent — role/local options are ungated on
+**both** tools and credentials. This is deliberate, for two reasons: (1) gating role-sourced
+cloud models on key presence would regress the common case (an active Anthropic role going
+`ineligible` → empty applyable set → broken picker) whenever the key resolves through a
+non-standard path; and (2) a configured active role already reflects committed trust — the
+picker reflects that rather than second-guessing it. The missing-key failure for such a model
+surfaces through Spec A's active-model health gating and the actual turn, not by hiding a
+configured model. Credential gating (`missing_api_key`) therefore applies **only to
+favorite-sourced options**, consistent with the source-asymmetric tools gating.
 
 ### Shared helper
 
@@ -182,12 +195,22 @@ a thin wrapper returning the eligible ids) so there is exactly one eligibility c
 
 - `RefreshModelStatusAsync` populates `_modelDropDown` from `AllowedModelOverrideOptions`
   filtered to `eligibility == "eligible"`: `Key = Id`, `Text = DisplayName` (fall back to
-  `Id`), with a tooltip carrying provider / context_length / pricing / a "metadata stale —
-  refresh" note when `metadata_state == "stale"`.
+  `Id`).
+- **Per-row detail is best-effort.** Eto `DropDown` + `ListItem` has no item-level tooltip
+  support, so context_length / pricing / a "metadata stale — refresh" hint go to **adjacent
+  status text** (the existing status label, or a small label beside the control) reflecting
+  the *current selection* — not per-row tooltips. Tooltip polish must not block the picker;
+  the minimum bar is that an eligible model is selectable with a usable label.
 - **Graceful degrade:** if `AllowedModelOverrideOptions` is empty/absent (older backend),
   fall back to the legacy `AllowedModelOverrides` strings exactly as today.
-- Active model still guaranteed present (prepend if the eligible set omits it), preserving
-  the current contract that the control reflects the true active model.
+- **Active-model handling keeps the dropdown applyable-only.** The active model is
+  authoritatively reflected in the **status label** (as today). It is added/selected in the
+  dropdown only when it is itself an eligible option; when the active model is ineligible or
+  unknown (e.g. a previously-applied `openrouter/` model after its key was removed), it is
+  **not** injected as a selectable row — it stays in the label, and the dropdown shows no
+  forced selection. This avoids making an unapplyable model look applyable and keeps the C#
+  view consistent with the Python invariant (dropdown = eligible options only). The
+  `ShouldEnableApply` `selected == active` disable rule is unchanged.
 - Pure, Eto-free helpers for unit testing: `EligibleOptions(options)` (filter) and a
   label/tooltip builder. `ShouldEnableApply` is unchanged.
 
@@ -212,8 +235,8 @@ a thin wrapper returning the eligible ids) so there is exactly one eligibility c
 
 ### C# (`src/Rook.Tests/UI/Chat/`)
 
-- `EligibleOptions` filter (mixed eligible/ineligible), label/tooltip builder (display_name
-  fallback to id, stale note), structured-absent → legacy fallback path.
+- `EligibleOptions` filter (mixed eligible/ineligible), label + selection-status-text builder
+  (display_name fallback to id, stale note), structured-absent → legacy fallback path.
 - `ParseSetModelResult` maps the `model_not_tool_capable` body to `ErrorCode`.
 
 Surface-count tests are **not** touched (no MCP tool added). Verify with
