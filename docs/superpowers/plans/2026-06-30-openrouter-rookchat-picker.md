@@ -459,9 +459,9 @@ git commit -m "feat(chat): surface allowed_model_override_options + openrouter_c
 
 ---
 
-### Task 3: Specific Apply rejection for ineligible favorites (shared path)
+### Task 3: Reasoned Apply rejection for ineligible favorites (shared path)
 
-`resolve_allowed_model_override` reuses the engine and raises a specific `model_not_tool_capable` error (subclass of `ModelOverrideUnavailable`, so the existing server `except` + 400 mapping handles it unchanged) when a forced override is a known `missing_tools` favorite.
+`resolve_allowed_model_override` reuses the engine and raises `ModelOverrideIneligible` carrying the specific `ineligible_reason` for any forced known-but-ineligible favorite (`missing_tools` → code `model_not_tool_capable`; `missing_api_key` / `unknown_capability` → code `model_override_ineligible`). It is a subclass of `ModelOverrideUnavailable`, so the existing server `except` + 400 mapping handles it unchanged. Unknown ids still raise the generic `ModelOverrideUnavailable`.
 
 **Files:**
 - Modify: `mcp_server/src/rook/agent/chat/model_status.py` (`ModelOverrideUnavailable`, new `ModelOverrideNotToolCapable`, `resolve_allowed_model_override`)
