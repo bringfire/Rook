@@ -1117,8 +1117,8 @@ git commit -m "feat(mcp-profile): installer injects lean into Codex config only"
 
 - [ ] **Step 1: Find every stale count**
 
-Run: `cd "C:/UDEV/Rook/.claude/worktrees/codex+mcp-tool-exposure-profile" && rg -n -e "392 (MCP )?tools" -e "234 tools" -g "*.md"`
-Record each hit. (Expected: `CLAUDE.md`, possibly `AGENTS.md`, `README`, `docs/`.)
+Run: `cd "C:/UDEV/Rook/.claude/worktrees/codex+mcp-tool-exposure-profile" && rg -n -e "392 (MCP )?tools" -e "392 tools" -e "~?234 tools" -e "430 (unique )?tools" -g "*.md"`
+Record each hit. A `430 ... tools` hit is **only** acceptable where the text explicitly means *static definitions* — otherwise correct it to 427. (Expected: `CLAUDE.md`, possibly `AGENTS.md`, `README`, `docs/`.)
 
 - [ ] **Step 2: Correct each occurrence to 427**
 
