@@ -42,6 +42,8 @@ from .output_safety import (
     create_manifest,
     create_run_directory,
     exclusive_write_bytes,
+    publish_temp_file_no_overwrite,
+    temp_capture_ply_path,
     update_manifest,
     validate_output_directory,
 )
@@ -239,6 +241,25 @@ async def export_mesh2splat_capture(
                 extra={"estimate": _estimate_payload(estimate)},
             )
 
+        temp_capture_ply = temp_capture_ply_path(paths.run_directory, manifest.run_id)
+        try:
+            exclusive_write_bytes(temp_capture_ply, b"")
+        except FileExistsError as exc:
+            return _fail_after_manifest(
+                "invalid_output_directory",
+                _generated_path_collision_message(temp_capture_ply, exc),
+                manifest,
+                request.preserve_debug_artifacts,
+                warnings=warnings,
+                cleanup_artifact_paths=(temp_capture_ply,),
+            )
+        manifest = replace(
+            manifest,
+            artifact_paths=(*manifest.artifact_paths, temp_capture_ply),
+            status="ply_temp_reserved",
+        )
+        deps.update_manifest(manifest)
+
         child_env = sanitized_child_environment(
             source_requires_path=bool(executable.source_requires_path),
             parent_env=deps.env if hasattr(deps, "env") else os.environ,
@@ -246,7 +267,7 @@ async def export_mesh2splat_capture(
         argv = _mesh2splat_argv(
             executable.path,
             paths.capture_glb,
-            paths.capture_ply,
+            temp_capture_ply,
             fmt=request.format,
             sampling_resolution=request.sampling_resolution,
         )
@@ -258,54 +279,38 @@ async def export_mesh2splat_capture(
             timeout_seconds=_timeout_seconds(request),
         )
         if not process_result.success:
-            if paths.capture_ply.exists():
-                manifest = replace(
-                    manifest,
-                    artifact_paths=(*manifest.artifact_paths, paths.capture_ply),
-                    status="mesh2splat_failed",
-                )
-                deps.update_manifest(manifest)
+            manifest = replace(manifest, status="mesh2splat_failed")
+            deps.update_manifest(manifest)
             return _fail_after_manifest(
                 process_result.error_code or "mesh2splat_failed",
                 "Mesh2Splat conversion failed",
                 manifest,
                 request.preserve_debug_artifacts,
                 warnings=warnings,
-                cleanup_artifact_paths=(paths.capture_ply,),
+                cleanup_artifact_paths=(temp_capture_ply,),
                 extra={"cli": _cli_payload(process_result, executable, argv, cwd)},
             )
 
         stdout_error = _validate_success_stdout(process_result.parsed_stdout, request)
         if stdout_error is not None:
-            if paths.capture_ply.exists():
-                manifest = replace(
-                    manifest,
-                    artifact_paths=(*manifest.artifact_paths, paths.capture_ply),
-                    status="mesh2splat_stdout_invalid",
-                )
-                deps.update_manifest(manifest)
+            manifest = replace(manifest, status="mesh2splat_stdout_invalid")
+            deps.update_manifest(manifest)
             return _fail_after_manifest(
                 "mesh2splat_stdout_invalid",
                 stdout_error,
                 manifest,
                 request.preserve_debug_artifacts,
                 warnings=warnings,
-                cleanup_artifact_paths=(paths.capture_ply,),
+                cleanup_artifact_paths=(temp_capture_ply,),
                 extra={"cli": _cli_payload(process_result, executable, argv, cwd)},
             )
 
         gaussian_count = _gaussian_count(process_result.parsed_stdout)
         ply_validation = validate_ply(
-            paths.capture_ply,
+            temp_capture_ply,
             fmt=request.format,
             gaussian_count=gaussian_count,
         )
-        manifest = replace(
-            manifest,
-            artifact_paths=(*manifest.artifact_paths, paths.capture_ply),
-            status="ply_written",
-        )
-        deps.update_manifest(manifest)
         if not ply_validation.ok:
             return _fail_after_manifest(
                 "ply_validation_failed",
@@ -313,9 +318,30 @@ async def export_mesh2splat_capture(
                 manifest,
                 request.preserve_debug_artifacts,
                 warnings=warnings,
-                cleanup_artifact_paths=(paths.capture_ply,),
+                cleanup_artifact_paths=(temp_capture_ply,),
                 extra={"plyValidation": _ply_validation_payload(ply_validation)},
             )
+        try:
+            publish_temp_file_no_overwrite(temp_capture_ply, paths.capture_ply)
+        except FileExistsError as exc:
+            return _fail_after_manifest(
+                "invalid_output_directory",
+                _generated_path_collision_message(paths.capture_ply, exc),
+                manifest,
+                request.preserve_debug_artifacts,
+                warnings=warnings,
+                cleanup_artifact_paths=(temp_capture_ply,),
+            )
+        manifest = replace(
+            manifest,
+            artifact_paths=_replace_manifest_artifact_path(
+                manifest.artifact_paths,
+                temp_capture_ply,
+                paths.capture_ply,
+            ),
+            status="ply_written",
+        )
+        deps.update_manifest(manifest)
 
         ply_artifact, ply_registration_warning = _try_register_artifact(
             deps,
@@ -737,6 +763,14 @@ def _manifest_executable_payload(executable: ExecutableResolution) -> dict[str, 
         "path": str(executable.path),
         "source": executable.source,
     }
+
+
+def _replace_manifest_artifact_path(
+    artifact_paths: tuple[Path, ...],
+    old_path: Path,
+    new_path: Path,
+) -> tuple[Path, ...]:
+    return tuple(new_path if path == old_path else path for path in artifact_paths)
 
 
 def _generated_path_collision(

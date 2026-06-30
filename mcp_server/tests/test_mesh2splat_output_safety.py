@@ -256,6 +256,34 @@ def test_capture_glb_and_ply_remain_exclusive_for_the_whole_run(tmp_path: Path):
     assert paths.capture_ply.read_bytes() == b"ply"
 
 
+def test_publish_temp_file_no_overwrite_preserves_existing_destination(tmp_path: Path):
+    from rook.mesh2splat.output_safety import publish_temp_file_no_overwrite
+
+    temp_path = tmp_path / ".capture.ply.tmp"
+    final_path = tmp_path / "capture.ply"
+    temp_path.write_bytes(b"new ply")
+    final_path.write_bytes(b"foreign ply")
+
+    with pytest.raises(FileExistsError):
+        publish_temp_file_no_overwrite(temp_path, final_path)
+
+    assert temp_path.read_bytes() == b"new ply"
+    assert final_path.read_bytes() == b"foreign ply"
+
+
+def test_publish_temp_file_no_overwrite_publishes_and_removes_temp(tmp_path: Path):
+    from rook.mesh2splat.output_safety import publish_temp_file_no_overwrite
+
+    temp_path = tmp_path / ".capture.ply.tmp"
+    final_path = tmp_path / "capture.ply"
+    temp_path.write_bytes(b"new ply")
+
+    publish_temp_file_no_overwrite(temp_path, final_path)
+
+    assert final_path.read_bytes() == b"new ply"
+    assert not temp_path.exists()
+
+
 def test_cleanup_deletes_only_regular_files_inside_current_run_directory(
     tmp_path: Path,
 ):

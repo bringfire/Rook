@@ -336,12 +336,15 @@ async def test_happy_path_orchestrates_capture_conversion_registration_and_resul
         "create_run_directory",
     ]
     assert deps.events.index("validate_glb") < deps.events.index("run_mesh2splat")
+    temp_ply = Path(deps.argv[4])
+    assert temp_ply.name != "capture.ply"
+    assert temp_ply.parent == deps.run_directory
     assert deps.argv == [
         str(tmp_path / "Mesh2Splat.exe"),
         "--input",
         str(deps.run_directory / "capture.glb"),
         "--output",
-        str(deps.run_directory / "capture.ply"),
+        str(temp_ply),
         "--format",
         "compressed-pbr",
         "--sampling-resolution",
@@ -371,7 +374,11 @@ async def test_happy_path_orchestrates_capture_conversion_registration_and_resul
     assert data["cli"]["stdoutJson"]["gaussianCount"] == 3
     assert data["cli"]["stdoutJson"]["samplingResolution"] == 256
     assert deps.run_mesh2splat_thread_id != event_loop_thread_id
-    assert json.loads((deps.run_directory / "manifest.json").read_text())["status"] == "complete"
+    manifest = json.loads((deps.run_directory / "manifest.json").read_text())
+    assert manifest["status"] == "complete"
+    assert str(temp_ply) not in manifest["artifactPaths"]
+    assert str(deps.run_directory / "capture.ply") in manifest["artifactPaths"]
+    assert not temp_ply.exists()
 
 
 @pytest.mark.asyncio
@@ -533,6 +540,43 @@ async def test_capture_glb_collision_returns_invalid_output_directory_and_preser
 
 
 @pytest.mark.asyncio
+async def test_capture_ply_publish_collision_returns_invalid_output_directory(tmp_path):
+    from rook.mesh2splat import pipeline
+
+    deps = FakeDeps(tmp_path)
+    original_run_mesh2splat = deps.run_mesh2splat
+
+    def run_mesh2splat_with_final_collision(argv, *, cwd, env, timeout_seconds):
+        result = original_run_mesh2splat(
+            argv,
+            cwd=cwd,
+            env=env,
+            timeout_seconds=timeout_seconds,
+        )
+        (deps.run_directory / "capture.ply").write_bytes(b"foreign ply")
+        return result
+
+    deps.run_mesh2splat = run_mesh2splat_with_final_collision
+
+    result = await pipeline.export_mesh2splat_capture(
+        {"outputDirectory": str(tmp_path / "exports")},
+        deps=deps,
+    )
+
+    assert result["success"] is False
+    assert result["data"]["code"] == "invalid_output_directory"
+    assert "capture.ply" in result["data"]["message"]
+    assert (deps.run_directory / "capture.ply").read_bytes() == b"foreign ply"
+    temp_ply = Path(deps.argv[4])
+    assert temp_ply.name != "capture.ply"
+    assert not temp_ply.exists()
+    manifest = json.loads((deps.run_directory / "manifest.json").read_text())
+    assert manifest["status"] == "failed:invalid_output_directory"
+    assert manifest["cleanup"]["deleted"] == [str(temp_ply.resolve(strict=False))]
+    assert manifest["cleanup"]["warnings"] == []
+
+
+@pytest.mark.asyncio
 async def test_glb_validation_failure_does_not_run_mesh2splat(tmp_path):
     from rook.mesh2splat import pipeline
     from rook.mesh2splat.glb_writer import ValidationWarning
@@ -589,8 +633,9 @@ async def test_timeout_cleanup_removes_only_manifest_listed_partial_ply(tmp_path
     }
     assert manifest["outputNames"] == {"glb": "capture.glb", "ply": "capture.ply"}
     assert manifest["cleanup"]["preserveDebugArtifacts"] is False
+    temp_ply = Path(deps.argv[4])
     assert manifest["cleanup"]["deleted"] == [
-        str((deps.run_directory / "capture.ply").resolve(strict=False))
+        str(temp_ply.resolve(strict=False))
     ]
     assert manifest["cleanup"]["warnings"] == []
     assert deps.registered == [
@@ -609,7 +654,7 @@ async def test_normal_failure_cleanup_uses_manifest_helper(tmp_path, monkeypatch
     def fake_cleanup(manifest, **kwargs):
         calls.append((manifest, kwargs))
         return CleanupResult(
-            deleted=[str((manifest.run_directory / "capture.ply").resolve(strict=False))],
+            deleted=[str(kwargs["delete_artifact_paths"][0].resolve(strict=False))],
             warnings=[
                 {
                     "code": "cleanup_probe",
@@ -635,13 +680,14 @@ async def test_normal_failure_cleanup_uses_manifest_helper(tmp_path, monkeypatch
     assert len(calls) == 1
     manifest, kwargs = calls[0]
     assert manifest.status == "failed:mesh2splat_timeout"
+    temp_ply = Path(deps.argv[4])
     assert kwargs == {
         "preserve_debug_artifacts": False,
         "preserve_manifest": True,
-        "delete_artifact_paths": (deps.run_directory / "capture.ply",),
+        "delete_artifact_paths": (temp_ply,),
     }
     assert result["data"]["cleanup"]["deleted"] == [
-        str((deps.run_directory / "capture.ply").resolve(strict=False))
+        str(temp_ply.resolve(strict=False))
     ]
     assert result["data"]["cleanup"]["warnings"] == [
         {

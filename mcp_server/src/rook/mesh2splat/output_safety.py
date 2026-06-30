@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import tempfile
 from dataclasses import dataclass
@@ -71,6 +72,23 @@ def create_run_directory(
 def exclusive_write_bytes(path: Path, data: bytes) -> None:
     with path.open("xb") as file:
         file.write(data)
+
+
+def temp_capture_ply_path(run_directory: Path, run_id: str) -> Path:
+    return run_directory / f".capture-{run_id[:8]}.ply.tmp"
+
+
+def publish_temp_file_no_overwrite(temp_path: Path, final_path: Path) -> None:
+    if _is_symlink_or_reparse_point(temp_path) or not temp_path.is_file():
+        raise ValueError("temporary output path must be a regular file")
+
+    try:
+        os.link(temp_path, final_path)
+    except FileExistsError:
+        raise
+    except OSError:
+        _copy_temp_file_no_overwrite(temp_path, final_path)
+    temp_path.unlink()
 
 
 def create_manifest(manifest: RunManifest) -> None:
@@ -197,6 +215,23 @@ def _manifest_payload(manifest: RunManifest) -> dict[str, object]:
     if manifest.cleanup is not None:
         payload["cleanup"] = _jsonable(manifest.cleanup)
     return payload
+
+
+def _copy_temp_file_no_overwrite(temp_path: Path, final_path: Path) -> None:
+    created_final = False
+    try:
+        with temp_path.open("rb") as source, final_path.open("xb") as destination:
+            created_final = True
+            shutil.copyfileobj(source, destination)
+    except FileExistsError:
+        raise
+    except Exception:
+        if created_final:
+            try:
+                final_path.unlink()
+            except FileNotFoundError:
+                pass
+        raise
 
 
 def _manifest_path_key(path: Path) -> str:
