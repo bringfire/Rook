@@ -33,6 +33,7 @@ import python_runtime_install
 
 MANAGED_COMPANION_RUNTIMES = ("net8.0", "net7.0", "net48")
 PRIVATE_PYTHON_VERSION = "3.11.9"
+PROFILE_ENV_VAR = "ROOK_MCP_TOOL_PROFILE"
 INSTALL_COMMAND_TIMEOUT_SECONDS = 1800
 _INSTALL_LOGGER = logging.getLogger("rook.post_install")
 _INSTALL_LOGGING_CONFIGURED = False
@@ -835,6 +836,7 @@ def configure_codex(
     mcp_dir = str(mcp_server_dir).replace("\\", "/")
 
     env_vars = _build_mcp_env(install_dir, data_dir, "release", chirp_dir)
+    env_vars[PROFILE_ENV_VAR] = "lean"
     toml_content = _generate_codex_toml(python_path, mcp_dir, env_vars)
 
     user_codex_dir = Path.home() / ".codex"
