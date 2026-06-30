@@ -168,18 +168,55 @@ def compute_model_override_options(
 class ModelOverrideUnavailable(ValueError):
     """Raised when a requested chat model override is not currently allowed."""
 
+    code = "model_override_unavailable"
+    ineligible_reason: Optional[str] = None
+
     def __init__(self, model_override: str, allowed_model_overrides: list[str]):
         super().__init__("Model override is not currently available.")
         self.model_override = model_override
         self.allowed_model_overrides = allowed_model_overrides
 
     def to_payload(self) -> dict:
-        return {
+        payload = {
             "error": "Model override is not currently available. Refresh the model list and try again.",
-            "code": "model_override_unavailable",
+            "code": self.code,
             "model_override": self.model_override,
             "allowed_model_overrides": self.allowed_model_overrides,
         }
+        if self.ineligible_reason:
+            payload["ineligible_reason"] = self.ineligible_reason
+        return payload
+
+
+class ModelOverrideIneligible(ModelOverrideUnavailable):
+    """Raised when a forced override is a known model that is not eligible.
+
+    Carries the specific ``ineligible_reason``. ``missing_tools`` keeps the
+    spec-named ``model_not_tool_capable`` code; other reasons use the generic
+    ``model_override_ineligible`` code.
+    """
+
+    _MESSAGES = {
+        "missing_tools": "That model does not support tool calling, which RookChat requires.",
+        "missing_api_key": "That model needs an API key that is not configured.",
+        "unknown_capability": "That model's capabilities are unknown — refresh the OpenRouter catalog.",
+    }
+    _CODES = {"missing_tools": "model_not_tool_capable"}
+
+    def __init__(
+        self,
+        model_override: str,
+        allowed_model_overrides: list[str],
+        ineligible_reason: str,
+    ):
+        super().__init__(model_override, allowed_model_overrides)
+        self.ineligible_reason = ineligible_reason
+        self.code = self._CODES.get(ineligible_reason, "model_override_ineligible")
+
+    def to_payload(self) -> dict:
+        payload = super().to_payload()
+        payload["error"] = self._MESSAGES.get(self.ineligible_reason, payload["error"])
+        return payload
 
 
 def reset_local_provider_status_cache() -> None:
@@ -534,13 +571,18 @@ async def resolve_allowed_model_override(
     local_providers = await get_cached_local_provider_status_async(
         force_refresh=force_refresh
     )
-    allowed_model_overrides = compute_allowed_model_overrides(
-        local_providers=local_providers,
-        role_status=role_status,
-    )
+    catalog_view = openrouter_catalog.load()
+    options = compute_model_override_options(role_status, local_providers, catalog_view)
+    by_id = {o.id: o for o in options}
+    allowed = sorted(o.id for o in options if o.eligibility == "eligible")
 
-    if model_override not in allowed_model_overrides:
-        raise ModelOverrideUnavailable(model_override, allowed_model_overrides)
+    option = by_id.get(model_override)
+    if option is None:
+        raise ModelOverrideUnavailable(model_override, allowed)
+    if option.eligibility != "eligible":
+        raise ModelOverrideIneligible(
+            model_override, allowed, option.ineligible_reason or ""
+        )
 
     return _bound_routing(
         model_override,

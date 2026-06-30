@@ -190,3 +190,92 @@ async def test_build_models_payload_has_options_and_catalog_block(monkeypatch):
     assert "openrouter/anthropic/claude-sonnet-4.6" in payload["allowed_model_overrides"]
     assert payload["openrouter_catalog"]["cache_present"] is True
     assert payload["openrouter_catalog"]["stale"] is False
+
+
+from rook.agent.chat.model_status import (
+    ModelOverrideUnavailable,
+    ModelOverrideIneligible,
+)
+
+
+def _resolver_env(monkeypatch, *favorites, key=True):
+    """Patch the resolver's role/local/catalog sources for deterministic tests."""
+    if key:
+        monkeypatch.setenv("OPENROUTER_API_KEY", "sk-x")
+    else:
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setattr(model_status, "build_role_status",
+                        lambda: _role_status("anthropic/claude-x"))
+
+    async def _no_local(*a, **k):
+        return {}
+    monkeypatch.setattr(model_status, "get_cached_local_provider_status_async", _no_local)
+    monkeypatch.setattr(model_status.openrouter_catalog, "load",
+                        lambda: _catalog(*favorites))
+
+
+@pytest.mark.asyncio
+async def test_resolve_rejects_missing_tools_with_specific_code(monkeypatch):
+    _resolver_env(monkeypatch, _meta("openrouter/x/no-tools", params=["temperature"]))
+    with pytest.raises(ModelOverrideIneligible) as exc:
+        await model_status.resolve_allowed_model_override("openrouter/x/no-tools")
+    payload = exc.value.to_payload()
+    assert payload["code"] == "model_not_tool_capable"
+    assert payload["ineligible_reason"] == "missing_tools"
+
+
+@pytest.mark.asyncio
+async def test_resolve_rejects_unknown_capability_with_reason(monkeypatch):
+    _resolver_env(monkeypatch, _meta("openrouter/x/unknown", params=[], state="unknown"))
+    with pytest.raises(ModelOverrideIneligible) as exc:
+        await model_status.resolve_allowed_model_override("openrouter/x/unknown")
+    payload = exc.value.to_payload()
+    assert payload["code"] == "model_override_ineligible"
+    assert payload["ineligible_reason"] == "unknown_capability"
+
+
+@pytest.mark.asyncio
+async def test_resolve_rejects_missing_api_key_with_reason(monkeypatch):
+    _resolver_env(
+        monkeypatch,
+        _meta("openrouter/anthropic/claude-sonnet-4.6", params=["tools"]),
+        key=False,
+    )
+    with pytest.raises(ModelOverrideIneligible) as exc:
+        await model_status.resolve_allowed_model_override(
+            "openrouter/anthropic/claude-sonnet-4.6"
+        )
+    payload = exc.value.to_payload()
+    assert payload["code"] == "model_override_ineligible"
+    assert payload["ineligible_reason"] == "missing_api_key"
+
+
+@pytest.mark.asyncio
+async def test_resolve_rejects_unknown_id_generic(monkeypatch):
+    _resolver_env(monkeypatch)  # no favorites
+    with pytest.raises(ModelOverrideUnavailable) as exc:
+        await model_status.resolve_allowed_model_override("anthropic/nope")
+    payload = exc.value.to_payload()
+    assert payload["code"] == "model_override_unavailable"
+    assert "ineligible_reason" not in payload
+
+
+@pytest.mark.asyncio
+async def test_resolve_binds_eligible_favorite_as_cloud(monkeypatch):
+    _resolver_env(monkeypatch, _meta("openrouter/anthropic/claude-sonnet-4.6", params=["tools"]))
+    resolution = await model_status.resolve_allowed_model_override(
+        "openrouter/anthropic/claude-sonnet-4.6"
+    )
+    assert resolution.routing == "cloud"
+    assert resolution.api_base == ""
+    assert resolution.provider == "openrouter"
+
+
+@pytest.mark.asyncio
+async def test_compute_allowed_async_includes_eligible_favorite(monkeypatch):
+    # Regression: the async wrapper (used by some callers) must surface eligible
+    # favorites via the refactored shared helper, not just the sync path.
+    _resolver_env(monkeypatch, _meta("openrouter/anthropic/claude-sonnet-4.6", params=["tools"]))
+    allowed = await model_status.compute_allowed_model_overrides_async()
+    assert "openrouter/anthropic/claude-sonnet-4.6" in allowed
+    assert "anthropic/claude-x" in allowed
