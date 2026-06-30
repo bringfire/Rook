@@ -562,3 +562,56 @@ def test_scenario_test_module_boundary_has_no_runtime_or_file_creep() -> None:
     assert not (banned_names & imported_names)
     assert not (banned_names & referenced_names)
     assert not (banned_names & called_names)
+
+
+def test_repair_node_requests_allowed_repair_action() -> None:
+    context = _context(current_node_id="repair_same_component")
+
+    record = run_local_worker_turn(context, _request_allowed_action_worker)
+
+    payload = _assert_completed_action(record, context, "draft_repair_params")
+    assert payload.input["mode"] == "body"
+    assert payload.input["language"] == "csharp"
+
+
+def test_terminal_done_node_observes_completion_even_with_allowed_action() -> None:
+    context = _context(current_node_id="done")
+
+    assert context.current_node is not None
+    assert context.current_node.node_id == "done"
+    assert context.current_node.is_terminal is True
+
+    record = run_local_worker_turn(context, _observe_terminal_worker)
+
+    payload = _assert_completed_observation(record, context)
+    assert "Terminal node" in payload.message
+
+
+def test_execution_ref_used_as_action_id_is_blocked() -> None:
+    context = _context(current_node_id="repair_same_component")
+
+    assert context.current_node is not None
+    assert context.current_node.execution_ref == "gh_update_script:v1"
+
+    record = run_local_worker_turn(
+        context,
+        _request_action_id_worker("gh_update_script:v1"),
+    )
+
+    _assert_blocked_unknown_action(record, context, "gh_update_script:v1")
+
+
+def test_no_allowed_actions_blocks_action_request() -> None:
+    context = _context(
+        current_node_id="repair_same_component",
+        allowed_actions=(),
+    )
+
+    assert context.allowed_actions == ()
+
+    record = run_local_worker_turn(
+        context,
+        _request_action_id_worker("draft_repair_params"),
+    )
+
+    _assert_blocked_unknown_action(record, context, "draft_repair_params")
