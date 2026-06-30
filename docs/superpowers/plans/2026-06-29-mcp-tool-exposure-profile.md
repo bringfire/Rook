@@ -18,7 +18,7 @@
 - **`lean` = exactly 17 names; `readonly` = exactly 145 names; sentinels = exactly 26 names** (literals provided in Task 2 — copy verbatim).
 - **Live `list_tools()` default surface = 427** (430 static defs minus 3 deprecated-interactive tools gated by `_interactive_command_learning_enabled()`); snapshot tests pin the default flag-off state.
 - **Config trap:** inject `lean` only in the Codex/external writer. Never add the profile to the shared `doctor._build_expected_env()` (it feeds Claude too). Claude/panel configs stay `full`.
-- **Tests:** run from `mcp_server/` with the project venv (`mcp_server/.venv`); `python` resolves to it. Pattern: `cd mcp_server && python -m pytest tests/<file>::<test> -v`. Tests invoke the async handlers via `asyncio.run(server.list_tools())` / `asyncio.run(server.call_tool(name, args))` (mirrors `tests/test_artifacts.py`).
+- **Tests:** **Task 0 creates a worktree-local venv** at `mcp_server/.venv` (the worktree has none, and the main checkout's venv imports `rook` from the wrong tree). Run all pytest from `mcp_server/` via `.venv/Scripts/python.exe -m pytest tests/<file>::<test> -v`. Tests invoke the async handlers via `asyncio.run(server.list_tools())` / `asyncio.run(server.call_tool(name, args))` (mirrors `tests/test_artifacts.py`).
 - **Commits:** every commit message ends with the trailer `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`. Work on branch `worktree-codex+mcp-tool-exposure-profile`; do not merge to main.
 - DRY, YAGNI, TDD, frequent commits. No change to the LM5D worker surface.
 
@@ -39,6 +39,42 @@
 - **Modify** `install.ps1` — Codex TOML here-string injects profile. (Task 8)
 - **Create** `mcp_server/tests/test_install_ps1_profile.py` — text-guard test over `install.ps1`. (Task 8)
 - **Modify** docs (`CLAUDE.md`, `AGENTS.md`, `docs/`) + memory — stale count 392 → 427. (Task 9)
+
+---
+
+## Task 0: Worktree environment preflight
+
+**Files:** none (environment only — no commit).
+
+**Why:** This plan runs inside the git worktree, which has **no** Python venv. Plain `python` resolves to an unrelated interpreter and cannot import `rook`; the **main** checkout's venv imports `rook` from the main source tree, not this worktree. Create a worktree-local venv with an editable install so `import rook` resolves to **this** worktree's `src/rook`.
+
+- [ ] **Step 1: Create the worktree venv + editable install (with test extra)**
+
+Run from the worktree root:
+
+```bash
+cd mcp_server
+uv venv .venv --python 3.12
+uv pip install -e ".[test]"
+```
+
+Expected: `.venv` created at `mcp_server/.venv`; `rook-mcp` plus the `[test]` extra (`pytest`, `pytest-asyncio`, `pytest-cov`, `anyio`) installed.
+
+- [ ] **Step 2: Verify `rook` imports from the WORKTREE source (not the main checkout)**
+
+```bash
+cd mcp_server && .venv/Scripts/python.exe -c "import rook, pathlib; print(pathlib.Path(rook.__file__).resolve())"
+```
+
+Expected: a path **under** `...\worktrees\codex+mcp-tool-exposure-profile\mcp_server\src\rook\__init__.py`. If it prints a path under `C:\UDEV\Rook\mcp_server\src` (the main checkout), **STOP and fix** before any further task — every later test would otherwise exercise the wrong tree.
+
+- [ ] **Step 3: Confirm the venv runs the existing suite (sanity)**
+
+```bash
+cd mcp_server && .venv/Scripts/python.exe -m pytest tests/test_doctor.py -q
+```
+
+Expected: the existing doctor tests PASS — confirming the venv + import path are correct. No commit (environment only).
 
 ---
 
@@ -101,7 +137,7 @@ def test_profile_values_are_exact_strings():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd mcp_server && python -m pytest tests/test_mcp_tool_profiles.py -v`
+Run: `cd mcp_server && .venv/Scripts/python.exe -m pytest tests/test_mcp_tool_profiles.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'rook.mcp_tool_profiles'`.
 
 - [ ] **Step 3: Write the minimal implementation**
@@ -156,14 +192,14 @@ def resolve_profile(env: Mapping[str, str]) -> Profile:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd mcp_server && python -m pytest tests/test_mcp_tool_profiles.py -v`
+Run: `cd mcp_server && .venv/Scripts/python.exe -m pytest tests/test_mcp_tool_profiles.py -v`
 Expected: PASS (6 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add mcp_server/src/rook/mcp_tool_profiles.py mcp_server/tests/test_mcp_tool_profiles.py
-git commit -m "feat(mcp-profile): pure resolve_profile + Profile enum"
+git commit -m "feat(mcp-profile): pure resolve_profile + Profile enum" -m "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
 
 ---
@@ -222,7 +258,7 @@ def test_named_sentinels_present():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd mcp_server && python -m pytest tests/test_mcp_tool_profiles.py -k "set_sizes or disjoint or subset or sentinels" -v`
+Run: `cd mcp_server && .venv/Scripts/python.exe -m pytest tests/test_mcp_tool_profiles.py -k "set_sizes or disjoint or subset or sentinels" -v`
 Expected: FAIL — `ImportError: cannot import name 'PUBLIC_LEAN_TOOL_NAMES'`.
 
 - [ ] **Step 3: Add the constants**
@@ -432,14 +468,14 @@ PUBLIC_READONLY_TOOL_NAMES = frozenset({
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd mcp_server && python -m pytest tests/test_mcp_tool_profiles.py -v`
+Run: `cd mcp_server && .venv/Scripts/python.exe -m pytest tests/test_mcp_tool_profiles.py -v`
 Expected: PASS (all Task 1 + Task 2 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add mcp_server/src/rook/mcp_tool_profiles.py mcp_server/tests/test_mcp_tool_profiles.py
-git commit -m "feat(mcp-profile): pin lean/readonly/sentinel name sets"
+git commit -m "feat(mcp-profile): pin lean/readonly/sentinel name sets" -m "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
 
 ---
@@ -514,7 +550,7 @@ def test_profile_blocked_envelope_shape():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd mcp_server && python -m pytest tests/test_mcp_tool_profiles.py -k "filter_tools or tool_blocked or envelope" -v`
+Run: `cd mcp_server && .venv/Scripts/python.exe -m pytest tests/test_mcp_tool_profiles.py -k "filter_tools or tool_blocked or envelope" -v`
 Expected: FAIL — `ImportError: cannot import name 'filter_tools'`.
 
 - [ ] **Step 3: Add the helpers**
@@ -557,14 +593,14 @@ def profile_blocked_envelope(name: str, profile: Profile) -> dict:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd mcp_server && python -m pytest tests/test_mcp_tool_profiles.py -v`
+Run: `cd mcp_server && .venv/Scripts/python.exe -m pytest tests/test_mcp_tool_profiles.py -v`
 Expected: PASS (all module tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add mcp_server/src/rook/mcp_tool_profiles.py mcp_server/tests/test_mcp_tool_profiles.py
-git commit -m "feat(mcp-profile): pure filter_tools/tool_blocked/envelope helpers"
+git commit -m "feat(mcp-profile): pure filter_tools/tool_blocked/envelope helpers" -m "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
 
 ---
@@ -648,7 +684,7 @@ def test_readonly_partition_over_live_surface(monkeypatch):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd mcp_server && python -m pytest tests/test_server_tool_profiles.py -v`
+Run: `cd mcp_server && .venv/Scripts/python.exe -m pytest tests/test_server_tool_profiles.py -v`
 Expected: FAIL — `test_lean_surface_is_exactly_17` and `test_readonly_surface_is_exactly_145` fail (unfiltered `list_tools()` returns 427 for every profile). `test_full_surface_is_427...` should already PASS.
 
 - [ ] **Step 3: Add the import to `server.py`**
@@ -695,14 +731,14 @@ with:
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cd mcp_server && python -m pytest tests/test_server_tool_profiles.py -v`
-Expected: PASS (6 tests).
+Run: `cd mcp_server && .venv/Scripts/python.exe -m pytest tests/test_server_tool_profiles.py -v`
+Expected: PASS (5 tests).
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add mcp_server/src/rook/server.py mcp_server/tests/test_server_tool_profiles.py
-git commit -m "feat(mcp-profile): filter list_tools() by active profile"
+git commit -m "feat(mcp-profile): filter list_tools() by active profile" -m "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
 
 ---
@@ -725,6 +761,24 @@ Append to `mcp_server/tests/test_server_tool_profiles.py`:
 def _call_text(name, args=None):
     result = asyncio.run(server.call_tool(name, args or {}))
     return result[0].text
+
+
+def _blocked_payload(text):
+    # _format_tool_result renders failures as 'Error: ' + json.dumps(data, indent=2).
+    import json
+
+    assert text.startswith("Error: ")
+    return json.loads(text[len("Error: "):])
+
+
+def test_readonly_block_returns_exact_payload(monkeypatch):
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "readonly")
+    payload = _blocked_payload(_call_text("rhino_create"))
+    assert payload == {
+        "code": "tool_profile_blocked",
+        "tool": "rhino_create",
+        "profile": "readonly",
+    }
 
 
 @pytest.mark.parametrize(
@@ -779,7 +833,7 @@ def test_blocked_readonly_call_has_no_side_effects(monkeypatch):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd mcp_server && python -m pytest tests/test_server_tool_profiles.py -k "readonly_blocks or no_side_effects" -v`
+Run: `cd mcp_server && .venv/Scripts/python.exe -m pytest tests/test_server_tool_profiles.py -k "readonly_blocks or no_side_effects" -v`
 Expected: FAIL — no guard yet, so blocked-mutator calls do not contain `tool_profile_blocked` (and `policy_for_tool` runs).
 
 - [ ] **Step 3: Insert the readonly guard at the head of `call_tool()`**
@@ -800,14 +854,14 @@ insert the guard (before the existing `_DEPRECATED_INTERACTIVE_COMMAND_TOOLS` br
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd mcp_server && python -m pytest tests/test_server_tool_profiles.py -v`
+Run: `cd mcp_server && .venv/Scripts/python.exe -m pytest tests/test_server_tool_profiles.py -v`
 Expected: PASS (all Task 4 + Task 5 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add mcp_server/src/rook/server.py mcp_server/tests/test_server_tool_profiles.py
-git commit -m "feat(mcp-profile): readonly call_tool wall with no-side-effect denial"
+git commit -m "feat(mcp-profile): readonly call_tool wall with no-side-effect denial" -m "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
 
 ---
@@ -845,7 +899,7 @@ def test_validate_profile_or_exit_passes_when_absent(monkeypatch):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd mcp_server && python -m pytest tests/test_server_tool_profiles.py -k "validate_profile_or_exit" -v`
+Run: `cd mcp_server && .venv/Scripts/python.exe -m pytest tests/test_server_tool_profiles.py -k "validate_profile_or_exit" -v`
 Expected: FAIL — `AttributeError: module 'rook.server' has no attribute '_validate_profile_or_exit'`.
 
 - [ ] **Step 3: Add the helper and call it from `main()`**
@@ -877,14 +931,14 @@ def main():
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd mcp_server && python -m pytest tests/test_server_tool_profiles.py -k "validate_profile_or_exit" -v`
+Run: `cd mcp_server && .venv/Scripts/python.exe -m pytest tests/test_server_tool_profiles.py -k "validate_profile_or_exit" -v`
 Expected: PASS (3 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add mcp_server/src/rook/server.py mcp_server/tests/test_server_tool_profiles.py
-git commit -m "feat(mcp-profile): startup fail-fast on invalid ROOK_MCP_TOOL_PROFILE"
+git commit -m "feat(mcp-profile): startup fail-fast on invalid ROOK_MCP_TOOL_PROFILE" -m "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
 
 ---
@@ -926,7 +980,7 @@ def test_claude_entry_env_has_no_profile_key(tmp_path: Path):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd mcp_server && python -m pytest tests/test_doctor.py -k "lean_profile or no_profile_key" -v`
+Run: `cd mcp_server && .venv/Scripts/python.exe -m pytest tests/test_doctor.py -k "lean_profile or no_profile_key" -v`
 Expected: FAIL — `test_codex_toml_sets_lean_profile` fails (Codex TOML has no profile key yet).
 
 - [ ] **Step 3: Inject the profile in the Codex generator only**
@@ -955,19 +1009,19 @@ with:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd mcp_server && python -m pytest tests/test_doctor.py -k "lean_profile or no_profile_key" -v`
+Run: `cd mcp_server && .venv/Scripts/python.exe -m pytest tests/test_doctor.py -k "lean_profile or no_profile_key" -v`
 Expected: PASS (3 tests).
 
 - [ ] **Step 5: Run the full doctor suite (no regressions)**
 
-Run: `cd mcp_server && python -m pytest tests/test_doctor.py -v`
+Run: `cd mcp_server && .venv/Scripts/python.exe -m pytest tests/test_doctor.py -v`
 Expected: PASS (existing tests still green — Codex TOML gained one env line; Claude entries unchanged).
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add mcp_server/src/rook/doctor.py mcp_server/tests/test_doctor.py
-git commit -m "feat(mcp-profile): doctor injects lean into Codex config only"
+git commit -m "feat(mcp-profile): doctor injects lean into Codex config only" -m "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
 
 ---
@@ -1024,7 +1078,7 @@ def test_claude_mcp_json_block_has_no_lean_profile():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd mcp_server && python -m pytest tests/test_install_ps1_profile.py -v`
+Run: `cd mcp_server && .venv/Scripts/python.exe -m pytest tests/test_install_ps1_profile.py -v`
 Expected: FAIL — `test_codex_here_string_sets_lean_profile` fails (the env line is not present yet).
 
 - [ ] **Step 3: Add the profile line to the Codex here-string**
@@ -1041,14 +1095,14 @@ In `install.ps1`, inside the `$codexTomlScript` here-string, in the `lines = [ .
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd mcp_server && python -m pytest tests/test_install_ps1_profile.py -v`
+Run: `cd mcp_server && .venv/Scripts/python.exe -m pytest tests/test_install_ps1_profile.py -v`
 Expected: PASS (3 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add install.ps1 mcp_server/tests/test_install_ps1_profile.py
-git commit -m "feat(mcp-profile): installer injects lean into Codex config only"
+git commit -m "feat(mcp-profile): installer injects lean into Codex config only" -m "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
 
 ---
@@ -1063,7 +1117,7 @@ git commit -m "feat(mcp-profile): installer injects lean into Codex config only"
 
 - [ ] **Step 1: Find every stale count**
 
-Run: `cd "C:/UDEV/Rook/.claude/worktrees/codex+mcp-tool-exposure-profile" && grep -rIn -E "392 (MCP )?tools|392 tools|~?234 tools|430 (unique )?tools" --include="*.md" .`
+Run: `cd "C:/UDEV/Rook/.claude/worktrees/codex+mcp-tool-exposure-profile" && rg -n -e "392 (MCP )?tools" -e "234 tools" -g "*.md"`
 Record each hit. (Expected: `CLAUDE.md`, possibly `AGENTS.md`, `README`, `docs/`.)
 
 - [ ] **Step 2: Correct each occurrence to 427**
@@ -1072,14 +1126,14 @@ For each file, replace the stale figure with **427** and, where the doc explains
 
 - [ ] **Step 3: Verify no stale tool-count remains**
 
-Run: `cd "C:/UDEV/Rook/.claude/worktrees/codex+mcp-tool-exposure-profile" && grep -rIn -E "392 (MCP )?tools|~?234 tools" --include="*.md" .`
+Run: `cd "C:/UDEV/Rook/.claude/worktrees/codex+mcp-tool-exposure-profile" && rg -n -e "392 (MCP )?tools" -e "234 tools" -g "*.md"`
 Expected: no output (all corrected). A remaining `430` is acceptable **only** where the text explicitly means "static definitions."
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add -A
-git commit -m "docs(mcp-profile): correct MCP tool count 392 -> 427 live surface"
+git commit -m "docs(mcp-profile): correct MCP tool count 392 -> 427 live surface" -m "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
 
 ---
