@@ -6,7 +6,7 @@ import asyncio
 import copy
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional
 
 from ..config import AgentConfig
@@ -14,12 +14,14 @@ from ..model_profiles import (
     FALLBACK_MODELS,
     ModelSet,
     api_base_for_model,
+    api_key_env_for_model,
     detect_lmstudio_models,
     detect_ollama_models,
     get_active_profile_name,
     get_models,
     get_profile_names,
 )
+from ...providers import openrouter_catalog
 from ..personas import available_personas, get_model_role, load_display_config
 from .prompt_builder import PromptBuilder
 
@@ -56,8 +58,118 @@ class ModelOverrideResolution:
         }
 
 
+@dataclass(frozen=True)
+class ModelOverrideOption:
+    """One selectable/known chat model override with eligibility metadata."""
+
+    id: str
+    display_name: str
+    source: str  # "role" | "local" | "openrouter_favorite"
+    supports_tools: Optional[bool]  # capability fact: True | False | None(unknown)
+    eligibility: str  # "eligible" | "ineligible"
+    ineligible_reason: Optional[str]  # "missing_tools"|"unknown_capability"|"missing_api_key"|None
+    metadata_state: str  # "known" | "stale" | "unknown" | "not_applicable"
+    pricing: Optional[dict]
+    context_length: Optional[int]
+
+    def to_payload(self) -> dict:
+        return {
+            "id": self.id,
+            "display_name": self.display_name,
+            "source": self.source,
+            "supports_tools": self.supports_tools,
+            "eligibility": self.eligibility,
+            "ineligible_reason": self.ineligible_reason,
+            "metadata_state": self.metadata_state,
+            "pricing": self.pricing,
+            "context_length": self.context_length,
+        }
+
+
+def _favorite_eligibility(meta, env: dict):
+    """(supports_tools, eligibility, ineligible_reason, metadata_state) for a favorite.
+
+    Precedence (first match wins): unknown_capability -> missing_tools -> missing_api_key.
+    supports_tools is the metadata fact and is never coerced by key state.
+    """
+    if meta.metadata_state == "unknown":
+        return (None, "ineligible", "unknown_capability", "unknown")
+    supports_tools = "tools" in (meta.supported_parameters or [])
+    if not supports_tools:
+        return (False, "ineligible", "missing_tools", meta.metadata_state)
+    key_env = api_key_env_for_model(meta.litellm_id)
+    if key_env and not env.get(key_env):
+        return (True, "ineligible", "missing_api_key", meta.metadata_state)
+    return (True, "eligible", None, meta.metadata_state)
+
+
+def _ungated_option(model: str, source: str) -> ModelOverrideOption:
+    return ModelOverrideOption(
+        id=model,
+        display_name=model,
+        source=source,
+        supports_tools=None,
+        eligibility="eligible",
+        ineligible_reason=None,
+        metadata_state="not_applicable",
+        pricing=None,
+        context_length=None,
+    )
+
+
+def compute_model_override_options(
+    role_status: dict,
+    local_providers: dict,
+    catalog_view,
+    env: Optional[dict] = None,
+) -> list["ModelOverrideOption"]:
+    """Deduped option list across role / local / openrouter_favorite sources.
+
+    Role and local options are ungated. OpenRouter favorites are tools+credential
+    gated. On id collision, the role/local entry wins (display_name may be enriched
+    from catalog metadata).
+    """
+    env = os.environ if env is None else env
+    by_id: dict[str, ModelOverrideOption] = {}
+
+    for role in (role_status.get("roles") or {}).values():
+        model = role.get("effective_model")
+        if model:
+            by_id.setdefault(model, _ungated_option(model, "role"))
+
+    for provider in (local_providers or {}).values():
+        for entry in provider.get("models") or []:
+            override = entry.get("model_override")
+            if override:
+                by_id.setdefault(override, _ungated_option(override, "local"))
+
+    for meta in catalog_view.models:
+        if meta.litellm_id in by_id:
+            existing = by_id[meta.litellm_id]
+            if existing.display_name == existing.id and meta.display_name:
+                by_id[meta.litellm_id] = replace(existing, display_name=meta.display_name)
+            continue
+        supports_tools, eligibility, reason, mstate = _favorite_eligibility(meta, env)
+        by_id[meta.litellm_id] = ModelOverrideOption(
+            id=meta.litellm_id,
+            display_name=meta.display_name or meta.litellm_id,
+            source="openrouter_favorite",
+            supports_tools=supports_tools,
+            eligibility=eligibility,
+            ineligible_reason=reason,
+            metadata_state=mstate,
+            pricing=meta.pricing or None,
+            context_length=meta.context_length,
+        )
+
+    return sorted(by_id.values(), key=lambda o: o.id)
+
+
 class ModelOverrideUnavailable(ValueError):
     """Raised when a requested chat model override is not currently allowed."""
+
+    code = "model_override_unavailable"
+    ineligible_reason: Optional[str] = None
 
     def __init__(self, model_override: str, allowed_model_overrides: list[str]):
         super().__init__("Model override is not currently available.")
@@ -65,12 +177,46 @@ class ModelOverrideUnavailable(ValueError):
         self.allowed_model_overrides = allowed_model_overrides
 
     def to_payload(self) -> dict:
-        return {
+        payload = {
             "error": "Model override is not currently available. Refresh the model list and try again.",
-            "code": "model_override_unavailable",
+            "code": self.code,
             "model_override": self.model_override,
             "allowed_model_overrides": self.allowed_model_overrides,
         }
+        if self.ineligible_reason:
+            payload["ineligible_reason"] = self.ineligible_reason
+        return payload
+
+
+class ModelOverrideIneligible(ModelOverrideUnavailable):
+    """Raised when a forced override is a known model that is not eligible.
+
+    Carries the specific ``ineligible_reason``. ``missing_tools`` keeps the
+    spec-named ``model_not_tool_capable`` code; other reasons use the generic
+    ``model_override_ineligible`` code.
+    """
+
+    _MESSAGES = {
+        "missing_tools": "That model does not support tool calling, which RookChat requires.",
+        "missing_api_key": "That model needs an API key that is not configured.",
+        "unknown_capability": "That model's capabilities are unknown — refresh the OpenRouter catalog.",
+    }
+    _CODES = {"missing_tools": "model_not_tool_capable"}
+
+    def __init__(
+        self,
+        model_override: str,
+        allowed_model_overrides: list[str],
+        ineligible_reason: str,
+    ):
+        super().__init__(model_override, allowed_model_overrides)
+        self.ineligible_reason = ineligible_reason
+        self.code = self._CODES.get(ineligible_reason, "model_override_ineligible")
+
+    def to_payload(self) -> dict:
+        payload = super().to_payload()
+        payload["error"] = self._MESSAGES.get(self.ineligible_reason, payload["error"])
+        return payload
 
 
 def reset_local_provider_status_cache() -> None:
@@ -392,23 +538,13 @@ def get_cached_local_provider_status_snapshot() -> Optional[dict]:
 def compute_allowed_model_overrides(
     local_providers: dict,
     role_status: Optional[dict] = None,
+    catalog_view=None,
 ) -> list[str]:
-    """Return sorted allowed model overrides for chat conversations."""
+    """Return sorted eligible model override ids (role + local + eligible favorites)."""
     status = role_status or build_role_status()
-
-    allowed = {
-        role.get("effective_model")
-        for role in (status.get("roles") or {}).values()
-        if role.get("effective_model")
-    }
-
-    for provider in (local_providers or {}).values():
-        for model in provider.get("models") or []:
-            override = model.get("model_override")
-            if override:
-                allowed.add(override)
-
-    return sorted(allowed)
+    view = catalog_view if catalog_view is not None else openrouter_catalog.load()
+    options = compute_model_override_options(status, local_providers, view)
+    return sorted(o.id for o in options if o.eligibility == "eligible")
 
 
 async def compute_allowed_model_overrides_async(
@@ -435,13 +571,22 @@ async def resolve_allowed_model_override(
     local_providers = await get_cached_local_provider_status_async(
         force_refresh=force_refresh
     )
-    allowed_model_overrides = compute_allowed_model_overrides(
-        local_providers=local_providers,
-        role_status=role_status,
-    )
+    catalog_view = openrouter_catalog.load()
+    options = compute_model_override_options(role_status, local_providers, catalog_view)
+    by_id = {o.id: o for o in options}
+    allowed = sorted(o.id for o in options if o.eligibility == "eligible")
 
-    if model_override not in allowed_model_overrides:
-        raise ModelOverrideUnavailable(model_override, allowed_model_overrides)
+    option = by_id.get(model_override)
+    if option is None:
+        raise ModelOverrideUnavailable(model_override, allowed)
+    if option.eligibility != "eligible":
+        reason = option.ineligible_reason
+        if reason:
+            raise ModelOverrideIneligible(model_override, allowed, reason)
+        # Defensive: an ineligible option with no reason should never occur
+        # (the engine always sets one), but never raise an Ineligible error
+        # carrying a blank reason — fall back to the generic unavailable error.
+        raise ModelOverrideUnavailable(model_override, allowed)
 
     return _bound_routing(
         model_override,
@@ -474,12 +619,13 @@ def build_persona_status(builder: Optional[PromptBuilder] = None) -> list[dict]:
 
 
 async def build_models_payload(builder: Optional[PromptBuilder] = None) -> dict:
-    """Build the full chat models payload for the future endpoint."""
+    """Build the full chat models payload for the model status endpoint."""
     role_status = build_role_status()
     local_providers = await get_cached_local_provider_status_async()
-    allowed_model_overrides = compute_allowed_model_overrides(
-        local_providers=local_providers,
-        role_status=role_status,
+    catalog_view = openrouter_catalog.load()
+    options = compute_model_override_options(role_status, local_providers, catalog_view)
+    allowed_model_overrides = sorted(
+        o.id for o in options if o.eligibility == "eligible"
     )
 
     return {
@@ -487,6 +633,13 @@ async def build_models_payload(builder: Optional[PromptBuilder] = None) -> dict:
         "personas": build_persona_status(builder),
         "local_providers": local_providers,
         "allowed_model_overrides": allowed_model_overrides,
+        "allowed_model_override_options": [o.to_payload() for o in options],
+        "openrouter_catalog": {
+            "cache_present": catalog_view.cache_present,
+            "fetched_at": catalog_view.fetched_at,
+            "stale": catalog_view.stale,
+            "last_refresh_error": catalog_view.last_refresh_error,
+        },
     }
 
 

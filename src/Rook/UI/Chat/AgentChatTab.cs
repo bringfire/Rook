@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -126,6 +127,49 @@ namespace Rook.UI.Chat
                 _modelDropDown.Items.Clear();
                 foreach (var m in items)
                     _modelDropDown.Items.Add(new ListItem { Text = m, Key = m });
+                _modelDropDown.SelectedKey = selectedKey;
+            }
+            finally
+            {
+                _suppressModelSelectionEvents = false;
+            }
+
+            UpdateApplyEnabled();
+        }
+
+        private void PopulateModelSelector(List<ModelOverrideOption> options, string activeModel)
+        {
+            if (_modelDropDown == null)
+                return;
+
+            var previousSelectedKey = _modelDropDown.SelectedKey;
+            var eligible = EligibleOptions(options);
+            var activeIsEligible = eligible.Any(
+                o => string.Equals(o.Id, activeModel, StringComparison.Ordinal));
+
+            _modelListAvailable = eligible.Count > 0;
+
+            var preservePending =
+                _modelSelectionDirty
+                && !string.IsNullOrEmpty(previousSelectedKey)
+                && eligible.Any(o => string.Equals(o.Id, previousSelectedKey, StringComparison.Ordinal))
+                && !string.Equals(previousSelectedKey, activeModel, StringComparison.Ordinal);
+
+            // Dropdown stays applyable-only: the active model is added/selected only when
+            // it is itself eligible. An ineligible/unknown active model lives in the status
+            // label (set by the caller), never as a selectable row.
+            string? selectedKey = preservePending
+                ? previousSelectedKey
+                : (activeIsEligible ? activeModel : null);
+            if (!preservePending)
+                _modelSelectionDirty = false;
+
+            _suppressModelSelectionEvents = true;
+            try
+            {
+                _modelDropDown.Items.Clear();
+                foreach (var o in eligible)
+                    _modelDropDown.Items.Add(new ListItem { Text = BuildRowText(o), Key = o.Id });
                 _modelDropDown.SelectedKey = selectedKey;
             }
             finally
@@ -389,6 +433,7 @@ namespace Rook.UI.Chat
                 }
                 var activeModel = conversation.ActiveModel;
                 var allowed = models.AllowedModelOverrides ?? new List<string>();
+                var options = models.AllowedModelOverrideOptions ?? new List<ModelOverrideOption>();
 
                 if (!IsCurrentConversation(currentConversationId))
                 {
@@ -408,7 +453,10 @@ namespace Rook.UI.Chat
 
                     _activeModelLabel = activeModel;
                     SetStatus(status, Colors.Blue);
-                    PopulateModelSelector(allowed, activeModel!);
+                    if (options.Count > 0)
+                        PopulateModelSelector(options, activeModel!);
+                    else
+                        PopulateModelSelector(allowed, activeModel!);
                 });
             }
             catch (OperationCanceledException)
@@ -823,6 +871,39 @@ namespace Rook.UI.Chat
         protected override void OnClearRequested()
         {
             // Nothing to reset — agent server keeps its own history
+        }
+
+        internal static List<ModelOverrideOption> EligibleOptions(
+            IEnumerable<ModelOverrideOption> options)
+        {
+            return options
+                .Where(o => string.Equals(o.Eligibility, "eligible", StringComparison.Ordinal))
+                .ToList();
+        }
+
+        internal static string BuildOptionLabel(ModelOverrideOption option)
+        {
+            return string.IsNullOrEmpty(option.DisplayName) ? option.Id : option.DisplayName;
+        }
+
+        internal static string BuildSelectionDetail(ModelOverrideOption option)
+        {
+            var parts = new List<string>();
+            if (option.ContextLength.HasValue)
+                parts.Add($"{option.ContextLength.Value} ctx");
+            if (string.Equals(option.MetadataState, "stale", StringComparison.Ordinal))
+                parts.Add("metadata stale — refresh");
+            return string.Join(" · ", parts);
+        }
+
+        // Dropdown row text = friendly label, plus selection detail (ctx / stale hint)
+        // when available. Eto DropDown has no per-row tooltip, so detail rides in the
+        // row text. Role/local rows have no detail -> label only.
+        internal static string BuildRowText(ModelOverrideOption option)
+        {
+            var label = BuildOptionLabel(option);
+            var detail = BuildSelectionDetail(option);
+            return detail.Length == 0 ? label : $"{label} — {detail}";
         }
 
         /// <summary>

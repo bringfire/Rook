@@ -440,6 +440,9 @@ async def test_local_provider_cache_returns_copies_and_force_refreshes(monkeypat
 async def test_build_models_payload_reuses_role_status_for_allowed_overrides(
     monkeypatch,
 ):
+    from rook.agent.chat.model_status import ModelOverrideOption
+    from rook.providers.openrouter_catalog import CatalogView
+
     role_status = {
         "active_profile": "cloud",
         "profile_source": "file",
@@ -448,21 +451,39 @@ async def test_build_models_payload_reuses_role_status_for_allowed_overrides(
     local_providers = {"ollama": {"models": []}, "lmstudio": {"models": []}}
     calls = {
         "build_role_status": 0,
-        "allowed_role_status": None,
-        "allowed_local_providers": None,
+        "options_role_status": None,
+        "options_local_providers": None,
     }
 
     def fake_build_role_status():
         calls["build_role_status"] += 1
         return role_status
 
-    def fake_compute_allowed_model_overrides(
-        local_providers=None,
-        role_status=None,
-    ):
-        calls["allowed_local_providers"] = local_providers
-        calls["allowed_role_status"] = role_status
-        return ["anthropic/worker"]
+    stub_option = ModelOverrideOption(
+        id="anthropic/worker",
+        display_name="anthropic/worker",
+        source="role",
+        supports_tools=None,
+        eligibility="eligible",
+        ineligible_reason=None,
+        metadata_state="not_applicable",
+        pricing=None,
+        context_length=None,
+    )
+
+    def fake_compute_model_override_options(role_status_arg, local_providers_arg, catalog_view_arg):
+        calls["options_role_status"] = role_status_arg
+        calls["options_local_providers"] = local_providers_arg
+        return [stub_option]
+
+    fake_catalog_view = CatalogView(
+        models=[],
+        fetched_at=None,
+        last_refresh_attempt_at=None,
+        last_refresh_error=None,
+        cache_present=False,
+        stale=False,
+    )
 
     async def fake_get_cached_local_provider_status_async(force_refresh=False):
         return local_providers
@@ -476,15 +497,16 @@ async def test_build_models_payload_reuses_role_status_for_allowed_overrides(
     monkeypatch.setattr(model_status, "build_persona_status", lambda builder=None: [])
     monkeypatch.setattr(
         model_status,
-        "compute_allowed_model_overrides",
-        fake_compute_allowed_model_overrides,
+        "compute_model_override_options",
+        fake_compute_model_override_options,
     )
+    monkeypatch.setattr(model_status.openrouter_catalog, "load", lambda: fake_catalog_view)
 
     payload = await model_status.build_models_payload()
 
     assert calls["build_role_status"] == 1
-    assert calls["allowed_role_status"] is role_status
-    assert calls["allowed_local_providers"] is local_providers
+    assert calls["options_role_status"] is role_status
+    assert calls["options_local_providers"] is local_providers
     assert payload["allowed_model_overrides"] == ["anthropic/worker"]
 
 

@@ -60,5 +60,52 @@ namespace Rook.Tests.UI.Chat
             var r = AgentChatClient.ParseSetModelResult(500, false, "");
             Assert.False(r.Success);
         }
+
+        [Fact]
+        public void ChatModelsInfo_binds_allowed_model_override_options()
+        {
+            var json = @"{
+              ""conversation"": null,
+              ""allowed_model_overrides"": [""anthropic/claude-x""],
+              ""allowed_model_override_options"": [
+                {
+                  ""id"": ""openrouter/anthropic/claude-sonnet-4.6"",
+                  ""display_name"": ""Claude Sonnet 4.6"",
+                  ""source"": ""openrouter_favorite"",
+                  ""supports_tools"": true,
+                  ""eligibility"": ""eligible"",
+                  ""ineligible_reason"": null,
+                  ""metadata_state"": ""known"",
+                  ""pricing"": { ""prompt"": ""0.000003"" },
+                  ""context_length"": 200000
+                }
+              ]
+            }";
+            var opts = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            var info = System.Text.Json.JsonSerializer.Deserialize<ChatModelsInfo>(json, opts);
+
+            Assert.NotNull(info);
+            Assert.Single(info!.AllowedModelOverrideOptions);
+            var o = info.AllowedModelOverrideOptions[0];
+            Assert.Equal("openrouter/anthropic/claude-sonnet-4.6", o.Id);
+            Assert.Equal("Claude Sonnet 4.6", o.DisplayName);
+            Assert.Equal("openrouter_favorite", o.Source);
+            Assert.True(o.SupportsTools);
+            Assert.Equal("eligible", o.Eligibility);
+            Assert.Null(o.IneligibleReason);
+            Assert.Equal("known", o.MetadataState);
+            Assert.True(o.Pricing.HasValue);
+            Assert.Equal(200000, o.ContextLength);
+        }
+
+        [Fact]
+        public void Model_not_tool_capable_400_code_parses()
+        {
+            var body = "{\"code\":\"model_not_tool_capable\",\"error\":\"no tools\",\"allowed_model_overrides\":[\"a\"]}";
+            var r = AgentChatClient.ParseSetModelResult(400, false, body);
+            Assert.False(r.Success);
+            Assert.Equal("model_not_tool_capable", r.ErrorCode);
+            Assert.NotNull(r.AllowedModelOverrides);
+        }
     }
 }
