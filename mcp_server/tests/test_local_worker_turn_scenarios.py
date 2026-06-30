@@ -245,6 +245,69 @@ def _knowledge_packet(
     )
 
 
+def _script_body_gotcha_packet() -> WorkerKnowledgePacket:
+    return _knowledge_packet(
+        packet_id="gh_csharp_script_body_gotcha",
+        kind="gotcha",
+        title="C# script components use body-style code",
+        content={
+            "source": "docs/rookchat-tool-contract-smoke.md",
+            "trust": "high",
+            "failure_family": "wrong_code_shape",
+            "guidance": (
+                "Use RhinoCode C# script body code, not a GH_Component subclass."
+            ),
+        },
+    )
+
+
+def _wire_shape_gotcha_packet() -> WorkerKnowledgePacket:
+    return _knowledge_packet(
+        packet_id="public_mcp_wire_shape_gotcha",
+        kind="gotcha",
+        title="Public MCP success text is the payload",
+        content={
+            "source": "docs/CURRENT_ARCHITECTURE.md",
+            "trust": "high",
+            "failure_family": "wire_shape_confusion",
+            "guidance": (
+                "MCP success text parses as the data payload itself, not data.data."
+            ),
+        },
+    )
+
+
+def _gh_bridge_uncertainty_packet() -> WorkerKnowledgePacket:
+    return _knowledge_packet(
+        packet_id="gh_bridge_capability_uncertainty",
+        kind="capability_note",
+        title="Grasshopper bridge capability is uncertain",
+        content={
+            "source": "test fixture",
+            "trust": "medium",
+            "capability": "grasshopper_bridge",
+            "status": "unknown_or_unavailable",
+            "guidance": (
+                "Clarify availability before requesting GH-affecting action."
+            ),
+        },
+    )
+
+
+def _out_of_scope_packet() -> WorkerKnowledgePacket:
+    return _knowledge_packet(
+        packet_id="out_of_scope_operation",
+        kind="scope_note",
+        title="Requested operation is outside the declared action scope",
+        content={
+            "source": "test fixture",
+            "trust": "high",
+            "failure_family": "authority_boundary",
+            "guidance": "Refuse operations that are outside declared allowed actions.",
+        },
+    )
+
+
 def _packet_by_id(
     context: LocalWorkerTurnContext,
     packet_id: str,
@@ -615,3 +678,63 @@ def test_no_allowed_actions_blocks_action_request() -> None:
     )
 
     _assert_blocked_unknown_action(record, context, "draft_repair_params")
+
+
+def test_script_body_gotcha_requests_body_style_repair_action() -> None:
+    context = _context(
+        current_node_id="repair_same_component",
+        knowledge=(_script_body_gotcha_packet(),),
+    )
+
+    record = run_local_worker_turn(context, _script_body_gotcha_worker)
+
+    payload = _assert_completed_action(record, context, "draft_repair_params")
+    assert payload.input["mode"] == "body"
+    assert payload.input["language"] == "csharp"
+    assert "GH_Component" not in payload.input["code"]
+    assert payload.input["source_gotcha"] == "gh_csharp_script_body_gotcha"
+
+
+def test_missing_script_body_gotcha_clarifies_instead_of_inventing_repair() -> None:
+    context = _context(current_node_id="repair_same_component", knowledge=())
+
+    record = run_local_worker_turn(context, _script_body_gotcha_worker)
+
+    payload = _assert_completed_clarification(record, context)
+    assert "body-style" in payload.question
+
+
+def test_public_mcp_wire_shape_gotcha_is_observed_without_action() -> None:
+    context = _context(
+        current_node_id="verify_create",
+        knowledge=(_wire_shape_gotcha_packet(),),
+    )
+
+    record = run_local_worker_turn(context, _wire_shape_gotcha_worker)
+
+    payload = _assert_completed_observation(record, context)
+    assert "payload itself" in payload.message
+
+
+def test_gh_bridge_capability_uncertainty_clarifies_before_action() -> None:
+    context = _context(
+        current_node_id="repair_same_component",
+        knowledge=(_gh_bridge_uncertainty_packet(),),
+    )
+
+    record = run_local_worker_turn(context, _gh_bridge_uncertainty_worker)
+
+    payload = _assert_completed_clarification(record, context)
+    assert "Grasshopper bridge" in payload.question
+
+
+def test_out_of_scope_operation_is_recorded_as_refusal() -> None:
+    context = _context(
+        current_node_id="repair_same_component",
+        knowledge=(_out_of_scope_packet(),),
+    )
+
+    record = run_local_worker_turn(context, _out_of_scope_worker)
+
+    payload = _assert_completed_refusal(record, context, "out_of_scope")
+    assert "outside" in payload.reason
