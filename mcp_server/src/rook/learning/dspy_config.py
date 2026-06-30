@@ -266,12 +266,12 @@ def configure_dspy_for_optimization(
     # resolve to None and let LiteLLM surface their own auth errors.
     from ..agent.model_profiles import api_key_env_for_model
 
-    def _resolve_key(mdl: str, mdl_is_local: bool) -> Optional[str]:
+    def _resolve_key(mdl: str, mdl_is_local: bool, mdl_base: Optional[str]) -> Optional[str]:
         if mdl_is_local:
             return None
         if api_key:
             return api_key
-        key_env = api_key_env_for_model(mdl)
+        key_env = api_key_env_for_model(mdl, mdl_base)
         if key_env:
             val = os.environ.get(key_env)
             if not val:
@@ -282,8 +282,8 @@ def configure_dspy_for_optimization(
             return val
         return None
 
-    teacher_key = _resolve_key(teacher_model, teacher_is_local)
-    student_key = _resolve_key(student_model, student_is_local)
+    teacher_key = _resolve_key(teacher_model, teacher_is_local, teacher_base)
+    student_key = _resolve_key(student_model, student_is_local, student_base)
 
     teacher_kwargs = dict(model=teacher_model, temperature=0.7, max_tokens=4096, cache=True)
     student_kwargs = dict(model=student_model, temperature=0.3, max_tokens=2048, cache=True)

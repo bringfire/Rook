@@ -56,3 +56,26 @@ def test_optimization_explicit_key_override(monkeypatch):
     )
     assert teacher.kwargs["api_key"] == "explicit"
     assert student.kwargs["api_key"] == "explicit"
+
+
+def test_multi_auth_provider_does_not_raise(monkeypatch):
+    # Azure-style multi-auth provider: helper returns None -> no key demand.
+    monkeypatch.delenv("AZURE_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    lm = dc.configure_dspy(model="azure/gpt-4")
+    assert "api_key" not in lm.kwargs
+
+
+def test_optimization_anthropic_back_compat(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
+        dc.configure_dspy_for_optimization(
+            teacher_model="anthropic/x", student_model="anthropic/y",
+        )
+
+
+def test_local_model_needs_no_key(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    lm = dc.configure_dspy(model="ollama_chat/qwen3:30b")
+    assert "api_key" not in lm.kwargs
