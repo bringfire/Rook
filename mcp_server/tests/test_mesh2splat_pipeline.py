@@ -468,6 +468,71 @@ async def test_native_failure_creates_no_output_directory_run_directory_or_manif
 
 
 @pytest.mark.asyncio
+async def test_manifest_collision_returns_invalid_output_directory_without_update(tmp_path):
+    from rook.mesh2splat import pipeline
+
+    deps = FakeDeps(tmp_path)
+
+    def create_manifest_collision(manifest):
+        deps.events.append("create_manifest_collision")
+        manifest.manifest_path.write_text("foreign manifest", encoding="utf-8")
+        raise FileExistsError("manifest exists")
+
+    deps.create_manifest = create_manifest_collision
+
+    result = await pipeline.export_mesh2splat_capture(
+        {"outputDirectory": str(tmp_path / "exports")},
+        deps=deps,
+    )
+
+    assert result["success"] is False
+    assert result["data"]["code"] == "invalid_output_directory"
+    assert "manifest.json" in result["data"]["message"]
+    assert deps.run_directory is not None
+    assert (deps.run_directory / "manifest.json").read_text(encoding="utf-8") == "foreign manifest"
+    assert "write_glb" not in deps.events
+    assert all(not event.startswith("update_manifest") for event in deps.events)
+
+
+@pytest.mark.asyncio
+async def test_capture_glb_collision_returns_invalid_output_directory_and_preserves_file(tmp_path):
+    from rook.mesh2splat import pipeline
+    from rook.mesh2splat.output_safety import create_run_directory
+
+    deps = FakeDeps(tmp_path)
+
+    def create_run_directory_with_glb_collision(output_directory, *, now, run_id):
+        deps.events.append("create_run_directory")
+        paths = create_run_directory(output_directory, now=now, run_id=run_id)
+        deps.run_directory = paths.run_directory
+        paths.capture_glb.write_bytes(b"foreign glb")
+        return paths
+
+    deps.create_run_directory = create_run_directory_with_glb_collision
+
+    result = await pipeline.export_mesh2splat_capture(
+        {"outputDirectory": str(tmp_path / "exports")},
+        deps=deps,
+    )
+
+    assert result["success"] is False
+    assert result["data"]["code"] == "invalid_output_directory"
+    assert "capture.glb" in result["data"]["message"]
+    assert (deps.run_directory / "capture.glb").read_bytes() == b"foreign glb"
+    assert "run_mesh2splat" not in deps.events
+    manifest = json.loads((deps.run_directory / "manifest.json").read_text())
+    assert manifest["status"] == "failed:invalid_output_directory"
+    assert manifest["cleanup"]["deleted"] == []
+    assert manifest["cleanup"]["warnings"] == [
+        {
+            "code": "cleanup_skipped_unmanifested_path",
+            "message": "Cleanup skipped path not listed in manifest artifacts",
+            "path": str((deps.run_directory / "capture.glb").resolve(strict=False)),
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_glb_validation_failure_does_not_run_mesh2splat(tmp_path):
     from rook.mesh2splat import pipeline
     from rook.mesh2splat.glb_writer import ValidationWarning

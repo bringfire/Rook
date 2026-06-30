@@ -156,7 +156,11 @@ async def export_mesh2splat_capture(
                 "ply": paths.capture_ply.name,
             },
         )
-        deps.create_manifest(manifest)
+        try:
+            deps.create_manifest(manifest)
+        except FileExistsError as exc:
+            manifest = None
+            return _generated_path_collision(paths.manifest, exc, run_directory=paths.run_directory)
 
         capture_payload, texture_warnings, texture_counts = _captured_payload(
             capture_data,
@@ -169,7 +173,17 @@ async def export_mesh2splat_capture(
             units_mode=request.units_mode,
             allow_dummy_scalar_uv=False,
         )
-        exclusive_write_bytes(paths.capture_glb, glb_result.glb)
+        try:
+            exclusive_write_bytes(paths.capture_glb, glb_result.glb)
+        except FileExistsError as exc:
+            return _fail_after_manifest(
+                "invalid_output_directory",
+                _generated_path_collision_message(paths.capture_glb, exc),
+                manifest,
+                request.preserve_debug_artifacts,
+                warnings=warnings,
+                cleanup_artifact_paths=(paths.capture_glb,),
+            )
         manifest = replace(
             manifest,
             artifact_paths=(paths.capture_glb,),
@@ -723,6 +737,28 @@ def _manifest_executable_payload(executable: ExecutableResolution) -> dict[str, 
         "path": str(executable.path),
         "source": executable.source,
     }
+
+
+def _generated_path_collision(
+    path: Path,
+    exc: FileExistsError,
+    *,
+    run_directory: Path | None = None,
+) -> dict[str, object]:
+    extra: dict[str, object] = {}
+    if run_directory is not None:
+        extra["runDirectory"] = str(run_directory)
+    return _err(
+        "invalid_output_directory",
+        _generated_path_collision_message(path, exc),
+        **extra,
+    )
+
+
+def _generated_path_collision_message(path: Path, exc: FileExistsError) -> str:
+    detail = str(exc)
+    suffix = f": {detail}" if detail else ""
+    return f"Generated output path already exists: {path}{suffix}"
 
 
 def _fail_after_manifest(
