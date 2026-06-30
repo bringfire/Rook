@@ -572,16 +572,19 @@ def test_scenario_test_module_boundary_has_no_runtime_or_file_creep() -> None:
 
     imported_modules: set[str] = set()
     imported_names: set[str] = set()
+    imported_original_names: set[str] = set()
     called_names: set[str] = set()
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 imported_modules.add(alias.name)
+                imported_original_names.add(alias.name.split(".", maxsplit=1)[0])
                 imported_names.add(alias.asname or alias.name.split(".", maxsplit=1)[0])
         elif isinstance(node, ast.ImportFrom):
             imported_modules.add(node.module or "")
             for alias in node.names:
+                imported_original_names.add(alias.name)
                 imported_names.add(alias.asname or alias.name)
         elif isinstance(node, ast.Call):
             func = node.func
@@ -636,8 +639,9 @@ def test_scenario_test_module_boundary_has_no_runtime_or_file_creep() -> None:
         "critic",
         "oversight",
     }
+    all_imported_names = imported_names | imported_original_names
     referenced_names = _loaded_name_references(tree) - {"banned_names"}
-    assert not (banned_names & imported_names)
+    assert not (banned_names & all_imported_names)
     assert not (banned_names & referenced_names)
     assert not (banned_names & called_names)
 
