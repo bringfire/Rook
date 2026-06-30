@@ -212,7 +212,7 @@ a thin wrapper returning the eligible ids) so there is exactly one eligibility c
   view consistent with the Python invariant (dropdown = eligible options only). The
   `ShouldEnableApply` `selected == active` disable rule is unchanged.
 - Pure, Eto-free helpers for unit testing: `EligibleOptions(options)` (filter) and a
-  label/tooltip builder. `ShouldEnableApply` is unchanged.
+  label/status-detail builder. `ShouldEnableApply` is unchanged.
 
 ## Testing
 
@@ -263,7 +263,8 @@ appears in the dropdown with a friendly label → Apply → send a turn → conf
   and `model_profiles.api_key_env_for_model`.
 - `src/Rook/UI/Chat/AgentChatClient.cs` — `ModelOverrideOption` DTO,
   `ChatModelsInfo.AllowedModelOverrideOptions`.
-- `src/Rook/UI/Chat/AgentChatTab.cs` — dropdown population from options + tooltip + fallback,
+- `src/Rook/UI/Chat/AgentChatTab.cs` — dropdown population from options + status-detail +
+  fallback,
   pure `EligibleOptions` / label helpers.
 - `mcp_server/tests/test_chat_model_status.py`, `mcp_server/tests/test_chat_server.py`,
   `src/Rook.Tests/UI/Chat/` — tests above.
