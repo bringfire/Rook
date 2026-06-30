@@ -70,6 +70,32 @@ namespace Rook.UI.Chat
         public string? ApiBaseSource { get; set; }
     }
 
+    public class ModelOverrideOption
+    {
+        public string Id { get; set; } = "";
+
+        [JsonPropertyName("display_name")]
+        public string DisplayName { get; set; } = "";
+
+        public string Source { get; set; } = "";
+
+        [JsonPropertyName("supports_tools")]
+        public bool? SupportsTools { get; set; }
+
+        public string Eligibility { get; set; } = "";
+
+        [JsonPropertyName("ineligible_reason")]
+        public string? IneligibleReason { get; set; }
+
+        [JsonPropertyName("metadata_state")]
+        public string? MetadataState { get; set; }
+
+        public JsonElement? Pricing { get; set; }
+
+        [JsonPropertyName("context_length")]
+        public int? ContextLength { get; set; }
+    }
+
     public class ChatModelsInfo
     {
         [JsonPropertyName("conversation")]
@@ -77,6 +103,9 @@ namespace Rook.UI.Chat
 
         [JsonPropertyName("allowed_model_overrides")]
         public List<string> AllowedModelOverrides { get; set; } = new();
+
+        [JsonPropertyName("allowed_model_override_options")]
+        public List<ModelOverrideOption> AllowedModelOverrideOptions { get; set; } = new();
     }
 
     /// <summary>
