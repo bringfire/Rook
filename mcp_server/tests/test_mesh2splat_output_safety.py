@@ -427,6 +427,11 @@ def test_cleanup_preserve_debug_artifacts_deletes_nothing(tmp_path: Path):
 
     assert deleted.deleted == []
     assert deleted.warnings == []
+    assert sorted(Path(path).name for path in deleted.preserved) == [
+        "capture.glb",
+        "capture.ply",
+        "manifest.json",
+    ]
     assert manifest.manifest_path.exists()
     assert all(path.exists() for path in manifest.artifact_paths)
 

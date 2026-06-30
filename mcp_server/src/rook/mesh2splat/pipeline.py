@@ -820,6 +820,7 @@ def _fail_after_manifest(
     cleanup_payload = {
         "preserveDebugArtifacts": preserve_debug_artifacts,
         "deleted": cleanup_result.deleted,
+        "preserved": cleanup_result.preserved,
         "warnings": cleanup_result.warnings,
     }
     manifest = replace(

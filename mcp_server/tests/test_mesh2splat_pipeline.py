@@ -645,6 +645,39 @@ async def test_timeout_cleanup_removes_only_manifest_listed_partial_ply(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_preserve_debug_failure_reports_cleanup_candidates(tmp_path):
+    from rook.mesh2splat import pipeline
+
+    deps = FakeDeps(
+        tmp_path,
+        process_success=False,
+        process_error_code="mesh2splat_timeout",
+        preserve_written_ply=True,
+    )
+
+    result = await pipeline.export_mesh2splat_capture(
+        {
+            "outputDirectory": str(tmp_path / "exports"),
+            "preserveDebugArtifacts": True,
+        },
+        deps=deps,
+    )
+
+    assert result["success"] is False
+    temp_ply = Path(deps.argv[4])
+    cleanup = result["data"]["cleanup"]
+    assert cleanup["preserveDebugArtifacts"] is True
+    assert cleanup["deleted"] == []
+    assert cleanup["warnings"] == []
+    assert cleanup["preserved"] == [str(temp_ply.resolve(strict=False))]
+    assert temp_ply.exists()
+
+    manifest = json.loads((deps.run_directory / "manifest.json").read_text())
+    assert manifest["status"] == "failed:mesh2splat_timeout"
+    assert manifest["cleanup"]["preserved"] == [str(temp_ply.resolve(strict=False))]
+
+
+@pytest.mark.asyncio
 async def test_normal_failure_cleanup_uses_manifest_helper(tmp_path, monkeypatch):
     from rook.mesh2splat import pipeline
     from rook.mesh2splat.output_safety import CleanupResult
@@ -655,6 +688,7 @@ async def test_normal_failure_cleanup_uses_manifest_helper(tmp_path, monkeypatch
         calls.append((manifest, kwargs))
         return CleanupResult(
             deleted=[str(kwargs["delete_artifact_paths"][0].resolve(strict=False))],
+            preserved=[],
             warnings=[
                 {
                     "code": "cleanup_probe",

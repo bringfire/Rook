@@ -41,6 +41,7 @@ class RunManifest:
 class CleanupResult:
     deleted: list[str]
     warnings: list[dict[str, object]]
+    preserved: list[str]
 
 
 def validate_output_directory(path: str) -> Path:
@@ -129,9 +130,6 @@ def cleanup_manifest_files(
     preserve_manifest: bool = False,
     delete_artifact_paths: tuple[Path, ...] | None = None,
 ) -> CleanupResult:
-    if preserve_debug_artifacts:
-        return CleanupResult(deleted=[], warnings=[])
-
     run_directory = _resolved_run_directory(manifest)
     manifest_artifact_paths = tuple(manifest.artifact_paths)
     manifest_artifact_keys = {
@@ -148,6 +146,7 @@ def cleanup_manifest_files(
     )
     deleted: list[str] = []
     warnings: list[dict[str, object]] = []
+    preserved: list[str] = []
     for path in paths:
         if path != manifest.manifest_path and _manifest_path_key(path) not in manifest_artifact_keys:
             if not path.exists() and not path.is_symlink():
@@ -189,9 +188,12 @@ def cleanup_manifest_files(
                     )
                 )
             continue
+        if preserve_debug_artifacts:
+            preserved.append(str(resolved))
+            continue
         path.unlink()
         deleted.append(str(resolved))
-    return CleanupResult(deleted=deleted, warnings=warnings)
+    return CleanupResult(deleted=deleted, warnings=warnings, preserved=preserved)
 
 
 def _run_directory_name(now: datetime, run_id: str) -> str:
