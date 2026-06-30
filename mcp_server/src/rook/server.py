@@ -21013,8 +21013,20 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     return _format_tool_result(raw_result)
 
 
+def _validate_profile_or_exit() -> None:
+    """Fail fast at startup if ROOK_MCP_TOOL_PROFILE is invalid."""
+    import sys
+
+    try:
+        resolve_profile(os.environ)
+    except InvalidProfileError as exc:
+        sys.stderr.write(f"FATAL: {exc}\n")
+        raise SystemExit(2)
+
+
 def main():
     """Run the MCP server."""
+    _validate_profile_or_exit()
     import asyncio
     import sys
 

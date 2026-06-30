@@ -131,3 +131,20 @@ def test_blocked_readonly_call_has_no_side_effects(monkeypatch):
     text = _call_text("rhino_create")
     assert "tool_profile_blocked" in text
     assert calls == {"observed": False, "policy": False, "dispatched": False}
+
+
+def test_validate_profile_or_exit_raises_on_invalid(monkeypatch):
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "bogus")
+    with pytest.raises(SystemExit) as exc:
+        server._validate_profile_or_exit()
+    assert exc.value.code == 2
+
+
+def test_validate_profile_or_exit_passes_on_valid(monkeypatch):
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "lean")
+    assert server._validate_profile_or_exit() is None
+
+
+def test_validate_profile_or_exit_passes_when_absent(monkeypatch):
+    monkeypatch.delenv("ROOK_MCP_TOOL_PROFILE", raising=False)
+    assert server._validate_profile_or_exit() is None
