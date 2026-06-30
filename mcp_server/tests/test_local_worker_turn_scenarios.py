@@ -308,6 +308,21 @@ def _out_of_scope_packet() -> WorkerKnowledgePacket:
     )
 
 
+def _recent_unknown_action_packet() -> WorkerKnowledgePacket:
+    return _knowledge_packet(
+        packet_id="recent_unknown_action_attempt",
+        kind="attempt_memory",
+        title="Prior worker response used an unknown action id",
+        content={
+            "source": "test fixture",
+            "trust": "medium",
+            "prior_failure": "unknown_action_id",
+            "action_id": "gh_update_script:v1",
+            "guidance": "Do not repeat the same invalid action id.",
+        },
+    )
+
+
 def _packet_by_id(
     context: LocalWorkerTurnContext,
     packet_id: str,
@@ -738,3 +753,60 @@ def test_out_of_scope_operation_is_recorded_as_refusal() -> None:
 
     payload = _assert_completed_refusal(record, context, "out_of_scope")
     assert "outside" in payload.reason
+
+
+def test_recent_needs_repair_history_requests_bounded_repair_action() -> None:
+    records = (
+        _record(
+            accepted_node_id="verify_create",
+            execution_kind="verifier",
+            ran=True,
+            execution_failure=None,
+        ),
+    )
+    supply_records = (
+        _supply(
+            decision="SUPPLY",
+            selected_node_id="repair_same_component",
+        ),
+    )
+    context = _context(
+        current_node_id="repair_same_component",
+        records=records,
+        supply_records=supply_records,
+    )
+
+    assert context.history.recent_supplies[-1].selected_node_id == (
+        "repair_same_component"
+    )
+
+    record = run_local_worker_turn(context, _history_needs_repair_worker)
+
+    _assert_completed_action(record, context, "draft_repair_params")
+
+
+def test_recent_blocked_unknown_action_packet_prevents_repeat_request() -> None:
+    context = _context(
+        current_node_id="repair_same_component",
+        knowledge=(_recent_unknown_action_packet(),),
+    )
+
+    record = run_local_worker_turn(context, _avoid_repeated_bad_action_worker)
+
+    payload = _assert_completed_observation(record, context)
+    assert "not repeating" in payload.message
+    assert record.disposition is not None
+    assert record.disposition.attempt.action_id is None
+
+
+def test_worker_exception_smoke_is_anchored_to_context() -> None:
+    context = _context(current_node_id="repair_same_component")
+
+    record = run_local_worker_turn(context, _raising_worker)
+
+    assert record.status == "worker_error"
+    assert record.response is None
+    assert record.disposition is None
+    assert record.failure == "worker_exception"
+    assert record.reason == "worker_exception:ValueError"
+    _assert_anchors(record, context)
