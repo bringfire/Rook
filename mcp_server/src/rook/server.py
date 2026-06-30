@@ -63,6 +63,7 @@ from .mcp_tool_profiles import (
     tool_blocked,
 )
 from . import artifacts, director, director_compiler, director_preview, director_publish, director_video, merge_execution, script_library, targeting, workbench, work_units
+from .mesh2splat import pipeline as mesh2splat_pipeline
 targeting.initialize_from_environment()
 from .knowledge import query_knowledge, query_knowledge_tiered, record_knowledge, invalidate_condensed_command_cache
 from .learning.command_observer import (
@@ -3250,6 +3251,25 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                         "Select by 'id' or 'path'.",
             inputSchema={"type": "object", "properties": {
                 "id": {"type": "string"}, "path": {"type": "string"}}},
+        ),
+        Tool(
+            name="rhino_mesh2splat_export",
+            description="Capture selected Rhino mesh geometry, build a GLB, run Mesh2Splat, "
+                        "validate the PLY, and register the produced GLB/PLY artifacts.",
+            inputSchema={"type": "object", "properties": {
+                "outputDirectory": {"type": "string", "description": "Absolute output directory for a new mesh2splat run folder."},
+                "format": {"type": "string", "enum": ["compressed-pbr", "standard"]},
+                "samplingResolution": {"type": "integer"},
+                "unitsMode": {"type": "string", "enum": ["meters", "raw"]},
+                "allowLargeOutput": {"type": "boolean"},
+                "allowNetworkTextures": {"type": "boolean"},
+                "preserveDebugArtifacts": {"type": "boolean"},
+                "object_ids": {"type": "array", "items": {"type": "string"}},
+                "allowPartial": {"type": "boolean"},
+                "mesh2splatPath": {"type": "string"},
+                "mesh2splatWorkingDirectory": {"type": "string"},
+                "mesh2splatTimeoutSeconds": {"type": "integer"}},
+                "required": ["outputDirectory"]},
         ),
         Tool(
             name="rhino_work_unit_register",
@@ -14006,6 +14026,9 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "rhino_artifact_deregister":
             result = await artifacts.deregister_artifact(
                 artifact_id=arguments.get("id"), path=arguments.get("path"))
+
+        case "rhino_mesh2splat_export":
+            result = await mesh2splat_pipeline.export_mesh2splat_capture(arguments)
 
         case "rhino_work_unit_register":
             result = await work_units.register_work_unit_tool(

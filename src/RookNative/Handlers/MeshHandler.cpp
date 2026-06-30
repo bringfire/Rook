@@ -14,10 +14,411 @@
 #include "Threading/MainThreadDispatcher.h"
 #include "RookServer.h"
 
+#include <limits>
+#include <set>
+
 namespace Rook {
 namespace Handlers {
 
 // ─── Helpers ────────────────────────────────────────────────────────
+
+namespace
+{
+    constexpr int kDefaultMaxObjects = 8;
+    constexpr int kDefaultMaxSourceVertices = 200000;
+    constexpr int kDefaultMaxSourceTriangles = 300000;
+    constexpr long long kDefaultMaxEstimatedJsonBytes = 50000000LL;
+
+    struct Mesh2SplatCaps
+    {
+        int maxObjects = kDefaultMaxObjects;
+        int maxSourceVertices = kDefaultMaxSourceVertices;
+        int maxSourceTriangles = kDefaultMaxSourceTriangles;
+        long long maxEstimatedJsonBytes = kDefaultMaxEstimatedJsonBytes;
+    };
+
+    struct Mesh2SplatCandidate
+    {
+        ON_UUID id = ON_nil_uuid;
+        std::string idString;
+        std::string name;
+        int materialIndex = -1;
+        std::string materialSource;
+        int vertexCount = 0;
+        long long triangleCount = 0;
+        const ON_Mesh* mesh = nullptr;
+    };
+
+    static long long SaturatingSizeToInt64(size_t value)
+    {
+        const size_t maxValue = static_cast<size_t>((std::numeric_limits<long long>::max)());
+        return value > maxValue
+            ? (std::numeric_limits<long long>::max)()
+            : static_cast<long long>(value);
+    }
+
+    static size_t SaturatingAddSize(size_t a, size_t b)
+    {
+        return b > (std::numeric_limits<size_t>::max)() - a
+            ? (std::numeric_limits<size_t>::max)()
+            : a + b;
+    }
+
+    static long long EstimateMesh2SplatJsonBytes(
+        size_t objectCount,
+        size_t materialCount,
+        long long sourceVertexCount,
+        long long sourceTriangleCount,
+        size_t stringBytes)
+    {
+        long long estimate = 0;
+        auto add = [&estimate](long long value)
+        {
+            if (value > (std::numeric_limits<long long>::max)() - estimate)
+                estimate = (std::numeric_limits<long long>::max)();
+            else
+                estimate += value;
+        };
+        auto addScaled = [&add](long long scale, long long count)
+        {
+            if (count > (std::numeric_limits<long long>::max)() / scale)
+                add((std::numeric_limits<long long>::max)());
+            else
+                add(scale * count);
+        };
+
+        addScaled(4096LL, SaturatingSizeToInt64(objectCount));
+        addScaled(2048LL, SaturatingSizeToInt64(materialCount));
+        addScaled(96LL, sourceVertexCount);
+        addScaled(24LL, sourceTriangleCount);
+        add(SaturatingSizeToInt64(stringBytes));
+        return estimate;
+    }
+
+    static int GetPositiveIntCap(
+        const nlohmann::json& body,
+        const char* key,
+        int defaultValue)
+    {
+        if (!body.contains(key))
+            return defaultValue;
+        if (!body[key].is_number_integer())
+            throw std::invalid_argument(std::string("'") + key + "' must be a positive integer");
+
+        const long long value = body[key].get<long long>();
+        if (value <= 0 || value > static_cast<long long>((std::numeric_limits<int>::max)()))
+            throw std::invalid_argument(std::string("'") + key + "' must be a positive integer");
+        return static_cast<int>(value);
+    }
+
+    static long long GetPositiveInt64Cap(
+        const nlohmann::json& body,
+        const char* key,
+        long long defaultValue)
+    {
+        if (!body.contains(key))
+            return defaultValue;
+        if (!body[key].is_number_integer())
+            throw std::invalid_argument(std::string("'") + key + "' must be a positive integer");
+
+        const long long value = body[key].get<long long>();
+        if (value <= 0)
+            throw std::invalid_argument(std::string("'") + key + "' must be a positive integer");
+        return value;
+    }
+
+    static nlohmann::json ColorToJson(const ON_Color& color)
+    {
+        const double alphaOpacity = 1.0 - (static_cast<double>(color.Alpha()) / 255.0);
+
+        nlohmann::json j;
+        j["r"] = static_cast<int>(color.Red());
+        j["g"] = static_cast<int>(color.Green());
+        j["b"] = static_cast<int>(color.Blue());
+        j["a"] = static_cast<int>(std::round(alphaOpacity * 255.0));
+        j["rScalar"] = static_cast<double>(color.Red()) / 255.0;
+        j["gScalar"] = static_cast<double>(color.Green()) / 255.0;
+        j["bScalar"] = static_cast<double>(color.Blue()) / 255.0;
+        j["aScalar"] = alphaOpacity;
+        return j;
+    }
+
+    static nlohmann::json Point3fToJson(const ON_3fPoint& point)
+    {
+        return nlohmann::json::array({ point.x, point.y, point.z });
+    }
+
+    static nlohmann::json Vector3fToJson(const ON_3fVector& vector)
+    {
+        return nlohmann::json::array({ vector.x, vector.y, vector.z });
+    }
+
+    static nlohmann::json Uv2fToJson(const ON_2fPoint& uv)
+    {
+        return nlohmann::json::array({ uv.x, uv.y });
+    }
+
+    static nlohmann::json XformToJson(const ON_Xform& xform)
+    {
+        nlohmann::json rows = nlohmann::json::array();
+        for (int r = 0; r < 4; ++r)
+        {
+            nlohmann::json row = nlohmann::json::array();
+            for (int c = 0; c < 4; ++c)
+                row.push_back(xform[r][c]);
+            rows.push_back(std::move(row));
+        }
+        return rows;
+    }
+
+    static std::string MaterialSourceToString(ON::object_material_source source)
+    {
+        switch (source)
+        {
+        case ON::material_from_object: return "MaterialFromObject";
+        case ON::material_from_layer: return "MaterialFromLayer";
+        case ON::material_from_parent: return "MaterialFromParent";
+        default: return "MaterialSourceUnknown";
+        }
+    }
+
+    static std::string TextureTypeToString(ON_Texture::TYPE type)
+    {
+        switch (type)
+        {
+        case ON_Texture::TYPE::bitmap_texture: return "bitmap_texture";
+        case ON_Texture::TYPE::bump_texture: return "bump_texture";
+        case ON_Texture::TYPE::transparency_texture: return "transparency_texture";
+        case ON_Texture::TYPE::emap_texture: return "emap_texture";
+        default: return "texture_type_" + std::to_string(static_cast<unsigned int>(type));
+        }
+    }
+
+    static int ResolveEffectiveMaterialIndex(CRhinoDoc* pDoc, const CRhinoObject* obj)
+    {
+        const auto& attrs = obj->Attributes();
+        if (attrs.MaterialSource() == ON::material_from_object)
+            return attrs.m_material_index;
+
+        if (attrs.MaterialSource() == ON::material_from_layer)
+        {
+            const int layerIndex = attrs.m_layer_index;
+            if (layerIndex >= 0 && layerIndex < pDoc->m_layer_table.LayerCount())
+                return pDoc->m_layer_table[layerIndex].RenderMaterialIndex();
+        }
+
+        return attrs.m_material_index;
+    }
+
+    static bool CountMeshTriangles(
+        const ON_Mesh* mesh,
+        long long& triangleCount,
+        std::string& error)
+    {
+        triangleCount = 0;
+        if (!mesh)
+        {
+            error = "Object geometry is not a mesh";
+            return false;
+        }
+
+        if (mesh->HasNgons())
+        {
+            error = "Mesh contains ngons; mesh2splat capture currently supports triangle and quad mesh faces only";
+            return false;
+        }
+
+        const int vertexCount = mesh->VertexCount();
+        for (int i = 0; i < mesh->FaceCount(); ++i)
+        {
+            const ON_MeshFace& face = mesh->m_F[i];
+            if (face.IsTriangle())
+            {
+                if (face.vi[0] < 0 || face.vi[1] < 0 || face.vi[2] < 0
+                    || face.vi[0] >= vertexCount || face.vi[1] >= vertexCount || face.vi[2] >= vertexCount)
+                {
+                    error = "Mesh contains an invalid triangle face";
+                    return false;
+                }
+                ++triangleCount;
+            }
+            else if (face.IsQuad())
+            {
+                if (face.vi[0] < 0 || face.vi[1] < 0 || face.vi[2] < 0 || face.vi[3] < 0
+                    || face.vi[0] >= vertexCount || face.vi[1] >= vertexCount
+                    || face.vi[2] >= vertexCount || face.vi[3] >= vertexCount)
+                {
+                    error = "Mesh contains an invalid quad face";
+                    return false;
+                }
+                triangleCount += 2;
+            }
+            else
+            {
+                error = "Mesh contains a face that is neither triangle nor quad";
+                return false;
+            }
+        }
+
+        if (triangleCount <= 0)
+        {
+            error = "Mesh contains no triangle faces";
+            return false;
+        }
+
+        return true;
+    }
+
+    static std::string BuildSkipReason(const CRhinoObject* obj)
+    {
+        if (!obj)
+            return "Object not found";
+        if (obj->IsDeleted())
+            return "Object is deleted";
+        if (obj->IsHidden())
+            return "Object is hidden";
+        if (obj->IsReference())
+            return "Object is from a reference model";
+        if (obj->IsLocked())
+            return "Object is locked";
+        if (ON_Mesh::Cast(obj->Geometry()) == nullptr)
+            return "Object is not a mesh";
+        return "";
+    }
+
+    static nlohmann::json SerializeMaterialMetadata(
+        CRhinoDoc* pDoc,
+        int matIndex,
+        size_t& stringBytes)
+    {
+        const CRhinoMaterial& mat = pDoc->m_material_table[matIndex];
+        const std::string name = WideToUtf8(mat.Name());
+        stringBytes += name.size();
+
+        ON_Color diffuse = mat.Diffuse();
+        ON_Color specular = mat.Specular();
+        ON_Color emission = mat.Emission();
+
+        nlohmann::json textures = nlohmann::json::array();
+        for (int i = 0; i < mat.m_textures.Count(); ++i)
+        {
+            const ON_Texture& texture = mat.m_textures[i];
+            nlohmann::json tex;
+            tex["index"] = i;
+            tex["type"] = static_cast<unsigned int>(texture.m_type);
+            tex["typeName"] = TextureTypeToString(texture.m_type);
+            tex["enabled"] = texture.m_bOn;
+            tex["mappingChannel"] = texture.m_mapping_channel_id;
+
+            const std::string fullPath = WideToUtf8(texture.m_image_file_reference.FullPath());
+            const std::string relativePath = WideToUtf8(texture.m_image_file_reference.RelativePath());
+            if (!fullPath.empty())
+            {
+                tex["fullPath"] = fullPath;
+                stringBytes += fullPath.size();
+            }
+            if (!relativePath.empty())
+            {
+                tex["relativePath"] = relativePath;
+                stringBytes += relativePath.size();
+            }
+            tex["pathMetadataOnly"] = true;
+            textures.push_back(std::move(tex));
+        }
+
+        nlohmann::json j;
+        j["index"] = matIndex;
+        j["id"] = UuidToString(mat.Id());
+        j["name"] = name;
+        j["diffuseColor"] = ColorToJson(diffuse);
+        j["baseColor"] = ColorToJson(diffuse);
+        j["baseColorSource"] = "legacyDiffuse";
+        j["specularColor"] = ColorToJson(specular);
+        j["emissionColor"] = ColorToJson(emission);
+        j["reflectivity"] = mat.Reflectivity();
+        j["transparency"] = mat.Transparency();
+        j["shine"] = mat.Shine();
+        j["hasTexture"] = mat.m_textures.Count() > 0 || mat.TextureBitmap() != nullptr;
+        j["textures"] = std::move(textures);
+        return j;
+    }
+
+    static nlohmann::json SerializeMeshObject(const Mesh2SplatCandidate& candidate)
+    {
+        const ON_Mesh* mesh = candidate.mesh;
+        const int vertexCount = mesh->VertexCount();
+        const bool hasNormals = mesh->HasVertexNormals() && mesh->m_N.Count() == vertexCount;
+        const bool hasUvs = mesh->HasTextureCoordinates() && mesh->m_T.Count() == vertexCount;
+
+        nlohmann::json vertices = nlohmann::json::array();
+        for (int i = 0; i < vertexCount; ++i)
+            vertices.push_back(Point3fToJson(mesh->m_V[i]));
+
+        nlohmann::json normals = nlohmann::json::array();
+        if (hasNormals)
+        {
+            for (int i = 0; i < vertexCount; ++i)
+                normals.push_back(Vector3fToJson(mesh->m_N[i]));
+        }
+
+        nlohmann::json uvs = nlohmann::json::array();
+        if (hasUvs)
+        {
+            for (int i = 0; i < vertexCount; ++i)
+                uvs.push_back(Uv2fToJson(mesh->m_T[i]));
+        }
+
+        nlohmann::json faces = nlohmann::json::array();
+        for (int i = 0; i < mesh->FaceCount(); ++i)
+        {
+            const ON_MeshFace& face = mesh->m_F[i];
+            if (face.IsTriangle())
+            {
+                faces.push_back(nlohmann::json::array({ face.vi[0], face.vi[1], face.vi[2] }));
+            }
+            else
+            {
+                faces.push_back(nlohmann::json::array({ face.vi[0], face.vi[1], face.vi[2] }));
+                faces.push_back(nlohmann::json::array({ face.vi[0], face.vi[2], face.vi[3] }));
+            }
+        }
+
+        nlohmann::json materialAssignment;
+        materialAssignment["scope"] = "object";
+        materialAssignment["materialIndex"] = candidate.materialIndex;
+        materialAssignment["materialSource"] = candidate.materialSource;
+        materialAssignment["perFaceMaterialsSupported"] = false;
+
+        nlohmann::json transformDiagnostics;
+        transformDiagnostics["worldSpaceVertices"] = true;
+        transformDiagnostics["objectSpaceEqualsWorldSpace"] = true;
+        transformDiagnostics["localToWorldApplied"] = false;
+        transformDiagnostics["localToWorld"] = XformToJson(ON_Xform::IdentityTransformation);
+        transformDiagnostics["note"] = "Captured from Rhino mesh object geometry coordinates; block instances are not expanded by this route.";
+
+        nlohmann::json obj;
+        obj["id"] = candidate.idString;
+        obj["name"] = candidate.name;
+        obj["materialIndex"] = candidate.materialIndex;
+        obj["materialSource"] = candidate.materialSource;
+        obj["materialAssignment"] = std::move(materialAssignment);
+        obj["vertexCount"] = candidate.vertexCount;
+        obj["triangleCount"] = candidate.triangleCount;
+        obj["sourceFaceCount"] = mesh->FaceCount();
+        obj["sourceTriangleFaceCount"] = mesh->TriangleCount();
+        obj["sourceQuadFaceCount"] = mesh->QuadCount();
+        obj["normalsValid"] = hasNormals;
+        obj["uvChannel"] = 1;
+        obj["uvValid"] = hasUvs;
+        obj["uvSource"] = hasUvs ? "mesh.m_T" : "";
+        obj["vertices"] = std::move(vertices);
+        obj["normals"] = std::move(normals);
+        obj["uvs"] = std::move(uvs);
+        obj["faces"] = std::move(faces);
+        obj["transformDiagnostics"] = std::move(transformDiagnostics);
+        return obj;
+    }
+}
 
 static const ON_Brep* ExtractBrep(const ON_Geometry* geom, bool& bMustDelete)
 {
@@ -60,6 +461,416 @@ static ON_Mesh* MeshBrep(const ON_Brep& brep, const ON_MeshParameters& mp)
         }
     }
     return result;
+}
+
+// ─── POST /mesh2splat/capture ─────────────────────────────────────
+
+void HandleMesh2SplatCapture(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    Mesh2SplatCaps caps;
+    std::vector<ON_UUID> explicitIds;
+    bool hasExplicitIds = false;
+    bool allowPartial = false;
+
+    auto sendStructuredError = [&](const std::string& code, const std::string& message)
+    {
+        nlohmann::json err;
+        err["code"] = code;
+        err["message"] = message;
+        err["retryable"] = false;
+        CRookServer::SendErrorData(res, err);
+    };
+
+    try
+    {
+        allowPartial = body.value("allowPartial", false);
+        caps.maxObjects = GetPositiveIntCap(body, "maxObjects", kDefaultMaxObjects);
+        caps.maxSourceVertices = GetPositiveIntCap(body, "maxSourceVertices", kDefaultMaxSourceVertices);
+        caps.maxSourceTriangles = GetPositiveIntCap(body, "maxSourceTriangles", kDefaultMaxSourceTriangles);
+        caps.maxEstimatedJsonBytes = GetPositiveInt64Cap(body, "maxEstimatedJsonBytes", kDefaultMaxEstimatedJsonBytes);
+
+        if (body.contains("object_ids"))
+        {
+            if (!body["object_ids"].is_array())
+            {
+                sendStructuredError(
+                    "invalid_object_id",
+                    "'object_ids' must be an array of UUID strings");
+                return;
+            }
+            try
+            {
+                explicitIds = ParseUuids(body, "object_ids");
+            }
+            catch (const std::exception& ex)
+            {
+                sendStructuredError("invalid_object_id", ex.what());
+                return;
+            }
+            hasExplicitIds = true;
+        }
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+        return;
+    }
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, allowPartial, caps, hasExplicitIds, explicitIds = std::move(explicitIds)]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+
+        nlohmann::json warnings = nlohmann::json::array();
+        nlohmann::json errors = nlohmann::json::array();
+        std::vector<Mesh2SplatCandidate> candidates;
+        std::set<int> materialIndices;
+
+        size_t totalStringBytes = 0;
+        long long sourceVertexCount = 0;
+        long long sourceTriangleCount = 0;
+        bool captureTooLarge = false;
+        std::string tooLargeMessage;
+        long long tooLargeEstimatedJsonBytes = 0;
+        long long tooLargeObjectCount = 0;
+        long long tooLargeSourceVertexCount = 0;
+        long long tooLargeSourceTriangleCount = 0;
+        long long tooLargeMaterialCount = 0;
+
+        auto addWarning = [&](const std::string& message)
+        {
+            warnings.push_back(message);
+            totalStringBytes = SaturatingAddSize(totalStringBytes, message.size());
+        };
+
+        auto addError = [&](const std::string& idString, const std::string& message, const std::string& code)
+        {
+            nlohmann::json e;
+            e["id"] = idString;
+            e["code"] = code;
+            e["message"] = message;
+            errors.push_back(std::move(e));
+            totalStringBytes = SaturatingAddSize(totalStringBytes, idString.size());
+            totalStringBytes = SaturatingAddSize(totalStringBytes, message.size());
+            totalStringBytes = SaturatingAddSize(totalStringBytes, code.size());
+        };
+
+        auto makeCaptureFailure = [&](
+            const std::string& code,
+            const std::string& message) -> WriteResult
+        {
+            WriteResult wr;
+            wr.success = false;
+            wr.data["code"] = code;
+            wr.data["message"] = message;
+            wr.data["errors"] = std::move(errors);
+            wr.data["warnings"] = std::move(warnings);
+            return wr;
+        };
+
+        auto makeTooLarge = [&](
+            const std::string& message,
+            long long estimatedJsonBytes,
+            long long objectCount,
+            long long vertexCount,
+            long long triangleCount,
+            long long materialCount) -> WriteResult
+        {
+            WriteResult wr;
+            wr.success = false;
+            wr.data["code"] = "capture_too_large";
+            wr.data["message"] = message;
+            wr.data["estimatedJsonBytes"] = estimatedJsonBytes;
+            wr.data["objectCount"] = objectCount;
+            wr.data["sourceVertexCount"] = vertexCount;
+            wr.data["sourceTriangleCount"] = triangleCount;
+            wr.data["materialCount"] = materialCount;
+            wr.data["caps"] = {
+                {"maxObjects", caps.maxObjects},
+                {"maxSourceVertices", caps.maxSourceVertices},
+                {"maxSourceTriangles", caps.maxSourceTriangles},
+                {"maxEstimatedJsonBytes", caps.maxEstimatedJsonBytes}
+            };
+            wr.data["warnings"] = std::move(warnings);
+            return wr;
+        };
+
+        auto recordTooLarge = [&](
+            const std::string& message,
+            long long estimatedJsonBytes,
+            long long objectCount,
+            long long vertexCount,
+            long long triangleCount,
+            long long materialCount)
+        {
+            captureTooLarge = true;
+            tooLargeMessage = message;
+            tooLargeEstimatedJsonBytes = estimatedJsonBytes;
+            tooLargeObjectCount = objectCount;
+            tooLargeSourceVertexCount = vertexCount;
+            tooLargeSourceTriangleCount = triangleCount;
+            tooLargeMaterialCount = materialCount;
+        };
+
+        auto addCandidate = [&](const CRhinoObject* obj, bool explicitRequest)
+        {
+            const std::string idString = obj ? UuidToString(obj->Attributes().m_uuid) : "";
+            std::string skipReason = BuildSkipReason(obj);
+            if (!skipReason.empty())
+            {
+                if (explicitRequest && !allowPartial)
+                    addError(idString, skipReason, "unsupported_requested_object");
+                else
+                    addWarning(idString.empty() ? skipReason : (idString + ": " + skipReason));
+                return;
+            }
+
+            const ON_Mesh* mesh = ON_Mesh::Cast(obj->Geometry());
+            long long triangleCount = 0;
+            std::string meshError;
+            if (!CountMeshTriangles(mesh, triangleCount, meshError))
+            {
+                if (explicitRequest && !allowPartial)
+                    addError(idString, meshError, "unsupported_requested_object");
+                else
+                    addWarning(idString + ": " + meshError);
+                return;
+            }
+
+            Mesh2SplatCandidate candidate;
+            candidate.id = obj->Attributes().m_uuid;
+            candidate.idString = idString;
+            candidate.name = WideToUtf8(obj->Attributes().m_name);
+            candidate.materialIndex = ResolveEffectiveMaterialIndex(pDoc, obj);
+            candidate.materialSource = MaterialSourceToString(obj->Attributes().MaterialSource());
+            candidate.vertexCount = mesh->VertexCount();
+            candidate.triangleCount = triangleCount;
+            candidate.mesh = mesh;
+
+            const long long nextObjectCount = SaturatingSizeToInt64(candidates.size()) + 1LL;
+            const long long nextSourceVertexCount = sourceVertexCount + static_cast<long long>(candidate.vertexCount);
+            const long long nextSourceTriangleCount = sourceTriangleCount + static_cast<long long>(candidate.triangleCount);
+            size_t candidateStringBytes = candidate.idString.size();
+            candidateStringBytes = SaturatingAddSize(candidateStringBytes, candidate.name.size());
+            candidateStringBytes = SaturatingAddSize(candidateStringBytes, candidate.materialSource.size());
+            const size_t nextStringBytes = SaturatingAddSize(totalStringBytes, candidateStringBytes);
+
+            bool includesNewMaterial = false;
+            if (candidate.materialIndex >= 0
+                && candidate.materialIndex < pDoc->m_material_table.MaterialCount()
+                && !pDoc->m_material_table[candidate.materialIndex].IsDeleted()
+                && materialIndices.find(candidate.materialIndex) == materialIndices.end())
+            {
+                includesNewMaterial = true;
+            }
+
+            const size_t nextMaterialCount = materialIndices.size() + (includesNewMaterial ? 1 : 0);
+            const long long nextEstimatedJsonBytes = EstimateMesh2SplatJsonBytes(
+                candidates.size() + 1,
+                nextMaterialCount,
+                nextSourceVertexCount,
+                nextSourceTriangleCount,
+                nextStringBytes);
+
+            if (nextObjectCount > static_cast<long long>(caps.maxObjects))
+            {
+                recordTooLarge(
+                    "Capture exceeds maxObjects",
+                    nextEstimatedJsonBytes,
+                    nextObjectCount,
+                    nextSourceVertexCount,
+                    nextSourceTriangleCount,
+                    SaturatingSizeToInt64(nextMaterialCount));
+                return;
+            }
+            if (nextSourceVertexCount > static_cast<long long>(caps.maxSourceVertices))
+            {
+                recordTooLarge(
+                    "Capture exceeds maxSourceVertices",
+                    nextEstimatedJsonBytes,
+                    nextObjectCount,
+                    nextSourceVertexCount,
+                    nextSourceTriangleCount,
+                    SaturatingSizeToInt64(nextMaterialCount));
+                return;
+            }
+            if (nextSourceTriangleCount > static_cast<long long>(caps.maxSourceTriangles))
+            {
+                recordTooLarge(
+                    "Capture exceeds maxSourceTriangles",
+                    nextEstimatedJsonBytes,
+                    nextObjectCount,
+                    nextSourceVertexCount,
+                    nextSourceTriangleCount,
+                    SaturatingSizeToInt64(nextMaterialCount));
+                return;
+            }
+            if (nextEstimatedJsonBytes > caps.maxEstimatedJsonBytes)
+            {
+                recordTooLarge(
+                    "Capture exceeds maxEstimatedJsonBytes",
+                    nextEstimatedJsonBytes,
+                    nextObjectCount,
+                    nextSourceVertexCount,
+                    nextSourceTriangleCount,
+                    SaturatingSizeToInt64(nextMaterialCount));
+                return;
+            }
+
+            totalStringBytes = nextStringBytes;
+            sourceVertexCount = nextSourceVertexCount;
+            sourceTriangleCount = nextSourceTriangleCount;
+
+            if (candidate.materialIndex >= 0
+                && candidate.materialIndex < pDoc->m_material_table.MaterialCount()
+                && !pDoc->m_material_table[candidate.materialIndex].IsDeleted())
+            {
+                materialIndices.insert(candidate.materialIndex);
+            }
+
+            candidates.push_back(std::move(candidate));
+        };
+
+        if (hasExplicitIds)
+        {
+            for (const auto& id : explicitIds)
+            {
+                const CRhinoObject* obj = pDoc->LookupObject(id);
+                if (!obj)
+                {
+                    const std::string idString = UuidToString(id);
+                    if (allowPartial)
+                        addWarning(idString + ": Object not found");
+                    else
+                        addError(idString, "Object not found", "invalid_object_id");
+                    continue;
+                }
+
+                addCandidate(obj, true);
+                if (captureTooLarge)
+                    break;
+            }
+        }
+        else
+        {
+            int selectedObjectCount = 0;
+            CRhinoObjectIterator it(*pDoc,
+                CRhinoObjectIterator::undeleted_objects,
+                CRhinoObjectIterator::active_objects);
+
+            for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
+            {
+                if (!obj->IsSelected(true))
+                    continue;
+                ++selectedObjectCount;
+                addCandidate(obj, false);
+                if (captureTooLarge)
+                    break;
+            }
+            if (selectedObjectCount == 0 && !captureTooLarge)
+            {
+                return makeCaptureFailure(
+                    "selection_required",
+                    "Select at least one mesh object or provide object_ids");
+            }
+        }
+
+        if (captureTooLarge)
+        {
+            return makeTooLarge(
+                tooLargeMessage,
+                tooLargeEstimatedJsonBytes,
+                tooLargeObjectCount,
+                tooLargeSourceVertexCount,
+                tooLargeSourceTriangleCount,
+                tooLargeMaterialCount);
+        }
+
+        if (!errors.empty())
+        {
+            const std::string code = errors.front().value("code", "capture_failed");
+            return makeCaptureFailure(
+                code,
+                "One or more requested mesh objects could not be captured");
+        }
+
+        if (candidates.empty())
+        {
+            return makeCaptureFailure(
+                "no_supported_meshes",
+                "No supported mesh objects were captured");
+        }
+
+        nlohmann::json materials = nlohmann::json::array();
+        for (int matIndex : materialIndices)
+            materials.push_back(SerializeMaterialMetadata(pDoc, matIndex, totalStringBytes));
+
+        const long long estimatedJsonBytes = EstimateMesh2SplatJsonBytes(
+            candidates.size(),
+            materialIndices.size(),
+            sourceVertexCount,
+            sourceTriangleCount,
+            totalStringBytes);
+
+        if (estimatedJsonBytes > caps.maxEstimatedJsonBytes)
+        {
+            return makeTooLarge(
+                "Capture exceeds maxEstimatedJsonBytes",
+                estimatedJsonBytes,
+                SaturatingSizeToInt64(candidates.size()),
+                sourceVertexCount,
+                sourceTriangleCount,
+                SaturatingSizeToInt64(materialIndices.size()));
+        }
+
+        const ON_3dmUnitsAndTolerances& ut = pDoc->Properties().ModelUnitsAndTolerances();
+        const ON::LengthUnitSystem unitSystem = ut.m_unit_system.UnitSystem();
+        const double unitScaleToMeters = ON::UnitScale(unitSystem, ON::LengthUnitSystem::Meters);
+
+        nlohmann::json objects = nlohmann::json::array();
+        for (const auto& candidate : candidates)
+            objects.push_back(SerializeMeshObject(candidate));
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["documentUnits"] = WideToUtf8(ut.m_unit_system.ToString());
+        wr.data["unitScaleToMeters"] = unitScaleToMeters;
+        wr.data["estimatedJsonBytes"] = estimatedJsonBytes;
+        wr.data["objectCount"] = static_cast<int>(candidates.size());
+        wr.data["sourceObjectCount"] = static_cast<int>(candidates.size());
+        if (hasExplicitIds)
+            wr.data["requestedObjectCount"] = static_cast<int>(explicitIds.size());
+        else
+            wr.data["requestedObjectCount"] = nullptr;
+        wr.data["sourceVertexCount"] = sourceVertexCount;
+        wr.data["sourceTriangleCount"] = sourceTriangleCount;
+        wr.data["materialCount"] = static_cast<int>(materialIndices.size());
+        wr.data["caps"] = {
+            {"maxObjects", caps.maxObjects},
+            {"maxSourceVertices", caps.maxSourceVertices},
+            {"maxSourceTriangles", caps.maxSourceTriangles},
+            {"maxEstimatedJsonBytes", caps.maxEstimatedJsonBytes}
+        };
+        wr.data["objects"] = std::move(objects);
+        wr.data["materials"] = std::move(materials);
+        wr.data["warnings"] = std::move(warnings);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+    }
 }
 
 // ─── POST /mesh/from-brep ────────────────────────────────────────

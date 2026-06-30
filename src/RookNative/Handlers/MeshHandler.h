@@ -12,6 +12,7 @@
 // POST /mesh/smooth      — Laplacian smoothing with iterations
 // POST /mesh/weld        — Weld vertices by angle
 // POST /mesh/unweld      — Unweld vertices by angle
+// POST /mesh2splat/capture — Capture selected/explicit mesh payload for Mesh2Splat
 
 #pragma once
 
@@ -32,6 +33,7 @@ void HandleMeshRepair(const httplib::Request& req, httplib::Response& res);
 void HandleMeshSmooth(const httplib::Request& req, httplib::Response& res);
 void HandleMeshWeld(const httplib::Request& req, httplib::Response& res);
 void HandleMeshUnweld(const httplib::Request& req, httplib::Response& res);
+void HandleMesh2SplatCapture(const httplib::Request& req, httplib::Response& res);
 
 } // namespace Handlers
 } // namespace Rook

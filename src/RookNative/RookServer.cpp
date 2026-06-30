@@ -1519,6 +1519,9 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/mesh/unweld", [this](const httplib::Request& req, httplib::Response& res) {
         HandleMeshUnweld(req, res);
     });
+    m_server->Post("/mesh2splat/capture", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleMesh2SplatCapture(req, res);
+    });
 
     // Phase 4E: SubD operations
     m_server->Post("/subd/box", [this](const httplib::Request& req, httplib::Response& res) {
