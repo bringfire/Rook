@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -823,6 +824,39 @@ namespace Rook.UI.Chat
         protected override void OnClearRequested()
         {
             // Nothing to reset — agent server keeps its own history
+        }
+
+        internal static List<ModelOverrideOption> EligibleOptions(
+            IEnumerable<ModelOverrideOption> options)
+        {
+            return options
+                .Where(o => string.Equals(o.Eligibility, "eligible", StringComparison.Ordinal))
+                .ToList();
+        }
+
+        internal static string BuildOptionLabel(ModelOverrideOption option)
+        {
+            return string.IsNullOrEmpty(option.DisplayName) ? option.Id : option.DisplayName;
+        }
+
+        internal static string BuildSelectionDetail(ModelOverrideOption option)
+        {
+            var parts = new List<string>();
+            if (option.ContextLength.HasValue)
+                parts.Add($"{option.ContextLength.Value} ctx");
+            if (string.Equals(option.MetadataState, "stale", StringComparison.Ordinal))
+                parts.Add("metadata stale — refresh");
+            return string.Join(" · ", parts);
+        }
+
+        // Dropdown row text = friendly label, plus selection detail (ctx / stale hint)
+        // when available. Eto DropDown has no per-row tooltip, so detail rides in the
+        // row text. Role/local rows have no detail -> label only.
+        internal static string BuildRowText(ModelOverrideOption option)
+        {
+            var label = BuildOptionLabel(option);
+            var detail = BuildSelectionDetail(option);
+            return detail.Length == 0 ? label : $"{label} — {detail}";
         }
 
         /// <summary>
