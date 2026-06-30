@@ -275,7 +275,7 @@ cd /c/UDEV/rook-release && git add README.md site/src/content/docs/deeper/under-
 - [ ] **Step 1: Replace count phrases**
 
 Canonical phrase everywhere: **"nearly 400 MCP tools"**. Update:
-- `astro.config.mjs` `description:` — change "392 MCP tools" → "nearly 400 MCP tools".
+- `astro.config.mjs` `description:` — replace the old stale MCP tool-count phrase with "nearly 400 MCP tools".
 - `README.md` — change "close to 400" → "nearly 400 MCP tools" where it describes the tool count.
 - `what-is-rook.md` — change "close to 400 specialized tools" → "nearly 400 specialized tools".
 Leave `250+` only where scoped to Rhino geometry (`modules/rhino-geometry.md` — do not change).

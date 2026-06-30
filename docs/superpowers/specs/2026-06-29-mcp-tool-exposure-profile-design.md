@@ -400,7 +400,7 @@ config is inherited by the panel.
 
 ### 7.4 Stale-doc correction (part of this campaign)
 
-Active docs say **392 tools**; the live `list_tools()` surface is **427** (430 static `Tool(...)` defs
+Active docs had stale pre-campaign tool-count language; the live `list_tools()` surface is **427** (430 static `Tool(...)` defs
 minus the 3 deprecated-interactive tools gated out by default, §1). Correct the count across
 `CLAUDE.md`, `AGENTS.md`, `docs/`, and memory so future reviewers do not argue from stale numbers. The
 §8 snapshot test becomes the authoritative count going forward.

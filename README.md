@@ -47,7 +47,7 @@ MCP Client (Claude Code, Claude Desktop, Codex CLI, Cursor, etc.)
        │
        │  MCP Protocol (stdio)
        ▼
-Rook MCP Server (Python)          ← 392 tools, knowledge graph, agent system
+Rook MCP Server (Python)          ← 427 tools advertised by list_tools(), knowledge graph, agent system
        │
        │  HTTP (127.0.0.1, OS-assigned port via discovery)
        ▼

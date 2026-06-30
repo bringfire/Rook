@@ -125,7 +125,7 @@ Task execution runners. Three entry points:
 
 ## Progressive Tool Disclosure
 
-With 392 MCP tools, showing everything to an agent wastes context and confuses the LLM. The system uses three tiers:
+With 427 MCP tools advertised by `list_tools()` (430 static defs minus 3 deprecated-interactive tools gated by default), showing everything to an agent wastes context and confuses the LLM. The system uses three tiers:
 
 ### Tier 0: Always Active (~12 tools, ~1,800 tokens)
 
@@ -146,7 +146,7 @@ Groups like `gh_canvas`, `rhino_transform`, `curves`, `analysis`, `layers_readon
 
 ### Tier 2: Individual Tools (search)
 
-Any of the 392 tools can be found via `search_tools("boolean")`. Returns matching tools with descriptions.
+Any of the 427 tools can be found via `search_tools("boolean")`. Returns matching tools with descriptions.
 
 ### Stale Tool Deactivation
 
