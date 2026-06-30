@@ -74,6 +74,7 @@ _NATIVE_CLOUD_PREFIXES = frozenset({
     "groq/",
     "huggingface/",
     "mistral/",
+    "openrouter/",
     "perplexity/",
     "replicate/",
     "sagemaker/",
