@@ -178,6 +178,42 @@ def test_manifest_creation_is_exclusive_and_update_replaces_owned_manifest(
     assert not list(manifest.run_directory.glob("*.tmp"))
 
 
+def test_manifest_payload_records_diagnostics_for_postmortems(tmp_path: Path):
+    from rook.mesh2splat.output_safety import RunManifest, create_manifest
+
+    manifest = new_manifest(tmp_path)
+    diagnostic = RunManifest(
+        run_id=manifest.run_id,
+        run_directory=manifest.run_directory,
+        manifest_path=manifest.manifest_path,
+        artifact_paths=manifest.artifact_paths,
+        status="failed:mesh2splat_timeout",
+        warnings=({"code": "native_warn", "message": "native warning"},),
+        selected_executable={
+            "source": "explicit",
+            "path": tmp_path / "Mesh2Splat.exe",
+        },
+        output_names={"glb": "capture.glb", "ply": "capture.ply"},
+        cleanup={
+            "preserveDebugArtifacts": False,
+            "deleted": [str(manifest.run_directory / "capture.ply")],
+            "warnings": [],
+        },
+    )
+
+    create_manifest(diagnostic)
+
+    data = json.loads(manifest.manifest_path.read_text(encoding="utf-8"))
+    assert data["status"] == "failed:mesh2splat_timeout"
+    assert data["warnings"] == [{"code": "native_warn", "message": "native warning"}]
+    assert data["selectedExecutable"] == {
+        "source": "explicit",
+        "path": str(tmp_path / "Mesh2Splat.exe"),
+    }
+    assert data["outputNames"] == {"glb": "capture.glb", "ply": "capture.ply"}
+    assert data["cleanup"]["deleted"] == [str(manifest.run_directory / "capture.ply")]
+
+
 def test_manifest_update_refuses_to_replace_manifest_outside_run_directory(
     tmp_path: Path,
 ):
@@ -241,15 +277,27 @@ def test_cleanup_deletes_only_regular_files_inside_current_run_directory(
         artifact_paths=manifest.artifact_paths + (nested, outside),
     )
 
-    deleted = cleanup_manifest_files(
+    result = cleanup_manifest_files(
         malicious,
         preserve_debug_artifacts=False,
     )
 
-    assert sorted(Path(path).name for path in deleted) == [
+    assert sorted(Path(path).name for path in result.deleted) == [
         "capture.glb",
         "capture.ply",
         "manifest.json",
+    ]
+    assert result.warnings == [
+        {
+            "code": "cleanup_skipped_non_regular_file",
+            "message": "Cleanup skipped non-regular file",
+            "path": str(nested.resolve(strict=False)),
+        },
+        {
+            "code": "cleanup_skipped_outside_run_directory",
+            "message": "Cleanup skipped path outside run directory",
+            "path": str(outside.resolve(strict=False)),
+        },
     ]
     assert not glb.exists()
     assert not ply.exists()
@@ -257,6 +305,86 @@ def test_cleanup_deletes_only_regular_files_inside_current_run_directory(
     assert nested.is_dir()
     assert outside.read_text(encoding="utf-8") == "outside"
     assert manifest.run_directory.is_dir()
+
+
+def test_cleanup_can_preserve_manifest_while_deleting_artifacts(tmp_path: Path):
+    from rook.mesh2splat.output_safety import cleanup_manifest_files
+
+    manifest = new_manifest(tmp_path)
+    manifest.manifest_path.write_text("{}", encoding="utf-8")
+    glb, ply = manifest.artifact_paths
+    glb.write_bytes(b"glb")
+    ply.write_bytes(b"ply")
+
+    result = cleanup_manifest_files(
+        manifest,
+        preserve_debug_artifacts=False,
+        preserve_manifest=True,
+    )
+
+    assert sorted(Path(path).name for path in result.deleted) == [
+        "capture.glb",
+        "capture.ply",
+    ]
+    assert result.warnings == []
+    assert manifest.manifest_path.exists()
+    assert not glb.exists()
+    assert not ply.exists()
+
+
+def test_cleanup_reports_skipped_manifest_paths(tmp_path: Path):
+    from rook.mesh2splat.output_safety import RunManifest, cleanup_manifest_files
+
+    manifest = new_manifest(tmp_path)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside", encoding="utf-8")
+    malicious = RunManifest(
+        run_id=manifest.run_id,
+        run_directory=manifest.run_directory,
+        manifest_path=manifest.manifest_path,
+        artifact_paths=(outside,),
+    )
+
+    result = cleanup_manifest_files(
+        malicious,
+        preserve_debug_artifacts=False,
+        preserve_manifest=True,
+    )
+
+    assert result.deleted == []
+    assert result.warnings == [
+        {
+            "code": "cleanup_skipped_outside_run_directory",
+            "message": "Cleanup skipped path outside run directory",
+            "path": str(outside.resolve(strict=False)),
+        }
+    ]
+    assert outside.read_text(encoding="utf-8") == "outside"
+
+
+def test_cleanup_reports_requested_paths_missing_from_manifest(tmp_path: Path):
+    from rook.mesh2splat.output_safety import cleanup_manifest_files
+
+    manifest = new_manifest(tmp_path)
+    unlisted = manifest.run_directory / "unlisted.tmp"
+    unlisted.write_bytes(b"do not delete")
+
+    result = cleanup_manifest_files(
+        manifest,
+        preserve_debug_artifacts=False,
+        preserve_manifest=True,
+        delete_artifact_paths=(unlisted,),
+    )
+
+    assert result.deleted == []
+    assert result.warnings == [
+        {
+            "code": "cleanup_skipped_unmanifested_path",
+            "message": "Cleanup skipped path not listed in manifest artifacts",
+            "path": str(unlisted.resolve(strict=False)),
+        }
+    ]
+    assert unlisted.read_bytes() == b"do not delete"
 
 
 def test_cleanup_preserve_debug_artifacts_deletes_nothing(tmp_path: Path):
@@ -269,7 +397,8 @@ def test_cleanup_preserve_debug_artifacts_deletes_nothing(tmp_path: Path):
 
     deleted = cleanup_manifest_files(manifest, preserve_debug_artifacts=True)
 
-    assert deleted == []
+    assert deleted.deleted == []
+    assert deleted.warnings == []
     assert manifest.manifest_path.exists()
     assert all(path.exists() for path in manifest.artifact_paths)
 
@@ -287,12 +416,19 @@ def test_cleanup_refuses_outside_paths(tmp_path: Path):
         artifact_paths=(outside,),
     )
 
-    deleted = cleanup_manifest_files(
+    result = cleanup_manifest_files(
         malicious,
         preserve_debug_artifacts=False,
     )
 
-    assert deleted == []
+    assert result.deleted == []
+    assert result.warnings == [
+        {
+            "code": "cleanup_skipped_outside_run_directory",
+            "message": "Cleanup skipped path outside run directory",
+            "path": str(outside.resolve(strict=False)),
+        }
+    ]
     assert outside.read_text(encoding="utf-8") == "outside"
 
 
@@ -319,9 +455,16 @@ def test_cleanup_refuses_symlink_or_reparse_swaps(tmp_path: Path):
         artifact_paths=(link,),
     )
 
-    deleted = cleanup_manifest_files(swapped, preserve_debug_artifacts=False)
+    result = cleanup_manifest_files(swapped, preserve_debug_artifacts=False)
 
-    assert deleted == []
+    assert result.deleted == []
+    assert result.warnings == [
+        {
+            "code": "cleanup_skipped_reparse_point",
+            "message": "Cleanup skipped symlink or reparse-point path",
+            "path": str(link.resolve(strict=False)),
+        }
+    ]
     assert link.exists()
     assert outside.read_text(encoding="utf-8") == "outside"
 
@@ -390,8 +533,9 @@ def test_cleanup_does_not_recursively_delete_run_directory(tmp_path: Path):
     kept.parent.mkdir()
     kept.write_text("keep", encoding="utf-8")
 
-    deleted = cleanup_manifest_files(manifest, preserve_debug_artifacts=False)
+    result = cleanup_manifest_files(manifest, preserve_debug_artifacts=False)
 
-    assert deleted == []
+    assert result.deleted == []
+    assert result.warnings == []
     assert manifest.run_directory.is_dir()
     assert kept.read_text(encoding="utf-8") == "keep"

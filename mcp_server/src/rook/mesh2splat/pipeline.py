@@ -5,7 +5,7 @@ import math
 import os
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -149,6 +149,12 @@ async def export_mesh2splat_capture(
             manifest_path=paths.manifest,
             artifact_paths=(),
             status="created",
+            warnings=tuple(warnings),
+            selected_executable=_manifest_executable_payload(executable),
+            output_names={
+                "glb": paths.capture_glb.name,
+                "ply": paths.capture_ply.name,
+            },
         )
         deps.create_manifest(manifest)
 
@@ -164,10 +170,8 @@ async def export_mesh2splat_capture(
             allow_dummy_scalar_uv=False,
         )
         exclusive_write_bytes(paths.capture_glb, glb_result.glb)
-        manifest = RunManifest(
-            run_id=manifest.run_id,
-            run_directory=manifest.run_directory,
-            manifest_path=manifest.manifest_path,
+        manifest = replace(
+            manifest,
             artifact_paths=(paths.capture_glb,),
             status="glb_written",
         )
@@ -241,10 +245,8 @@ async def export_mesh2splat_capture(
         )
         if not process_result.success:
             if paths.capture_ply.exists():
-                manifest = RunManifest(
-                    run_id=manifest.run_id,
-                    run_directory=manifest.run_directory,
-                    manifest_path=manifest.manifest_path,
+                manifest = replace(
+                    manifest,
                     artifact_paths=(*manifest.artifact_paths, paths.capture_ply),
                     status="mesh2splat_failed",
                 )
@@ -256,17 +258,14 @@ async def export_mesh2splat_capture(
                 request.preserve_debug_artifacts,
                 warnings=warnings,
                 cleanup_artifact_paths=(paths.capture_ply,),
-                delete_manifest=False,
                 extra={"cli": _cli_payload(process_result, executable, argv, cwd)},
             )
 
         stdout_error = _validate_success_stdout(process_result.parsed_stdout, request)
         if stdout_error is not None:
             if paths.capture_ply.exists():
-                manifest = RunManifest(
-                    run_id=manifest.run_id,
-                    run_directory=manifest.run_directory,
-                    manifest_path=manifest.manifest_path,
+                manifest = replace(
+                    manifest,
                     artifact_paths=(*manifest.artifact_paths, paths.capture_ply),
                     status="mesh2splat_stdout_invalid",
                 )
@@ -278,7 +277,6 @@ async def export_mesh2splat_capture(
                 request.preserve_debug_artifacts,
                 warnings=warnings,
                 cleanup_artifact_paths=(paths.capture_ply,),
-                delete_manifest=False,
                 extra={"cli": _cli_payload(process_result, executable, argv, cwd)},
             )
 
@@ -288,10 +286,8 @@ async def export_mesh2splat_capture(
             fmt=request.format,
             gaussian_count=gaussian_count,
         )
-        manifest = RunManifest(
-            run_id=manifest.run_id,
-            run_directory=manifest.run_directory,
-            manifest_path=manifest.manifest_path,
+        manifest = replace(
+            manifest,
             artifact_paths=(*manifest.artifact_paths, paths.capture_ply),
             status="ply_written",
         )
@@ -304,7 +300,6 @@ async def export_mesh2splat_capture(
                 request.preserve_debug_artifacts,
                 warnings=warnings,
                 cleanup_artifact_paths=(paths.capture_ply,),
-                delete_manifest=False,
                 extra={"plyValidation": _ply_validation_payload(ply_validation)},
             )
 
@@ -318,12 +313,10 @@ async def export_mesh2splat_capture(
         if ply_registration_warning is not None:
             warnings.append(ply_registration_warning)
 
-        manifest = RunManifest(
-            run_id=manifest.run_id,
-            run_directory=manifest.run_directory,
-            manifest_path=manifest.manifest_path,
-            artifact_paths=manifest.artifact_paths,
+        manifest = replace(
+            manifest,
             status="complete",
+            warnings=tuple(warnings),
         )
         deps.update_manifest(manifest)
 
@@ -725,6 +718,13 @@ def _register_artifact_warning(exc: Exception, label: str, path: Path) -> dict[s
     }
 
 
+def _manifest_executable_payload(executable: ExecutableResolution) -> dict[str, object]:
+    return {
+        "path": str(executable.path),
+        "source": executable.source,
+    }
+
+
 def _fail_after_manifest(
     code: str,
     message: str,
@@ -733,64 +733,43 @@ def _fail_after_manifest(
     *,
     warnings: list[dict[str, object]],
     cleanup_artifact_paths: tuple[Path, ...] | None = None,
-    delete_manifest: bool = False,
     extra: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    failed_manifest = RunManifest(
-        run_id=manifest.run_id,
-        run_directory=manifest.run_directory,
-        manifest_path=manifest.manifest_path,
-        artifact_paths=manifest.artifact_paths,
+    failed_manifest = replace(
+        manifest,
         status=f"failed:{code}",
+        warnings=tuple(warnings),
     )
-    update_manifest(failed_manifest)
-    manifest = failed_manifest
+    cleanup_result = cleanup_manifest_files(
+        failed_manifest,
+        preserve_debug_artifacts=preserve_debug_artifacts,
+        preserve_manifest=True,
+        delete_artifact_paths=cleanup_artifact_paths or (),
+    )
+    combined_warnings = [*warnings, *cleanup_result.warnings]
+    cleanup_payload = {
+        "preserveDebugArtifacts": preserve_debug_artifacts,
+        "deleted": cleanup_result.deleted,
+        "warnings": cleanup_result.warnings,
+    }
+    manifest = replace(
+        failed_manifest,
+        warnings=tuple(combined_warnings),
+        cleanup=cleanup_payload,
+    )
+    update_manifest(manifest)
 
-    if cleanup_artifact_paths is None and delete_manifest:
-        deleted = cleanup_manifest_files(
-            manifest,
-            preserve_debug_artifacts=preserve_debug_artifacts,
-        )
-    elif preserve_debug_artifacts:
-        deleted = []
-    else:
-        deleted = _cleanup_owned_artifact_paths(
-            manifest,
-            cleanup_artifact_paths or (),
-        )
     payload: dict[str, object] = {
         "code": code,
         "message": message,
         "retryable": code == "mesh2splat_timeout",
         "runDirectory": str(manifest.run_directory),
-        "warnings": warnings,
-        "cleanup": {
-            "preserveDebugArtifacts": preserve_debug_artifacts,
-            "deleted": deleted,
-        },
+        "warnings": combined_warnings,
+        "cleanup": cleanup_payload,
     }
     if extra:
         payload.update(extra)
     return {"success": False, "data": payload}
-
-
-def _cleanup_owned_artifact_paths(
-    manifest: RunManifest,
-    paths: tuple[Path, ...],
-) -> list[str]:
-    run_directory = manifest.run_directory.resolve(strict=False)
-    deleted: list[str] = []
-    for path in paths:
-        resolved = path.resolve(strict=False)
-        try:
-            resolved.relative_to(run_directory)
-        except ValueError:
-            continue
-        if path.is_symlink() or not path.is_file():
-            continue
-        path.unlink()
-        deleted.append(str(resolved))
-    return deleted
 
 
 def _err(code: str, message: str, **extra: object) -> dict[str, object]:

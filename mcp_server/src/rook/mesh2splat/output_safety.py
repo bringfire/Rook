@@ -7,6 +7,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 
 MANIFEST_NAME = "manifest.json"
@@ -29,6 +30,16 @@ class RunManifest:
     manifest_path: Path
     artifact_paths: tuple[Path, ...] = ()
     status: str = "created"
+    warnings: tuple[dict[str, object], ...] = ()
+    selected_executable: dict[str, object] | None = None
+    output_names: dict[str, str] | None = None
+    cleanup: dict[str, object] | None = None
+
+
+@dataclass(frozen=True)
+class CleanupResult:
+    deleted: list[str]
+    warnings: list[dict[str, object]]
 
 
 def validate_output_directory(path: str) -> Path:
@@ -94,22 +105,75 @@ def update_manifest(manifest: RunManifest) -> None:
 
 
 def cleanup_manifest_files(
-    manifest: RunManifest, *, preserve_debug_artifacts: bool
-) -> list[str]:
+    manifest: RunManifest,
+    *,
+    preserve_debug_artifacts: bool,
+    preserve_manifest: bool = False,
+    delete_artifact_paths: tuple[Path, ...] | None = None,
+) -> CleanupResult:
     if preserve_debug_artifacts:
-        return []
+        return CleanupResult(deleted=[], warnings=[])
 
     run_directory = _resolved_run_directory(manifest)
+    manifest_artifact_paths = tuple(manifest.artifact_paths)
+    manifest_artifact_keys = {
+        _manifest_path_key(path) for path in manifest_artifact_paths
+    }
+    if delete_artifact_paths is None:
+        artifact_paths = manifest_artifact_paths
+    else:
+        artifact_paths = tuple(delete_artifact_paths)
+
+    paths = (
+        (() if preserve_manifest else (manifest.manifest_path,))
+        + artifact_paths
+    )
     deleted: list[str] = []
-    for path in (manifest.manifest_path, *manifest.artifact_paths):
-        resolved = path.resolve(strict=False)
-        if not _is_inside_directory(resolved, run_directory):
+    warnings: list[dict[str, object]] = []
+    for path in paths:
+        if path != manifest.manifest_path and _manifest_path_key(path) not in manifest_artifact_keys:
+            if not path.exists() and not path.is_symlink():
+                continue
+            warnings.append(
+                _cleanup_warning(
+                    "cleanup_skipped_unmanifested_path",
+                    "Cleanup skipped path not listed in manifest artifacts",
+                    path.resolve(strict=False),
+                )
+            )
             continue
-        if path.is_symlink() or not path.is_file():
+        resolved = path.resolve(strict=False)
+        if _is_symlink_or_reparse_point(path):
+            warnings.append(
+                _cleanup_warning(
+                    "cleanup_skipped_reparse_point",
+                    "Cleanup skipped symlink or reparse-point path",
+                    resolved,
+                )
+            )
+            continue
+        if not _is_inside_directory(resolved, run_directory):
+            warnings.append(
+                _cleanup_warning(
+                    "cleanup_skipped_outside_run_directory",
+                    "Cleanup skipped path outside run directory",
+                    resolved,
+                )
+            )
+            continue
+        if not path.is_file():
+            if path.exists():
+                warnings.append(
+                    _cleanup_warning(
+                        "cleanup_skipped_non_regular_file",
+                        "Cleanup skipped non-regular file",
+                        resolved,
+                    )
+                )
             continue
         path.unlink()
         deleted.append(str(resolved))
-    return deleted
+    return CleanupResult(deleted=deleted, warnings=warnings)
 
 
 def _run_directory_name(now: datetime, run_id: str) -> str:
@@ -118,13 +182,43 @@ def _run_directory_name(now: datetime, run_id: str) -> str:
 
 
 def _manifest_payload(manifest: RunManifest) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "runId": manifest.run_id,
         "status": manifest.status,
         "runDirectory": str(manifest.run_directory),
         "manifestPath": str(manifest.manifest_path),
         "artifactPaths": [str(path) for path in manifest.artifact_paths],
+        "warnings": [dict(warning) for warning in manifest.warnings],
     }
+    if manifest.selected_executable is not None:
+        payload["selectedExecutable"] = _jsonable(manifest.selected_executable)
+    if manifest.output_names is not None:
+        payload["outputNames"] = dict(manifest.output_names)
+    if manifest.cleanup is not None:
+        payload["cleanup"] = _jsonable(manifest.cleanup)
+    return payload
+
+
+def _manifest_path_key(path: Path) -> str:
+    return str(path.resolve(strict=False)).lower()
+
+
+def _cleanup_warning(code: str, message: str, path: Path) -> dict[str, object]:
+    return {
+        "code": code,
+        "message": message,
+        "path": str(path),
+    }
+
+
+def _jsonable(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    return value
 
 
 def _resolved_run_directory(manifest: RunManifest) -> Path:

@@ -517,10 +517,73 @@ async def test_timeout_cleanup_removes_only_manifest_listed_partial_ply(tmp_path
     assert deps.run_directory.is_dir()
     manifest = json.loads((deps.run_directory / "manifest.json").read_text())
     assert manifest["status"] == "failed:mesh2splat_timeout"
+    assert manifest["warnings"] == [{"code": "native_warn", "message": "native warning"}]
+    assert manifest["selectedExecutable"] == {
+        "path": str(tmp_path / "Mesh2Splat.exe"),
+        "source": "fake",
+    }
+    assert manifest["outputNames"] == {"glb": "capture.glb", "ply": "capture.ply"}
+    assert manifest["cleanup"]["preserveDebugArtifacts"] is False
+    assert manifest["cleanup"]["deleted"] == [
+        str((deps.run_directory / "capture.ply").resolve(strict=False))
+    ]
+    assert manifest["cleanup"]["warnings"] == []
     assert deps.registered == [
         (deps.run_directory / "capture.glb", "mesh2splat capture GLB"),
     ]
     assert deps.events.index("register:mesh2splat capture GLB") < deps.events.index("run_mesh2splat")
+
+
+@pytest.mark.asyncio
+async def test_normal_failure_cleanup_uses_manifest_helper(tmp_path, monkeypatch):
+    from rook.mesh2splat import pipeline
+    from rook.mesh2splat.output_safety import CleanupResult
+
+    calls = []
+
+    def fake_cleanup(manifest, **kwargs):
+        calls.append((manifest, kwargs))
+        return CleanupResult(
+            deleted=[str((manifest.run_directory / "capture.ply").resolve(strict=False))],
+            warnings=[
+                {
+                    "code": "cleanup_probe",
+                    "message": "cleanup helper was used",
+                }
+            ],
+        )
+
+    monkeypatch.setattr(pipeline, "cleanup_manifest_files", fake_cleanup)
+    deps = FakeDeps(
+        tmp_path,
+        process_success=False,
+        process_error_code="mesh2splat_timeout",
+        preserve_written_ply=True,
+    )
+
+    result = await pipeline.export_mesh2splat_capture(
+        {"outputDirectory": str(tmp_path / "exports")},
+        deps=deps,
+    )
+
+    assert result["success"] is False
+    assert len(calls) == 1
+    manifest, kwargs = calls[0]
+    assert manifest.status == "failed:mesh2splat_timeout"
+    assert kwargs == {
+        "preserve_debug_artifacts": False,
+        "preserve_manifest": True,
+        "delete_artifact_paths": (deps.run_directory / "capture.ply",),
+    }
+    assert result["data"]["cleanup"]["deleted"] == [
+        str((deps.run_directory / "capture.ply").resolve(strict=False))
+    ]
+    assert result["data"]["cleanup"]["warnings"] == [
+        {
+            "code": "cleanup_probe",
+            "message": "cleanup helper was used",
+        }
+    ]
 
 
 @pytest.mark.asyncio
