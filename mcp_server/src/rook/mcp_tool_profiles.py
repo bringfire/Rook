@@ -64,6 +64,11 @@ PUBLIC_LEAN_TOOL_NAMES = frozenset({
     "rhino_execute_intent",
     "gh_execute_intent",
     "openrouter_refresh_catalog",
+    # Progressive tool disclosure meta-tools (present in every profile).
+    "rook_tools_ls",
+    "rook_tools_search",
+    "rook_tools_read",
+    "rook_tools_call",
 })
 
 SENTINEL_TOOL_NAMES = frozenset({
@@ -241,6 +246,12 @@ PUBLIC_READONLY_TOOL_NAMES = frozenset({
     "session_current",
     "session_history",
     "session_list",
+    # Progressive tool disclosure meta-tools (present in every profile; readonly discovery is
+    # scoped to readonly-safe targets at call time, and rook_tools_call re-enters the wall).
+    "rook_tools_ls",
+    "rook_tools_search",
+    "rook_tools_read",
+    "rook_tools_call",
 })
 
 
