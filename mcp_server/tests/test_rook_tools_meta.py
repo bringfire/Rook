@@ -151,3 +151,47 @@ def test_rook_tools_search_tolerates_malformed_limit(monkeypatch):
     monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
     found = json.loads(_text("rook_tools_search", {"query": "objects", "limit": "nope"}))
     assert isinstance(found, list)
+
+
+DG009_GH_TOOL_NAMES = (
+    "gh_update_script",
+    "gh_set_script_pins",
+    "gh_status",
+    "gh_create_csharp_script",
+    "gh_snapshot",
+)
+
+
+def _lean_tool_descriptions(monkeypatch):
+    monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "lean")
+    return {tool.name: tool.description for tool in asyncio.run(server.list_tools())}
+
+
+def test_lean_gateway_metadata_contains_dg009_exact_gh_aliases(monkeypatch):
+    descriptions = _lean_tool_descriptions(monkeypatch)
+    for gateway in ("rook_tools_search", "rook_tools_read", "rook_tools_call"):
+        assert gateway in descriptions
+        desc = descriptions[gateway]
+        for tool_name in DG009_GH_TOOL_NAMES:
+            assert tool_name in desc
+
+
+def test_rook_tools_search_exact_dg009_gh_names_resolve_real_records(monkeypatch):
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "lean")
+    server._reset_capability_index_cache()
+    for tool_name in DG009_GH_TOOL_NAMES:
+        found = json.loads(_text("rook_tools_search", {"query": tool_name, "limit": 10}))
+        assert any(entry["name"] == tool_name for entry in found), tool_name
+
+
+def test_rook_tools_read_exact_dg009_gh_names_return_schemas(monkeypatch):
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "lean")
+    server._reset_capability_index_cache()
+    for tool_name in DG009_GH_TOOL_NAMES:
+        record = json.loads(_text("rook_tools_read", {"name": tool_name}))
+        assert record["name"] == tool_name
+        assert record["domain"] == "gh"
+        assert record["mcp_dispatchable"] is True
+        assert isinstance(record["input_schema"], dict)
+        assert record["input_schema"].get("type") == "object"
