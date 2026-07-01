@@ -164,3 +164,13 @@ def test_validate_profile_or_exit_passes_on_valid(monkeypatch):
 def test_validate_profile_or_exit_passes_when_absent(monkeypatch):
     monkeypatch.delenv("ROOK_MCP_TOOL_PROFILE", raising=False)
     assert server._validate_profile_or_exit() is None
+
+
+def test_lean_keeps_dg009_hidden_gh_mutators_behind_gateway(monkeypatch):
+    lean = _list_names(monkeypatch, "lean")
+    assert {"rook_tools_search", "rook_tools_read", "rook_tools_call"} <= lean
+    assert {
+        "gh_update_script",
+        "gh_set_script_pins",
+        "gh_create_csharp_script",
+    }.isdisjoint(lean)

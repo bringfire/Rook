@@ -13426,7 +13426,10 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                 "Search the Rook tool catalog by keyword; returns matching tools with a one-line "
                 "summary each. Covers the full tool surface — geometry, Grasshopper, VisionDirector, "
                 "RoadCreator, BIM, scene, video, knowledge. Use this to discover a tool, then "
-                "rook_tools_read for its schema and rook_tools_call to invoke it."
+                "rook_tools_read for its schema and rook_tools_call to invoke it. "
+                "Exact hidden GH aliases resolve through this gateway, including "
+                "gh_update_script, gh_set_script_pins, gh_status, gh_create_csharp_script, "
+                "and gh_snapshot."
             ),
             inputSchema={
                 "type": "object",
@@ -13443,7 +13446,9 @@ Returns the full profile JSON including features, surfaces, and elements.""",
             name="rook_tools_read",
             description=(
                 "Read one Rook tool's full record: description, domain/groups, and input JSON schema. "
-                "Call this after rook_tools_search to learn a tool's arguments before rook_tools_call."
+                "Call this after rook_tools_search to learn a tool's arguments before rook_tools_call. "
+                "Use this after searching exact hidden GH names such as gh_update_script, "
+                "gh_set_script_pins, gh_status, gh_create_csharp_script, and gh_snapshot."
             ),
             inputSchema={
                 "type": "object",
@@ -13458,7 +13463,10 @@ Returns the full profile JSON including features, surfaces, and elements.""",
             description=(
                 "Invoke any dispatchable Rook tool by name with its arguments, through the normal "
                 "policy path (the readonly profile wall still applies to the target). Use "
-                "rook_tools_read first to get the target's input schema."
+                "rook_tools_read first to get the target's input schema. "
+                "For hidden GH tools discovered by name, this invokes targets such as "
+                "gh_update_script, gh_set_script_pins, gh_status, gh_create_csharp_script, "
+                "and gh_snapshot through the normal policy path."
             ),
             inputSchema={
                 "type": "object",
