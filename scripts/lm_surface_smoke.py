@@ -13,6 +13,7 @@ Run with the DEPLOYED venv interpreter and an empty PYTHONPATH, e.g. (PowerShell
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 
@@ -168,6 +169,44 @@ _REQUIRED_BASE = frozenset(
     }
 )
 _EXPECTED_EXCLUDED = ("gh_exploration", "gh_knowledge", "gh_validation")
+
+DG009_GH_TOOL_NAMES = (
+    "gh_update_script",
+    "gh_set_script_pins",
+    "gh_status",
+    "gh_create_csharp_script",
+    "gh_snapshot",
+)
+
+PROGRESSIVE_GATEWAY_NAMES = (
+    "rook_tools_search",
+    "rook_tools_read",
+    "rook_tools_call",
+)
+
+
+def progressive_gateway_metadata_failures(catalog: dict) -> list[str]:
+    failures: list[str] = []
+    for gateway in PROGRESSIVE_GATEWAY_NAMES:
+        record = catalog.get(gateway)
+        if not isinstance(record, dict):
+            failures.append(f"{gateway} missing from lean catalog")
+            continue
+        function = record.get("function") if isinstance(record.get("function"), dict) else {}
+        description = str(function.get("description") or "")
+        for tool_name in DG009_GH_TOOL_NAMES:
+            if tool_name not in description:
+                failures.append(f"{gateway} missing {tool_name}")
+    return failures
+
+
+def progressive_search_failures(search_results: dict[str, list[dict]]) -> list[str]:
+    failures: list[str] = []
+    for tool_name in DG009_GH_TOOL_NAMES:
+        entries = search_results.get(tool_name, [])
+        if not any(entry.get("name") == tool_name and entry.get("domain") == "gh" for entry in entries):
+            failures.append(f"rook_tools_search did not return {tool_name}")
+    return failures
 
 _EXTERNAL_FAIL_CODES = frozenset(
     {
@@ -351,6 +390,58 @@ def run_external() -> int:
     return exit_code
 
 
+def run_progressive() -> int:
+    print("== progressive ==")
+    previous_profile = os.environ.get("ROOK_MCP_TOOL_PROFILE")
+    os.environ["ROOK_MCP_TOOL_PROFILE"] = "lean"
+    try:
+        rc = _check_origins()
+        if rc != 0:
+            _p("FAIL", "origin guard failed; refusing progressive disclosure smoke")
+            return rc
+
+        import asyncio
+
+        from rook.server import call_tool, list_tools
+        from rook.agent.tool_registry import build_catalog_from_mcp_tools
+
+        tools = asyncio.run(list_tools())
+        catalog = build_catalog_from_mcp_tools(tools)
+        names = set(catalog)
+        hidden_mutators = {"gh_update_script", "gh_set_script_pins", "gh_create_csharp_script"}
+        if not set(PROGRESSIVE_GATEWAY_NAMES) <= names:
+            missing = sorted(set(PROGRESSIVE_GATEWAY_NAMES) - names)
+            _p("FAIL", f"lean catalog missing progressive gateways: {missing}")
+            return 1
+        if hidden_mutators & names:
+            _p("FAIL", f"lean catalog directly advertised hidden GH mutators: {sorted(hidden_mutators & names)}")
+            return 1
+
+        metadata_failures = progressive_gateway_metadata_failures(catalog)
+        if metadata_failures:
+            for failure in metadata_failures:
+                _p("FAIL", failure)
+            return 1
+
+        search_results: dict[str, list[dict]] = {}
+        for tool_name in DG009_GH_TOOL_NAMES:
+            response = asyncio.run(call_tool("rook_tools_search", {"query": tool_name, "limit": 10}))
+            search_results[tool_name] = json.loads(response[0].text)
+        search_failures = progressive_search_failures(search_results)
+        if search_failures:
+            for failure in search_failures:
+                _p("FAIL", failure)
+            return 1
+
+        _p("PASS", "progressive disclosure smoke passed under lean")
+        return 0
+    finally:
+        if previous_profile is None:
+            os.environ.pop("ROOK_MCP_TOOL_PROFILE", None)
+        else:
+            os.environ["ROOK_MCP_TOOL_PROFILE"] = previous_profile
+
+
 # --- CLI ---
 
 
@@ -359,7 +450,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="lm_surface_smoke",
         description="LM live-smoke diagnostic (deployed-runtime coherence + surface evidence).",
     )
-    parser.add_argument("command", choices=("coherence", "surface", "external"))
+    parser.add_argument("command", choices=("coherence", "surface", "external", "progressive"))
     return parser
 
 
@@ -378,7 +469,9 @@ def main(argv) -> int:
         return run_coherence()
     if args.command == "surface":
         return run_surface()
-    return run_external()
+    if args.command == "external":
+        return run_external()
+    return run_progressive()
 
 
 if __name__ == "__main__":

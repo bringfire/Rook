@@ -163,3 +163,43 @@ def test_run_external_refuses_when_origin_guard_fails(monkeypatch, capsys):
     assert rc == 1
     out = capsys.readouterr().out
     assert "origin guard failed" in out
+
+
+def test_progressive_parser_accepts_progressive():
+    args = SMOKE.build_parser().parse_args(["progressive"])
+    assert args.command == "progressive"
+
+
+def test_progressive_gateway_metadata_validation_requires_aliases():
+    catalog = {
+        "rook_tools_search": {
+            "function": {
+                "description": "Search gh_update_script gh_set_script_pins gh_status gh_create_csharp_script gh_snapshot"
+            }
+        },
+        "rook_tools_read": {
+            "function": {
+                "description": "Read gh_update_script gh_set_script_pins gh_status gh_create_csharp_script gh_snapshot"
+            }
+        },
+        "rook_tools_call": {
+            "function": {
+                "description": "Call gh_update_script gh_set_script_pins gh_status gh_create_csharp_script gh_snapshot"
+            }
+        },
+    }
+    assert SMOKE.progressive_gateway_metadata_failures(catalog) == []
+    bad = dict(catalog)
+    bad["rook_tools_search"] = {"function": {"description": "Search tools"}}
+    assert "rook_tools_search missing gh_update_script" in SMOKE.progressive_gateway_metadata_failures(bad)
+
+
+def test_progressive_search_validation_requires_exact_records():
+    search_results = {
+        name: [{"name": name, "domain": "gh"}]
+        for name in SMOKE.DG009_GH_TOOL_NAMES
+    }
+    assert SMOKE.progressive_search_failures(search_results) == []
+    bad = dict(search_results)
+    bad["gh_update_script"] = [{"name": "gh_set_script", "domain": "gh"}]
+    assert "rook_tools_search did not return gh_update_script" in SMOKE.progressive_search_failures(bad)
