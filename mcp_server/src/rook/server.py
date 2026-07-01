@@ -21160,7 +21160,8 @@ async def _handle_meta_tool(name, arguments, profile):
             return _format_tool_result({"success": False, "data": {"error": "unknown_or_non_dispatchable",
                                                                    "name": arguments.get("name")}})
         return _format_tool_result({"success": True, "data": rec})
-    # rook_tools_call — guards in order: recursion -> wall(target) -> mcp_dispatchable -> validation
+    # rook_tools_call — untrusted input; guards in order: recursion -> readonly wall(target) ->
+    # mcp_dispatchable -> arguments-is-object -> field validation -> dispatch.
     target = str(arguments.get("name") or "")
     targs = arguments.get("arguments")
     if targs is None:
@@ -21168,7 +21169,13 @@ async def _handle_meta_tool(name, arguments, profile):
     if target in META_TOOL_NAMES:
         return _format_tool_result({"success": False, "data": {"error": "meta_recursion_forbidden",
                                                                "name": target}})
-    if tool_blocked(target, profile):                              # WALL BEFORE VALIDATION
+    # The wall runs BEFORE the existence/dispatchability check, by design. Under readonly this is
+    # default-deny: an UNKNOWN name (not on the readonly allowlist) returns tool_profile_blocked, not
+    # not_mcp_dispatchable (which is what full returns). That is intentional — it keeps rook_tools_call
+    # consistent with the scoped discovery above, which hides whether non-safe tools even exist. Moving
+    # this below index.read() to "correct" the readonly label would leak that existence (an enumeration
+    # oracle for the hidden surface), so keep the wall first.
+    if tool_blocked(target, profile):
         return _format_tool_result(profile_blocked_envelope(target, profile))
     rec = index.read(target)
     if rec is None:                                                # covers unknown + non-dispatchable
