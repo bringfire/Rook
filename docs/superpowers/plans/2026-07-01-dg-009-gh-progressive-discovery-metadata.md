@@ -213,13 +213,13 @@ def test_progressive_parser_accepts_progressive():
 
 def test_progressive_gateway_metadata_validation_requires_aliases():
     catalog = {
-        "rook_tools_search": {"description": "Search gh_update_script gh_set_script_pins gh_status gh_create_csharp_script gh_snapshot"},
-        "rook_tools_read": {"description": "Read gh_update_script gh_set_script_pins gh_status gh_create_csharp_script gh_snapshot"},
-        "rook_tools_call": {"description": "Call gh_update_script gh_set_script_pins gh_status gh_create_csharp_script gh_snapshot"},
+        "rook_tools_search": {"function": {"description": "Search gh_update_script gh_set_script_pins gh_status gh_create_csharp_script gh_snapshot"}},
+        "rook_tools_read": {"function": {"description": "Read gh_update_script gh_set_script_pins gh_status gh_create_csharp_script gh_snapshot"}},
+        "rook_tools_call": {"function": {"description": "Call gh_update_script gh_set_script_pins gh_status gh_create_csharp_script gh_snapshot"}},
     }
     assert SMOKE.progressive_gateway_metadata_failures(catalog) == []
     bad = dict(catalog)
-    bad["rook_tools_search"] = {"description": "Search tools"}
+    bad["rook_tools_search"] = {"function": {"description": "Search tools"}}
     assert "rook_tools_search missing gh_update_script" in SMOKE.progressive_gateway_metadata_failures(bad)
 
 
@@ -276,7 +276,8 @@ def progressive_gateway_metadata_failures(catalog: dict) -> list[str]:
         if not isinstance(record, dict):
             failures.append(f"{gateway} missing from lean catalog")
             continue
-        description = str(record.get("description") or "")
+        function = record.get("function") if isinstance(record.get("function"), dict) else {}
+        description = str(function.get("description") or "")
         for tool_name in DG009_GH_TOOL_NAMES:
             if tool_name not in description:
                 failures.append(f"{gateway} missing {tool_name}")
@@ -417,7 +418,7 @@ Run:
 
 ```powershell
 $env:PYTHONPATH=(Resolve-Path mcp_server/src).Path
-python - <<'PY'
+@'
 import os
 from pathlib import Path
 os.environ["ROOK_MCP_TOOL_PROFILE"] = "lean"
@@ -433,7 +434,7 @@ async def main():
     assert any(r["name"] == "gh_update_script" for r in records)
 asyncio.run(main())
 print("PASS")
-PY
+'@ | python -
 ```
 
 Expected: `PASS`.
