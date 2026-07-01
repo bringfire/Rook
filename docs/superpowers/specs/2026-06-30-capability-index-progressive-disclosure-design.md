@@ -1,16 +1,18 @@
 # Capability Index + Progressive Tool Disclosure — Phase One Design
 
-- **Status:** Approved (review clear after wording fixes) — ready for implementation plan
+- **Status:** Approved (architecture + review clear); data model revised 2026-06-30 to a **facet over the
+  existing LM2A inventory** (do not duplicate `CapabilityRecord`). Ready for implementation plan.
 - **Date:** 2026-06-30
 - **Builds on:** the MCP Tool Exposure Profile campaign (spec
   `docs/superpowers/specs/2026-06-29-mcp-tool-exposure-profile-design.md`), **merged to `origin/main` via
-  PR #382**. This spec **absorbs and extends** that work; it does not replace it.
+  PR #382**; and the **LM2A capability inventory** (`rook.agent.capability_record` /
+  `rook.agent.capability_inventory`). This spec **absorbs and extends** the profile work and **reuses
+  (read-only) — never modifies —** the LM2A model.
 - **Commit base:** Base on **`origin/main`**, which contains the *wired* profile campaign (PR #382:
-  `filter_tools` / `tool_blocked` / `PUBLIC_*` present and integrated). All `server.py` line anchors in
-  this spec are verified against `origin/main`. Do the work in a dedicated branch/worktree off
-  `origin/main`; nothing is committed on `main` directly. *(Transient local-checkout sync state lives in
-  the PR/process notes, not in this spec.)*
-- **Campaign:** Capability Index — the first vertical slice of the LM2 Capability Registry, delivered
+  `filter_tools` / `tool_blocked` / `PUBLIC_*` present and integrated) and the LM2A capability modules.
+  All `server.py` line anchors in this spec are verified against `origin/main`. Do the work in a
+  dedicated branch/worktree off `origin/main`; nothing is committed on `main` directly.
+- **Campaign:** Capability Index — the **public-MCP facet** of the LM2A capability inventory, delivered
   through the MCP surface.
 
 ---
@@ -35,8 +37,9 @@ No static profile fixes this, because the need is **dynamic**:
   mid-conversation. Static-per-session cannot serve dynamic-mid-session.
 
 The only mechanism that breaks the ceiling is a **progressive discovery surface**: browse → search →
-read-schema → call, server-side, client-agnostic, no restart. This spec builds that surface, backed by
-a **Capability Index** that is explicitly the first slice of the LM2 Capability Registry.
+read-schema → call, server-side, client-agnostic, no restart. This spec builds that surface as the
+**public-MCP facet of the existing LM2A capability inventory** — one canonical identity (the tool name)
+with two facets: the agent-surface facet LM2A already models, and the public-MCP facet built here.
 
 ### Framing (non-negotiable)
 
@@ -46,32 +49,38 @@ progressive-disclosure-as-access-layer.** The existing convenience tools stay fo
 
 ---
 
-## 2. Relationship to the profile campaign
+## 2. Relationship to prior work
 
-**Kept, unchanged:**
+**Profile campaign (PR #382) — kept, unchanged:**
 
 - `ROOK_MCP_TOOL_PROFILE = full | lean | readonly`, the pure `resolve_profile(env)`, hard-fail on
   invalid, absent ⇒ `full`.
-- The **asymmetry invariant** (§3 of the profile spec): `lean` is list-only; `readonly` is an enforced
-  wall.
+- The **asymmetry invariant**: `lean` is list-only; `readonly` is an enforced wall.
 - **`readonly` enforcement remains the audited `PUBLIC_READONLY_TOOL_NAMES` allowlist** via
-  `tool_blocked()`. The Capability Index exposes a `readonly_safe` *description*, but the allowlist —
-  not index metadata — stays the enforcement authority for this phase (see §8, invariant 1).
-- The config-generation seams (`doctor.py`, `install.ps1`) and the rejection-envelope contract
-  (`tool_profile_blocked`).
+  `tool_blocked()`. The facet exposes a `readonly_safe` *descriptor*, but the allowlist — not facet
+  metadata — stays the enforcement authority (§8, invariant 1).
+- Config-generation seams and the `tool_profile_blocked` envelope.
+
+**LM2A capability inventory (`rook.agent.capability_record` / `capability_inventory`) — reused read-only,
+never modified:**
+
+- The existing frozen `CapabilityRecord` (`name, visibility, tiers, groups, dispatch_path, has_schema,
+  risk, no_argument, mcp_only`) is the **agent-surface facet**. It is deliberately **stdlib-only** and
+  decoupled; this spec **must not** add fields to it, import server-side concerns into it, or otherwise
+  entangle it. (Enforced by the existing `test_capability_record_is_stdlib_only`.)
+- This spec adds a **separate public-MCP facet** (`McpCapabilityRecord`, §4.2) linked to the agent facet
+  **by canonical tool name**, and consumes the existing `CapabilityInventory` **read-only** for the
+  agent-side link.
 
 **Changed by this spec:**
 
-- `lean` membership grows from 17 → 21 (adds the four `rook_tools_*` tools; §7).
-- `readonly` membership grows from 145 → 149 (adds the four `rook_tools_*` tools; §7).
-- `full` live `list_tools()` grows 427 → 431. The profile spec's pinned-count snapshot tests are
-  **updated, not preserved** — stale counts are not a design constraint.
-- `list_tools()` is refactored to project over an **unprofiled** `_all_live_tools()` source so the Index
-  can be built from the full surface (§4.1) — a behavior-preserving refactor of the existing
-  `filter_tools(live_tools, …)` at [`server.py:13373`](../../../mcp_server/src/rook/server.py).
+- `lean` membership grows 17 → 21; `readonly` 145 → 149; `full` live `list_tools()` 427 → 431 (the four
+  `rook_tools_*`). Profile snapshot counts are **updated, not preserved**.
+- `list_tools()` is refactored to project over an **unprofiled** `_all_live_tools()` source (§4.1) — a
+  behavior-preserving refactor of the `filter_tools(live_tools, …)` at
+  [`server.py:13373`](../../../mcp_server/src/rook/server.py).
 - The dispatch path gains a **meta-tool interception point in `call_tool` ahead of
-  `_call_tool_dispatch`'s recording tail**, and `rook_tools_call` re-enters the post-wall policy path
-  for its target (§6). Surgical, **not** handler migration.
+  `_call_tool_dispatch`'s recording tail** (§6). Surgical, **not** handler migration.
 
 ---
 
@@ -79,12 +88,12 @@ progressive-disclosure-as-access-layer.** The existing convenience tools stay fo
 
 **In:**
 
-- A `CapabilityRecord` / `CapabilityIndex` enriched from the **existing** tool schemas plus existing
-  metadata sources (`TOOL_GROUPS`, `TOOL_CATEGORIES`, `DESTRUCTIVE_TOOLS`, `PUBLIC_READONLY_TOOL_NAMES`,
-  dispatchability signals).
+- A new **public-MCP facet** `McpCapabilityRecord` + `CapabilityIndex` built by enriching the existing
+  live tool schemas with metadata (`TOOL_GROUPS`, `TOOL_CATEGORIES`, `PUBLIC_READONLY_TOOL_NAMES`,
+  dispatch-case set) **and linking each record, by name, to the LM2A `CapabilityRecord` (read-only)**.
 - Four discovery tools: `rook_tools_ls`, `rook_tools_search`, `rook_tools_read`, `rook_tools_call`.
-- `lean` becomes a discovery **floor**, not a ceiling; discovery tools exposed in **all three**
-  profiles, scoped appropriately (§5, §7).
+- `lean` becomes a discovery **floor**, not a ceiling; discovery tools exposed in **all three** profiles,
+  scoped appropriately (§5, §7).
 - `rook_tools_call` dispatch routed through the **same policy path** as native calls, preserving the
   readonly wall and the no-side-effect-on-block contract (§6).
 - A minimal, dependency-free argument validator (§6.1).
@@ -92,95 +101,146 @@ progressive-disclosure-as-access-layer.** The existing convenience tools stay fo
 
 **Out (named non-goals):**
 
-- Moving any tool family / handler out of `server.py`. (The Index is the *seam* for that later work; this
-  spec does not exercise it.)
-- Replacing the audited `readonly` wall with inferred posture metadata. Enforcement stays the allowlist.
-- LM Planner `execution_ref` binding against the Index.
-- Embeddings / semantic search as a dependency. Search is **lexical** this phase.
+- **Modifying, extending, or entangling the LM2A model.** No new fields on
+  `rook.agent.capability_record.CapabilityRecord`; no server-side or profile imports into it; no changes
+  to `capability_inventory`. The MCP facet only **reads** the inventory. *(This is a hard mandate: do not
+  endanger the LM campaign.)*
+- Unifying the agent + MCP facets into a single canonical registry. That is future LM2 work; this phase
+  keeps two linked facets.
+- Moving any tool family / handler out of `server.py`.
+- Replacing the audited `readonly` wall with inferred metadata. Enforcement stays the allowlist.
+- LM Planner `execution_ref` binding against the index.
+- Embeddings / semantic search. Search is **lexical**.
 - **Adding a new Python dependency** (e.g. `jsonschema`). Validation is in-house and minimal (§6.1).
-- Generating MCP tool definitions from a new canonical registry format. The Index **wraps** the existing
-  `Tool(...)` defs by reference; it does not become their source.
-- **Pruning or retuning the lean floor.** Lean stays additive (17 kept + 4 added). Floor tuning is a
-  later, telemetry-driven decision.
+- Generating MCP tool definitions from a new canonical format. The facet **wraps** existing `Tool(...)`
+  defs by reference.
+- **Pruning or retuning the lean floor.** Lean stays additive (17 kept + 4 added).
 
 ---
 
-## 4. The Capability Index
+## 4. The public-MCP facet
 
-### 4.1 Module, dependency rule, and the unprofiled source
+### 4.1 Module, dependency rule, and reuse of the LM2A inventory
 
-New module **`mcp_server/src/rook/capability_index.py`**, holding `CapabilityRecord`, `CapabilityIndex`,
-a pure `build_index(tools, ...)`, and pure query helpers (`ls`, `search`, `read`).
+New module **`mcp_server/src/rook/capability_index.py`**, holding `McpCapabilityRecord`,
+`CapabilityIndex`, a pure `build_index(...)`, the query helpers (`ls`, `search`, `read`), and the minimal
+validator (§6.1).
 
-- **One-way dependency** (mirrors the profile spec's §6): `capability_index.py` **must not import
-  `server.py`**. It may import leaf data modules (`agent/tool_groups.py`, `context.py`,
-  `mcp_tool_profiles.py`), none of which import `server.py`.
-- **The Index is built from an *unprofiled* source — not `list_tools()`.** Today `list_tools()` returns
-  `filter_tools(live_tools, resolve_profile(os.environ))` ([`server.py:13373`](../../../mcp_server/src/rook/server.py)).
-  Building the Index from that would, under `lean`, yield an Index of only the 21-tool floor —
-  `rook_tools_search("director")` would find nothing. Factor an unprofiled **`_all_live_tools()`**: the
-  static `Tool(...)` set with the **deprecated-interactive live gate applied**
-  ([`server.py:13365`](../../../mcp_server/src/rook/server.py)–:13371) but **no profile filter**. Then:
-  - `INDEX = build_index(_all_live_tools())` — always the full live surface, regardless of active profile.
-  - `list_tools()` becomes a thin profile **projection** over the same source:
-    `filter_tools(_all_live_tools(), resolve_profile(os.environ))` — behavior-identical to today for all
-    three profiles.
+- **One-way dependency:** `capability_index.py` **must not import `server.py`**. It imports only:
+  - the **type** `rook.agent.capability_record.CapabilityRecord` (stdlib-only — safe, for the
+    `agent_record` link and type hints); and
+  - leaf data modules for enrichment (`mcp_tool_profiles` for `PUBLIC_READONLY_TOOL_NAMES`,
+    `agent.tool_groups` for `TOOL_GROUPS`, `context` for domain hints).
+  It **does not** import `capability_inventory` (which pulls agent dispatch internals) — the agent
+  records are **injected** (below), keeping this module light and independently testable.
+- **Reuse, do not duplicate (LM2A mandate).** The agent-surface facet already exists. `build_index`
+  accepts the agent records as data and links them by name; it never rebuilds or mutates them:
 
-The Index is a **projection + enrichment** of the existing `Tool(...)` defs, never a replacement.
+  ```
+  build_index(
+      tools: list[Tool],                              # the UNPROFILED public surface (§ P1a)
+      agent_records: Mapping[str, CapabilityRecord],  # from LM2A, injected read-only ({} if unavailable)
+      dispatchable_names: frozenset[str],             # public call_tool dispatch-case labels (§4.2)
+  ) -> CapabilityIndex
+  ```
 
-### 4.2 `CapabilityRecord`
+- **Wiring (server startup, one-way):** `server.py` (or a small wiring helper it owns) calls
+  `capability_inventory.build_inventory(collect_live_sources(), catalog)` **read-only**, passes
+  `{r.name: r for r in inv.records}` as `agent_records`, computes `dispatchable_names` (§4.2), and calls
+  `build_index(_all_live_tools(), agent_records, dispatchable_names)`. If the LM2A build raises or is
+  unavailable, `agent_records = {}` and every `agent_record` is `None` — discovery still works; only the
+  agent-side descriptors are absent. **A failure in the diagnostic LM2A path must never break MCP
+  discovery.**
 
-| field | source | role |
-|---|---|---|
-| `name` | live `Tool.name` | canonical id |
-| `path` | derived `/{domain}/{group?}/{name}` | filesystem address for `ls` |
-| `domain` | name-prefix reconciled with `TOOL_CATEGORIES`/`TOOL_GROUPS` | `rhino`/`gh`/`rc`/`director`/`vision`/`video`/`bim`/`scene`/`knowledge`/`session`/`meta` |
-| `groups` | `TOOL_GROUPS` membership | cross-links (may be empty) |
-| `summary` | first sentence of `Tool.description` | cheap `ls`/`search` line |
-| `posture` | `read`/`mutate`/`execute`, from `DESTRUCTIVE_TOOLS` + the profile spec's §5.3 mutation rules + the execute-set | **descriptive only** — not enforcement |
-| `readonly_safe` | `name ∈ PUBLIC_READONLY_TOOL_NAMES` | surfaces the *audited* truth; descriptive |
-| `mcp_dispatchable` | reachable through MCP `call_tool` / `_call_tool_dispatch` | **load-bearing** — `rook_tools_call` and discovery filter on this |
-| `agent_dispatchable` | reachable through the internal RookChat/HTTP dispatcher | **reserved** for LM2; recorded, not load-bearing this phase |
-| `input_schema` | **reference** to live `Tool.inputSchema` | returned verbatim by `read`; no new format |
+- **Unprofiled source (P1a).** `list_tools()` returns `filter_tools(live_tools, resolve_profile(...))`
+  ([`server.py:13373`](../../../mcp_server/src/rook/server.py)); building the index from it would, under
+  `lean`, yield an index of only the 21-tool floor. Factor an unprofiled **`_all_live_tools()`** (static
+  `Tool(...)` set with the deprecated-interactive live gate at
+  [`server.py:13365`](../../../mcp_server/src/rook/server.py)–:13371 applied, **no** profile filter);
+  build the index from it; `list_tools()` becomes a thin projection `filter_tools(_all_live_tools(),
+  profile)`.
 
-**Dispatchability disambiguation (critical).** Rook has two distinct transports. A tool may be
-MCP-callable but not internal-agent-callable, or vice-versa. `rook_tools_call` rescues **MCP** clients,
-so it filters on `mcp_dispatchable` **only**. Filtering on `agent_dispatchable` would hide exactly the
-MCP-only VisionDirector tools this campaign exists to surface. `agent_dispatchable` is recorded now so
-the same record serves LM2 later, but it is inert here.
+### 4.2 `McpCapabilityRecord` (public-MCP facet, frozen)
+
+```python
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Any
+from rook.agent.capability_record import CapabilityRecord   # LM2A agent-surface facet (read-only)
+
+@dataclass(frozen=True)
+class McpCapabilityRecord:
+    name: str                              # canonical tool name — the SHARED identity across facets
+    path: str                              # "/{domain}/{group?}/{name}" — filesystem address for ls
+    domain: str                            # rhino/gh/rc/director/vision/video/bim/scene/knowledge/session/meta
+    groups: tuple[str, ...]                # from TOOL_GROUPS (may be empty)
+    summary: str                           # first sentence of the description
+    description: str                       # full Tool.description
+    readonly_safe: bool                    # name in PUBLIC_READONLY_TOOL_NAMES (audited public truth)
+    mcp_dispatchable: bool                 # has a public call_tool / _call_tool_dispatch path
+    input_schema: Mapping[str, Any]        # reference to the live Tool.inputSchema (no new format)
+    agent_record: CapabilityRecord | None  # the LM2A agent-surface facet, linked by name (None if absent)
+```
+
+**Agent-side descriptors are read from `agent_record` with an explicit source — never re-derived and
+never overloaded onto MCP fields:**
+
+```
+agent_dispatchable = record.agent_record is not None and record.agent_record.dispatch_path is not None
+agent_visibility   = record.agent_record.visibility if record.agent_record else None
+agent_mcp_only     = record.agent_record.mcp_only   if record.agent_record else None
+```
+
+**`mcp_only` (LM2A) ≠ `mcp_dispatchable` (this facet) — do not conflate.** LM2A `mcp_only` means "visible
+*only on the MCP surface relative to the internal agent/HTTP surface*" — a visibility fact about the
+agent world. `mcp_dispatchable` means "callable through the **public** MCP `call_tool` path." They are
+different axes. `mcp_dispatchable` is computed by this facet from `dispatchable_names`; `mcp_only` is read
+from `agent_record` only for display. The index must never derive one from the other.
+
+**`mcp_dispatchable` determination.** `dispatchable_names` is the set of literal `case "<name>":` labels
+handled by `_call_tool_dispatch` ([`server.py:13894`](../../../mcp_server/src/rook/server.py)+), computed
+server-side (small AST/source scan) and injected. `mcp_dispatchable = name in dispatchable_names`. This
+makes **visible ⟹ mcp_dispatchable** a *checked* fact: a tool advertised in `_all_live_tools()` but
+lacking a dispatch case is `mcp_dispatchable=False` and hidden from discovery (§5.2) — carrying the LM1
+"visible-implies-dispatchable" invariant onto the MCP transport.
+
+**Enrichment sources:** `domain` from name-prefix reconciled with `TOOL_CATEGORIES`/`TOOL_GROUPS`;
+`groups` from `TOOL_GROUPS`; `summary` = first sentence of `Tool.description`; `readonly_safe` = `name ∈
+PUBLIC_READONLY_TOOL_NAMES`; `input_schema` = the live `Tool.inputSchema` by reference.
 
 ---
 
 ## 5. The discovery surface (four tools)
 
 - **`rook_tools_ls(path="/", depth=1)`** — browse the tool filesystem. Returns compact entries
-  (`name, path, domain, posture, readonly_safe, summary`) and child paths. **No schemas.**
-- **`rook_tools_search(query, domain?, posture?, limit=10)`** — **lexical** ranking over
-  name + summary + domain + groups (no embeddings). Returns compact entries.
-- **`rook_tools_read(name)`** — the full record for one tool: `input_schema`, full description, `domain`,
-  `posture`, `readonly_safe`, `mcp_dispatchable`. (This **is** "describe.")
+  (`name, path, domain, groups, readonly_safe, summary`) and child paths. **No schemas.**
+- **`rook_tools_search(query, domain?, readonly_safe?, limit=10)`** — **lexical** ranking over
+  name + summary + domain + groups (no embeddings). Optional filters by `domain` and `readonly_safe`.
+- **`rook_tools_read(name)`** — the full record for one tool: `input_schema`, full `description`,
+  `domain`, `groups`, `readonly_safe`, `mcp_dispatchable`, and the agent-side descriptors
+  (`agent_dispatchable`, `agent_visibility`, `agent_mcp_only`) when `agent_record` is present. (This
+  **is** "describe.")
 - **`rook_tools_call(name, arguments)`** — validate, then dispatch the target through the shared policy
   path (§6).
 
 ### 5.1 Profile exposure
 
-All four tools are exposed in **full**, **lean**, and **readonly** — the Index is a canonical server
+All four tools are exposed in **full**, **lean**, and **readonly** — the facet is a canonical server
 surface, not a lean hack. Scoping differs by profile:
 
-- **full / lean:** `ls`/`search`/`read` surface the whole Index (every `mcp_dispatchable` record).
+- **full / lean:** `ls`/`search`/`read` surface the whole index (every `mcp_dispatchable` record).
 - **readonly:** `ls`/`search`/`read` are **profile-scoped** — they surface `readonly_safe` capabilities
   by default, so a readonly client's "what can I do?" answer matches what it may actually run. (A future
   `include_blocked=true` browsing mode is reserved, not built.)
 - **`rook_tools_call` exists in all three**, including readonly — because it does **not** bypass the
   wall. Under `readonly`, a `readonly_safe` target runs; a mutator target is blocked by the re-entered
-  wall (§6). That is why `rook_tools_call` is an *allowed* readonly tool rather than a sentinel: it adds
-  no bypass.
+  wall (§6). That is why `rook_tools_call` is an *allowed* readonly tool rather than a sentinel.
 
 ### 5.2 Visible ⇒ MCP-dispatchable
 
 `ls`/`search` never surface a record with `mcp_dispatchable == false`, and `rook_tools_call` refuses one
 with a clear error. This carries the LM1 "visible-implies-dispatchable" invariant onto the MCP surface,
-disambiguated to the MCP transport (§4.2).
+disambiguated to the MCP transport (§4.2) and **never** conflated with LM2A `mcp_only`.
 
 ---
 
@@ -200,7 +260,7 @@ Two facts about the existing code drive the entire design:
 record the *meta* tool (`rook_tools_call`) as an observation, and a forwarded target would record
 *again* — a meta self-record plus a double-record. Interception before the dispatcher avoids both:
 
-- `rook_tools_ls` / `rook_tools_search` / `rook_tools_read` are answered from the Index inside
+- `rook_tools_ls` / `rook_tools_search` / `rook_tools_read` are answered from the index inside
   `call_tool` and **never dispatched** — no observation, no phase tick.
 - `rook_tools_call` is answered in `call_tool` too: after its guards (below) it **re-enters the same
   post-wall policy path for the target** — concretely `return await call_tool(target_name, target_args)`,
@@ -216,7 +276,7 @@ target observation and no phase tracking**. The meta call itself also records no
 **`rook_tools_call` guards, applied before re-entry:**
 
 1. **No meta-recursion** — reject any target in `{rook_tools_ls, rook_tools_search, rook_tools_read,
-   rook_tools_call}` (also stops the re-entry from looping back into interception).
+   rook_tools_call}`.
 2. **MCP-dispatchable** — reject targets with `mcp_dispatchable == false` (§4.2).
 3. **Argument validation** — §6.1.
 
@@ -248,22 +308,22 @@ validator insufficient.
 ### 7.1 Lean floor (17 kept + 4 added = 21)
 
 Lean keeps its existing 17 unchanged and adds the four `rook_tools_*`. **No pruning** (non-goal, §3).
-Semantics, stated in the spec so reviewers don't relapse into the old worldview:
+Semantics, stated so reviewers don't relapse into the old worldview:
 
 - The 17 are **always-visible boot/convenience tools** — connection, targeting, snapshot, knowledge.
 - The four `rook_tools_*` are the **capability access layer**.
 - Lean is no longer "all Codex can use." It is "the boot tools Codex sees **before it browses the
-  Index**."
+  index**."
 
-`gh_edit`, `rhino_execute_intent`, `gh_execute_intent` stay in the floor for now: already reviewed in
-the profile campaign, common enough to justify native schema visibility, and more ergonomic than
+`gh_edit`, `rhino_execute_intent`, `gh_execute_intent` stay in the floor for now: already reviewed in the
+profile campaign, common enough to justify native schema visibility, and more ergonomic than
 `rook_tools_call` when the model already holds the schema. Removing them is deferred floor-tuning.
 
 ### 7.2 Membership and counts
 
 - `PUBLIC_LEAN_TOOL_NAMES`: 17 → **21** (+ four `rook_tools_*`).
-- `PUBLIC_READONLY_TOOL_NAMES`: 145 → **149** (+ four `rook_tools_*`; all four are readonly-safe — the
-  three readers are pure reads, `rook_tools_call` is wall-protected per §6).
+- `PUBLIC_READONLY_TOOL_NAMES`: 145 → **149** (+ four `rook_tools_*`; the three readers are pure reads,
+  `rook_tools_call` is wall-protected per §6).
 - Live `full` `list_tools()`: 427 → **431**.
 - Profile snapshot tests are **updated** to these counts; counts are assertions of current truth, not
   frozen constraints (the membership invariants in §9 are the durable assertions).
@@ -279,23 +339,26 @@ the wall permits.
 ## 8. Hard invariants
 
 1. **Enforcement authority unchanged.** `readonly` blocking is `tool_blocked()` against the audited
-   `PUBLIC_READONLY_TOOL_NAMES`. `posture` / `readonly_safe` **do not enforce call permission** —
-   `readonly_safe` may *scope readonly discovery* (§5.1), but only `tool_blocked()` gates whether a call
-   executes.
+   `PUBLIC_READONLY_TOOL_NAMES`. `readonly_safe` **does not enforce call permission** — it may *scope
+   readonly discovery* (§5.1), but only `tool_blocked()` gates whether a call executes.
 2. **No new bypass.** `rook_tools_call` re-enters through `call_tool` / the shared policy helper, never
    `_call_tool_dispatch`. The wall fires on the target identically to a native call.
 3. **Visible ⇒ MCP-dispatchable.** Discovery hides `mcp_dispatchable == false`; `rook_tools_call`
-   refuses it.
+   refuses it. `mcp_dispatchable` is this facet's field (public `call_tool` path) and is **never** the
+   same as LM2A `mcp_only`.
 4. **No meta-recursion.** `rook_tools_call` refuses `rook_tools_*` targets.
 5. **Index wraps, never replaces.** `input_schema` is the live `Tool.inputSchema` by reference; the
    `Tool(...)` defs remain the source of truth for schemas.
-6. **One-way dependency.** `capability_index.py` does not import `server.py`.
-7. **Index source is unprofiled.** The Index is built from `_all_live_tools()` (deprecated-gate applied,
-   profile filter **not** applied); `list_tools()` is a profile projection over the same source.
-   Discovery never shrinks with the active profile.
+6. **One-way dependency.** `capability_index.py` does not import `server.py`; it imports only the
+   `CapabilityRecord` type and leaf data modules.
+7. **Index source is unprofiled.** The index is built from `_all_live_tools()`; `list_tools()` is a
+   profile projection over the same source. Discovery never shrinks with the active profile.
 8. **Meta-tools never reach the recording tail.** `rook_tools_*` are intercepted in `call_tool` before
    `_call_tool_dispatch`; only forwarded **targets** are observed — once, under their real name. A
    blocked target is observed not at all.
+9. **LM2A is untouched.** This spec does not modify or extend `rook.agent.capability_record` /
+   `capability_inventory`. The MCP facet reads the inventory **read-only**, links by name, tolerates
+   `agent_record == None`, and never lets an LM2A build failure break MCP discovery.
 
 ---
 
@@ -310,64 +373,77 @@ the wall permits.
    `rook_tools_call("rhino_director_preview_motion", …)` returns the `tool_profile_blocked` envelope —
    `preview_motion` is not on the audited allowlist (default-deny), proving discovery is **not** a
    bypass.
-3. **full unchanged:** with `full`, native direct tool behavior and `list_tools()` projection are
+3. **full unchanged:** with `full`, native direct tool behavior and the `list_tools()` projection are
    unchanged (modulo the +4 meta-tools).
 
 **Unprofiled-source / membership invariants (not a frozen count):**
 
-4. **Index is not the lean projection:** under `lean`, the Index contains `rhino_director_preview_motion`
+4. **Index is not the lean projection:** under `lean`, the index contains `rhino_director_preview_motion`
    (built from `_all_live_tools()`), even though `list_tools()` under `lean` does not advertise it.
 5. lean contains all original 17 **and** the four `rook_tools_*`; `rhino_director_preview_motion` is
    **not** directly advertised in lean's `list_tools()` but **is** discoverable/readable/callable via
    `rook_tools_*`.
 
+**Facet / LM2A-reuse invariants:**
+
+6. **Agent link by name:** an `McpCapabilityRecord` for a tool present in the injected agent inventory
+   has `agent_record` set with a matching `name`; a tool absent from it has `agent_record is None`.
+7. **`mcp_only` ≠ `mcp_dispatchable`:** `mcp_dispatchable` is computed only from `dispatchable_names`;
+   assert the index never sets it from `agent_record.mcp_only` (construct a record with
+   `agent_mcp_only=True` but `mcp_dispatchable=False`, and the reverse, and assert both round-trip).
+8. **LM2A untouched:** the existing `test_capability_record_is_stdlib_only` still passes;
+   `rook.agent.capability_record.CapabilityRecord` has no new fields; building the index with an empty
+   `agent_records` (LM2A "unavailable") still yields a working index with all `agent_record is None`.
+
 **Recording / safety / structure:**
 
-6. **No record on block:** a `readonly`-blocked `rook_tools_call` target produces **no**
+9. **No record on block:** a `readonly`-blocked `rook_tools_call` target produces **no**
    `_record_observation` entry **and no** `get_phase_tracker().record_call` tick (assert both).
-7. **No meta self/double record:** a successful `rook_tools_call` records **exactly one** observation,
-   under the **target** name (origin `meta`), and **none** under `rook_tools_call`;
-   `rook_tools_ls/search/read` record none.
-8. **No raw-dispatcher bypass:** `rook_tools_call` routes through `call_tool`/the policy helper, not
-   `_call_tool_dispatch` (assert the wall fires on the target — e.g. a mutator target blocks under
-   `readonly`).
-9. **Recursion guard:** `rook_tools_call("rook_tools_ls")` (and the other three) is rejected.
-10. **Validator coverage:** `rook_tools_call` rejects missing `required`, wrong `type`, out-of-`enum`,
+10. **No meta self/double record:** a successful `rook_tools_call` records **exactly one** observation,
+    under the **target** name (origin `meta`), and **none** under `rook_tools_call`;
+    `rook_tools_ls/search/read` record none.
+11. **No raw-dispatcher bypass:** `rook_tools_call` routes through `call_tool`/the policy helper, not
+    `_call_tool_dispatch` (assert a mutator target blocks under `readonly`).
+12. **Recursion guard:** `rook_tools_call("rook_tools_ls")` (and the other three) is rejected.
+13. **Validator coverage:** `rook_tools_call` rejects missing `required`, wrong `type`, out-of-`enum`,
     and out-of-`min/max` numeric args with field-level errors and does **not** dispatch; unsupported
     keywords pass through to the handler.
-11. **Visible ⇒ MCP-dispatchable:** no `mcp_dispatchable == false` record appears in `ls`/`search`;
+14. **Visible ⇒ MCP-dispatchable:** no `mcp_dispatchable == false` record appears in `ls`/`search`;
     `rook_tools_call` on one is refused.
-12. **Readonly scoping:** under `readonly`, `ls`/`search`/`read` surface `readonly_safe` records by
+15. **Readonly scoping:** under `readonly`, `ls`/`search`/`read` surface `readonly_safe` records by
     default.
-13. **Index drift oracle:** every record's `readonly_safe` agrees with `PUBLIC_READONLY_TOOL_NAMES`; the
-    Index covers 100% of `_all_live_tools()`; the audited allowlist is the oracle.
+16. **Index drift oracle:** every record's `readonly_safe` agrees with `PUBLIC_READONLY_TOOL_NAMES`; the
+    index covers 100% of `_all_live_tools()`.
 
 ---
 
 ## 10. Out of scope (YAGNI — explicitly deferred)
 
-- Handler / tool-family extraction out of `server.py` (the Index *enables* it; the next spec exercises
+- **Any modification to the LM2A model.** No new fields on `CapabilityRecord`; no changes to
+  `capability_inventory`; no unification of the agent + MCP facets.
+- Handler / tool-family extraction out of `server.py` (the facet *enables* it; the next spec exercises
   it, VisionDirector as the likely pilot).
-- `readonly` enforcement migrating from allowlist to a registry `posture` query (allowed **only** after
-  every tool has reviewed posture metadata + drift tests).
-- LM2 Planner `execution_ref` binding against the Index.
+- `readonly` enforcement migrating from allowlist to inferred metadata.
+- LM2 Planner `execution_ref` binding against the index.
 - Embeddings / semantic search; any new Python dependency (`jsonschema` included).
-- `tools.listChanged`-driven native dynamic loading (an opportunistic enhancement for clients that
-  support it; the dispatcher is the client-agnostic path and ships first).
+- `tools.listChanged`-driven native dynamic loading (the dispatcher is the client-agnostic path and
+  ships first).
 - Lean floor pruning.
 
 ---
 
 ## 11. Rollout and LM2 relationship
 
-Build the vertical slice: the `CapabilityIndex` data model + `build_index` over `_all_live_tools()`, the
-four `rook_tools_*` tools, the `call_tool` meta-interception + target re-entry, the in-house validator,
-the profile-membership updates, and the §9 tests. `full` stays the absent-default; `readonly` stays
-enforced by the audited allowlist.
+Build the vertical slice: `McpCapabilityRecord` + `CapabilityIndex` + `build_index` over
+`_all_live_tools()` (with the injected LM2A `agent_records` and `dispatchable_names`), the four
+`rook_tools_*` tools, the `call_tool` meta-interception + target re-entry, the in-house validator, the
+profile-membership updates, and the §9 tests. `full` stays the absent-default; `readonly` stays enforced
+by the audited allowlist.
 
-The Index is deliberately shaped to **become** the LM2 Capability Registry: the same `CapabilityRecord`
-that backs MCP discovery today is what the Planner will query to bind `execution_ref` tomorrow, and what
-will generate the agent catalog (collapsing the duplicated MCP-vs-HTTP descriptions) and anchor the
-strangler-fig decomposition of `server.py`. Those are **named successor specs**, not this one. This
-spec's job is to end the lean-as-ceiling failure with a vertical slice through the real architecture —
-nothing wider, nothing shallower.
+**This index is the public-MCP facet of the existing LM2A capability inventory, linked by canonical tool
+name.** It reuses the agent-surface facet read-only and adds the public-MCP facet the MCP surface needs.
+**Future LM2 work may unify these facets into a single registry** — and may later feed the Planner's
+`execution_ref` binding, generate the agent catalog, and anchor the strangler-fig decomposition of
+`server.py`. Those are **named successor specs**, not this one, and none of them are permitted to
+regress or entangle the LM2A model. This spec's job is to end the lean-as-ceiling failure with a vertical
+slice through the real architecture — reusing what LM2A already built, duplicating nothing.
