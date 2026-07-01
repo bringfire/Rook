@@ -3130,9 +3130,13 @@ mcp = Server(
 )
 
 
-@mcp.list_tools()
-async def list_tools() -> list[Tool]:
-    """List all available Rhino tools."""
+async def _all_live_tools() -> list[Tool]:
+    """The deprecated-gated, UNPROFILED tool surface.
+
+    Source of truth for the capability index and for ``list_tools()``. Not
+    profile-filtered — callers wanting the active MCP profile must project via
+    ``list_tools()``.
+    """
 
     all_tools = [
         Tool(
@@ -13400,7 +13404,13 @@ Returns the full profile JSON including features, surfaces, and elements.""",
     else:
         live_tools = all_tools
 
-    return filter_tools(live_tools, resolve_profile(os.environ))
+    return live_tools
+
+
+@mcp.list_tools()
+async def list_tools() -> list[Tool]:
+    """List tools for the active MCP profile (a projection over the unprofiled source)."""
+    return filter_tools(await _all_live_tools(), resolve_profile(os.environ))
 
 
 def _record_observation(

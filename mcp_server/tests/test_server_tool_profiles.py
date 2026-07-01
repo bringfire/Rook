@@ -35,6 +35,15 @@ def test_full_surface_is_429_and_gates_deprecated(monkeypatch):
     assert SENTINEL_TOOL_NAMES <= full
 
 
+def test_all_live_tools_is_unprofiled_429(monkeypatch):
+    monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
+    # Even with a restrictive profile set, the unprofiled source is the full 429.
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "lean")
+    names = {t.name for t in asyncio.run(server._all_live_tools())}
+    assert len(names) == 429
+    assert _GATED.isdisjoint(names)
+
+
 def test_explicit_full_equals_absent(monkeypatch):
     assert _list_names(monkeypatch, "full") == _list_names(monkeypatch, None)
 
