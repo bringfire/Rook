@@ -379,6 +379,35 @@ annotated as unavailable.
 Do not require clients to call GH, BIM, vision, or chat routes to learn that
 those domains exist.
 
+### MCP Progressive Disclosure Track
+
+PR #388 introduced the first MCP-side progressive disclosure layer:
+`rook_tools_ls`, `rook_tools_search`, `rook_tools_read`, and `rook_tools_call`.
+That layer makes `lean` a boot/discovery floor instead of a ceiling while
+preserving the `readonly` wall as an audited allowlist.
+
+The immediate successor should be a small V1.1 hardening pass rather than a
+registry rewrite: document the client pattern, add release/local smoke guidance
+for `lean`/`readonly`/`full`, improve lexical aliases and workflow terms, add
+usage/miss/block telemetry, and harden the in-house argument validator only
+where real schemas expose gaps. Lean floor pruning, semantic search, and MCP/LM2A
+facet unification should wait for usage evidence.
+
+After V1.1, consider compact tools-as-filesystem context packs such as
+`/tools/index`, `/tools/rhino`, `/tools/gh`, `/tools/director`, `/tools/bim`,
+and `/tools/scene`. These packs are for browsing and model context; they must
+not become an authorization source. The governing invariant remains:
+
+```text
+discoverable metadata != callable authority
+```
+
+Later phases may pilot a `server.py` strangler extraction on one bounded family
+(VisionDirector is the likely candidate), then bind LM planner `execution_ref`
+to stable capability identity in a separate spec. Those steps should build on
+evidence from the live progressive-disclosure layer, not replace the readonly
+enforcement contract.
+
 ## Companion Loading Policy
 
 Current deferred/eager companion loading is the early-phase compatibility

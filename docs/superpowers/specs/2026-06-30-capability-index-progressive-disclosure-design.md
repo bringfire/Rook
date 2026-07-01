@@ -462,3 +462,76 @@ name.** It reuses the agent-surface facet read-only and adds the public-MCP face
 `server.py`. Those are **named successor specs**, not this one, and none of them are permitted to
 regress or entangle the LM2A model. This spec's job is to end the lean-as-ceiling failure with a vertical
 slice through the real architecture — reusing what LM2A already built, duplicating nothing.
+
+---
+
+## 12. Successor roadmap
+
+Phase One ships the access layer. The next work should make that layer boring, observable, and useful
+in real Codex sessions before Rook commits to deeper registry unification. The sequencing matters:
+validate the progressive-disclosure contract in use, then widen the architecture.
+
+### 12.1 MCP progressive disclosure V1.1
+
+The next spec should be a small hardening and ergonomics pass, not a grand registry rewrite.
+
+Scope:
+
+- Document the client pattern explicitly: `rook_tools_search` -> `rook_tools_read` ->
+  `rook_tools_call`, with examples for Codex-style clients.
+- Add or update release/local-smoke guidance for all three profiles: `lean`, `readonly`, and `full`.
+- Make config expectations explicit: Codex gets `lean`; Claude/panel configs remain full by omission
+  unless a later spec intentionally changes that default.
+- Improve lexical discovery with aliases and workflow terms such as "vision director", "camera motion",
+  "grasshopper edit", "bake", "road", "mesh export", and "BIM query". This remains dependency-free;
+  embeddings are still deferred.
+- Add lightweight telemetry for search/read/call usage: misses, validation failures, readonly blocks,
+  and target tools reached through `rook_tools_call`.
+- Harden the in-house validator only where real schemas or smoke tests show failures. Do not adopt full
+  JSON Schema support unless evidence shows the minimal validator is the wrong long-term seam.
+
+Non-goals:
+
+- Do not prune the lean floor yet. The current direct 18 convenience tools stay until telemetry shows
+  whether they are redundant.
+- Do not move readonly enforcement into metadata. `PUBLIC_READONLY_TOOL_NAMES` remains the authority.
+- Do not unify the MCP facet and LM2A facet in this phase.
+
+### 12.2 Capability packs / tools-as-filesystem
+
+After V1.1, Rook should consider domain context packs backed by the same public-MCP facet:
+
+```text
+/tools/index
+/tools/rhino
+/tools/gh
+/tools/director
+/tools/bim
+/tools/scene
+```
+
+Each pack should be compact: tool names, domains, summaries, common workflow phrases, and links back to
+`rook_tools_read` for schemas. These packs are for model context and browsing only. They must not become
+an authorization source, and they must preserve the invariant:
+
+```text
+discoverable metadata != callable authority
+```
+
+Readonly clients may receive readonly-scoped packs by default; any future "show blocked capabilities"
+mode must be explicit and must not change `rook_tools_call` behavior.
+
+### 12.3 Server.py strangler pilot
+
+Once the access layer has real usage evidence, pick one bounded tool family and extract it out of
+`server.py`. VisionDirector is the likely pilot because it was the motivating lean-failure case and has
+clear domain boundaries. The pilot should move only that family's definitions, metadata, handlers, and
+tests into a per-domain module that registers into the public-MCP facet. This proves the strangler seam
+on real code without turning Phase Two into a full `server.py` rewrite.
+
+### 12.4 LM planner binding
+
+Only after the MCP facet is stable should LM2 bind `execution_ref` or allowed actions to stable
+capability identity. That convergence needs its own spec. The binding may use the shared canonical tool
+name and public MCP dispatchability, but it must not let descriptive registry metadata become
+enforcement. Planner authority, readonly authority, and runtime call authority remain explicit contracts.
