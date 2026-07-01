@@ -208,6 +208,22 @@ def progressive_search_failures(search_results: dict[str, list[dict]]) -> list[s
             failures.append(f"rook_tools_search did not return {tool_name}")
     return failures
 
+
+def progressive_read_failures(read_records: dict[str, dict]) -> list[str]:
+    failures: list[str] = []
+    for tool_name in DG009_GH_TOOL_NAMES:
+        record = read_records.get(tool_name)
+        if not isinstance(record, dict):
+            failures.append(f"rook_tools_read did not return {tool_name}")
+            continue
+        if record.get("name") != tool_name or record.get("domain") != "gh":
+            failures.append(f"rook_tools_read returned wrong record for {tool_name}")
+            continue
+        input_schema = record.get("input_schema")
+        if not isinstance(input_schema, dict) or input_schema.get("type") != "object":
+            failures.append(f"rook_tools_read returned invalid input_schema for {tool_name}")
+    return failures
+
 _EXTERNAL_FAIL_CODES = frozenset(
     {
         "advertised_not_dispatchable",
@@ -430,6 +446,16 @@ def run_progressive() -> int:
         search_failures = progressive_search_failures(search_results)
         if search_failures:
             for failure in search_failures:
+                _p("FAIL", failure)
+            return 1
+
+        read_records: dict[str, dict] = {}
+        for tool_name in DG009_GH_TOOL_NAMES:
+            response = asyncio.run(call_tool("rook_tools_read", {"name": tool_name}))
+            read_records[tool_name] = json.loads(response[0].text)
+        read_failures = progressive_read_failures(read_records)
+        if read_failures:
+            for failure in read_failures:
                 _p("FAIL", failure)
             return 1
 

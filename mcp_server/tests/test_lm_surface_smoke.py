@@ -203,3 +203,31 @@ def test_progressive_search_validation_requires_exact_records():
     bad = dict(search_results)
     bad["gh_update_script"] = [{"name": "gh_set_script", "domain": "gh"}]
     assert "rook_tools_search did not return gh_update_script" in SMOKE.progressive_search_failures(bad)
+
+
+def test_progressive_read_validation_requires_gh_object_schemas():
+    read_records = {
+        name: {
+            "name": name,
+            "domain": "gh",
+            "input_schema": {"type": "object", "properties": {}},
+        }
+        for name in SMOKE.DG009_GH_TOOL_NAMES
+    }
+    assert SMOKE.progressive_read_failures(read_records) == []
+
+    bad_name = dict(read_records)
+    bad_name["gh_update_script"] = {
+        "name": "gh_set_script",
+        "domain": "gh",
+        "input_schema": {"type": "object"},
+    }
+    assert "rook_tools_read returned wrong record for gh_update_script" in SMOKE.progressive_read_failures(bad_name)
+
+    bad_schema = dict(read_records)
+    bad_schema["gh_update_script"] = {
+        "name": "gh_update_script",
+        "domain": "gh",
+        "input_schema": {"type": "array"},
+    }
+    assert "rook_tools_read returned invalid input_schema for gh_update_script" in SMOKE.progressive_read_failures(bad_schema)
