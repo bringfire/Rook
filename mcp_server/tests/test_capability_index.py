@@ -108,3 +108,54 @@ def test_build_index_tolerates_empty_agent_records():
 def test_summary_is_first_sentence():
     idx = build_index([_tool("x", desc="First. Second.")], {}, frozenset({"x"}))
     assert idx.by_name["x"].summary == "First."
+
+
+from rook.capability_index import validate_arguments
+
+
+def _idx():
+    tools = [_tool("rhino_director_preview_motion", "Preview a camera move."),
+             _tool("rhino_create", "Create geometry."),
+             _tool("rhino_objects", "List objects.")]
+    # NOTE: rhino_objects is readonly-safe on the real PUBLIC_READONLY_TOOL_NAMES allowlist;
+    # rhino_create and rhino_director_preview_motion are not.
+    return build_index(tools, {}, frozenset({t.name for t in tools}))
+
+
+def test_search_finds_director_and_respects_readonly_scope():
+    idx = _idx()
+    assert any(r["name"] == "rhino_director_preview_motion"
+               for r in idx.search("director preview", scope_readonly=False))
+    # readonly scope hides non-readonly_safe tools:
+    ro_names = {r["name"] for r in idx.search("director preview", scope_readonly=True)}
+    assert "rhino_director_preview_motion" not in ro_names
+
+
+def test_ls_returns_compact_entries_without_schema():
+    idx = _idx()
+    out = idx.ls("/rhino", depth=2)
+    assert all("input_schema" not in e for e in out["entries"])
+
+
+def test_read_returns_schema_none_for_unknown_and_scopes_readonly():
+    idx = _idx()
+    assert idx.read("rhino_create")["input_schema"] is not None
+    assert idx.read("nope") is None
+    # readonly scope hides a non-readonly_safe tool's schema, but keeps a safe one:
+    assert idx.read("rhino_create", scope_readonly=True) is None
+    assert idx.read("rhino_objects", scope_readonly=True) is not None
+
+
+def test_validate_arguments_enforces_subset_and_passes_through_rest():
+    schema = {"type": "object", "required": ["n"],
+              "properties": {"n": {"type": "integer", "minimum": 1, "maximum": 3},
+                             "mode": {"type": "string", "enum": ["a", "b"]},
+                             "tags": {"type": "array", "items": {"type": "string"}}}}
+    assert validate_arguments(schema, {"n": 2, "mode": "a", "tags": ["x"]}) == []
+    assert any("n" in e for e in validate_arguments(schema, {}))               # missing required
+    assert any("n" in e for e in validate_arguments(schema, {"n": "x"}))        # wrong type
+    assert any("n" in e for e in validate_arguments(schema, {"n": 9}))          # out of range
+    assert any("mode" in e for e in validate_arguments(schema, {"n": 1, "mode": "z"}))  # enum
+    # Unsupported keyword (minItems) is NOT enforced -> passes through:
+    schema2 = {"type": "object", "properties": {"tags": {"type": "array", "minItems": 5}}}
+    assert validate_arguments(schema2, {"tags": []}) == []
