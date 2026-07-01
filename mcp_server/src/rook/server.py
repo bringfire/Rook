@@ -15,6 +15,7 @@ import os
 import tempfile
 import textwrap
 import uuid
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,10 @@ LOADED_ENV_PATH = load_runtime_dotenv(RUNTIME_PATHS)
 _log_level = getattr(logging, os.environ.get("ROOK_LOG_LEVEL", "INFO").upper(), logging.INFO)
 logging.basicConfig(level=_log_level)
 logger = logging.getLogger("rook")
+
+# Origin of the in-flight tool dispatch: "native" for a direct MCP call_tool, "meta" while a
+# rook_tools_call re-entry is executing its target. Read by _record_observation for telemetry.
+_dispatch_origin: ContextVar[str] = ContextVar("_dispatch_origin", default="native")
 
 if logger.isEnabledFor(logging.DEBUG):
     logger.debug(
@@ -13564,6 +13569,7 @@ def _record_observation(
             dspy_confidence=metrics_extra.get("dspy_confidence", 0.0),
             components_created=metrics_extra.get("components_created", 0),
             error_message=str(data)[:100] if not success and data else "",
+            origin=_dispatch_origin.get(),
         )
 
         get_metrics_store().record(obs)

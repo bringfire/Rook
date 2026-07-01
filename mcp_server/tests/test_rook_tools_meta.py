@@ -30,3 +30,13 @@ def test_index_survives_lm2a_failure(monkeypatch):
     idx = asyncio.run(server._get_capability_index())
     assert all(r.agent_record is None for r in idx.records)  # tolerated -> agent_records = {}
     server._reset_capability_index_cache()  # don't leak the degraded index to later tests
+
+
+def test_dispatch_origin_defaults_native_and_is_readable():
+    from rook.server import _dispatch_origin
+    assert _dispatch_origin.get() == "native"
+    tok = _dispatch_origin.set("meta")
+    try:
+        assert _dispatch_origin.get() == "meta"
+    finally:
+        _dispatch_origin.reset(tok)

@@ -43,6 +43,7 @@ class Observation:
     dspy_confidence: float = 0.0
     components_created: int = 0
     error_message: str = ""
+    origin: str = "native"  # "native" (direct MCP) | "meta" (via rook_tools_call re-entry)
 
 
 @dataclass
