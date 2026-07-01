@@ -618,6 +618,10 @@ _META_TOOLS = {
     "rhino_workbench_close",
     "rhino_workbench_launch",
     "rhino_workbench_list",
+    "rook_tools_call",
+    "rook_tools_ls",
+    "rook_tools_read",
+    "rook_tools_search",
 }
 
 _RHINO_INDEPENDENT_READ_TOOLS = {
