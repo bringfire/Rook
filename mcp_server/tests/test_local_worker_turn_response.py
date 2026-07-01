@@ -159,6 +159,7 @@ def test_public_surface_is_explicit() -> None:
     import rook.agent.local_worker_turn_response as module
 
     assert module.__all__ == (
+        "LOCAL_WORKER_TURN_RESPONSE_SCHEMA",
         "LocalWorkerTurnResponse",
         "LocalWorkerTurnAttemptRecord",
         "WorkerActionRequest",
@@ -168,6 +169,7 @@ def test_public_surface_is_explicit() -> None:
         "WorkerResponseKind",
         "WorkerRefusalCategory",
         "WorkerResponseValidationFailure",
+        "load_local_worker_turn_response_payload",
         "validate_local_worker_turn_response",
     )
     assert "WorkerResponsePayload" not in module.__all__

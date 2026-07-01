@@ -35,7 +35,10 @@ WorkerResponseValidationFailure = Literal[
     "action_input_invalid",
 ]
 
+LOCAL_WORKER_TURN_RESPONSE_SCHEMA = "rook.local_worker_turn_response:v1"
+
 __all__ = (
+    "LOCAL_WORKER_TURN_RESPONSE_SCHEMA",
     "LocalWorkerTurnResponse",
     "LocalWorkerTurnAttemptRecord",
     "WorkerActionRequest",
@@ -45,9 +48,20 @@ __all__ = (
     "WorkerResponseKind",
     "WorkerRefusalCategory",
     "WorkerResponseValidationFailure",
+    "load_local_worker_turn_response_payload",
     "validate_local_worker_turn_response",
 )
 
+_ACTION_REQUEST_PAYLOAD_FIELDS = frozenset(
+    {"schema", "kind", "action_id", "rationale", "input"}
+)
+_CLARIFICATION_REQUEST_PAYLOAD_FIELDS = frozenset(
+    {"schema", "kind", "question", "rationale"}
+)
+_REFUSAL_PAYLOAD_FIELDS = frozenset({"schema", "kind", "category", "reason"})
+_OBSERVATION_PAYLOAD_FIELDS = frozenset(
+    {"schema", "kind", "message", "data"}
+)
 _REFUSAL_CATEGORIES = frozenset(
     {
         "unsafe",
@@ -171,6 +185,91 @@ class LocalWorkerTurnAttemptRecord:
             "context_contract_fingerprint",
         )
         _validate_attempt_record_coherence(self)
+
+
+def load_local_worker_turn_response_payload(
+    payload: Mapping[str, Any],
+) -> LocalWorkerTurnResponse:
+    record = _require_mapping(payload, "local worker turn response payload")
+    _require_present(record, "schema", "local worker turn response payload")
+    _require_present(record, "kind", "local worker turn response payload")
+
+    schema = record["schema"]
+    if not isinstance(schema, str):
+        raise TypeError("local worker turn response payload schema must be a string")
+    if schema != LOCAL_WORKER_TURN_RESPONSE_SCHEMA:
+        raise ValueError(f"unsupported local worker turn response schema: {schema!r}")
+
+    kind = record["kind"]
+    if not isinstance(kind, str):
+        raise TypeError("local worker turn response payload kind must be a string")
+
+    if kind == "action_request":
+        return LocalWorkerTurnResponse(_load_action_request_payload(record))
+    if kind == "clarification_request":
+        return LocalWorkerTurnResponse(_load_clarification_request_payload(record))
+    if kind == "refusal":
+        return LocalWorkerTurnResponse(_load_refusal_payload(record))
+    if kind == "observation":
+        return LocalWorkerTurnResponse(_load_observation_payload(record))
+
+    raise ValueError(f"unknown local worker response kind: {kind!r}")
+
+
+def _load_action_request_payload(
+    payload: Mapping[str, Any],
+) -> WorkerActionRequest:
+    _require_fields(
+        payload,
+        required=_ACTION_REQUEST_PAYLOAD_FIELDS,
+        context="action_request payload",
+    )
+    return WorkerActionRequest(
+        action_id=payload["action_id"],
+        rationale=payload["rationale"],
+        input=_copy_json_mapping(payload["input"], "action_request.input"),
+    )
+
+
+def _load_clarification_request_payload(
+    payload: Mapping[str, Any],
+) -> WorkerClarificationRequest:
+    _require_fields(
+        payload,
+        required=_CLARIFICATION_REQUEST_PAYLOAD_FIELDS,
+        context="clarification_request payload",
+    )
+    return WorkerClarificationRequest(
+        question=payload["question"],
+        rationale=payload["rationale"],
+    )
+
+
+def _load_refusal_payload(payload: Mapping[str, Any]) -> WorkerRefusal:
+    _require_fields(
+        payload,
+        required=_REFUSAL_PAYLOAD_FIELDS,
+        context="refusal payload",
+    )
+    return WorkerRefusal(
+        category=payload["category"],
+        reason=payload["reason"],
+    )
+
+
+def _load_observation_payload(payload: Mapping[str, Any]) -> WorkerObservation:
+    _require_fields(
+        payload,
+        required=_OBSERVATION_PAYLOAD_FIELDS,
+        context="observation payload",
+    )
+    data = payload["data"]
+    if data is not None:
+        data = _copy_json_mapping(data, "observation.data")
+    return WorkerObservation(
+        message=payload["message"],
+        data=data,
+    )
 
 
 def validate_local_worker_turn_response(
@@ -375,6 +474,70 @@ def _record(
         context_workflow_id=context.workflow.workflow_id,
         context_contract_fingerprint=context.workflow.contract_fingerprint,
     )
+
+
+def _require_mapping(value: object, context: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{context} must be a mapping")
+    _require_string_keys(value, context)
+    return value
+
+
+def _require_string_keys(value: Mapping[object, object], context: str) -> None:
+    for key in value:
+        if not isinstance(key, str):
+            raise TypeError(f"{context} must have string keys")
+
+
+def _require_present(
+    payload: Mapping[str, Any],
+    field: str,
+    context: str,
+) -> None:
+    if field not in payload:
+        raise ValueError(f"{context} missing required fields: {[field]!r}")
+
+
+def _require_fields(
+    payload: Mapping[str, Any],
+    *,
+    required: frozenset[str],
+    context: str,
+) -> None:
+    keys = set(payload)
+    missing = required - keys
+    extra = keys - required
+    if missing:
+        raise ValueError(f"{context} missing required fields: {sorted(missing)!r}")
+    if extra:
+        raise ValueError(f"{context} has unknown fields: {sorted(extra)!r}")
+
+
+def _copy_json_mapping(value: object, context: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{context} must be a mapping")
+    copied = _copy_json_payload(value, context)
+    if not isinstance(copied, dict):
+        raise TypeError(f"{context} must be a mapping")
+    return copied
+
+
+def _copy_json_payload(value: object, context: str) -> Any:
+    if isinstance(value, Mapping):
+        _require_string_keys(value, context)
+        return {
+            key: _copy_json_payload(item, f"{context}.{key}")
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return tuple(_copy_json_payload(item, context) for item in value)
+    if value is None or isinstance(value, (str, bool)):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and math.isfinite(value):
+        return value
+    raise TypeError(f"{context} contains a non-JSON-safe value")
 
 
 def _freeze_json_mapping(value: object, field_name: str) -> Mapping[str, Any]:
