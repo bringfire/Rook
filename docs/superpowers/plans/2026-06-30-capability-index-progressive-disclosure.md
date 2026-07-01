@@ -33,7 +33,10 @@ stdlib `ast` (dispatchable-name scan + import-boundary test), `contextvars`.
   `PUBLIC_READONLY_TOOL_NAMES`. Facet fields (`readonly_safe`, `mcp_dispatchable`) never gate calls.
 - **`mcp_only` (LM2A) ≠ `mcp_dispatchable` (facet).** Never derive one from the other.
 - **All pytest runs use the worktree venv:** `.venv/Scripts/python.exe -m pytest ...` (Task 0 creates it).
-- **Every commit** ends with the trailer `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
+- **Every commit** ends with the **executing agent's** attribution trailer. For Claude execution (this
+  inline run): `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`. If a different agent (e.g.
+  Codex) executes, use its own trailer or none — **never attach a false Claude co-author trailer** to a
+  commit Claude did not author. (The per-task commit examples below show the Claude-execution form.)
 - **`META_TOOL_NAMES = {"rook_tools_ls", "rook_tools_search", "rook_tools_read", "rook_tools_call"}`** —
   the single source of truth for the meta-tool set (defined in `server.py`, Task 6).
 
@@ -435,7 +438,8 @@ def _idx():
     tools = [_tool("rhino_director_preview_motion", "Preview a camera move."),
              _tool("rhino_create", "Create geometry."),
              _tool("rhino_objects", "List objects.")]
-    ro = next(n for n in ("rhino_objects",))  # rhino_objects is readonly-safe on the real allowlist
+    # NOTE: rhino_objects is readonly-safe on the real PUBLIC_READONLY_TOOL_NAMES allowlist;
+    # rhino_create and rhino_director_preview_motion are not.
     return build_index(tools, {}, frozenset({t.name for t in tools}))
 
 
@@ -454,10 +458,13 @@ def test_ls_returns_compact_entries_without_schema():
     assert all("input_schema" not in e for e in out["entries"])
 
 
-def test_read_returns_schema_and_none_for_unknown():
+def test_read_returns_schema_none_for_unknown_and_scopes_readonly():
     idx = _idx()
     assert idx.read("rhino_create")["input_schema"] is not None
     assert idx.read("nope") is None
+    # readonly scope hides a non-readonly_safe tool's schema, but keeps a safe one:
+    assert idx.read("rhino_create", scope_readonly=True) is None
+    assert idx.read("rhino_objects", scope_readonly=True) is not None
 
 
 def test_validate_arguments_enforces_subset_and_passes_through_rest():
@@ -521,10 +528,12 @@ Add methods to `CapabilityIndex` and a module-level `validate_arguments`:
         return [{"name": r.name, "path": r.path, "domain": r.domain,
                  "readonly_safe": r.readonly_safe, "summary": r.summary} for _, r in scored[:limit]]
 
-    def read(self, name) -> dict | None:
+    def read(self, name, *, scope_readonly=False) -> dict | None:
         r = self.by_name.get(name)
         if r is None or not r.mcp_dispatchable:
             return None
+        if scope_readonly and not r.readonly_safe:
+            return None   # readonly clients must not read blocked-mutator schemas
         ar = r.agent_record
         return {"name": r.name, "path": r.path, "domain": r.domain, "groups": list(r.groups),
                 "description": r.description, "readonly_safe": r.readonly_safe,
@@ -605,6 +614,11 @@ def test_dispatchable_names_include_meta_and_a_known_native():
     assert server.META_TOOL_NAMES <= names            # meta-tools unioned in (P1b)
     assert "rhino_objects" in names                    # a known dispatcher case label
 
+def test_dispatchable_names_include_or_case_arms():
+    # server.py has: case "rhino_command_knowledge" | "rhino_knowledge_query":
+    names = server._dispatchable_tool_names()
+    assert "rhino_command_knowledge" in names and "rhino_knowledge_query" in names
+
 def test_capability_index_covers_full_unprofiled_surface(monkeypatch):
     monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "lean")  # profile must NOT shrink the index
     idx = asyncio.run(server._get_capability_index())
@@ -643,6 +657,7 @@ def _dispatchable_tool_names() -> frozenset[str]:
     src = _textwrap.dedent(_inspect.getsource(_call_tool_dispatch))
     tree = _ast.parse(src)
     labels: set[str] = set()
+    # ast.walk recurses into MatchOr.patterns, so `case "a" | "b":` OR-arms are captured too.
     for node in _ast.walk(tree):
         if isinstance(node, _ast.MatchValue) and isinstance(node.value, _ast.Constant) \
                 and isinstance(node.value.value, str):
@@ -822,7 +837,8 @@ def test_lean_reach_search_read_call(monkeypatch):
     schema = json.loads(_text("rook_tools_read", {"name": "rhino_director_preview_motion"}))
     assert "input_schema" in schema
     called = json.loads(_text("rook_tools_call",
-                              {"name": "rhino_director_preview_motion", "arguments": {}}))
+                              {"name": "rhino_director_preview_motion",
+                               "arguments": {"timeline": {}, "motion": []}}))  # satisfies required timeline+motion
     assert called["dispatched"] == "rhino_director_preview_motion" and called["origin"] == "meta"
 
 def test_readonly_block_wall_before_validation(monkeypatch):
@@ -856,6 +872,17 @@ def test_meta_layer_never_self_records(monkeypatch):
     _text("rook_tools_call", {"name": "rhino_objects", "arguments": {}})
     assert "rook_tools_call" not in recorded
     assert "rook_tools_search" not in recorded and "rook_tools_read" not in recorded
+
+
+def test_meta_dispatch_records_target_once_with_origin_meta(monkeypatch):
+    # Real non-Rhino target: rhino_instances -> targeting.instances_result() needs no live Rhino, so the
+    # REAL _call_tool_dispatch recording tail runs. Do NOT stub dispatch.
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    recorded = []
+    monkeypatch.setattr(server, "_record_observation",
+                        lambda name, *a, **k: recorded.append((name, server._dispatch_origin.get())))
+    _text("rook_tools_call", {"name": "rhino_instances", "arguments": {}})
+    assert recorded == [("rhino_instances", "meta")]   # one record, target name, tagged meta
 
 def test_readonly_blocked_meta_call_has_no_side_effects(monkeypatch):
     # Mirror test_blocked_readonly_call_has_no_side_effects for the meta path.
@@ -891,12 +918,14 @@ async def _handle_meta_tool(name, arguments, profile):
         return _format_tool_result({"success": True, "data": index.ls(
             arguments.get("path", "/"), int(arguments.get("depth", 1) or 1), scope_readonly=scope_readonly)})
     if name == "rook_tools_search":
+        # readonly profile ALWAYS forces safe-only discovery; the readonly_safe arg may only NARROW
+        # further (True), never widen a readonly client past the wall.
+        want_safe = scope_readonly or bool(arguments.get("readonly_safe"))
         return _format_tool_result({"success": True, "data": index.search(
             arguments.get("query", ""), domain=arguments.get("domain"),
-            scope_readonly=scope_readonly if arguments.get("readonly_safe") is None
-            else bool(arguments["readonly_safe"]), limit=int(arguments.get("limit", 10) or 10))})
+            scope_readonly=want_safe, limit=int(arguments.get("limit", 10) or 10))})
     if name == "rook_tools_read":
-        rec = index.read(arguments.get("name", ""))
+        rec = index.read(arguments.get("name", ""), scope_readonly=scope_readonly)
         if rec is None:
             return _format_tool_result({"success": False, "data": {"error": "unknown_or_non_dispatchable",
                                                                    "name": arguments.get("name")}})
