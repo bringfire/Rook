@@ -25,7 +25,7 @@ The profile campaign correctly separated two axes — `lean` (context reduction,
 client.** That deferral leaves a concrete, unacceptable failure standing:
 
 > A `lean` Codex session is asked to "preview a VisionDirector camera move." `rhino_director_*`,
-> `rc_*`, `rookbim_*`, `scene_*`, video — **none are in the lean 17**, and lean's escape hatch
+> `rc_*`, `rookbim_*`, `scene_*`, video — **none are in the lean floor**, and lean's escape hatch
 > (`rhino_execute_intent` / `gh_execute_intent`) routes only to *geometry* typed routes. It will never
 > reach `rhino_director_preview_motion`. The capability is neither **visible** nor **reachable**.
 
@@ -74,8 +74,9 @@ never modified:**
 
 **Changed by this spec:**
 
-- `lean` membership grows 17 → 21; `readonly` 145 → 149; `full` live `list_tools()` 427 → 431 (the four
-  `rook_tools_*`). Profile snapshot counts are **updated, not preserved**.
+- `lean` membership grows **18 → 22**; `readonly` **145 → 149**; `full` live `list_tools()` **428 → 432**
+  (the four `rook_tools_*`; base counts are `origin/main`'s, which include `openrouter_refresh_catalog`
+  in `full` + `lean`). Profile snapshot counts are **updated, not preserved**.
 - `list_tools()` is refactored to project over an **unprofiled** `_all_live_tools()` source (§4.1) — a
   behavior-preserving refactor of the `filter_tools(live_tools, …)` at
   [`server.py:13373`](../../../mcp_server/src/rook/server.py).
@@ -114,7 +115,7 @@ never modified:**
 - **Adding a new Python dependency** (e.g. `jsonschema`). Validation is in-house and minimal (§6.1).
 - Generating MCP tool definitions from a new canonical format. The facet **wraps** existing `Tool(...)`
   defs by reference.
-- **Pruning or retuning the lean floor.** Lean stays additive (17 kept + 4 added).
+- **Pruning or retuning the lean floor.** Lean stays additive (18 kept + 4 added).
 
 ---
 
@@ -154,7 +155,7 @@ validator (§6.1).
 
 - **Unprofiled source (P1a).** `list_tools()` returns `filter_tools(live_tools, resolve_profile(...))`
   ([`server.py:13373`](../../../mcp_server/src/rook/server.py)); building the index from it would, under
-  `lean`, yield an index of only the 21-tool floor. Factor an unprofiled **`_all_live_tools()`** (static
+  `lean`, yield an index of only the 22-tool floor. Factor an unprofiled **`_all_live_tools()`** (static
   `Tool(...)` set with the deprecated-interactive live gate at
   [`server.py:13365`](../../../mcp_server/src/rook/server.py)–:13371 applied, **no** profile filter);
   build the index from it; `list_tools()` becomes a thin projection `filter_tools(_all_live_tools(),
@@ -197,11 +198,17 @@ agent world. `mcp_dispatchable` means "callable through the **public** MCP `call
 different axes. `mcp_dispatchable` is computed by this facet from `dispatchable_names`; `mcp_only` is read
 from `agent_record` only for display. The index must never derive one from the other.
 
-**`mcp_dispatchable` determination.** `dispatchable_names` is the set of literal `case "<name>":` labels
-handled by `_call_tool_dispatch` ([`server.py:13894`](../../../mcp_server/src/rook/server.py)+), computed
-server-side (small AST/source scan) and injected. `mcp_dispatchable = name in dispatchable_names`. This
-makes **visible ⟹ mcp_dispatchable** a *checked* fact: a tool advertised in `_all_live_tools()` but
-lacking a dispatch case is `mcp_dispatchable=False` and hidden from discovery (§5.2) — carrying the LM1
+**`mcp_dispatchable` determination.** `dispatchable_names = {literal case "<name>": labels handled by
+_call_tool_dispatch ([`server.py:13894`](../../../mcp_server/src/rook/server.py)+)} ∪ {the four
+intercepted rook_tools_* meta-tools}`. The meta-tools are dispatchable via the `call_tool` interception
+(§6), **not** via a dispatcher case, so they must be unioned in explicitly — otherwise they'd be
+advertised yet marked non-dispatchable and hidden from their own discovery surface. Computed server-side
+(AST/source scan for the case labels, plus the known meta-tool names) and injected;
+`mcp_dispatchable = name in dispatchable_names`. The meta-tools therefore show `mcp_dispatchable=True` and
+may appear in `ls`/`search`/`read`; the **recursion guard** (§6) — not a false `mcp_dispatchable` — is
+what stops `rook_tools_call` from targeting a `rook_tools_*` tool. For the native surface this keeps
+**visible ⟹ mcp_dispatchable** a *checked* fact: a tool advertised in `_all_live_tools()` but lacking a
+dispatch case is `mcp_dispatchable=False` and hidden from discovery (§5.2), carrying the LM1
 "visible-implies-dispatchable" invariant onto the MCP transport.
 
 **Enrichment sources:** `domain` from name-prefix reconciled with `TOOL_CATEGORIES`/`TOOL_GROUPS`;
@@ -273,12 +280,17 @@ record the *meta* tool (`rook_tools_call`) as an observation, and a forwarded ta
 recording tail. So `rook_tools_call("rhino_director_preview_motion")` under `readonly` blocks with **no
 target observation and no phase tracking**. The meta call itself also records nothing, per (a).
 
-**`rook_tools_call` guards, applied before re-entry:**
+**`rook_tools_call` guards, in this order — the target readonly wall fires *before* dispatchability and
+validation, so a blocked target always returns the exact `tool_profile_blocked` envelope (identical to a
+native call), never a validation error and never leaking schema behavior:**
 
 1. **No meta-recursion** — reject any target in `{rook_tools_ls, rook_tools_search, rook_tools_read,
    rook_tools_call}`.
-2. **MCP-dispatchable** — reject targets with `mcp_dispatchable == false` (§4.2).
-3. **Argument validation** — §6.1.
+2. **Target readonly wall** — `if tool_blocked(target, profile): return profile_blocked_envelope(target,
+   profile)`. This mirrors native `call_tool`, where the wall (:20929) is the first thing to fire. (The
+   subsequent re-entry re-applies the wall; the check is idempotent.)
+3. **MCP-dispatchable** — reject targets with `mcp_dispatchable == false` (§4.2).
+4. **Argument validation** — §6.1.
 
 **Forbidden:** `rook_tools_call` must **not** call `_call_tool_dispatch(target, …)` directly — that
 skips the wall (:20929) and the targeting/document-context logic in `call_tool`, silently bypassing
@@ -305,12 +317,13 @@ validator insufficient.
 
 ## 7. Profile integration
 
-### 7.1 Lean floor (17 kept + 4 added = 21)
+### 7.1 Lean floor (18 kept + 4 added = 22)
 
-Lean keeps its existing 17 unchanged and adds the four `rook_tools_*`. **No pruning** (non-goal, §3).
+Lean keeps its existing 18 unchanged and adds the four `rook_tools_*`. **No pruning** (non-goal, §3).
 Semantics, stated so reviewers don't relapse into the old worldview:
 
-- The 17 are **always-visible boot/convenience tools** — connection, targeting, snapshot, knowledge.
+- The 18 are **always-visible boot/convenience tools** — connection, targeting, snapshot, knowledge,
+  provider-catalog refresh (`openrouter_refresh_catalog`).
 - The four `rook_tools_*` are the **capability access layer**.
 - Lean is no longer "all Codex can use." It is "the boot tools Codex sees **before it browses the
   index**."
@@ -321,10 +334,10 @@ profile campaign, common enough to justify native schema visibility, and more er
 
 ### 7.2 Membership and counts
 
-- `PUBLIC_LEAN_TOOL_NAMES`: 17 → **21** (+ four `rook_tools_*`).
+- `PUBLIC_LEAN_TOOL_NAMES`: 18 → **22** (+ four `rook_tools_*`).
 - `PUBLIC_READONLY_TOOL_NAMES`: 145 → **149** (+ four `rook_tools_*`; the three readers are pure reads,
   `rook_tools_call` is wall-protected per §6).
-- Live `full` `list_tools()`: 427 → **431**.
+- Live `full` `list_tools()`: 428 → **432**.
 - Profile snapshot tests are **updated** to these counts; counts are assertions of current truth, not
   frozen constraints (the membership invariants in §9 are the durable assertions).
 
@@ -352,7 +365,8 @@ the wall permits.
 6. **One-way dependency.** `capability_index.py` does not import `server.py`; it imports only the
    `CapabilityRecord` type and leaf data modules.
 7. **Index source is unprofiled.** The index is built from `_all_live_tools()`; `list_tools()` is a
-   profile projection over the same source. Discovery never shrinks with the active profile.
+   profile projection over the same source. **The index never shrinks with the active profile**; readonly
+   *query results* are scoped to `readonly_safe` by default (§5.1).
 8. **Meta-tools never reach the recording tail.** `rook_tools_*` are intercepted in `call_tool` before
    `_call_tool_dispatch`; only forwarded **targets** are observed — once, under their real name. A
    blocked target is observed not at all.
@@ -369,10 +383,11 @@ the wall permits.
 1. **lean reach:** with `ROOK_MCP_TOOL_PROFILE=lean`, `rook_tools_search("director preview")` surfaces
    `rhino_director_preview_motion`; `rook_tools_read` returns its schema; `rook_tools_call` dispatches
    it successfully — **no MCP restart**.
-2. **readonly block:** with `readonly`, the same
+2. **readonly block (wall before validation):** with `readonly`,
    `rook_tools_call("rhino_director_preview_motion", …)` returns the `tool_profile_blocked` envelope —
    `preview_motion` is not on the audited allowlist (default-deny), proving discovery is **not** a
-   bypass.
+   bypass. **The same call with deliberately invalid `arguments` still returns `tool_profile_blocked`**
+   (the target wall fires before schema validation — §6), never a validation error.
 3. **full unchanged:** with `full`, native direct tool behavior and the `list_tools()` projection are
    unchanged (modulo the +4 meta-tools).
 
@@ -380,7 +395,7 @@ the wall permits.
 
 4. **Index is not the lean projection:** under `lean`, the index contains `rhino_director_preview_motion`
    (built from `_all_live_tools()`), even though `list_tools()` under `lean` does not advertise it.
-5. lean contains all original 17 **and** the four `rook_tools_*`; `rhino_director_preview_motion` is
+5. lean contains all original 18 **and** the four `rook_tools_*`; `rhino_director_preview_motion` is
    **not** directly advertised in lean's `list_tools()` but **is** discoverable/readable/callable via
    `rook_tools_*`.
 
