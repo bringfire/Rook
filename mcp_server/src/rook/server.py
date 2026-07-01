@@ -64,12 +64,13 @@ if logger.isEnabledFor(logging.DEBUG):
 from .bridge import call_rhino, get_rhino_host, discover_instances, TIMEOUT, DISCOVERY_FOLDER, rhino_request_context, list_sessions_result, get_session_capabilities
 from .mcp_tool_profiles import (
     InvalidProfileError,
+    Profile,
     filter_tools,
     profile_blocked_envelope,
     resolve_profile,
     tool_blocked,
 )
-from .capability_index import build_index
+from .capability_index import build_index, validate_arguments
 from . import artifacts, director, director_compiler, director_preview, director_publish, director_video, merge_execution, script_library, targeting, workbench, work_units
 from .mesh2splat import pipeline as mesh2splat_pipeline
 targeting.initialize_from_environment()
@@ -21065,20 +21066,36 @@ def _reset_capability_index_cache() -> None:  # test hook
     _CAPABILITY_INDEX = None
 
 
-def _dispatchable_tool_names() -> frozenset[str]:
+def _scan_dispatch_case_labels() -> frozenset[str]:
     """Names ``call_tool`` can dispatch: ``_call_tool_dispatch`` case labels ∪ meta-tools.
 
     Scans the dispatch function's own source with ``ast``; ``ast.walk`` recurses into
-    ``MatchOr.patterns``, so ``case "a" | "b":`` OR-arms are captured too.
+    ``MatchOr.patterns``, so ``case "a" | "b":`` OR-arms are captured too. Falls back to just
+    the meta-tools if the source is unavailable (e.g. a frozen build) rather than raising.
     """
-    src = textwrap.dedent(inspect.getsource(_call_tool_dispatch))
-    tree = ast.parse(src)
-    labels: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.MatchValue) and isinstance(node.value, ast.Constant) \
-                and isinstance(node.value.value, str):
-            labels.add(node.value.value)
-    return frozenset(labels) | META_TOOL_NAMES
+    try:
+        src = textwrap.dedent(inspect.getsource(_call_tool_dispatch))
+        tree = ast.parse(src)
+        labels = {
+            node.value.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.MatchValue) and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        }
+        return frozenset(labels) | META_TOOL_NAMES
+    except Exception:
+        logger.exception("Could not scan dispatch case labels; capability index limited to meta-tools")
+        return META_TOOL_NAMES
+
+
+# Computed ONCE at import from the real _call_tool_dispatch source, so it is immune to tests that
+# monkeypatch _call_tool_dispatch (which would otherwise erase every case label). The dispatch
+# surface is static, so a single scan is also cheaper than rescanning on each index build.
+_DISPATCHABLE_TOOL_NAMES = _scan_dispatch_case_labels()
+
+
+def _dispatchable_tool_names() -> frozenset[str]:
+    return _DISPATCHABLE_TOOL_NAMES
 
 
 def _collect_agent_records(tools) -> dict:
@@ -21105,6 +21122,55 @@ async def _get_capability_index():
     return _CAPABILITY_INDEX
 
 
+async def _handle_meta_tool(name, arguments, profile):
+    """Serve the four rook_tools_* progressive-disclosure meta-tools.
+
+    ls/search/read are pure queries over the capability index, readonly-scoped when the active
+    profile is READONLY. rook_tools_call re-enters call_tool() for its target with guards in a
+    fixed order: recursion -> readonly wall (BEFORE validation) -> mcp_dispatchable -> arg
+    validation -> dispatch under _dispatch_origin="meta".
+    """
+    index = await _get_capability_index()
+    scope_readonly = (profile == Profile.READONLY)
+    if name == "rook_tools_ls":
+        return _format_tool_result({"success": True, "data": index.ls(
+            arguments.get("path", "/"), int(arguments.get("depth", 1) or 1), scope_readonly=scope_readonly)})
+    if name == "rook_tools_search":
+        # readonly profile ALWAYS forces safe-only discovery; the readonly_safe arg may only NARROW
+        # further (True), never widen a readonly client past the wall.
+        want_safe = scope_readonly or bool(arguments.get("readonly_safe"))
+        return _format_tool_result({"success": True, "data": index.search(
+            arguments.get("query", ""), domain=arguments.get("domain"),
+            scope_readonly=want_safe, limit=int(arguments.get("limit", 10) or 10))})
+    if name == "rook_tools_read":
+        rec = index.read(arguments.get("name", ""), scope_readonly=scope_readonly)
+        if rec is None:
+            return _format_tool_result({"success": False, "data": {"error": "unknown_or_non_dispatchable",
+                                                                   "name": arguments.get("name")}})
+        return _format_tool_result({"success": True, "data": rec})
+    # rook_tools_call — guards in order: recursion -> wall(target) -> mcp_dispatchable -> validation
+    target = arguments.get("name", "")
+    targs = arguments.get("arguments", {}) or {}
+    if target in META_TOOL_NAMES:
+        return _format_tool_result({"success": False, "data": {"error": "meta_recursion_forbidden",
+                                                               "name": target}})
+    if tool_blocked(target, profile):                              # WALL BEFORE VALIDATION (P1)
+        return _format_tool_result(profile_blocked_envelope(target, profile))
+    rec = index.read(target)
+    if rec is None:                                                # covers unknown + non-dispatchable
+        return _format_tool_result({"success": False, "data": {"error": "not_mcp_dispatchable",
+                                                               "name": target}})
+    verrs = validate_arguments(rec["input_schema"], targs)
+    if verrs:
+        return _format_tool_result({"success": False, "data": {"error": "invalid_arguments",
+                                                               "name": target, "fields": verrs}})
+    token = _dispatch_origin.set("meta")                           # tag target obs as meta-originated
+    try:
+        return await call_tool(target, targs)                      # re-enter full policy path
+    finally:
+        _dispatch_origin.reset(token)
+
+
 @mcp.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle tool calls with centralized Rhino target routing."""
@@ -21112,6 +21178,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     _active_profile = resolve_profile(os.environ)
     if tool_blocked(name, _active_profile):
         return _format_tool_result(profile_blocked_envelope(name, _active_profile))
+
+    # Progressive-disclosure meta-tools are intercepted here — AFTER the readonly wall (so a
+    # blocked meta-tool is refused like any other) and BEFORE _call_tool_dispatch (so they never
+    # hit the universal recording tail themselves). rook_tools_call re-enters call_tool() for its
+    # target, so the wall + dispatch + recording all apply to the target unchanged.
+    if name in META_TOOL_NAMES:
+        return await _handle_meta_tool(name, arguments, _active_profile)
 
     if (
         name in _DEPRECATED_INTERACTIVE_COMMAND_TOOLS
