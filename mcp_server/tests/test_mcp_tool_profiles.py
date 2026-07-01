@@ -50,8 +50,8 @@ from rook.mcp_tool_profiles import (
 
 
 def test_set_sizes_are_pinned():
-    assert len(PUBLIC_LEAN_TOOL_NAMES) == 18
-    assert len(PUBLIC_READONLY_TOOL_NAMES) == 145
+    assert len(PUBLIC_LEAN_TOOL_NAMES) == 22
+    assert len(PUBLIC_READONLY_TOOL_NAMES) == 149
     assert len(SENTINEL_TOOL_NAMES) == 26
 
 

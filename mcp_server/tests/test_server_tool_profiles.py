@@ -13,7 +13,7 @@ _GATED = {"rhino_command_experiment", "rhino_learn_next", "rhino_prepare_geometr
 
 
 def _list_names(monkeypatch, profile_value):
-    # Default flag-off state so the live surface is the canonical 428.
+    # Default flag-off state so the live surface is the canonical 433.
     monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
     monkeypatch.delenv("ROOK_MCP_TARGET_MODE", raising=False)
     if profile_value is None:
@@ -24,29 +24,45 @@ def _list_names(monkeypatch, profile_value):
     return {t.name for t in tools}
 
 
-def test_full_surface_is_428_and_gates_deprecated(monkeypatch):
+def test_full_surface_is_433_and_gates_deprecated(monkeypatch):
     full = _list_names(monkeypatch, None)  # absent => full
-    assert len(full) == 428
+    # 429 pre-meta base (427 #382 + mesh2splat #384 + openrouter #385) + 4 rook_tools_* meta-tools.
+    assert len(full) == 433
     assert _GATED.isdisjoint(full)
     assert PUBLIC_LEAN_TOOL_NAMES <= full
     assert PUBLIC_READONLY_TOOL_NAMES <= full
     assert SENTINEL_TOOL_NAMES <= full
 
 
+def test_all_live_tools_is_unprofiled_433(monkeypatch):
+    monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
+    # Even with a restrictive profile set, the unprofiled source is the full 433.
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "lean")
+    names = {t.name for t in asyncio.run(server._all_live_tools())}
+    assert len(names) == 433
+    assert _GATED.isdisjoint(names)
+
+
 def test_explicit_full_equals_absent(monkeypatch):
     assert _list_names(monkeypatch, "full") == _list_names(monkeypatch, None)
 
 
-def test_lean_surface_is_exactly_18(monkeypatch):
+def test_lean_surface_is_exactly_22(monkeypatch):
     lean = _list_names(monkeypatch, "lean")
     assert lean == set(PUBLIC_LEAN_TOOL_NAMES)
-    assert len(lean) == 18
+    assert len(lean) == 22
 
 
-def test_readonly_surface_is_exactly_145(monkeypatch):
+def test_readonly_surface_is_exactly_149(monkeypatch):
     ro = _list_names(monkeypatch, "readonly")
     assert ro == set(PUBLIC_READONLY_TOOL_NAMES)
-    assert len(ro) == 145
+    assert len(ro) == 149
+
+
+def test_meta_tools_present_in_all_profiles(monkeypatch):
+    for prof in (None, "full", "lean", "readonly"):
+        names = _list_names(monkeypatch, prof)
+        assert {"rook_tools_ls", "rook_tools_search", "rook_tools_read", "rook_tools_call"} <= names
 
 
 def test_readonly_partition_over_live_surface(monkeypatch):
@@ -57,7 +73,7 @@ def test_readonly_partition_over_live_surface(monkeypatch):
     excluded = full - ro
     assert ro | excluded == full
     assert ro.isdisjoint(excluded)
-    assert len(ro) + len(excluded) == len(full) == 428
+    assert len(ro) + len(excluded) == len(full) == 433
 
 
 def _call_text(name, args=None):
