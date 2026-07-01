@@ -12,6 +12,8 @@ from pathlib import Path
 
 import dspy
 
+from rook.agent.generation_params import sanitize_generation_params_for_model
+
 logger = logging.getLogger(__name__)
 
 # Global DSPy language model instance
@@ -19,7 +21,7 @@ _lm: Optional[dspy.LM] = None
 _cache_configured = False
 
 
-DEFAULT_MODEL = "claude-sonnet-4-6"
+DEFAULT_MODEL = "claude-sonnet-5"
 
 
 def _get_rook_dspy_cache_dir() -> Optional[str]:
@@ -114,7 +116,7 @@ def configure_dspy(
 
     Args:
         model: LiteLLM model identifier. Provider-prefixed strings
-            (e.g., "anthropic/claude-sonnet-4-6", "ollama_chat/qwen3-coder:30b")
+            (e.g., "anthropic/claude-sonnet-5", "ollama_chat/qwen3-coder:30b")
             are passed through as-is. Bare model names are prefixed with "anthropic/".
         api_key: API key (uses ANTHROPIC_API_KEY env var for Anthropic models).
             Not required for local models (Ollama, LM Studio).
@@ -185,6 +187,7 @@ def configure_dspy(
         max_tokens=max_tokens,
         cache=cache,
     )
+    lm_kwargs = sanitize_generation_params_for_model(model, lm_kwargs)
     if api_key:
         lm_kwargs["api_key"] = api_key
     if api_base:
@@ -285,8 +288,14 @@ def configure_dspy_for_optimization(
     teacher_key = _resolve_key(teacher_model, teacher_is_local, teacher_base)
     student_key = _resolve_key(student_model, student_is_local, student_base)
 
-    teacher_kwargs = dict(model=teacher_model, temperature=0.7, max_tokens=4096, cache=True)
-    student_kwargs = dict(model=student_model, temperature=0.3, max_tokens=2048, cache=True)
+    teacher_kwargs = sanitize_generation_params_for_model(
+        teacher_model,
+        dict(model=teacher_model, temperature=0.7, max_tokens=4096, cache=True),
+    )
+    student_kwargs = sanitize_generation_params_for_model(
+        student_model,
+        dict(model=student_model, temperature=0.3, max_tokens=2048, cache=True),
+    )
     if teacher_key:
         teacher_kwargs["api_key"] = teacher_key
     if student_key:
@@ -316,6 +325,18 @@ def is_configured() -> bool:
     return _lm is not None
 
 
+def _model_from_lm(lm: dspy.LM) -> Optional[str]:
+    model = getattr(lm, "model", None)
+    if isinstance(model, str) and model:
+        return model
+    kwargs = getattr(lm, "kwargs", None)
+    if isinstance(kwargs, dict):
+        value = kwargs.get("model")
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
 def reconfigure_temperature(temperature: float) -> None:
     """
     Update the temperature setting for the current LM.
@@ -330,8 +351,12 @@ def reconfigure_temperature(temperature: float) -> None:
     if _lm is None:
         raise RuntimeError("DSPy not configured. Call configure_dspy() first.")
 
-    # Create a new LM with updated temperature
-    _lm = _lm.copy(temperature=temperature)
+    # Create a new LM with updated temperature when the model accepts it.
+    model = _model_from_lm(_lm)
+    params = {"temperature": temperature}
+    if model:
+        params = sanitize_generation_params_for_model(model, params)
+    _lm = _lm.copy(**params)
     dspy.configure(lm=_lm)
     logger.debug(f"Temperature updated to {temperature}")
 
@@ -357,7 +382,11 @@ class TemporaryLMSettings:
             raise RuntimeError("DSPy not configured. Call configure_dspy() first.")
 
         self.original_lm = _lm
-        _lm = _lm.copy(**self.kwargs)
+        model = _model_from_lm(_lm)
+        kwargs = dict(self.kwargs)
+        if model:
+            kwargs = sanitize_generation_params_for_model(model, kwargs)
+        _lm = _lm.copy(**kwargs)
         dspy.configure(lm=_lm)
         return _lm
 

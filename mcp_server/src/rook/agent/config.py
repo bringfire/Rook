@@ -133,7 +133,7 @@ class PlannerConfig:
 
     # --- Models (defaults match FALLBACK_MODELS in model_profiles.py) ---
     planner_model: str = "anthropic/claude-opus-4-6"
-    worker_model: str = "anthropic/claude-sonnet-4-6"
+    worker_model: str = "anthropic/claude-sonnet-5"
     api_base: Optional[str] = None         # For local providers (LM Studio, vLLM, Ollama)
 
     # --- Planning phase ---

@@ -536,6 +536,26 @@ async def test_system_prompt_includes_tool_section(runner, conversation):
     assert system_msg["content"].startswith("Base prompt.")
 
 
+@pytest.mark.asyncio
+async def test_sonnet_5_chat_turn_omits_temperature(runner, conversation):
+    """Sonnet 5 rejects non-default sampling params; RookChat must not send 0.7."""
+    conversation.model = "anthropic/claude-sonnet-5"
+    captured_kwargs = []
+
+    async def capture_acompletion(**kwargs):
+        captured_kwargs.append(kwargs)
+        return _make_text_response("Hello!")
+
+    with patch("litellm.acompletion", side_effect=capture_acompletion), _runtime_facts_patch():
+        async for _ in runner.run_turn(conversation, "test", system_prompt="Base prompt."):
+            pass
+
+    assert len(captured_kwargs) == 1
+    assert captured_kwargs[0]["model"] == "anthropic/claude-sonnet-5"
+    assert "temperature" not in captured_kwargs[0]
+    assert captured_kwargs[0]["max_tokens"] == 2048
+
+
 def test_chat_event_ui_block_serialization():
     """Verify ChatEvent serializes all adaptive UI fields."""
     event = ChatEvent(
