@@ -8,10 +8,12 @@ Supports multiple Rhino instances through automatic discovery.
 import ast
 import asyncio
 import copy
+import inspect
 import json
 import logging
 import os
 import tempfile
+import textwrap
 import uuid
 from pathlib import Path
 from typing import Any
@@ -62,6 +64,7 @@ from .mcp_tool_profiles import (
     resolve_profile,
     tool_blocked,
 )
+from .capability_index import build_index
 from . import artifacts, director, director_compiler, director_preview, director_publish, director_video, merge_execution, script_library, targeting, workbench, work_units
 from .mesh2splat import pipeline as mesh2splat_pipeline
 targeting.initialize_from_environment()
@@ -20979,6 +20982,55 @@ def _with_rhino_launch_canonical_tool(result: dict[str, Any]) -> dict[str, Any]:
             "canonicalTool": _RHINO_LAUNCH_CANONICAL_TOOL,
         }
     return out
+
+
+META_TOOL_NAMES = frozenset({"rook_tools_ls", "rook_tools_search", "rook_tools_read", "rook_tools_call"})
+_CAPABILITY_INDEX = None
+
+
+def _reset_capability_index_cache() -> None:  # test hook
+    global _CAPABILITY_INDEX
+    _CAPABILITY_INDEX = None
+
+
+def _dispatchable_tool_names() -> frozenset[str]:
+    """Names ``call_tool`` can dispatch: ``_call_tool_dispatch`` case labels ∪ meta-tools.
+
+    Scans the dispatch function's own source with ``ast``; ``ast.walk`` recurses into
+    ``MatchOr.patterns``, so ``case "a" | "b":`` OR-arms are captured too.
+    """
+    src = textwrap.dedent(inspect.getsource(_call_tool_dispatch))
+    tree = ast.parse(src)
+    labels: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.MatchValue) and isinstance(node.value, ast.Constant) \
+                and isinstance(node.value.value, str):
+            labels.add(node.value.value)
+    return frozenset(labels) | META_TOOL_NAMES
+
+
+def _collect_agent_records(tools) -> dict:
+    """Read-only LM2A link. Fresh catalog from the UNPROFILED surface — no cache, no profile filter.
+
+    Any failure degrades gracefully to an empty mapping so the capability index still builds.
+    """
+    try:
+        from .agent.capability_inventory import build_inventory, collect_live_sources
+        from .agent.tool_registry import build_catalog_from_mcp_tools
+        catalog = build_catalog_from_mcp_tools(tools)
+        inv = build_inventory(collect_live_sources(), catalog)
+        return {r.name: r for r in inv.records}
+    except Exception:
+        logger.exception("LM2A inventory unavailable; capability index will omit agent_record links")
+        return {}
+
+
+async def _get_capability_index():
+    global _CAPABILITY_INDEX
+    if _CAPABILITY_INDEX is None:
+        tools = await _all_live_tools()
+        _CAPABILITY_INDEX = build_index(tools, _collect_agent_records(tools), _dispatchable_tool_names())
+    return _CAPABILITY_INDEX
 
 
 @mcp.call_tool()
