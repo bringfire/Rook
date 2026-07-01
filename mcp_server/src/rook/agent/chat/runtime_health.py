@@ -29,9 +29,9 @@ def _effective_default_model() -> str:
     try:
         from ...agent.model_profiles import get_models
         models = get_models()
-        return models.worker or "anthropic/claude-sonnet-4-6"
+        return models.worker or "anthropic/claude-sonnet-5"
     except Exception:
-        return "anthropic/claude-sonnet-4-6"
+        return "anthropic/claude-sonnet-5"
 
 
 def _llm_state(active_model: str | None = None) -> dict[str, Any]:

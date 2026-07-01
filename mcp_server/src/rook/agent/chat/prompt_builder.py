@@ -94,7 +94,7 @@ class PromptBuilder:
 
         model = getattr(model_set, model_role, None)
         if not model:
-            model = model_set.worker or "anthropic/claude-sonnet-4-6"
+            model = model_set.worker or "anthropic/claude-sonnet-5"
 
         return model, api_base_for_model(model, model_set.api_base)
 

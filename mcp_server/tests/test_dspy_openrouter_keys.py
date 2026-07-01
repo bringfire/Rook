@@ -6,6 +6,11 @@ class _StubLM:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
 
+    def copy(self, **kwargs):
+        next_kwargs = dict(self.kwargs)
+        next_kwargs.update(kwargs)
+        return _StubLM(**next_kwargs)
+
 
 @pytest.fixture(autouse=True)
 def stub_dspy(monkeypatch):
@@ -79,3 +84,43 @@ def test_local_model_needs_no_key(monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     lm = dc.configure_dspy(model="ollama_chat/qwen3:30b")
     assert "api_key" not in lm.kwargs
+
+
+def test_configure_dspy_sonnet_5_omits_temperature(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    lm = dc.configure_dspy(model="anthropic/claude-sonnet-5", temperature=0.7)
+
+    assert "temperature" not in lm.kwargs
+    assert lm.kwargs["max_tokens"] == 4096
+
+
+def test_optimization_sonnet_5_omits_teacher_and_student_temperature(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    teacher, student = dc.configure_dspy_for_optimization(
+        teacher_model="anthropic/claude-sonnet-5",
+        student_model="anthropic/claude-sonnet-5",
+    )
+
+    assert "temperature" not in teacher.kwargs
+    assert "temperature" not in student.kwargs
+
+
+def test_reconfigure_temperature_sonnet_5_still_omits_temperature(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    dc.configure_dspy(model="anthropic/claude-sonnet-5")
+
+    dc.reconfigure_temperature(0.2)
+
+    assert "temperature" not in dc.get_lm().kwargs
+
+
+def test_temporary_lm_settings_sonnet_5_still_omits_temperature(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    original = dc.configure_dspy(model="anthropic/claude-sonnet-5")
+
+    with dc.TemporaryLMSettings(temperature=1.0) as lm:
+        assert "temperature" not in lm.kwargs
+
+    assert dc.get_lm() is original

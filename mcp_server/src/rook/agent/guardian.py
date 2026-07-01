@@ -30,6 +30,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from .config import GuardianConfig
 from .events import AgentEvent, TOOL_EXEC_START, TOOL_EXEC_END, GUARDIAN_INTERVENTION
+from .generation_params import sanitize_generation_params_for_model
 
 logger = logging.getLogger(__name__)
 
@@ -386,6 +387,10 @@ class Guardian:
                 ],
                 max_tokens=300,
                 temperature=0.0,
+            )
+            llm_kwargs = sanitize_generation_params_for_model(
+                self._config.llm_analysis_model,
+                llm_kwargs,
             )
             if self._config.api_base:
                 llm_kwargs["api_base"] = self._config.api_base

@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 import litellm
 
 from .config import AgentConfig
+from .generation_params import sanitize_generation_params_for_model
 from .events import (
     AgentEvent, EventDispatcher,
     AGENT_START, AGENT_END,
@@ -658,6 +659,7 @@ class RookAgent:
                 max_tokens=self.config.max_tokens,
                 temperature=self.config.temperature,
             )
+            kwargs = sanitize_generation_params_for_model(self.config.model, kwargs)
             if self.config.api_base:
                 kwargs["api_base"] = self.config.api_base
             response = await litellm.acompletion(**kwargs)

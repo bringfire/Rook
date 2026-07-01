@@ -45,6 +45,7 @@ from ..tool_registry import (
     ToolRegistry,
     load_catalog_from_cache,
 )
+from ..generation_params import sanitize_generation_params_for_model
 
 logger = logging.getLogger(__name__)
 
@@ -1077,6 +1078,10 @@ class ChatRunner:
                         temperature=0.7,
                         stream=True,
                         stream_options={"include_usage": True},
+                    )
+                    llm_kwargs = sanitize_generation_params_for_model(
+                        conversation.model,
+                        llm_kwargs,
                     )
                     if conversation.api_base:
                         llm_kwargs["api_base"] = conversation.api_base

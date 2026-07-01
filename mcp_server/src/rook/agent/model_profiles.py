@@ -36,10 +36,10 @@ _cached_mtime: float = 0.0
 # ── Hardcoded fallbacks (match current PlannerConfig defaults exactly) ────
 FALLBACK_MODELS: Dict[str, str] = {
     "planner": "anthropic/claude-opus-4-6",
-    "worker": "anthropic/claude-sonnet-4-6",
-    "specialist": "anthropic/claude-sonnet-4-6",
-    "guardian": "anthropic/claude-sonnet-4-6",
-    "dspy": "anthropic/claude-sonnet-4-6",
+    "worker": "anthropic/claude-sonnet-5",
+    "specialist": "anthropic/claude-sonnet-5",
+    "guardian": "anthropic/claude-sonnet-5",
+    "dspy": "anthropic/claude-sonnet-5",
 }
 
 

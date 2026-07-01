@@ -73,6 +73,19 @@ class TestFallbackModels(unittest.TestCase):
                     f"Profile '{name}' missing role '{role}'"
                 )
 
+    def test_default_sonnet_roles_use_sonnet_5(self):
+        """Sonnet-backed default roles use Sonnet 5; Opus planner stays Opus."""
+        assert FALLBACK_MODELS["planner"] == "anthropic/claude-opus-4-6"
+        for role in ("worker", "specialist", "guardian", "dspy"):
+            assert FALLBACK_MODELS[role] == "anthropic/claude-sonnet-5"
+
+    def test_checked_in_profile_seed_matches_generated_defaults(self):
+        """Packaged seed profiles must match first-run generated defaults."""
+        seed_path = REPO.parent / "knowledge" / "model_profiles.json"
+        seed = json.loads(seed_path.read_text(encoding="utf-8"))
+
+        assert seed == DEFAULT_PROFILES_DATA
+
 
 class TestModelProfilesIO(unittest.TestCase):
     """Write and read round-trip, mtime caching."""
