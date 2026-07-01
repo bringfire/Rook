@@ -24,9 +24,11 @@ def _list_names(monkeypatch, profile_value):
     return {t.name for t in tools}
 
 
-def test_full_surface_is_428_and_gates_deprecated(monkeypatch):
+def test_full_surface_is_429_and_gates_deprecated(monkeypatch):
     full = _list_names(monkeypatch, None)  # absent => full
-    assert len(full) == 428
+    # 427 profile-base (#382) + rhino_mesh2splat_export (#384) + openrouter_refresh_catalog (#385).
+    # #385 updated this pin only to 428, missing #384's tool — corrected here to the real 429.
+    assert len(full) == 429
     assert _GATED.isdisjoint(full)
     assert PUBLIC_LEAN_TOOL_NAMES <= full
     assert PUBLIC_READONLY_TOOL_NAMES <= full
@@ -57,7 +59,7 @@ def test_readonly_partition_over_live_surface(monkeypatch):
     excluded = full - ro
     assert ro | excluded == full
     assert ro.isdisjoint(excluded)
-    assert len(ro) + len(excluded) == len(full) == 428
+    assert len(ro) + len(excluded) == len(full) == 429
 
 
 def _call_text(name, args=None):
