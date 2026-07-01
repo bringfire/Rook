@@ -159,3 +159,13 @@ def test_validate_arguments_enforces_subset_and_passes_through_rest():
     # Unsupported keyword (minItems) is NOT enforced -> passes through:
     schema2 = {"type": "object", "properties": {"tags": {"type": "array", "minItems": 5}}}
     assert validate_arguments(schema2, {"tags": []}) == []
+
+
+def test_validate_arguments_rejects_bool_for_number_and_integer():
+    # bool is a Python int subclass; JSON `true` must NOT satisfy number OR integer.
+    assert any("n" in e for e in validate_arguments(
+        {"type": "object", "properties": {"n": {"type": "number"}}}, {"n": True}))
+    assert any("n" in e for e in validate_arguments(
+        {"type": "object", "properties": {"n": {"type": "integer"}}}, {"n": False}))
+    # A real number still passes:
+    assert validate_arguments({"type": "object", "properties": {"n": {"type": "number"}}}, {"n": 1.5}) == []

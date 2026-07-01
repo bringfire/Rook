@@ -140,7 +140,7 @@ def validate_arguments(schema, arguments) -> list[str]:
         val = arguments[key]
         t = spec.get("type")
         py = _JSON_TYPES.get(t)
-        if py and not isinstance(val, py) or (t == "integer" and isinstance(val, bool)):
+        if py and not isinstance(val, py) or (t in ("integer", "number") and isinstance(val, bool)):
             errors.append(f"{key}: expected {t}")
             continue
         if "enum" in spec and val not in spec["enum"]:

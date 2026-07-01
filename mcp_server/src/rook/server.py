@@ -21122,44 +21122,62 @@ async def _get_capability_index():
     return _CAPABILITY_INDEX
 
 
+def _coerce_positive_int(value, default):
+    """Best-effort positive int for meta-tool numeric args; malformed/non-positive -> default."""
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return default
+    return n if n > 0 else default
+
+
 async def _handle_meta_tool(name, arguments, profile):
     """Serve the four rook_tools_* progressive-disclosure meta-tools.
 
     ls/search/read are pure queries over the capability index, readonly-scoped when the active
     profile is READONLY. rook_tools_call re-enters call_tool() for its target with guards in a
-    fixed order: recursion -> readonly wall (BEFORE validation) -> mcp_dispatchable -> arg
-    validation -> dispatch under _dispatch_origin="meta".
+    fixed order: recursion -> readonly wall (BEFORE validation) -> mcp_dispatchable ->
+    arguments-is-object -> field validation -> dispatch under _dispatch_origin="meta". All caller
+    inputs are untrusted (this is a public MCP dispatcher) and coerced/guarded before use.
     """
     index = await _get_capability_index()
     scope_readonly = (profile == Profile.READONLY)
     if name == "rook_tools_ls":
         return _format_tool_result({"success": True, "data": index.ls(
-            arguments.get("path", "/"), int(arguments.get("depth", 1) or 1), scope_readonly=scope_readonly)})
+            str(arguments.get("path") or "/"), _coerce_positive_int(arguments.get("depth"), 1),
+            scope_readonly=scope_readonly)})
     if name == "rook_tools_search":
         # readonly profile ALWAYS forces safe-only discovery; the readonly_safe arg may only NARROW
         # further (True), never widen a readonly client past the wall.
         want_safe = scope_readonly or bool(arguments.get("readonly_safe"))
+        domain = arguments.get("domain")
         return _format_tool_result({"success": True, "data": index.search(
-            arguments.get("query", ""), domain=arguments.get("domain"),
-            scope_readonly=want_safe, limit=int(arguments.get("limit", 10) or 10))})
+            str(arguments.get("query") or ""), domain=(domain if isinstance(domain, str) else None),
+            scope_readonly=want_safe, limit=_coerce_positive_int(arguments.get("limit"), 10))})
     if name == "rook_tools_read":
-        rec = index.read(arguments.get("name", ""), scope_readonly=scope_readonly)
+        rec = index.read(str(arguments.get("name") or ""), scope_readonly=scope_readonly)
         if rec is None:
             return _format_tool_result({"success": False, "data": {"error": "unknown_or_non_dispatchable",
                                                                    "name": arguments.get("name")}})
         return _format_tool_result({"success": True, "data": rec})
     # rook_tools_call — guards in order: recursion -> wall(target) -> mcp_dispatchable -> validation
-    target = arguments.get("name", "")
-    targs = arguments.get("arguments", {}) or {}
+    target = str(arguments.get("name") or "")
+    targs = arguments.get("arguments")
+    if targs is None:
+        targs = {}
     if target in META_TOOL_NAMES:
         return _format_tool_result({"success": False, "data": {"error": "meta_recursion_forbidden",
                                                                "name": target}})
-    if tool_blocked(target, profile):                              # WALL BEFORE VALIDATION (P1)
+    if tool_blocked(target, profile):                              # WALL BEFORE VALIDATION
         return _format_tool_result(profile_blocked_envelope(target, profile))
     rec = index.read(target)
     if rec is None:                                                # covers unknown + non-dispatchable
         return _format_tool_result({"success": False, "data": {"error": "not_mcp_dispatchable",
                                                                "name": target}})
+    if not isinstance(targs, dict):                                # untrusted arg must not reach dict()
+        return _format_tool_result({"success": False, "data": {"error": "invalid_arguments",
+                                                               "name": target,
+                                                               "fields": ["arguments: must be an object"]}})
     verrs = validate_arguments(rec["input_schema"], targs)
     if verrs:
         return _format_tool_result({"success": False, "data": {"error": "invalid_arguments",

@@ -130,3 +130,24 @@ def test_readonly_blocked_meta_call_has_no_side_effects(monkeypatch):
     assert "tool_profile_blocked" in _text("rook_tools_call",
                                            {"name": "rhino_create", "arguments": {}})
     assert flags == {"observed": False, "dispatched": False}
+
+
+def test_rook_tools_call_rejects_non_object_arguments(monkeypatch):
+    # Malformed 'arguments' must return a structured error, not raise (dict("abc") would ValueError).
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    text = _text("rook_tools_call", {"name": "rhino_instances", "arguments": "abc"})
+    assert "invalid_arguments" in text
+
+
+def test_rook_tools_ls_tolerates_malformed_depth(monkeypatch):
+    # A non-int depth must fall back to the default, not raise int('nope').
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    out = json.loads(_text("rook_tools_ls", {"path": "/rhino", "depth": "nope"}))
+    assert "entries" in out
+
+
+def test_rook_tools_search_tolerates_malformed_limit(monkeypatch):
+    # A non-int limit must fall back to the default, not raise int('nope').
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    found = json.loads(_text("rook_tools_search", {"query": "objects", "limit": "nope"}))
+    assert isinstance(found, list)
