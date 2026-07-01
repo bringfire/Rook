@@ -28,7 +28,7 @@ stdlib `ast` (dispatchable-name scan + import-boundary test), `contextvars`.
   modules (`rook.mcp_tool_profiles`, `rook.agent.tool_groups`, `rook.context`). Must **not** import
   `rook.server`, `rook.agent.capability_inventory`, or agent runtime (`tool_dispatcher`, `tool_registry`,
   `chat.*`). It reads no `os.environ`.
-- **Counts (origin/main base):** full `428 → 432`, lean `18 → 22`, readonly `145 → 149`.
+- **Counts (origin/main base):** full `429 → 433`, lean `18 → 22`, readonly `145 → 149`.
 - **Enforcement authority unchanged:** `readonly` blocking stays `tool_blocked()` against the audited
   `PUBLIC_READONLY_TOOL_NAMES`. Facet fields (`readonly_safe`, `mcp_dispatchable`) never gate calls.
 - **`mcp_only` (LM2A) ≠ `mcp_dispatchable` (facet).** Never derive one from the other.
@@ -56,7 +56,7 @@ stdlib `ast` (dispatchable-name scan + import-boundary test), `contextvars`.
 - **Create** `mcp_server/tests/test_capability_index.py` — pure facet unit tests + import-boundary test.
 - **Create** `mcp_server/tests/test_rook_tools_meta.py` — meta-tool behavior, dispatch safety, recording.
 - **Modify** `mcp_server/tests/test_server_tool_profiles.py`, `mcp_server/tests/test_mcp_tool_profiles.py`
-  — update pinned counts (428→432, 18→22, 145→149) and add `rook_tools_*` membership assertions.
+  — update pinned counts (429→433, 18→22, 145→149) and add `rook_tools_*` membership assertions.
 
 ---
 
@@ -102,18 +102,18 @@ No commit for Task 0 (environment only). Proceed to Task 1.
 
 **Interfaces:**
 - Produces: `async def _all_live_tools() -> list[Tool]` — the deprecated-gated, **unprofiled** surface
-  (428 today). `list_tools()` returns `filter_tools(_all_live_tools(), resolve_profile(os.environ))`.
+  (429 today). `list_tools()` returns `filter_tools(_all_live_tools(), resolve_profile(os.environ))`.
 
 - [ ] **Step 1: Write the failing test**
 
 Add to `test_server_tool_profiles.py`:
 ```python
-def test_all_live_tools_is_unprofiled_428(monkeypatch):
+def test_all_live_tools_is_unprofiled_429(monkeypatch):
     monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
-    # Even with a restrictive profile set, the unprofiled source is the full 428.
+    # Even with a restrictive profile set, the unprofiled source is the full 429.
     monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "lean")
     names = {t.name for t in asyncio.run(server._all_live_tools())}
-    assert len(names) == 428
+    assert len(names) == 429
     assert _GATED.isdisjoint(names)
 ```
 
@@ -707,9 +707,10 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Update the pinned-count tests to the new truth (fail first)**
 
-In `test_server_tool_profiles.py`: `428 → 432` (in `test_full_surface_is_428_and_gates_deprecated` and
+In `test_server_tool_profiles.py`: `429 → 433` (in `test_full_surface_is_429_and_gates_deprecated` and
 `test_readonly_partition_over_live_surface`), `18 → 22` (`test_lean_surface_is_exactly_18`),
-`145 → 149` (`test_readonly_surface_is_exactly_145`); rename the three functions to the new numbers. Add:
+`145 → 149` (`test_readonly_surface_is_exactly_145`); rename the count-bearing functions to the new
+numbers (e.g. `_is_429` → `_is_433`). Add:
 ```python
 def test_meta_tools_present_in_all_profiles(monkeypatch):
     for prof in (None, "full", "lean", "readonly"):
@@ -743,7 +744,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 ```
 git add mcp_server/src/rook/server.py mcp_server/src/rook/mcp_tool_profiles.py mcp_server/tests/test_server_tool_profiles.py mcp_server/tests/test_mcp_tool_profiles.py
-git commit -m "feat(capability-index): add rook_tools_* defs + profile membership (18->22,145->149,428->432)
+git commit -m "feat(capability-index): add rook_tools_* defs + profile membership (18->22,145->149,429->433)
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```

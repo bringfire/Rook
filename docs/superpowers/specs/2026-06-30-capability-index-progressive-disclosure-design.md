@@ -74,7 +74,7 @@ never modified:**
 
 **Changed by this spec:**
 
-- `lean` membership grows **18 → 22**; `readonly` **145 → 149**; `full` live `list_tools()` **428 → 432**
+- `lean` membership grows **18 → 22**; `readonly` **145 → 149**; `full` live `list_tools()` **429 → 433**
   (the four `rook_tools_*`; base counts are `origin/main`'s, which include `openrouter_refresh_catalog`
   in `full` + `lean`). Profile snapshot counts are **updated, not preserved**.
 - `list_tools()` is refactored to project over an **unprofiled** `_all_live_tools()` source (§4.1) — a
@@ -337,7 +337,7 @@ profile campaign, common enough to justify native schema visibility, and more er
 - `PUBLIC_LEAN_TOOL_NAMES`: 18 → **22** (+ four `rook_tools_*`).
 - `PUBLIC_READONLY_TOOL_NAMES`: 145 → **149** (+ four `rook_tools_*`; the three readers are pure reads,
   `rook_tools_call` is wall-protected per §6).
-- Live `full` `list_tools()`: 428 → **432**.
+- Live `full` `list_tools()`: 429 → **433**.
 - Profile snapshot tests are **updated** to these counts; counts are assertions of current truth, not
   frozen constraints (the membership invariants in §9 are the durable assertions).
 
