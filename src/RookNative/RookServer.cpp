@@ -988,6 +988,9 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/director/frame-capture", [this](const httplib::Request& req, httplib::Response& res) {
         HandleDirectorFrameCapture(req, res);
     });
+    m_server->Post("/director/capture-depth-pass", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleDirectorCaptureDepthPass(req, res);
+    });
     m_server->Post("/director/replay", [this](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleDirectorReplay(req, res);
     });
@@ -2740,6 +2743,11 @@ void CRookServer::HandleDirectorVideoAssemble(const httplib::Request& req, httpl
 void CRookServer::HandleDirectorFrameCapture(const httplib::Request& req, httplib::Response& res)
 {
     Rook::Handlers::HandleDirectorFrameCapture(req, res);
+}
+
+void CRookServer::HandleDirectorCaptureDepthPass(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleDirectorCaptureDepthPass(req, res);
 }
 
 void CRookServer::HandleGetDisplayModes(const httplib::Request& req, httplib::Response& res)

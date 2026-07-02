@@ -11,11 +11,13 @@
 #include "RookServer.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cwctype>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <limits>
 #include <stdexcept>
@@ -46,6 +48,7 @@ constexpr int kMaxDirectorCurveSampleFrameCount = 5000;
 constexpr int kMaxDirectorVideoFrameCount = 5000;
 constexpr int kMaxDirectorVideoWidth = kMaxDirectorCaptureWidth;
 constexpr int kMaxDirectorVideoHeight = kMaxDirectorCaptureHeight;
+constexpr size_t kMaxDirectorDepthPassPixelCount = 16ull * 1024ull * 1024ull;
 constexpr double kMinDirectorVideoFps = 1.0;
 constexpr double kMaxDirectorVideoFps = 240.0;
 
@@ -97,6 +100,40 @@ struct VideoAssembleRequest
     std::string container;
 };
 
+struct DepthPassRequest
+{
+    std::string sourceKind;
+    std::string sourceName;
+    fs::path outputRoot;
+    int probeGrid = 32;
+    double nearPercentile = 2.0;
+    double farPercentile = 98.0;
+    bool invert = true;
+};
+
+struct DepthPassCapture
+{
+    std::string resolvedViewName;
+    std::string sourceKind;
+    std::string sourceName;
+    bool viewportRestoredAfterExtract = false;
+    int width = 0;
+    int height = 0;
+    int validPixelCount = 0;
+    double rawMin = std::numeric_limits<double>::infinity();
+    double rawMax = -std::numeric_limits<double>::infinity();
+    double metricMin = std::numeric_limits<double>::infinity();
+    double metricMax = -std::numeric_limits<double>::infinity();
+    std::vector<float> metricDepth;
+    std::vector<unsigned char> validMask;
+    std::vector<double> validMetricDepths;
+    std::vector<double> probeDepths;
+    ON_Viewport viewport;
+    ON_3dPoint cameraLocation;
+    ON_3dVector cameraDirection;
+    std::string units;
+};
+
 nlohmann::json MakeFrameErrorData(
     const nlohmann::json& body,
     const std::string& code,
@@ -115,6 +152,38 @@ nlohmann::json MakeFrameErrorData(
     data["affected_object_ids"] = affectedObjectIds;
     data["error"] = MakeErrorData(code, message);
     return data;
+}
+
+std::pair<unsigned int, nlohmann::json> ParseStrictBodyAndDocSn(const httplib::Request& req)
+{
+    if (req.body.empty())
+        throw DirectorFrameValidationError("invalid_input", "request body must be a JSON object");
+
+    nlohmann::json body = nlohmann::json::parse(req.body);
+    if (!body.is_object())
+        throw DirectorFrameValidationError("invalid_input", "request body must be a JSON object");
+
+    unsigned int docSn = 0;
+    if (body.contains("documentSerialNumber"))
+    {
+        if (body["documentSerialNumber"].is_number_unsigned())
+        {
+            docSn = body["documentSerialNumber"].get<unsigned int>();
+        }
+        else if (body["documentSerialNumber"].is_number_integer())
+        {
+            const auto signedValue = body["documentSerialNumber"].get<nlohmann::json::number_integer_t>();
+            if (signedValue < 0 || signedValue > static_cast<nlohmann::json::number_integer_t>((std::numeric_limits<unsigned int>::max)()))
+                throw DirectorFrameValidationError("invalid_input", "documentSerialNumber must be a non-negative integer");
+            docSn = static_cast<unsigned int>(signedValue);
+        }
+        else
+        {
+            throw DirectorFrameValidationError("invalid_input", "documentSerialNumber must be a non-negative integer");
+        }
+    }
+
+    return { docSn, std::move(body) };
 }
 
 nlohmann::json MakeVideoErrorData(
@@ -144,6 +213,28 @@ nlohmann::json MakeVideoErrorData(
     return data;
 }
 
+std::string MakeDirectorDepthTimestamp()
+{
+    auto now = std::chrono::system_clock::now();
+    auto time = std::chrono::system_clock::to_time_t(now);
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now.time_since_epoch()) % 1000;
+
+    std::ostringstream oss;
+    struct tm tmBuf = {};
+    if (localtime_s(&tmBuf, &time) == 0)
+        oss << std::put_time(&tmBuf, "%Y%m%d_%H%M%S");
+    else
+        oss << time;
+    oss << "_" << std::setfill('0') << std::setw(3) << ms.count();
+    return oss.str();
+}
+
+double DotDepthVector(const ON_3dVector& a, const ON_3dVector& b)
+{
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
 nlohmann::json PointToJson(const ON_3dPoint& point)
 {
     return nlohmann::json::array({
@@ -170,6 +261,8 @@ nlohmann::json BoundingBoxToJson(const ON_BoundingBox& bbox)
     data["center"] = PointToJson(bbox.Center());
     return data;
 }
+
+std::string PathToUtf8(const fs::path& path);
 
 bool IsFinitePoint(const ON_3dPoint& point)
 {
@@ -595,6 +688,496 @@ void ValidateVideoAssemblyPolicy(const VideoAssembleRequest& request)
             "output_policy_violation",
             "output_path must be a file below run_root/videos");
     }
+}
+
+fs::path DefaultDepthPassOutputRoot()
+{
+    return GetAllowedDirectorRoot() / L"depth_passes";
+}
+
+double OptionalFiniteNumber(
+    const nlohmann::json& object,
+    const std::string& key,
+    double defaultValue,
+    const std::string& displayPath)
+{
+    if (!object.contains(key) || object[key].is_null())
+        return defaultValue;
+    if (!object[key].is_number())
+        throw DirectorFrameValidationError("invalid_input", displayPath + " must be a finite number");
+
+    const double value = object[key].get<double>();
+    if (!std::isfinite(value))
+        throw DirectorFrameValidationError("invalid_input", displayPath + " must be a finite number");
+    return value;
+}
+
+int OptionalIntInRange(
+    const nlohmann::json& object,
+    const std::string& key,
+    int defaultValue,
+    int minimum,
+    int maximum,
+    const std::string& displayPath)
+{
+    if (!object.contains(key) || object[key].is_null())
+        return defaultValue;
+    if (object[key].is_boolean() || !object[key].is_number_integer())
+        throw DirectorFrameValidationError("invalid_input", displayPath + " must be an integer");
+
+    if (object[key].is_number_unsigned())
+    {
+        const auto numeric = object[key].get<nlohmann::json::number_unsigned_t>();
+        if (numeric < static_cast<nlohmann::json::number_unsigned_t>(minimum) ||
+            numeric > static_cast<nlohmann::json::number_unsigned_t>(maximum))
+        {
+            throw DirectorFrameValidationError(
+                "invalid_input",
+                displayPath + " must be between " + std::to_string(minimum) + " and " + std::to_string(maximum));
+        }
+        return static_cast<int>(numeric);
+    }
+
+    const auto numeric = object[key].get<nlohmann::json::number_integer_t>();
+    if (numeric < static_cast<nlohmann::json::number_integer_t>(minimum) ||
+        numeric > static_cast<nlohmann::json::number_integer_t>(maximum))
+    {
+        throw DirectorFrameValidationError(
+            "invalid_input",
+            displayPath + " must be between " + std::to_string(minimum) + " and " + std::to_string(maximum));
+    }
+    return static_cast<int>(numeric);
+}
+
+bool OptionalBool(const nlohmann::json& object, const std::string& key, bool defaultValue, const std::string& displayPath)
+{
+    if (!object.contains(key) || object[key].is_null())
+        return defaultValue;
+    if (!object[key].is_boolean())
+        throw DirectorFrameValidationError("invalid_input", displayPath + " must be a boolean");
+    return object[key].get<bool>();
+}
+
+DepthPassRequest ParseDepthPassRequest(const nlohmann::json& body)
+{
+    if (!body.contains("source") || !body["source"].is_object())
+        throw DirectorFrameValidationError("invalid_input", "source must be an object");
+
+    const auto& source = body["source"];
+    DepthPassRequest request;
+    request.sourceKind = RequireString(source, "kind", "source.kind");
+    if (request.sourceKind == "named_view")
+    {
+        request.sourceName = RequireString(source, "name", "source.name");
+    }
+    else if (request.sourceKind != "active_view")
+    {
+        throw DirectorFrameValidationError("invalid_input", "source.kind must be active_view or named_view");
+    }
+
+    request.outputRoot = DefaultDepthPassOutputRoot();
+    if (body.contains("output_root") && !body["output_root"].is_null())
+    {
+        if (!body["output_root"].is_string() || body["output_root"].get<std::string>().empty())
+            throw DirectorFrameValidationError("invalid_input", "output_root must be a non-empty string");
+        request.outputRoot = NormalizePolicyPath(PathFromUtf8(body["output_root"].get<std::string>()));
+    }
+
+    const fs::path allowedRoot = GetAllowedDirectorRoot();
+    if (!IsSameOrDescendantPath(allowedRoot, request.outputRoot))
+    {
+        throw DirectorFrameValidationError(
+            "output_policy_violation",
+            "output_root must be inside the native director output root");
+    }
+
+    request.probeGrid = OptionalIntInRange(body, "probe_grid", 32, 4, 256, "probe_grid");
+    request.nearPercentile = OptionalFiniteNumber(body, "near_percentile", 2.0, "near_percentile");
+    request.farPercentile = OptionalFiniteNumber(body, "far_percentile", 98.0, "far_percentile");
+    if (request.nearPercentile < 0.0 || request.nearPercentile > 100.0 ||
+        request.farPercentile < 0.0 || request.farPercentile > 100.0 ||
+        request.nearPercentile >= request.farPercentile)
+    {
+        throw DirectorFrameValidationError(
+            "invalid_input",
+            "near_percentile and far_percentile must satisfy 0 <= near < far <= 100");
+    }
+
+    request.invert = OptionalBool(body, "invert", true, "invert");
+    return request;
+}
+
+double PercentileSorted(const std::vector<double>& sortedValues, double percentile)
+{
+    if (sortedValues.empty())
+        throw DirectorFrameValidationError("empty_depth", "Depth capture did not contain valid pixels");
+
+    if (percentile <= 0.0)
+        return sortedValues.front();
+    if (percentile >= 100.0)
+        return sortedValues.back();
+
+    const double position = (percentile / 100.0) * static_cast<double>(sortedValues.size() - 1);
+    const size_t lo = static_cast<size_t>(std::floor(position));
+    const size_t hi = static_cast<size_t>(std::ceil(position));
+    if (lo == hi)
+        return sortedValues[lo];
+
+    const double t = position - static_cast<double>(lo);
+    return sortedValues[lo] * (1.0 - t) + sortedValues[hi] * t;
+}
+
+void WriteRawFloat32(const fs::path& path, const std::vector<float>& values)
+{
+    std::ofstream out(path, std::ios::binary);
+    if (!out)
+        throw DirectorFrameValidationError("output_write_failed", "Failed to open raw depth output: " + PathToUtf8(path));
+    out.write(
+        reinterpret_cast<const char*>(values.data()),
+        static_cast<std::streamsize>(values.size() * sizeof(float)));
+    if (!out)
+        throw DirectorFrameValidationError("output_write_failed", "Failed to write raw depth output: " + PathToUtf8(path));
+}
+
+void WriteMaskPgm8(const fs::path& path, int width, int height, const std::vector<unsigned char>& validMask)
+{
+    std::ofstream out(path, std::ios::binary);
+    if (!out)
+        throw DirectorFrameValidationError("output_write_failed", "Failed to open depth mask output: " + PathToUtf8(path));
+    out << "P5\n" << width << " " << height << "\n255\n";
+    out.write(reinterpret_cast<const char*>(validMask.data()), static_cast<std::streamsize>(validMask.size()));
+    if (!out)
+        throw DirectorFrameValidationError("output_write_failed", "Failed to write depth mask output: " + PathToUtf8(path));
+}
+
+void WriteMappedPgm16(
+    const fs::path& path,
+    int width,
+    int height,
+    const std::vector<float>& metricDepth,
+    const std::vector<unsigned char>& validMask,
+    double nearDepth,
+    double farDepth,
+    bool invert)
+{
+    std::ofstream out(path, std::ios::binary);
+    if (!out)
+        throw DirectorFrameValidationError("output_write_failed", "Failed to open mapped depth output: " + PathToUtf8(path));
+
+    out << "P5\n" << width << " " << height << "\n65535\n";
+    const double range = (std::max)(1.0e-12, farDepth - nearDepth);
+    for (size_t i = 0; i < metricDepth.size(); ++i)
+    {
+        uint16_t mapped = 0;
+        if (validMask[i] != 0 && std::isfinite(metricDepth[i]))
+        {
+            double t = (static_cast<double>(metricDepth[i]) - nearDepth) / range;
+            t = (std::max)(0.0, (std::min)(1.0, t));
+            if (invert)
+                t = 1.0 - t;
+            mapped = static_cast<uint16_t>(std::llround(t * 65535.0));
+        }
+
+        const unsigned char bytes[2] = {
+            static_cast<unsigned char>((mapped >> 8) & 0xFF),
+            static_cast<unsigned char>(mapped & 0xFF)
+        };
+        out.write(reinterpret_cast<const char*>(bytes), 2);
+    }
+
+    if (!out)
+        throw DirectorFrameValidationError("output_write_failed", "Failed to write mapped depth output: " + PathToUtf8(path));
+}
+
+void WriteJsonFile(const fs::path& path, const nlohmann::json& data)
+{
+    std::ofstream out(path, std::ios::binary);
+    if (!out)
+        throw DirectorFrameValidationError("output_write_failed", "Failed to open manifest output: " + PathToUtf8(path));
+    out << data.dump(2);
+    if (!out)
+        throw DirectorFrameValidationError("output_write_failed", "Failed to write manifest output: " + PathToUtf8(path));
+}
+
+std::wstring GuidSuffix();
+
+DepthPassCapture CaptureDepthPassOnMain(CRhinoDoc* pDoc, const DepthPassRequest& request)
+{
+    if (!pDoc)
+        throw std::runtime_error("No active document");
+
+    CRhinoView* pView = pDoc->ActiveView();
+    if (!pView)
+        throw std::runtime_error("No active view");
+    ValidateSlice1ModelRhinoView(pView);
+
+    CRhinoViewport& rhinoViewport = pView->ActiveViewport();
+    const ON_Viewport savedViewport = rhinoViewport.VP();
+    bool restored = false;
+
+    auto restoreViewport = [&]() {
+        rhinoViewport.SetVP(savedViewport, true);
+        pView->Redraw();
+        restored = true;
+    };
+
+    try
+    {
+        std::string resolvedViewName = WideToUtf8(rhinoViewport.Name());
+        if (request.sourceKind == "named_view")
+        {
+            const ON_3dmView* pNamedView = FindNamedView(pDoc, request.sourceName);
+            if (!pNamedView)
+                throw DirectorFrameValidationError("invalid_input", "Named view not found: " + request.sourceName);
+            ValidateSlice1NamedView(*pNamedView, request.sourceName);
+            rhinoViewport.SetVP(pNamedView->m_vp, true);
+            pView->Redraw();
+            resolvedViewName = WideToUtf8(pNamedView->m_name);
+        }
+
+        CRhinoZBuffer zbuffer(rhinoViewport);
+        if (!zbuffer.Capture())
+            throw DirectorFrameValidationError("capture_failed", "Rhino z-buffer capture failed");
+
+        DepthPassCapture capture;
+        capture.resolvedViewName = resolvedViewName;
+        capture.sourceKind = request.sourceKind;
+        capture.sourceName = request.sourceName;
+        capture.width = zbuffer.Width();
+        capture.height = zbuffer.Height();
+        if (capture.width <= 0 || capture.height <= 0)
+            throw DirectorFrameValidationError("capture_failed", "Rhino z-buffer capture returned empty dimensions");
+        if (capture.width > kMaxDirectorCaptureWidth || capture.height > kMaxDirectorCaptureHeight)
+            throw DirectorFrameValidationError("unsupported_dimensions", "Depth capture dimensions exceed native Director bounds");
+        const size_t pixelCount = static_cast<size_t>(capture.width) * static_cast<size_t>(capture.height);
+        if (pixelCount > kMaxDirectorDepthPassPixelCount)
+            throw DirectorFrameValidationError("unsupported_dimensions", "Depth capture pixel count exceeds native Director depth-pass bounds");
+
+        capture.viewport = rhinoViewport.VP();
+        capture.cameraLocation = capture.viewport.CameraLocation();
+        capture.cameraDirection = capture.viewport.CameraDirection();
+        if (!capture.cameraDirection.Unitize())
+            throw DirectorFrameValidationError("capture_failed", "Depth capture camera direction is invalid");
+
+        const ON_3dmUnitsAndTolerances& units = pDoc->Properties().ModelUnitsAndTolerances();
+        capture.units = WideToUtf8(units.m_unit_system.ToString());
+
+        capture.metricDepth.assign(pixelCount, std::numeric_limits<float>::quiet_NaN());
+        capture.validMask.assign(pixelCount, 0);
+        capture.validMetricDepths.reserve(pixelCount / 4);
+
+        for (int y = 0; y < capture.height; ++y)
+        {
+            for (int x = 0; x < capture.width; ++x)
+            {
+                const size_t index = static_cast<size_t>(y) * static_cast<size_t>(capture.width) + static_cast<size_t>(x);
+                const float raw = zbuffer.ZValue(x, y);
+                if (!(raw > 0.0f && raw < 1.0f) || !std::isfinite(raw))
+                    continue;
+
+                const ON_3dPoint world = zbuffer.WorldPoint(x, y);
+                if (!IsFinitePoint(world))
+                    continue;
+
+                const double metric = DotDepthVector(world - capture.cameraLocation, capture.cameraDirection);
+                if (!std::isfinite(metric) || metric <= 0.0)
+                    continue;
+
+                capture.validMask[index] = 255;
+                capture.metricDepth[index] = static_cast<float>(metric);
+                capture.validMetricDepths.push_back(metric);
+                capture.validPixelCount++;
+                capture.rawMin = (std::min)(capture.rawMin, static_cast<double>(raw));
+                capture.rawMax = (std::max)(capture.rawMax, static_cast<double>(raw));
+                capture.metricMin = (std::min)(capture.metricMin, metric);
+                capture.metricMax = (std::max)(capture.metricMax, metric);
+            }
+        }
+
+        if (capture.validPixelCount == 0)
+            throw DirectorFrameValidationError("empty_depth", "Depth capture did not contain valid pixels");
+
+        const int xStep = (std::max)(1, capture.width / request.probeGrid);
+        const int yStep = (std::max)(1, capture.height / request.probeGrid);
+        for (int y = yStep / 2; y < capture.height; y += yStep)
+        {
+            for (int x = xStep / 2; x < capture.width; x += xStep)
+            {
+                const size_t index = static_cast<size_t>(y) * static_cast<size_t>(capture.width) + static_cast<size_t>(x);
+                if (capture.validMask[index] != 0 && std::isfinite(capture.metricDepth[index]))
+                    capture.probeDepths.push_back(static_cast<double>(capture.metricDepth[index]));
+            }
+        }
+
+        restoreViewport();
+        capture.viewportRestoredAfterExtract = restored;
+        return capture;
+    }
+    catch (...)
+    {
+        if (!restored)
+            restoreViewport();
+        throw;
+    }
+}
+
+nlohmann::json DepthFileRole(
+    const std::string& role,
+    const fs::path& path,
+    const std::string& format,
+    const std::string& dtype,
+    const std::string& endianness,
+    int width,
+    int height)
+{
+    nlohmann::json file;
+    file["role"] = role;
+    file["path"] = PathToUtf8(path);
+    file["format"] = format;
+    file["dtype"] = dtype;
+    file["endianness"] = endianness;
+    file["shape"] = nlohmann::json::array({ height, width });
+    file["width"] = width;
+    file["height"] = height;
+    file["row_major"] = true;
+    return file;
+}
+
+nlohmann::json BuildDepthPassArtifact(
+    const DepthPassRequest& request,
+    DepthPassCapture capture)
+{
+    std::sort(capture.validMetricDepths.begin(), capture.validMetricDepths.end());
+    double nearDepth = PercentileSorted(capture.validMetricDepths, request.nearPercentile);
+    double farDepth = PercentileSorted(capture.validMetricDepths, request.farPercentile);
+    if (!(farDepth > nearDepth))
+        farDepth = nearDepth + 1.0e-6;
+
+    std::error_code ec;
+    fs::create_directories(request.outputRoot, ec);
+    if (ec)
+        throw DirectorFrameValidationError("output_write_failed", "Failed to create depth output root: " + ec.message());
+
+    ON_wString artifactGuid(GuidSuffix().c_str());
+    const std::string artifactId = "depth_pass_" + MakeDirectorDepthTimestamp() + "_" + WideToUtf8(artifactGuid);
+    const fs::path artifactRoot = request.outputRoot / PathFromUtf8(artifactId);
+    if (fs::exists(artifactRoot, ec))
+        throw DirectorFrameValidationError("artifact_collision", "Depth artifact directory already exists");
+    if (ec)
+        throw DirectorFrameValidationError("output_write_failed", "Failed to inspect depth artifact directory: " + ec.message());
+    const bool createdArtifactRoot = fs::create_directory(artifactRoot, ec);
+    if (ec)
+        throw DirectorFrameValidationError("output_write_failed", "Failed to create depth artifact directory: " + ec.message());
+    if (!createdArtifactRoot)
+        throw DirectorFrameValidationError("artifact_collision", "Depth artifact directory already exists");
+
+    const fs::path rawPath = artifactRoot / L"depth_document_units_f32_le.bin";
+    const fs::path mappedPath = artifactRoot / L"depth_mapped_u16.pgm";
+    const fs::path maskPath = artifactRoot / L"valid_mask_u8.pgm";
+    const fs::path manifestPath = artifactRoot / L"manifest.json";
+
+    WriteRawFloat32(rawPath, capture.metricDepth);
+    WriteMappedPgm16(mappedPath, capture.width, capture.height, capture.metricDepth, capture.validMask, nearDepth, farDepth, request.invert);
+    WriteMaskPgm8(maskPath, capture.width, capture.height, capture.validMask);
+
+    nlohmann::json files = nlohmann::json::array();
+    nlohmann::json raw = DepthFileRole("metric_depth", rawPath, "raw", "float32", "little", capture.width, capture.height);
+    raw["invalid_value"] = "NaN";
+    raw["unit"] = "document_units";
+    raw["document_unit_system"] = capture.units;
+    raw["stride_bytes"] = capture.width * static_cast<int>(sizeof(float));
+    files.push_back(std::move(raw));
+
+    nlohmann::json mapped = DepthFileRole("mapped_preview", mappedPath, "pgm", "uint16", "big", capture.width, capture.height);
+    mapped["invalid_pixels"] = "see valid_mask";
+    mapped["valid_range"] = nlohmann::json::array({ 0, 65535 });
+    mapped["mapping"] = request.invert ? "near_white_far_black" : "near_black_far_white";
+    files.push_back(std::move(mapped));
+
+    nlohmann::json mask = DepthFileRole("valid_mask", maskPath, "pgm", "uint8", "not_applicable", capture.width, capture.height);
+    mask["valid_value"] = 255;
+    mask["invalid_value"] = 0;
+    files.push_back(std::move(mask));
+
+    nlohmann::json manifestFile;
+    manifestFile["role"] = "manifest";
+    manifestFile["path"] = PathToUtf8(manifestPath);
+    manifestFile["format"] = "json";
+    files.push_back(std::move(manifestFile));
+
+    nlohmann::json artifact;
+    artifact["kind"] = "director_depth_pass";
+    artifact["id"] = artifactId;
+    artifact["root"] = PathToUtf8(artifactRoot);
+    artifact["manifest_path"] = PathToUtf8(manifestPath);
+    artifact["files"] = std::move(files);
+
+    nlohmann::json captureJson;
+    captureJson["source"] = {
+        { "kind", capture.sourceKind },
+        { "name", capture.sourceName.empty() ? nlohmann::json(nullptr) : nlohmann::json(capture.sourceName) },
+        { "resolved_view_name", capture.resolvedViewName }
+    };
+    captureJson["width"] = capture.width;
+    captureJson["height"] = capture.height;
+    captureJson["valid_pixels"] = capture.validPixelCount;
+    captureJson["invalid_pixels"] = static_cast<int>(capture.metricDepth.size()) - capture.validPixelCount;
+    captureJson["viewport_restored_after_extract"] = capture.viewportRestoredAfterExtract;
+    captureJson["unit"] = "document_units";
+    captureJson["document_unit_system"] = capture.units;
+    captureJson["raw_z"] = {
+        { "min", RoundTo(capture.rawMin, 9) },
+        { "max", RoundTo(capture.rawMax, 9) }
+    };
+    captureJson["metric_depth"] = {
+        { "min", RoundTo(capture.metricMin, 6) },
+        { "max", RoundTo(capture.metricMax, 6) }
+    };
+    captureJson["camera"] = SerializeViewportCamera(capture.viewport);
+    captureJson["camera"]["direction"] = VectorToJson(capture.cameraDirection);
+
+    nlohmann::json mapping;
+    mapping["source"] = "full_valid_pixels";
+    mapping["near_percentile"] = request.nearPercentile;
+    mapping["far_percentile"] = request.farPercentile;
+    mapping["near_depth"] = RoundTo(nearDepth, 6);
+    mapping["far_depth"] = RoundTo(farDepth, 6);
+    mapping["invert"] = request.invert;
+    mapping["orientation"] = request.invert ? "near_white_far_black" : "near_black_far_white";
+    mapping["invalid_pixels"] = "valid_mask role disambiguates mapped preview value 0";
+
+    nlohmann::json probe;
+    probe["diagnostic_only"] = true;
+    probe["grid"] = request.probeGrid;
+    probe["valid_samples"] = static_cast<int>(capture.probeDepths.size());
+    if (!capture.probeDepths.empty())
+    {
+        std::sort(capture.probeDepths.begin(), capture.probeDepths.end());
+        probe["min"] = RoundTo(capture.probeDepths.front(), 6);
+        probe["max"] = RoundTo(capture.probeDepths.back(), 6);
+    }
+
+    nlohmann::json result;
+    result["schema_version"] = "director_depth_pass.v0";
+    result["experimental"] = true;
+    result["artifact"] = std::move(artifact);
+    result["capture"] = std::move(captureJson);
+    result["mapping"] = std::move(mapping);
+    result["probe"] = std::move(probe);
+    result["projection"] = SerializeViewportCamera(capture.viewport);
+    result["output_schema"] = {
+        { "row_major", true },
+        { "shape_order", "height_width" },
+        { "metric_depth_dtype", "float32" },
+        { "metric_depth_endianness", "little" },
+        { "metric_depth_invalid_value", "NaN" },
+        { "mask_dtype", "uint8" },
+        { "mapped_preview_dtype", "uint16" },
+        { "mapped_preview_endianness", "big" }
+    };
+
+    WriteJsonFile(manifestPath, result);
+    return result;
 }
 
 uint8_t ClampByte(int value)
@@ -1594,6 +2177,42 @@ void HandleDirectorFrameCapture(const httplib::Request& req, httplib::Response& 
     catch (const std::exception& ex)
     {
         CRookServer::SendErrorData(res, MakeFrameErrorData(body, "native_frame_failed", ex.what()));
+    }
+}
+
+void HandleDirectorCaptureDepthPass(const httplib::Request& req, httplib::Response& res)
+{
+    try
+    {
+        auto [docSn, body] = ParseStrictBodyAndDocSn(req);
+        DepthPassRequest request = ParseDepthPassRequest(body);
+
+        auto future = CMainThreadDispatcher::Instance().Dispatch(
+            [docSn, request]() -> DepthPassCapture
+        {
+            CRhinoDoc* pDoc = ResolveDoc(docSn);
+            return CaptureDepthPassOnMain(pDoc, request);
+        });
+
+        DepthPassCapture capture = future.get();
+        nlohmann::json data = BuildDepthPassArtifact(request, std::move(capture));
+        CRookServer::SendSuccess(res, data);
+    }
+    catch (const DirectorFrameValidationError& ex)
+    {
+        CRookServer::SendErrorData(res, MakeErrorData(ex.code, ex.what()));
+    }
+    catch (const nlohmann::json::exception& ex)
+    {
+        CRookServer::SendErrorData(res, MakeErrorData("invalid_input", ex.what()));
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendErrorData(res, MakeErrorData("invalid_input", ex.what()));
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendErrorData(res, MakeErrorData("director_depth_pass_failed", ex.what()));
     }
 }
 
