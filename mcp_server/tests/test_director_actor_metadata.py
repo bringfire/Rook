@@ -112,6 +112,17 @@ def _assert_no_absolute_or_backslash_refs(value):
             _assert_no_absolute_or_backslash_refs(item)
 
 
+def _walk_strings(value, path="$"):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            yield from _walk_strings(child, f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            yield from _walk_strings(child, f"{path}[{index}]")
+    elif isinstance(value, str):
+        yield path, value
+
+
 def test_validate_metadata_ref_accepts_project_relative_rook_ref():
     ref = ".rook/director_planning/actor_sets/a.json"
 
@@ -428,6 +439,28 @@ def test_write_actor_metadata_bundle_v2_creates_refs_and_no_legacy_paths(tmp_pat
         assert item["resolved_path"].endswith(".json")
         persisted = json.loads(Path(item["resolved_path"]).read_text(encoding="utf-8"))
         _assert_no_absolute_or_backslash_refs(persisted)
+
+
+def test_generated_bundle_contains_no_durable_absolute_identity_paths(tmp_path):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir(parents=True)
+    model.write_bytes(b"not-a-real-3dm")
+
+    result = asyncio.run(
+        metadata.write_actor_metadata_bundle_v2(
+            _minimal_bundle(),
+            call_native=FakeDocumentNative(str(model)),
+            port=None,
+        )
+    )
+
+    for item in result["written"]:
+        payload = json.loads(Path(item["resolved_path"]).read_text(encoding="utf-8"))
+        for path, value in _walk_strings(payload):
+            if path.endswith("resolved_metadata_path") or ".resolved_" in path:
+                continue
+            assert not value.startswith("\\\\"), (path, value)
+            assert not (len(value) >= 3 and value[1:3] == ":\\"), (path, value)
 
 
 def test_write_actor_metadata_bundle_v2_accepts_document_success_envelope(tmp_path):

@@ -180,20 +180,35 @@ def test_convert_v1_grouping_preserves_curated_metadata_and_order(tmp_path):
         / ".rook"
         / "director_planning"
         / "selection_snapshots"
-        / "intent_001.json"
+        / "intent_007.json"
+    )
+    source_path = (
+        project_root
+        / ".rook"
+        / "director_planning"
+        / "actor_sets"
+        / "set_001_subsets"
+        / "subset_001_band_sets"
+        / "bands_001.json"
     )
     exemplar_path.parent.mkdir(parents=True)
     exemplar_path.write_text("{}", encoding="utf-8")
     bands = [
-        {"band_id": "front", "members": [{"id": "mesh_001"}]},
-        {"band_id": "rear", "members": [{"id": "mesh_002"}]},
+        {"band_id": "front", "order": 1, "members": [{"id": "mesh_001"}]},
+        {"band_id": "rear", "order": 2, "members": [{"id": "mesh_002"}]},
     ]
-    classifier = {"type": "orientation", "axis": "x"}
+    classifier = {"method": "distance_from_exemplar", "threshold_model_units": 0.125}
     provenance = {"curated_by": "reviewer", "source": "manual"}
+    summary = {
+        "label": "Curated orientation bands.",
+        "band_count": 2,
+    }
     payload = {
         "schema_version": 1,
         "band_set_id": "bands_001",
-        "summary": "Curated orientation bands.",
+        "parent_actor_set_id": "set_001",
+        "parent_subset_id": "subset_001",
+        "summary": summary,
         "classifier": classifier,
         "provenance": provenance,
         "exemplar_selection_snapshot_path": str(exemplar_path),
@@ -203,23 +218,19 @@ def test_convert_v1_grouping_preserves_curated_metadata_and_order(tmp_path):
     converted, changes = migration.convert_v1_payload(
         payload,
         project_root=project_root,
-        source_path=project_root
-        / ".rook"
-        / "director_planning"
-        / "actor_sets"
-        / "set_001_subsets"
-        / "subset_001_band_sets"
-        / "bands_001.json",
+        source_path=source_path,
     )
 
     assert converted["metadata_kind"] == metadata.KIND_ACTOR_GROUPING
     assert (
         converted["exemplar_selection_snapshot_ref"]
-        == ".rook/director_planning/selection_snapshots/intent_001.json"
+        == ".rook/director_planning/selection_snapshots/intent_007.json"
     )
+    assert converted["parent_actor_set_id"] == "set_001"
+    assert converted["parent_subset_id"] == "subset_001"
     assert converted["classifier"] == classifier
     assert converted["provenance"] == provenance
-    assert converted["summary"] == "Curated orientation bands."
+    assert converted["summary"] == summary
     assert converted["bands"] == bands
     assert "exemplar_selection_snapshot_path" not in converted
     assert "$.exemplar_selection_snapshot_path" in _change_fields(changes)
