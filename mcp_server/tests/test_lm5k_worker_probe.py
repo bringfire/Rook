@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import argparse
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -152,3 +154,140 @@ def test_attempt_metrics_pair() -> None:
     assert PROBE.attempt_metrics(loaded_passed) == (True, True)
     assert PROBE.attempt_metrics(loaded_failed) == (True, False)
     assert PROBE.attempt_metrics(invalid) == (False, False)
+
+
+class _FakeCallInfo:
+    def __init__(self):
+        self.latency_ms = 12.5
+        self.prompt_tokens = 100
+        self.completion_tokens = 20
+        self.cost_usd = 0.0001
+
+
+class _FakeGoodTransport:
+    """Deterministic offline model: reads the allowed action from the
+    prompt artifact's user JSON (mirrors LM5J's integration transport)."""
+
+    def __init__(self, resolution):
+        self.last_call_info = None
+        self.last_raw_output = None
+
+    def send(self, prompt_artifact):
+        self.last_call_info = None
+        self.last_raw_output = None
+        envelope = json.loads(prompt_artifact["messages"][1]["content"])
+        action_id = envelope["context"]["allowed_actions"][0]["action_id"]
+        raw = json.dumps(
+            {
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "action_request",
+                "action_id": action_id,
+                "rationale": "Draft repair parameters for the failed component.",
+                "input": {"code": "A = 42.0;", "mode": "body"},
+            }
+        )
+        self.last_raw_output = raw
+        self.last_call_info = _FakeCallInfo()
+        return raw
+
+
+class _FakeFencedTransport(_FakeGoodTransport):
+    def send(self, prompt_artifact):
+        raw = super().send(prompt_artifact)
+        fenced = "```json\n" + raw + "\n```"
+        self.last_raw_output = fenced
+        return fenced
+
+
+def _args(tmp_path, **overrides):
+    values = {
+        "local": "ollama_chat/fake:1", "cheap": None, "ceiling": None,
+        "skip": ["cheap", "ceiling"], "attempts": 3,
+        "capture_raw": False, "run_dir": str(tmp_path),
+    }
+    values.update(overrides)
+    return argparse.Namespace(**values)
+
+
+def test_offline_probe_end_to_end_good_transport(tmp_path) -> None:
+    run_dir = PROBE.run_probe(
+        _args(tmp_path), transport_factory=_FakeGoodTransport
+    )
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    assert manifest["generation_params"] == {"temperature": 0}
+    assert manifest["prompt_text_version"] == "lm5j.prompt_text:v1"
+    local = next(p for p in manifest["panel"] if p["slot"] == "local")
+    assert local["status"] == "ran"
+    assert local["strict_loadable"] == 3
+    assert local["spine_passed"] == 3
+    skipped = [p for p in manifest["panel"] if p["status"] == "skipped"]
+    assert len(skipped) == 2
+    lines = (run_dir / "attempts.jsonl").read_text().strip().splitlines()
+    assert len(lines) == 3
+    first = json.loads(lines[0])
+    assert first["run_id"] == run_dir.name
+    assert first["adapter_status"] == "response_loaded"
+    assert first["evaluation_passed"] is True
+    assert first["disposition"] == "candidate_action_request"
+    assert first["latency_ms"] == 12.5
+    assert first["captured_raw_path"] is None
+    assert not (run_dir / "raw").exists()
+
+
+def test_offline_probe_fenced_output_counts_split(tmp_path) -> None:
+    run_dir = PROBE.run_probe(
+        _args(tmp_path, attempts=2), transport_factory=_FakeFencedTransport
+    )
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    local = next(p for p in manifest["panel"] if p["slot"] == "local")
+    assert local["status"] == "ran"
+    assert local["strict_loadable"] == 0
+    assert local["spine_passed"] == 0
+    lines = (run_dir / "attempts.jsonl").read_text().strip().splitlines()
+    assert json.loads(lines[0])["failure_reason"] == (
+        "raw_output_invalid:json_decode"
+    )
+
+
+def test_offline_probe_capture_raw(tmp_path) -> None:
+    run_dir = PROBE.run_probe(
+        _args(tmp_path, attempts=1, capture_raw=True),
+        transport_factory=_FakeGoodTransport,
+    )
+    lines = (run_dir / "attempts.jsonl").read_text().strip().splitlines()
+    first = json.loads(lines[0])
+    assert first["captured_raw_path"] == "raw/local-0.txt"
+    raw_text = (run_dir / "raw" / "local-0.txt").read_text(encoding="utf-8")
+    assert '"kind": "action_request"' in raw_text
+
+
+def test_attempts_must_be_positive(tmp_path) -> None:
+    for bad in (0, -3):
+        with pytest.raises(ValueError):
+            PROBE.run_probe(
+                _args(tmp_path, attempts=bad),
+                transport_factory=_FakeGoodTransport,
+            )
+    with pytest.raises(argparse.ArgumentTypeError):
+        PROBE._positive_int("0")
+    with pytest.raises(argparse.ArgumentTypeError):
+        PROBE._positive_int("-2")
+    assert PROBE._positive_int("5") == 5
+
+
+def test_unavailable_slot_records_no_attempts(tmp_path, monkeypatch) -> None:
+    for var in PROBE.ENV_VARS.values():
+        monkeypatch.delenv(var, raising=False)
+    run_dir = PROBE.run_probe(
+        _args(tmp_path, local=None, skip=["ceiling"], attempts=1),
+        transport_factory=_FakeGoodTransport,
+    )
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    by_slot = {p["slot"]: p for p in manifest["panel"]}
+    # cheap unresolved (no cli/env, never profile-inferred) -> unavailable
+    assert by_slot["cheap"]["status"] == "unavailable"
+    assert by_slot["cheap"]["attempts"] == 0
+    assert by_slot["ceiling"]["status"] == "skipped"
+    attempts_file = run_dir / "attempts.jsonl"
+    if by_slot["local"]["status"] in ("unavailable", "skipped"):
+        assert not attempts_file.exists()
