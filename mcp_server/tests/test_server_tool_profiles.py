@@ -13,7 +13,7 @@ _GATED = {"rhino_command_experiment", "rhino_learn_next", "rhino_prepare_geometr
 
 
 def _list_names(monkeypatch, profile_value):
-    # Default flag-off state so the live surface is the canonical 433.
+    # Default flag-off state so the live surface is the canonical 435.
     monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
     monkeypatch.delenv("ROOK_MCP_TARGET_MODE", raising=False)
     if profile_value is None:
@@ -24,22 +24,23 @@ def _list_names(monkeypatch, profile_value):
     return {t.name for t in tools}
 
 
-def test_full_surface_is_433_and_gates_deprecated(monkeypatch):
+def test_full_surface_is_435_and_gates_deprecated(monkeypatch):
     full = _list_names(monkeypatch, None)  # absent => full
-    # 429 pre-meta base (427 #382 + mesh2splat #384 + openrouter #385) + 4 rook_tools_* meta-tools.
-    assert len(full) == 433
+    # 431 pre-meta base (427 #382 + mesh2splat #384 + openrouter #385
+    # + Director v2 actor metadata tools) + 4 rook_tools_* meta-tools.
+    assert len(full) == 435
     assert _GATED.isdisjoint(full)
     assert PUBLIC_LEAN_TOOL_NAMES <= full
     assert PUBLIC_READONLY_TOOL_NAMES <= full
     assert SENTINEL_TOOL_NAMES <= full
 
 
-def test_all_live_tools_is_unprofiled_433(monkeypatch):
+def test_all_live_tools_is_unprofiled_435(monkeypatch):
     monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
-    # Even with a restrictive profile set, the unprofiled source is the full 433.
+    # Even with a restrictive profile set, the unprofiled source is the full 435.
     monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "lean")
     names = {t.name for t in asyncio.run(server._all_live_tools())}
-    assert len(names) == 433
+    assert len(names) == 435
     assert _GATED.isdisjoint(names)
 
 
@@ -73,7 +74,7 @@ def test_readonly_partition_over_live_surface(monkeypatch):
     excluded = full - ro
     assert ro | excluded == full
     assert ro.isdisjoint(excluded)
-    assert len(ro) + len(excluded) == len(full) == 433
+    assert len(ro) + len(excluded) == len(full) == 435
 
 
 def _call_text(name, args=None):
