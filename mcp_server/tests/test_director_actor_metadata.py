@@ -148,6 +148,12 @@ def test_validate_metadata_ref_accepts_project_relative_rook_ref():
         ".rook/../a.json",
         ".rook/./a.json",
         ".rook//a.json",
+        ".rook/director_planning/actor_sets/a:b.json",
+        ".rook/director_planning/actor_sets/a|b.json",
+        ".rook/director_planning/actor_sets/CON.json",
+        ".rook/director_planning/actor_sets/name .json",
+        ".rook/director_planning/actor_sets/name.",
+        ".rook/director_planning/actor_sets/control\x1f.json",
     ],
 )
 def test_validate_metadata_ref_rejects_invalid_refs(ref):

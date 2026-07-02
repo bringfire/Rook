@@ -329,6 +329,38 @@ def test_migrate_actor_metadata_v2_rejects_string_write_without_writing(tmp_path
     assert not actor_set_path.with_name("set_001.v2.json").exists()
 
 
+def test_migrate_actor_metadata_v2_rejects_absolute_file_outside_project_without_writing(
+    tmp_path,
+):
+    project_root = tmp_path / "project"
+    outside_path = tmp_path / "outside" / "set_001.json"
+    _write_json(
+        outside_path,
+        {
+            "schema_version": 1,
+            "actor_set_id": "set_001",
+            "members": [{"id": "mesh_001"}],
+        },
+    )
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        migration.migrate_actor_metadata_v2(
+            {
+                "project_root": str(project_root),
+                "files": [str(outside_path)],
+                "write": True,
+                "suffix": ".v2",
+            }
+        )
+
+    data = exc.value.to_data()
+    assert data["code"] == "path_outside_project_root"
+    assert data["field"] == "$.files[0]"
+    assert data["path"] == str(outside_path.resolve())
+    assert data["project_root"] == str(project_root.resolve())
+    assert not outside_path.with_name("set_001.v2.json").exists()
+
+
 def test_migrate_actor_metadata_v2_rejects_empty_suffix(tmp_path):
     project_root = tmp_path / "project"
     actor_set_path = (

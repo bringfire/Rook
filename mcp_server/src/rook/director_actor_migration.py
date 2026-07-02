@@ -279,6 +279,7 @@ def _require_arguments(arguments: dict) -> tuple[Path, list[Path], bool, str]:
             field="project_root",
         )
     project_root = Path(project_root_value)
+    root = project_root.resolve()
     files = arguments.get("files")
     if not isinstance(files, list) or not files:
         _raise(
@@ -296,8 +297,17 @@ def _require_arguments(arguments: dict) -> tuple[Path, list[Path], bool, str]:
             )
         path = Path(item)
         if not path.is_absolute():
-            path = project_root / path
-        paths.append(path)
+            path = root / path
+        resolved_path = path.resolve()
+        if not _is_relative_to(resolved_path, root):
+            _raise(
+                "path_outside_project_root",
+                "Migration file is outside the project root.",
+                field=f"$.files[{index}]",
+                path=str(resolved_path),
+                project_root=str(root),
+            )
+        paths.append(resolved_path)
     write_value = arguments.get("write", False)
     if not isinstance(write_value, bool):
         _raise(

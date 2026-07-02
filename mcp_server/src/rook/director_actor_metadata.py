@@ -78,6 +78,12 @@ def validate_metadata_ref(ref: str) -> str:
     segments = ref.split("/")
     if any(segment in ("", ".", "..") for segment in segments):
         _raise("invalid_metadata_ref", "Metadata ref contains an invalid path segment.")
+    for segment in segments[1:]:
+        if not _is_safe_windows_filename_segment(segment):
+            _raise(
+                "invalid_metadata_ref",
+                "Metadata ref contains an unsafe Windows filename segment.",
+            )
     return ref
 
 
@@ -322,16 +328,7 @@ def _validate_filename_segment_id(
     key: str,
     field_path: str,
 ) -> None:
-    reserved_name = value.split(".", 1)[0].upper()
-    if (
-        _WINDOWS_INVALID_FILENAME_CHARS_RE.search(value)
-        or value in (".", "..")
-        or value.endswith(".")
-        or value.endswith(" ")
-        or value.startswith("//")
-        or _DRIVE_PREFIX_RE.match(value)
-        or reserved_name in _WINDOWS_RESERVED_DEVICE_NAMES
-    ):
+    if not _is_safe_windows_filename_segment(value):
         _raise(
             "metadata_id_invalid",
             "Metadata id must be a single safe filename segment.",
@@ -339,6 +336,22 @@ def _validate_filename_segment_id(
             field_path=field_path,
             value=value,
         )
+
+
+def _is_safe_windows_filename_segment(value: str) -> bool:
+    reserved_name = value.split(".", 1)[0].upper()
+    name_before_extension = value.rsplit(".", 1)[0] if "." in value else value
+    return not (
+        _WINDOWS_INVALID_FILENAME_CHARS_RE.search(value)
+        or value in (".", "..")
+        or value.endswith(".")
+        or value.endswith(" ")
+        or name_before_extension.endswith(".")
+        or name_before_extension.endswith(" ")
+        or value.startswith("//")
+        or _DRIVE_PREFIX_RE.match(value)
+        or reserved_name in _WINDOWS_RESERVED_DEVICE_NAMES
+    )
 
 
 def _optional_list(
