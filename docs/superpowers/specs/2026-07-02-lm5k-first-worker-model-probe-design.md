@@ -213,8 +213,21 @@ try."
   `evaluate_local_worker_scenario_result` (LM5F) with the same expectation
   block as LM5J's integration test (`expected_disposition
   "candidate_action_request"`, `expected_action_id "draft_repair_params"`).
-- The strict-loadable success criterion for the headline count is:
-  adapter `response_loaded` AND LM5F `passed`.
+- Two success metrics, counted separately per candidate (pin — the names
+  must not blur the distinction):
+
+  ```text
+  strict_loadable = adapter.status == "response_loaded"
+  spine_passed    = adapter.status == "response_loaded" AND LM5F passed
+  ```
+
+  `strict_loadable` measures format/prompt compliance (the model emitted a
+  strict LM5G-loadable payload). `spine_passed` additionally requires the
+  loaded response to survive LM5B/C/D/F (e.g. requesting `execution_ref`
+  instead of the allowed action is loadable but not spine-passing). The
+  headline is always reported as the pair `n/5 strict-loadable, m/5
+  spine-passing`; the gap between them separates format-compliance
+  failures from action/admissibility failures.
 
 ### 4.4 Attempt record (one JSONL line per attempt)
 
@@ -259,10 +272,11 @@ docs/superpowers/probes/2026-07-02-lm5k-first-worker-model-probe.md
 ```
 
 Contents: prompt text version and schema versions; panel with resolved
-model ids and statuses; per-candidate `n/5 strict-loadable` counts;
-failure-reason groupings; representative **bounded excerpts only**; whether
-raw capture was enabled and where the local run directory lives. Never raw
-output, never full attempt dumps.
+model ids and statuses; per-candidate paired counts
+`n/5 strict-loadable, m/5 spine-passing`; failure-reason groupings;
+representative **bounded excerpts only**; whether raw capture was enabled
+and where the local run directory lives. Never raw output, never full
+attempt dumps.
 
 ### 5.3 Evidence doctrine (pin)
 
@@ -355,3 +369,6 @@ With a fake/monkeypatched `litellm`:
     transport-detected conditions (ratified).
 12. **Telemetry/raw as read-after-call attributes**, reset per call,
     non-fatal (ratified).
+13. **Two-metric headline** `strict_loadable` / `spine_passed`, always
+    reported as the pair — format compliance and admissibility are distinct
+    facts and the gap between them is diagnostic (spec review round 1, P2).
