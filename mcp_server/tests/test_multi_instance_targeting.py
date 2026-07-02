@@ -98,6 +98,9 @@ def test_director_motion_tools_have_routed_policies():
 
 def test_director_actor_metadata_v2_tool_policies():
     assert targeting.policy_for_tool(
+        "rhino_director_capture_source_occurrence_v2"
+    ) == targeting.RhinoToolPolicy(True, "mutate")
+    assert targeting.policy_for_tool(
         "rhino_director_write_actor_metadata_v2"
     ) == targeting.RhinoToolPolicy(True, "mutate")
     assert targeting.policy_for_tool(

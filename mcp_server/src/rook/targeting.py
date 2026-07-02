@@ -408,6 +408,7 @@ _ALL_KNOWN_TOOLS = {
     "rhino_display_mode_set",
     "rhino_display_modes",
     "rhino_director_assemble_video",
+    "rhino_director_capture_source_occurrence_v2",
     "rhino_director_compile_motion",
     "rhino_director_curve_samples",
     "rhino_director_preview_motion",

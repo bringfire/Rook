@@ -35,6 +35,153 @@ class FakeDocumentNative:
         return document
 
 
+class FakeCaptureNative:
+    def __init__(self, model_path: Path):
+        self.model_path = model_path
+        self.calls = []
+
+    async def __call__(
+        self,
+        endpoint: str,
+        method: str = "GET",
+        data: dict | None = None,
+        port: int | None = None,
+    ) -> dict:
+        self.calls.append((endpoint, method, data, port))
+        if endpoint == "/document":
+            return {
+                "success": True,
+                "data": {
+                    "name": self.model_path.name,
+                    "path": str(self.model_path),
+                    "units": "millimeters",
+                    "tolerance": 1.0,
+                    "angleTolerance": 0.1,
+                },
+            }
+        if endpoint == "/select":
+            assert method == "POST"
+            return {"success": True, "data": {"selectedCount": len(data["ids"])}}
+        if endpoint == "/selection":
+            return {
+                "success": True,
+                "data": {
+                    "count": 1,
+                    "subObjectCount": 0,
+                    "objects": [
+                        {
+                            "id": "a28cbdb5-51fa-46b2-b18b-ab880b54ded7",
+                            "type": "InstanceReference",
+                            "layer": "004_DIAGRAM::STRUCTURE",
+                            "name": None,
+                            "visible": True,
+                            "bbox": {"min": [1, 2, 3], "max": [4, 5, 6]},
+                            "blockDefinitionId": (
+                                "2a38c499-7763-4532-a5ff-d71b90d9d95c"
+                            ),
+                            "blockName": (
+                                "3D_BLOCK_ARCH_ROOF_0502 UPLIFT ROOF - VERTICAL"
+                            ),
+                        }
+                    ],
+                },
+            }
+        if endpoint == "/block/info":
+            assert method == "POST"
+            assert data == {"name": "3D_BLOCK_ARCH_ROOF_0502 UPLIFT ROOF - VERTICAL"}
+            return {
+                "success": True,
+                "data": {
+                    "id": "2a38c499-7763-4532-a5ff-d71b90d9d95c",
+                    "index": 3,
+                    "name": "3D_BLOCK_ARCH_ROOF_0502 UPLIFT ROOF - VERTICAL",
+                    "blockType": "Embedded",
+                    "isLinked": False,
+                    "instanceCount": 1,
+                    "objectCount": 3,
+                },
+            }
+        if endpoint == "/block/instances":
+            assert method == "POST"
+            return {
+                "success": True,
+                "data": {
+                    "blockName": data["name"],
+                    "depth": data["depth"],
+                    "instanceCount": 1,
+                    "instances": [
+                        {
+                            "id": "a28cbdb5-51fa-46b2-b18b-ab880b54ded7",
+                            "layer": "004_DIAGRAM::STRUCTURE",
+                            "name": "",
+                            "insertionPoint": [0.0, 0.0, 0.0],
+                            "point": [0.0, 0.0, 0.0],
+                            "scale": [1.0, 1.0, 1.0],
+                        }
+                    ],
+                },
+            }
+        if endpoint == "/block/objects-detailed":
+            assert method == "POST"
+            return {
+                "success": True,
+                "data": {
+                    "blockName": data["name"],
+                    "objectCount": 3,
+                    "bbox": {"min": [1, 2, 3], "max": [4, 5, 6]},
+                    "objects": [
+                        {
+                            "id": "o1",
+                            "type": "Brep",
+                            "layer": "001_MATERIAL::001_01_GARDEN WOOD",
+                            "visible": True,
+                            "colorSource": "ColorFromLayer",
+                            "materialSource": "MaterialFromLayer",
+                        },
+                        {
+                            "id": "o2",
+                            "type": "Curve",
+                            "layer": "000_SETOUT LINES::000_SETOUT_PRIMARY",
+                            "visible": False,
+                            "colorSource": "ColorFromLayer",
+                            "materialSource": "MaterialFromLayer",
+                        },
+                        {
+                            "id": "o3",
+                            "type": "InstanceReference",
+                            "layer": "002_BLOCKS::002_01_BLOCK_ARCH_GARDEN ROOF",
+                            "visible": True,
+                            "colorSource": "ColorFromLayer",
+                            "materialSource": "MaterialFromLayer",
+                        },
+                    ],
+                },
+            }
+        if endpoint == "/block/nested":
+            assert method == "POST"
+            return {
+                "success": True,
+                "data": {
+                    "name": "3D_BLOCK_ARCH_ROOF_0502 UPLIFT ROOF - VERTICAL",
+                    "objectCount": 3,
+                    "children": [
+                        {
+                            "name": "Nested Roof Panel",
+                            "objectCount": 2,
+                            "children": [
+                                {
+                                    "name": "Nested Bracket",
+                                    "objectCount": 4,
+                                    "children": [],
+                                }
+                            ],
+                        }
+                    ],
+                },
+            }
+        raise AssertionError(f"unexpected endpoint {endpoint}")
+
+
 def _minimal_bundle() -> dict:
     return {
         "actor_set": {
@@ -473,6 +620,122 @@ def test_generated_bundle_contains_no_durable_absolute_identity_paths(tmp_path):
             if path.endswith("resolved_metadata_path") or ".resolved_" in path:
                 continue
             _assert_not_durable_absolute_identity_path(path, value)
+
+
+def test_capture_source_occurrence_v2_writes_selection_snapshot_without_takes(
+    tmp_path,
+):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir(parents=True)
+    native = FakeCaptureNative(model)
+
+    result = asyncio.run(
+        metadata.capture_source_occurrence_v2(
+            {
+                "snapshot_id": "source_occurrence_roof_uplift_vertical_test_chunk_001",
+                "ids": ["a28cbdb5-51fa-46b2-b18b-ab880b54ded7"],
+            },
+            call_native=native,
+            port=None,
+        )
+    )
+
+    assert result["snapshot_ref"] == (
+        ".rook/director_planning/selection_snapshots/"
+        "source_occurrence_roof_uplift_vertical_test_chunk_001.json"
+    )
+    assert result["metadata_kind"] == metadata.KIND_SELECTION_SNAPSHOT
+    assert "resolved_snapshot_path" in result
+    assert not (model.parent / ".rook" / "director_takes").exists()
+
+    payload = json.loads(Path(result["resolved_snapshot_path"]).read_text("utf-8"))
+    loaded = metadata.validate_loaded_metadata(
+        payload,
+        expected_kind=metadata.KIND_SELECTION_SNAPSHOT,
+    )
+    assert loaded["snapshot_id"] == "source_occurrence_roof_uplift_vertical_test_chunk_001"
+    assert loaded["objects"][0]["id"] == "a28cbdb5-51fa-46b2-b18b-ab880b54ded7"
+    occurrence = loaded["source_occurrence"]
+    assert occurrence["source_top_level_object_id"] == (
+        "a28cbdb5-51fa-46b2-b18b-ab880b54ded7"
+    )
+    assert occurrence["block_definition"]["direct_object_count"] == 3
+    inventory = occurrence["definition_inventory_summary"]
+    assert inventory["direct_object_count"] == 3
+    assert inventory["direct_instance_reference_count"] == 1
+    assert inventory["recursive_object_count"] == 9
+    assert inventory["recursive_definition_reference_count"] == 3
+    assert inventory["nested_definition_reference_count"] == 2
+    assert inventory["nested_hierarchy"]["children"][0]["name"] == "Nested Roof Panel"
+    assert inventory["type_counts"] == {"Brep": 1, "Curve": 1, "InstanceReference": 1}
+    for path, value in _walk_strings(loaded):
+        _assert_not_durable_absolute_identity_path(path, value)
+
+
+def test_capture_source_occurrence_v2_rejects_empty_selection(tmp_path):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir(parents=True)
+
+    class EmptySelectionNative(FakeCaptureNative):
+        async def __call__(self, endpoint, method="GET", data=None, port=None):
+            if endpoint == "/selection":
+                return {"success": True, "data": {"count": 0, "objects": []}}
+            return await super().__call__(endpoint, method=method, data=data, port=port)
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(
+            metadata.capture_source_occurrence_v2(
+                {"snapshot_id": "source_occurrence_empty"},
+                call_native=EmptySelectionNative(model),
+                port=None,
+            )
+        )
+
+    assert _error_code(exc) == "source_occurrence_selection_required"
+    assert not (model.parent / ".rook").exists()
+
+
+def test_write_actor_metadata_bundle_v2_accepts_captured_source_occurrence_ref(
+    tmp_path,
+):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir(parents=True)
+    capture_native = FakeCaptureNative(model)
+    capture = asyncio.run(
+        metadata.capture_source_occurrence_v2(
+            {
+                "snapshot_id": "source_occurrence_roof_uplift_vertical_test_chunk_001",
+                "ids": ["a28cbdb5-51fa-46b2-b18b-ab880b54ded7"],
+            },
+            call_native=capture_native,
+            port=None,
+        )
+    )
+    bundle = _minimal_bundle()
+    bundle["actor_set"]["source_occurrence_snapshot_ref"] = capture["snapshot_ref"]
+
+    result = _write_bundle(bundle, model)
+
+    actor_set = json.loads(
+        Path(result["resolved_actor_set_path"]).read_text(encoding="utf-8")
+    )
+    assert actor_set["source_occurrence_snapshot_ref"] == capture["snapshot_ref"]
+
+
+def test_write_actor_metadata_bundle_v2_rejects_missing_source_occurrence_ref(
+    tmp_path,
+):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir(parents=True)
+    bundle = _minimal_bundle()
+    bundle["actor_set"]["source_occurrence_snapshot_ref"] = (
+        ".rook/director_planning/selection_snapshots/missing_source_occurrence.json"
+    )
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        _write_bundle(bundle, model)
+
+    assert _error_code(exc) == "metadata_ref_not_found"
 
 
 @pytest.mark.parametrize(

@@ -523,9 +523,11 @@ async def test_actor_metadata_v2_tools_registered():
     tools = await server.list_tools()
     by_name = {tool.name: tool for tool in tools}
 
+    assert "rhino_director_capture_source_occurrence_v2" in by_name
     assert "rhino_director_write_actor_metadata_v2" in by_name
     assert "rhino_director_read_actor_metadata_v2" in by_name
     for name in {
+        "rhino_director_capture_source_occurrence_v2",
         "rhino_director_write_actor_metadata_v2",
         "rhino_director_read_actor_metadata_v2",
     }:
@@ -535,6 +537,10 @@ async def test_actor_metadata_v2_tools_registered():
 
 
 def test_actor_metadata_v2_tools_are_in_director_group():
+    assert (
+        "rhino_director_capture_source_occurrence_v2"
+        in tool_groups.TOOL_GROUPS["director"]
+    )
     assert "rhino_director_write_actor_metadata_v2" in tool_groups.TOOL_GROUPS["director"]
     assert "rhino_director_read_actor_metadata_v2" in tool_groups.TOOL_GROUPS["director"]
 
@@ -556,6 +562,61 @@ def test_actor_metadata_migration_is_not_dispatchable():
 
     assert hasattr(server, "_dispatchable_tool_names")
     assert migration_tool not in server._dispatchable_tool_names()
+
+
+@pytest.mark.asyncio
+async def test_capture_source_occurrence_v2_tool_dispatch_success():
+    request = {
+        "snapshot_id": "source_occurrence_roof_uplift_vertical_test_chunk_001",
+        "ids": ["a28cbdb5-51fa-46b2-b18b-ab880b54ded7"],
+    }
+
+    async def fake_capture(arguments, *, port=None):
+        assert arguments == request
+        assert port is None
+        return {
+            "snapshot_ref": (
+                ".rook/director_planning/selection_snapshots/"
+                "source_occurrence_roof_uplift_vertical_test_chunk_001.json"
+            )
+        }
+
+    with patch(
+        "rook.server.director_actor_metadata.capture_source_occurrence_v2",
+        new=fake_capture,
+    ):
+        out = await server.call_tool(
+            "rhino_director_capture_source_occurrence_v2",
+            request,
+        )
+
+    payload = json.loads(out[0].text)
+    assert payload["snapshot_ref"].endswith(
+        "source_occurrence_roof_uplift_vertical_test_chunk_001.json"
+    )
+
+
+@pytest.mark.asyncio
+async def test_capture_source_occurrence_v2_tool_dispatch_error():
+    async def fake_capture(arguments, *, port=None):
+        raise server.director_actor_metadata.DirectorActorMetadataError(
+            "source_occurrence_selection_required",
+            "Select at least one object.",
+        )
+
+    with patch(
+        "rook.server.director_actor_metadata.capture_source_occurrence_v2",
+        new=fake_capture,
+    ):
+        out = await server.call_tool(
+            "rhino_director_capture_source_occurrence_v2",
+            {"snapshot_id": "source_occurrence_empty"},
+        )
+
+    text = out[0].text
+    assert text.startswith("Error: ")
+    payload = json.loads(text.removeprefix("Error: "))
+    assert payload["code"] == "source_occurrence_selection_required"
 
 
 @pytest.mark.asyncio

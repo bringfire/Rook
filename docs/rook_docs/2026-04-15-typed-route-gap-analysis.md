@@ -1095,6 +1095,41 @@ Primary success criteria:
 
 ---
 
+## Emerging Gap: Director Actor Capture Contract
+
+**Logged:** 2026-07-02
+
+RookVisionDirector now has strict v2 actor metadata persistence and runtime
+reading through `rhino_director_write_actor_metadata_v2` and
+`rhino_director_read_actor_metadata_v2`. Those tools define the durable
+`.rook/...` ref protocol and the file shape for ActorSet, ActorSubset,
+ActorGrouping, and SelectionSnapshot metadata.
+
+That is not the same as a complete capture/classification contract. The current
+writer accepts a supplied semantic bundle; it does not yet own the full product
+workflow for:
+
+- capturing current live Rhino object facts for an animation candidate set;
+- deriving accepted actor subsets from explicit classifier inputs;
+- deriving accepted band/grouping metadata from current geometry;
+- producing clean Director metadata without relying on a previous prototype
+  metadata file as a scaffold.
+
+This gap surfaced during Pearson V2 recovery. The clean project target is a
+portable `.3dm + .rook` pair whose Director metadata looks freshly captured for
+that file and can travel to another machine without any original v1 metadata.
+For the transitional Pearson V2 dataset, it is acceptable to use the old curated
+v1 metadata only as an accepted-decision scaffold for membership and band
+grouping, then rewrite clean v2 metadata from current live model facts through
+the production v2 writer.
+
+This should not become the long-term authoring model. The durable fix is a
+Director capture/classifier tool or component contract that emits the semantic
+bundle from current Rhino state using explicit inputs and validated classifier
+parameters. Once that exists, recovery or transport should never require
+consulting an older metadata schema to reconstruct ActorSet, ActorSubset, or
+ActorGrouping structure.
+
 ## Appendix A: Complete CapabilityRouter Operation List (106)
 
 ```

@@ -263,7 +263,10 @@ def test_director_publish_video_native_route_is_thin_vision_proxy():
     assert 'm_server->Post("/vision/director/publish-video"' in server_source
     assert "HandleVisionDirectorPublishVideo" in header_source
     assert "void HandleVisionDirectorPublishVideo" in handler_source
-    assert 'DispatchVisionOp(req, res, "publish_director_video")' in handler_source
+    assert (
+        'DispatchVisionOp(req, res, "POST /vision/director/publish-video", '
+        '"publish_director_video")'
+    ) in handler_source
     assert "DirectorVideoPublisher" not in handler_source
     assert "ArtifactStore" not in handler_source
     assert "director_publish_standard_v1" not in handler_source

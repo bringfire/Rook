@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from collections import Counter
 import datetime
 import json
 import re
@@ -162,21 +163,37 @@ def _validate_ref_fields(value: Any, field_path: str = "$") -> None:
             _validate_ref_fields(item, f"{field_path}[{index}]")
 
 
-def _reject_generated_ref_input_fields(value: Any, field_path: str = "$") -> None:
+def _reject_generated_ref_input_fields(
+    value: Any,
+    field_path: str = "$",
+    *,
+    allowed_field_paths: set[str] | None = None,
+) -> None:
+    allowed = allowed_field_paths or set()
     if isinstance(value, dict):
         for key, item in value.items():
             key_text = str(key)
             child_path = _legacy_field_path(field_path, key_text)
-            if key_text == "ref" or key_text.endswith("_ref"):
+            if (
+                key_text == "ref" or key_text.endswith("_ref")
+            ) and child_path not in allowed:
                 _raise(
                     "generated_ref_field_present",
                     "Director metadata writer generates durable refs from semantic IDs.",
                     field_path=child_path,
                 )
-            _reject_generated_ref_input_fields(item, child_path)
+            _reject_generated_ref_input_fields(
+                item,
+                child_path,
+                allowed_field_paths=allowed,
+            )
     elif isinstance(value, list):
         for index, item in enumerate(value):
-            _reject_generated_ref_input_fields(item, f"{field_path}[{index}]")
+            _reject_generated_ref_input_fields(
+                item,
+                f"{field_path}[{index}]",
+                allowed_field_paths=allowed,
+            )
 
 
 def validate_loaded_metadata(payload: dict, *, expected_kind: str) -> dict:
@@ -285,6 +302,37 @@ async def resolve_active_project_root(
     return document_path.parent.resolve(), source_document
 
 
+def _unwrap_native_data(response: Any, *, endpoint: str) -> Any:
+    if isinstance(response, dict) and response.get("success") is False:
+        error = response.get("error")
+        if isinstance(error, dict):
+            message = error.get("message") or "Rhino route returned an error."
+            code = error.get("code") or "rhino_route_failed"
+        else:
+            message = str(error or "Rhino route returned an error.")
+            code = "rhino_route_failed"
+        _raise(code, message, endpoint=endpoint)
+    if (
+        isinstance(response, dict)
+        and response.get("success") is True
+        and "data" in response
+    ):
+        return response["data"]
+    return response
+
+
+async def _call_native_data(
+    endpoint: str,
+    method: str = "GET",
+    data: dict[str, Any] | None = None,
+    *,
+    call_native=call_rhino,
+    port=None,
+) -> Any:
+    response = await call_native(endpoint, method, data, port=port)
+    return _unwrap_native_data(response, endpoint=endpoint)
+
+
 def _metadata_timestamp_utc() -> str:
     return (
         datetime.datetime.now(datetime.timezone.utc)
@@ -384,6 +432,11 @@ def _actor_set_ref(actor_set_id: str) -> str:
     return f".rook/director_planning/actor_sets/{actor_set_id}.json"
 
 
+def _source_occurrence_snapshot_id_from_object_id(object_id: str) -> str:
+    compact = re.sub(r"[^A-Za-z0-9]+", "_", object_id).strip("_").lower()
+    return f"source_occurrence_{compact[:32]}"
+
+
 def _subset_ref(actor_set_id: str, subset_id: str) -> str:
     return (
         ".rook/director_planning/actor_sets/"
@@ -428,6 +481,364 @@ def _written_entry(project_root: Path, ref: str, *, metadata_kind: str) -> dict[
         "metadata_kind": metadata_kind,
         "ref": validate_metadata_ref(ref),
         "resolved_path": str(resolve_metadata_ref(project_root, ref)),
+    }
+
+
+def _counter_dict(counter: Counter[str]) -> dict[str, int]:
+    return {key: counter[key] for key in sorted(counter)}
+
+
+def _inventory_summary(block_objects_detail: dict[str, Any]) -> dict[str, Any]:
+    objects = block_objects_detail.get("objects")
+    if not isinstance(objects, list):
+        objects = []
+    type_counts: Counter[str] = Counter()
+    layer_counts: Counter[str] = Counter()
+    color_source_counts: Counter[str] = Counter()
+    material_source_counts: Counter[str] = Counter()
+    visible_count = 0
+    hidden_count = 0
+    for obj in objects:
+        if not isinstance(obj, dict):
+            continue
+        type_counts[str(obj.get("type") or "Unknown")] += 1
+        layer_counts[str(obj.get("layer") or "")] += 1
+        color_source_counts[str(obj.get("colorSource") or "unknown")] += 1
+        material_source_counts[str(obj.get("materialSource") or "unknown")] += 1
+        if obj.get("visible") is True:
+            visible_count += 1
+        elif obj.get("visible") is False:
+            hidden_count += 1
+    return {
+        "direct_object_count": block_objects_detail.get("objectCount", len(objects)),
+        "direct_instance_reference_count": type_counts.get("InstanceReference", 0),
+        "visible_count": visible_count,
+        "hidden_count": hidden_count,
+        "bbox": block_objects_detail.get("bbox"),
+        "type_counts": _counter_dict(type_counts),
+        "layer_counts": _counter_dict(layer_counts),
+        "color_source_counts": _counter_dict(color_source_counts),
+        "material_source_counts": _counter_dict(material_source_counts),
+    }
+
+
+def _nested_hierarchy_summary(nested_hierarchy: Any) -> dict[str, Any]:
+    if not isinstance(nested_hierarchy, dict):
+        return {
+            "nested_hierarchy": {},
+            "recursive_object_count": 0,
+            "recursive_definition_reference_count": 0,
+            "nested_definition_reference_count": 0,
+            "circular_reference_count": 0,
+        }
+
+    recursive_object_count = 0
+    recursive_definition_reference_count = 0
+    circular_reference_count = 0
+
+    def visit(node: Any) -> None:
+        nonlocal recursive_object_count
+        nonlocal recursive_definition_reference_count
+        nonlocal circular_reference_count
+        if not isinstance(node, dict):
+            return
+        recursive_definition_reference_count += 1
+        object_count = node.get("objectCount")
+        if isinstance(object_count, int):
+            recursive_object_count += object_count
+        elif isinstance(object_count, float):
+            recursive_object_count += int(object_count)
+        if node.get("circular") is True:
+            circular_reference_count += 1
+        children = node.get("children")
+        if isinstance(children, list):
+            for child in children:
+                visit(child)
+
+    visit(nested_hierarchy)
+    return {
+        "nested_hierarchy": nested_hierarchy,
+        "recursive_object_count": recursive_object_count,
+        "recursive_definition_reference_count": recursive_definition_reference_count,
+        "nested_definition_reference_count": max(
+            0,
+            recursive_definition_reference_count - 1,
+        ),
+        "circular_reference_count": circular_reference_count,
+    }
+
+
+async def _capture_block_occurrence_context(
+    selected_object: dict[str, Any],
+    *,
+    call_native=call_rhino,
+    port=None,
+) -> dict[str, Any]:
+    block_name = selected_object.get("blockName")
+    if not isinstance(block_name, str) or not block_name:
+        _raise(
+            "source_occurrence_block_name_required",
+            "Selected InstanceReference does not report a blockName.",
+            object_id=selected_object.get("id"),
+        )
+    block_info = await _call_native_data(
+        "/block/info",
+        "POST",
+        {"name": block_name},
+        call_native=call_native,
+        port=port,
+    )
+    block_instances = await _call_native_data(
+        "/block/instances",
+        "POST",
+        {"name": block_name, "depth": 0},
+        call_native=call_native,
+        port=port,
+    )
+    block_objects_detail = await _call_native_data(
+        "/block/objects-detailed",
+        "POST",
+        {"name": block_name, "geometry": False},
+        call_native=call_native,
+        port=port,
+    )
+    nested_hierarchy = await _call_native_data(
+        "/block/nested",
+        "POST",
+        {"name": block_name},
+        call_native=call_native,
+        port=port,
+    )
+    if not isinstance(block_info, dict):
+        _raise("source_occurrence_block_info_invalid", "Block info was not an object.")
+    if not isinstance(block_instances, dict):
+        _raise(
+            "source_occurrence_block_instances_invalid",
+            "Block instances response was not an object.",
+        )
+    if not isinstance(block_objects_detail, dict):
+        _raise(
+            "source_occurrence_block_inventory_invalid",
+            "Block inventory response was not an object.",
+        )
+    if not isinstance(nested_hierarchy, dict):
+        _raise(
+            "source_occurrence_nested_hierarchy_invalid",
+            "Nested block hierarchy response was not an object.",
+        )
+
+    selected_id = selected_object.get("id")
+    instances = block_instances.get("instances")
+    if not isinstance(instances, list):
+        instances = []
+    matching_instances = [
+        instance
+        for instance in instances
+        if isinstance(instance, dict) and instance.get("id") == selected_id
+    ]
+    instance = matching_instances[0] if matching_instances else {}
+
+    inventory = _inventory_summary(block_objects_detail)
+    inventory.update(_nested_hierarchy_summary(nested_hierarchy))
+
+    return {
+        "source_top_level_object_id": selected_id,
+        "object_type": selected_object.get("type"),
+        "layer": selected_object.get("layer"),
+        "name": selected_object.get("name") or "",
+        "visible": selected_object.get("visible"),
+        "bbox": selected_object.get("bbox"),
+        "block_definition": {
+            "id": block_info.get("id") or selected_object.get("blockDefinitionId"),
+            "index": block_info.get("index"),
+            "name": block_info.get("name") or block_name,
+            "block_type": block_info.get("blockType"),
+            "is_linked": block_info.get("isLinked"),
+            "instance_count": block_info.get("instanceCount"),
+            "direct_object_count": block_info.get("objectCount"),
+        },
+        "instance": {
+            "id": instance.get("id") or selected_id,
+            "layer": instance.get("layer") or selected_object.get("layer"),
+            "name": instance.get("name") or selected_object.get("name") or "",
+            "insertion_point": instance.get("insertionPoint") or instance.get("point"),
+            "scale": instance.get("scale"),
+        },
+        "definition_inventory_summary": inventory,
+    }
+
+
+async def capture_source_occurrence_v2(
+    arguments: dict[str, Any], *, call_native=call_rhino, port=None
+) -> dict[str, Any]:
+    if not isinstance(arguments, dict):
+        _raise(
+            "source_occurrence_capture_invalid",
+            "Source occurrence capture arguments must be an object.",
+        )
+    _reject_legacy_path_fields(arguments)
+    _reject_generated_ref_input_fields(arguments)
+    _validate_ref_fields(arguments)
+
+    project_root, source_document = await resolve_active_project_root(
+        call_native=call_native,
+        port=port,
+    )
+
+    ids = arguments.get("ids")
+    if ids is not None:
+        if not isinstance(ids, list) or not all(
+            isinstance(item, str) and item for item in ids
+        ):
+            _raise(
+                "source_occurrence_ids_invalid",
+                "Source occurrence ids must be a list of non-empty strings.",
+            )
+        await _call_native_data(
+            "/select",
+            "POST",
+            {"ids": ids, "clear": True},
+            call_native=call_native,
+            port=port,
+        )
+
+    selection = await _call_native_data(
+        "/selection",
+        call_native=call_native,
+        port=port,
+    )
+    if not isinstance(selection, dict):
+        _raise(
+            "source_occurrence_selection_invalid",
+            "Selection response was not an object.",
+        )
+    selected_objects = selection.get("objects")
+    if not isinstance(selected_objects, list) or not selected_objects:
+        _raise(
+            "source_occurrence_selection_required",
+            "Select at least one top-level object before source occurrence capture.",
+        )
+    for index, selected_object in enumerate(selected_objects):
+        if not isinstance(selected_object, dict) or not selected_object.get("id"):
+            _raise(
+                "source_occurrence_selection_invalid",
+                "Selection entries must be objects with ids.",
+                index=index,
+            )
+
+    first_selected = selected_objects[0]
+    snapshot_id = arguments.get("snapshot_id")
+    if snapshot_id is None:
+        snapshot_id = _source_occurrence_snapshot_id_from_object_id(
+            str(first_selected.get("id"))
+        )
+    if not isinstance(snapshot_id, str) or not snapshot_id:
+        _raise(
+            "metadata_id_required",
+            "Source occurrence capture requires a non-empty snapshot_id.",
+            field="snapshot_id",
+        )
+    _validate_filename_segment_id(
+        snapshot_id,
+        key="snapshot_id",
+        field_path="$.snapshot_id",
+    )
+    snapshot_ref = _snapshot_ref(snapshot_id)
+    generated_at_utc = _metadata_timestamp_utc()
+
+    source_occurrences: list[dict[str, Any]] = []
+    for selected_object in selected_objects:
+        if selected_object.get("type") == "InstanceReference":
+            source_occurrences.append(
+                await _capture_block_occurrence_context(
+                    selected_object,
+                    call_native=call_native,
+                    port=port,
+                )
+            )
+        else:
+            source_occurrences.append(
+                {
+                    "source_top_level_object_id": selected_object.get("id"),
+                    "object_type": selected_object.get("type"),
+                    "layer": selected_object.get("layer"),
+                    "name": selected_object.get("name") or "",
+                    "visible": selected_object.get("visible"),
+                    "bbox": selected_object.get("bbox"),
+                }
+            )
+
+    objects = [
+        {
+            "id": obj.get("id"),
+            "type": obj.get("type"),
+            "layer": obj.get("layer"),
+            "name": obj.get("name") or "",
+            "visible": obj.get("visible"),
+            "bbox": obj.get("bbox"),
+            **(
+                {"block_name": obj.get("blockName")}
+                if obj.get("blockName") is not None
+                else {}
+            ),
+            **(
+                {"block_definition_id": obj.get("blockDefinitionId")}
+                if obj.get("blockDefinitionId") is not None
+                else {}
+            ),
+        }
+        for obj in selected_objects
+    ]
+    snapshot = {
+        "schema_version": SCHEMA_VERSION,
+        "metadata_kind": KIND_SELECTION_SNAPSHOT,
+        "snapshot_id": snapshot_id,
+        "intent": arguments.get("intent")
+        or "source_occurrence_context_for_director_actor_set",
+        "label": arguments.get("label") or "Director source occurrence",
+        "generated_at_utc": generated_at_utc,
+        "source_document": source_document,
+        "capture_context": {
+            "capture_mode": "explicit_ids" if ids is not None else "active_selection",
+            "selection_count": len(selected_objects),
+            "sub_object_count": selection.get("subObjectCount", 0),
+        },
+        "captured_object_source": {
+            "toolchain": "rook_live_rhino_api",
+            "endpoints": [
+                "/document",
+                *([] if ids is None else ["/select"]),
+                "/selection",
+                "/block/info",
+                "/block/instances",
+                "/block/objects-detailed",
+                "/block/nested",
+            ],
+        },
+        "objects": objects,
+        "source_occurrences": source_occurrences,
+        "summary": {
+            "selected_count": len(selected_objects),
+            "source_top_level_object_count": len(source_occurrences),
+        },
+    }
+    if len(source_occurrences) == 1:
+        snapshot["source_occurrence"] = source_occurrences[0]
+        inventory = source_occurrences[0].get("definition_inventory_summary")
+        if isinstance(inventory, dict):
+            snapshot["summary"]["block_definition_direct_object_count"] = (
+                inventory.get("direct_object_count")
+            )
+    validate_loaded_metadata(snapshot, expected_kind=KIND_SELECTION_SNAPSHOT)
+    resolved_snapshot_path = resolve_metadata_ref(project_root, snapshot_ref)
+    _atomic_write_json(resolved_snapshot_path, snapshot)
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "metadata_kind": KIND_SELECTION_SNAPSHOT,
+        "snapshot_id": snapshot_id,
+        "snapshot_ref": snapshot_ref,
+        "resolved_snapshot_path": str(resolved_snapshot_path),
     }
 
 
@@ -563,7 +974,10 @@ async def write_actor_metadata_bundle_v2(
     if not isinstance(arguments, dict):
         _raise("metadata_bundle_invalid", "Director metadata bundle must be an object.")
     _reject_legacy_path_fields(arguments)
-    _reject_generated_ref_input_fields(arguments)
+    _reject_generated_ref_input_fields(
+        arguments,
+        allowed_field_paths={"$.actor_set.source_occurrence_snapshot_ref"},
+    )
     _validate_ref_fields(arguments)
 
     project_root, source_document = await resolve_active_project_root(
@@ -581,6 +995,15 @@ async def write_actor_metadata_bundle_v2(
         field_path="$.actor_set.actor_set_id",
     )
     actor_ref = _actor_set_ref(actor_set_id)
+    source_occurrence_snapshot_ref = actor_set_input.get(
+        "source_occurrence_snapshot_ref"
+    )
+    if source_occurrence_snapshot_ref is not None:
+        load_metadata_ref(
+            project_root,
+            source_occurrence_snapshot_ref,
+            expected_kind=KIND_SELECTION_SNAPSHOT,
+        )
 
     snapshot_refs: dict[str, str] = {}
     snapshot_ids: dict[str, str] = {}

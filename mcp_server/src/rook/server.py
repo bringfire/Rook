@@ -4084,6 +4084,37 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
             },
         ),
         Tool(
+            name="rhino_director_capture_source_occurrence_v2",
+            description=(
+                "Capture the selected or explicit top-level source occurrence "
+                "for Director actor authoring as a v2 SelectionSnapshot. Resolves "
+                "the active saved .3dm via /document, writes under .rook, returns "
+                "a durable .rook ref, and never writes director_takes."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "snapshot_id": {
+                        "type": "string",
+                        "description": "Optional safe id for the generated source occurrence SelectionSnapshot.",
+                    },
+                    "ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional top-level object ids to select before capture. Omit to use current Rhino selection.",
+                    },
+                    "intent": {
+                        "type": "string",
+                        "description": "Optional semantic intent stored in the snapshot.",
+                    },
+                    "label": {
+                        "type": "string",
+                        "description": "Optional display label stored in the snapshot.",
+                    },
+                },
+            },
+        ),
+        Tool(
             name="rhino_director_write_actor_metadata_v2",
             description=(
                 "Production writer for v2 ActorSet, actor subset, ActorGrouping, "
@@ -20750,6 +20781,17 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
 
         case "rhino_director_preview_motion":
             result = {"success": True, "data": await director_preview.preview_motion(arguments, port=port)}
+
+        case "rhino_director_capture_source_occurrence_v2":
+            try:
+                result = {
+                    "success": True,
+                    "data": await director_actor_metadata.capture_source_occurrence_v2(
+                        arguments, port=port
+                    ),
+                }
+            except director_actor_metadata.DirectorActorMetadataError as exc:
+                result = {"success": False, "data": exc.to_data()}
 
         case "rhino_director_write_actor_metadata_v2":
             try:
