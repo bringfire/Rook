@@ -491,7 +491,7 @@ def test_write_actor_metadata_bundle_v2_invalid_generated_ref_writes_no_files(tm
     with pytest.raises(metadata.DirectorActorMetadataError) as exc:
         _write_bundle(bundle, model)
 
-    assert _error_code(exc) == "invalid_metadata_ref"
+    assert _error_code(exc) == "metadata_id_invalid"
     _assert_no_rook_files(model.parent)
 
 
@@ -579,6 +579,42 @@ def test_write_actor_metadata_bundle_v2_rejects_supplied_unknown_source_snapshot
     "mutate, field_path",
     [
         (
+            lambda bundle: bundle["subsets"][0].update(
+                {"ref": ".rook/director_planning/actor_sets/other.json"}
+            ),
+            "$.subsets[0].ref",
+        ),
+        (
+            lambda bundle: bundle["groupings"][0].update(
+                {"ref": ".rook/director_planning/actor_sets/other_grouping.json"}
+            ),
+            "$.groupings[0].ref",
+        ),
+    ],
+)
+def test_write_actor_metadata_bundle_v2_rejects_valid_copied_owned_refs(
+    tmp_path,
+    mutate,
+    field_path,
+):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir()
+    bundle = _minimal_bundle()
+    mutate(bundle)
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        _write_bundle(bundle, model)
+
+    data = exc.value.to_data()
+    assert data["code"] == "generated_ref_field_present"
+    assert data["field_path"] == field_path
+    _assert_no_rook_files(model.parent)
+
+
+@pytest.mark.parametrize(
+    "mutate, field_path",
+    [
+        (
             lambda bundle: bundle["actor_set"].update(
                 {"source_snapshot_entry_id": "missing_snapshot"}
             ),
@@ -636,6 +672,50 @@ def test_write_actor_metadata_bundle_v2_rejects_duplicate_snapshot_ids(tmp_path)
     "mutate, field_path",
     [
         (
+            lambda bundle: bundle["actor_set"].update({"actor_set_id": "actor/bad"}),
+            "$.actor_set.actor_set_id",
+        ),
+        (
+            lambda bundle: bundle["selection_snapshots"][0].update(
+                {"snapshot_id": "snapshot/bad"}
+            ),
+            "$.selection_snapshots[0].snapshot_id",
+        ),
+        (
+            lambda bundle: bundle["subsets"][0].update({"subset_id": "subset/bad"}),
+            "$.subsets[0].subset_id",
+        ),
+        (
+            lambda bundle: bundle["groupings"][0].update(
+                {"band_set_id": "band/bad"}
+            ),
+            "$.groupings[0].band_set_id",
+        ),
+    ],
+)
+def test_write_actor_metadata_bundle_v2_rejects_ids_with_path_separators(
+    tmp_path,
+    mutate,
+    field_path,
+):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir()
+    bundle = _minimal_bundle()
+    mutate(bundle)
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        _write_bundle(bundle, model)
+
+    data = exc.value.to_data()
+    assert data["code"] == "metadata_id_invalid"
+    assert data["field_path"] == field_path
+    _assert_no_rook_files(model.parent)
+
+
+@pytest.mark.parametrize(
+    "mutate, field_path",
+    [
+        (
             lambda bundle: bundle["subsets"][0].update(
                 {"parent_actor_set_id": "other_actor_set"}
             ),
@@ -685,16 +765,43 @@ def test_write_actor_metadata_bundle_v2_rejects_unknown_grouping_parent_subset(
     _assert_no_rook_files(model.parent)
 
 
-def test_write_actor_metadata_bundle_v2_rejects_non_list_collections(tmp_path):
+@pytest.mark.parametrize(
+    "mutate, field_path",
+    [
+        (
+            lambda bundle: bundle.update(
+                {"selection_snapshots": {"snapshot_id": "intent_005_20260701_144245"}}
+            ),
+            "$.selection_snapshots",
+        ),
+        (
+            lambda bundle: bundle.update({"subsets": {"subset_id": "s"}}),
+            "$.subsets",
+        ),
+        (
+            lambda bundle: bundle.update({"groupings": {"band_set_id": "g"}}),
+            "$.groupings",
+        ),
+        (
+            lambda bundle: bundle["subsets"][0].update({"band_set_ids": "not-a-list"}),
+            "$.subsets[0].band_set_ids",
+        ),
+    ],
+)
+def test_write_actor_metadata_bundle_v2_rejects_non_list_collections(
+    tmp_path,
+    mutate,
+    field_path,
+):
     model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
     model.parent.mkdir()
     bundle = _minimal_bundle()
-    bundle["selection_snapshots"] = {"snapshot_id": "intent_005_20260701_144245"}
+    mutate(bundle)
 
     with pytest.raises(metadata.DirectorActorMetadataError) as exc:
         _write_bundle(bundle, model)
 
     data = exc.value.to_data()
     assert data["code"] == "metadata_collection_invalid"
-    assert data["field_path"] == "$.selection_snapshots"
+    assert data["field_path"] == field_path
     _assert_no_rook_files(model.parent)

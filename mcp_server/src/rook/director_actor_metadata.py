@@ -160,7 +160,9 @@ def _reject_generated_ref_input_fields(value: Any, field_path: str = "$") -> Non
             if key_text in generated_ref_keys or (
                 key_text == "ref"
                 and (
-                    ".actor_set.subsets[" in field_path
+                    field_path.startswith("$.subsets[")
+                    or field_path.startswith("$.groupings[")
+                    or ".actor_set.subsets[" in field_path
                     or ".band_sets[" in field_path
                 )
             ):
@@ -307,6 +309,39 @@ def _require_text_id(
     return value
 
 
+def _require_filename_segment_id(
+    payload: dict[str, Any],
+    key: str,
+    *,
+    field_path: str,
+) -> str:
+    value = _require_text_id(payload, key, field_path=field_path)
+    _validate_filename_segment_id(value, key=key, field_path=field_path)
+    return value
+
+
+def _validate_filename_segment_id(
+    value: str,
+    *,
+    key: str,
+    field_path: str,
+) -> None:
+    if (
+        "/" in value
+        or "\\" in value
+        or value in (".", "..")
+        or value.startswith("//")
+        or _DRIVE_PREFIX_RE.match(value)
+    ):
+        _raise(
+            "metadata_id_invalid",
+            "Metadata id must be a single safe filename segment.",
+            field=key,
+            field_path=field_path,
+            value=value,
+        )
+
+
 def _optional_list(
     payload: dict[str, Any],
     key: str,
@@ -442,6 +477,11 @@ def _require_parent_actor_set(
             "Parent actor set id must be a non-empty string.",
             field_path=field_path,
         )
+    _validate_filename_segment_id(
+        parent_actor_set_id,
+        key="parent_actor_set_id",
+        field_path=field_path,
+    )
     if parent_actor_set_id != actor_set_id:
         _raise(
             "metadata_parent_mismatch",
@@ -465,6 +505,11 @@ def _require_parent_subset(
             "Grouping payload requires a non-empty parent_subset_id.",
             field_path=field_path,
         )
+    _validate_filename_segment_id(
+        parent_subset_id,
+        key="parent_subset_id",
+        field_path=field_path,
+    )
     if parent_subset_id not in subset_refs:
         _raise(
             "metadata_ref_target_missing",
@@ -518,7 +563,7 @@ async def write_actor_metadata_bundle_v2(
     actor_set_input = arguments.get("actor_set")
     if not isinstance(actor_set_input, dict):
         _raise("metadata_bundle_invalid", "Director metadata bundle requires actor_set.")
-    actor_set_id = _require_text_id(
+    actor_set_id = _require_filename_segment_id(
         actor_set_input,
         "actor_set_id",
         field_path="$.actor_set.actor_set_id",
@@ -540,7 +585,7 @@ async def write_actor_metadata_bundle_v2(
                 "Selection snapshot entries must be objects.",
             )
         snapshot_field_path = f"$.selection_snapshots[{snapshot_index}].snapshot_id"
-        snapshot_id = _require_text_id(
+        snapshot_id = _require_filename_segment_id(
             snapshot_input,
             "snapshot_id",
             field_path=snapshot_field_path,
@@ -569,7 +614,7 @@ async def write_actor_metadata_bundle_v2(
         if not isinstance(subset_input, dict):
             _raise("metadata_bundle_invalid", "Subset entries must be objects.")
         subset_field_path = f"$.subsets[{subset_index}].subset_id"
-        subset_id = _require_text_id(
+        subset_id = _require_filename_segment_id(
             subset_input,
             "subset_id",
             field_path=subset_field_path,
@@ -644,7 +689,7 @@ async def write_actor_metadata_bundle_v2(
         if not isinstance(grouping_input, dict):
             _raise("metadata_bundle_invalid", "Grouping entries must be objects.")
         band_set_field_path = f"$.groupings[{grouping_index}].band_set_id"
-        band_set_id = _require_text_id(
+        band_set_id = _require_filename_segment_id(
             grouping_input,
             "band_set_id",
             field_path=band_set_field_path,
