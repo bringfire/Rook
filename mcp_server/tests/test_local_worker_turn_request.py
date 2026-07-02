@@ -472,17 +472,19 @@ def test_module_level_boundary_guard() -> None:
     source = inspect.getsource(request_module)
     tree = ast.parse(source)
 
-    imports = {
-        alias.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Import)
-        for alias in node.names
-    }
-    imports.update(
-        node.module or ""
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom)
-    )
+    imports: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imports.add(alias.name)
+                if alias.asname is not None:
+                    imports.add(alias.asname)
+        elif isinstance(node, ast.ImportFrom):
+            imports.add(node.module or "")
+            for alias in node.names:
+                imports.add(alias.name)
+                if alias.asname is not None:
+                    imports.add(alias.asname)
 
     assert "json" not in imports
     assert "yaml" not in imports
@@ -529,6 +531,7 @@ def test_module_level_boundary_guard() -> None:
         node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
     }
 
+    assert not (imports & banned_names)
     assert not (referenced_names & banned_names)
     assert "loads" not in referenced_attributes
     assert "dumps" not in referenced_attributes
