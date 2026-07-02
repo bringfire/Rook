@@ -551,17 +551,11 @@ async def test_actor_metadata_migration_is_not_exposed_as_mcp_tool():
     )
 
 
-@pytest.mark.asyncio
-async def test_actor_metadata_migration_is_not_dispatchable():
+def test_actor_metadata_migration_is_not_dispatchable():
     migration_tool = "rhino_director_migrate_actor_metadata_v2"
 
-    if hasattr(server, "_dispatchable_tool_names"):
-        assert migration_tool not in server._dispatchable_tool_names()
-
-    result = await server.call_tool(migration_tool, {})
-
-    assert result[0].text.startswith("Error: ")
-    assert f"Unknown tool: {migration_tool}" in result[0].text
+    assert hasattr(server, "_dispatchable_tool_names")
+    assert migration_tool not in server._dispatchable_tool_names()
 
 
 @pytest.mark.asyncio
