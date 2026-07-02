@@ -123,6 +123,13 @@ def _walk_strings(value, path="$"):
         yield path, value
 
 
+def _assert_not_durable_absolute_identity_path(path, value):
+    assert not (value.startswith("\\\\") or value.startswith("//")), (path, value)
+    assert not (
+        len(value) >= 3 and value[1] == ":" and value[2] in ("\\", "/")
+    ), (path, value)
+
+
 def test_validate_metadata_ref_accepts_project_relative_rook_ref():
     ref = ".rook/director_planning/actor_sets/a.json"
 
@@ -459,8 +466,23 @@ def test_generated_bundle_contains_no_durable_absolute_identity_paths(tmp_path):
         for path, value in _walk_strings(payload):
             if path.endswith("resolved_metadata_path") or ".resolved_" in path:
                 continue
-            assert not value.startswith("\\\\"), (path, value)
-            assert not (len(value) >= 3 and value[1:3] == ":\\"), (path, value)
+            _assert_not_durable_absolute_identity_path(path, value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        r"\\server\share\model.3dm",
+        r"C:\project\model.3dm",
+        "//server/share/model.3dm",
+        "C:/project/model.3dm",
+    ],
+)
+def test_durable_absolute_identity_path_assertion_rejects_windows_absolute_forms(
+    value,
+):
+    with pytest.raises(AssertionError):
+        _assert_not_durable_absolute_identity_path("$.source_document.path", value)
 
 
 def test_write_actor_metadata_bundle_v2_accepts_document_success_envelope(tmp_path):
