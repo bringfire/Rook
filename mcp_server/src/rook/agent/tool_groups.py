@@ -221,6 +221,8 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "rhino_director_replay_cancel",
         "rhino_director_compile_motion",
         "rhino_director_preview_motion",
+        "rhino_director_write_actor_metadata_v2",
+        "rhino_director_read_actor_metadata_v2",
         "rhino_director_assemble_video",
         "rhino_director_publish_video",
     ],

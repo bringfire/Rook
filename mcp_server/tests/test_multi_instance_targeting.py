@@ -82,6 +82,21 @@ def test_director_video_tools_are_explicit_rhino_mutate():
         assert policy == targeting.RhinoToolPolicy(True, "mutate")
 
 
+def test_director_actor_metadata_v2_tool_policies():
+    assert targeting.policy_for_tool(
+        "rhino_director_write_actor_metadata_v2"
+    ) == targeting.RhinoToolPolicy(True, "mutate")
+    assert targeting.policy_for_tool(
+        "rhino_director_read_actor_metadata_v2"
+    ) == targeting.RhinoToolPolicy(True, "read")
+
+
+def test_director_actor_metadata_migration_has_no_targeting_policy():
+    migration_tool = "rhino_director_migrate_actor_metadata_v2"
+    assert migration_tool not in targeting._ALL_KNOWN_TOOLS
+    assert migration_tool not in targeting.TOOL_POLICIES
+
+
 def test_gh_update_script_policy_is_explicit_rhino_mutate():
     policy = targeting.policy_for_tool("gh_update_script")
     assert policy == targeting.RhinoToolPolicy(True, "mutate")

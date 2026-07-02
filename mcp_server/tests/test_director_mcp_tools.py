@@ -516,3 +516,161 @@ async def test_preview_motion_tool_dispatch_success():
     data = json.loads(out[0].text)
     assert data["state"] == "completed"
     assert data["replay"]["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_actor_metadata_v2_tools_registered():
+    tools = await server.list_tools()
+    by_name = {tool.name: tool for tool in tools}
+
+    assert "rhino_director_write_actor_metadata_v2" in by_name
+    assert "rhino_director_read_actor_metadata_v2" in by_name
+    for name in {
+        "rhino_director_write_actor_metadata_v2",
+        "rhino_director_read_actor_metadata_v2",
+    }:
+        schema = by_name[name].inputSchema
+        assert schema["type"] == "object"
+        assert _find_rejected_schema_keywords(schema) == []
+
+
+def test_actor_metadata_v2_tools_are_in_director_group():
+    assert "rhino_director_write_actor_metadata_v2" in tool_groups.TOOL_GROUPS["director"]
+    assert "rhino_director_read_actor_metadata_v2" in tool_groups.TOOL_GROUPS["director"]
+
+
+@pytest.mark.asyncio
+async def test_actor_metadata_migration_is_not_exposed_as_mcp_tool():
+    tools = await server.list_tools()
+    names = {tool.name for tool in tools}
+
+    assert "rhino_director_migrate_actor_metadata_v2" not in names
+    assert (
+        "rhino_director_migrate_actor_metadata_v2"
+        not in tool_groups.TOOL_GROUPS["director"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_write_actor_metadata_v2_tool_dispatch_success():
+    request = {"actor_set": {"actor_set_id": "set_001"}}
+
+    async def fake_write(arguments, *, port=None):
+        assert arguments == request
+        assert port is None
+        return {"actor_set_ref": ".rook/director_planning/actor_sets/set_001.json"}
+
+    with patch(
+        "rook.server.director_actor_metadata.write_actor_metadata_bundle_v2",
+        new=fake_write,
+    ):
+        out = await server.call_tool(
+            "rhino_director_write_actor_metadata_v2", request
+        )
+
+    payload = json.loads(out[0].text)
+    assert (
+        payload["actor_set_ref"]
+        == ".rook/director_planning/actor_sets/set_001.json"
+    )
+
+
+@pytest.mark.asyncio
+async def test_write_actor_metadata_v2_tool_dispatch_error():
+    async def fake_write(arguments, *, port=None):
+        raise server.director_actor_metadata.DirectorActorMetadataError(
+            "document_path_required",
+            "Active document path required.",
+        )
+
+    with patch(
+        "rook.server.director_actor_metadata.write_actor_metadata_bundle_v2",
+        new=fake_write,
+    ):
+        out = await server.call_tool(
+            "rhino_director_write_actor_metadata_v2",
+            {"actor_set": {"actor_set_id": "set_001"}},
+        )
+
+    text = out[0].text
+    assert text.startswith("Error: ")
+    payload = json.loads(text.removeprefix("Error: "))
+    assert payload["code"] == "document_path_required"
+
+
+@pytest.mark.asyncio
+async def test_read_actor_metadata_v2_tool_dispatch_success():
+    request = {
+        "ref": ".rook/director_planning/actor_sets/set_001.json",
+        "expected_kind": "director_actor_set",
+    }
+    source_document = {
+        "file_name": "scene.3dm",
+        "file_path": "C:/projects/scene.3dm",
+    }
+
+    async def fake_resolve_active_project_root(*, port=None):
+        assert port is None
+        return ("C:/projects", source_document)
+
+    def fake_load_metadata_ref(project_root, ref, *, expected_kind):
+        assert project_root == "C:/projects"
+        assert ref == request["ref"]
+        assert expected_kind == "director_actor_set"
+        return {"metadata_kind": expected_kind, "actor_set_id": "set_001"}
+
+    def fake_resolve_metadata_ref(project_root, ref):
+        assert project_root == "C:/projects"
+        assert ref == request["ref"]
+        return "C:/projects/.rook/director_planning/actor_sets/set_001.json"
+
+    with (
+        patch(
+            "rook.server.director_actor_metadata.resolve_active_project_root",
+            new=fake_resolve_active_project_root,
+        ),
+        patch(
+            "rook.server.director_actor_metadata.load_metadata_ref",
+            new=fake_load_metadata_ref,
+        ),
+        patch(
+            "rook.server.director_actor_metadata.resolve_metadata_ref",
+            new=fake_resolve_metadata_ref,
+        ),
+    ):
+        out = await server.call_tool(
+            "rhino_director_read_actor_metadata_v2", request
+        )
+
+    payload = json.loads(out[0].text)
+    assert payload["ref"] == request["ref"]
+    assert payload["expected_kind"] == "director_actor_set"
+    assert payload["payload"]["actor_set_id"] == "set_001"
+    assert payload["source_document"]["file_name"] == "scene.3dm"
+    assert payload["resolved_metadata_path"].endswith("set_001.json")
+
+
+@pytest.mark.asyncio
+async def test_read_actor_metadata_v2_tool_dispatch_error():
+    async def fake_resolve_active_project_root(*, port=None):
+        raise server.director_actor_metadata.DirectorActorMetadataError(
+            "document_path_required",
+            "Active document path required.",
+        )
+
+    with patch(
+        "rook.server.director_actor_metadata.resolve_active_project_root",
+        new=fake_resolve_active_project_root,
+    ):
+        out = await server.call_tool(
+            "rhino_director_read_actor_metadata_v2",
+            {
+                "ref": ".rook/director_planning/actor_sets/set_001.json",
+                "expected_kind": "director_actor_set",
+            },
+        )
+
+    text = out[0].text
+    assert text.startswith("Error: ")
+    payload = json.loads(text.removeprefix("Error: "))
+    assert payload["code"] == "document_path_required"
