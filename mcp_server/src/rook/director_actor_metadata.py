@@ -32,6 +32,15 @@ LEGACY_DURABLE_PATH_FIELDS = {
 }
 
 _DRIVE_PREFIX_RE = re.compile(r"^[A-Za-z]:")
+_WINDOWS_INVALID_FILENAME_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_WINDOWS_RESERVED_DEVICE_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{index}" for index in range(1, 10)),
+    *(f"LPT{index}" for index in range(1, 10)),
+}
 
 
 class DirectorActorMetadataError(Exception):
@@ -148,24 +157,11 @@ def _validate_ref_fields(value: Any, field_path: str = "$") -> None:
 
 
 def _reject_generated_ref_input_fields(value: Any, field_path: str = "$") -> None:
-    generated_ref_keys = {
-        "source_snapshot_ref",
-        "accepted_selection_snapshot_ref",
-        "exemplar_selection_snapshot_ref",
-    }
     if isinstance(value, dict):
         for key, item in value.items():
             key_text = str(key)
             child_path = _legacy_field_path(field_path, key_text)
-            if key_text in generated_ref_keys or (
-                key_text == "ref"
-                and (
-                    field_path.startswith("$.subsets[")
-                    or field_path.startswith("$.groupings[")
-                    or ".actor_set.subsets[" in field_path
-                    or ".band_sets[" in field_path
-                )
-            ):
+            if key_text == "ref" or key_text.endswith("_ref"):
                 _raise(
                     "generated_ref_field_present",
                     "Director metadata writer generates durable refs from semantic IDs.",
@@ -326,12 +322,15 @@ def _validate_filename_segment_id(
     key: str,
     field_path: str,
 ) -> None:
+    reserved_name = value.split(".", 1)[0].upper()
     if (
-        "/" in value
-        or "\\" in value
+        _WINDOWS_INVALID_FILENAME_CHARS_RE.search(value)
         or value in (".", "..")
+        or value.endswith(".")
+        or value.endswith(" ")
         or value.startswith("//")
         or _DRIVE_PREFIX_RE.match(value)
+        or reserved_name in _WINDOWS_RESERVED_DEVICE_NAMES
     ):
         _raise(
             "metadata_id_invalid",
