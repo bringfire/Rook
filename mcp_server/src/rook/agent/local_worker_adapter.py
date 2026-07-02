@@ -146,3 +146,97 @@ def _require_safe_detail(detail: str) -> None:
             raise ValueError(
                 "failure_reason detail must be ASCII alnum/underscore"
             )
+
+
+def run_local_worker_adapter(
+    request_payload: Mapping[str, Any],
+    transport: LocalWorkerTransport,
+) -> LocalWorkerAdapterRecord:
+    prompt_artifact = render_local_worker_prompt_artifact(request_payload)
+    send = getattr(transport, "send", None)
+    if not callable(send):
+        raise TypeError(
+            "transport must provide a callable send(prompt_artifact)"
+        )
+    try:
+        raw_output = send(prompt_artifact)
+    except TransportError:
+        return _failure_record("transport_error", "transport_error:declared", None)
+    except Exception as exc:  # noqa: BLE001 — deliberate Exception-only boundary
+        return _failure_record(
+            "transport_error",
+            "transport_error:unexpected:" + _safe_detail(type(exc).__name__),
+            None,
+        )
+    if not isinstance(raw_output, str):
+        return _failure_record(
+            "raw_output_invalid",
+            "raw_output_invalid:not_text:" + _safe_detail(type(raw_output).__name__),
+            None,
+        )
+    excerpt = _excerpt(raw_output)
+    text = raw_output.strip()
+    if not text:
+        return _failure_record(
+            "raw_output_invalid", "raw_output_invalid:empty", excerpt
+        )
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        return _failure_record(
+            "raw_output_invalid", "raw_output_invalid:json_decode", excerpt
+        )
+    if not isinstance(parsed, Mapping):
+        return _failure_record(
+            "raw_output_invalid", "raw_output_invalid:not_mapping", excerpt
+        )
+    try:
+        response = load_local_worker_turn_response_payload(parsed)
+    except (TypeError, ValueError) as exc:
+        return _failure_record(
+            "response_payload_invalid",
+            "response_payload_invalid:" + _safe_detail(str(exc)),
+            excerpt,
+        )
+    return LocalWorkerAdapterRecord(
+        schema=LOCAL_WORKER_ADAPTER_RECORD_SCHEMA,
+        status="response_loaded",
+        prompt_schema=LOCAL_WORKER_PROMPT_ARTIFACT_SCHEMA,
+        prompt_text_version=LOCAL_WORKER_PROMPT_TEXT_VERSION,
+        response=response,
+        failure_reason=None,
+        raw_output_excerpt=None,
+    )
+
+
+def _failure_record(
+    status: AdapterStatus,
+    failure_reason: str,
+    raw_output_excerpt: str | None,
+) -> LocalWorkerAdapterRecord:
+    return LocalWorkerAdapterRecord(
+        schema=LOCAL_WORKER_ADAPTER_RECORD_SCHEMA,
+        status=status,
+        prompt_schema=LOCAL_WORKER_PROMPT_ARTIFACT_SCHEMA,
+        prompt_text_version=LOCAL_WORKER_PROMPT_TEXT_VERSION,
+        response=None,
+        failure_reason=failure_reason,
+        raw_output_excerpt=raw_output_excerpt,
+    )
+
+
+def _excerpt(raw_output: str) -> str | None:
+    text = raw_output[:RAW_OUTPUT_EXCERPT_LIMIT]
+    cleaned = "".join(
+        ch if ch == " " or ch.isprintable() else "_" for ch in text
+    )
+    return cleaned if cleaned else None
+
+
+def _safe_detail(value: str) -> str:
+    cleaned = "".join(
+        ch if (ch.isascii() and (ch.isalnum() or ch == "_")) else "_"
+        for ch in value[:_DETAIL_LIMIT]
+    )
+    detail = cleaned.strip("_")
+    return detail if detail else "unclassified"
