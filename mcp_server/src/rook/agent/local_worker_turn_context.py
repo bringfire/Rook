@@ -21,7 +21,10 @@ from rook.agent.plan_graph_workflow_contract import CompiledWorkflowScaffold
 from rook.learning.plan_graph import PlanGraph
 from rook.learning.plan_graph_projection import projection_role_for_node
 
+LOCAL_WORKER_TURN_CONTEXT_SCHEMA = "rook.local_worker_turn_context:v1"
+
 __all__ = (
+    "LOCAL_WORKER_TURN_CONTEXT_SCHEMA",
     "LocalWorkerTurnContext",
     "WorkerWorkflowSummary",
     "WorkerGraphSummary",
@@ -32,6 +35,7 @@ __all__ = (
     "WorkerKnowledgePacket",
     "WorkerAllowedAction",
     "build_local_worker_turn_context",
+    "render_local_worker_turn_context_payload",
 )
 
 
@@ -248,6 +252,33 @@ class LocalWorkerTurnContext:
         )
 
 
+def render_local_worker_turn_context_payload(
+    context: LocalWorkerTurnContext,
+) -> Mapping[str, Any]:
+    if not isinstance(context, LocalWorkerTurnContext):
+        raise TypeError("context must be LocalWorkerTurnContext")
+
+    return {
+        "schema": LOCAL_WORKER_TURN_CONTEXT_SCHEMA,
+        "workflow": _render_workflow_summary(context.workflow),
+        "current_graph": _render_graph_summary(context.current_graph),
+        "current_node": (
+            None
+            if context.current_node is None
+            else _render_node_summary(context.current_node)
+        ),
+        "history": _render_history_summary(context.history),
+        "knowledge": [
+            _render_knowledge_packet(packet)
+            for packet in context.knowledge
+        ],
+        "allowed_actions": [
+            _render_allowed_action(action)
+            for action in context.allowed_actions
+        ],
+    }
+
+
 def build_local_worker_turn_context(
     scaffold: CompiledWorkflowScaffold,
     graph: PlanGraph,
@@ -311,6 +342,122 @@ def build_local_worker_turn_context(
         knowledge=knowledge_tuple,
         allowed_actions=allowed_actions_tuple,
     )
+
+
+def _render_workflow_summary(summary: WorkerWorkflowSummary) -> dict[str, Any]:
+    return {
+        "workflow_id": summary.workflow_id,
+        "contract_schema": summary.contract_schema,
+        "contract_fingerprint": summary.contract_fingerprint,
+        "compiler_id": summary.compiler_id,
+        "provider_id": summary.provider_id,
+        "selected_template_id": summary.selected_template_id,
+        "max_steps": summary.max_steps,
+    }
+
+
+def _render_graph_summary(summary: WorkerGraphSummary) -> dict[str, Any]:
+    return {
+        "node_count": summary.node_count,
+        "node_ids": _render_json_value(summary.node_ids),
+        "ready_node_ids": _render_json_value(summary.ready_node_ids),
+        "terminal_node_ids": _render_json_value(summary.terminal_node_ids),
+        "status_counts": _render_json_value(summary.status_counts),
+    }
+
+
+def _render_node_summary(summary: WorkerNodeSummary) -> dict[str, Any]:
+    return {
+        "node_id": summary.node_id,
+        "intent": summary.intent,
+        "role": summary.role,
+        "status": summary.status,
+        "execution_ref": summary.execution_ref,
+        "is_terminal": summary.is_terminal,
+        "has_execution_params": summary.has_execution_params,
+        "memory_keys": _render_json_value(summary.memory_keys),
+    }
+
+
+def _render_history_summary(summary: WorkerHistorySummary) -> dict[str, Any]:
+    return {
+        "current_step_count": summary.current_step_count,
+        "supply_count": summary.supply_count,
+        "last_accepted_node_id": summary.last_accepted_node_id,
+        "last_execution_kind": summary.last_execution_kind,
+        "last_stop_reason": summary.last_stop_reason,
+        "recent_steps": [
+            _render_step_trace_summary(step)
+            for step in summary.recent_steps
+        ],
+        "recent_supplies": [
+            _render_supply_trace_summary(supply)
+            for supply in summary.recent_supplies
+        ],
+    }
+
+
+def _render_step_trace_summary(
+    summary: WorkerStepTraceSummary,
+) -> dict[str, Any]:
+    return {
+        "accepted_node_id": summary.accepted_node_id,
+        "execution_kind": summary.execution_kind,
+        "ran": summary.ran,
+        "failure": summary.failure,
+    }
+
+
+def _render_supply_trace_summary(
+    summary: WorkerSupplyTraceSummary,
+) -> dict[str, Any]:
+    return {
+        "decision": summary.decision,
+        "reason": summary.reason,
+        "selected_node_id": summary.selected_node_id,
+        "has_envelope": summary.has_envelope,
+    }
+
+
+def _render_knowledge_packet(packet: WorkerKnowledgePacket) -> dict[str, Any]:
+    return {
+        "packet_id": packet.packet_id,
+        "kind": packet.kind,
+        "title": packet.title,
+        "content": _render_json_value(packet.content),
+    }
+
+
+def _render_allowed_action(action: WorkerAllowedAction) -> dict[str, Any]:
+    return {
+        "action_id": action.action_id,
+        "kind": action.kind,
+        "description": action.description,
+        "input_schema": _render_json_value(action.input_schema),
+    }
+
+
+def _render_json_value(value: object) -> Any:
+    if isinstance(value, Mapping):
+        rendered: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise TypeError("context payload mapping keys must be strings")
+            rendered[key] = _render_json_value(item)
+        return rendered
+    if isinstance(value, (list, tuple)):
+        return [_render_json_value(item) for item in value]
+    if value is None or isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise TypeError("context payload float values must be finite")
+        return value
+    raise TypeError("context payload contains unsupported value")
 
 
 def _validate_scaffold_identity(scaffold: CompiledWorkflowScaffold) -> None:

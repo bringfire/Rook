@@ -214,6 +214,7 @@ def test_public_surface_is_explicit() -> None:
     import rook.agent.local_worker_turn_context as module
 
     assert set(module.__all__) == {
+        "LOCAL_WORKER_TURN_CONTEXT_SCHEMA",
         "LocalWorkerTurnContext",
         "WorkerWorkflowSummary",
         "WorkerGraphSummary",
@@ -224,6 +225,7 @@ def test_public_surface_is_explicit() -> None:
         "WorkerKnowledgePacket",
         "WorkerAllowedAction",
         "build_local_worker_turn_context",
+        "render_local_worker_turn_context_payload",
     }
 
 
