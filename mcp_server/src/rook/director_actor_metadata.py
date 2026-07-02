@@ -667,6 +667,13 @@ async def write_actor_metadata_bundle_v2(
         subset.pop("band_set_ids", None)
         for band_set_index, band_set_id in enumerate(band_set_ids):
             if isinstance(band_set_id, str) and band_set_id:
+                _validate_filename_segment_id(
+                    band_set_id,
+                    key="band_set_id",
+                    field_path=(
+                        f"$.subsets[{subset_index}].band_set_ids[{band_set_index}]"
+                    ),
+                )
                 band_sets.append({"band_set_id": band_set_id})
             else:
                 _raise(
@@ -764,6 +771,7 @@ async def write_actor_metadata_bundle_v2(
             source_snapshot_id,
             field_path=f"$.actor_set.{source_snapshot_key}",
         )
+    actor_set.pop("subsets", None)
     if subset_payloads:
         actor_set["subsets"] = [
             {

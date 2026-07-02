@@ -575,6 +575,28 @@ def test_write_actor_metadata_bundle_v2_rejects_supplied_unknown_source_snapshot
     _assert_no_rook_files(model.parent)
 
 
+def test_write_actor_metadata_bundle_v2_strips_actor_set_subsets_without_top_level_subsets(
+    tmp_path,
+):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir()
+    bundle = _minimal_bundle()
+    bundle["actor_set"]["subsets"] = [
+        {
+            "subset_id": "stale_subset",
+        }
+    ]
+    bundle["subsets"] = []
+    bundle["groupings"] = []
+
+    result = _write_bundle(bundle, model)
+
+    actor_set = json.loads(
+        Path(result["resolved_actor_set_path"]).read_text(encoding="utf-8")
+    )
+    assert "subsets" not in actor_set
+
+
 @pytest.mark.parametrize(
     "mutate, field_path",
     [
@@ -779,6 +801,23 @@ def test_write_actor_metadata_bundle_v2_rejects_ids_with_path_separators(
     data = exc.value.to_data()
     assert data["code"] == "metadata_id_invalid"
     assert data["field_path"] == field_path
+    _assert_no_rook_files(model.parent)
+
+
+def test_write_actor_metadata_bundle_v2_rejects_unsafe_band_set_id_before_lookup(
+    tmp_path,
+):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir()
+    bundle = _minimal_bundle()
+    bundle["subsets"][0]["band_set_ids"] = ["band/bad"]
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        _write_bundle(bundle, model)
+
+    data = exc.value.to_data()
+    assert data["code"] == "metadata_id_invalid"
+    assert data["field_path"] == "$.subsets[0].band_set_ids[0]"
     _assert_no_rook_files(model.parent)
 
 
