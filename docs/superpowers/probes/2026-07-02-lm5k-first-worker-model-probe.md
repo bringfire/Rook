@@ -1,24 +1,28 @@
-# LM5K Probe Round 1 — First Worker Model Probe (2026-07-02)
+# LM5K Probe Rounds 1 & 1b — First Worker Model Probe (2026-07-02)
 
 **Doctrine:** evidence, not CI. This summary is the committed artifact; raw
 runs stay local (spec §5, `docs/superpowers/specs/2026-07-02-lm5k-first-worker-model-probe-design.md`).
 
-## Run identity
+**Revision note:** round 1's initial diagnosis ("scenario-communication
+gap") is **superseded** by round 1b's ceiling calibration: the golden
+scenario's expectation was incoherent with its own graph state, and the
+models correctly refused. See "Corrected diagnosis" below.
+
+## Shared experiment identity (both rounds)
 
 | | |
 |---|---|
-| Run directory (local, gitignored) | `probe_runs/lm5k-20260702T202802Z-3bd5a3d3/` |
-| Git commit | `3bd5a3d3` (main, post-PR #397 merge) |
 | Prompt text version | `lm5j.prompt_text:v1` |
 | Prompt artifact schema | `rook.local_worker_prompt_artifact:v1` |
 | Request / response schemas | `rook.local_worker_turn_request:v1` / `rook.local_worker_turn_response:v1` |
 | Adapter record schema | `rook.local_worker_adapter_record:v1` |
 | Scenario | golden repair workflow (`lm5k_first_probe`), expected action `draft_repair_params` |
-| Generation params | `{"temperature": 0}` |
 | Attempts per candidate | 5 |
-| Raw capture | enabled (`--capture-raw`; raw outputs in the local run dir only) |
+| Raw capture | enabled (`--capture-raw`; raw outputs in local run dirs only) |
 
-## Headline results
+## Round 1 (run `probe_runs/lm5k-20260702T202802Z-3bd5a3d3/`, commit `3bd5a3d3`)
+
+Generation params: `{"temperature": 0}` for all slots.
 
 | Slot | Resolved model (source) | Status | strict-loadable | spine-passing |
 |---|---|---|---|---|
@@ -26,111 +30,105 @@ runs stay local (spec §5, `docs/superpowers/specs/2026-07-02-lm5k-first-worker-
 | cheap_cloud_worker_candidate | `anthropic/claude-haiku-4-5-20251001` (cli) | ran | **0/5** | **0/5** |
 | ceiling_worker_candidate | `anthropic/claude-sonnet-5` (cli) | transport_error | 0/5 | 0/5 |
 
-Every candidate failed **differently**, and each failure class is exactly what
-the paired-metric + status taxonomy was designed to separate.
+- **local:** all five responses strict LM5G-loadable JSON; 4×
+  `clarification_request` + 1× `refusal(insufficient_context)` — protocol
+  valid, not the expected `action_request`.
+- **cheap:** 5× `raw_output_invalid:json_decode` — every response wrapped in
+  a markdown fence despite the "no code fences" instruction.
+- **ceiling:** never called — LiteLLM rejects `temperature=0` client-side
+  for `claude-sonnet-5` (reasoning-tier models accept only default sampling
+  params). Fixed by PR #399: per-slot generation params, ceiling runs at
+  provider defaults, params recorded per candidate in the manifest.
 
-## Failure-reason groupings
+## Round 1b (run `probe_runs/lm5k-20260702T204932Z-d06c1077/`, commit `d06c1077`)
 
-- **local (qwen3:14b):** zero adapter failures. All five responses were
-  strict LM5G-loadable JSON — no thinking-block leakage, no fences, correct
-  schema tag, correct field sets. Spine failures were *admissibility
-  expectation* mismatches: 4× `clarification_request` (disposition
-  `clarification_needed`), 1× `refusal` with category `insufficient_context`
-  (disposition `refusal_recorded`). The harness completed on every attempt;
-  the responses were protocol-valid worker responses — just not the expected
-  `action_request`.
-- **cheap (Haiku 4.5):** 5× `raw_output_invalid:json_decode` — every response
-  was wrapped in a markdown code fence (```` ```json ````) despite the prompt's
-  "no code fences" instruction. Fence-stripping was deliberately excluded from
-  v1 parsing so this is measured, not masked. Content inside the fence was a
-  well-formed clarification_request.
-- **ceiling (Sonnet):** 5× `transport_error:unexpected:UnsupportedParamsError`
-  — reproduced and diagnosed: LiteLLM rejects `temperature=0` for
-  `claude-sonnet-5` client-side ("Only temperature=1 is supported"; it is a
-  reasoning-default model). No API calls were made; the ceiling read did not
-  happen this round.
+Same scenario and prompt; ceiling slot now sends **no sampling params**
+(provider defaults — adaptive thinking on), local/cheap keep
+`{"temperature": 0}`. A preliminary identical-result run was made from the
+pre-merge branch commit `a078f5a1`; the run above, from main, is canonical.
 
-## Representative bounded excerpts
+| Slot | Resolved model (source) | Status | strict-loadable | spine-passing |
+|---|---|---|---|---|
+| local_worker_candidate | `ollama_chat/qwen3:14b` (cli) | ran | **5/5** | **0/5** |
+| cheap_cloud_worker_candidate | `anthropic/claude-haiku-4-5-20251001` (cli) | ran | **0/5** | **0/5** |
+| ceiling_worker_candidate | `anthropic/claude-sonnet-5` (cli) | ran | **5/5** | **0/5** |
 
-qwen3:14b (attempt 0, refusal — reformatted for readability; the raw output
-was a single strict-JSON object):
+Dispositions: local 4× `clarification_needed` + 1× `refusal_recorded`;
+cheap 5× `raw_output_invalid:json_decode` (fenced again); ceiling 4×
+`refusal_recorded` + 1× `clarification_needed`.
+
+Representative ceiling refusal (attempt 0, reformatted for readability; raw
+output was a single strict-JSON object):
 
 ```json
 {"schema": "rook.local_worker_turn_response:v1", "kind": "refusal",
  "category": "insufficient_context",
- "reason": "Required input parameters 'code' and 'mode' are not available in
- the current context to execute the 'draft_repair_params' action."}
+ "reason": "The current node 'repair_same_component' is still pending and
+ not in the ready set (only 'create_script' is ready). Its prerequisite
+ nodes ('create_script' and 'verify_create') have not yet executed, so no
+ actual C# script code, component_guid, or repair_anchor values are
+ available. The only allowed action, draft_repair_params, requires concrete
+ 'code' and 'mode' inputs that cannot be derived without that upstream
+ execution data."}
 ```
 
-Haiku (attempt 0, opening bytes):
+## Corrected diagnosis
 
-```text
-```json
-{ "schema": "rook.local_worker_turn_response:v1",
-  "kind": "clarification_request",
-  "question": "I am ready to draft repair parameters ... (1) What is the
-  specific C# code body that needs to be repaired? (2) What repair mode ...
-```
+**Every factual claim in the ceiling's refusal was verified against the
+rendered envelope.** The golden scenario builds its worker context on a
+freshly compiled graph: `ready_node_ids: ["create_script"]`, current node
+`repair_same_component` at `status: "pending"` with
+`has_execution_params: false`, memory keys named but upstream nodes never
+executed. The scenario's *expectation* (`action_request` for
+`draft_repair_params`) contradicts the world-state the envelope itself
+presents. The deterministic fake transport in the offline tests never
+noticed — it reads `allowed_actions` blindly; the real models reasoned about
+the graph state and correctly declined to fabricate work.
 
-## Findings
+What the two rounds establish:
 
-1. **The load-bearing format bet reads positive for the local tier.** A
-   14B local model at $0 obeyed the response contract perfectly (5/5 strict
-   JSON) — and beat the cheap cloud model on format discipline. The
-   mechanical contract-rendering in `lm5j.prompt_text:v1` appears sufficient
-   for format compliance on at least one local model.
+1. **Format contract validated at ceiling and local tier.** Sonnet 5 and
+   qwen3:14b both produced strict, schema-correct payloads 5/5. The
+   `lm5j.prompt_text:v1` artifact plus mechanical contract rendering is
+   sufficient for format compliance — a positive read on the campaign's
+   local-tier bet, with a $0 14B model matching the ceiling on format.
+2. **Spine 0/5 across all tiers is a probe-fixture defect, not a model or
+   prompt failure.** The fixture (inherited from the LM5J integration test,
+   where a non-reasoning fake transport made the incoherence invisible)
+   presents a pre-execution graph state while expecting post-verify action.
+3. **The bounded-worker safety property passed its first live test at every
+   tier.** Faced with an incoherent world-state, no model hallucinated an
+   action; all used the LM5B refusal/clarification vocabulary with accurate
+   reasons. The harness caught a fixture bug our deterministic tests could
+   not — the models converging on refusal was **correct behavior**.
+4. **Fence discipline differs by model family and is now a measured
+   baseline.** Haiku fenced 10/10 across both rounds despite explicit
+   instruction; qwen3 and Sonnet fenced 0/10. Strict-v1 parsing keeps this
+   measurable.
 
-2. **The spine failures are more likely a scenario-communication gap than a
-   pure model-weakness finding** (the ceiling slot never ran, so capability
-   and prompt-following differences are not fully ruled out — but the
-   convergence is strong). Both model families that produced content
-   (qwen3 AND Haiku) asked the *same* question: give me the `code` and
-   `mode`. They read the allowed action's `input_schema`
-   (`required: ["code", "mode"]`) as inputs they should have *received*
-   rather than parameters they are being asked to *author*. The context also
-   names memory keys (`component_guid`, `repair_anchor`) and
-   `has_execution_params: true` without exposing values, which both models
-   flagged. This lands squarely on the planner-harness north-star's open
-   question 1 (evidence-push composition): the worker context must
-   communicate the authoring role and carry (or explicitly withhold, with
-   framing) the facts it references.
-
-3. **The bounded-worker protocol worked exactly as designed.** Faced with
-   perceived missing context, the local model did not hallucinate an action —
-   it used the refusal/clarification channels (LM5B vocabulary), which the
-   spine recorded as valid dispositions. These responses do not authorize
-   mutation; a later runner/escalation policy can route them. That is the
-   safety property the whole worker box exists to provide.
-
-4. **Fence discipline differs by model family.** Haiku fenced 5/5 despite
-   explicit instruction; qwen3 fenced 0/5. The strict-v1 parser converted
-   this into a clean measurable rather than hiding it.
-
-5. **The ceiling slot needs per-slot generation params.** `temperature=0`
-   is globally pinned this round; reasoning-default models (claude-sonnet-5)
-   reject it client-side. The failure was recorded as evidence and did not
-   block the panel — the taxonomy behaved as specced — but round 1 has no
-   ceiling read, so the "is the prompt broken?" calibration question was
-   answered indirectly (by qwen3's 5/5 format compliance) rather than by the
-   ceiling.
+**Architecture lesson:** LM5A's contract deliberately allows an explicit
+`current_node` without a readiness requirement — that is fine. What must
+hold is that a probe *expectation* never pretends readiness happened when
+the envelope says otherwise. Probe scenarios must be world-state-coherent:
+the graph summary, node status, execution params, and expected response kind
+must tell one consistent story.
 
 ## Round-2 candidates (decisions, not commitments)
 
-- **Scenario/context fix (highest value):** make the authoring role explicit —
-  prompt-text v2 (`lm5j.prompt_text:v2`) and/or richer worker context
-  (execution-param visibility or explicit "you author these inputs" framing
-  on allowed actions). This is the LM5A/evidence-push question, now with
-  data.
-- **Per-slot generation params** so the ceiling can run at `temperature=1`
-  (recorded per candidate in the manifest; a distinct experiment key per
-  spec §5.3).
-- **Fence policy stays strict**; Haiku's non-compliance is now a measured
-  baseline to compare prompt-text v2 against.
+- **Fixture fix (highest value, unblocks fair spine measurement):** advance
+  the golden scenario to the coherent post-verify state — create executed,
+  verify returned `needs_repair`, `repair_same_component` genuinely ready
+  with execution params bound and memory evidence present — then rerun.
+- **Prompt-text v2** (second priority): output-discipline reinforcement for
+  the Haiku fencing baseline; authoring-role framing for `input_schema`
+  remains plausible but is no longer the primary suspect.
 - Previously queued: `_git_short_sha` cwd anchoring; mixed
-  loaded/transport-error offline e2e; `api_base`/model-digest in the
+  loaded/transport-error offline e2e; `api_base`/model digest in the §5.3
   comparison key for local aliases.
 
-## Comparison key for this round
+## Comparison keys
 
-`(lm5j.prompt_text:v1, <resolved_model>, schemas above, {"temperature": 0})`
-— any prompt-text, scenario-context, or params change is a new experiment.
+Round 1: `(lm5j.prompt_text:v1, <model>, schemas above, {"temperature": 0})`.
+Round 1b: same except the ceiling candidate's params are `{}` (recorded per
+candidate in the manifest as of PR #399). Any prompt-text, scenario, or
+params change is a new experiment.
