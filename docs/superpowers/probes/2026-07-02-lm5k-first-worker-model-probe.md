@@ -1,4 +1,4 @@
-# LM5K Probe Rounds 1 & 1b — First Worker Model Probe (2026-07-02)
+# LM5K Probe Rounds 1, 1b & 2 — First Worker Model Probe (2026-07-02)
 
 **Doctrine:** evidence, not CI. This summary is the committed artifact; raw
 runs stay local (spec §5, `docs/superpowers/specs/2026-07-02-lm5k-first-worker-model-probe-design.md`).
@@ -8,7 +8,7 @@ gap") is **superseded** by round 1b's ceiling calibration: the golden
 scenario's expectation was incoherent with its own graph state, and the
 models correctly refused. See "Corrected diagnosis" below.
 
-## Shared experiment identity (both rounds)
+## Shared experiment identity (rounds 1 and 1b)
 
 | | |
 |---|---|
@@ -72,7 +72,7 @@ output was a single strict-JSON object):
  execution data."}
 ```
 
-## Corrected diagnosis
+## Corrected diagnosis after rounds 1 and 1b
 
 **Every factual claim in the ceiling's refusal was verified against the
 rendered envelope.** The golden scenario builds its worker context on a
@@ -113,22 +113,79 @@ the envelope says otherwise. Probe scenarios must be world-state-coherent:
 the graph summary, node status, execution params, and expected response kind
 must tell one consistent story.
 
-## Round-2 candidates (decisions, not commitments)
+## Round 2 (run `probe_runs/lm5k-20260702T225319Z-e4df37ce/`, commit `e4df37ce`)
 
-- **Fixture fix (highest value, unblocks fair spine measurement):** advance
-  the golden scenario to the coherent post-verify state — create executed,
-  verify returned `needs_repair`, `repair_same_component` genuinely ready
-  with execution params bound and memory evidence present — then rerun.
-- **Prompt-text v2** (second priority): output-discipline reinforcement for
-  the Haiku fencing baseline; authoring-role framing for `input_schema`
-  remains plausible but is no longer the primary suspect.
-- Previously queued: `_git_short_sha` cwd anchoring; mixed
-  loaded/transport-error offline e2e; `api_base`/model digest in the §5.3
-  comparison key for local aliases.
+Round 2 runs after LM5L fixed the golden scenario fixture. The scenario is now
+`lm5k_golden_repair_v2`, version `v2`, state `post_verify_needs_repair`:
+the probe context is derived through the real offline stream to the coherent
+post-verify repair state before the request envelope is rendered.
 
-## Comparison keys
+Targeted post-merge gate: `mcp_server/tests/test_lm5k_worker_probe.py` passed
+`27 passed`.
 
-Round 1: `(lm5j.prompt_text:v1, <model>, schemas above, {"temperature": 0})`.
-Round 1b: same except the ceiling candidate's params are `{}` (recorded per
-candidate in the manifest as of PR #399). Any prompt-text, scenario, or
-params change is a new experiment.
+| Slot | Resolved model (source) | Status | strict-loadable | spine-passing |
+|---|---|---|---|---|
+| local_worker_candidate | `ollama_chat/qwen3:14b` (cli) | ran | **5/5** | **0/5** |
+| cheap_cloud_worker_candidate | `anthropic/claude-haiku-4-5-20251001` (cli) | ran | **0/5** | **0/5** |
+| ceiling_worker_candidate | `anthropic/claude-sonnet-5` (cli) | ran | **5/5** | **1/5** |
+
+Dispositions: local 5x `clarification_needed`; cheap 5x
+`raw_output_invalid:json_decode`; ceiling 4x `clarification_needed` + 1x
+`candidate_action_request`.
+
+Raw capture was enabled and produced 15 files. Haiku fenced all five responses
+with markdown code fences labeled `json`, preserving the output-discipline
+baseline from rounds 1 and 1b. qwen3 and Sonnet did not fence in this run.
+
+The single Sonnet spine-passing attempt (ceiling attempt 2) requested the
+allowed `draft_repair_params` action and used the response protocol correctly.
+Its authored input was still semantically weak:
+
+```json
+{
+  "action_id": "draft_repair_params",
+  "input": {
+    "code": "private void RunScript(object x, ref object A) { ... A = x; }",
+    "mode": "body"
+  }
+}
+```
+
+This is spine-valid because the worker requested an allowed action with
+schema-shaped input. It is not evidence of semantic repair quality: it paired
+`mode: "body"` with a `RunScript` wrapper shape and guessed missing code/pins
+instead of deriving a real repair from hidden execution params or memory values.
+
+## Round-2 interpretation
+
+LM5L removed fixture incoherence as an **absolute blocker**. The envelope now
+presents `repair_same_component` as ready with execution params present and
+real history/memory keys, and Sonnet produced one valid action request against
+that coherent state. That 1/5 is an existence proof, not a reliability rate.
+
+qwen3 and most Sonnet attempts still asked for the missing `code`/`mode` input
+values. That points to authoring-role ambiguity and/or missing evidence in the
+worker-visible context rather than the old graph-state contradiction. The
+bounded-worker safety property continued to hold: no model executed tools, no
+model requested an action outside the `allowed_actions` vocabulary, and
+non-action responses stayed within the LM5B clarification/refusal channels.
+
+Haiku still fenced all responses. This is now stable model-specific
+output-discipline evidence across the corrected scenario too.
+
+Recommended next slice: **LM5M `prompt_text:v2`**, focused on generic
+authoring-role framing and fence-discipline reinforcement. Evidence-push
+should remain a later controlled variable, not part of LM5M.
+
+## Updated comparison keys
+
+Round 1: `(lm5j.prompt_text:v1, lm5k_golden_repair_v1/fresh_compiled_graph,
+<model>, schemas above, {"temperature": 0})`.
+
+Round 1b: same v1 scenario except the ceiling candidate's params are `{}`.
+
+Round 2: `(lm5j.prompt_text:v1,
+lm5k_golden_repair_v2/post_verify_needs_repair, <model>, schemas above,
+per-candidate generation params)`.
+
+Any prompt-text, scenario, params, or evidence-push change is a new experiment.
