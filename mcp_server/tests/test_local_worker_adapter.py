@@ -682,3 +682,12 @@ def test_adapter_composes_with_lm4w_lm5a_lm5i_lm5d_and_lm5f() -> None:
     )
     assert harness_record.status == "completed"
     assert result.passed is True
+
+
+def test_deeply_nested_output_is_json_decode_record() -> None:
+    record = run_local_worker_adapter(
+        _request_payload(), _StaticTransport("[" * 100_000)
+    )
+    assert record.status == "raw_output_invalid"
+    assert record.failure_reason == "raw_output_invalid:json_decode"
+    assert len(record.raw_output_excerpt) == RAW_OUTPUT_EXCERPT_LIMIT

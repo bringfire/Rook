@@ -116,7 +116,7 @@ reads before rendering instructions from them:
 - `field_sets`: mapping with string keys covering every kind, each value a
   non-empty sequence of non-empty strings;
 - `required_nullable_fields`: mapping, string keys drawn from `kinds`, each
-  value a sequence of non-empty strings;
+  value a non-empty sequence of non-empty strings;
 - `refusal_categories`: non-empty sequence of non-empty strings.
 
 Shape violations raise `ValueError`. LM5J does not re-validate the rest of the
@@ -208,7 +208,7 @@ validate envelope boundary + response_contract shape (prompt renderer, §3.2)
      BaseException             -> PROPAGATES (never a record)
 -> require raw output is str            else raw_output_invalid
 -> trim; require non-empty              else raw_output_invalid
--> json.loads                           failure -> raw_output_invalid
+-> json.loads                (ValueError/RecursionError) -> raw_output_invalid
 -> require mapping                      else raw_output_invalid
 -> load_local_worker_turn_response_payload(mapping)   (LM5G)
      loader rejection          -> status=response_payload_invalid
@@ -267,8 +267,8 @@ tests and probe-artifact visibility, not an ad hoc patch.
 - Production records carry at most a **bounded excerpt**
   (`raw_output_excerpt`, first N=500 characters, control characters
   replaced), because model output can contain user/project content.
-- `response_loaded` records may omit the excerpt (the loaded response is the
-  content of record).
+- `response_loaded` records carry no excerpt (`None`) — the loaded response is
+  the content of record.
 - Full raw output is **never** stored in an adapter record. Full-output
   capture is an opt-in LM5K probe artifact.
 - Tests assert against canned raw outputs directly (they own the fixture), not

@@ -182,7 +182,7 @@ def run_local_worker_adapter(
         )
     try:
         parsed = json.loads(text)
-    except ValueError:
+    except (ValueError, RecursionError):
         return _failure_record(
             "raw_output_invalid", "raw_output_invalid:json_decode", excerpt
         )
