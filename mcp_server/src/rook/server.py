@@ -71,7 +71,7 @@ from .mcp_tool_profiles import (
     tool_blocked,
 )
 from .capability_index import build_index, validate_arguments
-from . import artifacts, director, director_compiler, director_preview, director_publish, director_video, merge_execution, script_library, targeting, workbench, work_units
+from . import artifacts, director, director_actor_metadata, director_compiler, director_preview, director_publish, director_video, merge_execution, script_library, targeting, workbench, work_units
 from .mesh2splat import pipeline as mesh2splat_pipeline
 targeting.initialize_from_environment()
 from .knowledge import query_knowledge, query_knowledge_tiered, record_knowledge, invalidate_condensed_command_cache
@@ -4081,6 +4081,94 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                     },
                 },
                 "required": ["timeline", "motion"],
+            },
+        ),
+        Tool(
+            name="rhino_director_capture_source_occurrence_v2",
+            description=(
+                "Capture the selected or explicit top-level source occurrence "
+                "for Director actor authoring as a v2 SelectionSnapshot. Resolves "
+                "the active saved .3dm via /document, writes under .rook, returns "
+                "a durable .rook ref, and never writes director_takes."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "snapshot_id": {
+                        "type": "string",
+                        "description": "Optional safe id for the generated source occurrence SelectionSnapshot.",
+                    },
+                    "ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional top-level object ids to select before capture. Omit to use current Rhino selection.",
+                    },
+                    "intent": {
+                        "type": "string",
+                        "description": "Optional semantic intent stored in the snapshot.",
+                    },
+                    "label": {
+                        "type": "string",
+                        "description": "Optional display label stored in the snapshot.",
+                    },
+                },
+            },
+        ),
+        Tool(
+            name="rhino_director_write_actor_metadata_v2",
+            description=(
+                "Production writer for v2 ActorSet, actor subset, ActorGrouping, "
+                "and SelectionSnapshot metadata. Resolves the active saved .3dm "
+                "via /document; writes schema_version 2 under .rook; emits "
+                "durable .rook refs."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["actor_set"],
+                "properties": {
+                    "actor_set": {
+                        "type": "object",
+                        "description": "ActorSet metadata object to persist as schema_version 2.",
+                    },
+                    "selection_snapshots": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": "Optional SelectionSnapshot metadata objects.",
+                    },
+                    "subsets": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": "Optional actor subset metadata objects.",
+                    },
+                    "groupings": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": "Optional ActorGrouping metadata objects.",
+                    },
+                },
+            },
+        ),
+        Tool(
+            name="rhino_director_read_actor_metadata_v2",
+            description=(
+                "Strict runtime reader for v2 actor metadata refs. Accepts a "
+                ".rook ref and expected metadata_kind; resolves against the "
+                "active saved .3dm; rejects v1/legacy path fields; returns the "
+                "loaded payload plus resolved runtime path."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["ref", "expected_kind"],
+                "properties": {
+                    "ref": {
+                        "type": "string",
+                        "description": "Project-relative .rook metadata ref to load.",
+                    },
+                    "expected_kind": {
+                        "type": "string",
+                        "description": "Expected metadata_kind for the loaded v2 payload.",
+                    },
+                },
             },
         ),
         Tool(
@@ -20693,6 +20781,54 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
 
         case "rhino_director_preview_motion":
             result = {"success": True, "data": await director_preview.preview_motion(arguments, port=port)}
+
+        case "rhino_director_capture_source_occurrence_v2":
+            try:
+                result = {
+                    "success": True,
+                    "data": await director_actor_metadata.capture_source_occurrence_v2(
+                        arguments, port=port
+                    ),
+                }
+            except director_actor_metadata.DirectorActorMetadataError as exc:
+                result = {"success": False, "data": exc.to_data()}
+
+        case "rhino_director_write_actor_metadata_v2":
+            try:
+                result = {
+                    "success": True,
+                    "data": await director_actor_metadata.write_actor_metadata_bundle_v2(
+                        arguments, port=port
+                    ),
+                }
+            except director_actor_metadata.DirectorActorMetadataError as exc:
+                result = {"success": False, "data": exc.to_data()}
+
+        case "rhino_director_read_actor_metadata_v2":
+            try:
+                ref = arguments.get("ref")
+                expected_kind = arguments.get("expected_kind")
+                project_root, source_document = (
+                    await director_actor_metadata.resolve_active_project_root(port=port)
+                )
+                payload = director_actor_metadata.load_metadata_ref(
+                    project_root, ref, expected_kind=expected_kind
+                )
+                resolved_metadata_path = director_actor_metadata.resolve_metadata_ref(
+                    project_root, ref
+                )
+                result = {
+                    "success": True,
+                    "data": {
+                        "ref": ref,
+                        "expected_kind": expected_kind,
+                        "resolved_metadata_path": str(resolved_metadata_path),
+                        "source_document": source_document,
+                        "payload": payload,
+                    },
+                }
+            except director_actor_metadata.DirectorActorMetadataError as exc:
+                result = {"success": False, "data": exc.to_data()}
 
         case "rhino_render_view":
             result = await call_rhino("/vision/generate", "POST", arguments, port=port)
