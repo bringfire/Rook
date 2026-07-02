@@ -320,6 +320,84 @@ def derive_probe_graph_state():
     return scaffold, result
 
 
+def _invariant(condition: bool, message: str) -> None:
+    if not condition:
+        raise RuntimeError(
+            f"LM5L coherent fixture invariant failed: {message}"
+        )
+
+
+def _require_coherent_graph_state(scaffold, stream_result) -> None:
+    """Fail-fast tripwire on derived world-state facts (spec 4.2).
+
+    Factual and probe-specific only — no receipt re-interpretation, no
+    policy, no schema validation; those belong to the LM5B/C/D/F spine.
+    Internal guard MAY inspect params/memory values; the rendered envelope
+    never shows values (spec 3.5) and its tests assert only model-visible
+    facts. Purpose: a future drift fails the probe at startup instead of
+    burning live API attempts on an incoherent envelope."""
+    from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
+
+    _invariant(
+        stream_result.stop_reason == "max_steps_reached",
+        f"stream stopped early: {stream_result.stop_reason}",
+    )
+    kinds = [record.execution_kind for record in stream_result.records]
+    _invariant(
+        kinds == ["producer", "verifier", "bind"],
+        f"unexpected step sequence: {kinds}",
+    )
+    create_record = stream_result.records[0]
+    _invariant(
+        create_record.accepted_node_id == "create_script"
+        and create_record.ran,
+        "history missing create producer record",
+    )
+    graph = stream_result.final_graph
+    _invariant(
+        graph.nodes["create_script"].evidence is not None,
+        "create producer record has no receipt evidence",
+    )
+    _invariant(
+        stream_result.records[1].verifier_outcome_status == "needs_repair",
+        "verifier outcome is not needs_repair",
+    )
+    repair = graph.nodes["repair_same_component"]
+    _invariant(repair.status == "ready", "repair node is not ready")
+    params = repair.metadata.get(EXECUTION_PARAMS_KEY)
+    _invariant(
+        isinstance(params, Mapping) and bool(params),
+        "execution params missing on repair node",
+    )
+    facts = graph.memory.facts
+    anchor = facts.get("repair_anchor")
+    _invariant(
+        isinstance(anchor, Mapping)
+        and anchor.get("component_guid") == PROBE_COMPONENT_GUID
+        and facts.get("component_guid") == PROBE_COMPONENT_GUID,
+        "memory facts missing repair anchor",
+    )
+
+
+def _require_probe_context_shape(context) -> None:
+    """Caller-declared worker affordances (spec 4.2) — split from graph
+    state because these are hand-declared planner inputs, not derived
+    world-state. LM5A deliberately has no top-level current_node_id field;
+    the guard checks the public context shape."""
+    _invariant(
+        context.current_node is not None
+        and context.current_node.node_id == "repair_same_component",
+        "current node is not repair_same_component",
+    )
+    _invariant(
+        any(
+            action.action_id == "draft_repair_params"
+            for action in context.allowed_actions
+        ),
+        "allowed action draft_repair_params missing",
+    )
+
+
 def build_probe_context():
     """Golden scenario: the compiled repair workflow, per LM5J's integration
     test, with this probe's workflow_id."""

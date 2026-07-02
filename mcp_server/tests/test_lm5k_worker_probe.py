@@ -324,6 +324,91 @@ def test_offline_runner_refuses_non_create_nodes() -> None:
     assert runner.calls == ["repair_same_component"]
 
 
+def _fresh_scaffold_and_empty_result():
+    """The round-1b shape: freshly compiled graph, nothing executed."""
+    from rook.agent.plan_graph_current_step_stream import (
+        CurrentStepStreamResult,
+    )
+    from rook.agent.plan_graph_workflow_contract import (
+        compile_workflow_contract,
+    )
+
+    scaffold = compile_workflow_contract(PROBE._probe_contract())
+    return scaffold, CurrentStepStreamResult(
+        final_graph=scaffold.graph,
+        records=(),
+        supply_records=(),
+        stop_reason="max_steps_reached",
+        steps_attempted=0,
+    )
+
+
+def test_graph_state_guard_rejects_round_1b_shape() -> None:
+    # Regression: the guard must reject the exact fixture shape that
+    # produced the round-1b false spine reading. It would have caught
+    # round 1b; this proves it stays able to.
+    scaffold, empty = _fresh_scaffold_and_empty_result()
+    with pytest.raises(
+        RuntimeError, match="LM5L coherent fixture invariant failed"
+    ):
+        PROBE._require_coherent_graph_state(scaffold, empty)
+
+
+def test_graph_state_guard_accepts_derived_state() -> None:
+    scaffold, result = PROBE.derive_probe_graph_state()
+    PROBE._require_coherent_graph_state(scaffold, result)  # must not raise
+
+
+def test_graph_state_guard_message_repair_not_ready() -> None:
+    scaffold, result = PROBE.derive_probe_graph_state()
+    result.final_graph.nodes["repair_same_component"].status = "pending"
+    with pytest.raises(RuntimeError, match="repair node is not ready"):
+        PROBE._require_coherent_graph_state(scaffold, result)
+
+
+def test_graph_state_guard_message_params_missing() -> None:
+    from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
+
+    scaffold, result = PROBE.derive_probe_graph_state()
+    del result.final_graph.nodes["repair_same_component"].metadata[
+        EXECUTION_PARAMS_KEY
+    ]
+    with pytest.raises(
+        RuntimeError, match="execution params missing on repair node"
+    ):
+        PROBE._require_coherent_graph_state(scaffold, result)
+
+
+def test_graph_state_guard_message_memory_facts_missing() -> None:
+    scaffold, result = PROBE.derive_probe_graph_state()
+    result.final_graph.memory.facts.clear()
+    with pytest.raises(RuntimeError, match="memory facts missing repair anchor"):
+        PROBE._require_coherent_graph_state(scaffold, result)
+
+
+def test_graph_state_guard_message_pre_bind_sequence() -> None:
+    import asyncio
+
+    from rook.agent.plan_graph_current_step_stream import (
+        run_current_step_stream,
+    )
+    from rook.agent.plan_graph_workflow_contract import (
+        compile_workflow_contract,
+    )
+
+    scaffold = compile_workflow_contract(PROBE._probe_contract())
+    result = asyncio.run(
+        run_current_step_stream(
+            scaffold.graph,
+            scaffold.provider,
+            max_steps=2,
+            runner=PROBE._OfflineCreateRunner(),
+        )
+    )
+    with pytest.raises(RuntimeError, match="unexpected step sequence"):
+        PROBE._require_coherent_graph_state(scaffold, result)
+
+
 def test_offline_probe_capture_raw(tmp_path) -> None:
     run_dir = PROBE.run_probe(
         _args(tmp_path, attempts=1, capture_raw=True),
