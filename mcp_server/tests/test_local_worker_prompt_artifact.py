@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import copy
 import inspect
+import json
 from collections.abc import Mapping
 
 import pytest
@@ -195,3 +196,108 @@ def test_mutated_response_contract_fails_closed(mutate) -> None:
     mutate(payload["response_contract"])
     with pytest.raises((TypeError, ValueError)):
         render_local_worker_prompt_artifact(payload)
+
+
+def test_artifact_shape_is_exact() -> None:
+    artifact = render_local_worker_prompt_artifact(_request_payload())
+    assert set(artifact.keys()) == {"schema", "prompt_text_version", "messages"}
+    assert artifact["schema"] == LOCAL_WORKER_PROMPT_ARTIFACT_SCHEMA
+    assert artifact["prompt_text_version"] == LOCAL_WORKER_PROMPT_TEXT_VERSION
+    messages = artifact["messages"]
+    assert isinstance(messages, list) and len(messages) == 2
+    assert set(messages[0].keys()) == {"role", "content"}
+    assert set(messages[1].keys()) == {"role", "content"}
+    assert messages[0]["role"] == "system"
+    assert messages[1]["role"] == "user"
+
+
+def test_render_is_deterministic_and_key_order_independent() -> None:
+    first = render_local_worker_prompt_artifact(_request_payload())
+    second = render_local_worker_prompt_artifact(_request_payload())
+    assert first == second
+    reordered = _request_payload()
+    reordered = {key: reordered[key] for key in sorted(reordered, reverse=True)}
+    third = render_local_worker_prompt_artifact(reordered)
+    assert third == first
+
+
+def test_user_message_is_canonical_json_of_envelope() -> None:
+    payload = _request_payload()
+    artifact = render_local_worker_prompt_artifact(payload)
+    assert json.loads(artifact["messages"][1]["content"]) == payload
+
+
+def test_system_text_renders_contract_mechanically() -> None:
+    payload = _request_payload()
+    system_text = render_local_worker_prompt_artifact(payload)["messages"][0][
+        "content"
+    ]
+    contract = payload["response_contract"]
+    for kind in contract["kinds"]:
+        assert kind in system_text
+        for field in contract["field_sets"][kind]:
+            assert field in system_text
+    for category in contract["refusal_categories"]:
+        assert category in system_text
+    assert payload["response_schema"] in system_text
+
+
+def test_contract_mutation_changes_system_text() -> None:
+    payload = _request_payload()
+    baseline = render_local_worker_prompt_artifact(_request_payload())
+    payload["response_contract"]["refusal_categories"] = [
+        "unsafe",
+        "insufficient_context",
+        "unsupported_action",
+        "out_of_scope",
+        "novel_category",
+    ]
+    changed = render_local_worker_prompt_artifact(payload)
+    assert "novel_category" in changed["messages"][0]["content"]
+    assert changed["messages"][0]["content"] != baseline["messages"][0]["content"]
+
+
+def test_instruction_constant_has_no_kind_or_field_literals() -> None:
+    payload = _request_payload()
+    contract = payload["response_contract"]
+    instruction = prompt_module._INSTRUCTION_TEXT
+    for kind in contract["kinds"]:
+        assert kind not in instruction
+        for field in contract["field_sets"][kind]:
+            if field in {"schema", "kind"}:
+                continue
+            assert field not in instruction
+    for category in contract["refusal_categories"]:
+        assert category not in instruction
+
+
+def test_module_never_references_loads_or_banned_imports() -> None:
+    source = inspect.getsource(prompt_module)
+    tree = ast.parse(source)
+    imported: set[str] = set()
+    attributes: set[str] = set()
+    calls: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module.split(".")[0])
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.Attribute):
+            attributes.add(node.attr)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            calls.add(node.func.id)
+    banned_modules = {
+        "litellm", "openai", "requests", "httpx", "aiohttp", "socket",
+        "urllib", "pathlib", "yaml",
+    }
+    banned_symbols = {
+        "model_profiles", "base_agent", "tool_dispatcher", "chat",
+        "capability_record", "capability_inventory", "plan_graph_live",
+        "local_worker_turn_response", "local_worker_turn_harness",
+        "local_worker_turn_disposition", "local_worker_scenario_evaluation",
+    }
+    assert not (imported & banned_modules)
+    assert not (imported & banned_symbols)
+    assert "loads" not in attributes
+    assert "open" not in calls
