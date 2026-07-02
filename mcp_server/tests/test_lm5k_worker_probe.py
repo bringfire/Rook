@@ -38,6 +38,13 @@ def test_slot_vocabulary() -> None:
     }
 
 
+def test_scenario_identity_constants() -> None:
+    assert PROBE.SCENARIO_WORKFLOW_ID == "lm5k_first_probe"
+    assert PROBE.SCENARIO_ID == "lm5k_golden_repair_v2"
+    assert PROBE.SCENARIO_VERSION == "v2"
+    assert PROBE.SCENARIO_STATE == "post_verify_needs_repair"
+
+
 def test_parse_candidate_spec() -> None:
     assert PROBE.parse_candidate_spec("ollama_chat/qwen3:8b") == (
         "ollama_chat/qwen3:8b",
@@ -221,6 +228,15 @@ def test_offline_probe_end_to_end_good_transport(tmp_path) -> None:
     manifest = json.loads((run_dir / "manifest.json").read_text())
     assert manifest["generation_params"] == {"temperature": 0}
     assert manifest["prompt_text_version"] == "lm5j.prompt_text:v1"
+    # scenario identity: structured block, versioned (spec section 5);
+    # the bare scenario_workflow_id string is replaced, not kept alongside
+    assert manifest["scenario"] == {
+        "workflow_id": "lm5k_first_probe",
+        "scenario_id": "lm5k_golden_repair_v2",
+        "scenario_version": "v2",
+        "state": "post_verify_needs_repair",
+    }
+    assert "scenario_workflow_id" not in manifest
     local = next(p for p in manifest["panel"] if p["slot"] == "local")
     assert local["status"] == "ran"
     assert local["strict_loadable"] == 3

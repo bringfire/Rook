@@ -46,6 +46,14 @@ SLOT_GENERATION_PARAMS = {
 }
 DEFAULT_ATTEMPTS = 5
 SCENARIO_WORKFLOW_ID = "lm5k_first_probe"
+# Scenario identity (spec section 5). The workflow contract is unchanged
+# since rounds 1/1b; what changed in LM5L is the probe scenario STATE
+# (fresh compiled graph -> coherent post-verify repair state), so the
+# scenario id/version move to v2 while workflow_id stays. Any scenario
+# change is a new experiment under the comparison-key doctrine.
+SCENARIO_ID = "lm5k_golden_repair_v2"
+SCENARIO_VERSION = "v2"
+SCENARIO_STATE = "post_verify_needs_repair"
 
 _LOCAL_PREFIXES = ("ollama_chat/", "ollama/")
 
@@ -309,7 +317,7 @@ def run_candidate(
             )
             result = evaluate_local_worker_scenario_result(
                 LocalWorkerScenarioExpectation(
-                    scenario_id="lm5k_first_probe_golden",
+                    scenario_id=SCENARIO_ID,
                     category="live_probe",
                     expected_status="completed",
                     expected_disposition="candidate_action_request",
@@ -419,7 +427,12 @@ def build_manifest(
         "run_id": run_id,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "git_commit": _git_short_sha(),
-        "scenario_workflow_id": SCENARIO_WORKFLOW_ID,
+        "scenario": {
+            "workflow_id": SCENARIO_WORKFLOW_ID,
+            "scenario_id": SCENARIO_ID,
+            "scenario_version": SCENARIO_VERSION,
+            "state": SCENARIO_STATE,
+        },
         "generation_params": dict(GENERATION_PARAMS),
         "attempts_per_candidate": attempts,
         "capture_raw": capture_raw,
