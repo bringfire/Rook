@@ -3,10 +3,10 @@
 - **Date:** 2026-07-02
 - **Status:** Brainstorm synthesis / design draft for review. **Not approved for implementation.** This document is "another voice in the room" for the in-flux DAG-coordination architecture discussion; slices derived from it require their own specs and approval.
 - **Author:** Claude (Fable) brainstorm synthesis with the user; grounded in the LM campaign codebase, OpenProse/Reactor (`D:\prose`), and the RLM paper (arXiv 2512.24601).
-- **Area:** `mcp_server/src/rook/agent/` — planner harness (net-new), PlanGraph runtime (LM4N–Z), local worker boundary (LM5A–H), `planner` execution profile (LM2F), RookChat as front-end.
+- **Area:** `mcp_server/src/rook/agent/` — planner harness (net-new), PlanGraph runtime (LM4N–Z), local worker boundary (LM5A–I), `planner` execution profile (LM2F), RookChat as front-end.
 - **Relationship to other docs:**
   - Extends `docs/superpowers/specs/2026-06-03-rook-north-star-topology.md` (macro two-tier coordinator) and `docs/superpowers/specs/2026-06-19-rook-local-internal-models-north-star.md` (bounded local workers). Those documents define the top and bottom tiers; **this document defines the internal harness that connects them: who authors the plan, who runs it, who executes a node, and how failure flows upward.**
-  - Consumes, does not modify, the LM4 contract layer (`plan_graph_workflow_contract.py`, LM4X fingerprint, LM4Y payload loader, LM4Z provenance) and the LM5 worker boundary (`local_worker_turn_*.py`).
+  - Consumes, does not modify, the LM4 contract layer (`plan_graph_workflow_contract.py`, LM4X fingerprint, LM4Y payload loader, LM4Z provenance) and the LM5 worker boundary (`local_worker_turn_*.py`, through LM5I's request envelope, PR #394).
   - Gives the LM2F `planner` execution profile its first consumer.
   - External guideposts: OpenProse/Reactor's compile-time-intelligence/deterministic-runtime discipline, and the Recursive Language Models paper's context-as-environment, metadata-only-history, and depth-1-recursion findings.
 
@@ -22,8 +22,8 @@ RookWorkflowContract (LM4W)
   -> fingerprint (LM4X), payload loader (LM4Y), provenance (LM4Z)
   -> live runner spine (LM4N–V: propose -> revalidate -> map -> execute
      -> record -> stream -> provider, live-proven)
-  -> frozen worker turn boundary (LM5A–H: context -> response -> disposition
-     -> harness -> scenario eval -> loaders/renderers)
+  -> frozen worker turn boundary (LM5A–I: context -> response -> disposition
+     -> harness -> scenario eval -> loaders/renderers -> request envelope)
 ```
 
 Every contract so far is hand-authored. Nothing in the system yet *authors* a
@@ -115,9 +115,9 @@ this section records only the outcomes.
 │       replan-frontier halts                                      │
 └──────────────────────────┬───────────────────────────────────────┘
                            ▼
-┌─ WORKER BOX (Sonnet / Haiku / local — LM5A–H) ──────────────────┐
-│ missing piece: the MODEL ADAPTER at the LM5H seam:               │
-│   context payload -> prompt + response schema -> model call      │
+┌─ WORKER BOX (Sonnet / Haiku / local — LM5A–I) ──────────────────┐
+│ missing piece: the MODEL ADAPTER at the LM5I seam:               │
+│   request envelope (LM5I) -> prompt + transport -> model call    │
 │   -> response payload -> LM5G loader                             │
 │ one adapter interface; LiteLLM / Ollama / LM Studio behind it    │
 └──────────────────────────────────────────────────────────────────┘
@@ -251,16 +251,33 @@ box does the thinking; the artifact chain records the decision.
 
 ## 5. The Worker box: the model adapter seam
 
-LM5H deliberately left one seam open: `context payload -> worker/model
-transport`. The worker-side missing piece is a single adapter interface:
+**Update (2026-07-02, same day as this brainstorm): LM5I (PR #394, merge
+`3271cc8f`) closed the deterministic half of this seam.**
+`render_local_worker_turn_request_payload` in
+`agent/local_worker_turn_request.py` composes the LM5H context payload, the
+LM5G response schema identity, and a machine-readable response-contract
+description (response kinds, per-kind field sets, required-nullable fields,
+refusal categories) into one schema-tagged artifact:
+`rook.local_worker_turn_request:v1`. The request envelope is the first
+production layer allowed to compose the outbound context schema with the
+inbound response schema — and it deliberately stops there.
+
+The worker-side missing piece is therefore narrower than originally drafted:
+a single adapter interface consuming the **request envelope**, not the raw
+context payload:
 
 ```text
 WorkerModelAdapter:
-  input:  rendered context payload (rook.local_worker_turn_context:v1)
-          + response schema (rook.local_worker_turn_response:v1)
+  input:  request envelope (rook.local_worker_turn_request:v1, LM5I)
           + prompt/transport policy
   output: response payload -> load_local_worker_turn_response_payload (LM5G)
 ```
+
+The adapter's remaining scope is exactly the set of questions LM5I declines to
+answer: how the prompt text is written, which model/provider runs, how raw
+model output is parsed into a response payload — and nothing more
+(admissibility stays with LM5G/LM5B validation and LM5C disposition; execution
+stays with the runner).
 
 Requirements:
 
@@ -273,9 +290,13 @@ Requirements:
   typed response;
 - adapter failures are transport-status facts, never synthesized responses.
 
-Prompt composition (context payload + response schema + instructions) is the
-adapter's concern, per LM5H §11. Prompt text is a versioned artifact so worker
-evals are attributable.
+Prompt *text* rendering (turning the LM5I envelope into model-facing
+instructions) is the adapter's concern, per LM5H §11 and LM5I's layer split.
+Prompt text is a versioned artifact so worker evals are attributable. Note
+that the envelope's machine-readable `response_contract` means the prompt
+layer can be largely mechanical — describing the contract rather than
+inventing it — which shrinks the surface where prompt drift can diverge from
+the validated schema.
 
 ---
 
