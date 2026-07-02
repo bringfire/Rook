@@ -349,6 +349,29 @@ layer can be largely mechanical — describing the contract rather than
 inventing it — which shrinks the surface where prompt drift can diverge from
 the validated schema.
 
+### 5.1 Next empirical pressure (decided 2026-07-02)
+
+The worker-model adapter is the next empirical pressure — chosen over
+`workflow_validate`-first and over both-in-parallel, so the first real-model
+signal stays clean (one seam under test, failures attributable). The first
+slice is a **narrow adapter/probe boundary, not a broad worker loop**. The
+question it answers is exactly:
+
+> Given a real LM5I request envelope from the hand-authored repair workflow,
+> can a model produce a strict LM5G-loadable response payload that passes
+> LM5B/C/D/F evaluation?
+
+Explicitly out of scope for that slice: dispatch, graph mutation, stream
+continuation, `workflow_validate`, planner contract authoring. Just the first
+real worker behind the already-built worker box.
+
+Candidate naming (the slice's own spec decides): `LM5J` as a single
+model-adapter probe, or `LM5J` (worker adapter contract, non-live seam) +
+`LM5K` (first model probe) if one more deterministic seam is wanted first.
+
+`workflow_validate` is expected to be the first Planner-Harness slice *after*
+an initial worker-model read exists.
+
 ---
 
 ## 6. Two plan tiers and RLM depth
@@ -551,6 +574,13 @@ Extending the LM north-star's evaluation doctrine (its §11 / phase LM6) upward:
   (review round 1).
 - Planner-envelope symmetry with LM5I is a pattern, not scheduled scope
   (review round 1).
+- **Next empirical pressure: the worker-model adapter, as a narrow probe**
+  ("can a model produce a strict LM5G-loadable response to a real LM5I
+  envelope that passes LM5B/C/D/F?") — no dispatch, no graph mutation, no
+  stream continuation. Not `workflow_validate` first (tests the safer
+  planner-side bet), not both-in-parallel (blurs failure attribution).
+  `workflow_validate` follows once an initial worker-model read exists (user
+  decision, 2026-07-02).
 
 ---
 
