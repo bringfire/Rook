@@ -168,6 +168,92 @@ def test_director_video_assemble_validates_temp_mp4_before_replacing_preview():
     assert finalize_index < writer_release_index < temp_size_index < overwrite_index < replace_index < output_size_index
 
 
+def test_director_depth_pass_route_is_registered_and_delegated():
+    handler_header = DIRECTOR_HEADER.read_text(encoding="utf-8")
+    server_header = ROOK_SERVER_HEADER.read_text(encoding="utf-8")
+    server_source = ROOK_SERVER_CPP.read_text(encoding="utf-8")
+
+    assert re.search(
+        r"void\s+HandleDirectorCaptureDepthPass\s*\(\s*const\s+httplib::Request&\s+req,\s*httplib::Response&\s+res\s*\)\s*;",
+        handler_header,
+    )
+    assert re.search(
+        r"void\s+HandleDirectorCaptureDepthPass\s*\(\s*const\s+httplib::Request&\s+req,\s*httplib::Response&\s+res\s*\)\s*;",
+        server_header,
+    )
+    assert 'm_server->Post("/director/capture-depth-pass"' in server_source
+    assert "Rook::Handlers::HandleDirectorCaptureDepthPass(req, res);" in server_source
+    assert 'm_server->Post("/vision/capture-true-depth-test"' not in server_source
+
+
+def test_director_depth_pass_has_strict_native_contract_and_artifact_schema():
+    source = DIRECTOR_HANDLER.read_text(encoding="utf-8")
+    parser_body = _extract_function(source, "DepthPassRequest ParseDepthPassRequest")
+    capture_body = _extract_function(source, "DepthPassCapture CaptureDepthPassOnMain")
+    artifact_body = _extract_function(source, "nlohmann::json BuildDepthPassArtifact")
+    handler_body = _extract_function(source, "void HandleDirectorCaptureDepthPass")
+
+    assert "ParseStrictBodyAndDocSn" in handler_body
+    assert "request body must be a JSON object" in source
+    assert "source must be an object" in parser_body
+    assert "source.kind must be active_view or named_view" in parser_body
+    assert "output_root must be inside the native director output root" in parser_body
+    assert "near_percentile and far_percentile must satisfy 0 <= near < far <= 100" in parser_body
+    assert 'OptionalIntInRange(body, "probe_grid", 32, 4, 256, "probe_grid")' in parser_body
+    assert 'OptionalBool(body, "invert", true, "invert")' in parser_body
+
+    assert "CRhinoZBuffer zbuffer" in capture_body
+    assert "kMaxDirectorDepthPassPixelCount" in source
+    assert "Depth capture pixel count exceeds native Director depth-pass bounds" in capture_body
+    assert "!capture.cameraDirection.Unitize()" in capture_body
+    assert "Depth capture camera direction is invalid" in capture_body
+    assert "metric <= 0.0" in capture_body
+    assert "restoreViewport();" in capture_body
+    assert "viewportRestoredAfterExtract" in capture_body
+
+    assert "std::sort(capture.validMetricDepths.begin(), capture.validMetricDepths.end())" in artifact_body
+    assert "PercentileSorted(capture.validMetricDepths" in artifact_body
+    assert "std::vector<double> sorted = capture.validMetricDepths" not in artifact_body
+    assert "GuidSuffix()" in artifact_body
+    assert "artifact_collision" in artifact_body
+    assert "fs::create_directory(artifactRoot" in artifact_body
+
+    for token in [
+        "director_depth_pass.v0",
+        "experimental",
+        "metric_depth",
+        "depth_document_units_f32_le.bin",
+        "float32",
+        "little",
+        "row_major",
+        "stride_bytes",
+        "invalid_value",
+        "document_units",
+        "mapped_preview",
+        "uint16",
+        "big",
+        "valid_mask",
+        "valid_mask_u8.pgm",
+        "viewport_restored_after_extract",
+        "full_valid_pixels",
+    ]:
+        assert token in artifact_body
+
+    assert handler_body.index("future.get()") < handler_body.index("BuildDepthPassArtifact")
+
+
+def test_director_depth_pass_is_not_exposed_as_mcp_tool_yet():
+    mcp_source_root = REPO_ROOT / "mcp_server" / "src" / "rook"
+    joined_source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in mcp_source_root.rglob("*.py")
+    )
+
+    assert "/director/capture-depth-pass" not in joined_source
+    assert "capture_depth_pass" not in joined_source
+    assert "director_depth_pass" not in joined_source
+
+
 def test_director_publish_video_native_route_is_thin_vision_proxy():
     server_source = ROOK_SERVER_CPP.read_text(encoding="utf-8")
     header_source = (REPO_ROOT / "src" / "RookNative" / "Handlers" / "VisionHandler.h").read_text(encoding="utf-8")

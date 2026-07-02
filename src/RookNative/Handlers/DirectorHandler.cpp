@@ -48,6 +48,7 @@ constexpr int kMaxDirectorCurveSampleFrameCount = 5000;
 constexpr int kMaxDirectorVideoFrameCount = 5000;
 constexpr int kMaxDirectorVideoWidth = kMaxDirectorCaptureWidth;
 constexpr int kMaxDirectorVideoHeight = kMaxDirectorCaptureHeight;
+constexpr size_t kMaxDirectorDepthPassPixelCount = 16ull * 1024ull * 1024ull;
 constexpr double kMinDirectorVideoFps = 1.0;
 constexpr double kMaxDirectorVideoFps = 240.0;
 
@@ -898,6 +899,8 @@ void WriteJsonFile(const fs::path& path, const nlohmann::json& data)
         throw DirectorFrameValidationError("output_write_failed", "Failed to write manifest output: " + PathToUtf8(path));
 }
 
+std::wstring GuidSuffix();
+
 DepthPassCapture CaptureDepthPassOnMain(CRhinoDoc* pDoc, const DepthPassRequest& request)
 {
     if (!pDoc)
@@ -946,16 +949,19 @@ DepthPassCapture CaptureDepthPassOnMain(CRhinoDoc* pDoc, const DepthPassRequest&
             throw DirectorFrameValidationError("capture_failed", "Rhino z-buffer capture returned empty dimensions");
         if (capture.width > kMaxDirectorCaptureWidth || capture.height > kMaxDirectorCaptureHeight)
             throw DirectorFrameValidationError("unsupported_dimensions", "Depth capture dimensions exceed native Director bounds");
+        const size_t pixelCount = static_cast<size_t>(capture.width) * static_cast<size_t>(capture.height);
+        if (pixelCount > kMaxDirectorDepthPassPixelCount)
+            throw DirectorFrameValidationError("unsupported_dimensions", "Depth capture pixel count exceeds native Director depth-pass bounds");
 
         capture.viewport = rhinoViewport.VP();
         capture.cameraLocation = capture.viewport.CameraLocation();
         capture.cameraDirection = capture.viewport.CameraDirection();
-        capture.cameraDirection.Unitize();
+        if (!capture.cameraDirection.Unitize())
+            throw DirectorFrameValidationError("capture_failed", "Depth capture camera direction is invalid");
 
         const ON_3dmUnitsAndTolerances& units = pDoc->Properties().ModelUnitsAndTolerances();
         capture.units = WideToUtf8(units.m_unit_system.ToString());
 
-        const size_t pixelCount = static_cast<size_t>(capture.width) * static_cast<size_t>(capture.height);
         capture.metricDepth.assign(pixelCount, std::numeric_limits<float>::quiet_NaN());
         capture.validMask.assign(pixelCount, 0);
         capture.validMetricDepths.reserve(pixelCount / 4);
@@ -974,7 +980,7 @@ DepthPassCapture CaptureDepthPassOnMain(CRhinoDoc* pDoc, const DepthPassRequest&
                     continue;
 
                 const double metric = DotDepthVector(world - capture.cameraLocation, capture.cameraDirection);
-                if (!std::isfinite(metric))
+                if (!std::isfinite(metric) || metric <= 0.0)
                     continue;
 
                 capture.validMask[index] = 255;
@@ -1041,10 +1047,9 @@ nlohmann::json BuildDepthPassArtifact(
     const DepthPassRequest& request,
     DepthPassCapture capture)
 {
-    std::vector<double> sorted = capture.validMetricDepths;
-    std::sort(sorted.begin(), sorted.end());
-    double nearDepth = PercentileSorted(sorted, request.nearPercentile);
-    double farDepth = PercentileSorted(sorted, request.farPercentile);
+    std::sort(capture.validMetricDepths.begin(), capture.validMetricDepths.end());
+    double nearDepth = PercentileSorted(capture.validMetricDepths, request.nearPercentile);
+    double farDepth = PercentileSorted(capture.validMetricDepths, request.farPercentile);
     if (!(farDepth > nearDepth))
         farDepth = nearDepth + 1.0e-6;
 
@@ -1053,11 +1058,18 @@ nlohmann::json BuildDepthPassArtifact(
     if (ec)
         throw DirectorFrameValidationError("output_write_failed", "Failed to create depth output root: " + ec.message());
 
-    const std::string artifactId = "depth_pass_" + MakeDirectorDepthTimestamp();
+    ON_wString artifactGuid(GuidSuffix().c_str());
+    const std::string artifactId = "depth_pass_" + MakeDirectorDepthTimestamp() + "_" + WideToUtf8(artifactGuid);
     const fs::path artifactRoot = request.outputRoot / PathFromUtf8(artifactId);
-    fs::create_directories(artifactRoot, ec);
+    if (fs::exists(artifactRoot, ec))
+        throw DirectorFrameValidationError("artifact_collision", "Depth artifact directory already exists");
+    if (ec)
+        throw DirectorFrameValidationError("output_write_failed", "Failed to inspect depth artifact directory: " + ec.message());
+    const bool createdArtifactRoot = fs::create_directory(artifactRoot, ec);
     if (ec)
         throw DirectorFrameValidationError("output_write_failed", "Failed to create depth artifact directory: " + ec.message());
+    if (!createdArtifactRoot)
+        throw DirectorFrameValidationError("artifact_collision", "Depth artifact directory already exists");
 
     const fs::path rawPath = artifactRoot / L"depth_document_units_f32_le.bin";
     const fs::path mappedPath = artifactRoot / L"depth_mapped_u16.pgm";
