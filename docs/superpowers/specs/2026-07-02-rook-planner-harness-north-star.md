@@ -62,7 +62,9 @@ the macro `Plan`.
 ## 2. Decisions made in this brainstorm
 
 Three structural decisions were made explicitly during the 2026-07-02
-brainstorm session:
+brainstorm session. The full option sets considered at each fork, with
+trade-offs as presented, are preserved in **Appendix A — Branching points**;
+this section records only the outcomes.
 
 1. **Planner loop shape: plan-then-execute with declared replan-frontier
    nodes.** The Planner compiles a full contract up front. A contract may
@@ -442,3 +444,96 @@ Extending the LM north-star's evaluation doctrine (its §11 / phase LM6) upward:
   (fingerprint memoization + receipts adopted as patterns, Reactor runtime
   deferred).
 - No unverified mutation nodes: the one lint that encodes the doctrine.
+
+---
+
+## Appendix A — Branching points considered (2026-07-02 session)
+
+The forks below are recorded verbatim-in-substance so the roads not taken stay
+visible when this architecture is revisited. **Chosen answers are marked
+`✅ CHOSEN`.** Rejected options are not wrong forever; they are wrong for this
+horizon, for the stated reasons.
+
+### A.0 System entry point: external-first vs internal harness
+
+*Asked in the opening assessment as "Where does the Planner run first?"; the
+user resolved this in prose rather than from the option list.*
+
+- **External frontier model authoring contracts via MCP first** — Claude
+  Desktop / Claude Code / Codex as the macro coordinator per the topology
+  north-star; cheapest to ship, exercises the same contract surface, defers
+  model-adapter work. *(Assistant's original recommendation.)*
+- ✅ **CHOSEN: Rook-internal harness first (the RookChat angle).** Claude Code
+  and Codex already have solid harnesses; Rook builds its own internal harness
+  where the Planner-level model may be Opus/Fable/Sonnet and the worker-level
+  model may be Sonnet/Haiku/local. Deferring work was explicitly *not* the
+  concern; shaping the architecture was. Externals still converge on the same
+  contract layer via MCP tools (§7), so this choice does not fork the
+  contract.
+
+### A.1 Planner loop shape
+
+*Question: "How should the Planner box relate to execution — whole contract up
+front, or interleaved node proposal?"*
+
+- ✅ **CHOSEN: Plan-then-execute + replan nodes** *(recommended)* — Planner
+  compiles a full contract up front (LM4W path). Contracts may contain
+  explicit "replan frontier" nodes where the runner halts and re-invokes the
+  planner with accumulated receipts. Interleaved behavior becomes a declared,
+  auditable choice inside the artifact rather than a second harness mode.
+- **Strict plan-then-execute** — whole contract up front; planner re-enters
+  only on escalation (worker refusal, verifier failure past repair budget).
+  Simplest, most deterministic, most memoizable — but open-ended design tasks
+  must be decomposed into multiple sequential contracts by hand.
+- **Interleaved proposal as the spine** — planner proposes each next node via
+  the LM4N/LM4O propose→revalidate path as evidence accumulates. Most adaptive
+  for exploratory design work, but the plan is never a complete artifact —
+  weaker replay, memoization, and fingerprint semantics; a model sits closer
+  to the execution loop.
+- **Both as peer modes** — ship both loops behind the planner harness and let
+  task type select the mode. Maximum flexibility but two loops to test, eval,
+  and keep coherent — and the mode-selection policy itself becomes a new
+  design problem.
+
+### A.2 Authoring altitude
+
+*Question: "What vocabulary does the Planner compose contracts from — what can
+it write into a `RookWorkflowContract`?"*
+
+- ✅ **CHOSEN: Staged ladder, gated by evals** *(recommended)* — Stage 1:
+  select a template + bind initial params (`select_template`/LM4K binding
+  already exist). Stage 2: chain multiple templates into one contract.
+  Stage 3: free node authoring against the compiler. Each stage ships with its
+  own decomposition eval suite before the next unlocks. Matches the RLM
+  finding that first-decomposition quality dominates outcomes.
+- **Templates only, indefinitely** — planner never authors nodes; it only
+  selects and parameterizes registry templates. Maximum safety and
+  evaluability, but the template library becomes the bottleneck — every new
+  workflow shape needs a human-authored template first, and the smart model's
+  composition ability goes unused.
+- **Free node authoring from day one** — planner composes arbitrary
+  nodes/edges/steps immediately; the LM4W compiler plus an added
+  "no unverified mutation nodes" lint are the only gates. Exercises
+  frontier-model strength fully, but evals can't distinguish bad decomposition
+  from bad contract mechanics, and early failures are hard to attribute.
+
+### A.3 Harness home
+
+*Question: "Where does the Planner harness live, and how does RookChat relate
+to it?"*
+
+- ✅ **CHOSEN: Agent-layer loop; chat is a view** *(recommended)* — a pure
+  module family beside the PlanGraph/LM5 slices (e.g.
+  `agent/planner_turn_*.py`): frozen planner-turn context, authoring loop,
+  compile diagnostics feedback — deterministic-testable with a fake model, no
+  chat imports. The RookChat service, MCP tools, and the future conductor all
+  invoke the same loop. Matches the LM campaign's pure-module discipline.
+- **Built into the chat service** — extend `ChatRunner`/the chat server with a
+  planner mode. Fastest path to a demo in the panel, but couples the planner
+  loop to conversation state, streaming, and the chat service process — harder
+  to test deterministically and unusable from conductor/MCP without the chat
+  runtime.
+- **Separate planner service/process** — a standalone process like the chat
+  server with its own discovery file and HTTP surface. Cleanest isolation and
+  independent lifecycle, but adds a process, port discovery, and deployment
+  surface before any evidence justifies it.
