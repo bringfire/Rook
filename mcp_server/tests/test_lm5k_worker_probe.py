@@ -409,6 +409,77 @@ def test_graph_state_guard_message_pre_bind_sequence() -> None:
         PROBE._require_coherent_graph_state(scaffold, result)
 
 
+def test_probe_context_envelope_is_world_state_coherent() -> None:
+    # Layer 2 (spec section 6): the envelope a model actually sees must
+    # tell the same coherent story as the derived graph — asserted ONLY on
+    # model-visible facts (has_execution_params flag, memory KEYS), never
+    # param payloads or memory fact values (spec section 3.5). These are
+    # point-for-point the negations of the ceiling's round-1b refusal.
+    from rook.agent.local_worker_turn_request import (
+        render_local_worker_turn_request_payload,
+    )
+
+    payload = render_local_worker_turn_request_payload(
+        PROBE.build_probe_context()
+    )
+    context = payload["context"]
+
+    assert (
+        "repair_same_component" in context["current_graph"]["ready_node_ids"]
+    )
+    node = context["current_node"]
+    assert node["node_id"] == "repair_same_component"
+    assert node["status"] == "ready"
+    assert node["has_execution_params"] is True
+    assert "repair_anchor" in node["memory_keys"]
+    assert "component_guid" in node["memory_keys"]
+
+    history = context["history"]
+    assert history["current_step_count"] == 3
+    assert [
+        step["execution_kind"] for step in history["recent_steps"]
+    ] == ["producer", "verifier", "bind"]
+    assert [
+        step["accepted_node_id"] for step in history["recent_steps"]
+    ] == ["create_script", "verify_create", "repair_same_component"]
+
+    action_ids = [a["action_id"] for a in context["allowed_actions"]]
+    assert "draft_repair_params" in action_ids
+
+
+def test_probe_envelope_never_exposes_internal_values() -> None:
+    # The visibility boundary itself (spec section 3.5): bound execution
+    # param values and memory fact values must NOT appear anywhere in the
+    # rendered request payload — the worker sees has_execution_params and
+    # memory_keys, not payloads.
+    from rook.agent.local_worker_turn_request import (
+        render_local_worker_turn_request_payload,
+    )
+
+    payload = render_local_worker_turn_request_payload(
+        PROBE.build_probe_context()
+    )
+    rendered = json.dumps(payload)
+    assert PROBE.PROBE_COMPONENT_GUID not in rendered
+    assert "A = 42.0;" not in rendered
+
+
+def test_probe_context_shape_guard_wired() -> None:
+    import dataclasses
+
+    context = PROBE.build_probe_context()
+    stripped = dataclasses.replace(context, allowed_actions=())
+    with pytest.raises(
+        RuntimeError, match="allowed action draft_repair_params missing"
+    ):
+        PROBE._require_probe_context_shape(stripped)
+    headless = dataclasses.replace(context, current_node=None)
+    with pytest.raises(
+        RuntimeError, match="current node is not repair_same_component"
+    ):
+        PROBE._require_probe_context_shape(headless)
+
+
 def test_offline_probe_capture_raw(tmp_path) -> None:
     run_dir = PROBE.run_probe(
         _args(tmp_path, attempts=1, capture_raw=True),

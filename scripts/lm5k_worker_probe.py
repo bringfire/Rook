@@ -399,29 +399,28 @@ def _require_probe_context_shape(context) -> None:
 
 
 def build_probe_context():
-    """Golden scenario: the compiled repair workflow, per LM5J's integration
-    test, with this probe's workflow_id."""
-    import copy
+    """Golden scenario v2: the compiled repair workflow advanced through
+    the real offline stream to the coherent post-verify state (spec 4.3).
 
+    All world-state is derived — the create receipt's projection writes the
+    memory facts, verify_create's needs_repair readies the repair node, and
+    the bind step binds execution params. The knowledge packet and allowed
+    action stay hand-declared: they are planner-authored inputs, not
+    world-state claims. Runs once per candidate; derivation is
+    deterministic and millisecond-cheap, so no caching."""
     from rook.agent.local_worker_turn_context import (
         WorkerAllowedAction,
         WorkerKnowledgePacket,
         build_local_worker_turn_context,
     )
-    from rook.agent.plan_graph_workflow_contract import (
-        compile_workflow_contract,
-    )
 
-    contract = _probe_contract()
-    scaffold = compile_workflow_contract(contract)
-    graph = copy.deepcopy(scaffold.graph)
-    graph.memory.facts["repair_anchor"] = {"component_guid": "component-123"}
-    graph.memory.facts["component_guid"] = "component-123"
-    return build_local_worker_turn_context(
+    scaffold, stream_result = derive_probe_graph_state()
+    _require_coherent_graph_state(scaffold, stream_result)
+    context = build_local_worker_turn_context(
         scaffold,
-        graph,
-        (),
-        (),
+        stream_result.final_graph,
+        stream_result.records,
+        stream_result.supply_records,
         current_node_id="repair_same_component",
         knowledge=(
             WorkerKnowledgePacket(
@@ -440,6 +439,8 @@ def build_probe_context():
             ),
         ),
     )
+    _require_probe_context_shape(context)
+    return context
 
 
 def _default_transport_factory(resolution: Mapping[str, Any]):
