@@ -13,6 +13,11 @@ def _change_fields(changes: list[dict]) -> set[str]:
     return {change["field"] for change in changes}
 
 
+def _write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
 def test_convert_v1_actor_set_payload_renames_paths_and_preserves_members(tmp_path):
     project_root = tmp_path / "project"
     model = project_root / "Axon.3dm"
@@ -168,6 +173,58 @@ def test_convert_v1_rejects_absolute_path_outside_project(tmp_path):
     assert data["field"] == "$.source_snapshot_path"
 
 
+def test_convert_v1_grouping_preserves_curated_metadata_and_order(tmp_path):
+    project_root = tmp_path / "project"
+    exemplar_path = (
+        project_root
+        / ".rook"
+        / "director_planning"
+        / "selection_snapshots"
+        / "intent_001.json"
+    )
+    exemplar_path.parent.mkdir(parents=True)
+    exemplar_path.write_text("{}", encoding="utf-8")
+    bands = [
+        {"band_id": "front", "members": [{"id": "mesh_001"}]},
+        {"band_id": "rear", "members": [{"id": "mesh_002"}]},
+    ]
+    classifier = {"type": "orientation", "axis": "x"}
+    provenance = {"curated_by": "reviewer", "source": "manual"}
+    payload = {
+        "schema_version": 1,
+        "band_set_id": "bands_001",
+        "summary": "Curated orientation bands.",
+        "classifier": classifier,
+        "provenance": provenance,
+        "exemplar_selection_snapshot_path": str(exemplar_path),
+        "bands": bands,
+    }
+
+    converted, changes = migration.convert_v1_payload(
+        payload,
+        project_root=project_root,
+        source_path=project_root
+        / ".rook"
+        / "director_planning"
+        / "actor_sets"
+        / "set_001_subsets"
+        / "subset_001_band_sets"
+        / "bands_001.json",
+    )
+
+    assert converted["metadata_kind"] == metadata.KIND_ACTOR_GROUPING
+    assert (
+        converted["exemplar_selection_snapshot_ref"]
+        == ".rook/director_planning/selection_snapshots/intent_001.json"
+    )
+    assert converted["classifier"] == classifier
+    assert converted["provenance"] == provenance
+    assert converted["summary"] == "Curated orientation bands."
+    assert converted["bands"] == bands
+    assert "exemplar_selection_snapshot_path" not in converted
+    assert "$.exemplar_selection_snapshot_path" in _change_fields(changes)
+
+
 def test_migrate_actor_metadata_v2_writes_converted_copy_and_report(tmp_path):
     project_root = tmp_path / "project"
     actor_set_path = (
@@ -226,3 +283,119 @@ def test_migrate_actor_metadata_v2_writes_converted_copy_and_report(tmp_path):
         assert output_path.exists()
         payload = json.loads(output_path.read_text(encoding="utf-8"))
         assert payload["schema_version"] == 2
+
+
+def test_migrate_actor_metadata_v2_rejects_string_write_without_writing(tmp_path):
+    project_root = tmp_path / "project"
+    actor_set_path = (
+        project_root
+        / ".rook"
+        / "director_planning"
+        / "actor_sets"
+        / "set_001.json"
+    )
+    _write_json(
+        actor_set_path,
+        {
+            "schema_version": 1,
+            "actor_set_id": "set_001",
+            "members": [{"id": "mesh_001"}],
+        },
+    )
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        migration.migrate_actor_metadata_v2(
+            {
+                "project_root": str(project_root),
+                "files": [str(actor_set_path)],
+                "write": "false",
+            }
+        )
+
+    data = exc.value.to_data()
+    assert data["code"] == "metadata_invalid"
+    assert data["field"] == "write"
+    assert not actor_set_path.with_name("set_001.v2.json").exists()
+
+
+def test_migrate_actor_metadata_v2_rejects_empty_suffix(tmp_path):
+    project_root = tmp_path / "project"
+    actor_set_path = (
+        project_root
+        / ".rook"
+        / "director_planning"
+        / "actor_sets"
+        / "set_001.json"
+    )
+    _write_json(
+        actor_set_path,
+        {
+            "schema_version": 1,
+            "actor_set_id": "set_001",
+            "members": [{"id": "mesh_001"}],
+        },
+    )
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        migration.migrate_actor_metadata_v2(
+            {
+                "project_root": str(project_root),
+                "files": [str(actor_set_path)],
+                "write": True,
+                "suffix": "",
+            }
+        )
+
+    data = exc.value.to_data()
+    assert data["code"] == "metadata_invalid"
+    assert data["field"] == "suffix"
+    assert json.loads(actor_set_path.read_text(encoding="utf-8"))["schema_version"] == 1
+
+
+def test_migrate_actor_metadata_v2_preflights_all_files_before_writing(tmp_path):
+    project_root = tmp_path / "project"
+    actor_set_path = (
+        project_root
+        / ".rook"
+        / "director_planning"
+        / "actor_sets"
+        / "set_001.json"
+    )
+    invalid_snapshot_path = (
+        project_root
+        / ".rook"
+        / "director_planning"
+        / "selection_snapshots"
+        / "intent_001.json"
+    )
+    _write_json(
+        actor_set_path,
+        {
+            "schema_version": 1,
+            "actor_set_id": "set_001",
+            "members": [{"id": "mesh_001"}],
+        },
+    )
+    _write_json(
+        invalid_snapshot_path,
+        {
+            "schema_version": 1,
+            "snapshot_id": "intent_001",
+            "model_path": str(tmp_path / "outside" / "Axon.3dm"),
+        },
+    )
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        migration.migrate_actor_metadata_v2(
+            {
+                "project_root": str(project_root),
+                "files": [str(actor_set_path), str(invalid_snapshot_path)],
+                "write": True,
+                "suffix": ".v2",
+            }
+        )
+
+    data = exc.value.to_data()
+    assert data["code"] == "path_outside_project_root"
+    assert data["field"] == "$.model_path"
+    assert not actor_set_path.with_name("set_001.v2.json").exists()

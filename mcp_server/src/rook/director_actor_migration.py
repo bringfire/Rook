@@ -298,7 +298,14 @@ def _require_arguments(arguments: dict) -> tuple[Path, list[Path], bool, str]:
         if not path.is_absolute():
             path = project_root / path
         paths.append(path)
-    write = bool(arguments.get("write", False))
+    write_value = arguments.get("write", False)
+    if not isinstance(write_value, bool):
+        _raise(
+            "metadata_invalid",
+            "Migration write must be a boolean.",
+            field="write",
+        )
+    write = write_value
     suffix = arguments.get("suffix", ".v2")
     if not isinstance(suffix, str):
         _raise(
@@ -306,12 +313,16 @@ def _require_arguments(arguments: dict) -> tuple[Path, list[Path], bool, str]:
             "Migration suffix must be a string.",
             field="suffix",
         )
+    if suffix == "":
+        _raise(
+            "metadata_invalid",
+            "Migration suffix must be non-empty.",
+            field="suffix",
+        )
     return project_root, paths, write, suffix
 
 
 def _output_path(source_path: Path, suffix: str) -> Path:
-    if suffix == "":
-        return source_path
     return source_path.with_name(f"{source_path.stem}{suffix}{source_path.suffix}")
 
 
@@ -319,6 +330,7 @@ def migrate_actor_metadata_v2(arguments: dict) -> dict:
     project_root, files, write, suffix = _require_arguments(arguments)
     root = project_root.resolve()
     report_files: list[dict] = []
+    converted_files: list[tuple[Path, dict]] = []
     for source_path in files:
         text = source_path.read_text(encoding="utf-8")
         payload = json.loads(text)
@@ -328,11 +340,7 @@ def migrate_actor_metadata_v2(arguments: dict) -> dict:
             source_path=source_path,
         )
         output_path = _output_path(source_path, suffix)
-        if write:
-            output_path.write_text(
-                json.dumps(converted, indent=2) + "\n",
-                encoding="utf-8",
-            )
+        converted_files.append((output_path, converted))
         report_files.append(
             {
                 "source_path": str(source_path),
@@ -341,6 +349,12 @@ def migrate_actor_metadata_v2(arguments: dict) -> dict:
                 "changes": changes,
             }
         )
+    if write:
+        for output_path, converted in converted_files:
+            output_path.write_text(
+                json.dumps(converted, indent=2) + "\n",
+                encoding="utf-8",
+            )
     return {
         "state": "complete",
         "project_root": str(root),
