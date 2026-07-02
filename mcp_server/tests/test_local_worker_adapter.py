@@ -21,6 +21,10 @@ from rook.agent.local_worker_prompt_artifact import (
     LOCAL_WORKER_PROMPT_ARTIFACT_SCHEMA,
     LOCAL_WORKER_PROMPT_TEXT_VERSION,
 )
+from rook.agent.local_worker_scenario_evaluation import (
+    LocalWorkerScenarioExpectation,
+    evaluate_local_worker_scenario_result,
+)
 from rook.agent.local_worker_turn_context import (
     LocalWorkerTurnContext,
     WorkerAllowedAction,
@@ -31,7 +35,9 @@ from rook.agent.local_worker_turn_context import (
     WorkerStepTraceSummary,
     WorkerSupplyTraceSummary,
     WorkerWorkflowSummary,
+    build_local_worker_turn_context,
 )
+from rook.agent.local_worker_turn_harness import run_local_worker_turn
 from rook.agent.local_worker_turn_request import (
     render_local_worker_turn_request_payload,
 )
@@ -39,6 +45,17 @@ from rook.agent.local_worker_turn_response import (
     LOCAL_WORKER_TURN_RESPONSE_SCHEMA,
     LocalWorkerTurnResponse,
     WorkerActionRequest,
+)
+from rook.agent.plan_graph_workflow_contract import (
+    BindStepSpec,
+    ExpectedNodeRef,
+    InitialNodeParams,
+    ProducerStepSpec,
+    RookWorkflowContract,
+    VerifierStepSpec,
+    WorkflowNodeRule,
+    WorkflowTemplateRef,
+    compile_workflow_contract,
 )
 
 
@@ -501,3 +518,167 @@ def test_adapter_module_all_and_ast_guard() -> None:
         if isinstance(name, ast.Name)
     }
     assert "BaseException" not in handler_names
+
+
+def _repair_contract() -> RookWorkflowContract:
+    return RookWorkflowContract(
+        workflow_id="lm5j_adapter_contract",
+        template=WorkflowTemplateRef(
+            descriptor={
+                "domain": "grasshopper",
+                "operation": "create_verify_repair_verify",
+                "language": "csharp",
+            },
+            expected_template_id="gh_csharp_create_verify_repair_verify",
+        ),
+        initial_params=(
+            InitialNodeParams(
+                node_id="create_script",
+                execution_params={
+                    "code": "A = DefinitelyMissingSymbol;",
+                    "pins_in": [],
+                    "pins_out": ["A:double"],
+                    "name": "LM5JAdapterContract",
+                    "x": 350,
+                    "y": 1420,
+                },
+            ),
+        ),
+        expected_refs=(
+            ExpectedNodeRef(
+                node_id="create_script",
+                execution_ref="gh_create_csharp_script:v1",
+            ),
+            ExpectedNodeRef(
+                node_id="repair_same_component",
+                execution_ref="gh_update_script:v1",
+            ),
+        ),
+        rules=(
+            WorkflowNodeRule(
+                node_id="create_script",
+                steps_by_seen_count=(ProducerStepSpec(node_id="create_script"),),
+            ),
+            WorkflowNodeRule(
+                node_id="verify_create",
+                steps_by_seen_count=(
+                    VerifierStepSpec(
+                        verifier_node_id="verify_create",
+                        source_node_id="create_script",
+                        expected_outcome="needs_repair",
+                    ),
+                ),
+            ),
+            WorkflowNodeRule(
+                node_id="repair_same_component",
+                steps_by_seen_count=(
+                    BindStepSpec(
+                        node_id="repair_same_component",
+                        base_params={
+                            "code": "A = 42.0;",
+                            "mode": "body",
+                            "language": "csharp",
+                        },
+                        bindings={"guid": ("repair_anchor", "component_guid")},
+                    ),
+                    ProducerStepSpec(node_id="repair_same_component"),
+                ),
+            ),
+            WorkflowNodeRule(
+                node_id="verify_repair",
+                steps_by_seen_count=(
+                    VerifierStepSpec(
+                        verifier_node_id="verify_repair",
+                        source_node_id="repair_same_component",
+                        expected_outcome="succeeded",
+                    ),
+                ),
+            ),
+        ),
+        terminal_node_ids=("done",),
+        max_steps=6,
+        metadata={"trace": {"slice": "LM5J"}},
+    )
+
+
+def _compiled_context():
+    scaffold = compile_workflow_contract(_repair_contract())
+    graph = copy.deepcopy(scaffold.graph)
+    graph.memory.facts["repair_anchor"] = {"component_guid": "component-123"}
+    graph.memory.facts["component_guid"] = "component-123"
+    return build_local_worker_turn_context(
+        scaffold,
+        graph,
+        (),
+        (),
+        current_node_id="repair_same_component",
+        knowledge=(
+            WorkerKnowledgePacket(
+                packet_id="script_body_gotcha",
+                kind="gotcha",
+                title="C# script components use body-style code",
+                content={"source": "test fixture", "trust": "high"},
+            ),
+        ),
+        allowed_actions=(
+            WorkerAllowedAction(
+                action_id="draft_repair_params",
+                kind="draft_repair_params",
+                description="Draft replacement C# body repair parameters.",
+                input_schema={"type": "object", "required": ["code", "mode"]},
+            ),
+        ),
+    )
+
+
+class _EnvelopeReadingTransport:
+    """Deterministic fake model: reads the allowed action from the prompt
+    artifact's user JSON and answers a strict action_request payload."""
+
+    def send(self, prompt_artifact):
+        envelope = json.loads(prompt_artifact["messages"][1]["content"])
+        actions = envelope["context"]["allowed_actions"]
+        action_id = actions[0]["action_id"]
+        return json.dumps(
+            {
+                "schema": LOCAL_WORKER_TURN_RESPONSE_SCHEMA,
+                "kind": "action_request",
+                "action_id": action_id,
+                "rationale": "Draft repair parameters for the failed component.",
+                "input": {"code": "A = 42.0;", "mode": "body"},
+            }
+        )
+
+
+def test_adapter_composes_with_lm4w_lm5a_lm5i_lm5d_and_lm5f() -> None:
+    context = _compiled_context()
+    request_payload = copy.deepcopy(
+        dict(render_local_worker_turn_request_payload(context))
+    )
+
+    record = run_local_worker_adapter(request_payload, _EnvelopeReadingTransport())
+    assert record.status == "response_loaded"
+    assert record.response.payload.action_id == "draft_repair_params"
+    assert record.response.payload.action_id != (
+        request_payload["context"]["current_node"]["execution_ref"]
+    )
+
+    harness_record = run_local_worker_turn(
+        context, lambda received: record.response
+    )
+    result = evaluate_local_worker_scenario_result(
+        LocalWorkerScenarioExpectation(
+            scenario_id="adapter_contract_offline_chain",
+            category="adapter_integration",
+            expected_status="completed",
+            expected_disposition="candidate_action_request",
+            expected_attempt_valid=True,
+            expected_action_id="draft_repair_params",
+            expected_response_kind="action_request",
+            expected_workflow_id=context.workflow.workflow_id,
+            expected_contract_fingerprint=context.workflow.contract_fingerprint,
+        ),
+        harness_record,
+    )
+    assert harness_record.status == "completed"
+    assert result.passed is True
