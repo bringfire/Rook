@@ -133,7 +133,10 @@ explicit message of the form
 
 `_require_probe_context_shape(context)` — caller-declared affordances:
 
-6. `current_node_id == "repair_same_component"`;
+6. `context.current_node is not None` and
+   `context.current_node.node_id == "repair_same_component"` (LM5A
+   deliberately has no duplicate top-level `current_node_id` field; the guard
+   checks the public context shape);
 7. allowed action `draft_repair_params` is present.
 
 The guards are tripwires, not a second verifier: no receipt re-interpretation,
@@ -202,8 +205,11 @@ that passes them.
 
 - stream stopped at the expected point; runner calls `== ["create_script"]`;
 - record sequence is producer / verifier / bind;
-- `create_script` succeeded with evidence;
-- verifier record outcome `needs_repair`;
+- create producer record ran/applied with receipt evidence (the receipt is
+  intentionally `created_with_errors` with `verification.status: "failed"` —
+  "applied" must not be misread as "script verified clean");
+- verifier record outcome `needs_repair` (asserted separately — the verifier,
+  not the producer record, carries the repair signal);
 - `repair_same_component` `ready`, bound params include the receipt guid;
 - memory facts (`repair_anchor`, `component_guid`) are receipt-derived, and the
   hand-injection is provably gone.
