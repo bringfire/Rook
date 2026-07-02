@@ -1158,7 +1158,6 @@ nlohmann::json BuildDepthPassArtifact(
     }
 
     nlohmann::json result;
-    result["success"] = true;
     result["schema_version"] = "director_depth_pass.v0";
     result["experimental"] = true;
     result["artifact"] = std::move(artifact);

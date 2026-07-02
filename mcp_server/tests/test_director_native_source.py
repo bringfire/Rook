@@ -217,6 +217,7 @@ def test_director_depth_pass_has_strict_native_contract_and_artifact_schema():
     assert "GuidSuffix()" in artifact_body
     assert "artifact_collision" in artifact_body
     assert "fs::create_directory(artifactRoot" in artifact_body
+    assert 'result["success"]' not in artifact_body
 
     for token in [
         "director_depth_pass.v0",
