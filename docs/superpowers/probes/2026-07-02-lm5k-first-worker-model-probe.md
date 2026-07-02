@@ -52,7 +52,8 @@ the paired-metric + status taxonomy was designed to separate.
 
 ## Representative bounded excerpts
 
-qwen3:14b (attempt 0, refusal — verbatim, complete):
+qwen3:14b (attempt 0, refusal — reformatted for readability; the raw output
+was a single strict-JSON object):
 
 ```json
 {"schema": "rook.local_worker_turn_response:v1", "kind": "refusal",
@@ -79,8 +80,10 @@ Haiku (attempt 0, opening bytes):
    mechanical contract-rendering in `lm5j.prompt_text:v1` appears sufficient
    for format compliance on at least one local model.
 
-2. **The spine failures are convergent evidence of a scenario-communication
-   gap, not model weakness.** Both model families that produced content
+2. **The spine failures are more likely a scenario-communication gap than a
+   pure model-weakness finding** (the ceiling slot never ran, so capability
+   and prompt-following differences are not fully ruled out — but the
+   convergence is strong). Both model families that produced content
    (qwen3 AND Haiku) asked the *same* question: give me the `code` and
    `mode`. They read the allowed action's `input_schema`
    (`required: ["code", "mode"]`) as inputs they should have *received*
@@ -95,9 +98,9 @@ Haiku (attempt 0, opening bytes):
 3. **The bounded-worker protocol worked exactly as designed.** Faced with
    perceived missing context, the local model did not hallucinate an action —
    it used the refusal/clarification channels (LM5B vocabulary), which the
-   spine recorded as valid dispositions. In production these responses would
-   flow to the runner's escalation policy rather than mutating anything.
-   That is the safety property the whole worker box exists to provide.
+   spine recorded as valid dispositions. These responses do not authorize
+   mutation; a later runner/escalation policy can route them. That is the
+   safety property the whole worker box exists to provide.
 
 4. **Fence discipline differs by model family.** Haiku fenced 5/5 despite
    explicit instruction; qwen3 fenced 0/5. The strict-v1 parser converted
