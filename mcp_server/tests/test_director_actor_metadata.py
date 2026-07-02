@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -60,6 +61,18 @@ def test_ref_from_project_path_converts_project_local_rook_path(tmp_path):
     )
 
 
+def test_ref_from_project_path_resolves_relative_rook_path_against_project_root(tmp_path):
+    project_root = tmp_path / "project"
+
+    assert (
+        metadata.ref_from_project_path(
+            project_root,
+            Path(".rook/director_planning/selection_snapshots/s.json"),
+        )
+        == ".rook/director_planning/selection_snapshots/s.json"
+    )
+
+
 def test_ref_from_project_path_rejects_path_outside_project_root(tmp_path):
     project_root = tmp_path / "project"
 
@@ -108,6 +121,21 @@ def test_validate_loaded_metadata_rejects_v1():
 
 
 @pytest.mark.parametrize(
+    "payload, expected_kind",
+    [
+        ({"schema_version": 2, "metadata_kind": "typo"}, "typo"),
+        ({"schema_version": 2, "metadata_kind": "typo"}, metadata.KIND_ACTOR_SET),
+        ({"schema_version": 2, "metadata_kind": metadata.KIND_ACTOR_SET}, "typo"),
+    ],
+)
+def test_validate_loaded_metadata_rejects_unknown_metadata_kinds(payload, expected_kind):
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        metadata.validate_loaded_metadata(payload, expected_kind=expected_kind)
+
+    assert _error_code(exc) == "metadata_kind_mismatch"
+
+
+@pytest.mark.parametrize(
     "payload",
     [
         {"schema_version": 2, "metadata_kind": metadata.KIND_ACTOR_SUBSET},
@@ -135,3 +163,104 @@ def test_validate_loaded_metadata_rejects_legacy_durable_path_fields():
     data = exc.value.to_data()
     assert data["code"] == "legacy_path_field_present"
     assert data["field_path"] == "$.source_snapshot_path"
+
+
+@pytest.mark.parametrize(
+    "legacy_value",
+    [
+        None,
+        {"ref": ".rook/director_planning/selection_snapshots/s.json"},
+        [".rook/director_planning/selection_snapshots/s.json"],
+    ],
+)
+def test_validate_loaded_metadata_rejects_legacy_durable_path_fields_by_key_presence(
+    legacy_value,
+):
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        metadata.validate_loaded_metadata(
+            {
+                "schema_version": 2,
+                "metadata_kind": metadata.KIND_ACTOR_SET,
+                "source_snapshot_path": legacy_value,
+            },
+            expected_kind=metadata.KIND_ACTOR_SET,
+        )
+
+    data = exc.value.to_data()
+    assert data["code"] == "legacy_path_field_present"
+    assert data["field_path"] == "$.source_snapshot_path"
+
+
+@pytest.mark.parametrize(
+    "payload, expected_field_path",
+    [
+        (
+            {
+                "schema_version": 2,
+                "metadata_kind": metadata.KIND_ACTOR_SET,
+                "items": [{"model_path": None}],
+            },
+            "$.items[0].model_path",
+        ),
+        (
+            {
+                "schema_version": 2,
+                "metadata_kind": metadata.KIND_ACTOR_SET,
+                "group": {"exemplar_selection_snapshot_path": 123},
+            },
+            "$.group.exemplar_selection_snapshot_path",
+        ),
+    ],
+)
+def test_validate_loaded_metadata_rejects_nested_legacy_durable_path_fields(
+    payload,
+    expected_field_path,
+):
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        metadata.validate_loaded_metadata(payload, expected_kind=metadata.KIND_ACTOR_SET)
+
+    data = exc.value.to_data()
+    assert data["code"] == "legacy_path_field_present"
+    assert data["field_path"] == expected_field_path
+
+
+def test_load_metadata_ref_maps_read_os_error(monkeypatch, tmp_path):
+    project_root = tmp_path / "project"
+    path = project_root / ".rook" / "director_planning" / "actor_sets" / "a.json"
+    path.parent.mkdir(parents=True)
+    path.write_text("{}", encoding="utf-8")
+
+    def fail_read_text(self, *, encoding=None):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(Path, "read_text", fail_read_text)
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        metadata.load_metadata_ref(
+            project_root,
+            ".rook/director_planning/actor_sets/a.json",
+            expected_kind=metadata.KIND_ACTOR_SET,
+        )
+
+    assert _error_code(exc) == "metadata_ref_read_failed"
+
+
+def test_load_metadata_ref_maps_unicode_decode_error(monkeypatch, tmp_path):
+    project_root = tmp_path / "project"
+    path = project_root / ".rook" / "director_planning" / "actor_sets" / "a.json"
+    path.parent.mkdir(parents=True)
+    path.write_text("{}", encoding="utf-8")
+
+    def fail_read_text(self, *, encoding=None):
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+    monkeypatch.setattr(Path, "read_text", fail_read_text)
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        metadata.load_metadata_ref(
+            project_root,
+            ".rook/director_planning/actor_sets/a.json",
+            expected_kind=metadata.KIND_ACTOR_SET,
+        )
+
+    assert _error_code(exc) == "metadata_text_decode_failed"

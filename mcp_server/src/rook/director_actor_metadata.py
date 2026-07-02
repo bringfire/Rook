@@ -82,7 +82,10 @@ def resolve_metadata_ref(project_root: Path, ref: str) -> Path:
 
 def ref_from_project_path(project_root: Path, path: Path) -> str:
     root = Path(project_root).resolve()
-    resolved = Path(path).resolve()
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    resolved = candidate.resolve()
     try:
         relative = resolved.relative_to(root)
     except ValueError as ex:
@@ -106,7 +109,7 @@ def _reject_legacy_path_fields(value: Any, field_path: str = "$") -> None:
         for key, item in value.items():
             key_text = str(key)
             child_path = _legacy_field_path(field_path, key_text)
-            if key in LEGACY_DURABLE_PATH_FIELDS and isinstance(item, str):
+            if key in LEGACY_DURABLE_PATH_FIELDS:
                 _raise(
                     "legacy_path_field_present",
                     "Metadata contains a legacy durable path field.",
@@ -128,12 +131,21 @@ def validate_loaded_metadata(payload: dict, *, expected_kind: str) -> dict:
             schema_version=payload.get("schema_version"),
             expected_schema_version=SCHEMA_VERSION,
         )
-    if payload.get("metadata_kind") != expected_kind:
+    if expected_kind not in METADATA_KINDS:
+        _raise(
+            "metadata_kind_mismatch",
+            "Expected metadata kind is not supported.",
+            expected_kind=expected_kind,
+            allowed_metadata_kinds=sorted(METADATA_KINDS),
+        )
+    metadata_kind = payload.get("metadata_kind")
+    if metadata_kind not in METADATA_KINDS or metadata_kind != expected_kind:
         _raise(
             "metadata_kind_mismatch",
             "Metadata kind does not match the expected kind.",
-            metadata_kind=payload.get("metadata_kind"),
+            metadata_kind=metadata_kind,
             expected_kind=expected_kind,
+            allowed_metadata_kinds=sorted(METADATA_KINDS),
         )
     _reject_legacy_path_fields(payload)
     return payload
@@ -142,13 +154,27 @@ def validate_loaded_metadata(payload: dict, *, expected_kind: str) -> dict:
 def load_metadata_ref(project_root: Path, ref: str, *, expected_kind: str) -> dict:
     path = resolve_metadata_ref(project_root, ref)
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
     except FileNotFoundError as ex:
         raise DirectorActorMetadataError(
             "metadata_ref_not_found",
             "Metadata ref does not exist.",
             ref=validate_metadata_ref(ref),
         ) from ex
+    except UnicodeDecodeError as ex:
+        raise DirectorActorMetadataError(
+            "metadata_text_decode_failed",
+            "Metadata ref could not be decoded as UTF-8 text.",
+            ref=validate_metadata_ref(ref),
+        ) from ex
+    except OSError as ex:
+        raise DirectorActorMetadataError(
+            "metadata_ref_read_failed",
+            "Metadata ref could not be read.",
+            ref=validate_metadata_ref(ref),
+        ) from ex
+    try:
+        payload = json.loads(text)
     except json.JSONDecodeError as ex:
         raise DirectorActorMetadataError(
             "metadata_json_invalid",
