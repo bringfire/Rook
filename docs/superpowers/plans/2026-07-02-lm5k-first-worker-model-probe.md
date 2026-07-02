@@ -598,6 +598,8 @@ def test_candidate_status_classification() -> None:
         ["transport_error", "raw_output_invalid"]
     ) == "ran"
     assert PROBE.classify_candidate_status(["response_loaded"]) == "ran"
+    with pytest.raises(ValueError):
+        PROBE.classify_candidate_status([])
 
 
 def test_attempt_metrics_pair() -> None:
@@ -715,7 +717,14 @@ def resolve_slot(
 
 
 def classify_candidate_status(adapter_statuses: list) -> str:
-    """For an attempted candidate: transport_error iff ALL attempts were."""
+    """For an attempted candidate: transport_error iff ALL attempts were.
+
+    An attempted candidate has at least one attempt by definition —
+    all([]) is vacuously true and would fabricate transport_error from
+    zero evidence, so empty input is a caller error.
+    """
+    if not adapter_statuses:
+        raise ValueError("attempted candidate requires at least one attempt")
     if all(status == "transport_error" for status in adapter_statuses):
         return "transport_error"
     return "ran"
@@ -1078,8 +1087,22 @@ def build_manifest(
     }
 
 
+def _positive_int(value: str) -> int:
+    number = int(value)
+    if number <= 0:
+        raise argparse.ArgumentTypeError("attempts must be a positive integer")
+    return number
+
+
 def run_probe(args, transport_factory=None) -> Path:
     from rook.agent.model_profiles import get_models
+
+    if (
+        not isinstance(args.attempts, int)
+        or isinstance(args.attempts, bool)
+        or args.attempts <= 0
+    ):
+        raise ValueError("attempts must be a positive integer")
 
     models = get_models()
     resolutions = [
@@ -1139,7 +1162,9 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--skip", action="append", choices=list(SLOTS), default=[]
     )
-    parser.add_argument("--attempts", type=int, default=DEFAULT_ATTEMPTS)
+    parser.add_argument(
+        "--attempts", type=_positive_int, default=DEFAULT_ATTEMPTS
+    )
     parser.add_argument("--capture-raw", action="store_true")
     parser.add_argument("--run-dir", default="probe_runs")
     args = parser.parse_args(argv)
@@ -1263,6 +1288,20 @@ def test_offline_probe_capture_raw(tmp_path) -> None:
     assert first["captured_raw_path"] == "raw/local-0.txt"
     raw_text = (run_dir / "raw" / "local-0.txt").read_text(encoding="utf-8")
     assert '"kind": "action_request"' in raw_text
+
+
+def test_attempts_must_be_positive(tmp_path) -> None:
+    for bad in (0, -3):
+        with pytest.raises(ValueError):
+            PROBE.run_probe(
+                _args(tmp_path, attempts=bad),
+                transport_factory=_FakeGoodTransport,
+            )
+    with pytest.raises(argparse.ArgumentTypeError):
+        PROBE._positive_int("0")
+    with pytest.raises(argparse.ArgumentTypeError):
+        PROBE._positive_int("-2")
+    assert PROBE._positive_int("5") == 5
 
 
 def test_unavailable_slot_records_no_attempts(tmp_path, monkeypatch) -> None:
@@ -1400,8 +1439,11 @@ run time; never assume a specific model is available.
   `api_base_for_model`.
 - Probe script: resolution order proven (CLI > env > profile-local-only >
   unavailable), candidate-status taxonomy proven including
-  all-transport_error ≠ unavailable, paired metrics proven including the
-  fenced-output split (strict 0 while status ran).
+  all-transport_error ≠ unavailable AND empty-attempts rejection
+  (`classify_candidate_status([])` raises), paired metrics proven including
+  the fenced-output split (strict 0 while status ran).
+- Attempts validated positive at both the CLI (`_positive_int`) and
+  `run_probe` (programmatic callers); 0 and negative rejected by tests.
 - Offline end-to-end drives the real renderer/adapter/harness/evaluator with
   only the transport faked; `--capture-raw` behavior proven both ways.
 - `probe_runs/` gitignored; production src diff = exactly the transport
