@@ -668,8 +668,77 @@ def test_capture_source_occurrence_v2_writes_selection_snapshot_without_takes(
     assert inventory["nested_definition_reference_count"] == 2
     assert inventory["nested_hierarchy"]["children"][0]["name"] == "Nested Roof Panel"
     assert inventory["type_counts"] == {"Brep": 1, "Curve": 1, "InstanceReference": 1}
+    assert loaded["captured_object_source"]["endpoints"] == [
+        "/document",
+        "/select",
+        "/selection",
+        "/block/info",
+        "/block/instances",
+        "/block/objects-detailed",
+        "/block/nested",
+    ]
     for path, value in _walk_strings(loaded):
         _assert_not_durable_absolute_identity_path(path, value)
+
+
+def test_capture_source_occurrence_v2_non_block_provenance_omits_block_endpoints(
+    tmp_path,
+):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir(parents=True)
+
+    class NonBlockSelectionNative(FakeCaptureNative):
+        async def __call__(self, endpoint, method="GET", data=None, port=None):
+            if endpoint.startswith("/block/"):
+                raise AssertionError(f"unexpected block endpoint {endpoint}")
+            if endpoint == "/selection":
+                return {
+                    "success": True,
+                    "data": {
+                        "count": 1,
+                        "subObjectCount": 0,
+                        "objects": [
+                            {
+                                "id": "49f0d686-1c0b-4652-8946-3a5804d18a54",
+                                "type": "Brep",
+                                "layer": "001_MATERIAL::001_01_GARDEN WOOD",
+                                "name": "loose_roof_piece",
+                                "visible": True,
+                                "bbox": {"min": [1, 2, 3], "max": [4, 5, 6]},
+                            }
+                        ],
+                    },
+                }
+            return await super().__call__(endpoint, method=method, data=data, port=port)
+
+    result = asyncio.run(
+        metadata.capture_source_occurrence_v2(
+            {
+                "snapshot_id": "source_occurrence_loose_roof_piece",
+                "ids": ["49f0d686-1c0b-4652-8946-3a5804d18a54"],
+            },
+            call_native=NonBlockSelectionNative(model),
+            port=None,
+        )
+    )
+
+    loaded = metadata.validate_loaded_metadata(
+        json.loads(Path(result["resolved_snapshot_path"]).read_text("utf-8")),
+        expected_kind=metadata.KIND_SELECTION_SNAPSHOT,
+    )
+    assert loaded["captured_object_source"]["endpoints"] == [
+        "/document",
+        "/select",
+        "/selection",
+    ]
+    assert loaded["source_occurrence"] == {
+        "source_top_level_object_id": "49f0d686-1c0b-4652-8946-3a5804d18a54",
+        "object_type": "Brep",
+        "layer": "001_MATERIAL::001_01_GARDEN WOOD",
+        "name": "loose_roof_piece",
+        "visible": True,
+        "bbox": {"min": [1, 2, 3], "max": [4, 5, 6]},
+    }
 
 
 def test_capture_source_occurrence_v2_rejects_empty_selection(tmp_path):

@@ -746,9 +746,25 @@ async def capture_source_occurrence_v2(
     snapshot_ref = _snapshot_ref(snapshot_id)
     generated_at_utc = _metadata_timestamp_utc()
 
+    endpoints_used = ["/document"]
+    if ids is not None:
+        endpoints_used.append("/select")
+    endpoints_used.append("/selection")
+
+    def remember_endpoint(endpoint: str) -> None:
+        if endpoint not in endpoints_used:
+            endpoints_used.append(endpoint)
+
     source_occurrences: list[dict[str, Any]] = []
     for selected_object in selected_objects:
         if selected_object.get("type") == "InstanceReference":
+            for endpoint in (
+                "/block/info",
+                "/block/instances",
+                "/block/objects-detailed",
+                "/block/nested",
+            ):
+                remember_endpoint(endpoint)
             source_occurrences.append(
                 await _capture_block_occurrence_context(
                     selected_object,
@@ -805,15 +821,7 @@ async def capture_source_occurrence_v2(
         },
         "captured_object_source": {
             "toolchain": "rook_live_rhino_api",
-            "endpoints": [
-                "/document",
-                *([] if ids is None else ["/select"]),
-                "/selection",
-                "/block/info",
-                "/block/instances",
-                "/block/objects-detailed",
-                "/block/nested",
-            ],
+            "endpoints": endpoints_used,
         },
         "objects": objects,
         "source_occurrences": source_occurrences,
