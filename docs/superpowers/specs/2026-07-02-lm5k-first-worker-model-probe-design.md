@@ -360,7 +360,7 @@ With a fake/monkeypatched `litellm`:
 5. **Protocol:** one golden scenario × N=5, temperature 0, per-attempt JSONL.
 6. **Telemetry best-effort + reset-per-call** (review pin 1).
 7. **Configured-but-failing ≠ unavailable** (review pin 2; §4.2).
-8. **Resolution order pinned** CLI → env → safe profile inference → 
+8. **Resolution order pinned** CLI → env → safe profile inference →
    unavailable, with source recorded (review pin 3).
 9. **API-base via `api_base_for_model(model, profile_api_base)` inside the
    transport** (review pin 4).
