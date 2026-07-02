@@ -51,13 +51,14 @@ SCENARIO_WORKFLOW_ID = "lm5k_first_probe"
 # (fresh compiled graph -> coherent post-verify repair state), so the
 # scenario id/version move to v2 while workflow_id stays. Any scenario
 # change is a new experiment under the comparison-key doctrine.
-SCENARIO_ID = "lm5k_golden_repair_v2"
 SCENARIO_VERSION = "v2"
+SCENARIO_ID = f"lm5k_golden_repair_{SCENARIO_VERSION}"
 SCENARIO_STATE = "post_verify_needs_repair"
 # Deterministic component guid carried by the offline create receipt; every
 # downstream fact (memory repair_anchor/component_guid, bound repair params)
 # derives from this via the real projection + bind path, never by hand.
 PROBE_COMPONENT_GUID = "lm5l-probe-component-guid"
+PROBE_REPAIR_CODE = "A = 42.0;"
 
 _LOCAL_PREFIXES = ("ollama_chat/", "ollama/")
 
@@ -202,7 +203,7 @@ def _probe_contract():
                     BindStepSpec(
                         node_id="repair_same_component",
                         base_params={
-                            "code": "A = 42.0;",
+                            "code": PROBE_REPAIR_CODE,
                             "mode": "body",
                             "language": "csharp",
                         },
@@ -354,6 +355,7 @@ def _require_coherent_graph_state(scaffold, stream_result) -> None:
         "history missing create producer record",
     )
     graph = stream_result.final_graph
+    _invariant("create_script" in graph.nodes, "create node missing")
     _invariant(
         graph.nodes["create_script"].evidence is not None,
         "create producer record has no receipt evidence",
@@ -361,6 +363,10 @@ def _require_coherent_graph_state(scaffold, stream_result) -> None:
     _invariant(
         stream_result.records[1].verifier_outcome_status == "needs_repair",
         "verifier outcome is not needs_repair",
+    )
+    _invariant(
+        "repair_same_component" in graph.nodes,
+        "repair node missing",
     )
     repair = graph.nodes["repair_same_component"]
     _invariant(repair.status == "ready", "repair node is not ready")
@@ -618,7 +624,6 @@ def build_manifest(
             "scenario_version": SCENARIO_VERSION,
             "state": SCENARIO_STATE,
         },
-        "generation_params": dict(GENERATION_PARAMS),
         "attempts_per_candidate": attempts,
         "capture_raw": capture_raw,
         "panel": panel,

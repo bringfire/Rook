@@ -195,7 +195,7 @@ class _FakeGoodTransport:
                 "kind": "action_request",
                 "action_id": action_id,
                 "rationale": "Draft repair parameters for the failed component.",
-                "input": {"code": "A = 42.0;", "mode": "body"},
+                "input": {"code": PROBE.PROBE_REPAIR_CODE, "mode": "body"},
             }
         )
         self.last_raw_output = raw
@@ -226,7 +226,7 @@ def test_offline_probe_end_to_end_good_transport(tmp_path) -> None:
         _args(tmp_path), transport_factory=_FakeGoodTransport
     )
     manifest = json.loads((run_dir / "manifest.json").read_text())
-    assert manifest["generation_params"] == {"temperature": 0}
+    assert "generation_params" not in manifest
     assert manifest["prompt_text_version"] == "lm5j.prompt_text:v1"
     # scenario identity: structured block, versioned (spec section 5);
     # the bare scenario_workflow_id string is replaced, not kept alongside
@@ -366,6 +366,20 @@ def test_graph_state_guard_message_repair_not_ready() -> None:
         PROBE._require_coherent_graph_state(scaffold, result)
 
 
+def test_graph_state_guard_message_repair_node_missing() -> None:
+    scaffold, result = PROBE.derive_probe_graph_state()
+    del result.final_graph.nodes["repair_same_component"]
+    with pytest.raises(RuntimeError, match="repair node missing"):
+        PROBE._require_coherent_graph_state(scaffold, result)
+
+
+def test_graph_state_guard_message_create_node_missing() -> None:
+    scaffold, result = PROBE.derive_probe_graph_state()
+    del result.final_graph.nodes["create_script"]
+    with pytest.raises(RuntimeError, match="create node missing"):
+        PROBE._require_coherent_graph_state(scaffold, result)
+
+
 def test_graph_state_guard_message_params_missing() -> None:
     from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
 
@@ -461,7 +475,7 @@ def test_probe_envelope_never_exposes_internal_values() -> None:
     )
     rendered = json.dumps(payload)
     assert PROBE.PROBE_COMPONENT_GUID not in rendered
-    assert "A = 42.0;" not in rendered
+    assert PROBE.PROBE_REPAIR_CODE not in rendered
 
 
 def test_probe_context_shape_guard_wired() -> None:
