@@ -107,8 +107,21 @@ def render_local_worker_prompt_artifact(
 - Anything else raises `TypeError`/`ValueError`. No duck typing, no partial
   envelopes, no schema-less authoring.
 
-LM5J does not re-validate the envelope's interior; LM5I owns that shape. The
-prompt renderer checks the boundary identity, then renders faithfully.
+**The `response_contract` interior is load-bearing for prompt text and is
+validated — the prompt contract fails closed if mutated.** Because the LM5I
+payload is a mutable transport copy, LM5J re-validates exactly the sections it
+reads before rendering instructions from them:
+
+- `kinds`: non-empty sequence of non-empty strings;
+- `field_sets`: mapping with string keys covering every kind, each value a
+  non-empty sequence of non-empty strings;
+- `required_nullable_fields`: mapping, string keys drawn from `kinds`, each
+  value a sequence of non-empty strings;
+- `refusal_categories`: non-empty sequence of non-empty strings.
+
+Shape violations raise `ValueError`. LM5J does not re-validate the rest of the
+envelope interior (`context` stays LM5I/LM5H's shape responsibility); only
+what the renderer consumes is pinned.
 
 ### 3.3 Artifact shape
 
@@ -174,7 +187,7 @@ class LocalWorkerAdapterRecord:
     prompt_schema: str               # prompt artifact schema constant
     prompt_text_version: str
     response: LocalWorkerTurnResponse | None   # only when response_loaded
-    failure_reason: str | None       # sanitized, LM5D-style payload discipline
+    failure_reason: str | None       # exact taxonomy, §4.2a; None iff loaded
     raw_output_excerpt: str | None   # bounded; see §4.4
 
 def run_local_worker_adapter(
@@ -187,38 +200,67 @@ def run_local_worker_adapter(
 ### 4.2 Invocation flow
 
 ```text
-validate envelope boundary (via the prompt renderer's checks)
+validate envelope boundary + response_contract shape (prompt renderer, §3.2)
 -> render prompt artifact
 -> transport.send(artifact)
      TransportError            -> status=transport_error
-     unexpected exception      -> status=transport_error
-                                  (reason distinguishes declared vs unexpected)
--> parse raw output to a JSON mapping
-     not parseable / not a mapping -> status=raw_output_invalid
+     other Exception           -> status=transport_error
+     BaseException             -> PROPAGATES (never a record)
+-> require raw output is str            else raw_output_invalid
+-> trim; require non-empty              else raw_output_invalid
+-> json.loads                           failure -> raw_output_invalid
+-> require mapping                      else raw_output_invalid
 -> load_local_worker_turn_response_payload(mapping)   (LM5G)
      loader rejection          -> status=response_payload_invalid
 -> status=response_loaded, response attached
 ```
 
-Invalid *input* (bad envelope, non-callable transport) raises — caller error,
-not a record. Records describe what happened at or beyond the transport
-boundary; exceptions describe misuse of the adapter itself. Statuses are
-terminal outcomes of one bounded invocation; there is no `prompt_rendered`
-in-flight status because the adapter never returns mid-flight.
+Exception discipline (LM5D-style pin): the transport call catches `Exception`
+only. `KeyboardInterrupt`, `SystemExit`, and all other `BaseException`s
+propagate.
+
+Invalid *input* (bad envelope, mutated `response_contract`, non-callable
+transport) raises — caller error, not a record. Records describe what happened
+at or beyond the transport boundary; exceptions describe misuse of the adapter
+itself. Statuses are terminal outcomes of one bounded invocation; there is no
+`prompt_rendered` in-flight status because the adapter never returns
+mid-flight.
+
+### 4.2a Failure reason taxonomy (exact, stable strings)
+
+`failure_reason` is `None` iff `status == "response_loaded"`; otherwise it is
+exactly one of the following stable forms (LM5D reason-payload discipline:
+sanitized detail segments, ASCII alnum/underscore-safe):
+
+| Status | `failure_reason` |
+|---|---|
+| `transport_error` | `transport_error:declared` |
+| `transport_error` | `transport_error:unexpected:<ExceptionClassName>` |
+| `raw_output_invalid` | `raw_output_invalid:not_text:<TypeName>` |
+| `raw_output_invalid` | `raw_output_invalid:empty` |
+| `raw_output_invalid` | `raw_output_invalid:json_decode` |
+| `raw_output_invalid` | `raw_output_invalid:not_mapping` |
+| `response_payload_invalid` | `response_payload_invalid:<sanitized_detail>` |
+
+`<sanitized_detail>` carries the LM5G rejection cause after sanitization.
+Non-string transport returns are a record (`not_text`), not an exception: the
+transport boundary already executed, so its misbehavior is transport-side
+evidence, consistent with the records-vs-exceptions rule above. Tests pin
+every reason string exactly; new reasons are a schema-visible change, not a
+drive-by.
 
 ### 4.3 Raw output parse policy
 
-Strict-first, with exactly two documented normalizations, each deterministic
-and tested:
+Strict for v1, with exactly one normalization: strip leading/trailing
+whitespace. Then `json.loads`; the result must be a mapping.
 
-1. strip leading/trailing whitespace;
-2. if the entire remaining text is a single fenced block
-   (```` ```json?...``` ````), unwrap it once.
-
-Then `json.loads`; the result must be a mapping. No regex extraction of
-embedded JSON, no repair, no retries, no partial salvage. If LM5K evidence
-shows common failure wrappers beyond the fence case, leniency is a *versioned
-policy change* with new tests, not an ad hoc patch.
+**No fence unwrapping.** The prompt instructs "JSON only, no code fences"; a
+fenced response is therefore `raw_output_invalid` (`json_decode`), so LM5K's
+first probe measures prompt discipline cleanly instead of hiding
+non-compliance behind a normalization. No regex extraction of embedded JSON,
+no repair, no retries, no partial salvage. If LM5K evidence justifies
+leniency (fences included), it arrives as a *versioned policy change* with new
+tests and probe-artifact visibility, not an ad hoc patch.
 
 ### 4.4 Raw output retention policy
 
@@ -286,6 +328,9 @@ it by design). It remains forbidden everywhere else in the LM5 family.
 
 - schema/version constants exact;
 - boundary rejection: wrong type, wrong schema tag, wrong key set;
+- `response_contract` shape validation fails closed per §3.2: non-sequence
+  kinds, empty kinds, non-string kind, field_sets missing a kind, non-string
+  field name, malformed required_nullable_fields, empty refusal_categories;
 - deterministic render: identical envelope → byte-identical artifact;
 - system text renders kinds/field-sets/refusal categories from
   `response_contract` (mutate the envelope's contract, see the prompt change);
@@ -296,15 +341,21 @@ it by design). It remains forbidden everywhere else in the LM5 family.
 ### Adapter unit coverage
 
 - record schema/status taxonomy exact;
+- **failure reason strings pinned exactly per §4.2a** (every row exercised,
+  including `not_text:<TypeName>` for a non-string transport return and
+  `unexpected:<ExceptionClassName>` sanitization);
 - happy path: canned strict-JSON raw output → `response_loaded` with a real
-  `LocalWorkerTurnResponse`;
-- fenced output unwraps once; double-fence and prose-wrapped JSON →
-  `raw_output_invalid`;
-- non-JSON, JSON non-mapping → `raw_output_invalid`;
+  `LocalWorkerTurnResponse`, `failure_reason is None`;
+- fenced output → `raw_output_invalid` (`json_decode`) — no unwrapping;
+  prose-wrapped JSON likewise;
+- empty/whitespace-only output → `raw_output_invalid:empty`;
+- non-JSON, JSON non-mapping → `raw_output_invalid` with the exact reason;
 - LM5G-rejected mapping (wrong schema, wrong kind, missing field) →
-  `response_payload_invalid`;
-- declared `TransportError` and unexpected exception → `transport_error` with
-  distinguishable sanitized reasons;
+  `response_payload_invalid:<sanitized_detail>`;
+- declared `TransportError` vs unexpected `Exception` → distinguishable exact
+  reasons; `KeyboardInterrupt`/`SystemExit` propagate (no record);
+- mutated `response_contract` (wrong shape in kinds/field_sets/
+  required_nullable_fields/refusal_categories) → raises, fail closed;
 - excerpt bounding and control-character replacement;
 - full raw output never present on any record;
 - invalid envelope/transport raises (no record);
@@ -354,12 +405,19 @@ no live test, no network, no provider SDK anywhere in the branch.
 
 ---
 
-## 9. Open Questions For Review
+## 9. Review Resolutions (round 1, 2026-07-02)
 
-1. **Excerpt bound:** N=500 characters proposed; confirm or adjust.
-2. **Fence normalization:** included as the one pragmatic leniency (§4.3);
-   strike it if you want pure-strict for the first probe read.
-3. **`response` on non-loaded records:** proposed always `None` except
-   `response_loaded`; alternative is carrying the parsed-but-rejected mapping
-   for diagnosis (leans against, per retention policy — the excerpt plus
-   LM5G's error message should suffice).
+1. **Excerpt bound:** N=500 stands (no objection raised).
+2. **Fence normalization:** REMOVED for v1 per review — whitespace trim only;
+   fenced output is `raw_output_invalid` so the first probe measures prompt
+   discipline cleanly (§4.3).
+3. **`response` on non-loaded records:** `None` except `response_loaded`,
+   confirmed.
+4. **`prompt_rendered` status:** not a terminal record outcome, confirmed
+   absent.
+5. **Failure reasons:** pinned to the exact stable taxonomy in §4.2a
+   (review P2).
+6. **`response_contract` interior:** validated fail-closed before prompt
+   rendering (§3.2) (review P2).
+7. **Exception discipline:** catch `Exception` only; `BaseException`
+   propagates (§4.2) (review P3).
