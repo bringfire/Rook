@@ -184,3 +184,7 @@ knowledge/dspy-cache/
 
 # Subagent-driven-development scratch (briefs, reports, ledger, review diffs)
 .superpowers/
+
+# LM5K+ model probe evidence runs (raw evidence stays local; curated
+# summaries are committed under docs/superpowers/probes/)
+probe_runs/
