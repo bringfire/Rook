@@ -2,6 +2,7 @@
 
 - **Date:** 2026-07-02
 - **Status:** Brainstorm synthesis / design draft for review. **Not approved for implementation.** This document is "another voice in the room" for the in-flux DAG-coordination architecture discussion; slices derived from it require their own specs and approval.
+- **Revision:** 2026-07-02 r2 — patched for LM5I (PR #394); senior-review round 1 folded in (adapter consumes the request envelope; softened near-term claims; external affordance vs internal harness separation; capability-authority rule; mutation-verification lint categories; replan-frontier as runner-interpreted marker; `subworkflow` pushed to LM7 horizon; published-state vocabulary; planner-envelope symmetry labeled a pattern).
 - **Author:** Claude (Fable) brainstorm synthesis with the user; grounded in the LM campaign codebase, OpenProse/Reactor (`D:\prose`), and the RLM paper (arXiv 2512.24601).
 - **Area:** `mcp_server/src/rook/agent/` — planner harness (net-new), PlanGraph runtime (LM4N–Z), local worker boundary (LM5A–I), `planner` execution profile (LM2F), RookChat as front-end.
 - **Relationship to other docs:**
@@ -186,6 +187,13 @@ Construction, validation, and freezing follow the LM5A pattern. The renderer
 follows the LM5H pattern (strict schema-tagged JSON-ready payload, exact key
 sets, no prompt text, no response protocol).
 
+**Planner-envelope symmetry is a pattern, not a commitment.** The LM5I
+request-envelope shape (context + response schema identity + machine-readable
+contract description) is the natural template for an eventual planner request
+envelope (planner context + contract payload schema + diagnostics contract).
+No planner-envelope family is built before the first planner validation slice
+proves what diagnostics and evidence actually need to look like.
+
 ### 4.2 The authoring loop
 
 ```text
@@ -213,17 +221,34 @@ action). The Planner never calls mutating tools; the runner and workers do.
 This keeps "visible implies dispatchable" trivially true for the planner
 profile and makes planner transcripts safe to replay.
 
+**Discoverable metadata ≠ callable authority.** The Capability Index may help
+the Planner discover possible `execution_ref`s and tool families; it must
+never imply dispatch permission. Contract validation checks that references
+exist; the runner and its action gates own execution authority. This is the
+authoring-side complement of the LM north-star's visible-implies-dispatchable
+rule, and it must hold even as the Capability Index and capability records
+converge.
+
 ### 4.4 The staged authoring ladder
 
 | Stage | Planner may write | Compiler/lint gates | Unlock gate |
 |---|---|---|---|
 | 1 | template selection + `InitialNodeParams` binding | existing LM4W validation | stage-1 decomposition eval suite green |
-| 2 | multiple templates chained into one contract | LM4W + **no-unverified-mutation-node lint** | stage-2 eval suite green |
-| 3 | free nodes/edges/steps | LM4W + lint + expected-ref discipline | stage-3 eval suite green |
+| 2 | multiple templates chained into one contract | LM4W + **mutation-verification lint** (warn) | stage-2 eval suite green |
+| 3 | free nodes/edges/steps | LM4W + lint (fail) + expected-ref discipline | stage-3 eval suite green |
 
-The **no-unverified-mutation-node lint** encodes the whole doctrine in one
-rule: a producer node not covered by a verifier edge is a plan smell (warning
-at stage 2, failure at stage 3). It forces the Planner to decompose in the
+The **mutation-verification lint** encodes the doctrine in one rule, scoped by
+node category:
+
+> Every declared **mutating producer** must have a verifier, a terminal
+> verifier, or an explicit declared deferred-verification reason.
+
+Warning at stage 2; failure at stage 3. Non-mutating node categories are
+exempt by construction: read-only/observer nodes, clarification/frontier
+nodes, pure bind/planning nodes, and terminal/report nodes. The
+deferred-verification escape must be declared in the contract (auditable),
+mirroring the result-truth rule that verification may be explicitly deferred
+but never silently skipped. The lint forces the Planner to decompose in the
 create → verify → repair shape the runtime is built around, without teaching
 planning style in prose.
 
@@ -232,9 +257,22 @@ three small ones, each with its own eval gate — consistent with the LM6
 evaluation doctrine and with the topology doc's §12 instruction to de-risk the
 load-bearing bet early.
 
-### 4.5 Replan-frontier nodes
+### 4.5 Replan frontiers
 
-A replan-frontier is a node kind with a verifier-shaped contract:
+A replan-frontier is a **declared contract marker interpreted by the runner —
+not a node a worker resolves.** The existing runtime already has the precedent:
+terminal nodes HALT at the provider without execution (LM4W's chain guard:
+`done -> provider HALT, non-executed`). A replan-frontier is architecturally a
+*non-terminal HALT with a replan disposition*. This keeps two facts that must
+never be confused separate by construction:
+
+```text
+worker did something            (a worker turn, LM5 boundary)
+runner reached a declared       (a runner halt/disposition,
+  planning boundary               no model involved)
+```
+
+The frontier's re-entry contract is verifier-shaped:
 
 - **precondition:** the runner has reached the frontier with receipts R;
 - **effect:** the Planner is re-invoked with (parent fingerprint, R, rolling
@@ -245,7 +283,9 @@ A replan-frontier is a node kind with a verifier-shaped contract:
 
 Replan count is budgeted like repair (`bounded, then escalate`). The runner
 stays model-free even during replanning: it *halts and requests*; the planner
-box does the thinking; the artifact chain records the decision.
+box does the thinking; the artifact chain records the decision. Whether the
+marker is later promoted to a first-class node kind is an implementation
+question for the slice that builds it, not a commitment here.
 
 ---
 
@@ -278,6 +318,17 @@ answer: how the prompt text is written, which model/provider runs, how raw
 model output is parsed into a response payload — and nothing more
 (admissibility stays with LM5G/LM5B validation and LM5C disposition; execution
 stays with the runner).
+
+**Scope of the claim:** LM5I makes the first real worker-model adapter slice
+*possible without inventing any more transport shape*. That is not the same as
+being one slice from reliable real-model execution, which additionally
+requires:
+
+- prompt/message artifact discipline (versioned, attributable);
+- provider/raw-output failure handling (transport truth, never synthesized
+  responses);
+- deterministic/recorded adapter tests;
+- model probe evals per the LM6 doctrine.
 
 Requirements:
 
@@ -316,7 +367,9 @@ root Planner (macro)           — decomposes across sessions/files
   contract's terminal receipt is what satisfies them.
 - A **`subworkflow` node kind** ("compile and run this child contract; return
   its terminal receipt") is the recursion primitive. It is named roadmap here,
-  not scheduled.
+  not scheduled — an **LM6/LM7-horizon concept**, firmly out of near-term
+  planner-harness and worker-adapter slices; it becomes eligible only after
+  contract authoring, validation, and worker-adapter evidence exist.
 - **Recursion is capped at depth 1** initially, per the RLM paper's
   error-propagation finding. Rook's typed escalation is the mitigation the
   paper lacks, but the cap stands until evals justify more.
@@ -348,6 +401,22 @@ clarification/refusal surfaced through status) are part of the external
 contract — that is the fan-in of structured failure the topology doc promises
 the macro tier (LM7 exit criteria).
 
+**`workflow_validate` is not the internal planner harness.** The two must not
+become the same module by accident. They share the compiler, nothing more:
+
+```text
+External coordinator affordance:
+  workflow_validate(payload) -> compiled summary | diagnostics
+
+Internal Planner harness:
+  planner context -> model draft -> validate/compile
+    -> attempt receipt -> compiled artifact
+```
+
+The external tool is a stateless dry-run over the load+compile path. The
+internal harness owns planner context construction, evidence push, bounded
+retry, attempt receipts, and escalation — none of which belong in an MCP tool.
+
 RookChat's role: the panel is the Planner's conversational front-end. The user
 talks to the Planner model; contract authoring happens behind the
 conversation; execution streams back as runner events (LM4S already streams).
@@ -364,12 +433,14 @@ The two guideposts answer different axes:
   (§6), the depth-1 cap, and decomposition-first evals (§9).
 - **OpenProse/Reactor answers duration** — standing truth re-rendered only on
   surprise. Rook adopts the **pattern, not the dependency**: represent a
-  standing deliverable as declared state whose facets are maintained by
-  workflow contracts, memo-keyed by **LM4X contract fingerprint + input
-  artifact fingerprints**, with LM4Z receipts as the ledger. The expensive
-  Planner then fires only when something material moved — inference cost
-  scales with surprise, not wall-clock, which is what the two-tier economic
-  gradient needs at campaign timescales.
+  standing deliverable as **published (canonical) state** whose facets are
+  maintained by workflow contracts, memo-keyed by **LM4X contract fingerprint
+  + input artifact fingerprints**, with LM4Z receipts as the ledger. The
+  expensive Planner then fires only when something material moved — inference
+  cost scales with surprise, not wall-clock, which is what the two-tier
+  economic gradient needs at campaign timescales. (Vocabulary note: Rook docs
+  say *published/canonical state* where OpenProse says "world-model" — same
+  concept, engineer-plain term.)
 
 Fingerprint-keyed memoization of workflow runs ("do not re-run a contract
 whose fingerprint and material inputs are unchanged") is the single cheapest
@@ -446,8 +517,10 @@ Extending the LM north-star's evaluation doctrine (its §11 / phase LM6) upward:
   loop (planner box) and the model adapter (worker seam) — not a new protocol.
 - The planner harness is a third harness shape: an artifact-producing loop,
   distinct from `ChatRunner` and from the LM5 worker box.
-- **Plan-then-execute with declared replan-frontier nodes** is the spine;
-  interleaving is a node kind, not a mode (user decision, 2026-07-02).
+- **Plan-then-execute with declared replan frontiers** is the spine;
+  interleaving is a declared contract marker, not a harness mode (user
+  decision, 2026-07-02). Early implementation: a runner halt/disposition in
+  the terminal-HALT family, not a worker-resolved node (review round 1).
 - **Staged authoring ladder** (select+bind → chain → free authoring), each
   stage gated by decomposition evals (user decision, 2026-07-02).
 - **Agent-layer pure loop; RookChat is a view** (user decision, 2026-07-02).
@@ -463,8 +536,21 @@ Extending the LM north-star's evaluation doctrine (its §11 / phase LM6) upward:
   load-bearing); internal-first does not fork the contract.
 - RLM supplies the depth doctrine; OpenProse supplies the duration doctrine
   (fingerprint memoization + receipts adopted as patterns, Reactor runtime
-  deferred).
-- No unverified mutation nodes: the one lint that encodes the doctrine.
+  deferred). Rook docs say *published/canonical state*, not "world-model"
+  (review round 1).
+- **Mutation-verification lint:** every declared mutating producer needs a
+  verifier, terminal verifier, or explicit declared deferred-verification
+  reason; non-mutating node categories exempt (review round 1 refinement).
+- **Discoverable metadata ≠ callable authority:** the Capability Index informs
+  authoring; the runner/action gates own execution authority (review round 1).
+- `workflow_validate` (external, stateless) and the internal planner harness
+  share the compiler, never a module (review round 1).
+- LM5I makes the first worker-adapter slice possible without new transport
+  shape; reliable real-model execution additionally needs prompt artifact
+  discipline, failure handling, recorded adapter tests, and probe evals
+  (review round 1).
+- Planner-envelope symmetry with LM5I is a pattern, not scheduled scope
+  (review round 1).
 
 ---
 
