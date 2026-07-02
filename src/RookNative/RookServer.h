@@ -167,6 +167,7 @@ private:
     void HandleDirectorCurveSamples(const httplib::Request& req, httplib::Response& res);
     void HandleDirectorVideoAssemble(const httplib::Request& req, httplib::Response& res);
     void HandleDirectorFrameCapture(const httplib::Request& req, httplib::Response& res);
+    void HandleDirectorCaptureDepthPass(const httplib::Request& req, httplib::Response& res);
     void HandleGetDisplayModes(const httplib::Request& req, httplib::Response& res);
     void HandleSetDisplayMode(const httplib::Request& req, httplib::Response& res);
     void HandleMeasureDistance(const httplib::Request& req, httplib::Response& res);
