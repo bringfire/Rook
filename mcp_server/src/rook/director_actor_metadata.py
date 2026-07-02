@@ -147,6 +147,34 @@ def _validate_ref_fields(value: Any, field_path: str = "$") -> None:
             _validate_ref_fields(item, f"{field_path}[{index}]")
 
 
+def _reject_generated_ref_input_fields(value: Any, field_path: str = "$") -> None:
+    generated_ref_keys = {
+        "source_snapshot_ref",
+        "accepted_selection_snapshot_ref",
+        "exemplar_selection_snapshot_ref",
+    }
+    if isinstance(value, dict):
+        for key, item in value.items():
+            key_text = str(key)
+            child_path = _legacy_field_path(field_path, key_text)
+            if key_text in generated_ref_keys or (
+                key_text == "ref"
+                and (
+                    ".actor_set.subsets[" in field_path
+                    or ".band_sets[" in field_path
+                )
+            ):
+                _raise(
+                    "generated_ref_field_present",
+                    "Director metadata writer generates durable refs from semantic IDs.",
+                    field_path=child_path,
+                )
+            _reject_generated_ref_input_fields(item, child_path)
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _reject_generated_ref_input_fields(item, f"{field_path}[{index}]")
+
+
 def validate_loaded_metadata(payload: dict, *, expected_kind: str) -> dict:
     if not isinstance(payload, dict):
         _raise("metadata_payload_invalid", "Metadata payload root must be an object.")
@@ -214,7 +242,14 @@ def load_metadata_ref(project_root: Path, ref: str, *, expected_kind: str) -> di
 async def resolve_active_project_root(
     *, call_native=call_rhino, port=None
 ) -> tuple[Path, dict[str, Any]]:
-    document = await call_native("/document", port=port)
+    document_response = await call_native("/document", port=port)
+    document = document_response
+    if (
+        isinstance(document_response, dict)
+        and document_response.get("success") is True
+        and "data" in document_response
+    ):
+        document = document_response.get("data")
     if not isinstance(document, dict):
         _raise(
             "document_path_required",
@@ -268,6 +303,25 @@ def _require_text_id(
             f"Metadata payload requires a non-empty {key}.",
             field=key,
             field_path=field_path or key,
+        )
+    return value
+
+
+def _optional_list(
+    payload: dict[str, Any],
+    key: str,
+    *,
+    field_path: str,
+) -> list[Any]:
+    if key not in payload:
+        return []
+    value = payload[key]
+    if not isinstance(value, list):
+        _raise(
+            "metadata_collection_invalid",
+            "Director metadata collection field must be a list.",
+            field=key,
+            field_path=field_path,
         )
     return value
 
@@ -374,6 +428,54 @@ def _require_snapshot_ref(
     return ref
 
 
+def _require_parent_actor_set(
+    parent_actor_set_id: Any,
+    actor_set_id: str,
+    *,
+    field_path: str,
+) -> str:
+    if parent_actor_set_id is None:
+        return actor_set_id
+    if not isinstance(parent_actor_set_id, str) or not parent_actor_set_id:
+        _raise(
+            "metadata_id_required",
+            "Parent actor set id must be a non-empty string.",
+            field_path=field_path,
+        )
+    if parent_actor_set_id != actor_set_id:
+        _raise(
+            "metadata_parent_mismatch",
+            "Parent actor set id does not match the supplied actor set.",
+            field_path=field_path,
+            parent_actor_set_id=parent_actor_set_id,
+            actor_set_id=actor_set_id,
+        )
+    return parent_actor_set_id
+
+
+def _require_parent_subset(
+    subset_refs: dict[str, str],
+    parent_subset_id: Any,
+    *,
+    field_path: str,
+) -> str:
+    if not isinstance(parent_subset_id, str) or not parent_subset_id:
+        _raise(
+            "metadata_id_required",
+            "Grouping payload requires a non-empty parent_subset_id.",
+            field_path=field_path,
+        )
+    if parent_subset_id not in subset_refs:
+        _raise(
+            "metadata_ref_target_missing",
+            "Grouping parent_subset_id does not match a supplied subset.",
+            field_path=field_path,
+            target_id=parent_subset_id,
+            target_kind=KIND_ACTOR_SUBSET,
+        )
+    return parent_subset_id
+
+
 def _preflight_payloads(
     project_root: Path,
     payloads: list[tuple[str, str, dict[str, Any]]],
@@ -404,6 +506,7 @@ async def write_actor_metadata_bundle_v2(
     if not isinstance(arguments, dict):
         _raise("metadata_bundle_invalid", "Director metadata bundle must be an object.")
     _reject_legacy_path_fields(arguments)
+    _reject_generated_ref_input_fields(arguments)
     _validate_ref_fields(arguments)
 
     project_root, source_document = await resolve_active_project_root(
@@ -425,9 +528,12 @@ async def write_actor_metadata_bundle_v2(
     snapshot_refs: dict[str, str] = {}
     snapshot_ids: dict[str, str] = {}
     snapshot_payloads: list[tuple[str, dict[str, Any]]] = []
-    for snapshot_index, snapshot_input in enumerate(
-        arguments.get("selection_snapshots", [])
-    ):
+    selection_snapshots = _optional_list(
+        arguments,
+        "selection_snapshots",
+        field_path="$.selection_snapshots",
+    )
+    for snapshot_index, snapshot_input in enumerate(selection_snapshots):
         if not isinstance(snapshot_input, dict):
             _raise(
                 "metadata_bundle_invalid",
@@ -458,7 +564,8 @@ async def write_actor_metadata_bundle_v2(
     subset_refs: dict[str, str] = {}
     subset_ids: dict[str, str] = {}
     subset_payloads: list[tuple[str, dict[str, Any]]] = []
-    for subset_index, subset_input in enumerate(arguments.get("subsets", [])):
+    subsets = _optional_list(arguments, "subsets", field_path="$.subsets")
+    for subset_index, subset_input in enumerate(subsets):
         if not isinstance(subset_input, dict):
             _raise("metadata_bundle_invalid", "Subset entries must be objects.")
         subset_field_path = f"$.subsets[{subset_index}].subset_id"
@@ -473,13 +580,11 @@ async def write_actor_metadata_bundle_v2(
             value=subset_id,
             field_path=subset_field_path,
         )
-        parent_actor_set_id = subset_input.get("parent_actor_set_id", actor_set_id)
-        if not isinstance(parent_actor_set_id, str) or not parent_actor_set_id:
-            _raise(
-                "metadata_id_required",
-                "Subset payload requires a valid parent_actor_set_id.",
-                field="parent_actor_set_id",
-            )
+        parent_actor_set_id = _require_parent_actor_set(
+            subset_input.get("parent_actor_set_id"),
+            actor_set_id,
+            field_path=f"$.subsets[{subset_index}].parent_actor_set_id",
+        )
         ref = _subset_ref(parent_actor_set_id, subset_id)
         subset_refs[subset_id] = ref
         subset = _normalize_common_metadata(
@@ -500,9 +605,23 @@ async def write_actor_metadata_bundle_v2(
                         f"$.subsets[{subset_index}].acceptance."
                         f"{accepted_key}"
                     ),
-                )
+            )
+        subset["parent_actor_set_id"] = actor_set_id
+        if "band_sets" in subset:
+            _optional_list(
+                subset,
+                "band_sets",
+                field_path=f"$.subsets[{subset_index}].band_sets",
+            )
+            subset.pop("band_sets", None)
         band_sets = []
-        for band_set_index, band_set_id in enumerate(subset.pop("band_set_ids", [])):
+        band_set_ids = _optional_list(
+            subset,
+            "band_set_ids",
+            field_path=f"$.subsets[{subset_index}].band_set_ids",
+        )
+        subset.pop("band_set_ids", None)
+        for band_set_index, band_set_id in enumerate(band_set_ids):
             if isinstance(band_set_id, str) and band_set_id:
                 band_sets.append({"band_set_id": band_set_id})
             else:
@@ -520,7 +639,8 @@ async def write_actor_metadata_bundle_v2(
     grouping_refs: dict[str, str] = {}
     grouping_ids: dict[str, str] = {}
     grouping_payloads: list[tuple[str, dict[str, Any]]] = []
-    for grouping_index, grouping_input in enumerate(arguments.get("groupings", [])):
+    groupings = _optional_list(arguments, "groupings", field_path="$.groupings")
+    for grouping_index, grouping_input in enumerate(groupings):
         if not isinstance(grouping_input, dict):
             _raise("metadata_bundle_invalid", "Grouping entries must be objects.")
         band_set_field_path = f"$.groupings[{grouping_index}].band_set_id"
@@ -535,22 +655,16 @@ async def write_actor_metadata_bundle_v2(
             value=band_set_id,
             field_path=band_set_field_path,
         )
-        parent_actor_set_id = grouping_input.get("parent_actor_set_id", actor_set_id)
-        if not isinstance(parent_actor_set_id, str) or not parent_actor_set_id:
-            _raise(
-                "metadata_id_required",
-                "Grouping payload requires a valid parent_actor_set_id.",
-                field="parent_actor_set_id",
-            )
-        parent_subset_id = grouping_input.get("parent_subset_id")
-        if not isinstance(parent_subset_id, str) or not parent_subset_id:
-            parent_subset_id = next(iter(subset_refs), None)
-        if not isinstance(parent_subset_id, str) or not parent_subset_id:
-            _raise(
-                "metadata_id_required",
-                "Grouping payload requires a valid parent_subset_id.",
-                field="parent_subset_id",
-            )
+        parent_actor_set_id = _require_parent_actor_set(
+            grouping_input.get("parent_actor_set_id"),
+            actor_set_id,
+            field_path=f"$.groupings[{grouping_index}].parent_actor_set_id",
+        )
+        parent_subset_id = _require_parent_subset(
+            subset_refs,
+            grouping_input.get("parent_subset_id"),
+            field_path=f"$.groupings[{grouping_index}].parent_subset_id",
+        )
         ref = _grouping_ref(parent_actor_set_id, parent_subset_id, band_set_id)
         grouping_refs[band_set_id] = ref
         grouping = _normalize_common_metadata(
@@ -559,6 +673,8 @@ async def write_actor_metadata_bundle_v2(
             source_document=source_document,
             generated_at_utc=generated_at_utc,
         )
+        grouping["parent_actor_set_id"] = actor_set_id
+        grouping["parent_subset_id"] = parent_subset_id
         exemplar_key = "exemplar_selection_snapshot_id"
         if exemplar_key in grouping:
             exemplar_snapshot_id = grouping.pop(exemplar_key)

@@ -11,8 +11,9 @@ from rook import director_actor_metadata as metadata
 
 
 class FakeDocumentNative:
-    def __init__(self, path: str | None):
+    def __init__(self, path: str | None, *, envelope: bool = False):
         self.path = path
+        self.envelope = envelope
         self.calls = []
 
     async def __call__(
@@ -24,11 +25,14 @@ class FakeDocumentNative:
     ) -> dict:
         self.calls.append((endpoint, method, data, port))
         assert endpoint == "/document"
-        return {
+        document = {
             "success": True,
             "name": Path(self.path).name if self.path else "Unsaved.3dm",
             "path": self.path,
         }
+        if self.envelope:
+            return {"success": True, "data": document}
+        return document
 
 
 def _minimal_bundle() -> dict:
@@ -426,6 +430,23 @@ def test_write_actor_metadata_bundle_v2_creates_refs_and_no_legacy_paths(tmp_pat
         _assert_no_absolute_or_backslash_refs(persisted)
 
 
+def test_write_actor_metadata_bundle_v2_accepts_document_success_envelope(tmp_path):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir()
+    native = FakeDocumentNative(str(model), envelope=True)
+
+    result = asyncio.run(
+        metadata.write_actor_metadata_bundle_v2(
+            _minimal_bundle(),
+            call_native=native,
+            port=None,
+        )
+    )
+
+    assert result["actor_set_ref"].endswith("roof_uplift_vertical_test_chunk_001.json")
+    assert Path(result["resolved_actor_set_path"]).exists()
+
+
 def test_write_actor_metadata_bundle_v2_rejects_unsaved_document():
     with pytest.raises(metadata.DirectorActorMetadataError) as exc:
         asyncio.run(
@@ -464,6 +485,8 @@ def test_write_actor_metadata_bundle_v2_invalid_generated_ref_writes_no_files(tm
     model.parent.mkdir()
     bundle = _minimal_bundle()
     bundle["actor_set"]["actor_set_id"] = "roof\\bad"
+    bundle["subsets"][0]["parent_actor_set_id"] = "roof\\bad"
+    bundle["groupings"][0]["parent_actor_set_id"] = "roof\\bad"
 
     with pytest.raises(metadata.DirectorActorMetadataError) as exc:
         _write_bundle(bundle, model)
@@ -513,7 +536,7 @@ def test_write_actor_metadata_bundle_v2_invalid_generated_ref_writes_no_files(tm
         ),
     ],
 )
-def test_write_actor_metadata_bundle_v2_rejects_copied_invalid_refs_and_writes_no_files(
+def test_write_actor_metadata_bundle_v2_rejects_caller_supplied_generated_refs(
     tmp_path,
     mutate,
     field_path,
@@ -527,8 +550,28 @@ def test_write_actor_metadata_bundle_v2_rejects_copied_invalid_refs_and_writes_n
         _write_bundle(bundle, model)
 
     data = exc.value.to_data()
-    assert data["code"] == "invalid_metadata_ref"
+    assert data["code"] == "generated_ref_field_present"
     assert data["field_path"] == field_path
+    _assert_no_rook_files(model.parent)
+
+
+def test_write_actor_metadata_bundle_v2_rejects_supplied_unknown_source_snapshot_ref(
+    tmp_path,
+):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir()
+    bundle = _minimal_bundle()
+    bundle["actor_set"].pop("source_snapshot_entry_id")
+    bundle["actor_set"]["source_snapshot_ref"] = (
+        ".rook/director_planning/selection_snapshots/not_supplied.json"
+    )
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        _write_bundle(bundle, model)
+
+    data = exc.value.to_data()
+    assert data["code"] == "generated_ref_field_present"
+    assert data["field_path"] == "$.actor_set.source_snapshot_ref"
     _assert_no_rook_files(model.parent)
 
 
@@ -586,4 +629,72 @@ def test_write_actor_metadata_bundle_v2_rejects_duplicate_snapshot_ids(tmp_path)
     data = exc.value.to_data()
     assert data["code"] == "duplicate_metadata_id"
     assert data["field"] == "snapshot_id"
+    _assert_no_rook_files(model.parent)
+
+
+@pytest.mark.parametrize(
+    "mutate, field_path",
+    [
+        (
+            lambda bundle: bundle["subsets"][0].update(
+                {"parent_actor_set_id": "other_actor_set"}
+            ),
+            "$.subsets[0].parent_actor_set_id",
+        ),
+        (
+            lambda bundle: bundle["groupings"][0].update(
+                {"parent_actor_set_id": "other_actor_set"}
+            ),
+            "$.groupings[0].parent_actor_set_id",
+        ),
+    ],
+)
+def test_write_actor_metadata_bundle_v2_rejects_parent_actor_set_mismatch(
+    tmp_path,
+    mutate,
+    field_path,
+):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir()
+    bundle = _minimal_bundle()
+    mutate(bundle)
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        _write_bundle(bundle, model)
+
+    data = exc.value.to_data()
+    assert data["code"] == "metadata_parent_mismatch"
+    assert data["field_path"] == field_path
+    _assert_no_rook_files(model.parent)
+
+
+def test_write_actor_metadata_bundle_v2_rejects_unknown_grouping_parent_subset(
+    tmp_path,
+):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir()
+    bundle = _minimal_bundle()
+    bundle["groupings"][0]["parent_subset_id"] = "not_a_supplied_subset"
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        _write_bundle(bundle, model)
+
+    data = exc.value.to_data()
+    assert data["code"] == "metadata_ref_target_missing"
+    assert data["field_path"] == "$.groupings[0].parent_subset_id"
+    _assert_no_rook_files(model.parent)
+
+
+def test_write_actor_metadata_bundle_v2_rejects_non_list_collections(tmp_path):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir()
+    bundle = _minimal_bundle()
+    bundle["selection_snapshots"] = {"snapshot_id": "intent_005_20260701_144245"}
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        _write_bundle(bundle, model)
+
+    data = exc.value.to_data()
+    assert data["code"] == "metadata_collection_invalid"
+    assert data["field_path"] == "$.selection_snapshots"
     _assert_no_rook_files(model.parent)
