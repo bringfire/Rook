@@ -275,6 +275,55 @@ def test_offline_probe_fenced_output_counts_split(tmp_path) -> None:
     )
 
 
+def test_derived_graph_state_is_coherent_post_verify() -> None:
+    scaffold, result = PROBE.derive_probe_graph_state()
+    assert result.stop_reason == "max_steps_reached"
+    assert result.steps_attempted == 3
+    assert [r.execution_kind for r in result.records] == [
+        "producer", "verifier", "bind",
+    ]
+    assert [r.accepted_node_id for r in result.records] == [
+        "create_script", "verify_create", "repair_same_component",
+    ]
+    # create producer record ran/applied with receipt evidence; the receipt
+    # is intentionally created_with_errors with verification failed, so
+    # "applied" must not be read as "script verified clean" (spec section 6)
+    assert result.records[0].ran is True
+    graph = result.final_graph
+    assert graph.nodes["create_script"].evidence is not None
+    # the repair signal lives on the verifier record, asserted separately
+    assert result.records[1].verifier_outcome_status == "needs_repair"
+
+    repair = graph.nodes["repair_same_component"]
+    assert repair.status == "ready"
+    from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
+
+    params = repair.metadata[EXECUTION_PARAMS_KEY]
+    assert params["guid"] == PROBE.PROBE_COMPONENT_GUID
+    assert params["mode"] == "body"
+    # memory facts are receipt-derived by the producer projection --
+    # nothing is hand-injected anymore
+    assert graph.memory.facts["component_guid"] == PROBE.PROBE_COMPONENT_GUID
+    assert (
+        graph.memory.facts["repair_anchor"]["component_guid"]
+        == PROBE.PROBE_COMPONENT_GUID
+    )
+
+
+def test_offline_runner_refuses_non_create_nodes() -> None:
+    import asyncio
+
+    runner = PROBE._OfflineCreateRunner()
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    with pytest.raises(RuntimeError, match="offline runner asked to execute"):
+        asyncio.run(
+            runner.run_live_producer_node(
+                result.final_graph, "repair_same_component"
+            )
+        )
+    assert runner.calls == ["repair_same_component"]
+
+
 def test_offline_probe_capture_raw(tmp_path) -> None:
     run_dir = PROBE.run_probe(
         _args(tmp_path, attempts=1, capture_raw=True),

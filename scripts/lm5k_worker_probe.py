@@ -54,6 +54,10 @@ SCENARIO_WORKFLOW_ID = "lm5k_first_probe"
 SCENARIO_ID = "lm5k_golden_repair_v2"
 SCENARIO_VERSION = "v2"
 SCENARIO_STATE = "post_verify_needs_repair"
+# Deterministic component guid carried by the offline create receipt; every
+# downstream fact (memory repair_anchor/component_guid, bound repair params)
+# derives from this via the real projection + bind path, never by hand.
+PROBE_COMPONENT_GUID = "lm5l-probe-component-guid"
 
 _LOCAL_PREFIXES = ("ollama_chat/", "ollama/")
 
@@ -129,16 +133,10 @@ def attempt_metrics(attempt: Mapping[str, Any]) -> tuple[bool, bool]:
     return strict, spine
 
 
-def build_probe_context():
-    """Golden scenario: the compiled repair workflow, per LM5J's integration
-    test, with this probe's workflow_id."""
-    import copy
+def _probe_contract():
+    """The golden repair workflow contract — unchanged since rounds 1/1b.
 
-    from rook.agent.local_worker_turn_context import (
-        WorkerAllowedAction,
-        WorkerKnowledgePacket,
-        build_local_worker_turn_context,
-    )
+    LM5L changes the derived scenario STATE, not the workflow contract."""
     from rook.agent.plan_graph_workflow_contract import (
         BindStepSpec,
         ExpectedNodeRef,
@@ -148,10 +146,9 @@ def build_probe_context():
         VerifierStepSpec,
         WorkflowNodeRule,
         WorkflowTemplateRef,
-        compile_workflow_contract,
     )
 
-    contract = RookWorkflowContract(
+    return RookWorkflowContract(
         workflow_id=SCENARIO_WORKFLOW_ID,
         template=WorkflowTemplateRef(
             descriptor={
@@ -229,6 +226,115 @@ def build_probe_context():
         max_steps=6,
         metadata={"trace": {"slice": "LM5K"}},
     )
+
+
+def _wrapped_failure_create_raw() -> dict:
+    """Deterministic create receipt: mutation happened, verification failed.
+
+    Same shape as the LM4W chain guard's — created_with_errors plus a
+    repair_anchor is exactly what makes verify_create observe needs_repair
+    and gives the bind step a real anchor to bind from."""
+    return {
+        "success": False,
+        "data": {
+            "script_receipt": {
+                "version": 1,
+                "operation": "create",
+                "language": "csharp",
+                "artifact_status": "created_with_errors",
+                "mutation": {
+                    "status": "created",
+                    "component_guid": PROBE_COMPONENT_GUID,
+                },
+                "verification": {"status": "failed", "target_error_count": 1},
+                "repair_anchor": {
+                    "component_guid": PROBE_COMPONENT_GUID,
+                    "language": "csharp",
+                },
+            }
+        },
+    }
+
+
+class _OfflineCreateRunner:
+    """Deterministic offline producer runner for fixture derivation.
+
+    Only create_script may execute: with max_steps=3 the stream stops after
+    the bind step, so being asked to run any other node is a fixture bug."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def run_live_producer_node(self, graph, node_id):
+        from rook.agent.plan_graph_live import LiveProducerResult
+        from rook.learning.plan_graph_runner import apply_producer_result
+
+        self.calls.append(node_id)
+        if node_id != "create_script":
+            raise RuntimeError(
+                "LM5L coherent fixture invariant failed: "
+                f"offline runner asked to execute {node_id!r}"
+            )
+        inner = apply_producer_result(
+            graph, node_id, _wrapped_failure_create_raw()
+        )
+        return LiveProducerResult(
+            graph=inner.graph,
+            applied=inner.applied,
+            node_id=node_id,
+            tool_name="gh_create_csharp_script",
+            outcome_status=inner.outcome_status,
+            reason=inner.reason,
+        )
+
+
+def derive_probe_graph_state():
+    """Advance the compiled golden scenario to the coherent post-verify state.
+
+    Runs the existing offline stream driver (the LM4W chain-guard pattern)
+    for exactly three steps — create producer, verify_create verifier,
+    bind — leaving repair_same_component genuinely ready with bound
+    execution params and receipt-derived memory facts. Returns
+    (scaffold, stream_result); world-state coherence holds by construction
+    because the state passed through the same advancement semantics real
+    workflows use. NOT a stream runner in the probe: no live provider, no
+    tool dispatch, no model."""
+    import asyncio
+
+    from rook.agent.plan_graph_current_step_stream import (
+        run_current_step_stream,
+    )
+    from rook.agent.plan_graph_workflow_contract import (
+        compile_workflow_contract,
+    )
+
+    scaffold = compile_workflow_contract(_probe_contract())
+    result = asyncio.run(
+        run_current_step_stream(
+            scaffold.graph,
+            scaffold.provider,
+            max_steps=3,
+            runner=_OfflineCreateRunner(),
+        )
+    )
+    return scaffold, result
+
+
+def build_probe_context():
+    """Golden scenario: the compiled repair workflow, per LM5J's integration
+    test, with this probe's workflow_id."""
+    import copy
+
+    from rook.agent.local_worker_turn_context import (
+        WorkerAllowedAction,
+        WorkerKnowledgePacket,
+        build_local_worker_turn_context,
+    )
+    from rook.agent.plan_graph_workflow_contract import (
+        compile_workflow_contract,
+    )
+
+    contract = _probe_contract()
     scaffold = compile_workflow_contract(contract)
     graph = copy.deepcopy(scaffold.graph)
     graph.memory.facts["repair_anchor"] = {"component_guid": "component-123"}
