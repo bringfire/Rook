@@ -82,6 +82,20 @@ def test_director_video_tools_are_explicit_rhino_mutate():
         assert policy == targeting.RhinoToolPolicy(True, "mutate")
 
 
+def test_director_motion_tools_have_routed_policies():
+    assert targeting.policy_for_tool(
+        "rhino_director_compile_motion"
+    ) == targeting.RhinoToolPolicy(True, "read")
+    for name in {
+        "rhino_director_preview_motion",
+        "rhino_director_replay",
+        "rhino_director_replay_cancel",
+    }:
+        assert targeting.policy_for_tool(name) == targeting.RhinoToolPolicy(
+            True, "mutate"
+        )
+
+
 def test_director_actor_metadata_v2_tool_policies():
     assert targeting.policy_for_tool(
         "rhino_director_write_actor_metadata_v2"
