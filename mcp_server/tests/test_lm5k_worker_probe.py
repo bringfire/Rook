@@ -31,6 +31,11 @@ def test_slot_vocabulary() -> None:
         "ceiling": "ROOK_PROBE_CEILING_WORKER",
     }
     assert PROBE.GENERATION_PARAMS == {"temperature": 0}
+    assert PROBE.SLOT_GENERATION_PARAMS == {
+        "local": {"temperature": 0},
+        "cheap": {"temperature": 0},
+        "ceiling": {},
+    }
 
 
 def test_parse_candidate_spec() -> None:
@@ -220,6 +225,11 @@ def test_offline_probe_end_to_end_good_transport(tmp_path) -> None:
     assert local["status"] == "ran"
     assert local["strict_loadable"] == 3
     assert local["spine_passed"] == 3
+    # per-candidate generation params are recorded; the ceiling slot omits
+    # sampling params (reasoning-tier models reject non-default values)
+    assert local["generation_params"] == {"temperature": 0}
+    ceiling = next(p for p in manifest["panel"] if p["slot"] == "ceiling")
+    assert ceiling["generation_params"] == {}
     skipped = [p for p in manifest["panel"] if p["status"] == "skipped"]
     assert len(skipped) == 2
     lines = (run_dir / "attempts.jsonl").read_text().strip().splitlines()

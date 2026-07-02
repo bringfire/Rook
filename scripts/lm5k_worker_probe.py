@@ -34,6 +34,16 @@ ENV_VARS = {
     "ceiling": "ROOK_PROBE_CEILING_WORKER",
 }
 GENERATION_PARAMS = {"temperature": 0}
+# Per-slot generation params. Reasoning-tier ceiling models (e.g.
+# claude-sonnet-5) reject non-default sampling params with a client-side
+# UnsupportedParamsError — the ceiling slot omits them entirely and runs at
+# provider defaults. Each candidate's params are recorded in the manifest
+# panel entry, so runs remain comparable per the spec 5.3 experiment key.
+SLOT_GENERATION_PARAMS = {
+    "local": GENERATION_PARAMS,
+    "cheap": GENERATION_PARAMS,
+    "ceiling": {},
+}
 DEFAULT_ATTEMPTS = 5
 SCENARIO_WORKFLOW_ID = "lm5k_first_probe"
 
@@ -246,7 +256,7 @@ def _default_transport_factory(resolution: Mapping[str, Any]):
     return LiteLLMWorkerTransport(
         model=resolution["model"],
         profile_api_base=resolution["api_base"],
-        generation_params=GENERATION_PARAMS,
+        generation_params=resolution.get("generation_params", GENERATION_PARAMS),
     )
 
 
@@ -437,14 +447,17 @@ def run_probe(args, transport_factory=None) -> Path:
 
     models = get_models()
     resolutions = [
-        resolve_slot(
-            slot,
-            cli_value=getattr(args, slot),
-            env_value=os.environ.get(ENV_VARS[slot]) or None,
-            profile_worker=models.worker,
-            profile_api_base=models.api_base,
-            skipped=slot in (args.skip or []),
-        )
+        {
+            **resolve_slot(
+                slot,
+                cli_value=getattr(args, slot),
+                env_value=os.environ.get(ENV_VARS[slot]) or None,
+                profile_worker=models.worker,
+                profile_api_base=models.api_base,
+                skipped=slot in (args.skip or []),
+            ),
+            "generation_params": dict(SLOT_GENERATION_PARAMS[slot]),
+        }
         for slot in SLOTS
     ]
 
