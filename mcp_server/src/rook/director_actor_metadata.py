@@ -4,6 +4,7 @@ import copy
 import datetime
 import json
 import re
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -125,6 +126,27 @@ def _reject_legacy_path_fields(value: Any, field_path: str = "$") -> None:
             _reject_legacy_path_fields(item, f"{field_path}[{index}]")
 
 
+def _validate_ref_fields(value: Any, field_path: str = "$") -> None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            key_text = str(key)
+            child_path = _legacy_field_path(field_path, key_text)
+            if key_text == "ref" or key_text.endswith("_ref"):
+                try:
+                    validate_metadata_ref(item)
+                except DirectorActorMetadataError as ex:
+                    raise DirectorActorMetadataError(
+                        ex.code,
+                        ex.message,
+                        field_path=child_path,
+                        ref=item,
+                    ) from ex
+            _validate_ref_fields(item, child_path)
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _validate_ref_fields(item, f"{field_path}[{index}]")
+
+
 def validate_loaded_metadata(payload: dict, *, expected_kind: str) -> dict:
     if not isinstance(payload, dict):
         _raise("metadata_payload_invalid", "Metadata payload root must be an object.")
@@ -152,6 +174,7 @@ def validate_loaded_metadata(payload: dict, *, expected_kind: str) -> dict:
             allowed_metadata_kinds=sorted(METADATA_KINDS),
         )
     _reject_legacy_path_fields(payload)
+    _validate_ref_fields(payload)
     return payload
 
 
@@ -232,13 +255,19 @@ def _metadata_timestamp_utc() -> str:
     )
 
 
-def _require_text_id(payload: dict[str, Any], key: str) -> str:
+def _require_text_id(
+    payload: dict[str, Any],
+    key: str,
+    *,
+    field_path: str | None = None,
+) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or not value:
         _raise(
             "metadata_id_required",
             f"Metadata payload requires a non-empty {key}.",
             field=key,
+            field_path=field_path or key,
         )
     return value
 
@@ -285,7 +314,7 @@ def _normalize_common_metadata(
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = path.with_name(f".{path.name}.tmp")
+    temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     temp_path.write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -301,12 +330,81 @@ def _written_entry(project_root: Path, ref: str, *, metadata_kind: str) -> dict[
     }
 
 
+def _remember_unique_id(
+    seen: dict[str, str],
+    *,
+    field: str,
+    value: str,
+    field_path: str,
+) -> None:
+    previous_field_path = seen.get(value)
+    if previous_field_path is not None:
+        _raise(
+            "duplicate_metadata_id",
+            "Director metadata bundle contains a duplicate id.",
+            field=field,
+            value=value,
+            field_path=field_path,
+            previous_field_path=previous_field_path,
+        )
+    seen[value] = field_path
+
+
+def _require_snapshot_ref(
+    snapshot_refs: dict[str, str],
+    snapshot_id: Any,
+    *,
+    field_path: str,
+) -> str:
+    if not isinstance(snapshot_id, str) or not snapshot_id:
+        _raise(
+            "metadata_id_required",
+            "Selection snapshot link requires a non-empty snapshot id.",
+            field_path=field_path,
+        )
+    ref = snapshot_refs.get(snapshot_id)
+    if ref is None:
+        _raise(
+            "metadata_ref_target_missing",
+            "Selection snapshot link does not match a supplied snapshot.",
+            field_path=field_path,
+            target_id=snapshot_id,
+            target_kind=KIND_SELECTION_SNAPSHOT,
+        )
+    return ref
+
+
+def _preflight_payloads(
+    project_root: Path,
+    payloads: list[tuple[str, str, dict[str, Any]]],
+) -> list[tuple[Path, dict[str, Any]]]:
+    resolved_payloads: list[tuple[Path, dict[str, Any]]] = []
+    refs_by_resolved_path: dict[Path, str] = {}
+    for ref, expected_kind, payload in payloads:
+        validate_metadata_ref(ref)
+        resolved_path = resolve_metadata_ref(project_root, ref)
+        previous_ref = refs_by_resolved_path.get(resolved_path)
+        if previous_ref is not None:
+            _raise(
+                "metadata_ref_collision",
+                "Multiple Director metadata payloads resolve to the same path.",
+                ref=ref,
+                previous_ref=previous_ref,
+                resolved_path=str(resolved_path),
+            )
+        refs_by_resolved_path[resolved_path] = ref
+        validate_loaded_metadata(payload, expected_kind=expected_kind)
+        resolved_payloads.append((resolved_path, payload))
+    return resolved_payloads
+
+
 async def write_actor_metadata_bundle_v2(
     arguments: dict[str, Any], *, call_native=call_rhino, port=None
 ) -> dict[str, Any]:
     if not isinstance(arguments, dict):
         _raise("metadata_bundle_invalid", "Director metadata bundle must be an object.")
     _reject_legacy_path_fields(arguments)
+    _validate_ref_fields(arguments)
 
     project_root, source_document = await resolve_active_project_root(
         call_native=call_native,
@@ -317,18 +415,36 @@ async def write_actor_metadata_bundle_v2(
     actor_set_input = arguments.get("actor_set")
     if not isinstance(actor_set_input, dict):
         _raise("metadata_bundle_invalid", "Director metadata bundle requires actor_set.")
-    actor_set_id = _require_text_id(actor_set_input, "actor_set_id")
+    actor_set_id = _require_text_id(
+        actor_set_input,
+        "actor_set_id",
+        field_path="$.actor_set.actor_set_id",
+    )
     actor_ref = _actor_set_ref(actor_set_id)
 
     snapshot_refs: dict[str, str] = {}
+    snapshot_ids: dict[str, str] = {}
     snapshot_payloads: list[tuple[str, dict[str, Any]]] = []
-    for snapshot_input in arguments.get("selection_snapshots", []):
+    for snapshot_index, snapshot_input in enumerate(
+        arguments.get("selection_snapshots", [])
+    ):
         if not isinstance(snapshot_input, dict):
             _raise(
                 "metadata_bundle_invalid",
                 "Selection snapshot entries must be objects.",
             )
-        snapshot_id = _require_text_id(snapshot_input, "snapshot_id")
+        snapshot_field_path = f"$.selection_snapshots[{snapshot_index}].snapshot_id"
+        snapshot_id = _require_text_id(
+            snapshot_input,
+            "snapshot_id",
+            field_path=snapshot_field_path,
+        )
+        _remember_unique_id(
+            snapshot_ids,
+            field="snapshot_id",
+            value=snapshot_id,
+            field_path=snapshot_field_path,
+        )
         ref = _snapshot_ref(snapshot_id)
         snapshot_refs[snapshot_id] = ref
         snapshot = _normalize_common_metadata(
@@ -340,11 +456,23 @@ async def write_actor_metadata_bundle_v2(
         snapshot_payloads.append((ref, snapshot))
 
     subset_refs: dict[str, str] = {}
+    subset_ids: dict[str, str] = {}
     subset_payloads: list[tuple[str, dict[str, Any]]] = []
-    for subset_input in arguments.get("subsets", []):
+    for subset_index, subset_input in enumerate(arguments.get("subsets", [])):
         if not isinstance(subset_input, dict):
             _raise("metadata_bundle_invalid", "Subset entries must be objects.")
-        subset_id = _require_text_id(subset_input, "subset_id")
+        subset_field_path = f"$.subsets[{subset_index}].subset_id"
+        subset_id = _require_text_id(
+            subset_input,
+            "subset_id",
+            field_path=subset_field_path,
+        )
+        _remember_unique_id(
+            subset_ids,
+            field="subset_id",
+            value=subset_id,
+            field_path=subset_field_path,
+        )
         parent_actor_set_id = subset_input.get("parent_actor_set_id", actor_set_id)
         if not isinstance(parent_actor_set_id, str) or not parent_actor_set_id:
             _raise(
@@ -362,28 +490,51 @@ async def write_actor_metadata_bundle_v2(
         )
         acceptance = subset.get("acceptance")
         if isinstance(acceptance, dict):
-            accepted_snapshot_id = acceptance.pop(
-                "accepted_selection_snapshot_id",
-                None,
-            )
-            if accepted_snapshot_id in snapshot_refs:
-                acceptance["accepted_selection_snapshot_ref"] = snapshot_refs[
-                    accepted_snapshot_id
-                ]
+            accepted_key = "accepted_selection_snapshot_id"
+            if accepted_key in acceptance:
+                accepted_snapshot_id = acceptance.pop(accepted_key)
+                acceptance["accepted_selection_snapshot_ref"] = _require_snapshot_ref(
+                    snapshot_refs,
+                    accepted_snapshot_id,
+                    field_path=(
+                        f"$.subsets[{subset_index}].acceptance."
+                        f"{accepted_key}"
+                    ),
+                )
         band_sets = []
-        for band_set_id in subset.pop("band_set_ids", []):
+        for band_set_index, band_set_id in enumerate(subset.pop("band_set_ids", [])):
             if isinstance(band_set_id, str) and band_set_id:
                 band_sets.append({"band_set_id": band_set_id})
+            else:
+                _raise(
+                    "metadata_id_required",
+                    "Subset band_set_ids entries must be non-empty strings.",
+                    field_path=(
+                        f"$.subsets[{subset_index}].band_set_ids[{band_set_index}]"
+                    ),
+                )
         if band_sets:
             subset["band_sets"] = band_sets
         subset_payloads.append((ref, subset))
 
     grouping_refs: dict[str, str] = {}
+    grouping_ids: dict[str, str] = {}
     grouping_payloads: list[tuple[str, dict[str, Any]]] = []
-    for grouping_input in arguments.get("groupings", []):
+    for grouping_index, grouping_input in enumerate(arguments.get("groupings", [])):
         if not isinstance(grouping_input, dict):
             _raise("metadata_bundle_invalid", "Grouping entries must be objects.")
-        band_set_id = _require_text_id(grouping_input, "band_set_id")
+        band_set_field_path = f"$.groupings[{grouping_index}].band_set_id"
+        band_set_id = _require_text_id(
+            grouping_input,
+            "band_set_id",
+            field_path=band_set_field_path,
+        )
+        _remember_unique_id(
+            grouping_ids,
+            field="band_set_id",
+            value=band_set_id,
+            field_path=band_set_field_path,
+        )
         parent_actor_set_id = grouping_input.get("parent_actor_set_id", actor_set_id)
         if not isinstance(parent_actor_set_id, str) or not parent_actor_set_id:
             _raise(
@@ -408,22 +559,36 @@ async def write_actor_metadata_bundle_v2(
             source_document=source_document,
             generated_at_utc=generated_at_utc,
         )
-        exemplar_snapshot_id = grouping.pop("exemplar_selection_snapshot_id", None)
-        if exemplar_snapshot_id in snapshot_refs:
-            grouping["exemplar_selection_snapshot_ref"] = snapshot_refs[
-                exemplar_snapshot_id
-            ]
+        exemplar_key = "exemplar_selection_snapshot_id"
+        if exemplar_key in grouping:
+            exemplar_snapshot_id = grouping.pop(exemplar_key)
+            grouping["exemplar_selection_snapshot_ref"] = _require_snapshot_ref(
+                snapshot_refs,
+                exemplar_snapshot_id,
+                field_path=f"$.groupings[{grouping_index}].{exemplar_key}",
+            )
         grouping_payloads.append((ref, grouping))
 
-    for _, subset in subset_payloads:
+    for subset_index, (_, subset) in enumerate(subset_payloads):
         band_sets = subset.get("band_sets")
         if isinstance(band_sets, list):
-            for band_set in band_sets:
+            for band_set_index, band_set in enumerate(band_sets):
                 if not isinstance(band_set, dict):
                     continue
                 band_set_id = band_set.get("band_set_id")
                 if band_set_id in grouping_refs:
                     band_set["ref"] = grouping_refs[band_set_id]
+                else:
+                    _raise(
+                        "metadata_ref_target_missing",
+                        "Subset band_set_ids entry does not match a supplied grouping.",
+                        field_path=(
+                            f"$.subsets[{subset_index}]."
+                            f"band_set_ids[{band_set_index}]"
+                        ),
+                        target_id=band_set_id,
+                        target_kind=KIND_ACTOR_GROUPING,
+                    )
 
     actor_set = _normalize_common_metadata(
         actor_set_input,
@@ -431,9 +596,14 @@ async def write_actor_metadata_bundle_v2(
         source_document=source_document,
         generated_at_utc=generated_at_utc,
     )
-    source_snapshot_id = actor_set.pop("source_snapshot_entry_id", None)
-    if source_snapshot_id in snapshot_refs:
-        actor_set["source_snapshot_ref"] = snapshot_refs[source_snapshot_id]
+    source_snapshot_key = "source_snapshot_entry_id"
+    if source_snapshot_key in actor_set:
+        source_snapshot_id = actor_set.pop(source_snapshot_key)
+        actor_set["source_snapshot_ref"] = _require_snapshot_ref(
+            snapshot_refs,
+            source_snapshot_id,
+            field_path=f"$.actor_set.{source_snapshot_key}",
+        )
     if subset_payloads:
         actor_set["subsets"] = [
             {
@@ -455,11 +625,10 @@ async def write_actor_metadata_bundle_v2(
         for ref, payload in grouping_payloads
     )
 
-    for _, expected_kind, payload in payloads:
-        validate_loaded_metadata(payload, expected_kind=expected_kind)
+    resolved_payloads = _preflight_payloads(project_root, payloads)
 
-    for ref, _, payload in payloads:
-        _atomic_write_json(resolve_metadata_ref(project_root, ref), payload)
+    for resolved_path, payload in resolved_payloads:
+        _atomic_write_json(resolved_path, payload)
 
     written = [
         _written_entry(project_root, ref, metadata_kind=metadata_kind)

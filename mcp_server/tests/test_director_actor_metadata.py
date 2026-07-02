@@ -77,6 +77,37 @@ def _error_code(exc: pytest.ExceptionInfo[metadata.DirectorActorMetadataError]) 
     return exc.value.to_data()["code"]
 
 
+def _write_bundle(bundle: dict, model: Path) -> dict:
+    return asyncio.run(
+        metadata.write_actor_metadata_bundle_v2(
+            bundle,
+            call_native=FakeDocumentNative(str(model)),
+            port=None,
+        )
+    )
+
+
+def _assert_no_rook_files(project_root: Path) -> None:
+    rook_dir = project_root / ".rook"
+    assert not rook_dir.exists() or not any(rook_dir.rglob("*.json"))
+
+
+def _assert_no_absolute_or_backslash_refs(value):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == "ref" or key.endswith("_ref"):
+                assert isinstance(item, str)
+                assert "\\" not in item
+                assert not item.startswith("/")
+                assert not item.startswith("//")
+                assert not (len(item) >= 2 and item[1] == ":")
+                assert item.startswith(".rook/")
+            _assert_no_absolute_or_backslash_refs(item)
+    elif isinstance(value, list):
+        for item in value:
+            _assert_no_absolute_or_backslash_refs(item)
+
+
 def test_validate_metadata_ref_accepts_project_relative_rook_ref():
     ref = ".rook/director_planning/actor_sets/a.json"
 
@@ -391,6 +422,8 @@ def test_write_actor_metadata_bundle_v2_creates_refs_and_no_legacy_paths(tmp_pat
     for item in result["written"]:
         assert item["ref"].startswith(".rook/")
         assert item["resolved_path"].endswith(".json")
+        persisted = json.loads(Path(item["resolved_path"]).read_text(encoding="utf-8"))
+        _assert_no_absolute_or_backslash_refs(persisted)
 
 
 def test_write_actor_metadata_bundle_v2_rejects_unsaved_document():
@@ -424,3 +457,133 @@ def test_write_actor_metadata_bundle_v2_rejects_legacy_input_path_field():
         )
 
     assert _error_code(exc) == "legacy_path_field_present"
+
+
+def test_write_actor_metadata_bundle_v2_invalid_generated_ref_writes_no_files(tmp_path):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir()
+    bundle = _minimal_bundle()
+    bundle["actor_set"]["actor_set_id"] = "roof\\bad"
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        _write_bundle(bundle, model)
+
+    assert _error_code(exc) == "invalid_metadata_ref"
+    _assert_no_rook_files(model.parent)
+
+
+@pytest.mark.parametrize(
+    "mutate, field_path",
+    [
+        (
+            lambda bundle: (
+                bundle["actor_set"].pop("source_snapshot_entry_id"),
+                bundle["actor_set"].update({"source_snapshot_ref": r"C:\old\s.json"}),
+            ),
+            "$.actor_set.source_snapshot_ref",
+        ),
+        (
+            lambda bundle: (
+                bundle["subsets"][0]["acceptance"].pop(
+                    "accepted_selection_snapshot_id"
+                ),
+                bundle["subsets"][0]["acceptance"].update(
+                    {"accepted_selection_snapshot_ref": r"C:\old\snapshot.json"}
+                ),
+            ),
+            "$.subsets[0].acceptance.accepted_selection_snapshot_ref",
+        ),
+        (
+            lambda bundle: (
+                bundle["groupings"][0].pop("exemplar_selection_snapshot_id"),
+                bundle["groupings"][0].update(
+                    {"exemplar_selection_snapshot_ref": r"C:\old\exemplar.json"}
+                ),
+            ),
+            "$.groupings[0].exemplar_selection_snapshot_ref",
+        ),
+        (
+            lambda bundle: (
+                bundle["subsets"][0].pop("band_set_ids"),
+                bundle["subsets"][0].update(
+                    {"band_sets": [{"ref": r"C:\old\band-set.json"}]}
+                ),
+            ),
+            "$.subsets[0].band_sets[0].ref",
+        ),
+    ],
+)
+def test_write_actor_metadata_bundle_v2_rejects_copied_invalid_refs_and_writes_no_files(
+    tmp_path,
+    mutate,
+    field_path,
+):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir()
+    bundle = _minimal_bundle()
+    mutate(bundle)
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        _write_bundle(bundle, model)
+
+    data = exc.value.to_data()
+    assert data["code"] == "invalid_metadata_ref"
+    assert data["field_path"] == field_path
+    _assert_no_rook_files(model.parent)
+
+
+@pytest.mark.parametrize(
+    "mutate, field_path",
+    [
+        (
+            lambda bundle: bundle["actor_set"].update(
+                {"source_snapshot_entry_id": "missing_snapshot"}
+            ),
+            "$.actor_set.source_snapshot_entry_id",
+        ),
+        (
+            lambda bundle: bundle["subsets"][0]["acceptance"].update(
+                {"accepted_selection_snapshot_id": "missing_snapshot"}
+            ),
+            "$.subsets[0].acceptance.accepted_selection_snapshot_id",
+        ),
+        (
+            lambda bundle: bundle["groupings"][0].update(
+                {"exemplar_selection_snapshot_id": "missing_snapshot"}
+            ),
+            "$.groupings[0].exemplar_selection_snapshot_id",
+        ),
+    ],
+)
+def test_write_actor_metadata_bundle_v2_rejects_missing_semantic_targets(
+    tmp_path,
+    mutate,
+    field_path,
+):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir()
+    bundle = _minimal_bundle()
+    mutate(bundle)
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        _write_bundle(bundle, model)
+
+    data = exc.value.to_data()
+    assert data["code"] == "metadata_ref_target_missing"
+    assert data["field_path"] == field_path
+    _assert_no_rook_files(model.parent)
+
+
+def test_write_actor_metadata_bundle_v2_rejects_duplicate_snapshot_ids(tmp_path):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir()
+    bundle = _minimal_bundle()
+    bundle["selection_snapshots"].append(copy.deepcopy(bundle["selection_snapshots"][0]))
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        _write_bundle(bundle, model)
+
+    data = exc.value.to_data()
+    assert data["code"] == "duplicate_metadata_id"
+    assert data["field"] == "snapshot_id"
+    _assert_no_rook_files(model.parent)
