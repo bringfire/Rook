@@ -46,6 +46,19 @@ SLOT_GENERATION_PARAMS = {
 }
 DEFAULT_ATTEMPTS = 5
 SCENARIO_WORKFLOW_ID = "lm5k_first_probe"
+# Scenario identity (spec section 5). The workflow contract is unchanged
+# since rounds 1/1b; what changed in LM5L is the probe scenario STATE
+# (fresh compiled graph -> coherent post-verify repair state), so the
+# scenario id/version move to v2 while workflow_id stays. Any scenario
+# change is a new experiment under the comparison-key doctrine.
+SCENARIO_VERSION = "v2"
+SCENARIO_ID = f"lm5k_golden_repair_{SCENARIO_VERSION}"
+SCENARIO_STATE = "post_verify_needs_repair"
+# Deterministic component guid carried by the offline create receipt; every
+# downstream fact (memory repair_anchor/component_guid, bound repair params)
+# derives from this via the real projection + bind path, never by hand.
+PROBE_COMPONENT_GUID = "lm5l-probe-component-guid"
+PROBE_REPAIR_CODE = "A = 42.0;"
 
 _LOCAL_PREFIXES = ("ollama_chat/", "ollama/")
 
@@ -121,16 +134,10 @@ def attempt_metrics(attempt: Mapping[str, Any]) -> tuple[bool, bool]:
     return strict, spine
 
 
-def build_probe_context():
-    """Golden scenario: the compiled repair workflow, per LM5J's integration
-    test, with this probe's workflow_id."""
-    import copy
+def _probe_contract():
+    """The golden repair workflow contract — unchanged since rounds 1/1b.
 
-    from rook.agent.local_worker_turn_context import (
-        WorkerAllowedAction,
-        WorkerKnowledgePacket,
-        build_local_worker_turn_context,
-    )
+    LM5L changes the derived scenario STATE, not the workflow contract."""
     from rook.agent.plan_graph_workflow_contract import (
         BindStepSpec,
         ExpectedNodeRef,
@@ -140,10 +147,9 @@ def build_probe_context():
         VerifierStepSpec,
         WorkflowNodeRule,
         WorkflowTemplateRef,
-        compile_workflow_contract,
     )
 
-    contract = RookWorkflowContract(
+    return RookWorkflowContract(
         workflow_id=SCENARIO_WORKFLOW_ID,
         template=WorkflowTemplateRef(
             descriptor={
@@ -197,7 +203,7 @@ def build_probe_context():
                     BindStepSpec(
                         node_id="repair_same_component",
                         base_params={
-                            "code": "A = 42.0;",
+                            "code": PROBE_REPAIR_CODE,
                             "mode": "body",
                             "language": "csharp",
                         },
@@ -221,15 +227,206 @@ def build_probe_context():
         max_steps=6,
         metadata={"trace": {"slice": "LM5K"}},
     )
-    scaffold = compile_workflow_contract(contract)
-    graph = copy.deepcopy(scaffold.graph)
-    graph.memory.facts["repair_anchor"] = {"component_guid": "component-123"}
-    graph.memory.facts["component_guid"] = "component-123"
-    return build_local_worker_turn_context(
+
+
+def _wrapped_failure_create_raw() -> dict:
+    """Deterministic create receipt: mutation happened, verification failed.
+
+    Same shape as the LM4W chain guard's — created_with_errors plus a
+    repair_anchor is exactly what makes verify_create observe needs_repair
+    and gives the bind step a real anchor to bind from."""
+    return {
+        "success": False,
+        "data": {
+            "script_receipt": {
+                "version": 1,
+                "operation": "create",
+                "language": "csharp",
+                "artifact_status": "created_with_errors",
+                "mutation": {
+                    "status": "created",
+                    "component_guid": PROBE_COMPONENT_GUID,
+                },
+                "verification": {"status": "failed", "target_error_count": 1},
+                "repair_anchor": {
+                    "component_guid": PROBE_COMPONENT_GUID,
+                    "language": "csharp",
+                },
+            }
+        },
+    }
+
+
+class _OfflineCreateRunner:
+    """Deterministic offline producer runner for fixture derivation.
+
+    Only create_script may execute: with max_steps=3 the stream stops after
+    the bind step, so being asked to run any other node is a fixture bug."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def run_live_producer_node(self, graph, node_id):
+        from rook.agent.plan_graph_live import LiveProducerResult
+        from rook.learning.plan_graph_runner import apply_producer_result
+
+        self.calls.append(node_id)
+        if node_id != "create_script":
+            raise RuntimeError(
+                "LM5L coherent fixture invariant failed: "
+                f"offline runner asked to execute {node_id!r}"
+            )
+        inner = apply_producer_result(
+            graph, node_id, _wrapped_failure_create_raw()
+        )
+        return LiveProducerResult(
+            graph=inner.graph,
+            applied=inner.applied,
+            node_id=node_id,
+            tool_name="gh_create_csharp_script",
+            outcome_status=inner.outcome_status,
+            reason=inner.reason,
+        )
+
+
+def derive_probe_graph_state():
+    """Advance the compiled golden scenario to the coherent post-verify state.
+
+    Runs the existing offline stream driver (the LM4W chain-guard pattern)
+    for exactly three steps — create producer, verify_create verifier,
+    bind — leaving repair_same_component genuinely ready with bound
+    execution params and receipt-derived memory facts. Returns
+    (scaffold, stream_result); world-state coherence holds by construction
+    because the state passed through the same advancement semantics real
+    workflows use. NOT a stream runner in the probe: no live provider, no
+    tool dispatch, no model."""
+    import asyncio
+
+    from rook.agent.plan_graph_current_step_stream import (
+        run_current_step_stream,
+    )
+    from rook.agent.plan_graph_workflow_contract import (
+        compile_workflow_contract,
+    )
+
+    scaffold = compile_workflow_contract(_probe_contract())
+    result = asyncio.run(
+        run_current_step_stream(
+            scaffold.graph,
+            scaffold.provider,
+            max_steps=3,
+            runner=_OfflineCreateRunner(),
+        )
+    )
+    return scaffold, result
+
+
+def _invariant(condition: bool, message: str) -> None:
+    if not condition:
+        raise RuntimeError(
+            f"LM5L coherent fixture invariant failed: {message}"
+        )
+
+
+def _require_coherent_graph_state(scaffold, stream_result) -> None:
+    """Fail-fast tripwire on derived world-state facts (spec 4.2).
+
+    Factual and probe-specific only — no receipt re-interpretation, no
+    policy, no schema validation; those belong to the LM5B/C/D/F spine.
+    Internal guard MAY inspect params/memory values; the rendered envelope
+    never shows values (spec 3.5) and its tests assert only model-visible
+    facts. Purpose: a future drift fails the probe at startup instead of
+    burning live API attempts on an incoherent envelope."""
+    from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
+
+    _invariant(
+        stream_result.stop_reason == "max_steps_reached",
+        f"stream stopped early: {stream_result.stop_reason}",
+    )
+    kinds = [record.execution_kind for record in stream_result.records]
+    _invariant(
+        kinds == ["producer", "verifier", "bind"],
+        f"unexpected step sequence: {kinds}",
+    )
+    create_record = stream_result.records[0]
+    _invariant(
+        create_record.accepted_node_id == "create_script"
+        and create_record.ran,
+        "history missing create producer record",
+    )
+    graph = stream_result.final_graph
+    _invariant("create_script" in graph.nodes, "create node missing")
+    _invariant(
+        graph.nodes["create_script"].evidence is not None,
+        "create producer record has no receipt evidence",
+    )
+    _invariant(
+        stream_result.records[1].verifier_outcome_status == "needs_repair",
+        "verifier outcome is not needs_repair",
+    )
+    _invariant(
+        "repair_same_component" in graph.nodes,
+        "repair node missing",
+    )
+    repair = graph.nodes["repair_same_component"]
+    _invariant(repair.status == "ready", "repair node is not ready")
+    params = repair.metadata.get(EXECUTION_PARAMS_KEY)
+    _invariant(
+        isinstance(params, Mapping) and bool(params),
+        "execution params missing on repair node",
+    )
+    facts = graph.memory.facts
+    anchor = facts.get("repair_anchor")
+    _invariant(
+        isinstance(anchor, Mapping)
+        and anchor.get("component_guid") == PROBE_COMPONENT_GUID
+        and facts.get("component_guid") == PROBE_COMPONENT_GUID,
+        "memory facts missing repair anchor",
+    )
+
+
+def _require_probe_context_shape(context) -> None:
+    """Caller-declared worker affordances (spec 4.2) — split from graph
+    state because these are hand-declared planner inputs, not derived
+    world-state. LM5A deliberately has no top-level current_node_id field;
+    the guard checks the public context shape."""
+    _invariant(
+        context.current_node is not None
+        and context.current_node.node_id == "repair_same_component",
+        "current node is not repair_same_component",
+    )
+    _invariant(
+        any(
+            action.action_id == "draft_repair_params"
+            for action in context.allowed_actions
+        ),
+        "allowed action draft_repair_params missing",
+    )
+
+
+def build_probe_context():
+    """Golden scenario v2: the compiled repair workflow advanced through
+    the real offline stream to the coherent post-verify state (spec 4.3).
+
+    All world-state is derived — the create receipt's projection writes the
+    memory facts, verify_create's needs_repair readies the repair node, and
+    the bind step binds execution params. The knowledge packet and allowed
+    action stay hand-declared: they are planner-authored inputs, not
+    world-state claims. Runs once per candidate; derivation is
+    deterministic and millisecond-cheap, so no caching."""
+    from rook.agent.local_worker_turn_context import (
+        WorkerAllowedAction,
+        WorkerKnowledgePacket,
+        build_local_worker_turn_context,
+    )
+
+    scaffold, stream_result = derive_probe_graph_state()
+    _require_coherent_graph_state(scaffold, stream_result)
+    context = build_local_worker_turn_context(
         scaffold,
-        graph,
-        (),
-        (),
+        stream_result.final_graph,
+        stream_result.records,
+        stream_result.supply_records,
         current_node_id="repair_same_component",
         knowledge=(
             WorkerKnowledgePacket(
@@ -248,6 +445,8 @@ def build_probe_context():
             ),
         ),
     )
+    _require_probe_context_shape(context)
+    return context
 
 
 def _default_transport_factory(resolution: Mapping[str, Any]):
@@ -309,7 +508,7 @@ def run_candidate(
             )
             result = evaluate_local_worker_scenario_result(
                 LocalWorkerScenarioExpectation(
-                    scenario_id="lm5k_first_probe_golden",
+                    scenario_id=SCENARIO_ID,
                     category="live_probe",
                     expected_status="completed",
                     expected_disposition="candidate_action_request",
@@ -419,8 +618,12 @@ def build_manifest(
         "run_id": run_id,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "git_commit": _git_short_sha(),
-        "scenario_workflow_id": SCENARIO_WORKFLOW_ID,
-        "generation_params": dict(GENERATION_PARAMS),
+        "scenario": {
+            "workflow_id": SCENARIO_WORKFLOW_ID,
+            "scenario_id": SCENARIO_ID,
+            "scenario_version": SCENARIO_VERSION,
+            "state": SCENARIO_STATE,
+        },
         "attempts_per_candidate": attempts,
         "capture_raw": capture_raw,
         "panel": panel,

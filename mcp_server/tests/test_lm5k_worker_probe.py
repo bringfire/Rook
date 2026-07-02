@@ -38,6 +38,13 @@ def test_slot_vocabulary() -> None:
     }
 
 
+def test_scenario_identity_constants() -> None:
+    assert PROBE.SCENARIO_WORKFLOW_ID == "lm5k_first_probe"
+    assert PROBE.SCENARIO_ID == "lm5k_golden_repair_v2"
+    assert PROBE.SCENARIO_VERSION == "v2"
+    assert PROBE.SCENARIO_STATE == "post_verify_needs_repair"
+
+
 def test_parse_candidate_spec() -> None:
     assert PROBE.parse_candidate_spec("ollama_chat/qwen3:8b") == (
         "ollama_chat/qwen3:8b",
@@ -188,7 +195,7 @@ class _FakeGoodTransport:
                 "kind": "action_request",
                 "action_id": action_id,
                 "rationale": "Draft repair parameters for the failed component.",
-                "input": {"code": "A = 42.0;", "mode": "body"},
+                "input": {"code": PROBE.PROBE_REPAIR_CODE, "mode": "body"},
             }
         )
         self.last_raw_output = raw
@@ -219,8 +226,17 @@ def test_offline_probe_end_to_end_good_transport(tmp_path) -> None:
         _args(tmp_path), transport_factory=_FakeGoodTransport
     )
     manifest = json.loads((run_dir / "manifest.json").read_text())
-    assert manifest["generation_params"] == {"temperature": 0}
+    assert "generation_params" not in manifest
     assert manifest["prompt_text_version"] == "lm5j.prompt_text:v1"
+    # scenario identity: structured block, versioned (spec section 5);
+    # the bare scenario_workflow_id string is replaced, not kept alongside
+    assert manifest["scenario"] == {
+        "workflow_id": "lm5k_first_probe",
+        "scenario_id": "lm5k_golden_repair_v2",
+        "scenario_version": "v2",
+        "state": "post_verify_needs_repair",
+    }
+    assert "scenario_workflow_id" not in manifest
     local = next(p for p in manifest["panel"] if p["slot"] == "local")
     assert local["status"] == "ran"
     assert local["strict_loadable"] == 3
@@ -257,6 +273,225 @@ def test_offline_probe_fenced_output_counts_split(tmp_path) -> None:
     assert json.loads(lines[0])["failure_reason"] == (
         "raw_output_invalid:json_decode"
     )
+
+
+def test_derived_graph_state_is_coherent_post_verify() -> None:
+    scaffold, result = PROBE.derive_probe_graph_state()
+    assert result.stop_reason == "max_steps_reached"
+    assert result.steps_attempted == 3
+    assert [r.execution_kind for r in result.records] == [
+        "producer", "verifier", "bind",
+    ]
+    assert [r.accepted_node_id for r in result.records] == [
+        "create_script", "verify_create", "repair_same_component",
+    ]
+    # create producer record ran/applied with receipt evidence; the receipt
+    # is intentionally created_with_errors with verification failed, so
+    # "applied" must not be read as "script verified clean" (spec section 6)
+    assert result.records[0].ran is True
+    graph = result.final_graph
+    assert graph.nodes["create_script"].evidence is not None
+    # the repair signal lives on the verifier record, asserted separately
+    assert result.records[1].verifier_outcome_status == "needs_repair"
+
+    repair = graph.nodes["repair_same_component"]
+    assert repair.status == "ready"
+    from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
+
+    params = repair.metadata[EXECUTION_PARAMS_KEY]
+    assert params["guid"] == PROBE.PROBE_COMPONENT_GUID
+    assert params["mode"] == "body"
+    # memory facts are receipt-derived by the producer projection --
+    # nothing is hand-injected anymore
+    assert graph.memory.facts["component_guid"] == PROBE.PROBE_COMPONENT_GUID
+    assert (
+        graph.memory.facts["repair_anchor"]["component_guid"]
+        == PROBE.PROBE_COMPONENT_GUID
+    )
+
+
+def test_offline_runner_refuses_non_create_nodes() -> None:
+    import asyncio
+
+    runner = PROBE._OfflineCreateRunner()
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    with pytest.raises(RuntimeError, match="offline runner asked to execute"):
+        asyncio.run(
+            runner.run_live_producer_node(
+                result.final_graph, "repair_same_component"
+            )
+        )
+    assert runner.calls == ["repair_same_component"]
+
+
+def _fresh_scaffold_and_empty_result():
+    """The round-1b shape: freshly compiled graph, nothing executed."""
+    from rook.agent.plan_graph_current_step_stream import (
+        CurrentStepStreamResult,
+    )
+    from rook.agent.plan_graph_workflow_contract import (
+        compile_workflow_contract,
+    )
+
+    scaffold = compile_workflow_contract(PROBE._probe_contract())
+    return scaffold, CurrentStepStreamResult(
+        final_graph=scaffold.graph,
+        records=(),
+        supply_records=(),
+        stop_reason="max_steps_reached",
+        steps_attempted=0,
+    )
+
+
+def test_graph_state_guard_rejects_round_1b_shape() -> None:
+    # Regression: the guard must reject the exact fixture shape that
+    # produced the round-1b false spine reading. It would have caught
+    # round 1b; this proves it stays able to.
+    scaffold, empty = _fresh_scaffold_and_empty_result()
+    with pytest.raises(
+        RuntimeError, match="LM5L coherent fixture invariant failed"
+    ):
+        PROBE._require_coherent_graph_state(scaffold, empty)
+
+
+def test_graph_state_guard_accepts_derived_state() -> None:
+    scaffold, result = PROBE.derive_probe_graph_state()
+    PROBE._require_coherent_graph_state(scaffold, result)  # must not raise
+
+
+def test_graph_state_guard_message_repair_not_ready() -> None:
+    scaffold, result = PROBE.derive_probe_graph_state()
+    result.final_graph.nodes["repair_same_component"].status = "pending"
+    with pytest.raises(RuntimeError, match="repair node is not ready"):
+        PROBE._require_coherent_graph_state(scaffold, result)
+
+
+def test_graph_state_guard_message_repair_node_missing() -> None:
+    scaffold, result = PROBE.derive_probe_graph_state()
+    del result.final_graph.nodes["repair_same_component"]
+    with pytest.raises(RuntimeError, match="repair node missing"):
+        PROBE._require_coherent_graph_state(scaffold, result)
+
+
+def test_graph_state_guard_message_create_node_missing() -> None:
+    scaffold, result = PROBE.derive_probe_graph_state()
+    del result.final_graph.nodes["create_script"]
+    with pytest.raises(RuntimeError, match="create node missing"):
+        PROBE._require_coherent_graph_state(scaffold, result)
+
+
+def test_graph_state_guard_message_params_missing() -> None:
+    from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
+
+    scaffold, result = PROBE.derive_probe_graph_state()
+    del result.final_graph.nodes["repair_same_component"].metadata[
+        EXECUTION_PARAMS_KEY
+    ]
+    with pytest.raises(
+        RuntimeError, match="execution params missing on repair node"
+    ):
+        PROBE._require_coherent_graph_state(scaffold, result)
+
+
+def test_graph_state_guard_message_memory_facts_missing() -> None:
+    scaffold, result = PROBE.derive_probe_graph_state()
+    result.final_graph.memory.facts.clear()
+    with pytest.raises(RuntimeError, match="memory facts missing repair anchor"):
+        PROBE._require_coherent_graph_state(scaffold, result)
+
+
+def test_graph_state_guard_message_pre_bind_sequence() -> None:
+    import asyncio
+
+    from rook.agent.plan_graph_current_step_stream import (
+        run_current_step_stream,
+    )
+    from rook.agent.plan_graph_workflow_contract import (
+        compile_workflow_contract,
+    )
+
+    scaffold = compile_workflow_contract(PROBE._probe_contract())
+    result = asyncio.run(
+        run_current_step_stream(
+            scaffold.graph,
+            scaffold.provider,
+            max_steps=2,
+            runner=PROBE._OfflineCreateRunner(),
+        )
+    )
+    with pytest.raises(RuntimeError, match="unexpected step sequence"):
+        PROBE._require_coherent_graph_state(scaffold, result)
+
+
+def test_probe_context_envelope_is_world_state_coherent() -> None:
+    # Layer 2 (spec section 6): the envelope a model actually sees must
+    # tell the same coherent story as the derived graph — asserted ONLY on
+    # model-visible facts (has_execution_params flag, memory KEYS), never
+    # param payloads or memory fact values (spec section 3.5). These are
+    # point-for-point the negations of the ceiling's round-1b refusal.
+    from rook.agent.local_worker_turn_request import (
+        render_local_worker_turn_request_payload,
+    )
+
+    payload = render_local_worker_turn_request_payload(
+        PROBE.build_probe_context()
+    )
+    context = payload["context"]
+
+    assert (
+        "repair_same_component" in context["current_graph"]["ready_node_ids"]
+    )
+    node = context["current_node"]
+    assert node["node_id"] == "repair_same_component"
+    assert node["status"] == "ready"
+    assert node["has_execution_params"] is True
+    assert "repair_anchor" in node["memory_keys"]
+    assert "component_guid" in node["memory_keys"]
+
+    history = context["history"]
+    assert history["current_step_count"] == 3
+    assert [
+        step["execution_kind"] for step in history["recent_steps"]
+    ] == ["producer", "verifier", "bind"]
+    assert [
+        step["accepted_node_id"] for step in history["recent_steps"]
+    ] == ["create_script", "verify_create", "repair_same_component"]
+
+    action_ids = [a["action_id"] for a in context["allowed_actions"]]
+    assert "draft_repair_params" in action_ids
+
+
+def test_probe_envelope_never_exposes_internal_values() -> None:
+    # The visibility boundary itself (spec section 3.5): bound execution
+    # param values and memory fact values must NOT appear anywhere in the
+    # rendered request payload — the worker sees has_execution_params and
+    # memory_keys, not payloads.
+    from rook.agent.local_worker_turn_request import (
+        render_local_worker_turn_request_payload,
+    )
+
+    payload = render_local_worker_turn_request_payload(
+        PROBE.build_probe_context()
+    )
+    rendered = json.dumps(payload)
+    assert PROBE.PROBE_COMPONENT_GUID not in rendered
+    assert PROBE.PROBE_REPAIR_CODE not in rendered
+
+
+def test_probe_context_shape_guard_wired() -> None:
+    import dataclasses
+
+    context = PROBE.build_probe_context()
+    stripped = dataclasses.replace(context, allowed_actions=())
+    with pytest.raises(
+        RuntimeError, match="allowed action draft_repair_params missing"
+    ):
+        PROBE._require_probe_context_shape(stripped)
+    headless = dataclasses.replace(context, current_node=None)
+    with pytest.raises(
+        RuntimeError, match="current node is not repair_same_component"
+    ):
+        PROBE._require_probe_context_shape(headless)
 
 
 def test_offline_probe_capture_raw(tmp_path) -> None:
