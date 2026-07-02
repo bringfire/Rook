@@ -6,7 +6,7 @@
 
 **Architecture:** Two new pure agent-layer modules following the LM5 family discipline (frozen dataclasses, strict boundary validation, stdlib-only, AST-guarded imports). The prompt renderer mechanically derives instructions from the envelope's machine-readable `response_contract` and fails closed if that interior is mutated. The adapter performs one bounded invocation returning a typed record; it never loops, retries, or evaluates.
 
-**Tech Stack:** Python 3.12, stdlib only (`json`, `dataclasses`, `typing.Protocol`), pytest. Spec: `docs/superpowers/specs/2026-07-02-lm5j-local-worker-adapter-contract-design.md`.
+**Tech Stack:** Python **3.10-compatible code** (the package supports 3.10+; the local test runtime may be 3.12), stdlib only (`json`, `dataclasses`, `typing.Protocol`), pytest. Spec: `docs/superpowers/specs/2026-07-02-lm5j-local-worker-adapter-contract-design.md`.
 
 ## Global Constraints
 
@@ -16,7 +16,8 @@
 - Excerpt limit: `RAW_OUTPUT_EXCERPT_LIMIT = 500`.
 - Parse policy: whitespace trim only; **no fence unwrapping** — fenced output is `raw_output_invalid:json_decode`.
 - Transport call catches `Exception` only; `KeyboardInterrupt`/`SystemExit`/`BaseException` propagate.
-- Failure reasons exactly per spec §4.2a; `failure_reason is None` iff `status == "response_loaded"`.
+- Failure reasons exactly per spec §4.2a; `failure_reason is None` iff `status == "response_loaded"`. The record's `__post_init__` enforces the **exact taxonomy** (not just a status prefix): `transport_error:declared`, `transport_error:unexpected:<detail>`, `raw_output_invalid:not_text:<detail>`, `raw_output_invalid:empty`, `raw_output_invalid:json_decode`, `raw_output_invalid:not_mapping`, `response_payload_invalid:<detail>` — where every `<detail>` is a non-empty ASCII alnum/underscore string.
+- All new production and test code must be **Python 3.10-compatible**; Task 5 runs a `py -3.10 -m py_compile` gate over both modules and both test files.
 - No live model, provider SDK, network, file IO, YAML, Capability Index, plan-graph runtime, or LM5C/D/F imports in production (tests may import LM5C/D/F).
 - Prompt module never references `loads`; adapter module never references `dumps`.
 - Both modules pin `__all__` exactly (reviewer requirement) with a test asserting the exact tuple.
@@ -694,6 +695,43 @@ def test_failure_record_requires_matching_reason_prefix() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("status", "reason"),
+    [
+        ("transport_error", "transport_error:declared"),
+        ("transport_error", "transport_error:unexpected:RuntimeError"),
+        ("raw_output_invalid", "raw_output_invalid:not_text:dict"),
+        ("raw_output_invalid", "raw_output_invalid:empty"),
+        ("raw_output_invalid", "raw_output_invalid:json_decode"),
+        ("raw_output_invalid", "raw_output_invalid:not_mapping"),
+        ("response_payload_invalid", "response_payload_invalid:unknown_kind"),
+    ],
+)
+def test_every_taxonomy_reason_is_constructible(status, reason) -> None:
+    record = _record(status=status, response=None, failure_reason=reason)
+    assert record.failure_reason == reason
+
+
+@pytest.mark.parametrize(
+    ("status", "reason"),
+    [
+        ("raw_output_invalid", "raw_output_invalid:made_up"),
+        ("transport_error", "transport_error:whatever"),
+        ("transport_error", "transport_error:unexpected:"),
+        ("transport_error", "transport_error:unexpected:Run Time!"),
+        ("raw_output_invalid", "raw_output_invalid:not_text:"),
+        ("raw_output_invalid", "raw_output_invalid:empty:extra"),
+        ("response_payload_invalid", "response_payload_invalid:"),
+        ("response_payload_invalid", "response_payload_invalid:bad detail"),
+        ("transport_error", "transport_error:"),
+        ("transport_error", "transport_error:declared:extra"),
+    ],
+)
+def test_off_taxonomy_reasons_are_rejected(status, reason) -> None:
+    with pytest.raises(ValueError):
+        _record(status=status, response=None, failure_reason=reason)
+
+
 def test_record_rejects_unknown_status_and_wrong_constants() -> None:
     with pytest.raises(ValueError):
         _record(status="prompt_rendered", response=None,
@@ -838,12 +876,9 @@ class LocalWorkerAdapterRecord:
             return
         if self.response is not None:
             raise ValueError("failure records require response None")
-        if not isinstance(self.failure_reason, str) or not self.failure_reason.startswith(
-            self.status + ":"
-        ):
-            raise ValueError(
-                "failure_reason must start with the record status prefix"
-            )
+        if not isinstance(self.failure_reason, str):
+            raise ValueError("failure records require a failure_reason string")
+        _require_taxonomy_reason(self.status, self.failure_reason)
         if self.raw_output_excerpt is not None:
             if (
                 not isinstance(self.raw_output_excerpt, str)
@@ -853,6 +888,47 @@ class LocalWorkerAdapterRecord:
                 raise ValueError(
                     "raw_output_excerpt must be a non-empty bounded string"
                 )
+
+
+_EXACT_REASON_TAILS = {
+    "transport_error": frozenset({"declared"}),
+    "raw_output_invalid": frozenset({"empty", "json_decode", "not_mapping"}),
+    "response_payload_invalid": frozenset(),
+}
+_DETAIL_REASON_TAILS = {
+    "transport_error": frozenset({"unexpected"}),
+    "raw_output_invalid": frozenset({"not_text"}),
+    "response_payload_invalid": frozenset(),
+}
+
+
+def _require_taxonomy_reason(status: str, reason: str) -> None:
+    head = status + ":"
+    if not reason.startswith(head):
+        raise ValueError(
+            "failure_reason must start with the record status prefix"
+        )
+    rest = reason[len(head):]
+    if status == "response_payload_invalid":
+        _require_safe_detail(rest)
+        return
+    if rest in _EXACT_REASON_TAILS[status]:
+        return
+    tail, sep, detail = rest.partition(":")
+    if sep and tail in _DETAIL_REASON_TAILS[status]:
+        _require_safe_detail(detail)
+        return
+    raise ValueError(f"failure_reason not in the LM5J taxonomy: {reason!r}")
+
+
+def _require_safe_detail(detail: str) -> None:
+    if not detail:
+        raise ValueError("failure_reason detail must be non-empty")
+    for ch in detail:
+        if not (ch.isascii() and (ch.isalnum() or ch == "_")):
+            raise ValueError(
+                "failure_reason detail must be ASCII alnum/underscore"
+            )
 ```
 
 (`run_local_worker_adapter` and its helpers arrive in Task 4; `json`,
@@ -1493,15 +1569,37 @@ mcp_server\.venv\Scripts\python.exe -m pytest @files `
 
 Expected: all PASS, zero failures.
 
-- [ ] **Step 4: Static scope checks**
+- [ ] **Step 4: Static scope checks (exact assertions)**
 
 ```powershell
-git -C C:\UDEV\Rook-lm5j diff --check main
-git -C C:\UDEV\Rook-lm5j diff --stat main -- mcp_server/src
-mcp_server\.venv\Scripts\python.exe -m py_compile mcp_server\src\rook\agent\local_worker_prompt_artifact.py mcp_server\src\rook\agent\local_worker_adapter.py
+git -C C:\UDEV\Rook-lm5j diff --check origin/main..HEAD
+git -C C:\UDEV\Rook-lm5j diff --name-only origin/main..HEAD -- mcp_server/src
 ```
 
-Expected: diff --check clean; the `src` diff lists exactly the two new modules and nothing else; py_compile silent.
+Expected: `diff --check` clean, and the `--name-only` output is **exactly these
+two lines and nothing else** (order as git prints it):
+
+```text
+mcp_server/src/rook/agent/local_worker_adapter.py
+mcp_server/src/rook/agent/local_worker_prompt_artifact.py
+```
+
+Any third line under `mcp_server/src` is a scope violation — stop and remove
+the stray change before proceeding.
+
+- [ ] **Step 4b: Python 3.10 compatibility gate**
+
+The package supports Python 3.10+; the venv runtime does not prove 3.10
+compatibility, so compile explicitly against 3.10:
+
+```powershell
+cd C:\UDEV\Rook-lm5j
+py -3.10 -m py_compile mcp_server\src\rook\agent\local_worker_prompt_artifact.py mcp_server\src\rook\agent\local_worker_adapter.py mcp_server\tests\test_local_worker_prompt_artifact.py mcp_server\tests\test_local_worker_adapter.py
+```
+
+Expected: silent (exit 0). If `py -3.10` is not installed on this machine,
+report that to the user as a blocker for this gate rather than skipping it
+silently — do not substitute the venv's interpreter.
 
 - [ ] **Step 5: Commit**
 
@@ -1515,7 +1613,9 @@ git -C C:\UDEV\Rook-lm5j commit -m "test(lm5j): offline adapter chain through LM
 ## Completion Criteria
 
 - Both new modules exist with exact `__all__` tuples, pinned by tests.
-- Every §4.2a failure reason exercised by an exact-string (or pinned-prefix) assertion.
+- Every §4.2a failure reason exercised by an exact-string (or pinned-prefix) assertion, **and** the record's `__post_init__` rejects any off-taxonomy reason on direct construction (proved by `test_off_taxonomy_reasons_are_rejected`).
+- Production and test code compile under Python 3.10 (`py -3.10 -m py_compile` gate).
+- `git diff --name-only origin/main..HEAD -- mcp_server/src` lists exactly the two new modules.
 - Fenced/prose/empty/non-mapping/non-text outputs all classified; `BaseException` propagates.
 - Mutated `response_contract` fails closed before the transport is invoked.
 - Integration test proves the LM4W → LM5A → LM5I → adapter → LM5D → LM5F chain offline.
