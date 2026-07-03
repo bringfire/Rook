@@ -306,8 +306,9 @@ def _wrapped_failure_create_raw() -> dict:
 class _OfflineCreateRunner:
     """Deterministic offline producer runner for fixture derivation.
 
-    Only create_script may execute: with max_steps=3 the stream stops after
-    the bind step, so being asked to run any other node is a fixture bug."""
+    Only create_script may execute: with max_steps=2 the stream stops after
+    verify_create, so being asked to run any other producer node is a fixture
+    bug."""
 
     def __init__(self) -> None:
         self.calls: list[str] = []
@@ -336,16 +337,16 @@ class _OfflineCreateRunner:
 
 
 def derive_probe_graph_state():
-    """Advance the compiled golden scenario to the coherent post-verify state.
+    """Advance the compiled golden scenario to post-verify/pre-bind state.
 
     Runs the existing offline stream driver (the LM4W chain-guard pattern)
-    for exactly three steps — create producer, verify_create verifier,
-    bind — leaving repair_same_component genuinely ready with bound
-    execution params and receipt-derived memory facts. Returns
-    (scaffold, stream_result); world-state coherence holds by construction
-    because the state passed through the same advancement semantics real
-    workflows use. NOT a stream runner in the probe: no live provider, no
-    tool dispatch, no model."""
+    for exactly two steps — create producer and verify_create verifier —
+    leaving repair_same_component genuinely ready with receipt-derived memory
+    facts but no bound execution params yet. Returns (scaffold,
+    stream_result); world-state coherence holds by construction because the
+    state passed through the same advancement semantics real workflows use.
+    NOT a stream runner in the probe: no live provider, no tool dispatch, no
+    model."""
     import asyncio
 
     from rook.agent.plan_graph_current_step_stream import (
@@ -360,7 +361,7 @@ def derive_probe_graph_state():
         run_current_step_stream(
             scaffold.graph,
             scaffold.provider,
-            max_steps=3,
+            max_steps=2,
             runner=_OfflineCreateRunner(),
         )
     )
@@ -391,7 +392,7 @@ def _require_coherent_graph_state(scaffold, stream_result) -> None:
     )
     kinds = [record.execution_kind for record in stream_result.records]
     _invariant(
-        kinds == ["producer", "verifier", "bind"],
+        kinds == ["producer", "verifier"],
         f"unexpected step sequence: {kinds}",
     )
     create_record = stream_result.records[0]
@@ -416,10 +417,9 @@ def _require_coherent_graph_state(scaffold, stream_result) -> None:
     )
     repair = graph.nodes["repair_same_component"]
     _invariant(repair.status == "ready", "repair node is not ready")
-    params = repair.metadata.get(EXECUTION_PARAMS_KEY)
     _invariant(
-        isinstance(params, Mapping) and bool(params),
-        "execution params missing on repair node",
+        EXECUTION_PARAMS_KEY not in repair.metadata,
+        "execution params unexpectedly present on repair node",
     )
     facts = graph.memory.facts
     anchor = facts.get("repair_anchor")
@@ -452,14 +452,15 @@ def _require_probe_context_shape(context) -> None:
 
 def build_probe_context():
     """Golden scenario v2: the compiled repair workflow advanced through
-    the real offline stream to the coherent post-verify state (spec 4.3).
+    the real offline stream to post-verify/pre-bind state (spec 4.3).
 
     All world-state is derived — the create receipt's projection writes the
-    memory facts, verify_create's needs_repair readies the repair node, and
-    the bind step binds execution params. The knowledge packet and allowed
-    action stay hand-declared: they are planner-authored inputs, not
-    world-state claims. Runs once per candidate; derivation is
-    deterministic and millisecond-cheap, so no caching."""
+    memory facts and verify_create's needs_repair readies the repair node.
+    The create+verify derivation stops before repair execution params are
+    bound. The knowledge packet and allowed action stay hand-declared: they
+    are planner-authored inputs, not world-state claims. Runs once per
+    candidate; derivation is deterministic and millisecond-cheap, so no
+    caching."""
     from rook.agent.local_worker_turn_context import (
         WorkerAllowedAction,
         WorkerKnowledgePacket,

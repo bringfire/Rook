@@ -312,34 +312,26 @@ def test_offline_probe_fenced_output_counts_split(tmp_path) -> None:
     )
 
 
-def test_derived_graph_state_is_coherent_post_verify() -> None:
+def test_derived_graph_state_is_post_verify_pre_bind() -> None:
     scaffold, result = PROBE.derive_probe_graph_state()
     assert result.stop_reason == "max_steps_reached"
-    assert result.steps_attempted == 3
+    assert result.steps_attempted == 2
     assert [r.execution_kind for r in result.records] == [
-        "producer", "verifier", "bind",
+        "producer", "verifier",
     ]
     assert [r.accepted_node_id for r in result.records] == [
-        "create_script", "verify_create", "repair_same_component",
+        "create_script", "verify_create",
     ]
-    # create producer record ran/applied with receipt evidence; the receipt
-    # is intentionally created_with_errors with verification failed, so
-    # "applied" must not be read as "script verified clean" (spec section 6)
     assert result.records[0].ran is True
     graph = result.final_graph
     assert graph.nodes["create_script"].evidence is not None
-    # the repair signal lives on the verifier record, asserted separately
     assert result.records[1].verifier_outcome_status == "needs_repair"
 
     repair = graph.nodes["repair_same_component"]
     assert repair.status == "ready"
     from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
 
-    params = repair.metadata[EXECUTION_PARAMS_KEY]
-    assert params["guid"] == PROBE.PROBE_COMPONENT_GUID
-    assert params["mode"] == "body"
-    # memory facts are receipt-derived by the producer projection --
-    # nothing is hand-injected anymore
+    assert EXECUTION_PARAMS_KEY not in repair.metadata
     assert graph.memory.facts["component_guid"] == PROBE.PROBE_COMPONENT_GUID
     assert (
         graph.memory.facts["repair_anchor"]["component_guid"]
@@ -417,15 +409,15 @@ def test_graph_state_guard_message_create_node_missing() -> None:
         PROBE._require_coherent_graph_state(scaffold, result)
 
 
-def test_graph_state_guard_message_params_missing() -> None:
+def test_graph_state_guard_message_params_present_too_early() -> None:
     from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
 
     scaffold, result = PROBE.derive_probe_graph_state()
-    del result.final_graph.nodes["repair_same_component"].metadata[
+    result.final_graph.nodes["repair_same_component"].metadata[
         EXECUTION_PARAMS_KEY
-    ]
+    ] = {"code": PROBE.PROBE_REPAIR_CODE, "mode": "body"}
     with pytest.raises(
-        RuntimeError, match="execution params missing on repair node"
+        RuntimeError, match="execution params unexpectedly present"
     ):
         PROBE._require_coherent_graph_state(scaffold, result)
 
@@ -437,7 +429,7 @@ def test_graph_state_guard_message_memory_facts_missing() -> None:
         PROBE._require_coherent_graph_state(scaffold, result)
 
 
-def test_graph_state_guard_message_pre_bind_sequence() -> None:
+def test_graph_state_guard_rejects_post_bind_sequence() -> None:
     import asyncio
 
     from rook.agent.plan_graph_current_step_stream import (
@@ -452,7 +444,7 @@ def test_graph_state_guard_message_pre_bind_sequence() -> None:
         run_current_step_stream(
             scaffold.graph,
             scaffold.provider,
-            max_steps=2,
+            max_steps=3,
             runner=PROBE._OfflineCreateRunner(),
         )
     )
@@ -481,18 +473,18 @@ def test_probe_context_envelope_is_world_state_coherent() -> None:
     node = context["current_node"]
     assert node["node_id"] == "repair_same_component"
     assert node["status"] == "ready"
-    assert node["has_execution_params"] is True
+    assert node["has_execution_params"] is False
     assert "repair_anchor" in node["memory_keys"]
     assert "component_guid" in node["memory_keys"]
 
     history = context["history"]
-    assert history["current_step_count"] == 3
+    assert history["current_step_count"] == 2
     assert [
         step["execution_kind"] for step in history["recent_steps"]
-    ] == ["producer", "verifier", "bind"]
+    ] == ["producer", "verifier"]
     assert [
         step["accepted_node_id"] for step in history["recent_steps"]
-    ] == ["create_script", "verify_create", "repair_same_component"]
+    ] == ["create_script", "verify_create"]
 
     action_ids = [a["action_id"] for a in context["allowed_actions"]]
     assert "draft_repair_params" in action_ids
