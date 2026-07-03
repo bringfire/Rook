@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
@@ -271,8 +272,7 @@ namespace Rook.Services.Vision.CanvasDirector
                     503);
             }
 
-            string? payload = null;
-            var payloadCount = 0;
+            var matchingComponents = new List<object>();
 
             foreach (var component in objects)
             {
@@ -297,17 +297,10 @@ namespace Rook.Services.Vision.CanvasDirector
                     continue;
                 }
 
-                var componentPayload = ReadFirstOutputString(component);
-                if (componentPayload == null)
-                {
-                    continue;
-                }
-
-                payload = componentPayload;
-                payloadCount++;
+                matchingComponents.Add(component);
             }
 
-            if (payloadCount == 0)
+            if (matchingComponents.Count == 0)
             {
                 throw new CanvasDirectorException(
                     "export_not_found",
@@ -315,12 +308,18 @@ namespace Rook.Services.Vision.CanvasDirector
                     404);
             }
 
-            if (payloadCount > 1)
+            if (matchingComponents.Count > 1)
             {
                 throw new CanvasDirectorException(
                     "multiple_exports_ambiguous",
                     "CanvasDirector found multiple matching export markers in the active Grasshopper document.",
                     409);
+            }
+
+            var payload = ReadFirstOutputString(matchingComponents[0]);
+            if (string.IsNullOrWhiteSpace(payload))
+            {
+                throw ExportSchemaMismatch("CanvasDirector export marker output 0 must contain a JSON string.");
             }
 
             return payload!;
@@ -377,25 +376,86 @@ namespace Rook.Services.Vision.CanvasDirector
 
         private static string? ReadFirstOutputString(object component)
         {
-            var parameters = component.GetType()
-                .GetProperty("Params", BindingFlags.Public | BindingFlags.Instance)
-                ?.GetValue(component);
-            var outputs = parameters?.GetType()
-                .GetProperty("Output", BindingFlags.Public | BindingFlags.Instance)
-                ?.GetValue(parameters) as IEnumerable;
-            var firstOutput = FirstOrDefault(outputs);
-            var volatileData = firstOutput?.GetType()
-                .GetProperty("VolatileData", BindingFlags.Public | BindingFlags.Instance)
-                ?.GetValue(firstOutput);
-            var allData = volatileData?.GetType()
-                .GetMethod("AllData", BindingFlags.Public | BindingFlags.Instance)
-                ?.Invoke(volatileData, Array.Empty<object>()) as IEnumerable;
-            var firstGoo = FirstOrDefault(allData);
-            var value = firstGoo?.GetType()
-                .GetProperty("Value", BindingFlags.Public | BindingFlags.Instance)
-                ?.GetValue(firstGoo);
+            try
+            {
+                var parameters = component.GetType()
+                    .GetProperty("Params", BindingFlags.Public | BindingFlags.Instance)
+                    ?.GetValue(component);
+                var outputs = parameters?.GetType()
+                    .GetProperty("Output", BindingFlags.Public | BindingFlags.Instance)
+                    ?.GetValue(parameters) as IEnumerable;
+                var firstOutput = FirstOrDefault(outputs);
+                var volatileData = firstOutput?.GetType()
+                    .GetProperty("VolatileData", BindingFlags.Public | BindingFlags.Instance)
+                    ?.GetValue(firstOutput);
+                var allData = InvokeAllData(volatileData);
+                var firstGoo = FirstOrDefault(allData);
+                var value = firstGoo?.GetType()
+                    .GetProperty("Value", BindingFlags.Public | BindingFlags.Instance)
+                    ?.GetValue(firstGoo);
 
-            return ToInvariantString(value);
+                return ToInvariantString(value);
+            }
+            catch (CanvasDirectorException)
+            {
+                throw;
+            }
+            catch (TargetInvocationException ex)
+            {
+                var message = ex.InnerException?.Message ?? ex.Message;
+                throw ExportSchemaMismatch($"CanvasDirector export marker output could not be read: {message}");
+            }
+            catch (Exception ex) when (
+                ex is ArgumentException ||
+                ex is MethodAccessException ||
+                ex is TargetException ||
+                ex is TargetParameterCountException)
+            {
+                throw ExportSchemaMismatch($"CanvasDirector export marker output could not be read: {ex.Message}");
+            }
+        }
+
+        private static IEnumerable? InvokeAllData(object? volatileData)
+        {
+            if (volatileData == null)
+            {
+                return null;
+            }
+
+            var allData = FindAllDataMethod(volatileData.GetType(), expectsBoolArgument: true);
+            if (allData != null)
+            {
+                return allData.Invoke(volatileData, new object[] { false }) as IEnumerable;
+            }
+
+            allData = FindAllDataMethod(volatileData.GetType(), expectsBoolArgument: false);
+            return allData?.Invoke(volatileData, Array.Empty<object>()) as IEnumerable;
+        }
+
+        private static MethodInfo? FindAllDataMethod(Type type, bool expectsBoolArgument)
+        {
+            foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (!string.Equals(method.Name, "AllData", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var parameters = method.GetParameters();
+                if (expectsBoolArgument)
+                {
+                    if (parameters.Length == 1 && parameters[0].ParameterType == typeof(bool))
+                    {
+                        return method;
+                    }
+                }
+                else if (parameters.Length == 0)
+                {
+                    return method;
+                }
+            }
+
+            return null;
         }
 
         private static object? FirstOrDefault(IEnumerable? values)

@@ -175,6 +175,20 @@ namespace Rook.Tests.Services.Vision.CanvasDirector
         }
 
         [Fact]
+        public void TryExtractFromDocument_ReadsFirstOutputStringFromAllDataBool()
+        {
+            var payload = ValidPayload("export-1");
+            var document = new MarkerGhDocument(
+                new MarkerComponent("CanvasDirector Export:export-1", payload));
+
+            var result = CanvasDirectorExtractor.TryExtractFromDocument(
+                document,
+                new CanvasDirectorExtractRequest { ExportId = "export-1" });
+
+            Assert.Equal(payload, result);
+        }
+
+        [Fact]
         public void TryExtractFromDocument_RejectsDuplicateExplicitExportIdMarkers()
         {
             var document = new MarkerGhDocument(
@@ -187,6 +201,35 @@ namespace Rook.Tests.Services.Vision.CanvasDirector
                     new CanvasDirectorExtractRequest { ExportId = "export-1" }));
 
             Assert.Equal("multiple_exports_ambiguous", ex.Code);
+        }
+
+        [Fact]
+        public void TryExtractFromDocument_RejectsDuplicateExplicitExportIdMarkersBeforeReadingPayload()
+        {
+            var document = new MarkerGhDocument(
+                new MarkerComponent("CanvasDirector Export:export-1", ValidPayload("export-1")),
+                MarkerComponent.Unreadable("CanvasDirector Export:export-1"));
+
+            var ex = Assert.Throws<CanvasDirectorException>(
+                () => CanvasDirectorExtractor.TryExtractFromDocument(
+                    document,
+                    new CanvasDirectorExtractRequest { ExportId = "export-1" }));
+
+            Assert.Equal("multiple_exports_ambiguous", ex.Code);
+        }
+
+        [Fact]
+        public void TryExtractFromDocument_RejectsSingleMarkerWithUnreadableOutput()
+        {
+            var document = new MarkerGhDocument(
+                MarkerComponent.Empty("CanvasDirector Export:export-1"));
+
+            var ex = Assert.Throws<CanvasDirectorException>(
+                () => CanvasDirectorExtractor.TryExtractFromDocument(
+                    document,
+                    new CanvasDirectorExtractRequest { ExportId = "export-1" }));
+
+            Assert.Equal("export_schema_mismatch", ex.Code);
         }
 
         private static string ValidPayload(string exportId)
@@ -253,9 +296,28 @@ namespace Rook.Tests.Services.Vision.CanvasDirector
         private sealed class MarkerComponent
         {
             public MarkerComponent(string nickName, string payload)
+                : this(nickName, new MarkerParameters(new MarkerOutput(new MarkerVolatileData(payload))))
+            {
+            }
+
+            private MarkerComponent(string nickName, MarkerParameters parameters)
             {
                 NickName = nickName;
-                Params = new MarkerParameters(payload);
+                Params = parameters;
+            }
+
+            public static MarkerComponent Empty(string nickName)
+            {
+                return new MarkerComponent(
+                    nickName,
+                    new MarkerParameters(new MarkerOutput(new MarkerVolatileData(string.Empty))));
+            }
+
+            public static MarkerComponent Unreadable(string nickName)
+            {
+                return new MarkerComponent(
+                    nickName,
+                    new MarkerParameters(new MarkerOutput(new UnreadableVolatileData())));
             }
 
             public string NickName { get; }
@@ -264,9 +326,9 @@ namespace Rook.Tests.Services.Vision.CanvasDirector
 
         private sealed class MarkerParameters
         {
-            public MarkerParameters(string payload)
+            public MarkerParameters(MarkerOutput output)
             {
-                Output = new[] { new MarkerOutput(payload) };
+                Output = new[] { output };
             }
 
             public IReadOnlyList<MarkerOutput> Output { get; }
@@ -274,12 +336,12 @@ namespace Rook.Tests.Services.Vision.CanvasDirector
 
         private sealed class MarkerOutput
         {
-            public MarkerOutput(string payload)
+            public MarkerOutput(object volatileData)
             {
-                VolatileData = new MarkerVolatileData(payload);
+                VolatileData = volatileData;
             }
 
-            public MarkerVolatileData VolatileData { get; }
+            public object VolatileData { get; }
         }
 
         private sealed class MarkerVolatileData
@@ -291,9 +353,17 @@ namespace Rook.Tests.Services.Vision.CanvasDirector
                 this.payload = payload;
             }
 
-            public IEnumerable<MarkerGoo> AllData()
+            public IEnumerable<MarkerGoo> AllData(bool includeNulls)
             {
                 yield return new MarkerGoo(payload);
+            }
+        }
+
+        private sealed class UnreadableVolatileData
+        {
+            public IEnumerable<MarkerGoo> AllData(bool includeNulls)
+            {
+                throw new InvalidOperationException("boom");
             }
         }
 
