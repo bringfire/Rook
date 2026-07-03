@@ -105,6 +105,8 @@ SCENARIO_STATE = "post_verify_needs_repair"
 # derives from this via the real projection + bind path, never by hand.
 PROBE_COMPONENT_GUID = "lm5l-probe-component-guid"
 PROBE_REPAIR_CODE = "A = 42.0;"
+EVIDENCE_PACKET_ID = "lm5n_repair_evidence"
+EVIDENCE_CURRENT_CODE_MAX_CHARS = 500
 
 _LOCAL_PREFIXES = ("ollama_chat/", "ollama/")
 
@@ -448,6 +450,127 @@ def _require_probe_context_shape(context) -> None:
         ),
         "allowed action draft_repair_params missing",
     )
+
+
+def _script_body_gotcha_packet():
+    from rook.agent.local_worker_turn_context import WorkerKnowledgePacket
+
+    return WorkerKnowledgePacket(
+        packet_id="script_body_gotcha",
+        kind="gotcha",
+        title="C# script components use body-style code",
+        content={"source": "probe fixture", "trust": "high"},
+    )
+
+
+def _bounded_current_code(code: Any) -> dict:
+    _invariant(isinstance(code, str) and code, "current code missing")
+    truncated = len(code) > EVIDENCE_CURRENT_CODE_MAX_CHARS
+    return {
+        "value": code[:EVIDENCE_CURRENT_CODE_MAX_CHARS],
+        "source": "create_script.initial_execution_params.code",
+        "truncated": truncated,
+        "max_chars": EVIDENCE_CURRENT_CODE_MAX_CHARS,
+    }
+
+
+def _require_receipt_mapping(graph) -> Mapping[str, Any]:
+    create = graph.nodes["create_script"]
+    evidence = create.evidence
+    receipt = getattr(evidence, "receipt", None) if evidence is not None else None
+    _invariant(isinstance(receipt, Mapping), "create receipt missing")
+    return receipt
+
+
+def _require_create_execution_params(graph) -> Mapping[str, Any]:
+    from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
+
+    create = graph.nodes["create_script"]
+    params = create.metadata.get(EXECUTION_PARAMS_KEY)
+    _invariant(isinstance(params, Mapping), "create execution params missing")
+    return params
+
+
+def _repair_evidence_packet(graph):
+    from rook.agent.local_worker_turn_context import WorkerKnowledgePacket
+
+    # LM5N probe convention only: this is not the final evidence schema.
+    receipt = _require_receipt_mapping(graph)
+    params = _require_create_execution_params(graph)
+    verification = receipt.get("verification")
+    _invariant(isinstance(verification, Mapping), "verification receipt missing")
+    facts = graph.memory.facts
+    repair_anchor = facts.get("repair_anchor")
+    _invariant(isinstance(repair_anchor, Mapping), "repair anchor missing")
+
+    content = {
+        "source": "probe_fixture",
+        "trust": "high",
+        "state": "post_verify_pre_bind",
+        "fields": {
+            "source_node_id": {
+                "value": "create_script",
+                "source": "workflow_record",
+            },
+            "verifier_node_id": {
+                "value": "verify_create",
+                "source": "workflow_record",
+            },
+            "producer_status": {
+                "value": receipt.get("artifact_status"),
+                "source": (
+                    "create_script.receipt.script_receipt.artifact_status"
+                ),
+            },
+            "verification_status": {
+                "value": verification.get("status"),
+                "source": (
+                    "create_script.receipt.script_receipt.verification.status"
+                ),
+            },
+            "target_error_count": {
+                "value": verification.get("target_error_count"),
+                "source": (
+                    "create_script.receipt.script_receipt.verification."
+                    "target_error_count"
+                ),
+            },
+            "component_guid": {
+                "value": facts.get("component_guid"),
+                "source": "graph.memory.facts.component_guid",
+            },
+            "repair_anchor": {
+                "value": dict(repair_anchor),
+                "source": "graph.memory.facts.repair_anchor",
+            },
+            "language": {
+                "value": receipt.get("language"),
+                "source": "create_script.receipt.script_receipt.language",
+            },
+            "current_code": _bounded_current_code(params.get("code")),
+            "recommended_mode": {
+                "value": "body",
+                "source": "script_body_gotcha",
+                "derivation": "existing worker-visible gotcha convention",
+            },
+        },
+    }
+    return WorkerKnowledgePacket(
+        packet_id=EVIDENCE_PACKET_ID,
+        kind="evidence",
+        title="Receipt-derived repair evidence",
+        content=content,
+    )
+
+
+def _knowledge_packets_for_scenario(
+    scenario: _ProbeScenarioConfig,
+    graph,
+) -> tuple:
+    packets = [_script_body_gotcha_packet()]
+    if scenario.include_evidence_packet:
+        packets.append(_repair_evidence_packet(graph))
+    return tuple(packets)
 
 
 def build_probe_context():

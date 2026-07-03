@@ -388,6 +388,112 @@ def test_graph_state_guard_accepts_derived_state() -> None:
     PROBE._require_coherent_graph_state(scaffold, result)  # must not raise
 
 
+def test_evidence_absent_knowledge_has_only_script_body_gotcha() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packets = PROBE._knowledge_packets_for_scenario(
+        PROBE._SCENARIOS["evidence_absent"], result.final_graph
+    )
+    assert [packet.packet_id for packet in packets] == ["script_body_gotcha"]
+    assert [packet.kind for packet in packets] == ["gotcha"]
+
+
+def test_evidence_present_knowledge_adds_exactly_one_evidence_packet() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packets = PROBE._knowledge_packets_for_scenario(
+        PROBE._SCENARIOS["evidence_present"], result.final_graph
+    )
+    assert [packet.packet_id for packet in packets] == [
+        "script_body_gotcha",
+        "lm5n_repair_evidence",
+    ]
+    assert [packet.kind for packet in packets] == ["gotcha", "evidence"]
+
+
+def test_evidence_packet_fields_are_bounded_and_provenance_tagged() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packet = PROBE._repair_evidence_packet(result.final_graph)
+
+    assert packet.packet_id == "lm5n_repair_evidence"
+    assert packet.kind == "evidence"
+    assert packet.title == "Receipt-derived repair evidence"
+    assert packet.content["source"] == "probe_fixture"
+    assert packet.content["trust"] == "high"
+    assert packet.content["state"] == "post_verify_pre_bind"
+
+    fields = packet.content["fields"]
+    assert set(fields) == {
+        "source_node_id",
+        "verifier_node_id",
+        "producer_status",
+        "verification_status",
+        "target_error_count",
+        "component_guid",
+        "repair_anchor",
+        "language",
+        "current_code",
+        "recommended_mode",
+    }
+    for name, item in fields.items():
+        assert "value" in item, name
+        assert isinstance(item["source"], str) and item["source"], name
+
+    assert fields["source_node_id"] == {
+        "value": "create_script",
+        "source": "workflow_record",
+    }
+    assert fields["verifier_node_id"] == {
+        "value": "verify_create",
+        "source": "workflow_record",
+    }
+    assert fields["producer_status"]["value"] == "created_with_errors"
+    assert fields["verification_status"]["value"] == "failed"
+    assert fields["target_error_count"]["value"] == 1
+    assert fields["component_guid"]["value"] == PROBE.PROBE_COMPONENT_GUID
+    assert (
+        fields["repair_anchor"]["value"]["component_guid"]
+        == PROBE.PROBE_COMPONENT_GUID
+    )
+    assert fields["language"]["value"] == "csharp"
+    assert fields["current_code"]["value"] == "A = DefinitelyMissingSymbol;"
+    assert len(fields["current_code"]["value"]) <= 500
+    assert fields["current_code"]["truncated"] is False
+    assert fields["current_code"]["max_chars"] == 500
+    assert fields["recommended_mode"] == {
+        "value": "body",
+        "source": "script_body_gotcha",
+        "derivation": "existing worker-visible gotcha convention",
+    }
+
+
+def test_current_code_evidence_reads_derived_create_params_not_repair_literal() -> None:
+    from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
+
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    params = result.final_graph.nodes["create_script"].metadata[EXECUTION_PARAMS_KEY]
+    params["code"] = "A = MutatedFromDerivedGraph;"
+
+    packet = PROBE._repair_evidence_packet(result.final_graph)
+    fields = packet.content["fields"]
+    assert fields["current_code"]["value"] == "A = MutatedFromDerivedGraph;"
+    assert fields["current_code"]["value"] != PROBE.PROBE_REPAIR_CODE
+
+
+def test_current_code_evidence_truncates_long_derived_code() -> None:
+    from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
+
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    long_code = "A = " + "x" * (PROBE.EVIDENCE_CURRENT_CODE_MAX_CHARS + 25)
+    params = result.final_graph.nodes["create_script"].metadata[EXECUTION_PARAMS_KEY]
+    params["code"] = long_code
+
+    packet = PROBE._repair_evidence_packet(result.final_graph)
+    current_code = packet.content["fields"]["current_code"]
+    assert current_code["value"] == long_code[:PROBE.EVIDENCE_CURRENT_CODE_MAX_CHARS]
+    assert len(current_code["value"]) == PROBE.EVIDENCE_CURRENT_CODE_MAX_CHARS
+    assert current_code["truncated"] is True
+    assert current_code["max_chars"] == PROBE.EVIDENCE_CURRENT_CODE_MAX_CHARS
+
+
 def test_graph_state_guard_message_repair_not_ready() -> None:
     scaffold, result = PROBE.derive_probe_graph_state()
     result.final_graph.nodes["repair_same_component"].status = "pending"
