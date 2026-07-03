@@ -98,7 +98,9 @@ def test_director_instance_restore_slice_keeps_tolerance_and_canvasdirector_park
     for token in [
         "kDirectorRestoreSerializationFloor",
         "kDirectorRestoreModelScaleAllowance",
+        "kDirectorRestoreModelScaleFactor",
         "kDirectorRestoreAbsoluteCap",
+        "kDirectorRestoreBboxToleranceCap",
         "EVIDENCE_SELECTED",
         "evidence_selected",
         "selected_restore_policy",
@@ -107,6 +109,8 @@ def test_director_instance_restore_slice_keeps_tolerance_and_canvasdirector_park
 
     for token in [
         "restore_serialization_floor",
+        "restore_model_scale_factor",
+        "restore_bbox_tolerance_cap",
         "evidence-selected",
         "evidence_selected",
     ]:
@@ -725,10 +729,13 @@ Run:
 
 ```powershell
 git diff --check
+$canvasDiff = git diff --name-only b227c10e..HEAD | rg -i "canvas_director|CanvasDirector"
+if ($LASTEXITCODE -eq 0) { throw "CanvasDirector files changed in this diagnostic slice:`n$canvasDiff" }
+if ($LASTEXITCODE -ne 1) { exit $LASTEXITCODE }
 git status --short --branch
 ```
 
-Expected: no whitespace errors. Worktree may be clean or may contain only the diagnostic output note if a follow-up doc is being written.
+Expected: no whitespace errors, no CanvasDirector file matches in the branch diff, and worktree may be clean or may contain only the diagnostic output note if a follow-up doc is being written.
 
 - [ ] **Step 3: Commit any diagnostic-note doc update**
 
