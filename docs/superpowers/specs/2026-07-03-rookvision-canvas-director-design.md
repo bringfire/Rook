@@ -129,7 +129,9 @@ envelope returned by Companion:
 ```
 
 The durable export artifact is the envelope, not only the inner
-`canvas_export_state`. The hash covers only `canvas_export_state`.
+`canvas_export_state`. The hash covers only `canvas_export_state`, so volatile
+envelope fields such as route timing diagnostics can differ between retries
+without changing the exported runtime state.
 
 `<project>/.rook/director/specs/<spec_id>.json` stores reusable
 `DirectorAuthoringSpec` intent. This file is project-local and durable.
@@ -183,10 +185,23 @@ known project directory:
 <project>/.rook/director/specs/<spec_id>.json
 ```
 
-The resolved canonical path must stay under `<project>/.rook/director`. Export
-snapshots are immutable: an export ID collision fails unless the existing file
-has identical canonical JSON and hash. Spec writes are atomic replace-by-write
-only for an explicit update of the same `spec_id`; accidental collisions fail.
+The resolved canonical path must stay under `<project>/.rook/director`.
+
+Export collision behavior:
+
+- if the export file does not exist, write the full extraction envelope
+  atomically;
+- if the export file exists and its canonical `canvas_export_state` bytes and
+  `canvas_export_state_sha256` match the new envelope, treat the write as an
+  idempotent retry and do not overwrite the existing file;
+- volatile envelope differences such as `diagnostics`, `suggested_spec_id`, or
+  route timing do not make a same-state retry fail and do not update the stored
+  envelope;
+- if the export file exists and the inner canonical state or state hash differs,
+  fail with `id_collision`.
+
+Spec writes are atomic replace-by-write only for an explicit update of the same
+`spec_id`; accidental collisions fail.
 
 ## Extraction Route
 
@@ -457,6 +472,9 @@ Unit tests:
 - export hash mismatch rejection;
 - persisted export file shape is the full extraction envelope while the hash
   covers only `canvas_export_state`;
+- same-state export ID retries are idempotent and do not overwrite volatile
+  envelope diagnostics;
+- different-state export ID reuse fails with `id_collision`;
 - spec atomic write helper behavior;
 - route op injection and malformed-body `invalid_input`;
 - managed-dispatch unavailable response;
