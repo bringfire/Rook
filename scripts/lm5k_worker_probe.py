@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Any
 
 SLOTS = ("local", "cheap", "ceiling")
+TRANSPORT_MODES = ("free_text", "structured")
+DEFAULT_LOCAL_TRANSPORT_MODE = "free_text"
 SLOT_LABELS = {
     "local": "local_worker_candidate",
     "cheap": "cheap_cloud_worker_candidate",
@@ -123,6 +125,36 @@ def profile_inferred_local(
     if worker_model.startswith("openai/") and profile_api_base:
         return worker_model, profile_api_base
     return None
+
+
+def _is_ollama_local_model(model: str | None) -> bool:
+    return isinstance(model, str) and model.startswith(_LOCAL_PREFIXES)
+
+
+def _apply_transport_modes(
+    resolutions: list[dict],
+    local_transport_mode: str,
+) -> list[dict]:
+    if local_transport_mode not in TRANSPORT_MODES:
+        raise ValueError(f"unknown local transport mode: {local_transport_mode}")
+    output: list[dict] = []
+    for resolution in resolutions:
+        mode = (
+            local_transport_mode
+            if resolution["slot"] == "local"
+            else DEFAULT_LOCAL_TRANSPORT_MODE
+        )
+        if resolution["slot"] == "local" and mode == "structured":
+            if resolution["status"] in ("skipped", "unavailable"):
+                raise ValueError(
+                    "structured local transport requires a runnable local slot"
+                )
+            if not _is_ollama_local_model(resolution["model"]):
+                raise ValueError(
+                    "structured local transport requires an Ollama local model"
+                )
+        output.append({**resolution, "transport_mode": mode})
+    return output
 
 
 def resolve_slot(
@@ -618,7 +650,21 @@ def _default_transport_factory(resolution: Mapping[str, Any]):
         model=resolution["model"],
         profile_api_base=resolution["api_base"],
         generation_params=resolution.get("generation_params", GENERATION_PARAMS),
+        structured_response_schema=resolution.get("structured_response_schema"),
     )
+
+
+def _resolution_for_transport(resolution: Mapping[str, Any]) -> dict[str, Any]:
+    if resolution.get("transport_mode") != "structured":
+        return dict(resolution)
+    from rook.agent.local_worker_model_transport import (
+        _local_worker_response_union_schema,
+    )
+
+    return {
+        **resolution,
+        "structured_response_schema": _local_worker_response_union_schema(),
+    }
 
 
 def run_candidate(
@@ -642,7 +688,7 @@ def run_candidate(
     )
 
     factory = transport_factory or _default_transport_factory
-    transport = factory(resolution)
+    transport = factory(_resolution_for_transport(resolution))
     context = build_probe_context(scenario)
 
     schema_versions = _schema_versions()
@@ -702,6 +748,9 @@ def run_candidate(
             "candidate_slot": resolution["label"],
             "resolved_model": resolution["model"],
             "resolution_source": resolution["source"],
+            "transport_mode": resolution.get(
+                "transport_mode", DEFAULT_LOCAL_TRANSPORT_MODE
+            ),
             "attempt_index": index,
             "adapter_status": record.status,
             "failure_reason": record.failure_reason,
@@ -814,20 +863,23 @@ def run_probe(args, transport_factory=None) -> Path:
 
     scenario = _scenario_config(args.scenario)
     models = get_models()
-    resolutions = [
-        {
-            **resolve_slot(
-                slot,
-                cli_value=getattr(args, slot),
-                env_value=os.environ.get(ENV_VARS[slot]) or None,
-                profile_worker=models.worker,
-                profile_api_base=models.api_base,
-                skipped=slot in (args.skip or []),
-            ),
-            "generation_params": dict(SLOT_GENERATION_PARAMS[slot]),
-        }
-        for slot in SLOTS
-    ]
+    resolutions = _apply_transport_modes(
+        [
+            {
+                **resolve_slot(
+                    slot,
+                    cli_value=getattr(args, slot),
+                    env_value=os.environ.get(ENV_VARS[slot]) or None,
+                    profile_worker=models.worker,
+                    profile_api_base=models.api_base,
+                    skipped=slot in (args.skip or []),
+                ),
+                "generation_params": dict(SLOT_GENERATION_PARAMS[slot]),
+            }
+            for slot in SLOTS
+        ],
+        args.local_transport_mode,
+    )
 
     run_id = "lm5k-{}-{}".format(
         datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
@@ -886,6 +938,15 @@ def main(argv=None) -> int:
         default="evidence_present",
         help=(
             "probe scenario; live evidence runs should pass this explicitly"
+        ),
+    )
+    parser.add_argument(
+        "--local-transport-mode",
+        choices=list(TRANSPORT_MODES),
+        default=DEFAULT_LOCAL_TRANSPORT_MODE,
+        help=(
+            "local slot transport mode; structured is an LM5O "
+            "Ollama-only experiment"
         ),
     )
     parser.add_argument("--capture-raw", action="store_true")
