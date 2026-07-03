@@ -79,7 +79,7 @@ int EnsureMake2dHiddenLayer(CRhinoDoc* pDoc, int parentLayerIdx)
 }
 
 constexpr auto kDiscoveryFolderName = "rook";
-constexpr uint32_t kGhBridgeAbiVersion = 16;
+constexpr uint32_t kGhBridgeAbiVersion = 17;
 
 using GhBridgeCallbackFn = int(__stdcall*)(
     const char* request_json_utf8,
@@ -177,6 +177,9 @@ struct GhBridgeRegistration
     // request JSON). Keeps VisionHandler.cs as the single validation
     // boundary and avoids one callback slot per route for future PRs.
     GhBridgeCallbackFn vision_dispatch = nullptr;
+    // ABI v17: CanvasDirector domain (single generic dispatch; op carried in
+    // request JSON). Native /director/canvas/* remains the public surface.
+    GhBridgeCallbackFn canvas_director_dispatch = nullptr;
     // ABI v15: BIM domain (single generic dispatch; op carried in
     // request JSON). Native /bim/* remains the only public HTTP surface.
     GhBridgeCallbackFn bim_dispatch = nullptr;
@@ -944,6 +947,13 @@ bool HasVisionDispatchRegistration()
         && g_ghBridgeRegistration.vision_dispatch != nullptr;
 }
 
+bool HasCanvasDirectorDispatchRegistration()
+{
+    std::lock_guard<std::mutex> lock(g_ghBridgeMutex);
+    return g_ghBridgeRegistration.version == kGhBridgeAbiVersion
+        && g_ghBridgeRegistration.canvas_director_dispatch != nullptr;
+}
+
 bool HasBimDispatchRegistration()
 {
     std::lock_guard<std::mutex> lock(g_ghBridgeMutex);
@@ -1111,6 +1121,38 @@ ManagedCreateInvokeResult InvokeVisionDispatchWithBody(
 
     const auto result = TryInvokeRegisteredCallbackWithBody(
         registration.vision_dispatch,
+        requestJson,
+        responseJson,
+        statusCode,
+        error);
+
+    switch (result)
+    {
+    case BridgeInvokeResult::Completed:
+        return ManagedCreateInvokeResult::Ok;
+    case BridgeInvokeResult::Unavailable:
+        return ManagedCreateInvokeResult::Unavailable;
+    case BridgeInvokeResult::Failed:
+    default:
+        return ManagedCreateInvokeResult::Failed;
+    }
+}
+
+ManagedCreateInvokeResult InvokeCanvasDirectorDispatchWithBody(
+    const std::string& requestJson,
+    std::string& responseJson,
+    int& statusCode,
+    std::string& error)
+{
+    const auto registration = GetGhBridgeRegistrationSnapshot();
+    if (registration.canvas_director_dispatch == nullptr)
+    {
+        error = "CanvasDirector dispatch callback is not registered.";
+        return ManagedCreateInvokeResult::Unavailable;
+    }
+
+    const auto result = TryInvokeRegisteredCallbackWithBody(
+        registration.canvas_director_dispatch,
         requestJson,
         responseJson,
         statusCode,
