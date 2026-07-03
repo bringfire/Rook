@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -364,6 +365,24 @@ def test_build_compile_motion_request_is_runnable_compiler_shape(tmp_path):
     assert "metadata_kind" not in request
     assert request["motion"][0]["target"] == "actor_a"
     assert request["timeline"]["frame_count"] == 3
+
+
+def test_build_run_inputs_uses_spec_and_export_hash():
+    envelope = _envelope()
+    spec = cd.compile_authoring_spec(envelope, spec_id="spec_a")
+    run_inputs = cd.build_run_inputs(envelope, spec)
+
+    assert run_inputs["director_authoring_spec"] == spec
+    provenance = run_inputs["provenance"]
+    assert provenance["source_spec_id"] == "spec_a"
+    assert provenance["source_spec_sha256"] == hashlib.sha256(
+        cd._canonical_json_bytes_unrestricted(spec)
+    ).hexdigest()
+    assert (
+        provenance["canvas_export_state_sha256"]
+        == envelope["canvas_export_state_sha256"]
+    )
+    assert provenance["template_version"] == "0.1.0"
 
 
 @pytest.mark.asyncio
