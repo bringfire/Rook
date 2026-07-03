@@ -95,11 +95,6 @@ def _scenario_config(name: str) -> _ProbeScenarioConfig:
         raise ValueError(f"unknown probe scenario: {name}") from exc
 
 
-SCENARIO_VERSION = "v2"
-SCENARIO_ID = f"lm5k_golden_repair_{SCENARIO_VERSION}"
-SCENARIO_STATE = "post_verify_needs_repair"
-
-
 # Deterministic component guid carried by the offline create receipt; every
 # downstream fact (memory repair_anchor/component_guid, bound repair params)
 # derives from this via the real projection + bind path, never by hand.
