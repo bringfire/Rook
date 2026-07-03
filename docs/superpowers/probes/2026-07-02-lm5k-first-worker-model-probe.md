@@ -1,4 +1,4 @@
-# LM5K Probe Rounds 1, 1b & 2 — First Worker Model Probe (2026-07-02)
+# LM5K Probe Rounds 1, 1b, 2 & 3 — First Worker Model Probe (2026-07-02)
 
 **Doctrine:** evidence, not CI. This summary is the committed artifact; raw
 runs stay local (spec §5, `docs/superpowers/specs/2026-07-02-lm5k-first-worker-model-probe-design.md`).
@@ -177,6 +177,64 @@ Recommended next slice: **LM5M `prompt_text:v2`**, focused on generic
 authoring-role framing and fence-discipline reinforcement. Evidence-push
 should remain a later controlled variable, not part of LM5M.
 
+## Round 3 / LM5M prompt v2 (run `probe_runs/lm5k-20260703T013759Z-63d977a7/`, commit `63d977a7`)
+
+Round 3 runs after LM5M landed `lm5m.prompt_text:v2` as the active prompt
+artifact text. The scenario remains `lm5k_golden_repair_v2`, version `v2`,
+state `post_verify_needs_repair`; no evidence-push or probe-runner change is
+part of this comparison.
+
+The probe loaded `ANTHROPIC_API_KEY` from the gitignored `mcp_server/.env` into
+the current PowerShell process before execution. The key was not printed.
+
+| Slot | Resolved model (source) | Status | strict-loadable | spine-passing |
+|---|---|---|---|---|
+| local_worker_candidate | `ollama_chat/qwen3:14b` (cli) | ran | **5/5** | **0/5** |
+| cheap_cloud_worker_candidate | `anthropic/claude-haiku-4-5-20251001` (cli) | ran | **0/5** | **0/5** |
+| ceiling_worker_candidate | `anthropic/claude-sonnet-5` (cli) | ran | **5/5** | **0/5** |
+
+Dispositions: local 5x `clarification_needed`; cheap 5x
+`raw_output_invalid:json_decode`; ceiling 5x `clarification_needed`.
+
+Raw capture was enabled and produced 15 files. Haiku fenced all five responses
+with markdown code fences labeled `json`, so the fence-discipline failure
+remains stable under `prompt_text:v2`. qwen3 and Sonnet did not fence.
+
+The v2 authoring-role text did not move qwen3 or Sonnet toward
+`candidate_action_request`. Instead, both strict-loadable tiers treated the
+visible context as insufficient for responsible action-input authoring:
+
+- qwen3 asked for the required action input values and said those values were
+  not present in the workflow context.
+- Sonnet asked for the current script body, specific failure/error detail, and
+  repair mode; several attempts explicitly noted that only memory key names
+  were visible, not the memory values or source code.
+
+No action inputs were authored in round 3, so there is no semantic repair-input
+quality to score. The safety property still held: no model executed tools, no
+model requested an action outside `allowed_actions`, and all strict-loadable
+non-action responses stayed inside the LM5B clarification channel.
+
+## Round-3 interpretation
+
+LM5M did not improve spine-passing. Relative to round 2, Sonnet moved from
+1/5 spine-passing to 0/5, while qwen3 remained 0/5 and Haiku remained
+strict-loadable 0/5 because of fenced output.
+
+The useful signal is narrower but clean: prompt v2 appears to have reinforced
+the "do not guess from hidden values" side of the contract more than the
+"author when sufficient" side. Given that the visible context still lacks the
+actual script body, repair anchor value, and failure details, the strict
+clarification behavior is sane rather than a fixture regression.
+
+This weakens the case for another generic prompt-only revision as the immediate
+next controlled variable. The next design question should likely be a controlled
+evidence-push slice: expose a bounded repair evidence packet or worker-visible
+knowledge payload, then measure whether qwen3/Sonnet can author an allowed
+action input without guessing. Haiku remains a separate output-discipline
+baseline unless the parser policy deliberately changes, which LM5G currently
+does not allow.
+
 ## Updated comparison keys
 
 Round 1: `(lm5j.prompt_text:v1, lm5k_golden_repair_v1/fresh_compiled_graph,
@@ -185,6 +243,10 @@ Round 1: `(lm5j.prompt_text:v1, lm5k_golden_repair_v1/fresh_compiled_graph,
 Round 1b: same v1 scenario except the ceiling candidate's params are `{}`.
 
 Round 2: `(lm5j.prompt_text:v1,
+lm5k_golden_repair_v2/post_verify_needs_repair, <model>, schemas above,
+per-candidate generation params)`.
+
+Round 3: `(lm5m.prompt_text:v2,
 lm5k_golden_repair_v2/post_verify_needs_repair, <model>, schemas above,
 per-candidate generation params)`.
 
