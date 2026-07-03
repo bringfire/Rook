@@ -30,7 +30,7 @@ This plan does not implement a GH-preview capture mode, a custom `.gha`, or a ne
 CanvasDirector is an adapter into the current Director runtime, not a new runner. Implementation must preserve these contracts:
 
 - Output roots: all explicit `output_root` values must resolve under `resolve_output_root(...)` and the configured Director output root. Tests must pass a `DirectorRuntimePaths` override and choose output roots under that override. Live smoke should omit `output_root` unless `ROOK_DIRECTOR_OUTPUT_ROOT` is explicitly configured.
-- Run ids: explicit `run_id` values are opaque tokens, not paths. Validate with `[A-Za-z0-9][A-Za-z0-9_-]{0,127}` and verify the resolved run directory is a child of the resolved output root, not the output root itself, before creating directories.
+- Run ids: explicit `run_id` values are opaque tokens, not paths. Validate with `[A-Za-z0-9][A-Za-z0-9_-]{0,127}`, reject Windows reserved device-name tokens case-insensitively, and verify the resolved run directory is a child of the resolved output root, not the output root itself, before creating directories.
 - Run directories: each run directory is created under the resolved Director output root and contains `manifest.json`, `status.json`, `frames/`, `logs/frame_evidence.jsonl`, and optional `inputs/` evidence files.
 - Manifest schema: `director_video.assemble_director_video()` consumes `manifest.json` with positive `frame_count`, `resolution`, `timeline`, `frames`, and per-frame `output_path` entries. CanvasDirector must add compiled-track provenance without removing existing fields video assembly expects.
 - Frame evidence: every `/director/frame-capture` call appends one evidence record. Capture failures, missing output files, dirty partial state, and evidence write failures must map to the same terminal states used by the existing Director loop.
@@ -2055,7 +2055,10 @@ async def test_run_compiled_track_rejects_conflicting_provenance_before_creating
     assert not (tmp_path / "data" / "rookvision_director" / "canvas_runs" / "bad-provenance").exists()
 
 
-@pytest.mark.parametrize("bad_run_id", ["../escape", "/tmp/escape", "C:/escape", "bad/slash", "", ".", "..", "bad.name", "_bad"])
+@pytest.mark.parametrize(
+    "bad_run_id",
+    ["../escape", "/tmp/escape", "C:/escape", "bad/slash", "", ".", "..", "bad.name", "_bad", "CON", "con", "COM1", "LPT9"],
+)
 @pytest.mark.asyncio
 async def test_run_compiled_track_rejects_bad_run_id_before_creating_run(tmp_path, bad_run_id):
     from rook import director
@@ -2167,6 +2170,7 @@ Add helpers near `run_director` in `mcp_server/src/rook/director.py`:
 
 ```python
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+_WINDOWS_RESERVED_NAMES = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10))}
 
 
 def _positive_int_field(value: Any, *, field: str) -> int:
@@ -2185,6 +2189,8 @@ def _resolve_run_root(output_root: Path, run_id: Any) -> tuple[str, Path]:
         )
     if not isinstance(run_id, str) or not _RUN_ID_RE.fullmatch(run_id):
         raise DirectorInputError("run_id must be a 1..128 char [A-Za-z0-9][A-Za-z0-9_-]* token")
+    if run_id.lower() in _WINDOWS_RESERVED_NAMES:
+        raise DirectorInputError("run_id uses a reserved Windows device-name token")
     run_root = (output_root / run_id).resolve()
     if run_root == output_root or not _is_relative_to(run_root, output_root):
         raise DirectorInputError("run_id must resolve to a child directory under output_root")
@@ -2414,7 +2420,7 @@ def build_run_inputs(envelope: dict[str, Any], spec: dict[str, Any]) -> dict[str
 Run:
 
 ```powershell
-python -m pytest mcp_server/tests/test_director.py::test_run_compiled_track_writes_manifest_frames_inputs_and_evidence mcp_server/tests/test_director.py::test_validate_run_inputs_rejects_malformed_inputs mcp_server/tests/test_director.py::test_write_run_inputs_rejects_conflicting_source_spec_hash mcp_server/tests/test_director.py::test_run_compiled_track_rejects_conflicting_provenance_before_creating_run mcp_server/tests/test_canvas_director.py -q
+python -m pytest mcp_server/tests/test_director.py::test_run_compiled_track_writes_manifest_frames_inputs_and_evidence mcp_server/tests/test_director.py::test_validate_run_inputs_rejects_malformed_inputs mcp_server/tests/test_director.py::test_write_run_inputs_rejects_conflicting_source_spec_hash mcp_server/tests/test_director.py::test_indexed_track_frames_rejects_bad_frame_indexes mcp_server/tests/test_director.py::test_run_compiled_track_rejects_bad_resolution_before_creating_run mcp_server/tests/test_director.py::test_run_compiled_track_rejects_conflicting_provenance_before_creating_run mcp_server/tests/test_director.py::test_run_compiled_track_rejects_bad_run_id_before_creating_run mcp_server/tests/test_director.py::test_run_compiled_track_rejects_bad_track_positive_ints mcp_server/tests/test_canvas_director.py -q
 ```
 
 Expected: PASS.
@@ -2742,7 +2748,7 @@ If no fixes were needed, do not create an empty commit.
   - Duplicate matching export markers fail with `multiple_exports_ambiguous` even when `export_id` is explicit.
   - `DirectorAuthoringSpec` is not passed directly to `director.run_director`; `build_compile_motion_request()` feeds `director_compiler.compile_motion()`, then `director.run_compiled_track()` captures standard Director run artifacts.
   - `run_inputs` are optional, but malformed present `run_inputs` fail fast instead of silently dropping required evidence.
-  - Explicit `run_id` values are validated with `[A-Za-z0-9][A-Za-z0-9_-]{0,127}`, and the resolved `run_root` must be a child directory under `output_root` before any directory creation.
+  - Explicit `run_id` values are validated with `[A-Za-z0-9][A-Za-z0-9_-]{0,127}`, Windows reserved device-name tokens are rejected case-insensitively, and the resolved `run_root` must be a child directory under `output_root` before any directory creation.
   - Compiled track `frame_count`, `fps`, and per-frame indexes use typed `DirectorInputError` validation helpers, not raw `int(...)` conversions.
   - Run provenance `source_spec_sha256` must match the copied authoring spec hash; mismatches are preflighted before any run directory is created.
 - Verification commands:
