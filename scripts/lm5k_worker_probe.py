@@ -18,6 +18,7 @@ import os
 import subprocess
 import sys
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -46,19 +47,61 @@ SLOT_GENERATION_PARAMS = {
 }
 DEFAULT_ATTEMPTS = 5
 SCENARIO_WORKFLOW_ID = "lm5k_first_probe"
-# Scenario identity (spec section 5). The workflow contract is unchanged
-# since rounds 1/1b; what changed in LM5L is the probe scenario STATE
-# (fresh compiled graph -> coherent post-verify repair state), so the
-# scenario id/version move to v2 while workflow_id stays. Any scenario
-# change is a new experiment under the comparison-key doctrine.
-SCENARIO_VERSION = "v2"
-SCENARIO_ID = f"lm5k_golden_repair_{SCENARIO_VERSION}"
-SCENARIO_STATE = "post_verify_needs_repair"
+
+
+@dataclass(frozen=True)
+class _ProbeScenarioConfig:
+    cli_name: str
+    scenario_id: str
+    scenario_version: str
+    state: str
+    include_evidence_packet: bool
+    expected_disposition: str
+    expected_response_kind: str
+    expected_action_id: str | None
+    expected_attempt_valid: bool
+
+
+_SCENARIOS = {
+    "evidence_absent": _ProbeScenarioConfig(
+        cli_name="evidence_absent",
+        scenario_id="lm5n_repair_evidence_absent",
+        scenario_version="v3",
+        state="post_verify_pre_bind",
+        include_evidence_packet=False,
+        expected_disposition="clarification_needed",
+        expected_response_kind="clarification_request",
+        expected_action_id=None,
+        expected_attempt_valid=True,
+    ),
+    "evidence_present": _ProbeScenarioConfig(
+        cli_name="evidence_present",
+        scenario_id="lm5n_repair_evidence_present",
+        scenario_version="v3",
+        state="post_verify_pre_bind",
+        include_evidence_packet=True,
+        expected_disposition="candidate_action_request",
+        expected_response_kind="action_request",
+        expected_action_id="draft_repair_params",
+        expected_attempt_valid=True,
+    ),
+}
+
+
+def _scenario_config(name: str) -> _ProbeScenarioConfig:
+    try:
+        return _SCENARIOS[name]
+    except KeyError as exc:
+        raise ValueError(f"unknown probe scenario: {name}") from exc
+
+
 # Deterministic component guid carried by the offline create receipt; every
 # downstream fact (memory repair_anchor/component_guid, bound repair params)
 # derives from this via the real projection + bind path, never by hand.
 PROBE_COMPONENT_GUID = "lm5l-probe-component-guid"
 PROBE_REPAIR_CODE = "A = 42.0;"
+EVIDENCE_PACKET_ID = "lm5n_repair_evidence"
+EVIDENCE_CURRENT_CODE_MAX_CHARS = 500
 
 _LOCAL_PREFIXES = ("ollama_chat/", "ollama/")
 
@@ -260,8 +303,9 @@ def _wrapped_failure_create_raw() -> dict:
 class _OfflineCreateRunner:
     """Deterministic offline producer runner for fixture derivation.
 
-    Only create_script may execute: with max_steps=3 the stream stops after
-    the bind step, so being asked to run any other node is a fixture bug."""
+    Only create_script may execute: with max_steps=2 the stream stops after
+    verify_create, so being asked to run any other producer node is a fixture
+    bug."""
 
     def __init__(self) -> None:
         self.calls: list[str] = []
@@ -290,16 +334,16 @@ class _OfflineCreateRunner:
 
 
 def derive_probe_graph_state():
-    """Advance the compiled golden scenario to the coherent post-verify state.
+    """Advance the compiled golden scenario to post-verify/pre-bind state.
 
     Runs the existing offline stream driver (the LM4W chain-guard pattern)
-    for exactly three steps — create producer, verify_create verifier,
-    bind — leaving repair_same_component genuinely ready with bound
-    execution params and receipt-derived memory facts. Returns
-    (scaffold, stream_result); world-state coherence holds by construction
-    because the state passed through the same advancement semantics real
-    workflows use. NOT a stream runner in the probe: no live provider, no
-    tool dispatch, no model."""
+    for exactly two steps — create producer and verify_create verifier —
+    leaving repair_same_component genuinely ready with receipt-derived memory
+    facts but no bound execution params yet. Returns (scaffold,
+    stream_result); world-state coherence holds by construction because the
+    state passed through the same advancement semantics real workflows use.
+    NOT a stream runner in the probe: no live provider, no tool dispatch, no
+    model."""
     import asyncio
 
     from rook.agent.plan_graph_current_step_stream import (
@@ -314,7 +358,7 @@ def derive_probe_graph_state():
         run_current_step_stream(
             scaffold.graph,
             scaffold.provider,
-            max_steps=3,
+            max_steps=2,
             runner=_OfflineCreateRunner(),
         )
     )
@@ -345,7 +389,7 @@ def _require_coherent_graph_state(scaffold, stream_result) -> None:
     )
     kinds = [record.execution_kind for record in stream_result.records]
     _invariant(
-        kinds == ["producer", "verifier", "bind"],
+        kinds == ["producer", "verifier"],
         f"unexpected step sequence: {kinds}",
     )
     create_record = stream_result.records[0]
@@ -370,10 +414,9 @@ def _require_coherent_graph_state(scaffold, stream_result) -> None:
     )
     repair = graph.nodes["repair_same_component"]
     _invariant(repair.status == "ready", "repair node is not ready")
-    params = repair.metadata.get(EXECUTION_PARAMS_KEY)
     _invariant(
-        isinstance(params, Mapping) and bool(params),
-        "execution params missing on repair node",
+        EXECUTION_PARAMS_KEY not in repair.metadata,
+        "execution params unexpectedly present on repair node",
     )
     facts = graph.memory.facts
     anchor = facts.get("repair_anchor")
@@ -404,19 +447,143 @@ def _require_probe_context_shape(context) -> None:
     )
 
 
-def build_probe_context():
+def _script_body_gotcha_packet():
+    from rook.agent.local_worker_turn_context import WorkerKnowledgePacket
+
+    return WorkerKnowledgePacket(
+        packet_id="script_body_gotcha",
+        kind="gotcha",
+        title="C# script components use body-style code",
+        content={"source": "probe fixture", "trust": "high"},
+    )
+
+
+def _bounded_current_code(code: Any) -> dict:
+    _invariant(isinstance(code, str) and code, "current code missing")
+    truncated = len(code) > EVIDENCE_CURRENT_CODE_MAX_CHARS
+    return {
+        "value": code[:EVIDENCE_CURRENT_CODE_MAX_CHARS],
+        "source": "create_script.initial_execution_params.code",
+        "truncated": truncated,
+        "max_chars": EVIDENCE_CURRENT_CODE_MAX_CHARS,
+    }
+
+
+def _require_receipt_mapping(graph) -> Mapping[str, Any]:
+    create = graph.nodes["create_script"]
+    evidence = create.evidence
+    receipt = getattr(evidence, "receipt", None) if evidence is not None else None
+    _invariant(isinstance(receipt, Mapping), "create receipt missing")
+    return receipt
+
+
+def _require_create_execution_params(graph) -> Mapping[str, Any]:
+    from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
+
+    create = graph.nodes["create_script"]
+    params = create.metadata.get(EXECUTION_PARAMS_KEY)
+    _invariant(isinstance(params, Mapping), "create execution params missing")
+    return params
+
+
+def _repair_evidence_packet(graph):
+    from rook.agent.local_worker_turn_context import WorkerKnowledgePacket
+
+    # LM5N probe convention only: this is not the final evidence schema.
+    receipt = _require_receipt_mapping(graph)
+    params = _require_create_execution_params(graph)
+    verification = receipt.get("verification")
+    _invariant(isinstance(verification, Mapping), "verification receipt missing")
+    facts = graph.memory.facts
+    repair_anchor = facts.get("repair_anchor")
+    _invariant(isinstance(repair_anchor, Mapping), "repair anchor missing")
+
+    content = {
+        "source": "probe_fixture",
+        "trust": "high",
+        "state": "post_verify_pre_bind",
+        "fields": {
+            "source_node_id": {
+                "value": "create_script",
+                "source": "workflow_record",
+            },
+            "verifier_node_id": {
+                "value": "verify_create",
+                "source": "workflow_record",
+            },
+            "producer_status": {
+                "value": receipt.get("artifact_status"),
+                "source": (
+                    "create_script.receipt.script_receipt.artifact_status"
+                ),
+            },
+            "verification_status": {
+                "value": verification.get("status"),
+                "source": (
+                    "create_script.receipt.script_receipt.verification.status"
+                ),
+            },
+            "target_error_count": {
+                "value": verification.get("target_error_count"),
+                "source": (
+                    "create_script.receipt.script_receipt.verification."
+                    "target_error_count"
+                ),
+            },
+            "component_guid": {
+                "value": facts.get("component_guid"),
+                "source": "graph.memory.facts.component_guid",
+            },
+            "repair_anchor": {
+                "value": dict(repair_anchor),
+                "source": "graph.memory.facts.repair_anchor",
+            },
+            "language": {
+                "value": receipt.get("language"),
+                "source": "create_script.receipt.script_receipt.language",
+            },
+            "current_code": _bounded_current_code(params.get("code")),
+            "recommended_mode": {
+                "value": "body",
+                "source": "script_body_gotcha",
+                "derivation": "existing worker-visible gotcha convention",
+            },
+        },
+    }
+    return WorkerKnowledgePacket(
+        packet_id=EVIDENCE_PACKET_ID,
+        kind="evidence",
+        title="Receipt-derived repair evidence",
+        content=content,
+    )
+
+
+def _knowledge_packets_for_scenario(
+    scenario: _ProbeScenarioConfig,
+    graph,
+) -> tuple:
+    packets = [_script_body_gotcha_packet()]
+    if scenario.include_evidence_packet:
+        packets.append(_repair_evidence_packet(graph))
+    return tuple(packets)
+
+
+def build_probe_context(
+    scenario: _ProbeScenarioConfig | None = None,
+):
     """Golden scenario v2: the compiled repair workflow advanced through
-    the real offline stream to the coherent post-verify state (spec 4.3).
+    the real offline stream to post-verify/pre-bind state (spec 4.3).
 
     All world-state is derived — the create receipt's projection writes the
-    memory facts, verify_create's needs_repair readies the repair node, and
-    the bind step binds execution params. The knowledge packet and allowed
-    action stay hand-declared: they are planner-authored inputs, not
-    world-state claims. Runs once per candidate; derivation is
-    deterministic and millisecond-cheap, so no caching."""
+    memory facts and verify_create's needs_repair readies the repair node.
+    The create+verify derivation stops before repair execution params are
+    bound. The knowledge packet and allowed action stay hand-declared: they
+    are planner-authored inputs, not world-state claims. Runs once per
+    candidate; derivation is deterministic and millisecond-cheap, so no
+    caching."""
+    scenario = scenario or _SCENARIOS["evidence_present"]
     from rook.agent.local_worker_turn_context import (
         WorkerAllowedAction,
-        WorkerKnowledgePacket,
         build_local_worker_turn_context,
     )
 
@@ -428,13 +595,8 @@ def build_probe_context():
         stream_result.records,
         stream_result.supply_records,
         current_node_id="repair_same_component",
-        knowledge=(
-            WorkerKnowledgePacket(
-                packet_id="script_body_gotcha",
-                kind="gotcha",
-                title="C# script components use body-style code",
-                content={"source": "probe fixture", "trust": "high"},
-            ),
+        knowledge=_knowledge_packets_for_scenario(
+            scenario, stream_result.final_graph
         ),
         allowed_actions=(
             WorkerAllowedAction(
@@ -464,6 +626,7 @@ def run_candidate(
     attempts: int,
     run_dir: Path,
     capture_raw: bool,
+    scenario: _ProbeScenarioConfig,
     transport_factory=None,
 ) -> dict:
     """Run N attempts for one resolved candidate. Returns the candidate
@@ -480,7 +643,7 @@ def run_candidate(
 
     factory = transport_factory or _default_transport_factory
     transport = factory(resolution)
-    context = build_probe_context()
+    context = build_probe_context(scenario)
 
     schema_versions = _schema_versions()
     adapter_statuses: list = []
@@ -508,13 +671,13 @@ def run_candidate(
             )
             result = evaluate_local_worker_scenario_result(
                 LocalWorkerScenarioExpectation(
-                    scenario_id=SCENARIO_ID,
+                    scenario_id=scenario.scenario_id,
                     category="live_probe",
                     expected_status="completed",
-                    expected_disposition="candidate_action_request",
-                    expected_attempt_valid=True,
-                    expected_action_id="draft_repair_params",
-                    expected_response_kind="action_request",
+                    expected_disposition=scenario.expected_disposition,
+                    expected_attempt_valid=scenario.expected_attempt_valid,
+                    expected_action_id=scenario.expected_action_id,
+                    expected_response_kind=scenario.expected_response_kind,
                     expected_workflow_id=context.workflow.workflow_id,
                     expected_contract_fingerprint=(
                         context.workflow.contract_fingerprint
@@ -613,6 +776,7 @@ def build_manifest(
     panel: list,
     attempts: int,
     capture_raw: bool,
+    scenario: _ProbeScenarioConfig,
 ) -> dict:
     return {
         "run_id": run_id,
@@ -620,9 +784,9 @@ def build_manifest(
         "git_commit": _git_short_sha(),
         "scenario": {
             "workflow_id": SCENARIO_WORKFLOW_ID,
-            "scenario_id": SCENARIO_ID,
-            "scenario_version": SCENARIO_VERSION,
-            "state": SCENARIO_STATE,
+            "scenario_id": scenario.scenario_id,
+            "scenario_version": scenario.scenario_version,
+            "state": scenario.state,
         },
         "attempts_per_candidate": attempts,
         "capture_raw": capture_raw,
@@ -648,6 +812,7 @@ def run_probe(args, transport_factory=None) -> Path:
     ):
         raise ValueError("attempts must be a positive integer")
 
+    scenario = _scenario_config(args.scenario)
     models = get_models()
     resolutions = [
         {
@@ -679,11 +844,14 @@ def run_probe(args, transport_factory=None) -> Path:
             continue
         summary = run_candidate(
             resolution, args.attempts, run_dir, args.capture_raw,
+            scenario,
             transport_factory=transport_factory,
         )
         panel.append({**resolution, **summary})
 
-    manifest = build_manifest(run_id, panel, args.attempts, args.capture_raw)
+    manifest = build_manifest(
+        run_id, panel, args.attempts, args.capture_raw, scenario
+    )
     (run_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2), encoding="utf-8"
     )
@@ -711,6 +879,14 @@ def main(argv=None) -> int:
     )
     parser.add_argument(
         "--attempts", type=_positive_int, default=DEFAULT_ATTEMPTS
+    )
+    parser.add_argument(
+        "--scenario",
+        choices=tuple(_SCENARIOS),
+        default="evidence_present",
+        help=(
+            "probe scenario; live evidence runs should pass this explicitly"
+        ),
     )
     parser.add_argument("--capture-raw", action="store_true")
     parser.add_argument("--run-dir", default="probe_runs")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ def _load_script():
     path = Path(__file__).resolve().parents[2] / "scripts" / "lm5k_worker_probe.py"
     spec = importlib.util.spec_from_file_location("lm5k_worker_probe", path)
     mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -42,11 +44,41 @@ def test_slot_vocabulary() -> None:
     }
 
 
-def test_scenario_identity_constants() -> None:
+def test_scenario_configs_are_source_of_truth() -> None:
     assert PROBE.SCENARIO_WORKFLOW_ID == "lm5k_first_probe"
-    assert PROBE.SCENARIO_ID == "lm5k_golden_repair_v2"
-    assert PROBE.SCENARIO_VERSION == "v2"
-    assert PROBE.SCENARIO_STATE == "post_verify_needs_repair"
+    assert set(PROBE._SCENARIOS) == {"evidence_absent", "evidence_present"}
+
+    absent = PROBE._SCENARIOS["evidence_absent"]
+    assert absent.cli_name == "evidence_absent"
+    assert absent.scenario_id == "lm5n_repair_evidence_absent"
+    assert absent.scenario_version == "v3"
+    assert absent.state == "post_verify_pre_bind"
+    assert absent.include_evidence_packet is False
+    assert absent.expected_disposition == "clarification_needed"
+    assert absent.expected_response_kind == "clarification_request"
+    assert absent.expected_action_id is None
+    assert absent.expected_attempt_valid is True
+
+    present = PROBE._SCENARIOS["evidence_present"]
+    assert present.cli_name == "evidence_present"
+    assert present.scenario_id == "lm5n_repair_evidence_present"
+    assert present.scenario_version == "v3"
+    assert present.state == "post_verify_pre_bind"
+    assert present.include_evidence_packet is True
+    assert present.expected_disposition == "candidate_action_request"
+    assert present.expected_response_kind == "action_request"
+    assert present.expected_action_id == "draft_repair_params"
+    assert present.expected_attempt_valid is True
+
+    assert "lm5k_golden_repair_v2" not in {
+        absent.scenario_id,
+        present.scenario_id,
+    }
+
+
+def test_scenario_config_rejects_unknown_name() -> None:
+    with pytest.raises(ValueError, match="unknown probe scenario"):
+        PROBE._scenario_config("lm5k_golden_repair_v2")
 
 
 def test_parse_candidate_spec() -> None:
@@ -215,11 +247,59 @@ class _FakeFencedTransport(_FakeGoodTransport):
         return fenced
 
 
+class _FakeScenarioAwareTransport:
+    """Clarifies without evidence, acts with the bounded evidence packet."""
+
+    def __init__(self, resolution):
+        self.last_call_info = None
+        self.last_raw_output = None
+
+    def send(self, prompt_artifact):
+        self.last_call_info = _FakeCallInfo()
+        envelope = json.loads(prompt_artifact["messages"][1]["content"])
+        context = envelope["context"]
+        packet_ids = [packet["packet_id"] for packet in context["knowledge"]]
+        if "lm5n_repair_evidence" not in packet_ids:
+            raw = json.dumps(
+                {
+                    "schema": "rook.local_worker_turn_response:v1",
+                    "kind": "clarification_request",
+                    "question": "Please provide the repair evidence.",
+                    "rationale": (
+                        "The visible context does not include enough evidence "
+                        "to author the action input."
+                    ),
+                }
+            )
+        else:
+            action_id = context["allowed_actions"][0]["action_id"]
+            evidence = next(
+                packet for packet in context["knowledge"]
+                if packet["packet_id"] == "lm5n_repair_evidence"
+            )
+            fields = evidence["content"]["fields"]
+            raw = json.dumps(
+                {
+                    "schema": "rook.local_worker_turn_response:v1",
+                    "kind": "action_request",
+                    "action_id": action_id,
+                    "rationale": "Use bounded repair evidence.",
+                    "input": {
+                        "code": fields["current_code"]["value"],
+                        "mode": fields["recommended_mode"]["value"],
+                    },
+                }
+            )
+        self.last_raw_output = raw
+        return raw
+
+
 def _args(tmp_path, **overrides):
     values = {
         "local": "ollama_chat/fake:1", "cheap": None, "ceiling": None,
         "skip": ["cheap", "ceiling"], "attempts": 3,
         "capture_raw": False, "run_dir": str(tmp_path),
+        "scenario": "evidence_present",
     }
     values.update(overrides)
     return argparse.Namespace(**values)
@@ -236,9 +316,9 @@ def test_offline_probe_end_to_end_good_transport(tmp_path) -> None:
     # the bare scenario_workflow_id string is replaced, not kept alongside
     assert manifest["scenario"] == {
         "workflow_id": "lm5k_first_probe",
-        "scenario_id": "lm5k_golden_repair_v2",
-        "scenario_version": "v2",
-        "state": "post_verify_needs_repair",
+        "scenario_id": "lm5n_repair_evidence_present",
+        "scenario_version": "v3",
+        "state": "post_verify_pre_bind",
     }
     assert "scenario_workflow_id" not in manifest
     local = next(p for p in manifest["panel"] if p["slot"] == "local")
@@ -264,6 +344,52 @@ def test_offline_probe_end_to_end_good_transport(tmp_path) -> None:
     assert not (run_dir / "raw").exists()
 
 
+def test_offline_probe_evidence_absent_expects_clarification(tmp_path) -> None:
+    run_dir = PROBE.run_probe(
+        _args(tmp_path, scenario="evidence_absent", attempts=2),
+        transport_factory=_FakeScenarioAwareTransport,
+    )
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    assert manifest["scenario"] == {
+        "workflow_id": "lm5k_first_probe",
+        "scenario_id": "lm5n_repair_evidence_absent",
+        "scenario_version": "v3",
+        "state": "post_verify_pre_bind",
+    }
+    local = next(p for p in manifest["panel"] if p["slot"] == "local")
+    assert local["status"] == "ran"
+    assert local["strict_loadable"] == 2
+    assert local["spine_passed"] == 2
+    lines = (run_dir / "attempts.jsonl").read_text().strip().splitlines()
+    first = json.loads(lines[0])
+    assert first["adapter_status"] == "response_loaded"
+    assert first["disposition"] == "clarification_needed"
+    assert first["evaluation_passed"] is True
+
+
+def test_offline_probe_evidence_present_expects_action(tmp_path) -> None:
+    run_dir = PROBE.run_probe(
+        _args(tmp_path, scenario="evidence_present", attempts=2),
+        transport_factory=_FakeScenarioAwareTransport,
+    )
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    assert manifest["scenario"] == {
+        "workflow_id": "lm5k_first_probe",
+        "scenario_id": "lm5n_repair_evidence_present",
+        "scenario_version": "v3",
+        "state": "post_verify_pre_bind",
+    }
+    local = next(p for p in manifest["panel"] if p["slot"] == "local")
+    assert local["status"] == "ran"
+    assert local["strict_loadable"] == 2
+    assert local["spine_passed"] == 2
+    lines = (run_dir / "attempts.jsonl").read_text().strip().splitlines()
+    first = json.loads(lines[0])
+    assert first["adapter_status"] == "response_loaded"
+    assert first["disposition"] == "candidate_action_request"
+    assert first["evaluation_passed"] is True
+
+
 def test_offline_probe_fenced_output_counts_split(tmp_path) -> None:
     run_dir = PROBE.run_probe(
         _args(tmp_path, attempts=2), transport_factory=_FakeFencedTransport
@@ -279,34 +405,26 @@ def test_offline_probe_fenced_output_counts_split(tmp_path) -> None:
     )
 
 
-def test_derived_graph_state_is_coherent_post_verify() -> None:
+def test_derived_graph_state_is_post_verify_pre_bind() -> None:
     scaffold, result = PROBE.derive_probe_graph_state()
     assert result.stop_reason == "max_steps_reached"
-    assert result.steps_attempted == 3
+    assert result.steps_attempted == 2
     assert [r.execution_kind for r in result.records] == [
-        "producer", "verifier", "bind",
+        "producer", "verifier",
     ]
     assert [r.accepted_node_id for r in result.records] == [
-        "create_script", "verify_create", "repair_same_component",
+        "create_script", "verify_create",
     ]
-    # create producer record ran/applied with receipt evidence; the receipt
-    # is intentionally created_with_errors with verification failed, so
-    # "applied" must not be read as "script verified clean" (spec section 6)
     assert result.records[0].ran is True
     graph = result.final_graph
     assert graph.nodes["create_script"].evidence is not None
-    # the repair signal lives on the verifier record, asserted separately
     assert result.records[1].verifier_outcome_status == "needs_repair"
 
     repair = graph.nodes["repair_same_component"]
     assert repair.status == "ready"
     from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
 
-    params = repair.metadata[EXECUTION_PARAMS_KEY]
-    assert params["guid"] == PROBE.PROBE_COMPONENT_GUID
-    assert params["mode"] == "body"
-    # memory facts are receipt-derived by the producer projection --
-    # nothing is hand-injected anymore
+    assert EXECUTION_PARAMS_KEY not in repair.metadata
     assert graph.memory.facts["component_guid"] == PROBE.PROBE_COMPONENT_GUID
     assert (
         graph.memory.facts["repair_anchor"]["component_guid"]
@@ -363,6 +481,112 @@ def test_graph_state_guard_accepts_derived_state() -> None:
     PROBE._require_coherent_graph_state(scaffold, result)  # must not raise
 
 
+def test_evidence_absent_knowledge_has_only_script_body_gotcha() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packets = PROBE._knowledge_packets_for_scenario(
+        PROBE._SCENARIOS["evidence_absent"], result.final_graph
+    )
+    assert [packet.packet_id for packet in packets] == ["script_body_gotcha"]
+    assert [packet.kind for packet in packets] == ["gotcha"]
+
+
+def test_evidence_present_knowledge_adds_exactly_one_evidence_packet() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packets = PROBE._knowledge_packets_for_scenario(
+        PROBE._SCENARIOS["evidence_present"], result.final_graph
+    )
+    assert [packet.packet_id for packet in packets] == [
+        "script_body_gotcha",
+        "lm5n_repair_evidence",
+    ]
+    assert [packet.kind for packet in packets] == ["gotcha", "evidence"]
+
+
+def test_evidence_packet_fields_are_bounded_and_provenance_tagged() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packet = PROBE._repair_evidence_packet(result.final_graph)
+
+    assert packet.packet_id == "lm5n_repair_evidence"
+    assert packet.kind == "evidence"
+    assert packet.title == "Receipt-derived repair evidence"
+    assert packet.content["source"] == "probe_fixture"
+    assert packet.content["trust"] == "high"
+    assert packet.content["state"] == "post_verify_pre_bind"
+
+    fields = packet.content["fields"]
+    assert set(fields) == {
+        "source_node_id",
+        "verifier_node_id",
+        "producer_status",
+        "verification_status",
+        "target_error_count",
+        "component_guid",
+        "repair_anchor",
+        "language",
+        "current_code",
+        "recommended_mode",
+    }
+    for name, item in fields.items():
+        assert "value" in item, name
+        assert isinstance(item["source"], str) and item["source"], name
+
+    assert fields["source_node_id"] == {
+        "value": "create_script",
+        "source": "workflow_record",
+    }
+    assert fields["verifier_node_id"] == {
+        "value": "verify_create",
+        "source": "workflow_record",
+    }
+    assert fields["producer_status"]["value"] == "created_with_errors"
+    assert fields["verification_status"]["value"] == "failed"
+    assert fields["target_error_count"]["value"] == 1
+    assert fields["component_guid"]["value"] == PROBE.PROBE_COMPONENT_GUID
+    assert (
+        fields["repair_anchor"]["value"]["component_guid"]
+        == PROBE.PROBE_COMPONENT_GUID
+    )
+    assert fields["language"]["value"] == "csharp"
+    assert fields["current_code"]["value"] == "A = DefinitelyMissingSymbol;"
+    assert len(fields["current_code"]["value"]) <= 500
+    assert fields["current_code"]["truncated"] is False
+    assert fields["current_code"]["max_chars"] == 500
+    assert fields["recommended_mode"] == {
+        "value": "body",
+        "source": "script_body_gotcha",
+        "derivation": "existing worker-visible gotcha convention",
+    }
+
+
+def test_current_code_evidence_reads_derived_create_params_not_repair_literal() -> None:
+    from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
+
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    params = result.final_graph.nodes["create_script"].metadata[EXECUTION_PARAMS_KEY]
+    params["code"] = "A = MutatedFromDerivedGraph;"
+
+    packet = PROBE._repair_evidence_packet(result.final_graph)
+    fields = packet.content["fields"]
+    assert fields["current_code"]["value"] == "A = MutatedFromDerivedGraph;"
+    assert fields["current_code"]["value"] != PROBE.PROBE_REPAIR_CODE
+
+
+def test_current_code_evidence_truncates_long_derived_code() -> None:
+    from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
+
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    long_code = "A = " + "x" * (PROBE.EVIDENCE_CURRENT_CODE_MAX_CHARS + 25)
+    params = result.final_graph.nodes["create_script"].metadata[EXECUTION_PARAMS_KEY]
+    params["code"] = long_code
+
+    packet = PROBE._repair_evidence_packet(result.final_graph)
+    current_code = packet.content["fields"]["current_code"]
+    assert current_code["value"] == long_code[:PROBE.EVIDENCE_CURRENT_CODE_MAX_CHARS]
+    assert len(current_code["value"]) == PROBE.EVIDENCE_CURRENT_CODE_MAX_CHARS
+    assert current_code["truncated"] is True
+    assert current_code["max_chars"] == PROBE.EVIDENCE_CURRENT_CODE_MAX_CHARS
+
+
 def test_graph_state_guard_message_repair_not_ready() -> None:
     scaffold, result = PROBE.derive_probe_graph_state()
     result.final_graph.nodes["repair_same_component"].status = "pending"
@@ -384,15 +608,15 @@ def test_graph_state_guard_message_create_node_missing() -> None:
         PROBE._require_coherent_graph_state(scaffold, result)
 
 
-def test_graph_state_guard_message_params_missing() -> None:
+def test_graph_state_guard_message_params_present_too_early() -> None:
     from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
 
     scaffold, result = PROBE.derive_probe_graph_state()
-    del result.final_graph.nodes["repair_same_component"].metadata[
+    result.final_graph.nodes["repair_same_component"].metadata[
         EXECUTION_PARAMS_KEY
-    ]
+    ] = {"code": PROBE.PROBE_REPAIR_CODE, "mode": "body"}
     with pytest.raises(
-        RuntimeError, match="execution params missing on repair node"
+        RuntimeError, match="execution params unexpectedly present"
     ):
         PROBE._require_coherent_graph_state(scaffold, result)
 
@@ -404,7 +628,7 @@ def test_graph_state_guard_message_memory_facts_missing() -> None:
         PROBE._require_coherent_graph_state(scaffold, result)
 
 
-def test_graph_state_guard_message_pre_bind_sequence() -> None:
+def test_graph_state_guard_rejects_post_bind_sequence() -> None:
     import asyncio
 
     from rook.agent.plan_graph_current_step_stream import (
@@ -419,7 +643,7 @@ def test_graph_state_guard_message_pre_bind_sequence() -> None:
         run_current_step_stream(
             scaffold.graph,
             scaffold.provider,
-            max_steps=2,
+            max_steps=3,
             runner=PROBE._OfflineCreateRunner(),
         )
     )
@@ -448,38 +672,65 @@ def test_probe_context_envelope_is_world_state_coherent() -> None:
     node = context["current_node"]
     assert node["node_id"] == "repair_same_component"
     assert node["status"] == "ready"
-    assert node["has_execution_params"] is True
+    assert node["has_execution_params"] is False
     assert "repair_anchor" in node["memory_keys"]
     assert "component_guid" in node["memory_keys"]
 
     history = context["history"]
-    assert history["current_step_count"] == 3
+    assert history["current_step_count"] == 2
     assert [
         step["execution_kind"] for step in history["recent_steps"]
-    ] == ["producer", "verifier", "bind"]
+    ] == ["producer", "verifier"]
     assert [
         step["accepted_node_id"] for step in history["recent_steps"]
-    ] == ["create_script", "verify_create", "repair_same_component"]
+    ] == ["create_script", "verify_create"]
 
     action_ids = [a["action_id"] for a in context["allowed_actions"]]
     assert "draft_repair_params" in action_ids
 
 
-def test_probe_envelope_never_exposes_internal_values() -> None:
-    # The visibility boundary itself (spec section 3.5): bound execution
-    # param values and memory fact values must NOT appear anywhere in the
-    # rendered request payload — the worker sees has_execution_params and
-    # memory_keys, not payloads.
+def test_evidence_absent_probe_envelope_does_not_expose_evidence_values() -> None:
     from rook.agent.local_worker_turn_request import (
         render_local_worker_turn_request_payload,
     )
 
     payload = render_local_worker_turn_request_payload(
-        PROBE.build_probe_context()
+        PROBE.build_probe_context(PROBE._SCENARIOS["evidence_absent"])
     )
     rendered = json.dumps(payload)
     assert PROBE.PROBE_COMPONENT_GUID not in rendered
+    assert "A = DefinitelyMissingSymbol;" not in rendered
+    assert "lm5n_repair_evidence" not in rendered
+
+
+def test_evidence_present_probe_envelope_exposes_only_bounded_evidence_values() -> None:
+    from rook.agent.local_worker_turn_request import (
+        render_local_worker_turn_request_payload,
+    )
+
+    payload = render_local_worker_turn_request_payload(
+        PROBE.build_probe_context(PROBE._SCENARIOS["evidence_present"])
+    )
+    rendered = json.dumps(payload)
+    assert "lm5n_repair_evidence" in rendered
+    assert PROBE.PROBE_COMPONENT_GUID in rendered
+    assert "A = DefinitelyMissingSymbol;" in rendered
     assert PROBE.PROBE_REPAIR_CODE not in rendered
+    assert "already-bound repair params" not in rendered
+
+
+def test_lm5n_rendered_current_node_has_no_execution_params() -> None:
+    from rook.agent.local_worker_turn_request import (
+        render_local_worker_turn_request_payload,
+    )
+
+    for scenario in PROBE._SCENARIOS.values():
+        payload = render_local_worker_turn_request_payload(
+            PROBE.build_probe_context(scenario)
+        )
+        node = payload["context"]["current_node"]
+        assert node["node_id"] == "repair_same_component"
+        assert node["has_execution_params"] is False
 
 
 def test_probe_context_shape_guard_wired() -> None:
@@ -522,6 +773,32 @@ def test_attempts_must_be_positive(tmp_path) -> None:
     with pytest.raises(argparse.ArgumentTypeError):
         PROBE._positive_int("-2")
     assert PROBE._positive_int("5") == 5
+
+
+def test_main_rejects_legacy_scenario(monkeypatch) -> None:
+    called = []
+
+    def fake_run_probe(args):
+        called.append(args)
+        return Path("unused")
+
+    monkeypatch.setattr(PROBE, "run_probe", fake_run_probe)
+    with pytest.raises(SystemExit):
+        PROBE.main(["--scenario", "lm5k_golden_repair_v2"])
+    assert called == []
+
+
+def test_main_accepts_lm5n_scenarios(monkeypatch) -> None:
+    seen = []
+
+    def fake_run_probe(args):
+        seen.append(args.scenario)
+        return Path("unused")
+
+    monkeypatch.setattr(PROBE, "run_probe", fake_run_probe)
+    assert PROBE.main(["--scenario", "evidence_absent"]) == 0
+    assert PROBE.main(["--scenario", "evidence_present"]) == 0
+    assert seen == ["evidence_absent", "evidence_present"]
 
 
 def test_unavailable_slot_records_no_attempts(tmp_path, monkeypatch) -> None:
