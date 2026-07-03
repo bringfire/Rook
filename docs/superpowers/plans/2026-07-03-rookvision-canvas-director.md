@@ -30,7 +30,7 @@ This plan does not implement a GH-preview capture mode, a custom `.gha`, or a ne
 CanvasDirector is an adapter into the current Director runtime, not a new runner. Implementation must preserve these contracts:
 
 - Output roots: all explicit `output_root` values must resolve under `resolve_output_root(...)` and the configured Director output root. Tests must pass a `DirectorRuntimePaths` override and choose output roots under that override. Live smoke should omit `output_root` unless `ROOK_DIRECTOR_OUTPUT_ROOT` is explicitly configured.
-- Run ids: explicit `run_id` values are opaque tokens, not paths. Validate with a strict grammar and verify the resolved run directory remains under the resolved output root before creating directories.
+- Run ids: explicit `run_id` values are opaque tokens, not paths. Validate with `[A-Za-z0-9][A-Za-z0-9_-]{0,127}` and verify the resolved run directory is a child of the resolved output root, not the output root itself, before creating directories.
 - Run directories: each run directory is created under the resolved Director output root and contains `manifest.json`, `status.json`, `frames/`, `logs/frame_evidence.jsonl`, and optional `inputs/` evidence files.
 - Manifest schema: `director_video.assemble_director_video()` consumes `manifest.json` with positive `frame_count`, `resolution`, `timeline`, `frames`, and per-frame `output_path` entries. CanvasDirector must add compiled-track provenance without removing existing fields video assembly expects.
 - Frame evidence: every `/director/frame-capture` call appends one evidence record. Capture failures, missing output files, dirty partial state, and evidence write failures must map to the same terminal states used by the existing Director loop.
@@ -2036,7 +2036,26 @@ async def test_run_compiled_track_rejects_bad_resolution_before_creating_run(tmp
     assert not (tmp_path / "data" / "rookvision_director" / "canvas_runs" / "bad-resolution").exists()
 
 
-@pytest.mark.parametrize("bad_run_id", ["../escape", "/tmp/escape", "C:/escape", "bad/slash", ""])
+@pytest.mark.asyncio
+async def test_run_compiled_track_rejects_conflicting_provenance_before_creating_run(tmp_path):
+    from rook import director
+    spec = {"metadata_kind": "director_authoring_spec", "schema_version": 1, "spec_id": "spec_a"}
+    request = {
+        "track": _compiled_track(),
+        "resolution": {"width": 320, "height": 180},
+        "output_root": str(tmp_path / "data" / "rookvision_director" / "canvas_runs"),
+        "run_id": "bad-provenance",
+        "run_inputs": {
+            "director_authoring_spec": spec,
+            "provenance": {"source_spec_sha256": "not-the-copied-spec"},
+        },
+    }
+    with pytest.raises(director.DirectorInputError):
+        await director.run_compiled_track(request, call_native=FakeNative([]), runtime=_runtime(tmp_path))
+    assert not (tmp_path / "data" / "rookvision_director" / "canvas_runs" / "bad-provenance").exists()
+
+
+@pytest.mark.parametrize("bad_run_id", ["../escape", "/tmp/escape", "C:/escape", "bad/slash", "", ".", "..", "bad.name", "_bad"])
 @pytest.mark.asyncio
 async def test_run_compiled_track_rejects_bad_run_id_before_creating_run(tmp_path, bad_run_id):
     from rook import director
@@ -2074,10 +2093,10 @@ async def test_run_compiled_track_rejects_bad_track_positive_ints(tmp_path, fiel
 Run:
 
 ```powershell
-python -m pytest mcp_server/tests/test_director.py::test_run_compiled_track_writes_manifest_frames_inputs_and_evidence mcp_server/tests/test_director.py::test_validate_run_inputs_rejects_malformed_inputs mcp_server/tests/test_director.py::test_write_run_inputs_rejects_conflicting_source_spec_hash mcp_server/tests/test_director.py::test_indexed_track_frames_rejects_bad_frame_indexes mcp_server/tests/test_director.py::test_run_compiled_track_rejects_bad_resolution_before_creating_run mcp_server/tests/test_director.py::test_run_compiled_track_rejects_bad_run_id_before_creating_run mcp_server/tests/test_director.py::test_run_compiled_track_rejects_bad_track_positive_ints -q
+python -m pytest mcp_server/tests/test_director.py::test_run_compiled_track_writes_manifest_frames_inputs_and_evidence mcp_server/tests/test_director.py::test_validate_run_inputs_rejects_malformed_inputs mcp_server/tests/test_director.py::test_write_run_inputs_rejects_conflicting_source_spec_hash mcp_server/tests/test_director.py::test_indexed_track_frames_rejects_bad_frame_indexes mcp_server/tests/test_director.py::test_run_compiled_track_rejects_bad_resolution_before_creating_run mcp_server/tests/test_director.py::test_run_compiled_track_rejects_conflicting_provenance_before_creating_run mcp_server/tests/test_director.py::test_run_compiled_track_rejects_bad_run_id_before_creating_run mcp_server/tests/test_director.py::test_run_compiled_track_rejects_bad_track_positive_ints -q
 ```
 
-Expected: FAIL because `run_compiled_track`, `_write_run_inputs`, `_validate_run_inputs`, `_indexed_track_frames`, `_validate_director_resolution`, `_resolve_run_root`, and `_positive_int_field` do not exist.
+Expected: FAIL because `run_compiled_track`, `_write_run_inputs`, `_validate_run_inputs`, `_prepare_run_inputs`, `_indexed_track_frames`, `_validate_director_resolution`, `_resolve_run_root`, and `_positive_int_field` do not exist.
 
 - [ ] **Step 3: Add run evidence input helpers to Director runner**
 
@@ -2100,12 +2119,10 @@ def _sha256_payload(payload: dict[str, Any]) -> str:
     return hashlib.sha256(_canonical_json_bytes(payload)).hexdigest()
 
 
-def _write_run_inputs(
-    run_root: Path,
-    *,
+def _prepare_run_inputs(
     director_authoring_spec: dict[str, Any],
     provenance: dict[str, Any],
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     copied_spec_sha256 = _sha256_payload(director_authoring_spec)
     full_provenance = dict(provenance)
     existing_source_hash = full_provenance.get("source_spec_sha256")
@@ -2113,6 +2130,17 @@ def _write_run_inputs(
         raise DirectorInputError("run_inputs.provenance.source_spec_sha256 does not match copied director_authoring_spec")
     full_provenance["source_spec_sha256"] = copied_spec_sha256
     full_provenance["copied_spec_sha256"] = copied_spec_sha256
+    return director_authoring_spec, full_provenance
+
+
+def _write_run_inputs(
+    run_root: Path,
+    *,
+    director_authoring_spec: dict[str, Any],
+    provenance: dict[str, Any],
+) -> dict[str, Any]:
+    director_authoring_spec, full_provenance = _prepare_run_inputs(director_authoring_spec, provenance)
+    copied_spec_sha256 = full_provenance["copied_spec_sha256"]
     inputs_dir = run_root / "inputs"
     _atomic_write_json(inputs_dir / "director_authoring_spec.json", director_authoring_spec)
     _atomic_write_json(inputs_dir / "provenance.json", full_provenance)
@@ -2138,7 +2166,7 @@ def _validate_run_inputs(run_inputs: Any) -> tuple[dict[str, Any], dict[str, Any
 Add helpers near `run_director` in `mcp_server/src/rook/director.py`:
 
 ```python
-_RUN_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 
 
 def _positive_int_field(value: Any, *, field: str) -> int:
@@ -2156,10 +2184,10 @@ def _resolve_run_root(output_root: Path, run_id: Any) -> tuple[str, Path]:
             f"{uuid.uuid4().hex[:8]}"
         )
     if not isinstance(run_id, str) or not _RUN_ID_RE.fullmatch(run_id):
-        raise DirectorInputError("run_id must be a 1..128 char [A-Za-z0-9._-] token")
+        raise DirectorInputError("run_id must be a 1..128 char [A-Za-z0-9][A-Za-z0-9_-]* token")
     run_root = (output_root / run_id).resolve()
-    if not _is_relative_to(run_root, output_root):
-        raise DirectorInputError("run_id must resolve under output_root")
+    if run_root == output_root or not _is_relative_to(run_root, output_root):
+        raise DirectorInputError("run_id must resolve to a child directory under output_root")
     return run_id, run_root
 
 
@@ -2285,7 +2313,10 @@ async def run_compiled_track(
     if not isinstance(display, dict):
         raise DirectorInputError("display must be an object")
     cameras, objects = _indexed_track_frames(track, frame_count)
-    run_inputs = _validate_run_inputs(request["run_inputs"]) if "run_inputs" in request else None
+    run_inputs = None
+    if "run_inputs" in request:
+        director_authoring_spec, provenance = _validate_run_inputs(request["run_inputs"])
+        run_inputs = _prepare_run_inputs(director_authoring_spec, provenance)
 
     runtime = runtime or _runtime_paths()
     output_root = resolve_output_root(request.get("output_root"), runtime)
@@ -2383,7 +2414,7 @@ def build_run_inputs(envelope: dict[str, Any], spec: dict[str, Any]) -> dict[str
 Run:
 
 ```powershell
-python -m pytest mcp_server/tests/test_director.py::test_run_compiled_track_writes_manifest_frames_inputs_and_evidence mcp_server/tests/test_director.py::test_validate_run_inputs_rejects_malformed_inputs mcp_server/tests/test_canvas_director.py -q
+python -m pytest mcp_server/tests/test_director.py::test_run_compiled_track_writes_manifest_frames_inputs_and_evidence mcp_server/tests/test_director.py::test_validate_run_inputs_rejects_malformed_inputs mcp_server/tests/test_director.py::test_write_run_inputs_rejects_conflicting_source_spec_hash mcp_server/tests/test_director.py::test_run_compiled_track_rejects_conflicting_provenance_before_creating_run mcp_server/tests/test_canvas_director.py -q
 ```
 
 Expected: PASS.
@@ -2711,9 +2742,9 @@ If no fixes were needed, do not create an empty commit.
   - Duplicate matching export markers fail with `multiple_exports_ambiguous` even when `export_id` is explicit.
   - `DirectorAuthoringSpec` is not passed directly to `director.run_director`; `build_compile_motion_request()` feeds `director_compiler.compile_motion()`, then `director.run_compiled_track()` captures standard Director run artifacts.
   - `run_inputs` are optional, but malformed present `run_inputs` fail fast instead of silently dropping required evidence.
-  - Explicit `run_id` values are validated as tokens and the resolved `run_root` must remain under `output_root` before any directory creation.
+  - Explicit `run_id` values are validated with `[A-Za-z0-9][A-Za-z0-9_-]{0,127}`, and the resolved `run_root` must be a child directory under `output_root` before any directory creation.
   - Compiled track `frame_count`, `fps`, and per-frame indexes use typed `DirectorInputError` validation helpers, not raw `int(...)` conversions.
-  - Run provenance `source_spec_sha256` must match the copied authoring spec hash; mismatches fail before `inputs/` is written.
+  - Run provenance `source_spec_sha256` must match the copied authoring spec hash; mismatches are preflighted before any run directory is created.
 - Verification commands:
   - Managed: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "CanvasDirector|NativeDirectorCanvasDispatchSourceTests|Registrar_DeclaresCanvasDirectorDispatchCallback"`
   - Python: `python -m pytest mcp_server/tests/test_canvas_director.py mcp_server/tests/test_director_mcp_tools.py mcp_server/tests/test_director.py -q -k "canvas_director or run_compiled_track or validate_run_inputs"`
