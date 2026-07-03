@@ -713,7 +713,7 @@ async def test_extract_persist_and_compile_writes_export_spec_and_returns_compil
             "project_root": str(tmp_path),
             "export_id": "export_a",
             "spec_id": "spec_a",
-            "solve_mode": "wait",
+            "solve_mode": "require_fresh_solve",
             "replace_spec": True,
             "ignored": "local-only",
         },
@@ -721,7 +721,7 @@ async def test_extract_persist_and_compile_writes_export_spec_and_returns_compil
     )
 
     assert calls == {
-        "arguments": {"export_id": "export_a", "solve_mode": "wait"},
+        "arguments": {"export_id": "export_a", "solve_mode": "require_fresh_solve"},
         "port": 9876,
     }
     assert result["export"]["export_id"] == "export_a"
@@ -754,6 +754,53 @@ async def test_extract_persist_and_compile_rejects_non_bool_replace_spec_before_
     assert ei.value.code == "invalid_input"
     assert calls == []
     assert not (tmp_path / ".rook").exists()
+
+
+@pytest.mark.asyncio
+async def test_extract_persist_and_compile_prevalidates_explicit_ids_before_extract(
+    tmp_path, monkeypatch
+):
+    calls = []
+
+    async def fake_extract_canvas_export(arguments, *, port=None):
+        calls.append(arguments)
+        return _envelope()
+
+    monkeypatch.setattr(cd, "extract_canvas_export", fake_extract_canvas_export)
+
+    with pytest.raises(cd.CanvasDirectorError) as ei:
+        await cd.extract_persist_and_compile(
+            {
+                "project_root": str(tmp_path),
+                "export_id": "export_a",
+                "spec_id": "bad.name",
+            }
+        )
+
+    assert ei.value.code == "invalid_spec_id"
+    assert calls == []
+    assert not (tmp_path / ".rook").exists()
+
+
+@pytest.mark.asyncio
+async def test_extract_persist_and_compile_rejects_missing_project_root_before_extract(
+    tmp_path, monkeypatch
+):
+    calls = []
+    missing_project = tmp_path / "missing-project"
+
+    async def fake_extract_canvas_export(arguments, *, port=None):
+        calls.append(arguments)
+        return _envelope()
+
+    monkeypatch.setattr(cd, "extract_canvas_export", fake_extract_canvas_export)
+
+    with pytest.raises(cd.CanvasDirectorError) as ei:
+        await cd.extract_persist_and_compile({"project_root": str(missing_project)})
+
+    assert ei.value.code == "project_root_missing"
+    assert calls == []
+    assert not missing_project.exists()
 
 
 @pytest.mark.asyncio

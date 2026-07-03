@@ -4025,7 +4025,7 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                     },
                     "solve_mode": {
                         "type": "string",
-                        "description": "Optional extraction solve mode forwarded to native, such as current or wait.",
+                        "description": "Optional extraction solve mode forwarded to native. Defaults to require_fresh_solve; reuse_verified_solution requires expected_solution_token.",
                     },
                     "expected_solution_token": {
                         "type": "string",

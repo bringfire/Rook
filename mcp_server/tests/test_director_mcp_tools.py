@@ -360,6 +360,10 @@ async def test_canvas_director_extract_tool_registered():
     assert "export_id" in schema["properties"]
     assert "spec_id" in schema["properties"]
     assert "solve_mode" in schema["properties"]
+    solve_mode_description = schema["properties"]["solve_mode"]["description"]
+    assert "require_fresh_solve" in solve_mode_description
+    assert "reuse_verified_solution" in solve_mode_description
+    assert "wait" not in solve_mode_description
     assert _find_rejected_schema_keywords(schema) == []
 
 
