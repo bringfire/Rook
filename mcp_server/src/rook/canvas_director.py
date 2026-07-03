@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import hashlib
 import json
+import math
 import os
 import re
 import tempfile
@@ -116,6 +117,16 @@ def _atomic_write_json(path: Path, payload: Any) -> None:
             except OSError:
                 pass
         raise
+
+
+def _canonical_json_bytes_unrestricted(value: Any) -> bytes:
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
 
 
 def _ensure_resolved_under(path: Path, root: Path, message: str) -> None:
@@ -367,6 +378,210 @@ def save_canvas_export(
         "canvas_export_state_sha256": actual_hash,
         "idempotent": False,
     }
+
+
+def _number(value: Any) -> float:
+    if isinstance(value, bool):
+        raise CanvasDirectorError("spec_compile_failed", "Numeric fields may not be booleans.")
+    if isinstance(value, (int, float)):
+        out = float(value)
+    elif isinstance(value, str):
+        try:
+            out = float(value)
+        except ValueError as exc:
+            raise CanvasDirectorError(
+                "spec_compile_failed",
+                f"Invalid numeric field: {value!r}.",
+            ) from exc
+    else:
+        raise CanvasDirectorError("spec_compile_failed", "Numeric fields must be numbers or numeric strings.")
+
+    if not math.isfinite(out):
+        raise CanvasDirectorError("spec_compile_failed", "Numeric fields must be finite.")
+    return out
+
+
+def _convert_keyframes(entries: Any) -> list[dict[str, Any]]:
+    if entries is None:
+        return []
+    if not isinstance(entries, list):
+        raise CanvasDirectorError("spec_compile_failed", "Motion keyframes must be an array.")
+
+    converted: list[dict[str, Any]] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise CanvasDirectorError("spec_compile_failed", "Motion keyframes must be objects.")
+        keyframe = dict(entry)
+        if "t" in keyframe:
+            keyframe["t"] = _number(keyframe["t"])
+        if "translate" in keyframe:
+            translate = keyframe["translate"]
+            if not isinstance(translate, list) or len(translate) != 3:
+                raise CanvasDirectorError(
+                    "spec_compile_failed",
+                    "Keyframe translate must be a 3-number array.",
+                )
+            keyframe["translate"] = [_number(component) for component in translate]
+        if "scale" in keyframe:
+            scale = keyframe["scale"]
+            if isinstance(scale, list):
+                if len(scale) != 3:
+                    raise CanvasDirectorError(
+                        "spec_compile_failed",
+                        "Keyframe scale array must have 3 components.",
+                    )
+                keyframe["scale"] = [_number(component) for component in scale]
+            else:
+                keyframe["scale"] = _number(scale)
+        converted.append(keyframe)
+    return converted
+
+
+def _convert_motion(entries: Any) -> list[dict[str, Any]]:
+    if entries is None:
+        return []
+    if not isinstance(entries, list):
+        raise CanvasDirectorError("spec_compile_failed", "Payload motion must be an array.")
+
+    converted: list[dict[str, Any]] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise CanvasDirectorError("spec_compile_failed", "Motion entries must be objects.")
+        motion_entry = dict(entry)
+        motion_entry["keyframes"] = _convert_keyframes(motion_entry.get("keyframes"))
+        converted.append(motion_entry)
+    return converted
+
+
+def compile_authoring_spec(envelope: Any, *, spec_id: Any = None) -> dict[str, Any]:
+    state, actual_hash = _verify_envelope(envelope)
+    payload = state.get("payload")
+    if not isinstance(payload, dict):
+        raise CanvasDirectorError("spec_compile_failed", "Canvas export state payload must be an object.")
+
+    selected_spec_id = validate_canvas_director_id(
+        spec_id
+        if spec_id is not None
+        else envelope.get("suggested_spec_id", state.get("export_id")),
+        kind="spec",
+    )
+    timeline = payload.get("timeline")
+    if not isinstance(timeline, dict):
+        raise CanvasDirectorError("spec_compile_failed", "Payload timeline must be an object.")
+
+    resolution = payload.get("resolution", {"width": 1920, "height": 1080})
+    if not isinstance(resolution, dict):
+        raise CanvasDirectorError("spec_compile_failed", "Payload resolution must be an object.")
+
+    groups = payload.get("groups", {})
+    if not isinstance(groups, dict):
+        raise CanvasDirectorError("spec_compile_failed", "Payload groups must be an object.")
+
+    camera = payload.get("camera", {})
+    if not isinstance(camera, dict):
+        raise CanvasDirectorError("spec_compile_failed", "Payload camera must be an object.")
+
+    spec: dict[str, Any] = {
+        "metadata_kind": "director_authoring_spec",
+        "schema_version": 1,
+        "spec_id": selected_spec_id,
+        "source": {
+            "canvas_export_state_sha256": actual_hash,
+            "export_id": state.get("export_id"),
+            "template_id": state.get("template_id"),
+            "template_version": state.get("template_version"),
+        },
+        "timeline": dict(timeline),
+        "resolution": dict(resolution),
+        "groups": dict(groups),
+        "motion": _convert_motion(payload.get("motion")),
+        "camera": dict(camera),
+    }
+    if isinstance(payload.get("default_easing"), str):
+        spec["default_easing"] = payload["default_easing"]
+    return spec
+
+
+def _raise_spec_write_failed(exc: Exception) -> None:
+    raise CanvasDirectorError("spec_write_failed", str(exc)) from exc
+
+
+def save_authoring_spec(
+    project_root: str | os.PathLike[str],
+    spec: dict[str, Any],
+    *,
+    spec_id: Any = None,
+    replace: bool = False,
+) -> dict[str, Any]:
+    if not isinstance(spec, dict) or spec.get("metadata_kind") != "director_authoring_spec":
+        raise CanvasDirectorError("spec_compile_failed", "Authoring spec must be a director_authoring_spec.")
+
+    selected_spec_id = validate_canvas_director_id(
+        spec_id if spec_id is not None else spec.get("spec_id"),
+        kind="spec",
+    )
+    if selected_spec_id != spec.get("spec_id"):
+        raise CanvasDirectorError("invalid_spec_id", "Spec id does not match authoring spec.")
+
+    project_path = Path(project_root)
+    try:
+        director_root = _director_root(project_path)
+        specs_root = _ensure_under(director_root / "specs", director_root, project_root=project_path)
+        specs_root.mkdir(parents=True, exist_ok=True)
+        spec_path = _ensure_under(
+            specs_root / f"{selected_spec_id}.json",
+            director_root,
+            project_root=project_path,
+        )
+    except CanvasDirectorError as exc:
+        if exc.code == "export_write_failed":
+            _raise_spec_write_failed(exc)
+        raise
+    except OSError as exc:
+        _raise_spec_write_failed(exc)
+
+    if spec_path.exists() and not replace:
+        try:
+            existing = json.loads(spec_path.read_text(encoding="utf-8"))
+            if _canonical_json_bytes_unrestricted(existing) == _canonical_json_bytes_unrestricted(spec):
+                return {"spec_id": selected_spec_id, "spec_path": spec_path, "idempotent": True}
+        except Exception as exc:
+            raise CanvasDirectorError("id_collision", "Existing authoring spec is unreadable.") from exc
+        raise CanvasDirectorError("id_collision", "Authoring spec id already exists with different content.")
+
+    try:
+        _atomic_write_json(spec_path, spec)
+    except OSError as exc:
+        _raise_spec_write_failed(exc)
+    except ValueError as exc:
+        raise CanvasDirectorError("spec_compile_failed", str(exc)) from exc
+
+    return {"spec_id": selected_spec_id, "spec_path": spec_path, "idempotent": False}
+
+
+def build_compile_motion_request(spec: Any) -> dict[str, Any]:
+    if not isinstance(spec, dict) or spec.get("metadata_kind") != "director_authoring_spec":
+        raise CanvasDirectorError("spec_compile_failed", "Authoring spec must be a director_authoring_spec.")
+
+    timeline = spec.get("timeline")
+    if not isinstance(timeline, dict):
+        raise CanvasDirectorError("spec_compile_failed", "Authoring spec timeline must be an object.")
+
+    motion = spec.get("motion")
+    if not isinstance(motion, list) or not motion:
+        raise CanvasDirectorError("spec_compile_failed", "Authoring spec motion must be a non-empty array.")
+
+    request: dict[str, Any] = {
+        "timeline": timeline,
+        "resolution": spec.get("resolution", {"width": 1920, "height": 1080}),
+        "groups": spec.get("groups", {}),
+        "motion": motion,
+    }
+    if isinstance(spec.get("camera"), dict):
+        request["camera"] = spec["camera"]
+    if isinstance(spec.get("default_easing"), str):
+        request["default_easing"] = spec["default_easing"]
+    return request
 
 
 async def extract_canvas_export(
