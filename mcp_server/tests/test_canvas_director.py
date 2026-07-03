@@ -209,6 +209,19 @@ def test_different_state_with_stale_lock_still_collides(tmp_path, monkeypatch):
     assert ei.value.code == "id_collision"
 
 
+def test_first_write_recovers_malformed_stale_lock_without_export(tmp_path, monkeypatch):
+    exports_root = tmp_path / ".rook" / "director" / "exports"
+    exports_root.mkdir(parents=True)
+    (exports_root / "export_a.json.lock").write_text("not-a-pid\n", encoding="utf-8")
+    monkeypatch.setattr(cd, "_LOCK_WAIT_SECONDS", 0.01)
+
+    result = cd.save_canvas_export(tmp_path, _envelope(), export_id="export_a")
+
+    assert result["idempotent"] is False
+    assert result["export_path"].exists()
+    assert not (exports_root / "export_a.json.lock").exists()
+
+
 def test_concurrent_first_writes_detect_id_collision(tmp_path, monkeypatch):
     first_state = _state("export_a")
     second_state = _state("export_a")
