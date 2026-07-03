@@ -87,6 +87,37 @@ def test_director_instance_restore_diagnostics_use_native_instance_state():
 
     assert "sourceObjectType" not in helper_body
     assert "source_state" not in helper_body
+
+
+def test_director_instance_restore_slice_keeps_tolerance_and_canvasdirector_parked():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    lower_source = source.lower()
+    plan = (REPO_ROOT / "docs" / "superpowers" / "plans" / "2026-07-03-director-instance-restore-semantics.md").read_text(encoding="utf-8")
+    file_structure = plan[plan.index("## File Structure"):plan.index("## Safety Rules")]
+
+    for token in [
+        "kDirectorRestoreSerializationFloor",
+        "kDirectorRestoreModelScaleAllowance",
+        "kDirectorRestoreAbsoluteCap",
+        "EVIDENCE_SELECTED",
+        "evidence_selected",
+        "selected_restore_policy",
+    ]:
+        assert token not in source
+
+    for token in [
+        "restore_serialization_floor",
+        "evidence-selected",
+        "evidence_selected",
+    ]:
+        assert token not in lower_source
+
+    for forbidden_path in [
+        "mcp_server/src/rook/canvas_director.py",
+        "src/Rook/Services/Vision/CanvasDirector",
+        "src/Rook/Services/Vision/CanvasDirector/",
+    ]:
+        assert forbidden_path not in file_structure
 ```
 
 - [ ] **Step 2: Run tests and verify they fail**
@@ -97,7 +128,7 @@ Run:
 mcp_server\.venv\Scripts\python.exe -m pytest mcp_server/tests/test_director_native_source.py -q
 ```
 
-Expected: the two new tests fail because native phase evidence does not exist yet.
+Expected: the two native phase-evidence tests fail because native phase evidence does not exist yet. The parked-scope guard should pass immediately and must keep passing.
 
 - [ ] **Step 3: Commit the red tests**
 
@@ -354,7 +385,7 @@ def _compiled_object_transform(object_id: str, source_state: dict[str, Any], mat
     }
 
 
-def _required_native_phase_keys_present(detail: dict[str, Any]) -> bool:
+def _assert_native_phase_evidence(detail: dict[str, Any], *, expects_instance: bool) -> None:
     required = [
         "transform_call_path",
         "requested_transform",
@@ -364,7 +395,69 @@ def _required_native_phase_keys_present(detail: dict[str, Any]) -> bool:
         "phase_before_restore",
         "phase_after_restore",
     ]
-    return all(key in detail for key in required)
+    for key in required:
+        assert key in detail, detail
+
+    for phase_name in [
+        "phase_before_apply",
+        "phase_after_apply",
+        "phase_before_restore",
+        "phase_after_restore",
+    ]:
+        phase = detail[phase_name]
+        assert isinstance(phase, dict), {phase_name: phase}
+        for key in [
+            "object_found",
+            "object_id",
+            "runtime_serial_number",
+            "object_type",
+            "bbox",
+            "instance_definition_id",
+            "instance_definition_name",
+            "instance_xform",
+        ]:
+            assert key in phase, {phase_name: phase}
+
+        if phase["object_found"]:
+            assert isinstance(phase["object_id"], str)
+            assert isinstance(phase["runtime_serial_number"], int)
+            assert isinstance(phase["object_type"], str)
+            assert isinstance(phase["bbox"], dict)
+            assert "min" in phase["bbox"] and "max" in phase["bbox"]
+
+            if expects_instance:
+                if phase["object_type"] == "InstanceReference":
+                    assert isinstance(phase["instance_definition_id"], str)
+                    assert isinstance(phase["instance_definition_name"], str)
+                    assert isinstance(phase["instance_xform"], list)
+            else:
+                assert phase["object_type"] != "InstanceReference"
+
+
+def _phase_summary(phase: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "object_found": phase.get("object_found"),
+        "object_id": phase.get("object_id"),
+        "runtime_serial_number": phase.get("runtime_serial_number"),
+        "object_type": phase.get("object_type"),
+        "bbox": phase.get("bbox"),
+        "instance_definition_id": phase.get("instance_definition_id"),
+        "instance_definition_name": phase.get("instance_definition_name"),
+        "instance_xform": phase.get("instance_xform"),
+    }
+
+
+def _detail_phase_summary(detail: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "restored": detail.get("restored"),
+        "bbox_delta_min": detail.get("bbox_delta_min"),
+        "bbox_delta_max": detail.get("bbox_delta_max"),
+        "bbox_max_delta": detail.get("bbox_max_delta"),
+        "phase_before_apply": _phase_summary(detail["phase_before_apply"]),
+        "phase_after_apply": _phase_summary(detail["phase_after_apply"]),
+        "phase_before_restore": _phase_summary(detail["phase_before_restore"]),
+        "phase_after_restore": _phase_summary(detail["phase_after_restore"]),
+    }
 
 
 async def _cleanup_instance_restore_probe(created_ids: list[str], block_name: str) -> None:
@@ -492,8 +585,11 @@ async def test_director_instance_restore_semantics_large_coordinate_probe(fresh_
         assert control_details
         assert instance_details
 
-        for detail in control_details + instance_details:
-            assert _required_native_phase_keys_present(detail), detail
+        for detail in control_details:
+            _assert_native_phase_evidence(detail, expects_instance=False)
+            assert detail["transform_call_path"] == "pDoc->TransformObject(objRef, xform, true, false, true)"
+        for detail in instance_details:
+            _assert_native_phase_evidence(detail, expects_instance=True)
             assert detail["transform_call_path"] == "pDoc->TransformObject(objRef, xform, true, false, true)"
 
         assert control_details[0]["phase_before_apply"]["object_type"] != "InstanceReference"
@@ -511,6 +607,8 @@ async def test_director_instance_restore_semantics_large_coordinate_probe(fresh_
                 "instance_restored": [detail.get("restored") for detail in instance_details],
                 "control_bbox_max_delta": [detail.get("bbox_max_delta") for detail in control_details],
                 "instance_bbox_max_delta": [detail.get("bbox_max_delta") for detail in instance_details],
+                "control_phase_summary": [_detail_phase_summary(detail) for detail in control_details],
+                "instance_phase_summary": [_detail_phase_summary(detail) for detail in instance_details],
             }
         }, indent=2, sort_keys=True))
     finally:
