@@ -407,7 +407,9 @@ namespace Rook.Services.Vision.CanvasDirector
             }
             catch (Exception ex) when (
                 ex is ArgumentException ||
+                ex is InvalidOperationException ||
                 ex is MethodAccessException ||
+                ex is NotSupportedException ||
                 ex is TargetException ||
                 ex is TargetParameterCountException)
             {
