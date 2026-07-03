@@ -12,6 +12,7 @@ import argparse
 import json
 import sys
 import time
+from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 
@@ -21,6 +22,13 @@ from rook.agent.local_worker_turn_response import (
     LOCAL_WORKER_TURN_RESPONSE_SCHEMA,
     load_local_worker_turn_response_payload,
 )
+
+UNION_KINDS = {
+    "action_request",
+    "clarification_request",
+    "refusal",
+    "observation",
+}
 
 
 ABSENT_PROMPT = """You are a bounded local worker.
@@ -123,28 +131,62 @@ def _run_case(
     model: str,
     prompt: str,
     timeout_s: float,
+    attempts: int,
+    temperature: float | None,
+) -> Counter[str]:
+    kinds: Counter[str] = Counter()
+    for index in range(attempts):
+        kind = _run_attempt(
+            label=label,
+            index=index,
+            model=model,
+            prompt=prompt,
+            timeout_s=timeout_s,
+            temperature=temperature,
+        )
+        kinds[kind] += 1
+    print(f"{label}: kind_counts={dict(kinds)}")
+    return kinds
+
+
+def _run_attempt(
+    *,
+    label: str,
+    index: int,
+    model: str,
+    prompt: str,
+    timeout_s: float,
+    temperature: float | None,
 ) -> str:
     started = time.perf_counter()
-    response = litellm.completion(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        timeout=timeout_s,
-        format=_response_union_schema(),
-    )
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "timeout": timeout_s,
+        "format": _response_union_schema(),
+    }
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    response = litellm.completion(**kwargs)
     elapsed_ms = (time.perf_counter() - started) * 1000.0
     raw = _extract_content(response)
     parsed = json.loads(raw)
     if not isinstance(parsed, Mapping):
-        raise RuntimeError(f"{label}: parsed output is not a mapping")
-    loaded = load_local_worker_turn_response_payload(parsed)
+        raise RuntimeError(f"{label}[{index}]: parsed output is not a mapping")
+    if parsed.get("schema") != LOCAL_WORKER_TURN_RESPONSE_SCHEMA:
+        raise RuntimeError(
+            f"{label}[{index}]: schema field is not the LM5 response schema"
+        )
     kind = parsed.get("kind")
-    print(f"{label}: provider_call=succeeded latency_ms={elapsed_ms:.1f}")
-    print(f"{label}: raw_content=received chars={len(raw)}")
-    print(f"{label}: json=parsed")
-    print(f"{label}: lm5g=loaded kind={kind}")
-    if label == "absent" and kind == "action_request":
-        raise RuntimeError("absent-style prompt loaded as action_request")
-    return type(loaded.payload).__name__
+    if kind not in UNION_KINDS:
+        raise RuntimeError(f"{label}[{index}]: unknown response kind {kind!r}")
+    loaded = load_local_worker_turn_response_payload(parsed)
+    print(f"{label}[{index}]: provider_call=succeeded latency_ms={elapsed_ms:.1f}")
+    print(f"{label}[{index}]: raw_content=received chars={len(raw)}")
+    print(f"{label}[{index}]: json=parsed")
+    print(f"{label}[{index}]: schema=literal")
+    print(f"{label}[{index}]: lm5g=loaded kind={kind}")
+    return kind
 
 
 def _args(argv: list[str] | None) -> argparse.Namespace:
@@ -157,30 +199,40 @@ def _args(argv: list[str] | None) -> argparse.Namespace:
         help="LiteLLM model id; expected to be an Ollama/Gemma local model.",
     )
     parser.add_argument("--timeout-s", type=float, default=120.0)
+    parser.add_argument("--attempts", type=int, default=1)
+    parser.add_argument("--temperature", type=float, default=None)
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _args(argv)
+    if args.attempts <= 0:
+        print("LM5O structured-output spike failed: attempts must be positive")
+        return 1
     try:
-        absent_payload = _run_case(
+        absent_kinds = _run_case(
             label="absent",
             model=args.model,
             prompt=ABSENT_PROMPT,
             timeout_s=args.timeout_s,
+            attempts=args.attempts,
+            temperature=args.temperature,
         )
-        present_payload = _run_case(
+        present_kinds = _run_case(
             label="present",
             model=args.model,
             prompt=PRESENT_PROMPT,
             timeout_s=args.timeout_s,
+            attempts=args.attempts,
+            temperature=args.temperature,
         )
     except Exception as exc:
         print(f"LM5O structured-output spike failed: {type(exc).__name__}: {exc}")
         return 1
     print(
         "LM5O structured-output spike complete: "
-        f"absent_payload={absent_payload} present_payload={present_payload}"
+        f"absent_kind_counts={dict(absent_kinds)} "
+        f"present_kind_counts={dict(present_kinds)}"
     )
     return 0
 

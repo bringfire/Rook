@@ -116,8 +116,10 @@ The script prints compact status for each prompt:
 provider call succeeded
 raw content received
 JSON parsed
+schema field is literal
 LM5G loaded
 loaded response kind
+observed response kind counts
 ```
 
 It exits nonzero on:
@@ -126,18 +128,31 @@ It exits nonzero on:
 provider error
 missing/non-text content
 invalid JSON
+parsed value is not a mapping
+schema field is not the literal LM5 response schema string
 LM5G loader failure
-absent-style prompt loads as action_request
+loaded kind is not one of the four LM5B union kinds
 ```
 
-The concrete choice-preservation check is:
+Phase A pass criteria are mechanism-only:
 
 ```text
-The absent-style prompt must load as clarification_request, refusal, or
-observation, not action_request.
-
-The present-style prompt may load as action_request if the model chooses action.
+provider call succeeds
+non-empty text returns
+JSON parses
+parsed value is a mapping
+schema == rook.local_worker_turn_response:v1
+LM5G loads the response
+loaded kind is one of action_request, clarification_request, refusal, observation
 ```
+
+Phase A must report observed response kinds, but must not fail solely because the
+absent-style toy prompt returned `action_request`. The spike uses a minimal toy
+prompt, one or a few manual attempts, and optional/default sampling. It is not a
+valid disposition-preservation test.
+
+Constrained decoding proved envelope feasibility; real paired probe runs will
+test whether it preserves judgment.
 
 Raw outputs remain local. If Phase A evidence is later worth preserving, create a
 separate curated evidence summary. Do not commit raw spike artifacts as part of
@@ -202,7 +217,19 @@ add parser leniency
 add model-specific rescue behavior
 ```
 
-If `oneOf + const` fails, the next decision is a new design question, such as:
+Real Phase A failures are mechanism failures:
+
+```text
+provider rejects format
+provider returns empty/non-text content
+provider returns invalid JSON
+provider returns a non-mapping JSON value
+schema const is not honored
+LM5G rejects the payload
+```
+
+If `oneOf + const` or `format` support fails, the next decision is a new design
+question, such as:
 
 ```text
 supported provider-compatible union representation
@@ -403,6 +430,10 @@ The LM5O evidence summary must state:
 LM5O is not a new model-quality ranking.
 It is a transport-mode comparison for one local model.
 ```
+
+Disposition preservation is tested only here, using real LM5N paired scenarios,
+real LM5I request envelopes, N=5, local generation params, and a comparison
+between `free_text` and `structured` transport modes.
 
 ## 11. Anti-Goals
 
