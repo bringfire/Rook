@@ -4,7 +4,7 @@
 
 **Goal:** Build the first RookVisionCanvasDirector slice: Grasshopper emits a side-effect-free typed export envelope, Python persists and compiles it into Director runtime truth, and existing Director capture/video artifacts remain the execution path.
 
-**Architecture:** Native exposes `/director/canvas/extract` as a thin facade over a managed `canvas_director_dispatch` bridge callback. The Companion owns GH solve/export extraction and returns an envelope; Python/MCP owns project `.rook` persistence, JCS hash verification, authoring-spec compilation, run input/provenance files, and orchestration into existing Director frame capture/video assembly.
+**Architecture:** Native exposes `/director/canvas/extract` as a thin facade over a managed `canvas_director_dispatch` bridge callback. The Companion owns GH solve/export extraction and returns an envelope; Python/MCP owns project `.rook` persistence, restricted canonical hash verification, authoring-spec compilation, run input/provenance files, and orchestration into existing Director frame capture/video assembly.
 
 **Tech Stack:** Rhino 8/RhinoCommon, Grasshopper via managed reflection, RookNative C++/httplib/nlohmann::json, C# net48/net7/net8, Python 3.10+, pytest, xUnit.
 
@@ -46,7 +46,7 @@ Managed:
 
 Python:
 
-- Create `mcp_server/src/rook/canvas_director.py`: native extraction call, RFC 8785/JCS hash verification, ID/path policy, full extraction envelope/spec persistence, authoring-spec compilation helpers, and run input provenance helpers.
+- Create `mcp_server/src/rook/canvas_director.py`: native extraction call, restricted RFC 8785/JCS-compatible hash verification, ID/path policy, full extraction envelope/spec persistence, authoring-spec compilation helpers, and run input provenance helpers.
 - Modify `mcp_server/src/rook/director.py`: accept optional input spec/provenance copy data and write `<run_directory>/inputs/*` after run directory creation.
 - Modify `mcp_server/src/rook/server.py`: expose `rhino_director_canvas_extract`.
 - Modify `mcp_server/src/rook/agent/tool_groups.py`: add the tool to the `director` group only.
@@ -99,7 +99,10 @@ namespace Rook.Tests.Handlers
 
             Assert.Contains("body[\"op\"] = \"extract\";", handler);
             Assert.Contains("InvokeCanvasDirectorDispatchWithBody", handler);
+            Assert.Contains("CRookServer::SendErrorData", handler);
+            Assert.Contains("MakeErrorData(\"invalid_input\"", handler);
             Assert.Contains("canvas_director_unavailable", handler);
+            Assert.Contains("canvas_director_dispatch_failed", handler);
             Assert.Contains("X-Rook-Director-Canvas-Op", handler);
             Assert.DoesNotContain("CMainThreadDispatcher::Instance().Dispatch", handler);
             Assert.DoesNotContain("CRhinoDoc::", handler);
@@ -269,14 +272,14 @@ void HandleDirectorCanvasExtract(const httplib::Request& req, httplib::Response&
         }
         catch (const std::exception& ex)
         {
-            CRookServer::SendError(res, std::string("invalid_input: ") + ex.what());
+            CRookServer::SendErrorData(res, MakeErrorData("invalid_input", ex.what()));
             res.status = 400;
             res.set_header("X-Rook-Director-Canvas-Op", "extract");
             return;
         }
         if (!body.is_object())
         {
-            CRookServer::SendError(res, "invalid_input: /director/canvas/extract body must be a JSON object.");
+            CRookServer::SendErrorData(res, MakeErrorData("invalid_input", "/director/canvas/extract body must be a JSON object."));
             res.status = 400;
             res.set_header("X-Rook-Director-Canvas-Op", "extract");
             return;
@@ -303,13 +306,13 @@ void HandleDirectorCanvasExtract(const httplib::Request& req, httplib::Response&
         res.set_header("X-Rook-Director-Canvas-Op", "extract");
         return;
     case ManagedCreateInvokeResult::Unavailable:
-        CRookServer::SendError(res, "canvas_director_unavailable: CanvasDirector routes require the Rook companion plugin.");
+        CRookServer::SendErrorData(res, MakeErrorData("canvas_director_unavailable", "CanvasDirector routes require the Rook companion plugin."));
         res.status = 503;
         res.set_header("X-Rook-Director-Canvas-Op", "extract");
         return;
     case ManagedCreateInvokeResult::Failed:
     default:
-        CRookServer::SendError(res, std::string("CanvasDirector dispatch failed: ") + invokeError);
+        CRookServer::SendErrorData(res, MakeErrorData("canvas_director_dispatch_failed", invokeError));
         res.status = 500;
         res.set_header("X-Rook-Director-Canvas-Op", "extract");
         return;
@@ -405,10 +408,15 @@ namespace Rook.Tests.Services.Vision.CanvasDirector
 
             Assert.True(result.Success);
             Assert.Equal(200, result.HttpStatus);
-            var json = JsonSerializer.Serialize(result.Data);
+            var json = JsonSerializer.Serialize(result.Data, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            });
             Assert.Contains("canvas_export_state", json);
             Assert.Contains("canvas_export_state_sha256", json);
             Assert.Contains("read_only", json);
+            Assert.DoesNotContain("canvasExportState", json);
+            Assert.DoesNotContain("canvasExportStateSha256", json);
         }
 
         [Fact]
@@ -420,6 +428,37 @@ namespace Rook.Tests.Services.Vision.CanvasDirector
             Assert.Equal(
                 CanvasDirectorCanonicalJson.Sha256Hex(left),
                 CanvasDirectorCanonicalJson.Sha256Hex(right));
+        }
+
+        [Theory]
+        [InlineData("{\"b\":\"2\",\"a\":\"1\"}", "{\"a\":\"1\",\"b\":\"2\"}")]
+        [InlineData("{\"text\":\"<>&\",\"list\":[true,null,3]}", "{\"list\":[true,null,3],\"text\":\"<>&\"}")]
+        public void CanonicalSerialize_MatchesRestrictedCrossLanguageVectors(string input, string expected)
+        {
+            using var doc = JsonDocument.Parse(input);
+
+            Assert.Equal(expected, CanvasDirectorCanonicalJson.Serialize(doc.RootElement));
+        }
+
+        [Fact]
+        public void CanonicalSerialize_RejectsNonIntegerNumbersInSliceOne()
+        {
+            using var doc = JsonDocument.Parse("{\"x\":1.25}");
+
+            var ex = Assert.Throws<CanvasDirectorException>(() =>
+                CanvasDirectorCanonicalJson.Serialize(doc.RootElement));
+
+            Assert.Equal("invalid_input", ex.Code);
+        }
+
+        [Fact]
+        public void ParseRequest_PreservesDocumentAndProposalIdentity()
+        {
+            var request = CanvasDirectorExtractRequest.Parse(
+                "{\"op\":\"extract\",\"document_id\":\"gh-doc-1\",\"proposal_id\":\"proposal-1\"}");
+
+            Assert.Equal("gh-doc-1", request.DocumentId);
+            Assert.Equal("proposal-1", request.ProposalId);
         }
 
         private sealed class FakeExtractor : ICanvasDirectorExtractor
@@ -454,6 +493,12 @@ public void Registrar_DeclaresCanvasDirectorDispatchCallback()
     Assert.Contains("HandleCanvasDirectorDispatch", source);
     Assert.Contains("public IntPtr CanvasDirectorDispatch;", source);
     Assert.Contains("CanvasDirectorDispatch = Marshal.GetFunctionPointerForDelegate(CanvasDirectorDispatchCallback)", source);
+
+    var syncStart = source.IndexOf("private static int ExecuteApiResponseCallback", StringComparison.Ordinal);
+    var nextFunction = source.IndexOf("private static uint? ParseDocumentSerialNumber", syncStart, StringComparison.Ordinal);
+    var syncExecutor = source.Substring(syncStart, nextFunction - syncStart);
+    Assert.Contains("statusCode = MapBridgeStatus(result);", syncExecutor);
+    Assert.DoesNotContain("statusCode = result.Success ? 200 : 400;", syncExecutor);
 }
 ```
 
@@ -475,6 +520,7 @@ Create `src/Rook/Services/Vision/CanvasDirector/CanvasDirectorModels.cs`:
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Rook.Services.Vision.CanvasDirector
 {
@@ -482,6 +528,8 @@ namespace Rook.Services.Vision.CanvasDirector
     {
         public string? Op { get; init; }
         public string? ExportId { get; init; }
+        public string? DocumentId { get; init; }
+        public string? ProposalId { get; init; }
         public string SolveMode { get; init; } = "require_fresh_solve";
         public string? ExpectedSolutionToken { get; init; }
 
@@ -497,6 +545,8 @@ namespace Rook.Services.Vision.CanvasDirector
             {
                 Op = GetString(root, "op"),
                 ExportId = GetString(root, "export_id"),
+                DocumentId = GetString(root, "document_id"),
+                ProposalId = GetString(root, "proposal_id"),
                 SolveMode = GetString(root, "solve_mode") ?? "require_fresh_solve",
                 ExpectedSolutionToken = GetString(root, "expected_solution_token"),
             };
@@ -524,10 +574,19 @@ namespace Rook.Services.Vision.CanvasDirector
 
     internal sealed class CanvasDirectorExtractionEnvelope
     {
+        [JsonPropertyName("canvas_export_state")]
         public object CanvasExportState { get; init; } = new Dictionary<string, object?>();
+
+        [JsonPropertyName("canvas_export_state_sha256")]
         public string CanvasExportStateSha256 { get; init; } = "";
+
+        [JsonPropertyName("diagnostics")]
         public object[] Diagnostics { get; init; } = Array.Empty<object>();
+
+        [JsonPropertyName("suggested_spec_id")]
         public string? SuggestedSpecId { get; init; }
+
+        [JsonPropertyName("read_only")]
         public bool ReadOnly { get; init; } = true;
 
         public static CanvasDirectorExtractionEnvelope FromState(object state)
@@ -567,6 +626,10 @@ namespace Rook.Services.Vision.CanvasDirector
 {
     internal static class CanvasDirectorCanonicalJson
     {
+        // Restricted RFC 8785/JCS-compatible subset for slice one:
+        // UTF-8, sorted object keys, no insignificant whitespace, strings
+        // serialized without HTML escaping, and integer-only JSON numbers.
+        // Non-integer numeric values must be exported as validated strings.
         public static string Sha256Hex(JsonElement element)
         {
             var bytes = Encoding.UTF8.GetBytes(Serialize(element));
@@ -766,6 +829,20 @@ private static int HandleCanvasDirectorDispatch(
 }
 ```
 
+In the shared synchronous `ExecuteApiResponseCallback`, replace the legacy status assignment:
+
+```csharp
+statusCode = result.Success ? 200 : 400;
+```
+
+with:
+
+```csharp
+statusCode = MapBridgeStatus(result);
+```
+
+This keeps CanvasDirector errors such as `grasshopper_not_ready` and `canvas_director_unavailable` aligned with the `ApiResponse.HttpStatus` contract.
+
 Increment the managed bridge version to match Task 1.
 
 - [ ] **Step 8: Add temporary extractor implementation**
@@ -848,6 +925,40 @@ namespace Rook.Tests.Services.Vision.CanvasDirector
         }
 
         [Fact]
+        public void RequireFreshSolve_InvokesNewSolutionAndAdvancesToken()
+        {
+            var doc = new AdvancingGhDocument();
+
+            CanvasDirectorExtractor.RequireFreshSolve(doc);
+
+            Assert.Equal(1, doc.NewSolutionCalls);
+            Assert.True(doc.ExpireAllObjects);
+        }
+
+        [Fact]
+        public void RequireFreshSolve_FailsWhenSolutionTokenDoesNotAdvance()
+        {
+            var doc = new StaleGhDocument();
+
+            var ex = Assert.Throws<CanvasDirectorException>(() =>
+                CanvasDirectorExtractor.RequireFreshSolve(doc));
+
+            Assert.Equal("solution_stale", ex.Code);
+        }
+
+        [Fact]
+        public void ValidateDocumentIdentity_RejectsWrongDocumentId()
+        {
+            var request = new CanvasDirectorExtractRequest { DocumentId = "gh-doc-expected" };
+            var doc = new IdentityGhDocument { DocumentID = "gh-doc-actual" };
+
+            var ex = Assert.Throws<CanvasDirectorException>(() =>
+                CanvasDirectorExtractor.ValidateDocumentIdentity(doc, request));
+
+            Assert.Equal("document_mismatch", ex.Code);
+        }
+
+        [Fact]
         public void ParseExportPayload_RequiresDeclaredMarker()
         {
             var ex = Assert.Throws<CanvasDirectorException>(() =>
@@ -863,15 +974,66 @@ namespace Rook.Tests.Services.Vision.CanvasDirector
                 "\"metadata_kind\":\"rook.canvas_director.export\"," +
                 "\"schema_version\":1," +
                 "\"export_id\":\"export_a\"," +
+                "\"proposal_id\":\"proposal-1\"," +
                 "\"template_id\":\"canvas_director.basic_motion\"," +
                 "\"template_version\":\"0.1.0\"," +
                 "\"payload\":{\"timeline\":{\"fps\":24,\"frame_count\":3}}" +
                 "}";
 
-            var envelope = CanvasDirectorExtractor.ParseExportPayload(payload);
+            var envelope = CanvasDirectorExtractor.ParseExportPayload(
+                payload,
+                new CanvasDirectorExtractRequest { ProposalId = "proposal-1" });
 
             Assert.True(envelope.ReadOnly);
             Assert.NotEmpty(envelope.CanvasExportStateSha256);
+        }
+
+        [Fact]
+        public void ParseExportPayload_RejectsWrongProposalId()
+        {
+            var payload = "{" +
+                "\"metadata_kind\":\"rook.canvas_director.export\"," +
+                "\"schema_version\":1," +
+                "\"export_id\":\"export_a\"," +
+                "\"proposal_id\":\"proposal-actual\"," +
+                "\"template_id\":\"canvas_director.basic_motion\"," +
+                "\"template_version\":\"0.1.0\"," +
+                "\"payload\":{\"timeline\":{\"fps\":24,\"frame_count\":3}}" +
+                "}";
+
+            var ex = Assert.Throws<CanvasDirectorException>(() =>
+                CanvasDirectorExtractor.ParseExportPayload(
+                    payload,
+                    new CanvasDirectorExtractRequest { ProposalId = "proposal-expected" }));
+
+            Assert.Equal("document_mismatch", ex.Code);
+        }
+
+        private sealed class AdvancingGhDocument
+        {
+            public List<TimeSpan> SolutionHistory { get; } = new();
+            public TimeSpan SolutionSpan { get; private set; }
+            public int NewSolutionCalls { get; private set; }
+            public bool ExpireAllObjects { get; private set; }
+            public void NewSolution(bool expireAllObjects)
+            {
+                NewSolutionCalls++;
+                ExpireAllObjects = expireAllObjects;
+                SolutionSpan = TimeSpan.FromMilliseconds(NewSolutionCalls);
+                SolutionHistory.Add(SolutionSpan);
+            }
+        }
+
+        private sealed class StaleGhDocument
+        {
+            public List<TimeSpan> SolutionHistory { get; } = new() { TimeSpan.FromMilliseconds(10) };
+            public TimeSpan SolutionSpan { get; } = TimeSpan.FromMilliseconds(10);
+            public void NewSolution(bool expireAllObjects) { }
+        }
+
+        private sealed class IdentityGhDocument
+        {
+            public string? DocumentID { get; init; }
         }
     }
 }
@@ -892,6 +1054,9 @@ Expected: FAIL because validation/parser methods do not exist.
 Add to `CanvasDirectorExtractor`:
 
 ```csharp
+using System;
+using System.Collections.Generic;
+using System.Reflection;
 using System.Text.Json;
 
 namespace Rook.Services.Vision.CanvasDirector
@@ -901,8 +1066,11 @@ namespace Rook.Services.Vision.CanvasDirector
         public CanvasDirectorExtractionEnvelope Extract(CanvasDirectorExtractRequest request)
         {
             ValidateSolveMode(request.SolveMode, request.ExpectedSolutionToken, supportsReuseVerification: false);
-            var payload = TryExtractFromActiveGrasshopper(request);
-            return ParseExportPayload(payload);
+            var document = ResolveActiveGrasshopperDocument();
+            ValidateDocumentIdentity(document, request);
+            ApplySolveMode(document, request);
+            var payload = TryExtractFromDocument(document, request);
+            return ParseExportPayload(payload, request);
         }
 
         internal static void ValidateSolveMode(string solveMode, string? expectedSolutionToken, bool supportsReuseVerification)
@@ -920,7 +1088,61 @@ namespace Rook.Services.Vision.CanvasDirector
             throw new CanvasDirectorException("unsupported_solve_mode", $"Unsupported solve_mode '{solveMode}'.", 400);
         }
 
-        internal static CanvasDirectorExtractionEnvelope ParseExportPayload(string payloadJson)
+        internal static void ApplySolveMode(object document, CanvasDirectorExtractRequest request)
+        {
+            if (request.SolveMode == "require_fresh_solve")
+            {
+                RequireFreshSolve(document);
+                return;
+            }
+
+            ValidateSolveMode(request.SolveMode, request.ExpectedSolutionToken, supportsReuseVerification: false);
+        }
+
+        internal static void RequireFreshSolve(object document)
+        {
+            var before = ReadSolutionToken(document);
+            if (ReadIntProperty(document, "SolutionDepth").GetValueOrDefault() > 0)
+                throw new CanvasDirectorException("solve_locked", "Grasshopper document is already solving.", 409);
+
+            var newSolution = document.GetType().GetMethod("NewSolution", new[] { typeof(bool) });
+            if (newSolution == null)
+                throw new CanvasDirectorException("solve_failed", "Grasshopper document does not expose NewSolution(bool).", 503);
+
+            try
+            {
+                // First slice uses a guarded synchronous solve on the UI thread.
+                // Do not ScheduleSolution and block inside this sync bridge; that can self-deadlock.
+                newSolution.Invoke(document, new object[] { true });
+            }
+            catch (TargetInvocationException ex)
+            {
+                throw new CanvasDirectorException("solve_failed", ex.InnerException?.Message ?? ex.Message, 503);
+            }
+
+            var after = ReadSolutionToken(document);
+            if (before == null || after == null)
+                throw new CanvasDirectorException("solve_failed", "Grasshopper solution token could not be read before and after solve.", 503);
+            if (string.Equals(before, after, StringComparison.Ordinal))
+                throw new CanvasDirectorException("solution_stale", "Fresh solve did not advance the Grasshopper solution token.", 409);
+        }
+
+        internal static void ValidateDocumentIdentity(object document, CanvasDirectorExtractRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.DocumentId))
+                return;
+
+            var actual = ReadStringProperty(document, "DocumentID")
+                ?? ReadStringProperty(document, "RuntimeID")
+                ?? ReadStringProperty(document, "FilePath");
+            if (string.IsNullOrWhiteSpace(actual) ||
+                !string.Equals(actual, request.DocumentId, StringComparison.Ordinal))
+            {
+                throw new CanvasDirectorException("document_mismatch", "Active Grasshopper document does not match document_id.", 409);
+            }
+        }
+
+        internal static CanvasDirectorExtractionEnvelope ParseExportPayload(string payloadJson, CanvasDirectorExtractRequest? request = null)
         {
             using var doc = JsonDocument.Parse(payloadJson);
             var root = doc.RootElement;
@@ -932,33 +1154,74 @@ namespace Rook.Services.Vision.CanvasDirector
             {
                 throw new CanvasDirectorException("export_schema_mismatch", "Export payload missing metadata_kind rook.canvas_director.export.", 400);
             }
+            foreach (var required in new[] { "export_id", "template_id", "template_version", "payload" })
+            {
+                if (!root.TryGetProperty(required, out _))
+                    throw new CanvasDirectorException("export_schema_mismatch", $"Export payload missing required field '{required}'.", 400);
+            }
+            if (!string.IsNullOrWhiteSpace(request?.ExportId))
+            {
+                if (!root.TryGetProperty("export_id", out var exportId) ||
+                    exportId.ValueKind != JsonValueKind.String ||
+                    !string.Equals(exportId.GetString(), request.ExportId, StringComparison.Ordinal))
+                {
+                    throw new CanvasDirectorException("document_mismatch", "CanvasDirector export_id does not match request.", 409);
+                }
+            }
+            if (!string.IsNullOrWhiteSpace(request?.ProposalId))
+            {
+                if (!root.TryGetProperty("proposal_id", out var proposal) ||
+                    proposal.ValueKind != JsonValueKind.String ||
+                    !string.Equals(proposal.GetString(), request.ProposalId, StringComparison.Ordinal))
+                {
+                    throw new CanvasDirectorException("document_mismatch", "CanvasDirector export proposal_id does not match request.", 409);
+                }
+            }
             return CanvasDirectorExtractionEnvelope.FromState(root.Clone());
         }
 
-        private static string TryExtractFromActiveGrasshopper(CanvasDirectorExtractRequest request)
+        private static object ResolveActiveGrasshopperDocument()
         {
-            throw new CanvasDirectorException(
-                "grasshopper_not_ready",
-                "No declared CanvasDirector export payload was found in the active Grasshopper document.",
-                503);
+            var instancesType = Type.GetType("Grasshopper.Instances, Grasshopper");
+            var activeCanvas = instancesType?.GetProperty("ActiveCanvas")?.GetValue(null);
+            var document = activeCanvas?.GetType().GetProperty("Document")?.GetValue(activeCanvas);
+            if (document == null)
+                throw new CanvasDirectorException("grasshopper_not_ready", "No active Grasshopper document.", 503);
+            return document;
+        }
+
+        private static string? ReadSolutionToken(object document)
+        {
+            var history = document.GetType().GetProperty("SolutionHistory")?.GetValue(document) as System.Collections.ICollection;
+            var span = document.GetType().GetProperty("SolutionSpan")?.GetValue(document);
+            if (history == null && span == null)
+                return null;
+            var historyCount = history == null ? "?" : history.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return $"{historyCount}|{span}";
+        }
+
+        private static int? ReadIntProperty(object target, string name)
+        {
+            var value = target.GetType().GetProperty(name)?.GetValue(target);
+            return value == null ? null : Convert.ToInt32(value, System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        private static string? ReadStringProperty(object target, string name)
+        {
+            var value = target.GetType().GetProperty(name)?.GetValue(target);
+            return value?.ToString();
         }
     }
 }
 ```
 
-- [ ] **Step 4: Implement active GH export discovery**
+- [ ] **Step 4: Implement temporary first-slice GH export marker discovery**
 
-Replace `TryExtractFromActiveGrasshopper` with reflection-based discovery:
+Add `TryExtractFromDocument` with reflection-based discovery. This is a temporary harness for the first implementation slice: the component nickname must be `CanvasDirector Export:<export_id>` and output 0 must be the JSON export string. Do not treat nickname scraping as the durable schema. The next template iteration should replace this with declared CanvasDirector export component/template metadata.
 
 ```csharp
-private static string TryExtractFromActiveGrasshopper(CanvasDirectorExtractRequest request)
+private static string TryExtractFromDocument(object document, CanvasDirectorExtractRequest request)
 {
-    var instancesType = Type.GetType("Grasshopper.Instances, Grasshopper");
-    var activeCanvas = instancesType?.GetProperty("ActiveCanvas")?.GetValue(null);
-    var document = activeCanvas?.GetType().GetProperty("Document")?.GetValue(activeCanvas);
-    if (document == null)
-        throw new CanvasDirectorException("grasshopper_not_ready", "No active Grasshopper document.", 503);
-
     var objects = document.GetType().GetProperty("Objects")?.GetValue(document) as System.Collections.IEnumerable;
     if (objects == null)
         throw new CanvasDirectorException("grasshopper_not_ready", "Active Grasshopper document does not expose Objects.", 503);
@@ -1010,7 +1273,7 @@ private static string? ReadFirstOutputString(object component)
 }
 ```
 
-This first slice marker is intentionally simple: component nickname must be `CanvasDirector Export:<export_id>` and output 0 must be the JSON export string.
+This nickname/output convention is explicitly a temporary first-slice harness. It is acceptable only because the payload itself still has the declared `metadata_kind`, `template_id`, `template_version`, `export_id`, and optional `proposal_id` fields that Companion validates before returning an envelope.
 
 - [ ] **Step 5: Run managed tests**
 
@@ -1028,12 +1291,12 @@ Run:
 
 ```powershell
 git add src/Rook/Services/Vision/CanvasDirector src/Rook.Tests/Services/Vision/CanvasDirector
-git commit -m "feat(canvas-director): extract declared grasshopper exports"
+git commit -m "feat(canvas-director): extract first-slice grasshopper export markers"
 ```
 
 ---
 
-### Task 4: Python Envelope Persistence And JCS Verification
+### Task 4: Python Envelope Persistence And Restricted Canonical Hash Verification
 
 **Files:**
 
@@ -1091,6 +1354,23 @@ def test_hash_is_independent_of_object_key_order():
     left = {"b": "2", "a": "1"}
     right = {"a": "1", "b": "2"}
     assert cd.canvas_export_state_sha256(left) == cd.canvas_export_state_sha256(right)
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"b": "2", "a": "1"}, b'{"a":"1","b":"2"}'),
+        ({"text": "<>&", "list": [True, None, 3]}, b'{"list":[true,null,3],"text":"<>&"}'),
+    ],
+)
+def test_canonical_json_bytes_match_managed_vectors(payload, expected):
+    assert cd._canonical_json_bytes(payload) == expected
+
+
+def test_canonical_json_rejects_non_integer_numbers():
+    with pytest.raises(cd.CanvasDirectorError) as ei:
+        cd.canvas_export_state_sha256({"x": 1.25})
+    assert ei.value.code == "invalid_input"
 
 
 def test_save_export_persists_full_envelope(tmp_path):
@@ -1176,7 +1456,28 @@ def validate_canvas_director_id(value: Any, *, kind: str = "export") -> str:
     return value
 
 
+def _assert_restricted_canonical_subset(value: Any) -> None:
+    if value is None or isinstance(value, (str, bool)):
+        return
+    if isinstance(value, int) and not isinstance(value, bool):
+        return
+    if isinstance(value, float):
+        raise CanvasDirectorError("invalid_input", "CanvasDirector numeric values must be integers in slice one; encode decimals as strings.")
+    if isinstance(value, list):
+        for item in value:
+            _assert_restricted_canonical_subset(item)
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise CanvasDirectorError("invalid_input", "CanvasDirector object keys must be strings.")
+            _assert_restricted_canonical_subset(item)
+        return
+    raise CanvasDirectorError("invalid_input", f"Unsupported CanvasDirector JSON value: {type(value).__name__}")
+
+
 def _canonical_json_bytes(value: Any) -> bytes:
+    _assert_restricted_canonical_subset(value)
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
 
 
@@ -1868,8 +2169,13 @@ If no fixes were needed, do not create an empty commit.
   - Live smoke: Task 8.
 - Type consistency:
   - `canvas_export_state_sha256` is the field name in C#, Python, tests, and evidence.
+  - Managed envelope properties use explicit `JsonPropertyName` attributes and bridge-shape tests so the existing camelCase bridge options cannot rewrite them.
   - `run_directory` maps to existing Director `run_root` values in Python outputs; no `<run_root>/<run_id>` nesting is introduced.
   - `require_fresh_solve`, `reuse_verified_solution`, `freshness_token_required`, `solution_stale`, and `unsupported_solve_mode` match the spec.
+  - `require_fresh_solve` performs and verifies a fresh GH solution before reading outputs; `document_id` and `proposal_id` are parsed and validated.
+  - Native pre-bridge failures return structured `{ code, message }` data, not stringly error messages.
+  - Canonical hashing is a restricted RFC 8785/JCS-compatible subset with shared C#/Python test vectors.
+  - Nickname-based export discovery is labeled as a temporary first-slice harness, while payload metadata remains the declared export contract.
 - Verification commands:
   - Managed: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "CanvasDirector|NativeDirectorCanvasDispatchSourceTests|Registrar_DeclaresCanvasDirectorDispatchCallback"`
   - Python: `python -m pytest mcp_server/tests/test_canvas_director.py mcp_server/tests/test_director_mcp_tools.py mcp_server/tests/test_director.py -q -k "canvas_director or run_director_writes_input_spec"`
