@@ -94,23 +94,35 @@ separate evidence wording.
 ## Restore Evidence
 
 `DirectorObjectPoseGuard::Restore()` should record restore comparison evidence
-for every applied object, on both success and failure.
+for every applied object, on both success and failure. Some hard-failure paths
+cannot produce a valid restored object or restored bbox, so the evidence contract
+must distinguish object-level restore status from bbox-comparison availability.
 
-Per-object detail should include:
+Every per-object detail should include:
 
 - `object_id`
-- `object_type`
+- `source_object_type`, when known, otherwise `null`
+- `restored_object_type`, when available, otherwise `null`
 - `applied`
 - `restored`
 - `validation_strength`
+- `bbox_comparison_available`
+- `bbox_tolerance`
+- `bbox_tolerance_policy` or `bbox_tolerance_reason`
+- `restore_error` when restore fails
+
+When `bbox_comparison_available:true`, the detail should also include:
+
 - `source_bbox`
 - `restored_bbox`
 - `bbox_delta_min`
 - `bbox_delta_max`
 - `bbox_max_delta`
-- `bbox_tolerance`
-- `bbox_tolerance_policy` or `bbox_tolerance_reason`
-- `restore_error` when restore fails
+
+When `bbox_comparison_available:false`, the comparison fields may be `null` or
+omitted, but the detail must include a clear reason, either in `restore_error`
+or a dedicated comparison-unavailable field. This applies to failed inverse
+transform, missing object, deleted object, and invalid restored bbox paths.
 
 The bbox fields should reflect what native compared at restore time, not a later
 Python readback. Deltas should be per-axis absolute differences between the
@@ -153,6 +165,24 @@ Only a valid restored bbox comparison can be tolerated. If the bbox delta is
 above the restore policy tolerance, native must keep reporting `restored:false`
 and `dirty_partial_state:true`.
 
+## Implementation Sequence
+
+The implementation must proceed in two gated steps:
+
+1. Instrumentation-only patch:
+   add restore evidence fields and comparison availability without changing the
+   restore acceptance threshold. Deploy and run a targeted live capture, either
+   the Pearson failing smoke or a fresh synthetic large-coordinate instance
+   fixture, to collect raw native source/restored bbox deltas.
+2. Bounded tolerance patch:
+   choose the narrowest named restore verification tolerance justified by that
+   evidence, with a fixed absolute cap. Record the policy and numeric tolerance
+   in evidence.
+
+If step 1 shows real cumulative drift, missing restore, or object-state mutation
+that cannot be explained as bounded bbox precision noise, stop before step 2 and
+escalate to a stronger snapshot/original-state restore design.
+
 ## Python Behavior
 
 Python behavior remains unchanged.
@@ -171,12 +201,24 @@ safety, and Python refuses to proceed when native reports dirty partial state.
 Add source-level assertions that:
 
 - source-state validation and restore verification use separate named policies;
-- restore evidence includes source/restored bboxes, deltas, max delta,
-  tolerance, tolerance policy/reason, and object type;
+- restore evidence includes comparison availability, tolerance,
+  tolerance policy/reason, source/restored object type fields, and, when
+  comparison is available, source/restored bboxes, deltas, and max delta;
 - hard failure branches for transform failure, missing/deleted object, and
   invalid bbox remain ahead of any tolerance acceptance path.
 
 These tests catch contract regression without requiring Rhino.
+
+### Replay Verification
+
+`DirectorObjectPoseGuard` is shared by frame capture and native replay, so the
+verification set must cover replay dirty-state semantics as well as capture.
+
+At minimum, run the existing replay native/source tests that assert shared helper
+usage, restore ordering, and hard-failure handling. If implementation changes
+the helper's public evidence shape or hard-failure ordering, add focused replay
+source or live coverage so replay cannot silently start tolerating real dirty
+state.
 
 ### Python Artifact Tests
 
