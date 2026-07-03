@@ -1,18 +1,24 @@
 from __future__ import annotations
 
+import ast
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
 import pytest
 
 
-def _load_script():
-    path = (
+def _script_path() -> Path:
+    return (
         Path(__file__).resolve().parents[2]
         / "scripts"
         / "lm5p_ollama_think_format_spike.py"
     )
+
+
+def _load_script():
+    path = _script_path()
     spec = importlib.util.spec_from_file_location(
         "lm5p_ollama_think_format_spike", path
     )
@@ -160,3 +166,78 @@ def test_build_request_body_unknown_mode_raises() -> None:
             "missing",
             0,
         )
+
+
+def _request_envelope_for_scenario(name: str) -> dict:
+    messages = SPIKE._messages_for_scenario(name)
+    assert [message["role"] for message in messages] == ["system", "user"]
+    return json.loads(messages[1]["content"])
+
+
+def test_messages_for_evidence_absent_like_renders_real_lm5j_prompt() -> None:
+    envelope = _request_envelope_for_scenario("evidence_absent_like")
+
+    assert envelope["schema"] == "rook.local_worker_turn_request:v1"
+    context = envelope["context"]
+    assert context["current_node"]["node_id"] == "repair_same_component"
+    assert [packet["packet_id"] for packet in context["knowledge"]] == [
+        "script_body_gotcha"
+    ]
+    assert context["current_node"]["has_execution_params"] is False
+
+
+def test_messages_for_evidence_present_like_adds_evidence_packet() -> None:
+    envelope = _request_envelope_for_scenario("evidence_present_like")
+
+    packets = envelope["context"]["knowledge"]
+    assert [packet["packet_id"] for packet in packets] == [
+        "script_body_gotcha",
+        "lm5n_repair_evidence",
+    ]
+    evidence = packets[1]
+    assert evidence["kind"] == "evidence"
+    assert evidence["content"]["state"] == "post_verify_pre_bind"
+
+
+def test_messages_for_unknown_scenario_raises() -> None:
+    with pytest.raises(ValueError, match="unknown LM5P scenario"):
+        SPIKE._messages_for_scenario("missing")
+
+
+def test_script_static_import_and_call_guards() -> None:
+    tree = ast.parse(_script_path().read_text(encoding="utf-8"))
+    forbidden_modules = {"requests", "httpx", "ollama", "litellm"}
+    forbidden_names = {
+        "run_probe",
+        "run_candidate",
+        "_default_transport_factory",
+        "LiteLLMWorkerTransport",
+        "run_local_worker_adapter",
+        "run_local_worker_turn",
+        "evaluate_local_worker_scenario_result",
+    }
+
+    imported_modules: set[str] = set()
+    imported_names: set[str] = set()
+    called_names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imported_modules.add(alias.name.split(".", 1)[0])
+                imported_names.add(alias.asname or alias.name.split(".", 1)[0])
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                imported_modules.add(node.module.split(".", 1)[0])
+            for alias in node.names:
+                imported_names.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name):
+                called_names.add(func.id)
+            elif isinstance(func, ast.Attribute):
+                called_names.add(func.attr)
+
+    assert imported_modules.isdisjoint(forbidden_modules)
+    assert imported_names.isdisjoint(forbidden_names)
+    assert called_names.isdisjoint(forbidden_names)
+    assert {"_SCENARIOS", "build_probe_context"} <= imported_names

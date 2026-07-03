@@ -13,6 +13,14 @@ import copy
 import sys
 from typing import Any
 
+from rook.agent.local_worker_prompt_artifact import (
+    render_local_worker_prompt_artifact,
+)
+from rook.agent.local_worker_turn_request import (
+    render_local_worker_turn_request_payload,
+)
+from scripts.lm5k_worker_probe import _SCENARIOS, build_probe_context
+
 SCRIPT_SCHEMA = "rook.lm5p_ollama_think_format_spike:v1"
 DEFAULT_MODELS = ("gemma4:12b-it-qat", "gemma4:12b")
 SCENARIO_NAMES = ("evidence_absent_like", "evidence_present_like")
@@ -27,6 +35,11 @@ _MODES = {
     "format_default": {"format": True, "think": "omitted"},
     "format_think_true": {"format": True, "think": True},
     "format_think_false": {"format": True, "think": False},
+}
+
+_SCENARIO_MAP = {
+    "evidence_absent_like": "evidence_absent",
+    "evidence_present_like": "evidence_present",
 }
 
 
@@ -114,6 +127,18 @@ def _build_request_body(
     if mode["think"] != "omitted":
         body["think"] = mode["think"]
     return body
+
+
+def _messages_for_scenario(scenario_name: str) -> list[dict[str, str]]:
+    try:
+        probe_scenario_name = _SCENARIO_MAP[scenario_name]
+    except KeyError as exc:
+        raise ValueError(f"unknown LM5P scenario: {scenario_name}") from exc
+
+    context = build_probe_context(_SCENARIOS[probe_scenario_name])
+    request_payload = render_local_worker_turn_request_payload(context)
+    prompt_artifact = render_local_worker_prompt_artifact(request_payload)
+    return [dict(message) for message in prompt_artifact["messages"]]
 
 
 def _args(argv: list[str] | None) -> argparse.Namespace:
