@@ -324,3 +324,20 @@ def test_director_restore_hard_failures_precede_tolerance_acceptance():
     ]:
         assert marker in restore_body
         assert restore_body.index(marker) < tolerance_index
+
+
+def test_director_restore_reads_native_source_object_type_before_inverse_restore():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    restore_body = _extract_function(source, "bool DirectorObjectPoseGuard::Restore")
+
+    init_index = restore_body.index("InitializeRestoreDetail")
+    transform_index = restore_body.index("TransformObjectInPlace")
+    lookup = "const CRhinoObject* beforeRestoreObj = m_doc ? m_doc->LookupObject(object.uuid) : nullptr;"
+
+    assert lookup in restore_body
+    lookup_index = restore_body.index(lookup)
+    assert init_index < lookup_index < transform_index
+
+    before_inverse_block = restore_body[lookup_index:transform_index]
+    assert "beforeRestoreObj && !beforeRestoreObj->IsDeleted()" in before_inverse_block
+    assert 'detail["source_object_type"] = ObjectTypeToString(beforeRestoreObj->ObjectType());' in before_inverse_block

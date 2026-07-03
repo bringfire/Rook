@@ -576,6 +576,9 @@ bool DirectorObjectPoseGuard::Restore(nlohmann::json& evidence)
     {
         const FrameObjectTransform& object = m_objects[static_cast<size_t>(i)];
         nlohmann::json detail = InitializeRestoreDetail(object, m_applied[static_cast<size_t>(i)]);
+        const CRhinoObject* beforeRestoreObj = m_doc ? m_doc->LookupObject(object.uuid) : nullptr;
+        if (beforeRestoreObj && !beforeRestoreObj->IsDeleted())
+            detail["source_object_type"] = ObjectTypeToString(beforeRestoreObj->ObjectType());
 
         if (!m_applied[static_cast<size_t>(i)])
         {
