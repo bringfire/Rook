@@ -13,7 +13,7 @@ import httpx
 import pytest
 
 from rook import director, server
-from .conftest import _create_brep
+from .conftest import _block_create, _block_insert, _create_brep
 
 
 pytestmark = [pytest.mark.requires_rhino, pytest.mark.asyncio]
@@ -118,6 +118,113 @@ def _translation_matrix(x: float, y: float, z: float) -> list[list[float]]:
     matrix[1][3] = y
     matrix[2][3] = z
     return matrix
+
+
+def _director_source_state(state: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "bbox_min": state["bbox_min"],
+        "bbox_max": state["bbox_max"],
+        "validation_strength": state["validation_strength"],
+        "state_hash": state.get("state_hash"),
+    }
+
+
+def _compiled_object_transform(
+    object_id: str,
+    source_state: dict[str, Any],
+    matrix: list[list[float]],
+) -> dict[str, Any]:
+    return {
+        "object_id": object_id,
+        "source_state": _director_source_state(source_state),
+        "transform": matrix,
+    }
+
+
+def _assert_native_phase_evidence(detail: dict[str, Any], *, expects_instance: bool) -> None:
+    required = [
+        "transform_call_path",
+        "requested_transform",
+        "requested_inverse_transform",
+        "phase_before_apply",
+        "phase_after_apply",
+        "phase_before_restore",
+        "phase_after_restore",
+    ]
+    for key in required:
+        assert key in detail, detail
+
+    for phase_name in [
+        "phase_before_apply",
+        "phase_after_apply",
+        "phase_before_restore",
+        "phase_after_restore",
+    ]:
+        phase = detail[phase_name]
+        assert isinstance(phase, dict), {phase_name: phase}
+        for key in [
+            "object_found",
+            "object_id",
+            "runtime_serial_number",
+            "object_type",
+            "bbox",
+            "instance_definition_id",
+            "instance_definition_name",
+            "instance_xform",
+        ]:
+            assert key in phase, {phase_name: phase}
+
+        if phase["object_found"]:
+            assert isinstance(phase["object_id"], str)
+            assert isinstance(phase["runtime_serial_number"], int)
+            assert isinstance(phase["object_type"], str)
+            assert isinstance(phase["bbox"], dict)
+            assert "min" in phase["bbox"] and "max" in phase["bbox"]
+
+            if expects_instance:
+                if phase["object_type"] == "InstanceReference":
+                    assert isinstance(phase["instance_definition_id"], str)
+                    assert isinstance(phase["instance_definition_name"], str)
+                    assert isinstance(phase["instance_xform"], list)
+            else:
+                assert phase["object_type"] != "InstanceReference"
+
+
+def _phase_summary(phase: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "object_found": phase.get("object_found"),
+        "object_id": phase.get("object_id"),
+        "runtime_serial_number": phase.get("runtime_serial_number"),
+        "object_type": phase.get("object_type"),
+        "bbox": phase.get("bbox"),
+        "instance_definition_id": phase.get("instance_definition_id"),
+        "instance_definition_name": phase.get("instance_definition_name"),
+        "instance_xform": phase.get("instance_xform"),
+    }
+
+
+def _detail_phase_summary(detail: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "restored": detail.get("restored"),
+        "bbox_delta_min": detail.get("bbox_delta_min"),
+        "bbox_delta_max": detail.get("bbox_delta_max"),
+        "bbox_max_delta": detail.get("bbox_max_delta"),
+        "phase_before_apply": _phase_summary(detail["phase_before_apply"]),
+        "phase_after_apply": _phase_summary(detail["phase_after_apply"]),
+        "phase_before_restore": _phase_summary(detail["phase_before_restore"]),
+        "phase_after_restore": _phase_summary(detail["phase_after_restore"]),
+    }
+
+
+async def _cleanup_instance_restore_probe(created_ids: list[str], block_name: str) -> None:
+    from rook.server import _mcp_tool_executor
+
+    if created_ids:
+        await _mcp_tool_executor("rhino_delete", {"ids": created_ids})
+    await _mcp_tool_executor(
+        "rhino_block_delete",
+        {"name": block_name, "deleteInstances": True},
+    )
 
 
 def _assert_vector_close(actual: list[float], expected: list[float], tolerance: float = 1.0e-4) -> None:
@@ -663,6 +770,145 @@ async def test_director_run_director_live_smoke_writes_three_frames_and_restores
     for before, after in zip(source_states, restored_states):
         _assert_vector_close(after["bbox_min"], before["bbox_min"])
         _assert_vector_close(after["bbox_max"], before["bbox_max"])
+
+
+async def test_director_instance_restore_semantics_large_coordinate_probe(fresh_document):
+    _require_host()
+    base = [125718.338195, -328450.993563, -29189.909203]
+    size = [24.0, 16.0, 8.0]
+    tiny_z = 0.628483
+    suffix = uuid4().hex
+    block_name = f"director_instance_restore_probe_{suffix}"
+    created_ids: list[str] = []
+
+    control_id = await _create_brep(
+        base,
+        [base[0] + size[0], base[1] + size[1], base[2] + size[2]],
+        f"director_instance_restore_control_{suffix}",
+    )
+    created_ids.append(control_id)
+    definition_source_id = await _create_brep(
+        [0.0, 0.0, 0.0],
+        size,
+        f"director_instance_restore_definition_source_{suffix}",
+    )
+    created_ids.append(definition_source_id)
+
+    try:
+        await _block_create(
+            block_name,
+            [definition_source_id],
+            [0.0, 0.0, 0.0],
+            replace_with_instance=False,
+        )
+        instance_id = await _block_insert(block_name, base)
+        created_ids.append(instance_id)
+
+        _, state_envelope = await _post_director(
+            "object-states",
+            {"object_ids": [control_id, instance_id]},
+        )
+        assert state_envelope["success"] is True
+        state_by_id = {
+            item["object_id"]: item
+            for item in state_envelope["data"]["objects"]
+        }
+        assert state_by_id[instance_id]["object_type"] == "InstanceReference"
+
+        _, view_envelope = await _post_director("view-state", {"source": {"kind": "active_view"}})
+        assert view_envelope["success"] is True
+        camera = view_envelope["data"]["camera"]
+        if camera["projection"] != "perspective":
+            pytest.skip("Active Rhino view is not perspective; frame capture rejects parallel cameras.")
+
+        object_ids = [control_id, instance_id]
+        identity_transforms = [
+            _compiled_object_transform(object_id, state_by_id[object_id], director.identity_matrix())
+            for object_id in object_ids
+        ]
+        z_transforms = [
+            _compiled_object_transform(
+                object_id,
+                state_by_id[object_id],
+                director.translation_matrix([0.0, 0.0, 0.628483]),
+            )
+            for object_id in object_ids
+        ]
+        run_id = f"instance_restore_semantics_{suffix}"
+        result = await director.run_compiled_track(
+            {
+                "run_id": run_id,
+                "output_root": str(_director_output_root()),
+                "resolution": {"width": 320, "height": 180},
+                "display": {"mode": "Rendered"},
+                "track": {
+                    "transform_semantics": "absolute_from_source",
+                    "fps": 24,
+                    "frame_count": 2,
+                    "animated_object_ids": object_ids,
+                    "camera_frames": [
+                        {"frame_index": 1, "camera": camera},
+                        {"frame_index": 2, "camera": camera},
+                    ],
+                    "object_frames": [
+                        {"frame_index": 1, "object_transforms": identity_transforms},
+                        {"frame_index": 2, "object_transforms": z_transforms},
+                    ],
+                },
+                "compile_provenance": {
+                    "probe": "director_instance_restore_semantics",
+                    "tiny_z": tiny_z,
+                    "base": base,
+                    "control_object_id": control_id,
+                    "instance_object_id": instance_id,
+                },
+            },
+            port=_director_port(),
+        )
+
+        assert result["state"] in {"complete", "unsafe_failed"}
+        run_root = Path(result["run_root"])
+        evidence_rows = _read_jsonl(run_root / "logs" / "frame_evidence.jsonl")
+        assert evidence_rows
+
+        details = [
+            detail
+            for row in evidence_rows
+            for detail in row["objects"]["details"]
+        ]
+        control_details = [detail for detail in details if detail["object_id"] == control_id]
+        instance_details = [detail for detail in details if detail["object_id"] == instance_id]
+        assert control_details
+        assert instance_details
+
+        for detail in control_details:
+            _assert_native_phase_evidence(detail, expects_instance=False)
+            assert detail["transform_call_path"] == "pDoc->TransformObject(objRef, xform, true, false, true)"
+        for detail in instance_details:
+            _assert_native_phase_evidence(detail, expects_instance=True)
+            assert detail["transform_call_path"] == "pDoc->TransformObject(objRef, xform, true, false, true)"
+
+        assert control_details[0]["phase_before_apply"]["object_type"] != "InstanceReference"
+        assert instance_details[0]["phase_before_apply"]["object_type"] == "InstanceReference"
+        assert instance_details[0]["phase_before_apply"]["instance_definition_name"] == block_name
+        assert isinstance(instance_details[0]["phase_before_apply"]["instance_xform"], list)
+
+        print(json.dumps({
+            "director_instance_restore_semantics_probe": {
+                "run_state": result["state"],
+                "run_root": str(run_root),
+                "control_object_id": control_id,
+                "instance_object_id": instance_id,
+                "control_restored": [detail.get("restored") for detail in control_details],
+                "instance_restored": [detail.get("restored") for detail in instance_details],
+                "control_bbox_max_delta": [detail.get("bbox_max_delta") for detail in control_details],
+                "instance_bbox_max_delta": [detail.get("bbox_max_delta") for detail in instance_details],
+                "control_phase_summary": [_detail_phase_summary(detail) for detail in control_details],
+                "instance_phase_summary": [_detail_phase_summary(detail) for detail in instance_details],
+            }
+        }, indent=2, sort_keys=True))
+    finally:
+        await _cleanup_instance_restore_probe(created_ids, block_name)
 
 
 async def test_director_run_director_live_smoke_curve_follow_target_uses_curve_uuid(
