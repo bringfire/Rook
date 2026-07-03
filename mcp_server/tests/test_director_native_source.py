@@ -6,6 +6,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DIRECTOR_HANDLER = REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorHandler.cpp"
+DIRECTOR_FRAME = REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorFrame.cpp"
 DIRECTOR_HEADER = REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorHandler.h"
 ROOK_SERVER_CPP = REPO_ROOT / "src" / "RookNative" / "RookServer.cpp"
 ROOK_SERVER_HEADER = REPO_ROOT / "src" / "RookNative" / "RookServer.h"
@@ -270,3 +271,56 @@ def test_director_publish_video_native_route_is_thin_vision_proxy():
     assert "DirectorVideoPublisher" not in handler_source
     assert "ArtifactStore" not in handler_source
     assert "director_publish_standard_v1" not in handler_source
+
+
+def test_director_restore_uses_separate_named_bbox_policies():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    validate_body = _extract_function(source, "void ValidateFrameObjects")
+    restore_body = _extract_function(source, "bool DirectorObjectPoseGuard::Restore")
+
+    assert "kDirectorSourceStateBboxTolerance" in source
+    assert "DirectorSourceStateBboxTolerance" in validate_body
+    assert "kDirectorRestoreBboxTolerance" in source
+    assert "DirectorRestoreBboxTolerance" in restore_body
+    assert "source_state_validation" in source
+    assert "restore_verification" in source
+    assert validate_body != restore_body
+
+
+def test_director_restore_evidence_records_comparison_availability():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    restore_body = _extract_function(source, "bool DirectorObjectPoseGuard::Restore")
+
+    for token in [
+        "bbox_comparison_available",
+        "source_object_type",
+        "restored_object_type",
+        "source_bbox",
+        "restored_bbox",
+        "bbox_delta_min",
+        "bbox_delta_max",
+        "bbox_max_delta",
+        "bbox_tolerance",
+        "bbox_tolerance_policy",
+    ]:
+        assert token in source
+
+    assert "restored bbox did not match source bbox" in restore_body
+    assert "InitializeRestoreDetail" in restore_body
+    assert "AddRestoreBboxEvidence" in restore_body
+    assert "MarkBboxComparisonUnavailable" in restore_body
+    assert "bbox comparison unavailable" in source
+
+
+def test_director_restore_hard_failures_precede_tolerance_acceptance():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    restore_body = _extract_function(source, "bool DirectorObjectPoseGuard::Restore")
+
+    tolerance_index = restore_body.index("BboxAlmostEqual")
+    for marker in [
+        "restore transform failed",
+        "object not found after restore",
+        "restored bbox is invalid",
+    ]:
+        assert marker in restore_body
+        assert restore_body.index(marker) < tolerance_index
