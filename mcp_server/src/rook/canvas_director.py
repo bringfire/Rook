@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,8 @@ _RESERVED_WINDOWS_TOKENS = {
 
 _INT64_MIN = -(2**63)
 _INT64_MAX = 2**63 - 1
+_LOCK_WAIT_SECONDS = 5.0
+_LOCK_POLL_SECONDS = 0.01
 
 
 class CanvasDirectorError(Exception):
@@ -92,19 +95,34 @@ def canvas_export_state_sha256(state: Any) -> str:
 
 def _atomic_write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    created = False
+    tmp_name: str | None = None
     try:
-        with path.open("x", encoding="utf-8") as target:
-            created = True
-            json.dump(payload, target, indent=2, sort_keys=True)
-            target.write("\n")
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            delete=False,
+        ) as tmp:
+            tmp_name = tmp.name
+            json.dump(payload, tmp, indent=2, sort_keys=True)
+            tmp.write("\n")
+        Path(tmp_name).replace(path)
     except Exception:
-        if created:
+        if tmp_name is not None:
             try:
-                path.unlink(missing_ok=True)
+                os.unlink(tmp_name)
             except OSError:
                 pass
         raise
+
+
+def _ensure_resolved_under(path: Path, root: Path, message: str) -> None:
+    try:
+        path.resolve().relative_to(root.resolve())
+    except ValueError as exc:
+        raise CanvasDirectorError("export_write_failed", message) from exc
+    except OSError as exc:
+        raise CanvasDirectorError("export_write_failed", str(exc)) from exc
 
 
 def _ensure_under(path: Path, root: Path, *, project_root: Path | None = None) -> Path:
@@ -134,14 +152,42 @@ def _director_root(project_root: str | os.PathLike[str]) -> Path:
         # final resolved export path is also checked against the project root.
         if rook_root.is_symlink() or root.is_symlink():
             raise CanvasDirectorError("export_write_failed", "Director path may not be a symlink.")
+        if rook_root.exists():
+            _ensure_resolved_under(rook_root, project_path, "Rook metadata root escapes project root.")
+        if root.exists():
+            _ensure_resolved_under(root, project_path, "Director path escapes project root.")
         root.mkdir(parents=True, exist_ok=True)
         if rook_root.is_symlink() or root.is_symlink():
             raise CanvasDirectorError("export_write_failed", "Director path may not be a symlink.")
+        _ensure_resolved_under(rook_root, project_path, "Rook metadata root escapes project root.")
+        _ensure_resolved_under(root, project_path, "Director path escapes project root.")
     except CanvasDirectorError:
         raise
     except OSError as exc:
         raise CanvasDirectorError("export_write_failed", str(exc)) from exc
     return root
+
+
+def _acquire_export_lock(lock_path: Path) -> None:
+    deadline = time.monotonic() + _LOCK_WAIT_SECONDS
+    while True:
+        try:
+            with lock_path.open("x", encoding="utf-8") as lock:
+                lock.write(f"{os.getpid()}\n")
+            return
+        except FileExistsError:
+            if time.monotonic() >= deadline:
+                raise CanvasDirectorError("export_write_failed", "Timed out waiting for export lock.")
+            time.sleep(_LOCK_POLL_SECONDS)
+        except OSError as exc:
+            raise CanvasDirectorError("export_write_failed", str(exc)) from exc
+
+
+def _release_export_lock(lock_path: Path) -> None:
+    try:
+        lock_path.unlink(missing_ok=True)
+    except OSError as exc:
+        raise CanvasDirectorError("export_write_failed", str(exc)) from exc
 
 
 def _verify_envelope(envelope: Any) -> tuple[dict[str, Any], str]:
@@ -222,6 +268,7 @@ def save_canvas_export(
     project_path = Path(project_root)
     director_root = _director_root(project_path)
     exports_root = director_root / "exports"
+    _ensure_under(exports_root, director_root, project_root=project_path)
     try:
         exports_root.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
@@ -231,22 +278,23 @@ def save_canvas_export(
         director_root,
         project_root=project_path,
     )
+    lock_path = _ensure_under(
+        export_path.with_name(f"{export_path.name}.lock"),
+        director_root,
+        project_root=project_path,
+    )
 
-    if export_path.exists():
-        return _existing_export_result(export_path, selected_export_id, state, actual_hash)
-
+    _acquire_export_lock(lock_path)
     try:
-        _atomic_write_json(export_path, envelope)
-    except FileExistsError:
-        return _existing_export_result(
-            export_path,
-            selected_export_id,
-            state,
-            actual_hash,
-            wait_for_complete=True,
-        )
-    except OSError as exc:
-        raise CanvasDirectorError("export_write_failed", str(exc)) from exc
+        if export_path.exists():
+            return _existing_export_result(export_path, selected_export_id, state, actual_hash)
+
+        try:
+            _atomic_write_json(export_path, envelope)
+        except OSError as exc:
+            raise CanvasDirectorError("export_write_failed", str(exc)) from exc
+    finally:
+        _release_export_lock(lock_path)
 
     return {
         "export_id": selected_export_id,

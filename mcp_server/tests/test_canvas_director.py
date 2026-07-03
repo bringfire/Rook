@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
+import time
 
 import pytest
 
@@ -142,6 +144,27 @@ def test_save_export_rejects_symlinked_rook_escape(tmp_path):
     assert not (outside_root / "director" / "exports" / "export_a.json").exists()
 
 
+def test_save_export_rejects_junction_escape_before_creating_descendants(tmp_path):
+    project_root = tmp_path / "project"
+    outside_root = tmp_path / "outside"
+    project_root.mkdir()
+    outside_root.mkdir()
+    result = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(project_root / ".rook"), str(outside_root)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        pytest.skip(f"junction creation unavailable: {result.stderr or result.stdout}")
+
+    with pytest.raises(cd.CanvasDirectorError) as ei:
+        cd.save_canvas_export(project_root, _envelope(), export_id="export_a")
+    assert ei.value.code == "export_write_failed"
+    assert not (outside_root / "director").exists()
+    assert not (outside_root / "director" / "exports").exists()
+
+
 def test_same_state_retry_is_idempotent_and_does_not_overwrite_diagnostics(tmp_path):
     first = _envelope(diagnostics=[{"code": "first"}])
     second = _envelope(diagnostics=[{"code": "second"}])
@@ -165,14 +188,21 @@ def test_concurrent_first_writes_detect_id_collision(tmp_path, monkeypatch):
     first_state = _state("export_a")
     second_state = _state("export_a")
     second_state["payload"]["timeline"]["frame_count"] = 4
-    barrier = threading.Barrier(2)
-    original_write = cd._atomic_write_json
+    partial_started = threading.Event()
+    release_writer = threading.Event()
 
-    def synchronized_write(path, payload):
-        barrier.wait(timeout=5)
-        original_write(path, payload)
+    def paused_write(path, payload):
+        with path.open("x", encoding="utf-8") as target:
+            target.write("{")
+            target.flush()
+            partial_started.set()
+            assert release_writer.wait(timeout=5)
+            target.seek(0)
+            target.truncate()
+            json.dump(payload, target, indent=2, sort_keys=True)
+            target.write("\n")
 
-    monkeypatch.setattr(cd, "_atomic_write_json", synchronized_write)
+    monkeypatch.setattr(cd, "_atomic_write_json", paused_write)
     results = []
     errors = []
 
@@ -182,20 +212,67 @@ def test_concurrent_first_writes_detect_id_collision(tmp_path, monkeypatch):
         except Exception as exc:  # noqa: BLE001 - test records thread exceptions for assertions.
             errors.append(exc)
 
-    threads = [
-        threading.Thread(target=worker, args=(_envelope(first_state),)),
-        threading.Thread(target=worker, args=(_envelope(second_state),)),
-    ]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join(timeout=10)
-        assert not thread.is_alive()
+    first = threading.Thread(target=worker, args=(_envelope(first_state),))
+    first.start()
+    assert partial_started.wait(timeout=5)
+    second = threading.Thread(target=worker, args=(_envelope(second_state),))
+    second.start()
+    time.sleep(0.1)
+    release_writer.set()
+    first.join(timeout=10)
+    second.join(timeout=10)
+    assert not first.is_alive()
+    assert not second.is_alive()
 
     assert len(results) == 1
     assert [getattr(error, "code", None) for error in errors] == ["id_collision"]
     persisted = json.loads(results[0]["export_path"].read_text(encoding="utf-8"))
     assert persisted["canvas_export_state_sha256"] == results[0]["canvas_export_state_sha256"]
+
+
+def test_same_state_retry_waits_for_in_progress_first_write(tmp_path, monkeypatch):
+    original_write = cd._atomic_write_json
+    partial_started = threading.Event()
+    release_writer = threading.Event()
+
+    def paused_write(path, payload):
+        with path.open("x", encoding="utf-8") as target:
+            target.write("{")
+            target.flush()
+            partial_started.set()
+            assert release_writer.wait(timeout=5)
+            target.seek(0)
+            target.truncate()
+            json.dump(payload, target, indent=2, sort_keys=True)
+            target.write("\n")
+
+    monkeypatch.setattr(cd, "_atomic_write_json", paused_write)
+    envelope = _envelope()
+    results = []
+    errors = []
+
+    def worker():
+        try:
+            results.append(cd.save_canvas_export(tmp_path, envelope, export_id="export_a"))
+        except Exception as exc:  # noqa: BLE001 - test records thread exceptions for assertions.
+            errors.append(exc)
+
+    first = threading.Thread(target=worker)
+    first.start()
+    assert partial_started.wait(timeout=5)
+    second = threading.Thread(target=worker)
+    second.start()
+    time.sleep(0.1)
+    release_writer.set()
+    first.join(timeout=10)
+    second.join(timeout=10)
+    assert not first.is_alive()
+    assert not second.is_alive()
+
+    monkeypatch.setattr(cd, "_atomic_write_json", original_write)
+    assert errors == []
+    assert sorted(result["idempotent"] for result in results) == [False, True]
+    assert json.loads(results[0]["export_path"].read_text(encoding="utf-8")) == envelope
 
 
 @pytest.mark.asyncio
