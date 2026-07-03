@@ -190,7 +190,7 @@ namespace Rook.Tests.Handlers
             Assert.Contains("public IntPtr VisionDispatch;", source);
             Assert.Contains("public IntPtr CanvasDirectorDispatch;", source);
             Assert.Contains("public IntPtr BimDispatch;", source);
-            Assert.Contains("CanvasDirectorDispatch = IntPtr.Zero", source);
+            Assert.Contains("CanvasDirectorDispatch = Marshal.GetFunctionPointerForDelegate(CanvasDirectorDispatchCallback)", source);
             Assert.Contains("BimDispatch = Marshal.GetFunctionPointerForDelegate(BimDispatchCallback)", source);
             Assert.Contains("BimDispatchCallback = HandleBimDispatch", source);
         }

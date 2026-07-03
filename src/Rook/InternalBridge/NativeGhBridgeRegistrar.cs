@@ -426,7 +426,6 @@ namespace Rook.InternalBridge
                     BlockTransformObjectBatch = Marshal.GetFunctionPointerForDelegate(BlockTransformObjectBatchCallback),
                     ViewportCaptureTier3 = Marshal.GetFunctionPointerForDelegate(ViewportCaptureTier3Callback),
                     VisionDispatch = Marshal.GetFunctionPointerForDelegate(VisionDispatchCallback),
-                    // Task 1 used CanvasDirectorDispatch = IntPtr.Zero as a temporary ABI shim.
                     CanvasDirectorDispatch = Marshal.GetFunctionPointerForDelegate(CanvasDirectorDispatchCallback),
                     BimDispatch = Marshal.GetFunctionPointerForDelegate(BimDispatchCallback),
                     ReconstructionDispatch = Marshal.GetFunctionPointerForDelegate(ReconstructionDispatchCallback),
