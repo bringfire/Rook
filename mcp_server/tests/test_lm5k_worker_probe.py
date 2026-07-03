@@ -7,6 +7,10 @@ from pathlib import Path
 
 import pytest
 
+from rook.agent.local_worker_prompt_artifact import (
+    LOCAL_WORKER_PROMPT_TEXT_VERSION,
+)
+
 
 def _load_script():
     path = Path(__file__).resolve().parents[2] / "scripts" / "lm5k_worker_probe.py"
@@ -227,7 +231,7 @@ def test_offline_probe_end_to_end_good_transport(tmp_path) -> None:
     )
     manifest = json.loads((run_dir / "manifest.json").read_text())
     assert "generation_params" not in manifest
-    assert manifest["prompt_text_version"] == "lm5j.prompt_text:v1"
+    assert manifest["prompt_text_version"] == LOCAL_WORKER_PROMPT_TEXT_VERSION
     # scenario identity: structured block, versioned (spec section 5);
     # the bare scenario_workflow_id string is replaced, not kept alongside
     assert manifest["scenario"] == {
