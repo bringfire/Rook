@@ -12,6 +12,7 @@ void ClearGrasshopperBridgeRegistration();
 bool HasGrasshopperBridgeRegistration();
 bool HasGrasshopperCoreRegistration();
 bool HasVisionDispatchRegistration();
+bool HasCanvasDirectorDispatchRegistration();
 bool HasBimDispatchRegistration();
 bool HasReconstructionDispatchRegistration();
 bool HasViewportCaptureTier3Registration();
@@ -56,6 +57,15 @@ ManagedCreateInvokeResult InvokeViewportCaptureTier3WithBody(
 // VisionHandler.cs as the single validation boundary and avoids one
 // callback slot per vision route.
 ManagedCreateInvokeResult InvokeVisionDispatchWithBody(
+    const std::string& requestJson,
+    std::string& responseJson,
+    int& statusCode,
+    std::string& error);
+
+// Invokes the managed canvas_director_dispatch bridge callback. Native
+// /director/canvas/* routes inject only the op discriminator and forward the
+// opaque JSON body to the managed CanvasDirector validation boundary.
+ManagedCreateInvokeResult InvokeCanvasDirectorDispatchWithBody(
     const std::string& requestJson,
     std::string& responseJson,
     int& statusCode,
