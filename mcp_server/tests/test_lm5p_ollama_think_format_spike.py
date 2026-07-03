@@ -205,6 +205,86 @@ def test_messages_for_unknown_scenario_raises() -> None:
         SPIKE._messages_for_scenario("missing")
 
 
+def test_excerpt_and_sha256_text_handle_text_and_none() -> None:
+    text = "abcdef" * 120
+
+    assert SPIKE._excerpt(text) == text[:500]
+    assert (
+        SPIKE._sha256_text(text)
+        == "a774b01707c1f8c098d7f16731417bc41f269298ffb4a896b716ce5829c8ce7d"
+    )
+    assert SPIKE._excerpt(None) is None
+    assert SPIKE._sha256_text(None) is None
+
+
+def test_classifies_lm5g_loadable_response_with_thinking() -> None:
+    content = json.dumps(
+        {
+            "schema": "rook.local_worker_turn_response:v1",
+            "kind": "clarification_request",
+            "question": "Which curve should I use?",
+            "rationale": "Need a target curve before editing.",
+        }
+    )
+    thinking = "checking contract"
+    provider_text = json.dumps(
+        {
+            "message": {
+                "content": content,
+                "thinking": thinking,
+            },
+            "prompt_eval_count": 123,
+            "eval_count": 45,
+            "total_duration": 1000,
+            "load_duration": 200,
+            "prompt_eval_duration": 300,
+            "eval_duration": 400,
+            "done_reason": "stop",
+        }
+    )
+
+    row = SPIKE._classify_provider_text(provider_text, {"scenario": "demo"})
+
+    assert row["scenario"] == "demo"
+    assert row["provider_status"] == "ok"
+    assert row["provider_json_valid"] is True
+    assert row["content_json_valid"] is True
+    assert row["content_is_mapping"] is True
+    assert row["schema_literal"] == "rook.local_worker_turn_response:v1"
+    assert row["lm5g_loadable"] is True
+    assert row["response_kind"] == "clarification_request"
+    assert row["thinking_present"] is True
+    assert row["thinking_chars"] == len(thinking)
+    assert row["prompt_eval_count"] == 123
+    assert row["eval_count"] == 45
+    assert row["total_duration"] == 1000
+    assert row["load_duration"] == 200
+    assert row["prompt_eval_duration"] == 300
+    assert row["eval_duration"] == 400
+    assert row["done_reason"] == "stop"
+    assert row["failure_reason"] is None
+
+
+def test_classifies_provider_json_parse_failure() -> None:
+    row = SPIKE._classify_provider_text("{not json", {})
+
+    assert row["provider_status"] == "error"
+    assert row["provider_json_valid"] is False
+    assert row["failure_reason"] == "provider_json_invalid:JSONDecodeError"
+
+
+def test_classifies_free_text_content_as_row_evidence() -> None:
+    provider_text = json.dumps({"message": {"content": "not json"}})
+
+    row = SPIKE._classify_provider_text(provider_text, {})
+
+    assert row["provider_status"] == "ok"
+    assert row["provider_json_valid"] is True
+    assert row["content_json_valid"] is False
+    assert row["lm5g_loadable"] is False
+    assert row["failure_reason"] == "content_json_invalid:JSONDecodeError"
+
+
 def test_script_help_runs_from_repo_root() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     python = repo_root / "mcp_server" / ".venv" / "Scripts" / "python.exe"

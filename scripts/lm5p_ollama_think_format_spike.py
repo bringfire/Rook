@@ -9,8 +9,11 @@ calls. Later LM5P tasks can layer live probing on top of this contract.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import copy
+import json
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +28,9 @@ for _path in (str(_SCRIPT_DIR), str(_REPO_ROOT), str(_MCP_SRC)):
 from rook.agent.local_worker_prompt_artifact import (
     render_local_worker_prompt_artifact,
 )
+from rook.agent.local_worker_turn_response import (
+    load_local_worker_turn_response_payload,
+)
 from rook.agent.local_worker_turn_request import (
     render_local_worker_turn_request_payload,
 )
@@ -36,7 +42,7 @@ SCENARIO_NAMES = ("evidence_absent_like", "evidence_present_like")
 DEFAULT_ENDPOINT = "http://localhost:11434/api/chat"
 DEFAULT_ATTEMPTS = 3
 DEFAULT_TEMPERATURE = 0
-EXCERPT_CHARS = 2000
+EXCERPT_CHARS = 500
 
 _MODES = {
     "free_default": {"format": False, "think": "omitted"},
@@ -148,6 +154,125 @@ def _messages_for_scenario(scenario_name: str) -> list[dict[str, str]]:
     request_payload = render_local_worker_turn_request_payload(context)
     prompt_artifact = render_local_worker_prompt_artifact(request_payload)
     return [dict(message) for message in prompt_artifact["messages"]]
+
+
+def _excerpt(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return value[:EXCERPT_CHARS]
+
+
+def _sha256_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _empty_result_fields() -> dict[str, Any]:
+    return {
+        "provider_status": "ok",
+        "provider_json_valid": False,
+        "content_json_valid": False,
+        "content_is_mapping": False,
+        "schema_literal": None,
+        "lm5g_loadable": False,
+        "response_kind": None,
+        "message_content_excerpt": None,
+        "message_content_sha256": None,
+        "thinking_present": False,
+        "thinking_chars": 0,
+        "thinking_excerpt": None,
+        "thinking_sha256": None,
+        "prompt_eval_count": None,
+        "eval_count": None,
+        "total_duration": None,
+        "load_duration": None,
+        "prompt_eval_duration": None,
+        "eval_duration": None,
+        "done_reason": None,
+        "failure_reason": None,
+    }
+
+
+def _classify_provider_text(
+    provider_text: str,
+    base_row: Mapping[str, Any],
+) -> dict[str, Any]:
+    row = {**base_row, **_empty_result_fields()}
+    try:
+        provider_payload = json.loads(provider_text)
+    except json.JSONDecodeError as exc:
+        row["provider_status"] = "error"
+        row["provider_json_valid"] = False
+        row["failure_reason"] = f"provider_json_invalid:{type(exc).__name__}"
+        return row
+
+    if not isinstance(provider_payload, Mapping):
+        row["provider_status"] = "error"
+        row["provider_json_valid"] = False
+        row["failure_reason"] = "provider_json_invalid:not_mapping"
+        return row
+
+    row["provider_json_valid"] = True
+    message = provider_payload.get("message")
+    if not isinstance(message, Mapping):
+        row["failure_reason"] = "message_missing"
+        return row
+
+    content = message.get("content")
+    if isinstance(content, str):
+        row["message_content_excerpt"] = _excerpt(content)
+        row["message_content_sha256"] = _sha256_text(content)
+
+    thinking = message.get("thinking")
+    if isinstance(thinking, str) and thinking:
+        row["thinking_present"] = True
+        row["thinking_chars"] = len(thinking)
+        row["thinking_excerpt"] = _excerpt(thinking)
+        row["thinking_sha256"] = _sha256_text(thinking)
+
+    for key in (
+        "prompt_eval_count",
+        "eval_count",
+        "total_duration",
+        "load_duration",
+        "prompt_eval_duration",
+        "eval_duration",
+        "done_reason",
+    ):
+        row[key] = provider_payload.get(key)
+
+    if not isinstance(content, str) or not content:
+        row["failure_reason"] = "content_missing"
+        return row
+
+    try:
+        parsed_content = json.loads(content)
+    except json.JSONDecodeError as exc:
+        row["content_json_valid"] = False
+        row["failure_reason"] = f"content_json_invalid:{type(exc).__name__}"
+        return row
+
+    row["content_json_valid"] = True
+    row["content_is_mapping"] = isinstance(parsed_content, Mapping)
+    if not isinstance(parsed_content, Mapping):
+        row["failure_reason"] = "content_json_not_mapping"
+        return row
+
+    schema_literal = parsed_content.get("schema")
+    row["schema_literal"] = schema_literal if isinstance(schema_literal, str) else None
+    response_kind = parsed_content.get("kind")
+    row["response_kind"] = response_kind if isinstance(response_kind, str) else None
+
+    try:
+        load_local_worker_turn_response_payload(parsed_content)
+    except (TypeError, ValueError) as exc:
+        row["failure_reason"] = f"lm5g_load_failed:{type(exc).__name__}"
+        return row
+
+    row["lm5g_loadable"] = True
+    row["failure_reason"] = None
+    return row
 
 
 def _args(argv: list[str] | None) -> argparse.Namespace:
