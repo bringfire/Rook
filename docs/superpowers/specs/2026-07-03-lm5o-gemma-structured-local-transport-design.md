@@ -127,7 +127,16 @@ provider error
 missing/non-text content
 invalid JSON
 LM5G loader failure
-output forced into only one kind unexpectedly
+absent-style prompt loads as action_request
+```
+
+The concrete choice-preservation check is:
+
+```text
+The absent-style prompt must load as clarification_request, refusal, or
+observation, not action_request.
+
+The present-style prompt may load as action_request if the model chooses action.
 ```
 
 Raw outputs remain local. If Phase A evidence is later worth preserving, create a
