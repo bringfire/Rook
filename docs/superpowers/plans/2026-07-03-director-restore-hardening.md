@@ -195,12 +195,12 @@ nlohmann::json BboxToDirectorEvidenceJson(const ON_BoundingBox& bbox)
     return data;
 }
 
-nlohmann::json BboxDeltaToJson(const ON_3dPoint& a, const ON_3dPoint& b)
+nlohmann::json BboxDeltaToJson(const ON_3dPoint& restored, const ON_3dPoint& source)
 {
     return nlohmann::json::array({
-        RoundTo(std::fabs(a.x - b.x), 9),
-        RoundTo(std::fabs(a.y - b.y), 9),
-        RoundTo(std::fabs(a.z - b.z), 9)
+        restored.x - source.x,
+        restored.y - source.y,
+        restored.z - source.z
     });
 }
 
@@ -245,8 +245,8 @@ void AddRestoreBboxEvidence(
     detail["bbox_comparison_available"] = true;
     detail["source_bbox"] = BboxToDirectorEvidenceJson(sourceBbox);
     detail["restored_bbox"] = BboxToDirectorEvidenceJson(restoredBbox);
-    detail["bbox_delta_min"] = BboxDeltaToJson(sourceBbox.m_min, restoredBbox.m_min);
-    detail["bbox_delta_max"] = BboxDeltaToJson(sourceBbox.m_max, restoredBbox.m_max);
+    detail["bbox_delta_min"] = BboxDeltaToJson(restoredBbox.m_min, sourceBbox.m_min);
+    detail["bbox_delta_max"] = BboxDeltaToJson(restoredBbox.m_max, sourceBbox.m_max);
     detail["bbox_max_delta"] = RoundTo(BboxMaxDelta(sourceBbox, restoredBbox), 9);
     detail["bbox_tolerance"] = tolerance;
     detail["bbox_tolerance_policy"] = DirectorRestoreBboxTolerancePolicy();

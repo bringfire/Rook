@@ -359,10 +359,10 @@ def test_director_restore_source_object_type_is_native_only_evidence():
     assert 'sourceState["object_type"]' not in parser_body
 
 
-def test_director_restore_bbox_axis_deltas_are_absolute():
+def test_director_restore_bbox_axis_deltas_are_signed_directional():
     source = DIRECTOR_FRAME.read_text(encoding="utf-8")
     delta_body = _extract_function(source, "nlohmann::json BboxDeltaToJson")
 
     for axis in ["x", "y", "z"]:
-        assert f"std::fabs(restored.{axis} - source.{axis})" in delta_body
-        assert f"restored.{axis} - source.{axis}," not in delta_body
+        assert f"restored.{axis} - source.{axis}" in delta_body
+        assert f"std::fabs(restored.{axis} - source.{axis})" not in delta_body

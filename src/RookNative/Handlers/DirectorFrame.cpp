@@ -231,9 +231,9 @@ nlohmann::json BoundingBoxToDirectorJson(const ON_BoundingBox& bbox)
 nlohmann::json BboxDeltaToJson(const ON_3dPoint& restored, const ON_3dPoint& source)
 {
     return nlohmann::json::array({
-        std::fabs(restored.x - source.x),
-        std::fabs(restored.y - source.y),
-        std::fabs(restored.z - source.z)
+        restored.x - source.x,
+        restored.y - source.y,
+        restored.z - source.z
     });
 }
 
