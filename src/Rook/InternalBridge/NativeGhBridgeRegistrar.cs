@@ -21,7 +21,7 @@ namespace Rook.InternalBridge
     /// </summary>
     public static class NativeGhBridgeRegistrar
     {
-        private const uint BridgeAbiVersion = 16;
+        private const uint BridgeAbiVersion = 17;
         private static readonly object Sync = new();
         private static readonly IGrasshopperCore Core = new GrasshopperCore();
         private static readonly GrasshopperHandler Handler = new();
@@ -316,6 +316,9 @@ namespace Rook.InternalBridge
             // discriminator is carried in the request JSON and routed
             // inside VisionHandler.cs (the single validation boundary).
             public IntPtr VisionDispatch;
+            // ABI v17: CanvasDirector domain — single generic dispatch.
+            // Task 2 supplies the managed handler; Task 1 keeps ABI parity.
+            public IntPtr CanvasDirectorDispatch;
             // ABI v15: BIM domain — single generic dispatch; op
             // discriminator is carried in the request JSON and routed
             // inside BimHandler.cs.
@@ -420,6 +423,7 @@ namespace Rook.InternalBridge
                     BlockTransformObjectBatch = Marshal.GetFunctionPointerForDelegate(BlockTransformObjectBatchCallback),
                     ViewportCaptureTier3 = Marshal.GetFunctionPointerForDelegate(ViewportCaptureTier3Callback),
                     VisionDispatch = Marshal.GetFunctionPointerForDelegate(VisionDispatchCallback),
+                    CanvasDirectorDispatch = IntPtr.Zero,
                     BimDispatch = Marshal.GetFunctionPointerForDelegate(BimDispatchCallback),
                     ReconstructionDispatch = Marshal.GetFunctionPointerForDelegate(ReconstructionDispatchCallback),
                 };
