@@ -314,6 +314,25 @@ namespace Rook.Tests.InternalBridge
             Assert.DoesNotContain("ExecuteAsyncApiResponseCallback", publishArm);
         }
 
+        [Fact]
+        public void Registrar_DeclaresCanvasDirectorDispatchCallback()
+        {
+            var source = File.ReadAllText(Path.Combine(FindRepoRoot(), "src", "Rook", "InternalBridge", "NativeGhBridgeRegistrar.cs"));
+
+            Assert.Contains("CanvasDirectorDispatchCallback", source);
+            Assert.Contains("HandleCanvasDirectorDispatch", source);
+            Assert.Contains("public IntPtr CanvasDirectorDispatch;", source);
+            Assert.Contains("CanvasDirectorDispatch = Marshal.GetFunctionPointerForDelegate(CanvasDirectorDispatchCallback)", source);
+
+            var syncStart = source.IndexOf("private static int ExecuteApiResponseCallback", StringComparison.Ordinal);
+            var nextFunction = source.IndexOf("private static uint? ParseDocumentSerialNumber", syncStart, StringComparison.Ordinal);
+            var syncExecutor = source.Substring(syncStart, nextFunction - syncStart);
+            Assert.Contains("statusCode = MapBridgeStatus(result);", syncExecutor);
+            Assert.DoesNotContain("statusCode = result.Success ? 200 : 400;", syncExecutor);
+            Assert.Contains("timeoutErrorCode", syncExecutor);
+            Assert.Contains("solve_timeout", source);
+        }
+
         [Theory]
         [InlineData("set_provider_secret")]
         [InlineData("test_provider_secret")]
