@@ -292,3 +292,14 @@ def test_replay_frame_parser_owns_per_frame_content():
     assert "ParseCamera(" in frames and "ParseFrameObjectTransforms(" in frames
     assert "track_invalid" in frames
     assert "animated_object_ids" in frames or "frameIds" in frames   # exact-set equality check
+
+
+def test_replay_verification_covers_shared_pose_guard_restore_contract():
+    frame = _read(FRAME_H)
+    replay = _extract_function(_read(REPLAY_CPP), "HandleDirectorReplay")
+
+    assert "DirectorObjectPoseGuard" in frame
+    assert "bbox_comparison_available" in _read(FRAME_H) or "bbox_comparison_available" in _read(REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorFrame.cpp")
+    assert "restore_failed" in replay
+    assert "dirty_partial_state" in replay
+    assert "poseGuard->Restore(evidence)" in replay

@@ -47,6 +47,7 @@ struct FrameObjectTransform
     ON_Xform delta = ON_Xform::IdentityTransformation;
     ON_Xform inverseDelta = ON_Xform::IdentityTransformation;
     ON_BoundingBox sourceBbox;
+    std::string sourceObjectType;
     std::string validationStrength;
 };
 
@@ -133,8 +134,6 @@ public:
     void Disarm() { m_restoreAttempted = true; }
 
 private:
-    static constexpr double kBboxTolerance = 1.0e-4;
-
     void BestEffortRestore();
 
     CRhinoDoc* m_doc = nullptr;
