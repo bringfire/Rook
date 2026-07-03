@@ -35,6 +35,7 @@ SPIKE = _load_script()
 
 def test_constants_and_modes_are_pinned() -> None:
     assert SPIKE.DEFAULT_MODELS == ("gemma4:12b-it-qat", "gemma4:12b")
+    assert SPIKE.DEFAULT_ATTEMPTS == 1
     assert SPIKE.SCENARIO_NAMES == (
         "evidence_absent_like",
         "evidence_present_like",
