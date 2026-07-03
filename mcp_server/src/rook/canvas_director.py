@@ -708,3 +708,58 @@ async def extract_canvas_export(
 
     _verify_envelope(data)
     return data
+
+
+async def extract_persist_and_compile(
+    arguments: dict[str, Any],
+    *,
+    port: int | None = None,
+) -> dict[str, Any]:
+    if not isinstance(arguments, dict):
+        raise CanvasDirectorError(
+            "invalid_input",
+            "CanvasDirector extraction arguments must be an object.",
+        )
+
+    project_root = arguments.get("project_root")
+    if not project_root:
+        raise CanvasDirectorError("project_root_missing", "project_root is required")
+
+    extract_args = {
+        key: value
+        for key, value in arguments.items()
+        if key in {
+            "export_id",
+            "solve_mode",
+            "expected_solution_token",
+            "document_id",
+            "proposal_id",
+        }
+    }
+    envelope = await extract_canvas_export(extract_args, port=port)
+    export_result = save_canvas_export(
+        project_root,
+        envelope,
+        export_id=arguments.get("export_id"),
+    )
+    spec = compile_authoring_spec(envelope, spec_id=arguments.get("spec_id"))
+    spec_result = save_authoring_spec(
+        project_root,
+        spec,
+        spec_id=spec["spec_id"],
+        replace=bool(arguments.get("replace_spec")),
+    )
+    return {
+        "export": {
+            "export_id": export_result["export_id"],
+            "export_path": str(export_result["export_path"]),
+            "idempotent": export_result["idempotent"],
+        },
+        "spec": {
+            "spec_id": spec_result["spec_id"],
+            "spec_path": str(spec_result["spec_path"]),
+            "idempotent": spec_result["idempotent"],
+        },
+        "canvas_export_state_sha256": export_result["canvas_export_state_sha256"],
+        "compile_motion_request": build_compile_motion_request(spec),
+    }

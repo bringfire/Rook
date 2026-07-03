@@ -226,6 +226,7 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "rhino_director_read_actor_metadata_v2",
         "rhino_director_assemble_video",
         "rhino_director_publish_video",
+        "rhino_director_canvas_extract",
     ],
     "director_readonly": [
         "rhino_objects", "rhino_views", "rhino_display_modes", "rhino_document",
