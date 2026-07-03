@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the first RookVisionCanvasDirector slice: Grasshopper emits a side-effect-free typed export envelope, Python persists and compiles it into Director runtime truth, and existing Director capture/video artifacts remain the execution path.
+**Goal:** Build the first RookVisionCanvasDirector slice: Grasshopper emits a side-effect-free typed export envelope, Python persists and compiles it into Director runtime truth, and execution goes through existing Director compiler/replay primitives rather than treating the GH canvas as runtime truth.
 
-**Architecture:** Native exposes `/director/canvas/extract` as a thin facade over a managed `canvas_director_dispatch` bridge callback. The Companion owns GH solve/export extraction and returns an envelope; Python/MCP owns project `.rook` persistence, restricted canonical hash verification, authoring-spec compilation, run input/provenance files, and orchestration into existing Director frame capture/video assembly.
+**Architecture:** Native exposes `/director/canvas/extract` as a thin facade over a managed `canvas_director_dispatch` bridge callback. The Companion owns GH solve/export extraction and returns an envelope; Python/MCP owns project `.rook` persistence, restricted canonical hash verification, authoring-spec compilation, run input/provenance files, and orchestration into existing Director compile-motion/replay. Track-to-frame-capture/video assembly remains an explicit follow-up unless implemented as a separate helper.
 
 **Tech Stack:** Rhino 8/RhinoCommon, Grasshopper via managed reflection, RookNative C++/httplib/nlohmann::json, C# net48/net7/net8, Python 3.10+, pytest, xUnit.
 
@@ -17,8 +17,9 @@ This plan implements the first slice only:
 - `POST /director/canvas/extract`.
 - A managed extraction envelope with `canvas_export_state`, `canvas_export_state_sha256`, `diagnostics`, optional `suggested_spec_id`, and `read_only: true`.
 - Python persistence under `.rook/director/exports` and `.rook/director/specs`.
-- A narrow `DirectorAuthoringSpec` compiler that maps one CanvasDirector payload family into the existing `director_compiler.compile_motion` input shape.
-- Run input copying to `<run_directory>/inputs/director_authoring_spec.json` plus `<run_directory>/inputs/provenance.json`.
+- A narrow `DirectorAuthoringSpec` compiler plus a `build_compile_motion_request()` adapter that maps one CanvasDirector payload family into the existing `director_compiler.compile_motion` input shape.
+- Run evidence input copying to `<run_directory>/inputs/director_authoring_spec.json` plus `<run_directory>/inputs/provenance.json`.
+- Live validation through `director_compiler.compile_motion()` and `director.run_replay()`. `DirectorAuthoringSpec` must never be passed directly to `director.run_director()`.
 
 Contract chain: `CanvasProposal -> CanvasExportState -> Project DirectorAuthoringSpec -> Run input copy -> DirectorTrack -> DirectorRunArtifacts`.
 
@@ -47,7 +48,7 @@ Managed:
 Python:
 
 - Create `mcp_server/src/rook/canvas_director.py`: native extraction call, restricted RFC 8785/JCS-compatible hash verification, ID/path policy, full extraction envelope/spec persistence, authoring-spec compilation helpers, and run input provenance helpers.
-- Modify `mcp_server/src/rook/director.py`: accept optional input spec/provenance copy data and write `<run_directory>/inputs/*` after run directory creation.
+- Modify `mcp_server/src/rook/director.py`: accept optional evidence spec/provenance copy data and write `<run_directory>/inputs/*` after run directory creation.
 - Modify `mcp_server/src/rook/server.py`: expose `rhino_director_canvas_extract`.
 - Modify `mcp_server/src/rook/agent/tool_groups.py`: add the tool to the `director` group only.
 - Create `mcp_server/tests/test_canvas_director.py`: pure Python contract tests.
@@ -499,6 +500,8 @@ public void Registrar_DeclaresCanvasDirectorDispatchCallback()
     var syncExecutor = source.Substring(syncStart, nextFunction - syncStart);
     Assert.Contains("statusCode = MapBridgeStatus(result);", syncExecutor);
     Assert.DoesNotContain("statusCode = result.Success ? 200 : 400;", syncExecutor);
+    Assert.Contains("timeoutErrorCode", syncExecutor);
+    Assert.Contains("solve_timeout", source);
 }
 ```
 
@@ -825,7 +828,10 @@ private static int HandleCanvasDirectorDispatch(
         responseJsonCapacity,
         responseJsonLength,
         httpStatusCode,
-        requestJson => CanvasDirector.Dispatch(requestJson));
+        requestJson => CanvasDirector.Dispatch(requestJson),
+        timeoutSeconds: 120,
+        timeoutErrorCode: "solve_timeout",
+        timeoutHttpStatus: 504);
 }
 ```
 
@@ -842,6 +848,34 @@ statusCode = MapBridgeStatus(result);
 ```
 
 This keeps CanvasDirector errors such as `grasshopper_not_ready` and `canvas_director_unavailable` aligned with the `ApiResponse.HttpStatus` contract.
+
+Extend the same helper signature with structured timeout options:
+
+```csharp
+Func<string, ApiResponse> operation,
+int timeoutSeconds = 30,
+string? timeoutErrorCode = null,
+int? timeoutHttpStatus = null)
+```
+
+Replace the timeout branch with:
+
+```csharp
+if (!waitHandle.Wait(TimeSpan.FromSeconds(timeoutSeconds)))
+{
+    object data = timeoutErrorCode == null
+        ? "GH callback request timed out."
+        : new { code = timeoutErrorCode, message = "CanvasDirector extraction timed out while waiting for Grasshopper solve/extract." };
+    responseJson = JsonSerializer.Serialize(new
+    {
+        success = false,
+        data
+    }, JsonOptions);
+    statusCode = timeoutHttpStatus ?? 400;
+}
+```
+
+This preserves legacy timeout responses by default while making CanvasDirector timeouts typed as `solve_timeout`.
 
 Increment the managed bridge version to match Task 1.
 
@@ -1244,8 +1278,8 @@ private static string TryExtractFromDocument(object document, CanvasDirectorExtr
 
     if (matches.Count == 0)
         throw new CanvasDirectorException("export_not_found", "No matching CanvasDirector export component was found.", 404);
-    if (matches.Count > 1 && string.IsNullOrWhiteSpace(request.ExportId))
-        throw new CanvasDirectorException("multiple_exports_ambiguous", "Multiple CanvasDirector export components exist; pass export_id.", 409);
+    if (matches.Count > 1)
+        throw new CanvasDirectorException("multiple_exports_ambiguous", "Multiple matching CanvasDirector export components exist; ensure export markers are unique.", 409);
     return matches[0];
 }
 ```
@@ -1403,6 +1437,16 @@ def test_different_state_same_export_id_fails_with_collision(tmp_path):
     with pytest.raises(cd.CanvasDirectorError) as ei:
         cd.save_canvas_export(tmp_path, _envelope(changed), export_id="export_a")
     assert ei.value.code == "id_collision"
+
+
+@pytest.mark.asyncio
+async def test_extract_canvas_export_preserves_structured_solve_timeout():
+    async def native(*args, **kwargs):
+        return {"success": False, "data": {"code": "solve_timeout", "message": "timed out"}}
+
+    with pytest.raises(cd.CanvasDirectorError) as ei:
+        await cd.extract_canvas_export({"export_id": "export_a"}, call_native=native)
+    assert ei.value.code == "solve_timeout"
 ```
 
 - [ ] **Step 2: Run tests and confirm they fail**
@@ -1583,7 +1627,7 @@ git commit -m "feat(canvas-director): persist extraction envelopes"
 
 ---
 
-### Task 5: Compile CanvasExportState To DirectorAuthoringSpec
+### Task 5: Compile CanvasExportState To DirectorAuthoringSpec And Compile-Motion Input
 
 **Files:**
 
@@ -1595,7 +1639,7 @@ git commit -m "feat(canvas-director): persist extraction envelopes"
 Append to `mcp_server/tests/test_canvas_director.py`:
 
 ```python
-def test_compile_authoring_spec_maps_payload_to_director_compiler_shape(tmp_path):
+def test_compile_authoring_spec_maps_payload_to_durable_authoring_spec(tmp_path):
     state = _state()
     state["payload"] = {
         "timeline": {"fps": 24, "frame_count": 3},
@@ -1610,6 +1654,23 @@ def test_compile_authoring_spec_maps_payload_to_director_compiler_shape(tmp_path
     assert spec["spec_id"] == "spec_a"
     assert spec["timeline"] == {"fps": 24, "frame_count": 3}
     assert spec["motion"][0]["keyframes"][0]["translate"] == [1.0, 0.0, 0.0]
+
+
+def test_build_compile_motion_request_is_runnable_compiler_shape(tmp_path):
+    state = _state()
+    state["payload"] = {
+        "timeline": {"fps": 24, "frame_count": 3},
+        "resolution": {"width": 640, "height": 360},
+        "groups": {"actor_a": ["11111111-1111-1111-1111-111111111111"]},
+        "motion": [{"target": "actor_a", "keyframes": [{"t": 1.0, "translate": ["1.0", "0.0", "0.0"]}]}],
+        "camera": {"strategy": "keyframes", "keyframes": [{"frame_index": 1, "source": {"kind": "active_view"}}]},
+    }
+    spec = cd.compile_authoring_spec(_envelope(state), spec_id="spec_a")
+    request = cd.build_compile_motion_request(spec)
+    assert set(request) >= {"timeline", "resolution", "groups", "motion", "camera"}
+    assert "metadata_kind" not in request
+    assert request["motion"][0]["target"] == "actor_a"
+    assert request["timeline"]["frame_count"] == 3
 
 
 def test_save_authoring_spec_writes_atomic_spec(tmp_path):
@@ -1704,6 +1765,28 @@ def save_authoring_spec(project_root: Path | str, spec: dict[str, Any], *, spec_
     except OSError as exc:
         raise CanvasDirectorError("spec_write_failed", str(exc)) from exc
     return {"spec_id": chosen_id, "spec_path": path, "idempotent": False}
+
+
+def build_compile_motion_request(spec: dict[str, Any]) -> dict[str, Any]:
+    if spec.get("metadata_kind") != "director_authoring_spec":
+        raise CanvasDirectorError("spec_compile_failed", "metadata_kind must be director_authoring_spec")
+    motion = spec.get("motion")
+    if not isinstance(motion, list) or not motion:
+        raise CanvasDirectorError("spec_compile_failed", "DirectorAuthoringSpec.motion must be a non-empty array")
+    timeline = spec.get("timeline")
+    if not isinstance(timeline, dict):
+        raise CanvasDirectorError("spec_compile_failed", "DirectorAuthoringSpec.timeline must be an object")
+    request = {
+        "timeline": timeline,
+        "resolution": spec.get("resolution") or {"width": 1920, "height": 1080},
+        "groups": spec.get("groups") or {},
+        "motion": motion,
+    }
+    if isinstance(spec.get("camera"), dict):
+        request["camera"] = spec["camera"]
+    if isinstance(spec.get("default_easing"), str):
+        request["default_easing"] = spec["default_easing"]
+    return request
 ```
 
 - [ ] **Step 4: Run tests**
@@ -1722,12 +1805,12 @@ Run:
 
 ```powershell
 git add mcp_server/src/rook/canvas_director.py mcp_server/tests/test_canvas_director.py
-git commit -m "feat(canvas-director): compile authoring specs"
+git commit -m "feat(canvas-director): compile authoring specs to motion requests"
 ```
 
 ---
 
-### Task 6: Director Run Inputs And Provenance
+### Task 6: Director Run Evidence Inputs And Provenance
 
 **Files:**
 
@@ -1736,7 +1819,7 @@ git commit -m "feat(canvas-director): compile authoring specs"
 - Modify: `mcp_server/tests/test_director.py`
 - Modify: `mcp_server/tests/test_canvas_director.py`
 
-- [ ] **Step 1: Add Director run input copy tests**
+- [ ] **Step 1: Add Director run evidence input copy tests**
 
 Append to `mcp_server/tests/test_director.py`:
 
@@ -1761,6 +1844,12 @@ def test_run_director_writes_input_spec_and_provenance(tmp_path):
     assert (tmp_path / "inputs" / "director_authoring_spec.json").is_file()
     assert (tmp_path / "inputs" / "provenance.json").is_file()
     assert copied["copied_spec_sha256"]
+
+
+def test_validate_run_inputs_rejects_malformed_inputs():
+    from rook import director
+    with pytest.raises(director.DirectorInputError):
+        director._validate_run_inputs({"provenance": {}})
 ```
 
 - [ ] **Step 2: Run the specific test and confirm it fails**
@@ -1771,9 +1860,9 @@ Run:
 python -m pytest mcp_server/tests/test_director.py::test_run_director_writes_input_spec_and_provenance -q
 ```
 
-Expected: FAIL because `_write_run_inputs` does not exist.
+Expected: FAIL because `_write_run_inputs` and `_validate_run_inputs` do not exist.
 
-- [ ] **Step 3: Add run input helper to Director runner**
+- [ ] **Step 3: Add run evidence input helper to Director runner**
 
 In `mcp_server/src/rook/director.py`, add near `_atomic_write_json`:
 
@@ -1805,23 +1894,34 @@ def _write_run_inputs(
     full_provenance["copied_spec_sha256"] = copied_spec_sha256
     _atomic_write_json(inputs_dir / "provenance.json", full_provenance)
     return {"copied_spec_sha256": copied_spec_sha256}
+
+
+def _validate_run_inputs(run_inputs: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    if not isinstance(run_inputs, dict):
+        raise DirectorInputError("run_inputs must be an object when provided")
+    director_authoring_spec = run_inputs.get("director_authoring_spec")
+    if not isinstance(director_authoring_spec, dict):
+        raise DirectorInputError("run_inputs.director_authoring_spec must be an object")
+    provenance = run_inputs.get("provenance")
+    if provenance is None:
+        provenance = {}
+    if not isinstance(provenance, dict):
+        raise DirectorInputError("run_inputs.provenance must be an object when provided")
+    return director_authoring_spec, provenance
 ```
 
-- [ ] **Step 4: Thread optional run inputs through `run_director`**
+- [ ] **Step 4: Thread optional run evidence inputs through `run_director`**
 
 In `run_director`, after `logs_dir.mkdir(...)`, add:
 
 ```python
-    run_inputs = request.get("run_inputs") if isinstance(request.get("run_inputs"), dict) else None
-    if run_inputs is not None:
-        director_authoring_spec = run_inputs.get("director_authoring_spec")
-        provenance = run_inputs.get("provenance") or {}
-        if isinstance(director_authoring_spec, dict):
-            _write_run_inputs(
-                run_root,
-                director_authoring_spec=director_authoring_spec,
-                provenance=dict(provenance),
-            )
+    if "run_inputs" in request:
+        director_authoring_spec, provenance = _validate_run_inputs(request["run_inputs"])
+        _write_run_inputs(
+            run_root,
+            director_authoring_spec=director_authoring_spec,
+            provenance=provenance,
+        )
 ```
 
 - [ ] **Step 5: Add CanvasDirector end-to-end prep helper tests**
@@ -1872,7 +1972,7 @@ Run:
 
 ```powershell
 git add mcp_server/src/rook/director.py mcp_server/src/rook/canvas_director.py mcp_server/tests/test_director.py mcp_server/tests/test_canvas_director.py
-git commit -m "feat(canvas-director): write director run inputs"
+git commit -m "feat(canvas-director): write director run evidence inputs"
 ```
 
 ---
@@ -1933,12 +2033,14 @@ async def test_canvas_director_extract_dispatches_to_python(monkeypatch, tmp_pat
             "export": {"export_id": "export_a", "export_path": str(tmp_path / "export_a.json")},
             "spec": {"spec_id": "spec_a", "spec_path": str(tmp_path / "spec_a.json")},
             "canvas_export_state_sha256": envelope["canvas_export_state_sha256"],
+            "compile_motion_request": {"timeline": {"fps": 24, "frame_count": 3}, "motion": []},
         }
 
     monkeypatch.setattr(server.canvas_director, "extract_persist_and_compile", fake_extract)
     result = await server.call_tool("rhino_director_canvas_extract", {"project_root": str(tmp_path), "export_id": "export_a"})
     payload = json.loads(result[0].text)
     assert payload["export"]["export_id"] == "export_a"
+    assert "compile_motion_request" in payload
 ```
 
 - [ ] **Step 2: Run tool tests and confirm they fail**
@@ -1981,6 +2083,7 @@ async def extract_persist_and_compile(arguments: dict[str, Any], *, port: int | 
             "idempotent": spec_result["idempotent"],
         },
         "canvas_export_state_sha256": export_result["canvas_export_state_sha256"],
+        "compile_motion_request": build_compile_motion_request(spec),
     }
 ```
 
@@ -1997,7 +2100,7 @@ Add a `Tool(...)` near other Director tools:
 ```python
 Tool(
     name="rhino_director_canvas_extract",
-    description="Extract declared CanvasDirector exports from the active Grasshopper canvas, persist the extraction envelope under project .rook/director/exports, and compile a reusable DirectorAuthoringSpec under .rook/director/specs.",
+    description="Extract declared CanvasDirector exports from the active Grasshopper canvas, persist the extraction envelope under project .rook/director/exports, compile a reusable DirectorAuthoringSpec under .rook/director/specs, and return the runnable director_compiler.compile_motion request.",
     inputSchema={
         "type": "object",
         "required": ["project_root"],
@@ -2103,11 +2206,11 @@ asyncio.run(main())
 '@ | python -
 ```
 
-Expected: JSON response contains `export.export_path`, `spec.spec_path`, and `canvas_export_state_sha256`. Files exist under `C:\Users\bring\OneDrive\Desktop\Pearson\ANIMATION\V2\.rook\director\exports` and `...\specs`.
+Expected: JSON response contains `export.export_path`, `spec.spec_path`, `canvas_export_state_sha256`, and `compile_motion_request`. Files exist under `C:\Users\bring\OneDrive\Desktop\Pearson\ANIMATION\V2\.rook\director\exports` and `...\specs`.
 
-- [ ] **Step 4: Run Director video path after compiling a valid spec**
+- [ ] **Step 4: Run Director compile-motion and replay path after compiling a valid spec**
 
-Use the generated spec to call the existing Director run/capture flow. If the first live export is only an extraction proof and not yet a valid motion/camera payload, record that as a planned follow-up in `C:\Users\bring\OneDrive\Desktop\Pearson\ANIMATION\.rook\director_planning\TOOLING_GAPS_AND_ISSUES.md` instead of weakening tests.
+Use the generated spec to call the existing Director compiler and replay flow. Do not pass `DirectorAuthoringSpec` directly to `director.run_director()`: that route expects the older top-level `object_ids`/`frame_count` capture request shape. If the first live export is only an extraction proof and not yet a valid motion/camera payload, record that as a planned follow-up in `C:\Users\bring\OneDrive\Desktop\Pearson\ANIMATION\.rook\director_planning\TOOLING_GAPS_AND_ISSUES.md` instead of weakening tests.
 
 Command shape once a valid spec is present:
 
@@ -2115,23 +2218,22 @@ Command shape once a valid spec is present:
 @'
 import asyncio, json
 from pathlib import Path
-from rook import canvas_director, director, director_video
+from rook import canvas_director, director, director_compiler
 
 async def main():
     project = Path(r"C:\Users\bring\OneDrive\Desktop\Pearson\ANIMATION\V2")
     envelope = json.loads((project / ".rook" / "director" / "exports" / "export_a.json").read_text(encoding="utf-8"))
     spec = json.loads((project / ".rook" / "director" / "specs" / "spec_a.json").read_text(encoding="utf-8"))
-    run_request = dict(spec)
-    run_request["run_inputs"] = canvas_director.build_run_inputs(envelope, spec)
-    run = await director.run_director(run_request)
-    video = await director_video.assemble_director_video({"run_root": run["run_root"]})
-    print(json.dumps({"run": run, "video": video}, indent=2))
+    compile_request = canvas_director.build_compile_motion_request(spec)
+    compiled = await director_compiler.compile_motion(compile_request)
+    replay = await director.run_replay({"track": compiled["track"], "restore_on_finish": True})
+    print(json.dumps({"compile": compiled["provenance"], "replay": replay}, indent=2))
 
 asyncio.run(main())
 '@ | python -
 ```
 
-Expected: `run.state` is `complete`, `video.state` is `complete`, and the run directory contains `inputs/director_authoring_spec.json`, `inputs/provenance.json`, `manifest.json`, `frames`, `logs/frame_evidence.jsonl`, and `video_manifest.json`.
+Expected: compile provenance includes `frame_count`, `fps`, and `animated_object_ids`; replay status is `completed`. Deterministic video capture from a baked track is a follow-up unless this implementation also adds a track-to-frame-capture helper that writes standard Director run artifacts.
 
 - [ ] **Step 5: Run repo status check**
 
@@ -2172,10 +2274,14 @@ If no fixes were needed, do not create an empty commit.
   - Managed envelope properties use explicit `JsonPropertyName` attributes and bridge-shape tests so the existing camelCase bridge options cannot rewrite them.
   - `run_directory` maps to existing Director `run_root` values in Python outputs; no `<run_root>/<run_id>` nesting is introduced.
   - `require_fresh_solve`, `reuse_verified_solution`, `freshness_token_required`, `solution_stale`, and `unsupported_solve_mode` match the spec.
+  - `solve_timeout` is returned as structured CanvasDirector error data on bridge timeout, not remapped to `canvas_director_unavailable`.
   - `require_fresh_solve` performs and verifies a fresh GH solution before reading outputs; `document_id` and `proposal_id` are parsed and validated.
   - Native pre-bridge failures return structured `{ code, message }` data, not stringly error messages.
   - Canonical hashing is a restricted RFC 8785/JCS-compatible subset with shared C#/Python test vectors.
   - Nickname-based export discovery is labeled as a temporary first-slice harness, while payload metadata remains the declared export contract.
+  - Duplicate matching export markers fail with `multiple_exports_ambiguous` even when `export_id` is explicit.
+  - `DirectorAuthoringSpec` is not passed directly to `director.run_director`; `build_compile_motion_request()` feeds `director_compiler.compile_motion()` for runnable replay tracks.
+  - `run_inputs` are optional, but malformed present `run_inputs` fail fast instead of silently dropping required evidence.
 - Verification commands:
   - Managed: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "CanvasDirector|NativeDirectorCanvasDispatchSourceTests|Registrar_DeclaresCanvasDirectorDispatchCallback"`
   - Python: `python -m pytest mcp_server/tests/test_canvas_director.py mcp_server/tests/test_director_mcp_tools.py mcp_server/tests/test_director.py -q -k "canvas_director or run_director_writes_input_spec"`
