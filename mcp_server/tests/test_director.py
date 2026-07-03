@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from pathlib import Path
 
@@ -251,6 +252,322 @@ def _explicit_camera(location=None, lens_length=35.0):
         "far_clip": None,
         "aspect": 1.7778,
     }
+
+
+def _canonical_hash(payload):
+    data = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(data).hexdigest()
+
+
+def _compiled_track():
+    object_id = "11111111-1111-1111-1111-111111111111"
+    return {
+        "transform_semantics": "absolute_from_source",
+        "fps": 24,
+        "frame_count": 2,
+        "animated_object_ids": [object_id],
+        "camera_frames": [
+            {"frame_index": 1, "camera": _explicit_camera()},
+            {"frame_index": 2, "camera": _explicit_camera(location=[6.0, -4.0, 3.0])},
+        ],
+        "object_frames": [
+            {
+                "frame_index": 1,
+                "object_transforms": [
+                    {
+                        "object_id": object_id,
+                        "source_state": {
+                            "bbox_min": [0, 0, 0],
+                            "bbox_max": [1, 1, 1],
+                            "validation_strength": "bbox_only",
+                            "state_hash": "state-a",
+                        },
+                        "transform": director.identity_matrix(),
+                    }
+                ],
+            },
+            {
+                "frame_index": 2,
+                "object_transforms": [
+                    {
+                        "object_id": object_id,
+                        "source_state": {
+                            "bbox_min": [0, 0, 0],
+                            "bbox_max": [1, 1, 1],
+                            "validation_strength": "bbox_only",
+                            "state_hash": "state-a",
+                        },
+                        "transform": director.translation_matrix([1, 0, 0]),
+                    }
+                ],
+            },
+        ],
+    }
+
+
+def test_run_compiled_track_writes_manifest_frames_inputs_and_evidence(tmp_path):
+    spec = {
+        "metadata_kind": "director_authoring_spec",
+        "spec_id": "spec_a",
+        "timeline": {"fps": 24, "frame_count": 2},
+        "resolution": {"width": 320, "height": 180},
+    }
+    source_hash = _canonical_hash(spec)
+    fake = FakeNative(
+        [
+            {"success": True, "data": {"frame_id": "frame_0001", "dirty_partial_state": False}},
+            {"success": True, "data": {"frame_id": "frame_0002", "dirty_partial_state": False}},
+        ],
+        create_outputs=True,
+    )
+
+    result = asyncio.run(
+        director.run_compiled_track(
+            {
+                "track": _compiled_track(),
+                "resolution": {"width": 320, "height": 180},
+                "display": {"mode": "Rendered"},
+                "output_root": str(
+                    tmp_path / "data" / "rookvision_director" / "canvas_runs"
+                ),
+                "run_id": "compiled-track-a",
+                "run_inputs": {
+                    "director_authoring_spec": spec,
+                    "provenance": {
+                        "source_spec_id": "spec_a",
+                        "source_spec_sha256": source_hash,
+                        "canvas_export_state_sha256": "export-hash",
+                    },
+                },
+                "compile_provenance": {
+                    "frame_count": 2,
+                    "fps": 24,
+                    "warnings": [],
+                },
+            },
+            call_native=fake,
+            runtime=_runtime(tmp_path),
+        )
+    )
+
+    run_root = Path(result["run_root"])
+    assert result["state"] == "complete"
+    assert run_root == (
+        tmp_path
+        / "data"
+        / "rookvision_director"
+        / "canvas_runs"
+        / "compiled-track-a"
+    ).resolve()
+    assert json.loads(
+        (run_root / "inputs" / "director_authoring_spec.json").read_text(
+            encoding="utf-8"
+        )
+    ) == spec
+    provenance = json.loads(
+        (run_root / "inputs" / "provenance.json").read_text(encoding="utf-8")
+    )
+    assert provenance["source_spec_sha256"] == source_hash
+    assert provenance["copied_spec_sha256"] == source_hash
+    manifest = json.loads((run_root / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["motion"]["strategy"] == "compiled_track"
+    assert manifest["motion"]["transform_semantics"] == "absolute_from_source"
+    assert manifest["motion"]["provenance"] == {
+        "frame_count": 2,
+        "fps": 24,
+        "warnings": [],
+    }
+    assert manifest["camera_plan"]["strategy"] == "compiled_track"
+    assert manifest["frame_count"] == 2
+    assert manifest["timeline"] == {
+        "source": "compiled_track",
+        "fps": 24,
+        "frame_count": 2,
+        "duration_seconds": pytest.approx(2 / 24),
+    }
+    assert (run_root / "frames" / "frame_0001.png").is_file()
+    assert (run_root / "frames" / "frame_0002.png").is_file()
+    evidence_lines = (
+        run_root / "logs" / "frame_evidence.jsonl"
+    ).read_text(encoding="utf-8").splitlines()
+    assert len(evidence_lines) == 2
+
+
+@pytest.mark.parametrize(
+    "run_inputs",
+    [
+        [],
+        {},
+        {"director_authoring_spec": []},
+        {"director_authoring_spec": {"spec_id": "spec_a"}, "provenance": None},
+        {"director_authoring_spec": {"spec_id": "spec_a"}, "provenance": []},
+    ],
+)
+def test_validate_run_inputs_rejects_malformed_inputs(run_inputs):
+    with pytest.raises(director.DirectorInputError):
+        director._validate_run_inputs(run_inputs)
+
+
+def test_write_run_inputs_rejects_conflicting_source_spec_hash(tmp_path):
+    spec = {"metadata_kind": "director_authoring_spec", "spec_id": "spec_a"}
+    run_root = tmp_path / "run"
+
+    with pytest.raises(director.DirectorInputError, match="source_spec_sha256"):
+        director._write_run_inputs(
+            run_root,
+            director_authoring_spec=spec,
+            provenance={"source_spec_sha256": "not-the-copied-hash"},
+        )
+
+    assert not (run_root / "inputs").exists()
+
+
+@pytest.mark.parametrize(
+    "kind, frames",
+    [
+        ("camera", [{"camera": _explicit_camera()}, {"frame_index": 2, "camera": _explicit_camera()}]),
+        ("camera", [{"frame_index": "1", "camera": _explicit_camera()}, {"frame_index": 2, "camera": _explicit_camera()}]),
+        ("camera", [{"frame_index": 1, "camera": _explicit_camera()}, {"frame_index": 1, "camera": _explicit_camera()}]),
+        ("camera", [{"frame_index": 1, "camera": _explicit_camera()}, {"frame_index": 3, "camera": _explicit_camera()}]),
+        ("object", [{"object_transforms": []}, {"frame_index": 2, "object_transforms": []}]),
+        ("object", [{"frame_index": "1", "object_transforms": []}, {"frame_index": 2, "object_transforms": []}]),
+        ("object", [{"frame_index": 1, "object_transforms": []}, {"frame_index": 1, "object_transforms": []}]),
+        ("object", [{"frame_index": 1, "object_transforms": []}, {"frame_index": 3, "object_transforms": []}]),
+    ],
+)
+def test_indexed_track_frames_rejects_bad_frame_indexes(kind, frames):
+    track = _compiled_track()
+    key = "camera_frames" if kind == "camera" else "object_frames"
+    track[key] = frames
+
+    with pytest.raises(director.DirectorInputError, match="frame_index"):
+        director._indexed_track_frames(track, 2)
+
+
+def test_run_compiled_track_rejects_bad_resolution_before_creating_run(tmp_path):
+    output_root = tmp_path / "data" / "rookvision_director" / "canvas_runs"
+
+    with pytest.raises(director.DirectorInputError, match="resolution"):
+        asyncio.run(
+            director.run_compiled_track(
+                {
+                    "track": _compiled_track(),
+                    "resolution": {"width": 0, "height": 180},
+                    "output_root": str(output_root),
+                    "run_id": "bad-resolution",
+                },
+                call_native=FakeNative([]),
+                runtime=_runtime(tmp_path),
+            )
+        )
+
+    assert not (output_root / "bad-resolution").exists()
+
+
+def test_run_compiled_track_rejects_conflicting_provenance_before_creating_run(tmp_path):
+    output_root = tmp_path / "data" / "rookvision_director" / "canvas_runs"
+
+    with pytest.raises(director.DirectorInputError, match="source_spec_sha256"):
+        asyncio.run(
+            director.run_compiled_track(
+                {
+                    "track": _compiled_track(),
+                    "resolution": {"width": 320, "height": 180},
+                    "output_root": str(output_root),
+                    "run_id": "bad-provenance",
+                    "run_inputs": {
+                        "director_authoring_spec": {"spec_id": "spec_a"},
+                        "provenance": {"source_spec_sha256": "wrong"},
+                    },
+                },
+                call_native=FakeNative([]),
+                runtime=_runtime(tmp_path),
+            )
+        )
+
+    assert not (output_root / "bad-provenance").exists()
+
+
+@pytest.mark.parametrize(
+    "bad_run_id",
+    [
+        "../escape",
+        "/tmp/escape",
+        "C:/escape",
+        "bad/slash",
+        "",
+        ".",
+        "..",
+        "bad.name",
+        "_bad",
+        "CON",
+        "con",
+        "COM1",
+        "LPT9",
+    ],
+)
+def test_run_compiled_track_rejects_bad_run_id_before_creating_run(
+    tmp_path, bad_run_id
+):
+    output_root = tmp_path / "data" / "rookvision_director" / "canvas_runs"
+
+    with pytest.raises(director.DirectorInputError, match="run_id"):
+        asyncio.run(
+            director.run_compiled_track(
+                {
+                    "track": _compiled_track(),
+                    "resolution": {"width": 320, "height": 180},
+                    "output_root": str(output_root),
+                    "run_id": bad_run_id,
+                },
+                call_native=FakeNative([]),
+                runtime=_runtime(tmp_path),
+            )
+        )
+
+    assert not output_root.exists()
+    assert not (tmp_path / "escape").exists()
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        ("frame_count", 0),
+        ("frame_count", -1),
+        ("frame_count", 1.5),
+        ("frame_count", True),
+        ("fps", 0),
+        ("fps", -1),
+        ("fps", 24.0),
+        ("fps", False),
+    ],
+)
+def test_run_compiled_track_rejects_bad_track_positive_ints(tmp_path, field, value):
+    output_root = tmp_path / "data" / "rookvision_director" / "canvas_runs"
+    track = _compiled_track()
+    track[field] = value
+
+    with pytest.raises(director.DirectorInputError, match=field):
+        asyncio.run(
+            director.run_compiled_track(
+                {
+                    "track": track,
+                    "resolution": {"width": 320, "height": 180},
+                    "output_root": str(output_root),
+                    "run_id": "bad-track",
+                },
+                call_native=FakeNative([]),
+                runtime=_runtime(tmp_path),
+            )
+        )
+
+    assert not (output_root / "bad-track").exists()
 
 
 def test_two_camera_keyframes_interpolate_per_frame(tmp_path):

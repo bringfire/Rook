@@ -649,6 +649,29 @@ def build_compile_motion_request(spec: Any) -> dict[str, Any]:
     return request
 
 
+def build_run_inputs(envelope: Any, spec: Any) -> dict[str, Any]:
+    state, actual_hash = _verify_envelope(envelope)
+    if not isinstance(spec, dict) or spec.get("metadata_kind") != "director_authoring_spec":
+        raise CanvasDirectorError("spec_compile_failed", "Authoring spec must be a director_authoring_spec.")
+    _validate_json_payload(spec)
+    source_spec_id = spec.get("spec_id")
+    if not isinstance(source_spec_id, str):
+        raise CanvasDirectorError("invalid_spec_id", "Authoring spec id is required.")
+
+    source_spec_sha256 = hashlib.sha256(
+        _canonical_json_bytes_unrestricted(spec)
+    ).hexdigest()
+    return {
+        "director_authoring_spec": spec,
+        "provenance": {
+            "source_spec_id": source_spec_id,
+            "source_spec_sha256": source_spec_sha256,
+            "canvas_export_state_sha256": actual_hash,
+            "template_version": state.get("template_version"),
+        },
+    }
+
+
 async def extract_canvas_export(
     arguments: dict[str, Any],
     *,
