@@ -466,3 +466,20 @@ def test_director_instance_restore_slice_keeps_tolerance_and_canvasdirector_park
         "src/Rook/Services/Vision/CanvasDirector/",
     ]:
         assert forbidden_path not in file_structure
+
+
+def test_director_instance_restore_live_repro_is_scratch_and_two_frame():
+    live_source = (REPO_ROOT / "mcp_server" / "tests" / "test_director_routes_live.py").read_text(encoding="utf-8")
+    start = live_source.index("async def test_director_instance_restore_semantics_large_coordinate_probe")
+    body = live_source[start:]
+
+    assert "fresh_document" in body[: body.index(":")]
+    assert "_cleanup_instance_restore_probe(created_ids, block_name)" in body
+    assert "rhino_delete" in live_source
+    assert "rhino_block_delete" in live_source
+    assert '"frame_count": 2' in body
+    assert "director.identity_matrix()" in body
+    assert "director.translation_matrix([0.0, 0.0, 0.628483])" in body
+    assert "125718.338195" in body
+    assert "-328450.993563" in body
+    assert "InstanceReference" in body
