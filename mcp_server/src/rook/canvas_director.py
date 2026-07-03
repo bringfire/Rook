@@ -683,6 +683,37 @@ def build_run_inputs(envelope: Any, spec: Any) -> dict[str, Any]:
     }
 
 
+def _validate_extract_project_root(value: Any) -> str:
+    if value is None or value == "":
+        raise CanvasDirectorError("project_root_missing", "project_root is required")
+    try:
+        project_root = os.fspath(value)
+    except TypeError as exc:
+        raise CanvasDirectorError(
+            "invalid_input",
+            "project_root must be a string or path-like value.",
+        ) from exc
+    if not isinstance(project_root, str):
+        raise CanvasDirectorError(
+            "invalid_input",
+            "project_root must resolve to a string path.",
+        )
+    if project_root == "":
+        raise CanvasDirectorError("project_root_missing", "project_root is required")
+    return project_root
+
+
+def _validate_replace_spec(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    raise CanvasDirectorError(
+        "invalid_input",
+        "replace_spec must be a boolean when provided.",
+    )
+
+
 async def extract_canvas_export(
     arguments: dict[str, Any],
     *,
@@ -721,9 +752,8 @@ async def extract_persist_and_compile(
             "CanvasDirector extraction arguments must be an object.",
         )
 
-    project_root = arguments.get("project_root")
-    if not project_root:
-        raise CanvasDirectorError("project_root_missing", "project_root is required")
+    project_root = _validate_extract_project_root(arguments.get("project_root"))
+    replace_spec = _validate_replace_spec(arguments.get("replace_spec"))
 
     extract_args = {
         key: value
@@ -747,7 +777,7 @@ async def extract_persist_and_compile(
         project_root,
         spec,
         spec_id=spec["spec_id"],
-        replace=bool(arguments.get("replace_spec")),
+        replace=replace_spec,
     )
     return {
         "export": {
