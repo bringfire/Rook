@@ -42,7 +42,13 @@ namespace Rook.Services.Vision.CanvasDirector
                 case JsonValueKind.Object:
                     builder.Append('{');
                     var firstProperty = true;
-                    foreach (var property in element.EnumerateObject().OrderBy(p => p.Name, StringComparer.Ordinal))
+                    var properties = element.EnumerateObject().ToArray();
+                    foreach (var property in properties)
+                    {
+                        ValidateAsciiObjectKey(property.Name);
+                    }
+
+                    foreach (var property in properties.OrderBy(p => p.Name, StringComparer.Ordinal))
                     {
                         if (!firstProperty)
                         {
@@ -106,6 +112,20 @@ namespace Rook.Services.Vision.CanvasDirector
                         "invalid_input",
                         "CanvasExportState contains unsupported JSON values.",
                         400);
+            }
+        }
+
+        private static void ValidateAsciiObjectKey(string key)
+        {
+            foreach (var ch in key)
+            {
+                if (ch > 0x7f)
+                {
+                    throw new CanvasDirectorException(
+                        "invalid_input",
+                        "CanvasExportState object keys must be ASCII in slice one.",
+                        400);
+                }
             }
         }
 
