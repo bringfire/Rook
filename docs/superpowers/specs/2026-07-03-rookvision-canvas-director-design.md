@@ -244,7 +244,7 @@ Companion behavior:
 ```
 
 Extraction is read-only with respect to project artifacts. Persistence begins
-only after Python/MCP accepts and writes the returned `CanvasExportState`.
+only after Python/MCP accepts and writes the returned extraction envelope.
 
 If multiple export components exist and no `export_id` is specified, extraction
 fails with `multiple_exports_ambiguous`. Automation should pass explicit
