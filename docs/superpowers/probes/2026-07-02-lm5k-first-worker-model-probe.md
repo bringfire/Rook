@@ -1,4 +1,4 @@
-# LM5K Probe Rounds 1, 1b, 2, 3 & LM5N — First Worker Model Probe (2026-07-02)
+# LM5K Probe Rounds 1, 1b, 2, 3, LM5N & LM5O — First Worker Model Probe (2026-07-02)
 
 **Doctrine:** evidence, not CI. This summary is the committed artifact; raw
 runs stay local (spec §5, `docs/superpowers/specs/2026-07-02-lm5k-first-worker-model-probe-design.md`).
@@ -343,12 +343,124 @@ self-describing missing symbol with a literal body-style assignment. That is
 still only a bounded raw-output sample, not a verified Rhino/GH repair
 execution.
 
-Recommended next slice: **LM5O bounded diagnostic evidence**. Before changing
-prompt text or parser behavior, investigate whether existing receipt fields,
-especially `script_receipt.repair_anchor.target_errors` and
-`script_receipt.repair_anchor.target_warnings`, can provide the missing
-diagnostic signal that lets action requests improve semantically without
-loosening the worker boundary.
+At this point, bounded diagnostic evidence looked like the next likely
+controlled variable. The following LM5O run instead tested Gemma's stricter
+local transport path first, because the LM5N Gemma challenger exposed a more
+basic response-envelope discipline issue.
+
+## LM5O structured local transport run (commit `5b49c483`)
+
+LM5O tested one local transport variable after the Gemma challenger result:
+free-text Gemma versus Ollama structured output using the full four-kind LM5
+response union schema. The scenario pair, prompt version, evidence packet, LM5G
+loader, LM5B/C/D/F spine, and local generation params stayed fixed. Cheap and
+ceiling slots were skipped; this is a local transport-mode comparison, not a
+model-quality ranking.
+
+Preflight from clean synced `main`:
+
+- `git rev-parse --short HEAD`: `5b49c483`
+- targeted transport/probe gate:
+  `mcp_server/tests/test_local_worker_model_transport.py` +
+  `mcp_server/tests/test_lm5k_worker_probe.py` -> `68 passed`
+- local model available: `gemma4:12b-it-qat`
+
+Run directories:
+
+- Free-text absent:
+  `probe_runs/lm5k-20260703T204758Z-5b49c483/`
+- Free-text present:
+  `probe_runs/lm5k-20260703T204857Z-5b49c483/`
+- Structured absent:
+  `probe_runs/lm5k-20260703T205006Z-5b49c483/`
+- Structured present:
+  `probe_runs/lm5k-20260703T205058Z-5b49c483/`
+
+All four manifests recorded `lm5m.prompt_text:v2`,
+`rook.local_worker_turn_request:v1`, and
+`rook.local_worker_turn_response:v1`.
+
+### LM5O result table
+
+| Scenario | Transport mode | Status | strict-loadable | spine-passing | Dispositions / failures |
+|---|---|---|---|---|---|
+| `evidence_absent` | `free_text` | ran | **0/5** | **0/5** | 5x `response_payload_invalid` (`schema` missing) |
+| `evidence_present` | `free_text` | ran | **0/5** | **0/5** | 4x `schema` missing, 1x `schema` not string |
+| `evidence_absent` | `structured` | ran | **5/5** | **0/5** | 5x `candidate_action_request` |
+| `evidence_present` | `structured` | ran | **5/5** | **5/5** | 5x `candidate_action_request` |
+
+Free-text Gemma still produced JSON-ish responses, but not strict LM5G
+envelopes. In the absent run it chose the right behavioral direction
+(`clarification_request`) but omitted the required `schema` field. In the
+present run it showed intent movement, including one action-like payload, but
+still failed the strict envelope: one attempt put a JSON Schema object in
+`schema` instead of the literal response schema string, and the rest omitted
+`schema`.
+
+Structured transport changed the envelope result decisively: Gemma became
+strict-loadable 10/10 across the paired runs. That confirms the LM5O transport
+hypothesis: constrained decoding fixed Gemma's response-envelope discipline
+without changing LM5G, prompt text, evidence packets, or authority.
+
+### Judgment and semantic caveats
+
+Structured `evidence_absent` did **not** preserve the LM5N restraint
+expectation. It produced `candidate_action_request` 5/5 where the paired
+scenario expected clarification. Representative absent action input:
+
+```json
+{
+  "action_id": "draft_repair_params",
+  "input": {
+    "code": "public class ScriptComponent : IComponent { public void Execute() { /* TODO: Replace this logic with a proper implementation */ } }",
+    "mode": "replacement"
+  }
+}
+```
+
+That is a judgment regression, not a transport failure. The union schema
+constrained the envelope, but the real paired run shows that structured Gemma
+became too eager in the evidence-absent case.
+
+Structured `evidence_present` did produce the expected action request 5/5.
+Representative present action input:
+
+```json
+{
+  "action_id": "draft_repair_params",
+  "input": {
+    "code": "A = DefinitelyMissingSymbol;",
+    "mode": "body"
+  }
+}
+```
+
+This is spine-valid and grounded in the visible evidence packet, but it remains
+semantically weak: it copies the failing code unchanged. As in LM5N's qwen3
+result, the transport solved format, not repair quality.
+
+### LM5O interpretation
+
+LM5O worked as a transport slice. Ollama structured output with the full LM5
+response union made Gemma strict-loadable while preserving the downstream
+LM5G/LM5B/C/D/F spine and authority checks. It did not prove judgment
+preservation: structured absent forced action, so the next design question is
+how to preserve restraint while using constrained local transport.
+
+The result also separates two future variables:
+
+1. **Transport discipline:** solved for Gemma by structured output in this run.
+2. **Semantic repair quality / restraint:** still open; evidence-present copied
+   failing code, and evidence-absent over-acted.
+
+The bounded-worker safety property still held in the important authority sense:
+all structured action requests used the allowed `draft_repair_params` action id
+and flowed through the same strict loader and response spine. No tool execution
+or graph mutation occurred inside the probe.
+
+The earlier diagnostic-evidence idea remains relevant, but it should be treated
+as a later controlled variable. LM5O's evidence says structured transport is
+useful for Gemma, while paired-scenario judgment needs its own next slice.
 
 ## Updated comparison keys
 
@@ -376,5 +488,14 @@ above, per-candidate generation params, one bounded evidence packet)`.
 LM5N Gemma challenger: same LM5N paired scenarios, with
 `ollama_chat/gemma4:12b-it-qat` replacing the canonical local qwen3 slot.
 
-Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
-new experiment.
+LM5O Gemma free-text: `(lm5m.prompt_text:v2,
+lm5n_repair_evidence_absent|present/post_verify_pre_bind,
+ollama_chat/gemma4:12b-it-qat, schemas above, {"temperature": 0},
+transport_mode=free_text)`.
+
+LM5O Gemma structured: same paired scenarios and model, with
+`transport_mode=structured` and the full LM5 response union schema sent as the
+local transport `format`.
+
+Any prompt-text, scenario, params, candidate panel, evidence-push, or transport
+mode change is a new experiment.
