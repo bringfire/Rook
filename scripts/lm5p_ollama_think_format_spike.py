@@ -214,6 +214,17 @@ def _classify_provider_text(
         return row
 
     row["provider_json_valid"] = True
+    for key in (
+        "prompt_eval_count",
+        "eval_count",
+        "total_duration",
+        "load_duration",
+        "prompt_eval_duration",
+        "eval_duration",
+        "done_reason",
+    ):
+        row[key] = provider_payload.get(key)
+
     message = provider_payload.get("message")
     if not isinstance(message, Mapping):
         row["failure_reason"] = "message_missing"
@@ -230,17 +241,6 @@ def _classify_provider_text(
         row["thinking_chars"] = len(thinking)
         row["thinking_excerpt"] = _excerpt(thinking)
         row["thinking_sha256"] = _sha256_text(thinking)
-
-    for key in (
-        "prompt_eval_count",
-        "eval_count",
-        "total_duration",
-        "load_duration",
-        "prompt_eval_duration",
-        "eval_duration",
-        "done_reason",
-    ):
-        row[key] = provider_payload.get(key)
 
     if not isinstance(content, str) or not content:
         row["failure_reason"] = "content_missing"

@@ -273,6 +273,25 @@ def test_classifies_provider_json_parse_failure() -> None:
     assert row["failure_reason"] == "provider_json_invalid:JSONDecodeError"
 
 
+def test_classifies_missing_message_preserves_provider_telemetry() -> None:
+    provider_text = json.dumps(
+        {
+            "done_reason": "stop",
+            "total_duration": 123,
+            "eval_count": 45,
+        }
+    )
+
+    row = SPIKE._classify_provider_text(provider_text, {})
+
+    assert row["provider_status"] == "ok"
+    assert row["provider_json_valid"] is True
+    assert row["done_reason"] == "stop"
+    assert row["total_duration"] == 123
+    assert row["eval_count"] == 45
+    assert row["failure_reason"] == "message_missing"
+
+
 def test_classifies_free_text_content_as_row_evidence() -> None:
     provider_text = json.dumps({"message": {"content": "not json"}})
 
