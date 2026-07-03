@@ -338,9 +338,10 @@ Sonnet's sampled evidence-present action was stronger and repair-shaped:
 {"code": "A = 0;", "mode": "body"}
 ```
 
-It used the current code and target error evidence to replace the missing symbol
-with a literal body-style assignment. That is still only a bounded raw-output
-sample, not a verified Rhino/GH repair execution.
+It used the visible current code plus failure-count evidence to replace the
+self-describing missing symbol with a literal body-style assignment. That is
+still only a bounded raw-output sample, not a verified Rhino/GH repair
+execution.
 
 Recommended next slice: **LM5O bounded diagnostic evidence**. Before changing
 prompt text or parser behavior, investigate whether existing receipt fields,
