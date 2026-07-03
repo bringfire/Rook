@@ -129,6 +129,13 @@ def _canonical_json_bytes_unrestricted(value: Any) -> bytes:
     ).encode("utf-8")
 
 
+def _validate_json_payload(value: Any) -> None:
+    try:
+        json.dumps(value, sort_keys=True, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise CanvasDirectorError("spec_compile_failed", str(exc)) from exc
+
+
 def _ensure_resolved_under(path: Path, root: Path, message: str) -> None:
     try:
         path.resolve().relative_to(root.resolve())
@@ -531,6 +538,16 @@ def _raise_spec_write_failed(exc: Exception) -> None:
     raise CanvasDirectorError("spec_write_failed", str(exc)) from exc
 
 
+def _existing_spec_result(spec_path: Path, selected_spec_id: str, spec: dict[str, Any]) -> dict[str, Any]:
+    try:
+        existing = json.loads(spec_path.read_text(encoding="utf-8"))
+        if _canonical_json_bytes_unrestricted(existing) == _canonical_json_bytes_unrestricted(spec):
+            return {"spec_id": selected_spec_id, "spec_path": spec_path, "idempotent": True}
+    except Exception as exc:
+        raise CanvasDirectorError("id_collision", "Existing authoring spec is unreadable.") from exc
+    raise CanvasDirectorError("id_collision", "Authoring spec id already exists with different content.")
+
+
 def save_authoring_spec(
     project_root: str | os.PathLike[str],
     spec: dict[str, Any],
@@ -540,6 +557,7 @@ def save_authoring_spec(
 ) -> dict[str, Any]:
     if not isinstance(spec, dict) or spec.get("metadata_kind") != "director_authoring_spec":
         raise CanvasDirectorError("spec_compile_failed", "Authoring spec must be a director_authoring_spec.")
+    _validate_json_payload(spec)
 
     selected_spec_id = validate_canvas_director_id(
         spec_id if spec_id is not None else spec.get("spec_id"),
@@ -558,6 +576,11 @@ def save_authoring_spec(
             director_root,
             project_root=project_path,
         )
+        lock_path = _ensure_under(
+            spec_path.with_name(f"{spec_path.name}.lock"),
+            director_root,
+            project_root=project_path,
+        )
     except CanvasDirectorError as exc:
         if exc.code == "export_write_failed":
             _raise_spec_write_failed(exc)
@@ -566,20 +589,26 @@ def save_authoring_spec(
         _raise_spec_write_failed(exc)
 
     if spec_path.exists() and not replace:
-        try:
-            existing = json.loads(spec_path.read_text(encoding="utf-8"))
-            if _canonical_json_bytes_unrestricted(existing) == _canonical_json_bytes_unrestricted(spec):
-                return {"spec_id": selected_spec_id, "spec_path": spec_path, "idempotent": True}
-        except Exception as exc:
-            raise CanvasDirectorError("id_collision", "Existing authoring spec is unreadable.") from exc
-        raise CanvasDirectorError("id_collision", "Authoring spec id already exists with different content.")
+        return _existing_spec_result(spec_path, selected_spec_id, spec)
 
     try:
-        _atomic_write_json(spec_path, spec)
-    except OSError as exc:
-        _raise_spec_write_failed(exc)
-    except ValueError as exc:
-        raise CanvasDirectorError("spec_compile_failed", str(exc)) from exc
+        _acquire_export_lock(lock_path)
+        try:
+            if spec_path.exists() and not replace:
+                return _existing_spec_result(spec_path, selected_spec_id, spec)
+
+            try:
+                _atomic_write_json(spec_path, spec)
+            except OSError as exc:
+                _raise_spec_write_failed(exc)
+            except ValueError as exc:
+                raise CanvasDirectorError("spec_compile_failed", str(exc)) from exc
+        finally:
+            _release_export_lock(lock_path)
+    except CanvasDirectorError as exc:
+        if exc.code == "export_write_failed":
+            _raise_spec_write_failed(exc)
+        raise
 
     return {"spec_id": selected_spec_id, "spec_path": spec_path, "idempotent": False}
 

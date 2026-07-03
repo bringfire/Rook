@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import subprocess
 import threading
@@ -579,6 +580,64 @@ def test_save_authoring_spec_rejects_different_spec_same_id(tmp_path):
         cd.save_authoring_spec(tmp_path, changed, spec_id="spec_a")
 
     assert ei.value.code == "id_collision"
+
+
+@pytest.mark.parametrize("value", [math.nan, math.inf])
+def test_save_authoring_spec_rejects_non_finite_numbers(tmp_path, value):
+    spec = cd.compile_authoring_spec(_envelope(), spec_id="spec_a")
+    spec["resolution"] = {"width": value, "height": 1080}
+
+    with pytest.raises(cd.CanvasDirectorError) as ei:
+        cd.save_authoring_spec(tmp_path, spec, spec_id="spec_a")
+
+    assert ei.value.code == "spec_compile_failed"
+    assert not (tmp_path / ".rook" / "director" / "specs" / "spec_a.json").exists()
+
+
+def test_concurrent_first_spec_writes_detect_id_collision(tmp_path, monkeypatch):
+    spec_a = cd.compile_authoring_spec(_envelope(_state("export_a")), spec_id="spec_a")
+    changed_state = _state("export_a")
+    changed_state["payload"]["timeline"]["frame_count"] = 4
+    spec_b = cd.compile_authoring_spec(_envelope(changed_state), spec_id="spec_a")
+    original_write = cd._atomic_write_json
+    partial_started = threading.Event()
+    release_writer = threading.Event()
+    first_write_seen = threading.Event()
+
+    def paused_first_write(path, payload):
+        if not first_write_seen.is_set():
+            first_write_seen.set()
+            partial_started.set()
+            assert release_writer.wait(timeout=5)
+        original_write(path, payload)
+
+    monkeypatch.setattr(cd, "_atomic_write_json", paused_first_write)
+    results = []
+    errors = []
+
+    def worker(spec):
+        try:
+            results.append(cd.save_authoring_spec(tmp_path, spec, spec_id="spec_a"))
+        except Exception as exc:  # noqa: BLE001 - test records thread exceptions for assertions.
+            errors.append(exc)
+
+    first = threading.Thread(target=worker, args=(spec_a,))
+    first.start()
+    assert partial_started.wait(timeout=5)
+    second = threading.Thread(target=worker, args=(spec_b,))
+    second.start()
+    time.sleep(0.1)
+    release_writer.set()
+    first.join(timeout=10)
+    second.join(timeout=10)
+    assert not first.is_alive()
+    assert not second.is_alive()
+
+    assert len(results) == 1
+    assert results[0]["idempotent"] is False
+    assert [getattr(error, "code", None) for error in errors] == ["id_collision"]
+    persisted = json.loads(results[0]["spec_path"].read_text(encoding="utf-8"))
+    assert persisted in [spec_a, spec_b]
 
 
 @pytest.mark.asyncio
