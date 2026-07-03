@@ -657,6 +657,17 @@ def build_run_inputs(envelope: Any, spec: Any) -> dict[str, Any]:
     source_spec_id = spec.get("spec_id")
     if not isinstance(source_spec_id, str):
         raise CanvasDirectorError("invalid_spec_id", "Authoring spec id is required.")
+    source = spec.get("source")
+    declared_export_hash = (
+        source.get("canvas_export_state_sha256")
+        if isinstance(source, dict)
+        else None
+    )
+    if declared_export_hash is not None and declared_export_hash != actual_hash:
+        raise CanvasDirectorError(
+            "invalid_input",
+            "Authoring spec source hash does not match canvas export envelope.",
+        )
 
     source_spec_sha256 = hashlib.sha256(
         _canonical_json_bytes_unrestricted(spec)

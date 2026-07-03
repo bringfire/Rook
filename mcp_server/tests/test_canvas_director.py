@@ -385,6 +385,19 @@ def test_build_run_inputs_uses_spec_and_export_hash():
     assert provenance["template_version"] == "0.1.0"
 
 
+def test_build_run_inputs_rejects_stale_envelope_spec_pairing():
+    original_envelope = _envelope()
+    spec = cd.compile_authoring_spec(original_envelope, spec_id="spec_a")
+    changed_state = _state()
+    changed_state["payload"]["timeline"]["frame_count"] = 4
+    stale_envelope = _envelope(changed_state)
+
+    with pytest.raises(cd.CanvasDirectorError) as ei:
+        cd.build_run_inputs(stale_envelope, spec)
+
+    assert ei.value.code == "invalid_input"
+
+
 @pytest.mark.asyncio
 async def test_build_compile_motion_request_is_accepted_by_director_compiler(tmp_path):
     from rook import director_compiler
