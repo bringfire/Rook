@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ from typing import Any
 import litellm
 
 from rook.agent.local_worker_adapter import TransportError
+from rook.agent.local_worker_turn_response import LOCAL_WORKER_TURN_RESPONSE_SCHEMA
 from rook.agent.model_profiles import api_base_for_model
 
 __all__ = (
@@ -27,6 +29,87 @@ class TransportCallInfo:
     cost_usd: float | None
 
 
+def _copy_json_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        copied: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise TypeError(
+                    "structured_response_schema values must be JSON-shaped"
+                )
+            copied[key] = _copy_json_value(item)
+        return copied
+    if isinstance(value, (list, tuple)):
+        return [_copy_json_value(item) for item in value]
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float) and math.isfinite(value):
+        return value
+    raise TypeError("structured_response_schema values must be JSON-shaped")
+
+
+def _local_worker_response_union_schema() -> dict[str, Any]:
+    def schema_prop() -> dict[str, str]:
+        return {"const": LOCAL_WORKER_TURN_RESPONSE_SCHEMA}
+
+    return {
+        "oneOf": [
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["schema", "kind", "action_id", "rationale", "input"],
+                "properties": {
+                    "schema": schema_prop(),
+                    "kind": {"const": "action_request"},
+                    "action_id": {"type": "string"},
+                    "rationale": {"type": "string"},
+                    "input": {"type": "object"},
+                },
+            },
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["schema", "kind", "question", "rationale"],
+                "properties": {
+                    "schema": schema_prop(),
+                    "kind": {"const": "clarification_request"},
+                    "question": {"type": "string"},
+                    "rationale": {"type": ["string", "null"]},
+                },
+            },
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["schema", "kind", "category", "reason"],
+                "properties": {
+                    "schema": schema_prop(),
+                    "kind": {"const": "refusal"},
+                    "category": {
+                        "enum": [
+                            "unsafe",
+                            "insufficient_context",
+                            "unsupported_action",
+                            "out_of_scope",
+                        ]
+                    },
+                    "reason": {"type": "string"},
+                },
+            },
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["schema", "kind", "message", "data"],
+                "properties": {
+                    "schema": schema_prop(),
+                    "kind": {"const": "observation"},
+                    "message": {"type": "string"},
+                    "data": {"type": ["object", "null"]},
+                },
+            },
+        ]
+    }
+
+
 class LiteLLMWorkerTransport:
     """Sync LocalWorkerTransport over litellm.completion.
 
@@ -41,13 +124,29 @@ class LiteLLMWorkerTransport:
         model: str,
         profile_api_base: str | None = None,
         generation_params: Mapping[str, Any] | None = None,
+        structured_response_schema: Mapping[str, Any] | None = None,
         timeout_s: float = 120.0,
     ) -> None:
         if not isinstance(model, str) or not model:
             raise ValueError("model must be a non-empty string")
+        if (
+            structured_response_schema is not None
+            and not isinstance(structured_response_schema, Mapping)
+        ):
+            raise TypeError("structured_response_schema must be a mapping")
         self.model = model
         self.profile_api_base = profile_api_base
         self.generation_params = dict(generation_params or {})
+        if "format" in self.generation_params and structured_response_schema is not None:
+            raise TypeError(
+                "generation_params must not include format when "
+                "structured_response_schema is set"
+            )
+        self.structured_response_schema = (
+            _copy_json_value(structured_response_schema)
+            if structured_response_schema is not None
+            else None
+        )
         self.timeout_s = timeout_s
         self.last_call_info: TransportCallInfo | None = None
         self.last_raw_output: str | None = None
@@ -61,6 +160,8 @@ class LiteLLMWorkerTransport:
             "timeout": self.timeout_s,
         }
         kwargs.update(self.generation_params)
+        if self.structured_response_schema is not None:
+            kwargs["format"] = _copy_json_value(self.structured_response_schema)
         api_base = api_base_for_model(self.model, self.profile_api_base)
         if api_base:
             kwargs["api_base"] = api_base

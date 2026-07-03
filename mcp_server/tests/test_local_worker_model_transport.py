@@ -11,6 +11,10 @@ from rook.agent.local_worker_model_transport import (
     LiteLLMWorkerTransport,
     TransportCallInfo,
 )
+from rook.agent.local_worker_turn_response import (
+    LOCAL_WORKER_TURN_RESPONSE_SCHEMA,
+    load_local_worker_turn_response_payload,
+)
 
 
 class _Msg:
@@ -67,10 +71,14 @@ _ARTIFACT = {
 
 def _transport(monkeypatch, fake, **kwargs):
     monkeypatch.setattr(transport_module, "litellm", fake)
-    defaults = {"model": "openai/lmstudio-model", "profile_api_base": "http://localhost:1234/v1"}
+    defaults = {
+        "model": "openai/lmstudio-model",
+        "profile_api_base": "http://localhost:1234/v1",
+    }
     defaults.update(kwargs)
+    generation_params = defaults.pop("generation_params", {"temperature": 0})
     return LiteLLMWorkerTransport(
-        generation_params={"temperature": 0}, **defaults
+        generation_params=generation_params, **defaults
     )
 
 
@@ -205,6 +213,128 @@ def test_no_structured_output_kwargs(monkeypatch) -> None:
     call = fake.calls[0]
     for banned in ("response_format", "tools", "tool_choice", "functions"):
         assert banned not in call
+
+
+def _minimal_valid_payloads_by_kind():
+    return {
+        "action_request": {
+            "schema": LOCAL_WORKER_TURN_RESPONSE_SCHEMA,
+            "kind": "action_request",
+            "action_id": "draft_repair_params",
+            "rationale": "Use visible evidence.",
+            "input": {"code": "A = 0;", "mode": "body"},
+        },
+        "clarification_request": {
+            "schema": LOCAL_WORKER_TURN_RESPONSE_SCHEMA,
+            "kind": "clarification_request",
+            "question": "What code should be repaired?",
+            "rationale": None,
+        },
+        "refusal": {
+            "schema": LOCAL_WORKER_TURN_RESPONSE_SCHEMA,
+            "kind": "refusal",
+            "category": "insufficient_context",
+            "reason": "Visible context is insufficient.",
+        },
+        "observation": {
+            "schema": LOCAL_WORKER_TURN_RESPONSE_SCHEMA,
+            "kind": "observation",
+            "message": "Terminal state observed.",
+            "data": None,
+        },
+    }
+
+
+def test_response_union_schema_contains_all_lm5_response_kinds() -> None:
+    schema = transport_module._local_worker_response_union_schema()
+    variants = schema["oneOf"]
+    kinds = {variant["properties"]["kind"]["const"] for variant in variants}
+    assert kinds == {
+        "action_request",
+        "clarification_request",
+        "refusal",
+        "observation",
+    }
+    for variant in variants:
+        assert variant["additionalProperties"] is False
+        assert (
+            variant["properties"]["schema"]["const"]
+            == LOCAL_WORKER_TURN_RESPONSE_SCHEMA
+        )
+
+
+def test_response_union_schema_accepts_lm5g_valid_payload_shapes() -> None:
+    schema = transport_module._local_worker_response_union_schema()
+    kinds = {
+        variant["properties"]["kind"]["const"] for variant in schema["oneOf"]
+    }
+    assert kinds == set(_minimal_valid_payloads_by_kind())
+    for payload in _minimal_valid_payloads_by_kind().values():
+        response = load_local_worker_turn_response_payload(payload)
+        assert response.payload is not None
+
+
+def test_structured_transport_passes_format_kwarg(monkeypatch) -> None:
+    fake = _FakeLitellm(response=_Response("ok"))
+    structured_schema = transport_module._local_worker_response_union_schema()
+    transport = _transport(
+        monkeypatch,
+        fake,
+        structured_response_schema=structured_schema,
+    )
+    transport.send(_ARTIFACT)
+    call = fake.calls[0]
+    assert "format" in call
+    assert call["format"]["oneOf"][0]["properties"]["schema"]["const"] == (
+        LOCAL_WORKER_TURN_RESPONSE_SCHEMA
+    )
+
+
+def test_free_text_transport_omits_format_kwarg(monkeypatch) -> None:
+    fake = _FakeLitellm(response=_Response("ok"))
+    transport = _transport(monkeypatch, fake)
+    transport.send(_ARTIFACT)
+    assert "format" not in fake.calls[0]
+
+
+def test_structured_schema_is_copied_per_call(monkeypatch) -> None:
+    fake = _FakeLitellm(response=_Response("ok"))
+    transport = _transport(
+        monkeypatch,
+        fake,
+        structured_response_schema=transport_module._local_worker_response_union_schema(),
+    )
+    transport.send(_ARTIFACT)
+    fake.calls[0]["format"]["oneOf"].clear()
+    transport.send(_ARTIFACT)
+    assert len(fake.calls[1]["format"]["oneOf"]) == 4
+
+
+def test_format_generation_param_conflict_is_rejected() -> None:
+    with pytest.raises(TypeError, match="generation_params must not include format"):
+        LiteLLMWorkerTransport(
+            model="ollama_chat/gemma4:12b-it-qat",
+            generation_params={"format": {}},
+            structured_response_schema=transport_module._local_worker_response_union_schema(),
+        )
+
+
+def test_structured_response_schema_must_be_mapping() -> None:
+    with pytest.raises(TypeError, match="structured_response_schema must be a mapping"):
+        LiteLLMWorkerTransport(
+            model="ollama_chat/gemma4:12b-it-qat",
+            structured_response_schema=[],
+        )
+
+
+def test_structured_response_schema_must_be_json_shaped() -> None:
+    with pytest.raises(
+        TypeError, match="structured_response_schema values must be JSON-shaped"
+    ):
+        LiteLLMWorkerTransport(
+            model="ollama_chat/gemma4:12b-it-qat",
+            structured_response_schema={"bad": object()},
+        )
 
 
 def test_import_and_ast_guard() -> None:

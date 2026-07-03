@@ -44,6 +44,11 @@ def test_slot_vocabulary() -> None:
     }
 
 
+def test_transport_modes_are_source_of_truth() -> None:
+    assert PROBE.TRANSPORT_MODES == ("free_text", "structured")
+    assert PROBE.DEFAULT_LOCAL_TRANSPORT_MODE == "free_text"
+
+
 def test_scenario_configs_are_source_of_truth() -> None:
     assert PROBE.SCENARIO_WORKFLOW_ID == "lm5k_first_probe"
     assert set(PROBE._SCENARIOS) == {"evidence_absent", "evidence_present"}
@@ -107,6 +112,13 @@ def test_profile_inference_local_only_for_local_shaped_models() -> None:
     assert (
         PROBE.profile_inferred_local("anthropic/claude-haiku-4-5", None) is None
     )
+
+
+def test_is_ollama_local_model() -> None:
+    assert PROBE._is_ollama_local_model("ollama_chat/gemma4:12b-it-qat") is True
+    assert PROBE._is_ollama_local_model("ollama/gemma4:12b-it-qat") is True
+    assert PROBE._is_ollama_local_model("openai/lmstudio-model") is False
+    assert PROBE._is_ollama_local_model(None) is False
 
 
 def test_resolve_slot_order_cli_env_profile_none() -> None:
@@ -300,6 +312,7 @@ def _args(tmp_path, **overrides):
         "skip": ["cheap", "ceiling"], "attempts": 3,
         "capture_raw": False, "run_dir": str(tmp_path),
         "scenario": "evidence_present",
+        "local_transport_mode": "free_text",
     }
     values.update(overrides)
     return argparse.Namespace(**values)
@@ -403,6 +416,77 @@ def test_offline_probe_fenced_output_counts_split(tmp_path) -> None:
     assert json.loads(lines[0])["failure_reason"] == (
         "raw_output_invalid:json_decode"
     )
+
+
+def test_structured_mode_requires_resolved_ollama_local(tmp_path) -> None:
+    with pytest.raises(
+        ValueError, match="structured local transport requires an Ollama local model"
+    ):
+        PROBE.run_probe(
+            _args(
+                tmp_path,
+                local="openai/lmstudio-model@http://localhost:1234/v1",
+                local_transport_mode="structured",
+            ),
+            transport_factory=_FakeGoodTransport,
+        )
+
+
+def test_structured_mode_rejects_skipped_local_slot(tmp_path) -> None:
+    with pytest.raises(
+        ValueError, match="structured local transport requires a runnable local slot"
+    ):
+        PROBE.run_probe(
+            _args(
+                tmp_path,
+                local="ollama_chat/gemma4:12b-it-qat",
+                local_transport_mode="structured",
+                skip=["local", "cheap", "ceiling"],
+            ),
+            transport_factory=_FakeGoodTransport,
+        )
+
+
+def test_manifest_and_attempts_record_transport_mode(tmp_path) -> None:
+    run_dir = PROBE.run_probe(
+        _args(
+            tmp_path,
+            local="ollama_chat/gemma4:12b-it-qat",
+            local_transport_mode="structured",
+            attempts=1,
+        ),
+        transport_factory=_FakeGoodTransport,
+    )
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    by_slot = {entry["slot"]: entry for entry in manifest["panel"]}
+    assert by_slot["local"]["transport_mode"] == "structured"
+    assert by_slot["cheap"]["transport_mode"] == "free_text"
+    assert by_slot["ceiling"]["transport_mode"] == "free_text"
+    first = json.loads((run_dir / "attempts.jsonl").read_text().splitlines()[0])
+    assert first["transport_mode"] == "structured"
+
+
+def test_transport_factory_receives_structured_schema_only_for_local_structured(
+    tmp_path,
+) -> None:
+    captured = []
+
+    class CapturingTransport(_FakeGoodTransport):
+        def __init__(self, resolution):
+            super().__init__(resolution)
+            captured.append(resolution)
+
+    PROBE.run_probe(
+        _args(
+            tmp_path,
+            local="ollama_chat/gemma4:12b-it-qat",
+            local_transport_mode="structured",
+            attempts=1,
+        ),
+        transport_factory=CapturingTransport,
+    )
+    assert captured[0]["transport_mode"] == "structured"
+    assert captured[0]["structured_response_schema"] is not None
 
 
 def test_derived_graph_state_is_post_verify_pre_bind() -> None:
