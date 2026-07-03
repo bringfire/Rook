@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the first RookVisionCanvasDirector slice: Grasshopper emits a side-effect-free typed export envelope, Python persists and compiles it into Director runtime truth, and execution goes through existing Director compiler/replay primitives rather than treating the GH canvas as runtime truth.
+**Goal:** Build the first RookVisionCanvasDirector slice: Grasshopper emits a side-effect-free typed export envelope, Python persists and compiles it into Director runtime truth, and execution goes through existing Director compiler/frame-capture/video primitives rather than treating the GH canvas as runtime truth.
 
-**Architecture:** Native exposes `/director/canvas/extract` as a thin facade over a managed `canvas_director_dispatch` bridge callback. The Companion owns GH solve/export extraction and returns an envelope; Python/MCP owns project `.rook` persistence, restricted canonical hash verification, authoring-spec compilation, run input/provenance files, and orchestration into existing Director compile-motion/replay. Track-to-frame-capture/video assembly remains an explicit follow-up unless implemented as a separate helper.
+**Architecture:** Native exposes `/director/canvas/extract` as a thin facade over a managed `canvas_director_dispatch` bridge callback. The Companion owns GH solve/export extraction and returns an envelope; Python/MCP owns project `.rook` persistence, restricted canonical hash verification, authoring-spec compilation, run input/provenance files, and orchestration into existing Director compile-motion, frame-capture, and video assembly.
 
 **Tech Stack:** Rhino 8/RhinoCommon, Grasshopper via managed reflection, RookNative C++/httplib/nlohmann::json, C# net48/net7/net8, Python 3.10+, pytest, xUnit.
 
@@ -19,9 +19,9 @@ This plan implements the first slice only:
 - Python persistence under `.rook/director/exports` and `.rook/director/specs`.
 - A narrow `DirectorAuthoringSpec` compiler plus a `build_compile_motion_request()` adapter that maps one CanvasDirector payload family into the existing `director_compiler.compile_motion` input shape.
 - Run evidence input copying to `<run_directory>/inputs/director_authoring_spec.json` plus `<run_directory>/inputs/provenance.json`.
-- Live validation through `director_compiler.compile_motion()` and `director.run_replay()`. `DirectorAuthoringSpec` must never be passed directly to `director.run_director()`.
+- Live validation through `director_compiler.compile_motion()`, a new `director.run_compiled_track()` helper over `/director/frame-capture`, and `director_video.assemble_director_video()`. `DirectorAuthoringSpec` must never be passed directly to `director.run_director()`.
 
-Contract chain: `CanvasProposal -> CanvasExportState -> Project DirectorAuthoringSpec -> Run input copy -> DirectorTrack -> DirectorRunArtifacts`.
+Contract chain: `CanvasProposal -> CanvasExportState -> Project DirectorAuthoringSpec -> Run evidence input copy -> DirectorTrack -> DirectorRunArtifacts`.
 
 This plan does not implement a GH-preview capture mode, a custom `.gha`, or a new proposal-creation route. Proposal creation remains Python/MCP orchestration over existing GH edit/canvas tools.
 
@@ -48,7 +48,7 @@ Managed:
 Python:
 
 - Create `mcp_server/src/rook/canvas_director.py`: native extraction call, restricted RFC 8785/JCS-compatible hash verification, ID/path policy, full extraction envelope/spec persistence, authoring-spec compilation helpers, and run input provenance helpers.
-- Modify `mcp_server/src/rook/director.py`: accept optional evidence spec/provenance copy data and write `<run_directory>/inputs/*` after run directory creation.
+- Modify `mcp_server/src/rook/director.py`: add `run_compiled_track()` for compiled track capture, accept evidence spec/provenance copy data there, and write `<run_directory>/inputs/*` before frame capture.
 - Modify `mcp_server/src/rook/server.py`: expose `rhino_director_canvas_extract`.
 - Modify `mcp_server/src/rook/agent/tool_groups.py`: add the tool to the `director` group only.
 - Create `mcp_server/tests/test_canvas_director.py`: pure Python contract tests.
@@ -1673,6 +1673,65 @@ def test_build_compile_motion_request_is_runnable_compiler_shape(tmp_path):
     assert request["timeline"]["frame_count"] == 3
 
 
+@pytest.mark.asyncio
+async def test_build_compile_motion_request_is_accepted_by_director_compiler(tmp_path):
+    from rook import director_compiler
+    object_id = "11111111-1111-1111-1111-111111111111"
+    state = _state()
+    state["payload"] = {
+        "timeline": {"fps": 24, "frame_count": 3},
+        "resolution": {"width": 640, "height": 360},
+        "groups": {"actor_a": [object_id]},
+        "motion": [{"target": "actor_a", "keyframes": [{"t": 1.0, "translate": ["1.0", "0.0", "0.0"]}]}],
+        "camera": {"strategy": "keyframes", "keyframes": [{"frame_index": 1, "source": {"kind": "active_view"}}]},
+    }
+    spec = cd.compile_authoring_spec(_envelope(state), spec_id="spec_a")
+    request = cd.build_compile_motion_request(spec)
+
+    async def native(endpoint, method, data, *, port=None):
+        if endpoint == "/director/object-states":
+            return {
+                "success": True,
+                "data": {
+                    "objects": [{
+                        "object_id": object_id,
+                        "bbox_min": [0, 0, 0],
+                        "bbox_max": [2, 2, 2],
+                        "state_hash": "state-a",
+                    }],
+                    "units": "Meters",
+                },
+            }
+        if endpoint == "/director/view-state":
+            return {
+                "success": True,
+                "data": {
+                    "camera": {
+                        "projection": "perspective",
+                        "location": [0, -10, 5],
+                        "target": [0, 0, 0],
+                        "direction": [0, 1, 0],
+                        "up": [0, 0, 1],
+                        "lens_length": 35.0,
+                        "fov_degrees": None,
+                        "parallel_scale": None,
+                        "near_clip": None,
+                        "far_clip": None,
+                        "aspect": 640 / 360,
+                    },
+                    "provenance": {"source": "active_view"},
+                },
+            }
+        raise AssertionError(f"unexpected endpoint {endpoint}")
+
+    compiled = await director_compiler.compile_motion(request, call_native=native)
+    track = compiled["track"]
+    assert track["frame_count"] == 3
+    assert len(track["camera_frames"]) == 3
+    assert len(track["object_frames"]) == 3
+    assert track["animated_object_ids"] == [object_id]
+
+
 def test_save_authoring_spec_writes_atomic_spec(tmp_path):
     spec = cd.compile_authoring_spec(_envelope(), spec_id="spec_a")
     result = cd.save_authoring_spec(tmp_path, spec, spec_id="spec_a")
@@ -1810,7 +1869,7 @@ git commit -m "feat(canvas-director): compile authoring specs to motion requests
 
 ---
 
-### Task 6: Director Run Evidence Inputs And Provenance
+### Task 6: Capture Compiled Track As Director Run Artifacts
 
 **Files:**
 
@@ -1819,31 +1878,96 @@ git commit -m "feat(canvas-director): compile authoring specs to motion requests
 - Modify: `mcp_server/tests/test_director.py`
 - Modify: `mcp_server/tests/test_canvas_director.py`
 
-- [ ] **Step 1: Add Director run evidence input copy tests**
+- [ ] **Step 1: Add compiled-track run artifact tests**
 
 Append to `mcp_server/tests/test_director.py`:
 
 ```python
-def test_run_director_writes_input_spec_and_provenance(tmp_path):
-    from rook import director
-    spec = {
-        "metadata_kind": "director_authoring_spec",
-        "schema_version": 1,
-        "spec_id": "spec_a",
+def _compiled_track():
+    camera = {
+        "projection": "perspective",
+        "location": [0, -10, 5],
+        "target": [0, 0, 0],
+        "direction": [0, 1, 0],
+        "up": [0, 0, 1],
+        "lens_length": 35.0,
+        "fov_degrees": None,
+        "parallel_scale": None,
+        "near_clip": None,
+        "far_clip": None,
+        "aspect": 16 / 9,
     }
-    copied = director._write_run_inputs(
-        tmp_path,
-        director_authoring_spec=spec,
-        provenance={
-            "source_spec_id": "spec_a",
-            "source_spec_sha256": "abc",
-            "canvas_export_state_sha256": "def",
-            "template_version": "0.1.0",
-        },
+    return {
+        "transform_semantics": "absolute_from_source",
+        "fps": 24,
+        "frame_count": 2,
+        "animated_object_ids": ["11111111-1111-1111-1111-111111111111"],
+        "camera_frames": [
+            {"frame_index": 1, "camera": camera},
+            {"frame_index": 2, "camera": camera},
+        ],
+        "object_frames": [
+            {
+                "frame_index": 1,
+                "object_transforms": [{
+                    "object_id": "11111111-1111-1111-1111-111111111111",
+                    "source_state": {"bbox_min": [0, 0, 0], "bbox_max": [1, 1, 1], "state_hash": "s1"},
+                    "transform": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
+                }],
+            },
+            {
+                "frame_index": 2,
+                "object_transforms": [{
+                    "object_id": "11111111-1111-1111-1111-111111111111",
+                    "source_state": {"bbox_min": [0, 0, 0], "bbox_max": [1, 1, 1], "state_hash": "s1"},
+                    "transform": [[1, 0, 0, 1], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
+                }],
+            },
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_compiled_track_writes_manifest_frames_inputs_and_evidence(tmp_path):
+    from rook import director
+    spec = {"metadata_kind": "director_authoring_spec", "schema_version": 1, "spec_id": "spec_a"}
+    native = FakeNative(
+        [
+            {"success": True, "data": {"frame_index": 1}},
+            {"success": True, "data": {"frame_index": 2}},
+        ],
+        create_outputs=True,
     )
-    assert (tmp_path / "inputs" / "director_authoring_spec.json").is_file()
-    assert (tmp_path / "inputs" / "provenance.json").is_file()
-    assert copied["copied_spec_sha256"]
+    out = await director.run_compiled_track(
+        {
+            "track": _compiled_track(),
+            "resolution": {"width": 320, "height": 180},
+            "display": {"mode": "Rendered"},
+            "output_root": str(tmp_path / "runs"),
+            "run_id": "compiled-track-a",
+            "run_inputs": {
+                "director_authoring_spec": spec,
+                "provenance": {
+                    "source_spec_id": "spec_a",
+                    "source_spec_sha256": "abc",
+                    "canvas_export_state_sha256": "def",
+                    "template_version": "0.1.0",
+                },
+            },
+            "compile_provenance": {"frame_count": 2, "fps": 24},
+        },
+        call_native=native,
+    )
+    assert out["state"] == "complete"
+    run_root = Path(out["run_root"])
+    assert (run_root / "inputs" / "director_authoring_spec.json").is_file()
+    assert (run_root / "inputs" / "provenance.json").is_file()
+    manifest = json.loads((run_root / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["motion"]["strategy"] == "compiled_track"
+    assert manifest["frame_count"] == 2
+    assert len(manifest["frames"]) == 2
+    assert (run_root / "frames" / "frame_0001.png").is_file()
+    assert (run_root / "logs" / "frame_evidence.jsonl").is_file()
 
 
 def test_validate_run_inputs_rejects_malformed_inputs():
@@ -1857,12 +1981,12 @@ def test_validate_run_inputs_rejects_malformed_inputs():
 Run:
 
 ```powershell
-python -m pytest mcp_server/tests/test_director.py::test_run_director_writes_input_spec_and_provenance -q
+python -m pytest mcp_server/tests/test_director.py::test_run_compiled_track_writes_manifest_frames_inputs_and_evidence mcp_server/tests/test_director.py::test_validate_run_inputs_rejects_malformed_inputs -q
 ```
 
-Expected: FAIL because `_write_run_inputs` and `_validate_run_inputs` do not exist.
+Expected: FAIL because `run_compiled_track`, `_write_run_inputs`, and `_validate_run_inputs` do not exist.
 
-- [ ] **Step 3: Add run evidence input helper to Director runner**
+- [ ] **Step 3: Add run evidence input helpers to Director runner**
 
 In `mcp_server/src/rook/director.py`, add near `_atomic_write_json`:
 
@@ -1910,18 +2034,168 @@ def _validate_run_inputs(run_inputs: Any) -> tuple[dict[str, Any], dict[str, Any
     return director_authoring_spec, provenance
 ```
 
-- [ ] **Step 4: Thread optional run evidence inputs through `run_director`**
+- [ ] **Step 4: Add compiled-track run capture helper**
 
-In `run_director`, after `logs_dir.mkdir(...)`, add:
+Add helpers near `run_director` in `mcp_server/src/rook/director.py`:
 
 ```python
-    if "run_inputs" in request:
-        director_authoring_spec, provenance = _validate_run_inputs(request["run_inputs"])
-        _write_run_inputs(
-            run_root,
-            director_authoring_spec=director_authoring_spec,
-            provenance=provenance,
-        )
+def _indexed_track_frames(track: dict[str, Any], frame_count: int) -> tuple[dict[int, dict[str, Any]], dict[int, dict[str, Any]]]:
+    camera_frames = track.get("camera_frames")
+    object_frames = track.get("object_frames")
+    if not isinstance(camera_frames, list) or not isinstance(object_frames, list):
+        raise DirectorInputError("compiled track requires camera_frames and object_frames arrays")
+    cameras = {int(frame.get("frame_index")): frame for frame in camera_frames if isinstance(frame, dict)}
+    objects = {int(frame.get("frame_index")): frame for frame in object_frames if isinstance(frame, dict)}
+    expected = set(range(1, frame_count + 1))
+    if len(cameras) != frame_count or len(objects) != frame_count or set(cameras) != expected or set(objects) != expected:
+        raise DirectorInputError("compiled track frame indexes must exactly cover 1..frame_count")
+    for index in expected:
+        if not isinstance(cameras[index].get("camera"), dict):
+            raise DirectorInputError("compiled track camera frame missing camera object")
+        if not isinstance(objects[index].get("object_transforms"), list):
+            raise DirectorInputError("compiled track object frame missing object_transforms array")
+    return cameras, objects
+
+
+async def _capture_manifest_frames(
+    *,
+    call_native,
+    port: int | None,
+    run_id: str,
+    run_root: Path,
+    resolution: dict[str, Any],
+    display: dict[str, Any],
+    manifest_frames: list[dict[str, Any]],
+    should_cancel,
+) -> str:
+    state = "complete"
+    evidence_path = run_root / "logs" / "frame_evidence.jsonl"
+    should_cancel = should_cancel or (lambda: False)
+    for frame in manifest_frames:
+        if should_cancel():
+            return "cancelled"
+        instruction = {
+            "schema_version": SCHEMA_VERSION,
+            "director_version": DIRECTOR_VERSION,
+            "run_id": run_id,
+            "frame_index": frame["frame_index"],
+            "frame_id": frame["frame_id"],
+            "run_root": str(run_root),
+            "output_path": frame["output_path"],
+            "resolution": resolution,
+            "display": display,
+            "camera": frame["camera"],
+            "object_transforms": frame["object_transforms"],
+        }
+        result = await call_native("/director/frame-capture", "POST", instruction, port=port)
+        evidence = result.get("data") if isinstance(result.get("data"), dict) else {"error": result.get("data")}
+        evidence["success"] = bool(result.get("success"))
+        output_path = Path(frame["output_path"])
+        if result.get("success") and (not output_path.exists() or output_path.stat().st_size <= 0):
+            evidence["success"] = False
+            evidence["error"] = {"code": "missing_output", "message": f"Expected frame output was not created: {output_path}"}
+        try:
+            _append_evidence(evidence_path, evidence)
+        except OSError:
+            return "evidence_failed"
+        if evidence.get("dirty_partial_state"):
+            return "unsafe_failed"
+        if not result.get("success") or not evidence["success"]:
+            state = "failed"
+            break
+    return state
+```
+
+Then add:
+
+```python
+async def run_compiled_track(
+    request: dict[str, Any],
+    *,
+    call_native=call_rhino,
+    runtime: DirectorRuntimePaths | None = None,
+    port: int | None = None,
+    should_cancel=None,
+) -> dict[str, Any]:
+    if not isinstance(request, dict):
+        raise DirectorInputError("compiled track run request must be an object")
+    track = request.get("track")
+    if not isinstance(track, dict):
+        raise DirectorInputError("track must be an object")
+    frame_count = int(track.get("frame_count") or 0)
+    fps = int(track.get("fps") or 0)
+    if frame_count < 1 or fps < 1:
+        raise DirectorInputError("compiled track requires positive frame_count and fps")
+    resolution = request.get("resolution") or {"width": 1920, "height": 1080}
+    if not isinstance(resolution, dict):
+        raise DirectorInputError("resolution must be an object")
+    display = request.get("display") or {"mode": "Rendered"}
+    if not isinstance(display, dict):
+        raise DirectorInputError("display must be an object")
+    cameras, objects = _indexed_track_frames(track, frame_count)
+    run_inputs = _validate_run_inputs(request["run_inputs"]) if "run_inputs" in request else None
+
+    runtime = runtime or _runtime_paths()
+    output_root = resolve_output_root(request.get("output_root"), runtime)
+    run_id = request.get("run_id") or (
+        f"director_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_"
+        f"{uuid.uuid4().hex[:8]}"
+    )
+    run_root = (output_root / run_id).resolve()
+    frames_dir = run_root / "frames"
+    logs_dir = run_root / "logs"
+    frames_dir.mkdir(parents=True, exist_ok=False)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    if run_inputs is not None:
+        director_authoring_spec, provenance = run_inputs
+        _write_run_inputs(run_root, director_authoring_spec=director_authoring_spec, provenance=provenance)
+
+    manifest_frames = []
+    for index in range(1, frame_count + 1):
+        frame_name = _frame_id(index)
+        manifest_frames.append({
+            "frame_index": index,
+            "frame_id": frame_name,
+            "camera": cameras[index]["camera"],
+            "object_transforms": objects[index]["object_transforms"],
+            "output_path": str((frames_dir / f"{frame_name}.png").resolve()),
+        })
+    manifest = {
+        "schema_version": SCHEMA_VERSION,
+        "director_version": DIRECTOR_VERSION,
+        "run_id": run_id,
+        "run_root": str(run_root),
+        "output_root": str(output_root),
+        "created_at": _utc_now(),
+        "frame_count": frame_count,
+        "timeline": {"fps": fps, "frame_count": frame_count},
+        "motion": {
+            "strategy": "compiled_track",
+            "transform_semantics": track.get("transform_semantics"),
+            "animated_object_ids": list(track.get("animated_object_ids") or []),
+            "provenance": request.get("compile_provenance") or {},
+        },
+        "camera_plan": {"strategy": "compiled_track"},
+        "resolution": resolution,
+        "display": display,
+        "frames": manifest_frames,
+        "exclusions": ["true_depth", "edge_pass", "rookvision_artifact_handoff", "grasshopper_nle"],
+    }
+    _atomic_write_json(run_root / "manifest.json", manifest)
+    _atomic_write_json(run_root / "status.json", {"state": "running", "run_id": run_id, "updated_at": _utc_now()})
+    state = await _capture_manifest_frames(
+        call_native=call_native,
+        port=port,
+        run_id=run_id,
+        run_root=run_root,
+        resolution=resolution,
+        display=display,
+        manifest_frames=manifest_frames,
+        should_cancel=should_cancel,
+    )
+    summary = {"state": state, "run_id": run_id, "run_root": str(run_root), "updated_at": _utc_now()}
+    _atomic_write_json(run_root / "status.json", summary)
+    return summary
 ```
 
 - [ ] **Step 5: Add CanvasDirector end-to-end prep helper tests**
@@ -1961,7 +2235,7 @@ def build_run_inputs(envelope: dict[str, Any], spec: dict[str, Any]) -> dict[str
 Run:
 
 ```powershell
-python -m pytest mcp_server/tests/test_director.py::test_run_director_writes_input_spec_and_provenance mcp_server/tests/test_canvas_director.py -q
+python -m pytest mcp_server/tests/test_director.py::test_run_compiled_track_writes_manifest_frames_inputs_and_evidence mcp_server/tests/test_director.py::test_validate_run_inputs_rejects_malformed_inputs mcp_server/tests/test_canvas_director.py -q
 ```
 
 Expected: PASS.
@@ -1972,7 +2246,7 @@ Run:
 
 ```powershell
 git add mcp_server/src/rook/director.py mcp_server/src/rook/canvas_director.py mcp_server/tests/test_director.py mcp_server/tests/test_canvas_director.py
-git commit -m "feat(canvas-director): write director run evidence inputs"
+git commit -m "feat(canvas-director): capture compiled tracks as director runs"
 ```
 
 ---
@@ -2177,7 +2451,7 @@ Expected: PASS.
 Run:
 
 ```powershell
-python -m pytest mcp_server/tests/test_canvas_director.py mcp_server/tests/test_director_mcp_tools.py mcp_server/tests/test_director.py -q -k "canvas_director or run_director_writes_input_spec"
+python -m pytest mcp_server/tests/test_canvas_director.py mcp_server/tests/test_director_mcp_tools.py mcp_server/tests/test_director.py -q -k "canvas_director or run_compiled_track or validate_run_inputs"
 ```
 
 Expected: PASS.
@@ -2208,9 +2482,9 @@ asyncio.run(main())
 
 Expected: JSON response contains `export.export_path`, `spec.spec_path`, `canvas_export_state_sha256`, and `compile_motion_request`. Files exist under `C:\Users\bring\OneDrive\Desktop\Pearson\ANIMATION\V2\.rook\director\exports` and `...\specs`.
 
-- [ ] **Step 4: Run Director compile-motion and replay path after compiling a valid spec**
+- [ ] **Step 4: Run Director compile-motion, frame capture, and video path after compiling a valid spec**
 
-Use the generated spec to call the existing Director compiler and replay flow. Do not pass `DirectorAuthoringSpec` directly to `director.run_director()`: that route expects the older top-level `object_ids`/`frame_count` capture request shape. If the first live export is only an extraction proof and not yet a valid motion/camera payload, record that as a planned follow-up in `C:\Users\bring\OneDrive\Desktop\Pearson\ANIMATION\.rook\director_planning\TOOLING_GAPS_AND_ISSUES.md` instead of weakening tests.
+Use the generated spec to call the existing Director compiler, capture the compiled track through `/director/frame-capture`, and assemble video. Do not pass `DirectorAuthoringSpec` directly to `director.run_director()`: that route expects the older top-level `object_ids`/`frame_count` capture request shape. If the first live export is only an extraction proof and not yet a valid motion/camera payload, record that as a planned follow-up in `C:\Users\bring\OneDrive\Desktop\Pearson\ANIMATION\.rook\director_planning\TOOLING_GAPS_AND_ISSUES.md` instead of weakening tests.
 
 Command shape once a valid spec is present:
 
@@ -2218,7 +2492,7 @@ Command shape once a valid spec is present:
 @'
 import asyncio, json
 from pathlib import Path
-from rook import canvas_director, director, director_compiler
+from rook import canvas_director, director, director_compiler, director_video
 
 async def main():
     project = Path(r"C:\Users\bring\OneDrive\Desktop\Pearson\ANIMATION\V2")
@@ -2226,14 +2500,22 @@ async def main():
     spec = json.loads((project / ".rook" / "director" / "specs" / "spec_a.json").read_text(encoding="utf-8"))
     compile_request = canvas_director.build_compile_motion_request(spec)
     compiled = await director_compiler.compile_motion(compile_request)
-    replay = await director.run_replay({"track": compiled["track"], "restore_on_finish": True})
-    print(json.dumps({"compile": compiled["provenance"], "replay": replay}, indent=2))
+    run = await director.run_compiled_track({
+        "track": compiled["track"],
+        "resolution": compile_request["resolution"],
+        "display": {"mode": "Rendered"},
+        "output_root": str(project / ".rook" / "director" / "runs"),
+        "run_inputs": canvas_director.build_run_inputs(envelope, spec),
+        "compile_provenance": compiled["provenance"],
+    })
+    video = await director_video.assemble_director_video({"run_root": run["run_root"]})
+    print(json.dumps({"compile": compiled["provenance"], "run": run, "video": video}, indent=2))
 
 asyncio.run(main())
 '@ | python -
 ```
 
-Expected: compile provenance includes `frame_count`, `fps`, and `animated_object_ids`; replay status is `completed`. Deterministic video capture from a baked track is a follow-up unless this implementation also adds a track-to-frame-capture helper that writes standard Director run artifacts.
+Expected: compile provenance includes `frame_count`, `fps`, and `animated_object_ids`; `run.state` is `complete`; `video.state` is `complete`; the run directory contains `inputs/director_authoring_spec.json`, `inputs/provenance.json`, `manifest.json`, `frames`, `logs/frame_evidence.jsonl`, and `video_manifest.json`.
 
 - [ ] **Step 5: Run repo status check**
 
@@ -2266,7 +2548,7 @@ If no fixes were needed, do not create an empty commit.
   - Envelope hash excludes envelope fields: Tasks 2 and 4.
   - Export envelope persistence, idempotent retry behavior, and collision behavior: Task 4.
   - Project spec persistence: Task 5.
-  - Run input/provenance split: Task 6.
+  - Run evidence input/provenance split: Task 6.
   - MCP orchestration: Task 7.
   - Live smoke: Task 8.
 - Type consistency:
@@ -2280,8 +2562,8 @@ If no fixes were needed, do not create an empty commit.
   - Canonical hashing is a restricted RFC 8785/JCS-compatible subset with shared C#/Python test vectors.
   - Nickname-based export discovery is labeled as a temporary first-slice harness, while payload metadata remains the declared export contract.
   - Duplicate matching export markers fail with `multiple_exports_ambiguous` even when `export_id` is explicit.
-  - `DirectorAuthoringSpec` is not passed directly to `director.run_director`; `build_compile_motion_request()` feeds `director_compiler.compile_motion()` for runnable replay tracks.
+  - `DirectorAuthoringSpec` is not passed directly to `director.run_director`; `build_compile_motion_request()` feeds `director_compiler.compile_motion()`, then `director.run_compiled_track()` captures standard Director run artifacts.
   - `run_inputs` are optional, but malformed present `run_inputs` fail fast instead of silently dropping required evidence.
 - Verification commands:
   - Managed: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "CanvasDirector|NativeDirectorCanvasDispatchSourceTests|Registrar_DeclaresCanvasDirectorDispatchCallback"`
-  - Python: `python -m pytest mcp_server/tests/test_canvas_director.py mcp_server/tests/test_director_mcp_tools.py mcp_server/tests/test_director.py -q -k "canvas_director or run_director_writes_input_spec"`
+  - Python: `python -m pytest mcp_server/tests/test_canvas_director.py mcp_server/tests/test_director_mcp_tools.py mcp_server/tests/test_director.py -q -k "canvas_director or run_compiled_track or validate_run_inputs"`
