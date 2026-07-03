@@ -57,6 +57,18 @@ def test_args_no_model_uses_default_models() -> None:
     args = SPIKE._args([])
     assert args.models == list(SPIKE.DEFAULT_MODELS)
     assert args.models is not SPIKE.DEFAULT_MODELS
+    assert args.scenarios == list(SPIKE.SCENARIO_NAMES)
+    assert args.modes == list(SPIKE._MODES)
+
+
+def test_args_invalid_scenario_fails_during_parse() -> None:
+    with pytest.raises(SystemExit):
+        SPIKE._args(["--scenario", "bad"])
+
+
+def test_args_invalid_mode_fails_during_parse() -> None:
+    with pytest.raises(SystemExit):
+        SPIKE._args(["--mode", "bad"])
 
 
 def test_response_union_schema_root_and_variants() -> None:

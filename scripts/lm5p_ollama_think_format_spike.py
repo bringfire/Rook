@@ -527,8 +527,20 @@ def _args(argv: list[str] | None) -> argparse.Namespace:
     )
     parser.add_argument("--endpoint", default=DEFAULT_ENDPOINT)
     parser.add_argument("--model", action="append", dest="models", default=None)
-    parser.add_argument("--scenario", action="append", dest="scenarios", default=None)
-    parser.add_argument("--mode", action="append", dest="modes", default=None)
+    parser.add_argument(
+        "--scenario",
+        action="append",
+        dest="scenarios",
+        choices=SCENARIO_NAMES,
+        default=None,
+    )
+    parser.add_argument(
+        "--mode",
+        action="append",
+        dest="modes",
+        choices=list(_MODES),
+        default=None,
+    )
     parser.add_argument("--attempts", type=_positive_int, default=DEFAULT_ATTEMPTS)
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     parser.add_argument("--timeout-s", type=float, default=DEFAULT_TIMEOUT_S)
