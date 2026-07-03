@@ -149,7 +149,9 @@ def save_canvas_export(
     export_id: Any = None,
 ) -> dict[str, Any]:
     state, actual_hash = _verify_envelope(envelope)
-    selected_export_id = validate_canvas_director_id(export_id or state.get("export_id"))
+    selected_export_id = validate_canvas_director_id(
+        export_id if export_id is not None else state.get("export_id")
+    )
 
     director_root = _director_root(project_root)
     exports_root = director_root / "exports"
