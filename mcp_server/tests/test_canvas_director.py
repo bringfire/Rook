@@ -184,23 +184,43 @@ def test_different_state_same_export_id_fails_with_collision(tmp_path):
     assert ei.value.code == "id_collision"
 
 
+def test_same_state_retry_ignores_stale_lock_when_export_exists(tmp_path, monkeypatch):
+    envelope = _envelope()
+    result = cd.save_canvas_export(tmp_path, envelope, export_id="export_a")
+    result["export_path"].with_name("export_a.json.lock").write_text("stale\n", encoding="utf-8")
+    monkeypatch.setattr(cd, "_LOCK_WAIT_SECONDS", 0.01)
+
+    retry = cd.save_canvas_export(tmp_path, envelope, export_id="export_a")
+
+    assert retry["idempotent"] is True
+    assert retry["export_path"] == result["export_path"]
+
+
+def test_different_state_with_stale_lock_still_collides(tmp_path, monkeypatch):
+    result = cd.save_canvas_export(tmp_path, _envelope(_state("export_a")), export_id="export_a")
+    result["export_path"].with_name("export_a.json.lock").write_text("stale\n", encoding="utf-8")
+    monkeypatch.setattr(cd, "_LOCK_WAIT_SECONDS", 0.01)
+    changed = _state("export_a")
+    changed["payload"]["timeline"]["frame_count"] = 4
+
+    with pytest.raises(cd.CanvasDirectorError) as ei:
+        cd.save_canvas_export(tmp_path, _envelope(changed), export_id="export_a")
+
+    assert ei.value.code == "id_collision"
+
+
 def test_concurrent_first_writes_detect_id_collision(tmp_path, monkeypatch):
     first_state = _state("export_a")
     second_state = _state("export_a")
     second_state["payload"]["timeline"]["frame_count"] = 4
+    original_write = cd._atomic_write_json
     partial_started = threading.Event()
     release_writer = threading.Event()
 
     def paused_write(path, payload):
-        with path.open("x", encoding="utf-8") as target:
-            target.write("{")
-            target.flush()
-            partial_started.set()
-            assert release_writer.wait(timeout=5)
-            target.seek(0)
-            target.truncate()
-            json.dump(payload, target, indent=2, sort_keys=True)
-            target.write("\n")
+        partial_started.set()
+        assert release_writer.wait(timeout=5)
+        original_write(path, payload)
 
     monkeypatch.setattr(cd, "_atomic_write_json", paused_write)
     results = []
@@ -236,15 +256,9 @@ def test_same_state_retry_waits_for_in_progress_first_write(tmp_path, monkeypatc
     release_writer = threading.Event()
 
     def paused_write(path, payload):
-        with path.open("x", encoding="utf-8") as target:
-            target.write("{")
-            target.flush()
-            partial_started.set()
-            assert release_writer.wait(timeout=5)
-            target.seek(0)
-            target.truncate()
-            json.dump(payload, target, indent=2, sort_keys=True)
-            target.write("\n")
+        partial_started.set()
+        assert release_writer.wait(timeout=5)
+        original_write(path, payload)
 
     monkeypatch.setattr(cd, "_atomic_write_json", paused_write)
     envelope = _envelope()
