@@ -401,6 +401,28 @@ def _number(value: Any) -> float:
     return out
 
 
+def _number_array(value: Any, *, field: str) -> list[float]:
+    if not isinstance(value, list) or len(value) != 3:
+        raise CanvasDirectorError("spec_compile_failed", f"{field} must be a 3-number array.")
+    return [_number(component) for component in value]
+
+
+def _convert_rotate(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise CanvasDirectorError("spec_compile_failed", "Keyframe rotate must be an object.")
+    if "axis" not in value or "angle_degrees" not in value:
+        raise CanvasDirectorError("spec_compile_failed", "Keyframe rotate requires axis and angle_degrees.")
+
+    rotate = dict(value)
+    rotate["axis"] = _number_array(rotate["axis"], field="Keyframe rotate.axis")
+    rotate["angle_degrees"] = _number(rotate["angle_degrees"])
+    if "pivot" in rotate:
+        pivot = rotate["pivot"]
+        if pivot != "object_center":
+            rotate["pivot"] = _number_array(pivot, field="Keyframe rotate.pivot")
+    return rotate
+
+
 def _convert_keyframes(entries: Any) -> list[dict[str, Any]]:
     if entries is None:
         return []
@@ -433,6 +455,8 @@ def _convert_keyframes(entries: Any) -> list[dict[str, Any]]:
                 keyframe["scale"] = [_number(component) for component in scale]
             else:
                 keyframe["scale"] = _number(scale)
+        if "rotate" in keyframe:
+            keyframe["rotate"] = _convert_rotate(keyframe["rotate"])
         converted.append(keyframe)
     return converted
 
@@ -477,8 +501,8 @@ def compile_authoring_spec(envelope: Any, *, spec_id: Any = None) -> dict[str, A
     if not isinstance(groups, dict):
         raise CanvasDirectorError("spec_compile_failed", "Payload groups must be an object.")
 
-    camera = payload.get("camera", {})
-    if not isinstance(camera, dict):
+    camera = payload.get("camera")
+    if camera is not None and not isinstance(camera, dict):
         raise CanvasDirectorError("spec_compile_failed", "Payload camera must be an object.")
 
     spec: dict[str, Any] = {
@@ -495,8 +519,9 @@ def compile_authoring_spec(envelope: Any, *, spec_id: Any = None) -> dict[str, A
         "resolution": dict(resolution),
         "groups": dict(groups),
         "motion": _convert_motion(payload.get("motion")),
-        "camera": dict(camera),
     }
+    if isinstance(camera, dict):
+        spec["camera"] = dict(camera)
     if isinstance(payload.get("default_easing"), str):
         spec["default_easing"] = payload["default_easing"]
     return spec
@@ -571,14 +596,25 @@ def build_compile_motion_request(spec: Any) -> dict[str, Any]:
     if not isinstance(motion, list) or not motion:
         raise CanvasDirectorError("spec_compile_failed", "Authoring spec motion must be a non-empty array.")
 
+    resolution = spec.get("resolution", {"width": 1920, "height": 1080})
+    if not isinstance(resolution, dict):
+        raise CanvasDirectorError("spec_compile_failed", "Authoring spec resolution must be an object.")
+
+    groups = spec.get("groups", {})
+    if not isinstance(groups, dict):
+        raise CanvasDirectorError("spec_compile_failed", "Authoring spec groups must be an object.")
+
     request: dict[str, Any] = {
         "timeline": timeline,
-        "resolution": spec.get("resolution", {"width": 1920, "height": 1080}),
-        "groups": spec.get("groups", {}),
+        "resolution": resolution,
+        "groups": groups,
         "motion": motion,
     }
-    if isinstance(spec.get("camera"), dict):
-        request["camera"] = spec["camera"]
+    camera = spec.get("camera")
+    if camera is not None and not isinstance(camera, dict):
+        raise CanvasDirectorError("spec_compile_failed", "Authoring spec camera must be an object.")
+    if isinstance(camera, dict) and camera:
+        request["camera"] = camera
     if isinstance(spec.get("default_easing"), str):
         request["default_easing"] = spec["default_easing"]
     return request
