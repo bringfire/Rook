@@ -1,4 +1,4 @@
-# LM5K Probe Rounds 1, 1b, 2 & 3 — First Worker Model Probe (2026-07-02)
+# LM5K Probe Rounds 1, 1b, 2, 3 & LM5N — First Worker Model Probe (2026-07-02)
 
 **Doctrine:** evidence, not CI. This summary is the committed artifact; raw
 runs stay local (spec §5, `docs/superpowers/specs/2026-07-02-lm5k-first-worker-model-probe-design.md`).
@@ -235,6 +235,120 @@ action input without guessing. Haiku remains a separate output-discipline
 baseline unless the parser policy deliberately changes, which LM5G currently
 does not allow.
 
+## LM5N paired evidence-push run (commit `c3f5106e`)
+
+LM5N moved the probe to paired scenarios over the same coherent workflow state:
+`post_verify_pre_bind`. Both scenarios use `lm5m.prompt_text:v2`, the same
+request/response schemas, the same parser/adapter/evaluator spine, and the same
+allowed action vocabulary. The controlled variable is the bounded evidence
+packet:
+
+- `evidence_absent`: gotcha packet only, expected `clarification_needed`.
+- `evidence_present`: gotcha packet plus one `WorkerKnowledgePacket(kind="evidence")`,
+  expected `candidate_action_request`.
+
+Run directories:
+
+- Canonical absent:
+  `probe_runs/lm5k-20260703T080008Z-c3f5106e/`
+- Canonical present:
+  `probe_runs/lm5k-20260703T080207Z-c3f5106e/`
+- Gemma absent:
+  `probe_runs/lm5k-20260703T080329Z-c3f5106e/`
+- Gemma present:
+  `probe_runs/lm5k-20260703T080609Z-c3f5106e/`
+
+### Canonical panel
+
+`evidence_absent` / `lm5n_repair_evidence_absent`:
+
+| Slot | Resolved model (source) | Status | strict-loadable | spine-passing | Dispositions / failures |
+|---|---|---|---|---|---|
+| local_worker_candidate | `ollama_chat/qwen3:14b` (cli) | ran | **5/5** | **5/5** | 5x `clarification_needed` |
+| cheap_cloud_worker_candidate | `anthropic/claude-haiku-4-5-20251001` (cli) | ran | **0/5** | **0/5** | 5x `raw_output_invalid:json_decode` |
+| ceiling_worker_candidate | `anthropic/claude-sonnet-5` (cli) | ran | **5/5** | **4/5** | 4x `clarification_needed`, 1x `refusal_recorded` |
+
+`evidence_present` / `lm5n_repair_evidence_present`:
+
+| Slot | Resolved model (source) | Status | strict-loadable | spine-passing | Dispositions / failures |
+|---|---|---|---|---|---|
+| local_worker_candidate | `ollama_chat/qwen3:14b` (cli) | ran | **5/5** | **5/5** | 5x `candidate_action_request` |
+| cheap_cloud_worker_candidate | `anthropic/claude-haiku-4-5-20251001` (cli) | ran | **0/5** | **0/5** | 5x `raw_output_invalid:json_decode` |
+| ceiling_worker_candidate | `anthropic/claude-sonnet-5` (cli) | ran | **5/5** | **5/5** | 5x `candidate_action_request` |
+
+Sonnet absent should be read as behaviorally **5/5 restraint** even though the
+scenario-relative spine metric is 4/5. The single non-passing strict response
+was a valid refusal where the expectation was pinned specifically to
+clarification, not evidence of model wobble.
+
+Haiku fenced every response in both canonical runs. Across the four LM5N runs,
+that is 20/20 `raw_output_invalid:json_decode`; Haiku remains a stable
+fenced-output baseline under the strict LM5G loader.
+
+### Gemma challenger panel
+
+The Gemma pass kept Haiku and Sonnet in the cheap/ceiling slots and replaced
+the local slot with `ollama_chat/gemma4:12b-it-qat`.
+
+`evidence_absent`:
+
+| Slot | Resolved model (source) | Status | strict-loadable | spine-passing | Dispositions / failures |
+|---|---|---|---|---|---|
+| local_worker_candidate | `ollama_chat/gemma4:12b-it-qat` (cli) | ran | **0/5** | **0/5** | 5x `response_payload_invalid` (`schema` missing) |
+| cheap_cloud_worker_candidate | `anthropic/claude-haiku-4-5-20251001` (cli) | ran | **0/5** | **0/5** | 5x `raw_output_invalid:json_decode` |
+| ceiling_worker_candidate | `anthropic/claude-sonnet-5` (cli) | ran | **5/5** | **4/5** | 4x `clarification_needed`, 1x `refusal_recorded` |
+
+`evidence_present`:
+
+| Slot | Resolved model (source) | Status | strict-loadable | spine-passing | Dispositions / failures |
+|---|---|---|---|---|---|
+| local_worker_candidate | `ollama_chat/gemma4:12b-it-qat` (cli) | ran | **0/5** | **0/5** | 5x `response_payload_invalid` (4x `schema` missing, 1x `schema` not string) |
+| cheap_cloud_worker_candidate | `anthropic/claude-haiku-4-5-20251001` (cli) | ran | **0/5** | **0/5** | 5x `raw_output_invalid:json_decode` |
+| ceiling_worker_candidate | `anthropic/claude-sonnet-5` (cli) | ran | **5/5** | **5/5** | 5x `candidate_action_request` |
+
+Gemma showed intent movement in the evidence-present run, including action-like
+payloads with `draft_repair_params`, but failed strict response-envelope
+discipline. Across the paired challenger runs, Gemma was
+`response_payload_invalid` 10/10: most attempts omitted the required `schema`,
+and in one sampled attempt the `schema` field contained a schema object instead
+of the required schema string. Treat Gemma as exploratory evidence, not part of
+the canonical panel.
+
+### LM5N interpretation
+
+LM5N succeeded empirically. Bounded evidence-push changed qwen3 and Sonnet from
+restraint to action while action authority stayed unchanged: the only passing
+action requests used the allowed `draft_repair_params` vocabulary and still
+flowed through the same LM5G/LM5B/LM5C/LM5D/LM5F spine.
+
+This is not semantic repair-quality proof. qwen3's action request copied the
+failing body unchanged:
+
+```json
+{"code": "A = DefinitelyMissingSymbol;", "mode": "body"}
+```
+
+That is best read as grounded-but-insufficient evidence, not simple model
+incompetence: the packet was enough to move the model from clarification to
+action, but not enough to identify the repair content.
+
+Sonnet's sampled evidence-present action was stronger and repair-shaped:
+
+```json
+{"code": "A = 0;", "mode": "body"}
+```
+
+It used the current code and target error evidence to replace the missing symbol
+with a literal body-style assignment. That is still only a bounded raw-output
+sample, not a verified Rhino/GH repair execution.
+
+Recommended next slice: **LM5O bounded diagnostic evidence**. Before changing
+prompt text or parser behavior, investigate whether existing receipt fields,
+especially `script_receipt.repair_anchor.target_errors` and
+`script_receipt.repair_anchor.target_warnings`, can provide the missing
+diagnostic signal that lets action requests improve semantically without
+loosening the worker boundary.
+
 ## Updated comparison keys
 
 Round 1: `(lm5j.prompt_text:v1, lm5k_golden_repair_v1/fresh_compiled_graph,
@@ -250,4 +364,16 @@ Round 3: `(lm5m.prompt_text:v2,
 lm5k_golden_repair_v2/post_verify_needs_repair, <model>, schemas above,
 per-candidate generation params)`.
 
-Any prompt-text, scenario, params, or evidence-push change is a new experiment.
+LM5N canonical absent: `(lm5m.prompt_text:v2,
+lm5n_repair_evidence_absent/post_verify_pre_bind, <canonical model>, schemas
+above, per-candidate generation params, no evidence packet)`.
+
+LM5N canonical present: `(lm5m.prompt_text:v2,
+lm5n_repair_evidence_present/post_verify_pre_bind, <canonical model>, schemas
+above, per-candidate generation params, one bounded evidence packet)`.
+
+LM5N Gemma challenger: same LM5N paired scenarios, with
+`ollama_chat/gemma4:12b-it-qat` replacing the canonical local qwen3 slot.
+
+Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
+new experiment.
