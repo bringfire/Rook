@@ -439,9 +439,9 @@ namespace Rook.Tests.Handlers
         {
             var source = ReadSourceFile("src", "Rook", "InternalBridge", "NativeGhBridgeRegistrar.cs");
 
-            // ABI bumped to 16 by the reconstruction dispatch slot; the BIM dispatch callback must
+            // ABI bumped to 17 by the CanvasDirector dispatch slot; the BIM dispatch callback must
             // still be declared under the current ABI.
-            Assert.Contains("BridgeAbiVersion = 16", source);
+            Assert.Contains("BridgeAbiVersion = 17", source);
             Assert.Contains("BimDispatchCallback = HandleBimDispatch", source);
             Assert.Contains("private static int HandleBimDispatch(", source);
             Assert.Contains("private static int ExecuteBimDispatchCallback(", source);
