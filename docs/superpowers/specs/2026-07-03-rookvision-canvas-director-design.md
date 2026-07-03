@@ -115,18 +115,35 @@ Python/MCP writes project artifacts under the active project `.rook` folder:
     <spec_id>.json
 ```
 
-`<project>/.rook/director/exports/<export_id>.json` stores the exact
-`CanvasExportState` returned by Companion.
+`<project>/.rook/director/exports/<export_id>.json` stores the full extraction
+envelope returned by Companion:
+
+```json
+{
+  "canvas_export_state": {},
+  "canvas_export_state_sha256": "<sha256>",
+  "diagnostics": [],
+  "suggested_spec_id": "optional",
+  "read_only": true
+}
+```
+
+The durable export artifact is the envelope, not only the inner
+`canvas_export_state`. The hash covers only `canvas_export_state`.
 
 `<project>/.rook/director/specs/<spec_id>.json` stores reusable
 `DirectorAuthoringSpec` intent. This file is project-local and durable.
 
-Each capture run copies the exact resolved spec into the run folder:
+Each capture run copies the exact resolved spec into the Director run directory:
 
 ```text
-<run_root>/<run_id>/inputs/director_authoring_spec.json
-<run_root>/<run_id>/inputs/provenance.json
+<run_directory>/inputs/director_authoring_spec.json
+<run_directory>/inputs/provenance.json
 ```
+
+`run_directory` means the existing Director run directory. It is usually
+`<director_output_root>/<run_id>`, but callers that already hold a run directory
+must not append the run ID a second time.
 
 `director_authoring_spec.json` is an exact copy of the resolved project spec. It
 must not be mutated with run-time provenance fields. `provenance.json` stores
@@ -229,7 +246,9 @@ Extraction supports explicit solve modes:
   an expected solution serial, watermark, or equivalent document/export freshness
   token. Companion reads outputs only if the current GH document and export
   components prove they match that token. If the runtime cannot verify the token,
-  this mode is unsupported and fails.
+  it fails with `unsupported_solve_mode`; if the token is missing, it fails with
+  `freshness_token_required`; if the token is present but no longer matches, it
+  fails with `solution_stale`.
 
 The first implementation slice should use `require_fresh_solve`. Any no-solve
 path without an expected freshness token is out of scope.
@@ -258,24 +277,31 @@ path without an expected freshness token is out of scope.
 
 `CanvasExportState` does not contain its own hash. The extraction envelope
 contains `canvas_export_state_sha256`, computed over the canonical
-`canvas_export_state` value only, excluding all envelope fields.
+`canvas_export_state` value only, excluding all envelope fields. The persisted
+export file stores the envelope so `read_only`, `suggested_spec_id`, and
+volatile diagnostics remain available as extraction evidence without changing
+the runtime hash.
 
 Volatile extraction diagnostics, such as UI readiness notes, route timing, and
 non-compile-affecting warnings, stay outside the hashed snapshot in the envelope
 `diagnostics` field. Diagnostics that affect compile/runtime truth belong inside
 `CanvasExportState`.
 
-The hash contract is canonical, not advisory. The canonical JSON rule is:
+The hash contract is canonical, not advisory. The canonicalizer is RFC 8785 JSON
+Canonicalization Scheme (JCS), not a homegrown "shortest round-trip" formatter:
 
-- UTF-8 encoding;
-- sorted object keys;
+- UTF-8 encoded canonical JSON bytes;
+- recursively sorted object properties per JCS;
 - no insignificant whitespace;
-- stable string escaping;
-- stable number encoding: finite JSON numbers only, invariant-culture decimal
-  rendering, no leading plus sign, no leading zero except `0`, integer-valued
-  numbers rendered without a fractional part, and floating-point values rendered
-  with a shortest round-trip representation;
-- no `NaN`, `Infinity`, or non-JSON numeric values.
+- JCS string escaping;
+- JCS number serialization;
+- no `NaN`, `Infinity`, `-0`, or non-JSON numeric values.
+
+Both C# and Python must pass shared JCS test vectors before the hash is treated
+as a cross-runtime contract. If either runtime cannot implement JCS exactly for a
+numeric payload class, that payload class must encode its exported numeric values
+as validated decimal strings produced by a shared formatter before
+canonicalization.
 
 Companion computes `canvas_export_state_sha256` over that canonical JSON.
 Python/MCP recomputes the same hash before writing the export. A mismatch fails with
@@ -336,6 +362,9 @@ Companion extraction failures:
 
 - `grasshopper_not_ready`;
 - `document_mismatch`;
+- `unsupported_solve_mode`;
+- `freshness_token_required`;
+- `solution_stale`;
 - `solve_locked`;
 - `solve_timeout`;
 - `solve_failed`;
@@ -350,6 +379,10 @@ Python/MCP persistence and compile failures:
 
 - `project_root_missing`;
 - `export_hash_mismatch`;
+- `invalid_export_id`;
+- `invalid_spec_id`;
+- `id_collision`;
+- `export_write_failed`;
 - `spec_write_failed`;
 - `spec_compile_failed`;
 - `director_run_setup_failed`.
@@ -406,7 +439,8 @@ Acceptance criteria:
   existing GH edit/canvas operations.
 - Companion can extract a selected or explicit CanvasDirector export.
 - Extraction is side-effect-free with respect to `.rook` project artifacts.
-- Python/MCP writes export and spec files under `.rook/director/...`.
+- Python/MCP writes extraction envelopes and spec files under
+  `.rook/director/...`.
 - Python/MCP recomputes and verifies `canvas_export_state_sha256` before
   writing.
 - Python/MCP compiles the spec into a Director-compatible track.
@@ -419,12 +453,15 @@ Acceptance criteria:
 
 Unit tests:
 
-- canonical JSON hash stability;
+- JCS canonical JSON hash stability from shared C# and Python test vectors;
 - export hash mismatch rejection;
+- persisted export file shape is the full extraction envelope while the hash
+  covers only `canvas_export_state`;
 - spec atomic write helper behavior;
 - route op injection and malformed-body `invalid_input`;
 - managed-dispatch unavailable response;
 - ID grammar, path normalization, collision behavior, and under-root checks;
+- `export_write_failed`, `spec_write_failed`, and `id_collision` surfaces;
 - compile validation from sample `CanvasExportState` to
   `DirectorAuthoringSpec`.
 
@@ -435,7 +472,8 @@ Managed tests:
 - unsupported template versions fail;
 - declared export component diagnostics are carried into the response;
 - default `require_fresh_solve` waits for a verified solve before output read;
-- `reuse_verified_solution` fails without a verifiable freshness token;
+- `reuse_verified_solution` fails with `freshness_token_required`,
+  `solution_stale`, or `unsupported_solve_mode` as appropriate;
 - extraction response includes `read_only: true`.
 
 Live Rhino/GH smoke:
