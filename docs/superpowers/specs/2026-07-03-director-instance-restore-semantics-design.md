@@ -83,7 +83,14 @@ as a follow-up design after the evidence is in.
 Prefer a fresh synthetic Rhino fixture over the Pearson model. Pearson remains
 the final acceptance smoke after the native behavior is understood.
 
-The repro should create two objects at the same large-coordinate neighborhood:
+The repro must run only in a scratch/throwaway Rhino document or a disposable
+test fixture with explicit cleanup. It may intentionally produce
+`dirty_partial_state:true`, so it must not mutate an open user/project model by
+accident. If the harness cannot prove it is operating in a disposable document,
+it must refuse to run before creating objects or calling frame capture.
+
+The repro should create two objects at the same Pearson-scale coordinate
+neighborhood:
 
 1. A simple non-instance control object.
 2. A block instance / `InstanceReference`.
@@ -96,6 +103,21 @@ the same Director frame-capture restore path. The control object is important:
 - if both fail, investigate matrix convention, source-state setup, or
   `TransformObject` call usage before designing an instance-specific fix.
 
+The two objects should use comparable source bboxes. A good fixture is the same
+small box-like source geometry placed near coordinates on the order of the
+Pearson smoke, for example around X `125000..370000`, Y `-330000..3000`, and Z
+`-30000..37000`, with one copy left as normal document geometry and one copy
+inserted through a block definition. The minimum animation sequence is two
+frames:
+
+```text
+frame 0: identity/source pose
+frame 1: tiny pure Z translation
+```
+
+A one-shot transform is not enough; it can pass while still missing the restore
+failure pattern exposed by the Pearson smoke.
+
 The fixture should be deterministic and cheap. It should not depend on a
 project file, Pearson object IDs, or Grasshopper.
 
@@ -104,6 +126,12 @@ project file, Pearson object IDs, or Grasshopper.
 For each object and for each apply/restore phase, record enough native evidence
 to determine whether the object was mutated in place, replaced, or restored
 through a different state than Director expects.
+
+The important evidence must be captured inside the native Director
+transform/restore path at the moment the object is looked up, transformed, and
+restored. A diagnostic-only native evidence envelope or a temporary native probe
+helper is acceptable. A Python readback after frame capture may be useful as
+secondary corroboration, but it is not sufficient for the fields below.
 
 Required common fields:
 
