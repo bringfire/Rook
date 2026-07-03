@@ -139,6 +139,7 @@ private:
     std::vector<FrameObjectTransform> m_objects;
     std::vector<bool> m_applied;
     std::vector<bool> m_restored;
+    std::vector<nlohmann::json> m_objectDetails;
     bool m_restoreAttempted = false;
 };
 
