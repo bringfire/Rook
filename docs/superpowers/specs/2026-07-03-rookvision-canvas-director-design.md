@@ -53,10 +53,10 @@ This module lives inside Rook.
 
 Ownership is split as follows:
 
-- Companion owns proposal graph creation, GH solve coordination, export
-  discovery, schema validation, and extraction.
-- Python/MCP owns orchestration, project-root policy, canonical JSON
-  persistence, spec IDs, spec hashes, compilation, and run setup.
+- Companion owns GH mutation/validation primitives for proposal graph creation,
+  GH solve coordination, export discovery, schema validation, and extraction.
+- Python/MCP owns proposal template orchestration, project-root policy,
+  canonical JSON persistence, spec IDs, spec hashes, compilation, and run setup.
 - Native owns only public `/director/canvas/...` facades plus the existing
   Director capture/video primitives.
 
@@ -125,15 +125,18 @@ Each capture run copies the exact resolved spec into the run folder:
 
 ```text
 <run_root>/<run_id>/inputs/director_authoring_spec.json
+<run_root>/<run_id>/inputs/provenance.json
 ```
 
-The run input copy is immutable evidence of exactly what was executed. It must
-include, when applicable:
+`director_authoring_spec.json` is an exact copy of the resolved project spec. It
+must not be mutated with run-time provenance fields. `provenance.json` stores
+run-time identity and hash facts, including when applicable:
 
 - `source_spec_id`;
 - `source_spec_sha256`;
 - `canvas_export_state_sha256`;
-- `template_version`.
+- `template_version`;
+- `copied_spec_sha256`.
 
 Project spec writes must use replace-by-write/atomic semantics. Specs and
 exports must carry a simple `schema_version` so future templates and compilers
@@ -141,6 +144,32 @@ can migrate old documents cleanly.
 
 The Director output root remains run/product-oriented. It is not the only place
 to store reusable authoring intent.
+
+### ID And Path Policy
+
+Python/MCP owns generated export and spec IDs. If a caller supplies an ID, it
+must be strictly validated before it is used as a filename.
+
+Allowed ID grammar:
+
+```text
+^[a-z0-9][a-z0-9_-]{0,79}$
+```
+
+IDs must not contain path separators, `.` segments, drive prefixes, UNC prefixes,
+URL encodings that decode to separators, or platform-reserved filename tokens.
+Writers resolve paths only by joining the validated ID as `<id>.json` under the
+known project directory:
+
+```text
+<project>/.rook/director/exports/<export_id>.json
+<project>/.rook/director/specs/<spec_id>.json
+```
+
+The resolved canonical path must stay under `<project>/.rook/director`. Export
+snapshots are immutable: an export ID collision fails unless the existing file
+has identical canonical JSON and hash. Spec writes are atomic replace-by-write
+only for an explicit update of the same `spec_id`; accidental collisions fail.
 
 ## Extraction Route
 
@@ -165,13 +194,22 @@ Companion behavior:
 - resolve the active or explicitly specified GH document;
 - optionally require proposal/export identity to avoid extracting the wrong
   canvas;
-- optionally request a solve without synchronous solver re-entry;
-- wait for verified solve completion before reading outputs;
+- apply the requested solve mode without synchronous solver re-entry;
+- wait for verified solve completion before reading outputs when the solve mode
+  requires it;
 - discover only declared CanvasDirector export components;
 - validate declared export schemas and template metadata;
-- return canonical `CanvasExportState`, `sha256`, diagnostics, and optionally a
-  `suggested_spec_id`;
-- include `read_only: true` in the response.
+- return an extraction envelope:
+
+```json
+{
+  "canvas_export_state": {},
+  "canvas_export_state_sha256": "<sha256>",
+  "diagnostics": [],
+  "suggested_spec_id": "optional",
+  "read_only": true
+}
+```
 
 Extraction is read-only with respect to project artifacts. Persistence begins
 only after Python/MCP accepts and writes the returned `CanvasExportState`.
@@ -179,6 +217,22 @@ only after Python/MCP accepts and writes the returned `CanvasExportState`.
 If multiple export components exist and no `export_id` is specified, extraction
 fails with `multiple_exports_ambiguous`. Automation should pass explicit
 document, proposal, and export identity whenever possible.
+
+### Solve Modes
+
+Extraction supports explicit solve modes:
+
+- `require_fresh_solve` is the default. Companion schedules one safe GH solve,
+  waits for verified completion, and reads export outputs only after that solve
+  finishes. A locked solver, timeout, or solve error fails extraction.
+- `reuse_verified_solution` does not schedule a solve. The request must include
+  an expected solution serial, watermark, or equivalent document/export freshness
+  token. Companion reads outputs only if the current GH document and export
+  components prove they match that token. If the runtime cannot verify the token,
+  this mode is unsupported and fails.
+
+The first implementation slice should use `require_fresh_solve`. Any no-solve
+path without an expected freshness token is out of scope.
 
 ## CanvasExportState Contract
 
@@ -193,14 +247,23 @@ document, proposal, and export identity whenever possible.
 - `proposal_id` when available;
 - `template_id` and `template_version`;
 - `export_components[]` with component GUIDs, nicknames, schema versions, and
-  diagnostics;
+  compile-affecting diagnostics;
 - typed payloads such as timeline, actors, object motions, camera, display, and
   capture intent;
-- GH warnings and errors visible to the export surface;
+- compile-affecting diagnostics exposed by declared export components;
+- GH warnings and errors visible to the export surface when they affect compile
+  or runtime truth;
 - solve metadata: requested, completed, duration, timeout, and solution serial
-  when available;
-- `read_only: true`;
-- `sha256` over canonical JSON.
+  when available.
+
+`CanvasExportState` does not contain its own hash. The extraction envelope
+contains `canvas_export_state_sha256`, computed over the canonical
+`canvas_export_state` value only, excluding all envelope fields.
+
+Volatile extraction diagnostics, such as UI readiness notes, route timing, and
+non-compile-affecting warnings, stay outside the hashed snapshot in the envelope
+`diagnostics` field. Diagnostics that affect compile/runtime truth belong inside
+`CanvasExportState`.
 
 The hash contract is canonical, not advisory. The canonical JSON rule is:
 
@@ -214,8 +277,8 @@ The hash contract is canonical, not advisory. The canonical JSON rule is:
   with a shortest round-trip representation;
 - no `NaN`, `Infinity`, or non-JSON numeric values.
 
-Companion computes `sha256` over that canonical JSON. Python/MCP recomputes the
-same hash before writing the export. A mismatch fails with
+Companion computes `canvas_export_state_sha256` over that canonical JSON.
+Python/MCP recomputes the same hash before writing the export. A mismatch fails with
 `export_hash_mismatch`.
 
 Nondeterminism diagnostics are limited to declared CanvasDirector
@@ -232,10 +295,11 @@ Flow:
 
 1. User describes an animation.
 2. Rook creates or refreshes a GH proposal graph from versioned CanvasDirector
-   templates.
+   templates using existing GH edit/canvas operations orchestrated by
+   Python/MCP.
 3. User edits the proposal graph.
 4. Python/MCP calls `/director/canvas/extract`.
-5. Companion returns `CanvasExportState`.
+5. Companion returns a side-effect-free extraction envelope.
 6. Python/MCP writes the export and compiles it into `DirectorAuthoringSpec`.
 7. Python/MCP compiles the spec into existing Director-compatible track data.
 8. Existing Director capture, evidence, video assembly, and publish machinery
@@ -247,6 +311,19 @@ Director tracks and use existing Director capture.
 Approach 2, GH-preview viewport capture, is a later explicit capture mode, not a
 fallback path. It changes the truth model because preview visibility, GH display
 state, and canvas-side render behavior become part of execution evidence.
+
+### Proposal Graph Creation
+
+The first slice does not add a public `/director/canvas/create-proposal` route.
+Proposal graph creation is implemented as Python/MCP template orchestration over
+the existing GH bridge operations, such as `gh_edit`, canvas focus/zoom, and
+snapshot tools. The Companion still owns the GH mutation primitives and runtime
+validation behind those existing routes.
+
+CanvasDirector templates should be versioned repo assets or generated template
+descriptions consumed by Python/MCP. A later slice may promote proposal creation
+to a dedicated `/director/canvas/...` route if the repeated orchestration proves
+stable enough to deserve a first-class route.
 
 ## Failure Model
 
@@ -291,8 +368,9 @@ Minimum export evidence:
 - proposal/export identity;
 - template ID and template version;
 - export component IDs and schema versions;
-- canonical export hash;
+- `canvas_export_state_sha256`;
 - solve requested/completed status;
+- solve mode;
 - solve timing and timeout;
 - GH warnings/errors visible to export components;
 - `read_only: true`.
@@ -300,9 +378,11 @@ Minimum export evidence:
 Minimum run evidence:
 
 - copied `director_authoring_spec.json`;
+- `inputs/provenance.json`;
 - `source_spec_id`;
 - `source_spec_sha256`;
 - `canvas_export_state_sha256`;
+- `copied_spec_sha256`;
 - template version where applicable;
 - compiled Director track identity/hash;
 - standard Director frame manifest and frame evidence;
@@ -322,13 +402,16 @@ template family:
 
 Acceptance criteria:
 
-- Rook can create or refresh a proposal graph from known templates.
+- Rook can create or refresh a proposal graph from known templates using
+  existing GH edit/canvas operations.
 - Companion can extract a selected or explicit CanvasDirector export.
 - Extraction is side-effect-free with respect to `.rook` project artifacts.
 - Python/MCP writes export and spec files under `.rook/director/...`.
-- Python/MCP recomputes and verifies the export hash before writing.
+- Python/MCP recomputes and verifies `canvas_export_state_sha256` before
+  writing.
 - Python/MCP compiles the spec into a Director-compatible track.
-- A Director run copies the exact spec into `inputs/director_authoring_spec.json`.
+- A Director run copies the exact spec into `inputs/director_authoring_spec.json`
+  and writes run provenance into `inputs/provenance.json`.
 - The run can be reasoned about without the GH canvas open.
 - Existing Director video assembly remains the video path.
 
@@ -341,6 +424,7 @@ Unit tests:
 - spec atomic write helper behavior;
 - route op injection and malformed-body `invalid_input`;
 - managed-dispatch unavailable response;
+- ID grammar, path normalization, collision behavior, and under-root checks;
 - compile validation from sample `CanvasExportState` to
   `DirectorAuthoringSpec`.
 
@@ -350,12 +434,14 @@ Managed tests:
 - ambiguous exports fail without explicit `export_id`;
 - unsupported template versions fail;
 - declared export component diagnostics are carried into the response;
+- default `require_fresh_solve` waits for a verified solve before output read;
+- `reuse_verified_solution` fails without a verifiable freshness token;
 - extraction response includes `read_only: true`.
 
 Live Rhino/GH smoke:
 
 - create a minimal proposal graph;
-- extract from the active GH document;
+- extract from the active GH document with `require_fresh_solve`;
 - verify one completed solve before output read;
 - write project export/spec through Python/MCP;
 - compile and run a short Director capture;
