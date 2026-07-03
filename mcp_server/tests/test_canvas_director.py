@@ -321,6 +321,130 @@ def test_same_state_retry_waits_for_in_progress_first_write(tmp_path, monkeypatc
     assert json.loads(results[0]["export_path"].read_text(encoding="utf-8")) == envelope
 
 
+def test_compile_authoring_spec_maps_payload_to_durable_authoring_spec(tmp_path):
+    state = _state()
+    state["payload"] = {
+        "timeline": {"fps": 24, "frame_count": 3},
+        "resolution": {"width": 640, "height": 360},
+        "groups": {"actor_a": ["11111111-1111-1111-1111-111111111111"]},
+        "motion": [{"target": "actor_a", "keyframes": [{"t": "1.0", "translate": ["1.0", "0.0", "0.0"]}]}],
+        "camera": {"strategy": "keyframes", "keyframes": [{"frame_index": 1, "source": {"kind": "active_view"}}]},
+    }
+    spec = cd.compile_authoring_spec(_envelope(state), spec_id="spec_a")
+    assert spec["metadata_kind"] == "director_authoring_spec"
+    assert spec["schema_version"] == 1
+    assert spec["spec_id"] == "spec_a"
+    assert spec["timeline"] == {"fps": 24, "frame_count": 3}
+    assert spec["motion"][0]["keyframes"][0]["translate"] == [1.0, 0.0, 0.0]
+
+
+def test_compile_authoring_spec_rejects_non_object_payload(tmp_path):
+    state = _state()
+    state["payload"] = []
+
+    with pytest.raises(cd.CanvasDirectorError) as ei:
+        cd.compile_authoring_spec(_envelope(state), spec_id="spec_a")
+
+    assert ei.value.code == "spec_compile_failed"
+
+
+def test_build_compile_motion_request_is_runnable_compiler_shape(tmp_path):
+    state = _state()
+    state["payload"] = {
+        "timeline": {"fps": 24, "frame_count": 3},
+        "resolution": {"width": 640, "height": 360},
+        "groups": {"actor_a": ["11111111-1111-1111-1111-111111111111"]},
+        "motion": [{"target": "actor_a", "keyframes": [{"t": "1.0", "translate": ["1.0", "0.0", "0.0"]}]}],
+        "camera": {"strategy": "keyframes", "keyframes": [{"frame_index": 1, "source": {"kind": "active_view"}}]},
+    }
+    spec = cd.compile_authoring_spec(_envelope(state), spec_id="spec_a")
+    request = cd.build_compile_motion_request(spec)
+    assert set(request) >= {"timeline", "resolution", "groups", "motion", "camera"}
+    assert "metadata_kind" not in request
+    assert request["motion"][0]["target"] == "actor_a"
+    assert request["timeline"]["frame_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_build_compile_motion_request_is_accepted_by_director_compiler(tmp_path):
+    from rook import director_compiler
+
+    object_id = "11111111-1111-1111-1111-111111111111"
+    state = _state()
+    state["payload"] = {
+        "timeline": {"fps": 24, "frame_count": 3},
+        "resolution": {"width": 640, "height": 360},
+        "groups": {"actor_a": [object_id]},
+        "motion": [{"target": "actor_a", "keyframes": [{"t": "1.0", "translate": ["1.0", "0.0", "0.0"]}]}],
+        "camera": {"strategy": "keyframes", "keyframes": [{"frame_index": 1, "source": {"kind": "active_view"}}]},
+    }
+    spec = cd.compile_authoring_spec(_envelope(state), spec_id="spec_a")
+    request = cd.build_compile_motion_request(spec)
+
+    async def native(endpoint, method, data, *, port=None):
+        if endpoint == "/director/object-states":
+            return {
+                "success": True,
+                "data": {
+                    "objects": [{
+                        "object_id": object_id,
+                        "bbox_min": [0, 0, 0],
+                        "bbox_max": [2, 2, 2],
+                        "state_hash": "state-a",
+                    }],
+                    "units": "Meters",
+                },
+            }
+        if endpoint == "/director/view-state":
+            return {
+                "success": True,
+                "data": {
+                    "camera": {
+                        "projection": "perspective",
+                        "location": [0, -10, 5],
+                        "target": [0, 0, 0],
+                        "direction": [0, 1, 0],
+                        "up": [0, 0, 1],
+                        "lens_length": 35.0,
+                        "fov_degrees": None,
+                        "parallel_scale": None,
+                        "near_clip": None,
+                        "far_clip": None,
+                        "aspect": 640 / 360,
+                    },
+                    "provenance": {"source": "active_view"},
+                },
+            }
+        raise AssertionError(f"unexpected endpoint {endpoint}")
+
+    compiled = await director_compiler.compile_motion(request, call_native=native)
+    track = compiled["track"]
+    assert track["frame_count"] == 3
+    assert len(track["camera_frames"]) == 3
+    assert len(track["object_frames"]) == 3
+    assert track["animated_object_ids"] == [object_id]
+
+
+def test_save_authoring_spec_writes_atomic_spec(tmp_path):
+    spec = cd.compile_authoring_spec(_envelope(), spec_id="spec_a")
+    result = cd.save_authoring_spec(tmp_path, spec, spec_id="spec_a")
+    assert result["spec_path"].is_file()
+    persisted = json.loads(result["spec_path"].read_text(encoding="utf-8"))
+    assert persisted["metadata_kind"] == "director_authoring_spec"
+
+
+def test_save_authoring_spec_rejects_different_spec_same_id(tmp_path):
+    spec = cd.compile_authoring_spec(_envelope(), spec_id="spec_a")
+    cd.save_authoring_spec(tmp_path, spec, spec_id="spec_a")
+    changed = dict(spec)
+    changed["timeline"] = {"fps": 24, "frame_count": 4}
+
+    with pytest.raises(cd.CanvasDirectorError) as ei:
+        cd.save_authoring_spec(tmp_path, changed, spec_id="spec_a")
+
+    assert ei.value.code == "id_collision"
+
+
 @pytest.mark.asyncio
 async def test_extract_canvas_export_preserves_structured_solve_timeout():
     async def native(*args, **kwargs):
