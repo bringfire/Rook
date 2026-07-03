@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import threading
 import time
@@ -212,7 +213,10 @@ def test_different_state_with_stale_lock_still_collides(tmp_path, monkeypatch):
 def test_first_write_recovers_malformed_stale_lock_without_export(tmp_path, monkeypatch):
     exports_root = tmp_path / ".rook" / "director" / "exports"
     exports_root.mkdir(parents=True)
-    (exports_root / "export_a.json.lock").write_text("not-a-pid\n", encoding="utf-8")
+    lock_path = exports_root / "export_a.json.lock"
+    lock_path.write_text("not-a-pid\n", encoding="utf-8")
+    old_time = time.time() - cd._MALFORMED_LOCK_STALE_SECONDS - 1
+    os.utime(lock_path, (old_time, old_time))
     monkeypatch.setattr(cd, "_LOCK_WAIT_SECONDS", 0.01)
 
     result = cd.save_canvas_export(tmp_path, _envelope(), export_id="export_a")
@@ -220,6 +224,21 @@ def test_first_write_recovers_malformed_stale_lock_without_export(tmp_path, monk
     assert result["idempotent"] is False
     assert result["export_path"].exists()
     assert not (exports_root / "export_a.json.lock").exists()
+
+
+def test_first_write_does_not_remove_fresh_empty_lock_without_export(tmp_path, monkeypatch):
+    exports_root = tmp_path / ".rook" / "director" / "exports"
+    exports_root.mkdir(parents=True)
+    lock_path = exports_root / "export_a.json.lock"
+    lock_path.write_text("", encoding="utf-8")
+    monkeypatch.setattr(cd, "_LOCK_WAIT_SECONDS", 0.01)
+
+    with pytest.raises(cd.CanvasDirectorError) as ei:
+        cd.save_canvas_export(tmp_path, _envelope(), export_id="export_a")
+
+    assert ei.value.code == "export_write_failed"
+    assert lock_path.exists()
+    assert not (exports_root / "export_a.json").exists()
 
 
 def test_concurrent_first_writes_detect_id_collision(tmp_path, monkeypatch):
