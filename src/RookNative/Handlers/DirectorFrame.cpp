@@ -634,6 +634,8 @@ void DirectorObjectPoseGuard::Apply()
         detail["phase_before_apply"] = NativeObjectPhaseEvidence(m_doc, m_objects[i]);
 
         const bool applied = TransformObjectInPlace(m_doc, m_objects[i], m_objects[i].delta);
+        if (applied)
+            m_applied[i] = true;
         detail["apply_transform_returned"] = applied;
         detail["phase_after_apply"] = NativeObjectPhaseEvidence(m_doc, m_objects[i]);
         m_objectDetails[i] = std::move(detail);
@@ -643,7 +645,6 @@ void DirectorObjectPoseGuard::Apply()
                 "native_frame_failed",
                 "Failed to apply transform for object: " + m_objects[i].objectId,
                 { m_objects[i].objectId });
-        m_applied[i] = true;
         m_objectDetails[i]["applied"] = true;
     }
     if (m_doc)
@@ -671,6 +672,8 @@ bool DirectorObjectPoseGuard::Restore(nlohmann::json& evidence)
         {
             detail["restored"] = true;
             MarkBboxComparisonUnavailable(detail, "object transform was not applied");
+            detail["restore_transform_returned"] = false;
+            detail["phase_after_restore"] = NativeObjectPhaseEvidence(m_doc, object);
             m_restored[static_cast<size_t>(i)] = true;
             details.push_back(std::move(detail));
             ++restoredCount;

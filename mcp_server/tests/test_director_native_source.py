@@ -389,6 +389,27 @@ def test_director_transform_call_path_is_evidenced_inside_native_restore():
     assert "phase_after_restore" in restore_body
 
 
+def test_director_transform_diagnostics_do_not_delay_applied_bookkeeping():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    apply_body = _extract_function(source, "void DirectorObjectPoseGuard::Apply")
+    restore_body = _extract_function(source, "bool DirectorObjectPoseGuard::Restore")
+
+    transform_index = apply_body.index("const bool applied = TransformObjectInPlace")
+    applied_index = apply_body.index("m_applied[i] = true;")
+    apply_returned_index = apply_body.index('detail["apply_transform_returned"] = applied;')
+    phase_after_apply_index = apply_body.index('detail["phase_after_apply"] = NativeObjectPhaseEvidence(m_doc, m_objects[i]);')
+    assert transform_index < applied_index < apply_returned_index < phase_after_apply_index
+
+    not_applied_index = restore_body.index("if (!m_applied[static_cast<size_t>(i)])")
+    inverse_attempt_index = restore_body.index("bool transformedBack = false;", not_applied_index)
+    not_applied_branch = restore_body[not_applied_index:inverse_attempt_index]
+    push_index = not_applied_branch.index("details.push_back")
+    restore_returned_index = not_applied_branch.index('detail["restore_transform_returned"] = false;')
+    phase_after_restore_index = not_applied_branch.index('detail["phase_after_restore"] = NativeObjectPhaseEvidence(m_doc, object);')
+    assert restore_returned_index < push_index
+    assert phase_after_restore_index < push_index
+
+
 def test_director_instance_restore_diagnostics_use_native_instance_state():
     source = DIRECTOR_FRAME.read_text(encoding="utf-8")
     helper_body = _extract_function(source, "nlohmann::json NativeObjectPhaseEvidence")
