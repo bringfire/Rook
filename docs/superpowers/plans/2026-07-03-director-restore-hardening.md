@@ -421,6 +421,7 @@ git commit -m "fix(director): add restore bbox evidence"
 ### Task 3: Deploy Instrumentation And Collect Raw Restore Deltas
 
 **Files:**
+- Read: `C:\Users\bring\OneDrive\Desktop\Pearson\ANIMATION\V2\.rook\director\exports\pearson_animation_test.json`
 - Read: `C:\Users\bring\OneDrive\Desktop\Pearson\ANIMATION\V2\.rook\director\specs\pearson_animation_test.json`
 - Read: generated run `logs/frame_evidence.jsonl`
 
@@ -449,11 +450,14 @@ import json
 import pathlib
 from datetime import datetime, timezone
 
-from rook import director, director_compiler
+from rook import canvas_director, director, director_compiler
 from rook.bridge import call_rhino
 
+export_path = pathlib.Path(r"C:\Users\bring\OneDrive\Desktop\Pearson\ANIMATION\V2\.rook\director\exports\pearson_animation_test.json")
 spec_path = pathlib.Path(r"C:\Users\bring\OneDrive\Desktop\Pearson\ANIMATION\V2\.rook\director\specs\pearson_animation_test.json")
+envelope = json.loads(export_path.read_text(encoding="utf-8"))
 spec = json.loads(spec_path.read_text(encoding="utf-8"))
+run_inputs = canvas_director.build_run_inputs(envelope, spec)
 run_id = "restore_evidence_probe_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
 async def main():
@@ -464,16 +468,7 @@ async def main():
         "display": {"mode": "Rendered"},
         "run_id": run_id,
         "compile_provenance": compiled["provenance"],
-        "run_inputs": {
-            "director_authoring_spec": spec,
-            "provenance": {
-                "source_spec_id": spec.get("spec_id"),
-                "canvas_export_state_sha256": (spec.get("source") or {}).get("canvas_export_state_sha256"),
-                "template_id": (spec.get("source") or {}).get("template_id"),
-                "template_version": (spec.get("source") or {}).get("template_version"),
-                "export_id": (spec.get("source") or {}).get("export_id"),
-            },
-        },
+        "run_inputs": run_inputs,
     }
     summary = await director.run_compiled_track(request, call_native=call_rhino)
     run_root = pathlib.Path(summary["run_root"])
@@ -546,6 +541,7 @@ async def main():
     print(json.dumps({
         "summary": summary,
         "run_root": str(run_root),
+        "source_spec_sha256": (run_inputs.get("provenance") or {}).get("source_spec_sha256"),
         "frame_count_with_evidence": len(rows),
         "detail_series": delta_series,
         "trend": {
@@ -626,9 +622,9 @@ raw restore delta without hiding drift. `serialization_floor` remains `1.0e-4`;
 the other numeric values must come from the Task 3 `trend` output and the
 selection procedure above.
 
-Only after this review should the implementer replace the sentinel names in the
-code block below with numeric literals. Do not commit C++ containing
-`EVIDENCE_SELECTED_MODEL_SCALE_FACTOR` or `EVIDENCE_SELECTED_RESTORE_CAP`.
+Only after this review should the implementer edit `DirectorFrame.cpp`. Write
+the approved `model_scale_factor` and `restore_cap` as concrete numeric
+literals; do not paste sentinel identifiers or prose placeholders into C++.
 
 - [ ] **Step 2: Tighten the source test to require bounded policy names**
 
@@ -653,13 +649,14 @@ In `DirectorFrame.cpp`, replace:
 constexpr double kDirectorRestoreBboxTolerance = 1.0e-4;
 ```
 
-with:
+with three constants selected in Step 1:
 
-```cpp
-constexpr double kDirectorRestoreSerializationFloor = 1.0e-4;
-constexpr double kDirectorRestoreModelScaleFactor = EVIDENCE_SELECTED_MODEL_SCALE_FACTOR;
-constexpr double kDirectorRestoreBboxToleranceCap = EVIDENCE_SELECTED_RESTORE_CAP;
-```
+- `kDirectorRestoreSerializationFloor = 1.0e-4`
+- `kDirectorRestoreModelScaleFactor =` the approved numeric `model_scale_factor`
+- `kDirectorRestoreBboxToleranceCap =` the approved numeric `restore_cap`
+
+Do not start this edit until Step 1 has produced the numeric values. Type the
+numeric literals directly in C++; do not use placeholder identifiers.
 
 Replace `DirectorRestoreBboxTolerance()` and `DirectorRestoreBboxTolerancePolicy()` with:
 
@@ -959,6 +956,7 @@ Expected: no output and exit code `0`.
 ### Task 7: Pearson CanvasDirector Acceptance Smoke Through Video Assembly
 
 **Files:**
+- Read: `C:\Users\bring\OneDrive\Desktop\Pearson\ANIMATION\V2\.rook\director\exports\pearson_animation_test.json`
 - Read: `C:\Users\bring\OneDrive\Desktop\Pearson\ANIMATION\V2\.rook\director\specs\pearson_animation_test.json`
 - Read/write: Director run root under `%LOCALAPPDATA%\Rook\rookvision_director`
 
@@ -1007,11 +1005,14 @@ import json
 import pathlib
 from datetime import datetime, timezone
 
-from rook import director, director_compiler, director_video
+from rook import canvas_director, director, director_compiler, director_video
 from rook.bridge import call_rhino
 
+export_path = pathlib.Path(r"C:\Users\bring\OneDrive\Desktop\Pearson\ANIMATION\V2\.rook\director\exports\pearson_animation_test.json")
 spec_path = pathlib.Path(r"C:\Users\bring\OneDrive\Desktop\Pearson\ANIMATION\V2\.rook\director\specs\pearson_animation_test.json")
+envelope = json.loads(export_path.read_text(encoding="utf-8"))
 spec = json.loads(spec_path.read_text(encoding="utf-8"))
+run_inputs = canvas_director.build_run_inputs(envelope, spec)
 run_id = "canvas_director_acceptance_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
 async def main():
@@ -1022,16 +1023,7 @@ async def main():
         "display": {"mode": "Rendered"},
         "run_id": run_id,
         "compile_provenance": compiled["provenance"],
-        "run_inputs": {
-            "director_authoring_spec": spec,
-            "provenance": {
-                "source_spec_id": spec.get("spec_id"),
-                "canvas_export_state_sha256": (spec.get("source") or {}).get("canvas_export_state_sha256"),
-                "template_id": (spec.get("source") or {}).get("template_id"),
-                "template_version": (spec.get("source") or {}).get("template_version"),
-                "export_id": (spec.get("source") or {}).get("export_id"),
-            },
-        },
+        "run_inputs": run_inputs,
     }, call_native=call_rhino)
     if run.get("state") != "complete":
         print(json.dumps({"ok": False, "phase": "run_compiled_track", "run": run}, indent=2))
@@ -1046,6 +1038,7 @@ async def main():
         "ok": True,
         "run": run,
         "video": video,
+        "source_spec_sha256": (run_inputs.get("provenance") or {}).get("source_spec_sha256"),
         "frame_evidence_rows": len(rows),
         "preview_mp4_exists": (run_root / "videos" / "preview.mp4").exists(),
         "video_manifest_exists": (run_root / "video_manifest.json").exists(),
