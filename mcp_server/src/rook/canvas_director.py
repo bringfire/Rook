@@ -700,6 +700,11 @@ def _validate_extract_project_root(value: Any) -> str:
         )
     if project_root == "":
         raise CanvasDirectorError("project_root_missing", "project_root is required")
+    if not Path(project_root).is_dir():
+        raise CanvasDirectorError(
+            "project_root_missing",
+            "project_root must be an existing directory.",
+        )
     return project_root
 
 
@@ -712,6 +717,11 @@ def _validate_replace_spec(value: Any) -> bool:
         "invalid_input",
         "replace_spec must be a boolean when provided.",
     )
+
+
+def _prevalidate_optional_canvas_director_id(value: Any, *, kind: str) -> None:
+    if value is not None:
+        validate_canvas_director_id(value, kind=kind)
 
 
 async def extract_canvas_export(
@@ -754,6 +764,8 @@ async def extract_persist_and_compile(
 
     project_root = _validate_extract_project_root(arguments.get("project_root"))
     replace_spec = _validate_replace_spec(arguments.get("replace_spec"))
+    _prevalidate_optional_canvas_director_id(arguments.get("export_id"), kind="export")
+    _prevalidate_optional_canvas_director_id(arguments.get("spec_id"), kind="spec")
 
     extract_args = {
         key: value
