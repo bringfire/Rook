@@ -141,7 +141,12 @@ def _compiled_object_transform(
     }
 
 
-def _assert_native_phase_evidence(detail: dict[str, Any], *, expects_instance: bool) -> None:
+def _assert_native_phase_evidence(
+    detail: dict[str, Any],
+    *,
+    expects_instance: bool,
+    expected_instance_definition_name: str | None = None,
+) -> None:
     required = [
         "transform_call_path",
         "requested_transform",
@@ -174,6 +179,7 @@ def _assert_native_phase_evidence(detail: dict[str, Any], *, expects_instance: b
         ]:
             assert key in phase, {phase_name: phase}
 
+        assert phase["object_found"] is True, {phase_name: phase}
         if phase["object_found"]:
             assert isinstance(phase["object_id"], str)
             assert isinstance(phase["runtime_serial_number"], int)
@@ -182,10 +188,13 @@ def _assert_native_phase_evidence(detail: dict[str, Any], *, expects_instance: b
             assert "min" in phase["bbox"] and "max" in phase["bbox"]
 
             if expects_instance:
-                if phase["object_type"] == "InstanceReference":
-                    assert isinstance(phase["instance_definition_id"], str)
-                    assert isinstance(phase["instance_definition_name"], str)
-                    assert isinstance(phase["instance_xform"], list)
+                assert phase["object_type"] == "InstanceReference", {phase_name: phase}
+                assert isinstance(phase["instance_definition_id"], str)
+                assert isinstance(phase["instance_definition_name"], str)
+                if expected_instance_definition_name is not None:
+                    assert phase["instance_definition_name"] == expected_instance_definition_name
+                assert isinstance(phase["instance_xform"], list)
+                assert len(phase["instance_xform"]) == 4
             else:
                 assert phase["object_type"] != "InstanceReference"
 
@@ -781,20 +790,20 @@ async def test_director_instance_restore_semantics_large_coordinate_probe(fresh_
     block_name = f"director_instance_restore_probe_{suffix}"
     created_ids: list[str] = []
 
-    control_id = await _create_brep(
-        base,
-        [base[0] + size[0], base[1] + size[1], base[2] + size[2]],
-        f"director_instance_restore_control_{suffix}",
-    )
-    created_ids.append(control_id)
-    definition_source_id = await _create_brep(
-        [0.0, 0.0, 0.0],
-        size,
-        f"director_instance_restore_definition_source_{suffix}",
-    )
-    created_ids.append(definition_source_id)
-
     try:
+        control_id = await _create_brep(
+            base,
+            [base[0] + size[0], base[1] + size[1], base[2] + size[2]],
+            f"director_instance_restore_control_{suffix}",
+        )
+        created_ids.append(control_id)
+        definition_source_id = await _create_brep(
+            [0.0, 0.0, 0.0],
+            size,
+            f"director_instance_restore_definition_source_{suffix}",
+        )
+        created_ids.append(definition_source_id)
+
         await _block_create(
             block_name,
             [definition_source_id],
@@ -830,7 +839,7 @@ async def test_director_instance_restore_semantics_large_coordinate_probe(fresh_
             _compiled_object_transform(
                 object_id,
                 state_by_id[object_id],
-                director.translation_matrix([0.0, 0.0, 0.628483]),
+                director.translation_matrix([0.0, 0.0, tiny_z]),
             )
             for object_id in object_ids
         ]
@@ -869,34 +878,36 @@ async def test_director_instance_restore_semantics_large_coordinate_probe(fresh_
         assert result["state"] in {"complete", "unsafe_failed"}
         run_root = Path(result["run_root"])
         evidence_rows = _read_jsonl(run_root / "logs" / "frame_evidence.jsonl")
-        assert evidence_rows
+        assert [row["frame_index"] for row in evidence_rows] == [1, 2]
+        rows_by_frame = {row["frame_index"]: row for row in evidence_rows}
 
-        details = [
-            detail
-            for row in evidence_rows
-            for detail in row["objects"]["details"]
+        def _detail_for(frame_index: int, object_id: str) -> dict[str, Any]:
+            matches = [
+                detail
+                for detail in rows_by_frame[frame_index]["objects"]["details"]
+                if detail["object_id"] == object_id
+            ]
+            assert len(matches) == 1, {
+                "frame_index": frame_index,
+                "object_id": object_id,
+                "matches": matches,
+            }
+            return matches[0]
+
+        control_details = [
+            _detail_for(1, control_id),
+            _detail_for(2, control_id),
         ]
-        control_details = [detail for detail in details if detail["object_id"] == control_id]
-        instance_details = [detail for detail in details if detail["object_id"] == instance_id]
-        assert control_details
-        assert instance_details
+        instance_details = [
+            _detail_for(1, instance_id),
+            _detail_for(2, instance_id),
+        ]
 
-        for detail in control_details:
-            _assert_native_phase_evidence(detail, expects_instance=False)
-            assert detail["transform_call_path"] == "pDoc->TransformObject(objRef, xform, true, false, true)"
-        for detail in instance_details:
-            _assert_native_phase_evidence(detail, expects_instance=True)
-            assert detail["transform_call_path"] == "pDoc->TransformObject(objRef, xform, true, false, true)"
-
-        assert control_details[0]["phase_before_apply"]["object_type"] != "InstanceReference"
-        assert instance_details[0]["phase_before_apply"]["object_type"] == "InstanceReference"
-        assert instance_details[0]["phase_before_apply"]["instance_definition_name"] == block_name
-        assert isinstance(instance_details[0]["phase_before_apply"]["instance_xform"], list)
-
-        print(json.dumps({
+        summary = {
             "director_instance_restore_semantics_probe": {
                 "run_state": result["state"],
                 "run_root": str(run_root),
+                "frame_indices": [row["frame_index"] for row in evidence_rows],
                 "control_object_id": control_id,
                 "instance_object_id": instance_id,
                 "control_restored": [detail.get("restored") for detail in control_details],
@@ -906,7 +917,21 @@ async def test_director_instance_restore_semantics_large_coordinate_probe(fresh_
                 "control_phase_summary": [_detail_phase_summary(detail) for detail in control_details],
                 "instance_phase_summary": [_detail_phase_summary(detail) for detail in instance_details],
             }
-        }, indent=2, sort_keys=True))
+        }
+        summary_path = run_root / "logs" / "instance_restore_semantics_probe.json"
+        summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
+        print(json.dumps(summary, indent=2, sort_keys=True))
+
+        for detail in control_details:
+            _assert_native_phase_evidence(detail, expects_instance=False)
+            assert detail["transform_call_path"] == "pDoc->TransformObject(objRef, xform, true, false, true)"
+        for detail in instance_details:
+            _assert_native_phase_evidence(
+                detail,
+                expects_instance=True,
+                expected_instance_definition_name=block_name,
+            )
+            assert detail["transform_call_path"] == "pDoc->TransformObject(objRef, xform, true, false, true)"
     finally:
         await _cleanup_instance_restore_probe(created_ids, block_name)
 

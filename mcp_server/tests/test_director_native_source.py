@@ -478,8 +478,12 @@ def test_director_instance_restore_live_repro_is_scratch_and_two_frame():
     assert "rhino_delete" in live_source
     assert "rhino_block_delete" in live_source
     assert '"frame_count": 2' in body
+    assert 'assert [row["frame_index"] for row in evidence_rows] == [1, 2]' in body
     assert "director.identity_matrix()" in body
-    assert "director.translation_matrix([0.0, 0.0, 0.628483])" in body
+    assert "director.translation_matrix([0.0, 0.0, tiny_z])" in body
     assert "125718.338195" in body
     assert "-328450.993563" in body
     assert "InstanceReference" in body
+    assert "expected_instance_definition_name=block_name" in body
+    assert "instance_restore_semantics_probe.json" in body
+    assert body.index("summary_path.write_text") < body.index("for detail in control_details:")
