@@ -21,9 +21,23 @@ This plan implements the first slice only:
 - Run evidence input copying to `<run_directory>/inputs/director_authoring_spec.json` plus `<run_directory>/inputs/provenance.json`.
 - Live validation through `director_compiler.compile_motion()`, a new `director.run_compiled_track()` helper over `/director/frame-capture`, and `director_video.assemble_director_video()`. `DirectorAuthoringSpec` must never be passed directly to `director.run_director()`.
 
-Contract chain: `CanvasProposal -> CanvasExportState -> Project DirectorAuthoringSpec -> Run evidence input copy -> DirectorTrack -> DirectorRunArtifacts`.
+Contract chain: `CanvasProposal -> CanvasExportState -> Project DirectorAuthoringSpec -> DirectorTrack -> Run evidence input copy -> DirectorRunArtifacts`.
 
 This plan does not implement a GH-preview capture mode, a custom `.gha`, or a new proposal-creation route. Proposal creation remains Python/MCP orchestration over existing GH edit/canvas tools.
+
+## Existing Director Runtime Contracts To Preserve
+
+CanvasDirector is an adapter into the current Director runtime, not a new runner. Implementation must preserve these contracts:
+
+- Output roots: all explicit `output_root` values must resolve under `resolve_output_root(...)` and the configured Director output root. Tests must pass a `DirectorRuntimePaths` override and choose output roots under that override. Live smoke should omit `output_root` unless `ROOK_DIRECTOR_OUTPUT_ROOT` is explicitly configured.
+- Run directories: each run directory is created under the resolved Director output root and contains `manifest.json`, `status.json`, `frames/`, `logs/frame_evidence.jsonl`, and optional `inputs/` evidence files.
+- Manifest schema: `director_video.assemble_director_video()` consumes `manifest.json` with positive `frame_count`, `resolution`, `timeline`, `frames`, and per-frame `output_path` entries. CanvasDirector must add compiled-track provenance without removing existing fields video assembly expects.
+- Frame evidence: every `/director/frame-capture` call appends one evidence record. Capture failures, missing output files, dirty partial state, and evidence write failures must map to the same terminal states used by the existing Director loop.
+- Video assembly: video is assembled from a completed run directory via `director_video.assemble_director_video({"run_root": ...})`; it should not read from project `.rook/director/specs`.
+- Typed errors: adapter validation failures raise existing Python `DirectorInputError`/typed CanvasDirector errors, not raw `TypeError`/`ValueError`.
+- Test runtime override: unit tests that create runs use `runtime=_runtime(tmp_path)` or equivalent and never write outside the configured test output root.
+- Authoring vs runtime storage: project `.rook/director/exports` and `.rook/director/specs` store reusable authoring intent. Run output directories store immutable execution evidence and product artifacts.
+- Runtime truth: once capture starts, the compiled track, manifest, frame evidence, run-local input copy, and video manifest are execution truth. The GH canvas and project spec are provenance, not the active runtime.
 
 ## File Structure
 
@@ -1943,7 +1957,7 @@ async def test_run_compiled_track_writes_manifest_frames_inputs_and_evidence(tmp
             "track": _compiled_track(),
             "resolution": {"width": 320, "height": 180},
             "display": {"mode": "Rendered"},
-            "output_root": str(tmp_path / "runs"),
+            "output_root": str(tmp_path / "data" / "rookvision_director" / "canvas_runs"),
             "run_id": "compiled-track-a",
             "run_inputs": {
                 "director_authoring_spec": spec,
@@ -1957,6 +1971,7 @@ async def test_run_compiled_track_writes_manifest_frames_inputs_and_evidence(tmp
             "compile_provenance": {"frame_count": 2, "fps": 24},
         },
         call_native=native,
+        runtime=_runtime(tmp_path),
     )
     assert out["state"] == "complete"
     run_root = Path(out["run_root"])
@@ -1974,6 +1989,37 @@ def test_validate_run_inputs_rejects_malformed_inputs():
     from rook import director
     with pytest.raises(director.DirectorInputError):
         director._validate_run_inputs({"provenance": {}})
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda track: track["camera_frames"][0].pop("frame_index"),
+        lambda track: track["camera_frames"][0].__setitem__("frame_index", "one"),
+        lambda track: track["camera_frames"][1].__setitem__("frame_index", 1),
+        lambda track: track["object_frames"].pop(),
+    ],
+)
+def test_indexed_track_frames_rejects_bad_frame_indexes(mutate):
+    from rook import director
+    track = _compiled_track()
+    mutate(track)
+    with pytest.raises(director.DirectorInputError):
+        director._indexed_track_frames(track, 2)
+
+
+@pytest.mark.asyncio
+async def test_run_compiled_track_rejects_bad_resolution_before_creating_run(tmp_path):
+    from rook import director
+    request = {
+        "track": _compiled_track(),
+        "resolution": {"width": 0, "height": 180},
+        "output_root": str(tmp_path / "data" / "rookvision_director" / "canvas_runs"),
+        "run_id": "bad-resolution",
+    }
+    with pytest.raises(director.DirectorInputError):
+        await director.run_compiled_track(request, call_native=FakeNative([]), runtime=_runtime(tmp_path))
+    assert not (tmp_path / "data" / "rookvision_director" / "canvas_runs" / "bad-resolution").exists()
 ```
 
 - [ ] **Step 2: Run the specific test and confirm it fails**
@@ -1981,10 +2027,10 @@ def test_validate_run_inputs_rejects_malformed_inputs():
 Run:
 
 ```powershell
-python -m pytest mcp_server/tests/test_director.py::test_run_compiled_track_writes_manifest_frames_inputs_and_evidence mcp_server/tests/test_director.py::test_validate_run_inputs_rejects_malformed_inputs -q
+python -m pytest mcp_server/tests/test_director.py::test_run_compiled_track_writes_manifest_frames_inputs_and_evidence mcp_server/tests/test_director.py::test_validate_run_inputs_rejects_malformed_inputs mcp_server/tests/test_director.py::test_indexed_track_frames_rejects_bad_frame_indexes mcp_server/tests/test_director.py::test_run_compiled_track_rejects_bad_resolution_before_creating_run -q
 ```
 
-Expected: FAIL because `run_compiled_track`, `_write_run_inputs`, and `_validate_run_inputs` do not exist.
+Expected: FAIL because `run_compiled_track`, `_write_run_inputs`, `_validate_run_inputs`, `_indexed_track_frames`, and `_validate_director_resolution` do not exist.
 
 - [ ] **Step 3: Add run evidence input helpers to Director runner**
 
@@ -2039,13 +2085,32 @@ def _validate_run_inputs(run_inputs: Any) -> tuple[dict[str, Any], dict[str, Any
 Add helpers near `run_director` in `mcp_server/src/rook/director.py`:
 
 ```python
+def _track_frame_index(frame: Any, *, kind: str) -> int:
+    if not isinstance(frame, dict):
+        raise DirectorInputError(f"compiled track {kind} frame must be an object")
+    raw = frame.get("frame_index")
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise DirectorInputError(f"compiled track {kind} frame_index must be an integer")
+    return raw
+
+
 def _indexed_track_frames(track: dict[str, Any], frame_count: int) -> tuple[dict[int, dict[str, Any]], dict[int, dict[str, Any]]]:
     camera_frames = track.get("camera_frames")
     object_frames = track.get("object_frames")
     if not isinstance(camera_frames, list) or not isinstance(object_frames, list):
         raise DirectorInputError("compiled track requires camera_frames and object_frames arrays")
-    cameras = {int(frame.get("frame_index")): frame for frame in camera_frames if isinstance(frame, dict)}
-    objects = {int(frame.get("frame_index")): frame for frame in object_frames if isinstance(frame, dict)}
+    cameras: dict[int, dict[str, Any]] = {}
+    for frame in camera_frames:
+        index = _track_frame_index(frame, kind="camera")
+        if index in cameras:
+            raise DirectorInputError("compiled track contains duplicate camera frame_index")
+        cameras[index] = frame
+    objects: dict[int, dict[str, Any]] = {}
+    for frame in object_frames:
+        index = _track_frame_index(frame, kind="object")
+        if index in objects:
+            raise DirectorInputError("compiled track contains duplicate object frame_index")
+        objects[index] = frame
     expected = set(range(1, frame_count + 1))
     if len(cameras) != frame_count or len(objects) != frame_count or set(cameras) != expected or set(objects) != expected:
         raise DirectorInputError("compiled track frame indexes must exactly cover 1..frame_count")
@@ -2055,6 +2120,19 @@ def _indexed_track_frames(track: dict[str, Any], frame_count: int) -> tuple[dict
         if not isinstance(objects[index].get("object_transforms"), list):
             raise DirectorInputError("compiled track object frame missing object_transforms array")
     return cameras, objects
+
+
+def _validate_director_resolution(value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        raise DirectorInputError("resolution must be an object")
+    try:
+        width = int(value.get("width", 0))
+        height = int(value.get("height", 0))
+    except (TypeError, ValueError) as exc:
+        raise DirectorInputError("resolution width and height must be positive") from exc
+    if width <= 0 or height <= 0:
+        raise DirectorInputError("resolution width and height must be positive")
+    return {"width": width, "height": height}
 
 
 async def _capture_manifest_frames(
@@ -2126,9 +2204,7 @@ async def run_compiled_track(
     fps = int(track.get("fps") or 0)
     if frame_count < 1 or fps < 1:
         raise DirectorInputError("compiled track requires positive frame_count and fps")
-    resolution = request.get("resolution") or {"width": 1920, "height": 1080}
-    if not isinstance(resolution, dict):
-        raise DirectorInputError("resolution must be an object")
+    resolution = _validate_director_resolution(request.get("resolution") or {"width": 1920, "height": 1080})
     display = request.get("display") or {"mode": "Rendered"}
     if not isinstance(display, dict):
         raise DirectorInputError("display must be an object")
@@ -2504,7 +2580,6 @@ async def main():
         "track": compiled["track"],
         "resolution": compile_request["resolution"],
         "display": {"mode": "Rendered"},
-        "output_root": str(project / ".rook" / "director" / "runs"),
         "run_inputs": canvas_director.build_run_inputs(envelope, spec),
         "compile_provenance": compiled["provenance"],
     })
@@ -2515,7 +2590,7 @@ asyncio.run(main())
 '@ | python -
 ```
 
-Expected: compile provenance includes `frame_count`, `fps`, and `animated_object_ids`; `run.state` is `complete`; `video.state` is `complete`; the run directory contains `inputs/director_authoring_spec.json`, `inputs/provenance.json`, `manifest.json`, `frames`, `logs/frame_evidence.jsonl`, and `video_manifest.json`.
+Expected: compile provenance includes `frame_count`, `fps`, and `animated_object_ids`; `run.state` is `complete`; `video.state` is `complete`; the run directory is under the configured Director output root and contains `inputs/director_authoring_spec.json`, `inputs/provenance.json`, `manifest.json`, `frames`, `logs/frame_evidence.jsonl`, and `video_manifest.json`. Only pass `output_root` here when it is under `ROOK_DIRECTOR_OUTPUT_ROOT`.
 
 - [ ] **Step 5: Run repo status check**
 
