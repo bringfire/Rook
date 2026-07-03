@@ -40,6 +40,17 @@ def test_constants_and_modes_are_pinned() -> None:
     }
 
 
+def test_args_custom_model_replaces_defaults() -> None:
+    args = SPIKE._args(["--model", "custom:model"])
+    assert args.models == ["custom:model"]
+
+
+def test_args_no_model_uses_default_models() -> None:
+    args = SPIKE._args([])
+    assert args.models == list(SPIKE.DEFAULT_MODELS)
+    assert args.models is not SPIKE.DEFAULT_MODELS
+
+
 def test_response_union_schema_root_and_variants() -> None:
     schema = SPIKE._response_union_schema()
     assert set(schema) == {"oneOf"}

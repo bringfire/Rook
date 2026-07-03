@@ -121,10 +121,13 @@ def _args(argv: list[str] | None) -> argparse.Namespace:
         description="LM5P Ollama think/format diagnostic spike scaffold."
     )
     parser.add_argument("--endpoint", default=DEFAULT_ENDPOINT)
-    parser.add_argument("--model", action="append", default=list(DEFAULT_MODELS))
+    parser.add_argument("--model", action="append", dest="models", default=None)
     parser.add_argument("--attempts", type=int, default=DEFAULT_ATTEMPTS)
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.models is None:
+        args.models = list(DEFAULT_MODELS)
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -132,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         "LM5P Ollama think/format spike scaffold: "
         f"schema={SCRIPT_SCHEMA} endpoint={args.endpoint} "
-        f"models={','.join(args.model)} attempts={args.attempts}"
+        f"models={','.join(args.models)} attempts={args.attempts}"
     )
     return 0
 
