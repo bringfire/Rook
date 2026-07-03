@@ -90,6 +90,13 @@ def test_save_export_rejects_explicit_falsey_export_ids(tmp_path, bad):
     assert not (tmp_path / ".rook" / "director" / "exports" / "export_a.json").exists()
 
 
+def test_save_export_wraps_director_directory_write_failures(tmp_path):
+    (tmp_path / ".rook").write_text("not a directory", encoding="utf-8")
+    with pytest.raises(cd.CanvasDirectorError) as ei:
+        cd.save_canvas_export(tmp_path, _envelope(), export_id="export_a")
+    assert ei.value.code == "export_write_failed"
+
+
 def test_same_state_retry_is_idempotent_and_does_not_overwrite_diagnostics(tmp_path):
     first = _envelope(diagnostics=[{"code": "first"}])
     second = _envelope(diagnostics=[{"code": "second"}])

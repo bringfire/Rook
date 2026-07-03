@@ -120,7 +120,10 @@ def _ensure_under(path: Path, root: Path) -> Path:
 
 def _director_root(project_root: str | os.PathLike[str]) -> Path:
     root = Path(project_root) / ".rook" / "director"
-    root.mkdir(parents=True, exist_ok=True)
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise CanvasDirectorError("export_write_failed", str(exc)) from exc
     return root
 
 
@@ -155,7 +158,10 @@ def save_canvas_export(
 
     director_root = _director_root(project_root)
     exports_root = director_root / "exports"
-    exports_root.mkdir(parents=True, exist_ok=True)
+    try:
+        exports_root.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise CanvasDirectorError("export_write_failed", str(exc)) from exc
     export_path = _ensure_under(exports_root / f"{selected_export_id}.json", director_root)
 
     if export_path.exists():
