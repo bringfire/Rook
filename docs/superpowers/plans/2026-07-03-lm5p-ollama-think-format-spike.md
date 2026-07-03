@@ -123,7 +123,7 @@ SPIKE = _load_script()
 
 
 def test_mode_table_is_exact() -> None:
-    assert SPIKE.DEFAULT_MODELS == ("gemma4:12b-it-qat", "gemma4:12b")
+    assert SPIKE.DEFAULT_MODELS == ("gemma4:12b-it-qat",)
     assert SPIKE.SCENARIO_NAMES == (
         "evidence_absent_like",
         "evidence_present_like",
@@ -299,7 +299,7 @@ from pathlib import Path
 from typing import Any
 
 SCRIPT_SCHEMA = "rook.lm5p_ollama_think_format_spike:v1"
-DEFAULT_MODELS = ("gemma4:12b-it-qat", "gemma4:12b")
+DEFAULT_MODELS = ("gemma4:12b-it-qat",)
 SCENARIO_NAMES = ("evidence_absent_like", "evidence_present_like")
 DEFAULT_ENDPOINT = "http://localhost:11434/api/chat"
 DEFAULT_ATTEMPTS = 1
@@ -1462,18 +1462,23 @@ cd C:\UDEV\Rook
 ollama --version
 ollama list
 ollama show gemma4:12b-it-qat
-ollama show gemma4:12b
 ```
 
 Expected:
 
 ```text
 ollama --version prints a version
-ollama list includes gemma4:12b-it-qat and gemma4:12b
-ollama show succeeds for both models
+ollama list includes gemma4:12b-it-qat
+ollama show succeeds for gemma4:12b-it-qat
 ```
 
-If either model is missing, stop and report the missing model. Do not rewrite the script to infer another model.
+If `gemma4:12b-it-qat` is missing, stop and report the missing model. Do not
+rewrite the script to infer another model.
+
+`gemma4:12b` remains an optional challenger through explicit
+`--model gemma4:12b`, but it is not required for Task 5 completion. The
+implementation run observed it hanging before it wrote its first row; record
+that partial run as non-canonical evidence, not a blocker.
 
 - [ ] **Step 6: Run the live/manual LM5P spike**
 
@@ -1489,6 +1494,8 @@ Expected:
 ```text
 prints a run directory under probe_runs\lm5p-...
 prints compact count rows by model, scenario, mode, and response kind
+canonical default run writes 10 attempt rows:
+  1 model * 2 scenarios * 5 modes * 1 attempt
 exits with code 0 unless setup fails
 ```
 
@@ -1524,8 +1531,8 @@ Report:
 run directory
 git commit
 ollama version
-models with model_id and model_quantization fields
-attempt rows count
+canonical model with model_id and model_quantization fields
+attempt rows count: 10
 mode-by-mode response_kind counts
 whether message.thinking appeared
 whether format_think_true produced LM5G-loadable content

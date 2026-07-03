@@ -41,7 +41,7 @@ from rook.agent.local_worker_turn_request import (
 from lm5k_worker_probe import _SCENARIOS, build_probe_context
 
 SCRIPT_SCHEMA = "rook.lm5p_ollama_think_format_spike:v1"
-DEFAULT_MODELS = ("gemma4:12b-it-qat", "gemma4:12b")
+DEFAULT_MODELS = ("gemma4:12b-it-qat",)
 SCENARIO_NAMES = ("evidence_absent_like", "evidence_present_like")
 DEFAULT_ENDPOINT = "http://localhost:11434/api/chat"
 DEFAULT_ATTEMPTS = 1

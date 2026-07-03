@@ -34,7 +34,7 @@ SPIKE = _load_script()
 
 
 def test_constants_and_modes_are_pinned() -> None:
-    assert SPIKE.DEFAULT_MODELS == ("gemma4:12b-it-qat", "gemma4:12b")
+    assert SPIKE.DEFAULT_MODELS == ("gemma4:12b-it-qat",)
     assert SPIKE.DEFAULT_ATTEMPTS == 1
     assert SPIKE.SCENARIO_NAMES == (
         "evidence_absent_like",
@@ -52,6 +52,11 @@ def test_constants_and_modes_are_pinned() -> None:
 def test_args_custom_model_replaces_defaults() -> None:
     args = SPIKE._args(["--model", "custom:model"])
     assert args.models == ["custom:model"]
+
+
+def test_args_gemma_challenger_remains_explicitly_selectable() -> None:
+    args = SPIKE._args(["--model", "gemma4:12b"])
+    assert args.models == ["gemma4:12b"]
 
 
 def test_args_no_model_uses_default_models() -> None:

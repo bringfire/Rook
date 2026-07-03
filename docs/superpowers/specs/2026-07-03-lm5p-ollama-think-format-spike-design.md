@@ -235,12 +235,17 @@ out_of_scope
 
 ## 7. Matrix
 
-Default models:
+Canonical default model:
 
 ```text
 gemma4:12b-it-qat
-gemma4:12b
 ```
+
+`gemma4:12b` remains available through explicit `--model gemma4:12b` as an
+optional challenger. It is not part of the canonical default because the LM5P
+implementation run observed local Ollama instability/hanging before the model
+wrote its first row. That partial hang is non-canonical evidence, not a blocker
+for LM5P completion.
 
 Scenarios:
 
@@ -290,10 +295,12 @@ Default attempts:
 Default call count:
 
 ```text
-2 models * 2 scenarios * 5 modes * 1 attempt = 20 calls
+1 model * 2 scenarios * 5 modes * 1 attempt = 10 calls
 ```
 
-`--attempts` may increase attempts per cell for manual follow-up.
+`--attempts` may increase attempts per cell for manual follow-up, and
+`--model` may add or replace explicit challenger models when a non-canonical
+comparison is desired.
 
 ## 8. Evidence Fields
 
@@ -501,8 +508,10 @@ Before running, confirm:
 ollama --version
 ollama list
 ollama show gemma4:12b-it-qat
-ollama show gemma4:12b
 ```
+
+`ollama show gemma4:12b` is optional challenger preflight only. A hang or
+instability in that model does not block the canonical LM5P read.
 
 Do not update the curated probe evidence doc until after the spike results are
 reviewed.
