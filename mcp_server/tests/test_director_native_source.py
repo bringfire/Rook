@@ -366,3 +366,82 @@ def test_director_restore_bbox_axis_deltas_are_signed_directional():
     for axis in ["x", "y", "z"]:
         assert f"restored.{axis} - source.{axis}" in delta_body
         assert f"std::fabs(restored.{axis} - source.{axis})" not in delta_body
+
+
+def test_director_transform_call_path_is_evidenced_inside_native_restore():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    transform_body = _extract_function(source, "bool TransformObjectInPlace")
+    apply_body = _extract_function(source, "void DirectorObjectPoseGuard::Apply")
+    restore_body = _extract_function(source, "bool DirectorObjectPoseGuard::Restore")
+
+    assert (
+        'constexpr const char* kDirectorTransformObjectCallPath = '
+        '"pDoc->TransformObject(objRef, xform, true, false, true)";'
+    ) in source
+    assert "pDoc->TransformObject(objRef, xform, true, false, true)" in transform_body
+    assert "kDirectorTransformObjectCallPath" in source
+    assert '"transform_call_path"' in source
+    assert "requested_transform" in apply_body
+    assert "requested_inverse_transform" in apply_body
+    assert "phase_before_apply" in apply_body
+    assert "phase_after_apply" in apply_body
+    assert "phase_before_restore" in restore_body
+    assert "phase_after_restore" in restore_body
+
+
+def test_director_instance_restore_diagnostics_use_native_instance_state():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    helper_body = _extract_function(source, "nlohmann::json NativeObjectPhaseEvidence")
+
+    for token in [
+        "RuntimeSerialNumber()",
+        "CRhinoInstanceObject::Cast",
+        "InstanceDefinition()",
+        "InstanceXform()",
+        "instance_definition_id",
+        "instance_definition_name",
+        "instance_xform",
+        "object_found",
+        "object_deleted",
+        "runtime_serial_number",
+        "bbox",
+    ]:
+        assert token in helper_body
+
+    assert "sourceObjectType" not in helper_body
+    assert "source_state" not in helper_body
+
+
+def test_director_instance_restore_slice_keeps_tolerance_and_canvasdirector_parked():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    lower_source = source.lower()
+    plan = (REPO_ROOT / "docs" / "superpowers" / "plans" / "2026-07-03-director-instance-restore-semantics.md").read_text(encoding="utf-8")
+    file_structure = plan[plan.index("## File Structure"):plan.index("## Safety Rules")]
+
+    for token in [
+        "kDirectorRestoreSerializationFloor",
+        "kDirectorRestoreModelScaleAllowance",
+        "kDirectorRestoreModelScaleFactor",
+        "kDirectorRestoreAbsoluteCap",
+        "kDirectorRestoreBboxToleranceCap",
+        "EVIDENCE_SELECTED",
+        "evidence_selected",
+        "selected_restore_policy",
+    ]:
+        assert token not in source
+
+    for token in [
+        "restore_serialization_floor",
+        "restore_model_scale_factor",
+        "restore_bbox_tolerance_cap",
+        "evidence-selected",
+        "evidence_selected",
+    ]:
+        assert token not in lower_source
+
+    for forbidden_path in [
+        "mcp_server/src/rook/canvas_director.py",
+        "src/Rook/Services/Vision/CanvasDirector",
+        "src/Rook/Services/Vision/CanvasDirector/",
+    ]:
+        assert forbidden_path not in file_structure
