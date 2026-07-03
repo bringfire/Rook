@@ -496,22 +496,72 @@ async def main():
                 "bbox_delta_min": detail.get("bbox_delta_min"),
                 "bbox_delta_max": detail.get("bbox_delta_max"),
             })
+    comparable = [
+        item for item in detail_rows
+        if item.get("bbox_comparison_available") is True
+        and item.get("bbox_max_delta") is not None
+    ]
+    delta_series = [
+        {
+            "frame_index": item["frame_index"],
+            "bbox_max_delta": float(item["bbox_max_delta"]),
+            "bbox_tolerance": item.get("bbox_tolerance"),
+            "bbox_tolerance_policy": item.get("bbox_tolerance_policy"),
+            "restored": item.get("restored"),
+            "dirty_partial_state": item.get("dirty_partial_state"),
+            "restore_error": item.get("restore_error"),
+        }
+        for item in comparable
+    ]
+    increases = []
+    for previous, current in zip(delta_series, delta_series[1:]):
+        step = current["bbox_max_delta"] - previous["bbox_max_delta"]
+        if step > 1.0e-12:
+            increases.append({
+                "from_frame": previous["frame_index"],
+                "to_frame": current["frame_index"],
+                "increase": step,
+            })
+    max_observed_delta = max(
+        [item["bbox_max_delta"] for item in delta_series],
+        default=None,
+    )
+    max_coordinate_magnitude = None
+    for row in rows:
+        for detail in (((row.get("objects") or {}).get("details")) or []):
+            for bbox_key in ("source_bbox", "restored_bbox"):
+                bbox = detail.get(bbox_key)
+                if not isinstance(bbox, dict):
+                    continue
+                for point_key in ("min", "max"):
+                    point = bbox.get(point_key)
+                    if isinstance(point, list):
+                        for value in point:
+                            magnitude = abs(float(value))
+                            max_coordinate_magnitude = (
+                                magnitude
+                                if max_coordinate_magnitude is None
+                                else max(max_coordinate_magnitude, magnitude)
+                            )
     print(json.dumps({
         "summary": summary,
         "run_root": str(run_root),
         "frame_count_with_evidence": len(rows),
-        "details": detail_rows[-5:],
-        "max_observed_delta": max(
-            [float(item["bbox_max_delta"]) for item in detail_rows if item.get("bbox_max_delta") is not None],
-            default=None,
-        ),
+        "detail_series": delta_series,
+        "trend": {
+            "max_observed_delta": max_observed_delta,
+            "max_coordinate_magnitude": max_coordinate_magnitude,
+            "increase_count": len(increases),
+            "max_step_increase": max([item["increase"] for item in increases], default=0.0),
+            "increases": increases,
+        },
     }, indent=2))
 
 asyncio.run(main())
 '@ | & 'C:\Users\bring\.config\superpowers\worktrees\Rook\rookvision-canvas-director\mcp_server\.venv\Scripts\python.exe' -
 ```
 
-Expected: the run either reproduces `unsafe_failed` with new evidence fields, or completes with current `1e-4` tolerance. If it completes, stop and report that the original symptom no longer reproduces under instrumentation. If it fails, record `max_observed_delta`, the failing frame, and `bbox_tolerance_policy`.
+Expected: the run either reproduces `unsafe_failed` with new evidence fields, or completes with current `1e-4` tolerance. If it completes, stop and report that the original symptom no longer reproduces under instrumentation. If it fails, record the full `detail_series`, the `trend` block, the failing frame, and `bbox_tolerance_policy`.
 
 - [ ] **Step 3: Gate before tolerance**
 
@@ -519,20 +569,68 @@ Proceed to Task 4 only when all are true:
 
 - evidence contains `bbox_comparison_available:true` for the failing object;
 - the failing object was restored by inverse transform and has a valid restored bbox;
-- `max_observed_delta <= 0.001`;
-- repeated evidence does not show deltas increasing frame-over-frame.
+- `trend.max_observed_delta` is greater than the instrumentation-only `1.0e-4` tolerance and at most `1.0e-3`;
+- `trend.max_coordinate_magnitude` is present and positive;
+- `trend.increase_count == 0`, or every increase is explained by a different tested transform rather than cumulative post-restore drift.
 
 If any condition is false, stop and escalate to snapshot/original-state restore design.
 
 ---
 
-### Task 4: Add Bounded Restore Tolerance Policy
+### Task 4: Add Evidence-Selected Bounded Restore Tolerance Policy
 
 **Files:**
 - Modify: `src/RookNative/Handlers/DirectorFrame.cpp`
 - Test: `mcp_server/tests/test_director_native_source.py`
 
-- [ ] **Step 1: Tighten the source test to require bounded policy names**
+- [ ] **Step 1: Stop for lead review and select constants from Task 3 evidence**
+
+Do not dispatch or implement this task until Task 3 has produced a `trend` block
+and a reviewer has approved concrete numeric constants.
+
+Use this deterministic selection procedure:
+
+```python
+import math
+
+def round_up_decimal_boundary(value: float) -> float:
+    if value <= 0:
+        return 0.0
+    exponent = math.floor(math.log10(value))
+    unit = 10 ** exponent
+    return math.ceil(value / unit) * unit
+
+serialization_floor = 1.0e-4
+max_observed_delta = trend["max_observed_delta"]
+max_coordinate_magnitude = trend["max_coordinate_magnitude"]
+restore_cap = round_up_decimal_boundary(max_observed_delta)
+model_scale_factor = max(0.0, (restore_cap - serialization_floor) / max_coordinate_magnitude)
+```
+
+Then apply these decision rules:
+
+- if `max_observed_delta <= serialization_floor`, stop; the failure is not solved
+  by increasing restore tolerance;
+- if `restore_cap > 1.0e-3`, stop; the required tolerance is too large for this
+  first slice;
+- if `model_scale_factor <= 0`, stop; the bounded model-scale allowance would
+  not change restore acceptance;
+- if `trend.increase_count > 0`, stop unless the increase is explained by
+  different requested transforms rather than cumulative post-restore drift.
+
+Record the approved constants in the implementation notes for the task. The
+notes must include concrete numeric values for `observed_max_delta`,
+`max_coordinate_magnitude`, `serialization_floor`, `restore_cap`, and
+`model_scale_factor`, plus one sentence explaining why the cap covers observed
+raw restore delta without hiding drift. `serialization_floor` remains `1.0e-4`;
+the other numeric values must come from the Task 3 `trend` output and the
+selection procedure above.
+
+Only after this review should the implementer replace the sentinel names in the
+code block below with numeric literals. Do not commit C++ containing
+`EVIDENCE_SELECTED_MODEL_SCALE_FACTOR` or `EVIDENCE_SELECTED_RESTORE_CAP`.
+
+- [ ] **Step 2: Tighten the source test to require bounded policy names**
 
 In `test_director_restore_uses_separate_named_bbox_policies`, add these assertions:
 
@@ -540,12 +638,14 @@ In `test_director_restore_uses_separate_named_bbox_policies`, add these assertio
     assert "kDirectorRestoreSerializationFloor" in source
     assert "kDirectorRestoreModelScaleFactor" in source
     assert "kDirectorRestoreBboxToleranceCap" in source
-    assert "serialization_floor_plus_bounded_model_scale" in source
+    assert "restore_verification.evidence_selected_serialization_floor_plus_bounded_model_scale" in source
+    assert "EVIDENCE_SELECTED_MODEL_SCALE_FACTOR" not in source
+    assert "EVIDENCE_SELECTED_RESTORE_CAP" not in source
 ```
 
 Run the same source-test command from Task 2. Expected: FAIL until the bounded policy is implemented.
 
-- [ ] **Step 2: Replace restore policy constants and function**
+- [ ] **Step 3: Replace restore policy constants and function**
 
 In `DirectorFrame.cpp`, replace:
 
@@ -557,8 +657,8 @@ with:
 
 ```cpp
 constexpr double kDirectorRestoreSerializationFloor = 1.0e-4;
-constexpr double kDirectorRestoreModelScaleFactor = 1.0e-9;
-constexpr double kDirectorRestoreBboxToleranceCap = 1.0e-3;
+constexpr double kDirectorRestoreModelScaleFactor = EVIDENCE_SELECTED_MODEL_SCALE_FACTOR;
+constexpr double kDirectorRestoreBboxToleranceCap = EVIDENCE_SELECTED_RESTORE_CAP;
 ```
 
 Replace `DirectorRestoreBboxTolerance()` and `DirectorRestoreBboxTolerancePolicy()` with:
@@ -588,11 +688,21 @@ double DirectorRestoreBboxTolerance(const ON_BoundingBox& sourceBbox, const ON_B
 
 const char* DirectorRestoreBboxTolerancePolicy()
 {
-    return "restore_verification.serialization_floor_plus_bounded_model_scale.cap_1e-3";
+    return "restore_verification.evidence_selected_serialization_floor_plus_bounded_model_scale";
 }
 ```
 
-- [ ] **Step 3: Fix `InitializeRestoreDetail()` default tolerance**
+- [ ] **Step 4: Verify no sentinel constants remain**
+
+Run:
+
+```powershell
+rg "EVIDENCE_SELECTED_MODEL_SCALE_FACTOR|EVIDENCE_SELECTED_RESTORE_CAP" src/RookNative/Handlers/DirectorFrame.cpp
+```
+
+Expected: no matches. If there are matches, replace them with the approved numeric literals from Step 1 before continuing.
+
+- [ ] **Step 5: Fix `InitializeRestoreDetail()` default tolerance**
 
 Because `InitializeRestoreDetail()` does not yet have a restored bbox, set its default tolerance to the serialization floor:
 
@@ -602,7 +712,7 @@ detail["bbox_tolerance"] = kDirectorRestoreSerializationFloor;
 
 `AddRestoreBboxEvidence()` will overwrite the value with the computed restore tolerance once comparison data exists.
 
-- [ ] **Step 4: Run source tests**
+- [ ] **Step 6: Run source tests**
 
 Run:
 
@@ -617,7 +727,7 @@ mcp_server\.venv\Scripts\python.exe -m pytest `
 
 Expected: PASS.
 
-- [ ] **Step 5: Build native**
+- [ ] **Step 7: Build native**
 
 Run:
 
@@ -627,7 +737,7 @@ cmd /c "call `"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxili
 
 Expected: exit code `0`.
 
-- [ ] **Step 6: Commit bounded tolerance patch**
+- [ ] **Step 8: Commit bounded tolerance patch**
 
 ```powershell
 git add src/RookNative/Handlers/DirectorFrame.cpp mcp_server/tests/test_director_native_source.py
