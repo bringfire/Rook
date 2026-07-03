@@ -164,6 +164,7 @@ constexpr double kDirectorSourceStateBboxTolerance = 1.0e-4;
 constexpr double kDirectorRestoreBboxTolerance = 1.0e-4;
 constexpr const char* kDirectorSourceStateBboxTolerancePolicy = "source_state_validation";
 constexpr const char* kDirectorRestoreBboxTolerancePolicy = "restore_verification";
+constexpr const char* kDirectorTransformObjectCallPath = "pDoc->TransformObject(objRef, xform, true, false, true)";
 
 double DirectorSourceStateBboxTolerance()
 {
@@ -226,6 +227,73 @@ nlohmann::json BoundingBoxToDirectorJson(const ON_BoundingBox& bbox)
     data["min"] = PointToDirectorJson(bbox.m_min);
     data["max"] = PointToDirectorJson(bbox.m_max);
     return data;
+}
+
+nlohmann::json XformToDirectorJson(const ON_Xform& xform)
+{
+    nlohmann::json rows = nlohmann::json::array();
+    for (int row = 0; row < 4; ++row)
+    {
+        nlohmann::json values = nlohmann::json::array();
+        for (int col = 0; col < 4; ++col)
+            values.push_back(xform.m_xform[row][col]);
+        rows.push_back(std::move(values));
+    }
+    return rows;
+}
+
+nlohmann::json NullableUuidToJson(const ON_UUID& id)
+{
+    if (ON_UuidIsNil(id))
+        return nullptr;
+    return UuidToString(id);
+}
+
+nlohmann::json NativeObjectPhaseEvidence(
+    CRhinoDoc* pDoc,
+    const FrameObjectTransform& object)
+{
+    nlohmann::json phase;
+    phase["object_id_requested"] = object.objectId;
+    phase["document_runtime_serial_number"] = pDoc ? nlohmann::json(pDoc->RuntimeSerialNumber()) : nlohmann::json(nullptr);
+
+    const CRhinoObject* obj = pDoc ? pDoc->LookupObject(object.uuid) : nullptr;
+    phase["object_found"] = obj != nullptr;
+    phase["object_deleted"] = obj ? nlohmann::json(obj->IsDeleted()) : nlohmann::json(nullptr);
+
+    if (!obj)
+    {
+        phase["object_id"] = nullptr;
+        phase["runtime_serial_number"] = nullptr;
+        phase["object_type"] = nullptr;
+        phase["bbox"] = nullptr;
+        phase["instance_definition_id"] = nullptr;
+        phase["instance_definition_name"] = nullptr;
+        phase["instance_xform"] = nullptr;
+        return phase;
+    }
+
+    phase["object_id"] = UuidToString(obj->Attributes().m_uuid);
+    phase["runtime_serial_number"] = obj->RuntimeSerialNumber();
+    phase["object_type"] = ObjectTypeToString(obj->ObjectType());
+
+    const ON_BoundingBox bbox = obj->BoundingBox();
+    phase["bbox"] = bbox.IsValid() ? BoundingBoxToDirectorJson(bbox) : nlohmann::json(nullptr);
+
+    const CRhinoInstanceObject* instance = CRhinoInstanceObject::Cast(obj);
+    if (!instance)
+    {
+        phase["instance_definition_id"] = nullptr;
+        phase["instance_definition_name"] = nullptr;
+        phase["instance_xform"] = nullptr;
+        return phase;
+    }
+
+    const CRhinoInstanceDefinition* definition = instance->InstanceDefinition();
+    phase["instance_definition_id"] = definition ? NullableUuidToJson(definition->Id()) : nlohmann::json(nullptr);
+    phase["instance_definition_name"] = definition ? nlohmann::json(WideToUtf8(definition->Name())) : nlohmann::json(nullptr);
+    phase["instance_xform"] = XformToDirectorJson(instance->InstanceXform());
+    return phase;
 }
 
 nlohmann::json BboxDeltaToJson(const ON_3dPoint& restored, const ON_3dPoint& source)
@@ -546,6 +614,7 @@ DirectorObjectPoseGuard::DirectorObjectPoseGuard(CRhinoDoc* pDoc, std::vector<Fr
 {
     m_applied.resize(m_objects.size(), false);
     m_restored.resize(m_objects.size(), false);
+    m_objectDetails.resize(m_objects.size());
 }
 
 DirectorObjectPoseGuard::~DirectorObjectPoseGuard()
@@ -558,12 +627,24 @@ void DirectorObjectPoseGuard::Apply()
 {
     for (size_t i = 0; i < m_objects.size(); ++i)
     {
-        if (!TransformObjectInPlace(m_doc, m_objects[i], m_objects[i].delta))
+        nlohmann::json detail = InitializeRestoreDetail(m_objects[i], false);
+        detail["transform_call_path"] = kDirectorTransformObjectCallPath;
+        detail["requested_transform"] = XformToDirectorJson(m_objects[i].delta);
+        detail["requested_inverse_transform"] = XformToDirectorJson(m_objects[i].inverseDelta);
+        detail["phase_before_apply"] = NativeObjectPhaseEvidence(m_doc, m_objects[i]);
+
+        const bool applied = TransformObjectInPlace(m_doc, m_objects[i], m_objects[i].delta);
+        detail["apply_transform_returned"] = applied;
+        detail["phase_after_apply"] = NativeObjectPhaseEvidence(m_doc, m_objects[i]);
+        m_objectDetails[i] = std::move(detail);
+
+        if (!applied)
             throw DirectorFrameValidationError(
                 "native_frame_failed",
                 "Failed to apply transform for object: " + m_objects[i].objectId,
                 { m_objects[i].objectId });
         m_applied[i] = true;
+        m_objectDetails[i]["applied"] = true;
     }
     if (m_doc)
         m_doc->Redraw();
@@ -578,7 +659,10 @@ bool DirectorObjectPoseGuard::Restore(nlohmann::json& evidence)
     for (int i = static_cast<int>(m_objects.size()) - 1; i >= 0; --i)
     {
         const FrameObjectTransform& object = m_objects[static_cast<size_t>(i)];
-        nlohmann::json detail = InitializeRestoreDetail(object, m_applied[static_cast<size_t>(i)]);
+        nlohmann::json detail = m_objectDetails[static_cast<size_t>(i)].is_object()
+            ? m_objectDetails[static_cast<size_t>(i)]
+            : InitializeRestoreDetail(object, m_applied[static_cast<size_t>(i)]);
+        detail["phase_before_restore"] = NativeObjectPhaseEvidence(m_doc, object);
         const CRhinoObject* beforeRestoreObj = m_doc ? m_doc->LookupObject(object.uuid) : nullptr;
         if (beforeRestoreObj && !beforeRestoreObj->IsDeleted())
             detail["source_object_type"] = ObjectTypeToString(beforeRestoreObj->ObjectType());
@@ -603,6 +687,8 @@ bool DirectorObjectPoseGuard::Restore(nlohmann::json& evidence)
             detail["restore_error"] = ex.what();
         }
 
+        detail["restore_transform_returned"] = transformedBack;
+        detail["phase_after_restore"] = NativeObjectPhaseEvidence(m_doc, object);
         if (!transformedBack)
         {
             detail["restore_error"] = detail.value("restore_error", "restore transform failed");
