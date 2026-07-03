@@ -443,7 +443,8 @@ Success/failure reads:
 
 ```text
 format + think=true preserves thinking and LM5G-loadable content:
-  future slice may design a small production option.
+  direct Ollama format+thinking is technically feasible.
+  Still check whether structured format changes the absent/present judgment.
 
 format always suppresses thinking:
   next design is likely two-pass transport.
@@ -457,6 +458,17 @@ neither Gemma variant preserves thinking under format:
 
 LM5P does not score scenario correctness, semantic repair quality, or model
 rankings. It records mechanics.
+
+Canonical run note:
+
+```text
+The completed canonical gemma4:12b-it-qat run showed direct Ollama format can
+combine LM5G-loadable content with message.thinking. It also showed that
+thinking preservation alone does not preserve restraint: evidence_absent
+format_default and format_think_true both loaded as action_request. The next
+design question is therefore union-choice/prompt/schema interaction, or
+two-pass formalization, not merely enabling thinking.
+```
 
 ## 12. Testing And Verification
 

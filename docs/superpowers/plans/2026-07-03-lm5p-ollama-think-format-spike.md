@@ -1589,6 +1589,20 @@ failure_reason counts
 confirmation that probe_runs artifacts are ignored and uncommitted
 ```
 
+Interpretation to carry forward:
+
+```text
+Direct Ollama format+thinking is technically feasible for canonical
+gemma4:12b-it-qat: format_default and format_think_true can preserve
+message.thinking while producing LM5G-loadable content.
+
+That does not by itself preserve restraint. In the canonical run,
+evidence_absent + format_default and evidence_absent + format_think_true both
+loaded as action_request, while evidence_absent + format_think_false loaded as
+clarification_request. Treat this as a union-choice/prompt/schema interaction
+or two-pass-formalization question, not as a simple "enable thinking" fix.
+```
+
 Do not update the curated probe evidence doc during LM5P implementation. That happens only after the spike results are reviewed.
 
 ## Self-Review Notes
