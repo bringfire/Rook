@@ -284,6 +284,9 @@ def save_canvas_export(
         project_root=project_path,
     )
 
+    if export_path.exists():
+        return _existing_export_result(export_path, selected_export_id, state, actual_hash)
+
     _acquire_export_lock(lock_path)
     try:
         if export_path.exists():
