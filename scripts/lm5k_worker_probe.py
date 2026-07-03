@@ -18,6 +18,7 @@ import os
 import subprocess
 import sys
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -46,14 +47,59 @@ SLOT_GENERATION_PARAMS = {
 }
 DEFAULT_ATTEMPTS = 5
 SCENARIO_WORKFLOW_ID = "lm5k_first_probe"
-# Scenario identity (spec section 5). The workflow contract is unchanged
-# since rounds 1/1b; what changed in LM5L is the probe scenario STATE
-# (fresh compiled graph -> coherent post-verify repair state), so the
-# scenario id/version move to v2 while workflow_id stays. Any scenario
-# change is a new experiment under the comparison-key doctrine.
+
+
+@dataclass(frozen=True)
+class _ProbeScenarioConfig:
+    cli_name: str
+    scenario_id: str
+    scenario_version: str
+    state: str
+    include_evidence_packet: bool
+    expected_disposition: str
+    expected_response_kind: str
+    expected_action_id: str | None
+    expected_attempt_valid: bool
+
+
+_SCENARIOS = {
+    "evidence_absent": _ProbeScenarioConfig(
+        cli_name="evidence_absent",
+        scenario_id="lm5n_repair_evidence_absent",
+        scenario_version="v3",
+        state="post_verify_pre_bind",
+        include_evidence_packet=False,
+        expected_disposition="clarification_needed",
+        expected_response_kind="clarification_request",
+        expected_action_id=None,
+        expected_attempt_valid=True,
+    ),
+    "evidence_present": _ProbeScenarioConfig(
+        cli_name="evidence_present",
+        scenario_id="lm5n_repair_evidence_present",
+        scenario_version="v3",
+        state="post_verify_pre_bind",
+        include_evidence_packet=True,
+        expected_disposition="candidate_action_request",
+        expected_response_kind="action_request",
+        expected_action_id="draft_repair_params",
+        expected_attempt_valid=True,
+    ),
+}
+
+
+def _scenario_config(name: str) -> _ProbeScenarioConfig:
+    try:
+        return _SCENARIOS[name]
+    except KeyError as exc:
+        raise ValueError(f"unknown probe scenario: {name}") from exc
+
+
 SCENARIO_VERSION = "v2"
 SCENARIO_ID = f"lm5k_golden_repair_{SCENARIO_VERSION}"
 SCENARIO_STATE = "post_verify_needs_repair"
+
+
 # Deterministic component guid carried by the offline create receipt; every
 # downstream fact (memory repair_anchor/component_guid, bound repair params)
 # derives from this via the real projection + bind path, never by hand.
@@ -711,6 +757,14 @@ def main(argv=None) -> int:
     )
     parser.add_argument(
         "--attempts", type=_positive_int, default=DEFAULT_ATTEMPTS
+    )
+    parser.add_argument(
+        "--scenario",
+        choices=tuple(_SCENARIOS),
+        default="evidence_present",
+        help=(
+            "probe scenario; live evidence runs should pass this explicitly"
+        ),
     )
     parser.add_argument("--capture-raw", action="store_true")
     parser.add_argument("--run-dir", default="probe_runs")

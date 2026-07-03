@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ def _load_script():
     path = Path(__file__).resolve().parents[2] / "scripts" / "lm5k_worker_probe.py"
     spec = importlib.util.spec_from_file_location("lm5k_worker_probe", path)
     mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -42,11 +44,41 @@ def test_slot_vocabulary() -> None:
     }
 
 
-def test_scenario_identity_constants() -> None:
+def test_scenario_configs_are_source_of_truth() -> None:
     assert PROBE.SCENARIO_WORKFLOW_ID == "lm5k_first_probe"
-    assert PROBE.SCENARIO_ID == "lm5k_golden_repair_v2"
-    assert PROBE.SCENARIO_VERSION == "v2"
-    assert PROBE.SCENARIO_STATE == "post_verify_needs_repair"
+    assert set(PROBE._SCENARIOS) == {"evidence_absent", "evidence_present"}
+
+    absent = PROBE._SCENARIOS["evidence_absent"]
+    assert absent.cli_name == "evidence_absent"
+    assert absent.scenario_id == "lm5n_repair_evidence_absent"
+    assert absent.scenario_version == "v3"
+    assert absent.state == "post_verify_pre_bind"
+    assert absent.include_evidence_packet is False
+    assert absent.expected_disposition == "clarification_needed"
+    assert absent.expected_response_kind == "clarification_request"
+    assert absent.expected_action_id is None
+    assert absent.expected_attempt_valid is True
+
+    present = PROBE._SCENARIOS["evidence_present"]
+    assert present.cli_name == "evidence_present"
+    assert present.scenario_id == "lm5n_repair_evidence_present"
+    assert present.scenario_version == "v3"
+    assert present.state == "post_verify_pre_bind"
+    assert present.include_evidence_packet is True
+    assert present.expected_disposition == "candidate_action_request"
+    assert present.expected_response_kind == "action_request"
+    assert present.expected_action_id == "draft_repair_params"
+    assert present.expected_attempt_valid is True
+
+    assert "lm5k_golden_repair_v2" not in {
+        absent.scenario_id,
+        present.scenario_id,
+    }
+
+
+def test_scenario_config_rejects_unknown_name() -> None:
+    with pytest.raises(ValueError, match="unknown probe scenario"):
+        PROBE._scenario_config("lm5k_golden_repair_v2")
 
 
 def test_parse_candidate_spec() -> None:
@@ -220,6 +252,7 @@ def _args(tmp_path, **overrides):
         "local": "ollama_chat/fake:1", "cheap": None, "ceiling": None,
         "skip": ["cheap", "ceiling"], "attempts": 3,
         "capture_raw": False, "run_dir": str(tmp_path),
+        "scenario": "evidence_present",
     }
     values.update(overrides)
     return argparse.Namespace(**values)
@@ -522,6 +555,32 @@ def test_attempts_must_be_positive(tmp_path) -> None:
     with pytest.raises(argparse.ArgumentTypeError):
         PROBE._positive_int("-2")
     assert PROBE._positive_int("5") == 5
+
+
+def test_main_rejects_legacy_scenario(monkeypatch) -> None:
+    called = []
+
+    def fake_run_probe(args):
+        called.append(args)
+        return Path("unused")
+
+    monkeypatch.setattr(PROBE, "run_probe", fake_run_probe)
+    with pytest.raises(SystemExit):
+        PROBE.main(["--scenario", "lm5k_golden_repair_v2"])
+    assert called == []
+
+
+def test_main_accepts_lm5n_scenarios(monkeypatch) -> None:
+    seen = []
+
+    def fake_run_probe(args):
+        seen.append(args.scenario)
+        return Path("unused")
+
+    monkeypatch.setattr(PROBE, "run_probe", fake_run_probe)
+    assert PROBE.main(["--scenario", "evidence_absent"]) == 0
+    assert PROBE.main(["--scenario", "evidence_present"]) == 0
+    assert seen == ["evidence_absent", "evidence_present"]
 
 
 def test_unavailable_slot_records_no_attempts(tmp_path, monkeypatch) -> None:
