@@ -680,3 +680,55 @@ async def test_extract_canvas_export_preserves_structured_solve_timeout():
     with pytest.raises(cd.CanvasDirectorError) as ei:
         await cd.extract_canvas_export({"export_id": "export_a"}, call_native=native)
     assert ei.value.code == "solve_timeout"
+
+
+@pytest.mark.asyncio
+async def test_extract_persist_and_compile_writes_export_spec_and_returns_compile_request(
+    tmp_path, monkeypatch
+):
+    state = _state()
+    state["payload"] = {
+        "timeline": {"fps": 24, "frame_count": 3},
+        "resolution": {"width": 640, "height": 360},
+        "groups": {"actor_a": ["11111111-1111-1111-1111-111111111111"]},
+        "motion": [
+            {
+                "target": "actor_a",
+                "keyframes": [{"t": 1, "translate": [1, 0, 0]}],
+            }
+        ],
+    }
+    envelope = _envelope(state)
+    calls = {}
+
+    async def fake_extract_canvas_export(arguments, *, port=None):
+        calls["arguments"] = arguments
+        calls["port"] = port
+        return envelope
+
+    monkeypatch.setattr(cd, "extract_canvas_export", fake_extract_canvas_export)
+
+    result = await cd.extract_persist_and_compile(
+        {
+            "project_root": str(tmp_path),
+            "export_id": "export_a",
+            "spec_id": "spec_a",
+            "solve_mode": "wait",
+            "replace_spec": True,
+            "ignored": "local-only",
+        },
+        port=9876,
+    )
+
+    assert calls == {
+        "arguments": {"export_id": "export_a", "solve_mode": "wait"},
+        "port": 9876,
+    }
+    assert result["export"]["export_id"] == "export_a"
+    assert result["export"]["export_path"].endswith("export_a.json")
+    assert result["spec"]["spec_id"] == "spec_a"
+    assert result["spec"]["spec_path"].endswith("spec_a.json")
+    assert result["canvas_export_state_sha256"] == envelope["canvas_export_state_sha256"]
+    assert result["compile_motion_request"]["motion"][0]["target"] == "actor_a"
+    assert (tmp_path / ".rook" / "director" / "exports" / "export_a.json").is_file()
+    assert (tmp_path / ".rook" / "director" / "specs" / "spec_a.json").is_file()
