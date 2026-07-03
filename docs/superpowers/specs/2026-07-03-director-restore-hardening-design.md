@@ -125,9 +125,10 @@ or a dedicated comparison-unavailable field. This applies to failed inverse
 transform, missing object, deleted object, and invalid restored bbox paths.
 
 The bbox fields should reflect what native compared at restore time, not a later
-Python readback. Deltas should be per-axis absolute differences between the
-restored bbox and source bbox, with `bbox_max_delta` equal to the maximum
-coordinate delta across min and max corners.
+Python readback. `bbox_delta_min` and `bbox_delta_max` are signed directional
+per-axis deltas computed as `restored - source`, so restore-semantics debugging
+can see the direction of drift. `bbox_max_delta` remains absolute and equals the
+maximum coordinate delta across min and max corners.
 
 ## Tolerance Policy
 
