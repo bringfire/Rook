@@ -294,12 +294,53 @@ def test_replay_frame_parser_owns_per_frame_content():
     assert "animated_object_ids" in frames or "frameIds" in frames   # exact-set equality check
 
 
-def test_replay_verification_covers_shared_pose_guard_restore_contract():
-    frame = _read(FRAME_H)
-    replay = _extract_function(_read(REPLAY_CPP), "HandleDirectorReplay")
+def _assert_replay_restore_error_omits_frame_capture_evidence(block: str) -> None:
+    for token in [
+        'err["evidence"]',
+        'err["objects"]',
+        'err["details"]',
+        '"source_bbox"',
+        '"restored_bbox"',
+        '"bbox_delta_min"',
+        '"bbox_delta_max"',
+        '"bbox_max_delta"',
+        '"bbox_tolerance"',
+        '"bbox_tolerance_policy"',
+        '"bbox_comparison_available"',
+    ]:
+        assert token not in block
 
-    assert "DirectorObjectPoseGuard" in frame
-    assert "bbox_comparison_available" in _read(FRAME_H) or "bbox_comparison_available" in _read(REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorFrame.cpp")
-    assert "restore_failed" in replay
-    assert "dirty_partial_state" in replay
-    assert "poseGuard->Restore(evidence)" in replay
+
+def test_replay_restore_or_error_uses_guard_results_without_frame_capture_evidence():
+    replay = _extract_function(_read(REPLAY_CPP), "HandleDirectorReplay")
+    start = replay.index("auto restoreOrError")
+    end = replay.index("for (int i", start)
+    helper = replay[start:end]
+
+    assert "objectsOk = poseGuard->Restore(evidence);" in helper
+    assert "const bool viewportOk = viewportGuard.Restore(evidence);" in helper
+    assert helper.index("poseGuard->Restore(evidence)") < helper.index("viewportGuard.Restore(evidence)")
+    assert "if (objectsOk && viewportOk)" in helper
+    assert 'err["code"] = "restore_failed";' in helper
+    assert 'err["restored"] = false;' in helper
+    assert 'err["objects_restored"] = objectsOk;' in helper
+    assert 'err["viewport_restored"] = viewportOk;' in helper
+    dps_idx = helper.index("dirty_partial_state")
+    dps_stmt = helper[dps_idx:helper.index(";", dps_idx)]
+    assert "poseGuard->HasDirtyPartialState()" in dps_stmt
+    assert "!objectsOk" in dps_stmt and "!viewportOk" in dps_stmt
+    _assert_replay_restore_error_omits_frame_capture_evidence(helper)
+
+
+def test_replay_between_frame_restore_failure_intentionally_omits_frame_capture_evidence():
+    replay = _extract_function(_read(REPLAY_CPP), "HandleDirectorReplay")
+    between_start = replay.index("Between non-final frames")
+    failure_start = replay.index("if (!poseGuard->Restore(evidence))", between_start)
+    block = replay[failure_start:replay.index("poseGuard.reset()", failure_start)]
+
+    assert "viewportGuard.Restore(evidence);" in block
+    assert 'err["code"] = "restore_failed";' in block
+    assert 'err["restored"] = false;' in block
+    assert 'err["dirty_partial_state"] = true;' in block
+    assert 'err["frame_index"] = i + 1;' in block
+    _assert_replay_restore_error_omits_frame_capture_evidence(block)
