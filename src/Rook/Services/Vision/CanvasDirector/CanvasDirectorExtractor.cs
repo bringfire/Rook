@@ -157,17 +157,20 @@ namespace Rook.Services.Vision.CanvasDirector
                 return;
             }
 
-            var actual = ReadStringProperty(document, "DocumentID")
-                ?? ReadStringProperty(document, "RuntimeID")
-                ?? ReadStringProperty(document, "FilePath");
-
-            if (!string.Equals(actual, request.DocumentId, StringComparison.Ordinal))
+            foreach (var propertyName in new[] { "DocumentID", "RuntimeID", "FilePath" })
             {
-                throw new CanvasDirectorException(
-                    "document_mismatch",
-                    "CanvasDirector request does not match the active Grasshopper document.",
-                    409);
+                var actual = ReadStringProperty(document, propertyName);
+                if (!string.IsNullOrWhiteSpace(actual) &&
+                    string.Equals(actual, request.DocumentId, StringComparison.Ordinal))
+                {
+                    return;
+                }
             }
+
+            throw new CanvasDirectorException(
+                "document_mismatch",
+                "CanvasDirector request does not match the active Grasshopper document.",
+                409);
         }
 
         internal static CanvasDirectorExtractionEnvelope ParseExportPayload(
@@ -341,8 +344,7 @@ namespace Rook.Services.Vision.CanvasDirector
             }
 
             return ReadStringProperty(document, "SolutionToken")
-                ?? ReadStringProperty(document, "SolutionSerial")
-                ?? ReadStringProperty(document, "RuntimeID");
+                ?? ReadStringProperty(document, "SolutionSerial");
         }
 
         internal static int? ReadIntProperty(object target, string propertyName)
