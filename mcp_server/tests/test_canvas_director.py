@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 
 import pytest
 
@@ -69,6 +70,18 @@ def test_canonical_json_rejects_non_ascii_object_keys():
     assert ei.value.code == "invalid_input"
 
 
+@pytest.mark.parametrize("value", [-(2**63), 2**63 - 1])
+def test_canonical_json_accepts_signed_int64_boundaries(value):
+    assert cd._canonical_json_bytes({"x": value}) == f'{{"x":{value}}}'.encode("utf-8")
+
+
+@pytest.mark.parametrize("value", [2**63, -(2**63) - 1])
+def test_canonical_json_rejects_int64_overflow(value):
+    with pytest.raises(cd.CanvasDirectorError) as ei:
+        cd.canvas_export_state_sha256({"x": value})
+    assert ei.value.code == "invalid_input"
+
+
 def test_save_export_persists_full_envelope(tmp_path):
     result = cd.save_canvas_export(tmp_path, _envelope(), export_id="export_a")
     path = result["export_path"]
@@ -97,6 +110,38 @@ def test_save_export_wraps_director_directory_write_failures(tmp_path):
     assert ei.value.code == "export_write_failed"
 
 
+def test_save_export_rejects_export_id_mismatch(tmp_path):
+    with pytest.raises(cd.CanvasDirectorError) as ei:
+        cd.save_canvas_export(tmp_path, _envelope(_state("export_a")), export_id="export_b")
+    assert ei.value.code == "invalid_export_id"
+    assert not (tmp_path / ".rook" / "director" / "exports" / "export_b.json").exists()
+
+
+def test_save_export_rejects_missing_state_export_id(tmp_path):
+    state = _state()
+    del state["export_id"]
+    with pytest.raises(cd.CanvasDirectorError) as ei:
+        cd.save_canvas_export(tmp_path, _envelope(state), export_id="export_a")
+    assert ei.value.code == "invalid_export_id"
+    assert not (tmp_path / ".rook" / "director" / "exports" / "export_a.json").exists()
+
+
+def test_save_export_rejects_symlinked_rook_escape(tmp_path):
+    project_root = tmp_path / "project"
+    outside_root = tmp_path / "outside"
+    project_root.mkdir()
+    outside_root.mkdir()
+    try:
+        (project_root / ".rook").symlink_to(outside_root, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+
+    with pytest.raises(cd.CanvasDirectorError) as ei:
+        cd.save_canvas_export(project_root, _envelope(), export_id="export_a")
+    assert ei.value.code == "export_write_failed"
+    assert not (outside_root / "director" / "exports" / "export_a.json").exists()
+
+
 def test_same_state_retry_is_idempotent_and_does_not_overwrite_diagnostics(tmp_path):
     first = _envelope(diagnostics=[{"code": "first"}])
     second = _envelope(diagnostics=[{"code": "second"}])
@@ -114,6 +159,43 @@ def test_different_state_same_export_id_fails_with_collision(tmp_path):
     with pytest.raises(cd.CanvasDirectorError) as ei:
         cd.save_canvas_export(tmp_path, _envelope(changed), export_id="export_a")
     assert ei.value.code == "id_collision"
+
+
+def test_concurrent_first_writes_detect_id_collision(tmp_path, monkeypatch):
+    first_state = _state("export_a")
+    second_state = _state("export_a")
+    second_state["payload"]["timeline"]["frame_count"] = 4
+    barrier = threading.Barrier(2)
+    original_write = cd._atomic_write_json
+
+    def synchronized_write(path, payload):
+        barrier.wait(timeout=5)
+        original_write(path, payload)
+
+    monkeypatch.setattr(cd, "_atomic_write_json", synchronized_write)
+    results = []
+    errors = []
+
+    def worker(envelope):
+        try:
+            results.append(cd.save_canvas_export(tmp_path, envelope, export_id="export_a"))
+        except Exception as exc:  # noqa: BLE001 - test records thread exceptions for assertions.
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=worker, args=(_envelope(first_state),)),
+        threading.Thread(target=worker, args=(_envelope(second_state),)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+        assert not thread.is_alive()
+
+    assert len(results) == 1
+    assert [getattr(error, "code", None) for error in errors] == ["id_collision"]
+    persisted = json.loads(results[0]["export_path"].read_text(encoding="utf-8"))
+    assert persisted["canvas_export_state_sha256"] == results[0]["canvas_export_state_sha256"]
 
 
 @pytest.mark.asyncio

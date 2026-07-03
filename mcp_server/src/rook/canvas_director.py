@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 import re
-import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +21,9 @@ _RESERVED_WINDOWS_TOKENS = {
     *(f"com{i}" for i in range(1, 10)),
     *(f"lpt{i}" for i in range(1, 10)),
 }
+
+_INT64_MIN = -(2**63)
+_INT64_MAX = 2**63 - 1
 
 
 class CanvasDirectorError(Exception):
@@ -47,6 +50,8 @@ def _validate_restricted_canonical_value(value: Any) -> None:
         return
 
     if isinstance(value, int):
+        if value < _INT64_MIN or value > _INT64_MAX:
+            raise CanvasDirectorError("invalid_input", "Canonical JSON integers must fit signed int64.")
         return
 
     if isinstance(value, float):
@@ -87,41 +92,53 @@ def canvas_export_state_sha256(state: Any) -> str:
 
 def _atomic_write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_name: str | None = None
+    created = False
     try:
-        with tempfile.NamedTemporaryFile(
-            "w",
-            encoding="utf-8",
-            dir=path.parent,
-            delete=False,
-        ) as tmp:
-            tmp_name = tmp.name
-            json.dump(payload, tmp, indent=2, sort_keys=True)
-            tmp.write("\n")
-        Path(tmp_name).replace(path)
+        with path.open("x", encoding="utf-8") as target:
+            created = True
+            json.dump(payload, target, indent=2, sort_keys=True)
+            target.write("\n")
     except Exception:
-        if tmp_name is not None:
+        if created:
             try:
-                os.unlink(tmp_name)
+                path.unlink(missing_ok=True)
             except OSError:
                 pass
         raise
 
 
-def _ensure_under(path: Path, root: Path) -> Path:
+def _ensure_under(path: Path, root: Path, *, project_root: Path | None = None) -> Path:
     resolved_root = root.resolve()
     resolved_path = path.resolve()
     try:
         resolved_path.relative_to(resolved_root)
     except ValueError as exc:
         raise CanvasDirectorError("export_write_failed", "Export path escapes director root.") from exc
+
+    if project_root is not None:
+        resolved_project_root = project_root.resolve()
+        try:
+            resolved_path.relative_to(resolved_project_root)
+        except ValueError as exc:
+            raise CanvasDirectorError("export_write_failed", "Export path escapes project root.") from exc
+
     return resolved_path
 
 
 def _director_root(project_root: str | os.PathLike[str]) -> Path:
-    root = Path(project_root) / ".rook" / "director"
+    project_path = Path(project_root)
+    rook_root = project_path / ".rook"
+    root = rook_root / "director"
     try:
+        # On Windows, junctions may not be reported as symlinks by pathlib; the
+        # final resolved export path is also checked against the project root.
+        if rook_root.is_symlink() or root.is_symlink():
+            raise CanvasDirectorError("export_write_failed", "Director path may not be a symlink.")
         root.mkdir(parents=True, exist_ok=True)
+        if rook_root.is_symlink() or root.is_symlink():
+            raise CanvasDirectorError("export_write_failed", "Director path may not be a symlink.")
+    except CanvasDirectorError:
+        raise
     except OSError as exc:
         raise CanvasDirectorError("export_write_failed", str(exc)) from exc
     return root
@@ -145,6 +162,49 @@ def _verify_envelope(envelope: Any) -> tuple[dict[str, Any], str]:
     return state, actual_hash
 
 
+def _load_existing_export(
+    export_path: Path,
+    *,
+    wait_for_complete: bool = False,
+) -> tuple[dict[str, Any], str]:
+    deadline = time.monotonic() + 5.0
+    while True:
+        try:
+            existing = json.loads(export_path.read_text(encoding="utf-8"))
+            return _verify_envelope(existing)
+        except CanvasDirectorError as exc:
+            raise CanvasDirectorError("id_collision", "Existing canvas export is unverifiable.") from exc
+        except Exception as exc:
+            if wait_for_complete and time.monotonic() < deadline:
+                time.sleep(0.01)
+                continue
+            raise CanvasDirectorError("id_collision", "Existing canvas export is unreadable.") from exc
+
+
+def _existing_export_result(
+    export_path: Path,
+    selected_export_id: str,
+    state: dict[str, Any],
+    actual_hash: str,
+    *,
+    wait_for_complete: bool = False,
+) -> dict[str, Any]:
+    existing_state, existing_hash = _load_existing_export(
+        export_path,
+        wait_for_complete=wait_for_complete,
+    )
+
+    if existing_hash == actual_hash and _canonical_json_bytes(existing_state) == _canonical_json_bytes(state):
+        return {
+            "export_id": selected_export_id,
+            "export_path": export_path,
+            "canvas_export_state_sha256": actual_hash,
+            "idempotent": True,
+        }
+
+    raise CanvasDirectorError("id_collision", "Canvas export id already exists with different state.")
+
+
 def save_canvas_export(
     project_root: str | os.PathLike[str],
     envelope: dict[str, Any],
@@ -152,39 +212,39 @@ def save_canvas_export(
     export_id: Any = None,
 ) -> dict[str, Any]:
     state, actual_hash = _verify_envelope(envelope)
+    state_export_id = validate_canvas_director_id(state.get("export_id"))
     selected_export_id = validate_canvas_director_id(
-        export_id if export_id is not None else state.get("export_id")
+        export_id if export_id is not None else state_export_id
     )
+    if selected_export_id != state_export_id:
+        raise CanvasDirectorError("invalid_export_id", "Export id does not match canvas export state.")
 
-    director_root = _director_root(project_root)
+    project_path = Path(project_root)
+    director_root = _director_root(project_path)
     exports_root = director_root / "exports"
     try:
         exports_root.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         raise CanvasDirectorError("export_write_failed", str(exc)) from exc
-    export_path = _ensure_under(exports_root / f"{selected_export_id}.json", director_root)
+    export_path = _ensure_under(
+        exports_root / f"{selected_export_id}.json",
+        director_root,
+        project_root=project_path,
+    )
 
     if export_path.exists():
-        try:
-            existing = json.loads(export_path.read_text(encoding="utf-8"))
-            existing_state, existing_hash = _verify_envelope(existing)
-        except CanvasDirectorError as exc:
-            raise CanvasDirectorError("id_collision", "Existing canvas export is unverifiable.") from exc
-        except Exception as exc:
-            raise CanvasDirectorError("id_collision", "Existing canvas export is unreadable.") from exc
-
-        if existing_hash == actual_hash and _canonical_json_bytes(existing_state) == _canonical_json_bytes(state):
-            return {
-                "export_id": selected_export_id,
-                "export_path": export_path,
-                "canvas_export_state_sha256": actual_hash,
-                "idempotent": True,
-            }
-
-        raise CanvasDirectorError("id_collision", "Canvas export id already exists with different state.")
+        return _existing_export_result(export_path, selected_export_id, state, actual_hash)
 
     try:
         _atomic_write_json(export_path, envelope)
+    except FileExistsError:
+        return _existing_export_result(
+            export_path,
+            selected_export_id,
+            state,
+            actual_hash,
+            wait_for_complete=True,
+        )
     except OSError as exc:
         raise CanvasDirectorError("export_write_failed", str(exc)) from exc
 
