@@ -78,6 +78,17 @@ namespace Rook.Tests.Services.Vision.CanvasDirector
         }
 
         [Fact]
+        public void Serialize_RejectsNonAsciiObjectKeysInSliceOne()
+        {
+            using var document = JsonDocument.Parse("{\"\uD83D\uDE00\":1}");
+
+            var ex = Assert.Throws<CanvasDirectorException>(
+                () => CanvasDirectorCanonicalJson.Serialize(document.RootElement));
+            Assert.Equal("invalid_input", ex.Code);
+            Assert.Contains("object keys must be ASCII", ex.Message);
+        }
+
+        [Fact]
         public void Parse_PreservesDocumentIdAndProposalId()
         {
             var request = CanvasDirectorExtractRequest.Parse(
