@@ -18,6 +18,10 @@ from .runtime_paths import resolve_runtime_paths
 
 SCHEMA_VERSION = 1
 DIRECTOR_VERSION = "slice1"
+MAX_VIDEO_FPS = 240
+MAX_VIDEO_FRAME_COUNT = 5000
+MAX_VIDEO_WIDTH = 8192
+MAX_VIDEO_HEIGHT = 8192
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 _WINDOWS_RESERVED_NAMES = {
     "con",
@@ -245,6 +249,25 @@ def _prepare_run_inputs(
     source_hash = full_provenance.get("source_spec_sha256")
     if source_hash is not None and source_hash != copied_spec_hash:
         raise DirectorInputError("source_spec_sha256 must match copied authoring spec")
+    spec_id = director_authoring_spec.get("spec_id")
+    source_spec_id = full_provenance.get("source_spec_id")
+    if source_spec_id is not None and source_spec_id != spec_id:
+        raise DirectorInputError("source_spec_id must match copied authoring spec spec_id")
+    spec_source = director_authoring_spec.get("source")
+    spec_canvas_hash = (
+        spec_source.get("canvas_export_state_sha256")
+        if isinstance(spec_source, dict)
+        else None
+    )
+    canvas_hash = full_provenance.get("canvas_export_state_sha256")
+    if (
+        canvas_hash is not None
+        and spec_canvas_hash is not None
+        and canvas_hash != spec_canvas_hash
+    ):
+        raise DirectorInputError(
+            "canvas_export_state_sha256 must match copied authoring spec source"
+        )
     full_provenance["source_spec_sha256"] = copied_spec_hash
     full_provenance["copied_spec_sha256"] = copied_spec_hash
     return copied_spec, full_provenance
@@ -368,7 +391,28 @@ def _validate_director_resolution(value: Any) -> dict[str, int]:
         raise DirectorInputError("resolution must be an object")
     width = _positive_int_field(value.get("width"), field="resolution.width")
     height = _positive_int_field(value.get("height"), field="resolution.height")
+    if width > MAX_VIDEO_WIDTH:
+        raise DirectorInputError(
+            f"resolution.width must be <= {MAX_VIDEO_WIDTH} for Director video assembly"
+        )
+    if height > MAX_VIDEO_HEIGHT:
+        raise DirectorInputError(
+            f"resolution.height must be <= {MAX_VIDEO_HEIGHT} for Director video assembly"
+        )
+    if width % 2 or height % 2:
+        raise DirectorInputError(
+            "resolution width and height must be even for Director video assembly"
+        )
     return {"width": width, "height": height}
+
+
+def _validate_video_compatible_track_limits(frame_count: int, fps: int) -> None:
+    if fps > MAX_VIDEO_FPS:
+        raise DirectorInputError(f"fps must be <= {MAX_VIDEO_FPS} for Director video assembly")
+    if frame_count > MAX_VIDEO_FRAME_COUNT:
+        raise DirectorInputError(
+            f"frame_count must be <= {MAX_VIDEO_FRAME_COUNT} for Director video assembly"
+        )
 
 
 async def _resolve_objects(call_native, object_ids: list[str], port: int | None):
@@ -462,6 +506,7 @@ async def run_compiled_track(
 
     frame_count = _positive_int_field(track.get("frame_count"), field="frame_count")
     fps = _positive_int_field(track.get("fps"), field="fps")
+    _validate_video_compatible_track_limits(frame_count, fps)
     resolution = _validate_director_resolution(request.get("resolution"))
     display = request.get("display") or {"mode": "Rendered"}
     if not isinstance(display, dict):
@@ -489,7 +534,11 @@ async def run_compiled_track(
 
     frames_dir = run_root / "frames"
     logs_dir = run_root / "logs"
-    frames_dir.mkdir(parents=True, exist_ok=False)
+    try:
+        run_root.mkdir(parents=True, exist_ok=False)
+    except FileExistsError as exc:
+        raise DirectorInputError(f"run_id already exists: {run_id}") from exc
+    frames_dir.mkdir()
     logs_dir.mkdir(parents=True, exist_ok=True)
     if prepared_run_inputs is not None:
         copied_spec, full_provenance = prepared_run_inputs

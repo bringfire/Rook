@@ -429,6 +429,52 @@ def test_write_run_inputs_rejects_conflicting_source_spec_hash(tmp_path):
 
 
 @pytest.mark.parametrize(
+    "provenance, message",
+    [
+        ({"source_spec_id": "other_spec"}, "source_spec_id"),
+        ({"canvas_export_state_sha256": "other-export"}, "canvas_export_state_sha256"),
+    ],
+)
+def test_prepare_run_inputs_rejects_conflicting_declared_provenance(provenance, message):
+    spec = {
+        "metadata_kind": "director_authoring_spec",
+        "spec_id": "spec_a",
+        "source": {"canvas_export_state_sha256": "export-a"},
+    }
+
+    with pytest.raises(director.DirectorInputError, match=message):
+        director._prepare_run_inputs(spec, provenance)
+
+
+def test_run_compiled_track_rejects_conflicting_direct_provenance_before_creating_run(tmp_path):
+    output_root = tmp_path / "data" / "rookvision_director" / "canvas_runs"
+
+    with pytest.raises(director.DirectorInputError, match="source_spec_id"):
+        asyncio.run(
+            director.run_compiled_track(
+                {
+                    "track": _compiled_track(),
+                    "resolution": {"width": 320, "height": 180},
+                    "output_root": str(output_root),
+                    "run_id": "bad-provenance-id",
+                    "run_inputs": {
+                        "director_authoring_spec": {
+                            "metadata_kind": "director_authoring_spec",
+                            "spec_id": "spec_a",
+                            "source": {"canvas_export_state_sha256": "export-a"},
+                        },
+                        "provenance": {"source_spec_id": "other_spec"},
+                    },
+                },
+                call_native=FakeNative([]),
+                runtime=_runtime(tmp_path),
+            )
+        )
+
+    assert not (output_root / "bad-provenance-id").exists()
+
+
+@pytest.mark.parametrize(
     "kind, frames",
     [
         ("camera", [{"camera": _explicit_camera()}, {"frame_index": 2, "camera": _explicit_camera()}]),
@@ -568,6 +614,113 @@ def test_run_compiled_track_rejects_bad_track_positive_ints(tmp_path, field, val
         )
 
     assert not (output_root / "bad-track").exists()
+
+
+@pytest.mark.parametrize(
+    "field, value, message",
+    [
+        ("fps", 241, "fps"),
+        ("frame_count", 5001, "frame_count"),
+    ],
+)
+def test_run_compiled_track_rejects_video_incompatible_track_limits_before_creating_run(
+    tmp_path, field, value, message
+):
+    output_root = tmp_path / "data" / "rookvision_director" / "canvas_runs"
+    track = _compiled_track()
+    track[field] = value
+
+    with pytest.raises(director.DirectorInputError, match=message):
+        asyncio.run(
+            director.run_compiled_track(
+                {
+                    "track": track,
+                    "resolution": {"width": 320, "height": 180},
+                    "output_root": str(output_root),
+                    "run_id": "bad-video-track",
+                },
+                call_native=FakeNative([]),
+                runtime=_runtime(tmp_path),
+            )
+        )
+
+    assert not (output_root / "bad-video-track").exists()
+
+
+@pytest.mark.parametrize(
+    "resolution, message",
+    [
+        ({"width": 321, "height": 180}, "even"),
+        ({"width": 320, "height": 181}, "even"),
+        ({"width": 8194, "height": 180}, "resolution.width"),
+        ({"width": 320, "height": 8194}, "resolution.height"),
+    ],
+)
+def test_run_compiled_track_rejects_video_incompatible_resolution_before_creating_run(
+    tmp_path, resolution, message
+):
+    output_root = tmp_path / "data" / "rookvision_director" / "canvas_runs"
+
+    with pytest.raises(director.DirectorInputError, match=message):
+        asyncio.run(
+            director.run_compiled_track(
+                {
+                    "track": _compiled_track(),
+                    "resolution": resolution,
+                    "output_root": str(output_root),
+                    "run_id": "bad-video-resolution",
+                },
+                call_native=FakeNative([]),
+                runtime=_runtime(tmp_path),
+            )
+        )
+
+    assert not (output_root / "bad-video-resolution").exists()
+
+
+def test_run_compiled_track_rejects_existing_empty_run_root_without_overwrite(tmp_path):
+    output_root = tmp_path / "data" / "rookvision_director" / "canvas_runs"
+    run_root = output_root / "existing-run"
+    run_root.mkdir(parents=True)
+
+    with pytest.raises(director.DirectorInputError, match="run_id"):
+        asyncio.run(
+            director.run_compiled_track(
+                {
+                    "track": _compiled_track(),
+                    "resolution": {"width": 320, "height": 180},
+                    "output_root": str(output_root),
+                    "run_id": "existing-run",
+                },
+                call_native=FakeNative([]),
+                runtime=_runtime(tmp_path),
+            )
+        )
+
+    assert list(run_root.iterdir()) == []
+
+
+def test_run_compiled_track_rejects_existing_frames_dir_with_typed_error(tmp_path):
+    output_root = tmp_path / "data" / "rookvision_director" / "canvas_runs"
+    run_root = output_root / "existing-frames"
+    (run_root / "frames").mkdir(parents=True)
+
+    with pytest.raises(director.DirectorInputError, match="run_id"):
+        asyncio.run(
+            director.run_compiled_track(
+                {
+                    "track": _compiled_track(),
+                    "resolution": {"width": 320, "height": 180},
+                    "output_root": str(output_root),
+                    "run_id": "existing-frames",
+                },
+                call_native=FakeNative([]),
+                runtime=_runtime(tmp_path),
+            )
+        )
+
+    assert not (run_root / "manifest.json").exists()
+    assert not (run_root / "status.json").exists()
 
 
 def test_two_camera_keyframes_interpolate_per_frame(tmp_path):
