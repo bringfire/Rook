@@ -47,7 +47,6 @@ struct FrameObjectTransform
     ON_Xform delta = ON_Xform::IdentityTransformation;
     ON_Xform inverseDelta = ON_Xform::IdentityTransformation;
     ON_BoundingBox sourceBbox;
-    std::string sourceObjectType;
     std::string validationStrength;
 };
 

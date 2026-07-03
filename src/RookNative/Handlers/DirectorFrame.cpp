@@ -170,6 +170,11 @@ double DirectorSourceStateBboxTolerance()
     return kDirectorSourceStateBboxTolerance;
 }
 
+const char* DirectorSourceStateBboxTolerancePolicy()
+{
+    return kDirectorSourceStateBboxTolerancePolicy;
+}
+
 double DirectorRestoreBboxTolerance()
 {
     return kDirectorRestoreBboxTolerance;
@@ -208,11 +213,6 @@ bool HasPositiveOptionalNumber(const nlohmann::json& object, const std::string& 
 double GetPositiveOptionalNumber(const nlohmann::json& object, const std::string& key)
 {
     return object[key].get<double>();
-}
-
-nlohmann::json NullableString(const std::string& value)
-{
-    return value.empty() ? nlohmann::json(nullptr) : nlohmann::json(value);
 }
 
 nlohmann::json PointToDirectorJson(const ON_3dPoint& point)
@@ -255,7 +255,7 @@ nlohmann::json InitializeRestoreDetail(const FrameObjectTransform& object, bool 
     detail["applied"] = applied;
     detail["restored"] = false;
     detail["validation_strength"] = object.validationStrength;
-    detail["source_object_type"] = NullableString(object.sourceObjectType);
+    detail["source_object_type"] = nullptr;
     detail["restored_object_type"] = nullptr;
     detail["source_bbox"] = BoundingBoxToDirectorJson(object.sourceBbox);
     detail["restored_bbox"] = nullptr;
@@ -428,8 +428,6 @@ std::vector<FrameObjectTransform> ParseFrameObjectTransforms(const nlohmann::jso
         frameObject.validationStrength = sourceState["validation_strength"].get<std::string>();
         if (frameObject.validationStrength != "bbox_only")
             throw DirectorFrameValidationError("invalid_input", "source_state.validation_strength must be bbox_only for slice1", { frameObject.objectId });
-        if (sourceState.contains("object_type") && sourceState["object_type"].is_string())
-            frameObject.sourceObjectType = sourceState["object_type"].get<std::string>();
 
         ON_3dPoint bboxMin = ParsePointArray3(sourceState.value("bbox_min", nlohmann::json()), "source_state.bbox_min");
         ON_3dPoint bboxMax = ParsePointArray3(sourceState.value("bbox_max", nlohmann::json()), "source_state.bbox_max");
@@ -460,6 +458,7 @@ bool BboxAlmostEqual(const ON_BoundingBox& a, const ON_BoundingBox& b, double to
 void ValidateFrameObjects(CRhinoDoc* pDoc, const std::vector<FrameObjectTransform>& objects)
 {
     const double bboxTolerance = DirectorSourceStateBboxTolerance();
+    const char* bboxTolerancePolicy = DirectorSourceStateBboxTolerancePolicy();
     for (const FrameObjectTransform& frameObject : objects)
     {
         const CRhinoObject* obj = pDoc->LookupObject(frameObject.uuid);
@@ -471,7 +470,11 @@ void ValidateFrameObjects(CRhinoDoc* pDoc, const std::vector<FrameObjectTransfor
             throw DirectorFrameValidationError("invalid_input", "Object has invalid bounding box: " + frameObject.objectId, { frameObject.objectId });
 
         if (!BboxAlmostEqual(currentBbox, frameObject.sourceBbox, bboxTolerance))
-            throw DirectorFrameValidationError("invalid_input", "Object source_state bbox does not match current document state", { frameObject.objectId });
+            throw DirectorFrameValidationError(
+                "invalid_input",
+                std::string("Object source_state bbox does not match current document state; bbox_tolerance_policy=") +
+                    bboxTolerancePolicy,
+                { frameObject.objectId });
     }
 }
 

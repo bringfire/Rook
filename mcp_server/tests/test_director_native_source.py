@@ -7,6 +7,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DIRECTOR_HANDLER = REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorHandler.cpp"
 DIRECTOR_FRAME = REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorFrame.cpp"
+DIRECTOR_FRAME_HEADER = REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorFrame.h"
 DIRECTOR_HEADER = REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorHandler.h"
 ROOK_SERVER_CPP = REPO_ROOT / "src" / "RookNative" / "RookServer.cpp"
 ROOK_SERVER_HEADER = REPO_ROOT / "src" / "RookNative" / "RookServer.h"
@@ -283,6 +284,7 @@ def test_director_restore_uses_separate_named_bbox_policies():
     assert "kDirectorRestoreBboxTolerance" in source
     assert "DirectorRestoreBboxTolerance" in restore_body
     assert "source_state_validation" in source
+    assert "DirectorSourceStateBboxTolerancePolicy()" in validate_body
     assert "restore_verification" in source
     assert validate_body != restore_body
 
@@ -341,3 +343,17 @@ def test_director_restore_reads_native_source_object_type_before_inverse_restore
     before_inverse_block = restore_body[lookup_index:transform_index]
     assert "beforeRestoreObj && !beforeRestoreObj->IsDeleted()" in before_inverse_block
     assert 'detail["source_object_type"] = ObjectTypeToString(beforeRestoreObj->ObjectType());' in before_inverse_block
+
+
+def test_director_restore_source_object_type_is_native_only_evidence():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    header = DIRECTOR_FRAME_HEADER.read_text(encoding="utf-8")
+    init_body = _extract_function(source, "nlohmann::json InitializeRestoreDetail")
+    parser_body = _extract_function(source, "std::vector<FrameObjectTransform> ParseFrameObjectTransforms")
+
+    assert 'detail["source_object_type"] = nullptr;' in init_body
+    assert "NullableString(object.sourceObjectType)" not in init_body
+    assert "sourceObjectType" not in source
+    assert "sourceObjectType" not in header
+    assert 'sourceState.contains("object_type")' not in parser_body
+    assert 'sourceState["object_type"]' not in parser_body
