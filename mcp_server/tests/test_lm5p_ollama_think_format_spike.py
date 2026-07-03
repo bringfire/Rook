@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -202,6 +203,21 @@ def test_messages_for_evidence_present_like_adds_evidence_packet() -> None:
 def test_messages_for_unknown_scenario_raises() -> None:
     with pytest.raises(ValueError, match="unknown LM5P scenario"):
         SPIKE._messages_for_scenario("missing")
+
+
+def test_script_help_runs_from_repo_root() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    python = repo_root / "mcp_server" / ".venv" / "Scripts" / "python.exe"
+    result = subprocess.run(
+        [str(python), "scripts/lm5p_ollama_think_format_spike.py", "--help"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "LM5P Ollama think/format diagnostic spike scaffold." in result.stdout
 
 
 def test_script_static_import_and_call_guards() -> None:

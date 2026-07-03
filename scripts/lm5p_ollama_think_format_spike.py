@@ -11,7 +11,16 @@ from __future__ import annotations
 import argparse
 import copy
 import sys
+from pathlib import Path
 from typing import Any
+
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_MCP_SRC = _REPO_ROOT / "mcp_server" / "src"
+for _path in (str(_SCRIPT_DIR), str(_REPO_ROOT), str(_MCP_SRC)):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
 
 from rook.agent.local_worker_prompt_artifact import (
     render_local_worker_prompt_artifact,
@@ -19,7 +28,7 @@ from rook.agent.local_worker_prompt_artifact import (
 from rook.agent.local_worker_turn_request import (
     render_local_worker_turn_request_payload,
 )
-from scripts.lm5k_worker_probe import _SCENARIOS, build_probe_context
+from lm5k_worker_probe import _SCENARIOS, build_probe_context
 
 SCRIPT_SCHEMA = "rook.lm5p_ollama_think_format_spike:v1"
 DEFAULT_MODELS = ("gemma4:12b-it-qat", "gemma4:12b")
