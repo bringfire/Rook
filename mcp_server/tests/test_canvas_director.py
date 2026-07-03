@@ -82,6 +82,14 @@ def test_save_export_persists_full_envelope(tmp_path):
     }
 
 
+@pytest.mark.parametrize("bad", ["", False])
+def test_save_export_rejects_explicit_falsey_export_ids(tmp_path, bad):
+    with pytest.raises(cd.CanvasDirectorError) as ei:
+        cd.save_canvas_export(tmp_path, _envelope(), export_id=bad)
+    assert ei.value.code == "invalid_export_id"
+    assert not (tmp_path / ".rook" / "director" / "exports" / "export_a.json").exists()
+
+
 def test_same_state_retry_is_idempotent_and_does_not_overwrite_diagnostics(tmp_path):
     first = _envelope(diagnostics=[{"code": "first"}])
     second = _envelope(diagnostics=[{"code": "second"}])
