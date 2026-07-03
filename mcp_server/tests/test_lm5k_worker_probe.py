@@ -247,6 +247,53 @@ class _FakeFencedTransport(_FakeGoodTransport):
         return fenced
 
 
+class _FakeScenarioAwareTransport:
+    """Clarifies without evidence, acts with the bounded evidence packet."""
+
+    def __init__(self, resolution):
+        self.last_call_info = None
+        self.last_raw_output = None
+
+    def send(self, prompt_artifact):
+        self.last_call_info = _FakeCallInfo()
+        envelope = json.loads(prompt_artifact["messages"][1]["content"])
+        context = envelope["context"]
+        packet_ids = [packet["packet_id"] for packet in context["knowledge"]]
+        if "lm5n_repair_evidence" not in packet_ids:
+            raw = json.dumps(
+                {
+                    "schema": "rook.local_worker_turn_response:v1",
+                    "kind": "clarification_request",
+                    "question": "Please provide the repair evidence.",
+                    "rationale": (
+                        "The visible context does not include enough evidence "
+                        "to author the action input."
+                    ),
+                }
+            )
+        else:
+            action_id = context["allowed_actions"][0]["action_id"]
+            evidence = next(
+                packet for packet in context["knowledge"]
+                if packet["packet_id"] == "lm5n_repair_evidence"
+            )
+            fields = evidence["content"]["fields"]
+            raw = json.dumps(
+                {
+                    "schema": "rook.local_worker_turn_response:v1",
+                    "kind": "action_request",
+                    "action_id": action_id,
+                    "rationale": "Use bounded repair evidence.",
+                    "input": {
+                        "code": fields["current_code"]["value"],
+                        "mode": fields["recommended_mode"]["value"],
+                    },
+                }
+            )
+        self.last_raw_output = raw
+        return raw
+
+
 def _args(tmp_path, **overrides):
     values = {
         "local": "ollama_chat/fake:1", "cheap": None, "ceiling": None,
@@ -295,6 +342,52 @@ def test_offline_probe_end_to_end_good_transport(tmp_path) -> None:
     assert first["latency_ms"] == 12.5
     assert first["captured_raw_path"] is None
     assert not (run_dir / "raw").exists()
+
+
+def test_offline_probe_evidence_absent_expects_clarification(tmp_path) -> None:
+    run_dir = PROBE.run_probe(
+        _args(tmp_path, scenario="evidence_absent", attempts=2),
+        transport_factory=_FakeScenarioAwareTransport,
+    )
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    assert manifest["scenario"] == {
+        "workflow_id": "lm5k_first_probe",
+        "scenario_id": "lm5n_repair_evidence_absent",
+        "scenario_version": "v3",
+        "state": "post_verify_pre_bind",
+    }
+    local = next(p for p in manifest["panel"] if p["slot"] == "local")
+    assert local["status"] == "ran"
+    assert local["strict_loadable"] == 2
+    assert local["spine_passed"] == 2
+    lines = (run_dir / "attempts.jsonl").read_text().strip().splitlines()
+    first = json.loads(lines[0])
+    assert first["adapter_status"] == "response_loaded"
+    assert first["disposition"] == "clarification_needed"
+    assert first["evaluation_passed"] is True
+
+
+def test_offline_probe_evidence_present_expects_action(tmp_path) -> None:
+    run_dir = PROBE.run_probe(
+        _args(tmp_path, scenario="evidence_present", attempts=2),
+        transport_factory=_FakeScenarioAwareTransport,
+    )
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    assert manifest["scenario"] == {
+        "workflow_id": "lm5k_first_probe",
+        "scenario_id": "lm5n_repair_evidence_present",
+        "scenario_version": "v3",
+        "state": "post_verify_pre_bind",
+    }
+    local = next(p for p in manifest["panel"] if p["slot"] == "local")
+    assert local["status"] == "ran"
+    assert local["strict_loadable"] == 2
+    assert local["spine_passed"] == 2
+    lines = (run_dir / "attempts.jsonl").read_text().strip().splitlines()
+    first = json.loads(lines[0])
+    assert first["adapter_status"] == "response_loaded"
+    assert first["disposition"] == "candidate_action_request"
+    assert first["evaluation_passed"] is True
 
 
 def test_offline_probe_fenced_output_counts_split(tmp_path) -> None:

@@ -573,7 +573,9 @@ def _knowledge_packets_for_scenario(
     return tuple(packets)
 
 
-def build_probe_context():
+def build_probe_context(
+    scenario: _ProbeScenarioConfig | None = None,
+):
     """Golden scenario v2: the compiled repair workflow advanced through
     the real offline stream to post-verify/pre-bind state (spec 4.3).
 
@@ -584,9 +586,9 @@ def build_probe_context():
     are planner-authored inputs, not world-state claims. Runs once per
     candidate; derivation is deterministic and millisecond-cheap, so no
     caching."""
+    scenario = scenario or _SCENARIOS["evidence_present"]
     from rook.agent.local_worker_turn_context import (
         WorkerAllowedAction,
-        WorkerKnowledgePacket,
         build_local_worker_turn_context,
     )
 
@@ -598,13 +600,8 @@ def build_probe_context():
         stream_result.records,
         stream_result.supply_records,
         current_node_id="repair_same_component",
-        knowledge=(
-            WorkerKnowledgePacket(
-                packet_id="script_body_gotcha",
-                kind="gotcha",
-                title="C# script components use body-style code",
-                content={"source": "probe fixture", "trust": "high"},
-            ),
+        knowledge=_knowledge_packets_for_scenario(
+            scenario, stream_result.final_graph
         ),
         allowed_actions=(
             WorkerAllowedAction(
@@ -634,6 +631,7 @@ def run_candidate(
     attempts: int,
     run_dir: Path,
     capture_raw: bool,
+    scenario: _ProbeScenarioConfig,
     transport_factory=None,
 ) -> dict:
     """Run N attempts for one resolved candidate. Returns the candidate
@@ -650,7 +648,7 @@ def run_candidate(
 
     factory = transport_factory or _default_transport_factory
     transport = factory(resolution)
-    context = build_probe_context()
+    context = build_probe_context(scenario)
 
     schema_versions = _schema_versions()
     adapter_statuses: list = []
@@ -678,13 +676,13 @@ def run_candidate(
             )
             result = evaluate_local_worker_scenario_result(
                 LocalWorkerScenarioExpectation(
-                    scenario_id=SCENARIO_ID,
+                    scenario_id=scenario.scenario_id,
                     category="live_probe",
                     expected_status="completed",
-                    expected_disposition="candidate_action_request",
-                    expected_attempt_valid=True,
-                    expected_action_id="draft_repair_params",
-                    expected_response_kind="action_request",
+                    expected_disposition=scenario.expected_disposition,
+                    expected_attempt_valid=scenario.expected_attempt_valid,
+                    expected_action_id=scenario.expected_action_id,
+                    expected_response_kind=scenario.expected_response_kind,
                     expected_workflow_id=context.workflow.workflow_id,
                     expected_contract_fingerprint=(
                         context.workflow.contract_fingerprint
@@ -783,6 +781,7 @@ def build_manifest(
     panel: list,
     attempts: int,
     capture_raw: bool,
+    scenario: _ProbeScenarioConfig,
 ) -> dict:
     return {
         "run_id": run_id,
@@ -790,9 +789,9 @@ def build_manifest(
         "git_commit": _git_short_sha(),
         "scenario": {
             "workflow_id": SCENARIO_WORKFLOW_ID,
-            "scenario_id": SCENARIO_ID,
-            "scenario_version": SCENARIO_VERSION,
-            "state": SCENARIO_STATE,
+            "scenario_id": scenario.scenario_id,
+            "scenario_version": scenario.scenario_version,
+            "state": scenario.state,
         },
         "attempts_per_candidate": attempts,
         "capture_raw": capture_raw,
@@ -818,6 +817,7 @@ def run_probe(args, transport_factory=None) -> Path:
     ):
         raise ValueError("attempts must be a positive integer")
 
+    scenario = _scenario_config(args.scenario)
     models = get_models()
     resolutions = [
         {
@@ -849,11 +849,14 @@ def run_probe(args, transport_factory=None) -> Path:
             continue
         summary = run_candidate(
             resolution, args.attempts, run_dir, args.capture_raw,
+            scenario,
             transport_factory=transport_factory,
         )
         panel.append({**resolution, **summary})
 
-    manifest = build_manifest(run_id, panel, args.attempts, args.capture_raw)
+    manifest = build_manifest(
+        run_id, panel, args.attempts, args.capture_raw, scenario
+    )
     (run_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2), encoding="utf-8"
     )
