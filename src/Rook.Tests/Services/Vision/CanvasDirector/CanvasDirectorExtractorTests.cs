@@ -232,6 +232,20 @@ namespace Rook.Tests.Services.Vision.CanvasDirector
             Assert.Equal("export_schema_mismatch", ex.Code);
         }
 
+        [Fact]
+        public void TryExtractFromDocument_RejectsSingleMarkerWhenOutputEnumerationThrows()
+        {
+            var document = new MarkerGhDocument(
+                MarkerComponent.ThrowingEnumerable("CanvasDirector Export:export-1"));
+
+            var ex = Assert.Throws<CanvasDirectorException>(
+                () => CanvasDirectorExtractor.TryExtractFromDocument(
+                    document,
+                    new CanvasDirectorExtractRequest { ExportId = "export-1" }));
+
+            Assert.Equal("export_schema_mismatch", ex.Code);
+        }
+
         private static string ValidPayload(string exportId)
         {
             return "{\"metadata_kind\":\"rook.canvas_director.export\",\"schema_version\":1,\"export_id\":\"" +
@@ -320,6 +334,13 @@ namespace Rook.Tests.Services.Vision.CanvasDirector
                     new MarkerParameters(new MarkerOutput(new UnreadableVolatileData())));
             }
 
+            public static MarkerComponent ThrowingEnumerable(string nickName)
+            {
+                return new MarkerComponent(
+                    nickName,
+                    new MarkerParameters(new MarkerOutput(new ThrowingEnumerableVolatileData())));
+            }
+
             public string NickName { get; }
             public MarkerParameters Params { get; }
         }
@@ -364,6 +385,22 @@ namespace Rook.Tests.Services.Vision.CanvasDirector
             public IEnumerable<MarkerGoo> AllData(bool includeNulls)
             {
                 throw new InvalidOperationException("boom");
+            }
+        }
+
+        private sealed class ThrowingEnumerableVolatileData
+        {
+            public IEnumerable<MarkerGoo> AllData(bool includeNulls)
+            {
+                return ThrowOnEnumeration();
+            }
+
+            private static IEnumerable<MarkerGoo> ThrowOnEnumeration()
+            {
+                throw new InvalidOperationException("enumeration boom");
+#pragma warning disable CS0162
+                yield return new MarkerGoo("unreachable");
+#pragma warning restore CS0162
             }
         }
 
