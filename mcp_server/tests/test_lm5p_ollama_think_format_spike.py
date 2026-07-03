@@ -5,6 +5,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -302,6 +303,192 @@ def test_classifies_free_text_content_as_row_evidence() -> None:
     assert row["content_json_valid"] is False
     assert row["lm5g_loadable"] is False
     assert row["failure_reason"] == "content_json_invalid:JSONDecodeError"
+
+
+def test_parse_show_metadata_extracts_model_id_and_quantization() -> None:
+    text = """
+architecture        gemma3
+quantization        Q4_K_M
+model id            abcdef123456
+"""
+
+    assert SPIKE._parse_show_metadata(text) == {
+        "model_id": "abcdef123456",
+        "model_quantization": "Q4_K_M",
+    }
+
+
+def test_build_manifest_records_run_contract_and_model_metadata() -> None:
+    models = [
+        {
+            "model": "gemma4:12b",
+            "model_id": "abcdef123456",
+            "model_quantization": "Q4_K_M",
+            "ollama_show_status": "ok",
+            "ollama_show_excerpt": "quantization        Q4_K_M",
+        }
+    ]
+
+    manifest = SPIKE._build_manifest(
+        git_commit="abc1234",
+        ollama_version="ollama version is 0.9.0",
+        models=models,
+        scenarios=["evidence_absent_like", "evidence_present_like"],
+        modes=list(SPIKE._MODES),
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        attempts_per_cell=3,
+    )
+
+    assert manifest["script_schema"] == "rook.lm5p_ollama_think_format_spike:v1"
+    assert manifest["git_commit"] == "abc1234"
+    assert manifest["models"] == models
+    assert manifest["scenarios"] == [
+        "evidence_absent_like",
+        "evidence_present_like",
+    ]
+    assert manifest["modes"] == list(SPIKE._MODES)
+    assert (
+        manifest["raw_artifacts"] == "local evidence under probe_runs; do not commit"
+    )
+
+
+def test_run_matrix_writes_manifest_and_attempt_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured_bodies: list[dict] = []
+    content = json.dumps(
+        {
+            "schema": "rook.local_worker_turn_response:v1",
+            "kind": "observation",
+            "message": "ok",
+            "data": {"source": "fake"},
+        }
+    )
+    provider_text = json.dumps({"message": {"content": content}})
+
+    def fake_post(endpoint: str, body: dict, timeout_s: float) -> str:
+        assert endpoint == "http://fake.local/api/chat"
+        assert timeout_s == 9
+        captured_bodies.append(body)
+        return provider_text
+
+    monkeypatch.setattr(SPIKE, "_REPO_ROOT", tmp_path)
+    monkeypatch.setattr(SPIKE, "_git_short_sha", lambda: "abc1234")
+    monkeypatch.setattr(SPIKE, "_ollama_version", lambda: "ollama version is 0.9.0")
+    monkeypatch.setattr(
+        SPIKE,
+        "_model_metadata",
+        lambda model: {
+            "model": model,
+            "model_id": "model-123",
+            "model_quantization": "Q4_K_M",
+            "ollama_show_status": "ok",
+            "ollama_show_excerpt": "model id            model-123",
+        },
+    )
+    monkeypatch.setattr(
+        SPIKE,
+        "_messages_for_scenario",
+        lambda scenario: [{"role": "user", "content": scenario}],
+    )
+    monkeypatch.setattr(SPIKE, "_post_ollama_chat", fake_post)
+
+    run_dir = SPIKE._run_matrix(
+        models=["gemma4:12b"],
+        scenarios=["evidence_absent_like"],
+        modes=["format_think_true"],
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        attempts_per_cell=2,
+        timeout_s=9,
+    )
+
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["git_commit"] == "abc1234"
+    assert manifest["models"] == [
+        {
+            "model": "gemma4:12b",
+            "model_id": "model-123",
+            "model_quantization": "Q4_K_M",
+            "ollama_show_status": "ok",
+            "ollama_show_excerpt": "model id            model-123",
+        }
+    ]
+
+    rows = [
+        json.loads(line)
+        for line in (run_dir / "attempts.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(rows) == 2
+    first = rows[0]
+    assert first["model"] == "gemma4:12b"
+    assert first["mode"] == "format_think_true"
+    assert first["format_enabled"] is True
+    assert first["think_requested"] == "true"
+    assert first["lm5g_loadable"] is True
+    assert first["response_kind"] == "observation"
+
+    assert len(captured_bodies) == 2
+    assert "oneOf" in captured_bodies[0]["format"]
+    assert captured_bodies[0]["think"] is True
+
+
+def test_run_matrix_records_http_and_provider_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls = 0
+
+    def fake_post(endpoint: str, body: dict, timeout_s: float) -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise urllib.error.HTTPError(endpoint, 503, "unavailable", {}, None)
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(SPIKE, "_REPO_ROOT", tmp_path)
+    monkeypatch.setattr(SPIKE, "_git_short_sha", lambda: "abc1234")
+    monkeypatch.setattr(SPIKE, "_ollama_version", lambda: "ollama version is 0.9.0")
+    monkeypatch.setattr(
+        SPIKE,
+        "_model_metadata",
+        lambda model: {
+            "model": model,
+            "model_id": None,
+            "model_quantization": None,
+            "ollama_show_status": "ok",
+            "ollama_show_excerpt": "",
+        },
+    )
+    monkeypatch.setattr(
+        SPIKE,
+        "_messages_for_scenario",
+        lambda scenario: [{"role": "user", "content": scenario}],
+    )
+    monkeypatch.setattr(SPIKE, "_post_ollama_chat", fake_post)
+
+    run_dir = SPIKE._run_matrix(
+        models=["gemma4:12b"],
+        scenarios=["evidence_absent_like"],
+        modes=["free_default"],
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        attempts_per_cell=2,
+        timeout_s=9,
+    )
+
+    rows = [
+        json.loads(line)
+        for line in (run_dir / "attempts.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert [row["provider_status"] for row in rows] == ["error", "error"]
+    assert [row["failure_reason"] for row in rows] == [
+        "http_error:503",
+        "provider_error:RuntimeError",
+    ]
 
 
 def test_script_help_runs_from_repo_root() -> None:

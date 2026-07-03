@@ -11,9 +11,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import copy
+import subprocess
 import json
 import sys
+import urllib.error
+import urllib.request
 from collections.abc import Mapping
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +46,7 @@ SCENARIO_NAMES = ("evidence_absent_like", "evidence_present_like")
 DEFAULT_ENDPOINT = "http://localhost:11434/api/chat"
 DEFAULT_ATTEMPTS = 3
 DEFAULT_TEMPERATURE = 0
+DEFAULT_TIMEOUT_S = 120
 EXCERPT_CHARS = 500
 
 _MODES = {
@@ -275,26 +280,278 @@ def _classify_provider_text(
     return row
 
 
+def _git_short_sha() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception:
+        return "unknown"
+    if result.returncode != 0:
+        return "unknown"
+    value = result.stdout.strip()
+    return value or "unknown"
+
+
+def _ollama_version() -> str:
+    try:
+        result = subprocess.run(
+            ["ollama", "--version"],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception as exc:
+        return f"unavailable:{type(exc).__name__}"
+    if result.returncode != 0:
+        return "unknown"
+    value = result.stdout.strip() or result.stderr.strip()
+    return value or "unknown"
+
+
+def _extract_labeled_value(text: str, labels: tuple[str, ...]) -> str | None:
+    normalized_labels = tuple(label.casefold() for label in labels)
+    for line in text.splitlines():
+        stripped = line.strip()
+        folded = stripped.casefold()
+        for label, folded_label in zip(labels, normalized_labels):
+            if folded.startswith(folded_label):
+                value = stripped[len(label) :].strip()
+                if value:
+                    return value
+    return None
+
+
+def _parse_show_metadata(text: str) -> dict[str, str | None]:
+    return {
+        "model_id": _extract_labeled_value(text, ("model id",)),
+        "model_quantization": _extract_labeled_value(text, ("quantization",)),
+    }
+
+
+def _model_metadata(model: str) -> dict[str, Any]:
+    try:
+        result = subprocess.run(
+            ["ollama", "show", model],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception as exc:
+        return {
+            "model": model,
+            "model_id": None,
+            "model_quantization": None,
+            "ollama_show_status": f"unavailable:{type(exc).__name__}",
+            "ollama_show_excerpt": None,
+        }
+
+    text = result.stdout if result.stdout else result.stderr
+    parsed = _parse_show_metadata(text)
+    status = "ok" if result.returncode == 0 else f"error:{result.returncode}"
+    return {
+        "model": model,
+        **parsed,
+        "ollama_show_status": status,
+        "ollama_show_excerpt": _excerpt(text),
+    }
+
+
+def _post_ollama_chat(endpoint: str, body: dict[str, Any], timeout_s: float) -> str:
+    data = json.dumps(body).encode("utf-8")
+    request = urllib.request.Request(
+        endpoint,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout_s) as response:
+        return response.read().decode("utf-8")
+
+
+def _build_manifest(
+    *,
+    git_commit: str,
+    ollama_version: str,
+    models: list[dict[str, Any]],
+    scenarios: list[str],
+    modes: list[str],
+    endpoint: str,
+    temperature: float,
+    attempts_per_cell: int,
+) -> dict[str, Any]:
+    return {
+        "script_schema": SCRIPT_SCHEMA,
+        "git_commit": git_commit,
+        "ollama_version": ollama_version,
+        "models": models,
+        "scenarios": scenarios,
+        "modes": modes,
+        "endpoint": endpoint,
+        "temperature": temperature,
+        "attempts_per_cell": attempts_per_cell,
+        "raw_artifacts": "local evidence under probe_runs; do not commit",
+    }
+
+
+def _base_row(
+    *,
+    model: str,
+    scenario: str,
+    mode: str,
+    attempt: int,
+) -> dict[str, Any]:
+    try:
+        mode_config = _MODES[mode]
+    except KeyError as exc:
+        raise ValueError(f"unknown LM5P mode: {mode}") from exc
+    think = mode_config["think"]
+    if think == "omitted":
+        think_requested = "omitted"
+    elif think is True:
+        think_requested = "true"
+    else:
+        think_requested = "false"
+    return {
+        "model": model,
+        "scenario": scenario,
+        "mode": mode,
+        "attempt": attempt,
+        "format_enabled": bool(mode_config["format"]),
+        "think_requested": think_requested,
+    }
+
+
+def _run_matrix(
+    *,
+    models: list[str],
+    scenarios: list[str],
+    modes: list[str],
+    endpoint: str,
+    temperature: float,
+    attempts_per_cell: int,
+    timeout_s: float,
+) -> Path:
+    git_commit = _git_short_sha()
+    model_metadata = [_model_metadata(model) for model in models]
+    manifest = _build_manifest(
+        git_commit=git_commit,
+        ollama_version=_ollama_version(),
+        models=model_metadata,
+        scenarios=scenarios,
+        modes=modes,
+        endpoint=endpoint,
+        temperature=temperature,
+        attempts_per_cell=attempts_per_cell,
+    )
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    run_dir = _REPO_ROOT / "probe_runs" / f"lm5p-{timestamp}-{git_commit}"
+    run_dir.mkdir(parents=True, exist_ok=False)
+    (run_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    counts = {"ok": 0, "error": 0, "loadable": 0}
+    attempts_path = run_dir / "attempts.jsonl"
+    with attempts_path.open("w", encoding="utf-8") as attempts_file:
+        for model in models:
+            for scenario in scenarios:
+                messages = _messages_for_scenario(scenario)
+                for mode in modes:
+                    for attempt in range(1, attempts_per_cell + 1):
+                        base_row = _base_row(
+                            model=model,
+                            scenario=scenario,
+                            mode=mode,
+                            attempt=attempt,
+                        )
+                        body = _build_request_body(
+                            model,
+                            messages,
+                            mode,
+                            temperature,
+                        )
+                        try:
+                            provider_text = _post_ollama_chat(
+                                endpoint,
+                                body,
+                                timeout_s,
+                            )
+                        except urllib.error.HTTPError as exc:
+                            row = {**base_row, **_empty_result_fields()}
+                            row["provider_status"] = "error"
+                            row["failure_reason"] = f"http_error:{exc.code}"
+                        except Exception as exc:
+                            row = {**base_row, **_empty_result_fields()}
+                            row["provider_status"] = "error"
+                            row["failure_reason"] = (
+                                f"provider_error:{type(exc).__name__}"
+                            )
+                        else:
+                            row = _classify_provider_text(provider_text, base_row)
+
+                        if row["provider_status"] == "ok":
+                            counts["ok"] += 1
+                        else:
+                            counts["error"] += 1
+                        if row["lm5g_loadable"]:
+                            counts["loadable"] += 1
+                        attempts_file.write(json.dumps(row, sort_keys=True) + "\n")
+
+    print(
+        "LM5P matrix complete: "
+        f"run_dir={run_dir} ok={counts['ok']} "
+        f"error={counts['error']} loadable={counts['loadable']}"
+    )
+    return run_dir
+
+
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def _args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="LM5P Ollama think/format diagnostic spike scaffold."
     )
     parser.add_argument("--endpoint", default=DEFAULT_ENDPOINT)
     parser.add_argument("--model", action="append", dest="models", default=None)
-    parser.add_argument("--attempts", type=int, default=DEFAULT_ATTEMPTS)
+    parser.add_argument("--scenario", action="append", dest="scenarios", default=None)
+    parser.add_argument("--mode", action="append", dest="modes", default=None)
+    parser.add_argument("--attempts", type=_positive_int, default=DEFAULT_ATTEMPTS)
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
+    parser.add_argument("--timeout-s", type=float, default=DEFAULT_TIMEOUT_S)
     args = parser.parse_args(argv)
     if args.models is None:
         args.models = list(DEFAULT_MODELS)
+    if args.scenarios is None:
+        args.scenarios = list(SCENARIO_NAMES)
+    if args.modes is None:
+        args.modes = list(_MODES)
     return args
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _args(argv)
-    print(
-        "LM5P Ollama think/format spike scaffold: "
-        f"schema={SCRIPT_SCHEMA} endpoint={args.endpoint} "
-        f"models={','.join(args.models)} attempts={args.attempts}"
+    _run_matrix(
+        models=args.models,
+        scenarios=args.scenarios,
+        modes=args.modes,
+        endpoint=args.endpoint,
+        temperature=args.temperature,
+        attempts_per_cell=args.attempts,
+        timeout_s=args.timeout_s,
     )
     return 0
 
