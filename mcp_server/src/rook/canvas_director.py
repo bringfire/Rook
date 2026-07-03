@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import hashlib
 import json
 import os
@@ -176,6 +177,8 @@ def _acquire_export_lock(lock_path: Path) -> None:
                 lock.write(f"{os.getpid()}\n")
             return
         except FileExistsError:
+            if _remove_stale_lock_if_possible(lock_path):
+                continue
             if time.monotonic() >= deadline:
                 raise CanvasDirectorError("export_write_failed", "Timed out waiting for export lock.")
             time.sleep(_LOCK_POLL_SECONDS)
@@ -188,6 +191,56 @@ def _release_export_lock(lock_path: Path) -> None:
         lock_path.unlink(missing_ok=True)
     except OSError as exc:
         raise CanvasDirectorError("export_write_failed", str(exc)) from exc
+
+
+def _is_pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+
+    if os.name == "nt":
+        process_query_limited_information = 0x1000
+        handle = ctypes.windll.kernel32.OpenProcess(
+            process_query_limited_information,
+            False,
+            int(pid),
+        )
+        if not handle:
+            return False
+        try:
+            exit_code = ctypes.c_ulong()
+            if not ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                return False
+            return exit_code.value == 259
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
+
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _lock_pid(lock_path: Path) -> int | None:
+    try:
+        text = lock_path.read_text(encoding="utf-8").strip().splitlines()
+        return int(text[0]) if text else None
+    except Exception:
+        return None
+
+
+def _remove_stale_lock_if_possible(lock_path: Path) -> bool:
+    pid = _lock_pid(lock_path)
+    if pid is not None and _is_pid_alive(pid):
+        return False
+
+    try:
+        lock_path.unlink(missing_ok=True)
+    except OSError:
+        return False
+    return True
 
 
 def _verify_envelope(envelope: Any) -> tuple[dict[str, Any], str]:
