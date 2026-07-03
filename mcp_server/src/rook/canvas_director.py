@@ -28,6 +28,7 @@ _INT64_MIN = -(2**63)
 _INT64_MAX = 2**63 - 1
 _LOCK_WAIT_SECONDS = 5.0
 _LOCK_POLL_SECONDS = 0.01
+_MALFORMED_LOCK_STALE_SECONDS = 5.0
 
 
 class CanvasDirectorError(Exception):
@@ -235,6 +236,14 @@ def _remove_stale_lock_if_possible(lock_path: Path) -> bool:
     pid = _lock_pid(lock_path)
     if pid is not None and _is_pid_alive(pid):
         return False
+
+    if pid is None:
+        try:
+            age_seconds = time.time() - lock_path.stat().st_mtime
+        except OSError:
+            return False
+        if age_seconds < _MALFORMED_LOCK_STALE_SECONDS:
+            return False
 
     try:
         lock_path.unlink(missing_ok=True)
