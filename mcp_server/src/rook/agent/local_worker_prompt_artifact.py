@@ -9,7 +9,7 @@ from typing import Any
 from rook.agent.local_worker_turn_request import LOCAL_WORKER_TURN_REQUEST_SCHEMA
 
 LOCAL_WORKER_PROMPT_ARTIFACT_SCHEMA = "rook.local_worker_prompt_artifact:v1"
-LOCAL_WORKER_PROMPT_TEXT_VERSION = "lm5j.prompt_text:v1"
+LOCAL_WORKER_PROMPT_TEXT_VERSION = "lm5m.prompt_text:v2"
 
 __all__ = (
     "LOCAL_WORKER_PROMPT_ARTIFACT_SCHEMA",
@@ -28,8 +28,14 @@ _INSTRUCTION_TEXT = (
     "You are a bounded Rook worker resolving exactly one workflow node.\n"
     "The user content is a request envelope as JSON: the workflow context\n"
     "you may rely on and the contract your reply must follow.\n"
-    "Reply with exactly one JSON object and nothing else: no code fences,\n"
-    "no markdown, no commentary before or after the object.\n"
+    "For an allowed action, its input_schema describes the shape of the\n"
+    "action input object you may author from visible context. It is not a list of hidden values\n"
+    "Rook is withholding. If visible context is sufficient,\n"
+    "author that input object yourself. If not, use\n"
+    "clarification or refusal.\n"
+    "Return exactly one JSON object matching the response contract. Do not use markdown fences,\n"
+    "backticks, language labels, or explanatory text\n"
+    "before or after the JSON object.\n"
     "The object must follow exactly one of the allowed reply envelopes\n"
     "listed below, using exactly the listed entries."
 )

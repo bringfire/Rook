@@ -124,7 +124,7 @@ def _request_payload() -> dict:
 
 def test_schema_constants() -> None:
     assert LOCAL_WORKER_PROMPT_ARTIFACT_SCHEMA == "rook.local_worker_prompt_artifact:v1"
-    assert LOCAL_WORKER_PROMPT_TEXT_VERSION == "lm5j.prompt_text:v1"
+    assert LOCAL_WORKER_PROMPT_TEXT_VERSION == "lm5m.prompt_text:v2"
 
 
 def test_module_all_is_exact() -> None:
@@ -257,18 +257,63 @@ def test_contract_mutation_changes_system_text() -> None:
     assert changed["messages"][0]["content"] != baseline["messages"][0]["content"]
 
 
-def test_instruction_constant_has_no_kind_or_field_literals() -> None:
+def test_instruction_text_explains_generic_action_input_authoring_role() -> None:
+    instruction = prompt_module._INSTRUCTION_TEXT
+    assert "input_schema describes the shape" in instruction
+    assert "action input object" in instruction
+    assert "visible context" in instruction
+    assert "not a list of hidden values" in instruction
+    assert "If visible context is sufficient" in instruction
+    assert "clarification or refusal" in instruction
+    assert "always request" not in instruction.lower()
+    assert "always author" not in instruction.lower()
+
+
+def test_instruction_text_requires_raw_json_without_fences_or_commentary() -> None:
+    instruction = prompt_module._INSTRUCTION_TEXT
+    assert "Return exactly one JSON object" in instruction
+    assert "Do not use markdown fences" in instruction
+    assert "backticks" in instruction
+    assert "language labels" in instruction
+    assert "explanatory text" in instruction
+    assert "before or after the JSON object" in instruction
+
+
+def test_instruction_constant_has_no_hand_listed_contract_or_scenario_literals() -> None:
     payload = _request_payload()
     contract = payload["response_contract"]
     instruction = prompt_module._INSTRUCTION_TEXT
-    for kind in contract["kinds"]:
-        assert kind not in instruction
-        for field in contract["field_sets"][kind]:
-            if field in {"schema", "kind"}:
-                continue
-            assert field not in instruction
+
+    assert "clarification" in instruction
+    assert "refusal" in instruction
+
+    banned_response_literals = {
+        "action_request",
+        "clarification_request",
+        "observation",
+        "action_id",
+        "rationale",
+        "question",
+        "category",
+        "message",
+        "data",
+    }
+    for literal in banned_response_literals:
+        assert literal not in instruction
+
     for category in contract["refusal_categories"]:
         assert category not in instruction
+
+    banned_scenario_literals = {
+        "draft_repair_params",
+        "code",
+        "mode",
+        "component_guid",
+        "repair_same_component",
+        "RunScript",
+    }
+    for literal in banned_scenario_literals:
+        assert literal not in instruction
 
 
 def test_module_never_references_loads_or_banned_imports() -> None:
