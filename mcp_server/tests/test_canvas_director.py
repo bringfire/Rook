@@ -732,3 +732,83 @@ async def test_extract_persist_and_compile_writes_export_spec_and_returns_compil
     assert result["compile_motion_request"]["motion"][0]["target"] == "actor_a"
     assert (tmp_path / ".rook" / "director" / "exports" / "export_a.json").is_file()
     assert (tmp_path / ".rook" / "director" / "specs" / "spec_a.json").is_file()
+
+
+@pytest.mark.asyncio
+async def test_extract_persist_and_compile_rejects_non_bool_replace_spec_before_extract(
+    tmp_path, monkeypatch
+):
+    calls = []
+
+    async def fake_extract_canvas_export(arguments, *, port=None):
+        calls.append(arguments)
+        return _envelope()
+
+    monkeypatch.setattr(cd, "extract_canvas_export", fake_extract_canvas_export)
+
+    with pytest.raises(cd.CanvasDirectorError) as ei:
+        await cd.extract_persist_and_compile(
+            {"project_root": str(tmp_path), "replace_spec": "false"}
+        )
+
+    assert ei.value.code == "invalid_input"
+    assert calls == []
+    assert not (tmp_path / ".rook").exists()
+
+
+@pytest.mark.asyncio
+async def test_extract_persist_and_compile_rejects_non_string_project_root_before_extract(
+    monkeypatch,
+):
+    calls = []
+
+    async def fake_extract_canvas_export(arguments, *, port=None):
+        calls.append(arguments)
+        return _envelope()
+
+    monkeypatch.setattr(cd, "extract_canvas_export", fake_extract_canvas_export)
+
+    with pytest.raises(cd.CanvasDirectorError) as ei:
+        await cd.extract_persist_and_compile({"project_root": True})
+
+    assert ei.value.code == "invalid_input"
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_extract_persist_and_compile_replace_spec_true_overwrites_existing_spec(
+    tmp_path, monkeypatch
+):
+    old_state = _state()
+    old_state["payload"]["timeline"]["frame_count"] = 2
+    old_spec = cd.compile_authoring_spec(_envelope(old_state), spec_id="spec_a")
+    cd.save_authoring_spec(tmp_path, old_spec, spec_id="spec_a")
+
+    state = _state()
+    state["payload"] = {
+        "timeline": {"fps": 24, "frame_count": 3},
+        "motion": [
+            {
+                "target": "11111111-1111-1111-1111-111111111111",
+                "keyframes": [{"t": 1, "translate": [1, 0, 0]}],
+            }
+        ],
+    }
+    envelope = _envelope(state)
+
+    async def fake_extract_canvas_export(arguments, *, port=None):
+        return envelope
+
+    monkeypatch.setattr(cd, "extract_canvas_export", fake_extract_canvas_export)
+
+    result = await cd.extract_persist_and_compile(
+        {"project_root": str(tmp_path), "spec_id": "spec_a", "replace_spec": True}
+    )
+
+    persisted = json.loads(
+        (tmp_path / ".rook" / "director" / "specs" / "spec_a.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert result["spec"]["spec_id"] == "spec_a"
+    assert persisted["timeline"] == {"fps": 24, "frame_count": 3}
