@@ -992,7 +992,7 @@ void CRookServer::RegisterRoutes()
         HandleDirectorCaptureDepthPass(req, res);
     });
     m_server->Post("/director/canvas/extract", [this](const httplib::Request& req, httplib::Response& res) {
-        HandleDirectorCanvasExtract(req, res);
+        Rook::Handlers::HandleDirectorCanvasExtract(req, res);
     });
     m_server->Post("/director/replay", [this](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleDirectorReplay(req, res);
