@@ -316,9 +316,9 @@ def test_offline_probe_end_to_end_good_transport(tmp_path) -> None:
     # the bare scenario_workflow_id string is replaced, not kept alongside
     assert manifest["scenario"] == {
         "workflow_id": "lm5k_first_probe",
-        "scenario_id": "lm5k_golden_repair_v2",
-        "scenario_version": "v2",
-        "state": "post_verify_needs_repair",
+        "scenario_id": "lm5n_repair_evidence_present",
+        "scenario_version": "v3",
+        "state": "post_verify_pre_bind",
     }
     assert "scenario_workflow_id" not in manifest
     local = next(p for p in manifest["panel"] if p["slot"] == "local")
@@ -689,21 +689,48 @@ def test_probe_context_envelope_is_world_state_coherent() -> None:
     assert "draft_repair_params" in action_ids
 
 
-def test_probe_envelope_never_exposes_internal_values() -> None:
-    # The visibility boundary itself (spec section 3.5): bound execution
-    # param values and memory fact values must NOT appear anywhere in the
-    # rendered request payload — the worker sees has_execution_params and
-    # memory_keys, not payloads.
+def test_evidence_absent_probe_envelope_does_not_expose_evidence_values() -> None:
     from rook.agent.local_worker_turn_request import (
         render_local_worker_turn_request_payload,
     )
 
     payload = render_local_worker_turn_request_payload(
-        PROBE.build_probe_context()
+        PROBE.build_probe_context(PROBE._SCENARIOS["evidence_absent"])
     )
     rendered = json.dumps(payload)
     assert PROBE.PROBE_COMPONENT_GUID not in rendered
+    assert "A = DefinitelyMissingSymbol;" not in rendered
+    assert "lm5n_repair_evidence" not in rendered
+
+
+def test_evidence_present_probe_envelope_exposes_only_bounded_evidence_values() -> None:
+    from rook.agent.local_worker_turn_request import (
+        render_local_worker_turn_request_payload,
+    )
+
+    payload = render_local_worker_turn_request_payload(
+        PROBE.build_probe_context(PROBE._SCENARIOS["evidence_present"])
+    )
+    rendered = json.dumps(payload)
+    assert "lm5n_repair_evidence" in rendered
+    assert PROBE.PROBE_COMPONENT_GUID in rendered
+    assert "A = DefinitelyMissingSymbol;" in rendered
     assert PROBE.PROBE_REPAIR_CODE not in rendered
+    assert "already-bound repair params" not in rendered
+
+
+def test_lm5n_rendered_current_node_has_no_execution_params() -> None:
+    from rook.agent.local_worker_turn_request import (
+        render_local_worker_turn_request_payload,
+    )
+
+    for scenario in PROBE._SCENARIOS.values():
+        payload = render_local_worker_turn_request_payload(
+            PROBE.build_probe_context(scenario)
+        )
+        node = payload["context"]["current_node"]
+        assert node["node_id"] == "repair_same_component"
+        assert node["has_execution_params"] is False
 
 
 def test_probe_context_shape_guard_wired() -> None:
