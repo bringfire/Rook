@@ -6,6 +6,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DIRECTOR_HANDLER = REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorHandler.cpp"
+DIRECTOR_FRAME = REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorFrame.cpp"
+DIRECTOR_FRAME_HEADER = REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorFrame.h"
 DIRECTOR_HEADER = REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorHandler.h"
 ROOK_SERVER_CPP = REPO_ROOT / "src" / "RookNative" / "RookServer.cpp"
 ROOK_SERVER_HEADER = REPO_ROOT / "src" / "RookNative" / "RookServer.h"
@@ -270,3 +272,298 @@ def test_director_publish_video_native_route_is_thin_vision_proxy():
     assert "DirectorVideoPublisher" not in handler_source
     assert "ArtifactStore" not in handler_source
     assert "director_publish_standard_v1" not in handler_source
+
+
+def test_director_restore_uses_separate_named_bbox_policies():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    validate_body = _extract_function(source, "void ValidateFrameObjects")
+    restore_body = _extract_function(source, "bool DirectorObjectPoseGuard::Restore")
+
+    assert "kDirectorSourceStateBboxTolerance" in source
+    assert "DirectorSourceStateBboxTolerance" in validate_body
+    assert "kDirectorRestoreBboxTolerance" in source
+    assert "DirectorRestoreBboxTolerance" in restore_body
+    assert "source_state_validation" in source
+    assert "DirectorSourceStateBboxTolerancePolicy()" in validate_body
+    assert "restore_verification" in source
+    assert validate_body != restore_body
+
+
+def test_director_restore_evidence_records_comparison_availability():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    restore_body = _extract_function(source, "bool DirectorObjectPoseGuard::Restore")
+
+    for token in [
+        "bbox_comparison_available",
+        "source_object_type",
+        "restored_object_type",
+        "source_bbox",
+        "restored_bbox",
+        "bbox_delta_min",
+        "bbox_delta_max",
+        "bbox_max_delta",
+        "bbox_tolerance",
+        "bbox_tolerance_policy",
+    ]:
+        assert token in source
+
+    assert "restored bbox did not match source bbox" in restore_body
+    assert "InitializeRestoreDetail" in restore_body
+    assert "AddRestoreBboxEvidence" in restore_body
+    assert "MarkBboxComparisonUnavailable" in restore_body
+    assert "bbox comparison unavailable" in source
+
+
+def test_director_restore_hard_failures_precede_tolerance_acceptance():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    restore_body = _extract_function(source, "bool DirectorObjectPoseGuard::Restore")
+
+    tolerance_index = restore_body.index("BboxAlmostEqual")
+    for marker in [
+        "restore transform failed",
+        "object not found after restore",
+        "restored bbox is invalid",
+    ]:
+        assert marker in restore_body
+        assert restore_body.index(marker) < tolerance_index
+
+
+def test_director_restore_reads_native_source_object_type_before_inverse_restore():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    restore_body = _extract_function(source, "bool DirectorObjectPoseGuard::Restore")
+
+    init_index = restore_body.index("InitializeRestoreDetail")
+    transform_index = restore_body.index("TransformObjectInPlace")
+    lookup = "const CRhinoObject* beforeRestoreObj = m_doc ? m_doc->LookupObject(object.uuid) : nullptr;"
+
+    assert lookup in restore_body
+    lookup_index = restore_body.index(lookup)
+    assert init_index < lookup_index < transform_index
+
+    before_inverse_block = restore_body[lookup_index:transform_index]
+    assert "beforeRestoreObj && !beforeRestoreObj->IsDeleted()" in before_inverse_block
+    assert 'detail["source_object_type"] = ObjectTypeToString(beforeRestoreObj->ObjectType());' in before_inverse_block
+
+
+def test_director_restore_source_object_type_is_native_only_evidence():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    header = DIRECTOR_FRAME_HEADER.read_text(encoding="utf-8")
+    init_body = _extract_function(source, "nlohmann::json InitializeRestoreDetail")
+    parser_body = _extract_function(source, "std::vector<FrameObjectTransform> ParseFrameObjectTransforms")
+
+    assert 'detail["source_object_type"] = nullptr;' in init_body
+    assert "NullableString(object.sourceObjectType)" not in init_body
+    assert "sourceObjectType" not in source
+    assert "sourceObjectType" not in header
+    assert 'sourceState.contains("object_type")' not in parser_body
+    assert 'sourceState["object_type"]' not in parser_body
+
+
+def test_director_restore_bbox_axis_deltas_are_signed_directional():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    delta_body = _extract_function(source, "nlohmann::json BboxDeltaToJson")
+
+    for axis in ["x", "y", "z"]:
+        assert f"restored.{axis} - source.{axis}" in delta_body
+        assert f"std::fabs(restored.{axis} - source.{axis})" not in delta_body
+
+
+def test_director_transform_call_path_is_evidenced_inside_native_restore():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    transform_body = _extract_function(source, "bool TransformObjectInPlace")
+    apply_body = _extract_function(source, "void DirectorObjectPoseGuard::Apply")
+    restore_body = _extract_function(source, "bool DirectorObjectPoseGuard::Restore")
+
+    assert (
+        'constexpr const char* kDirectorTransformObjectCallPath = '
+        '"pDoc->TransformObject(objRef, xform, true, false, true)";'
+    ) in source
+    assert "pDoc->TransformObject(objRef, xform, true, false, true)" in transform_body
+    assert "kDirectorTransformObjectCallPath" in source
+    assert '"transform_call_path"' in source
+    assert "requested_transform" in apply_body
+    assert "requested_inverse_transform" in apply_body
+    assert "phase_before_apply" in apply_body
+    assert "phase_after_apply" in apply_body
+    assert "phase_before_restore" in restore_body
+    assert "phase_after_restore" in restore_body
+
+
+def test_director_transform_diagnostics_do_not_delay_applied_bookkeeping():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    apply_body = _extract_function(source, "void DirectorObjectPoseGuard::Apply")
+    restore_body = _extract_function(source, "bool DirectorObjectPoseGuard::Restore")
+
+    transform_index = apply_body.index("const bool applied = TransformObjectInPlace")
+    applied_index = apply_body.index("m_applied[i] = true;")
+    apply_returned_index = apply_body.index('detail["apply_transform_returned"] = applied;')
+    phase_after_apply_index = apply_body.index('detail["phase_after_apply"] = NativeObjectPhaseEvidence')
+    assert transform_index < applied_index < apply_returned_index < phase_after_apply_index
+
+    not_applied_index = restore_body.index("if (!m_applied[static_cast<size_t>(i)])")
+    inverse_attempt_index = restore_body.index("bool transformedBack = false;", not_applied_index)
+    not_applied_branch = restore_body[not_applied_index:inverse_attempt_index]
+    push_index = not_applied_branch.index("details.push_back")
+    restore_returned_index = not_applied_branch.index('detail["restore_transform_returned"] = false;')
+    phase_after_restore_index = not_applied_branch.index('detail["phase_after_restore"] = NativeObjectPhaseEvidence')
+    assert restore_returned_index < push_index
+    assert phase_after_restore_index < push_index
+
+
+def test_director_instance_restore_diagnostics_use_native_instance_state():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    helper_body = _extract_function(source, "nlohmann::json NativeObjectPhaseEvidence")
+
+    for token in [
+        "RuntimeSerialNumber()",
+        "CRhinoInstanceObject::Cast",
+        "InstanceDefinition()",
+        "InstanceXform()",
+        "instance_definition_id",
+        "instance_definition_name",
+        "instance_xform",
+        "object_found",
+        "object_deleted",
+        "runtime_serial_number",
+        "bbox",
+    ]:
+        assert token in helper_body
+
+    assert "sourceObjectType" not in helper_body
+    assert "source_state" not in helper_body
+
+
+def test_director_instance_restore_slice_keeps_tolerance_and_canvasdirector_parked():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    lower_source = source.lower()
+    plan = (REPO_ROOT / "docs" / "superpowers" / "plans" / "2026-07-03-director-instance-restore-semantics.md").read_text(encoding="utf-8")
+    file_structure = plan[plan.index("## File Structure"):plan.index("## Safety Rules")]
+
+    for token in [
+        "kDirectorRestoreSerializationFloor",
+        "kDirectorRestoreModelScaleAllowance",
+        "kDirectorRestoreModelScaleFactor",
+        "kDirectorRestoreAbsoluteCap",
+        "kDirectorRestoreBboxToleranceCap",
+        "EVIDENCE_SELECTED",
+        "evidence_selected",
+        "selected_restore_policy",
+    ]:
+        assert token not in source
+
+    for token in [
+        "restore_serialization_floor",
+        "restore_model_scale_factor",
+        "restore_bbox_tolerance_cap",
+        "evidence-selected",
+        "evidence_selected",
+    ]:
+        assert token not in lower_source
+
+    for forbidden_path in [
+        "mcp_server/src/rook/canvas_director.py",
+        "src/Rook/Services/Vision/CanvasDirector",
+        "src/Rook/Services/Vision/CanvasDirector/",
+    ]:
+        assert forbidden_path not in file_structure
+
+
+def test_director_instance_restore_live_repro_is_scratch_and_two_frame():
+    live_source = (REPO_ROOT / "mcp_server" / "tests" / "test_director_routes_live.py").read_text(encoding="utf-8")
+    start = live_source.index("async def test_director_instance_restore_semantics_large_coordinate_probe")
+    body = live_source[start:]
+
+    assert "fresh_document" in body[: body.index(":")]
+    assert "_cleanup_instance_restore_probe(created_ids, block_name)" in body
+    assert "rhino_delete" in live_source
+    assert "rhino_block_delete" in live_source
+    assert '"frame_count": 2' in body
+    assert 'assert [row["frame_index"] for row in evidence_rows] == [1, 2]' in body
+    assert "director.identity_matrix()" in body
+    assert "director.translation_matrix([0.0, 0.0, tiny_z])" in body
+    assert "125718.338195" in body
+    assert "-328450.993563" in body
+    assert "InstanceReference" in body
+    assert "expected_instance_definition_name=block_name" in body
+    assert "instance_restore_semantics_probe.json" in body
+    assert body.index("summary_path.write_text") < body.index("for detail in control_details:")
+
+
+def test_director_pose_bbox_probe_records_raw_tight_and_expected_phase_bboxes():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    phase_body = _extract_function(source, "nlohmann::json NativeObjectPhaseEvidence")
+    expected_body = _extract_function(source, "ON_BoundingBox TransformBoundingBoxByCorners")
+    apply_body = _extract_function(source, "void DirectorObjectPoseGuard::Apply")
+    restore_body = _extract_function(source, "bool DirectorObjectPoseGuard::Restore")
+
+    for token in [
+        '"raw_bbox"',
+        '"raw_bbox_valid"',
+        '"raw_bbox_delta_min"',
+        '"raw_bbox_delta_max"',
+        '"raw_bbox_max_delta"',
+        '"tight_bbox"',
+        '"tight_bbox_valid"',
+        '"tight_bbox_delta_min"',
+        '"tight_bbox_delta_max"',
+        '"tight_bbox_max_delta"',
+        '"phase_expected_bbox"',
+        '"bbox_tolerance"',
+        '"bbox_tolerance_policy"',
+        "GetTightBoundingBox",
+        "BoundingBox()",
+    ]:
+        assert token in phase_body
+
+    assert "ExpectedPhaseBbox(m_objects[i], ON_Xform::IdentityTransformation)" in apply_body
+    assert "ExpectedPhaseBbox(m_objects[i], m_objects[i].delta)" in apply_body
+    assert "ExpectedPhaseBbox(object, object.delta)" in restore_body
+    assert "ExpectedPhaseBbox(object, ON_Xform::IdentityTransformation)" in restore_body
+    assert "const ON_3dPoint transformedCorner = xform * corner" in expected_body
+    assert "transformed.Union(ON_BoundingBox(transformedCorner, transformedCorner))" in expected_body
+    assert "corner * xform" not in expected_body
+    assert "transformed.Union(xform * corner)" not in expected_body
+    assert "BboxDeltaToJson" in phase_body
+    assert "BboxMaxDelta" in phase_body
+
+
+def test_director_pose_bbox_helper_prefers_tight_with_raw_fallback():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    header = DIRECTOR_FRAME_HEADER.read_text(encoding="utf-8")
+
+    assert "struct DirectorPoseBboxResult" in header
+    assert "DirectorPoseBboxResult DirectorObjectPoseBbox(const CRhinoObject& obj);" in header
+
+    helper_body = _extract_function(source, "DirectorPoseBboxResult DirectorObjectPoseBbox")
+    helper_index = source.index("DirectorPoseBboxResult DirectorObjectPoseBbox")
+    validate_index = source.index("void ValidateFrameObjects")
+    assert source.index("bool BboxAlmostEqual") < helper_index < validate_index
+    assert "obj.GetTightBoundingBox(bbox)" in helper_body
+    assert '"tight_object"' in helper_body
+    assert "obj.BoundingBox()" in helper_body
+    assert '"raw_object_fallback"' in helper_body
+    assert '"unavailable"' in helper_body
+
+
+def test_director_pose_bbox_helper_is_used_for_director_pose_truth():
+    frame_source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    handler_source = DIRECTOR_HANDLER.read_text(encoding="utf-8")
+
+    serialize_body = _extract_function(handler_source, "nlohmann::json SerializeObjectState")
+    validate_body = _extract_function(frame_source, "void ValidateFrameObjects")
+    phase_body = _extract_function(frame_source, "nlohmann::json NativeObjectPhaseEvidence")
+    restore_body = _extract_function(frame_source, "bool DirectorObjectPoseGuard::Restore")
+
+    for body in [serialize_body, validate_body, phase_body, restore_body]:
+        assert "DirectorObjectPoseBbox(*obj)" in body or "DirectorObjectPoseBbox(*restoredObj)" in body
+
+    assert '"bbox_method"' in serialize_body
+    assert '"bbox_method"' in phase_body
+    assert '"restored_bbox_method"' in restore_body
+    assert "restoredObj->BoundingBox()" not in restore_body
+    assert "ON_BoundingBox currentBbox = obj->BoundingBox();" not in validate_body
+    assert "ON_BoundingBox bbox = obj->BoundingBox();" not in serialize_body
+    assert "kDirectorRestoreModelScaleFactor" not in frame_source
+    assert "kDirectorRestoreBboxToleranceCap" not in frame_source
+    assert "std::this_thread::sleep" not in frame_source
+    assert "Sleep(" not in frame_source

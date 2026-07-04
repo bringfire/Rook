@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using Rhino;
 using Rook.Handlers;
 using Rook.Services.Vision;
+using Rook.Services.Vision.CanvasDirector;
 using Rook.Services.Vision.Generation;
 
 namespace Rook.InternalBridge
@@ -21,7 +22,7 @@ namespace Rook.InternalBridge
     /// </summary>
     public static class NativeGhBridgeRegistrar
     {
-        private const uint BridgeAbiVersion = 16;
+        private const uint BridgeAbiVersion = 17;
         private static readonly object Sync = new();
         private static readonly IGrasshopperCore Core = new GrasshopperCore();
         private static readonly GrasshopperHandler Handler = new();
@@ -41,6 +42,7 @@ namespace Rook.InternalBridge
         // caches, defeating the V2 shared-singleton invariant.
         // BuildSharedVisionHandler mirrors VisionWebSurface's helper.
         private static readonly VisionHandler Vision = BuildSharedVisionHandler();
+        private static readonly CanvasDirectorHandler CanvasDirector = new();
 
         private static VisionHandler BuildSharedVisionHandler()
         {
@@ -204,6 +206,7 @@ namespace Rook.InternalBridge
         private static readonly NativeGhBridgeCallback BakeOutputCallback = HandleBakeOutput;
         private static readonly NativeGhBridgeCallback ViewportCaptureTier3Callback = HandleViewportCaptureTier3;
         private static readonly NativeGhBridgeCallback VisionDispatchCallback = HandleVisionDispatch;
+        private static readonly NativeGhBridgeCallback CanvasDirectorDispatchCallback = HandleCanvasDirectorDispatch;
         private static readonly NativeGhBridgeCallback BimDispatchCallback = HandleBimDispatch;
         private static readonly NativeGhBridgeCallback ReconstructionDispatchCallback = HandleReconstructionDispatch;
 
@@ -316,6 +319,9 @@ namespace Rook.InternalBridge
             // discriminator is carried in the request JSON and routed
             // inside VisionHandler.cs (the single validation boundary).
             public IntPtr VisionDispatch;
+            // ABI v17: CanvasDirector domain — single generic dispatch.
+            // Task 2 supplies the managed handler; Task 1 keeps ABI parity.
+            public IntPtr CanvasDirectorDispatch;
             // ABI v15: BIM domain — single generic dispatch; op
             // discriminator is carried in the request JSON and routed
             // inside BimHandler.cs.
@@ -420,6 +426,7 @@ namespace Rook.InternalBridge
                     BlockTransformObjectBatch = Marshal.GetFunctionPointerForDelegate(BlockTransformObjectBatchCallback),
                     ViewportCaptureTier3 = Marshal.GetFunctionPointerForDelegate(ViewportCaptureTier3Callback),
                     VisionDispatch = Marshal.GetFunctionPointerForDelegate(VisionDispatchCallback),
+                    CanvasDirectorDispatch = Marshal.GetFunctionPointerForDelegate(CanvasDirectorDispatchCallback),
                     BimDispatch = Marshal.GetFunctionPointerForDelegate(BimDispatchCallback),
                     ReconstructionDispatch = Marshal.GetFunctionPointerForDelegate(ReconstructionDispatchCallback),
                 };
@@ -1760,6 +1767,27 @@ namespace Rook.InternalBridge
             }
         }
 
+        private static int HandleCanvasDirectorDispatch(
+            IntPtr requestJsonUtf8,
+            int requestJsonLength,
+            IntPtr responseJsonUtf8,
+            int responseJsonCapacity,
+            IntPtr responseJsonLength,
+            IntPtr httpStatusCode)
+        {
+            return ExecuteApiResponseCallback(
+                requestJsonUtf8,
+                requestJsonLength,
+                responseJsonUtf8,
+                responseJsonCapacity,
+                responseJsonLength,
+                httpStatusCode,
+                requestJson => CanvasDirector.Dispatch(requestJson),
+                timeoutSeconds: 120,
+                timeoutErrorCode: "solve_timeout",
+                timeoutHttpStatus: 504);
+        }
+
         /// <summary>
         /// Extract the <c>op</c> field from the vision request JSON
         /// without full validation. Returns null if the body is absent,
@@ -2569,7 +2597,9 @@ namespace Rook.InternalBridge
             IntPtr responseJsonLength,
             IntPtr httpStatusCode,
             Func<string, ApiResponse> operation,
-            int timeoutSeconds = 30)
+            int timeoutSeconds = 30,
+            string? timeoutErrorCode = null,
+            int? timeoutHttpStatus = null)
         {
             try
             {
@@ -2589,7 +2619,7 @@ namespace Rook.InternalBridge
                             success = result.Success,
                             data = result.Data
                         }, JsonOptions);
-                        statusCode = result.Success ? 200 : 400;
+                        statusCode = MapBridgeStatus(result);
                     }
                     catch (Exception ex)
                     {
@@ -2608,12 +2638,15 @@ namespace Rook.InternalBridge
 
                 if (!waitHandle.Wait(TimeSpan.FromSeconds(timeoutSeconds)))
                 {
+                    object data = timeoutErrorCode == null
+                        ? "GH callback request timed out."
+                        : new { code = timeoutErrorCode, message = "CanvasDirector extraction timed out while waiting for Grasshopper solve/extract." };
                     responseJson = JsonSerializer.Serialize(new
                     {
                         success = false,
-                        data = "GH callback request timed out."
+                        data
                     }, JsonOptions);
-                    statusCode = 400;
+                    statusCode = timeoutHttpStatus ?? 400;
                 }
 
                 return WriteUtf8Response(

@@ -71,7 +71,7 @@ from .mcp_tool_profiles import (
     tool_blocked,
 )
 from .capability_index import build_index, validate_arguments
-from . import artifacts, director, director_actor_metadata, director_compiler, director_preview, director_publish, director_video, merge_execution, script_library, targeting, workbench, work_units
+from . import artifacts, canvas_director, director, director_actor_metadata, director_compiler, director_preview, director_publish, director_video, merge_execution, script_library, targeting, workbench, work_units
 from .mesh2splat import pipeline as mesh2splat_pipeline
 targeting.initialize_from_environment()
 from .knowledge import query_knowledge, query_knowledge_tiered, record_knowledge, invalidate_condensed_command_cache
@@ -3995,6 +3995,53 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                     "run_root": {
                         "type": "string",
                         "description": "Absolute path to a completed Director run root with current videos/preview.mp4.",
+                    },
+                },
+            },
+        ),
+        Tool(
+            name="rhino_director_canvas_extract",
+            description=(
+                "CanvasDirector first-slice orchestration: ask native/Companion to "
+                "extract the current Grasshopper canvas export, then persist the "
+                "export and compiled Director authoring spec under the project .rook "
+                "directory. Returns artifact paths and a compile-motion request."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["project_root"],
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute project root where .rook/director artifacts will be written.",
+                    },
+                    "export_id": {
+                        "type": "string",
+                        "description": "Optional safe export id. Must match the extracted canvas export state when supplied.",
+                    },
+                    "spec_id": {
+                        "type": "string",
+                        "description": "Optional safe authoring spec id. Defaults to the extracted suggested spec id.",
+                    },
+                    "solve_mode": {
+                        "type": "string",
+                        "description": "Optional extraction solve mode forwarded to native. Defaults to require_fresh_solve; reuse_verified_solution requires expected_solution_token.",
+                    },
+                    "expected_solution_token": {
+                        "type": "string",
+                        "description": "Optional expected Grasshopper solution token forwarded to native extraction.",
+                    },
+                    "document_id": {
+                        "type": "string",
+                        "description": "Optional document id forwarded to native extraction.",
+                    },
+                    "proposal_id": {
+                        "type": "string",
+                        "description": "Optional proposal id forwarded to native extraction.",
+                    },
+                    "replace_spec": {
+                        "type": "boolean",
+                        "description": "When true, replace an existing spec with the same id after extraction succeeds.",
                     },
                 },
             },
@@ -20760,6 +20807,17 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                         "message": str(exc),
                     },
                 }
+
+        case "rhino_director_canvas_extract":
+            try:
+                result = {
+                    "success": True,
+                    "data": await canvas_director.extract_persist_and_compile(
+                        arguments, port=port
+                    ),
+                }
+            except canvas_director.CanvasDirectorError as exc:
+                result = {"success": False, "data": exc.to_data()}
 
         case "rhino_director_replay":
             try:

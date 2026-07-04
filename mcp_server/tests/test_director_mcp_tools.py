@@ -349,6 +349,78 @@ def test_director_publish_video_in_director_group_only():
     ]
 
 
+@pytest.mark.asyncio
+async def test_canvas_director_extract_tool_registered():
+    tools = await server.list_tools()
+    by_name = {tool.name: tool for tool in tools}
+    assert "rhino_director_canvas_extract" in by_name
+    schema = by_name["rhino_director_canvas_extract"].inputSchema
+    assert schema["type"] == "object"
+    assert schema["required"] == ["project_root"]
+    assert "export_id" in schema["properties"]
+    assert "spec_id" in schema["properties"]
+    assert "solve_mode" in schema["properties"]
+    solve_mode_description = schema["properties"]["solve_mode"]["description"]
+    assert "require_fresh_solve" in solve_mode_description
+    assert "reuse_verified_solution" in solve_mode_description
+    assert "wait" not in solve_mode_description
+    assert _find_rejected_schema_keywords(schema) == []
+
+
+def test_canvas_director_extract_tool_in_director_group_only():
+    assert "rhino_director_canvas_extract" in tool_groups.TOOL_GROUPS["director"]
+    assert "rhino_director_canvas_extract" not in tool_groups.TOOL_GROUPS[
+        "director_readonly"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_canvas_director_extract_dispatches_to_python(monkeypatch, tmp_path):
+    envelope = {
+        "canvas_export_state": {
+            "metadata_kind": "rook.canvas_director.export",
+            "schema_version": 1,
+            "export_id": "export_a",
+            "template_id": "canvas_director.basic_motion",
+            "template_version": "0.1.0",
+            "payload": {"timeline": {"fps": 24, "frame_count": 3}},
+        },
+        "diagnostics": [],
+        "suggested_spec_id": "spec_a",
+        "read_only": True,
+    }
+    from rook import canvas_director
+
+    envelope["canvas_export_state_sha256"] = (
+        canvas_director.canvas_export_state_sha256(envelope["canvas_export_state"])
+    )
+
+    async def fake_extract(arguments, *, port=None):
+        return {
+            "export": {
+                "export_id": "export_a",
+                "export_path": str(tmp_path / "export_a.json"),
+            },
+            "spec": {"spec_id": "spec_a", "spec_path": str(tmp_path / "spec_a.json")},
+            "canvas_export_state_sha256": envelope["canvas_export_state_sha256"],
+            "compile_motion_request": {
+                "timeline": {"fps": 24, "frame_count": 3},
+                "motion": [],
+            },
+        }
+
+    monkeypatch.setattr(
+        server.canvas_director, "extract_persist_and_compile", fake_extract
+    )
+    result = await server.call_tool(
+        "rhino_director_canvas_extract",
+        {"project_root": str(tmp_path), "export_id": "export_a"},
+    )
+    payload = json.loads(result[0].text)
+    assert payload["export"]["export_id"] == "export_a"
+    assert "compile_motion_request" in payload
+
+
 def test_director_readonly_group_loads_for_readonly_registry():
     assert "director_readonly" in tool_groups.READONLY_ALLOWED_GROUPS
     catalog = {

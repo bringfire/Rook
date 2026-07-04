@@ -5,6 +5,7 @@
 #include "stdafx.h"
 #include "Handlers/DirectorHandler.h"
 #include "Handlers/DirectorFrame.h"
+#include "Handlers/GrasshopperProxyHandler.h"
 #include "Infrastructure/JsonHelpers.h"
 #include "Models/DocumentHelpers.h"
 #include "Threading/MainThreadDispatcher.h"
@@ -521,9 +522,10 @@ nlohmann::json SerializeViewportCamera(const ON_Viewport& vp)
 nlohmann::json SerializeObjectState(CRhinoDoc* pDoc, const CRhinoObject* obj)
 {
     const CRhinoObjectAttributes& attrs = obj->Attributes();
-    ON_BoundingBox bbox = obj->BoundingBox();
-    if (!bbox.IsValid())
-        throw std::runtime_error("Object has invalid bounding box: " + UuidToString(attrs.m_uuid));
+    const DirectorPoseBboxResult poseBbox = DirectorObjectPoseBbox(*obj);
+    if (!poseBbox.valid)
+        throw std::runtime_error("Object has invalid Director pose bbox: " + UuidToString(attrs.m_uuid));
+    const ON_BoundingBox& bbox = poseBbox.bbox;
 
     nlohmann::json state;
     state["object_id"] = UuidToString(attrs.m_uuid);
@@ -533,6 +535,7 @@ nlohmann::json SerializeObjectState(CRhinoDoc* pDoc, const CRhinoObject* obj)
     state["bbox"] = BoundingBoxToJson(bbox);
     state["bbox_min"] = PointToJson(bbox.m_min);
     state["bbox_max"] = PointToJson(bbox.m_max);
+    state["bbox_method"] = poseBbox.method;
     state["state_hash"] = nullptr;
     state["validation_strength"] = "bbox_only";
 
@@ -2213,6 +2216,64 @@ void HandleDirectorCaptureDepthPass(const httplib::Request& req, httplib::Respon
     catch (const std::exception& ex)
     {
         CRookServer::SendErrorData(res, MakeErrorData("director_depth_pass_failed", ex.what()));
+    }
+}
+
+void HandleDirectorCanvasExtract(const httplib::Request& req, httplib::Response& res)
+{
+    nlohmann::json body = nlohmann::json::object();
+    if (!req.body.empty())
+    {
+        try
+        {
+            body = nlohmann::json::parse(req.body);
+        }
+        catch (const std::exception& ex)
+        {
+            CRookServer::SendErrorData(res, MakeErrorData("invalid_input", ex.what()));
+            res.status = 400;
+            res.set_header("X-Rook-Director-Canvas-Op", "extract");
+            return;
+        }
+        if (!body.is_object())
+        {
+            CRookServer::SendErrorData(res, MakeErrorData("invalid_input", "/director/canvas/extract body must be a JSON object."));
+            res.status = 400;
+            res.set_header("X-Rook-Director-Canvas-Op", "extract");
+            return;
+        }
+    }
+
+    body["op"] = "extract";
+    const std::string requestJson = body.dump();
+
+    std::string responseJson;
+    int statusCode = 0;
+    std::string invokeError;
+    const auto result = InvokeCanvasDirectorDispatchWithBody(
+        requestJson,
+        responseJson,
+        statusCode,
+        invokeError);
+
+    switch (result)
+    {
+    case ManagedCreateInvokeResult::Ok:
+        res.status = statusCode == 0 ? 200 : statusCode;
+        res.set_content(responseJson, "application/json");
+        res.set_header("X-Rook-Director-Canvas-Op", "extract");
+        return;
+    case ManagedCreateInvokeResult::Unavailable:
+        CRookServer::SendErrorData(res, MakeErrorData("canvas_director_unavailable", "CanvasDirector routes require the Rook companion plugin."));
+        res.status = 503;
+        res.set_header("X-Rook-Director-Canvas-Op", "extract");
+        return;
+    case ManagedCreateInvokeResult::Failed:
+    default:
+        CRookServer::SendErrorData(res, MakeErrorData("canvas_director_dispatch_failed", invokeError));
+        res.status = 500;
+        res.set_header("X-Rook-Director-Canvas-Op", "extract");
+        return;
     }
 }
 

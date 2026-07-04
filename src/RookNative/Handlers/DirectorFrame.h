@@ -66,6 +66,13 @@ struct FrameCamera
     double farClip = 0.0;
 };
 
+struct DirectorPoseBboxResult
+{
+    ON_BoundingBox bbox;
+    std::string method;
+    bool valid = false;
+};
+
 // ---------------------------------------------------------------------------
 // Parse helpers (pure — no capture-only fields)
 // ---------------------------------------------------------------------------
@@ -79,6 +86,7 @@ std::vector<FrameObjectTransform> ParseFrameObjectTransforms(const nlohmann::jso
 // ---------------------------------------------------------------------------
 void ValidateFrameObjects(CRhinoDoc* pDoc, const std::vector<FrameObjectTransform>& objects);
 bool BboxAlmostEqual(const ON_BoundingBox& a, const ON_BoundingBox& b, double tolerance);
+DirectorPoseBboxResult DirectorObjectPoseBbox(const CRhinoObject& obj);
 
 // ---------------------------------------------------------------------------
 // Transform helpers
@@ -133,14 +141,13 @@ public:
     void Disarm() { m_restoreAttempted = true; }
 
 private:
-    static constexpr double kBboxTolerance = 1.0e-4;
-
     void BestEffortRestore();
 
     CRhinoDoc* m_doc = nullptr;
     std::vector<FrameObjectTransform> m_objects;
     std::vector<bool> m_applied;
     std::vector<bool> m_restored;
+    std::vector<nlohmann::json> m_objectDetails;
     bool m_restoreAttempted = false;
 };
 

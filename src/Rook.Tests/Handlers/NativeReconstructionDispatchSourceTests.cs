@@ -45,8 +45,10 @@ public sealed class NativeReconstructionDispatchSourceTests
             "Handlers",
             "GrasshopperProxyHandler.cpp"));
 
-        Assert.Contains("BridgeAbiVersion = 16", managed);
-        Assert.Contains("kGhBridgeAbiVersion = 16", native);
+        Assert.Contains("BridgeAbiVersion = 17", managed);
+        Assert.Contains("kGhBridgeAbiVersion = 17", native);
+        Assert.Contains("CanvasDirectorDispatch", managed);
+        Assert.Contains("canvas_director_dispatch", native);
         Assert.Contains("ReconstructionDispatch", managed);
         Assert.Contains("reconstruction_dispatch", native);
     }

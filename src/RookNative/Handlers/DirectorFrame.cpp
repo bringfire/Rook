@@ -160,6 +160,32 @@ ON_Xform ParseTransformMatrix(const nlohmann::json& transform, const std::string
 
 namespace {
 
+constexpr double kDirectorSourceStateBboxTolerance = 1.0e-4;
+constexpr double kDirectorRestoreBboxTolerance = 1.0e-4;
+constexpr const char* kDirectorSourceStateBboxTolerancePolicy = "source_state_validation";
+constexpr const char* kDirectorRestoreBboxTolerancePolicy = "restore_verification";
+constexpr const char* kDirectorTransformObjectCallPath = "pDoc->TransformObject(objRef, xform, true, false, true)";
+
+double DirectorSourceStateBboxTolerance()
+{
+    return kDirectorSourceStateBboxTolerance;
+}
+
+const char* DirectorSourceStateBboxTolerancePolicy()
+{
+    return kDirectorSourceStateBboxTolerancePolicy;
+}
+
+double DirectorRestoreBboxTolerance()
+{
+    return kDirectorRestoreBboxTolerance;
+}
+
+const char* DirectorRestoreBboxTolerancePolicy()
+{
+    return kDirectorRestoreBboxTolerancePolicy;
+}
+
 bool IsFinitePoint(const ON_3dPoint& point)
 {
     return std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z);
@@ -188,6 +214,245 @@ bool HasPositiveOptionalNumber(const nlohmann::json& object, const std::string& 
 double GetPositiveOptionalNumber(const nlohmann::json& object, const std::string& key)
 {
     return object[key].get<double>();
+}
+
+nlohmann::json PointToDirectorJson(const ON_3dPoint& point)
+{
+    return nlohmann::json::array({ point.x, point.y, point.z });
+}
+
+nlohmann::json BoundingBoxToDirectorJson(const ON_BoundingBox& bbox)
+{
+    nlohmann::json data;
+    data["min"] = PointToDirectorJson(bbox.m_min);
+    data["max"] = PointToDirectorJson(bbox.m_max);
+    return data;
+}
+
+nlohmann::json XformToDirectorJson(const ON_Xform& xform)
+{
+    nlohmann::json rows = nlohmann::json::array();
+    for (int row = 0; row < 4; ++row)
+    {
+        nlohmann::json values = nlohmann::json::array();
+        for (int col = 0; col < 4; ++col)
+            values.push_back(xform.m_xform[row][col]);
+        rows.push_back(std::move(values));
+    }
+    return rows;
+}
+
+nlohmann::json NullableUuidToJson(const ON_UUID& id)
+{
+    if (ON_UuidIsNil(id))
+        return nullptr;
+    return UuidToString(id);
+}
+
+nlohmann::json BboxDeltaToJson(const ON_3dPoint& restored, const ON_3dPoint& source)
+{
+    return nlohmann::json::array({
+        restored.x - source.x,
+        restored.y - source.y,
+        restored.z - source.z
+    });
+}
+
+double BboxMaxDelta(const ON_BoundingBox& restored, const ON_BoundingBox& source)
+{
+    double maxDelta = std::fabs(restored.m_min.x - source.m_min.x);
+    maxDelta = (std::max)(maxDelta, std::fabs(restored.m_min.y - source.m_min.y));
+    maxDelta = (std::max)(maxDelta, std::fabs(restored.m_min.z - source.m_min.z));
+    maxDelta = (std::max)(maxDelta, std::fabs(restored.m_max.x - source.m_max.x));
+    maxDelta = (std::max)(maxDelta, std::fabs(restored.m_max.y - source.m_max.y));
+    maxDelta = (std::max)(maxDelta, std::fabs(restored.m_max.z - source.m_max.z));
+    return maxDelta;
+}
+
+ON_BoundingBox TransformBoundingBoxByCorners(const ON_BoundingBox& bbox, const ON_Xform& xform)
+{
+    ON_BoundingBox transformed = ON_BoundingBox::EmptyBoundingBox;
+    const ON_3dPoint corners[8] = {
+        ON_3dPoint(bbox.m_min.x, bbox.m_min.y, bbox.m_min.z),
+        ON_3dPoint(bbox.m_max.x, bbox.m_min.y, bbox.m_min.z),
+        ON_3dPoint(bbox.m_min.x, bbox.m_max.y, bbox.m_min.z),
+        ON_3dPoint(bbox.m_max.x, bbox.m_max.y, bbox.m_min.z),
+        ON_3dPoint(bbox.m_min.x, bbox.m_min.y, bbox.m_max.z),
+        ON_3dPoint(bbox.m_max.x, bbox.m_min.y, bbox.m_max.z),
+        ON_3dPoint(bbox.m_min.x, bbox.m_max.y, bbox.m_max.z),
+        ON_3dPoint(bbox.m_max.x, bbox.m_max.y, bbox.m_max.z)
+    };
+
+    for (const ON_3dPoint& corner : corners)
+    {
+        const ON_3dPoint transformedCorner = xform * corner;
+        transformed.Union(ON_BoundingBox(transformedCorner, transformedCorner));
+    }
+
+    return transformed;
+}
+
+ON_BoundingBox ExpectedPhaseBbox(const FrameObjectTransform& object, const ON_Xform& phaseXform)
+{
+    return TransformBoundingBoxByCorners(object.sourceBbox, phaseXform);
+}
+
+void AddObservedBboxComparison(
+    nlohmann::json& phase,
+    const std::string& prefix,
+    const ON_BoundingBox& expected,
+    const ON_BoundingBox& observed,
+    bool observedValid)
+{
+    phase[prefix + "_bbox_valid"] = observedValid;
+    if (!observedValid)
+    {
+        phase[prefix + "_bbox"] = nullptr;
+        phase[prefix + "_bbox_delta_min"] = nullptr;
+        phase[prefix + "_bbox_delta_max"] = nullptr;
+        phase[prefix + "_bbox_max_delta"] = nullptr;
+        return;
+    }
+
+    phase[prefix + "_bbox"] = BoundingBoxToDirectorJson(observed);
+    if (!expected.IsValid())
+    {
+        phase[prefix + "_bbox_delta_min"] = nullptr;
+        phase[prefix + "_bbox_delta_max"] = nullptr;
+        phase[prefix + "_bbox_max_delta"] = nullptr;
+        return;
+    }
+
+    phase[prefix + "_bbox_delta_min"] = BboxDeltaToJson(observed.m_min, expected.m_min);
+    phase[prefix + "_bbox_delta_max"] = BboxDeltaToJson(observed.m_max, expected.m_max);
+    phase[prefix + "_bbox_max_delta"] = BboxMaxDelta(observed, expected);
+}
+
+nlohmann::json NativeObjectPhaseEvidence(
+    CRhinoDoc* pDoc,
+    const FrameObjectTransform& object,
+    const ON_BoundingBox& phaseExpectedBbox)
+{
+    nlohmann::json phase;
+    phase["object_id_requested"] = object.objectId;
+    phase["document_runtime_serial_number"] = pDoc ? nlohmann::json(pDoc->RuntimeSerialNumber()) : nlohmann::json(nullptr);
+
+    const CRhinoObject* obj = pDoc ? pDoc->LookupObject(object.uuid) : nullptr;
+    phase["object_found"] = obj != nullptr;
+    phase["object_deleted"] = obj ? nlohmann::json(obj->IsDeleted()) : nlohmann::json(nullptr);
+
+    if (!obj)
+    {
+        phase["object_id"] = nullptr;
+        phase["runtime_serial_number"] = nullptr;
+        phase["object_type"] = nullptr;
+        phase["bbox"] = nullptr;
+        phase["bbox_method"] = "unavailable";
+        phase["phase_expected_bbox"] = phaseExpectedBbox.IsValid()
+            ? BoundingBoxToDirectorJson(phaseExpectedBbox)
+            : nlohmann::json(nullptr);
+        phase["bbox_tolerance"] = DirectorRestoreBboxTolerance();
+        phase["bbox_tolerance_policy"] = "pose_bbox_diagnostic_uses_restore_tolerance";
+        phase["raw_bbox"] = nullptr;
+        phase["raw_bbox_valid"] = false;
+        phase["raw_bbox_delta_min"] = nullptr;
+        phase["raw_bbox_delta_max"] = nullptr;
+        phase["raw_bbox_max_delta"] = nullptr;
+        phase["tight_bbox"] = nullptr;
+        phase["tight_bbox_valid"] = false;
+        phase["tight_bbox_delta_min"] = nullptr;
+        phase["tight_bbox_delta_max"] = nullptr;
+        phase["tight_bbox_max_delta"] = nullptr;
+        phase["instance_definition_id"] = nullptr;
+        phase["instance_definition_name"] = nullptr;
+        phase["instance_xform"] = nullptr;
+        return phase;
+    }
+
+    phase["object_id"] = UuidToString(obj->Attributes().m_uuid);
+    phase["runtime_serial_number"] = obj->RuntimeSerialNumber();
+    phase["object_type"] = ObjectTypeToString(obj->ObjectType());
+    phase["phase_expected_bbox"] = phaseExpectedBbox.IsValid()
+        ? BoundingBoxToDirectorJson(phaseExpectedBbox)
+        : nlohmann::json(nullptr);
+    phase["bbox_tolerance"] = DirectorRestoreBboxTolerance();
+    phase["bbox_tolerance_policy"] = "pose_bbox_diagnostic_uses_restore_tolerance";
+
+    const DirectorPoseBboxResult poseBbox = DirectorObjectPoseBbox(*obj);
+    phase["bbox"] = poseBbox.valid ? BoundingBoxToDirectorJson(poseBbox.bbox) : nlohmann::json(nullptr);
+    phase["bbox_method"] = poseBbox.method;
+
+    const ON_BoundingBox rawBbox = obj->BoundingBox();
+    const bool rawBboxValid = rawBbox.IsValid();
+    // AddObservedBboxComparison records BboxDeltaToJson and BboxMaxDelta diagnostics.
+    AddObservedBboxComparison(phase, "raw", phaseExpectedBbox, rawBbox, rawBboxValid);
+
+    ON_BoundingBox tightBbox;
+    const bool tightBboxValid = obj->GetTightBoundingBox(tightBbox) && tightBbox.IsValid();
+    AddObservedBboxComparison(phase, "tight", phaseExpectedBbox, tightBbox, tightBboxValid);
+
+    const CRhinoInstanceObject* instance = CRhinoInstanceObject::Cast(obj);
+    if (!instance)
+    {
+        phase["instance_definition_id"] = nullptr;
+        phase["instance_definition_name"] = nullptr;
+        phase["instance_xform"] = nullptr;
+        return phase;
+    }
+
+    const CRhinoInstanceDefinition* definition = instance->InstanceDefinition();
+    phase["instance_definition_id"] = definition ? NullableUuidToJson(definition->Id()) : nlohmann::json(nullptr);
+    phase["instance_definition_name"] = definition ? nlohmann::json(WideToUtf8(definition->Name())) : nlohmann::json(nullptr);
+    phase["instance_xform"] = XformToDirectorJson(instance->InstanceXform());
+    return phase;
+}
+
+nlohmann::json InitializeRestoreDetail(const FrameObjectTransform& object, bool applied)
+{
+    nlohmann::json detail;
+    detail["object_id"] = object.objectId;
+    detail["applied"] = applied;
+    detail["restored"] = false;
+    detail["validation_strength"] = object.validationStrength;
+    detail["source_object_type"] = nullptr;
+    detail["restored_object_type"] = nullptr;
+    detail["restored_bbox_method"] = nullptr;
+    detail["source_bbox"] = BoundingBoxToDirectorJson(object.sourceBbox);
+    detail["restored_bbox"] = nullptr;
+    detail["bbox_delta_min"] = nullptr;
+    detail["bbox_delta_max"] = nullptr;
+    detail["bbox_max_delta"] = nullptr;
+    detail["bbox_tolerance"] = DirectorRestoreBboxTolerance();
+    detail["bbox_tolerance_policy"] = DirectorRestoreBboxTolerancePolicy();
+    detail["bbox_comparison_available"] = false;
+    detail["bbox_comparison_unavailable_reason"] = nullptr;
+    return detail;
+}
+
+void MarkBboxComparisonUnavailable(nlohmann::json& detail, const std::string& reason)
+{
+    detail["bbox_comparison_available"] = false;
+    detail["bbox_comparison_unavailable_reason"] = "bbox comparison unavailable: " + reason;
+}
+
+void AddRestoreBboxEvidence(
+    nlohmann::json& detail,
+    const FrameObjectTransform& object,
+    const CRhinoObject& restoredObject,
+    const ON_BoundingBox& restoredBbox,
+    double tolerance,
+    const char* tolerancePolicy)
+{
+    detail["restored_object_type"] = ObjectTypeToString(restoredObject.ObjectType());
+    detail["source_bbox"] = BoundingBoxToDirectorJson(object.sourceBbox);
+    detail["restored_bbox"] = BoundingBoxToDirectorJson(restoredBbox);
+    detail["bbox_delta_min"] = BboxDeltaToJson(restoredBbox.m_min, object.sourceBbox.m_min);
+    detail["bbox_delta_max"] = BboxDeltaToJson(restoredBbox.m_max, object.sourceBbox.m_max);
+    detail["bbox_max_delta"] = BboxMaxDelta(restoredBbox, object.sourceBbox);
+    detail["bbox_tolerance"] = tolerance;
+    detail["bbox_tolerance_policy"] = tolerancePolicy;
+    detail["bbox_comparison_available"] = true;
+    detail["bbox_comparison_unavailable_reason"] = nullptr;
 }
 
 bool HasValidFovDegrees(const nlohmann::json& object)
@@ -350,21 +615,56 @@ bool BboxAlmostEqual(const ON_BoundingBox& a, const ON_BoundingBox& b, double to
         std::fabs(a.m_max.z - b.m_max.z) <= tolerance;
 }
 
+DirectorPoseBboxResult DirectorObjectPoseBbox(const CRhinoObject& obj)
+{
+    DirectorPoseBboxResult result;
+
+    ON_BoundingBox bbox;
+    if (obj.GetTightBoundingBox(bbox) && bbox.IsValid())
+    {
+        result.bbox = bbox;
+        result.method = "tight_object";
+        result.valid = true;
+        return result;
+    }
+
+    bbox = obj.BoundingBox();
+    if (bbox.IsValid())
+    {
+        result.bbox = bbox;
+        result.method = "raw_object_fallback";
+        result.valid = true;
+        return result;
+    }
+
+    result.bbox = ON_BoundingBox::EmptyBoundingBox;
+    result.method = "unavailable";
+    result.valid = false;
+    return result;
+}
+
 void ValidateFrameObjects(CRhinoDoc* pDoc, const std::vector<FrameObjectTransform>& objects)
 {
-    constexpr double kBboxTolerance = 1.0e-4;
+    const double bboxTolerance = DirectorSourceStateBboxTolerance();
+    const char* bboxTolerancePolicy = DirectorSourceStateBboxTolerancePolicy();
     for (const FrameObjectTransform& frameObject : objects)
     {
         const CRhinoObject* obj = pDoc->LookupObject(frameObject.uuid);
         if (!obj || obj->IsDeleted())
             throw DirectorFrameValidationError("invalid_input", "Object not found: " + frameObject.objectId, { frameObject.objectId });
 
-        ON_BoundingBox currentBbox = obj->BoundingBox();
-        if (!currentBbox.IsValid())
-            throw DirectorFrameValidationError("invalid_input", "Object has invalid bounding box: " + frameObject.objectId, { frameObject.objectId });
+        const DirectorPoseBboxResult currentBbox = DirectorObjectPoseBbox(*obj);
+        if (!currentBbox.valid)
+            throw DirectorFrameValidationError("invalid_input", "Object has invalid Director pose bbox: " + frameObject.objectId, { frameObject.objectId });
 
-        if (!BboxAlmostEqual(currentBbox, frameObject.sourceBbox, kBboxTolerance))
-            throw DirectorFrameValidationError("invalid_input", "Object source_state bbox does not match current document state", { frameObject.objectId });
+        if (!BboxAlmostEqual(currentBbox.bbox, frameObject.sourceBbox, bboxTolerance))
+            throw DirectorFrameValidationError(
+                "invalid_input",
+                std::string("Object source_state bbox does not match current document state; bbox_method=") +
+                    currentBbox.method +
+                    "; bbox_tolerance_policy=" +
+                    bboxTolerancePolicy,
+                { frameObject.objectId });
     }
 }
 
@@ -436,6 +736,7 @@ DirectorObjectPoseGuard::DirectorObjectPoseGuard(CRhinoDoc* pDoc, std::vector<Fr
 {
     m_applied.resize(m_objects.size(), false);
     m_restored.resize(m_objects.size(), false);
+    m_objectDetails.resize(m_objects.size());
 }
 
 DirectorObjectPoseGuard::~DirectorObjectPoseGuard()
@@ -448,12 +749,31 @@ void DirectorObjectPoseGuard::Apply()
 {
     for (size_t i = 0; i < m_objects.size(); ++i)
     {
-        if (!TransformObjectInPlace(m_doc, m_objects[i], m_objects[i].delta))
+        nlohmann::json detail = InitializeRestoreDetail(m_objects[i], false);
+        detail["transform_call_path"] = kDirectorTransformObjectCallPath;
+        detail["requested_transform"] = XformToDirectorJson(m_objects[i].delta);
+        detail["requested_inverse_transform"] = XformToDirectorJson(m_objects[i].inverseDelta);
+        detail["phase_before_apply"] = NativeObjectPhaseEvidence(
+            m_doc,
+            m_objects[i],
+            ExpectedPhaseBbox(m_objects[i], ON_Xform::IdentityTransformation));
+
+        const bool applied = TransformObjectInPlace(m_doc, m_objects[i], m_objects[i].delta);
+        if (applied)
+            m_applied[i] = true;
+        detail["apply_transform_returned"] = applied;
+        detail["phase_after_apply"] = NativeObjectPhaseEvidence(
+            m_doc,
+            m_objects[i],
+            ExpectedPhaseBbox(m_objects[i], m_objects[i].delta));
+        m_objectDetails[i] = std::move(detail);
+
+        if (!applied)
             throw DirectorFrameValidationError(
                 "native_frame_failed",
                 "Failed to apply transform for object: " + m_objects[i].objectId,
                 { m_objects[i].objectId });
-        m_applied[i] = true;
+        m_objectDetails[i]["applied"] = true;
     }
     if (m_doc)
         m_doc->Redraw();
@@ -468,15 +788,28 @@ bool DirectorObjectPoseGuard::Restore(nlohmann::json& evidence)
     for (int i = static_cast<int>(m_objects.size()) - 1; i >= 0; --i)
     {
         const FrameObjectTransform& object = m_objects[static_cast<size_t>(i)];
-        nlohmann::json detail;
-        detail["object_id"] = object.objectId;
-        detail["applied"] = m_applied[static_cast<size_t>(i)];
-        detail["restored"] = false;
-        detail["validation_strength"] = object.validationStrength;
+        nlohmann::json detail = m_objectDetails[static_cast<size_t>(i)].is_object()
+            ? m_objectDetails[static_cast<size_t>(i)]
+            : InitializeRestoreDetail(object, m_applied[static_cast<size_t>(i)]);
+        detail["phase_before_restore"] = NativeObjectPhaseEvidence(
+            m_doc,
+            object,
+            m_applied[static_cast<size_t>(i)]
+                ? ExpectedPhaseBbox(object, object.delta)
+                : ExpectedPhaseBbox(object, ON_Xform::IdentityTransformation));
+        const CRhinoObject* beforeRestoreObj = m_doc ? m_doc->LookupObject(object.uuid) : nullptr;
+        if (beforeRestoreObj && !beforeRestoreObj->IsDeleted())
+            detail["source_object_type"] = ObjectTypeToString(beforeRestoreObj->ObjectType());
 
         if (!m_applied[static_cast<size_t>(i)])
         {
             detail["restored"] = true;
+            MarkBboxComparisonUnavailable(detail, "object transform was not applied");
+            detail["restore_transform_returned"] = false;
+            detail["phase_after_restore"] = NativeObjectPhaseEvidence(
+                m_doc,
+                object,
+                ExpectedPhaseBbox(object, ON_Xform::IdentityTransformation));
             m_restored[static_cast<size_t>(i)] = true;
             details.push_back(std::move(detail));
             ++restoredCount;
@@ -493,9 +826,17 @@ bool DirectorObjectPoseGuard::Restore(nlohmann::json& evidence)
             detail["restore_error"] = ex.what();
         }
 
+        detail["restore_transform_returned"] = transformedBack;
+        detail["phase_after_restore"] = NativeObjectPhaseEvidence(
+            m_doc,
+            object,
+            transformedBack
+                ? ExpectedPhaseBbox(object, ON_Xform::IdentityTransformation)
+                : ExpectedPhaseBbox(object, object.delta));
         if (!transformedBack)
         {
             detail["restore_error"] = detail.value("restore_error", "restore transform failed");
+            MarkBboxComparisonUnavailable(detail, "restore transform failed");
             details.push_back(std::move(detail));
             continue;
         }
@@ -504,12 +845,31 @@ bool DirectorObjectPoseGuard::Restore(nlohmann::json& evidence)
         if (!restoredObj || restoredObj->IsDeleted())
         {
             detail["restore_error"] = "object not found after restore";
+            MarkBboxComparisonUnavailable(detail, "object not found after restore");
             details.push_back(std::move(detail));
             continue;
         }
 
-        ON_BoundingBox restoredBbox = restoredObj->BoundingBox();
-        if (!restoredBbox.IsValid() || !BboxAlmostEqual(restoredBbox, object.sourceBbox, kBboxTolerance))
+        const DirectorPoseBboxResult restoredBbox = DirectorObjectPoseBbox(*restoredObj);
+        detail["restored_object_type"] = ObjectTypeToString(restoredObj->ObjectType());
+        detail["restored_bbox_method"] = restoredBbox.method;
+        if (!restoredBbox.valid)
+        {
+            detail["restore_error"] = "restored bbox is invalid";
+            MarkBboxComparisonUnavailable(detail, "restored bbox is invalid");
+            details.push_back(std::move(detail));
+            continue;
+        }
+
+        const double restoreTolerance = DirectorRestoreBboxTolerance();
+        AddRestoreBboxEvidence(
+            detail,
+            object,
+            *restoredObj,
+            restoredBbox.bbox,
+            restoreTolerance,
+            DirectorRestoreBboxTolerancePolicy());
+        if (!BboxAlmostEqual(restoredBbox.bbox, object.sourceBbox, restoreTolerance))
         {
             detail["restore_error"] = "restored bbox did not match source bbox";
             details.push_back(std::move(detail));

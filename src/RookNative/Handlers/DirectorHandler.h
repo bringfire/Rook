@@ -11,6 +11,7 @@ void HandleDirectorCurveSamples(const httplib::Request& req, httplib::Response& 
 void HandleDirectorVideoAssemble(const httplib::Request& req, httplib::Response& res);
 void HandleDirectorFrameCapture(const httplib::Request& req, httplib::Response& res);
 void HandleDirectorCaptureDepthPass(const httplib::Request& req, httplib::Response& res);
+void HandleDirectorCanvasExtract(const httplib::Request& req, httplib::Response& res);
 
 } // namespace Handlers
 } // namespace Rook
