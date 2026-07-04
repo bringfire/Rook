@@ -73,12 +73,23 @@ _SCENARIO_MAP = {
     "evidence_present_like": "evidence_present",
 }
 
-PASS1_DECISION_INSTRUCTION_VERSION = "lm5r.pass1_decision_instruction:v1"
+PASS1_DECISION_INSTRUCTION_VERSION = "lm5s.pass1_decision_instruction:v2"
 
 _PASS1_DECISION_INSTRUCTION = """\
 Return a small decision JSON object for this worker turn.
 
-The object must contain kind. Required per kind:
+The object must contain kind. Choose the kind by these generic semantics:
+- action_request: choose only when visible context is sufficient to author the
+  required action input.
+- clarification_request: choose when required information is missing.
+- refusal: choose when the request is unsafe, unsupported, or out of scope.
+- observation: choose only to report visible state or evidence.
+
+Do not use observation to choose, suggest, imply, or carry an action.
+Do not put action identity or action choice in observation.message or
+observation.data.
+
+Required fields per kind:
 - action_request: action_id
 - clarification_request: question
 - refusal: category and reason

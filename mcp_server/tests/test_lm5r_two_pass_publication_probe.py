@@ -94,7 +94,7 @@ def test_constants_are_pinned() -> None:
     assert PROBE.SCRIPT_SCHEMA == "rook.lm5r_two_pass_publication_probe:v1"
     assert (
         PROBE.PASS1_DECISION_INSTRUCTION_VERSION
-        == "lm5r.pass1_decision_instruction:v1"
+        == "lm5s.pass1_decision_instruction:v2"
     )
     assert PROBE.DEFAULT_MODEL == "gemma4:12b-it-qat"
     assert PROBE.SCENARIO_NAMES == (
@@ -162,6 +162,41 @@ def test_pass1_messages_use_real_lm5n_envelopes() -> None:
         "script_body_gotcha"
     ]
     assert "decision JSON object" in messages[-1]["content"]
+
+
+def test_pass1_instruction_v2_pins_generic_kind_semantics() -> None:
+    text = PROBE._PASS1_DECISION_INSTRUCTION
+    normalized_text = " ".join(text.split())
+
+    assert "action_request" in text
+    assert "visible context is sufficient" in text
+    assert "author the required action input" in normalized_text
+    assert "clarification_request" in text
+    assert "required information is missing" in text
+    assert "refusal" in text
+    assert "unsafe, unsupported, or out of scope" in text
+    assert "observation" in text
+    assert "visible state or evidence" in text
+    assert "Do not use observation to choose, suggest, imply, or carry an action" in text
+    assert "Do not put action identity or action choice" in text
+
+
+def test_pass1_instruction_v2_contains_no_scenario_specific_literals() -> None:
+    text = PROBE._PASS1_DECISION_INSTRUCTION
+    forbidden_literals = [
+        "draft_repair_params",
+        "repair_same_component",
+        "component_guid",
+        "RunScript",
+        "DefinitelyMissingSymbol",
+        '"code"',
+        '"mode"',
+        "gemma",
+        "Gemma",
+    ]
+
+    for literal in forbidden_literals:
+        assert literal not in text
 
 
 def test_pass1_messages_evidence_present_include_evidence_packet() -> None:
@@ -735,7 +770,7 @@ def test_run_probe_writes_manifest_attempts_and_summary(
     assert manifest["attempts_per_scenario"] == 1
     assert (
         manifest["pass1_decision_instruction_version"]
-        == "lm5r.pass1_decision_instruction:v1"
+        == PROBE.PASS1_DECISION_INSTRUCTION_VERSION
     )
     assert manifest["pass1_decision_instruction_sha256"] == PROBE._sha256_text(
         PROBE._PASS1_DECISION_INSTRUCTION
