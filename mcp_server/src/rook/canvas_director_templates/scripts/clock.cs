@@ -22,7 +22,7 @@ public class Script_Instance : GH_ScriptInstance
     {
         int fps = Math.Max(1, ReadInt(FPS, 24));
         double durationSeconds = Math.Max(0.0, ReadDouble(Duration, 10.0));
-        int frameCount = Math.Max(1, (int)Math.Round(durationSeconds * fps));
+        int frameCount = SafeFrameCount(durationSeconds, fps);
         bool loop = ReadBool(Loop, false);
         bool reset = ReadBool(Reset, false);
         int frame = reset ? 0 : ReadInt(Frame, 0);
@@ -65,14 +65,23 @@ public class Script_Instance : GH_ScriptInstance
     private static int ReadInt(object value, int fallback)
     {
         if (value == null) return fallback;
-        try { return Convert.ToInt32(Math.Round(Convert.ToDouble(value, CultureInfo.InvariantCulture))); }
+        try
+        {
+            double parsed = Convert.ToDouble(value, CultureInfo.InvariantCulture);
+            if (!IsFinite(parsed)) return fallback;
+            return Convert.ToInt32(Math.Round(parsed));
+        }
         catch { return fallback; }
     }
 
     private static double ReadDouble(object value, double fallback)
     {
         if (value == null) return fallback;
-        try { return Convert.ToDouble(value, CultureInfo.InvariantCulture); }
+        try
+        {
+            double parsed = Convert.ToDouble(value, CultureInfo.InvariantCulture);
+            return IsFinite(parsed) ? parsed : fallback;
+        }
         catch { return fallback; }
     }
 
@@ -107,13 +116,29 @@ public class Script_Instance : GH_ScriptInstance
 
     private static double Clamp(double value, double min, double max)
     {
+        if (!IsFinite(value)) return min;
         if (value < min) return min;
         if (value > max) return max;
         return value;
     }
 
+    private static int SafeFrameCount(double durationSeconds, int fps)
+    {
+        double frames = durationSeconds * fps;
+        if (!IsFinite(frames)) return 1;
+        if (frames > int.MaxValue) return int.MaxValue;
+        return Math.Max(1, (int)Math.Round(frames));
+    }
+
     private static string Num(double value)
     {
+        if (!IsFinite(value))
+            value = 0.0;
         return value.ToString("G17", CultureInfo.InvariantCulture);
+    }
+
+    private static bool IsFinite(double value)
+    {
+        return !double.IsNaN(value) && !double.IsInfinity(value);
     }
 }

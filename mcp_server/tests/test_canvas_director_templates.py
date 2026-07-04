@@ -23,6 +23,8 @@ REQUIRED_TEMPLATE_IDS = {
 
 FORBIDDEN_GENERIC_STRINGS = {
     "pearson_animation_test",
+    "pearson_canvas_director_prototype",
+    "pearson_canvas_director_prototype_20260704_144510",
     "pearson_v2_smoke",
     "roof_uplift_vertical_test_chunk_001",
     "a28cbdb5-51fa-46b2-b18b-ab880b54ded7",
@@ -34,6 +36,29 @@ FORBIDDEN_GENERIC_STRINGS = {
 
 
 PEARSON_FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "canvas_director_templates"
+TEMPLATE_SCRIPTS_ROOT = (
+    Path(__file__).resolve().parents[1]
+    / "src"
+    / "rook"
+    / "canvas_director_templates"
+    / "scripts"
+)
+JSON_STRING_EMITTER_SCRIPTS = {
+    "actors_v2.cs",
+    "camera_controller.cs",
+    "camera_path.cs",
+    "export_marker.cs",
+    "timing_gate.cs",
+    "transform.cs",
+}
+NUMERIC_JSON_SCRIPTS = {
+    "camera_controller.cs",
+    "camera_path.cs",
+    "clock.cs",
+    "oscillator.cs",
+    "timing_gate.cs",
+    "transform.cs",
+}
 
 
 def _minimal_template_pack(script_path: str, script_sha256: str) -> dict[str, object]:
@@ -165,6 +190,8 @@ def test_template_validation_detects_raw_and_escaped_manifest_leaks(tmp_path: Pa
     manifest_path = _write_minimal_template_pack(
         tmp_path,
         manifest_extra={
+            "raw_forbidden_capture": "pearson_canvas_director_prototype_20260704_144510",
+            "raw_forbidden_prototype": "pearson_canvas_director_prototype",
             "raw_forbidden_path": "C:/Users/bring",
             "escaped_forbidden_path": "C:\\Users\\bring",
         },
@@ -174,6 +201,8 @@ def test_template_validation_detects_raw_and_escaped_manifest_leaks(tmp_path: Pa
     errors = templates.validate_template_pack(pack)
     leak_errors = [error for error in errors if "manifest:forbidden_generic_string" in error]
 
+    assert any("pearson_canvas_director_prototype_20260704_144510" in error for error in leak_errors)
+    assert any("pearson_canvas_director_prototype" in error for error in leak_errors)
     assert any("C:/Users/bring" in error for error in leak_errors)
     assert any("C:\\Users\\bring" in error for error in leak_errors)
 
@@ -203,6 +232,36 @@ def test_template_validation_detects_escaped_script_leaks(tmp_path: Path) -> Non
         "clock.cs:forbidden_generic_string" in error and "C:\\Users\\bring" in error
         for error in errors
     )
+
+
+@pytest.mark.parametrize("script_name", sorted(JSON_STRING_EMITTER_SCRIPTS))
+def test_json_string_emitter_scripts_escape_control_characters(script_name: str) -> None:
+    text = (TEMPLATE_SCRIPTS_ROOT / script_name).read_text(encoding="utf-8")
+
+    assert "case '\\b':" in text
+    assert "case '\\f':" in text
+    assert "case '\\n':" in text
+    assert "case '\\r':" in text
+    assert "case '\\t':" in text
+    assert "ch < 0x20" in text
+    assert '.ToString("X4", CultureInfo.InvariantCulture)' in text
+
+
+@pytest.mark.parametrize("script_name", sorted(NUMERIC_JSON_SCRIPTS))
+def test_numeric_json_scripts_guard_non_finite_values(script_name: str) -> None:
+    text = (TEMPLATE_SCRIPTS_ROOT / script_name).read_text(encoding="utf-8")
+
+    assert "double.IsNaN" in text
+    assert "double.IsInfinity" in text
+
+
+def test_actors_v2_contains_metadata_read_failures() -> None:
+    text = (TEMPLATE_SCRIPTS_ROOT / "actors_v2.cs").read_text(encoding="utf-8")
+
+    assert "catch (Exception ex)" in text
+    assert "RuntimePayload = \"\";" in text
+    assert "GroupCount = 0;" in text
+    assert "Director Actors v2 error:" in text
 
 
 def test_loaded_manifest_root_is_used_for_script_validation(tmp_path: Path) -> None:

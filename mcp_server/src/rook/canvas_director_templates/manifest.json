@@ -1,6 +1,5 @@
 {
   "schema_version": 1,
-  "source_capture_id": "pearson_canvas_director_prototype_20260704_144510",
   "template_pack_id": "canvas_director.core",
   "template_pack_version": "0.1.0",
   "templates": [
@@ -74,7 +73,7 @@
       "script": {
         "language": "csharp",
         "path": "scripts/export_marker.cs",
-        "sha256": "sha256:810de05bc0f590b7147a04178e0ebfd41a646040d863ca91a5f1780cd2b56fe6"
+        "sha256": "sha256:e70da89da211b3665472d8513a83ed54f6a6f9c9149d3aa4dd92a449ccfca53c"
       },
       "template_id": "canvas_director.export_marker",
       "template_version": "0.1.0"
@@ -158,7 +157,7 @@
       "script": {
         "language": "csharp",
         "path": "scripts/clock.cs",
-        "sha256": "sha256:b5351b0a52aab22273292a010d472d152df7916104cbd8b3dd701333e2447389"
+        "sha256": "sha256:66bc0fd59ab4cad632f02961fd2f2fd596207e22ef863c3a4ff7eb31402eb4f5"
       },
       "template_id": "canvas_director.clock",
       "template_version": "0.1.0"
@@ -249,7 +248,7 @@
       "script": {
         "language": "csharp",
         "path": "scripts/timing_gate.cs",
-        "sha256": "sha256:60c33bec5c699c0774c91cfc0564675c3ccc6f44a57b5e674dff773a40f2865d"
+        "sha256": "sha256:cd6cde1030e94ad515f0cd4f2d9e6c55dcc5a97ae2d147f8918df7a4efff31fc"
       },
       "template_id": "canvas_director.timing_gate",
       "template_version": "0.1.0"
@@ -359,7 +358,7 @@
       "script": {
         "language": "csharp",
         "path": "scripts/oscillator.cs",
-        "sha256": "sha256:1d16df77d491eabaa71bab89a68254e04b4f2a472a5a10f5bc8ba2e36c161694"
+        "sha256": "sha256:5a00c3841278a464e787ad63bb1d0ad18ddc0b73e5a3345b64d64416cda659d6"
       },
       "template_id": "canvas_director.oscillator",
       "template_version": "0.1.0"
@@ -416,7 +415,7 @@
       "script": {
         "language": "csharp",
         "path": "scripts/actors_v2.cs",
-        "sha256": "sha256:e4f099f09aca02438410efc79234bc96a9795c77337598ed1ab80209ce5b6dab"
+        "sha256": "sha256:ce5b40e9a8d5dfb54eabcbed203da75e5ba78be62c7ec539161b6c474efacadc"
       },
       "template_id": "canvas_director.actors_v2",
       "template_version": "0.1.0"
@@ -495,7 +494,7 @@
       "script": {
         "language": "csharp",
         "path": "scripts/transform.cs",
-        "sha256": "sha256:790b301deb904b7e0e6f27a71d292d83d52e8ac172e364cf22c911ef642ccd97"
+        "sha256": "sha256:405468e726618561585cb048db20d7bee052d24ef002d97ba4ac166f72af5f71"
       },
       "strategies": [
         "band_peel_wave"
@@ -606,7 +605,7 @@
       "script": {
         "language": "csharp",
         "path": "scripts/camera_path.cs",
-        "sha256": "sha256:acb18890009d21943a8c99b8d48901185871d46e8e6a97fa2866525795392a72"
+        "sha256": "sha256:203308a702747facd3258836cfd8f2ead60c7c67de41bc4d3f4ebcd66feef9ba"
       },
       "template_id": "canvas_director.camera_path",
       "template_version": "0.1.0"
@@ -738,7 +737,7 @@
       "script": {
         "language": "csharp",
         "path": "scripts/camera_controller.cs",
-        "sha256": "sha256:166633bb6212620f72ab87f7d01064e56070e01bd537c9fa8e9e773d383d8f9b"
+        "sha256": "sha256:f2b9f894e9c07e2d0094b3e6af784c2d443f6a16002bdae07594b009f852464e"
       },
       "template_id": "canvas_director.camera_controller",
       "template_version": "0.1.0"

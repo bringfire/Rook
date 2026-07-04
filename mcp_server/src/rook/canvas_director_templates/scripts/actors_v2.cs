@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.Json;
@@ -24,6 +25,8 @@ public class Script_Instance : GH_ScriptInstance
         GroupCount = 0;
         Info = "";
 
+        try
+        {
         string actorRef = ReadRequiredRef(ActorSetPath);
         string groupingRef = ReadRequiredRef(ActorGroupingPath);
         var errors = new List<string>();
@@ -95,6 +98,15 @@ public class Script_Instance : GH_ScriptInstance
         ActorSetId = actorMeta.ActorSetId;
         GroupCount = groupingMeta.GroupCount;
         Info = $"Director Actors v2: actorSet={actorMeta.ActorSetId}; members={actorMeta.MemberCount}; resolved={actorMeta.ResolvedCount}; groupingKind={groupingMeta.Kind}; groups={groupingMeta.GroupCount}; groupedMembers={groupingMeta.MemberCount}; actorRef={actorRef}; groupingRef={groupingRef}; sourceTop={source.TopLevelInstanceId}; source=metadata-ref.";
+        }
+        catch (Exception ex)
+        {
+            Actors = "";
+            RuntimePayload = "";
+            ActorSetId = "";
+            GroupCount = 0;
+            Info = "Director Actors v2 error: " + ex.GetType().Name + ": " + ex.Message;
+        }
     }
 
     private static string GetProjectRoot(out string error)
@@ -249,14 +261,14 @@ public class Script_Instance : GH_ScriptInstance
         AppendJsonPair(sb, "resolved_actor_grouping_path", groupingPath, true);
         AppendJsonPair(sb, "grouping_kind", groupingMeta.Kind, true);
         AppendJsonPair(sb, "actor_set_id", actorMeta.ActorSetId, true);
-        AppendJsonPair(sb, "member_count", actorMeta.MemberCount.ToString(), false);
-        AppendJsonPair(sb, "resolved_count", actorMeta.ResolvedCount.ToString(), false);
-        AppendJsonPair(sb, "group_count", groupingMeta.GroupCount.ToString(), false);
-        AppendJsonPair(sb, "grouped_member_count", groupingMeta.MemberCount.ToString(), false);
-        AppendJsonPair(sb, "band_count", groupingMeta.GroupCount.ToString(), false);
-        AppendJsonPair(sb, "band_member_count", groupingMeta.MemberCount.ToString(), false);
-        AppendJsonPair(sb, "actor_file_ticks", actorTicks.ToString(), false);
-        AppendJsonPair(sb, "actor_grouping_file_ticks", groupingTicks.ToString(), false);
+        AppendJsonPair(sb, "member_count", actorMeta.MemberCount.ToString(CultureInfo.InvariantCulture), false);
+        AppendJsonPair(sb, "resolved_count", actorMeta.ResolvedCount.ToString(CultureInfo.InvariantCulture), false);
+        AppendJsonPair(sb, "group_count", groupingMeta.GroupCount.ToString(CultureInfo.InvariantCulture), false);
+        AppendJsonPair(sb, "grouped_member_count", groupingMeta.MemberCount.ToString(CultureInfo.InvariantCulture), false);
+        AppendJsonPair(sb, "band_count", groupingMeta.GroupCount.ToString(CultureInfo.InvariantCulture), false);
+        AppendJsonPair(sb, "band_member_count", groupingMeta.MemberCount.ToString(CultureInfo.InvariantCulture), false);
+        AppendJsonPair(sb, "actor_file_ticks", actorTicks.ToString(CultureInfo.InvariantCulture), false);
+        AppendJsonPair(sb, "actor_grouping_file_ticks", groupingTicks.ToString(CultureInfo.InvariantCulture), false);
         AppendJsonPair(sb, "cache_key", key, true);
         sb.Append("\"groups\":{");
         sb.Append("\"").Append(Escape(actorMeta.ActorSetId)).Append("\":[");
@@ -291,7 +303,41 @@ public class Script_Instance : GH_ScriptInstance
     private static string Escape(string value)
     {
         if (string.IsNullOrEmpty(value)) return "";
-        return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        var sb = new StringBuilder(value.Length + 8);
+        foreach (char ch in value)
+        {
+            switch (ch)
+            {
+                case '\\':
+                    sb.Append("\\\\");
+                    break;
+                case '"':
+                    sb.Append("\\\"");
+                    break;
+                case '\b':
+                    sb.Append("\\b");
+                    break;
+                case '\f':
+                    sb.Append("\\f");
+                    break;
+                case '\n':
+                    sb.Append("\\n");
+                    break;
+                case '\r':
+                    sb.Append("\\r");
+                    break;
+                case '\t':
+                    sb.Append("\\t");
+                    break;
+                default:
+                    if (ch < 0x20)
+                        sb.Append("\\u").Append(((int)ch).ToString("X4", CultureInfo.InvariantCulture));
+                    else
+                        sb.Append(ch);
+                    break;
+            }
+        }
+        return sb.ToString();
     }
 
     private static string GetString(JsonElement element, string propertyName, string fallback)

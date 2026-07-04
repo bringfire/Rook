@@ -133,7 +133,11 @@ public class Script_Instance : GH_ScriptInstance
     private static double ReadDouble(object value, double fallback)
     {
         if (value == null) return fallback;
-        try { return Convert.ToDouble(value, CultureInfo.InvariantCulture); }
+        try
+        {
+            double parsed = Convert.ToDouble(value, CultureInfo.InvariantCulture);
+            return IsFinite(parsed) ? parsed : fallback;
+        }
         catch { return fallback; }
     }
 
@@ -141,11 +145,20 @@ public class Script_Instance : GH_ScriptInstance
     {
         if (value == null) return fallback;
         try { return Convert.ToBoolean(value, CultureInfo.InvariantCulture); }
-        catch { return fallback; }
+        catch
+        {
+            string text = value.ToString();
+            if (string.IsNullOrWhiteSpace(text)) return fallback;
+            text = text.Trim().ToLowerInvariant();
+            if (text == "true" || text == "yes" || text == "1") return true;
+            if (text == "false" || text == "no" || text == "0") return false;
+            return fallback;
+        }
     }
 
     private static double Clamp(double value, double min, double max)
     {
+        if (!IsFinite(value)) return min;
         if (value < min) return min;
         if (value > max) return max;
         return value;
@@ -153,13 +166,54 @@ public class Script_Instance : GH_ScriptInstance
 
     private static string Num(double value)
     {
+        if (!IsFinite(value))
+            value = 0.0;
         return value.ToString("G17", CultureInfo.InvariantCulture);
     }
 
     private static string Escape(string value)
     {
         if (string.IsNullOrEmpty(value)) return "";
-        return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        var sb = new StringBuilder(value.Length + 8);
+        foreach (char ch in value)
+        {
+            switch (ch)
+            {
+                case '\\':
+                    sb.Append("\\\\");
+                    break;
+                case '"':
+                    sb.Append("\\\"");
+                    break;
+                case '\b':
+                    sb.Append("\\b");
+                    break;
+                case '\f':
+                    sb.Append("\\f");
+                    break;
+                case '\n':
+                    sb.Append("\\n");
+                    break;
+                case '\r':
+                    sb.Append("\\r");
+                    break;
+                case '\t':
+                    sb.Append("\\t");
+                    break;
+                default:
+                    if (ch < 0x20)
+                        sb.Append("\\u").Append(((int)ch).ToString("X4", CultureInfo.InvariantCulture));
+                    else
+                        sb.Append(ch);
+                    break;
+            }
+        }
+        return sb.ToString();
+    }
+
+    private static bool IsFinite(double value)
+    {
+        return !double.IsNaN(value) && !double.IsInfinity(value);
     }
 
     private static string GetString(JsonElement element, string propertyName, string fallback)

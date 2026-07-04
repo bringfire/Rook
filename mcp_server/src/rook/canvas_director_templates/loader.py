@@ -31,6 +31,8 @@ FORBIDDEN_TEMPLATE_IDS = {
 }
 FORBIDDEN_GENERIC_STRINGS = {
     "pearson_animation_test",
+    "pearson_canvas_director_prototype",
+    "pearson_canvas_director_prototype_20260704_144510",
     "pearson_v2_smoke",
     "roof_uplift_vertical_test_chunk_001",
     "a28cbdb5-51fa-46b2-b18b-ab880b54ded7",

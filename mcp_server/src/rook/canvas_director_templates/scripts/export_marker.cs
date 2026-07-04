@@ -272,8 +272,16 @@ public class Script_Instance : GH_ScriptInstance
             errors.Add("Camera " + propertyName + " is required");
             return "";
         }
-        if (value.ValueKind == JsonValueKind.Number || value.ValueKind == JsonValueKind.Null)
-            return value.GetRawText();
+        if (value.ValueKind == JsonValueKind.Null)
+            return "null";
+        if (value.ValueKind == JsonValueKind.Number)
+        {
+            double parsed;
+            if (value.TryGetDouble(out parsed) && IsFinite(parsed))
+                return Num(parsed);
+            errors.Add("Camera " + propertyName + " must be finite");
+            return "";
+        }
         errors.Add("Camera " + propertyName + " must be numeric or null");
         return "";
     }
@@ -324,7 +332,53 @@ public class Script_Instance : GH_ScriptInstance
     private static string Escape(string value)
     {
         if (string.IsNullOrEmpty(value)) return "";
-        return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        var sb = new StringBuilder(value.Length + 8);
+        foreach (char ch in value)
+        {
+            switch (ch)
+            {
+                case '\\':
+                    sb.Append("\\\\");
+                    break;
+                case '"':
+                    sb.Append("\\\"");
+                    break;
+                case '\b':
+                    sb.Append("\\b");
+                    break;
+                case '\f':
+                    sb.Append("\\f");
+                    break;
+                case '\n':
+                    sb.Append("\\n");
+                    break;
+                case '\r':
+                    sb.Append("\\r");
+                    break;
+                case '\t':
+                    sb.Append("\\t");
+                    break;
+                default:
+                    if (ch < 0x20)
+                        sb.Append("\\u").Append(((int)ch).ToString("X4", CultureInfo.InvariantCulture));
+                    else
+                        sb.Append(ch);
+                    break;
+            }
+        }
+        return sb.ToString();
+    }
+
+    private static bool IsFinite(double value)
+    {
+        return !double.IsNaN(value) && !double.IsInfinity(value);
+    }
+
+    private static string Num(double value)
+    {
+        if (!IsFinite(value))
+            value = 0.0;
+        return value.ToString("G17", CultureInfo.InvariantCulture);
     }
 
     private sealed class ActorPayload

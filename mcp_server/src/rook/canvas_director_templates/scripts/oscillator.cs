@@ -33,8 +33,11 @@ public class Script_Instance : GH_ScriptInstance
         bool clamp = ReadBool(Clamp, false);
         bool enabled = ReadBool(Enabled, true);
 
-        double wave = enabled ? Math.Sin(2.0 * Math.PI * ((progress * frequency) + phase)) : 0.0;
+        double wavePhase = (progress * frequency) + phase;
+        double wave = enabled && IsFinite(wavePhase) ? Math.Sin(2.0 * Math.PI * wavePhase) : 0.0;
+        wave = FiniteOr(wave, 0.0);
         double value = enabled ? (bias + (wave * amplitude)) : bias;
+        value = FiniteOr(value, FiniteOr(bias, 0.0));
         if (clamp)
             value = ClampValue(value, 0.0, 1.0);
 
@@ -72,7 +75,11 @@ public class Script_Instance : GH_ScriptInstance
     private static double ReadDouble(object value, double fallback)
     {
         if (value == null) return fallback;
-        try { return Convert.ToDouble(value, CultureInfo.InvariantCulture); }
+        try
+        {
+            double parsed = Convert.ToDouble(value, CultureInfo.InvariantCulture);
+            return IsFinite(parsed) ? parsed : fallback;
+        }
         catch { return fallback; }
     }
 
@@ -93,6 +100,7 @@ public class Script_Instance : GH_ScriptInstance
 
     private static double ClampValue(double value, double min, double max)
     {
+        if (!IsFinite(value)) return min;
         if (value < min) return min;
         if (value > max) return max;
         return value;
@@ -100,6 +108,17 @@ public class Script_Instance : GH_ScriptInstance
 
     private static string Num(double value)
     {
+        value = FiniteOr(value, 0.0);
         return value.ToString("G17", CultureInfo.InvariantCulture);
+    }
+
+    private static double FiniteOr(double value, double fallback)
+    {
+        return IsFinite(value) ? value : fallback;
+    }
+
+    private static bool IsFinite(double value)
+    {
+        return !double.IsNaN(value) && !double.IsInfinity(value);
     }
 }
