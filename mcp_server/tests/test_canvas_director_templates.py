@@ -347,6 +347,54 @@ def test_gh_edit_temp_ids_are_supported_t_ids() -> None:
     assert all(temp_id[1:2].isupper() for temp_id in temp_ids)
 
 
+@pytest.mark.asyncio
+async def test_instantiate_fixture_executes_script_snapshot_and_edit_calls() -> None:
+    calls: list[tuple[str, dict]] = []
+
+    async def fake_call_tool(tool: str, arguments: dict) -> dict:
+        calls.append((tool, arguments))
+        if tool == "gh_create_script":
+            return {
+                "success": True,
+                "data": {"component_guid": f"{arguments['name'].replace(' ', '_')}_guid"},
+            }
+        if tool == "gh_snapshot":
+            return {"success": True, "data": {"epoch": 17}}
+        if tool == "gh_edit":
+            assert arguments["epoch"] == 17
+            assert arguments["connect"]
+            return {"success": True, "data": {"ok": True}}
+        raise AssertionError(f"unexpected tool {tool}")
+
+    fixture = templates.load_fixture_binding("pearson_v2_smoke", fixture_root=PEARSON_FIXTURE_ROOT)
+    result = await templates.instantiate_fixture(fixture, fake_call_tool)
+
+    assert result["success"] is True
+    assert [tool for tool, _ in calls].count("gh_create_script") == 8
+    assert [tool for tool, _ in calls][-2:] == ["gh_snapshot", "gh_edit"]
+
+    final_edit = calls[-1][1]
+    final_flows = final_edit["connect"]
+    joined = "\n".join(final_flows)
+    assert "actors_v2." not in joined
+    assert "transform." not in joined
+    assert "camera_controller." not in joined
+    assert "export_marker." not in joined
+    assert "Director_Actors_guid.O1>Director_Transform_guid.I0" in final_flows
+    assert "Director_Transform_guid.O0>CanvasDirector_Export_guid.I1" in final_flows
+    assert "Director_Camera_Controller_guid.O1>CanvasDirector_Export_guid.I2" in final_flows
+    assert "TFpsControl.O0>CanvasDirector_Export_guid.I3" in final_flows
+    assert "TFrameCountControl.O0>CanvasDirector_Export_guid.I4" in final_flows
+
+    group_members = final_edit["groups"][0]["members"]
+    assert "Director_Actors_guid" in group_members
+    assert "Director_Transform_guid" in group_members
+    assert "CanvasDirector_Export_guid" in group_members
+    assert "actors_v2" not in group_members
+    assert "transform" not in group_members
+    assert "export_marker" not in group_members
+
+
 @pytest.mark.parametrize(
     "template_id",
     [
