@@ -151,6 +151,97 @@ def _sha256_text(value: str | None) -> str | None:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _extract_first_json_object(text: str) -> str | None:
+    start = text.find("{")
+    if start < 0:
+        return None
+
+    depth = 0
+    in_string = False
+    escape = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+
+    return None
+
+
+def _optional_string(decision: Mapping[str, Any], key: str) -> bool:
+    return key not in decision or isinstance(decision[key], str)
+
+
+def _optional_mapping_or_string(decision: Mapping[str, Any], key: str) -> bool:
+    return (
+        key not in decision
+        or isinstance(decision[key], str)
+        or isinstance(decision[key], Mapping)
+    )
+
+
+def _optional_mapping(decision: Mapping[str, Any], key: str) -> bool:
+    return key not in decision or isinstance(decision[key], Mapping)
+
+
+def _parse_pass1_decision(content: str) -> tuple[dict[str, Any] | None, str | None]:
+    object_text = _extract_first_json_object(content)
+    if object_text is None:
+        return None, "pass1_no_json_object"
+
+    try:
+        parsed = json.loads(object_text)
+    except (json.JSONDecodeError, RecursionError) as exc:
+        return None, f"pass1_json_invalid:{type(exc).__name__}"
+
+    if not isinstance(parsed, Mapping):
+        return None, "pass1_decision_not_mapping"
+
+    decision = dict(parsed)
+    kind = decision.get("kind")
+    if not isinstance(kind, str) or kind not in RESPONSE_KINDS:
+        return None, "pass1_unknown_kind"
+
+    if kind == "action_request" and not isinstance(decision.get("action_id"), str):
+        return None, "pass1_missing_action_id"
+    if kind == "clarification_request" and not isinstance(decision.get("question"), str):
+        return None, "pass1_missing_question"
+    if kind == "refusal":
+        if not isinstance(decision.get("category"), str):
+            return None, "pass1_missing_refusal_category"
+        if not isinstance(decision.get("reason"), str):
+            return None, "pass1_missing_refusal_reason"
+    if kind == "observation" and not isinstance(decision.get("message"), str):
+        return None, "pass1_missing_observation_message"
+
+    if not _optional_string(decision, "rationale"):
+        return None, "pass1_optional_rationale_type_invalid"
+    if not _optional_string(decision, "intent"):
+        return None, "pass1_optional_intent_type_invalid"
+    if not _optional_mapping_or_string(decision, "action_input_intent"):
+        return None, "pass1_optional_action_input_intent_type_invalid"
+    if not _optional_mapping(decision, "known_inputs"):
+        return None, "pass1_optional_known_inputs_type_invalid"
+    if not _optional_mapping_or_string(decision, "data_intent"):
+        return None, "pass1_optional_data_intent_type_invalid"
+
+    return decision, None
+
+
 def main(argv: list[str] | None = None) -> int:
     _args(argv)
     return 0

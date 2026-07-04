@@ -112,6 +112,98 @@ def test_pass1_messages_evidence_present_include_evidence_packet() -> None:
     ]
 
 
+def test_extract_first_json_object_accepts_surrounding_prose() -> None:
+    text = 'before {"kind": "clarification_request", "question": "Need code?"} after'
+
+    assert PROBE._extract_first_json_object(text) == (
+        '{"kind": "clarification_request", "question": "Need code?"}'
+    )
+
+
+def test_extract_first_json_object_handles_strings_and_nested_objects() -> None:
+    text = 'x {"kind":"action_request","known_inputs":{"code":"A = { value;"},"action_id":"draft_repair_params"} y'
+
+    assert json.loads(PROBE._extract_first_json_object(text)) == {
+        "kind": "action_request",
+        "known_inputs": {"code": "A = { value;"},
+        "action_id": "draft_repair_params",
+    }
+
+
+def test_extract_first_json_object_returns_none_when_absent() -> None:
+    assert PROBE._extract_first_json_object("plain prose only") is None
+
+
+def test_parse_pass1_decision_accepts_minimum_valid_decisions() -> None:
+    assert PROBE._parse_pass1_decision(
+        '{"kind":"clarification_request","question":"Need code?"}'
+    ) == (
+        {
+            "kind": "clarification_request",
+            "question": "Need code?",
+        },
+        None,
+    )
+    assert PROBE._parse_pass1_decision(
+        '{"kind":"action_request","action_id":"draft_repair_params"}'
+    ) == (
+        {
+            "kind": "action_request",
+            "action_id": "draft_repair_params",
+        },
+        None,
+    )
+    assert PROBE._parse_pass1_decision(
+        '{"kind":"refusal","category":"out_of_scope","reason":"No authority."}'
+    )[1] is None
+    assert PROBE._parse_pass1_decision(
+        '{"kind":"observation","message":"Already terminal."}'
+    )[1] is None
+
+
+@pytest.mark.parametrize(
+    ("content", "reason"),
+    [
+        ("plain prose", "pass1_no_json_object"),
+        ("{not json}", "pass1_json_invalid:JSONDecodeError"),
+        ('{"kind":"unknown"}', "pass1_unknown_kind"),
+        ('{"kind":"action_request"}', "pass1_missing_action_id"),
+        ('{"kind":"clarification_request"}', "pass1_missing_question"),
+        ('{"kind":"refusal","reason":"No."}', "pass1_missing_refusal_category"),
+        ('{"kind":"refusal","category":"out_of_scope"}', "pass1_missing_refusal_reason"),
+        ('{"kind":"observation"}', "pass1_missing_observation_message"),
+        ('{"kind":"observation","message":"ok","rationale":null}', "pass1_optional_rationale_type_invalid"),
+        ('{"kind":"observation","message":"ok","known_inputs":[]}', "pass1_optional_known_inputs_type_invalid"),
+        ('{"kind":"action_request","action_id":"draft_repair_params","action_input_intent":[]}', "pass1_optional_action_input_intent_type_invalid"),
+        ('{"kind":"observation","message":"ok","data_intent":[]}', "pass1_optional_data_intent_type_invalid"),
+        ('{"kind":"observation","message":"ok","rationale":{}}', "pass1_optional_rationale_type_invalid"),
+        ('{"kind":"observation","message":"ok","intent":{}}', "pass1_optional_intent_type_invalid"),
+    ],
+)
+def test_parse_pass1_decision_rejects_invalid_shapes(
+    content: str,
+    reason: str,
+) -> None:
+    decision, failure_reason = PROBE._parse_pass1_decision(content)
+
+    assert decision is None
+    assert failure_reason == reason
+
+
+def test_parse_pass1_decision_records_recursion_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def raise_recursion(_text: str) -> object:
+        raise RecursionError("nested too deeply")
+
+    monkeypatch.setattr(PROBE.json, "loads", raise_recursion)
+
+    decision, failure_reason = PROBE._parse_pass1_decision(
+        '{"kind":"clarification_request","question":"Need code?"}'
+    )
+
+    assert decision is None
+    assert failure_reason == "pass1_json_invalid:RecursionError"
+
+
 def test_script_help_runs_from_repo_root() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     python = repo_root / "mcp_server" / ".venv" / "Scripts" / "python.exe"
