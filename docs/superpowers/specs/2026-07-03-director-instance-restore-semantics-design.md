@@ -231,6 +231,82 @@ Classification:
   `TransformObject`, but this diagnostic alone does not justify snapshot or
   replacement restore semantics.
 
+### Minimized Pearson Probe
+
+A second live diagnostic was run against the actual Pearson object that failed
+the CanvasDirector smoke:
+
+```text
+a28cbdb5-51fa-46b2-b18b-ab880b54ded7
+```
+
+The Pearson file was open in Rhino, and the MCP session was rebound to the live
+RookNative instance on port `62574` after the previous active binding was found
+to be stale. The probe used only two frames:
+
+```text
+frame 1: identity/source pose
+frame 2: pure Z translation of 0.628483
+```
+
+Run root:
+
+```text
+C:\Users\bring\AppData\Local\Rook\rookvision_director\pearson_restore_min_probe_20260703_214114
+```
+
+Persisted summary:
+
+```text
+logs\pearson_restore_min_probe_summary.json
+```
+
+Result:
+
+- run state: `unsafe_failed`;
+- frame 1: `dirty_partial_state:false`;
+- frame 2: `dirty_partial_state:true`;
+- object type: `InstanceReference`;
+- instance definition id:
+  `2a38c499-7763-4532-a5ff-d71b90d9d95c`;
+- instance definition name:
+  `3D_BLOCK_ARCH_ROOF_0502 UPLIFT ROOF - VERTICAL`;
+- frame 2 requested transform:
+  pure Z translation `0.628483`;
+- frame 2 `InstanceXform()` after apply:
+  pure Z translation `0.628483`;
+- frame 2 `InstanceXform()` after restore:
+  identity/source pose;
+- frame 2 `restore_transform_returned:true`;
+- frame 2 immediate restore verifier bbox delta:
+  `bbox_delta_min:[-3675.6218127947213, 1.0617077350616455e-07, 4.5180058805271983e-07]`;
+- frame 2 immediate restore verifier bbox delta:
+  `bbox_delta_max:[963.9053885611938, 69.40132311977459, 4.792309482581913e-07]`;
+- frame 2 `bbox_max_delta:3675.6218127947213`.
+
+A read-only `/director/object-states` check immediately after the failed run
+reported the Pearson object back at the source bbox:
+
+```text
+min [125718.338195, -328450.993563, -29189.909203]
+max [367191.403245, 2881.052246, 37014.791026]
+```
+
+Classification:
+
+- the Pearson object reproduces the failure in the minimized two-frame probe;
+- the failure is not explained by `InstanceXform()` failing to apply or return
+  to identity; it did both;
+- the later document readback being clean suggests the live document was not
+  left displaced even though the frame evidence correctly reported
+  `dirty_partial_state:true`;
+- the likely failing surface is the immediate native bbox readback used by the
+  restore verifier for this complex block definition after `TransformObject`,
+  not the simple inverse transform itself;
+- the next diagnostic should compare immediate bbox readback against a forced
+  redraw/regeneration or alternate precise bbox path for this same object,
+  before designing snapshot/original-state restore.
+
 ## Evidence Contract Note
 
 The existing restore evidence contract remains:
