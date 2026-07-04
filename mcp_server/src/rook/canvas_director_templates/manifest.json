@@ -123,7 +123,8 @@
         },
         {
           "description": "Resolved frame index",
-          "name": "Frame",
+          "name": "FrameOut",
+          "nick": "Frame",
           "type": "int"
         },
         {
@@ -143,7 +144,8 @@
         },
         {
           "description": "Resolved frames per second",
-          "name": "FPS",
+          "name": "FPSOut",
+          "nick": "FPS",
           "type": "int"
         },
         {
@@ -216,17 +218,20 @@
         },
         {
           "description": "Resolved easing",
-          "name": "Ease",
+          "name": "EaseOut",
+          "nick": "Ease",
           "type": "string"
         },
         {
           "description": "Resolved start",
-          "name": "Start",
+          "name": "StartOut",
+          "nick": "Start",
           "type": "double"
         },
         {
           "description": "Resolved end",
-          "name": "End",
+          "name": "EndOut",
+          "nick": "End",
           "type": "double"
         },
         {
@@ -310,32 +315,38 @@
         },
         {
           "description": "Input progress",
-          "name": "Progress",
+          "name": "ProgressOut",
+          "nick": "Progress",
           "type": "double"
         },
         {
           "description": "Resolved amplitude",
-          "name": "Amplitude",
+          "name": "AmplitudeOut",
+          "nick": "Amplitude",
           "type": "double"
         },
         {
           "description": "Resolved frequency",
-          "name": "Frequency",
+          "name": "FrequencyOut",
+          "nick": "Frequency",
           "type": "double"
         },
         {
           "description": "Resolved phase",
-          "name": "Phase",
+          "name": "PhaseOut",
+          "nick": "Phase",
           "type": "double"
         },
         {
           "description": "Resolved bias",
-          "name": "Bias",
+          "name": "BiasOut",
+          "nick": "Bias",
           "type": "double"
         },
         {
           "description": "Resolved enabled flag",
-          "name": "Enabled",
+          "name": "EnabledOut",
+          "nick": "Enabled",
           "type": "bool"
         },
         {
@@ -575,12 +586,14 @@
         },
         {
           "description": "Resolved lens length",
-          "name": "Lens",
+          "name": "LensOut",
+          "nick": "Lens",
           "type": "double"
         },
         {
           "description": "Resolved projection mode",
-          "name": "Projection",
+          "name": "ProjectionOut",
+          "nick": "Projection",
           "type": "string"
         },
         {
@@ -681,32 +694,38 @@
         },
         {
           "description": "Resolved camera location",
-          "name": "Location",
+          "name": "LocationOut",
+          "nick": "Location",
           "type": "Point3d"
         },
         {
           "description": "Resolved camera target",
-          "name": "Target",
+          "name": "TargetOut",
+          "nick": "Target",
           "type": "Point3d"
         },
         {
           "description": "Resolved camera direction",
-          "name": "Direction",
+          "name": "DirectionOut",
+          "nick": "Direction",
           "type": "Vector3d"
         },
         {
           "description": "Resolved up vector",
-          "name": "Up",
+          "name": "UpOut",
+          "nick": "Up",
           "type": "Vector3d"
         },
         {
           "description": "Resolved lens length",
-          "name": "Lens",
+          "name": "LensOut",
+          "nick": "Lens",
           "type": "double"
         },
         {
           "description": "Resolved projection mode",
-          "name": "Projection",
+          "name": "ProjectionOut",
+          "nick": "Projection",
           "type": "string"
         },
         {
