@@ -424,6 +424,183 @@ def test_build_manifest_records_run_contract_and_model_metadata() -> None:
     )
 
 
+def _summary_row(
+    *,
+    model: str = "gemma4:12b-it-qat",
+    scenario: str = "evidence_absent_like",
+    mode: str = "format_default",
+    provider_status: str = "ok",
+    lm5g_loadable: bool = True,
+    response_kind: str | None = "action_request",
+    thinking_present: bool = True,
+    thinking_sha256: str | None = "think-a",
+    thinking_chars: int = 100,
+    message_content_sha256: str | None = "content-a",
+    failure_reason: str | None = None,
+) -> dict:
+    return {
+        "model": model,
+        "scenario": scenario,
+        "mode": mode,
+        "provider_status": provider_status,
+        "lm5g_loadable": lm5g_loadable,
+        "response_kind": response_kind,
+        "thinking_present": thinking_present,
+        "thinking_sha256": thinking_sha256,
+        "thinking_chars": thinking_chars,
+        "message_content_sha256": message_content_sha256,
+        "failure_reason": failure_reason,
+    }
+
+
+def test_build_summary_groups_rows_by_model_scenario_mode() -> None:
+    rows = [
+        _summary_row(
+            mode="format_default",
+            response_kind="action_request",
+            thinking_sha256="think-a",
+            message_content_sha256="content-a",
+        ),
+        _summary_row(
+            mode="format_default",
+            provider_status="error",
+            lm5g_loadable=False,
+            response_kind=None,
+            thinking_present=False,
+            thinking_sha256=None,
+            message_content_sha256=None,
+            failure_reason="provider_error:TimeoutError",
+        ),
+        _summary_row(
+            mode="free_think_true",
+            lm5g_loadable=False,
+            response_kind="clarification_request",
+            thinking_sha256="think-b",
+            message_content_sha256="content-b",
+            failure_reason="lm5g_load_failed:ValueError",
+        ),
+    ]
+
+    summary = SPIKE._build_summary(
+        run_id="lm5p-demo",
+        git_commit="abc1234",
+        models=["gemma4:12b-it-qat"],
+        scenarios=["evidence_absent_like"],
+        modes=["free_think_true", "format_default"],
+        attempts_per_cell=5,
+        rows=rows,
+    )
+
+    assert summary["run_id"] == "lm5p-demo"
+    assert summary["git_commit"] == "abc1234"
+    assert summary["models"] == ["gemma4:12b-it-qat"]
+    assert summary["scenarios"] == ["evidence_absent_like"]
+    assert summary["modes"] == ["free_think_true", "format_default"]
+    assert summary["attempts_per_cell"] == 5
+    assert summary["groups"] == [
+        {
+            "model": "gemma4:12b-it-qat",
+            "scenario": "evidence_absent_like",
+            "mode": "free_think_true",
+            "attempts": 1,
+            "provider_errors": 0,
+            "lm5g_loadable_count": 0,
+            "response_kind_counts": {"clarification_request": 1},
+            "thinking_present_count": 1,
+            "unique_thinking_hash_count": 1,
+            "unique_content_hash_count": 1,
+            "failure_reason_counts": {"lm5g_load_failed:ValueError": 1},
+        },
+        {
+            "model": "gemma4:12b-it-qat",
+            "scenario": "evidence_absent_like",
+            "mode": "format_default",
+            "attempts": 2,
+            "provider_errors": 1,
+            "lm5g_loadable_count": 1,
+            "response_kind_counts": {"action_request": 1},
+            "thinking_present_count": 1,
+            "unique_thinking_hash_count": 1,
+            "unique_content_hash_count": 1,
+            "failure_reason_counts": {"provider_error:TimeoutError": 1},
+        },
+    ]
+
+
+def test_build_summary_groups_exact_thinking_hashes_across_modes() -> None:
+    rows = [
+        _summary_row(
+            mode="free_think_true",
+            lm5g_loadable=False,
+            response_kind="clarification_request",
+            thinking_sha256="shared-think",
+            thinking_chars=3361,
+            failure_reason="lm5g_load_failed:ValueError",
+        ),
+        _summary_row(
+            mode="format_default",
+            lm5g_loadable=True,
+            response_kind="action_request",
+            thinking_sha256="shared-think",
+            thinking_chars=3361,
+            failure_reason=None,
+        ),
+        _summary_row(
+            mode="format_think_true",
+            lm5g_loadable=True,
+            response_kind="action_request",
+            thinking_sha256="shared-think",
+            thinking_chars=3361,
+            failure_reason=None,
+        ),
+        _summary_row(
+            mode="format_think_false",
+            lm5g_loadable=True,
+            response_kind="clarification_request",
+            thinking_present=False,
+            thinking_sha256=None,
+            thinking_chars=0,
+            failure_reason=None,
+        ),
+    ]
+
+    summary = SPIKE._build_summary(
+        run_id="lm5p-demo",
+        git_commit="abc1234",
+        models=["gemma4:12b-it-qat"],
+        scenarios=["evidence_absent_like"],
+        modes=[
+            "free_think_true",
+            "format_default",
+            "format_think_true",
+            "format_think_false",
+        ],
+        attempts_per_cell=5,
+        rows=rows,
+    )
+
+    assert summary["thinking_hash_groups"] == [
+        {
+            "model": "gemma4:12b-it-qat",
+            "scenario": "evidence_absent_like",
+            "thinking_sha256": "shared-think",
+            "thinking_chars": 3361,
+            "attempts": 3,
+            "modes": [
+                "free_think_true",
+                "format_default",
+                "format_think_true",
+            ],
+            "response_kind_counts": {
+                "action_request": 2,
+                "clarification_request": 1,
+            },
+            "lm5g_loadable_count": 2,
+            "failure_reason_counts": {"lm5g_load_failed:ValueError": 1},
+        }
+    ]
+
+
 def test_run_matrix_writes_manifest_and_attempt_rows(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -16,6 +16,7 @@ import json
 import sys
 import urllib.error
 import urllib.request
+from collections import Counter, defaultdict
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
@@ -399,6 +400,141 @@ def _build_manifest(
         "temperature": temperature,
         "attempts_per_cell": attempts_per_cell,
         "raw_artifacts": "local evidence under probe_runs; do not commit",
+    }
+
+
+def _count_strings(rows: list[Mapping[str, Any]], key: str) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for row in rows:
+        value = row.get(key)
+        if isinstance(value, str) and value:
+            counts[value] += 1
+    return dict(sorted(counts.items()))
+
+
+def _mode_order_index(modes: list[str]) -> dict[str, int]:
+    return {mode: index for index, mode in enumerate(modes)}
+
+
+def _sort_modes(values: set[str], mode_order: Mapping[str, int]) -> list[str]:
+    return sorted(values, key=lambda value: (mode_order.get(value, len(mode_order)), value))
+
+
+def _build_summary(
+    *,
+    run_id: str,
+    git_commit: str,
+    models: list[str],
+    scenarios: list[str],
+    modes: list[str],
+    attempts_per_cell: int,
+    rows: list[Mapping[str, Any]],
+) -> dict[str, Any]:
+    mode_order = _mode_order_index(modes)
+
+    grouped: dict[tuple[str, str, str], list[Mapping[str, Any]]] = defaultdict(list)
+    thinking_grouped: dict[tuple[str, str, str], list[Mapping[str, Any]]] = defaultdict(list)
+    for row in rows:
+        model = row.get("model")
+        scenario = row.get("scenario")
+        mode = row.get("mode")
+        if isinstance(model, str) and isinstance(scenario, str) and isinstance(mode, str):
+            grouped[(model, scenario, mode)].append(row)
+
+        thinking_sha256 = row.get("thinking_sha256")
+        if (
+            isinstance(model, str)
+            and isinstance(scenario, str)
+            and isinstance(thinking_sha256, str)
+            and thinking_sha256
+        ):
+            thinking_grouped[(model, scenario, thinking_sha256)].append(row)
+
+    groups: list[dict[str, Any]] = []
+    for (model, scenario, mode), group_rows in sorted(
+        grouped.items(),
+        key=lambda item: (
+            item[0][0],
+            item[0][1],
+            mode_order.get(item[0][2], len(mode_order)),
+            item[0][2],
+        ),
+    ):
+        thinking_hashes = {
+            row.get("thinking_sha256")
+            for row in group_rows
+            if isinstance(row.get("thinking_sha256"), str) and row.get("thinking_sha256")
+        }
+        content_hashes = {
+            row.get("message_content_sha256")
+            for row in group_rows
+            if isinstance(row.get("message_content_sha256"), str)
+            and row.get("message_content_sha256")
+        }
+        groups.append(
+            {
+                "model": model,
+                "scenario": scenario,
+                "mode": mode,
+                "attempts": len(group_rows),
+                "provider_errors": sum(
+                    1 for row in group_rows if row.get("provider_status") != "ok"
+                ),
+                "lm5g_loadable_count": sum(
+                    1 for row in group_rows if row.get("lm5g_loadable") is True
+                ),
+                "response_kind_counts": _count_strings(group_rows, "response_kind"),
+                "thinking_present_count": sum(
+                    1 for row in group_rows if row.get("thinking_present") is True
+                ),
+                "unique_thinking_hash_count": len(thinking_hashes),
+                "unique_content_hash_count": len(content_hashes),
+                "failure_reason_counts": _count_strings(group_rows, "failure_reason"),
+            }
+        )
+
+    thinking_hash_groups: list[dict[str, Any]] = []
+    for (model, scenario, thinking_sha256), group_rows in sorted(
+        thinking_grouped.items(),
+        key=lambda item: (item[0][0], item[0][1], item[0][2]),
+    ):
+        modes_seen = {
+            row.get("mode")
+            for row in group_rows
+            if isinstance(row.get("mode"), str) and row.get("mode")
+        }
+        thinking_chars = 0
+        for row in group_rows:
+            value = row.get("thinking_chars")
+            if isinstance(value, int) and not isinstance(value, bool):
+                thinking_chars = value
+                break
+
+        thinking_hash_groups.append(
+            {
+                "model": model,
+                "scenario": scenario,
+                "thinking_sha256": thinking_sha256,
+                "thinking_chars": thinking_chars,
+                "attempts": len(group_rows),
+                "modes": _sort_modes(modes_seen, mode_order),
+                "response_kind_counts": _count_strings(group_rows, "response_kind"),
+                "lm5g_loadable_count": sum(
+                    1 for row in group_rows if row.get("lm5g_loadable") is True
+                ),
+                "failure_reason_counts": _count_strings(group_rows, "failure_reason"),
+            }
+        )
+
+    return {
+        "run_id": run_id,
+        "git_commit": git_commit,
+        "models": models,
+        "scenarios": scenarios,
+        "modes": modes,
+        "attempts_per_cell": attempts_per_cell,
+        "groups": groups,
+        "thinking_hash_groups": thinking_hash_groups,
     }
 
 
