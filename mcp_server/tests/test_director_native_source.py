@@ -527,14 +527,43 @@ def test_director_pose_bbox_probe_records_raw_tight_and_expected_phase_bboxes():
     assert "BboxMaxDelta" in phase_body
 
 
-def test_director_pose_bbox_probe_keeps_raw_restore_verifier_until_gate():
+def test_director_pose_bbox_helper_prefers_tight_with_raw_fallback():
     source = DIRECTOR_FRAME.read_text(encoding="utf-8")
-    restore_body = _extract_function(source, "bool DirectorObjectPoseGuard::Restore")
+    header = DIRECTOR_FRAME_HEADER.read_text(encoding="utf-8")
 
-    assert "restoredObj->BoundingBox()" in restore_body
-    assert "DirectorObjectPoseBbox" not in restore_body
-    assert "GetTightBoundingBox" in source
-    assert "kDirectorRestoreModelScaleFactor" not in source
-    assert "kDirectorRestoreBboxToleranceCap" not in source
-    assert "std::this_thread::sleep" not in source
-    assert "Sleep(" not in source
+    assert "struct DirectorPoseBboxResult" in header
+    assert "DirectorPoseBboxResult DirectorObjectPoseBbox(const CRhinoObject& obj);" in header
+
+    helper_body = _extract_function(source, "DirectorPoseBboxResult DirectorObjectPoseBbox")
+    helper_index = source.index("DirectorPoseBboxResult DirectorObjectPoseBbox")
+    validate_index = source.index("void ValidateFrameObjects")
+    assert source.index("bool BboxAlmostEqual") < helper_index < validate_index
+    assert "obj.GetTightBoundingBox(bbox)" in helper_body
+    assert '"tight_object"' in helper_body
+    assert "obj.BoundingBox()" in helper_body
+    assert '"raw_object_fallback"' in helper_body
+    assert '"unavailable"' in helper_body
+
+
+def test_director_pose_bbox_helper_is_used_for_director_pose_truth():
+    frame_source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    handler_source = DIRECTOR_HANDLER.read_text(encoding="utf-8")
+
+    serialize_body = _extract_function(handler_source, "nlohmann::json SerializeObjectState")
+    validate_body = _extract_function(frame_source, "void ValidateFrameObjects")
+    phase_body = _extract_function(frame_source, "nlohmann::json NativeObjectPhaseEvidence")
+    restore_body = _extract_function(frame_source, "bool DirectorObjectPoseGuard::Restore")
+
+    for body in [serialize_body, validate_body, phase_body, restore_body]:
+        assert "DirectorObjectPoseBbox(*obj)" in body or "DirectorObjectPoseBbox(*restoredObj)" in body
+
+    assert '"bbox_method"' in serialize_body
+    assert '"bbox_method"' in phase_body
+    assert '"restored_bbox_method"' in restore_body
+    assert "restoredObj->BoundingBox()" not in restore_body
+    assert "ON_BoundingBox currentBbox = obj->BoundingBox();" not in validate_body
+    assert "ON_BoundingBox bbox = obj->BoundingBox();" not in serialize_body
+    assert "kDirectorRestoreModelScaleFactor" not in frame_source
+    assert "kDirectorRestoreBboxToleranceCap" not in frame_source
+    assert "std::this_thread::sleep" not in frame_source
+    assert "Sleep(" not in frame_source
