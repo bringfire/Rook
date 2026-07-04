@@ -230,7 +230,7 @@ with:
         ? BoundingBoxToDirectorJson(phaseExpectedBbox)
         : nlohmann::json(nullptr);
     phase["bbox_tolerance"] = DirectorRestoreBboxTolerance();
-    phase["bbox_tolerance_policy"] = "pose_bbox_probe_uses_existing_restore_tolerance";
+    phase["bbox_tolerance_policy"] = "pose_bbox_diagnostic_uses_restore_tolerance";
 
     const ON_BoundingBox rawBbox = obj->BoundingBox();
     const bool rawBboxValid = rawBbox.IsValid();
@@ -249,7 +249,7 @@ In the `if (!obj)` branch, add nulls so missing-object evidence has stable field
             ? BoundingBoxToDirectorJson(phaseExpectedBbox)
             : nlohmann::json(nullptr);
         phase["bbox_tolerance"] = DirectorRestoreBboxTolerance();
-        phase["bbox_tolerance_policy"] = "pose_bbox_probe_uses_existing_restore_tolerance";
+        phase["bbox_tolerance_policy"] = "pose_bbox_diagnostic_uses_restore_tolerance";
         phase["raw_bbox"] = nullptr;
         phase["raw_bbox_valid"] = false;
         phase["raw_bbox_delta_min"] = nullptr;

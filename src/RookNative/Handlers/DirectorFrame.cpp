@@ -352,7 +352,7 @@ nlohmann::json NativeObjectPhaseEvidence(
             ? BoundingBoxToDirectorJson(phaseExpectedBbox)
             : nlohmann::json(nullptr);
         phase["bbox_tolerance"] = DirectorRestoreBboxTolerance();
-        phase["bbox_tolerance_policy"] = "pose_bbox_probe_uses_existing_restore_tolerance";
+        phase["bbox_tolerance_policy"] = "pose_bbox_diagnostic_uses_restore_tolerance";
         phase["raw_bbox"] = nullptr;
         phase["raw_bbox_valid"] = false;
         phase["raw_bbox_delta_min"] = nullptr;
@@ -376,7 +376,7 @@ nlohmann::json NativeObjectPhaseEvidence(
         ? BoundingBoxToDirectorJson(phaseExpectedBbox)
         : nlohmann::json(nullptr);
     phase["bbox_tolerance"] = DirectorRestoreBboxTolerance();
-    phase["bbox_tolerance_policy"] = "pose_bbox_probe_uses_existing_restore_tolerance";
+    phase["bbox_tolerance_policy"] = "pose_bbox_diagnostic_uses_restore_tolerance";
 
     const DirectorPoseBboxResult poseBbox = DirectorObjectPoseBbox(*obj);
     phase["bbox"] = poseBbox.valid ? BoundingBoxToDirectorJson(poseBbox.bbox) : nlohmann::json(nullptr);
