@@ -36,6 +36,64 @@ FORBIDDEN_GENERIC_STRINGS = {
 PEARSON_FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "canvas_director_templates"
 
 
+def _minimal_template_pack(script_path: str, script_sha256: str) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "template_pack_id": "canvas_director.test_pack",
+        "templates": [
+            {
+                "template_id": "canvas_director.clock",
+                "template_version": "0.1.0",
+                "role": "clock",
+                "display_name": "Director Clock",
+                "default_nick": "clock",
+                "script": {
+                    "language": "csharp",
+                    "path": script_path,
+                    "sha256": script_sha256,
+                },
+                "inputs": [
+                    {
+                        "name": "Frame",
+                        "type": "integer",
+                        "description": "Current frame.",
+                    }
+                ],
+                "outputs": [
+                    {
+                        "name": "Clock",
+                        "type": "json",
+                        "description": "Director clock payload.",
+                    }
+                ],
+                "expected_output_payload_kind": "director_clock_payload",
+            }
+        ],
+    }
+
+
+def _write_minimal_template_pack(
+    root: Path,
+    *,
+    script_text: str = "// test script\n",
+    manifest_extra: dict[str, object] | None = None,
+) -> Path:
+    script_path = root / "scripts" / "clock.cs"
+    script_path.parent.mkdir(parents=True, exist_ok=True)
+    script_path.write_text(script_text, encoding="utf-8")
+
+    pack = _minimal_template_pack(
+        "scripts/clock.cs",
+        templates.compute_file_sha256(script_path),
+    )
+    if manifest_extra:
+        pack.update(manifest_extra)
+
+    manifest_path = root / "manifest.json"
+    manifest_path.write_text(json.dumps(pack, indent=2), encoding="utf-8")
+    return manifest_path
+
+
 def test_template_pack_has_exact_promoted_template_ids() -> None:
     pack = templates.load_template_pack()
     ids = {entry["template_id"] for entry in pack["templates"]}
@@ -101,6 +159,70 @@ def test_generic_template_assets_do_not_leak_pearson_bindings() -> None:
         text = path.read_text(encoding="utf-8")
         leaked = sorted(value for value in FORBIDDEN_GENERIC_STRINGS if value in text)
         assert leaked == [], f"{path} leaked Pearson-only values: {leaked}"
+
+
+def test_template_validation_detects_raw_and_escaped_manifest_leaks(tmp_path: Path) -> None:
+    manifest_path = _write_minimal_template_pack(
+        tmp_path,
+        manifest_extra={
+            "raw_forbidden_path": "C:/Users/bring",
+            "escaped_forbidden_path": "C:\\Users\\bring",
+        },
+    )
+
+    pack = templates.load_template_pack(manifest_path)
+    errors = templates.validate_template_pack(pack)
+    leak_errors = [error for error in errors if "manifest:forbidden_generic_string" in error]
+
+    assert any("C:/Users/bring" in error for error in leak_errors)
+    assert any("C:\\Users\\bring" in error for error in leak_errors)
+
+
+def test_template_validation_detects_escaped_script_leaks(tmp_path: Path) -> None:
+    manifest_path = _write_minimal_template_pack(
+        tmp_path,
+        script_text='var path = "C:\\\\Users\\\\bring";\n',
+    )
+
+    pack = templates.load_template_pack(manifest_path)
+    errors = templates.validate_template_pack(pack)
+
+    assert any(
+        "clock.cs:forbidden_generic_string" in error and "C:\\Users\\bring" in error
+        for error in errors
+    )
+
+
+def test_loaded_manifest_root_is_used_for_script_validation(tmp_path: Path) -> None:
+    manifest_path = _write_minimal_template_pack(tmp_path)
+
+    pack = templates.load_template_pack(manifest_path)
+
+    assert templates.validate_template_pack(pack) == []
+
+
+def test_loaded_manifest_root_is_used_for_script_hash_validation(tmp_path: Path) -> None:
+    manifest_path = _write_minimal_template_pack(tmp_path, script_text="// before\n")
+    pack = templates.load_template_pack(manifest_path)
+    (tmp_path / "scripts" / "clock.cs").write_text("// after\n", encoding="utf-8")
+
+    errors = templates.validate_template_pack(pack)
+
+    assert "canvas_director.clock:script_sha256_mismatch" in errors
+    assert "canvas_director.clock:missing_script_file" not in errors
+
+
+def test_template_validation_reports_directory_script_path_without_raising(tmp_path: Path) -> None:
+    script_dir = tmp_path / "scripts" / "clock.cs"
+    script_dir.mkdir(parents=True)
+    pack = _minimal_template_pack("scripts/clock.cs", "sha256:" + "0" * 64)
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(pack, indent=2), encoding="utf-8")
+
+    loaded_pack = templates.load_template_pack(manifest_path)
+    errors = templates.validate_template_pack(loaded_pack)
+
+    assert "canvas_director.clock:script_not_file" in errors
 
 
 def test_pearson_fixture_contains_project_bindings_and_valid_template_refs() -> None:

@@ -12,6 +12,7 @@ FIXTURE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 TEMPLATE_ROOT = Path(__file__).resolve().parent
 MANIFEST_PATH = TEMPLATE_ROOT / "manifest.json"
 FIXTURE_ROOT = TEMPLATE_ROOT / "fixtures"
+TEMPLATE_ROOT_KEY = "__template_root__"
 REQUIRED_TEMPLATE_FIELDS = {
     "template_id",
     "template_version",
@@ -77,7 +78,9 @@ def load_template_pack(path: Path | str | None = None) -> dict[str, Any]:
     manifest_path = Path(path) if path is not None else MANIFEST_PATH
     if manifest_path.is_dir():
         manifest_path = manifest_path / "manifest.json"
-    return _load_json_object(manifest_path)
+    pack = _load_json_object(manifest_path)
+    pack[TEMPLATE_ROOT_KEY] = str(manifest_path.parent.resolve())
+    return pack
 
 
 def template_by_id(pack: dict[str, Any], template_id: str) -> dict[str, Any]:
@@ -99,6 +102,7 @@ def template_by_id(pack: dict[str, Any], template_id: str) -> dict[str, Any]:
 
 def validate_template_pack(pack: dict[str, Any]) -> list[str]:
     errors: list[str] = []
+    pack_root = _template_root_for_pack(pack)
 
     if pack.get("schema_version") != 1:
         errors.append("invalid_schema_version")
@@ -108,7 +112,7 @@ def validate_template_pack(pack: dict[str, Any]) -> list[str]:
     templates = pack.get("templates")
     if not isinstance(templates, list) or not templates:
         errors.append("invalid_templates")
-        _validate_generic_leakage(pack, [], errors)
+        _validate_generic_leakage(pack, [], pack_root, errors)
         return errors
 
     seen_template_ids: set[str] = set()
@@ -118,9 +122,9 @@ def validate_template_pack(pack: dict[str, Any]) -> list[str]:
             errors.append(f"template_{index}:invalid_template")
             continue
 
-        _validate_template_entry(entry, seen_template_ids, script_paths, errors)
+        _validate_template_entry(entry, seen_template_ids, script_paths, pack_root, errors)
 
-    _validate_generic_leakage(pack, script_paths, errors)
+    _validate_generic_leakage(pack, script_paths, pack_root, errors)
     return errors
 
 
@@ -143,6 +147,7 @@ def _validate_template_entry(
     entry: dict[str, Any],
     seen_template_ids: set[str],
     script_paths: list[Path],
+    pack_root: Path,
     errors: list[str],
 ) -> None:
     template_id = entry.get("template_id")
@@ -172,7 +177,7 @@ def _validate_template_entry(
         if field_name in entry and not _nonempty_string(entry.get(field_name)):
             errors.append(f"{label}:invalid_{field_name}")
 
-    _validate_script(entry, script_paths, errors)
+    _validate_script(entry, script_paths, pack_root, errors)
     _validate_pin_schema(entry, "inputs", errors)
     _validate_pin_schema(entry, "outputs", errors)
 
@@ -180,6 +185,7 @@ def _validate_template_entry(
 def _validate_script(
     entry: dict[str, Any],
     script_paths: list[Path],
+    pack_root: Path,
     errors: list[str],
 ) -> None:
     template_id = str(entry.get("template_id", "<unknown>"))
@@ -199,8 +205,8 @@ def _validate_script(
         errors.append(f"{template_id}:invalid_script_path")
         return
 
-    script_root = (TEMPLATE_ROOT / "scripts").resolve()
-    script_path = (TEMPLATE_ROOT / relative_path).resolve()
+    script_root = (pack_root / "scripts").resolve()
+    script_path = (pack_root / relative_path).resolve()
     if not script_path.is_relative_to(script_root):
         errors.append(f"{template_id}:script_path_escape")
         return
@@ -209,13 +215,20 @@ def _validate_script(
     if not script_path.exists():
         errors.append(f"{template_id}:missing_script_file")
         return
+    if not script_path.is_file():
+        errors.append(f"{template_id}:script_not_file")
+        return
 
     expected_sha = script.get("sha256")
     if not isinstance(expected_sha, str) or not expected_sha.startswith("sha256:"):
         errors.append(f"{template_id}:invalid_script_sha256")
         return
 
-    actual_sha = compute_file_sha256(script_path)
+    try:
+        actual_sha = compute_file_sha256(script_path)
+    except OSError:
+        errors.append(f"{template_id}:unreadable_script_file")
+        return
     if expected_sha != actual_sha:
         errors.append(f"{template_id}:script_sha256_mismatch")
 
@@ -239,14 +252,15 @@ def _validate_pin_schema(entry: dict[str, Any], field_name: str, errors: list[st
 def _validate_generic_leakage(
     pack: dict[str, Any],
     referenced_script_paths: list[Path],
+    pack_root: Path,
     errors: list[str],
 ) -> None:
-    manifest_text = json.dumps(pack, sort_keys=True)
-    for leaked in sorted(value for value in FORBIDDEN_GENERIC_STRINGS if value in manifest_text):
+    manifest_text = json.dumps(_public_manifest_payload(pack), sort_keys=True)
+    for leaked in _find_forbidden_generic_strings(manifest_text):
         errors.append(f"manifest:forbidden_generic_string:{leaked}")
 
     paths_to_scan = set(referenced_script_paths)
-    scripts_root = TEMPLATE_ROOT / "scripts"
+    scripts_root = pack_root / "scripts"
     if scripts_root.exists():
         paths_to_scan.update(path.resolve() for path in scripts_root.glob("*.cs"))
 
@@ -258,8 +272,37 @@ def _validate_generic_leakage(
         except OSError:
             errors.append(f"{script_path.name}:unreadable_script")
             continue
-        for leaked in sorted(value for value in FORBIDDEN_GENERIC_STRINGS if value in script_text):
+        for leaked in _find_forbidden_generic_strings(script_text):
             errors.append(f"{script_path.name}:forbidden_generic_string:{leaked}")
+
+
+def _template_root_for_pack(pack: dict[str, Any]) -> Path:
+    root = pack.get(TEMPLATE_ROOT_KEY)
+    if isinstance(root, str) and root.strip():
+        return Path(root)
+    return TEMPLATE_ROOT
+
+
+def _public_manifest_payload(pack: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in pack.items() if not key.startswith("__")}
+
+
+def _find_forbidden_generic_strings(text: str) -> list[str]:
+    return sorted(
+        {
+            raw_value
+            for variant, raw_value in _forbidden_generic_string_variants().items()
+            if variant in text
+        }
+    )
+
+
+def _forbidden_generic_string_variants() -> dict[str, str]:
+    variants: dict[str, str] = {}
+    for value in FORBIDDEN_GENERIC_STRINGS:
+        variants[value] = value
+        variants[json.dumps(value)[1:-1]] = value
+    return variants
 
 
 def _nonempty_string(value: Any) -> bool:
