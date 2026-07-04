@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import zipfile
 from pathlib import Path
@@ -117,6 +118,10 @@ def _write_minimal_template_pack(
     manifest_path = root / "manifest.json"
     manifest_path.write_text(json.dumps(pack, indent=2), encoding="utf-8")
     return manifest_path
+
+
+def _load_pearson_fixture() -> dict:
+    return templates.load_fixture_binding("pearson_v2_smoke", fixture_root=PEARSON_FIXTURE_ROOT)
 
 
 def test_template_pack_has_exact_promoted_template_ids() -> None:
@@ -298,7 +303,7 @@ def test_template_validation_reports_directory_script_path_without_raising(tmp_p
 
 def test_pearson_fixture_contains_project_bindings_and_valid_template_refs() -> None:
     pack = templates.load_template_pack()
-    fixture = templates.load_fixture_binding("pearson_v2_smoke", fixture_root=PEARSON_FIXTURE_ROOT)
+    fixture = _load_pearson_fixture()
     ids = {entry["template_id"] for entry in pack["templates"]}
 
     assert fixture["fixture_id"] == "pearson_v2_smoke"
@@ -312,7 +317,7 @@ def test_pearson_fixture_contains_project_bindings_and_valid_template_refs() -> 
 
 
 def test_instantiation_plan_uses_existing_grasshopper_tools_only() -> None:
-    fixture = templates.load_fixture_binding("pearson_v2_smoke", fixture_root=PEARSON_FIXTURE_ROOT)
+    fixture = _load_pearson_fixture()
     plan = templates.build_instantiation_plan(fixture)
     tool_names = [call["tool"] for call in plan["calls"]]
 
@@ -324,7 +329,7 @@ def test_instantiation_plan_uses_existing_grasshopper_tools_only() -> None:
 
 
 def test_instantiation_plan_connects_typed_payload_outputs_to_export_marker() -> None:
-    fixture = templates.load_fixture_binding("pearson_v2_smoke", fixture_root=PEARSON_FIXTURE_ROOT)
+    fixture = _load_pearson_fixture()
     plan = templates.build_instantiation_plan(fixture)
     connections = plan["deferred_edit"]["connect"]
 
@@ -339,12 +344,38 @@ def test_instantiation_plan_connects_typed_payload_outputs_to_export_marker() ->
 
 
 def test_gh_edit_temp_ids_are_supported_t_ids() -> None:
-    fixture = templates.load_fixture_binding("pearson_v2_smoke", fixture_root=PEARSON_FIXTURE_ROOT)
+    fixture = _load_pearson_fixture()
     plan = templates.build_instantiation_plan(fixture)
     temp_ids = [entry["temp_id"] for entry in plan["deferred_edit"]["create"]]
     assert temp_ids
     assert all(temp_id.startswith("T") for temp_id in temp_ids)
     assert all(temp_id[1:2].isupper() for temp_id in temp_ids)
+
+
+@pytest.mark.parametrize(
+    "broken_path, broken_value",
+    [
+        (("timeline", "fps"), None),
+        (("layout", "origin"), [-1200]),
+    ],
+)
+def test_instantiation_plan_rejects_invalid_fixture(
+    broken_path: tuple[str, ...],
+    broken_value: object,
+) -> None:
+    fixture = _load_pearson_fixture()
+    parent = fixture
+    for key in broken_path[:-1]:
+        parent = parent[key]
+    if broken_value is None:
+        del parent[broken_path[-1]]
+    else:
+        parent[broken_path[-1]] = broken_value
+
+    with pytest.raises(templates.CanvasDirectorTemplateError) as exc_info:
+        templates.build_instantiation_plan(fixture)
+
+    assert exc_info.value.code == "invalid_fixture"
 
 
 @pytest.mark.asyncio
@@ -366,7 +397,7 @@ async def test_instantiate_fixture_executes_script_snapshot_and_edit_calls() -> 
             return {"success": True, "data": {"ok": True}}
         raise AssertionError(f"unexpected tool {tool}")
 
-    fixture = templates.load_fixture_binding("pearson_v2_smoke", fixture_root=PEARSON_FIXTURE_ROOT)
+    fixture = _load_pearson_fixture()
     result = await templates.instantiate_fixture(fixture, fake_call_tool)
 
     assert result["success"] is True
@@ -393,6 +424,69 @@ async def test_instantiate_fixture_executes_script_snapshot_and_edit_calls() -> 
     assert "actors_v2" not in group_members
     assert "transform" not in group_members
     assert "export_marker" not in group_members
+
+    plan_flows = result["plan"]["deferred_edit"]["connect"]
+    assert "actors_v2.O1>transform.I0" in plan_flows
+    assert "transform.O0>export_marker.I1" in plan_flows
+    assert "camera_controller.O1>export_marker.I2" in plan_flows
+
+
+@pytest.mark.asyncio
+async def test_instantiate_fixture_surfaces_failed_tool_call() -> None:
+    async def fake_call_tool(tool: str, arguments: dict) -> dict:
+        if tool == "gh_create_script":
+            return {"success": False, "data": "compile failed"}
+        raise AssertionError(f"unexpected tool {tool}")
+
+    with pytest.raises(templates.CanvasDirectorTemplateError) as exc_info:
+        await templates.instantiate_fixture(_load_pearson_fixture(), fake_call_tool)
+
+    assert exc_info.value.code == "tool_call_failed"
+
+
+@pytest.mark.asyncio
+async def test_instantiate_fixture_surfaces_missing_component_guid() -> None:
+    async def fake_call_tool(tool: str, arguments: dict) -> dict:
+        if tool == "gh_create_script":
+            return {"success": True, "data": {}}
+        raise AssertionError(f"unexpected tool {tool}")
+
+    with pytest.raises(templates.CanvasDirectorTemplateError) as exc_info:
+        await templates.instantiate_fixture(_load_pearson_fixture(), fake_call_tool)
+
+    assert exc_info.value.code == "missing_component_guid"
+
+
+@pytest.mark.asyncio
+async def test_instantiate_fixture_does_not_mutate_stored_plan() -> None:
+    calls: list[tuple[str, dict]] = []
+
+    async def fake_call_tool(tool: str, arguments: dict) -> dict:
+        calls.append((tool, arguments))
+        if tool == "gh_create_script":
+            return {
+                "success": True,
+                "data": {"component_guid": f"{arguments['name'].replace(' ', '_')}_guid"},
+            }
+        if tool == "gh_snapshot":
+            return {"success": True, "data": {"epoch": 17}}
+        if tool == "gh_edit":
+            return {"success": True, "data": {"ok": True}}
+        raise AssertionError(f"unexpected tool {tool}")
+
+    fixture = _load_pearson_fixture()
+    plan_before = templates.build_instantiation_plan(deepcopy(fixture))
+    result = await templates.instantiate_fixture(fixture, fake_call_tool)
+
+    assert result["plan"]["deferred_edit"]["connect"] == plan_before["deferred_edit"]["connect"]
+    assert "actors_v2.O1>transform.I0" in result["plan"]["deferred_edit"]["connect"]
+    assert "transform.O0>export_marker.I1" in result["plan"]["deferred_edit"]["connect"]
+
+    final_flows = calls[-1][1]["connect"]
+    assert "Director_Actors_guid.O1>Director_Transform_guid.I0" in final_flows
+    assert "Director_Transform_guid.O0>CanvasDirector_Export_guid.I1" in final_flows
+    assert "actors_v2.O1>transform.I0" not in final_flows
+    assert "transform.O0>export_marker.I1" not in final_flows
 
 
 @pytest.mark.parametrize(

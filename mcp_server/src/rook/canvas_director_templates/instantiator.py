@@ -46,6 +46,7 @@ def build_instantiation_plan(fixture: dict[str, Any]) -> dict[str, Any]:
     if errors:
         raise CanvasDirectorTemplateError("invalid_template_pack", ";".join(errors))
 
+    _validate_fixture(fixture)
     _validate_fixture_templates(fixture, pack)
 
     calls = _script_create_calls(pack, fixture)
@@ -205,6 +206,69 @@ def _script_create_calls(pack: dict[str, Any], fixture: dict[str, Any]) -> list[
     return calls
 
 
+def _validate_fixture(fixture: dict[str, Any]) -> None:
+    errors: list[str] = []
+    if not isinstance(fixture, dict):
+        raise CanvasDirectorTemplateError("invalid_fixture", "fixture must be an object")
+
+    for field_name in ("fixture_id", "project_root", "export_id", "proposal_id"):
+        _require_string(fixture, field_name, errors)
+
+    templates = fixture.get("templates")
+    if not isinstance(templates, list) or not templates:
+        errors.append("templates")
+    elif not all(isinstance(item, str) and item.strip() for item in templates):
+        errors.append("templates")
+
+    timeline = _require_object(fixture, "timeline", errors)
+    if timeline is not None:
+        _require_number(timeline, "fps", errors, "timeline.fps")
+        _require_number(timeline, "frame_count", errors, "timeline.frame_count")
+
+    resolution = _require_object(fixture, "resolution", errors)
+    if resolution is not None:
+        _require_number(resolution, "width", errors, "resolution.width")
+        _require_number(resolution, "height", errors, "resolution.height")
+
+    actor_bindings = _require_object(fixture, "actor_bindings", errors)
+    if actor_bindings is not None:
+        _require_string(actor_bindings, "actor_set_ref", errors, "actor_bindings.actor_set_ref")
+        _require_string(
+            actor_bindings,
+            "actor_grouping_ref",
+            errors,
+            "actor_bindings.actor_grouping_ref",
+        )
+
+    motion = _require_object(fixture, "motion", errors)
+    if motion is not None:
+        _require_string(motion, "strategy", errors, "motion.strategy")
+        _require_number(motion, "max_height", errors, "motion.max_height")
+        _require_number(motion, "spread", errors, "motion.spread")
+        if not isinstance(motion.get("fast_preview"), bool):
+            errors.append("motion.fast_preview")
+
+    camera = _require_object(fixture, "camera", errors)
+    if camera is not None:
+        _require_string(camera, "projection", errors, "camera.projection")
+        _require_number(camera, "lens_length", errors, "camera.lens_length")
+
+    if "layout" in fixture:
+        layout = fixture["layout"]
+        if not isinstance(layout, dict):
+            errors.append("layout")
+        else:
+            origin = layout.get("origin")
+            if origin is not None and not _is_number_pair(origin):
+                errors.append("layout.origin")
+            for field_name in ("x_spacing", "y_spacing"):
+                if field_name in layout:
+                    _require_number(layout, field_name, errors, f"layout.{field_name}")
+
+    if errors:
+        raise CanvasDirectorTemplateError("invalid_fixture", ",".join(errors))
+
+
 def _control_create_ops(fixture: dict[str, Any]) -> list[dict[str, Any]]:
     timeline = fixture["timeline"]
     resolution = fixture["resolution"]
@@ -308,6 +372,50 @@ def _control_create_ops(fixture: dict[str, Any]) -> list[dict[str, Any]]:
             "pos": [x0, y0 + 1020],
         },
     ]
+
+
+def _require_object(
+    value: dict[str, Any],
+    field_name: str,
+    errors: list[str],
+) -> dict[str, Any] | None:
+    nested = value.get(field_name)
+    if not isinstance(nested, dict):
+        errors.append(field_name)
+        return None
+    return nested
+
+
+def _require_string(
+    value: dict[str, Any],
+    field_name: str,
+    errors: list[str],
+    label: str | None = None,
+) -> None:
+    if not isinstance(value.get(field_name), str) or not value[field_name].strip():
+        errors.append(label or field_name)
+
+
+def _require_number(
+    value: dict[str, Any],
+    field_name: str,
+    errors: list[str],
+    label: str,
+) -> None:
+    if not _is_number(value.get(field_name)):
+        errors.append(label)
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _is_number_pair(value: Any) -> bool:
+    return (
+        isinstance(value, (list, tuple))
+        and len(value) == 2
+        and all(_is_number(item) for item in value)
+    )
 
 
 def _validate_fixture_templates(fixture: dict[str, Any], pack: dict[str, Any]) -> None:
