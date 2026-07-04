@@ -378,6 +378,13 @@ def _post_ollama_chat(endpoint: str, body: dict[str, Any], timeout_s: float) -> 
         return response.read().decode("utf-8")
 
 
+def _write_json_file(path: Path, payload: dict[str, Any]) -> None:
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 def _build_manifest(
     *,
     git_commit: str,
@@ -593,13 +600,11 @@ def _run_matrix(
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     run_dir = _REPO_ROOT / "probe_runs" / f"lm5p-{timestamp}-{git_commit}"
     run_dir.mkdir(parents=True, exist_ok=False)
-    (run_dir / "manifest.json").write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    _write_json_file(run_dir / "manifest.json", manifest)
 
     counts = {"ok": 0, "error": 0, "loadable": 0}
     attempts_path = run_dir / "attempts.jsonl"
+    rows: list[dict[str, Any]] = []
     with attempts_path.open("w", encoding="utf-8") as attempts_file:
         for model in models:
             for scenario in scenarios:
@@ -647,7 +652,19 @@ def _run_matrix(
                             counts["error"] += 1
                         if row["lm5g_loadable"]:
                             counts["loadable"] += 1
+                        rows.append(row)
                         attempts_file.write(json.dumps(row, sort_keys=True) + "\n")
+
+    summary = _build_summary(
+        run_id=run_dir.name,
+        git_commit=git_commit,
+        models=models,
+        scenarios=scenarios,
+        modes=modes,
+        attempts_per_cell=attempts_per_cell,
+        rows=rows,
+    )
+    _write_json_file(run_dir / "summary.json", summary)
 
     print(
         "LM5P matrix complete: "

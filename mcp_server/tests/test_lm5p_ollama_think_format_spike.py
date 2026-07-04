@@ -679,6 +679,30 @@ def test_run_matrix_writes_manifest_and_attempt_rows(
     assert first["lm5g_loadable"] is True
     assert first["response_kind"] == "observation"
 
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    assert summary["run_id"] == run_dir.name
+    assert summary["git_commit"] == "abc1234"
+    assert summary["models"] == ["gemma4:12b"]
+    assert summary["scenarios"] == ["evidence_absent_like"]
+    assert summary["modes"] == ["format_think_true"]
+    assert summary["attempts_per_cell"] == 2
+    assert summary["groups"] == [
+        {
+            "model": "gemma4:12b",
+            "scenario": "evidence_absent_like",
+            "mode": "format_think_true",
+            "attempts": 2,
+            "provider_errors": 0,
+            "lm5g_loadable_count": 2,
+            "response_kind_counts": {"observation": 2},
+            "thinking_present_count": 0,
+            "unique_thinking_hash_count": 0,
+            "unique_content_hash_count": 1,
+            "failure_reason_counts": {},
+        }
+    ]
+    assert summary["thinking_hash_groups"] == []
+
     assert len(captured_bodies) == 2
     assert "oneOf" in captured_bodies[0]["format"]
     assert captured_bodies[0]["think"] is True
@@ -739,6 +763,57 @@ def test_run_matrix_records_http_and_provider_failures(
         "http_error:503",
         "provider_error:RuntimeError",
     ]
+
+
+def test_run_matrix_propagates_summary_write_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    provider_text = json.dumps({"message": {"content": "not json"}})
+    original_write_json_file = SPIKE._write_json_file
+
+    def fake_write_json_file(path: Path, payload: dict) -> None:
+        if path.name == "summary.json":
+            raise RuntimeError("summary write failed")
+        original_write_json_file(path, payload)
+
+    monkeypatch.setattr(SPIKE, "_REPO_ROOT", tmp_path)
+    monkeypatch.setattr(SPIKE, "_git_short_sha", lambda: "abc1234")
+    monkeypatch.setattr(SPIKE, "_ollama_version", lambda: "ollama version is 0.9.0")
+    monkeypatch.setattr(
+        SPIKE,
+        "_model_metadata",
+        lambda model: {
+            "model": model,
+            "model_id": None,
+            "model_quantization": None,
+            "ollama_show_status": "ok",
+            "ollama_show_excerpt": "",
+        },
+    )
+    monkeypatch.setattr(
+        SPIKE,
+        "_messages_for_scenario",
+        lambda scenario: [{"role": "user", "content": scenario}],
+    )
+    monkeypatch.setattr(
+        SPIKE,
+        "_post_ollama_chat",
+        lambda endpoint, body, timeout_s: provider_text,
+    )
+    monkeypatch.setattr(SPIKE, "_write_json_file", fake_write_json_file)
+
+    with pytest.raises(RuntimeError, match="summary write failed"):
+        SPIKE._run_matrix(
+            models=["gemma4:12b"],
+            scenarios=["evidence_absent_like"],
+            modes=["free_think_true"],
+            endpoint="http://fake.local/api/chat",
+            temperature=0,
+            attempts_per_cell=1,
+            timeout_s=9,
+            excerpt_chars=SPIKE.EXCERPT_CHARS,
+        )
 
 
 def test_script_help_runs_from_repo_root() -> None:
