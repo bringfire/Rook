@@ -16,6 +16,7 @@ import json
 import sys
 import urllib.error
 import urllib.request
+from collections import Counter, defaultdict
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
@@ -161,10 +162,10 @@ def _messages_for_scenario(scenario_name: str) -> list[dict[str, str]]:
     return [dict(message) for message in prompt_artifact["messages"]]
 
 
-def _excerpt(value: str | None) -> str | None:
+def _excerpt(value: str | None, excerpt_chars: int = EXCERPT_CHARS) -> str | None:
     if value is None:
         return None
-    return value[:EXCERPT_CHARS]
+    return value[:excerpt_chars]
 
 
 def _sha256_text(value: str | None) -> str | None:
@@ -202,6 +203,8 @@ def _empty_result_fields() -> dict[str, Any]:
 def _classify_provider_text(
     provider_text: str,
     base_row: Mapping[str, Any],
+    *,
+    excerpt_chars: int = EXCERPT_CHARS,
 ) -> dict[str, Any]:
     row = {**base_row, **_empty_result_fields()}
     try:
@@ -237,14 +240,14 @@ def _classify_provider_text(
 
     content = message.get("content")
     if isinstance(content, str):
-        row["message_content_excerpt"] = _excerpt(content)
+        row["message_content_excerpt"] = _excerpt(content, excerpt_chars)
         row["message_content_sha256"] = _sha256_text(content)
 
     thinking = message.get("thinking")
     if isinstance(thinking, str) and thinking:
         row["thinking_present"] = True
         row["thinking_chars"] = len(thinking)
-        row["thinking_excerpt"] = _excerpt(thinking)
+        row["thinking_excerpt"] = _excerpt(thinking, excerpt_chars)
         row["thinking_sha256"] = _sha256_text(thinking)
 
     if not isinstance(content, str) or not content:
@@ -375,6 +378,13 @@ def _post_ollama_chat(endpoint: str, body: dict[str, Any], timeout_s: float) -> 
         return response.read().decode("utf-8")
 
 
+def _write_json_file(path: Path, payload: dict[str, Any]) -> None:
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 def _build_manifest(
     *,
     git_commit: str,
@@ -397,6 +407,141 @@ def _build_manifest(
         "temperature": temperature,
         "attempts_per_cell": attempts_per_cell,
         "raw_artifacts": "local evidence under probe_runs; do not commit",
+    }
+
+
+def _count_strings(rows: list[Mapping[str, Any]], key: str) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for row in rows:
+        value = row.get(key)
+        if isinstance(value, str) and value:
+            counts[value] += 1
+    return dict(sorted(counts.items()))
+
+
+def _mode_order_index(modes: list[str]) -> dict[str, int]:
+    return {mode: index for index, mode in enumerate(modes)}
+
+
+def _sort_modes(values: set[str], mode_order: Mapping[str, int]) -> list[str]:
+    return sorted(values, key=lambda value: (mode_order.get(value, len(mode_order)), value))
+
+
+def _build_summary(
+    *,
+    run_id: str,
+    git_commit: str,
+    models: list[str],
+    scenarios: list[str],
+    modes: list[str],
+    attempts_per_cell: int,
+    rows: list[Mapping[str, Any]],
+) -> dict[str, Any]:
+    mode_order = _mode_order_index(modes)
+
+    grouped: dict[tuple[str, str, str], list[Mapping[str, Any]]] = defaultdict(list)
+    thinking_grouped: dict[tuple[str, str, str], list[Mapping[str, Any]]] = defaultdict(list)
+    for row in rows:
+        model = row.get("model")
+        scenario = row.get("scenario")
+        mode = row.get("mode")
+        if isinstance(model, str) and isinstance(scenario, str) and isinstance(mode, str):
+            grouped[(model, scenario, mode)].append(row)
+
+        thinking_sha256 = row.get("thinking_sha256")
+        if (
+            isinstance(model, str)
+            and isinstance(scenario, str)
+            and isinstance(thinking_sha256, str)
+            and thinking_sha256
+        ):
+            thinking_grouped[(model, scenario, thinking_sha256)].append(row)
+
+    groups: list[dict[str, Any]] = []
+    for (model, scenario, mode), group_rows in sorted(
+        grouped.items(),
+        key=lambda item: (
+            item[0][0],
+            item[0][1],
+            mode_order.get(item[0][2], len(mode_order)),
+            item[0][2],
+        ),
+    ):
+        thinking_hashes = {
+            row.get("thinking_sha256")
+            for row in group_rows
+            if isinstance(row.get("thinking_sha256"), str) and row.get("thinking_sha256")
+        }
+        content_hashes = {
+            row.get("message_content_sha256")
+            for row in group_rows
+            if isinstance(row.get("message_content_sha256"), str)
+            and row.get("message_content_sha256")
+        }
+        groups.append(
+            {
+                "model": model,
+                "scenario": scenario,
+                "mode": mode,
+                "attempts": len(group_rows),
+                "provider_errors": sum(
+                    1 for row in group_rows if row.get("provider_status") != "ok"
+                ),
+                "lm5g_loadable_count": sum(
+                    1 for row in group_rows if row.get("lm5g_loadable") is True
+                ),
+                "response_kind_counts": _count_strings(group_rows, "response_kind"),
+                "thinking_present_count": sum(
+                    1 for row in group_rows if row.get("thinking_present") is True
+                ),
+                "unique_thinking_hash_count": len(thinking_hashes),
+                "unique_content_hash_count": len(content_hashes),
+                "failure_reason_counts": _count_strings(group_rows, "failure_reason"),
+            }
+        )
+
+    thinking_hash_groups: list[dict[str, Any]] = []
+    for (model, scenario, thinking_sha256), group_rows in sorted(
+        thinking_grouped.items(),
+        key=lambda item: (item[0][0], item[0][1], item[0][2]),
+    ):
+        modes_seen = {
+            row.get("mode")
+            for row in group_rows
+            if isinstance(row.get("mode"), str) and row.get("mode")
+        }
+        thinking_chars = 0
+        for row in group_rows:
+            value = row.get("thinking_chars")
+            if isinstance(value, int) and not isinstance(value, bool):
+                thinking_chars = value
+                break
+
+        thinking_hash_groups.append(
+            {
+                "model": model,
+                "scenario": scenario,
+                "thinking_sha256": thinking_sha256,
+                "thinking_chars": thinking_chars,
+                "attempts": len(group_rows),
+                "modes": _sort_modes(modes_seen, mode_order),
+                "response_kind_counts": _count_strings(group_rows, "response_kind"),
+                "lm5g_loadable_count": sum(
+                    1 for row in group_rows if row.get("lm5g_loadable") is True
+                ),
+                "failure_reason_counts": _count_strings(group_rows, "failure_reason"),
+            }
+        )
+
+    return {
+        "run_id": run_id,
+        "git_commit": git_commit,
+        "models": models,
+        "scenarios": scenarios,
+        "modes": modes,
+        "attempts_per_cell": attempts_per_cell,
+        "groups": groups,
+        "thinking_hash_groups": thinking_hash_groups,
     }
 
 
@@ -437,6 +582,7 @@ def _run_matrix(
     temperature: float,
     attempts_per_cell: int,
     timeout_s: float,
+    excerpt_chars: int,
 ) -> Path:
     git_commit = _git_short_sha()
     model_metadata = [_model_metadata(model) for model in models]
@@ -454,13 +600,11 @@ def _run_matrix(
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     run_dir = _REPO_ROOT / "probe_runs" / f"lm5p-{timestamp}-{git_commit}"
     run_dir.mkdir(parents=True, exist_ok=False)
-    (run_dir / "manifest.json").write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    _write_json_file(run_dir / "manifest.json", manifest)
 
     counts = {"ok": 0, "error": 0, "loadable": 0}
     attempts_path = run_dir / "attempts.jsonl"
+    rows: list[dict[str, Any]] = []
     with attempts_path.open("w", encoding="utf-8") as attempts_file:
         for model in models:
             for scenario in scenarios:
@@ -496,7 +640,11 @@ def _run_matrix(
                                 f"provider_error:{type(exc).__name__}"
                             )
                         else:
-                            row = _classify_provider_text(provider_text, base_row)
+                            row = _classify_provider_text(
+                                provider_text,
+                                base_row,
+                                excerpt_chars=excerpt_chars,
+                            )
 
                         if row["provider_status"] == "ok":
                             counts["ok"] += 1
@@ -504,7 +652,19 @@ def _run_matrix(
                             counts["error"] += 1
                         if row["lm5g_loadable"]:
                             counts["loadable"] += 1
+                        rows.append(row)
                         attempts_file.write(json.dumps(row, sort_keys=True) + "\n")
+
+    summary = _build_summary(
+        run_id=run_dir.name,
+        git_commit=git_commit,
+        models=models,
+        scenarios=scenarios,
+        modes=modes,
+        attempts_per_cell=attempts_per_cell,
+        rows=rows,
+    )
+    _write_json_file(run_dir / "summary.json", summary)
 
     print(
         "LM5P matrix complete: "
@@ -523,7 +683,7 @@ def _positive_int(value: str) -> int:
 
 def _args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="LM5P Ollama think/format diagnostic spike scaffold."
+        description="LM5P Ollama think/format diagnostic spike."
     )
     parser.add_argument("--endpoint", default=DEFAULT_ENDPOINT)
     parser.add_argument("--model", action="append", dest="models", default=None)
@@ -542,6 +702,11 @@ def _args(argv: list[str] | None) -> argparse.Namespace:
         default=None,
     )
     parser.add_argument("--attempts", type=_positive_int, default=DEFAULT_ATTEMPTS)
+    parser.add_argument(
+        "--excerpt-chars",
+        type=_positive_int,
+        default=EXCERPT_CHARS,
+    )
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     parser.add_argument("--timeout-s", type=float, default=DEFAULT_TIMEOUT_S)
     args = parser.parse_args(argv)
@@ -564,6 +729,7 @@ def main(argv: list[str] | None = None) -> int:
         temperature=args.temperature,
         attempts_per_cell=args.attempts,
         timeout_s=args.timeout_s,
+        excerpt_chars=args.excerpt_chars,
     )
     return 0
 
