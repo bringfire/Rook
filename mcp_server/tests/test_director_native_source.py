@@ -487,3 +487,52 @@ def test_director_instance_restore_live_repro_is_scratch_and_two_frame():
     assert "expected_instance_definition_name=block_name" in body
     assert "instance_restore_semantics_probe.json" in body
     assert body.index("summary_path.write_text") < body.index("for detail in control_details:")
+
+
+def test_director_pose_bbox_probe_records_raw_tight_and_expected_phase_bboxes():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    phase_body = _extract_function(source, "nlohmann::json NativeObjectPhaseEvidence")
+    expected_body = _extract_function(source, "ON_BoundingBox TransformBoundingBoxByCorners")
+    apply_body = _extract_function(source, "void DirectorObjectPoseGuard::Apply")
+    restore_body = _extract_function(source, "bool DirectorObjectPoseGuard::Restore")
+
+    for token in [
+        '"raw_bbox"',
+        '"raw_bbox_valid"',
+        '"raw_bbox_delta_min"',
+        '"raw_bbox_delta_max"',
+        '"raw_bbox_max_delta"',
+        '"tight_bbox"',
+        '"tight_bbox_valid"',
+        '"tight_bbox_delta_min"',
+        '"tight_bbox_delta_max"',
+        '"tight_bbox_max_delta"',
+        '"phase_expected_bbox"',
+        '"bbox_tolerance"',
+        '"bbox_tolerance_policy"',
+        "GetTightBoundingBox",
+        "BoundingBox()",
+    ]:
+        assert token in phase_body
+
+    assert "ExpectedPhaseBbox(m_objects[i], ON_Xform::IdentityTransformation)" in apply_body
+    assert "ExpectedPhaseBbox(m_objects[i], m_objects[i].delta)" in apply_body
+    assert "ExpectedPhaseBbox(object, object.delta)" in restore_body
+    assert "ExpectedPhaseBbox(object, ON_Xform::IdentityTransformation)" in restore_body
+    assert "transformed.Union(xform * corner)" in expected_body
+    assert "corner * xform" not in expected_body
+    assert "BboxDeltaToJson" in phase_body
+    assert "BboxMaxDelta" in phase_body
+
+
+def test_director_pose_bbox_probe_keeps_raw_restore_verifier_until_gate():
+    source = DIRECTOR_FRAME.read_text(encoding="utf-8")
+    restore_body = _extract_function(source, "bool DirectorObjectPoseGuard::Restore")
+
+    assert "restoredObj->BoundingBox()" in restore_body
+    assert "DirectorObjectPoseBbox" not in restore_body
+    assert "GetTightBoundingBox" in source
+    assert "kDirectorRestoreModelScaleFactor" not in source
+    assert "kDirectorRestoreBboxToleranceCap" not in source
+    assert "std::this_thread::sleep" not in source
+    assert "Sleep(" not in source
