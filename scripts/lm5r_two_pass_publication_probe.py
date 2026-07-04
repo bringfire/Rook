@@ -748,6 +748,18 @@ def _count_strings(rows: list[Mapping[str, Any]], key: str) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
+def _count_reason_list(rows: list[Mapping[str, Any]], key: str) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for row in rows:
+        values = row.get(key)
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            if isinstance(value, str) and value:
+                counts[value] += 1
+    return dict(sorted(counts.items()))
+
+
 def _write_json_file(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n",
@@ -889,6 +901,15 @@ def _build_summary(
                     1 for row in group_rows if row.get("lm5g_loadable") is True
                 ),
                 "failure_reason_counts": _count_strings(group_rows, "failure_reason"),
+                "observation_action_intent_anomaly_count": sum(
+                    1
+                    for row in group_rows
+                    if row.get("observation_action_intent_anomaly") is True
+                ),
+                "observation_action_intent_reason_counts": _count_reason_list(
+                    group_rows,
+                    "observation_action_intent_reasons",
+                ),
             }
         )
 

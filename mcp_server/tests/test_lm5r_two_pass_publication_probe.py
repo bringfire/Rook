@@ -849,6 +849,16 @@ def test_build_summary_groups_by_status_kind_and_preservation() -> None:
     rows = [
         _summary_row(),
         _summary_row(
+            scenario="evidence_absent_like",
+            pass1_kind="observation",
+            pass2_response_kind="observation",
+            observation_action_intent_anomaly=True,
+            observation_action_intent_reasons=[
+                "observation_data_action_id_allowed",
+                "observation_message_mentions_allowed_action_id",
+            ],
+        ),
+        _summary_row(
             scenario="evidence_present_like",
             pass1_kind="action_request",
             pass2_response_kind="action_request",
@@ -890,6 +900,25 @@ def test_build_summary_groups_by_status_kind_and_preservation() -> None:
             "attempts": 1,
             "lm5g_loadable_count": 1,
             "failure_reason_counts": {},
+            "observation_action_intent_anomaly_count": 0,
+            "observation_action_intent_reason_counts": {},
+        },
+        {
+            "scenario": "evidence_absent_like",
+            "status": "published",
+            "pass1_kind": "observation",
+            "pass2_response_kind": "observation",
+            "kind_preserved": True,
+            "action_id_preserved": None,
+            "refusal_category_preserved": None,
+            "attempts": 1,
+            "lm5g_loadable_count": 1,
+            "failure_reason_counts": {},
+            "observation_action_intent_anomaly_count": 1,
+            "observation_action_intent_reason_counts": {
+                "observation_data_action_id_allowed": 1,
+                "observation_message_mentions_allowed_action_id": 1,
+            },
         },
         {
             "scenario": "evidence_present_like",
@@ -902,6 +931,8 @@ def test_build_summary_groups_by_status_kind_and_preservation() -> None:
             "attempts": 1,
             "lm5g_loadable_count": 1,
             "failure_reason_counts": {"pass2_action_id_changed": 1},
+            "observation_action_intent_anomaly_count": 0,
+            "observation_action_intent_reason_counts": {},
         },
         {
             "scenario": "evidence_present_like",
@@ -914,6 +945,8 @@ def test_build_summary_groups_by_status_kind_and_preservation() -> None:
             "attempts": 1,
             "lm5g_loadable_count": 1,
             "failure_reason_counts": {},
+            "observation_action_intent_anomaly_count": 0,
+            "observation_action_intent_reason_counts": {},
         },
     ]
 
