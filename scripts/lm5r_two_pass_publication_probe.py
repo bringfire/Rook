@@ -303,12 +303,12 @@ def _observation_action_intent_reasons(
         action_id = data.get("action_id")
         if isinstance(action_id, str) and action_id in allowed_action_ids:
             reasons.add("observation_data_action_id_allowed")
-        if _json_value_contains_allowed_action_id(
-            data,
-            allowed_action_ids,
-            skip_action_id_value=True,
-        ):
-            reasons.add("observation_data_mentions_allowed_action_id")
+    if data is not None and _json_value_contains_allowed_action_id(
+        data,
+        allowed_action_ids,
+        skip_action_id_value=isinstance(data, Mapping),
+    ):
+        reasons.add("observation_data_mentions_allowed_action_id")
 
     message = payload.get("message")
     if isinstance(message, str) and any(

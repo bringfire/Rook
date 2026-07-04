@@ -263,6 +263,32 @@ def test_observation_action_intent_reasons_detect_message_action_id() -> None:
     assert reasons == ("observation_message_mentions_allowed_action_id",)
 
 
+def test_observation_action_intent_reasons_detect_top_level_data_string_action_id_text() -> None:
+    reasons = PROBE._observation_action_intent_reasons(
+        payload={
+            "kind": "observation",
+            "message": "State report.",
+            "data": "candidate action draft_repair_params",
+        },
+        allowed_action_ids=("draft_repair_params",),
+    )
+
+    assert reasons == ("observation_data_mentions_allowed_action_id",)
+
+
+def test_observation_action_intent_reasons_detect_top_level_data_list_action_id_text() -> None:
+    reasons = PROBE._observation_action_intent_reasons(
+        payload={
+            "kind": "observation",
+            "message": "State report.",
+            "data": ["other", "candidate action draft_repair_params"],
+        },
+        allowed_action_ids=("draft_repair_params",),
+    )
+
+    assert reasons == ("observation_data_mentions_allowed_action_id",)
+
+
 def test_observation_action_intent_reasons_detect_nested_data_action_id_text() -> None:
     reasons = PROBE._observation_action_intent_reasons(
         payload={
@@ -301,7 +327,8 @@ def test_observation_action_intent_reasons_sort_and_deduplicate_reasons() -> Non
 
 The second test pins the planning note: `data.action_id` alone triggers only
 `observation_data_action_id_allowed`, not the broader recursive data-string
-reason.
+reason. The top-level data tests pin the LM5S behavior that lightweight pass
+1 decision artifacts can carry observation data as a string or list.
 
 - [ ] **Step 2: Run helper tests and verify RED**
 
@@ -313,6 +340,8 @@ cd C:\Users\bring\.config\superpowers\worktrees\Rook\lm5s-pass1-disposition-sema
   mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_ignore_non_observation_payloads `
   mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_detect_data_action_id_only_once `
   mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_detect_message_action_id `
+  mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_detect_top_level_data_string_action_id_text `
+  mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_detect_top_level_data_list_action_id_text `
   mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_detect_nested_data_action_id_text `
   mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_sort_and_deduplicate_reasons -q
 ```
@@ -375,12 +404,12 @@ def _observation_action_intent_reasons(
         action_id = data.get("action_id")
         if isinstance(action_id, str) and action_id in allowed_action_ids:
             reasons.add("observation_data_action_id_allowed")
-        if _json_value_contains_allowed_action_id(
-            data,
-            allowed_action_ids,
-            skip_action_id_value=True,
-        ):
-            reasons.add("observation_data_mentions_allowed_action_id")
+    if data is not None and _json_value_contains_allowed_action_id(
+        data,
+        allowed_action_ids,
+        skip_action_id_value=isinstance(data, Mapping),
+    ):
+        reasons.add("observation_data_mentions_allowed_action_id")
 
     message = payload.get("message")
     if isinstance(message, str) and any(
@@ -401,6 +430,8 @@ cd C:\Users\bring\.config\superpowers\worktrees\Rook\lm5s-pass1-disposition-sema
   mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_ignore_non_observation_payloads `
   mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_detect_data_action_id_only_once `
   mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_detect_message_action_id `
+  mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_detect_top_level_data_string_action_id_text `
+  mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_detect_top_level_data_list_action_id_text `
   mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_detect_nested_data_action_id_text `
   mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_sort_and_deduplicate_reasons -q
 ```

@@ -333,6 +333,28 @@ def test_observation_action_intent_reasons_detect_message_action_id() -> None:
     ) == ("observation_message_mentions_allowed_action_id",)
 
 
+def test_observation_action_intent_reasons_detect_top_level_data_string_action_id_text() -> None:
+    assert PROBE._observation_action_intent_reasons(
+        payload={
+            "kind": "observation",
+            "message": "State report.",
+            "data": "candidate action draft_repair_params",
+        },
+        allowed_action_ids=("draft_repair_params",),
+    ) == ("observation_data_mentions_allowed_action_id",)
+
+
+def test_observation_action_intent_reasons_detect_top_level_data_list_action_id_text() -> None:
+    assert PROBE._observation_action_intent_reasons(
+        payload={
+            "kind": "observation",
+            "message": "State report.",
+            "data": ["other", "candidate action draft_repair_params"],
+        },
+        allowed_action_ids=("draft_repair_params",),
+    ) == ("observation_data_mentions_allowed_action_id",)
+
+
 def test_observation_action_intent_reasons_detect_nested_data_action_id_text() -> None:
     assert PROBE._observation_action_intent_reasons(
         payload={
