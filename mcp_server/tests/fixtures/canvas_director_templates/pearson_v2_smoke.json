@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "fixture_id": "pearson_v2_smoke",
+  "source_capture_id": "pearson_canvas_director_prototype_20260704_144510",
+  "project_root": "C:/Users/bring/OneDrive/Desktop/Pearson/ANIMATION/V2",
+  "export_id": "pearson_animation_test",
+  "proposal_id": "pearson_v2_smoke",
+  "templates": [
+    "canvas_director.actors_v2",
+    "canvas_director.camera_controller",
+    "canvas_director.camera_path",
+    "canvas_director.clock",
+    "canvas_director.export_marker",
+    "canvas_director.oscillator",
+    "canvas_director.timing_gate",
+    "canvas_director.transform"
+  ],
+  "timeline": {
+    "fps": 24,
+    "frame_count": 240,
+    "duration_seconds": 10
+  },
+  "resolution": {
+    "width": 1280,
+    "height": 720
+  },
+  "actor_bindings": {
+    "actor_set_ref": ".rook/director_planning/actor_sets/roof_uplift_vertical_test_chunk_001.json",
+    "actor_grouping_ref": ".rook/director_planning/actor_groups/roof_uplift_vertical_test_chunk_001.grouping.json",
+    "source_object_ids": [
+      "a28cbdb5-51fa-46b2-b18b-ab880b54ded7"
+    ]
+  },
+  "motion": {
+    "strategy": "band_peel_wave",
+    "max_height": 12000,
+    "spread": 16,
+    "fast_preview": true,
+    "start": 0,
+    "progress": 1
+  },
+  "timing": {
+    "start": 0,
+    "end": 1,
+    "easing": "ease_in_out"
+  },
+  "camera": {
+    "mode": "target",
+    "projection": "perspective",
+    "lens_length": 50,
+    "near_clip": 0.1,
+    "far_clip": 1000000,
+    "viewport_name": "Perspective",
+    "enabled": true,
+    "preview": true
+  },
+  "layout": {
+    "origin": [-1200, -200],
+    "x_spacing": 260,
+    "y_spacing": 120
+  }
+}
