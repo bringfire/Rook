@@ -319,6 +319,34 @@ def _observation_action_intent_reasons(
     return tuple(sorted(reasons))
 
 
+def _allowed_action_ids_from_request(request_payload: Mapping[str, Any]) -> tuple[str, ...]:
+    context = request_payload.get("context")
+    if not isinstance(context, Mapping):
+        return ()
+
+    allowed_actions = context.get("allowed_actions")
+    if not isinstance(allowed_actions, list):
+        return ()
+
+    action_ids = {
+        action.get("action_id")
+        for action in allowed_actions
+        if isinstance(action, Mapping)
+        and isinstance(action.get("action_id"), str)
+        and action.get("action_id")
+    }
+    return tuple(sorted(action_ids))
+
+
+def _set_combined_observation_anomaly(row: dict[str, Any]) -> None:
+    reasons = sorted(
+        set(row["pass1_observation_action_intent_reasons"])
+        | set(row["pass2_observation_action_intent_reasons"])
+    )
+    row["observation_action_intent_reasons"] = reasons
+    row["observation_action_intent_anomaly"] = bool(reasons)
+
+
 def _schema_const_prop() -> dict[str, str]:
     return {"const": LOCAL_WORKER_TURN_RESPONSE_SCHEMA}
 
@@ -462,6 +490,12 @@ def _empty_attempt_row(
         "action_id_preserved": None,
         "refusal_category_preserved": None,
         "lm5g_loadable": False,
+        "pass1_observation_action_intent_anomaly": False,
+        "pass1_observation_action_intent_reasons": [],
+        "pass2_observation_action_intent_anomaly": False,
+        "pass2_observation_action_intent_reasons": [],
+        "observation_action_intent_anomaly": False,
+        "observation_action_intent_reasons": [],
     }
 
 
@@ -591,6 +625,16 @@ def _run_attempt(
     row["pass1_kind"] = decision["kind"]
     row["pass1_action_id"] = decision.get("action_id")
     row["pass1_refusal_category"] = decision.get("category")
+    allowed_action_ids = _allowed_action_ids_from_request(request_payload)
+    pass1_observation_reasons = list(
+        _observation_action_intent_reasons(
+            payload=decision,
+            allowed_action_ids=allowed_action_ids,
+        )
+    )
+    row["pass1_observation_action_intent_reasons"] = pass1_observation_reasons
+    row["pass1_observation_action_intent_anomaly"] = bool(pass1_observation_reasons)
+    _set_combined_observation_anomaly(row)
 
     single_kind_schema = _single_kind_response_schema(decision)
     row["pass2_schema_kind"] = decision["kind"]
@@ -655,6 +699,15 @@ def _run_attempt(
         row["failure_reason"] = f"pass2_lm5g_load_failed:{type(exc).__name__}"
         return row
 
+    pass2_observation_reasons = list(
+        _observation_action_intent_reasons(
+            payload=parsed_response,
+            allowed_action_ids=allowed_action_ids,
+        )
+    )
+    row["pass2_observation_action_intent_reasons"] = pass2_observation_reasons
+    row["pass2_observation_action_intent_anomaly"] = bool(pass2_observation_reasons)
+    _set_combined_observation_anomaly(row)
     row["lm5g_loadable"] = True
     row["kind_preserved"] = row["pass2_response_kind"] == row["pass1_kind"]
     row["action_id_preserved"] = (

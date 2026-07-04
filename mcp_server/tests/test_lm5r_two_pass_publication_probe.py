@@ -64,6 +64,8 @@ def _summary_row(
     refusal_category_preserved: bool | None = None,
     lm5g_loadable: bool = True,
     failure_reason: str | None = None,
+    observation_action_intent_anomaly: bool = False,
+    observation_action_intent_reasons: list[str] | None = None,
 ) -> dict:
     return {
         "scenario": scenario,
@@ -75,6 +77,8 @@ def _summary_row(
         "refusal_category_preserved": refusal_category_preserved,
         "lm5g_loadable": lm5g_loadable,
         "failure_reason": failure_reason,
+        "observation_action_intent_anomaly": observation_action_intent_anomaly,
+        "observation_action_intent_reasons": observation_action_intent_reasons or [],
     }
 
 
@@ -549,6 +553,143 @@ def test_run_attempt_publishes_valid_same_kind_clarification() -> None:
     assert row["action_id_preserved"] is None
     assert row["lm5g_loadable"] is True
     assert provider.calls[1]["think"] is False
+
+
+def test_run_attempt_records_pass1_observation_action_intent_anomaly() -> None:
+    provider = _FakeProvider(
+        [
+            _ollama_response(
+                json.dumps(
+                    {
+                        "kind": "observation",
+                        "message": "Decision: draft_repair_params",
+                        "data": {"action_id": "draft_repair_params"},
+                    }
+                ),
+                thinking="state report",
+            ),
+            _ollama_response(
+                json.dumps(
+                    {
+                        "schema": "rook.local_worker_turn_response:v1",
+                        "kind": "observation",
+                        "message": "State only.",
+                        "data": None,
+                    }
+                )
+            ),
+        ]
+    )
+
+    row = PROBE._run_attempt(
+        model="gemma4:12b-it-qat",
+        scenario="evidence_present_like",
+        attempt=1,
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        post_chat=provider,
+    )
+
+    expected_reasons = [
+        "observation_data_action_id_allowed",
+        "observation_message_mentions_allowed_action_id",
+    ]
+    assert row["status"] == "published"
+    assert row["pass1_observation_action_intent_anomaly"] is True
+    assert row["pass1_observation_action_intent_reasons"] == expected_reasons
+    assert row["pass2_observation_action_intent_anomaly"] is False
+    assert row["pass2_observation_action_intent_reasons"] == []
+    assert row["observation_action_intent_anomaly"] is True
+    assert row["observation_action_intent_reasons"] == expected_reasons
+
+
+def test_run_attempt_records_pass2_observation_action_intent_anomaly_after_lm5g_load() -> None:
+    provider = _FakeProvider(
+        [
+            _ollama_response(
+                json.dumps(
+                    {
+                        "kind": "observation",
+                        "message": "Visible state only.",
+                        "data": None,
+                    }
+                )
+            ),
+            _ollama_response(
+                json.dumps(
+                    {
+                        "schema": "rook.local_worker_turn_response:v1",
+                        "kind": "observation",
+                        "message": "State report.",
+                        "data": {"note": "draft_repair_params"},
+                    }
+                )
+            ),
+        ]
+    )
+
+    row = PROBE._run_attempt(
+        model="gemma4:12b-it-qat",
+        scenario="evidence_present_like",
+        attempt=1,
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        post_chat=provider,
+    )
+
+    expected_reasons = ["observation_data_mentions_allowed_action_id"]
+    assert row["status"] == "published"
+    assert row["pass1_observation_action_intent_anomaly"] is False
+    assert row["pass1_observation_action_intent_reasons"] == []
+    assert row["pass2_observation_action_intent_anomaly"] is True
+    assert row["pass2_observation_action_intent_reasons"] == expected_reasons
+    assert row["observation_action_intent_anomaly"] is True
+    assert row["observation_action_intent_reasons"] == expected_reasons
+
+
+def test_run_attempt_does_not_score_pass2_anomaly_when_lm5g_load_fails() -> None:
+    provider = _FakeProvider(
+        [
+            _ollama_response(
+                json.dumps(
+                    {
+                        "kind": "observation",
+                        "message": "Visible state only.",
+                        "data": None,
+                    }
+                )
+            ),
+            _ollama_response(
+                json.dumps(
+                    {
+                        "schema": "rook.local_worker_turn_response:v1",
+                        "kind": "observation",
+                        "message": "draft_repair_params",
+                    }
+                )
+            ),
+        ]
+    )
+
+    row = PROBE._run_attempt(
+        model="gemma4:12b-it-qat",
+        scenario="evidence_present_like",
+        attempt=1,
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        post_chat=provider,
+    )
+
+    assert row["status"] == "pass2_lm5g_invalid"
+    assert row["failure_reason"] == "pass2_lm5g_load_failed:ValueError"
+    assert row["pass2_observation_action_intent_anomaly"] is False
+    assert row["pass2_observation_action_intent_reasons"] == []
 
 
 def test_run_attempt_reports_pass2_kind_changed_after_lm5g_load() -> None:
