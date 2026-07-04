@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-"""LM5P Ollama think/format diagnostic spike scaffold.
+"""LM5P direct Ollama think/format diagnostic spike.
 
-This script is intentionally offline for Task 1: it defines deterministic
-schema, mode, and request-body construction helpers without making Ollama
-calls. Later LM5P tasks can layer live probing on top of this contract.
+Manual live diagnostic only. It renders real LM5N prompt envelopes, calls
+Ollama's local /api/chat endpoint with selected think/format modes, and writes
+bounded local evidence under probe_runs/.
 """
 
 from __future__ import annotations
