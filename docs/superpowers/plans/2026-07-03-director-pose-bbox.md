@@ -56,6 +56,7 @@ Append these tests after `test_director_instance_restore_live_repro_is_scratch_a
 def test_director_pose_bbox_probe_records_raw_tight_and_expected_phase_bboxes():
     source = DIRECTOR_FRAME.read_text(encoding="utf-8")
     phase_body = _extract_function(source, "nlohmann::json NativeObjectPhaseEvidence")
+    expected_body = _extract_function(source, "ON_BoundingBox TransformBoundingBoxByCorners")
     apply_body = _extract_function(source, "void DirectorObjectPoseGuard::Apply")
     restore_body = _extract_function(source, "bool DirectorObjectPoseGuard::Restore")
 
@@ -82,6 +83,8 @@ def test_director_pose_bbox_probe_records_raw_tight_and_expected_phase_bboxes():
     assert "ExpectedPhaseBbox(m_objects[i], m_objects[i].delta)" in apply_body
     assert "ExpectedPhaseBbox(object, object.delta)" in restore_body
     assert "ExpectedPhaseBbox(object, ON_Xform::IdentityTransformation)" in restore_body
+    assert "transformed.Union(xform * corner)" in expected_body
+    assert "corner * xform" not in expected_body
     assert "BboxDeltaToJson" in phase_body
     assert "BboxMaxDelta" in phase_body
 
@@ -147,7 +150,7 @@ ON_BoundingBox TransformBoundingBoxByCorners(const ON_BoundingBox& bbox, const O
     };
 
     for (const ON_3dPoint& corner : corners)
-        transformed.Union(corner * xform);
+        transformed.Union(xform * corner);
 
     return transformed;
 }
@@ -323,7 +326,35 @@ and:
                 : ExpectedPhaseBbox(object, object.delta));
 ```
 
-- [ ] **Step 4: Run source tests**
+- [ ] **Step 4: Update existing phase-ordering source test**
+
+In `test_director_transform_diagnostics_do_not_delay_applied_bookkeeping`, update the exact old phase-evidence call assertions so the test continues to check ordering without depending on the old two-argument signature.
+
+Replace:
+
+```python
+    phase_after_apply_index = apply_body.index('detail["phase_after_apply"] = NativeObjectPhaseEvidence(m_doc, m_objects[i]);')
+```
+
+with:
+
+```python
+    phase_after_apply_index = apply_body.index('detail["phase_after_apply"] = NativeObjectPhaseEvidence')
+```
+
+Replace:
+
+```python
+    phase_after_restore_index = not_applied_branch.index('detail["phase_after_restore"] = NativeObjectPhaseEvidence(m_doc, object);')
+```
+
+with:
+
+```python
+    phase_after_restore_index = not_applied_branch.index('detail["phase_after_restore"] = NativeObjectPhaseEvidence')
+```
+
+- [ ] **Step 5: Run source tests**
 
 Run:
 
@@ -333,7 +364,7 @@ mcp_server\.venv\Scripts\python.exe -m pytest mcp_server/tests/test_director_nat
 
 Expected: pass.
 
-- [ ] **Step 5: Verify no forbidden scope drift**
+- [ ] **Step 6: Verify no forbidden scope drift**
 
 Run:
 
@@ -345,7 +376,7 @@ if ($diff) { throw "Forbidden files changed:`n$diff" }
 
 Expected: no output from `git diff --check`; no forbidden file matches.
 
-- [ ] **Step 6: Commit probe implementation**
+- [ ] **Step 7: Commit probe implementation**
 
 Run:
 
@@ -400,11 +431,7 @@ Ask the user to open:
 C:\Users\bring\OneDrive\Desktop\Pearson\ANIMATION\V2\Axon_Pearson_Experimental_TESTING.3dm
 ```
 
-and the Grasshopper definition:
-
-```text
-animation test_smoke-01
-```
+Do not open Grasshopper for this minimized native probe. This diagnostic only needs the Pearson Rhino file and an active perspective model view.
 
 - [ ] **Step 5: Bind MCP to the live Pearson Rhino instance**
 
@@ -596,6 +623,9 @@ def test_director_pose_bbox_helper_prefers_tight_with_raw_fallback():
     assert "DirectorPoseBboxResult DirectorObjectPoseBbox(const CRhinoObject& obj);" in header
 
     helper_body = _extract_function(source, "DirectorPoseBboxResult DirectorObjectPoseBbox")
+    helper_index = source.index("DirectorPoseBboxResult DirectorObjectPoseBbox")
+    validate_index = source.index("void ValidateFrameObjects")
+    assert source.index("bool BboxAlmostEqual") < helper_index < validate_index
     assert "obj.GetTightBoundingBox(bbox)" in helper_body
     assert '"tight_object"' in helper_body
     assert "obj.BoundingBox()" in helper_body
@@ -672,9 +702,13 @@ Under `// Validation helpers`, add:
 DirectorPoseBboxResult DirectorObjectPoseBbox(const CRhinoObject& obj);
 ```
 
-- [ ] **Step 2: Implement helper**
+- [ ] **Step 2: Implement helper with external linkage**
 
-In `src/RookNative/Handlers/DirectorFrame.cpp`, after `BboxMaxDelta`, add:
+In `src/RookNative/Handlers/DirectorFrame.cpp`, add the helper outside the anonymous namespace so it satisfies the declaration in `DirectorFrame.h` and can link from `DirectorHandler.cpp`.
+
+Do not place this function after `BboxMaxDelta`; that area is inside `namespace { ... }`.
+
+Place it after `BboxAlmostEqual()` and before `ValidateFrameObjects()`:
 
 ```cpp
 DirectorPoseBboxResult DirectorObjectPoseBbox(const CRhinoObject& obj)
