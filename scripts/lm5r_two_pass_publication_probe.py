@@ -73,6 +73,8 @@ _SCENARIO_MAP = {
     "evidence_present_like": "evidence_present",
 }
 
+PASS1_DECISION_INSTRUCTION_VERSION = "lm5r.pass1_decision_instruction:v1"
+
 _PASS1_DECISION_INSTRUCTION = """\
 Return a small decision JSON object for this worker turn.
 
@@ -792,6 +794,10 @@ def _build_manifest(
         "endpoint": endpoint,
         "temperature": temperature,
         "attempts_per_scenario": attempts_per_scenario,
+        "pass1_decision_instruction_version": PASS1_DECISION_INSTRUCTION_VERSION,
+        "pass1_decision_instruction_sha256": _sha256_text(
+            _PASS1_DECISION_INSTRUCTION
+        ),
         "raw_artifacts": "local evidence under probe_runs; do not commit",
     }
 

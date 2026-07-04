@@ -92,6 +92,10 @@ class _FakeProvider:
 
 def test_constants_are_pinned() -> None:
     assert PROBE.SCRIPT_SCHEMA == "rook.lm5r_two_pass_publication_probe:v1"
+    assert (
+        PROBE.PASS1_DECISION_INSTRUCTION_VERSION
+        == "lm5r.pass1_decision_instruction:v1"
+    )
     assert PROBE.DEFAULT_MODEL == "gemma4:12b-it-qat"
     assert PROBE.SCENARIO_NAMES == (
         "evidence_absent_like",
@@ -729,6 +733,13 @@ def test_run_probe_writes_manifest_attempts_and_summary(
     assert manifest["model"]["model"] == "gemma4:12b-it-qat"
     assert manifest["scenarios"] == ["evidence_absent_like", "evidence_present_like"]
     assert manifest["attempts_per_scenario"] == 1
+    assert (
+        manifest["pass1_decision_instruction_version"]
+        == "lm5r.pass1_decision_instruction:v1"
+    )
+    assert manifest["pass1_decision_instruction_sha256"] == PROBE._sha256_text(
+        PROBE._PASS1_DECISION_INSTRUCTION
+    )
 
     attempt_rows = [
         json.loads(line)
