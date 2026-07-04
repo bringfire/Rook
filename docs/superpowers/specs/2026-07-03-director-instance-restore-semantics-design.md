@@ -1,7 +1,7 @@
 # Director Instance Restore Semantics Design
 
 Date: 2026-07-03
-Status: ready for user review
+Status: diagnostic result recorded
 Branch: `codex/director-instance-restore-semantics`
 Parent branch: `codex/rookvision-canvas-director`
 Planned first commit scope: `test(director): probe instance restore semantics`
@@ -183,6 +183,53 @@ Use the synthetic repro to choose the next move:
 
 Do not proceed to a fix until the evidence clearly points to one of these
 branches.
+
+## Diagnostic Result
+
+The first synthetic live diagnostic was run against a native-only deployed
+Debug build from `codex/director-instance-restore-semantics`.
+
+Command:
+
+```powershell
+mcp_server\.venv\Scripts\python.exe -m pytest mcp_server/tests/test_director_routes_live.py::test_director_instance_restore_semantics_large_coordinate_probe -q -s
+```
+
+Result:
+
+- pytest result: `1 passed`;
+- run root:
+  `C:\Users\bring\AppData\Local\Rook\rookvision_director\instance_restore_semantics_558860aa12a941f3be09e6e44726ced2`;
+- persisted summary:
+  `logs\instance_restore_semantics_probe.json`;
+- run state: `complete`;
+- frame indices: `[1, 2]`;
+- simple Brep control `restored`: `[true, true]`;
+- simple Brep control `bbox_max_delta`: `[0.0, 0.0]`;
+- `InstanceReference` `restored`: `[true, true]`;
+- `InstanceReference` `bbox_max_delta`: `[0.0, 0.0]`;
+- `InstanceReference` definition id/name and `InstanceXform()` round-tripped
+  cleanly for the simple large-coordinate pure-Z fixture.
+
+The synthetic fixture did not reproduce the Pearson failure. It shows that a
+simple large-coordinate block instance with identity scale/rotation can
+round-trip through the current Director apply/inverse-restore path. It also
+shows that the runtime serial number changes on the transformed frame for both
+the Brep control and the `InstanceReference`, while the object UUID remains
+resolvable and the bbox returns to the source pose.
+
+Classification:
+
+- the observed Pearson failure is not explained by a simple large-coordinate
+  `InstanceReference` plus a small pure-Z translation;
+- the next diagnostic should extend the synthetic fixture toward Pearson-like
+  block structure before changing restore semantics, especially nested block
+  definitions, non-identity instance transforms, non-uniform scale or rotation
+  if supported by the relevant route, definition geometry complexity, and
+  source-state mismatch;
+- any future restore design should account for runtime-serial churn under
+  `TransformObject`, but this diagnostic alone does not justify snapshot or
+  replacement restore semantics.
 
 ## Evidence Contract Note
 
