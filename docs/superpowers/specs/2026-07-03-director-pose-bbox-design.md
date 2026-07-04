@@ -112,7 +112,8 @@ Use the helper consistently in the Director runtime:
 - phase evidence;
 - restore verification.
 
-The helper should record `bbox_method` in evidence, for example:
+The helper should record `bbox_method` in native responses and frame evidence,
+for example:
 
 - `tight_object`;
 - `raw_object_fallback`;
@@ -121,6 +122,12 @@ The helper should record `bbox_method` in evidence, for example:
 The goal is one Director definition of "pose bbox truth." Do not fix only
 restore verification while leaving `/director/object-states` on a different
 primitive.
+
+For this slice, `bbox_method` is native response/evidence metadata. Python
+currently reduces source state to `bbox_min`, `bbox_max`,
+`validation_strength`, and `state_hash`; preserving `bbox_method` into run
+inputs would require explicit Python scope and is not required for this native
+Director probe/fix slice.
 
 ## Phase Expected Bbox
 
@@ -134,10 +141,16 @@ Phase expectations:
 - `phase_before_restore`: source bbox transformed by the requested transform;
 - `phase_after_restore`: source bbox.
 
-For a pure translation, this is the source min/max translated by the vector.
-For any general affine transform, compute the expected world AABB by
-transforming all eight corners of the source bbox and taking the resulting
-axis-aligned bounding box. Do not transform only min/max for general transforms.
+For the hard gate, this comparison is scoped to the minimized Pearson pure-Z
+translation probe. In that case the phase-expected bbox is the source min/max
+translated by the vector and is a strict expected value.
+
+For any general affine transform, transforming all eight source-bbox corners
+and taking the resulting axis-aligned bounding box is only a coarse diagnostic
+unless the source geometry is box-equivalent. It is the AABB of the old bbox,
+not necessarily the tight bbox of transformed non-box geometry. Do not use that
+coarse affine expectation as a hard gate for rotations, shears, or scales on
+arbitrary geometry.
 
 The evidence should make the comparison explicit:
 
@@ -158,8 +171,9 @@ the following:
 - raw `BoundingBox()` reproduces the wrong X/Y in the same phase where Pearson
   currently fails;
 - object-level `GetTightBoundingBox()` is valid;
-- tight bbox matches the phase-expected bbox within the existing strict
-  tolerance for before-apply, after-apply, before-restore, and after-restore;
+- tight bbox matches the pure-translation phase-expected bbox within the
+  existing strict tolerance for before-apply, after-apply, before-restore, and
+  after-restore;
 - `InstanceXform()` remains correct: source, Z `0.628483`, Z `0.628483`,
   source;
 - no hard failure path is being hidden or downgraded.
@@ -211,7 +225,7 @@ For Checkpoint 2:
 
 - after the helper is adopted, source validation and restore validation should
   compare against helper-produced Director pose bboxes;
-- evidence should say which method was used;
+- native responses and frame evidence should say which method was used;
 - fallback to raw bbox should be visible and should not silently masquerade as
   tight bbox;
 - if neither method returns a valid bbox, keep the current hard failure shape.
@@ -270,6 +284,6 @@ extract -> spec -> compile -> run_compiled_track -> assemble_director_video
 - Does object-level `GetTightBoundingBox()` return the correct immediate bbox
   for the minimized Pearson object after apply and after restore?
 - Does it remain correct for other existing Director fixture objects?
-- Should `/director/object-states` expose `bbox_method` immediately, or only in
-  frame evidence? The recommendation is to expose it so run inputs and restore
-  evidence agree on pose truth.
+- If a later slice needs run-input provenance for bbox method, should Python
+  preserve native `bbox_method` in `source_state` or store it separately as
+  evidence metadata?
