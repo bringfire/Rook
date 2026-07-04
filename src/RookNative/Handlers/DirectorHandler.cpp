@@ -522,9 +522,10 @@ nlohmann::json SerializeViewportCamera(const ON_Viewport& vp)
 nlohmann::json SerializeObjectState(CRhinoDoc* pDoc, const CRhinoObject* obj)
 {
     const CRhinoObjectAttributes& attrs = obj->Attributes();
-    ON_BoundingBox bbox = obj->BoundingBox();
-    if (!bbox.IsValid())
-        throw std::runtime_error("Object has invalid bounding box: " + UuidToString(attrs.m_uuid));
+    const DirectorPoseBboxResult poseBbox = DirectorObjectPoseBbox(*obj);
+    if (!poseBbox.valid)
+        throw std::runtime_error("Object has invalid Director pose bbox: " + UuidToString(attrs.m_uuid));
+    const ON_BoundingBox& bbox = poseBbox.bbox;
 
     nlohmann::json state;
     state["object_id"] = UuidToString(attrs.m_uuid);
@@ -534,6 +535,7 @@ nlohmann::json SerializeObjectState(CRhinoDoc* pDoc, const CRhinoObject* obj)
     state["bbox"] = BoundingBoxToJson(bbox);
     state["bbox_min"] = PointToJson(bbox.m_min);
     state["bbox_max"] = PointToJson(bbox.m_max);
+    state["bbox_method"] = poseBbox.method;
     state["state_hash"] = nullptr;
     state["validation_strength"] = "bbox_only";
 
