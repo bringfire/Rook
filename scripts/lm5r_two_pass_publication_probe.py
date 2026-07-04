@@ -349,6 +349,267 @@ def _build_pass2_body(
     }
 
 
+def _empty_attempt_row(
+    *,
+    model: str,
+    scenario: str,
+    attempt: int,
+) -> dict[str, Any]:
+    return {
+        "model": model,
+        "scenario": scenario,
+        "attempt": attempt,
+        "status": None,
+        "failure_reason": None,
+        "pass1_provider_status": None,
+        "pass1_kind": None,
+        "pass1_action_id": None,
+        "pass1_refusal_category": None,
+        "pass1_decision_sha256": None,
+        "pass1_content_excerpt": None,
+        "pass1_content_sha256": None,
+        "pass1_thinking_present": False,
+        "pass1_thinking_chars": 0,
+        "pass1_thinking_sha256": None,
+        "pass1_prompt_eval_count": None,
+        "pass1_eval_count": None,
+        "pass2_provider_status": None,
+        "pass2_schema_kind": None,
+        "pass2_response_kind": None,
+        "pass2_action_id": None,
+        "pass2_refusal_category": None,
+        "pass2_content_excerpt": None,
+        "pass2_content_sha256": None,
+        "pass2_prompt_eval_count": None,
+        "pass2_eval_count": None,
+        "kind_preserved": None,
+        "action_id_preserved": None,
+        "refusal_category_preserved": None,
+        "lm5g_loadable": False,
+    }
+
+
+def _post_ollama_chat(endpoint: str, body: dict[str, Any], timeout_s: float) -> str:
+    data = json.dumps(body).encode("utf-8")
+    request = urllib.request.Request(
+        endpoint,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout_s) as response:
+        return response.read().decode("utf-8")
+
+
+def _provider_message_fields(
+    provider_text: str,
+    *,
+    prefix: str,
+    excerpt_chars: int,
+) -> tuple[dict[str, Any] | None, str | None]:
+    try:
+        provider_payload = json.loads(provider_text)
+    except (json.JSONDecodeError, RecursionError) as exc:
+        return None, f"{prefix}_provider_json_invalid:{type(exc).__name__}"
+
+    if not isinstance(provider_payload, Mapping):
+        return None, f"{prefix}_provider_json_invalid:not_mapping"
+
+    message = provider_payload.get("message")
+    if not isinstance(message, Mapping):
+        return None, f"{prefix}_message_missing"
+
+    content = message.get("content")
+    if not isinstance(content, str) or not content:
+        return None, f"{prefix}_content_missing"
+
+    thinking = message.get("thinking")
+    fields = {
+        "content": content,
+        "content_excerpt": _excerpt(content, excerpt_chars),
+        "content_sha256": _sha256_text(content),
+        "thinking_present": isinstance(thinking, str) and bool(thinking),
+        "thinking_chars": len(thinking) if isinstance(thinking, str) else 0,
+        "thinking_sha256": _sha256_text(thinking) if isinstance(thinking, str) else None,
+        "prompt_eval_count": provider_payload.get("prompt_eval_count"),
+        "eval_count": provider_payload.get("eval_count"),
+    }
+    return fields, None
+
+
+def _build_pass1_body(
+    *,
+    model: str,
+    messages: list[dict[str, str]],
+    temperature: float,
+) -> dict[str, Any]:
+    return {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "think": True,
+        "options": {"temperature": temperature},
+    }
+
+
+def _run_attempt(
+    *,
+    model: str,
+    scenario: str,
+    attempt: int,
+    endpoint: str,
+    temperature: float,
+    timeout_s: float,
+    excerpt_chars: int,
+    post_chat: Any = _post_ollama_chat,
+) -> dict[str, Any]:
+    row = _empty_attempt_row(model=model, scenario=scenario, attempt=attempt)
+    pass1_messages, request_payload = _pass1_messages_for_scenario(scenario)
+    pass1_body = _build_pass1_body(
+        model=model,
+        messages=pass1_messages,
+        temperature=temperature,
+    )
+
+    try:
+        pass1_text = post_chat(endpoint, pass1_body, timeout_s)
+    except urllib.error.HTTPError as exc:
+        row["status"] = "pass1_provider_error"
+        row["failure_reason"] = f"pass1_http_error:{exc.code}"
+        row["pass1_provider_status"] = "error"
+        return row
+    except Exception as exc:
+        row["status"] = "pass1_provider_error"
+        row["failure_reason"] = f"pass1_provider_error:{type(exc).__name__}"
+        row["pass1_provider_status"] = "error"
+        return row
+
+    pass1_fields, pass1_failure = _provider_message_fields(
+        pass1_text,
+        prefix="pass1",
+        excerpt_chars=excerpt_chars,
+    )
+    if pass1_fields is None:
+        row["status"] = "pass1_decision_invalid"
+        row["failure_reason"] = pass1_failure
+        row["pass1_provider_status"] = "ok"
+        return row
+
+    row["pass1_provider_status"] = "ok"
+    row["pass1_content_excerpt"] = pass1_fields["content_excerpt"]
+    row["pass1_content_sha256"] = pass1_fields["content_sha256"]
+    row["pass1_thinking_present"] = pass1_fields["thinking_present"]
+    row["pass1_thinking_chars"] = pass1_fields["thinking_chars"]
+    row["pass1_thinking_sha256"] = pass1_fields["thinking_sha256"]
+    row["pass1_prompt_eval_count"] = pass1_fields["prompt_eval_count"]
+    row["pass1_eval_count"] = pass1_fields["eval_count"]
+
+    decision, decision_failure = _parse_pass1_decision(pass1_fields["content"])
+    if decision is None:
+        row["status"] = "pass1_decision_invalid"
+        row["failure_reason"] = decision_failure
+        return row
+
+    decision_text = json.dumps(decision, sort_keys=True)
+    row["pass1_decision_sha256"] = _sha256_text(decision_text)
+    row["pass1_kind"] = decision["kind"]
+    row["pass1_action_id"] = decision.get("action_id")
+    row["pass1_refusal_category"] = decision.get("category")
+
+    single_kind_schema = _single_kind_response_schema(decision)
+    row["pass2_schema_kind"] = decision["kind"]
+    pass2_body = _build_pass2_body(
+        model=model,
+        request_payload=request_payload,
+        decision=decision,
+        single_kind_schema=single_kind_schema,
+        temperature=temperature,
+    )
+
+    try:
+        pass2_text = post_chat(endpoint, pass2_body, timeout_s)
+    except urllib.error.HTTPError as exc:
+        row["status"] = "pass2_provider_error"
+        row["failure_reason"] = f"pass2_http_error:{exc.code}"
+        row["pass2_provider_status"] = "error"
+        return row
+    except Exception as exc:
+        row["status"] = "pass2_provider_error"
+        row["failure_reason"] = f"pass2_provider_error:{type(exc).__name__}"
+        row["pass2_provider_status"] = "error"
+        return row
+
+    pass2_fields, pass2_failure = _provider_message_fields(
+        pass2_text,
+        prefix="pass2",
+        excerpt_chars=excerpt_chars,
+    )
+    if pass2_fields is None:
+        row["status"] = "pass2_lm5g_invalid"
+        row["failure_reason"] = pass2_failure
+        row["pass2_provider_status"] = "ok"
+        return row
+
+    row["pass2_provider_status"] = "ok"
+    row["pass2_content_excerpt"] = pass2_fields["content_excerpt"]
+    row["pass2_content_sha256"] = pass2_fields["content_sha256"]
+    row["pass2_prompt_eval_count"] = pass2_fields["prompt_eval_count"]
+    row["pass2_eval_count"] = pass2_fields["eval_count"]
+
+    try:
+        parsed_response = json.loads(pass2_fields["content"])
+    except (json.JSONDecodeError, RecursionError) as exc:
+        row["status"] = "pass2_lm5g_invalid"
+        row["failure_reason"] = f"pass2_content_json_invalid:{type(exc).__name__}"
+        return row
+
+    if not isinstance(parsed_response, Mapping):
+        row["status"] = "pass2_lm5g_invalid"
+        row["failure_reason"] = "pass2_content_not_mapping"
+        return row
+
+    row["pass2_response_kind"] = parsed_response.get("kind")
+    row["pass2_action_id"] = parsed_response.get("action_id")
+    row["pass2_refusal_category"] = parsed_response.get("category")
+
+    try:
+        load_local_worker_turn_response_payload(parsed_response)
+    except (TypeError, ValueError) as exc:
+        row["status"] = "pass2_lm5g_invalid"
+        row["failure_reason"] = f"pass2_lm5g_load_failed:{type(exc).__name__}"
+        return row
+
+    row["lm5g_loadable"] = True
+    row["kind_preserved"] = row["pass2_response_kind"] == row["pass1_kind"]
+    row["action_id_preserved"] = (
+        row["pass2_action_id"] == row["pass1_action_id"]
+        if row["pass1_kind"] == "action_request"
+        else None
+    )
+    row["refusal_category_preserved"] = (
+        row["pass2_refusal_category"] == row["pass1_refusal_category"]
+        if row["pass1_kind"] == "refusal"
+        else None
+    )
+
+    if row["kind_preserved"] is not True:
+        row["status"] = "pass2_invariant_violation"
+        row["failure_reason"] = "pass2_kind_changed"
+        return row
+    if row["action_id_preserved"] is False:
+        row["status"] = "pass2_invariant_violation"
+        row["failure_reason"] = "pass2_action_id_changed"
+        return row
+    if row["refusal_category_preserved"] is False:
+        row["status"] = "pass2_invariant_violation"
+        row["failure_reason"] = "pass2_refusal_category_changed"
+        return row
+
+    row["status"] = "published"
+    row["failure_reason"] = None
+    return row
+
+
 def main(argv: list[str] | None = None) -> int:
     _args(argv)
     return 0

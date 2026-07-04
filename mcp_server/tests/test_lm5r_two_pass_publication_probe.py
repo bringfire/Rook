@@ -33,6 +33,38 @@ def _load_script():
 PROBE = _load_script()
 
 
+def _ollama_response(
+    content: str,
+    *,
+    thinking: str | None = None,
+    prompt_eval_count: int = 10,
+    eval_count: int = 20,
+) -> str:
+    message: dict[str, str] = {"content": content}
+    if thinking is not None:
+        message["thinking"] = thinking
+    return json.dumps(
+        {
+            "message": message,
+            "prompt_eval_count": prompt_eval_count,
+            "eval_count": eval_count,
+            "done_reason": "stop",
+        }
+    )
+
+
+class _FakeProvider:
+    def __init__(self, responses: list[str]):
+        self.responses = list(responses)
+        self.calls: list[dict] = []
+
+    def __call__(self, endpoint: str, body: dict, timeout_s: float) -> str:
+        self.calls.append(body)
+        if not self.responses:
+            raise AssertionError("unexpected provider call")
+        return self.responses.pop(0)
+
+
 def test_constants_are_pinned() -> None:
     assert PROBE.SCRIPT_SCHEMA == "rook.lm5r_two_pass_publication_probe:v1"
     assert PROBE.DEFAULT_MODEL == "gemma4:12b-it-qat"
@@ -307,6 +339,278 @@ def test_pass2_request_body_uses_single_kind_format_and_think_false() -> None:
         decision,
         schema,
     )
+
+
+def test_run_attempt_stops_before_pass2_when_pass1_decision_missing_action_id() -> None:
+    provider = _FakeProvider(
+        [
+            _ollama_response('{"kind":"action_request"}', thinking="deciding"),
+        ]
+    )
+
+    row = PROBE._run_attempt(
+        model="gemma4:12b-it-qat",
+        scenario="evidence_present_like",
+        attempt=1,
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        post_chat=provider,
+    )
+
+    assert row["status"] == "pass1_decision_invalid"
+    assert row["failure_reason"] == "pass1_missing_action_id"
+    assert len(provider.calls) == 1
+    assert row["pass1_kind"] is None
+    assert row["lm5g_loadable"] is False
+
+
+def test_run_attempt_records_pass1_provider_error() -> None:
+    def raising_provider(endpoint: str, body: dict, timeout_s: float) -> str:
+        raise RuntimeError("boom")
+
+    row = PROBE._run_attempt(
+        model="gemma4:12b-it-qat",
+        scenario="evidence_absent_like",
+        attempt=1,
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        post_chat=raising_provider,
+    )
+
+    assert row["status"] == "pass1_provider_error"
+    assert row["failure_reason"] == "pass1_provider_error:RuntimeError"
+
+
+def test_run_attempt_publishes_valid_same_kind_clarification() -> None:
+    provider = _FakeProvider(
+        [
+            _ollama_response(
+                '{"kind":"clarification_request","question":"Please provide the current code."}',
+                thinking="need code",
+            ),
+            _ollama_response(
+                json.dumps(
+                    {
+                        "schema": "rook.local_worker_turn_response:v1",
+                        "kind": "clarification_request",
+                        "question": "Please provide the current code.",
+                        "rationale": "The request lacks code.",
+                    }
+                )
+            ),
+        ]
+    )
+
+    row = PROBE._run_attempt(
+        model="gemma4:12b-it-qat",
+        scenario="evidence_absent_like",
+        attempt=1,
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        post_chat=provider,
+    )
+
+    assert row["status"] == "published"
+    assert row["failure_reason"] is None
+    assert row["pass1_kind"] == "clarification_request"
+    assert row["pass2_response_kind"] == "clarification_request"
+    assert row["kind_preserved"] is True
+    assert row["action_id_preserved"] is None
+    assert row["lm5g_loadable"] is True
+    assert provider.calls[1]["think"] is False
+
+
+def test_run_attempt_reports_pass2_kind_changed_after_lm5g_load() -> None:
+    provider = _FakeProvider(
+        [
+            _ollama_response('{"kind":"clarification_request","question":"Need code?"}'),
+            _ollama_response(
+                json.dumps(
+                    {
+                        "schema": "rook.local_worker_turn_response:v1",
+                        "kind": "observation",
+                        "message": "I changed kind.",
+                        "data": None,
+                    }
+                )
+            ),
+        ]
+    )
+
+    row = PROBE._run_attempt(
+        model="gemma4:12b-it-qat",
+        scenario="evidence_absent_like",
+        attempt=1,
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        post_chat=provider,
+    )
+
+    assert row["lm5g_loadable"] is True
+    assert row["status"] == "pass2_invariant_violation"
+    assert row["failure_reason"] == "pass2_kind_changed"
+    assert row["kind_preserved"] is False
+
+
+def test_run_attempt_reports_pass2_action_id_changed_after_lm5g_load() -> None:
+    provider = _FakeProvider(
+        [
+            _ollama_response('{"kind":"action_request","action_id":"draft_repair_params"}'),
+            _ollama_response(
+                json.dumps(
+                    {
+                        "schema": "rook.local_worker_turn_response:v1",
+                        "kind": "action_request",
+                        "action_id": "other_action",
+                        "rationale": "Changed action.",
+                        "input": {},
+                    }
+                )
+            ),
+        ]
+    )
+
+    row = PROBE._run_attempt(
+        model="gemma4:12b-it-qat",
+        scenario="evidence_present_like",
+        attempt=1,
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        post_chat=provider,
+    )
+
+    assert row["lm5g_loadable"] is True
+    assert row["status"] == "pass2_invariant_violation"
+    assert row["failure_reason"] == "pass2_action_id_changed"
+    assert row["action_id_preserved"] is False
+
+
+def test_run_attempt_reports_pass2_refusal_category_changed_after_lm5g_load() -> None:
+    provider = _FakeProvider(
+        [
+            _ollama_response(
+                '{"kind":"refusal","category":"out_of_scope","reason":"No authority."}'
+            ),
+            _ollama_response(
+                json.dumps(
+                    {
+                        "schema": "rook.local_worker_turn_response:v1",
+                        "kind": "refusal",
+                        "category": "unsafe",
+                        "reason": "Changed category.",
+                    }
+                )
+            ),
+        ]
+    )
+
+    row = PROBE._run_attempt(
+        model="gemma4:12b-it-qat",
+        scenario="evidence_absent_like",
+        attempt=1,
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        post_chat=provider,
+    )
+
+    assert row["lm5g_loadable"] is True
+    assert row["status"] == "pass2_invariant_violation"
+    assert row["failure_reason"] == "pass2_refusal_category_changed"
+    assert row["refusal_category_preserved"] is False
+
+
+def test_run_attempt_reports_pass2_lm5g_invalid() -> None:
+    provider = _FakeProvider(
+        [
+            _ollama_response('{"kind":"clarification_request","question":"Need code?"}'),
+            _ollama_response(
+                json.dumps(
+                    {
+                        "schema": "rook.local_worker_turn_response:v1",
+                        "kind": "clarification_request",
+                        "question": "Need code?",
+                    }
+                )
+            ),
+        ]
+    )
+
+    row = PROBE._run_attempt(
+        model="gemma4:12b-it-qat",
+        scenario="evidence_absent_like",
+        attempt=1,
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        post_chat=provider,
+    )
+
+    assert row["status"] == "pass2_lm5g_invalid"
+    assert row["failure_reason"] == "pass2_lm5g_load_failed:ValueError"
+    assert row["lm5g_loadable"] is False
+
+
+def test_provider_message_fields_records_recursion_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def raise_recursion(_text: str) -> object:
+        raise RecursionError("nested too deeply")
+
+    monkeypatch.setattr(PROBE.json, "loads", raise_recursion)
+
+    fields, failure_reason = PROBE._provider_message_fields(
+        "provider payload",
+        prefix="pass1",
+        excerpt_chars=500,
+    )
+
+    assert fields is None
+    assert failure_reason == "pass1_provider_json_invalid:RecursionError"
+
+
+def test_run_attempt_reports_pass2_content_recursion_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_loads = json.loads
+
+    def loads_with_recursion(text: str) -> object:
+        if text == "RECURSIVE_CONTENT":
+            raise RecursionError("nested too deeply")
+        return real_loads(text)
+
+    monkeypatch.setattr(PROBE.json, "loads", loads_with_recursion)
+    provider = _FakeProvider(
+        [
+            _ollama_response('{"kind":"clarification_request","question":"Need code?"}'),
+            _ollama_response("RECURSIVE_CONTENT"),
+        ]
+    )
+
+    row = PROBE._run_attempt(
+        model="gemma4:12b-it-qat",
+        scenario="evidence_absent_like",
+        attempt=1,
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        post_chat=provider,
+    )
+
+    assert row["status"] == "pass2_lm5g_invalid"
+    assert row["failure_reason"] == "pass2_content_json_invalid:RecursionError"
+    assert row["lm5g_loadable"] is False
 
 
 def test_script_help_runs_from_repo_root() -> None:
