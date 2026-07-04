@@ -683,7 +683,7 @@ def _positive_int(value: str) -> int:
 
 def _args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="LM5P Ollama think/format diagnostic spike scaffold."
+        description="LM5P Ollama think/format diagnostic spike."
     )
     parser.add_argument("--endpoint", default=DEFAULT_ENDPOINT)
     parser.add_argument("--model", action="append", dest="models", default=None)

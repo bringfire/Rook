@@ -79,6 +79,42 @@ def test_args_custom_excerpt_chars() -> None:
     assert args.excerpt_chars == 1200
 
 
+def test_args_accept_lm5q_canonical_matrix_options() -> None:
+    args = SPIKE._args(
+        [
+            "--model",
+            "gemma4:12b-it-qat",
+            "--scenario",
+            "evidence_absent_like",
+            "--scenario",
+            "evidence_present_like",
+            "--mode",
+            "free_think_true",
+            "--mode",
+            "format_default",
+            "--mode",
+            "format_think_true",
+            "--mode",
+            "format_think_false",
+            "--attempts",
+            "5",
+            "--excerpt-chars",
+            "1200",
+        ]
+    )
+
+    assert args.models == ["gemma4:12b-it-qat"]
+    assert args.scenarios == ["evidence_absent_like", "evidence_present_like"]
+    assert args.modes == [
+        "free_think_true",
+        "format_default",
+        "format_think_true",
+        "format_think_false",
+    ]
+    assert args.attempts == 5
+    assert args.excerpt_chars == 1200
+
+
 def test_args_invalid_excerpt_chars_fails_during_parse() -> None:
     with pytest.raises(SystemExit):
         SPIKE._args(["--excerpt-chars", "0"])
@@ -828,7 +864,7 @@ def test_script_help_runs_from_repo_root() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "LM5P Ollama think/format diagnostic spike scaffold." in result.stdout
+    assert "LM5P Ollama think/format diagnostic spike." in result.stdout
 
 
 def test_script_static_import_and_call_guards() -> None:
