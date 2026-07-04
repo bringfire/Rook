@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import shutil
+import subprocess
+import sys
 import zipfile
 from pathlib import Path
 
@@ -60,6 +63,33 @@ NUMERIC_JSON_SCRIPTS = {
     "timing_gate.cs",
     "transform.cs",
 }
+
+
+def _pip_command() -> list[str]:
+    candidates = [[sys.executable, "-m", "pip"]]
+    py_launcher = shutil.which("py")
+    if py_launcher:
+        candidates.extend(
+            [
+                [py_launcher, "-3.10", "-m", "pip"],
+                [py_launcher, "-3", "-m", "pip"],
+            ]
+        )
+    python = shutil.which("python")
+    if python and python != sys.executable:
+        candidates.append([python, "-m", "pip"])
+
+    for command in candidates:
+        probe = subprocess.run(
+            [*command, "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if probe.returncode == 0:
+            return command
+
+    pytest.fail("No pip-capable Python interpreter available for wheel asset test")
 
 
 def _minimal_template_pack(script_path: str, script_sha256: str) -> dict[str, object]:
@@ -505,13 +535,12 @@ def test_deferred_prototype_ids_are_not_resolvable(template_id: str) -> None:
 def test_template_assets_are_present_in_built_wheel(tmp_path: Path) -> None:
     wheelhouse = tmp_path / "wheelhouse"
     wheelhouse.mkdir()
-
-    import subprocess
-    import sys
+    project_root = Path(__file__).resolve().parents[2]
+    mcp_project = project_root / "mcp_server"
 
     subprocess.run(
-        [sys.executable, "-m", "pip", "wheel", "--no-deps", "--wheel-dir", str(wheelhouse), "mcp_server"],
-        cwd=Path(__file__).resolve().parents[2],
+        [*_pip_command(), "wheel", "--no-deps", "--wheel-dir", str(wheelhouse), str(mcp_project)],
+        cwd=project_root,
         check=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
