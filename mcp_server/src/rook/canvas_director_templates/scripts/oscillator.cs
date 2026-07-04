@@ -1,155 +1,105 @@
 using System;
+using System.Globalization;
+using System.Text;
 using Grasshopper;
 using Grasshopper.Kernel;
 
 public class Script_Instance : GH_ScriptInstance
 {
     private void RunScript(
-		object LocalT,
-		object Active,
-		object Cycles,
-		object Phase,
-		object Mode,
-		object Amplitude,
-		object HoldMode,
-		ref object Value,
-		ref object RepeatT,
-		ref object PingPongT,
-		ref object Sine,
-		ref object Sine01,
-		ref object CycleIndex,
-		ref object ActiveOut,
-		ref object Done,
-		ref object Info)
+        object Progress,
+        object Amplitude,
+        object Frequency,
+        object Phase,
+        object Bias,
+        object Clamp,
+        object Enabled,
+        ref object Oscillator,
+        ref object Value,
+        ref object Wave,
+        ref object ProgressOut,
+        ref object AmplitudeOut,
+        ref object FrequencyOut,
+        ref object PhaseOut,
+        ref object BiasOut,
+        ref object EnabledOut,
+        ref object Info)
     {
-        double localT = Clamp(ReadDouble(LocalT, 0.0), 0.0, 1.0);
-        bool active = ReadBool(Active, true);
-        double cycles = Math.Max(0.0, ReadDouble(Cycles, 1.0));
-        double phase = ReadDouble(Phase, 0.0);
-        string mode = NormalizeMode(ReadString(Mode, "PingPong"));
+        double progress = ClampValue(ReadDouble(Progress, 0.0), 0.0, 1.0);
         double amplitude = ReadDouble(Amplitude, 1.0);
-        string holdMode = NormalizeHoldMode(ReadString(HoldMode, "Zero"));
+        double frequency = ReadDouble(Frequency, 1.0);
+        double phase = ReadDouble(Phase, 0.0);
+        double bias = ReadDouble(Bias, 0.0);
+        bool clamp = ReadBool(Clamp, false);
+        bool enabled = ReadBool(Enabled, true);
 
-        double repeatT = 0.0;
-        double pingPongT = 0.0;
-        double sine = 0.0;
-        double sine01 = 0.5;
-        int cycleIndex = 0;
-        bool done = localT >= 1.0;
+        double wave = enabled ? Math.Sin(2.0 * Math.PI * ((progress * frequency) + phase)) : 0.0;
+        double value = enabled ? (bias + (wave * amplitude)) : bias;
+        if (clamp)
+            value = ClampValue(value, 0.0, 1.0);
 
-        if (cycles > 0.0)
-        {
-            double cyclePositionRaw = localT * cycles + phase;
-            cycleIndex = (int)Math.Floor(Math.Max(0.0, cyclePositionRaw));
-            repeatT = PositiveFraction(cyclePositionRaw);
-            pingPongT = 1.0 - Math.Abs((2.0 * repeatT) - 1.0);
-            sine = Math.Sin(2.0 * Math.PI * repeatT);
-            sine01 = 0.5 + (0.5 * sine);
-
-            if (done && Math.Abs(repeatT) < 1e-9)
-            {
-                repeatT = 1.0;
-                pingPongT = 0.0;
-                sine = 0.0;
-                sine01 = 0.5;
-            }
-        }
-
-        double selected = SelectValue(mode, repeatT, pingPongT, sine, sine01);
-        if (!active)
-            selected = HoldValue(holdMode, mode);
-
-        double value = selected * amplitude;
-
+        Oscillator = BuildOscillatorJson(progress, amplitude, frequency, phase, bias, clamp, enabled, wave, value);
         Value = value;
-        RepeatT = active ? repeatT : HoldValue(holdMode, "Repeat");
-        PingPongT = active ? pingPongT : HoldValue(holdMode, "PingPong");
-        Sine = active ? sine : 0.0;
-        Sine01 = active ? sine01 : HoldValue(holdMode, "Sine01");
-        CycleIndex = cycleIndex;
-        ActiveOut = active;
-        Done = done;
-        Info = $"Director Oscillator: localT={localT:0.###}; active={active}; cycles={cycles:0.###}; phase={phase:0.###}; mode={mode}; amplitude={amplitude:0.###}; holdMode={holdMode}; value={value:0.###}; repeatT={repeatT:0.###}; pingPongT={pingPongT:0.###}; sine={sine:0.###}; sine01={sine01:0.###}; cycleIndex={cycleIndex}; done={done}.";
+        Wave = wave;
+        ProgressOut = progress;
+        AmplitudeOut = amplitude;
+        FrequencyOut = frequency;
+        PhaseOut = phase;
+        BiasOut = bias;
+        EnabledOut = enabled;
+        Info = $"Director Oscillator: progress={progress:0.###}; amplitude={amplitude:0.###}; frequency={frequency:0.###}; phase={phase:0.###}; bias={bias:0.###}; clamp={clamp}; enabled={enabled}; wave={wave:0.###}; value={value:0.###}.";
     }
 
-    private static double SelectValue(string mode, double repeatT, double pingPongT, double sine, double sine01)
+    private static string BuildOscillatorJson(double progress, double amplitude, double frequency, double phase, double bias, bool clamp, bool enabled, double wave, double value)
     {
-        switch (mode)
-        {
-            case "Repeat": return repeatT;
-            case "Sine": return sine;
-            case "Sine01": return sine01;
-            case "PingPong":
-            default:
-                return pingPongT;
-        }
-    }
-
-    private static double HoldValue(string holdMode, string mode)
-    {
-        switch (holdMode)
-        {
-            case "Initial": return mode == "Sine01" ? 0.5 : 0.0;
-            case "Final": return mode == "PingPong" ? 0.0 : 1.0;
-            case "One": return 1.0;
-            case "Zero":
-            default:
-                return 0.0;
-        }
-    }
-
-    private static string NormalizeMode(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return "PingPong";
-        string v = value.Trim().ToLowerInvariant();
-        if (v == "repeat" || v == "loopt" || v == "cycle") return "Repeat";
-        if (v == "sine" || v == "sin") return "Sine";
-        if (v == "sine01" || v == "sin01" || v == "sin01t" || v == "sine 0-1") return "Sine01";
-        return "PingPong";
-    }
-
-    private static string NormalizeHoldMode(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return "Zero";
-        string v = value.Trim().ToLowerInvariant();
-        if (v == "initial" || v == "start") return "Initial";
-        if (v == "final" || v == "end") return "Final";
-        if (v == "one" || v == "1") return "One";
-        return "Zero";
+        var sb = new StringBuilder();
+        sb.Append("{");
+        sb.Append("\"metadata_kind\":\"director_oscillator_payload\",");
+        sb.Append("\"schema_version\":1,");
+        sb.Append("\"progress\":").Append(Num(progress)).Append(",");
+        sb.Append("\"amplitude\":").Append(Num(amplitude)).Append(",");
+        sb.Append("\"frequency\":").Append(Num(frequency)).Append(",");
+        sb.Append("\"phase\":").Append(Num(phase)).Append(",");
+        sb.Append("\"bias\":").Append(Num(bias)).Append(",");
+        sb.Append("\"clamp\":").Append(clamp ? "true" : "false").Append(",");
+        sb.Append("\"enabled\":").Append(enabled ? "true" : "false").Append(",");
+        sb.Append("\"wave\":").Append(Num(wave)).Append(",");
+        sb.Append("\"value\":").Append(Num(value));
+        sb.Append("}");
+        return sb.ToString();
     }
 
     private static double ReadDouble(object value, double fallback)
     {
         if (value == null) return fallback;
-        try { return Convert.ToDouble(value); }
+        try { return Convert.ToDouble(value, CultureInfo.InvariantCulture); }
         catch { return fallback; }
     }
 
     private static bool ReadBool(object value, bool fallback)
     {
         if (value == null) return fallback;
-        try { return Convert.ToBoolean(value); }
-        catch { return fallback; }
+        try { return Convert.ToBoolean(value, CultureInfo.InvariantCulture); }
+        catch
+        {
+            string text = value.ToString();
+            if (string.IsNullOrWhiteSpace(text)) return fallback;
+            text = text.Trim().ToLowerInvariant();
+            if (text == "true" || text == "yes" || text == "1") return true;
+            if (text == "false" || text == "no" || text == "0") return false;
+            return fallback;
+        }
     }
 
-    private static string ReadString(object value, string fallback)
-    {
-        if (value == null) return fallback;
-        string s = value.ToString();
-        return string.IsNullOrWhiteSpace(s) ? fallback : s;
-    }
-
-    private static double Clamp(double value, double min, double max)
+    private static double ClampValue(double value, double min, double max)
     {
         if (value < min) return min;
         if (value > max) return max;
         return value;
     }
 
-    private static double PositiveFraction(double value)
+    private static string Num(double value)
     {
-        double f = value - Math.Floor(value);
-        if (f < 0.0) f += 1.0;
-        return f;
+        return value.ToString("G17", CultureInfo.InvariantCulture);
     }
 }

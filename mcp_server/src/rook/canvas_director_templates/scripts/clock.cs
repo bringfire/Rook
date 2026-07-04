@@ -1,140 +1,101 @@
 using System;
+using System.Globalization;
+using System.Text;
 using Grasshopper;
 using Grasshopper.Kernel;
 
 public class Script_Instance : GH_ScriptInstance
 {
-    private int _frame = 0;
-    private bool _hasFrame = false;
-    private bool _wasPlaying = false;
-    private int _lastFrameIn = 0;
-    private bool _hasLastFrameIn = false;
-
     private void RunScript(
-		object FrameIn,
-		object FPS,
-		object Dur,
-		object Play,
-		object Reset,
-		ref object Frame,
-		ref object Time,
-		ref object T,
-		ref object Done,
-		ref object Playing,
-		ref object Info)
+        object Frame,
+        object FPS,
+        object Duration,
+        object Loop,
+        object Reset,
+        ref object Clock,
+        ref object FrameOut,
+        ref object T,
+        ref object Seconds,
+        ref object FrameCount,
+        ref object FPSOut,
+        ref object Info)
     {
-        int duration = Math.Max(1, ReadInt(Dur, 240));
-        double fps = Math.Max(0.001, ReadDouble(FPS, 24.0));
+        int fps = Math.Max(1, ReadInt(FPS, 24));
+        double durationSeconds = Math.Max(0.0, ReadDouble(Duration, 10.0));
+        int frameCount = Math.Max(1, (int)Math.Round(durationSeconds * fps));
+        bool loop = ReadBool(Loop, false);
         bool reset = ReadBool(Reset, false);
-        bool play = ReadBool(Play, false);
-        bool hasFrameIn = TryReadInt(FrameIn, out int frameIn);
-        frameIn = Clamp(frameIn, 0, duration);
-        bool frameInputChanged = hasFrameIn && (!_hasLastFrameIn || frameIn != _lastFrameIn);
+        int frame = reset ? 0 : ReadInt(Frame, 0);
 
-        if (reset)
-        {
-            _frame = 0;
-            _hasFrame = true;
-            _wasPlaying = false;
-        }
-        else if (!play)
-        {
-            if (frameInputChanged)
-            {
-                _frame = frameIn;
-                _hasFrame = true;
-            }
-            else if (!_hasFrame)
-            {
-                _frame = hasFrameIn ? frameIn : 0;
-                _hasFrame = true;
-            }
-
-            _wasPlaying = false;
-        }
+        if (loop)
+            frame = PositiveModulo(frame, frameCount);
         else
-        {
-            if (!_wasPlaying && (frameInputChanged || !_hasFrame))
-            {
-                _frame = hasFrameIn ? frameIn : (_hasFrame ? _frame : 0);
-                _hasFrame = true;
-            }
-        }
+            frame = Clamp(frame, 0, frameCount);
 
-        int frame = _frame;
-        frame = Clamp(frame, 0, duration);
+        double t = frameCount <= 0 ? 0.0 : Clamp((double)frame / (double)frameCount, 0.0, 1.0);
+        double seconds = frame / (double)fps;
 
-        double time = frame / fps;
-        double globalT = Clamp((double)frame / (double)duration, 0.0, 1.0);
-        bool done = frame >= duration;
-        bool playing = play && !reset && !done;
+        Clock = BuildClockJson(frame, fps, durationSeconds, frameCount, t, seconds, loop, reset);
+        FrameOut = frame;
+        T = t;
+        Seconds = seconds;
+        FrameCount = frameCount;
+        FPSOut = fps;
+        Info = $"Director Clock: frame={frame}; fps={fps}; duration={durationSeconds:0.###}s; frameCount={frameCount}; t={t:0.###}; seconds={seconds:0.###}; loop={loop}; reset={reset}.";
+    }
 
-        Frame = frame;
-        Time = time;
-        T = globalT;
-        Done = done;
-        Playing = playing;
-        Info = $"Director Clock: frame={frame}/{duration}; time={time:0.###}s; fps={fps:0.###}; globalT={globalT:0.###}; playing={playing}; done={done}; mode={(playing ? "scheduled playback" : "scrub/hold")}; FrameIn={(hasFrameIn ? frameIn.ToString() : "none")}.";
-
-        if (hasFrameIn)
-        {
-            _lastFrameIn = frameIn;
-            _hasLastFrameIn = true;
-        }
-        else
-        {
-            _hasLastFrameIn = false;
-        }
-
-        if (playing)
-        {
-            _frame = Clamp(frame + 1, 0, duration);
-            _hasFrame = true;
-            _wasPlaying = true;
-            ScheduleNext(fps);
-        }
-        else
-        {
-            _frame = frame;
-            _hasFrame = true;
-            _wasPlaying = false;
-        }
+    private static string BuildClockJson(int frame, int fps, double durationSeconds, int frameCount, double t, double seconds, bool loop, bool reset)
+    {
+        var sb = new StringBuilder();
+        sb.Append("{");
+        sb.Append("\"metadata_kind\":\"director_clock_payload\",");
+        sb.Append("\"schema_version\":1,");
+        sb.Append("\"frame\":").Append(frame.ToString(CultureInfo.InvariantCulture)).Append(",");
+        sb.Append("\"fps\":").Append(fps.ToString(CultureInfo.InvariantCulture)).Append(",");
+        sb.Append("\"duration_seconds\":").Append(Num(durationSeconds)).Append(",");
+        sb.Append("\"frame_count\":").Append(frameCount.ToString(CultureInfo.InvariantCulture)).Append(",");
+        sb.Append("\"t\":").Append(Num(t)).Append(",");
+        sb.Append("\"seconds\":").Append(Num(seconds)).Append(",");
+        sb.Append("\"loop\":").Append(loop ? "true" : "false").Append(",");
+        sb.Append("\"reset\":").Append(reset ? "true" : "false");
+        sb.Append("}");
+        return sb.ToString();
     }
 
     private static int ReadInt(object value, int fallback)
     {
         if (value == null) return fallback;
-        try { return Convert.ToInt32(Math.Round(Convert.ToDouble(value))); }
+        try { return Convert.ToInt32(Math.Round(Convert.ToDouble(value, CultureInfo.InvariantCulture))); }
         catch { return fallback; }
-    }
-
-    private static bool TryReadInt(object value, out int result)
-    {
-        result = 0;
-        if (value == null) return false;
-        try
-        {
-            result = Convert.ToInt32(Math.Round(Convert.ToDouble(value)));
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
     }
 
     private static double ReadDouble(object value, double fallback)
     {
         if (value == null) return fallback;
-        try { return Convert.ToDouble(value); }
+        try { return Convert.ToDouble(value, CultureInfo.InvariantCulture); }
         catch { return fallback; }
     }
 
     private static bool ReadBool(object value, bool fallback)
     {
         if (value == null) return fallback;
-        try { return Convert.ToBoolean(value); }
-        catch { return fallback; }
+        try { return Convert.ToBoolean(value, CultureInfo.InvariantCulture); }
+        catch
+        {
+            string text = value.ToString();
+            if (string.IsNullOrWhiteSpace(text)) return fallback;
+            text = text.Trim().ToLowerInvariant();
+            if (text == "true" || text == "yes" || text == "1") return true;
+            if (text == "false" || text == "no" || text == "0") return false;
+            return fallback;
+        }
+    }
+
+    private static int PositiveModulo(int value, int divisor)
+    {
+        if (divisor <= 0) return 0;
+        int result = value % divisor;
+        return result < 0 ? result + divisor : result;
     }
 
     private static int Clamp(int value, int min, int max)
@@ -151,18 +112,8 @@ public class Script_Instance : GH_ScriptInstance
         return value;
     }
 
-    private void ScheduleNext(double fps)
+    private static string Num(double value)
     {
-        var doc = GrasshopperDocument;
-        if (doc == null || Component == null) return;
-
-        int delay = Math.Max(1, (int)Math.Round(1000.0 / Math.Max(0.001, fps)));
-        doc.ScheduleSolution(delay, d =>
-        {
-            if (Component != null)
-            {
-                Component.ExpireSolution(false);
-            }
-        });
+        return value.ToString("G17", CultureInfo.InvariantCulture);
     }
 }

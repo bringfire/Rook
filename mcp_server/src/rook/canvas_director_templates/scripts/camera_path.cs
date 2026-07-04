@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Text;
 using Rhino.Geometry;
 using Grasshopper;
 using Grasshopper.Kernel;
@@ -8,232 +9,112 @@ using Grasshopper.Kernel.Types;
 public class Script_Instance : GH_ScriptInstance
 {
     private void RunScript(
-		object LocalT,
-		object Active,
-		object CameraPath,
-		object TargetMode,
-		object TargetPoint,
-		object TargetPath,
-		object LookAhead,
-		object Up,
-		object EaseMode,
-		ref object Location,
-		ref object Target,
-		ref object Direction,
-		ref object UpOut,
-		ref object Distance,
-		ref object PathT,
-		ref object Info)
+        object Path,
+        object TargetPath,
+        object Progress,
+        object Up,
+        object Lens,
+        object Projection,
+        object Distance,
+        object Enabled,
+        object Preview,
+        ref object CameraPath,
+        ref object Camera,
+        ref object Location,
+        ref object Target,
+        ref object Direction,
+        ref object LensOut,
+        ref object ProjectionOut,
+        ref object Info)
     {
-        Location = null;
-        Target = null;
-        Direction = null;
-        UpOut = null;
-        Distance = null;
-        PathT = null;
-        Info = null;
-
-        double localT = Clamp(ReadDouble(LocalT, 0.0), 0.0, 1.0);
-        bool active = ReadBool(Active, true);
-        string targetMode = NormalizeTargetMode(ReadString(TargetMode, "LookAhead"));
-        string easeMode = NormalizeEaseMode(ReadString(EaseMode, "Linear"));
-        double pathT = ApplyEase(localT, easeMode);
-
-        Curve cameraPath;
-        if (!TryReadCurve(CameraPath, out cameraPath) || !cameraPath.IsValid)
-        {
-            PathT = pathT;
-            Info = "Director Camera Path: waiting for a valid CameraPath curve.";
-            return;
-        }
-
-        double pathLength = SafeLength(cameraPath);
-        double cameraParam = ParameterAtNormalizedLength(cameraPath, pathT, pathLength);
-        Point3d location = cameraPath.PointAt(cameraParam);
-        Vector3d tangent = cameraPath.TangentAt(cameraParam);
-        if (!tangent.Unitize())
-        {
-            Info = "Director Camera Path: CameraPath tangent is invalid at the sampled frame.";
-            return;
-        }
+        double progress = Clamp(ReadDouble(Progress, 0.0), 0.0, 1.0);
+        double lens = Math.Max(0.001, ReadDouble(Lens, 50.0));
+        double distance = Math.Max(1.0, ReadDouble(Distance, 1000.0));
+        bool enabled = ReadBool(Enabled, true);
+        bool preview = ReadBool(Preview, false);
+        string projection = NormalizeProjection(ReadString(Projection, "perspective"));
 
         Vector3d up;
         if (!TryReadVector(Up, out up) || !up.Unitize())
             up = Vector3d.ZAxis;
 
-        double lookAhead = ReadDouble(LookAhead, 0.0);
-        if (lookAhead <= 0.0)
-            lookAhead = pathLength > Rhino.RhinoMath.ZeroTolerance ? Math.Max(pathLength * 0.02, 1.0) : 1.0;
+        Curve path;
+        bool hasPath = TryReadCurve(Path, out path) && path.IsValid;
+        Point3d location = Point3d.Origin;
+        Vector3d direction = Vector3d.YAxis;
+        string sampleInfo = "path=default";
 
-        Point3d target;
-        string targetInfo;
-        if (!TryEvaluateTarget(targetMode, cameraPath, pathLength, pathT, location, tangent, lookAhead, TargetPoint, TargetPath, out target, out targetInfo))
+        if (hasPath)
         {
-            Info = "Director Camera Path: " + targetInfo;
-            return;
+            double parameter = ParameterAtNormalizedLength(path, progress);
+            location = path.PointAt(parameter);
+            direction = path.TangentAt(parameter);
+            if (!direction.Unitize())
+                direction = Vector3d.YAxis;
+            sampleInfo = "path=sampled";
         }
 
-        Vector3d direction = target - location;
-        double distance = direction.Length;
-        if (!direction.Unitize())
+        Point3d target = location + (direction * distance);
+        Curve targetPath;
+        if (TryReadCurve(TargetPath, out targetPath) && targetPath.IsValid)
         {
-            target = location + tangent * Math.Max(lookAhead, 1.0);
+            target = targetPath.PointAt(ParameterAtNormalizedLength(targetPath, progress));
             direction = target - location;
-            distance = direction.Length;
             if (!direction.Unitize())
-            {
-                Info = "Director Camera Path: could not derive a valid direction.";
-                return;
-            }
-            targetInfo += "; fell back to tangent target";
+                direction = Vector3d.YAxis;
+            sampleInfo += "; targetPath=sampled";
+        }
+        else
+        {
+            sampleInfo += "; targetPath=derived";
         }
 
         up = StabilizeUp(direction, up);
 
+        CameraPath = BuildCameraPathJson(progress, enabled, preview, projection, lens, hasPath, location, target, direction, up);
+        Camera = BuildCameraJson(projection, location, target, direction, up, lens);
         Location = location;
         Target = target;
         Direction = direction;
-        UpOut = up;
-        Distance = distance;
-        PathT = pathT;
-        Info = string.Format(CultureInfo.InvariantCulture,
-            "Director Camera Path: active={0}; localT={1:0.###}; pathT={2:0.###}; ease={3}; targetMode={4}; distance={5:0.###}; {6}.",
-            active, localT, pathT, easeMode, targetMode, distance, targetInfo);
+        LensOut = lens;
+        ProjectionOut = projection;
+        Info = $"Director Camera Path: progress={progress:0.###}; enabled={enabled}; preview={preview}; projection={projection}; lens={lens:0.###}; {sampleInfo}.";
     }
 
-    private static bool TryEvaluateTarget(string targetMode, Curve cameraPath, double pathLength, double pathT, Point3d location, Vector3d tangent, double lookAhead, object targetPointInput, object targetPathInput, out Point3d target, out string info)
+    private static string BuildCameraPathJson(double progress, bool enabled, bool preview, string projection, double lens, bool sampled, Point3d location, Point3d target, Vector3d direction, Vector3d up)
     {
-        target = Point3d.Unset;
-        info = "";
-
-        if (targetMode == "FixedTarget")
-        {
-            if (TryReadPoint(targetPointInput, out target))
-            {
-                info = "fixed target";
-                return true;
-            }
-            info = "TargetMode=FixedTarget needs a valid TargetPoint.";
-            return false;
-        }
-
-        if (targetMode == "TargetPath")
-        {
-            Curve targetPath;
-            if (!TryReadCurve(targetPathInput, out targetPath) || !targetPath.IsValid)
-            {
-                info = "TargetMode=TargetPath needs a valid TargetPath curve.";
-                return false;
-            }
-
-            double targetLength = SafeLength(targetPath);
-            double targetParam = ParameterAtNormalizedLength(targetPath, pathT, targetLength);
-            target = targetPath.PointAt(targetParam);
-            info = "target path sampled by LocalT";
-            return target.IsValid;
-        }
-
-        if (targetMode == "Tangent")
-        {
-            target = location + tangent * Math.Max(lookAhead, 1.0);
-            info = "tangent target";
-            return true;
-        }
-
-        target = LookAheadTarget(cameraPath, pathLength, pathT, location, tangent, lookAhead);
-        info = "look-ahead target";
-        return target.IsValid;
+        var sb = new StringBuilder();
+        sb.Append("{");
+        sb.Append("\"metadata_kind\":\"director_camera_path_payload\",");
+        sb.Append("\"schema_version\":1,");
+        sb.Append("\"progress\":").Append(Num(progress)).Append(",");
+        sb.Append("\"enabled\":").Append(enabled ? "true" : "false").Append(",");
+        sb.Append("\"preview\":").Append(preview ? "true" : "false").Append(",");
+        sb.Append("\"projection\":\"").Append(Escape(projection)).Append("\",");
+        sb.Append("\"lens\":").Append(Num(lens)).Append(",");
+        sb.Append("\"sampled\":").Append(sampled ? "true" : "false").Append(",");
+        sb.Append("\"location\":").Append(PointJson(location)).Append(",");
+        sb.Append("\"target\":").Append(PointJson(target)).Append(",");
+        sb.Append("\"direction\":").Append(VectorJson(direction)).Append(",");
+        sb.Append("\"up\":").Append(VectorJson(up));
+        sb.Append("}");
+        return sb.ToString();
     }
 
-    private static Point3d LookAheadTarget(Curve curve, double length, double pathT, Point3d location, Vector3d tangent, double lookAhead)
+    private static string BuildCameraJson(string projection, Point3d location, Point3d target, Vector3d direction, Vector3d up, double lens)
     {
-        if (length > Rhino.RhinoMath.ZeroTolerance)
-        {
-            double currentLength = Clamp(pathT, 0.0, 1.0) * length;
-            double targetLength = Clamp(currentLength + lookAhead, 0.0, length);
-            double targetParam;
-            if (curve.LengthParameter(targetLength, out targetParam))
-            {
-                Point3d p = curve.PointAt(targetParam);
-                if (p.DistanceTo(location) > Rhino.RhinoMath.ZeroTolerance)
-                    return p;
-            }
-        }
-
-        return location + tangent * Math.Max(lookAhead, 1.0);
-    }
-
-    private static double ParameterAtNormalizedLength(Curve curve, double normalized, double length)
-    {
-        normalized = Clamp(normalized, 0.0, 1.0);
-        double parameter;
-        if (length > Rhino.RhinoMath.ZeroTolerance && curve.NormalizedLengthParameter(normalized, out parameter))
-            return parameter;
-        return curve.Domain.ParameterAt(normalized);
-    }
-
-    private static double SafeLength(Curve curve)
-    {
-        try
-        {
-            double length = curve.GetLength();
-            return double.IsNaN(length) || double.IsInfinity(length) ? 0.0 : length;
-        }
-        catch
-        {
-            return 0.0;
-        }
-    }
-
-    private static Vector3d StabilizeUp(Vector3d direction, Vector3d up)
-    {
-        if (!up.Unitize()) up = Vector3d.ZAxis;
-        if (Math.Abs(direction * up) < 0.999)
-            return up;
-
-        Vector3d candidate = Vector3d.ZAxis;
-        if (Math.Abs(direction * candidate) >= 0.999)
-            candidate = Vector3d.XAxis;
-
-        Vector3d right = Vector3d.CrossProduct(direction, candidate);
-        if (!right.Unitize()) return Vector3d.ZAxis;
-        Vector3d stableUp = Vector3d.CrossProduct(right, direction);
-        stableUp.Unitize();
-        return stableUp;
-    }
-
-    private static string NormalizeTargetMode(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return "LookAhead";
-        string v = value.Trim().ToLowerInvariant().Replace(" ", "_").Replace("-", "_");
-        if (v == "fixed" || v == "fixedtarget" || v == "fixed_target" || v == "target_point" || v == "point")
-            return "FixedTarget";
-        if (v == "targetpath" || v == "target_path" || v == "path")
-            return "TargetPath";
-        if (v == "tangent" || v == "direction")
-            return "Tangent";
-        return "LookAhead";
-    }
-
-    private static string NormalizeEaseMode(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return "Linear";
-        string v = value.Trim().ToLowerInvariant().Replace(" ", "_").Replace("-", "_");
-        if (v == "smooth" || v == "smoothstep" || v == "smooth_step") return "SmoothStep";
-        if (v == "sine" || v == "easeinoutsine" || v == "ease_in_out_sine") return "EaseInOutSine";
-        if (v == "ease_in" || v == "easein") return "EaseIn";
-        if (v == "ease_out" || v == "easeout") return "EaseOut";
-        return "Linear";
-    }
-
-    private static double ApplyEase(double t, string mode)
-    {
-        t = Clamp(t, 0.0, 1.0);
-        if (mode == "SmoothStep") return t * t * (3.0 - 2.0 * t);
-        if (mode == "EaseInOutSine") return 0.5 - 0.5 * Math.Cos(Math.PI * t);
-        if (mode == "EaseIn") return t * t;
-        if (mode == "EaseOut") return 1.0 - (1.0 - t) * (1.0 - t);
-        return t;
+        var sb = new StringBuilder();
+        sb.Append("{");
+        sb.Append("\"metadata_kind\":\"director_camera_state\",");
+        sb.Append("\"schema_version\":1,");
+        sb.Append("\"projection\":\"").Append(Escape(projection)).Append("\",");
+        sb.Append("\"location\":").Append(PointJson(location)).Append(",");
+        sb.Append("\"target\":").Append(PointJson(target)).Append(",");
+        sb.Append("\"direction\":").Append(VectorJson(direction)).Append(",");
+        sb.Append("\"up\":").Append(VectorJson(up)).Append(",");
+        sb.Append("\"lens_length\":").Append(Num(lens));
+        sb.Append("}");
+        return sb.ToString();
     }
 
     private static bool TryReadCurve(object value, out Curve curve)
@@ -249,29 +130,6 @@ public class Script_Instance : GH_ScriptInstance
         {
             curve = gc.Value;
             return curve != null;
-        }
-        return false;
-    }
-
-    private static bool TryReadPoint(object value, out Point3d point)
-    {
-        point = Point3d.Unset;
-        if (value == null) return false;
-        if (value is Point3d p)
-        {
-            point = p;
-            return point.IsValid;
-        }
-        if (value is GH_Point gp)
-        {
-            point = gp.Value;
-            return point.IsValid;
-        }
-        double x, y, z;
-        if (TryParseTriple(value.ToString(), out x, out y, out z))
-        {
-            point = new Point3d(x, y, z);
-            return point.IsValid;
         }
         return false;
     }
@@ -299,6 +157,77 @@ public class Script_Instance : GH_ScriptInstance
         return false;
     }
 
+    private static double ParameterAtNormalizedLength(Curve curve, double normalized)
+    {
+        normalized = Clamp(normalized, 0.0, 1.0);
+        double parameter;
+        try
+        {
+            if (curve.NormalizedLengthParameter(normalized, out parameter))
+                return parameter;
+        }
+        catch { }
+        return curve.Domain.ParameterAt(normalized);
+    }
+
+    private static Vector3d StabilizeUp(Vector3d direction, Vector3d up)
+    {
+        if (!direction.Unitize()) direction = Vector3d.YAxis;
+        if (!up.Unitize()) up = Vector3d.ZAxis;
+        if (Math.Abs(direction * up) < 0.999)
+            return up;
+
+        Vector3d candidate = Vector3d.ZAxis;
+        if (Math.Abs(direction * candidate) >= 0.999)
+            candidate = Vector3d.XAxis;
+        Vector3d right = Vector3d.CrossProduct(direction, candidate);
+        if (!right.Unitize()) return Vector3d.ZAxis;
+        Vector3d stableUp = Vector3d.CrossProduct(right, direction);
+        stableUp.Unitize();
+        return stableUp;
+    }
+
+    private static string NormalizeProjection(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "perspective";
+        string text = value.Trim().ToLowerInvariant().Replace("-", "_").Replace(" ", "_");
+        if (text == "parallel" || text == "orthographic" || text == "ortho") return "parallel";
+        if (text == "two_point" || text == "two_point_perspective" || text == "2_point") return "two_point_perspective";
+        return "perspective";
+    }
+
+    private static double ReadDouble(object value, double fallback)
+    {
+        if (value == null) return fallback;
+        double parsed;
+        if (double.TryParse(value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out parsed))
+            return parsed;
+        try { return Convert.ToDouble(value, CultureInfo.InvariantCulture); }
+        catch { return fallback; }
+    }
+
+    private static bool ReadBool(object value, bool fallback)
+    {
+        if (value == null) return fallback;
+        try { return Convert.ToBoolean(value, CultureInfo.InvariantCulture); }
+        catch
+        {
+            string text = value.ToString();
+            if (string.IsNullOrWhiteSpace(text)) return fallback;
+            text = text.Trim().ToLowerInvariant();
+            if (text == "true" || text == "yes" || text == "1") return true;
+            if (text == "false" || text == "no" || text == "0") return false;
+            return fallback;
+        }
+    }
+
+    private static string ReadString(object value, string fallback)
+    {
+        if (value == null) return fallback;
+        string text = value.ToString();
+        return string.IsNullOrWhiteSpace(text) ? fallback : text.Trim();
+    }
+
     private static bool TryParseTriple(string text, out double x, out double y, out double z)
     {
         x = y = z = 0.0;
@@ -318,36 +247,14 @@ public class Script_Instance : GH_ScriptInstance
             && double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out z);
     }
 
-    private static double ReadDouble(object value, double fallback)
+    private static string PointJson(Point3d point)
     {
-        if (value == null) return fallback;
-        double result;
-        if (double.TryParse(value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out result))
-            return result;
-        try { return Convert.ToDouble(value); }
-        catch { return fallback; }
+        return "[" + Num(point.X) + "," + Num(point.Y) + "," + Num(point.Z) + "]";
     }
 
-    private static bool ReadBool(object value, bool fallback)
+    private static string VectorJson(Vector3d vector)
     {
-        if (value == null) return fallback;
-        try { return Convert.ToBoolean(value); }
-        catch
-        {
-            string s = value.ToString();
-            if (string.IsNullOrWhiteSpace(s)) return fallback;
-            s = s.Trim().ToLowerInvariant();
-            if (s == "true" || s == "yes" || s == "1") return true;
-            if (s == "false" || s == "no" || s == "0") return false;
-            return fallback;
-        }
-    }
-
-    private static string ReadString(object value, string fallback)
-    {
-        if (value == null) return fallback;
-        string s = value.ToString();
-        return string.IsNullOrWhiteSpace(s) ? fallback : s;
+        return "[" + Num(vector.X) + "," + Num(vector.Y) + "," + Num(vector.Z) + "]";
     }
 
     private static double Clamp(double value, double min, double max)
@@ -355,5 +262,16 @@ public class Script_Instance : GH_ScriptInstance
         if (value < min) return min;
         if (value > max) return max;
         return value;
+    }
+
+    private static string Num(double value)
+    {
+        return value.ToString("G17", CultureInfo.InvariantCulture);
+    }
+
+    private static string Escape(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
     }
 }

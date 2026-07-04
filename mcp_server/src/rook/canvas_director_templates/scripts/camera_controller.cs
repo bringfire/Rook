@@ -1,8 +1,6 @@
 using System;
 using System.Globalization;
 using System.Text;
-using Rhino;
-using Rhino.Display;
 using Rhino.Geometry;
 using Grasshopper;
 using Grasshopper.Kernel;
@@ -11,242 +9,110 @@ using Grasshopper.Kernel.Types;
 public class Script_Instance : GH_ScriptInstance
 {
     private void RunScript(
-		object LocalT,
-		object Active,
-		object ProjectionMode,
-		object AimMode,
-		object Location,
-		object Target,
-		object Direction,
-		object Distance,
-		object Up,
-		object LensLength,
-		object Preview,
-		object ViewportName,
-		ref object Camera,
-		ref object LocationOut,
-		ref object TargetOut,
-		ref object DirectionOut,
-		ref object Lens,
-		ref object Applied,
-		ref object CaptureSupported,
-		ref object Info)
+        object Location,
+        object Target,
+        object Direction,
+        object Up,
+        object Lens,
+        object Projection,
+        object NearClip,
+        object FarClip,
+        object ViewportName,
+        object Enabled,
+        object Preview,
+        object Mode,
+        ref object CameraController,
+        ref object Camera,
+        ref object LocationOut,
+        ref object TargetOut,
+        ref object DirectionOut,
+        ref object UpOut,
+        ref object LensOut,
+        ref object ProjectionOut,
+        ref object Info)
     {
-        Camera = null;
-        LocationOut = null;
-        TargetOut = null;
-        DirectionOut = null;
-        Lens = null;
-        Applied = false;
-        CaptureSupported = false;
-
-        double localT = Clamp(ReadDouble(LocalT, 0.0), 0.0, 1.0);
-        bool active = ReadBool(Active, true);
-        string projection = NormalizeProjection(ReadString(ProjectionMode, "perspective"));
-        string aimMode = NormalizeAimMode(ReadString(AimMode, "Target"));
-        bool preview = ReadBool(Preview, false);
-        string viewportName = ReadString(ViewportName, "").Trim();
-        double distance = Math.Max(1.0, ReadDouble(Distance, 10000.0));
-        double lensLength = Math.Max(0.001, ReadDouble(LensLength, 50.0));
-
         Point3d location;
-        if (!TryReadPoint(Location, out location))
+        bool hasLocation = TryReadPoint(Location, out location);
+        if (!hasLocation)
+            location = Point3d.Origin;
+
+        Vector3d direction;
+        bool hasDirection = TryReadVector(Direction, out direction) && direction.Unitize();
+        Point3d target;
+        bool hasTarget = TryReadPoint(Target, out target);
+        string mode = NormalizeMode(ReadString(Mode, hasDirection && !hasTarget ? "direction" : "target"));
+
+        if (mode == "direction" && hasDirection)
         {
-            Info = "Director Camera Controller: invalid Location. Provide a Point3d or coordinate text x,y,z.";
-            return;
+            if (!hasTarget)
+                target = location + direction;
+        }
+        else
+        {
+            if (!hasTarget)
+                target = location + Vector3d.YAxis;
+            direction = target - location;
+            if (!direction.Unitize())
+                direction = Vector3d.YAxis;
+            mode = "target";
         }
 
         Vector3d up;
-        if (!TryReadVector(Up, out up))
+        if (!TryReadVector(Up, out up) || !up.Unitize())
             up = Vector3d.ZAxis;
-        if (!up.Unitize())
-        {
-            Info = "Director Camera Controller: invalid Up vector.";
-            return;
-        }
+        up = StabilizeUp(direction, up);
 
-        Point3d target;
-        Vector3d direction;
-        if (aimMode == "Direction")
-        {
-            if (!TryReadVector(Direction, out direction) || !direction.Unitize())
-            {
-                Info = "Director Camera Controller: invalid Direction vector for AimMode=Direction.";
-                return;
-            }
-            target = location + (direction * distance);
-        }
-        else
-        {
-            if (!TryReadPoint(Target, out target))
-            {
-                Info = "Director Camera Controller: invalid Target. Provide a Point3d or coordinate text x,y,z.";
-                return;
-            }
-            direction = target - location;
-            if (!direction.Unitize())
-            {
-                Info = "Director Camera Controller: Location and Target must differ.";
-                return;
-            }
-        }
+        double lens = Math.Max(0.001, ReadDouble(Lens, 50.0));
+        double nearClip = Math.Max(0.0, ReadDouble(NearClip, 0.0));
+        double farClip = Math.Max(0.0, ReadDouble(FarClip, 0.0));
+        string projection = NormalizeProjection(ReadString(Projection, "perspective"));
+        string viewportName = ReadString(ViewportName, "");
+        bool enabled = ReadBool(Enabled, true);
+        bool preview = ReadBool(Preview, false);
 
-        double upDot = Math.Abs(direction * up);
-        if (upDot >= 0.999)
-        {
-            Info = "Director Camera Controller: Up vector is too close to camera direction.";
-            return;
-        }
-
-        bool captureSupported = projection == "perspective";
-        string cameraJson = BuildCameraJson(projection, location, target, up, lensLength, captureSupported, localT);
-
-        bool applied = false;
-        string applyInfo = "";
-        if (preview && active)
-            applied = TryApplyPreview(projection, location, target, up, lensLength, viewportName, out applyInfo);
-        else if (preview && !active)
-            applyInfo = "preview skipped because Active is false";
-        else
-            applyInfo = "preview disabled";
-
-        Camera = cameraJson;
+        CameraController = BuildControllerJson(mode, enabled, preview, viewportName, nearClip, farClip);
+        Camera = BuildCameraJson(projection, location, target, direction, up, lens, nearClip, farClip);
         LocationOut = location;
         TargetOut = target;
         DirectionOut = direction;
-        Lens = lensLength;
-        Applied = applied;
-        CaptureSupported = captureSupported;
-        Info = $"Director Camera Controller: projection={projection}; captureSupported={captureSupported}; active={active}; preview={preview}; applied={applied}; aimMode={aimMode}; localT={localT:0.###}; lens={lensLength:0.###}; {applyInfo}.";
+        UpOut = up;
+        LensOut = lens;
+        ProjectionOut = projection;
+        Info = $"Director Camera Controller: mode={mode}; enabled={enabled}; preview={preview}; projection={projection}; lens={lens:0.###}; near={nearClip:0.###}; far={farClip:0.###}; location={(hasLocation ? "input" : "default")}; target={(hasTarget ? "input" : "derived")}.";
     }
 
-    private bool TryApplyPreview(string projection, Point3d location, Point3d target, Vector3d up, double lensLength, string viewportName, out string info)
+    private static string BuildControllerJson(string mode, bool enabled, bool preview, string viewportName, double nearClip, double farClip)
     {
-        info = "";
-        var doc = RhinoDoc.ActiveDoc;
-        if (doc == null)
-        {
-            info = "no active Rhino document";
-            return false;
-        }
-
-        var view = ResolveView(doc, viewportName);
-        if (view == null)
-        {
-            info = string.IsNullOrWhiteSpace(viewportName)
-                ? "no active Rhino view"
-                : "viewport not found: " + viewportName;
-            return false;
-        }
-
-        var vp = view.ActiveViewport;
-        double targetDistance = Math.Max(1.0, location.DistanceTo(target));
-        bool projectionOk = true;
-
-        if (projection == "parallel")
-        {
-            projectionOk = vp.ChangeToParallelProjection(true);
-        }
-        else if (projection == "parallel_reflected")
-        {
-            projectionOk = vp.ChangeToParallelReflectedProjection();
-        }
-        else if (projection == "two_point_perspective")
-        {
-            projectionOk = vp.ChangeToTwoPointPerspectiveProjection(targetDistance, up, lensLength);
-        }
-        else
-        {
-            projectionOk = vp.ChangeToPerspectiveProjection(targetDistance, true, lensLength);
-        }
-
-        if (!projectionOk)
-        {
-            info = "projection change rejected by RhinoViewport";
-            return false;
-        }
-
-        vp.SetCameraLocations(target, location);
-        vp.CameraUp = up;
-        if (projection == "perspective" || projection == "two_point_perspective")
-            vp.Camera35mmLensLength = lensLength;
-
-        view.Redraw();
-        info = string.IsNullOrWhiteSpace(viewportName)
-            ? "applied to active viewport"
-            : "applied to viewport " + viewportName;
-        return true;
-    }
-
-    private Rhino.Display.RhinoView ResolveView(RhinoDoc doc, string viewportName)
-    {
-        if (string.IsNullOrWhiteSpace(viewportName))
-            return doc.Views.ActiveView;
-
-        foreach (var view in doc.Views)
-        {
-            if (view != null &&
-                view.ActiveViewport != null &&
-                string.Equals(view.ActiveViewport.Name, viewportName, StringComparison.OrdinalIgnoreCase))
-                return view;
-        }
-
-        return null;
-    }
-
-    private static string BuildCameraJson(string projection, Point3d location, Point3d target, Vector3d up, double lensLength, bool captureSupported, double localT)
-    {
-        bool hasLens = projection == "perspective" || projection == "two_point_perspective";
         var sb = new StringBuilder();
         sb.Append("{");
+        sb.Append("\"metadata_kind\":\"director_camera_controller_payload\",");
         sb.Append("\"schema_version\":1,");
-        sb.Append("\"metadata_kind\":\"director_camera_state\",");
-        sb.Append("\"projection\":\"").Append(projection).Append("\",");
-        sb.Append("\"location\":").Append(PointJson(location)).Append(",");
-        sb.Append("\"target\":").Append(PointJson(target)).Append(",");
-        sb.Append("\"up\":").Append(VectorJson(up)).Append(",");
-        sb.Append("\"lens_length\":").Append(hasLens ? Num(lensLength) : "null").Append(",");
-        sb.Append("\"capture_supported\":").Append(captureSupported ? "true" : "false").Append(",");
-        sb.Append("\"local_t\":").Append(Num(localT));
+        sb.Append("\"mode\":\"").Append(Escape(mode)).Append("\",");
+        sb.Append("\"enabled\":").Append(enabled ? "true" : "false").Append(",");
+        sb.Append("\"preview\":").Append(preview ? "true" : "false").Append(",");
+        sb.Append("\"viewport_name\":\"").Append(Escape(viewportName)).Append("\",");
+        sb.Append("\"near_clip\":").Append(Num(nearClip)).Append(",");
+        sb.Append("\"far_clip\":").Append(Num(farClip));
         sb.Append("}");
         return sb.ToString();
     }
 
-    private static string PointJson(Point3d p)
+    private static string BuildCameraJson(string projection, Point3d location, Point3d target, Vector3d direction, Vector3d up, double lens, double nearClip, double farClip)
     {
-        return "[" + Num(p.X) + "," + Num(p.Y) + "," + Num(p.Z) + "]";
-    }
-
-    private static string VectorJson(Vector3d v)
-    {
-        return "[" + Num(v.X) + "," + Num(v.Y) + "," + Num(v.Z) + "]";
-    }
-
-    private static string Num(double value)
-    {
-        return value.ToString("G17", CultureInfo.InvariantCulture);
-    }
-
-    private static string NormalizeProjection(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return "perspective";
-        string v = value.Trim().ToLowerInvariant().Replace("-", "_").Replace(" ", "_");
-        if (v == "twopointperspective" || v == "two_point" || v == "2point" || v == "2_point" || v == "two_point_perspective")
-            return "two_point_perspective";
-        if (v == "parallelreflected" || v == "parallel_reflected" || v == "reflected")
-            return "parallel_reflected";
-        if (v == "parallel" || v == "orthographic" || v == "ortho")
-            return "parallel";
-        return "perspective";
-    }
-
-    private static string NormalizeAimMode(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return "Target";
-        string v = value.Trim().ToLowerInvariant();
-        if (v == "direction" || v == "dir" || v == "vector")
-            return "Direction";
-        return "Target";
+        var sb = new StringBuilder();
+        sb.Append("{");
+        sb.Append("\"metadata_kind\":\"director_camera_state\",");
+        sb.Append("\"schema_version\":1,");
+        sb.Append("\"projection\":\"").Append(Escape(projection)).Append("\",");
+        sb.Append("\"location\":").Append(PointJson(location)).Append(",");
+        sb.Append("\"target\":").Append(PointJson(target)).Append(",");
+        sb.Append("\"direction\":").Append(VectorJson(direction)).Append(",");
+        sb.Append("\"up\":").Append(VectorJson(up)).Append(",");
+        sb.Append("\"lens_length\":").Append(Num(lens)).Append(",");
+        sb.Append("\"near_clip\":").Append(Num(nearClip)).Append(",");
+        sb.Append("\"far_clip\":").Append(Num(farClip));
+        sb.Append("}");
+        return sb.ToString();
     }
 
     private static bool TryReadPoint(object value, out Point3d point)
@@ -295,6 +161,72 @@ public class Script_Instance : GH_ScriptInstance
         return false;
     }
 
+    private static Vector3d StabilizeUp(Vector3d direction, Vector3d up)
+    {
+        if (!direction.Unitize()) direction = Vector3d.YAxis;
+        if (!up.Unitize()) up = Vector3d.ZAxis;
+        if (Math.Abs(direction * up) < 0.999)
+            return up;
+
+        Vector3d candidate = Vector3d.ZAxis;
+        if (Math.Abs(direction * candidate) >= 0.999)
+            candidate = Vector3d.XAxis;
+        Vector3d right = Vector3d.CrossProduct(direction, candidate);
+        if (!right.Unitize()) return Vector3d.ZAxis;
+        Vector3d stableUp = Vector3d.CrossProduct(right, direction);
+        stableUp.Unitize();
+        return stableUp;
+    }
+
+    private static string NormalizeProjection(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "perspective";
+        string text = value.Trim().ToLowerInvariant().Replace("-", "_").Replace(" ", "_");
+        if (text == "parallel" || text == "orthographic" || text == "ortho") return "parallel";
+        if (text == "two_point" || text == "two_point_perspective" || text == "2_point") return "two_point_perspective";
+        return "perspective";
+    }
+
+    private static string NormalizeMode(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "target";
+        string text = value.Trim().ToLowerInvariant().Replace("-", "_").Replace(" ", "_");
+        if (text == "direction" || text == "dir" || text == "vector") return "direction";
+        return "target";
+    }
+
+    private static double ReadDouble(object value, double fallback)
+    {
+        if (value == null) return fallback;
+        double parsed;
+        if (double.TryParse(value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out parsed))
+            return parsed;
+        try { return Convert.ToDouble(value, CultureInfo.InvariantCulture); }
+        catch { return fallback; }
+    }
+
+    private static bool ReadBool(object value, bool fallback)
+    {
+        if (value == null) return fallback;
+        try { return Convert.ToBoolean(value, CultureInfo.InvariantCulture); }
+        catch
+        {
+            string text = value.ToString();
+            if (string.IsNullOrWhiteSpace(text)) return fallback;
+            text = text.Trim().ToLowerInvariant();
+            if (text == "true" || text == "yes" || text == "1") return true;
+            if (text == "false" || text == "no" || text == "0") return false;
+            return fallback;
+        }
+    }
+
+    private static string ReadString(object value, string fallback)
+    {
+        if (value == null) return fallback;
+        string text = value.ToString();
+        return string.IsNullOrWhiteSpace(text) ? fallback : text.Trim();
+    }
+
     private static bool TryParseTriple(string text, out double x, out double y, out double z)
     {
         x = y = z = 0.0;
@@ -314,42 +246,24 @@ public class Script_Instance : GH_ScriptInstance
             && double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out z);
     }
 
-    private static double ReadDouble(object value, double fallback)
+    private static string PointJson(Point3d point)
     {
-        if (value == null) return fallback;
-        double result;
-        if (double.TryParse(value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out result))
-            return result;
-        try { return Convert.ToDouble(value); }
-        catch { return fallback; }
+        return "[" + Num(point.X) + "," + Num(point.Y) + "," + Num(point.Z) + "]";
     }
 
-    private static bool ReadBool(object value, bool fallback)
+    private static string VectorJson(Vector3d vector)
     {
-        if (value == null) return fallback;
-        try { return Convert.ToBoolean(value); }
-        catch
-        {
-            string s = value.ToString();
-            if (string.IsNullOrWhiteSpace(s)) return fallback;
-            s = s.Trim().ToLowerInvariant();
-            if (s == "true" || s == "yes" || s == "1") return true;
-            if (s == "false" || s == "no" || s == "0") return false;
-            return fallback;
-        }
+        return "[" + Num(vector.X) + "," + Num(vector.Y) + "," + Num(vector.Z) + "]";
     }
 
-    private static string ReadString(object value, string fallback)
+    private static string Num(double value)
     {
-        if (value == null) return fallback;
-        string s = value.ToString();
-        return string.IsNullOrWhiteSpace(s) ? fallback : s;
+        return value.ToString("G17", CultureInfo.InvariantCulture);
     }
 
-    private static double Clamp(double value, double min, double max)
+    private static string Escape(string value)
     {
-        if (value < min) return min;
-        if (value > max) return max;
-        return value;
+        if (string.IsNullOrEmpty(value)) return "";
+        return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
     }
 }

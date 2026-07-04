@@ -156,7 +156,7 @@
       "script": {
         "language": "csharp",
         "path": "scripts/clock.cs",
-        "sha256": "sha256:b09d6d8f93d93834f6a551b085f2fa84c232da07e5804f9fc2a1014180e48046"
+        "sha256": "sha256:b5351b0a52aab22273292a010d472d152df7916104cbd8b3dd701333e2447389"
       },
       "template_id": "canvas_director.clock",
       "template_version": "0.1.0"
@@ -244,7 +244,7 @@
       "script": {
         "language": "csharp",
         "path": "scripts/timing_gate.cs",
-        "sha256": "sha256:b98a20b3646811eab84e43ae3ad4fbb785727792f1e411cb00e266cca6d215bc"
+        "sha256": "sha256:60c33bec5c699c0774c91cfc0564675c3ccc6f44a57b5e674dff773a40f2865d"
       },
       "template_id": "canvas_director.timing_gate",
       "template_version": "0.1.0"
@@ -348,7 +348,7 @@
       "script": {
         "language": "csharp",
         "path": "scripts/oscillator.cs",
-        "sha256": "sha256:f4b4b2358c1538ff3c79222c3c264d42b8103fa268ddcca4c342a887f2cb95f1"
+        "sha256": "sha256:1d16df77d491eabaa71bab89a68254e04b4f2a472a5a10f5bc8ba2e36c161694"
       },
       "template_id": "canvas_director.oscillator",
       "template_version": "0.1.0"
@@ -593,7 +593,7 @@
       "script": {
         "language": "csharp",
         "path": "scripts/camera_path.cs",
-        "sha256": "sha256:57fcb27a4e61a7a37bb8d503a097d5ada07d236ac6389f765f55468f1c9f1963"
+        "sha256": "sha256:acb18890009d21943a8c99b8d48901185871d46e8e6a97fa2866525795392a72"
       },
       "template_id": "canvas_director.camera_path",
       "template_version": "0.1.0"
@@ -719,7 +719,7 @@
       "script": {
         "language": "csharp",
         "path": "scripts/camera_controller.cs",
-        "sha256": "sha256:08f83bd9acdabebd705d593b7cb89b741e1a0e3498c9a171d5715c143d9a88fe"
+        "sha256": "sha256:166633bb6212620f72ab87f7d01064e56070e01bd537c9fa8e9e773d383d8f9b"
       },
       "template_id": "canvas_director.camera_controller",
       "template_version": "0.1.0"
