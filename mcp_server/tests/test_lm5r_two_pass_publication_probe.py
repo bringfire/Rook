@@ -53,6 +53,31 @@ def _ollama_response(
     )
 
 
+def _summary_row(
+    *,
+    scenario: str = "evidence_absent_like",
+    status: str = "published",
+    pass1_kind: str | None = "clarification_request",
+    pass2_response_kind: str | None = "clarification_request",
+    kind_preserved: bool | None = True,
+    action_id_preserved: bool | None = None,
+    refusal_category_preserved: bool | None = None,
+    lm5g_loadable: bool = True,
+    failure_reason: str | None = None,
+) -> dict:
+    return {
+        "scenario": scenario,
+        "status": status,
+        "pass1_kind": pass1_kind,
+        "pass2_response_kind": pass2_response_kind,
+        "kind_preserved": kind_preserved,
+        "action_id_preserved": action_id_preserved,
+        "refusal_category_preserved": refusal_category_preserved,
+        "lm5g_loadable": lm5g_loadable,
+        "failure_reason": failure_reason,
+    }
+
+
 class _FakeProvider:
     def __init__(self, responses: list[str]):
         self.responses = list(responses)
@@ -577,6 +602,143 @@ def test_provider_message_fields_records_recursion_error(monkeypatch: pytest.Mon
 
     assert fields is None
     assert failure_reason == "pass1_provider_json_invalid:RecursionError"
+
+
+def test_build_summary_groups_by_status_kind_and_preservation() -> None:
+    rows = [
+        _summary_row(),
+        _summary_row(
+            scenario="evidence_present_like",
+            pass1_kind="action_request",
+            pass2_response_kind="action_request",
+            action_id_preserved=True,
+        ),
+        _summary_row(
+            scenario="evidence_present_like",
+            status="pass2_invariant_violation",
+            pass1_kind="action_request",
+            pass2_response_kind="action_request",
+            action_id_preserved=False,
+            failure_reason="pass2_action_id_changed",
+        ),
+    ]
+
+    summary = PROBE._build_summary(
+        run_id="lm5r-demo",
+        git_commit="abc1234",
+        model="gemma4:12b-it-qat",
+        scenarios=["evidence_absent_like", "evidence_present_like"],
+        attempts_per_scenario=5,
+        rows=rows,
+    )
+
+    assert summary["run_id"] == "lm5r-demo"
+    assert summary["git_commit"] == "abc1234"
+    assert summary["model"] == "gemma4:12b-it-qat"
+    assert summary["scenarios"] == ["evidence_absent_like", "evidence_present_like"]
+    assert summary["attempts_per_scenario"] == 5
+    assert summary["groups"] == [
+        {
+            "scenario": "evidence_absent_like",
+            "status": "published",
+            "pass1_kind": "clarification_request",
+            "pass2_response_kind": "clarification_request",
+            "kind_preserved": True,
+            "action_id_preserved": None,
+            "refusal_category_preserved": None,
+            "attempts": 1,
+            "lm5g_loadable_count": 1,
+            "failure_reason_counts": {},
+        },
+        {
+            "scenario": "evidence_present_like",
+            "status": "pass2_invariant_violation",
+            "pass1_kind": "action_request",
+            "pass2_response_kind": "action_request",
+            "kind_preserved": True,
+            "action_id_preserved": False,
+            "refusal_category_preserved": None,
+            "attempts": 1,
+            "lm5g_loadable_count": 1,
+            "failure_reason_counts": {"pass2_action_id_changed": 1},
+        },
+        {
+            "scenario": "evidence_present_like",
+            "status": "published",
+            "pass1_kind": "action_request",
+            "pass2_response_kind": "action_request",
+            "kind_preserved": True,
+            "action_id_preserved": True,
+            "refusal_category_preserved": None,
+            "attempts": 1,
+            "lm5g_loadable_count": 1,
+            "failure_reason_counts": {},
+        },
+    ]
+
+
+def test_run_probe_writes_manifest_attempts_and_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    rows_returned = [
+        _summary_row(scenario="evidence_absent_like"),
+        _summary_row(
+            scenario="evidence_present_like",
+            pass1_kind="action_request",
+            pass2_response_kind="action_request",
+            action_id_preserved=True,
+        ),
+    ]
+    calls: list[tuple[str, int]] = []
+
+    def fake_run_attempt(**kwargs):
+        calls.append((kwargs["scenario"], kwargs["attempt"]))
+        return rows_returned[len(calls) - 1]
+
+    monkeypatch.setattr(PROBE, "_REPO_ROOT", tmp_path)
+    monkeypatch.setattr(PROBE, "_git_short_sha", lambda: "abc1234")
+    monkeypatch.setattr(PROBE, "_ollama_version", lambda: "ollama version is 0.31.1")
+    monkeypatch.setattr(
+        PROBE,
+        "_model_metadata",
+        lambda model: {
+            "model": model,
+            "model_id": None,
+            "model_quantization": "Q4_0",
+            "ollama_show_status": "ok",
+            "ollama_show_excerpt": "quantization        Q4_0",
+        },
+    )
+    monkeypatch.setattr(PROBE, "_run_attempt", fake_run_attempt)
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        scenarios=["evidence_absent_like", "evidence_present_like"],
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        attempts_per_scenario=1,
+        timeout_s=9,
+        excerpt_chars=500,
+    )
+
+    assert calls == [("evidence_absent_like", 1), ("evidence_present_like", 1)]
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["script_schema"] == "rook.lm5r_two_pass_publication_probe:v1"
+    assert manifest["git_commit"] == "abc1234"
+    assert manifest["model"]["model"] == "gemma4:12b-it-qat"
+    assert manifest["scenarios"] == ["evidence_absent_like", "evidence_present_like"]
+    assert manifest["attempts_per_scenario"] == 1
+
+    attempt_rows = [
+        json.loads(line)
+        for line in (run_dir / "attempts.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert attempt_rows == rows_returned
+
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    assert summary["run_id"] == run_dir.name
+    assert len(summary["groups"]) == 2
 
 
 def test_run_attempt_reports_pass2_content_recursion_error(

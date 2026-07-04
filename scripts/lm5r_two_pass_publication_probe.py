@@ -610,8 +610,266 @@ def _run_attempt(
     return row
 
 
+def _count_strings(rows: list[Mapping[str, Any]], key: str) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for row in rows:
+        value = row.get(key)
+        if isinstance(value, str) and value:
+            counts[value] += 1
+    return dict(sorted(counts.items()))
+
+
+def _write_json_file(path: Path, payload: dict[str, Any]) -> None:
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _git_short_sha() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception:
+        return "unknown"
+    if result.returncode != 0:
+        return "unknown"
+    return result.stdout.strip() or "unknown"
+
+
+def _ollama_version() -> str:
+    try:
+        result = subprocess.run(
+            ["ollama", "--version"],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception as exc:
+        return f"unavailable:{type(exc).__name__}"
+    if result.returncode != 0:
+        return "unknown"
+    return result.stdout.strip() or result.stderr.strip() or "unknown"
+
+
+def _extract_labeled_value(text: str, labels: tuple[str, ...]) -> str | None:
+    normalized_labels = tuple(label.casefold() for label in labels)
+    for line in text.splitlines():
+        stripped = line.strip()
+        folded = stripped.casefold()
+        for label, folded_label in zip(labels, normalized_labels):
+            if folded.startswith(folded_label):
+                value = stripped[len(label) :].strip()
+                if value:
+                    return value
+    return None
+
+
+def _parse_show_metadata(text: str) -> dict[str, str | None]:
+    return {
+        "model_id": _extract_labeled_value(text, ("model id",)),
+        "model_quantization": _extract_labeled_value(text, ("quantization",)),
+    }
+
+
+def _model_metadata(model: str) -> dict[str, Any]:
+    try:
+        result = subprocess.run(
+            ["ollama", "show", model],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception as exc:
+        return {
+            "model": model,
+            "model_id": None,
+            "model_quantization": None,
+            "ollama_show_status": f"unavailable:{type(exc).__name__}",
+            "ollama_show_excerpt": None,
+        }
+
+    text = result.stdout if result.stdout else result.stderr
+    parsed = _parse_show_metadata(text)
+    status = "ok" if result.returncode == 0 else f"error:{result.returncode}"
+    return {
+        "model": model,
+        **parsed,
+        "ollama_show_status": status,
+        "ollama_show_excerpt": _excerpt(text),
+    }
+
+
+def _build_summary(
+    *,
+    run_id: str,
+    git_commit: str,
+    model: str,
+    scenarios: list[str],
+    attempts_per_scenario: int,
+    rows: list[Mapping[str, Any]],
+) -> dict[str, Any]:
+    grouped: dict[
+        tuple[str, str, str | None, str | None, bool | None, bool | None, bool | None],
+        list[Mapping[str, Any]],
+    ] = defaultdict(list)
+    for row in rows:
+        key = (
+            row.get("scenario"),
+            row.get("status"),
+            row.get("pass1_kind"),
+            row.get("pass2_response_kind"),
+            row.get("kind_preserved"),
+            row.get("action_id_preserved"),
+            row.get("refusal_category_preserved"),
+        )
+        grouped[key].append(row)
+
+    groups: list[dict[str, Any]] = []
+    for key, group_rows in sorted(
+        grouped.items(),
+        key=lambda item: tuple(str(part) for part in item[0]),
+    ):
+        (
+            scenario,
+            status,
+            pass1_kind,
+            pass2_response_kind,
+            kind_preserved,
+            action_id_preserved,
+            refusal_category_preserved,
+        ) = key
+        groups.append(
+            {
+                "scenario": scenario,
+                "status": status,
+                "pass1_kind": pass1_kind,
+                "pass2_response_kind": pass2_response_kind,
+                "kind_preserved": kind_preserved,
+                "action_id_preserved": action_id_preserved,
+                "refusal_category_preserved": refusal_category_preserved,
+                "attempts": len(group_rows),
+                "lm5g_loadable_count": sum(
+                    1 for row in group_rows if row.get("lm5g_loadable") is True
+                ),
+                "failure_reason_counts": _count_strings(group_rows, "failure_reason"),
+            }
+        )
+
+    return {
+        "run_id": run_id,
+        "git_commit": git_commit,
+        "model": model,
+        "scenarios": scenarios,
+        "attempts_per_scenario": attempts_per_scenario,
+        "groups": groups,
+    }
+
+
+def _build_manifest(
+    *,
+    git_commit: str,
+    ollama_version: str,
+    model: dict[str, Any],
+    scenarios: list[str],
+    endpoint: str,
+    temperature: float,
+    attempts_per_scenario: int,
+) -> dict[str, Any]:
+    return {
+        "script_schema": SCRIPT_SCHEMA,
+        "git_commit": git_commit,
+        "ollama_version": ollama_version,
+        "model": model,
+        "scenarios": scenarios,
+        "endpoint": endpoint,
+        "temperature": temperature,
+        "attempts_per_scenario": attempts_per_scenario,
+        "raw_artifacts": "local evidence under probe_runs; do not commit",
+    }
+
+
+def _run_probe(
+    *,
+    model: str,
+    scenarios: list[str],
+    endpoint: str,
+    temperature: float,
+    attempts_per_scenario: int,
+    timeout_s: float,
+    excerpt_chars: int,
+) -> Path:
+    git_commit = _git_short_sha()
+    manifest = _build_manifest(
+        git_commit=git_commit,
+        ollama_version=_ollama_version(),
+        model=_model_metadata(model),
+        scenarios=scenarios,
+        endpoint=endpoint,
+        temperature=temperature,
+        attempts_per_scenario=attempts_per_scenario,
+    )
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    run_dir = _REPO_ROOT / "probe_runs" / f"lm5r-{timestamp}-{git_commit}"
+    run_dir.mkdir(parents=True, exist_ok=False)
+    _write_json_file(run_dir / "manifest.json", manifest)
+
+    rows: list[dict[str, Any]] = []
+    attempts_path = run_dir / "attempts.jsonl"
+    with attempts_path.open("w", encoding="utf-8") as attempts_file:
+        for scenario in scenarios:
+            for attempt in range(1, attempts_per_scenario + 1):
+                row = _run_attempt(
+                    model=model,
+                    scenario=scenario,
+                    attempt=attempt,
+                    endpoint=endpoint,
+                    temperature=temperature,
+                    timeout_s=timeout_s,
+                    excerpt_chars=excerpt_chars,
+                )
+                rows.append(row)
+                attempts_file.write(json.dumps(row, sort_keys=True) + "\n")
+
+    summary = _build_summary(
+        run_id=run_dir.name,
+        git_commit=git_commit,
+        model=model,
+        scenarios=scenarios,
+        attempts_per_scenario=attempts_per_scenario,
+        rows=rows,
+    )
+    _write_json_file(run_dir / "summary.json", summary)
+
+    status_counts = Counter(row["status"] for row in rows)
+    published = status_counts.get("published", 0)
+    print(
+        "LM5R two-pass probe complete: "
+        f"run_dir={run_dir} attempts={len(rows)} published={published} "
+        f"status_counts={dict(sorted(status_counts.items()))}"
+    )
+    return run_dir
+
+
 def main(argv: list[str] | None = None) -> int:
-    _args(argv)
+    args = _args(argv)
+    _run_probe(
+        model=args.model,
+        scenarios=args.scenarios,
+        endpoint=args.endpoint,
+        temperature=args.temperature,
+        attempts_per_scenario=args.attempts,
+        timeout_s=args.timeout_s,
+        excerpt_chars=args.excerpt_chars,
+    )
     return 0
 
 
