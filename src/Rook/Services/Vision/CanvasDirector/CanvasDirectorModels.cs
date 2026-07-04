@@ -32,21 +32,28 @@ namespace Rook.Services.Vision.CanvasDirector
             var root = document.RootElement;
             return new CanvasDirectorExtractRequest
             {
-                Op = GetString(root, "op"),
-                ExportId = GetString(root, "export_id"),
-                DocumentId = GetString(root, "document_id"),
-                ProposalId = GetString(root, "proposal_id"),
-                SolveMode = GetString(root, "solve_mode") ?? "require_fresh_solve",
-                ExpectedSolutionToken = GetString(root, "expected_solution_token"),
+                Op = GetOptionalString(root, "op"),
+                ExportId = GetOptionalString(root, "export_id"),
+                DocumentId = GetOptionalString(root, "document_id"),
+                ProposalId = GetOptionalString(root, "proposal_id"),
+                SolveMode = GetOptionalString(root, "solve_mode") ?? "require_fresh_solve",
+                ExpectedSolutionToken = GetOptionalString(root, "expected_solution_token"),
             };
         }
 
-        private static string? GetString(JsonElement root, string name)
+        private static string? GetOptionalString(JsonElement root, string name)
         {
-            if (!root.TryGetProperty(name, out var value) ||
-                value.ValueKind != JsonValueKind.String)
+            if (!root.TryGetProperty(name, out var value))
             {
                 return null;
+            }
+
+            if (value.ValueKind != JsonValueKind.String)
+            {
+                throw new CanvasDirectorException(
+                    "invalid_input",
+                    $"CanvasDirector request field {name} must be a string.",
+                    400);
             }
 
             return value.GetString();

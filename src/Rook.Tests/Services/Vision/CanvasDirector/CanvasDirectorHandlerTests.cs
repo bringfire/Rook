@@ -98,6 +98,23 @@ namespace Rook.Tests.Services.Vision.CanvasDirector
             Assert.Equal("proposal_b", request.ProposalId);
         }
 
+        [Theory]
+        [InlineData("{\"op\":\"extract\",\"document_id\":123}", "document_id")]
+        [InlineData("{\"op\":\"extract\",\"proposal_id\":false}", "proposal_id")]
+        [InlineData("{\"op\":\"extract\",\"export_id\":{}}", "export_id")]
+        [InlineData("{\"op\":\"extract\",\"solve_mode\":7}", "solve_mode")]
+        [InlineData("{\"op\":\"extract\",\"expected_solution_token\":[]}", "expected_solution_token")]
+        public void Dispatch_Extract_RejectsPresentNonStringRequestFields(
+            string requestJson,
+            string fieldName)
+        {
+            var response = new CanvasDirectorHandler(new FakeExtractor()).Dispatch(requestJson);
+
+            Assert.False(response.Success);
+            Assert.Equal(400, response.HttpStatus);
+            AssertError(response.Data, "invalid_input", $"{fieldName} must be a string");
+        }
+
         private static void AssertError(object? data, string expectedCode, string expectedMessagePart)
         {
             Assert.NotNull(data);
