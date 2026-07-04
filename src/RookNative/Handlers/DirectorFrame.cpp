@@ -284,7 +284,10 @@ ON_BoundingBox TransformBoundingBoxByCorners(const ON_BoundingBox& bbox, const O
     };
 
     for (const ON_3dPoint& corner : corners)
-        transformed.Union(xform * corner);
+    {
+        const ON_3dPoint transformedCorner = xform * corner;
+        transformed.Union(ON_BoundingBox(transformedCorner, transformedCorner));
+    }
 
     return transformed;
 }

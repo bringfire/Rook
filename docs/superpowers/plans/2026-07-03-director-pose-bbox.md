@@ -83,8 +83,10 @@ def test_director_pose_bbox_probe_records_raw_tight_and_expected_phase_bboxes():
     assert "ExpectedPhaseBbox(m_objects[i], m_objects[i].delta)" in apply_body
     assert "ExpectedPhaseBbox(object, object.delta)" in restore_body
     assert "ExpectedPhaseBbox(object, ON_Xform::IdentityTransformation)" in restore_body
-    assert "transformed.Union(xform * corner)" in expected_body
+    assert "const ON_3dPoint transformedCorner = xform * corner" in expected_body
+    assert "transformed.Union(ON_BoundingBox(transformedCorner, transformedCorner))" in expected_body
     assert "corner * xform" not in expected_body
+    assert "transformed.Union(xform * corner)" not in expected_body
     assert "BboxDeltaToJson" in phase_body
     assert "BboxMaxDelta" in phase_body
 
@@ -150,7 +152,10 @@ ON_BoundingBox TransformBoundingBoxByCorners(const ON_BoundingBox& bbox, const O
     };
 
     for (const ON_3dPoint& corner : corners)
-        transformed.Union(xform * corner);
+    {
+        const ON_3dPoint transformedCorner = xform * corner;
+        transformed.Union(ON_BoundingBox(transformedCorner, transformedCorner));
+    }
 
     return transformed;
 }
