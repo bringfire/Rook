@@ -300,6 +300,67 @@ def test_parse_pass1_decision_records_recursion_error(monkeypatch: pytest.Monkey
     assert failure_reason == "pass1_json_invalid:RecursionError"
 
 
+def test_observation_action_intent_reasons_ignore_non_observation_payloads() -> None:
+    assert PROBE._observation_action_intent_reasons(
+        payload={"kind": "action_request", "action_id": "draft_repair_params"},
+        allowed_action_ids=("draft_repair_params",),
+    ) == ()
+
+
+def test_observation_action_intent_reasons_detect_data_action_id_only_once() -> None:
+    assert PROBE._observation_action_intent_reasons(
+        payload={
+            "kind": "observation",
+            "message": "State report.",
+            "data": {"action_id": "draft_repair_params"},
+        },
+        allowed_action_ids=("draft_repair_params",),
+    ) == ("observation_data_action_id_allowed",)
+
+
+def test_observation_action_intent_reasons_detect_message_action_id() -> None:
+    assert PROBE._observation_action_intent_reasons(
+        payload={
+            "kind": "observation",
+            "message": "I would call draft_repair_params next.",
+            "data": None,
+        },
+        allowed_action_ids=("draft_repair_params",),
+    ) == ("observation_message_mentions_allowed_action_id",)
+
+
+def test_observation_action_intent_reasons_detect_nested_data_action_id_text() -> None:
+    assert PROBE._observation_action_intent_reasons(
+        payload={
+            "kind": "observation",
+            "message": "State report.",
+            "data": {
+                "note": "candidate action draft_repair_params",
+                "nested": ["other", {"text": "use draft_repair_params"}],
+            },
+        },
+        allowed_action_ids=("draft_repair_params",),
+    ) == ("observation_data_mentions_allowed_action_id",)
+
+
+def test_observation_action_intent_reasons_sort_and_deduplicate_reasons() -> None:
+    assert PROBE._observation_action_intent_reasons(
+        payload={
+            "kind": "observation",
+            "message": "draft_repair_params",
+            "data": {
+                "action_id": "draft_repair_params",
+                "note": "draft_repair_params",
+            },
+        },
+        allowed_action_ids=("draft_repair_params",),
+    ) == (
+        "observation_data_action_id_allowed",
+        "observation_data_mentions_allowed_action_id",
+        "observation_message_mentions_allowed_action_id",
+    )
+
+
 def test_single_kind_schema_action_request_const_pins_kind_and_action_id() -> None:
     schema = PROBE._single_kind_response_schema(
         {"kind": "action_request", "action_id": "draft_repair_params"}

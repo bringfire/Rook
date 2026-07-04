@@ -17,7 +17,7 @@ import sys
 import urllib.error
 import urllib.request
 from collections import Counter, defaultdict
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -254,6 +254,69 @@ def _parse_pass1_decision(content: str) -> tuple[dict[str, Any] | None, str | No
         return None, "pass1_optional_data_intent_type_invalid"
 
     return decision, None
+
+
+def _json_value_contains_allowed_action_id(
+    value: Any,
+    allowed_action_ids: Collection[str],
+    *,
+    skip_action_id_value: bool = False,
+) -> bool:
+    if isinstance(value, str):
+        return any(action_id in value for action_id in allowed_action_ids)
+
+    if isinstance(value, Mapping):
+        return any(
+            _json_value_contains_allowed_action_id(
+                item_value,
+                allowed_action_ids,
+                skip_action_id_value=False,
+            )
+            for item_key, item_value in value.items()
+            if not (skip_action_id_value and item_key == "action_id")
+        )
+
+    if isinstance(value, (list, tuple)):
+        return any(
+            _json_value_contains_allowed_action_id(
+                item,
+                allowed_action_ids,
+                skip_action_id_value=False,
+            )
+            for item in value
+        )
+
+    return False
+
+
+def _observation_action_intent_reasons(
+    *,
+    payload: Mapping[str, Any],
+    allowed_action_ids: Collection[str],
+) -> tuple[str, ...]:
+    if payload.get("kind") != "observation":
+        return ()
+
+    reasons: set[str] = set()
+    data = payload.get("data")
+    if isinstance(data, Mapping):
+        action_id = data.get("action_id")
+        if isinstance(action_id, str) and action_id in allowed_action_ids:
+            reasons.add("observation_data_action_id_allowed")
+        if _json_value_contains_allowed_action_id(
+            data,
+            allowed_action_ids,
+            skip_action_id_value=True,
+        ):
+            reasons.add("observation_data_mentions_allowed_action_id")
+
+    message = payload.get("message")
+    if isinstance(message, str) and any(
+        action_id in message for action_id in allowed_action_ids
+    ):
+        reasons.add("observation_message_mentions_allowed_action_id")
+
+    return tuple(sorted(reasons))
 
 
 def _schema_const_prop() -> dict[str, str]:
