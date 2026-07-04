@@ -290,33 +290,47 @@ extract -> spec -> compile -> run_compiled_track -> assemble_director_video
 
 ## Implementation Result
 
-Checkpoint 1 live probe stopped the slice.
+The first probe showed the source-state side of the contract was still using
+raw cached `BoundingBox()` data. That made the later tight-bbox phase evidence
+look wrong because the comparison source itself was wrong. The implementation
+therefore changed Director pose truth consistently to `DirectorObjectPoseBbox()`
+with object-level `GetTightBoundingBox()` preferred and raw `BoundingBox()` only
+as an explicit fallback.
+
+Checkpoint 1 diagnostic result:
 
 - run root: `C:\Users\bring\AppData\Local\Rook\rookvision_director\pearson_pose_bbox_probe_20260703_223547`
 - object id: `a28cbdb5-51fa-46b2-b18b-ab880b54ded7`
-- Rhino native port: `50247`
 - task state: `unsafe_failed`
-- failing frame: frame `1`, the identity transform frame
-- raw bbox reproduced Pearson X/Y mismatch: partially; raw `BoundingBox()`
-  matched source before apply and after identity apply, then changed to the
-  smaller X/Y bbox after identity restore
-- tight bbox valid in all observed phases: `true`
-- tight bbox matched pure-translation phase expectation: `false`; on frame 1
-  it differed from the source expectation by max delta `3675.621812569094`
-  before apply, after apply, before restore, and after restore
-- InstanceXform sequence: identity in all observed frame-1 phases
-- restore error: `restored bbox did not match source bbox`
-- dirty partial state: `true`
-- post-failure `/director/object-states` readback returned the same smaller
-  bbox as the failed phase evidence: min X `125718.338195`, max X
-  `367191.403245`, max Y `2881.052246`
-- gate decision: stop; do not implement `DirectorObjectPoseBbox()` from this
-  probe result
+- diagnosis correction: the failure was caused by raw-bbox Director source
+  state, not by `GetTightBoundingBox()` being unsuitable
 
-This disproves the proposed helper gate for the minimized Pearson object:
-object-level `GetTightBoundingBox()` was not the stricter correct readback.
-The identity `TransformObject` / restore path itself changed the bbox readback
-from the original source bbox to the smaller bbox. The next slice should
-investigate why an identity transform/restore mutates the instance bbox
-readback for this block instance, rather than adopting tight bbox as Director
-pose truth.
+After wiring `DirectorObjectPoseBbox()` through Director object states, source
+validation, phase evidence, and restore verification, the minimized Pearson
+probe passed:
+
+- run root: `C:\Users\bring\AppData\Local\Rook\rookvision_director\pearson_tight_pose_bbox_probe_20260703_230708`
+- state: `complete`
+- frames: `2`
+- dirty frames: none
+- restore bbox method: `tight_object`
+- max restore bbox delta: approximately `4.8e-7`
+- raw bbox diagnostic still reproduced the bad X/Y delta of approximately
+  `3675.62`, proving the old cached bbox path was the bug
+
+Full Pearson CanvasDirector acceptance also passed:
+
+- run root: `C:\Users\bring\AppData\Local\Rook\rookvision_director\canvas_director_tight_bbox_acceptance_20260703_2318`
+- project root: `C:\Users\bring\OneDrive\Desktop\Pearson\ANIMATION\V2`
+- GH document: `animation test_smoke-01.gh`
+- spec id: `pearson_smoke_tight_bbox_20260703_2309`
+- state: `complete`
+- frame evidence records: `240`
+- frame PNGs: `240`
+- dirty frames: none
+- failed frames: none
+- restore bbox method counts: `tight_object: 240`
+- max restore bbox delta: `4.793328116647899e-7`
+- max raw bbox diagnostic delta: `3675.6218127947213`
+- video manifest state: `complete`
+- video: `C:\Users\bring\AppData\Local\Rook\rookvision_director\canvas_director_tight_bbox_acceptance_20260703_2318\videos\preview.mp4`
