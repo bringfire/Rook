@@ -284,7 +284,7 @@ def _template_root_for_pack(pack: dict[str, Any]) -> Path:
 
 
 def _public_manifest_payload(pack: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in pack.items() if not key.startswith("__")}
+    return {key: value for key, value in pack.items() if key != TEMPLATE_ROOT_KEY}
 
 
 def _find_forbidden_generic_strings(text: str) -> list[str]:

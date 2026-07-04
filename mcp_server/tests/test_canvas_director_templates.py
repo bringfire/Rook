@@ -178,6 +178,18 @@ def test_template_validation_detects_raw_and_escaped_manifest_leaks(tmp_path: Pa
     assert any("C:\\Users\\bring" in error for error in leak_errors)
 
 
+def test_template_validation_scans_double_underscore_manifest_metadata(tmp_path: Path) -> None:
+    manifest_path = _write_minimal_template_pack(
+        tmp_path,
+        manifest_extra={"__notes": "C:/Users/bring"},
+    )
+
+    pack = templates.load_template_pack(manifest_path)
+    errors = templates.validate_template_pack(pack)
+
+    assert "manifest:forbidden_generic_string:C:/Users/bring" in errors
+
+
 def test_template_validation_detects_escaped_script_leaks(tmp_path: Path) -> None:
     manifest_path = _write_minimal_template_pack(
         tmp_path,
