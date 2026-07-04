@@ -9,6 +9,7 @@ that decision through a single-kind LM5 response schema.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import subprocess
@@ -240,6 +241,112 @@ def _parse_pass1_decision(content: str) -> tuple[dict[str, Any] | None, str | No
         return None, "pass1_optional_data_intent_type_invalid"
 
     return decision, None
+
+
+def _schema_const_prop() -> dict[str, str]:
+    return {"const": LOCAL_WORKER_TURN_RESPONSE_SCHEMA}
+
+
+def _single_kind_response_schema(decision: Mapping[str, Any]) -> dict[str, Any]:
+    kind = decision["kind"]
+    base: dict[str, Any] = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "schema": _schema_const_prop(),
+            "kind": {"const": kind},
+        },
+    }
+
+    if kind == "action_request":
+        base["required"] = ["schema", "kind", "action_id", "rationale", "input"]
+        base["properties"].update(
+            {
+                "action_id": {"const": decision["action_id"]},
+                "rationale": {"type": "string"},
+                "input": {"type": "object"},
+            }
+        )
+        return base
+
+    if kind == "clarification_request":
+        base["required"] = ["schema", "kind", "question", "rationale"]
+        base["properties"].update(
+            {
+                "question": {"type": "string"},
+                "rationale": {"type": ["string", "null"]},
+            }
+        )
+        return base
+
+    if kind == "refusal":
+        base["required"] = ["schema", "kind", "category", "reason"]
+        base["properties"].update(
+            {
+                "category": {"const": decision["category"]},
+                "reason": {"type": "string"},
+            }
+        )
+        return base
+
+    if kind == "observation":
+        base["required"] = ["schema", "kind", "message", "data"]
+        base["properties"].update(
+            {
+                "message": {"type": "string"},
+                "data": {"type": ["object", "null"]},
+            }
+        )
+        return base
+
+    raise ValueError(f"unknown decision kind for schema: {kind}")
+
+
+_FORMATTER_SYSTEM_TEXT = """\
+You are formatting an already-made Rook worker decision.
+Do not change the decision kind.
+Do not change action_id.
+Return exactly one JSON object matching the provided single-kind schema.
+Use the original request envelope only to fill fields needed by the chosen decision.
+If required information is missing, preserve the chosen kind and express that
+within the chosen envelope where possible; do not switch kinds.
+"""
+
+
+def _formatter_messages(
+    request_payload: Mapping[str, Any],
+    decision: Mapping[str, Any],
+    single_kind_schema: Mapping[str, Any],
+) -> list[dict[str, str]]:
+    payload = {
+        "request_envelope": request_payload,
+        "decision": decision,
+        "response_schema": LOCAL_WORKER_TURN_RESPONSE_SCHEMA,
+        "kind": decision["kind"],
+        "single_kind_schema": single_kind_schema,
+    }
+    return [
+        {"role": "system", "content": _FORMATTER_SYSTEM_TEXT},
+        {"role": "user", "content": json.dumps(payload, sort_keys=True)},
+    ]
+
+
+def _build_pass2_body(
+    *,
+    model: str,
+    request_payload: Mapping[str, Any],
+    decision: Mapping[str, Any],
+    single_kind_schema: Mapping[str, Any],
+    temperature: float,
+) -> dict[str, Any]:
+    return {
+        "model": model,
+        "messages": _formatter_messages(request_payload, decision, single_kind_schema),
+        "stream": False,
+        "format": copy.deepcopy(single_kind_schema),
+        "think": False,
+        "options": {"temperature": temperature},
+    }
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -204,6 +204,111 @@ def test_parse_pass1_decision_records_recursion_error(monkeypatch: pytest.Monkey
     assert failure_reason == "pass1_json_invalid:RecursionError"
 
 
+def test_single_kind_schema_action_request_const_pins_kind_and_action_id() -> None:
+    schema = PROBE._single_kind_response_schema(
+        {"kind": "action_request", "action_id": "draft_repair_params"}
+    )
+
+    assert "oneOf" not in schema
+    assert schema["type"] == "object"
+    assert schema["additionalProperties"] is False
+    assert schema["required"] == ["schema", "kind", "action_id", "rationale", "input"]
+    assert schema["properties"]["schema"]["const"] == "rook.local_worker_turn_response:v1"
+    assert schema["properties"]["kind"]["const"] == "action_request"
+    assert schema["properties"]["action_id"]["const"] == "draft_repair_params"
+    assert schema["properties"]["input"]["type"] == "object"
+
+
+def test_single_kind_schema_clarification_request_shape() -> None:
+    schema = PROBE._single_kind_response_schema(
+        {"kind": "clarification_request", "question": "Need code?"}
+    )
+
+    assert "oneOf" not in schema
+    assert schema["additionalProperties"] is False
+    assert schema["required"] == ["schema", "kind", "question", "rationale"]
+    assert schema["properties"]["schema"]["const"] == "rook.local_worker_turn_response:v1"
+    assert schema["properties"]["kind"]["const"] == "clarification_request"
+    assert schema["properties"]["question"]["type"] == "string"
+    assert schema["properties"]["rationale"]["type"] == ["string", "null"]
+
+
+def test_single_kind_schema_refusal_const_pins_category() -> None:
+    schema = PROBE._single_kind_response_schema(
+        {"kind": "refusal", "category": "out_of_scope", "reason": "No authority."}
+    )
+
+    assert "oneOf" not in schema
+    assert schema["type"] == "object"
+    assert schema["additionalProperties"] is False
+    assert schema["required"] == ["schema", "kind", "category", "reason"]
+    assert schema["properties"]["schema"]["const"] == "rook.local_worker_turn_response:v1"
+    assert schema["properties"]["kind"]["const"] == "refusal"
+    assert schema["properties"]["category"]["const"] == "out_of_scope"
+    assert schema["properties"]["reason"]["type"] == "string"
+
+
+def test_single_kind_schema_observation_shape() -> None:
+    schema = PROBE._single_kind_response_schema(
+        {"kind": "observation", "message": "Done."}
+    )
+
+    assert "oneOf" not in schema
+    assert schema["type"] == "object"
+    assert schema["additionalProperties"] is False
+    assert schema["required"] == ["schema", "kind", "message", "data"]
+    assert schema["properties"]["schema"]["const"] == "rook.local_worker_turn_response:v1"
+    assert schema["properties"]["kind"]["const"] == "observation"
+    assert schema["properties"]["message"]["type"] == "string"
+    assert schema["properties"]["data"]["type"] == ["object", "null"]
+
+
+def test_formatter_messages_are_not_lm5j_worker_messages() -> None:
+    request_payload = {"schema": "rook.local_worker_turn_request:v1", "context": {}}
+    decision = {"kind": "clarification_request", "question": "Need code?"}
+    schema = PROBE._single_kind_response_schema(decision)
+
+    messages = PROBE._formatter_messages(request_payload, decision, schema)
+
+    assert [message["role"] for message in messages] == ["system", "user"]
+    assert "formatting an already-made Rook worker decision" in messages[0]["content"]
+    payload = json.loads(messages[1]["content"])
+    assert payload["request_envelope"] == request_payload
+    assert payload["decision"] == decision
+    assert payload["kind"] == "clarification_request"
+    assert payload["response_schema"] == "rook.local_worker_turn_response:v1"
+    assert payload["single_kind_schema"] == schema
+
+
+def test_pass2_request_body_uses_single_kind_format_and_think_false() -> None:
+    request_payload = {"schema": "rook.local_worker_turn_request:v1", "context": {}}
+    decision = {"kind": "action_request", "action_id": "draft_repair_params"}
+    schema = PROBE._single_kind_response_schema(decision)
+
+    body = PROBE._build_pass2_body(
+        model="gemma4:12b-it-qat",
+        request_payload=request_payload,
+        decision=decision,
+        single_kind_schema=schema,
+        temperature=0,
+    )
+
+    assert body["model"] == "gemma4:12b-it-qat"
+    assert body["stream"] is False
+    assert body["think"] is False
+    assert body["format"] == schema
+    assert body["format"] is not schema
+    assert body["format"]["properties"] is not schema["properties"]
+    body["format"]["properties"]["action_id"]["const"] = "mutated"
+    assert schema["properties"]["action_id"]["const"] == "draft_repair_params"
+    assert body["options"]["temperature"] == 0
+    assert body["messages"] == PROBE._formatter_messages(
+        request_payload,
+        decision,
+        schema,
+    )
+
+
 def test_script_help_runs_from_repo_root() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     python = repo_root / "mcp_server" / ".venv" / "Scripts" / "python.exe"
