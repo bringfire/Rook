@@ -461,8 +461,8 @@ py -3.10 -m py_compile `
   scripts\lm5r_two_pass_publication_probe.py `
   mcp_server\tests\test_lm5r_two_pass_publication_probe.py
 
-git diff --check main..HEAD
-git diff --name-only main..HEAD
+git diff --check origin/main..HEAD
+git diff --name-only origin/main..HEAD
 ```
 
 Expected scope:
