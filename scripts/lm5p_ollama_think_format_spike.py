@@ -161,10 +161,10 @@ def _messages_for_scenario(scenario_name: str) -> list[dict[str, str]]:
     return [dict(message) for message in prompt_artifact["messages"]]
 
 
-def _excerpt(value: str | None) -> str | None:
+def _excerpt(value: str | None, excerpt_chars: int = EXCERPT_CHARS) -> str | None:
     if value is None:
         return None
-    return value[:EXCERPT_CHARS]
+    return value[:excerpt_chars]
 
 
 def _sha256_text(value: str | None) -> str | None:
@@ -202,6 +202,8 @@ def _empty_result_fields() -> dict[str, Any]:
 def _classify_provider_text(
     provider_text: str,
     base_row: Mapping[str, Any],
+    *,
+    excerpt_chars: int = EXCERPT_CHARS,
 ) -> dict[str, Any]:
     row = {**base_row, **_empty_result_fields()}
     try:
@@ -237,14 +239,14 @@ def _classify_provider_text(
 
     content = message.get("content")
     if isinstance(content, str):
-        row["message_content_excerpt"] = _excerpt(content)
+        row["message_content_excerpt"] = _excerpt(content, excerpt_chars)
         row["message_content_sha256"] = _sha256_text(content)
 
     thinking = message.get("thinking")
     if isinstance(thinking, str) and thinking:
         row["thinking_present"] = True
         row["thinking_chars"] = len(thinking)
-        row["thinking_excerpt"] = _excerpt(thinking)
+        row["thinking_excerpt"] = _excerpt(thinking, excerpt_chars)
         row["thinking_sha256"] = _sha256_text(thinking)
 
     if not isinstance(content, str) or not content:
@@ -437,6 +439,7 @@ def _run_matrix(
     temperature: float,
     attempts_per_cell: int,
     timeout_s: float,
+    excerpt_chars: int,
 ) -> Path:
     git_commit = _git_short_sha()
     model_metadata = [_model_metadata(model) for model in models]
@@ -496,7 +499,11 @@ def _run_matrix(
                                 f"provider_error:{type(exc).__name__}"
                             )
                         else:
-                            row = _classify_provider_text(provider_text, base_row)
+                            row = _classify_provider_text(
+                                provider_text,
+                                base_row,
+                                excerpt_chars=excerpt_chars,
+                            )
 
                         if row["provider_status"] == "ok":
                             counts["ok"] += 1
@@ -542,6 +549,11 @@ def _args(argv: list[str] | None) -> argparse.Namespace:
         default=None,
     )
     parser.add_argument("--attempts", type=_positive_int, default=DEFAULT_ATTEMPTS)
+    parser.add_argument(
+        "--excerpt-chars",
+        type=_positive_int,
+        default=EXCERPT_CHARS,
+    )
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     parser.add_argument("--timeout-s", type=float, default=DEFAULT_TIMEOUT_S)
     args = parser.parse_args(argv)
@@ -564,6 +576,7 @@ def main(argv: list[str] | None = None) -> int:
         temperature=args.temperature,
         attempts_per_cell=args.attempts,
         timeout_s=args.timeout_s,
+        excerpt_chars=args.excerpt_chars,
     )
     return 0
 

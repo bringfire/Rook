@@ -67,6 +67,23 @@ def test_args_no_model_uses_default_models() -> None:
     assert args.modes == list(SPIKE._MODES)
 
 
+def test_args_default_excerpt_chars() -> None:
+    args = SPIKE._args([])
+
+    assert args.excerpt_chars == SPIKE.EXCERPT_CHARS
+
+
+def test_args_custom_excerpt_chars() -> None:
+    args = SPIKE._args(["--excerpt-chars", "1200"])
+
+    assert args.excerpt_chars == 1200
+
+
+def test_args_invalid_excerpt_chars_fails_during_parse() -> None:
+    with pytest.raises(SystemExit):
+        SPIKE._args(["--excerpt-chars", "0"])
+
+
 def test_args_invalid_scenario_fails_during_parse() -> None:
     with pytest.raises(SystemExit):
         SPIKE._args(["--scenario", "bad"])
@@ -236,6 +253,13 @@ def test_excerpt_and_sha256_text_handle_text_and_none() -> None:
     assert SPIKE._sha256_text(None) is None
 
 
+def test_excerpt_uses_configured_limit() -> None:
+    text = "abcdef" * 120
+
+    assert SPIKE._excerpt(text, 12) == "abcdefabcdef"
+    assert SPIKE._excerpt(None, 12) is None
+
+
 def test_classifies_lm5g_loadable_response_with_thinking() -> None:
     content = json.dumps(
         {
@@ -282,6 +306,35 @@ def test_classifies_lm5g_loadable_response_with_thinking() -> None:
     assert row["eval_duration"] == 400
     assert row["done_reason"] == "stop"
     assert row["failure_reason"] is None
+
+
+def test_classifies_provider_text_uses_configured_excerpt_chars() -> None:
+    content = json.dumps(
+        {
+            "schema": "rook.local_worker_turn_response:v1",
+            "kind": "observation",
+            "message": "x" * 80,
+            "data": None,
+        }
+    )
+    thinking = "thinking-" * 20
+    provider_text = json.dumps(
+        {
+            "message": {
+                "content": content,
+                "thinking": thinking,
+            }
+        }
+    )
+
+    row = SPIKE._classify_provider_text(
+        provider_text,
+        {"scenario": "demo"},
+        excerpt_chars=40,
+    )
+
+    assert row["message_content_excerpt"] == content[:40]
+    assert row["thinking_excerpt"] == thinking[:40]
 
 
 def test_classifies_provider_json_parse_failure() -> None:
@@ -421,6 +474,7 @@ def test_run_matrix_writes_manifest_and_attempt_rows(
         temperature=0,
         attempts_per_cell=2,
         timeout_s=9,
+        excerpt_chars=SPIKE.EXCERPT_CHARS,
     )
 
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
@@ -495,6 +549,7 @@ def test_run_matrix_records_http_and_provider_failures(
         temperature=0,
         attempts_per_cell=2,
         timeout_s=9,
+        excerpt_chars=SPIKE.EXCERPT_CHARS,
     )
 
     rows = [
