@@ -306,7 +306,11 @@ def _observation_action_intent_reasons(
     if data is not None and _json_value_contains_allowed_action_id(
         data,
         allowed_action_ids,
-        skip_action_id_value=isinstance(data, Mapping),
+        skip_action_id_value=(
+            isinstance(data, Mapping)
+            and isinstance(data.get("action_id"), str)
+            and data.get("action_id") in allowed_action_ids
+        ),
     ):
         reasons.add("observation_data_mentions_allowed_action_id")
 
