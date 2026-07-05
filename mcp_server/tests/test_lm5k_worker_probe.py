@@ -639,6 +639,18 @@ def test_knowledge_packets_route_v2_repair_intent_evidence() -> None:
     assert [packet.kind for packet in packets] == ["gotcha", "evidence"]
 
 
+def test_knowledge_packets_route_v3_acceptance_criteria_evidence() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packets = PROBE._knowledge_packets_for_scenario(
+        PROBE._SCENARIOS["evidence_present_v3"], result.final_graph
+    )
+    assert [packet.packet_id for packet in packets] == [
+        "script_body_gotcha",
+        "lm5u_acceptance_criteria_evidence",
+    ]
+    assert [packet.kind for packet in packets] == ["gotcha", "evidence"]
+
+
 def test_probe_evidence_constants_are_source_of_truth() -> None:
     assert PROBE.EVIDENCE_PACKET_ID == "lm5n_repair_evidence"
     assert (
@@ -796,6 +808,95 @@ def test_repair_intent_evidence_v2_fields_are_bounded_and_provenance_tagged() ->
         "truncated": False,
     }
     assert all(isinstance(entry, str) for entry in errors["value"])
+
+
+def test_acceptance_criteria_evidence_v3_fields_are_bounded_and_provenance_tagged() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packet = PROBE._acceptance_criteria_evidence_packet(result.final_graph)
+
+    assert packet.packet_id == "lm5u_acceptance_criteria_evidence"
+    assert packet.kind == "evidence"
+    assert packet.title == "Acceptance-criteria repair evidence"
+    assert packet.content["source"] == "probe_fixture"
+    assert packet.content["trust"] == "high"
+    assert packet.content["state"] == "post_verify_pre_bind"
+
+    fields = packet.content["fields"]
+    assert set(fields) == {
+        "current_code",
+        "language",
+        "recommended_mode",
+        "repair_anchor",
+        "pin_contract",
+        "target_diagnostics",
+        "expected_repair_outcome",
+        "acceptance_criteria",
+    }
+
+    assert fields["current_code"]["value"] == "A = DefinitelyMissingSymbol;"
+    assert fields["language"]["value"] == "csharp"
+    assert fields["recommended_mode"]["value"] == "body"
+    assert fields["repair_anchor"] == {
+        "value": {
+            "component_guid": PROBE.PROBE_COMPONENT_GUID,
+            "language": "csharp",
+        },
+        "source": "graph.memory.facts.repair_anchor",
+    }
+
+    assert fields["pin_contract"] == {
+        "source": "create_script.initial_execution_params.pins_out",
+        "value": {
+            "pins_out": ("A:double",),
+            "output_requirements": (
+                {
+                    "requirement_id": "output_a_assigned",
+                    "description": "Output A must be assigned.",
+                    "source": "create_script.initial_execution_params.pins_out",
+                },
+                {
+                    "requirement_id": "output_a_double_compatible",
+                    "description": "Output A must be double-compatible.",
+                    "source": "create_script.initial_execution_params.pins_out",
+                },
+            ),
+        },
+    }
+
+    target_diagnostics = fields["target_diagnostics"]
+    assert target_diagnostics["source"] == (
+        "create_script.receipt.script_receipt.repair_anchor"
+    )
+    assert set(target_diagnostics["fields"]) == {"target_errors"}
+    assert target_diagnostics["fields"]["target_errors"]["value"] == (
+        PROBE.REPAIR_TARGET_ERROR,
+    )
+
+    assert fields["expected_repair_outcome"] == {
+        "value": "succeeded",
+        "source": "workflow_contract.rules.verify_repair.expected_outcome",
+    }
+
+    acceptance = fields["acceptance_criteria"]
+    assert acceptance["source"] == (
+        "workflow_contract + create_script.initial_execution_params + "
+        "create_script.receipt.script_receipt.repair_anchor + script_body_gotcha"
+    )
+    assert [
+        criterion["criterion_id"]
+        for criterion in acceptance["criteria"]
+    ] == [
+        "output_a_assigned",
+        "output_a_double_compatible",
+        "verify_repair_succeeds",
+        "preserve_body_mode",
+        "resolve_target_diagnostics",
+        "remove_unresolved_symbol",
+    ]
+    assert all(
+        set(criterion) == {"criterion_id", "description", "source"}
+        for criterion in acceptance["criteria"]
+    )
 
 
 def test_lm5t_probe_script_does_not_publish_hidden_repair_params() -> None:
