@@ -602,6 +602,30 @@ def test_evidence_present_knowledge_adds_exactly_one_evidence_packet() -> None:
     assert [packet.kind for packet in packets] == ["gotcha", "evidence"]
 
 
+def test_lm5t_evidence_constants_are_source_of_truth() -> None:
+    assert PROBE.EVIDENCE_PACKET_ID == "lm5n_repair_evidence"
+    assert (
+        PROBE.REPAIR_INTENT_EVIDENCE_PACKET_ID
+        == "lm5t_repair_intent_evidence"
+    )
+    assert PROBE.EVIDENCE_TARGET_DIAGNOSTIC_MAX_ITEMS == 3
+    assert PROBE.EVIDENCE_TARGET_DIAGNOSTIC_MAX_CHARS == 300
+    assert PROBE.REPAIR_TARGET_ERROR == (
+        "CS0103: The name 'DefinitelyMissingSymbol' "
+        "does not exist in the current context."
+    )
+
+
+def test_upstream_receipt_contains_bounded_target_error() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    receipt = PROBE._require_receipt_mapping(result.final_graph)
+
+    repair_anchor = receipt["repair_anchor"]
+    assert repair_anchor["target_errors"] == [PROBE.REPAIR_TARGET_ERROR]
+    assert "target_warnings" not in repair_anchor
+    assert isinstance(repair_anchor["target_errors"][0], str)
+
+
 def test_evidence_packet_fields_are_bounded_and_provenance_tagged() -> None:
     _scaffold, result = PROBE.derive_probe_graph_state()
     packet = PROBE._repair_evidence_packet(result.final_graph)
@@ -642,10 +666,13 @@ def test_evidence_packet_fields_are_bounded_and_provenance_tagged() -> None:
     assert fields["verification_status"]["value"] == "failed"
     assert fields["target_error_count"]["value"] == 1
     assert fields["component_guid"]["value"] == PROBE.PROBE_COMPONENT_GUID
-    assert (
-        fields["repair_anchor"]["value"]["component_guid"]
-        == PROBE.PROBE_COMPONENT_GUID
-    )
+    assert fields["repair_anchor"] == {
+        "value": {
+            "component_guid": PROBE.PROBE_COMPONENT_GUID,
+            "language": "csharp",
+        },
+        "source": "graph.memory.facts.repair_anchor",
+    }
     assert fields["language"]["value"] == "csharp"
     assert fields["current_code"]["value"] == "A = DefinitelyMissingSymbol;"
     assert len(fields["current_code"]["value"]) <= 500
@@ -656,6 +683,17 @@ def test_evidence_packet_fields_are_bounded_and_provenance_tagged() -> None:
         "source": "script_body_gotcha",
         "derivation": "existing worker-visible gotcha convention",
     }
+
+
+def test_repair_evidence_v1_does_not_expose_target_diagnostics() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packet = PROBE._repair_evidence_packet(result.final_graph)
+    rendered = repr(packet.content)
+
+    assert "target_errors" not in rendered
+    assert "target_warnings" not in rendered
+    assert PROBE.REPAIR_TARGET_ERROR not in rendered
+    assert "DefinitelyMissingSymbol" in rendered
 
 
 def test_current_code_evidence_reads_derived_create_params_not_repair_literal() -> None:

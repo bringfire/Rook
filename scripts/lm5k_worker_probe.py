@@ -114,7 +114,14 @@ def _scenario_config(name: str) -> _ProbeScenarioConfig:
 PROBE_COMPONENT_GUID = "lm5l-probe-component-guid"
 PROBE_REPAIR_CODE = "A = 42.0;"
 EVIDENCE_PACKET_ID = "lm5n_repair_evidence"
+REPAIR_INTENT_EVIDENCE_PACKET_ID = "lm5t_repair_intent_evidence"
 EVIDENCE_CURRENT_CODE_MAX_CHARS = 500
+EVIDENCE_TARGET_DIAGNOSTIC_MAX_ITEMS = 3
+EVIDENCE_TARGET_DIAGNOSTIC_MAX_CHARS = 300
+REPAIR_TARGET_ERROR = (
+    "CS0103: The name 'DefinitelyMissingSymbol' "
+    "does not exist in the current context."
+)
 
 _LOCAL_PREFIXES = ("ollama_chat/", "ollama/")
 
@@ -337,6 +344,7 @@ def _wrapped_failure_create_raw() -> dict:
                 "repair_anchor": {
                     "component_guid": PROBE_COMPONENT_GUID,
                     "language": "csharp",
+                    "target_errors": [REPAIR_TARGET_ERROR],
                 },
             }
         },
@@ -512,6 +520,20 @@ def _bounded_current_code(code: Any) -> dict:
     }
 
 
+def _stable_repair_anchor_value(repair_anchor: Mapping[str, Any]) -> dict:
+    component_guid = repair_anchor.get("component_guid")
+    language = repair_anchor.get("language")
+    _invariant(
+        isinstance(component_guid, str) and bool(component_guid),
+        "repair anchor component guid missing",
+    )
+    _invariant(
+        isinstance(language, str) and bool(language),
+        "repair anchor language missing",
+    )
+    return {"component_guid": component_guid, "language": language}
+
+
 def _require_receipt_mapping(graph) -> Mapping[str, Any]:
     create = graph.nodes["create_script"]
     evidence = create.evidence
@@ -578,7 +600,7 @@ def _repair_evidence_packet(graph):
                 "source": "graph.memory.facts.component_guid",
             },
             "repair_anchor": {
-                "value": dict(repair_anchor),
+                "value": _stable_repair_anchor_value(repair_anchor),
                 "source": "graph.memory.facts.repair_anchor",
             },
             "language": {
