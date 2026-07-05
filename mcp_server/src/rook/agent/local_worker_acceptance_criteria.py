@@ -179,6 +179,10 @@ def _validate_receipt_diagnostic(value: Any) -> None:
         raise ValueError(
             "LM5W v1 requires the DefinitelyMissingSymbol target diagnostic."
         )
+    if value != [_TARGET_DIAGNOSTIC]:
+        raise ValueError(
+            "LM5W v1 requires exactly one target diagnostic: DefinitelyMissingSymbol."
+        )
 
 
 def _render_unresolved_intent(

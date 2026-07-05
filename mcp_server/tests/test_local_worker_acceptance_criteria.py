@@ -359,6 +359,19 @@ def test_validation_fails_closed(overrides, match):
         assemble_acceptance_criteria_packet(_valid_sources(**overrides))
 
 
+def test_receipt_diagnostic_extra_target_diagnostic_fails_closed():
+    sources = _valid_sources(
+        receipt_diagnostic=AcceptanceCriteriaSource(
+            source_class="receipt_diagnostic",
+            source_path=DIAGNOSTIC_SOURCE_PATH,
+            value=[TARGET_DIAGNOSTIC, "CS0029: extra"],
+        )
+    )
+
+    with pytest.raises(ValueError, match="exactly one target diagnostic"):
+        assemble_acceptance_criteria_packet(sources)
+
+
 def test_unresolved_intent_wrong_source_class_fails():
     sources = _valid_sources(
         unresolved_intent=(
