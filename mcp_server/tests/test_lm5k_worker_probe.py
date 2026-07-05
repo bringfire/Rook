@@ -779,9 +779,17 @@ def test_repair_intent_evidence_v2_fields_are_bounded_and_provenance_tagged() ->
 
 
 def test_lm5t_probe_script_does_not_publish_hidden_repair_params() -> None:
-    source = Path(PROBE.__file__).read_text(encoding="utf-8")
-    assert "PROBE_REPAIR_CODE" in source
-    assert '"code": PROBE_REPAIR_CODE' in source
+    contract = PROBE._probe_contract()
+    repair_rule = next(
+        rule for rule in contract.rules
+        if rule.node_id == "repair_same_component"
+    )
+    bind_step = next(
+        step for step in repair_rule.steps_by_seen_count
+        if getattr(step, "base_params", None)
+    )
+    assert bind_step.base_params["code"] == PROBE.PROBE_REPAIR_CODE
+    assert bind_step.base_params["mode"] == "body"
 
     _scaffold, result = PROBE.derive_probe_graph_state()
     packet = PROBE._repair_intent_evidence_packet(result.final_graph)
