@@ -84,6 +84,14 @@ _FORBIDDEN_SOURCE_PATH_PREFIXES = (
     "BindStepSpec.base_params",
     "future_node.execution_params",
 )
+_LM5X_SOURCE_PATHS = frozenset(
+    (
+        PIN_SOURCE_PATH,
+        VERIFY_SOURCE_PATH,
+        DIAGNOSTIC_SOURCE_PATH,
+        CONVENTION_SOURCE_PATH,
+    )
+)
 
 
 @dataclass(frozen=True)
@@ -408,7 +416,124 @@ def _routability_diagnostics(
     convention_packets: Collection[WorkerKnowledgePacket],
     worker_node_ids: Collection[str],
 ) -> list[SourceRoutingDiagnostic]:
-    return []
+    diagnostics: list[SourceRoutingDiagnostic] = []
+    route_entries = artifact["routes"]
+    worker_node_id_set = frozenset(worker_node_ids)
+
+    routable_pairs: frozenset[tuple[str, str]] | None = None
+    failed_paths = _lm5x_failed_source_paths(
+        workflow_contract=workflow_contract,
+        graph=graph,
+        convention_packets=convention_packets,
+    )
+    if failed_paths is None:
+        routable_pairs = _lm5x_routable_pairs(
+            workflow_contract=workflow_contract,
+            graph=graph,
+            convention_packets=convention_packets,
+        )
+
+    for route in route_entries:
+        node_id = route["node_id"]
+        if node_id not in worker_node_id_set:
+            diagnostics.append(
+                _diagnostic(
+                    "worker_node_not_found",
+                    "node_id was not present in caller-provided worker_node_ids.",
+                    node_id=node_id,
+                )
+            )
+            continue
+
+        for visible_source in route["visible_sources"]:
+            source_class = visible_source["source_class"]
+            source_path = visible_source["source_path"]
+            if failed_paths is not None:
+                if source_path in failed_paths:
+                    diagnostics.append(
+                        _unresolved_route_diagnostic(node_id, visible_source)
+                    )
+                continue
+
+            if (source_class, source_path) not in routable_pairs:
+                diagnostics.append(
+                    _unresolved_route_diagnostic(node_id, visible_source)
+                )
+
+    return diagnostics
+
+
+def _lm5x_routable_pairs(
+    *,
+    workflow_contract: RookWorkflowContract,
+    graph: PlanGraph,
+    convention_packets: Collection[WorkerKnowledgePacket],
+) -> frozenset[tuple[str, str]]:
+    sources = extract_acceptance_criteria_sources(
+        workflow_contract=workflow_contract,
+        graph=graph,
+        convention_packets=tuple(convention_packets),
+    )
+    return _routable_pairs_from_sources(sources)
+
+
+def _lm5x_failed_source_paths(
+    *,
+    workflow_contract: RookWorkflowContract,
+    graph: PlanGraph,
+    convention_packets: Collection[WorkerKnowledgePacket],
+) -> frozenset[str] | None:
+    try:
+        extract_acceptance_criteria_sources(
+            workflow_contract=workflow_contract,
+            graph=graph,
+            convention_packets=tuple(convention_packets),
+        )
+    except ValueError as exc:
+        message = str(exc)
+        failed_paths = frozenset(
+            source_path
+            for source_path in _LM5X_SOURCE_PATHS
+            if source_path in message
+        )
+        return failed_paths or _LM5X_SOURCE_PATHS
+    return None
+
+
+def _routable_pairs_from_sources(
+    sources: AcceptanceCriteriaSources,
+) -> frozenset[tuple[str, str]]:
+    return frozenset(
+        (
+            (sources.pin_contract.source_class, sources.pin_contract.source_path),
+            (
+                sources.verifier_outcome.source_class,
+                sources.verifier_outcome.source_path,
+            ),
+            (
+                sources.receipt_diagnostic.source_class,
+                sources.receipt_diagnostic.source_path,
+            ),
+            (sources.convention.source_class, sources.convention.source_path),
+        )
+    )
+
+
+def _unresolved_route_diagnostic(
+    node_id: str,
+    visible_source: Mapping[str, Any],
+) -> SourceRoutingDiagnostic:
+    required = visible_source["required"]
+    return SourceRoutingDiagnostic(
+        severity="error" if required else "warning",
+        code="required_route_unresolved" if required else "optional_route_unresolved",
+        node_id=node_id,
+        route_id=visible_source["route_id"],
+        source_class=visible_source["source_class"],
+        source_path=visible_source["source_path"],
+        purpose=visible_source["purpose"],
+        message="Visible source route could not be resolved from LM5X sources.",
+    )
 
 
 def _diagnostic(
