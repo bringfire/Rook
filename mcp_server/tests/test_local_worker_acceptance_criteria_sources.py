@@ -168,3 +168,104 @@ def test_extracted_sources_match_lm5u_legacy_acceptance_criteria_projection():
     assert _legacy_projection(extracted_packet) == (
         lm5u_packet["fields"]["acceptance_criteria"]["criteria"]
     )
+
+
+def _replace_contract_initial_params(workflow_contract, initial_params):
+    from dataclasses import replace
+
+    return replace(workflow_contract, initial_params=tuple(initial_params))
+
+
+def _replace_contract_rules(workflow_contract, rules):
+    from dataclasses import replace
+
+    return replace(workflow_contract, rules=tuple(rules))
+
+
+def _replace_graph_create_receipt(graph, receipt):
+    graph_copy = copy.deepcopy(graph)
+    graph_copy.nodes["create_script"].evidence.receipt = receipt
+    return graph_copy
+
+
+def test_missing_create_initial_params_fails_with_pin_source_path():
+    fixture = _fixture_objects()
+    contract = _replace_contract_initial_params(fixture["workflow_contract"], ())
+
+    with pytest.raises(ValueError, match="create_script.initial_execution_params.pins_out"):
+        extract_acceptance_criteria_sources(
+            workflow_contract=contract,
+            graph=fixture["graph"],
+            convention_packets=fixture["convention_packets"],
+        )
+
+
+def test_missing_verify_repair_rule_fails_with_verifier_source_path():
+    fixture = _fixture_objects()
+    contract = _replace_contract_rules(
+        fixture["workflow_contract"],
+        [
+            rule
+            for rule in fixture["workflow_contract"].rules
+            if rule.node_id != "verify_repair"
+        ],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="workflow_contract.rules.verify_repair.expected_outcome",
+    ):
+        extract_acceptance_criteria_sources(
+            workflow_contract=contract,
+            graph=fixture["graph"],
+            convention_packets=fixture["convention_packets"],
+        )
+
+
+def test_target_errors_wrong_shape_fails_with_diagnostic_source_path():
+    fixture = _fixture_objects()
+    receipt = copy.deepcopy(
+        fixture["graph"].nodes["create_script"].evidence.receipt
+    )
+    receipt["repair_anchor"]["target_errors"] = "not-a-list"
+    graph = _replace_graph_create_receipt(fixture["graph"], receipt)
+
+    with pytest.raises(
+        ValueError,
+        match="create_script.receipt.script_receipt.repair_anchor.target_errors",
+    ):
+        extract_acceptance_criteria_sources(
+            workflow_contract=fixture["workflow_contract"],
+            graph=graph,
+            convention_packets=fixture["convention_packets"],
+        )
+
+
+def test_missing_script_body_gotcha_fails_with_packet_id():
+    fixture = _fixture_objects()
+
+    with pytest.raises(ValueError, match="script_body_gotcha"):
+        extract_acceptance_criteria_sources(
+            workflow_contract=fixture["workflow_contract"],
+            graph=fixture["graph"],
+            convention_packets=(),
+        )
+
+
+def test_wrong_diagnostic_shape_extracts_but_assembler_rejects_semantics():
+    fixture = _fixture_objects()
+    receipt = copy.deepcopy(
+        fixture["graph"].nodes["create_script"].evidence.receipt
+    )
+    receipt["repair_anchor"]["target_errors"] = ["CS0000: Different diagnostic"]
+    graph = _replace_graph_create_receipt(fixture["graph"], receipt)
+
+    sources = extract_acceptance_criteria_sources(
+        workflow_contract=fixture["workflow_contract"],
+        graph=graph,
+        convention_packets=fixture["convention_packets"],
+    )
+
+    assert sources.receipt_diagnostic.value == ["CS0000: Different diagnostic"]
+    with pytest.raises(ValueError, match="DefinitelyMissingSymbol"):
+        assemble_acceptance_criteria_packet(sources)
