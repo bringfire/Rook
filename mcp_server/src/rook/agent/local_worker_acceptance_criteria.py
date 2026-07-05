@@ -193,6 +193,7 @@ def _render_unresolved_intent(
     unresolved_intent: tuple[UnresolvedIntentEntry, ...],
 ) -> list[dict[str, str]]:
     rendered = []
+    seen_ids: set[str] = set()
     for entry in unresolved_intent:
         if not isinstance(entry, UnresolvedIntentEntry):
             raise ValueError("unresolved_intent entries must be UnresolvedIntentEntry")
@@ -211,6 +212,11 @@ def _render_unresolved_intent(
                 raise ValueError(
                     f"unresolved_intent entry {field} must be a non-empty string."
                 )
+        if entry.intent_id in seen_ids:
+            raise ValueError(
+                f"duplicate unresolved_intent intent_id {entry.intent_id!r}."
+            )
+        seen_ids.add(entry.intent_id)
         rendered.append(
             {
                 "intent_id": entry.intent_id,

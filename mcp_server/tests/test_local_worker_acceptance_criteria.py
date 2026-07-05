@@ -606,6 +606,30 @@ def test_unresolved_intent_non_string_field_fails():
         assemble_acceptance_criteria_packet(sources)
 
 
+def test_unresolved_intent_duplicate_intent_id_fails():
+    sources = _valid_sources(
+        unresolved_intent=(
+            UnresolvedIntentEntry(
+                intent_id="missing_design_goal",
+                description="Design goal is missing.",
+                source_class="planner_user_intent",
+                source_path="planner.intent.design_goal",
+                reason="required by planner",
+            ),
+            UnresolvedIntentEntry(
+                intent_id="missing_design_goal",
+                description="Output value is missing.",
+                source_class="planner_user_intent",
+                source_path="planner.intent.output_value",
+                reason="required by planner",
+            ),
+        )
+    )
+
+    with pytest.raises(ValueError, match="duplicate unresolved_intent intent_id"):
+        assemble_acceptance_criteria_packet(sources)
+
+
 def test_unresolved_intent_wrong_entry_type_fails():
     sources = _valid_sources(
         unresolved_intent=(
