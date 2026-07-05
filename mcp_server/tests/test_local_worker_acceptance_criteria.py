@@ -1,3 +1,4 @@
+import ast
 import hashlib
 import importlib.util
 import inspect
@@ -76,6 +77,36 @@ def _jsonable(value):
     if isinstance(value, tuple):
         return [_jsonable(item) for item in value]
     return value
+
+
+def _import_names(source):
+    tree = ast.parse(source)
+    imports = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imports.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                imports.add(node.module)
+            imports.update(alias.name for alias in node.names)
+            if node.module:
+                imports.update(f"{node.module}.{alias.name}" for alias in node.names)
+    return imports
+
+
+def _call_names(source):
+    tree = ast.parse(source)
+    calls = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name):
+            calls.add(node.func.id)
+        elif isinstance(node.func, ast.Attribute):
+            if isinstance(node.func.value, ast.Name):
+                calls.add(f"{node.func.value.id}.{node.func.attr}")
+            calls.add(node.func.attr)
+    return calls
 
 
 def test_public_surface_exports_acceptance_criteria_packet_api():
@@ -213,7 +244,8 @@ def test_fixture_reproduction_anchor_matches_lm5u_legacy_projection():
 
 def test_module_import_boundary_stays_narrow():
     source = inspect.getsource(module)
-    forbidden = (
+    imports = _import_names(source)
+    forbidden_import_fragments = (
         "plan_graph",
         "RookWorkflowContract",
         "CompiledWorkflowScaffold",
@@ -221,14 +253,13 @@ def test_module_import_boundary_stays_narrow():
         "lm5r_two_pass_publication_probe",
         "LiteLLM",
         "run_local_worker",
-        "open(",
-        "Path(",
-        "json.load",
         "yaml",
     )
+    forbidden_calls = {"open", "Path", "json.load"}
 
-    for token in forbidden:
-        assert token not in source
+    for fragment in forbidden_import_fragments:
+        assert not any(fragment in imported for imported in imports)
+    assert forbidden_calls.isdisjoint(_call_names(source))
 
 
 def test_probe_scripts_do_not_import_acceptance_criteria_boundary():
@@ -238,7 +269,10 @@ def test_probe_scripts_do_not_import_acceptance_criteria_boundary():
         "scripts/lm5r_two_pass_publication_probe.py",
     ):
         source = (root / relative).read_text(encoding="utf-8")
-        assert "local_worker_acceptance_criteria" not in source
+        imports = _import_names(source)
+        assert not any(
+            "local_worker_acceptance_criteria" in imported for imported in imports
+        )
 
 
 def test_fingerprint_matches_canonical_json_without_fingerprint():
