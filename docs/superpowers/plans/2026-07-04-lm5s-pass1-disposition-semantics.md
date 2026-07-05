@@ -305,6 +305,19 @@ def test_observation_action_intent_reasons_detect_nested_data_action_id_text() -
     assert reasons == ("observation_data_mentions_allowed_action_id",)
 
 
+def test_observation_action_intent_reasons_detect_data_intent_action_id_text() -> None:
+    reasons = PROBE._observation_action_intent_reasons(
+        payload={
+            "kind": "observation",
+            "message": "State report.",
+            "data_intent": {"action_id": "draft_repair_params"},
+        },
+        allowed_action_ids=("draft_repair_params",),
+    )
+
+    assert reasons == ("observation_data_intent_mentions_allowed_action_id",)
+
+
 def test_observation_action_intent_reasons_sort_and_deduplicate_reasons() -> None:
     reasons = PROBE._observation_action_intent_reasons(
         payload={
@@ -314,12 +327,14 @@ def test_observation_action_intent_reasons_sort_and_deduplicate_reasons() -> Non
                 "action_id": "draft_repair_params",
                 "note": "draft_repair_params",
             },
+            "data_intent": "draft_repair_params",
         },
         allowed_action_ids=("draft_repair_params",),
     )
 
     assert reasons == (
         "observation_data_action_id_allowed",
+        "observation_data_intent_mentions_allowed_action_id",
         "observation_data_mentions_allowed_action_id",
         "observation_message_mentions_allowed_action_id",
     )
@@ -343,6 +358,7 @@ cd C:\Users\bring\.config\superpowers\worktrees\Rook\lm5s-pass1-disposition-sema
   mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_detect_top_level_data_string_action_id_text `
   mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_detect_top_level_data_list_action_id_text `
   mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_detect_nested_data_action_id_text `
+  mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_detect_data_intent_action_id_text `
   mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_sort_and_deduplicate_reasons -q
 ```
 
@@ -411,6 +427,13 @@ def _observation_action_intent_reasons(
     ):
         reasons.add("observation_data_mentions_allowed_action_id")
 
+    data_intent = payload.get("data_intent")
+    if data_intent is not None and _json_value_contains_allowed_action_id(
+        data_intent,
+        allowed_action_ids,
+    ):
+        reasons.add("observation_data_intent_mentions_allowed_action_id")
+
     message = payload.get("message")
     if isinstance(message, str) and any(
         action_id in message for action_id in allowed_action_ids
@@ -433,6 +456,7 @@ cd C:\Users\bring\.config\superpowers\worktrees\Rook\lm5s-pass1-disposition-sema
   mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_detect_top_level_data_string_action_id_text `
   mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_detect_top_level_data_list_action_id_text `
   mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_detect_nested_data_action_id_text `
+  mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_detect_data_intent_action_id_text `
   mcp_server\tests\test_lm5r_two_pass_publication_probe.py::test_observation_action_intent_reasons_sort_and_deduplicate_reasons -q
 ```
 

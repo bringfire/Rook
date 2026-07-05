@@ -228,6 +228,10 @@ observation_message_mentions_allowed_action_id:
 
 observation_data_mentions_allowed_action_id:
   any string value under observation.data contains an allowed action id
+
+observation_data_intent_mentions_allowed_action_id:
+  any string value under pass-1 observation.data_intent contains an allowed
+  action id
 ```
 
 Do not add generic action-decision language detection in LM5S. In particular,
@@ -269,6 +273,12 @@ pass2 anomaly:
 
 If pass 2 is not LM5G-loadable, structural failure is already recorded and
 anomaly scoring would be noisy.
+
+Pass 1 may include `data_intent` because its decision artifact is intentionally
+lighter than LM5G. For observations, LM5S scans parsed `data_intent` as a
+pass-1-only intent channel and reports
+`observation_data_intent_mentions_allowed_action_id` when it carries allowed
+action identity.
 
 Suggested helper shape:
 

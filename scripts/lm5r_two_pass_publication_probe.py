@@ -310,6 +310,13 @@ def _observation_action_intent_reasons(
     ):
         reasons.add("observation_data_mentions_allowed_action_id")
 
+    data_intent = payload.get("data_intent")
+    if data_intent is not None and _json_value_contains_allowed_action_id(
+        data_intent,
+        allowed_action_ids,
+    ):
+        reasons.add("observation_data_intent_mentions_allowed_action_id")
+
     message = payload.get("message")
     if isinstance(message, str) and any(
         action_id in message for action_id in allowed_action_ids

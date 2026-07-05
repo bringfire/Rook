@@ -369,6 +369,17 @@ def test_observation_action_intent_reasons_detect_nested_data_action_id_text() -
     ) == ("observation_data_mentions_allowed_action_id",)
 
 
+def test_observation_action_intent_reasons_detect_data_intent_action_id_text() -> None:
+    assert PROBE._observation_action_intent_reasons(
+        payload={
+            "kind": "observation",
+            "message": "State report.",
+            "data_intent": {"action_id": "draft_repair_params"},
+        },
+        allowed_action_ids=("draft_repair_params",),
+    ) == ("observation_data_intent_mentions_allowed_action_id",)
+
+
 def test_observation_action_intent_reasons_sort_and_deduplicate_reasons() -> None:
     assert PROBE._observation_action_intent_reasons(
         payload={
@@ -378,10 +389,12 @@ def test_observation_action_intent_reasons_sort_and_deduplicate_reasons() -> Non
                 "action_id": "draft_repair_params",
                 "note": "draft_repair_params",
             },
+            "data_intent": "draft_repair_params",
         },
         allowed_action_ids=("draft_repair_params",),
     ) == (
         "observation_data_action_id_allowed",
+        "observation_data_intent_mentions_allowed_action_id",
         "observation_data_mentions_allowed_action_id",
         "observation_message_mentions_allowed_action_id",
     )
