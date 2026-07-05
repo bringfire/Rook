@@ -144,6 +144,20 @@ def test_source_module_import_boundary_stays_one_way_and_narrow():
     calls = _call_names(source)
 
     assert "rook.agent.local_worker_acceptance_criteria" in imports
+    forbidden_source_fragments = (
+        "BindStepSpec",
+        "lm5k_worker_probe",
+        "lm5r_two_pass_publication_probe",
+        "LiteLLM",
+        "run_local_worker",
+        "yaml",
+        "base_params",
+        "PROBE_REPAIR_CODE",
+        "importlib.import_module",
+        "__import__",
+    )
+    for fragment in forbidden_source_fragments:
+        assert fragment not in source
     assert not any(
         "local_worker_acceptance_criteria_sources" in imported
         for imported in _import_names(
@@ -165,8 +179,6 @@ def test_source_module_import_boundary_stays_one_way_and_narrow():
     )
     for fragment in forbidden_import_fragments:
         assert not any(fragment in imported for imported in imports)
-    assert "base_params" not in source
-    assert "PROBE_REPAIR_CODE" not in source
     assert {"open", "Path", "json.load"}.isdisjoint(calls)
 
 
@@ -177,6 +189,7 @@ def test_probe_scripts_do_not_import_acceptance_criteria_sources():
         "scripts/lm5r_two_pass_publication_probe.py",
     ):
         source = (root / relative).read_text(encoding="utf-8")
+        assert "local_worker_acceptance_criteria_sources" not in source
         imports = _import_names(source)
         assert not any(
             "local_worker_acceptance_criteria_sources" in imported
