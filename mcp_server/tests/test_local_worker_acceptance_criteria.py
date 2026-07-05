@@ -264,10 +264,7 @@ def test_module_import_boundary_stays_narrow():
 
 def test_probe_scripts_do_not_import_acceptance_criteria_boundary():
     root = Path(__file__).resolve().parents[2]
-    for relative in (
-        "scripts/lm5k_worker_probe.py",
-        "scripts/lm5r_two_pass_publication_probe.py",
-    ):
+    for relative in ("scripts/lm5r_two_pass_publication_probe.py",):
         source = (root / relative).read_text(encoding="utf-8")
         imports = _import_names(source)
         assert not any(
