@@ -64,6 +64,7 @@ def test_scenario_configs_are_source_of_truth() -> None:
         "evidence_absent",
         "evidence_present",
         "evidence_present_v2",
+        "evidence_present_v3",
     }
 
     absent = PROBE._SCENARIOS["evidence_absent"]
@@ -99,10 +100,25 @@ def test_scenario_configs_are_source_of_truth() -> None:
     assert present_v2.expected_action_id == "draft_repair_params"
     assert present_v2.expected_attempt_valid is True
 
+    present_v3 = PROBE._SCENARIOS["evidence_present_v3"]
+    assert present_v3.cli_name == "evidence_present_v3"
+    assert (
+        present_v3.scenario_id
+        == "lm5u_acceptance_criteria_evidence_present"
+    )
+    assert present_v3.scenario_version == "v5"
+    assert present_v3.state == "post_verify_pre_bind"
+    assert present_v3.evidence_packet == "acceptance_criteria_v3"
+    assert present_v3.expected_disposition == "candidate_action_request"
+    assert present_v3.expected_response_kind == "action_request"
+    assert present_v3.expected_action_id == "draft_repair_params"
+    assert present_v3.expected_attempt_valid is True
+
     assert "lm5k_golden_repair_v2" not in {
         absent.scenario_id,
         present.scenario_id,
         present_v2.scenario_id,
+        present_v3.scenario_id,
     }
 
 
@@ -623,11 +639,27 @@ def test_knowledge_packets_route_v2_repair_intent_evidence() -> None:
     assert [packet.kind for packet in packets] == ["gotcha", "evidence"]
 
 
-def test_lm5t_evidence_constants_are_source_of_truth() -> None:
+def test_knowledge_packets_route_v3_acceptance_criteria_evidence() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packets = PROBE._knowledge_packets_for_scenario(
+        PROBE._SCENARIOS["evidence_present_v3"], result.final_graph
+    )
+    assert [packet.packet_id for packet in packets] == [
+        "script_body_gotcha",
+        "lm5u_acceptance_criteria_evidence",
+    ]
+    assert [packet.kind for packet in packets] == ["gotcha", "evidence"]
+
+
+def test_probe_evidence_constants_are_source_of_truth() -> None:
     assert PROBE.EVIDENCE_PACKET_ID == "lm5n_repair_evidence"
     assert (
         PROBE.REPAIR_INTENT_EVIDENCE_PACKET_ID
         == "lm5t_repair_intent_evidence"
+    )
+    assert (
+        PROBE.ACCEPTANCE_CRITERIA_EVIDENCE_PACKET_ID
+        == "lm5u_acceptance_criteria_evidence"
     )
     assert PROBE.EVIDENCE_TARGET_DIAGNOSTIC_MAX_ITEMS == 3
     assert PROBE.EVIDENCE_TARGET_DIAGNOSTIC_MAX_CHARS == 300
@@ -778,6 +810,95 @@ def test_repair_intent_evidence_v2_fields_are_bounded_and_provenance_tagged() ->
     assert all(isinstance(entry, str) for entry in errors["value"])
 
 
+def test_acceptance_criteria_evidence_v3_fields_are_bounded_and_provenance_tagged() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packet = PROBE._acceptance_criteria_evidence_packet(result.final_graph)
+
+    assert packet.packet_id == "lm5u_acceptance_criteria_evidence"
+    assert packet.kind == "evidence"
+    assert packet.title == "Acceptance-criteria repair evidence"
+    assert packet.content["source"] == "probe_fixture"
+    assert packet.content["trust"] == "high"
+    assert packet.content["state"] == "post_verify_pre_bind"
+
+    fields = packet.content["fields"]
+    assert set(fields) == {
+        "current_code",
+        "language",
+        "recommended_mode",
+        "repair_anchor",
+        "pin_contract",
+        "target_diagnostics",
+        "expected_repair_outcome",
+        "acceptance_criteria",
+    }
+
+    assert fields["current_code"]["value"] == "A = DefinitelyMissingSymbol;"
+    assert fields["language"]["value"] == "csharp"
+    assert fields["recommended_mode"]["value"] == "body"
+    assert fields["repair_anchor"] == {
+        "value": {
+            "component_guid": PROBE.PROBE_COMPONENT_GUID,
+            "language": "csharp",
+        },
+        "source": "graph.memory.facts.repair_anchor",
+    }
+
+    assert fields["pin_contract"] == {
+        "source": "create_script.initial_execution_params.pins_out",
+        "value": {
+            "pins_out": ("A:double",),
+            "output_requirements": (
+                {
+                    "requirement_id": "output_a_assigned",
+                    "description": "Output A must be assigned.",
+                    "source": "create_script.initial_execution_params.pins_out",
+                },
+                {
+                    "requirement_id": "output_a_double_compatible",
+                    "description": "Output A must be double-compatible.",
+                    "source": "create_script.initial_execution_params.pins_out",
+                },
+            ),
+        },
+    }
+
+    target_diagnostics = fields["target_diagnostics"]
+    assert target_diagnostics["source"] == (
+        "create_script.receipt.script_receipt.repair_anchor"
+    )
+    assert set(target_diagnostics["fields"]) == {"target_errors"}
+    assert target_diagnostics["fields"]["target_errors"]["value"] == (
+        PROBE.REPAIR_TARGET_ERROR,
+    )
+
+    assert fields["expected_repair_outcome"] == {
+        "value": "succeeded",
+        "source": "workflow_contract.rules.verify_repair.expected_outcome",
+    }
+
+    acceptance = fields["acceptance_criteria"]
+    assert acceptance["source"] == (
+        "workflow_contract + create_script.initial_execution_params + "
+        "create_script.receipt.script_receipt.repair_anchor + script_body_gotcha"
+    )
+    assert [
+        criterion["criterion_id"]
+        for criterion in acceptance["criteria"]
+    ] == [
+        "output_a_assigned",
+        "output_a_double_compatible",
+        "verify_repair_succeeds",
+        "preserve_body_mode",
+        "resolve_target_diagnostics",
+        "remove_unresolved_symbol",
+    ]
+    assert all(
+        set(criterion) == {"criterion_id", "description", "source"}
+        for criterion in acceptance["criteria"]
+    )
+
+
 def test_lm5t_probe_script_does_not_publish_hidden_repair_params() -> None:
     contract = PROBE._probe_contract()
     repair_rule = next(
@@ -800,6 +921,29 @@ def test_lm5t_probe_script_does_not_publish_hidden_repair_params() -> None:
     assert "hidden BindStepSpec.base_params.code" not in rendered
 
 
+def test_lm5u_acceptance_criteria_boundary_guard() -> None:
+    contract = PROBE._probe_contract()
+    repair_rule = next(
+        rule for rule in contract.rules
+        if rule.node_id == "repair_same_component"
+    )
+    bind_step = next(
+        step for step in repair_rule.steps_by_seen_count
+        if getattr(step, "base_params", None)
+    )
+    assert bind_step.base_params["code"] == PROBE.PROBE_REPAIR_CODE
+
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packet = PROBE._acceptance_criteria_evidence_packet(result.final_graph)
+    rendered = json.dumps(_jsonable(packet.content), sort_keys=True)
+
+    assert "acceptance_criteria" in rendered
+    assert "lm5u_acceptance_criteria_evidence" not in rendered
+    assert PROBE.PROBE_REPAIR_CODE not in rendered
+    assert "A = 42.0;" not in rendered
+    assert "set A to" not in rendered
+
+
 def test_repair_evidence_v1_does_not_expose_target_diagnostics() -> None:
     _scaffold, result = PROBE.derive_probe_graph_state()
     packet = PROBE._repair_evidence_packet(result.final_graph)
@@ -809,6 +953,56 @@ def test_repair_evidence_v1_does_not_expose_target_diagnostics() -> None:
     assert "target_warnings" not in rendered
     assert PROBE.REPAIR_TARGET_ERROR not in rendered
     assert "DefinitelyMissingSymbol" in rendered
+
+
+def test_evidence_ladder_visibility_is_stable() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+
+    v1 = json.dumps(
+        _jsonable(PROBE._repair_evidence_packet(result.final_graph).content),
+        sort_keys=True,
+    )
+    v2 = json.dumps(
+        _jsonable(
+            PROBE._repair_intent_evidence_packet(result.final_graph).content
+        ),
+        sort_keys=True,
+    )
+    v3 = json.dumps(
+        _jsonable(
+            PROBE._acceptance_criteria_evidence_packet(result.final_graph).content
+        ),
+        sort_keys=True,
+    )
+
+    assert "target_errors" not in v1
+    assert "acceptance_criteria" not in v1
+
+    assert "target_errors" in v2
+    assert "acceptance_criteria" not in v2
+
+    assert "target_errors" in v3
+    assert "acceptance_criteria" in v3
+
+    for rendered in (v1, v2, v3):
+        assert PROBE.PROBE_REPAIR_CODE not in rendered
+        assert "A = 42.0;" not in rendered
+        assert "hidden BindStepSpec.base_params.code" not in rendered
+
+
+def test_acceptance_criteria_v3_does_not_publish_replacement_literals() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packet = PROBE._acceptance_criteria_evidence_packet(result.final_graph)
+    rendered = json.dumps(_jsonable(packet.content), sort_keys=True)
+
+    assert "DefinitelyMissingSymbol" in rendered
+    assert "Output A must be assigned." in rendered
+    assert "Output A must be double-compatible." in rendered
+    assert "A = 42.0;" not in rendered
+    assert PROBE.PROBE_REPAIR_CODE not in rendered
+    assert "set A to" not in rendered
+    assert "replacement code" not in rendered
+    assert "repair diff" not in rendered
 
 
 def test_target_diagnostic_evidence_bounds_items_and_chars() -> None:

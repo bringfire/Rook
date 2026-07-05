@@ -98,6 +98,17 @@ _SCENARIOS = {
         expected_action_id="draft_repair_params",
         expected_attempt_valid=True,
     ),
+    "evidence_present_v3": _ProbeScenarioConfig(
+        cli_name="evidence_present_v3",
+        scenario_id="lm5u_acceptance_criteria_evidence_present",
+        scenario_version="v5",
+        state="post_verify_pre_bind",
+        evidence_packet="acceptance_criteria_v3",
+        expected_disposition="candidate_action_request",
+        expected_response_kind="action_request",
+        expected_action_id="draft_repair_params",
+        expected_attempt_valid=True,
+    ),
 }
 
 
@@ -115,6 +126,9 @@ PROBE_COMPONENT_GUID = "lm5l-probe-component-guid"
 PROBE_REPAIR_CODE = "A = 42.0;"
 EVIDENCE_PACKET_ID = "lm5n_repair_evidence"
 REPAIR_INTENT_EVIDENCE_PACKET_ID = "lm5t_repair_intent_evidence"
+ACCEPTANCE_CRITERIA_EVIDENCE_PACKET_ID = (
+    "lm5u_acceptance_criteria_evidence"
+)
 EVIDENCE_CURRENT_CODE_MAX_CHARS = 500
 EVIDENCE_TARGET_DIAGNOSTIC_MAX_ITEMS = 3
 EVIDENCE_TARGET_DIAGNOSTIC_MAX_CHARS = 300
@@ -603,6 +617,95 @@ def _pin_contract_from_params(params: Mapping[str, Any]) -> dict:
     }
 
 
+def _acceptance_pin_contract_from_params(params: Mapping[str, Any]) -> dict:
+    base = _pin_contract_from_params(params)
+    pins_out = base["value"]["pins_out"]
+    _invariant(
+        pins_out == ["A:double"],
+        "acceptance criteria output pin contract changed",
+    )
+    return {
+        "source": "create_script.initial_execution_params.pins_out",
+        "value": {
+            "pins_out": list(pins_out),
+            "output_requirements": [
+                {
+                    "requirement_id": "output_a_assigned",
+                    "description": "Output A must be assigned.",
+                    "source": (
+                        "create_script.initial_execution_params.pins_out"
+                    ),
+                },
+                {
+                    "requirement_id": "output_a_double_compatible",
+                    "description": "Output A must be double-compatible.",
+                    "source": (
+                        "create_script.initial_execution_params.pins_out"
+                    ),
+                },
+            ],
+        },
+    }
+
+
+def _acceptance_criteria() -> dict:
+    return {
+        "source": (
+            "workflow_contract + create_script.initial_execution_params + "
+            "create_script.receipt.script_receipt.repair_anchor + "
+            "script_body_gotcha"
+        ),
+        "criteria": [
+            {
+                "criterion_id": "output_a_assigned",
+                "description": "Output A must be assigned.",
+                "source": "create_script.initial_execution_params.pins_out",
+            },
+            {
+                "criterion_id": "output_a_double_compatible",
+                "description": "Output A must be double-compatible.",
+                "source": "create_script.initial_execution_params.pins_out",
+            },
+            {
+                "criterion_id": "verify_repair_succeeds",
+                "description": (
+                    "The repaired body must satisfy the verify_repair "
+                    "expected_outcome: succeeded."
+                ),
+                "source": (
+                    "workflow_contract.rules.verify_repair.expected_outcome"
+                ),
+            },
+            {
+                "criterion_id": "preserve_body_mode",
+                "description": "The repair must preserve body-style code.",
+                "source": "script_body_gotcha",
+            },
+            {
+                "criterion_id": "resolve_target_diagnostics",
+                "description": (
+                    "The repair must resolve the current target diagnostics."
+                ),
+                "source": (
+                    "create_script.receipt.script_receipt.repair_anchor."
+                    "target_errors"
+                ),
+            },
+            {
+                "criterion_id": "remove_unresolved_symbol",
+                "description": (
+                    "The repaired body must not leave "
+                    "DefinitelyMissingSymbol unresolved."
+                ),
+                "source": (
+                    "create_script.receipt.script_receipt.repair_anchor."
+                    "target_errors"
+                ),
+            },
+        ],
+    }
+
+
 def _create_initial_execution_params_from_contract() -> Mapping[str, Any]:
     for initial in _probe_contract().initial_params:
         if initial.node_id == "create_script":
@@ -784,6 +887,86 @@ def _repair_intent_evidence_packet(graph):
     )
 
 
+def _acceptance_criteria_evidence_packet(graph):
+    from rook.agent.local_worker_turn_context import WorkerKnowledgePacket
+
+    receipt = _require_receipt_mapping(graph)
+    params = _require_create_execution_params(graph)
+    initial_params = _create_initial_execution_params_from_contract()
+    receipt_repair_anchor = receipt.get("repair_anchor")
+    _invariant(
+        isinstance(receipt_repair_anchor, Mapping),
+        "receipt repair anchor missing",
+    )
+    facts = graph.memory.facts
+    repair_anchor = facts.get("repair_anchor")
+    _invariant(isinstance(repair_anchor, Mapping), "repair anchor missing")
+
+    diagnostic_fields = {}
+    if "target_errors" in receipt_repair_anchor:
+        diagnostic_fields["target_errors"] = _bounded_target_diagnostics(
+            receipt_repair_anchor.get("target_errors"),
+            source=(
+                "create_script.receipt.script_receipt.repair_anchor."
+                "target_errors"
+            ),
+        )
+    if "target_warnings" in receipt_repair_anchor:
+        diagnostic_fields["target_warnings"] = _bounded_target_diagnostics(
+            receipt_repair_anchor.get("target_warnings"),
+            source=(
+                "create_script.receipt.script_receipt.repair_anchor."
+                "target_warnings"
+            ),
+        )
+    _invariant(bool(diagnostic_fields), "target diagnostics missing")
+
+    content = {
+        "source": "probe_fixture",
+        "trust": "high",
+        "state": "post_verify_pre_bind",
+        "fields": {
+            "current_code": _bounded_current_code(params.get("code")),
+            "language": {
+                "value": receipt.get("language"),
+                "source": "create_script.receipt.script_receipt.language",
+            },
+            "recommended_mode": {
+                "value": "body",
+                "source": "script_body_gotcha",
+                "derivation": "existing worker-visible gotcha convention",
+            },
+            "repair_anchor": {
+                "value": _stable_repair_anchor_value(repair_anchor),
+                "source": "graph.memory.facts.repair_anchor",
+            },
+            "pin_contract": _acceptance_pin_contract_from_params(
+                initial_params
+            ),
+            "target_diagnostics": {
+                "source": (
+                    "create_script.receipt.script_receipt.repair_anchor"
+                ),
+                "fields": diagnostic_fields,
+            },
+            "expected_repair_outcome": {
+                "value": _expected_repair_outcome(),
+                "source": (
+                    "workflow_contract.rules.verify_repair."
+                    "expected_outcome"
+                ),
+            },
+            "acceptance_criteria": _acceptance_criteria(),
+        },
+    }
+    return WorkerKnowledgePacket(
+        packet_id=ACCEPTANCE_CRITERIA_EVIDENCE_PACKET_ID,
+        kind="evidence",
+        title="Acceptance-criteria repair evidence",
+        content=content,
+    )
+
+
 def _knowledge_packets_for_scenario(
     scenario: _ProbeScenarioConfig,
     graph,
@@ -796,6 +979,9 @@ def _knowledge_packets_for_scenario(
         return tuple(packets)
     if scenario.evidence_packet == "repair_intent_v2":
         packets.append(_repair_intent_evidence_packet(graph))
+        return tuple(packets)
+    if scenario.evidence_packet == "acceptance_criteria_v3":
+        packets.append(_acceptance_criteria_evidence_packet(graph))
         return tuple(packets)
     raise RuntimeError(
         f"LM5L coherent fixture invariant failed: "

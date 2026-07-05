@@ -105,6 +105,7 @@ def test_constants_are_pinned() -> None:
         "evidence_absent_like",
         "evidence_present_like",
         "evidence_present_v2_like",
+        "evidence_present_v3_like",
     )
     assert PROBE.DEFAULT_SCENARIO_NAMES == (
         "evidence_absent_like",
@@ -137,7 +138,7 @@ def test_args_defaults_and_custom_values() -> None:
             "--scenario",
             "evidence_absent_like",
             "--scenario",
-            "evidence_present_v2_like",
+            "evidence_present_v3_like",
             "--attempts",
             "5",
             "--excerpt-chars",
@@ -147,7 +148,7 @@ def test_args_defaults_and_custom_values() -> None:
     assert custom.model == "gemma4:12b-it-qat"
     assert custom.scenarios == [
         "evidence_absent_like",
-        "evidence_present_v2_like",
+        "evidence_present_v3_like",
     ]
     assert custom.attempts == 5
     assert custom.excerpt_chars == 1200
@@ -161,11 +162,12 @@ def test_args_reject_invalid_scenario_and_non_positive_attempts() -> None:
         PROBE._args(["--attempts", "0"])
 
 
-def test_scenario_map_includes_lm5t_v2_without_changing_defaults() -> None:
+def test_scenario_map_includes_lm5u_v3_without_changing_defaults() -> None:
     assert PROBE._SCENARIO_MAP == {
         "evidence_absent_like": "evidence_absent",
         "evidence_present_like": "evidence_present",
         "evidence_present_v2_like": "evidence_present_v2",
+        "evidence_present_v3_like": "evidence_present_v3",
     }
     assert PROBE.DEFAULT_SCENARIO_NAMES == (
         "evidence_absent_like",
@@ -232,6 +234,23 @@ def test_lm5t_does_not_change_lm5s_pass1_instruction() -> None:
     assert "DefinitelyMissingSymbol" not in instruction
 
 
+def test_lm5u_does_not_change_two_pass_publication_mechanics() -> None:
+    assert (
+        PROBE.PASS1_DECISION_INSTRUCTION_VERSION
+        == "lm5s.pass1_decision_instruction:v2"
+    )
+    instruction = PROBE._PASS1_DECISION_INSTRUCTION
+    assert (
+        "observation: choose only to report visible state or evidence"
+        in instruction
+    )
+    assert "Do not use observation to choose" in instruction
+    assert "acceptance_criteria" not in instruction
+    assert "target_errors" not in instruction
+    assert "output_a_assigned" not in instruction
+    assert "A = 42.0;" not in instruction
+
+
 def test_pass1_messages_evidence_present_include_evidence_packet() -> None:
     _messages, envelope = PROBE._pass1_messages_for_scenario("evidence_present_like")
 
@@ -254,6 +273,31 @@ def test_pass1_messages_can_render_lm5t_v2_envelope() -> None:
     assert "target_errors" in rendered_envelope
     assert "DefinitelyMissingSymbol" in rendered_envelope
     assert "A = 42.0;" not in rendered_envelope
+
+
+def test_pass1_messages_can_render_lm5u_v3_envelope() -> None:
+    messages, envelope = PROBE._pass1_messages_for_scenario(
+        "evidence_present_v3_like"
+    )
+
+    assert [message["role"] for message in messages] == [
+        "system",
+        "user",
+        "user",
+    ]
+    assert envelope["schema"] == "rook.local_worker_turn_request:v1"
+    assert [packet["packet_id"] for packet in envelope["context"]["knowledge"]] == [
+        "script_body_gotcha",
+        "lm5u_acceptance_criteria_evidence",
+    ]
+    rendered_envelope = json.dumps(envelope, sort_keys=True)
+    assert "target_errors" in rendered_envelope
+    assert "acceptance_criteria" in rendered_envelope
+    assert "output_a_assigned" in rendered_envelope
+    assert "output_a_double_compatible" in rendered_envelope
+    assert "verify_repair_succeeds" in rendered_envelope
+    assert "A = 42.0;" not in rendered_envelope
+    assert "PROBE_REPAIR_CODE" not in rendered_envelope
 
 
 def test_extract_first_json_object_accepts_surrounding_prose() -> None:

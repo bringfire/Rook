@@ -49,6 +49,7 @@ SCENARIO_NAMES = (
     "evidence_absent_like",
     "evidence_present_like",
     "evidence_present_v2_like",
+    "evidence_present_v3_like",
 )
 DEFAULT_SCENARIO_NAMES = ("evidence_absent_like", "evidence_present_like")
 DEFAULT_ENDPOINT = "http://localhost:11434/api/chat"
@@ -77,6 +78,7 @@ _SCENARIO_MAP = {
     "evidence_absent_like": "evidence_absent",
     "evidence_present_like": "evidence_present",
     "evidence_present_v2_like": "evidence_present_v2",
+    "evidence_present_v3_like": "evidence_present_v3",
 }
 
 PASS1_DECISION_INSTRUCTION_VERSION = "lm5s.pass1_decision_instruction:v2"
