@@ -9,6 +9,12 @@ from pathlib import Path
 
 import pytest
 
+from rook.agent.local_worker_acceptance_criteria import (
+    assemble_acceptance_criteria_packet,
+)
+from rook.agent.local_worker_acceptance_criteria_sources import (
+    extract_acceptance_criteria_sources,
+)
 from rook.agent.local_worker_prompt_artifact import (
     LOCAL_WORKER_PROMPT_TEXT_VERSION,
 )
@@ -32,6 +38,17 @@ def _jsonable(value):
     if isinstance(value, tuple):
         return [_jsonable(item) for item in value]
     return value
+
+
+def _legacy_acceptance_criteria_projection(criteria):
+    return [
+        {
+            "criterion_id": criterion["criterion_id"],
+            "description": criterion["description"],
+            "source": criterion["source"],
+        }
+        for criterion in criteria
+    ]
 
 
 def test_slot_vocabulary() -> None:
@@ -897,6 +914,106 @@ def test_acceptance_criteria_evidence_v3_fields_are_bounded_and_provenance_tagge
         set(criterion) == {"criterion_id", "description", "source"}
         for criterion in acceptance["criteria"]
     )
+    acceptance = _jsonable(acceptance)
+    assert acceptance == {
+        "source": (
+            "workflow_contract + create_script.initial_execution_params + "
+            "create_script.receipt.script_receipt.repair_anchor + script_body_gotcha"
+        ),
+        "criteria": [
+            {
+                "criterion_id": "output_a_assigned",
+                "description": "Output A must be assigned.",
+                "source": "create_script.initial_execution_params.pins_out",
+            },
+            {
+                "criterion_id": "output_a_double_compatible",
+                "description": "Output A must be double-compatible.",
+                "source": "create_script.initial_execution_params.pins_out",
+            },
+            {
+                "criterion_id": "verify_repair_succeeds",
+                "description": (
+                    "The repaired body must satisfy the verify_repair "
+                    "expected_outcome: succeeded."
+                ),
+                "source": "workflow_contract.rules.verify_repair.expected_outcome",
+            },
+            {
+                "criterion_id": "preserve_body_mode",
+                "description": "The repair must preserve body-style code.",
+                "source": "script_body_gotcha",
+            },
+            {
+                "criterion_id": "resolve_target_diagnostics",
+                "description": (
+                    "The repair must resolve the current target diagnostics."
+                ),
+                "source": (
+                    "create_script.receipt.script_receipt.repair_anchor."
+                    "target_errors"
+                ),
+            },
+            {
+                "criterion_id": "remove_unresolved_symbol",
+                "description": (
+                    "The repaired body must not leave DefinitelyMissingSymbol "
+                    "unresolved."
+                ),
+                "source": (
+                    "create_script.receipt.script_receipt.repair_anchor."
+                    "target_errors"
+                ),
+            },
+        ],
+    }
+
+
+def test_acceptance_criteria_v3_uses_assembled_legacy_projection() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packet = PROBE._acceptance_criteria_evidence_packet(result.final_graph)
+    sources = extract_acceptance_criteria_sources(
+        workflow_contract=PROBE._probe_contract(),
+        graph=result.final_graph,
+        convention_packets=(PROBE._script_body_gotcha_packet(),),
+    )
+    assembled = assemble_acceptance_criteria_packet(sources)
+
+    assert _jsonable(
+        packet.content["fields"]["acceptance_criteria"]["criteria"]
+    ) == (
+        _legacy_acceptance_criteria_projection(assembled["criteria"])
+    )
+
+
+def test_acceptance_criteria_v3_calls_extractor_and_assembler(monkeypatch) -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    calls = {"extract": 0, "assemble": 0}
+
+    real_extract = PROBE.extract_acceptance_criteria_sources
+    real_assemble = PROBE.assemble_acceptance_criteria_packet
+
+    def recording_extract(**kwargs):
+        calls["extract"] += 1
+        assert kwargs["workflow_contract"] == PROBE._probe_contract()
+        assert kwargs["graph"] is result.final_graph
+        assert kwargs["convention_packets"] == (PROBE._script_body_gotcha_packet(),)
+        return real_extract(**kwargs)
+
+    def recording_assemble(sources):
+        calls["assemble"] += 1
+        return real_assemble(sources)
+
+    monkeypatch.setattr(PROBE, "extract_acceptance_criteria_sources", recording_extract)
+    monkeypatch.setattr(PROBE, "assemble_acceptance_criteria_packet", recording_assemble)
+
+    packet = PROBE._acceptance_criteria_evidence_packet(result.final_graph)
+
+    assert calls == {"extract": 1, "assemble": 1}
+    assert packet.content["fields"]["acceptance_criteria"]["source"] == (
+        "workflow_contract + create_script.initial_execution_params + "
+        "create_script.receipt.script_receipt.repair_anchor + script_body_gotcha"
+    )
 
 
 def test_lm5t_probe_script_does_not_publish_hidden_repair_params() -> None:
@@ -942,6 +1059,19 @@ def test_lm5u_acceptance_criteria_boundary_guard() -> None:
     assert PROBE.PROBE_REPAIR_CODE not in rendered
     assert "A = 42.0;" not in rendered
     assert "set A to" not in rendered
+
+
+def test_acceptance_criteria_v3_hides_assembled_packet_metadata() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packet = PROBE._acceptance_criteria_evidence_packet(result.final_graph)
+    rendered = json.dumps(_jsonable(packet.content), sort_keys=True)
+
+    assert "rook.acceptance_criteria_packet:v1" not in rendered
+    assert '"schema"' not in rendered
+    assert "source_class" not in rendered
+    assert "source_set" not in rendered
+    assert "unresolved_intent" not in rendered
+    assert "fingerprint" not in rendered
 
 
 def test_repair_evidence_v1_does_not_expose_target_diagnostics() -> None:
@@ -998,6 +1128,11 @@ def test_acceptance_criteria_v3_does_not_publish_replacement_literals() -> None:
     assert "DefinitelyMissingSymbol" in rendered
     assert "Output A must be assigned." in rendered
     assert "Output A must be double-compatible." in rendered
+    assert "rook.acceptance_criteria_packet:v1" not in rendered
+    assert "source_class" not in rendered
+    assert "source_set" not in rendered
+    assert "unresolved_intent" not in rendered
+    assert "fingerprint" not in rendered
     assert "A = 42.0;" not in rendered
     assert PROBE.PROBE_REPAIR_CODE not in rendered
     assert "set A to" not in rendered

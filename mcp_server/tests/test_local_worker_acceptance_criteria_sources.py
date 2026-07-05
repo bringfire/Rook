@@ -203,10 +203,7 @@ def test_agent_package_does_not_reexport_source_extractor():
 
 def test_probe_scripts_do_not_import_acceptance_criteria_sources():
     root = Path(__file__).resolve().parents[2]
-    for relative in (
-        "scripts/lm5k_worker_probe.py",
-        "scripts/lm5r_two_pass_publication_probe.py",
-    ):
+    for relative in ("scripts/lm5r_two_pass_publication_probe.py",):
         source = (root / relative).read_text(encoding="utf-8")
         assert "local_worker_acceptance_criteria_sources" not in source
         imports = _import_names(source)
@@ -214,6 +211,32 @@ def test_probe_scripts_do_not_import_acceptance_criteria_sources():
             "local_worker_acceptance_criteria_sources" in imported
             for imported in imports
         )
+
+
+def test_lm5k_probe_is_the_only_probe_script_joining_acceptance_sources():
+    root = Path(__file__).resolve().parents[2]
+    lm5k_source = (root / "scripts" / "lm5k_worker_probe.py").read_text(
+        encoding="utf-8"
+    )
+    lm5r_source = (
+        root / "scripts" / "lm5r_two_pass_publication_probe.py"
+    ).read_text(encoding="utf-8")
+    lm5k_imports = _import_names(lm5k_source)
+    lm5r_imports = _import_names(lm5r_source)
+
+    assert {
+        "rook.agent.local_worker_acceptance_criteria",
+        "assemble_acceptance_criteria_packet",
+        "rook.agent.local_worker_acceptance_criteria_sources",
+        "extract_acceptance_criteria_sources",
+    }.issubset(lm5k_imports)
+    assert "local_worker_acceptance_criteria_sources" not in lm5r_source
+    assert {
+        "rook.agent.local_worker_acceptance_criteria",
+        "assemble_acceptance_criteria_packet",
+        "rook.agent.local_worker_acceptance_criteria_sources",
+        "extract_acceptance_criteria_sources",
+    }.isdisjoint(lm5r_imports)
 
 
 def test_extracts_lm5u_fixture_sources():
