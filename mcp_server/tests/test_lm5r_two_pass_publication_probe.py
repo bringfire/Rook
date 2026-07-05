@@ -234,6 +234,23 @@ def test_lm5t_does_not_change_lm5s_pass1_instruction() -> None:
     assert "DefinitelyMissingSymbol" not in instruction
 
 
+def test_lm5u_does_not_change_two_pass_publication_mechanics() -> None:
+    assert (
+        PROBE.PASS1_DECISION_INSTRUCTION_VERSION
+        == "lm5s.pass1_decision_instruction:v2"
+    )
+    instruction = PROBE._PASS1_DECISION_INSTRUCTION
+    assert (
+        "observation: choose only to report visible state or evidence"
+        in instruction
+    )
+    assert "Do not use observation to choose" in instruction
+    assert "acceptance_criteria" not in instruction
+    assert "target_errors" not in instruction
+    assert "output_a_assigned" not in instruction
+    assert "A = 42.0;" not in instruction
+
+
 def test_pass1_messages_evidence_present_include_evidence_packet() -> None:
     _messages, envelope = PROBE._pass1_messages_for_scenario("evidence_present_like")
 

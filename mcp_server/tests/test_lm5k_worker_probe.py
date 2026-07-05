@@ -921,6 +921,29 @@ def test_lm5t_probe_script_does_not_publish_hidden_repair_params() -> None:
     assert "hidden BindStepSpec.base_params.code" not in rendered
 
 
+def test_lm5u_acceptance_criteria_boundary_guard() -> None:
+    contract = PROBE._probe_contract()
+    repair_rule = next(
+        rule for rule in contract.rules
+        if rule.node_id == "repair_same_component"
+    )
+    bind_step = next(
+        step for step in repair_rule.steps_by_seen_count
+        if getattr(step, "base_params", None)
+    )
+    assert bind_step.base_params["code"] == PROBE.PROBE_REPAIR_CODE
+
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packet = PROBE._acceptance_criteria_evidence_packet(result.final_graph)
+    rendered = json.dumps(_jsonable(packet.content), sort_keys=True)
+
+    assert "acceptance_criteria" in rendered
+    assert "lm5u_acceptance_criteria_evidence" not in rendered
+    assert PROBE.PROBE_REPAIR_CODE not in rendered
+    assert "A = 42.0;" not in rendered
+    assert "set A to" not in rendered
+
+
 def test_repair_evidence_v1_does_not_expose_target_diagnostics() -> None:
     _scaffold, result = PROBE.derive_probe_graph_state()
     packet = PROBE._repair_evidence_packet(result.final_graph)
