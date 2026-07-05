@@ -40,6 +40,7 @@ public class Script_Instance : GH_ScriptInstance
 
         string json = BuildExportJson(actorPayload, motionPayload, cameraJson, fps, frameCount, exportId, proposalId, resolution);
         Json = json;
+        Print(json);
         Info = $"CanvasDirector export marker: export_id={exportId}; proposal_id={proposalId}; target={motionPayload.Target}; fps={fps}; frames={frameCount}; camera={(string.IsNullOrWhiteSpace(ReadString(Camera, "")) ? "active_view" : "explicit_camera")}.";
     }
 

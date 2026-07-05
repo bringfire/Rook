@@ -363,14 +363,22 @@ def test_instantiation_plan_connects_typed_payload_outputs_to_export_marker() ->
     plan = templates.build_instantiation_plan(fixture)
     connections = plan["deferred_edit"]["connect"]
 
-    assert "actors_v2.O1>export_marker.I0" in connections
-    assert "transform.O0>export_marker.I1" in connections
-    assert "camera_controller.O1>export_marker.I2" in connections
+    assert "actors_v2.O2>export_marker.I0" in connections
+    assert "transform.O1>export_marker.I1" in connections
+    assert "camera_controller.O2>export_marker.I2" in connections
     assert "TFpsControl.O0>export_marker.I3" in connections
     assert "TFrameCountControl.O0>export_marker.I4" in connections
     assert "TExportIdControl.O0>export_marker.I5" in connections
     assert "TProposalIdControl.O0>export_marker.I6" in connections
     assert "TResolutionControl.O0>export_marker.I7" in connections
+
+
+def test_instantiation_plan_binds_export_marker_name_to_fixture_export_id() -> None:
+    fixture = _load_pearson_fixture()
+    plan = templates.build_instantiation_plan(fixture)
+    export_call = next(call for call in plan["calls"] if call["alias"] == "export_marker")
+
+    assert export_call["arguments"]["name"] == "CanvasDirector Export:pearson_animation_test"
 
 
 def test_gh_edit_temp_ids_are_supported_t_ids() -> None:
@@ -411,16 +419,28 @@ def test_instantiation_plan_rejects_invalid_fixture(
 @pytest.mark.asyncio
 async def test_instantiate_fixture_executes_script_snapshot_and_edit_calls() -> None:
     calls: list[tuple[str, dict]] = []
+    script_components: list[dict[str, object]] = []
 
     async def fake_call_tool(tool: str, arguments: dict) -> dict:
         calls.append((tool, arguments))
         if tool == "gh_create_script":
+            script_components.append(
+                {
+                    "id": f"C{len(script_components) + 1}",
+                    "nick": arguments["name"],
+                    "pos": [arguments["x"], arguments["y"]],
+                }
+            )
             return {
                 "success": True,
-                "data": {"component_guid": f"{arguments['name'].replace(' ', '_')}_guid"},
+                "data": {
+                    "component_guid": f"{arguments['name'].replace(' ', '_')}_guid",
+                    "name": arguments["name"],
+                    "position": {"x": arguments["x"], "y": arguments["y"]},
+                },
             }
         if tool == "gh_snapshot":
-            return {"success": True, "data": {"epoch": 17}}
+            return {"success": True, "data": {"epoch": 17, "components": list(reversed(script_components))}}
         if tool == "gh_edit":
             assert arguments["epoch"] == 17
             assert arguments["connect"]
@@ -441,24 +461,91 @@ async def test_instantiate_fixture_executes_script_snapshot_and_edit_calls() -> 
     assert "transform." not in joined
     assert "camera_controller." not in joined
     assert "export_marker." not in joined
-    assert "Director_Actors_guid.O1>Director_Transform_guid.I0" in final_flows
-    assert "Director_Transform_guid.O0>CanvasDirector_Export_guid.I1" in final_flows
-    assert "Director_Camera_Controller_guid.O1>CanvasDirector_Export_guid.I2" in final_flows
-    assert "TFpsControl.O0>CanvasDirector_Export_guid.I3" in final_flows
-    assert "TFrameCountControl.O0>CanvasDirector_Export_guid.I4" in final_flows
+    assert "Director_Actors_guid" not in joined
+    assert "Director_Transform_guid" not in joined
+    assert "CanvasDirector_Export_guid" not in joined
+    assert "C4.O2>C5.I0" in final_flows
+    assert "C5.O1>C8.I1" in final_flows
+    assert "C7.O2>C8.I2" in final_flows
+    assert "TFpsControl.O0>C8.I3" in final_flows
+    assert "TFrameCountControl.O0>C8.I4" in final_flows
 
     group_members = final_edit["groups"][0]["members"]
-    assert "Director_Actors_guid" in group_members
-    assert "Director_Transform_guid" in group_members
-    assert "CanvasDirector_Export_guid" in group_members
+    assert "C4" in group_members
+    assert "C5" in group_members
+    assert "C8" in group_members
     assert "actors_v2" not in group_members
     assert "transform" not in group_members
     assert "export_marker" not in group_members
 
     plan_flows = result["plan"]["deferred_edit"]["connect"]
-    assert "actors_v2.O1>transform.I0" in plan_flows
-    assert "transform.O0>export_marker.I1" in plan_flows
-    assert "camera_controller.O1>export_marker.I2" in plan_flows
+    assert "actors_v2.O2>transform.I0" in plan_flows
+    assert "transform.O1>export_marker.I1" in plan_flows
+    assert "camera_controller.O2>export_marker.I2" in plan_flows
+
+
+@pytest.mark.asyncio
+async def test_instantiate_fixture_waits_for_deferred_edit_solve_before_returning() -> None:
+    calls: list[tuple[str, dict]] = []
+    script_components: list[dict[str, object]] = []
+    status_results = [
+        {
+            "success": True,
+            "data": {
+                "solverEnabled": False,
+                "solutionState": "PreProcess",
+                "ready_for_edit": True,
+            },
+        },
+        {
+            "success": True,
+            "data": {
+                "solverEnabled": True,
+                "solutionState": "PostProcess",
+                "ready_for_edit": True,
+            },
+        },
+    ]
+
+    async def fake_call_tool(tool: str, arguments: dict) -> dict:
+        calls.append((tool, arguments))
+        if tool == "gh_create_script":
+            script_components.append(
+                {
+                    "id": f"C{len(script_components) + 1}",
+                    "nick": arguments["name"],
+                    "pos": [arguments["x"], arguments["y"]],
+                }
+            )
+            return {
+                "success": True,
+                "data": {
+                    "component_guid": f"{arguments['name'].replace(' ', '_')}_guid",
+                    "name": arguments["name"],
+                    "position": {"x": arguments["x"], "y": arguments["y"]},
+                },
+            }
+        if tool == "gh_snapshot":
+            return {"success": True, "data": {"epoch": 17, "components": list(reversed(script_components))}}
+        if tool == "gh_edit":
+            return {
+                "success": True,
+                "data": {
+                    "edit_summary": {
+                        "solve_scheduled": True,
+                        "verification_deferred": True,
+                    },
+                },
+            }
+        if tool == "gh_status":
+            return status_results.pop(0)
+        raise AssertionError(f"unexpected tool {tool}")
+
+    result = await templates.instantiate_fixture(_load_pearson_fixture(), fake_call_tool)
+
+    assert result["success"] is True
+    assert [tool for tool, _ in calls][-3:] == ["gh_edit", "gh_status", "gh_status"]
+    assert result["results"]["post_edit_solve_ready"]["data"]["solutionState"] == "PostProcess"
 
 
 @pytest.mark.asyncio
@@ -490,16 +577,28 @@ async def test_instantiate_fixture_surfaces_missing_component_guid() -> None:
 @pytest.mark.asyncio
 async def test_instantiate_fixture_does_not_mutate_stored_plan() -> None:
     calls: list[tuple[str, dict]] = []
+    script_components: list[dict[str, object]] = []
 
     async def fake_call_tool(tool: str, arguments: dict) -> dict:
         calls.append((tool, arguments))
         if tool == "gh_create_script":
+            script_components.append(
+                {
+                    "id": f"C{len(script_components) + 1}",
+                    "nick": arguments["name"],
+                    "pos": [arguments["x"], arguments["y"]],
+                }
+            )
             return {
                 "success": True,
-                "data": {"component_guid": f"{arguments['name'].replace(' ', '_')}_guid"},
+                "data": {
+                    "component_guid": f"{arguments['name'].replace(' ', '_')}_guid",
+                    "name": arguments["name"],
+                    "position": {"x": arguments["x"], "y": arguments["y"]},
+                },
             }
         if tool == "gh_snapshot":
-            return {"success": True, "data": {"epoch": 17}}
+            return {"success": True, "data": {"epoch": 17, "components": list(reversed(script_components))}}
         if tool == "gh_edit":
             return {"success": True, "data": {"ok": True}}
         raise AssertionError(f"unexpected tool {tool}")
@@ -509,14 +608,14 @@ async def test_instantiate_fixture_does_not_mutate_stored_plan() -> None:
     result = await templates.instantiate_fixture(fixture, fake_call_tool)
 
     assert result["plan"]["deferred_edit"]["connect"] == plan_before["deferred_edit"]["connect"]
-    assert "actors_v2.O1>transform.I0" in result["plan"]["deferred_edit"]["connect"]
-    assert "transform.O0>export_marker.I1" in result["plan"]["deferred_edit"]["connect"]
+    assert "actors_v2.O2>transform.I0" in result["plan"]["deferred_edit"]["connect"]
+    assert "transform.O1>export_marker.I1" in result["plan"]["deferred_edit"]["connect"]
 
     final_flows = calls[-1][1]["connect"]
-    assert "Director_Actors_guid.O1>Director_Transform_guid.I0" in final_flows
-    assert "Director_Transform_guid.O0>CanvasDirector_Export_guid.I1" in final_flows
-    assert "actors_v2.O1>transform.I0" not in final_flows
-    assert "transform.O0>export_marker.I1" not in final_flows
+    assert "C4.O2>C5.I0" in final_flows
+    assert "C5.O1>C8.I1" in final_flows
+    assert "actors_v2.O2>transform.I0" not in final_flows
+    assert "transform.O1>export_marker.I1" not in final_flows
 
 
 @pytest.mark.parametrize(

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
+import time
 from typing import Any
 
 from .loader import (
@@ -14,6 +16,8 @@ from .loader import (
 
 
 CallTool = Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
+POST_EDIT_SOLVE_READY_TIMEOUT_SECONDS = 8.0
+POST_EDIT_SOLVE_READY_POLL_SECONDS = 0.1
 
 
 SCRIPT_ORDER = [
@@ -63,16 +67,16 @@ def build_instantiation_plan(fixture: dict[str, Any]) -> dict[str, Any]:
         "connect": [
             "TActorSetControl.O0>actors_v2.I0",
             "TActorGroupingControl.O0>actors_v2.I1",
-            "actors_v2.O1>transform.I0",
+            "actors_v2.O2>transform.I0",
             "TMotionMaxHeightControl.O0>transform.I3",
             "TMotionSpreadControl.O0>transform.I4",
             "TMotionFastPreviewControl.O0>transform.I5",
             "TMotionStrategyControl.O0>transform.I6",
             "TCameraProjectionControl.O0>camera_controller.I5",
             "TCameraLensControl.O0>camera_controller.I4",
-            "actors_v2.O1>export_marker.I0",
-            "transform.O0>export_marker.I1",
-            "camera_controller.O1>export_marker.I2",
+            "actors_v2.O2>export_marker.I0",
+            "transform.O1>export_marker.I1",
+            "camera_controller.O2>export_marker.I2",
             "TFpsControl.O0>export_marker.I3",
             "TFrameCountControl.O0>export_marker.I4",
             "TExportIdControl.O0>export_marker.I5",
@@ -126,7 +130,6 @@ def build_instantiation_plan(fixture: dict[str, Any]) -> dict[str, Any]:
 async def instantiate_fixture(fixture: dict[str, Any], call_tool: CallTool) -> dict[str, Any]:
     plan = build_instantiation_plan(fixture)
     alias_results: dict[str, dict[str, Any]] = {}
-    component_aliases: dict[str, str] = {}
 
     for call in plan["calls"]:
         tool = call["tool"]
@@ -135,6 +138,7 @@ async def instantiate_fixture(fixture: dict[str, Any], call_tool: CallTool) -> d
 
         if tool == "gh_edit":
             arguments["epoch"] = _snapshot_epoch(alias_results)
+            component_aliases = _component_short_ids_from_snapshot(alias_results)
             arguments["connect"] = [
                 _resolve_flow_aliases(flow, component_aliases)
                 for flow in arguments.get("connect", [])
@@ -155,9 +159,70 @@ async def instantiate_fixture(fixture: dict[str, Any], call_tool: CallTool) -> d
 
         alias_results[alias] = result
         if tool == "gh_create_script":
-            component_aliases[alias] = _component_guid_from_result(alias, result)
+            _component_guid_from_result(alias, result)
+        if tool == "gh_edit":
+            post_edit_status = await _wait_for_deferred_edit_solve(result, call_tool)
+            if post_edit_status is not None:
+                alias_results["post_edit_solve_ready"] = post_edit_status
 
     return {"success": True, "plan": plan, "results": alias_results}
+
+
+async def _wait_for_deferred_edit_solve(
+    edit_result: dict[str, Any],
+    call_tool: CallTool,
+) -> dict[str, Any] | None:
+    if not _edit_result_deferred_solve(edit_result):
+        return None
+
+    deadline = time.monotonic() + POST_EDIT_SOLVE_READY_TIMEOUT_SECONDS
+    last_status: dict[str, Any] | None = None
+    while True:
+        try:
+            status = await call_tool("gh_status", {})
+        except Exception as exc:
+            raise CanvasDirectorTemplateError("tool_call_failed", f"gh_status:{exc}") from exc
+
+        if not isinstance(status, dict) or not status.get("success", False):
+            raise CanvasDirectorTemplateError("tool_call_failed", f"gh_status:{status}")
+
+        last_status = status
+        if _status_is_solve_ready(status):
+            return status
+
+        if time.monotonic() >= deadline:
+            data = _result_data(last_status)
+            state = data.get("solutionState") if isinstance(data, dict) else None
+            enabled = data.get("solverEnabled") if isinstance(data, dict) else None
+            raise CanvasDirectorTemplateError(
+                "gh_solve_not_ready",
+                f"deferred gh_edit solve did not become ready: solverEnabled={enabled}; solutionState={state}",
+            )
+
+        await asyncio.sleep(POST_EDIT_SOLVE_READY_POLL_SECONDS)
+
+
+def _edit_result_deferred_solve(edit_result: dict[str, Any]) -> bool:
+    data = _result_data(edit_result)
+    summary = data.get("edit_summary") if isinstance(data, dict) else None
+    if not isinstance(summary, dict):
+        return False
+    return bool(summary.get("solve_scheduled") and summary.get("verification_deferred"))
+
+
+def _status_is_solve_ready(status: dict[str, Any]) -> bool:
+    data = _result_data(status)
+    if not isinstance(data, dict):
+        return False
+    if data.get("ready_for_edit") is False:
+        return False
+    if data.get("solverEnabled") is False:
+        return False
+    return data.get("solutionState") not in {"PreProcess", "Process"}
+
+
+def _result_data(result: dict[str, Any]) -> object:
+    return result.get("data", result)
 
 
 def _pin_definitions(pins: list[dict[str, Any]], *, optional_default: bool | None) -> list[dict[str, Any]]:
@@ -197,13 +262,19 @@ def _script_create_calls(pack: dict[str, Any], fixture: dict[str, Any]) -> list[
                     "code": script_path.read_text(encoding="utf-8"),
                     "pins_in": _pin_definitions(entry["inputs"], optional_default=True),
                     "pins_out": _pin_definitions(entry["outputs"], optional_default=None),
-                    "name": entry["display_name"],
+                    "name": _script_component_name(entry, fixture),
                     "x": x0 + x_spacing * (index % 4),
                     "y": y0 + y_spacing * (index // 4),
                 },
             }
         )
     return calls
+
+
+def _script_component_name(entry: dict[str, Any], fixture: dict[str, Any]) -> str:
+    if entry["template_id"] == "canvas_director.export_marker":
+        return f"{entry['display_name']}:{fixture['export_id']}"
+    return str(entry["display_name"])
 
 
 def _validate_fixture(fixture: dict[str, Any]) -> None:
@@ -445,6 +516,64 @@ def _snapshot_epoch(alias_results: dict[str, dict[str, Any]]) -> int:
     if not isinstance(data, dict) or not isinstance(data.get("epoch"), int):
         raise CanvasDirectorTemplateError("missing_snapshot_epoch", "snapshot_before_edit")
     return data["epoch"]
+
+
+def _component_short_ids_from_snapshot(alias_results: dict[str, dict[str, Any]]) -> dict[str, str]:
+    snapshot = alias_results.get("snapshot_before_edit")
+    data = snapshot.get("data", snapshot) if isinstance(snapshot, dict) else None
+    components = data.get("components") if isinstance(data, dict) else None
+    if not isinstance(components, list):
+        raise CanvasDirectorTemplateError("missing_snapshot_components", "snapshot_before_edit")
+
+    aliases: dict[str, str] = {}
+    for alias in SCRIPT_ALIASES:
+        result = alias_results.get(alias)
+        if not isinstance(result, dict):
+            raise CanvasDirectorTemplateError("missing_component_short_id", alias)
+        receipt = result.get("data", result)
+        if not isinstance(receipt, dict):
+            raise CanvasDirectorTemplateError("missing_component_short_id", alias)
+
+        name = receipt.get("name")
+        position = receipt.get("position")
+        if not isinstance(name, str) or not isinstance(position, dict):
+            raise CanvasDirectorTemplateError("missing_component_short_id", alias)
+
+        matches = [
+            component
+            for component in components
+            if _snapshot_component_matches_receipt(component, name=name, position=position)
+        ]
+        if len(matches) != 1:
+            raise CanvasDirectorTemplateError(
+                "missing_component_short_id",
+                f"{alias}: matches={len(matches)}",
+            )
+        component_id = matches[0].get("id")
+        if not isinstance(component_id, str) or not component_id.startswith("C"):
+            raise CanvasDirectorTemplateError("missing_component_short_id", alias)
+        aliases[alias] = component_id
+    return aliases
+
+
+def _snapshot_component_matches_receipt(component: object, *, name: str, position: dict[str, Any]) -> bool:
+    if not isinstance(component, dict):
+        return False
+    component_name = component.get("nick") or component.get("name")
+    if component_name != name:
+        return False
+
+    pos = component.get("pos")
+    if not isinstance(pos, list) or len(pos) < 2:
+        return False
+    try:
+        expected_x = float(position["x"])
+        expected_y = float(position["y"])
+        actual_x = float(pos[0])
+        actual_y = float(pos[1])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return abs(actual_x - expected_x) < 0.001 and abs(actual_y - expected_y) < 0.001
 
 
 def _component_guid_from_result(alias: str, result: dict[str, Any]) -> str:

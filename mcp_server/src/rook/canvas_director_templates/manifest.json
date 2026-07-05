@@ -73,7 +73,7 @@
       "script": {
         "language": "csharp",
         "path": "scripts/export_marker.cs",
-        "sha256": "sha256:e70da89da211b3665472d8513a83ed54f6a6f9c9149d3aa4dd92a449ccfca53c"
+        "sha256": "sha256:8e7ad98ab3ae81c9dfdda942705d1361499b971ff5061a540b49d366416884b4"
       },
       "template_id": "canvas_director.export_marker",
       "template_version": "0.1.0"
@@ -123,7 +123,6 @@
         {
           "description": "Resolved frame index",
           "name": "FrameOut",
-          "nick": "Frame",
           "type": "int"
         },
         {
@@ -144,7 +143,6 @@
         {
           "description": "Resolved frames per second",
           "name": "FPSOut",
-          "nick": "FPS",
           "type": "int"
         },
         {
@@ -218,19 +216,16 @@
         {
           "description": "Resolved easing",
           "name": "EaseOut",
-          "nick": "Ease",
           "type": "string"
         },
         {
           "description": "Resolved start",
           "name": "StartOut",
-          "nick": "Start",
           "type": "double"
         },
         {
           "description": "Resolved end",
           "name": "EndOut",
-          "nick": "End",
           "type": "double"
         },
         {
@@ -315,37 +310,31 @@
         {
           "description": "Input progress",
           "name": "ProgressOut",
-          "nick": "Progress",
           "type": "double"
         },
         {
           "description": "Resolved amplitude",
           "name": "AmplitudeOut",
-          "nick": "Amplitude",
           "type": "double"
         },
         {
           "description": "Resolved frequency",
           "name": "FrequencyOut",
-          "nick": "Frequency",
           "type": "double"
         },
         {
           "description": "Resolved phase",
           "name": "PhaseOut",
-          "nick": "Phase",
           "type": "double"
         },
         {
           "description": "Resolved bias",
           "name": "BiasOut",
-          "nick": "Bias",
           "type": "double"
         },
         {
           "description": "Resolved enabled flag",
           "name": "EnabledOut",
-          "nick": "Enabled",
           "type": "bool"
         },
         {
@@ -586,13 +575,11 @@
         {
           "description": "Resolved lens length",
           "name": "LensOut",
-          "nick": "Lens",
           "type": "double"
         },
         {
           "description": "Resolved projection mode",
           "name": "ProjectionOut",
-          "nick": "Projection",
           "type": "string"
         },
         {
@@ -694,37 +681,31 @@
         {
           "description": "Resolved camera location",
           "name": "LocationOut",
-          "nick": "Location",
           "type": "Point3d"
         },
         {
           "description": "Resolved camera target",
           "name": "TargetOut",
-          "nick": "Target",
           "type": "Point3d"
         },
         {
           "description": "Resolved camera direction",
           "name": "DirectionOut",
-          "nick": "Direction",
           "type": "Vector3d"
         },
         {
           "description": "Resolved up vector",
           "name": "UpOut",
-          "nick": "Up",
           "type": "Vector3d"
         },
         {
           "description": "Resolved lens length",
           "name": "LensOut",
-          "nick": "Lens",
           "type": "double"
         },
         {
           "description": "Resolved projection mode",
           "name": "ProjectionOut",
-          "nick": "Projection",
           "type": "string"
         },
         {
