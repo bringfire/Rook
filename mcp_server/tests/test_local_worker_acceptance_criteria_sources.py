@@ -221,11 +221,22 @@ def test_lm5k_probe_is_the_only_probe_script_joining_acceptance_sources():
     lm5r_source = (
         root / "scripts" / "lm5r_two_pass_publication_probe.py"
     ).read_text(encoding="utf-8")
+    lm5k_imports = _import_names(lm5k_source)
+    lm5r_imports = _import_names(lm5r_source)
 
-    assert "local_worker_acceptance_criteria import" in lm5k_source
-    assert "local_worker_acceptance_criteria_sources import" in lm5k_source
+    assert {
+        "rook.agent.local_worker_acceptance_criteria",
+        "assemble_acceptance_criteria_packet",
+        "rook.agent.local_worker_acceptance_criteria_sources",
+        "extract_acceptance_criteria_sources",
+    }.issubset(lm5k_imports)
     assert "local_worker_acceptance_criteria_sources" not in lm5r_source
-    assert "local_worker_acceptance_criteria import" not in lm5r_source
+    assert {
+        "rook.agent.local_worker_acceptance_criteria",
+        "assemble_acceptance_criteria_packet",
+        "rook.agent.local_worker_acceptance_criteria_sources",
+        "extract_acceptance_criteria_sources",
+    }.isdisjoint(lm5r_imports)
 
 
 def test_extracts_lm5u_fixture_sources():
