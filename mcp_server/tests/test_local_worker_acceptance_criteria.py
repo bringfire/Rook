@@ -231,6 +231,16 @@ def test_module_import_boundary_stays_narrow():
         assert token not in source
 
 
+def test_probe_scripts_do_not_import_acceptance_criteria_boundary():
+    root = Path(__file__).resolve().parents[2]
+    for relative in (
+        "scripts/lm5k_worker_probe.py",
+        "scripts/lm5r_two_pass_publication_probe.py",
+    ):
+        source = (root / relative).read_text(encoding="utf-8")
+        assert "local_worker_acceptance_criteria" not in source
+
+
 def test_fingerprint_matches_canonical_json_without_fingerprint():
     packet = assemble_acceptance_criteria_packet(_valid_sources())
 
