@@ -932,6 +932,56 @@ def test_repair_evidence_v1_does_not_expose_target_diagnostics() -> None:
     assert "DefinitelyMissingSymbol" in rendered
 
 
+def test_evidence_ladder_visibility_is_stable() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+
+    v1 = json.dumps(
+        _jsonable(PROBE._repair_evidence_packet(result.final_graph).content),
+        sort_keys=True,
+    )
+    v2 = json.dumps(
+        _jsonable(
+            PROBE._repair_intent_evidence_packet(result.final_graph).content
+        ),
+        sort_keys=True,
+    )
+    v3 = json.dumps(
+        _jsonable(
+            PROBE._acceptance_criteria_evidence_packet(result.final_graph).content
+        ),
+        sort_keys=True,
+    )
+
+    assert "target_errors" not in v1
+    assert "acceptance_criteria" not in v1
+
+    assert "target_errors" in v2
+    assert "acceptance_criteria" not in v2
+
+    assert "target_errors" in v3
+    assert "acceptance_criteria" in v3
+
+    for rendered in (v1, v2, v3):
+        assert PROBE.PROBE_REPAIR_CODE not in rendered
+        assert "A = 42.0;" not in rendered
+        assert "hidden BindStepSpec.base_params.code" not in rendered
+
+
+def test_acceptance_criteria_v3_does_not_publish_replacement_literals() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packet = PROBE._acceptance_criteria_evidence_packet(result.final_graph)
+    rendered = json.dumps(_jsonable(packet.content), sort_keys=True)
+
+    assert "DefinitelyMissingSymbol" in rendered
+    assert "Output A must be assigned." in rendered
+    assert "Output A must be double-compatible." in rendered
+    assert "A = 42.0;" not in rendered
+    assert PROBE.PROBE_REPAIR_CODE not in rendered
+    assert "set A to" not in rendered
+    assert "replacement code" not in rendered
+    assert "repair diff" not in rendered
+
+
 def test_target_diagnostic_evidence_bounds_items_and_chars() -> None:
     long = "x" * (PROBE.EVIDENCE_TARGET_DIAGNOSTIC_MAX_CHARS + 10)
     evidence = PROBE._bounded_target_diagnostics(
