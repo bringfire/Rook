@@ -342,6 +342,17 @@ def test_duplicate_script_body_gotcha_candidates_fail():
         )
 
 
+def test_malformed_convention_packet_fails_with_packet_id():
+    fixture = _fixture_objects()
+
+    with pytest.raises(ValueError, match="script_body_gotcha"):
+        extract_acceptance_criteria_sources(
+            workflow_contract=fixture["workflow_contract"],
+            graph=fixture["graph"],
+            convention_packets=(object(),),
+        )
+
+
 def test_script_body_gotcha_wrong_kind_fails_after_id_selection():
     fixture = _fixture_objects()
     packet = fixture["convention_packets"][0]

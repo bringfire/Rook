@@ -119,7 +119,7 @@ def _extract_convention_source(
     candidates = [
         packet
         for packet in convention_packets
-        if packet.packet_id == "script_body_gotcha"
+        if getattr(packet, "packet_id", None) == "script_body_gotcha"
     ]
     if len(candidates) != 1:
         raise ValueError(f"{CONVENTION_SOURCE_PATH} missing or ambiguous")
