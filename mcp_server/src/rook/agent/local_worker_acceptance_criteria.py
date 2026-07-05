@@ -206,8 +206,11 @@ def _render_unresolved_intent(
             "source_path",
             "reason",
         ):
-            if not getattr(entry, field):
-                raise ValueError(f"unresolved_intent entry {field} must be non-empty.")
+            value = getattr(entry, field)
+            if not isinstance(value, str) or not value:
+                raise ValueError(
+                    f"unresolved_intent entry {field} must be a non-empty string."
+                )
         rendered.append(
             {
                 "intent_id": entry.intent_id,
@@ -228,8 +231,8 @@ def _validate_source(
 ) -> None:
     if source.source_class != source_class:
         raise ValueError(f"expected source class {source_class!r}.")
-    if not source.source_path:
-        raise ValueError(f"Expected non-empty source_path for {source_path!r}.")
+    if not isinstance(source.source_path, str) or not source.source_path:
+        raise ValueError(f"Expected non-empty string source_path for {source_path!r}.")
 
 
 __all__ = (

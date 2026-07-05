@@ -429,6 +429,16 @@ def test_source_paths_are_sorted_unique_for_duplicate_unresolved_intent_paths():
             {
                 "pin_contract": AcceptanceCriteriaSource(
                     source_class="pin_contract",
+                    source_path=123,
+                    value={"pins_out": ["A:double"]},
+                )
+            },
+            "source_path",
+        ),
+        (
+            {
+                "pin_contract": AcceptanceCriteriaSource(
+                    source_class="pin_contract",
                     source_path=PIN_SOURCE_PATH,
                     value={"pins_out": ["A:double"], "bind_params": {"A": 42.0}},
                 )
@@ -567,6 +577,23 @@ def test_unresolved_intent_empty_field_fails():
         unresolved_intent=(
             UnresolvedIntentEntry(
                 intent_id="",
+                description="Design goal is missing.",
+                source_class="planner_user_intent",
+                source_path="planner.intent.design_goal",
+                reason="required by planner",
+            ),
+        )
+    )
+
+    with pytest.raises(ValueError, match="intent_id"):
+        assemble_acceptance_criteria_packet(sources)
+
+
+def test_unresolved_intent_non_string_field_fails():
+    sources = _valid_sources(
+        unresolved_intent=(
+            UnresolvedIntentEntry(
+                intent_id=123,
                 description="Design goal is missing.",
                 source_class="planner_user_intent",
                 source_path="planner.intent.design_goal",
