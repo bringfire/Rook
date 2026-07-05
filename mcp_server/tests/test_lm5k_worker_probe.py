@@ -914,6 +914,59 @@ def test_acceptance_criteria_evidence_v3_fields_are_bounded_and_provenance_tagge
         set(criterion) == {"criterion_id", "description", "source"}
         for criterion in acceptance["criteria"]
     )
+    acceptance = _jsonable(acceptance)
+    assert acceptance == {
+        "source": (
+            "workflow_contract + create_script.initial_execution_params + "
+            "create_script.receipt.script_receipt.repair_anchor + script_body_gotcha"
+        ),
+        "criteria": [
+            {
+                "criterion_id": "output_a_assigned",
+                "description": "Output A must be assigned.",
+                "source": "create_script.initial_execution_params.pins_out",
+            },
+            {
+                "criterion_id": "output_a_double_compatible",
+                "description": "Output A must be double-compatible.",
+                "source": "create_script.initial_execution_params.pins_out",
+            },
+            {
+                "criterion_id": "verify_repair_succeeds",
+                "description": (
+                    "The repaired body must satisfy the verify_repair "
+                    "expected_outcome: succeeded."
+                ),
+                "source": "workflow_contract.rules.verify_repair.expected_outcome",
+            },
+            {
+                "criterion_id": "preserve_body_mode",
+                "description": "The repair must preserve body-style code.",
+                "source": "script_body_gotcha",
+            },
+            {
+                "criterion_id": "resolve_target_diagnostics",
+                "description": (
+                    "The repair must resolve the current target diagnostics."
+                ),
+                "source": (
+                    "create_script.receipt.script_receipt.repair_anchor."
+                    "target_errors"
+                ),
+            },
+            {
+                "criterion_id": "remove_unresolved_symbol",
+                "description": (
+                    "The repaired body must not leave DefinitelyMissingSymbol "
+                    "unresolved."
+                ),
+                "source": (
+                    "create_script.receipt.script_receipt.repair_anchor."
+                    "target_errors"
+                ),
+            },
+        ],
+    }
 
 
 def test_acceptance_criteria_v3_uses_assembled_legacy_projection() -> None:
@@ -1075,6 +1128,11 @@ def test_acceptance_criteria_v3_does_not_publish_replacement_literals() -> None:
     assert "DefinitelyMissingSymbol" in rendered
     assert "Output A must be assigned." in rendered
     assert "Output A must be double-compatible." in rendered
+    assert "rook.acceptance_criteria_packet:v1" not in rendered
+    assert "source_class" not in rendered
+    assert "source_set" not in rendered
+    assert "unresolved_intent" not in rendered
+    assert "fingerprint" not in rendered
     assert "A = 42.0;" not in rendered
     assert PROBE.PROBE_REPAIR_CODE not in rendered
     assert "set A to" not in rendered
