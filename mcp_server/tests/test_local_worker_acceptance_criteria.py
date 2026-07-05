@@ -377,6 +377,31 @@ def test_unresolved_intent_entries_are_sorted_and_indexed():
     assert packet["fingerprint"] != baseline["fingerprint"]
 
 
+def test_source_paths_are_sorted_unique_for_duplicate_unresolved_intent_paths():
+    packet = assemble_acceptance_criteria_packet(
+        _valid_sources(
+            unresolved_intent=(
+                UnresolvedIntentEntry(
+                    intent_id="missing_design_goal",
+                    description="Design goal is missing.",
+                    source_class="planner_user_intent",
+                    source_path="planner.intent.shared",
+                    reason="required by planner",
+                ),
+                UnresolvedIntentEntry(
+                    intent_id="missing_output_value",
+                    description="Output value is missing.",
+                    source_class="planner_user_intent",
+                    source_path="planner.intent.shared",
+                    reason="required by planner",
+                ),
+            )
+        )
+    )
+
+    assert packet["source_set"]["source_paths"].count("planner.intent.shared") == 1
+
+
 @pytest.mark.parametrize(
     ("overrides", "match"),
     [
@@ -399,6 +424,16 @@ def test_unresolved_intent_entries_are_sorted_and_indexed():
                 )
             },
             "source_path",
+        ),
+        (
+            {
+                "pin_contract": AcceptanceCriteriaSource(
+                    source_class="pin_contract",
+                    source_path=PIN_SOURCE_PATH,
+                    value={"pins_out": ["A:double"], "bind_params": {"A": 42.0}},
+                )
+            },
+            "exactly the pins_out field",
         ),
         (
             {

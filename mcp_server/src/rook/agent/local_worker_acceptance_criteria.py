@@ -59,15 +59,15 @@ def assemble_acceptance_criteria_packet(
         sources.receipt_diagnostic.source_class,
         sources.convention.source_class,
     }
-    source_paths = [
+    source_paths = {
         sources.pin_contract.source_path,
         sources.verifier_outcome.source_path,
         sources.receipt_diagnostic.source_path,
         sources.convention.source_path,
-    ]
+    }
     for entry in unresolved_intent:
         source_classes.add(entry["source_class"])
-        source_paths.append(entry["source_path"])
+        source_paths.add(entry["source_path"])
 
     packet = {
         "schema": ACCEPTANCE_CRITERIA_PACKET_SCHEMA,
@@ -160,7 +160,11 @@ def _validate_sources(sources: AcceptanceCriteriaSources) -> None:
 
 
 def _validate_pin_contract(value: Any) -> None:
-    pins_out = value.get("pins_out") if isinstance(value, dict) else None
+    if not isinstance(value, dict) or set(value) != {"pins_out"}:
+        raise ValueError(
+            "LM5W v1 pin_contract value must contain exactly the pins_out field."
+        )
+    pins_out = value["pins_out"]
     if not isinstance(pins_out, list) or len(pins_out) != 1:
         raise ValueError("LM5W v1 requires exactly one output pin.")
     pin = pins_out[0]
