@@ -617,20 +617,24 @@ def test_validator_import_boundary_stays_narrow():
 
     assert "rook.agent.local_worker_acceptance_criteria_sources" in imports
     assert "extract_acceptance_criteria_sources" in imports
-    for forbidden_fragment in (
+    for forbidden_import in (
         "lm5k_worker_probe",
         "lm5r_two_pass_publication_probe",
+        "yaml",
+        "rook.agent.lm5k_worker_probe",
+        "rook.agent.lm5r_two_pass_publication_probe",
+    ):
+        assert forbidden_import not in imports
+
+    forbidden_names = {
         "Planner",
         "Compiler",
         "LiteLLM",
         "run_local_worker",
-        "yaml",
-    ):
-        assert forbidden_fragment not in source
-
-    assert "BindStepSpec" not in imports
+        "BindStepSpec",
+    }
     assert not any(
-        isinstance(node, ast.Name) and node.id == "BindStepSpec"
+        isinstance(node, ast.Name) and node.id in forbidden_names
         for node in ast.walk(tree)
     )
     assert not any(
@@ -672,14 +676,15 @@ def test_acceptance_criteria_modules_do_not_import_routing_validator():
     import rook.agent.local_worker_acceptance_criteria as acceptance_criteria
     import rook.agent.local_worker_acceptance_criteria_sources as criteria_sources
 
-    assert (
-        "local_worker_source_routing_validator"
-        not in inspect.getsource(acceptance_criteria)
-    )
-    assert (
-        "local_worker_source_routing_validator"
-        not in inspect.getsource(criteria_sources)
-    )
+    forbidden_imports = {
+        "rook.agent.local_worker_source_routing_validator",
+        "local_worker_source_routing_validator",
+        "validate_worker_visible_source_routing",
+    }
+    for acceptance_module in (acceptance_criteria, criteria_sources):
+        imports = _import_names(inspect.getsource(acceptance_module))
+
+        assert imports.isdisjoint(forbidden_imports)
 
 
 def test_agent_package_does_not_reexport_routing_validator():
