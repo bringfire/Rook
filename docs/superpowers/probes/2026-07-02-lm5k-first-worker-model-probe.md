@@ -1,4 +1,4 @@
-# LM5K Probe Rounds 1, 1b, 2, 3 & LM5N — First Worker Model Probe (2026-07-02)
+# LM5K Probe Rounds 1, 1b, 2, 3, LM5N & LM5S — First Worker Model Probe (2026-07-02)
 
 **Doctrine:** evidence, not CI. This summary is the committed artifact; raw
 runs stay local (spec §5, `docs/superpowers/specs/2026-07-02-lm5k-first-worker-model-probe-design.md`).
@@ -350,6 +350,77 @@ especially `script_receipt.repair_anchor.target_errors` and
 diagnostic signal that lets action requests improve semantically without
 loosening the worker boundary.
 
+## LM5S pass-one disposition semantics run (run `probe_runs/lm5r-20260705T002630883567Z-85ebc16e/`, commit `85ebc16e`)
+
+LM5S revises the LM5R two-pass publication probe's pass-one decision
+instruction while leaving the publication path unchanged. The controlled changes
+are:
+
+- active pass-one instruction: `lm5s.pass1_decision_instruction:v2`
+- report-only observation action-intent anomaly scoring
+
+The run used the canonical LM5R/LM5S local probe shape:
+
+- model: `gemma4:12b-it-qat`
+- scenarios: `evidence_absent_like`, `evidence_present_like`
+- attempts: 5 per scenario
+- direct Ollama `/api/chat`
+- pass 1: free decision, `think=true`, no `format`
+- pass 2: single-kind constrained publication, `think=false`
+- no Anthropic calls and no production transport changes
+
+Manifest identity:
+
+- git commit: `85ebc16e`
+- Ollama version: `0.31.1`
+- model quantization: `Q4_0`
+- pass-one instruction SHA-256:
+  `973f963e8beb1b9bb985f28c46bfa7dfb6888727944e33f4d04a507eeae2bbc5`
+
+| Scenario | Status counts | Pass-1 kinds | Pass-2 kinds | LM5G-loadable | Published | Observation anomaly |
+|---|---|---|---|---|---|---|
+| `evidence_absent_like` | 4x `published`, 1x `pass1_decision_invalid` | 4x `clarification_request`, 1x invalid | 4x `clarification_request`, 1x none | **4/5** | **4/5** | **0/5** |
+| `evidence_present_like` | 4x `published`, 1x `pass1_decision_invalid` | 1x `action_request`, 3x `clarification_request`, 1x invalid | 1x `action_request`, 3x `clarification_request`, 1x none | **4/5** | **4/5** | **0/5** |
+
+Failure reasons:
+
+- `evidence_absent_like`: 1x `pass1_missing_question`
+- `evidence_present_like`: 1x `pass1_missing_action_id`
+
+For all eight published rows, the publication path preserved the pass-one
+decision kind. The single published `action_request` in
+`evidence_present_like` also preserved the pass-one action id. No published or
+parsed pass-one observation carried an allowed action id in `message`, `data`,
+or `data_intent`, so the new anomaly detector reported zero reasons in both
+scenarios.
+
+### LM5S interpretation
+
+LM5S succeeded on its target variable. The observation-action escape hatch
+found in LM5R disappeared in this run: `observation_action_intent_anomaly_count`
+was 0, and no observation leak reasons were recorded.
+
+Absent behavior improved materially. `evidence_absent_like` became mostly clean
+restraint: 4/5 clarification, 0 action requests, and 0 anomalous observations.
+The only non-published absent row was structurally incomplete as a pass-one
+decision because it chose clarification without a required question.
+
+The publication path still looks healthy. Every valid pass-one decision
+published through pass two as a strict LM5G-loadable response, and pass-one /
+pass-two kinds matched for all eight published rows.
+
+Present behavior is not solved. `evidence_present_like` produced only one
+action request, with three clarification decisions and one invalid action
+decision missing `action_id`. LM5S therefore fixed the observation-disposition
+loophole and improved restraint semantics, but it did not make
+evidence-present action selection reliable.
+
+The next design question is narrower than "make Gemma better": why does
+`evidence_present_like` still choose clarification 3/5 under the clearer
+pass-one semantics? That points toward pass-one decision contract,
+evidence interpretation, or action-readiness semantics rather than publication
+formatting.
+
 ## Updated comparison keys
 
 Round 1: `(lm5j.prompt_text:v1, lm5k_golden_repair_v1/fresh_compiled_graph,
@@ -375,6 +446,11 @@ above, per-candidate generation params, one bounded evidence packet)`.
 
 LM5N Gemma challenger: same LM5N paired scenarios, with
 `ollama_chat/gemma4:12b-it-qat` replacing the canonical local qwen3 slot.
+
+LM5S: `(lm5s.pass1_decision_instruction:v2,
+LM5R two-pass publication probe, evidence_absent_like/evidence_present_like,
+ollama gemma4:12b-it-qat, direct Ollama, pass1 think=true/free decision,
+pass2 single-kind constrained publication, observation anomaly scoring)`.
 
 Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
 new experiment.
