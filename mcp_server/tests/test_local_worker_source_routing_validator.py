@@ -633,6 +633,7 @@ def test_validator_import_boundary_stays_narrow():
         "run_local_worker",
         "BindStepSpec",
     }
+    assert imports.isdisjoint(forbidden_names)
     assert not any(
         isinstance(node, ast.Name) and node.id in forbidden_names
         for node in ast.walk(tree)
