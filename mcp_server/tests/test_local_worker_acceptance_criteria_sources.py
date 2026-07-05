@@ -154,6 +154,7 @@ def test_source_module_import_boundary_stays_one_way_and_narrow():
         "base_params",
         "PROBE_REPAIR_CODE",
         "importlib.import_module",
+        "import_module",
         "__import__",
     )
     for fragment in forbidden_source_fragments:
@@ -176,10 +177,11 @@ def test_source_module_import_boundary_stays_one_way_and_narrow():
         "LiteLLM",
         "run_local_worker",
         "yaml",
+        "import_module",
     )
     for fragment in forbidden_import_fragments:
         assert not any(fragment in imported for imported in imports)
-    assert {"open", "Path", "json.load"}.isdisjoint(calls)
+    assert {"open", "Path", "json.load", "import_module"}.isdisjoint(calls)
 
 
 def test_probe_scripts_do_not_import_acceptance_criteria_sources():
