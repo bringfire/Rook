@@ -92,6 +92,11 @@ _LM5X_SOURCE_PATHS = frozenset(
         CONVENTION_SOURCE_PATH,
     )
 )
+_STATIC_VALID_SOURCE_PATHS = frozenset(
+    source_path
+    for source_paths in _ALLOWED_SOURCE_PATHS.values()
+    for source_path in source_paths
+)
 
 
 @dataclass(frozen=True)
@@ -496,7 +501,7 @@ def _lm5x_failed_source_paths(
             for source_path in _LM5X_SOURCE_PATHS
             if source_path in message
         )
-        return failed_paths or _LM5X_SOURCE_PATHS
+        return failed_paths or _STATIC_VALID_SOURCE_PATHS
     return None
 
 

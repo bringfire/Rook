@@ -577,3 +577,34 @@ def test_lm5x_value_error_without_known_fragment_fails_declared_lm5x_routes_clos
         "repair_target_diagnostics",
         "repair_body_mode_convention",
     ]
+
+
+def test_lm5x_value_error_without_known_fragment_fails_declared_gh_routes_closed(
+    monkeypatch,
+):
+    def raise_unmapped_extraction_failure(*args, **kwargs):
+        raise ValueError("unmapped extraction failure")
+
+    monkeypatch.setattr(
+        module,
+        "extract_acceptance_criteria_sources",
+        raise_unmapped_extraction_failure,
+    )
+    fixture = _fixture_objects()
+
+    report = validate_worker_visible_source_routing(
+        _gh_pressure_artifact(),
+        workflow_contract=fixture["workflow_contract"],
+        graph=fixture["graph"],
+        convention_packets=fixture["convention_packets"],
+        worker_node_ids={"solve_grasshopper_definition"},
+    )
+
+    assert report.valid is False
+    assert report.routability_evaluated is True
+    assert _codes(report.routability_diagnostics) == [
+        "required_route_unresolved",
+        "required_route_unresolved",
+        "required_route_unresolved",
+        "optional_route_unresolved",
+    ]
