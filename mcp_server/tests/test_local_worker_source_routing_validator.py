@@ -365,3 +365,215 @@ def test_partial_routability_inputs_raise_value_error():
             _valid_repair_artifact(),
             workflow_contract=object(),
         )
+
+
+def test_lm5u_repair_route_set_is_routable_against_fixture_objects():
+    fixture = _fixture_objects()
+
+    report = validate_worker_visible_source_routing(
+        _valid_repair_artifact(),
+        workflow_contract=fixture["workflow_contract"],
+        graph=fixture["graph"],
+        convention_packets=fixture["convention_packets"],
+        worker_node_ids={"repair_same_component"},
+    )
+
+    assert report.valid is True
+    assert report.routability_evaluated is True
+    assert report.static_diagnostics == ()
+    assert report.routability_diagnostics == ()
+
+
+def test_gh_pressure_example_is_static_valid_but_not_routable_in_v1():
+    fixture = _fixture_objects()
+
+    report = validate_worker_visible_source_routing(
+        _gh_pressure_artifact(),
+        workflow_contract=fixture["workflow_contract"],
+        graph=fixture["graph"],
+        convention_packets=fixture["convention_packets"],
+        worker_node_ids={"solve_grasshopper_definition"},
+    )
+
+    assert report.routability_evaluated is True
+    assert report.static_diagnostics == ()
+    assert report.valid is False
+    assert _codes(report.routability_diagnostics) == [
+        "required_route_unresolved",
+        "required_route_unresolved",
+        "required_route_unresolved",
+        "optional_route_unresolved",
+    ]
+
+
+def test_worker_node_not_found_skips_route_level_routability():
+    fixture = _fixture_objects()
+
+    report = validate_worker_visible_source_routing(
+        _valid_repair_artifact(),
+        workflow_contract=fixture["workflow_contract"],
+        graph=fixture["graph"],
+        convention_packets=fixture["convention_packets"],
+        worker_node_ids=set(),
+    )
+
+    assert report.valid is False
+    assert report.routability_evaluated is True
+    assert _codes(report.routability_diagnostics) == ["worker_node_not_found"]
+    assert report.routability_diagnostics[0].node_id == "repair_same_component"
+
+
+def test_required_and_optional_planner_intent_routes_are_unroutable_in_v1():
+    fixture = _fixture_objects()
+    artifact = {
+        "schema": SOURCE_ROUTING_SCHEMA,
+        "routes": [
+            {
+                "node_id": "missing_desired_output_value_required",
+                "visible_sources": [
+                    {
+                        "route_id": "missing_desired_output_value_required",
+                        "source_class": "planner_user_intent",
+                        "source_path": PLANNER_INTENT_SOURCE_PATH,
+                        "purpose": "unresolved_intent",
+                        "required": True,
+                    }
+                ],
+            },
+            {
+                "node_id": "missing_desired_output_value_optional",
+                "visible_sources": [
+                    {
+                        "route_id": "missing_desired_output_value_optional",
+                        "source_class": "planner_user_intent",
+                        "source_path": PLANNER_INTENT_SOURCE_PATH,
+                        "purpose": "unresolved_intent",
+                        "required": False,
+                    }
+                ],
+            },
+        ],
+    }
+
+    report = validate_worker_visible_source_routing(
+        artifact,
+        workflow_contract=fixture["workflow_contract"],
+        graph=fixture["graph"],
+        convention_packets=fixture["convention_packets"],
+        worker_node_ids={
+            "missing_desired_output_value_required",
+            "missing_desired_output_value_optional",
+        },
+    )
+
+    assert report.valid is False
+    assert report.routability_evaluated is True
+    assert [
+        (diagnostic.code, diagnostic.severity, diagnostic.route_id)
+        for diagnostic in report.routability_diagnostics
+    ] == [
+        (
+            "required_route_unresolved",
+            "error",
+            "missing_desired_output_value_required",
+        ),
+        (
+            "optional_route_unresolved",
+            "warning",
+            "missing_desired_output_value_optional",
+        ),
+    ]
+
+
+def test_optional_unresolved_route_warns_without_invalidating_report():
+    fixture = _fixture_objects()
+    artifact = _valid_repair_artifact()
+    artifact["routes"][0]["visible_sources"].append(
+        {
+            "route_id": "optional_desired_output_value",
+            "source_class": "planner_user_intent",
+            "source_path": PLANNER_INTENT_SOURCE_PATH,
+            "purpose": "unresolved_intent",
+            "required": False,
+        }
+    )
+
+    report = validate_worker_visible_source_routing(
+        artifact,
+        workflow_contract=fixture["workflow_contract"],
+        graph=fixture["graph"],
+        convention_packets=fixture["convention_packets"],
+        worker_node_ids={"repair_same_component"},
+    )
+
+    assert report.valid is True
+    assert report.routability_evaluated is True
+    assert [
+        (diagnostic.code, diagnostic.severity, diagnostic.route_id)
+        for diagnostic in report.routability_diagnostics
+    ] == [
+        (
+            "optional_route_unresolved",
+            "warning",
+            "optional_desired_output_value",
+        )
+    ]
+
+
+def test_lm5x_value_error_mapping_uses_declared_routes_and_known_path_fragments():
+    fixture = _fixture_objects()
+
+    report = validate_worker_visible_source_routing(
+        _valid_repair_artifact(),
+        workflow_contract=fixture["workflow_contract"],
+        graph=fixture["graph"],
+        convention_packets=(),
+        worker_node_ids={"repair_same_component"},
+    )
+
+    assert report.valid is False
+    assert report.routability_evaluated is True
+    assert _codes(report.routability_diagnostics) == ["required_route_unresolved"]
+    diagnostic = report.routability_diagnostics[0]
+    assert diagnostic.route_id == "repair_body_mode_convention"
+    assert diagnostic.source_class == "convention"
+    assert diagnostic.source_path == CONVENTION_SOURCE_PATH
+
+
+def test_lm5x_value_error_without_known_fragment_fails_declared_lm5x_routes_closed(
+    monkeypatch,
+):
+    def raise_unmapped_extraction_failure(*args, **kwargs):
+        raise ValueError("unmapped extraction failure")
+
+    monkeypatch.setattr(
+        module,
+        "extract_acceptance_criteria_sources",
+        raise_unmapped_extraction_failure,
+    )
+    fixture = _fixture_objects()
+
+    report = validate_worker_visible_source_routing(
+        _valid_repair_artifact(),
+        workflow_contract=fixture["workflow_contract"],
+        graph=fixture["graph"],
+        convention_packets=fixture["convention_packets"],
+        worker_node_ids={"repair_same_component"},
+    )
+
+    assert report.valid is False
+    assert report.routability_evaluated is True
+    assert _codes(report.routability_diagnostics) == [
+        "required_route_unresolved",
+        "required_route_unresolved",
+        "required_route_unresolved",
+        "required_route_unresolved",
+    ]
+    assert [
+        diagnostic.route_id for diagnostic in report.routability_diagnostics
+    ] == [
+        "repair_pin_contract",
+        "repair_expected_outcome",
+        "repair_target_diagnostics",
+        "repair_body_mode_convention",
+    ]
