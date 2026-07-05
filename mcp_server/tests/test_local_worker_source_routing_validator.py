@@ -232,6 +232,133 @@ def test_static_only_valid_artifact_returns_valid_report_without_routability():
     assert report.routability_diagnostics == ()
 
 
+def test_static_validation_collects_shape_and_allowlist_errors():
+    artifact = {
+        "schema": "bad.schema:v0",
+        "routes": [
+            {
+                "node_id": "repair_same_component",
+                "visible_sources": [
+                    {
+                        "route_id": "Bad-Id",
+                        "source_class": "pin_contract",
+                        "source_path": PIN_SOURCE_PATH,
+                        "purpose": "acceptance_criteria",
+                        "required": True,
+                    },
+                    {
+                        "route_id": "repair_unknown_class",
+                        "source_class": "mystery",
+                        "source_path": PIN_SOURCE_PATH,
+                        "purpose": "acceptance_criteria",
+                        "required": True,
+                    },
+                    {
+                        "route_id": "repair_unknown_purpose",
+                        "source_class": "pin_contract",
+                        "source_path": PIN_SOURCE_PATH,
+                        "purpose": "not_a_purpose",
+                        "required": True,
+                    },
+                    {
+                        "route_id": "repair_required_shape",
+                        "source_class": "verifier_outcome",
+                        "source_path": VERIFY_SOURCE_PATH,
+                        "purpose": "acceptance_criteria",
+                        "required": "yes",
+                    },
+                    {
+                        "route_id": "repair_forbidden_path",
+                        "source_class": "pin_contract",
+                        "source_path": "repair_same_component.bind.base_params.code",
+                        "purpose": "acceptance_criteria",
+                        "required": True,
+                    },
+                    {
+                        "route_id": "repair_cross_class",
+                        "source_class": "convention",
+                        "source_path": PIN_SOURCE_PATH,
+                        "purpose": "acceptance_criteria",
+                        "required": True,
+                    },
+                    {
+                        "route_id": "repair_duplicate_id",
+                        "source_class": "receipt_diagnostic",
+                        "source_path": DIAGNOSTIC_SOURCE_PATH,
+                        "purpose": "acceptance_criteria",
+                        "required": True,
+                    },
+                    {
+                        "route_id": "repair_duplicate_id",
+                        "source_class": "convention",
+                        "source_path": CONVENTION_SOURCE_PATH,
+                        "purpose": "evidence_context",
+                        "required": False,
+                    },
+                    {
+                        "route_id": "repair_duplicate_tuple",
+                        "source_class": "receipt_diagnostic",
+                        "source_path": DIAGNOSTIC_SOURCE_PATH,
+                        "purpose": "acceptance_criteria",
+                        "required": True,
+                    },
+                ],
+            },
+            {
+                "node_id": "repair_same_component",
+                "visible_sources": [],
+            },
+        ],
+    }
+
+    report = validate_worker_visible_source_routing(artifact)
+
+    assert report.valid is False
+    assert report.routability_evaluated is False
+    static_codes = set(_codes(report.static_diagnostics))
+    assert {
+        "invalid_schema",
+        "duplicate_node_route",
+        "invalid_visible_sources_shape",
+        "invalid_route_id",
+        "duplicate_route_id",
+        "unknown_source_class",
+        "unknown_purpose",
+        "invalid_source_path",
+        "forbidden_source_path",
+        "duplicate_route_tuple",
+    } <= static_codes
+    assert [
+        diagnostic.code
+        for diagnostic in report.static_diagnostics
+        if diagnostic.route_id == "repair_cross_class"
+    ] == ["invalid_source_path"]
+    assert [
+        diagnostic.code
+        for diagnostic in report.static_diagnostics
+        if diagnostic.route_id == "repair_required_shape"
+    ] == ["invalid_visible_sources_shape"]
+
+
+def test_planner_user_intent_cannot_feed_acceptance_criteria_in_v1():
+    report = validate_worker_visible_source_routing(
+        _valid_repair_artifact(
+            visible_sources=[
+                {
+                    "route_id": "desired_output_value_criteria",
+                    "source_class": "planner_user_intent",
+                    "source_path": PLANNER_INTENT_SOURCE_PATH,
+                    "purpose": "acceptance_criteria",
+                    "required": True,
+                }
+            ]
+        )
+    )
+
+    assert _codes(report.static_diagnostics) == ["invalid_source_purpose"]
+    assert report.valid is False
+
+
 def test_partial_routability_inputs_raise_value_error():
     with pytest.raises(ValueError, match="routability inputs"):
         validate_worker_visible_source_routing(
