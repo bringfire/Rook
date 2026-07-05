@@ -45,7 +45,12 @@ from lm5k_worker_probe import _SCENARIOS, build_probe_context
 
 SCRIPT_SCHEMA = "rook.lm5r_two_pass_publication_probe:v1"
 DEFAULT_MODEL = "gemma4:12b-it-qat"
-SCENARIO_NAMES = ("evidence_absent_like", "evidence_present_like")
+SCENARIO_NAMES = (
+    "evidence_absent_like",
+    "evidence_present_like",
+    "evidence_present_v2_like",
+)
+DEFAULT_SCENARIO_NAMES = ("evidence_absent_like", "evidence_present_like")
 DEFAULT_ENDPOINT = "http://localhost:11434/api/chat"
 DEFAULT_ATTEMPTS = 5
 DEFAULT_TEMPERATURE = 0
@@ -71,6 +76,7 @@ RESPONSE_KINDS = (
 _SCENARIO_MAP = {
     "evidence_absent_like": "evidence_absent",
     "evidence_present_like": "evidence_present",
+    "evidence_present_v2_like": "evidence_present_v2",
 }
 
 PASS1_DECISION_INSTRUCTION_VERSION = "lm5s.pass1_decision_instruction:v2"
@@ -133,7 +139,7 @@ def _args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--timeout-s", type=float, default=DEFAULT_TIMEOUT_S)
     args = parser.parse_args(argv)
     if args.scenarios is None:
-        args.scenarios = list(SCENARIO_NAMES)
+        args.scenarios = list(DEFAULT_SCENARIO_NAMES)
     return args
 
 
