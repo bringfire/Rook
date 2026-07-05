@@ -608,3 +608,99 @@ def test_lm5x_value_error_without_known_fragment_fails_declared_gh_routes_closed
         "required_route_unresolved",
         "optional_route_unresolved",
     ]
+
+
+def test_validator_import_boundary_stays_narrow():
+    source = inspect.getsource(module)
+    tree = ast.parse(source)
+    imports = _import_names(source)
+
+    assert "rook.agent.local_worker_acceptance_criteria_sources" in imports
+    assert "extract_acceptance_criteria_sources" in imports
+    for forbidden_fragment in (
+        "lm5k_worker_probe",
+        "lm5r_two_pass_publication_probe",
+        "Planner",
+        "Compiler",
+        "LiteLLM",
+        "run_local_worker",
+        "yaml",
+    ):
+        assert forbidden_fragment not in source
+
+    assert "BindStepSpec" not in imports
+    assert not any(
+        isinstance(node, ast.Name) and node.id == "BindStepSpec"
+        for node in ast.walk(tree)
+    )
+    assert not any(
+        isinstance(node, ast.Attribute) and node.attr == "base_params"
+        for node in ast.walk(tree)
+    )
+
+
+def test_forbidden_path_policy_strings_are_data_not_coupling():
+    for source_path in (
+        "repair_same_component.bind.base_params.code",
+        "BindStepSpec.base_params",
+        "future_node.execution_params",
+        "PROBE_REPAIR_CODE",
+        "A = 42.0",
+    ):
+        artifact = _valid_repair_artifact(
+            visible_sources=[
+                {
+                    "route_id": "repair_forbidden_policy_path",
+                    "source_class": "receipt_diagnostic",
+                    "source_path": source_path,
+                    "purpose": "evidence_context",
+                    "required": True,
+                }
+            ]
+        )
+
+        report = validate_worker_visible_source_routing(artifact)
+
+        assert [
+            diagnostic.code
+            for diagnostic in report.static_diagnostics
+            if diagnostic.source_path == source_path
+        ] == ["forbidden_source_path"]
+
+
+def test_acceptance_criteria_modules_do_not_import_routing_validator():
+    import rook.agent.local_worker_acceptance_criteria as acceptance_criteria
+    import rook.agent.local_worker_acceptance_criteria_sources as criteria_sources
+
+    assert (
+        "local_worker_source_routing_validator"
+        not in inspect.getsource(acceptance_criteria)
+    )
+    assert (
+        "local_worker_source_routing_validator"
+        not in inspect.getsource(criteria_sources)
+    )
+
+
+def test_agent_package_does_not_reexport_routing_validator():
+    import rook.agent as agent_package
+
+    assert "local_worker_source_routing_validator" not in agent_package.__all__
+    assert "validate_worker_visible_source_routing" not in agent_package.__all__
+    assert (
+        "local_worker_source_routing_validator"
+        not in agent_package._EXPORT_MODULES
+    )
+    assert (
+        "validate_worker_visible_source_routing"
+        not in agent_package._EXPORT_MODULES
+    )
+
+
+def test_validator_does_not_mutate_artifact():
+    artifact = _valid_repair_artifact()
+    original = copy.deepcopy(artifact)
+
+    validate_worker_visible_source_routing(artifact)
+
+    assert artifact == original
