@@ -1,4 +1,4 @@
-# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S, LM5T & LM5U — First Worker Model Probe (2026-07-02)
+# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S, LM5T, LM5U & LM5Y — First Worker Model Probe (2026-07-02)
 
 **Doctrine:** evidence, not CI. This summary is the committed artifact; raw
 runs stay local (spec §5, `docs/superpowers/specs/2026-07-02-lm5k-first-worker-model-probe-design.md`).
@@ -603,6 +603,112 @@ criteria generally, or into a separate report-only repair-quality diagnostic
 slice. The strategic lesson is already established: workers need acceptance
 criteria, and upstream planning/compilation needs to own them.
 
+## LM5Y acceptance-criteria join run (run `probe_runs/lm5r-20260705T211823928683Z-67e34fac/`, commit `67e34fac`)
+
+LM5Y changes the implementation path, not the worker-visible evidence shape.
+The `evidence_present_v3_like` packet now builds its acceptance-criteria section
+through the LM5X source extractor and LM5W assembler, then legacy-projects the
+criteria back to the same worker-visible shape used by LM5U.
+
+The canonical run compares:
+
+- `evidence_absent_like`: gotcha packet only
+- `evidence_present_v3_like`: gotcha packet plus the legacy-projected
+  `lm5u_acceptance_criteria_evidence` shape, internally assembled through
+  LM5X/LM5W
+
+Run identity:
+
+- git commit: `67e34fac`
+- model: `gemma4:12b-it-qat`
+- quantization: `Q4_0`
+- Ollama version: `0.31.1`
+- pass-one instruction: `lm5s.pass1_decision_instruction:v2`
+- pass-one instruction SHA-256:
+  `973f963e8beb1b9bb985f28c46bfa7dfb6888727944e33f4d04a507eeae2bbc5`
+
+| Scenario | Status counts | Pass-1 kinds | Pass-2 kinds | LM5G-loadable | Published | Action requests | Observation anomaly |
+|---|---|---|---|---|---|---|---|
+| `evidence_absent_like` | 2x `published`, 3x `pass1_decision_invalid` | 2x `clarification_request`, 3x invalid | 2x `clarification_request`, 3x none | **2/5** | **2/5** | **0/5** | **0/5** |
+| `evidence_present_v3_like` | 5x `published` | 5x `action_request` | 5x `action_request` | **5/5** | **5/5** | **5/5** | **0/5** |
+
+Failure reasons:
+
+- `evidence_absent_like`: 3x `pass1_missing_question`
+- `evidence_present_v3_like`: none
+
+For all seven published rows, pass two preserved the pass-one decision kind and
+produced strict LM5G-loadable responses. In `evidence_present_v3_like`, all five
+published action requests preserved the pass-one `draft_repair_params` action
+id.
+
+Leak and shape checks:
+
+- `PROBE_REPAIR_CODE` was not present in the visible v3 envelope or run
+  artifacts.
+- `A = 42.0` was not present in the visible v3 envelope or run artifacts.
+- LM5W internal metadata did not leak into the worker-visible packet:
+  `rook.acceptance_criteria_packet:v1`, `source_class`, `source_set`, and
+  `fingerprint` were absent from visible evidence and raw outputs.
+
+Representative `evidence_absent_like` published clarification:
+
+```json
+{
+  "schema": "rook.local_worker_turn_response:v1",
+  "kind": "clarification_request",
+  "question": "Please provide the faulty C# code and the specific error message received during the verification step so that I can draft the appropriate repair parameters.",
+  "rationale": "The 'repair_same_component' node requires the source code and failure details to generate a valid repair, which are currently missing from the visible context."
+}
+```
+
+Representative invalid pass-one absent decision:
+
+```json
+{"kind": "clarification_request"}
+```
+
+Representative `evidence_present_v3_like` action inputs:
+
+```json
+{"code": "A = 0.0;", "mode": "body"}
+```
+
+```json
+{"code": "A = 1.0;", "mode": "body"}
+```
+
+### LM5Y interpretation
+
+LM5Y answered its exact join question positively. The architectural path is now:
+
+```text
+real fixture objects -> LM5X extraction -> LM5W assembly -> legacy worker-visible projection
+```
+
+and the live behavior stayed aligned with LM5U:
+
+```text
+absent: 0/5 action_request
+present_v3: 5/5 action_request
+```
+
+This is not a new model-capability result and not a new evidence-shape
+experiment. It shows that the acceptance-criteria seam is real in the probe
+runtime, while preserving the worker-visible packet semantics that produced the
+LM5U result.
+
+The absent-side publication quality wrinkle remains separate: `3/5` absent rows
+failed pass-one decision validation because the model emitted
+`clarification_request` without `question`. That is a pass-one artifact
+discipline issue, not an acceptance-criteria join regression. Restraint still
+held: absent produced `0/5` action requests and no observation-action anomaly.
+
+The next design question should move upstream to Planner/compiler source
+extraction and ownership: how real task contracts produce these acceptance
+criteria generally. Do not add another worker-visible evidence packet for this
+fixture.
+
 ## Updated comparison keys
 
 Round 1: `(lm5j.prompt_text:v1, lm5k_golden_repair_v1/fresh_compiled_graph,
@@ -646,6 +752,13 @@ ollama gemma4:12b-it-qat, direct Ollama, pass1 think=true/free decision,
 pass2 single-kind constrained publication, observation anomaly scoring,
 acceptance-criteria evidence v3 with bounded target diagnostics and checkable
 criteria)`.
+
+LM5Y: `(lm5s.pass1_decision_instruction:v2,
+LM5R two-pass publication probe, evidence_absent_like/evidence_present_v3_like,
+LM5X extraction + LM5W assembly + legacy worker-visible projection,
+ollama gemma4:12b-it-qat, direct Ollama, pass1 think=true/free decision,
+pass2 single-kind constrained publication, observation anomaly scoring,
+acceptance-criteria evidence v3 shape preserved)`.
 
 Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
 new experiment.
