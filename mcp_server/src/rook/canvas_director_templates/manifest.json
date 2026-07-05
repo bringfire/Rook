@@ -1,0 +1,727 @@
+{
+  "schema_version": 1,
+  "template_pack_id": "canvas_director.core",
+  "template_pack_version": "0.1.0",
+  "templates": [
+    {
+      "default_nick": "CanvasDirector Export",
+      "display_name": "CanvasDirector Export",
+      "expected_output_payload_kind": "rook.canvas_director.export",
+      "fixture_placeholders": [
+        "export_id",
+        "proposal_id",
+        "fps",
+        "frame_count",
+        "resolution"
+      ],
+      "inputs": [
+        {
+          "description": "director_actor_runtime_payload JSON",
+          "name": "Actors",
+          "type": "string"
+        },
+        {
+          "description": "director_motion_payload JSON",
+          "name": "Motion",
+          "type": "string"
+        },
+        {
+          "description": "director_camera_state JSON or blank for active view",
+          "name": "Camera",
+          "type": "string"
+        },
+        {
+          "description": "Timeline frames per second",
+          "name": "FPS",
+          "type": "int"
+        },
+        {
+          "description": "Total frame count",
+          "name": "FrameCount",
+          "type": "int"
+        },
+        {
+          "description": "CanvasDirector export id",
+          "name": "ExportId",
+          "type": "string"
+        },
+        {
+          "description": "CanvasDirector proposal id",
+          "name": "ProposalId",
+          "type": "string"
+        },
+        {
+          "description": "Capture resolution such as 1280x720",
+          "name": "Resolution",
+          "type": "string"
+        }
+      ],
+      "notes": "Final typed assembler for CanvasDirector extraction. It does not own the animation intent by itself.",
+      "outputs": [
+        {
+          "description": "rook.canvas_director.export JSON",
+          "name": "Json",
+          "type": "string"
+        },
+        {
+          "description": "Assembler diagnostics",
+          "name": "Info",
+          "type": "string"
+        }
+      ],
+      "role": "export_marker",
+      "script": {
+        "language": "csharp",
+        "path": "scripts/export_marker.cs",
+        "sha256": "sha256:8e7ad98ab3ae81c9dfdda942705d1361499b971ff5061a540b49d366416884b4"
+      },
+      "template_id": "canvas_director.export_marker",
+      "template_version": "0.1.0"
+    },
+    {
+      "default_nick": "Director Clock",
+      "display_name": "Director Clock",
+      "expected_output_payload_kind": "director_clock_payload",
+      "fixture_placeholders": [
+        "fps",
+        "frame_count"
+      ],
+      "inputs": [
+        {
+          "description": "Current frame index",
+          "name": "Frame",
+          "type": "int"
+        },
+        {
+          "description": "Frames per second",
+          "name": "FPS",
+          "type": "int"
+        },
+        {
+          "description": "Duration in seconds",
+          "name": "Duration",
+          "type": "double"
+        },
+        {
+          "description": "Whether frame wraps",
+          "name": "Loop",
+          "type": "bool"
+        },
+        {
+          "description": "Reset request",
+          "name": "Reset",
+          "type": "bool"
+        }
+      ],
+      "notes": "Timeline authoring payload used by timing gates and controls.",
+      "outputs": [
+        {
+          "description": "director_clock_payload JSON",
+          "name": "Clock",
+          "type": "string"
+        },
+        {
+          "description": "Resolved frame index",
+          "name": "FrameOut",
+          "type": "int"
+        },
+        {
+          "description": "Normalized timeline position",
+          "name": "T",
+          "type": "double"
+        },
+        {
+          "description": "Timeline seconds",
+          "name": "Seconds",
+          "type": "double"
+        },
+        {
+          "description": "Total frame count",
+          "name": "FrameCount",
+          "type": "int"
+        },
+        {
+          "description": "Resolved frames per second",
+          "name": "FPSOut",
+          "type": "int"
+        },
+        {
+          "description": "Clock diagnostics",
+          "name": "Info",
+          "type": "string"
+        }
+      ],
+      "role": "clock",
+      "script": {
+        "language": "csharp",
+        "path": "scripts/clock.cs",
+        "sha256": "sha256:66bc0fd59ab4cad632f02961fd2f2fd596207e22ef863c3a4ff7eb31402eb4f5"
+      },
+      "template_id": "canvas_director.clock",
+      "template_version": "0.1.0"
+    },
+    {
+      "default_nick": "Director Timing Gate",
+      "display_name": "Director Timing Gate",
+      "expected_output_payload_kind": "director_timing_gate_payload",
+      "fixture_placeholders": [
+        "timing_start",
+        "timing_end",
+        "easing"
+      ],
+      "inputs": [
+        {
+          "description": "director_clock_payload JSON",
+          "name": "Clock",
+          "type": "string"
+        },
+        {
+          "description": "Window start",
+          "name": "Start",
+          "type": "double"
+        },
+        {
+          "description": "Window end",
+          "name": "End",
+          "type": "double"
+        },
+        {
+          "description": "Easing name",
+          "name": "Ease",
+          "type": "string"
+        },
+        {
+          "description": "Gate enabled flag",
+          "name": "Enabled",
+          "type": "bool"
+        }
+      ],
+      "notes": "Authoring helper; export marker does not read this directly in v0.",
+      "outputs": [
+        {
+          "description": "director_timing_gate_payload JSON",
+          "name": "Gate",
+          "type": "string"
+        },
+        {
+          "description": "Normalized gated progress",
+          "name": "Progress",
+          "type": "double"
+        },
+        {
+          "description": "Whether gate is active",
+          "name": "Active",
+          "type": "bool"
+        },
+        {
+          "description": "Resolved easing",
+          "name": "EaseOut",
+          "type": "string"
+        },
+        {
+          "description": "Resolved start",
+          "name": "StartOut",
+          "type": "double"
+        },
+        {
+          "description": "Resolved end",
+          "name": "EndOut",
+          "type": "double"
+        },
+        {
+          "description": "Input normalized time",
+          "name": "T",
+          "type": "double"
+        },
+        {
+          "description": "Gate diagnostics",
+          "name": "Info",
+          "type": "string"
+        }
+      ],
+      "role": "timing_gate",
+      "script": {
+        "language": "csharp",
+        "path": "scripts/timing_gate.cs",
+        "sha256": "sha256:cd6cde1030e94ad515f0cd4f2d9e6c55dcc5a97ae2d147f8918df7a4efff31fc"
+      },
+      "template_id": "canvas_director.timing_gate",
+      "template_version": "0.1.0"
+    },
+    {
+      "default_nick": "Director Oscillator",
+      "display_name": "Director Oscillator",
+      "expected_output_payload_kind": "director_oscillator_payload",
+      "fixture_placeholders": [],
+      "inputs": [
+        {
+          "description": "Normalized progress",
+          "name": "Progress",
+          "type": "double"
+        },
+        {
+          "description": "Oscillation amplitude",
+          "name": "Amplitude",
+          "type": "double"
+        },
+        {
+          "description": "Oscillation frequency",
+          "name": "Frequency",
+          "type": "double"
+        },
+        {
+          "description": "Phase offset",
+          "name": "Phase",
+          "type": "double"
+        },
+        {
+          "description": "Value bias",
+          "name": "Bias",
+          "type": "double"
+        },
+        {
+          "description": "Clamp output to normalized range",
+          "name": "Clamp",
+          "type": "bool"
+        },
+        {
+          "description": "Enabled flag",
+          "name": "Enabled",
+          "type": "bool"
+        }
+      ],
+      "notes": "Reusable curve authoring helper; export marker does not read this directly in v0.",
+      "outputs": [
+        {
+          "description": "director_oscillator_payload JSON",
+          "name": "Oscillator",
+          "type": "string"
+        },
+        {
+          "description": "Oscillator value",
+          "name": "Value",
+          "type": "double"
+        },
+        {
+          "description": "Wave value",
+          "name": "Wave",
+          "type": "double"
+        },
+        {
+          "description": "Input progress",
+          "name": "ProgressOut",
+          "type": "double"
+        },
+        {
+          "description": "Resolved amplitude",
+          "name": "AmplitudeOut",
+          "type": "double"
+        },
+        {
+          "description": "Resolved frequency",
+          "name": "FrequencyOut",
+          "type": "double"
+        },
+        {
+          "description": "Resolved phase",
+          "name": "PhaseOut",
+          "type": "double"
+        },
+        {
+          "description": "Resolved bias",
+          "name": "BiasOut",
+          "type": "double"
+        },
+        {
+          "description": "Resolved enabled flag",
+          "name": "EnabledOut",
+          "type": "bool"
+        },
+        {
+          "description": "Oscillator diagnostics",
+          "name": "Info",
+          "type": "string"
+        }
+      ],
+      "role": "oscillator",
+      "script": {
+        "language": "csharp",
+        "path": "scripts/oscillator.cs",
+        "sha256": "sha256:5a00c3841278a464e787ad63bb1d0ad18ddc0b73e5a3345b64d64416cda659d6"
+      },
+      "template_id": "canvas_director.oscillator",
+      "template_version": "0.1.0"
+    },
+    {
+      "default_nick": "Director Actors",
+      "display_name": "Director Actors",
+      "expected_output_payload_kind": "director_actor_runtime_payload",
+      "fixture_placeholders": [
+        "actor_set_ref",
+        "actor_grouping_ref"
+      ],
+      "inputs": [
+        {
+          "description": "Project-relative actor-set .rook path",
+          "name": "ActorSetPath",
+          "type": "string"
+        },
+        {
+          "description": "Project-relative actor grouping .rook path",
+          "name": "ActorGroupingPath",
+          "type": "string"
+        }
+      ],
+      "notes": "Reads project actor metadata from fixture-bound refs; generic template has no Pearson fallback.",
+      "outputs": [
+        {
+          "description": "Actor display summary",
+          "name": "Actors",
+          "type": "string"
+        },
+        {
+          "description": "director_actor_runtime_payload JSON",
+          "name": "RuntimePayload",
+          "type": "string"
+        },
+        {
+          "description": "Resolved actor set id",
+          "name": "ActorSetId",
+          "type": "string"
+        },
+        {
+          "description": "Resolved group count",
+          "name": "GroupCount",
+          "type": "int"
+        },
+        {
+          "description": "Actor diagnostics",
+          "name": "Info",
+          "type": "string"
+        }
+      ],
+      "role": "actors",
+      "script": {
+        "language": "csharp",
+        "path": "scripts/actors_v2.cs",
+        "sha256": "sha256:ce5b40e9a8d5dfb54eabcbed203da75e5ba78be62c7ec539161b6c474efacadc"
+      },
+      "template_id": "canvas_director.actors_v2",
+      "template_version": "0.1.0"
+    },
+    {
+      "default_nick": "Director Transform",
+      "display_name": "Director Transform",
+      "expected_output_payload_kind": "director_motion_payload",
+      "fixture_placeholders": [
+        "transform_strategy",
+        "max_height",
+        "spread",
+        "fast_preview"
+      ],
+      "inputs": [
+        {
+          "description": "director_actor_runtime_payload JSON",
+          "name": "Actors",
+          "type": "string"
+        },
+        {
+          "description": "Local start value",
+          "name": "Start",
+          "type": "double"
+        },
+        {
+          "description": "Normalized progress",
+          "name": "Progress",
+          "type": "double"
+        },
+        {
+          "description": "Maximum Z translation height",
+          "name": "MaxH",
+          "type": "double"
+        },
+        {
+          "description": "Band spread value",
+          "name": "Spread",
+          "type": "double"
+        },
+        {
+          "description": "Preview simplification flag",
+          "name": "FastPreview",
+          "type": "bool"
+        },
+        {
+          "description": "Transform strategy, including band_peel_wave",
+          "name": "Strategy",
+          "type": "string"
+        }
+      ],
+      "notes": "Durable transform primitive. The current band peel behavior is a strategy, not the template id.",
+      "outputs": [
+        {
+          "description": "director_motion_payload JSON",
+          "name": "Motion",
+          "type": "string"
+        },
+        {
+          "description": "Optional preview geometry",
+          "name": "G",
+          "type": "Geometry"
+        },
+        {
+          "description": "Height or preview diagnostics",
+          "name": "H",
+          "type": "string"
+        },
+        {
+          "description": "Transform diagnostics",
+          "name": "Info",
+          "type": "string"
+        }
+      ],
+      "role": "transform",
+      "script": {
+        "language": "csharp",
+        "path": "scripts/transform.cs",
+        "sha256": "sha256:405468e726618561585cb048db20d7bee052d24ef002d97ba4ac166f72af5f71"
+      },
+      "strategies": [
+        "band_peel_wave"
+      ],
+      "template_id": "canvas_director.transform",
+      "template_version": "0.1.0"
+    },
+    {
+      "default_nick": "Director Camera Path",
+      "display_name": "Director Camera Path",
+      "expected_output_payload_kind": "director_camera_path_payload",
+      "fixture_placeholders": [
+        "camera_path_strategy"
+      ],
+      "inputs": [
+        {
+          "description": "Camera location path",
+          "name": "Path",
+          "type": "Curve"
+        },
+        {
+          "description": "Optional target path",
+          "name": "TargetPath",
+          "type": "Curve"
+        },
+        {
+          "description": "Path sample progress",
+          "name": "Progress",
+          "type": "double"
+        },
+        {
+          "description": "Camera up vector",
+          "name": "Up",
+          "type": "Vector3d"
+        },
+        {
+          "description": "Lens length",
+          "name": "Lens",
+          "type": "double"
+        },
+        {
+          "description": "Projection mode",
+          "name": "Projection",
+          "type": "string"
+        },
+        {
+          "description": "Target offset distance",
+          "name": "Distance",
+          "type": "double"
+        },
+        {
+          "description": "Enabled flag",
+          "name": "Enabled",
+          "type": "bool"
+        },
+        {
+          "description": "Preview flag",
+          "name": "Preview",
+          "type": "bool"
+        }
+      ],
+      "notes": "Authoring helper for camera state; export marker can consume director_camera_state from camera controller.",
+      "outputs": [
+        {
+          "description": "director_camera_path_payload JSON",
+          "name": "CameraPath",
+          "type": "string"
+        },
+        {
+          "description": "director_camera_state JSON",
+          "name": "Camera",
+          "type": "string"
+        },
+        {
+          "description": "Sampled camera location",
+          "name": "Location",
+          "type": "Point3d"
+        },
+        {
+          "description": "Sampled camera target",
+          "name": "Target",
+          "type": "Point3d"
+        },
+        {
+          "description": "Camera direction",
+          "name": "Direction",
+          "type": "Vector3d"
+        },
+        {
+          "description": "Resolved lens length",
+          "name": "LensOut",
+          "type": "double"
+        },
+        {
+          "description": "Resolved projection mode",
+          "name": "ProjectionOut",
+          "type": "string"
+        },
+        {
+          "description": "Camera path diagnostics",
+          "name": "Info",
+          "type": "string"
+        }
+      ],
+      "role": "camera_path",
+      "script": {
+        "language": "csharp",
+        "path": "scripts/camera_path.cs",
+        "sha256": "sha256:203308a702747facd3258836cfd8f2ead60c7c67de41bc4d3f4ebcd66feef9ba"
+      },
+      "template_id": "canvas_director.camera_path",
+      "template_version": "0.1.0"
+    },
+    {
+      "default_nick": "Director Camera Controller",
+      "display_name": "Director Camera Controller",
+      "expected_output_payload_kind": "director_camera_state",
+      "fixture_placeholders": [
+        "camera_defaults"
+      ],
+      "inputs": [
+        {
+          "description": "Camera location",
+          "name": "Location",
+          "type": "Point3d"
+        },
+        {
+          "description": "Camera target",
+          "name": "Target",
+          "type": "Point3d"
+        },
+        {
+          "description": "Camera direction override",
+          "name": "Direction",
+          "type": "Vector3d"
+        },
+        {
+          "description": "Camera up vector",
+          "name": "Up",
+          "type": "Vector3d"
+        },
+        {
+          "description": "Lens length",
+          "name": "Lens",
+          "type": "double"
+        },
+        {
+          "description": "Projection mode",
+          "name": "Projection",
+          "type": "string"
+        },
+        {
+          "description": "Near clipping plane",
+          "name": "NearClip",
+          "type": "double"
+        },
+        {
+          "description": "Far clipping plane",
+          "name": "FarClip",
+          "type": "double"
+        },
+        {
+          "description": "Optional viewport name",
+          "name": "ViewportName",
+          "type": "string"
+        },
+        {
+          "description": "Enabled flag",
+          "name": "Enabled",
+          "type": "bool"
+        },
+        {
+          "description": "Preview flag",
+          "name": "Preview",
+          "type": "bool"
+        },
+        {
+          "description": "Target or direction control mode",
+          "name": "Mode",
+          "type": "string"
+        }
+      ],
+      "notes": "Camera authoring payload; export marker wraps this into explicit_camera source when present.",
+      "outputs": [
+        {
+          "description": "director_camera_controller_payload JSON",
+          "name": "CameraController",
+          "type": "string"
+        },
+        {
+          "description": "director_camera_state JSON",
+          "name": "Camera",
+          "type": "string"
+        },
+        {
+          "description": "Resolved camera location",
+          "name": "LocationOut",
+          "type": "Point3d"
+        },
+        {
+          "description": "Resolved camera target",
+          "name": "TargetOut",
+          "type": "Point3d"
+        },
+        {
+          "description": "Resolved camera direction",
+          "name": "DirectionOut",
+          "type": "Vector3d"
+        },
+        {
+          "description": "Resolved up vector",
+          "name": "UpOut",
+          "type": "Vector3d"
+        },
+        {
+          "description": "Resolved lens length",
+          "name": "LensOut",
+          "type": "double"
+        },
+        {
+          "description": "Resolved projection mode",
+          "name": "ProjectionOut",
+          "type": "string"
+        },
+        {
+          "description": "Camera diagnostics",
+          "name": "Info",
+          "type": "string"
+        }
+      ],
+      "role": "camera_controller",
+      "script": {
+        "language": "csharp",
+        "path": "scripts/camera_controller.cs",
+        "sha256": "sha256:f2b9f894e9c07e2d0094b3e6af784c2d443f6a16002bdae07594b009f852464e"
+      },
+      "template_id": "canvas_director.camera_controller",
+      "template_version": "0.1.0"
+    }
+  ]
+}

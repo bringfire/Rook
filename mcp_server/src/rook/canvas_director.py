@@ -490,12 +490,15 @@ def compile_authoring_spec(envelope: Any, *, spec_id: Any = None) -> dict[str, A
     if not isinstance(payload, dict):
         raise CanvasDirectorError("spec_compile_failed", "Canvas export state payload must be an object.")
 
-    selected_spec_id = validate_canvas_director_id(
-        spec_id
-        if spec_id is not None
-        else envelope.get("suggested_spec_id", state.get("export_id")),
-        kind="spec",
-    )
+    selected_spec_id_candidate = spec_id
+    if selected_spec_id_candidate is None:
+        suggested_spec_id = envelope.get("suggested_spec_id")
+        selected_spec_id_candidate = (
+            suggested_spec_id
+            if isinstance(suggested_spec_id, str) and suggested_spec_id.strip()
+            else state.get("export_id")
+        )
+    selected_spec_id = validate_canvas_director_id(selected_spec_id_candidate, kind="spec")
     timeline = payload.get("timeline")
     if not isinstance(timeline, dict):
         raise CanvasDirectorError("spec_compile_failed", "Payload timeline must be an object.")

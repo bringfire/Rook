@@ -340,6 +340,15 @@ def test_compile_authoring_spec_maps_payload_to_durable_authoring_spec(tmp_path)
     assert spec["motion"][0]["keyframes"][0]["translate"] == [1.0, 0.0, 0.0]
 
 
+def test_compile_authoring_spec_ignores_null_suggested_spec_id():
+    envelope = _envelope(_state("export_a"))
+    envelope["suggested_spec_id"] = None
+
+    spec = cd.compile_authoring_spec(envelope)
+
+    assert spec["spec_id"] == "export_a"
+
+
 def test_compile_authoring_spec_rejects_non_object_payload(tmp_path):
     state = _state()
     state["payload"] = []
