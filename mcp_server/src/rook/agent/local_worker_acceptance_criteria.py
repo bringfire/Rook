@@ -51,26 +51,29 @@ def assemble_acceptance_criteria_packet(
     sources: AcceptanceCriteriaSources,
 ) -> dict[str, Any]:
     _validate_sources(sources)
+    unresolved_intent = _render_unresolved_intent(sources.unresolved_intent)
+
+    source_classes = {
+        sources.pin_contract.source_class,
+        sources.verifier_outcome.source_class,
+        sources.receipt_diagnostic.source_class,
+        sources.convention.source_class,
+    }
+    source_paths = [
+        sources.pin_contract.source_path,
+        sources.verifier_outcome.source_path,
+        sources.receipt_diagnostic.source_path,
+        sources.convention.source_path,
+    ]
+    for entry in unresolved_intent:
+        source_classes.add(entry["source_class"])
+        source_paths.append(entry["source_path"])
 
     packet = {
         "schema": ACCEPTANCE_CRITERIA_PACKET_SCHEMA,
         "source_set": {
-            "source_classes": sorted(
-                {
-                    sources.pin_contract.source_class,
-                    sources.verifier_outcome.source_class,
-                    sources.receipt_diagnostic.source_class,
-                    sources.convention.source_class,
-                }
-            ),
-            "source_paths": sorted(
-                [
-                    sources.pin_contract.source_path,
-                    sources.verifier_outcome.source_path,
-                    sources.receipt_diagnostic.source_path,
-                    sources.convention.source_path,
-                ]
-            ),
+            "source_classes": sorted(source_classes),
+            "source_paths": sorted(source_paths),
         },
         "criteria": [
             {
@@ -116,16 +119,7 @@ def assemble_acceptance_criteria_packet(
                 "source_class": sources.receipt_diagnostic.source_class,
             },
         ],
-        "unresolved_intent": [
-            {
-                "intent_id": entry.intent_id,
-                "description": entry.description,
-                "source_class": entry.source_class,
-                "source_path": entry.source_path,
-                "reason": entry.reason,
-            }
-            for entry in sources.unresolved_intent
-        ],
+        "unresolved_intent": unresolved_intent,
     }
     canonical_packet = json.dumps(packet, sort_keys=True, separators=(",", ":"))
     packet["fingerprint"] = (
@@ -156,19 +150,66 @@ def _validate_sources(sources: AcceptanceCriteriaSources) -> None:
         source_path=_CONVENTION_SOURCE_PATH,
     )
 
-    if sources.pin_contract.value != {"pins_out": ["A:double"]}:
-        raise ValueError("LM5W v1 requires pins_out ['A:double'].")
+    _validate_pin_contract(sources.pin_contract.value)
     if sources.verifier_outcome.value != "succeeded":
         raise ValueError("LM5W v1 requires verifier outcome 'succeeded'.")
     if sources.convention.value != {"mode": "body"}:
         raise ValueError("LM5W v1 requires convention mode 'body'.")
-    if (
-        not isinstance(sources.receipt_diagnostic.value, list)
-        or _TARGET_DIAGNOSTIC not in sources.receipt_diagnostic.value
-    ):
+    _validate_receipt_diagnostic(sources.receipt_diagnostic.value)
+    _render_unresolved_intent(sources.unresolved_intent)
+
+
+def _validate_pin_contract(value: Any) -> None:
+    pins_out = value.get("pins_out") if isinstance(value, dict) else None
+    if not isinstance(pins_out, list) or len(pins_out) != 1:
+        raise ValueError("LM5W v1 requires exactly one output pin.")
+    pin = pins_out[0]
+    if not isinstance(pin, str) or ":" not in pin:
+        raise ValueError("LM5W v1 pins_out entries must use <name>:<type> format.")
+    if pin != "A:double":
+        raise ValueError("LM5W v1 requires output pin A:double.")
+
+
+def _validate_receipt_diagnostic(value: Any) -> None:
+    if not isinstance(value, list) or not value:
+        raise ValueError("LM5W v1 requires a non-empty receipt diagnostic list.")
+    if not all(isinstance(diagnostic, str) for diagnostic in value):
+        raise ValueError("LM5W v1 receipt diagnostics must be strings.")
+    if _TARGET_DIAGNOSTIC not in value:
         raise ValueError(
             "LM5W v1 requires the DefinitelyMissingSymbol target diagnostic."
         )
+
+
+def _render_unresolved_intent(
+    unresolved_intent: tuple[UnresolvedIntentEntry, ...],
+) -> list[dict[str, str]]:
+    rendered = []
+    for entry in unresolved_intent:
+        if not isinstance(entry, UnresolvedIntentEntry):
+            raise ValueError("unresolved_intent entries must be UnresolvedIntentEntry")
+        if entry.source_class != "planner_user_intent":
+            raise ValueError(
+                "unresolved_intent entries must use source_class planner_user_intent."
+            )
+        for field in (
+            "intent_id",
+            "description",
+            "source_path",
+            "reason",
+        ):
+            if not getattr(entry, field):
+                raise ValueError(f"unresolved_intent entry {field} must be non-empty.")
+        rendered.append(
+            {
+                "intent_id": entry.intent_id,
+                "description": entry.description,
+                "source_class": entry.source_class,
+                "source_path": entry.source_path,
+                "reason": entry.reason,
+            }
+        )
+    return sorted(rendered, key=lambda entry: entry["intent_id"])
 
 
 def _validate_source(
@@ -178,9 +219,9 @@ def _validate_source(
     source_path: str,
 ) -> None:
     if source.source_class != source_class:
-        raise ValueError(f"Expected source_class {source_class!r}.")
-    if source.source_path != source_path:
-        raise ValueError(f"Expected source_path {source_path!r}.")
+        raise ValueError(f"expected source class {source_class!r}.")
+    if not source.source_path:
+        raise ValueError(f"Expected non-empty source_path for {source_path!r}.")
 
 
 __all__ = (

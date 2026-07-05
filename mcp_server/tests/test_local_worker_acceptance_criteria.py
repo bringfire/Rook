@@ -1,3 +1,8 @@
+import hashlib
+import json
+
+import pytest
+
 from rook.agent import local_worker_acceptance_criteria as module
 from rook.agent.local_worker_acceptance_criteria import (
     ACCEPTANCE_CRITERIA_PACKET_SCHEMA,
@@ -130,3 +135,276 @@ def test_assembles_canonical_lm5w_acceptance_criteria_packet():
         "remove_unresolved_symbol",
     ]
     assert packet["fingerprint"].startswith("sha256:")
+
+
+def test_fingerprint_matches_canonical_json_without_fingerprint():
+    packet = assemble_acceptance_criteria_packet(_valid_sources())
+
+    expected = hashlib.sha256(
+        json.dumps(
+            _without_fingerprint(packet), sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
+
+    assert packet["fingerprint"] == f"sha256:{expected}"
+
+
+def test_fingerprint_is_stable_for_equivalent_source_dict_order():
+    baseline = assemble_acceptance_criteria_packet(_valid_sources())
+    equivalent = assemble_acceptance_criteria_packet(
+        _valid_sources(
+            convention=AcceptanceCriteriaSource(
+                source_class="convention",
+                source_path=CONVENTION_SOURCE_PATH,
+                value=dict([("mode", "body")]),
+            )
+        )
+    )
+
+    assert equivalent["fingerprint"] == baseline["fingerprint"]
+
+
+def test_fingerprint_changes_when_source_path_changes():
+    baseline = assemble_acceptance_criteria_packet(_valid_sources())
+    changed = assemble_acceptance_criteria_packet(
+        _valid_sources(
+            convention=AcceptanceCriteriaSource(
+                source_class="convention",
+                source_path="script_body_gotcha.v2",
+                value={"mode": "body"},
+            )
+        )
+    )
+
+    assert changed["fingerprint"] != baseline["fingerprint"]
+
+
+def test_returned_packet_is_fresh_across_calls():
+    first = assemble_acceptance_criteria_packet(_valid_sources())
+    first["criteria"].clear()
+    first["source_set"]["source_classes"].clear()
+    first["source_set"]["source_paths"].clear()
+    first["unresolved_intent"].append(
+        {
+            "intent_id": "mutated",
+            "description": "mutated",
+            "source_class": "planner_user_intent",
+            "source_path": "planner.intent.design_goal",
+            "reason": "mutated",
+        }
+    )
+
+    second = assemble_acceptance_criteria_packet(_valid_sources())
+
+    assert len(second["criteria"]) == 6
+    assert second["source_set"]["source_classes"] == [
+        "convention",
+        "pin_contract",
+        "receipt_diagnostic",
+        "verifier_outcome",
+    ]
+    assert second["unresolved_intent"] == []
+
+
+def test_unresolved_intent_entries_are_sorted_and_indexed():
+    baseline = assemble_acceptance_criteria_packet(_valid_sources())
+
+    packet = assemble_acceptance_criteria_packet(
+        _valid_sources(
+            unresolved_intent=(
+                UnresolvedIntentEntry(
+                    intent_id="z_missing_design_goal",
+                    description="Design goal is missing.",
+                    source_class="planner_user_intent",
+                    source_path="planner.intent.design_goal",
+                    reason="required by planner",
+                ),
+                UnresolvedIntentEntry(
+                    intent_id="a_missing_output_value",
+                    description="Output value is missing.",
+                    source_class="planner_user_intent",
+                    source_path="planner.intent.output_value",
+                    reason="required by planner",
+                ),
+            )
+        )
+    )
+
+    assert [entry["intent_id"] for entry in packet["unresolved_intent"]] == [
+        "a_missing_output_value",
+        "z_missing_design_goal",
+    ]
+    assert "planner_user_intent" in packet["source_set"]["source_classes"]
+    assert "planner.intent.design_goal" in packet["source_set"]["source_paths"]
+    assert packet["fingerprint"] != baseline["fingerprint"]
+
+
+@pytest.mark.parametrize(
+    ("overrides", "match"),
+    [
+        (
+            {
+                "pin_contract": AcceptanceCriteriaSource(
+                    source_class="wrong",
+                    source_path=PIN_SOURCE_PATH,
+                    value={"pins_out": ["A:double"]},
+                )
+            },
+            "unknown source class|expected source class",
+        ),
+        (
+            {
+                "pin_contract": AcceptanceCriteriaSource(
+                    source_class="pin_contract",
+                    source_path="",
+                    value={"pins_out": ["A:double"]},
+                )
+            },
+            "source_path",
+        ),
+        (
+            {
+                "pin_contract": AcceptanceCriteriaSource(
+                    source_class="pin_contract",
+                    source_path=PIN_SOURCE_PATH,
+                    value={"pins_out": []},
+                )
+            },
+            "exactly one output pin",
+        ),
+        (
+            {
+                "pin_contract": AcceptanceCriteriaSource(
+                    source_class="pin_contract",
+                    source_path=PIN_SOURCE_PATH,
+                    value={"pins_out": ["A:double", "B:int"]},
+                )
+            },
+            "exactly one output pin",
+        ),
+        (
+            {
+                "pin_contract": AcceptanceCriteriaSource(
+                    source_class="pin_contract",
+                    source_path=PIN_SOURCE_PATH,
+                    value={"pins_out": ["A"]},
+                )
+            },
+            "<name>:<type>",
+        ),
+        (
+            {
+                "pin_contract": AcceptanceCriteriaSource(
+                    source_class="pin_contract",
+                    source_path=PIN_SOURCE_PATH,
+                    value={"pins_out": ["B:int"]},
+                )
+            },
+            "A:double",
+        ),
+        (
+            {
+                "verifier_outcome": AcceptanceCriteriaSource(
+                    source_class="verifier_outcome",
+                    source_path=VERIFY_SOURCE_PATH,
+                    value="needs_repair",
+                )
+            },
+            "succeeded",
+        ),
+        (
+            {
+                "convention": AcceptanceCriteriaSource(
+                    source_class="convention",
+                    source_path=CONVENTION_SOURCE_PATH,
+                    value={"mode": "script"},
+                )
+            },
+            "body",
+        ),
+        (
+            {
+                "receipt_diagnostic": AcceptanceCriteriaSource(
+                    source_class="receipt_diagnostic",
+                    source_path=DIAGNOSTIC_SOURCE_PATH,
+                    value=[],
+                )
+            },
+            "non-empty",
+        ),
+        (
+            {
+                "receipt_diagnostic": AcceptanceCriteriaSource(
+                    source_class="receipt_diagnostic",
+                    source_path=DIAGNOSTIC_SOURCE_PATH,
+                    value=["CS0000: Different diagnostic"],
+                )
+            },
+            "DefinitelyMissingSymbol",
+        ),
+        (
+            {
+                "receipt_diagnostic": AcceptanceCriteriaSource(
+                    source_class="receipt_diagnostic",
+                    source_path=DIAGNOSTIC_SOURCE_PATH,
+                    value=[123],
+                )
+            },
+            "strings",
+        ),
+    ],
+)
+def test_validation_fails_closed(overrides, match):
+    with pytest.raises(ValueError, match=match):
+        assemble_acceptance_criteria_packet(_valid_sources(**overrides))
+
+
+def test_unresolved_intent_wrong_source_class_fails():
+    sources = _valid_sources(
+        unresolved_intent=(
+            UnresolvedIntentEntry(
+                intent_id="missing_design_goal",
+                description="Design goal is missing.",
+                source_class="wrong",
+                source_path="planner.intent.design_goal",
+                reason="required by planner",
+            ),
+        )
+    )
+
+    with pytest.raises(ValueError, match="planner_user_intent"):
+        assemble_acceptance_criteria_packet(sources)
+
+
+def test_unresolved_intent_empty_field_fails():
+    sources = _valid_sources(
+        unresolved_intent=(
+            UnresolvedIntentEntry(
+                intent_id="",
+                description="Design goal is missing.",
+                source_class="planner_user_intent",
+                source_path="planner.intent.design_goal",
+                reason="required by planner",
+            ),
+        )
+    )
+
+    with pytest.raises(ValueError, match="intent_id"):
+        assemble_acceptance_criteria_packet(sources)
+
+
+def test_unresolved_intent_wrong_entry_type_fails():
+    sources = _valid_sources(
+        unresolved_intent=(
+            {
+                "intent_id": "missing_design_goal",
+                "description": "Design goal is missing.",
+                "source_class": "planner_user_intent",
+                "source_path": "planner.intent.design_goal",
+                "reason": "required by planner",
+            },
+        )
+    )
+
+    with pytest.raises(ValueError, match="UnresolvedIntentEntry"):
+        assemble_acceptance_criteria_packet(sources)
