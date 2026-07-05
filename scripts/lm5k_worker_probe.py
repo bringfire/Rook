@@ -98,6 +98,17 @@ _SCENARIOS = {
         expected_action_id="draft_repair_params",
         expected_attempt_valid=True,
     ),
+    "evidence_present_v3": _ProbeScenarioConfig(
+        cli_name="evidence_present_v3",
+        scenario_id="lm5u_acceptance_criteria_evidence_present",
+        scenario_version="v5",
+        state="post_verify_pre_bind",
+        evidence_packet="acceptance_criteria_v3",
+        expected_disposition="candidate_action_request",
+        expected_response_kind="action_request",
+        expected_action_id="draft_repair_params",
+        expected_attempt_valid=True,
+    ),
 }
 
 
@@ -115,6 +126,9 @@ PROBE_COMPONENT_GUID = "lm5l-probe-component-guid"
 PROBE_REPAIR_CODE = "A = 42.0;"
 EVIDENCE_PACKET_ID = "lm5n_repair_evidence"
 REPAIR_INTENT_EVIDENCE_PACKET_ID = "lm5t_repair_intent_evidence"
+ACCEPTANCE_CRITERIA_EVIDENCE_PACKET_ID = (
+    "lm5u_acceptance_criteria_evidence"
+)
 EVIDENCE_CURRENT_CODE_MAX_CHARS = 500
 EVIDENCE_TARGET_DIAGNOSTIC_MAX_ITEMS = 3
 EVIDENCE_TARGET_DIAGNOSTIC_MAX_CHARS = 300

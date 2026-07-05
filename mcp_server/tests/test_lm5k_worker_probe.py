@@ -64,6 +64,7 @@ def test_scenario_configs_are_source_of_truth() -> None:
         "evidence_absent",
         "evidence_present",
         "evidence_present_v2",
+        "evidence_present_v3",
     }
 
     absent = PROBE._SCENARIOS["evidence_absent"]
@@ -99,10 +100,25 @@ def test_scenario_configs_are_source_of_truth() -> None:
     assert present_v2.expected_action_id == "draft_repair_params"
     assert present_v2.expected_attempt_valid is True
 
+    present_v3 = PROBE._SCENARIOS["evidence_present_v3"]
+    assert present_v3.cli_name == "evidence_present_v3"
+    assert (
+        present_v3.scenario_id
+        == "lm5u_acceptance_criteria_evidence_present"
+    )
+    assert present_v3.scenario_version == "v5"
+    assert present_v3.state == "post_verify_pre_bind"
+    assert present_v3.evidence_packet == "acceptance_criteria_v3"
+    assert present_v3.expected_disposition == "candidate_action_request"
+    assert present_v3.expected_response_kind == "action_request"
+    assert present_v3.expected_action_id == "draft_repair_params"
+    assert present_v3.expected_attempt_valid is True
+
     assert "lm5k_golden_repair_v2" not in {
         absent.scenario_id,
         present.scenario_id,
         present_v2.scenario_id,
+        present_v3.scenario_id,
     }
 
 
@@ -623,11 +639,15 @@ def test_knowledge_packets_route_v2_repair_intent_evidence() -> None:
     assert [packet.kind for packet in packets] == ["gotcha", "evidence"]
 
 
-def test_lm5t_evidence_constants_are_source_of_truth() -> None:
+def test_probe_evidence_constants_are_source_of_truth() -> None:
     assert PROBE.EVIDENCE_PACKET_ID == "lm5n_repair_evidence"
     assert (
         PROBE.REPAIR_INTENT_EVIDENCE_PACKET_ID
         == "lm5t_repair_intent_evidence"
+    )
+    assert (
+        PROBE.ACCEPTANCE_CRITERIA_EVIDENCE_PACKET_ID
+        == "lm5u_acceptance_criteria_evidence"
     )
     assert PROBE.EVIDENCE_TARGET_DIAGNOSTIC_MAX_ITEMS == 3
     assert PROBE.EVIDENCE_TARGET_DIAGNOSTIC_MAX_CHARS == 300
