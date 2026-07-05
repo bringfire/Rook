@@ -57,7 +57,7 @@ class _ProbeScenarioConfig:
     scenario_id: str
     scenario_version: str
     state: str
-    include_evidence_packet: bool
+    evidence_packet: str
     expected_disposition: str
     expected_response_kind: str
     expected_action_id: str | None
@@ -70,7 +70,7 @@ _SCENARIOS = {
         scenario_id="lm5n_repair_evidence_absent",
         scenario_version="v3",
         state="post_verify_pre_bind",
-        include_evidence_packet=False,
+        evidence_packet="none",
         expected_disposition="clarification_needed",
         expected_response_kind="clarification_request",
         expected_action_id=None,
@@ -81,7 +81,18 @@ _SCENARIOS = {
         scenario_id="lm5n_repair_evidence_present",
         scenario_version="v3",
         state="post_verify_pre_bind",
-        include_evidence_packet=True,
+        evidence_packet="repair_v1",
+        expected_disposition="candidate_action_request",
+        expected_response_kind="action_request",
+        expected_action_id="draft_repair_params",
+        expected_attempt_valid=True,
+    ),
+    "evidence_present_v2": _ProbeScenarioConfig(
+        cli_name="evidence_present_v2",
+        scenario_id="lm5t_repair_intent_evidence_present",
+        scenario_version="v4",
+        state="post_verify_pre_bind",
+        evidence_packet="repair_intent_v2",
         expected_disposition="candidate_action_request",
         expected_response_kind="action_request",
         expected_action_id="draft_repair_params",
@@ -103,7 +114,14 @@ def _scenario_config(name: str) -> _ProbeScenarioConfig:
 PROBE_COMPONENT_GUID = "lm5l-probe-component-guid"
 PROBE_REPAIR_CODE = "A = 42.0;"
 EVIDENCE_PACKET_ID = "lm5n_repair_evidence"
+REPAIR_INTENT_EVIDENCE_PACKET_ID = "lm5t_repair_intent_evidence"
 EVIDENCE_CURRENT_CODE_MAX_CHARS = 500
+EVIDENCE_TARGET_DIAGNOSTIC_MAX_ITEMS = 3
+EVIDENCE_TARGET_DIAGNOSTIC_MAX_CHARS = 300
+REPAIR_TARGET_ERROR = (
+    "CS0103: The name 'DefinitelyMissingSymbol' "
+    "does not exist in the current context."
+)
 
 _LOCAL_PREFIXES = ("ollama_chat/", "ollama/")
 
@@ -326,6 +344,7 @@ def _wrapped_failure_create_raw() -> dict:
                 "repair_anchor": {
                     "component_guid": PROBE_COMPONENT_GUID,
                     "language": "csharp",
+                    "target_errors": [REPAIR_TARGET_ERROR],
                 },
             }
         },
@@ -501,6 +520,39 @@ def _bounded_current_code(code: Any) -> dict:
     }
 
 
+def _bounded_target_diagnostics(values: Any, *, source: str) -> dict:
+    _invariant(isinstance(values, list), "target diagnostics missing")
+    bounded = []
+    truncated = len(values) > EVIDENCE_TARGET_DIAGNOSTIC_MAX_ITEMS
+    for item in values[:EVIDENCE_TARGET_DIAGNOSTIC_MAX_ITEMS]:
+        _invariant(isinstance(item, str), "target diagnostic item not string")
+        clipped = item[:EVIDENCE_TARGET_DIAGNOSTIC_MAX_CHARS]
+        if len(item) > EVIDENCE_TARGET_DIAGNOSTIC_MAX_CHARS:
+            truncated = True
+        bounded.append(clipped)
+    return {
+        "value": bounded,
+        "source": source,
+        "max_items": EVIDENCE_TARGET_DIAGNOSTIC_MAX_ITEMS,
+        "max_chars_per_item": EVIDENCE_TARGET_DIAGNOSTIC_MAX_CHARS,
+        "truncated": truncated,
+    }
+
+
+def _stable_repair_anchor_value(repair_anchor: Mapping[str, Any]) -> dict:
+    component_guid = repair_anchor.get("component_guid")
+    language = repair_anchor.get("language")
+    _invariant(
+        isinstance(component_guid, str) and bool(component_guid),
+        "repair anchor component guid missing",
+    )
+    _invariant(
+        isinstance(language, str) and bool(language),
+        "repair anchor language missing",
+    )
+    return {"component_guid": component_guid, "language": language}
+
+
 def _require_receipt_mapping(graph) -> Mapping[str, Any]:
     create = graph.nodes["create_script"]
     evidence = create.evidence
@@ -516,6 +568,54 @@ def _require_create_execution_params(graph) -> Mapping[str, Any]:
     params = create.metadata.get(EXECUTION_PARAMS_KEY)
     _invariant(isinstance(params, Mapping), "create execution params missing")
     return params
+
+
+def _expected_repair_outcome() -> str:
+    for rule in _probe_contract().rules:
+        if rule.node_id != "verify_repair":
+            continue
+        for step in rule.steps_by_seen_count:
+            expected = getattr(step, "expected_outcome", None)
+            if isinstance(expected, str) and expected:
+                return expected
+    raise RuntimeError(
+        "LM5L coherent fixture invariant failed: "
+        "verify_repair expected outcome missing"
+    )
+
+
+def _pin_contract_from_params(params: Mapping[str, Any]) -> dict:
+    pins_in = params.get("pins_in")
+    pins_out = params.get("pins_out")
+    _invariant(
+        isinstance(pins_in, list)
+        and all(isinstance(pin, str) for pin in pins_in),
+        "pins_in contract missing",
+    )
+    _invariant(
+        isinstance(pins_out, list)
+        and all(isinstance(pin, str) for pin in pins_out),
+        "pins_out contract missing",
+    )
+    return {
+        "source": "create_script.initial_execution_params",
+        "value": {"pins_in": list(pins_in), "pins_out": list(pins_out)},
+    }
+
+
+def _create_initial_execution_params_from_contract() -> Mapping[str, Any]:
+    for initial in _probe_contract().initial_params:
+        if initial.node_id == "create_script":
+            params = initial.execution_params
+            _invariant(
+                isinstance(params, Mapping),
+                "create initial execution params missing",
+            )
+            return params
+    raise RuntimeError(
+        "LM5L coherent fixture invariant failed: "
+        "create initial execution params missing"
+    )
 
 
 def _repair_evidence_packet(graph):
@@ -567,7 +667,7 @@ def _repair_evidence_packet(graph):
                 "source": "graph.memory.facts.component_guid",
             },
             "repair_anchor": {
-                "value": dict(repair_anchor),
+                "value": _stable_repair_anchor_value(repair_anchor),
                 "source": "graph.memory.facts.repair_anchor",
             },
             "language": {
@@ -590,14 +690,117 @@ def _repair_evidence_packet(graph):
     )
 
 
+def _repair_intent_evidence_packet(graph):
+    from rook.agent.local_worker_turn_context import WorkerKnowledgePacket
+
+    receipt = _require_receipt_mapping(graph)
+    params = _require_create_execution_params(graph)
+    initial_params = _create_initial_execution_params_from_contract()
+    verification = receipt.get("verification")
+    _invariant(isinstance(verification, Mapping), "verification receipt missing")
+    receipt_repair_anchor = receipt.get("repair_anchor")
+    _invariant(
+        isinstance(receipt_repair_anchor, Mapping),
+        "receipt repair anchor missing",
+    )
+    facts = graph.memory.facts
+    repair_anchor = facts.get("repair_anchor")
+    _invariant(isinstance(repair_anchor, Mapping), "repair anchor missing")
+
+    diagnostic_fields = {}
+    if "target_errors" in receipt_repair_anchor:
+        diagnostic_fields["target_errors"] = _bounded_target_diagnostics(
+            receipt_repair_anchor.get("target_errors"),
+            source=(
+                "create_script.receipt.script_receipt.repair_anchor."
+                "target_errors"
+            ),
+        )
+    if "target_warnings" in receipt_repair_anchor:
+        diagnostic_fields["target_warnings"] = _bounded_target_diagnostics(
+            receipt_repair_anchor.get("target_warnings"),
+            source=(
+                "create_script.receipt.script_receipt.repair_anchor."
+                "target_warnings"
+            ),
+        )
+    _invariant(bool(diagnostic_fields), "target diagnostics missing")
+
+    content = {
+        "source": "probe_fixture",
+        "trust": "high",
+        "state": "post_verify_pre_bind",
+        "fields": {
+            "current_code": _bounded_current_code(params.get("code")),
+            "recommended_mode": {
+                "value": "body",
+                "source": "script_body_gotcha",
+                "derivation": "existing worker-visible gotcha convention",
+            },
+            "language": {
+                "value": receipt.get("language"),
+                "source": "create_script.receipt.script_receipt.language",
+            },
+            "component_guid": {
+                "value": facts.get("component_guid"),
+                "source": "graph.memory.facts.component_guid",
+            },
+            "repair_anchor": {
+                "value": _stable_repair_anchor_value(repair_anchor),
+                "source": "graph.memory.facts.repair_anchor",
+            },
+            "pin_contract": _pin_contract_from_params(initial_params),
+            "current_verification": {
+                "value": {
+                    "status": verification.get("status"),
+                    "target_error_count": verification.get(
+                        "target_error_count"
+                    ),
+                },
+                "source": (
+                    "create_script.receipt.script_receipt.verification"
+                ),
+            },
+            "target_diagnostics": {
+                "source": (
+                    "create_script.receipt.script_receipt.repair_anchor"
+                ),
+                "fields": diagnostic_fields,
+            },
+            "expected_repair_outcome": {
+                "value": _expected_repair_outcome(),
+                "source": (
+                    "workflow_contract.rules.verify_repair."
+                    "expected_outcome"
+                ),
+            },
+        },
+    }
+    return WorkerKnowledgePacket(
+        packet_id=REPAIR_INTENT_EVIDENCE_PACKET_ID,
+        kind="evidence",
+        title="Receipt-derived repair intent evidence",
+        content=content,
+    )
+
+
 def _knowledge_packets_for_scenario(
     scenario: _ProbeScenarioConfig,
     graph,
 ) -> tuple:
     packets = [_script_body_gotcha_packet()]
-    if scenario.include_evidence_packet:
+    if scenario.evidence_packet == "none":
+        return tuple(packets)
+    if scenario.evidence_packet == "repair_v1":
         packets.append(_repair_evidence_packet(graph))
-    return tuple(packets)
+        return tuple(packets)
+    if scenario.evidence_packet == "repair_intent_v2":
+        packets.append(_repair_intent_evidence_packet(graph))
+        return tuple(packets)
+    raise RuntimeError(
+        f"LM5L coherent fixture invariant failed: "
+        f"unknown evidence packet {scenario.evidence_packet!r}"
+    )
 
 
 def build_probe_context(

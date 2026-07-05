@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 import importlib.util
 import json
 import sys
@@ -23,6 +24,14 @@ def _load_script():
 
 
 PROBE = _load_script()
+
+
+def _jsonable(value):
+    if isinstance(value, Mapping):
+        return {key: _jsonable(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_jsonable(item) for item in value]
+    return value
 
 
 def test_slot_vocabulary() -> None:
@@ -51,14 +60,18 @@ def test_transport_modes_are_source_of_truth() -> None:
 
 def test_scenario_configs_are_source_of_truth() -> None:
     assert PROBE.SCENARIO_WORKFLOW_ID == "lm5k_first_probe"
-    assert set(PROBE._SCENARIOS) == {"evidence_absent", "evidence_present"}
+    assert set(PROBE._SCENARIOS) == {
+        "evidence_absent",
+        "evidence_present",
+        "evidence_present_v2",
+    }
 
     absent = PROBE._SCENARIOS["evidence_absent"]
     assert absent.cli_name == "evidence_absent"
     assert absent.scenario_id == "lm5n_repair_evidence_absent"
     assert absent.scenario_version == "v3"
     assert absent.state == "post_verify_pre_bind"
-    assert absent.include_evidence_packet is False
+    assert absent.evidence_packet == "none"
     assert absent.expected_disposition == "clarification_needed"
     assert absent.expected_response_kind == "clarification_request"
     assert absent.expected_action_id is None
@@ -69,15 +82,27 @@ def test_scenario_configs_are_source_of_truth() -> None:
     assert present.scenario_id == "lm5n_repair_evidence_present"
     assert present.scenario_version == "v3"
     assert present.state == "post_verify_pre_bind"
-    assert present.include_evidence_packet is True
+    assert present.evidence_packet == "repair_v1"
     assert present.expected_disposition == "candidate_action_request"
     assert present.expected_response_kind == "action_request"
     assert present.expected_action_id == "draft_repair_params"
     assert present.expected_attempt_valid is True
 
+    present_v2 = PROBE._SCENARIOS["evidence_present_v2"]
+    assert present_v2.cli_name == "evidence_present_v2"
+    assert present_v2.scenario_id == "lm5t_repair_intent_evidence_present"
+    assert present_v2.scenario_version == "v4"
+    assert present_v2.state == "post_verify_pre_bind"
+    assert present_v2.evidence_packet == "repair_intent_v2"
+    assert present_v2.expected_disposition == "candidate_action_request"
+    assert present_v2.expected_response_kind == "action_request"
+    assert present_v2.expected_action_id == "draft_repair_params"
+    assert present_v2.expected_attempt_valid is True
+
     assert "lm5k_golden_repair_v2" not in {
         absent.scenario_id,
         present.scenario_id,
+        present_v2.scenario_id,
     }
 
 
@@ -586,6 +611,42 @@ def test_evidence_present_knowledge_adds_exactly_one_evidence_packet() -> None:
     assert [packet.kind for packet in packets] == ["gotcha", "evidence"]
 
 
+def test_knowledge_packets_route_v2_repair_intent_evidence() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packets = PROBE._knowledge_packets_for_scenario(
+        PROBE._SCENARIOS["evidence_present_v2"], result.final_graph
+    )
+    assert [packet.packet_id for packet in packets] == [
+        "script_body_gotcha",
+        "lm5t_repair_intent_evidence",
+    ]
+    assert [packet.kind for packet in packets] == ["gotcha", "evidence"]
+
+
+def test_lm5t_evidence_constants_are_source_of_truth() -> None:
+    assert PROBE.EVIDENCE_PACKET_ID == "lm5n_repair_evidence"
+    assert (
+        PROBE.REPAIR_INTENT_EVIDENCE_PACKET_ID
+        == "lm5t_repair_intent_evidence"
+    )
+    assert PROBE.EVIDENCE_TARGET_DIAGNOSTIC_MAX_ITEMS == 3
+    assert PROBE.EVIDENCE_TARGET_DIAGNOSTIC_MAX_CHARS == 300
+    assert PROBE.REPAIR_TARGET_ERROR == (
+        "CS0103: The name 'DefinitelyMissingSymbol' "
+        "does not exist in the current context."
+    )
+
+
+def test_upstream_receipt_contains_bounded_target_error() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    receipt = PROBE._require_receipt_mapping(result.final_graph)
+
+    repair_anchor = receipt["repair_anchor"]
+    assert repair_anchor["target_errors"] == [PROBE.REPAIR_TARGET_ERROR]
+    assert "target_warnings" not in repair_anchor
+    assert isinstance(repair_anchor["target_errors"][0], str)
+
+
 def test_evidence_packet_fields_are_bounded_and_provenance_tagged() -> None:
     _scaffold, result = PROBE.derive_probe_graph_state()
     packet = PROBE._repair_evidence_packet(result.final_graph)
@@ -626,10 +687,13 @@ def test_evidence_packet_fields_are_bounded_and_provenance_tagged() -> None:
     assert fields["verification_status"]["value"] == "failed"
     assert fields["target_error_count"]["value"] == 1
     assert fields["component_guid"]["value"] == PROBE.PROBE_COMPONENT_GUID
-    assert (
-        fields["repair_anchor"]["value"]["component_guid"]
-        == PROBE.PROBE_COMPONENT_GUID
-    )
+    assert fields["repair_anchor"] == {
+        "value": {
+            "component_guid": PROBE.PROBE_COMPONENT_GUID,
+            "language": "csharp",
+        },
+        "source": "graph.memory.facts.repair_anchor",
+    }
     assert fields["language"]["value"] == "csharp"
     assert fields["current_code"]["value"] == "A = DefinitelyMissingSymbol;"
     assert len(fields["current_code"]["value"]) <= 500
@@ -640,6 +704,146 @@ def test_evidence_packet_fields_are_bounded_and_provenance_tagged() -> None:
         "source": "script_body_gotcha",
         "derivation": "existing worker-visible gotcha convention",
     }
+
+
+def test_repair_intent_evidence_v2_fields_are_bounded_and_provenance_tagged() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packet = PROBE._repair_intent_evidence_packet(result.final_graph)
+
+    assert packet.packet_id == "lm5t_repair_intent_evidence"
+    assert packet.kind == "evidence"
+    assert packet.title == "Receipt-derived repair intent evidence"
+    assert packet.content["source"] == "probe_fixture"
+    assert packet.content["trust"] == "high"
+    assert packet.content["state"] == "post_verify_pre_bind"
+
+    fields = packet.content["fields"]
+    assert set(fields) == {
+        "current_code",
+        "recommended_mode",
+        "language",
+        "component_guid",
+        "repair_anchor",
+        "pin_contract",
+        "current_verification",
+        "target_diagnostics",
+        "expected_repair_outcome",
+    }
+
+    assert fields["current_code"]["value"] == "A = DefinitelyMissingSymbol;"
+    assert fields["recommended_mode"]["value"] == "body"
+    assert fields["language"]["value"] == "csharp"
+    assert fields["component_guid"]["value"] == PROBE.PROBE_COMPONENT_GUID
+
+    repair_anchor = fields["repair_anchor"]
+    assert repair_anchor == {
+        "value": {
+            "component_guid": PROBE.PROBE_COMPONENT_GUID,
+            "language": "csharp",
+        },
+        "source": "graph.memory.facts.repair_anchor",
+    }
+    assert set(repair_anchor["value"]) == {"component_guid", "language"}
+    assert "target_errors" not in repair_anchor["value"]
+    assert "target_warnings" not in repair_anchor["value"]
+
+    assert fields["pin_contract"] == {
+        "source": "create_script.initial_execution_params",
+        "value": {"pins_in": (), "pins_out": ("A:double",)},
+    }
+    assert fields["current_verification"] == {
+        "value": {"status": "failed", "target_error_count": 1},
+        "source": "create_script.receipt.script_receipt.verification",
+    }
+    assert fields["expected_repair_outcome"] == {
+        "value": "succeeded",
+        "source": "workflow_contract.rules.verify_repair.expected_outcome",
+    }
+
+    target_diagnostics = fields["target_diagnostics"]
+    assert target_diagnostics["source"] == (
+        "create_script.receipt.script_receipt.repair_anchor"
+    )
+    assert set(target_diagnostics["fields"]) == {"target_errors"}
+    errors = target_diagnostics["fields"]["target_errors"]
+    assert errors == {
+        "value": (PROBE.REPAIR_TARGET_ERROR,),
+        "source": (
+            "create_script.receipt.script_receipt.repair_anchor.target_errors"
+        ),
+        "max_items": PROBE.EVIDENCE_TARGET_DIAGNOSTIC_MAX_ITEMS,
+        "max_chars_per_item": PROBE.EVIDENCE_TARGET_DIAGNOSTIC_MAX_CHARS,
+        "truncated": False,
+    }
+    assert all(isinstance(entry, str) for entry in errors["value"])
+
+
+def test_lm5t_probe_script_does_not_publish_hidden_repair_params() -> None:
+    contract = PROBE._probe_contract()
+    repair_rule = next(
+        rule for rule in contract.rules
+        if rule.node_id == "repair_same_component"
+    )
+    bind_step = next(
+        step for step in repair_rule.steps_by_seen_count
+        if getattr(step, "base_params", None)
+    )
+    assert bind_step.base_params["code"] == PROBE.PROBE_REPAIR_CODE
+    assert bind_step.base_params["mode"] == "body"
+
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packet = PROBE._repair_intent_evidence_packet(result.final_graph)
+    rendered = json.dumps(_jsonable(packet.content))
+
+    assert PROBE.PROBE_REPAIR_CODE not in rendered
+    assert "A = 42.0;" not in rendered
+    assert "hidden BindStepSpec.base_params.code" not in rendered
+
+
+def test_repair_evidence_v1_does_not_expose_target_diagnostics() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packet = PROBE._repair_evidence_packet(result.final_graph)
+    rendered = repr(packet.content)
+
+    assert "target_errors" not in rendered
+    assert "target_warnings" not in rendered
+    assert PROBE.REPAIR_TARGET_ERROR not in rendered
+    assert "DefinitelyMissingSymbol" in rendered
+
+
+def test_target_diagnostic_evidence_bounds_items_and_chars() -> None:
+    long = "x" * (PROBE.EVIDENCE_TARGET_DIAGNOSTIC_MAX_CHARS + 10)
+    evidence = PROBE._bounded_target_diagnostics(
+        ["short", long, "kept", "dropped"], source="test.source"
+    )
+
+    assert evidence == {
+        "value": [
+            "short",
+            long[:PROBE.EVIDENCE_TARGET_DIAGNOSTIC_MAX_CHARS],
+            "kept",
+        ],
+        "source": "test.source",
+        "max_items": PROBE.EVIDENCE_TARGET_DIAGNOSTIC_MAX_ITEMS,
+        "max_chars_per_item": PROBE.EVIDENCE_TARGET_DIAGNOSTIC_MAX_CHARS,
+        "truncated": True,
+    }
+
+
+def test_target_diagnostic_evidence_requires_string_items() -> None:
+    with pytest.raises(RuntimeError, match="target diagnostic item not string"):
+        PROBE._bounded_target_diagnostics(["ok", 42], source="test.source")
+
+
+def test_pin_contract_evidence_rejects_tuple_pins() -> None:
+    with pytest.raises(RuntimeError, match="pins_in contract missing"):
+        PROBE._pin_contract_from_params(
+            {"pins_in": (), "pins_out": ["A:double"]}
+        )
+    with pytest.raises(RuntimeError, match="pins_out contract missing"):
+        PROBE._pin_contract_from_params(
+            {"pins_in": [], "pins_out": ("A:double",)}
+        )
 
 
 def test_current_code_evidence_reads_derived_create_params_not_repair_literal() -> None:
@@ -800,6 +1004,26 @@ def test_evidence_present_probe_envelope_exposes_only_bounded_evidence_values() 
     assert PROBE.PROBE_COMPONENT_GUID in rendered
     assert "A = DefinitelyMissingSymbol;" in rendered
     assert PROBE.PROBE_REPAIR_CODE not in rendered
+    assert "already-bound repair params" not in rendered
+
+
+def test_evidence_present_v2_probe_envelope_exposes_repair_intent_evidence_only() -> None:
+    from rook.agent.local_worker_turn_request import (
+        render_local_worker_turn_request_payload,
+    )
+
+    payload = render_local_worker_turn_request_payload(
+        PROBE.build_probe_context(PROBE._SCENARIOS["evidence_present_v2"])
+    )
+    rendered = json.dumps(payload)
+    assert "lm5t_repair_intent_evidence" in rendered
+    assert "target_errors" in rendered
+    assert PROBE.REPAIR_TARGET_ERROR in rendered
+    assert "DefinitelyMissingSymbol" in rendered
+    assert PROBE.PROBE_COMPONENT_GUID in rendered
+    assert "A = DefinitelyMissingSymbol;" in rendered
+    assert PROBE.PROBE_REPAIR_CODE not in rendered
+    assert "A = 42.0;" not in rendered
     assert "already-bound repair params" not in rendered
 
 
