@@ -1,4 +1,4 @@
-# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S & LM5T — First Worker Model Probe (2026-07-02)
+# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S, LM5T & LM5U — First Worker Model Probe (2026-07-02)
 
 **Doctrine:** evidence, not CI. This summary is the committed artifact; raw
 runs stay local (spec §5, `docs/superpowers/specs/2026-07-02-lm5k-first-worker-model-probe-design.md`).
@@ -491,6 +491,118 @@ behavior should replace the missing symbol. The missing variable is therefore
 upstream desired behavior / functional intent, not prompt wording, response
 publication, or diagnostic visibility alone.
 
+## LM5U acceptance-criteria evidence v3 run (run `probe_runs/lm5r-20260705T041705878174Z-e27f25bd/`, commit `e27f25bd`)
+
+LM5U changes only the worker-visible evidence packet again. It preserves the
+LM5S two-pass publication instrument and the LM5T target diagnostics, then adds
+checkable acceptance criteria without exposing the hidden repair answer.
+
+The canonical run compares:
+
+- `evidence_absent_like`: gotcha packet only
+- `evidence_present_v3_like`: gotcha packet plus
+  `lm5u_acceptance_criteria_evidence`
+
+The v3 evidence publishes target diagnostics and acceptance criteria such as
+the output pin contract, body-style mode requirement, and the requirement that
+the repair resolve the current target diagnostics. It does not publish
+`PROBE_REPAIR_CODE`, `A = 42.0`, hidden bind params, a repair diff, or a
+desired replacement literal.
+
+Run identity:
+
+- git commit: `e27f25bd`
+- model: `gemma4:12b-it-qat`
+- quantization: `Q4_0`
+- Ollama version: `0.31.1`
+- pass-one instruction: `lm5s.pass1_decision_instruction:v2`
+- pass-one instruction SHA-256:
+  `973f963e8beb1b9bb985f28c46bfa7dfb6888727944e33f4d04a507eeae2bbc5`
+
+| Scenario | Status counts | Pass-1 kinds | Pass-2 kinds | LM5G-loadable | Published | Action requests | Observation anomaly |
+|---|---|---|---|---|---|---|---|
+| `evidence_absent_like` | 4x `published`, 1x `pass1_decision_invalid` | 4x `clarification_request`, 1x invalid | 4x `clarification_request`, 1x none | **4/5** | **4/5** | **0/5** | **0/5** |
+| `evidence_present_v3_like` | 5x `published` | 5x `action_request` | 5x `action_request` | **5/5** | **5/5** | **5/5** | **0/5** |
+
+Failure reasons:
+
+- `evidence_absent_like`: 1x `pass1_missing_question`
+- `evidence_present_v3_like`: none
+
+For all nine published rows, pass two preserved the pass-one decision kind and
+produced strict LM5G-loadable responses. In `evidence_present_v3_like`, all five
+published action requests preserved the pass-one `draft_repair_params` action
+id.
+
+Leak check:
+
+- `PROBE_REPAIR_CODE` was not present in the visible v3 envelope or run
+  artifacts.
+- `A = 42.0` was not present in the visible v3 envelope or run artifacts.
+- The v3 evidence exposed `target_errors` and `acceptance_criteria`, not the
+  hidden replacement.
+
+Representative `evidence_absent_like` clarification:
+
+```json
+{
+  "kind": "clarification_request",
+  "question": "Please provide the faulty C# code and the specific error message received during the verification step so that I can draft the appropriate repair parameters.",
+  "rationale": "The 'repair_same_component' node requires the source code and failure details to generate a valid repair, which are currently missing from the visible context."
+}
+```
+
+Representative `evidence_present_v3_like` action input:
+
+```json
+{"code": "A = 0.0;", "mode": "body"}
+```
+
+The other four `evidence_present_v3_like` action inputs used:
+
+```json
+{"code": "A = 1.0;", "mode": "body"}
+```
+
+### LM5U interpretation
+
+LM5U answered its exact question positively. Acceptance-criteria evidence moved
+`evidence_present_v3_like` from clarification to action:
+
+```text
+LM5T present_v2: 0/5 action_request
+LM5U present_v3: 5/5 action_request
+```
+
+The control also held:
+
+```text
+absent: 0/5 action_request
+present_v3: 5/5 action_request
+```
+
+This is evidence of decision movement, not proof of repair quality. The worker
+authored simple legal-looking body snippets, `A = 0.0;` and `A = 1.0;`, that are
+plausible under the visible acceptance criteria. They were not executed or
+semantically verified in this probe.
+
+The important ladder result is now clear:
+
+```text
+diagnostics alone -> clarification
+diagnostics + acceptance criteria -> action
+```
+
+Because the hidden answer did not leak, the action movement is not copy-through
+from bound repair params. The worker box has now demonstrated that checkable
+acceptance criteria can be sufficient to attempt this class of repair.
+
+Stop adding evidence packets for this fixture. The next design should pivot
+upstream toward how Planner/compiler contract generation supplies acceptance
+criteria generally, or into a separate report-only repair-quality diagnostic
+slice. The strategic lesson is already established: workers need acceptance
+criteria, and upstream planning/compilation needs to own them.
+
 ## Updated comparison keys
 
 Round 1: `(lm5j.prompt_text:v1, lm5k_golden_repair_v1/fresh_compiled_graph,
@@ -527,6 +639,13 @@ LM5R two-pass publication probe, evidence_absent_like/evidence_present_v2_like,
 ollama gemma4:12b-it-qat, direct Ollama, pass1 think=true/free decision,
 pass2 single-kind constrained publication, observation anomaly scoring,
 repair-intent evidence v2 with bounded target diagnostics)`.
+
+LM5U: `(lm5s.pass1_decision_instruction:v2,
+LM5R two-pass publication probe, evidence_absent_like/evidence_present_v3_like,
+ollama gemma4:12b-it-qat, direct Ollama, pass1 think=true/free decision,
+pass2 single-kind constrained publication, observation anomaly scoring,
+acceptance-criteria evidence v3 with bounded target diagnostics and checkable
+criteria)`.
 
 Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
 new experiment.
