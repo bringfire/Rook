@@ -17,7 +17,7 @@ import sys
 import urllib.error
 import urllib.request
 from collections import Counter, defaultdict
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -73,12 +73,23 @@ _SCENARIO_MAP = {
     "evidence_present_like": "evidence_present",
 }
 
-PASS1_DECISION_INSTRUCTION_VERSION = "lm5r.pass1_decision_instruction:v1"
+PASS1_DECISION_INSTRUCTION_VERSION = "lm5s.pass1_decision_instruction:v2"
 
 _PASS1_DECISION_INSTRUCTION = """\
 Return a small decision JSON object for this worker turn.
 
-The object must contain kind. Required per kind:
+The object must contain kind. Choose the kind by these generic semantics:
+- action_request: choose only when visible context is sufficient to author the
+  required action input.
+- clarification_request: choose when required information is missing.
+- refusal: choose when the request is unsafe, unsupported, or out of scope.
+- observation: choose only to report visible state or evidence.
+
+Do not use observation to choose, suggest, imply, or carry an action.
+Do not put action identity or action choice in observation.message or
+observation.data.
+
+Required fields per kind:
 - action_request: action_id
 - clarification_request: question
 - refusal: category and reason
@@ -245,6 +256,108 @@ def _parse_pass1_decision(content: str) -> tuple[dict[str, Any] | None, str | No
     return decision, None
 
 
+def _json_value_contains_allowed_action_id(
+    value: Any,
+    allowed_action_ids: Collection[str],
+    *,
+    skip_action_id_value: bool = False,
+) -> bool:
+    if isinstance(value, str):
+        return any(action_id in value for action_id in allowed_action_ids)
+
+    if isinstance(value, Mapping):
+        return any(
+            _json_value_contains_allowed_action_id(
+                item_value,
+                allowed_action_ids,
+                skip_action_id_value=False,
+            )
+            for item_key, item_value in value.items()
+            if not (skip_action_id_value and item_key == "action_id")
+        )
+
+    if isinstance(value, (list, tuple)):
+        return any(
+            _json_value_contains_allowed_action_id(
+                item,
+                allowed_action_ids,
+                skip_action_id_value=False,
+            )
+            for item in value
+        )
+
+    return False
+
+
+def _observation_action_intent_reasons(
+    *,
+    payload: Mapping[str, Any],
+    allowed_action_ids: Collection[str],
+) -> tuple[str, ...]:
+    if payload.get("kind") != "observation":
+        return ()
+
+    reasons: set[str] = set()
+    data = payload.get("data")
+    if isinstance(data, Mapping):
+        action_id = data.get("action_id")
+        if isinstance(action_id, str) and action_id in allowed_action_ids:
+            reasons.add("observation_data_action_id_allowed")
+    if data is not None and _json_value_contains_allowed_action_id(
+        data,
+        allowed_action_ids,
+        skip_action_id_value=(
+            isinstance(data, Mapping)
+            and isinstance(data.get("action_id"), str)
+            and data.get("action_id") in allowed_action_ids
+        ),
+    ):
+        reasons.add("observation_data_mentions_allowed_action_id")
+
+    data_intent = payload.get("data_intent")
+    if data_intent is not None and _json_value_contains_allowed_action_id(
+        data_intent,
+        allowed_action_ids,
+    ):
+        reasons.add("observation_data_intent_mentions_allowed_action_id")
+
+    message = payload.get("message")
+    if isinstance(message, str) and any(
+        action_id in message for action_id in allowed_action_ids
+    ):
+        reasons.add("observation_message_mentions_allowed_action_id")
+
+    return tuple(sorted(reasons))
+
+
+def _allowed_action_ids_from_request(request_payload: Mapping[str, Any]) -> tuple[str, ...]:
+    context = request_payload.get("context")
+    if not isinstance(context, Mapping):
+        return ()
+
+    allowed_actions = context.get("allowed_actions")
+    if not isinstance(allowed_actions, list):
+        return ()
+
+    action_ids = {
+        action.get("action_id")
+        for action in allowed_actions
+        if isinstance(action, Mapping)
+        and isinstance(action.get("action_id"), str)
+        and action.get("action_id")
+    }
+    return tuple(sorted(action_ids))
+
+
+def _set_combined_observation_anomaly(row: dict[str, Any]) -> None:
+    reasons = sorted(
+        set(row["pass1_observation_action_intent_reasons"])
+        | set(row["pass2_observation_action_intent_reasons"])
+    )
+    row["observation_action_intent_reasons"] = reasons
+    row["observation_action_intent_anomaly"] = bool(reasons)
+
+
 def _schema_const_prop() -> dict[str, str]:
     return {"const": LOCAL_WORKER_TURN_RESPONSE_SCHEMA}
 
@@ -388,6 +501,12 @@ def _empty_attempt_row(
         "action_id_preserved": None,
         "refusal_category_preserved": None,
         "lm5g_loadable": False,
+        "pass1_observation_action_intent_anomaly": False,
+        "pass1_observation_action_intent_reasons": [],
+        "pass2_observation_action_intent_anomaly": False,
+        "pass2_observation_action_intent_reasons": [],
+        "observation_action_intent_anomaly": False,
+        "observation_action_intent_reasons": [],
     }
 
 
@@ -517,6 +636,16 @@ def _run_attempt(
     row["pass1_kind"] = decision["kind"]
     row["pass1_action_id"] = decision.get("action_id")
     row["pass1_refusal_category"] = decision.get("category")
+    allowed_action_ids = _allowed_action_ids_from_request(request_payload)
+    pass1_observation_reasons = list(
+        _observation_action_intent_reasons(
+            payload=decision,
+            allowed_action_ids=allowed_action_ids,
+        )
+    )
+    row["pass1_observation_action_intent_reasons"] = pass1_observation_reasons
+    row["pass1_observation_action_intent_anomaly"] = bool(pass1_observation_reasons)
+    _set_combined_observation_anomaly(row)
 
     single_kind_schema = _single_kind_response_schema(decision)
     row["pass2_schema_kind"] = decision["kind"]
@@ -581,6 +710,15 @@ def _run_attempt(
         row["failure_reason"] = f"pass2_lm5g_load_failed:{type(exc).__name__}"
         return row
 
+    pass2_observation_reasons = list(
+        _observation_action_intent_reasons(
+            payload=parsed_response,
+            allowed_action_ids=allowed_action_ids,
+        )
+    )
+    row["pass2_observation_action_intent_reasons"] = pass2_observation_reasons
+    row["pass2_observation_action_intent_anomaly"] = bool(pass2_observation_reasons)
+    _set_combined_observation_anomaly(row)
     row["lm5g_loadable"] = True
     row["kind_preserved"] = row["pass2_response_kind"] == row["pass1_kind"]
     row["action_id_preserved"] = (
@@ -618,6 +756,18 @@ def _count_strings(rows: list[Mapping[str, Any]], key: str) -> dict[str, int]:
         value = row.get(key)
         if isinstance(value, str) and value:
             counts[value] += 1
+    return dict(sorted(counts.items()))
+
+
+def _count_reason_list(rows: list[Mapping[str, Any]], key: str) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for row in rows:
+        values = row.get(key)
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            if isinstance(value, str) and value:
+                counts[value] += 1
     return dict(sorted(counts.items()))
 
 
@@ -762,6 +912,15 @@ def _build_summary(
                     1 for row in group_rows if row.get("lm5g_loadable") is True
                 ),
                 "failure_reason_counts": _count_strings(group_rows, "failure_reason"),
+                "observation_action_intent_anomaly_count": sum(
+                    1
+                    for row in group_rows
+                    if row.get("observation_action_intent_anomaly") is True
+                ),
+                "observation_action_intent_reason_counts": _count_reason_list(
+                    group_rows,
+                    "observation_action_intent_reasons",
+                ),
             }
         )
 

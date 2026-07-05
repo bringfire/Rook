@@ -64,6 +64,8 @@ def _summary_row(
     refusal_category_preserved: bool | None = None,
     lm5g_loadable: bool = True,
     failure_reason: str | None = None,
+    observation_action_intent_anomaly: bool = False,
+    observation_action_intent_reasons: list[str] | None = None,
 ) -> dict:
     return {
         "scenario": scenario,
@@ -75,6 +77,8 @@ def _summary_row(
         "refusal_category_preserved": refusal_category_preserved,
         "lm5g_loadable": lm5g_loadable,
         "failure_reason": failure_reason,
+        "observation_action_intent_anomaly": observation_action_intent_anomaly,
+        "observation_action_intent_reasons": observation_action_intent_reasons or [],
     }
 
 
@@ -94,7 +98,7 @@ def test_constants_are_pinned() -> None:
     assert PROBE.SCRIPT_SCHEMA == "rook.lm5r_two_pass_publication_probe:v1"
     assert (
         PROBE.PASS1_DECISION_INSTRUCTION_VERSION
-        == "lm5r.pass1_decision_instruction:v1"
+        == "lm5s.pass1_decision_instruction:v2"
     )
     assert PROBE.DEFAULT_MODEL == "gemma4:12b-it-qat"
     assert PROBE.SCENARIO_NAMES == (
@@ -162,6 +166,41 @@ def test_pass1_messages_use_real_lm5n_envelopes() -> None:
         "script_body_gotcha"
     ]
     assert "decision JSON object" in messages[-1]["content"]
+
+
+def test_pass1_instruction_v2_pins_generic_kind_semantics() -> None:
+    text = PROBE._PASS1_DECISION_INSTRUCTION
+    normalized_text = " ".join(text.split())
+
+    assert "action_request" in text
+    assert "visible context is sufficient" in text
+    assert "author the required action input" in normalized_text
+    assert "clarification_request" in text
+    assert "required information is missing" in text
+    assert "refusal" in text
+    assert "unsafe, unsupported, or out of scope" in text
+    assert "observation" in text
+    assert "visible state or evidence" in text
+    assert "Do not use observation to choose, suggest, imply, or carry an action" in text
+    assert "Do not put action identity or action choice" in text
+
+
+def test_pass1_instruction_v2_contains_no_scenario_specific_literals() -> None:
+    text = PROBE._PASS1_DECISION_INSTRUCTION
+    forbidden_literals = [
+        "draft_repair_params",
+        "repair_same_component",
+        "component_guid",
+        "RunScript",
+        "DefinitelyMissingSymbol",
+        '"code"',
+        '"mode"',
+        "gemma",
+        "Gemma",
+    ]
+
+    for literal in forbidden_literals:
+        assert literal not in text
 
 
 def test_pass1_messages_evidence_present_include_evidence_packet() -> None:
@@ -263,6 +302,113 @@ def test_parse_pass1_decision_records_recursion_error(monkeypatch: pytest.Monkey
 
     assert decision is None
     assert failure_reason == "pass1_json_invalid:RecursionError"
+
+
+def test_observation_action_intent_reasons_ignore_non_observation_payloads() -> None:
+    assert PROBE._observation_action_intent_reasons(
+        payload={"kind": "action_request", "action_id": "draft_repair_params"},
+        allowed_action_ids=("draft_repair_params",),
+    ) == ()
+
+
+def test_observation_action_intent_reasons_detect_data_action_id_only_once() -> None:
+    assert PROBE._observation_action_intent_reasons(
+        payload={
+            "kind": "observation",
+            "message": "State report.",
+            "data": {"action_id": "draft_repair_params"},
+        },
+        allowed_action_ids=("draft_repair_params",),
+    ) == ("observation_data_action_id_allowed",)
+
+
+def test_observation_action_intent_reasons_detect_data_action_id_containing_text() -> None:
+    assert PROBE._observation_action_intent_reasons(
+        payload={
+            "kind": "observation",
+            "message": "State report.",
+            "data": {"action_id": "candidate action draft_repair_params"},
+        },
+        allowed_action_ids=("draft_repair_params",),
+    ) == ("observation_data_mentions_allowed_action_id",)
+
+
+def test_observation_action_intent_reasons_detect_message_action_id() -> None:
+    assert PROBE._observation_action_intent_reasons(
+        payload={
+            "kind": "observation",
+            "message": "I would call draft_repair_params next.",
+            "data": None,
+        },
+        allowed_action_ids=("draft_repair_params",),
+    ) == ("observation_message_mentions_allowed_action_id",)
+
+
+def test_observation_action_intent_reasons_detect_top_level_data_string_action_id_text() -> None:
+    assert PROBE._observation_action_intent_reasons(
+        payload={
+            "kind": "observation",
+            "message": "State report.",
+            "data": "candidate action draft_repair_params",
+        },
+        allowed_action_ids=("draft_repair_params",),
+    ) == ("observation_data_mentions_allowed_action_id",)
+
+
+def test_observation_action_intent_reasons_detect_top_level_data_list_action_id_text() -> None:
+    assert PROBE._observation_action_intent_reasons(
+        payload={
+            "kind": "observation",
+            "message": "State report.",
+            "data": ["other", "candidate action draft_repair_params"],
+        },
+        allowed_action_ids=("draft_repair_params",),
+    ) == ("observation_data_mentions_allowed_action_id",)
+
+
+def test_observation_action_intent_reasons_detect_nested_data_action_id_text() -> None:
+    assert PROBE._observation_action_intent_reasons(
+        payload={
+            "kind": "observation",
+            "message": "State report.",
+            "data": {
+                "note": "candidate action draft_repair_params",
+                "nested": ["other", {"text": "use draft_repair_params"}],
+            },
+        },
+        allowed_action_ids=("draft_repair_params",),
+    ) == ("observation_data_mentions_allowed_action_id",)
+
+
+def test_observation_action_intent_reasons_detect_data_intent_action_id_text() -> None:
+    assert PROBE._observation_action_intent_reasons(
+        payload={
+            "kind": "observation",
+            "message": "State report.",
+            "data_intent": {"action_id": "draft_repair_params"},
+        },
+        allowed_action_ids=("draft_repair_params",),
+    ) == ("observation_data_intent_mentions_allowed_action_id",)
+
+
+def test_observation_action_intent_reasons_sort_and_deduplicate_reasons() -> None:
+    assert PROBE._observation_action_intent_reasons(
+        payload={
+            "kind": "observation",
+            "message": "draft_repair_params",
+            "data": {
+                "action_id": "draft_repair_params",
+                "note": "draft_repair_params",
+            },
+            "data_intent": "draft_repair_params",
+        },
+        allowed_action_ids=("draft_repair_params",),
+    ) == (
+        "observation_data_action_id_allowed",
+        "observation_data_intent_mentions_allowed_action_id",
+        "observation_data_mentions_allowed_action_id",
+        "observation_message_mentions_allowed_action_id",
+    )
 
 
 def test_single_kind_schema_action_request_const_pins_kind_and_action_id() -> None:
@@ -455,6 +601,143 @@ def test_run_attempt_publishes_valid_same_kind_clarification() -> None:
     assert provider.calls[1]["think"] is False
 
 
+def test_run_attempt_records_pass1_observation_action_intent_anomaly() -> None:
+    provider = _FakeProvider(
+        [
+            _ollama_response(
+                json.dumps(
+                    {
+                        "kind": "observation",
+                        "message": "Decision: draft_repair_params",
+                        "data": {"action_id": "draft_repair_params"},
+                    }
+                ),
+                thinking="state report",
+            ),
+            _ollama_response(
+                json.dumps(
+                    {
+                        "schema": "rook.local_worker_turn_response:v1",
+                        "kind": "observation",
+                        "message": "State only.",
+                        "data": None,
+                    }
+                )
+            ),
+        ]
+    )
+
+    row = PROBE._run_attempt(
+        model="gemma4:12b-it-qat",
+        scenario="evidence_present_like",
+        attempt=1,
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        post_chat=provider,
+    )
+
+    expected_reasons = [
+        "observation_data_action_id_allowed",
+        "observation_message_mentions_allowed_action_id",
+    ]
+    assert row["status"] == "published"
+    assert row["pass1_observation_action_intent_anomaly"] is True
+    assert row["pass1_observation_action_intent_reasons"] == expected_reasons
+    assert row["pass2_observation_action_intent_anomaly"] is False
+    assert row["pass2_observation_action_intent_reasons"] == []
+    assert row["observation_action_intent_anomaly"] is True
+    assert row["observation_action_intent_reasons"] == expected_reasons
+
+
+def test_run_attempt_records_pass2_observation_action_intent_anomaly_after_lm5g_load() -> None:
+    provider = _FakeProvider(
+        [
+            _ollama_response(
+                json.dumps(
+                    {
+                        "kind": "observation",
+                        "message": "Visible state only.",
+                        "data": None,
+                    }
+                )
+            ),
+            _ollama_response(
+                json.dumps(
+                    {
+                        "schema": "rook.local_worker_turn_response:v1",
+                        "kind": "observation",
+                        "message": "State report.",
+                        "data": {"note": "draft_repair_params"},
+                    }
+                )
+            ),
+        ]
+    )
+
+    row = PROBE._run_attempt(
+        model="gemma4:12b-it-qat",
+        scenario="evidence_present_like",
+        attempt=1,
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        post_chat=provider,
+    )
+
+    expected_reasons = ["observation_data_mentions_allowed_action_id"]
+    assert row["status"] == "published"
+    assert row["pass1_observation_action_intent_anomaly"] is False
+    assert row["pass1_observation_action_intent_reasons"] == []
+    assert row["pass2_observation_action_intent_anomaly"] is True
+    assert row["pass2_observation_action_intent_reasons"] == expected_reasons
+    assert row["observation_action_intent_anomaly"] is True
+    assert row["observation_action_intent_reasons"] == expected_reasons
+
+
+def test_run_attempt_does_not_score_pass2_anomaly_when_lm5g_load_fails() -> None:
+    provider = _FakeProvider(
+        [
+            _ollama_response(
+                json.dumps(
+                    {
+                        "kind": "observation",
+                        "message": "Visible state only.",
+                        "data": None,
+                    }
+                )
+            ),
+            _ollama_response(
+                json.dumps(
+                    {
+                        "schema": "rook.local_worker_turn_response:v1",
+                        "kind": "observation",
+                        "message": "draft_repair_params",
+                    }
+                )
+            ),
+        ]
+    )
+
+    row = PROBE._run_attempt(
+        model="gemma4:12b-it-qat",
+        scenario="evidence_present_like",
+        attempt=1,
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        post_chat=provider,
+    )
+
+    assert row["status"] == "pass2_lm5g_invalid"
+    assert row["failure_reason"] == "pass2_lm5g_load_failed:ValueError"
+    assert row["pass2_observation_action_intent_anomaly"] is False
+    assert row["pass2_observation_action_intent_reasons"] == []
+
+
 def test_run_attempt_reports_pass2_kind_changed_after_lm5g_load() -> None:
     provider = _FakeProvider(
         [
@@ -612,6 +895,16 @@ def test_build_summary_groups_by_status_kind_and_preservation() -> None:
     rows = [
         _summary_row(),
         _summary_row(
+            scenario="evidence_absent_like",
+            pass1_kind="observation",
+            pass2_response_kind="observation",
+            observation_action_intent_anomaly=True,
+            observation_action_intent_reasons=[
+                "observation_data_action_id_allowed",
+                "observation_message_mentions_allowed_action_id",
+            ],
+        ),
+        _summary_row(
             scenario="evidence_present_like",
             pass1_kind="action_request",
             pass2_response_kind="action_request",
@@ -653,6 +946,25 @@ def test_build_summary_groups_by_status_kind_and_preservation() -> None:
             "attempts": 1,
             "lm5g_loadable_count": 1,
             "failure_reason_counts": {},
+            "observation_action_intent_anomaly_count": 0,
+            "observation_action_intent_reason_counts": {},
+        },
+        {
+            "scenario": "evidence_absent_like",
+            "status": "published",
+            "pass1_kind": "observation",
+            "pass2_response_kind": "observation",
+            "kind_preserved": True,
+            "action_id_preserved": None,
+            "refusal_category_preserved": None,
+            "attempts": 1,
+            "lm5g_loadable_count": 1,
+            "failure_reason_counts": {},
+            "observation_action_intent_anomaly_count": 1,
+            "observation_action_intent_reason_counts": {
+                "observation_data_action_id_allowed": 1,
+                "observation_message_mentions_allowed_action_id": 1,
+            },
         },
         {
             "scenario": "evidence_present_like",
@@ -665,6 +977,8 @@ def test_build_summary_groups_by_status_kind_and_preservation() -> None:
             "attempts": 1,
             "lm5g_loadable_count": 1,
             "failure_reason_counts": {"pass2_action_id_changed": 1},
+            "observation_action_intent_anomaly_count": 0,
+            "observation_action_intent_reason_counts": {},
         },
         {
             "scenario": "evidence_present_like",
@@ -677,6 +991,8 @@ def test_build_summary_groups_by_status_kind_and_preservation() -> None:
             "attempts": 1,
             "lm5g_loadable_count": 1,
             "failure_reason_counts": {},
+            "observation_action_intent_anomaly_count": 0,
+            "observation_action_intent_reason_counts": {},
         },
     ]
 
@@ -735,7 +1051,7 @@ def test_run_probe_writes_manifest_attempts_and_summary(
     assert manifest["attempts_per_scenario"] == 1
     assert (
         manifest["pass1_decision_instruction_version"]
-        == "lm5r.pass1_decision_instruction:v1"
+        == PROBE.PASS1_DECISION_INSTRUCTION_VERSION
     )
     assert manifest["pass1_decision_instruction_sha256"] == PROBE._sha256_text(
         PROBE._PASS1_DECISION_INSTRUCTION
