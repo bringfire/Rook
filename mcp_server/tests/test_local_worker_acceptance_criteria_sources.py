@@ -252,6 +252,87 @@ def test_missing_script_body_gotcha_fails_with_packet_id():
         )
 
 
+def test_duplicate_script_body_gotcha_candidates_fail():
+    fixture = _fixture_objects()
+    packet = fixture["convention_packets"][0]
+
+    with pytest.raises(ValueError, match="script_body_gotcha"):
+        extract_acceptance_criteria_sources(
+            workflow_contract=fixture["workflow_contract"],
+            graph=fixture["graph"],
+            convention_packets=(packet, packet),
+        )
+
+
+def test_script_body_gotcha_wrong_kind_fails_after_id_selection():
+    fixture = _fixture_objects()
+    packet = fixture["convention_packets"][0]
+    wrong_kind = type(packet)(
+        packet_id=packet.packet_id,
+        kind="evidence",
+        title=packet.title,
+        content=packet.content,
+    )
+
+    with pytest.raises(ValueError, match="script_body_gotcha"):
+        extract_acceptance_criteria_sources(
+            workflow_contract=fixture["workflow_contract"],
+            graph=fixture["graph"],
+            convention_packets=(wrong_kind,),
+        )
+
+
+def test_script_body_gotcha_wrong_title_fails_after_id_selection():
+    fixture = _fixture_objects()
+    packet = fixture["convention_packets"][0]
+    wrong_title = type(packet)(
+        packet_id=packet.packet_id,
+        kind=packet.kind,
+        title="Different gotcha",
+        content=packet.content,
+    )
+
+    with pytest.raises(ValueError, match="script_body_gotcha"):
+        extract_acceptance_criteria_sources(
+            workflow_contract=fixture["workflow_contract"],
+            graph=fixture["graph"],
+            convention_packets=(wrong_title,),
+        )
+
+
+def test_extracted_values_are_copied_from_contract_and_receipt():
+    fixture = _fixture_objects()
+    sources = extract_acceptance_criteria_sources(
+        workflow_contract=fixture["workflow_contract"],
+        graph=fixture["graph"],
+        convention_packets=fixture["convention_packets"],
+    )
+
+    contract_pins_out = fixture["workflow_contract"].initial_params[
+        0
+    ].execution_params["pins_out"]
+    receipt_target_errors = fixture["graph"].nodes[
+        "create_script"
+    ].evidence.receipt["repair_anchor"]["target_errors"]
+
+    contract_pins_out.append("B:int")
+    receipt_target_errors.append("CS9999: extra")
+    sources.pin_contract.value["pins_out"].append("C:string")
+    sources.receipt_diagnostic.value.append("CS8888: source mutation")
+
+    assert sources.pin_contract.value["pins_out"] == ["A:double", "C:string"]
+    assert sources.receipt_diagnostic.value == [
+        TARGET_DIAGNOSTIC,
+        "CS8888: source mutation",
+    ]
+    assert fixture["workflow_contract"].initial_params[0].execution_params[
+        "pins_out"
+    ] == ["A:double", "B:int"]
+    assert fixture["graph"].nodes["create_script"].evidence.receipt[
+        "repair_anchor"
+    ]["target_errors"] == [TARGET_DIAGNOSTIC, "CS9999: extra"]
+
+
 def test_wrong_diagnostic_shape_extracts_but_assembler_rejects_semantics():
     fixture = _fixture_objects()
     receipt = copy.deepcopy(
