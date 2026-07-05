@@ -1,5 +1,10 @@
 import hashlib
+import importlib.util
+import inspect
 import json
+import sys
+from collections.abc import Mapping
+from pathlib import Path
 
 import pytest
 
@@ -54,6 +59,23 @@ def _without_fingerprint(packet):
     packet = dict(packet)
     packet.pop("fingerprint")
     return packet
+
+
+def _load_lm5k_probe_script():
+    path = Path(__file__).resolve().parents[2] / "scripts" / "lm5k_worker_probe.py"
+    spec = importlib.util.spec_from_file_location("lm5k_worker_probe_for_lm5w", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _jsonable(value):
+    if isinstance(value, Mapping):
+        return {key: _jsonable(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_jsonable(item) for item in value]
+    return value
 
 
 def test_public_surface_exports_acceptance_criteria_packet_api():
@@ -135,6 +157,78 @@ def test_assembles_canonical_lm5w_acceptance_criteria_packet():
         "remove_unresolved_symbol",
     ]
     assert packet["fingerprint"].startswith("sha256:")
+
+
+def test_fixture_reproduction_anchor_matches_lm5u_legacy_projection():
+    probe = _load_lm5k_probe_script()
+    _scaffold, result = probe.derive_probe_graph_state()
+    lm5u_packet = _jsonable(
+        probe._acceptance_criteria_evidence_packet(result.final_graph).content
+    )
+    lm5u_packet_acceptance_criteria = lm5u_packet["fields"]["acceptance_criteria"][
+        "criteria"
+    ]
+    sources = AcceptanceCriteriaSources(
+        pin_contract=AcceptanceCriteriaSource(
+            source_class="pin_contract",
+            source_path=PIN_SOURCE_PATH,
+            value={"pins_out": ["A:double"]},
+        ),
+        verifier_outcome=AcceptanceCriteriaSource(
+            source_class="verifier_outcome",
+            source_path=VERIFY_SOURCE_PATH,
+            value="succeeded",
+        ),
+        receipt_diagnostic=AcceptanceCriteriaSource(
+            source_class="receipt_diagnostic",
+            source_path=DIAGNOSTIC_SOURCE_PATH,
+            value=[probe.REPAIR_TARGET_ERROR],
+        ),
+        convention=AcceptanceCriteriaSource(
+            source_class="convention",
+            source_path=CONVENTION_SOURCE_PATH,
+            value={"mode": "body"},
+        ),
+    )
+    assembled = assemble_acceptance_criteria_packet(sources)
+    legacy_projection = [
+        {
+            "criterion_id": criterion["criterion_id"],
+            "description": criterion["description"],
+            "source": criterion["source"],
+        }
+        for criterion in assembled["criteria"]
+    ]
+
+    assert legacy_projection == lm5u_packet_acceptance_criteria
+    assert [criterion["source_class"] for criterion in assembled["criteria"]] == [
+        "pin_contract",
+        "pin_contract",
+        "verifier_outcome",
+        "convention",
+        "receipt_diagnostic",
+        "receipt_diagnostic",
+    ]
+
+
+def test_module_import_boundary_stays_narrow():
+    source = inspect.getsource(module)
+    forbidden = (
+        "plan_graph",
+        "RookWorkflowContract",
+        "CompiledWorkflowScaffold",
+        "lm5k_worker_probe",
+        "lm5r_two_pass_publication_probe",
+        "LiteLLM",
+        "run_local_worker",
+        "open(",
+        "Path(",
+        "json.load",
+        "yaml",
+    )
+
+    for token in forbidden:
+        assert token not in source
 
 
 def test_fingerprint_matches_canonical_json_without_fingerprint():
