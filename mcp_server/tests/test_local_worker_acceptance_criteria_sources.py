@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import rook.agent as agent_package
 from rook.agent.local_worker_acceptance_criteria import (
     AcceptanceCriteriaSource,
     AcceptanceCriteriaSources,
@@ -153,6 +154,9 @@ def test_source_module_import_boundary_stays_one_way_and_narrow():
         "yaml",
         "base_params",
         "PROBE_REPAIR_CODE",
+        "pathlib",
+        "json",
+        "builtins",
         "importlib.import_module",
         "import_module",
         "__import__",
@@ -177,11 +181,24 @@ def test_source_module_import_boundary_stays_one_way_and_narrow():
         "LiteLLM",
         "run_local_worker",
         "yaml",
+        "pathlib",
+        "json",
+        "builtins",
+        "open",
+        "Path",
+        "load",
         "import_module",
     )
     for fragment in forbidden_import_fragments:
         assert not any(fragment in imported for imported in imports)
     assert {"open", "Path", "json.load", "import_module"}.isdisjoint(calls)
+
+
+def test_agent_package_does_not_reexport_source_extractor():
+    assert "local_worker_acceptance_criteria_sources" not in agent_package.__all__
+    assert "extract_acceptance_criteria_sources" not in agent_package.__all__
+    assert "local_worker_acceptance_criteria_sources" not in agent_package._EXPORT_MODULES
+    assert "extract_acceptance_criteria_sources" not in agent_package._EXPORT_MODULES
 
 
 def test_probe_scripts_do_not_import_acceptance_criteria_sources():
