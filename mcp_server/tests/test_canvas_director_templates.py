@@ -548,6 +548,66 @@ async def test_instantiate_fixture_waits_for_deferred_edit_solve_before_returnin
     assert result["results"]["post_edit_solve_ready"]["data"]["solutionState"] == "PostProcess"
 
 
+@pytest.mark.parametrize(
+    "status",
+    [
+        {"success": True, "data": {"ready_for_edit": True}},
+        {
+            "success": True,
+            "data": {
+                "ready_for_edit": True,
+                "solverEnabled": None,
+                "solutionState": "PostProcess",
+            },
+        },
+        {
+            "success": True,
+            "data": {
+                "ready_for_edit": True,
+                "solverEnabled": True,
+                "solutionState": None,
+            },
+        },
+        {
+            "success": True,
+            "data": {
+                "ready_for_edit": True,
+                "solverEnabled": True,
+                "solutionState": "unknown",
+            },
+        },
+    ],
+)
+def test_deferred_solve_readiness_requires_known_enabled_solver_status(status: dict) -> None:
+    assert templates.instantiator._status_is_solve_ready(status) is False
+
+
+@pytest.mark.asyncio
+async def test_deferred_solve_wait_times_out_when_status_never_becomes_known(monkeypatch) -> None:
+    monkeypatch.setattr(templates.instantiator, "POST_EDIT_SOLVE_READY_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(templates.instantiator, "POST_EDIT_SOLVE_READY_POLL_SECONDS", 0.001)
+
+    async def fake_call_tool(tool: str, arguments: dict) -> dict:
+        assert tool == "gh_status"
+        return {"success": True, "data": {"ready_for_edit": True}}
+
+    with pytest.raises(templates.CanvasDirectorTemplateError) as exc_info:
+        await templates.instantiator._wait_for_deferred_edit_solve(
+            {
+                "success": True,
+                "data": {
+                    "edit_summary": {
+                        "solve_scheduled": True,
+                        "verification_deferred": True,
+                    },
+                },
+            },
+            fake_call_tool,
+        )
+
+    assert exc_info.value.code == "gh_solve_not_ready"
+
+
 @pytest.mark.asyncio
 async def test_instantiate_fixture_surfaces_failed_tool_call() -> None:
     async def fake_call_tool(tool: str, arguments: dict) -> dict:

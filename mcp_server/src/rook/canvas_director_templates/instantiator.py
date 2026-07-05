@@ -214,11 +214,11 @@ def _status_is_solve_ready(status: dict[str, Any]) -> bool:
     data = _result_data(status)
     if not isinstance(data, dict):
         return False
-    if data.get("ready_for_edit") is False:
+    if data.get("ready_for_edit") is not True:
         return False
-    if data.get("solverEnabled") is False:
+    if data.get("solverEnabled") is not True:
         return False
-    return data.get("solutionState") not in {"PreProcess", "Process"}
+    return data.get("solutionState") == "PostProcess"
 
 
 def _result_data(result: dict[str, Any]) -> object:
