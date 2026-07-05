@@ -602,6 +602,18 @@ def test_evidence_present_knowledge_adds_exactly_one_evidence_packet() -> None:
     assert [packet.kind for packet in packets] == ["gotcha", "evidence"]
 
 
+def test_knowledge_packets_route_v2_repair_intent_evidence() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packets = PROBE._knowledge_packets_for_scenario(
+        PROBE._SCENARIOS["evidence_present_v2"], result.final_graph
+    )
+    assert [packet.packet_id for packet in packets] == [
+        "script_body_gotcha",
+        "lm5t_repair_intent_evidence",
+    ]
+    assert [packet.kind for packet in packets] == ["gotcha", "evidence"]
+
+
 def test_lm5t_evidence_constants_are_source_of_truth() -> None:
     assert PROBE.EVIDENCE_PACKET_ID == "lm5n_repair_evidence"
     assert (
@@ -685,6 +697,78 @@ def test_evidence_packet_fields_are_bounded_and_provenance_tagged() -> None:
     }
 
 
+def test_repair_intent_evidence_v2_fields_are_bounded_and_provenance_tagged() -> None:
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packet = PROBE._repair_intent_evidence_packet(result.final_graph)
+
+    assert packet.packet_id == "lm5t_repair_intent_evidence"
+    assert packet.kind == "evidence"
+    assert packet.title == "Receipt-derived repair intent evidence"
+    assert packet.content["source"] == "probe_fixture"
+    assert packet.content["trust"] == "high"
+    assert packet.content["state"] == "post_verify_pre_bind"
+
+    fields = packet.content["fields"]
+    assert set(fields) == {
+        "current_code",
+        "recommended_mode",
+        "language",
+        "component_guid",
+        "repair_anchor",
+        "pin_contract",
+        "current_verification",
+        "target_diagnostics",
+        "expected_repair_outcome",
+    }
+
+    assert fields["current_code"]["value"] == "A = DefinitelyMissingSymbol;"
+    assert fields["recommended_mode"]["value"] == "body"
+    assert fields["language"]["value"] == "csharp"
+    assert fields["component_guid"]["value"] == PROBE.PROBE_COMPONENT_GUID
+
+    repair_anchor = fields["repair_anchor"]
+    assert repair_anchor == {
+        "value": {
+            "component_guid": PROBE.PROBE_COMPONENT_GUID,
+            "language": "csharp",
+        },
+        "source": "graph.memory.facts.repair_anchor",
+    }
+    assert set(repair_anchor["value"]) == {"component_guid", "language"}
+    assert "target_errors" not in repair_anchor["value"]
+    assert "target_warnings" not in repair_anchor["value"]
+
+    assert fields["pin_contract"] == {
+        "source": "create_script.initial_execution_params",
+        "value": {"pins_in": (), "pins_out": ("A:double",)},
+    }
+    assert fields["current_verification"] == {
+        "value": {"status": "failed", "target_error_count": 1},
+        "source": "create_script.receipt.script_receipt.verification",
+    }
+    assert fields["expected_repair_outcome"] == {
+        "value": "succeeded",
+        "source": "workflow_contract.rules.verify_repair.expected_outcome",
+    }
+
+    target_diagnostics = fields["target_diagnostics"]
+    assert target_diagnostics["source"] == (
+        "create_script.receipt.script_receipt.repair_anchor"
+    )
+    assert set(target_diagnostics["fields"]) == {"target_errors"}
+    errors = target_diagnostics["fields"]["target_errors"]
+    assert errors == {
+        "value": (PROBE.REPAIR_TARGET_ERROR,),
+        "source": (
+            "create_script.receipt.script_receipt.repair_anchor.target_errors"
+        ),
+        "max_items": PROBE.EVIDENCE_TARGET_DIAGNOSTIC_MAX_ITEMS,
+        "max_chars_per_item": PROBE.EVIDENCE_TARGET_DIAGNOSTIC_MAX_CHARS,
+        "truncated": False,
+    }
+    assert all(isinstance(entry, str) for entry in errors["value"])
+
+
 def test_repair_evidence_v1_does_not_expose_target_diagnostics() -> None:
     _scaffold, result = PROBE.derive_probe_graph_state()
     packet = PROBE._repair_evidence_packet(result.final_graph)
@@ -694,6 +778,30 @@ def test_repair_evidence_v1_does_not_expose_target_diagnostics() -> None:
     assert "target_warnings" not in rendered
     assert PROBE.REPAIR_TARGET_ERROR not in rendered
     assert "DefinitelyMissingSymbol" in rendered
+
+
+def test_target_diagnostic_evidence_bounds_items_and_chars() -> None:
+    long = "x" * (PROBE.EVIDENCE_TARGET_DIAGNOSTIC_MAX_CHARS + 10)
+    evidence = PROBE._bounded_target_diagnostics(
+        ["short", long, "kept", "dropped"], source="test.source"
+    )
+
+    assert evidence == {
+        "value": [
+            "short",
+            long[:PROBE.EVIDENCE_TARGET_DIAGNOSTIC_MAX_CHARS],
+            "kept",
+        ],
+        "source": "test.source",
+        "max_items": PROBE.EVIDENCE_TARGET_DIAGNOSTIC_MAX_ITEMS,
+        "max_chars_per_item": PROBE.EVIDENCE_TARGET_DIAGNOSTIC_MAX_CHARS,
+        "truncated": True,
+    }
+
+
+def test_target_diagnostic_evidence_requires_string_items() -> None:
+    with pytest.raises(RuntimeError, match="target diagnostic item not string"):
+        PROBE._bounded_target_diagnostics(["ok", 42], source="test.source")
 
 
 def test_current_code_evidence_reads_derived_create_params_not_repair_literal() -> None:
@@ -854,6 +962,26 @@ def test_evidence_present_probe_envelope_exposes_only_bounded_evidence_values() 
     assert PROBE.PROBE_COMPONENT_GUID in rendered
     assert "A = DefinitelyMissingSymbol;" in rendered
     assert PROBE.PROBE_REPAIR_CODE not in rendered
+    assert "already-bound repair params" not in rendered
+
+
+def test_evidence_present_v2_probe_envelope_exposes_repair_intent_evidence_only() -> None:
+    from rook.agent.local_worker_turn_request import (
+        render_local_worker_turn_request_payload,
+    )
+
+    payload = render_local_worker_turn_request_payload(
+        PROBE.build_probe_context(PROBE._SCENARIOS["evidence_present_v2"])
+    )
+    rendered = json.dumps(payload)
+    assert "lm5t_repair_intent_evidence" in rendered
+    assert "target_errors" in rendered
+    assert PROBE.REPAIR_TARGET_ERROR in rendered
+    assert "DefinitelyMissingSymbol" in rendered
+    assert PROBE.PROBE_COMPONENT_GUID in rendered
+    assert "A = DefinitelyMissingSymbol;" in rendered
+    assert PROBE.PROBE_REPAIR_CODE not in rendered
+    assert "A = 42.0;" not in rendered
     assert "already-bound repair params" not in rendered
 
 
