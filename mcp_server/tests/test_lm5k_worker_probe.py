@@ -51,14 +51,18 @@ def test_transport_modes_are_source_of_truth() -> None:
 
 def test_scenario_configs_are_source_of_truth() -> None:
     assert PROBE.SCENARIO_WORKFLOW_ID == "lm5k_first_probe"
-    assert set(PROBE._SCENARIOS) == {"evidence_absent", "evidence_present"}
+    assert set(PROBE._SCENARIOS) == {
+        "evidence_absent",
+        "evidence_present",
+        "evidence_present_v2",
+    }
 
     absent = PROBE._SCENARIOS["evidence_absent"]
     assert absent.cli_name == "evidence_absent"
     assert absent.scenario_id == "lm5n_repair_evidence_absent"
     assert absent.scenario_version == "v3"
     assert absent.state == "post_verify_pre_bind"
-    assert absent.include_evidence_packet is False
+    assert absent.evidence_packet == "none"
     assert absent.expected_disposition == "clarification_needed"
     assert absent.expected_response_kind == "clarification_request"
     assert absent.expected_action_id is None
@@ -69,15 +73,27 @@ def test_scenario_configs_are_source_of_truth() -> None:
     assert present.scenario_id == "lm5n_repair_evidence_present"
     assert present.scenario_version == "v3"
     assert present.state == "post_verify_pre_bind"
-    assert present.include_evidence_packet is True
+    assert present.evidence_packet == "repair_v1"
     assert present.expected_disposition == "candidate_action_request"
     assert present.expected_response_kind == "action_request"
     assert present.expected_action_id == "draft_repair_params"
     assert present.expected_attempt_valid is True
 
+    present_v2 = PROBE._SCENARIOS["evidence_present_v2"]
+    assert present_v2.cli_name == "evidence_present_v2"
+    assert present_v2.scenario_id == "lm5t_repair_intent_evidence_present"
+    assert present_v2.scenario_version == "v4"
+    assert present_v2.state == "post_verify_pre_bind"
+    assert present_v2.evidence_packet == "repair_intent_v2"
+    assert present_v2.expected_disposition == "candidate_action_request"
+    assert present_v2.expected_response_kind == "action_request"
+    assert present_v2.expected_action_id == "draft_repair_params"
+    assert present_v2.expected_attempt_valid is True
+
     assert "lm5k_golden_repair_v2" not in {
         absent.scenario_id,
         present.scenario_id,
+        present_v2.scenario_id,
     }
 
 

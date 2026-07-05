@@ -57,7 +57,7 @@ class _ProbeScenarioConfig:
     scenario_id: str
     scenario_version: str
     state: str
-    include_evidence_packet: bool
+    evidence_packet: str
     expected_disposition: str
     expected_response_kind: str
     expected_action_id: str | None
@@ -70,7 +70,7 @@ _SCENARIOS = {
         scenario_id="lm5n_repair_evidence_absent",
         scenario_version="v3",
         state="post_verify_pre_bind",
-        include_evidence_packet=False,
+        evidence_packet="none",
         expected_disposition="clarification_needed",
         expected_response_kind="clarification_request",
         expected_action_id=None,
@@ -81,7 +81,18 @@ _SCENARIOS = {
         scenario_id="lm5n_repair_evidence_present",
         scenario_version="v3",
         state="post_verify_pre_bind",
-        include_evidence_packet=True,
+        evidence_packet="repair_v1",
+        expected_disposition="candidate_action_request",
+        expected_response_kind="action_request",
+        expected_action_id="draft_repair_params",
+        expected_attempt_valid=True,
+    ),
+    "evidence_present_v2": _ProbeScenarioConfig(
+        cli_name="evidence_present_v2",
+        scenario_id="lm5t_repair_intent_evidence_present",
+        scenario_version="v4",
+        state="post_verify_pre_bind",
+        evidence_packet="repair_intent_v2",
         expected_disposition="candidate_action_request",
         expected_response_kind="action_request",
         expected_action_id="draft_repair_params",
@@ -595,7 +606,7 @@ def _knowledge_packets_for_scenario(
     graph,
 ) -> tuple:
     packets = [_script_body_gotcha_packet()]
-    if scenario.include_evidence_packet:
+    if scenario.evidence_packet != "none":
         packets.append(_repair_evidence_packet(graph))
     return tuple(packets)
 
