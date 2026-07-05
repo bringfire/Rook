@@ -804,6 +804,17 @@ def test_target_diagnostic_evidence_requires_string_items() -> None:
         PROBE._bounded_target_diagnostics(["ok", 42], source="test.source")
 
 
+def test_pin_contract_evidence_rejects_tuple_pins() -> None:
+    with pytest.raises(RuntimeError, match="pins_in contract missing"):
+        PROBE._pin_contract_from_params(
+            {"pins_in": (), "pins_out": ["A:double"]}
+        )
+    with pytest.raises(RuntimeError, match="pins_out contract missing"):
+        PROBE._pin_contract_from_params(
+            {"pins_in": [], "pins_out": ("A:double",)}
+        )
+
+
 def test_current_code_evidence_reads_derived_create_params_not_repair_literal() -> None:
     from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
 

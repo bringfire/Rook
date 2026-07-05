@@ -588,12 +588,12 @@ def _pin_contract_from_params(params: Mapping[str, Any]) -> dict:
     pins_in = params.get("pins_in")
     pins_out = params.get("pins_out")
     _invariant(
-        isinstance(pins_in, (list, tuple))
+        isinstance(pins_in, list)
         and all(isinstance(pin, str) for pin in pins_in),
         "pins_in contract missing",
     )
     _invariant(
-        isinstance(pins_out, (list, tuple))
+        isinstance(pins_out, list)
         and all(isinstance(pin, str) for pin in pins_out),
         "pins_out contract missing",
     )
@@ -601,6 +601,21 @@ def _pin_contract_from_params(params: Mapping[str, Any]) -> dict:
         "source": "create_script.initial_execution_params",
         "value": {"pins_in": list(pins_in), "pins_out": list(pins_out)},
     }
+
+
+def _create_initial_execution_params_from_contract() -> Mapping[str, Any]:
+    for initial in _probe_contract().initial_params:
+        if initial.node_id == "create_script":
+            params = initial.execution_params
+            _invariant(
+                isinstance(params, Mapping),
+                "create initial execution params missing",
+            )
+            return params
+    raise RuntimeError(
+        "LM5L coherent fixture invariant failed: "
+        "create initial execution params missing"
+    )
 
 
 def _repair_evidence_packet(graph):
@@ -680,6 +695,7 @@ def _repair_intent_evidence_packet(graph):
 
     receipt = _require_receipt_mapping(graph)
     params = _require_create_execution_params(graph)
+    initial_params = _create_initial_execution_params_from_contract()
     verification = receipt.get("verification")
     _invariant(isinstance(verification, Mapping), "verification receipt missing")
     receipt_repair_anchor = receipt.get("repair_anchor")
@@ -733,7 +749,7 @@ def _repair_intent_evidence_packet(graph):
                 "value": _stable_repair_anchor_value(repair_anchor),
                 "source": "graph.memory.facts.repair_anchor",
             },
-            "pin_contract": _pin_contract_from_params(params),
+            "pin_contract": _pin_contract_from_params(initial_params),
             "current_verification": {
                 "value": {
                     "status": verification.get("status"),
