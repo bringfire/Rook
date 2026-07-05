@@ -220,6 +220,18 @@ def test_pass1_instruction_v2_contains_no_scenario_specific_literals() -> None:
         assert literal not in text
 
 
+def test_lm5t_does_not_change_lm5s_pass1_instruction() -> None:
+    assert (
+        PROBE.PASS1_DECISION_INSTRUCTION_VERSION
+        == "lm5s.pass1_decision_instruction:v2"
+    )
+    instruction = PROBE._PASS1_DECISION_INSTRUCTION
+    assert "Do not use observation to choose" in instruction
+    assert "lm5t" not in instruction.lower()
+    assert "target_errors" not in instruction
+    assert "DefinitelyMissingSymbol" not in instruction
+
+
 def test_pass1_messages_evidence_present_include_evidence_packet() -> None:
     _messages, envelope = PROBE._pass1_messages_for_scenario("evidence_present_like")
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 import importlib.util
 import json
 import sys
@@ -23,6 +24,14 @@ def _load_script():
 
 
 PROBE = _load_script()
+
+
+def _jsonable(value):
+    if isinstance(value, Mapping):
+        return {key: _jsonable(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_jsonable(item) for item in value]
+    return value
 
 
 def test_slot_vocabulary() -> None:
@@ -767,6 +776,20 @@ def test_repair_intent_evidence_v2_fields_are_bounded_and_provenance_tagged() ->
         "truncated": False,
     }
     assert all(isinstance(entry, str) for entry in errors["value"])
+
+
+def test_lm5t_probe_script_does_not_publish_hidden_repair_params() -> None:
+    source = Path(PROBE.__file__).read_text(encoding="utf-8")
+    assert "PROBE_REPAIR_CODE" in source
+    assert '"code": PROBE_REPAIR_CODE' in source
+
+    _scaffold, result = PROBE.derive_probe_graph_state()
+    packet = PROBE._repair_intent_evidence_packet(result.final_graph)
+    rendered = json.dumps(_jsonable(packet.content))
+
+    assert PROBE.PROBE_REPAIR_CODE not in rendered
+    assert "A = 42.0;" not in rendered
+    assert "hidden BindStepSpec.base_params.code" not in rendered
 
 
 def test_repair_evidence_v1_does_not_expose_target_diagnostics() -> None:
