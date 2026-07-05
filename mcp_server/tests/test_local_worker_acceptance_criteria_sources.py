@@ -138,6 +138,52 @@ def test_public_surface_exports_only_extractor():
     assert module.__all__ == ("extract_acceptance_criteria_sources",)
 
 
+def test_source_module_import_boundary_stays_one_way_and_narrow():
+    source = inspect.getsource(module)
+    imports = _import_names(source)
+    calls = _call_names(source)
+
+    assert "rook.agent.local_worker_acceptance_criteria" in imports
+    assert not any(
+        "local_worker_acceptance_criteria_sources" in imported
+        for imported in _import_names(
+            inspect.getsource(
+                __import__(
+                    "rook.agent.local_worker_acceptance_criteria",
+                    fromlist=["dummy"],
+                )
+            )
+        )
+    )
+    forbidden_import_fragments = (
+        "BindStepSpec",
+        "lm5k_worker_probe",
+        "lm5r_two_pass_publication_probe",
+        "LiteLLM",
+        "run_local_worker",
+        "yaml",
+    )
+    for fragment in forbidden_import_fragments:
+        assert not any(fragment in imported for imported in imports)
+    assert "base_params" not in source
+    assert "PROBE_REPAIR_CODE" not in source
+    assert {"open", "Path", "json.load"}.isdisjoint(calls)
+
+
+def test_probe_scripts_do_not_import_acceptance_criteria_sources():
+    root = Path(__file__).resolve().parents[2]
+    for relative in (
+        "scripts/lm5k_worker_probe.py",
+        "scripts/lm5r_two_pass_publication_probe.py",
+    ):
+        source = (root / relative).read_text(encoding="utf-8")
+        imports = _import_names(source)
+        assert not any(
+            "local_worker_acceptance_criteria_sources" in imported
+            for imported in imports
+        )
+
+
 def test_extracts_lm5u_fixture_sources():
     assert _extract_from_fixture() == _expected_sources()
 
