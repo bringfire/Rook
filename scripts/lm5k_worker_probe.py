@@ -23,6 +23,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from rook.agent.local_worker_acceptance_criteria import (
+    assemble_acceptance_criteria_packet,
+)
+from rook.agent.local_worker_acceptance_criteria_sources import (
+    extract_acceptance_criteria_sources,
+)
+
 SLOTS = ("local", "cheap", "ceiling")
 TRANSPORT_MODES = ("free_text", "structured")
 DEFAULT_LOCAL_TRANSPORT_MODE = "free_text"
@@ -128,6 +135,10 @@ EVIDENCE_PACKET_ID = "lm5n_repair_evidence"
 REPAIR_INTENT_EVIDENCE_PACKET_ID = "lm5t_repair_intent_evidence"
 ACCEPTANCE_CRITERIA_EVIDENCE_PACKET_ID = (
     "lm5u_acceptance_criteria_evidence"
+)
+ACCEPTANCE_CRITERIA_LEGACY_SOURCE = (
+    "workflow_contract + create_script.initial_execution_params + "
+    "create_script.receipt.script_receipt.repair_anchor + script_body_gotcha"
 )
 EVIDENCE_CURRENT_CODE_MAX_CHARS = 500
 EVIDENCE_TARGET_DIAGNOSTIC_MAX_ITEMS = 3
@@ -648,60 +659,22 @@ def _acceptance_pin_contract_from_params(params: Mapping[str, Any]) -> dict:
     }
 
 
-def _acceptance_criteria() -> dict:
+def _acceptance_criteria(graph) -> dict:
+    sources = extract_acceptance_criteria_sources(
+        workflow_contract=_probe_contract(),
+        graph=graph,
+        convention_packets=(_script_body_gotcha_packet(),),
+    )
+    packet = assemble_acceptance_criteria_packet(sources)
     return {
-        "source": (
-            "workflow_contract + create_script.initial_execution_params + "
-            "create_script.receipt.script_receipt.repair_anchor + "
-            "script_body_gotcha"
-        ),
+        "source": ACCEPTANCE_CRITERIA_LEGACY_SOURCE,
         "criteria": [
             {
-                "criterion_id": "output_a_assigned",
-                "description": "Output A must be assigned.",
-                "source": "create_script.initial_execution_params.pins_out",
-            },
-            {
-                "criterion_id": "output_a_double_compatible",
-                "description": "Output A must be double-compatible.",
-                "source": "create_script.initial_execution_params.pins_out",
-            },
-            {
-                "criterion_id": "verify_repair_succeeds",
-                "description": (
-                    "The repaired body must satisfy the verify_repair "
-                    "expected_outcome: succeeded."
-                ),
-                "source": (
-                    "workflow_contract.rules.verify_repair.expected_outcome"
-                ),
-            },
-            {
-                "criterion_id": "preserve_body_mode",
-                "description": "The repair must preserve body-style code.",
-                "source": "script_body_gotcha",
-            },
-            {
-                "criterion_id": "resolve_target_diagnostics",
-                "description": (
-                    "The repair must resolve the current target diagnostics."
-                ),
-                "source": (
-                    "create_script.receipt.script_receipt.repair_anchor."
-                    "target_errors"
-                ),
-            },
-            {
-                "criterion_id": "remove_unresolved_symbol",
-                "description": (
-                    "The repaired body must not leave "
-                    "DefinitelyMissingSymbol unresolved."
-                ),
-                "source": (
-                    "create_script.receipt.script_receipt.repair_anchor."
-                    "target_errors"
-                ),
-            },
+                "criterion_id": criterion["criterion_id"],
+                "description": criterion["description"],
+                "source": criterion["source"],
+            }
+            for criterion in packet["criteria"]
         ],
     }
 
@@ -956,7 +929,7 @@ def _acceptance_criteria_evidence_packet(graph):
                     "expected_outcome"
                 ),
             },
-            "acceptance_criteria": _acceptance_criteria(),
+            "acceptance_criteria": _acceptance_criteria(graph),
         },
     }
     return WorkerKnowledgePacket(
