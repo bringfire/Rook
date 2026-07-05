@@ -926,7 +926,9 @@ def test_acceptance_criteria_v3_uses_assembled_legacy_projection() -> None:
     )
     assembled = assemble_acceptance_criteria_packet(sources)
 
-    assert packet.content["fields"]["acceptance_criteria"]["criteria"] == (
+    assert _jsonable(
+        packet.content["fields"]["acceptance_criteria"]["criteria"]
+    ) == (
         _legacy_acceptance_criteria_projection(assembled["criteria"])
     )
 
@@ -1012,6 +1014,7 @@ def test_acceptance_criteria_v3_hides_assembled_packet_metadata() -> None:
     rendered = json.dumps(_jsonable(packet.content), sort_keys=True)
 
     assert "rook.acceptance_criteria_packet:v1" not in rendered
+    assert '"schema"' not in rendered
     assert "source_class" not in rendered
     assert "source_set" not in rendered
     assert "unresolved_intent" not in rendered
