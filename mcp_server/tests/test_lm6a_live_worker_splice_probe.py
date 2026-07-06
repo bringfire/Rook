@@ -124,3 +124,60 @@ def test_worker_visible_acceptance_criteria_projection_excludes_lm5w_metadata() 
     assert "source_set" not in rendered
     assert "fingerprint" not in rendered
     assert "rook.acceptance_criteria_packet:v1" not in rendered
+
+
+def test_decision_for_gate_failed_is_bounded() -> None:
+    decision = PROBE._decision_record(
+        decision="gate_failed",
+        reason="phase_a_routability_failed",
+        phase="receipt_recon",
+    )
+
+    assert decision["decision"] == "gate_failed"
+    assert decision["reason"] == "phase_a_routability_failed"
+    assert decision["live_repair_dispatched"] is False
+    assert decision["verify_repair_ran"] is False
+    rendered = json.dumps(decision, sort_keys=True)
+    assert "A = 42.0" not in rendered
+    assert "PROBE_REPAIR_CODE" not in rendered
+
+
+def test_hidden_answer_scan_rejects_visible_leak() -> None:
+    assert PROBE._hidden_answer_leaks({"code": "A = 42.0;"}) == ["A = 42.0"]
+    assert PROBE._hidden_answer_leaks({"text": "PROBE_REPAIR_CODE"}) == [
+        "PROBE_REPAIR_CODE"
+    ]
+    assert PROBE._hidden_answer_leaks({"code": "A = 0.0;"}) == []
+
+
+def test_phase_a_gate_fails_when_routability_not_evaluated(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    class _Report:
+        valid = True
+        routability_evaluated = False
+        static_diagnostics = ()
+        routability_diagnostics = ()
+
+    monkeypatch.setattr(
+        PROBE,
+        "_run_live_create_and_verify",
+        lambda *args, **kwargs: {
+            "graph": object(),
+            "workflow_contract": PROBE._lm6a_bind_free_contract(),
+            "convention_packets": (),
+            "live_create_summary": {},
+            "verify_create_summary": {},
+        },
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "validate_worker_visible_source_routing",
+        lambda *args, **kwargs: _Report(),
+    )
+
+    recon = PROBE._run_phase_a_recon(run_dir=tmp_path, agent=None)
+
+    assert recon["decision"]["decision"] == "gate_failed"
+    assert recon["decision"]["reason"] == "phase_a_routability_not_evaluated"

@@ -9,6 +9,7 @@ local artifacts under probe_runs/.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from collections.abc import Mapping
@@ -26,6 +27,15 @@ for _path in (str(_SCRIPT_DIR), str(_REPO_ROOT), str(_MCP_SRC)):
 from lm5k_worker_probe import (  # noqa: E402
     ACCEPTANCE_CRITERIA_LEGACY_SOURCE,
     _probe_contract,
+)
+from rook.agent.local_worker_acceptance_criteria import (  # noqa: E402
+    assemble_acceptance_criteria_packet,
+)
+from rook.agent.local_worker_acceptance_criteria_sources import (  # noqa: E402
+    extract_acceptance_criteria_sources,
+)
+from rook.agent.local_worker_source_routing_validator import (  # noqa: E402
+    validate_worker_visible_source_routing,
 )
 
 
@@ -187,6 +197,111 @@ def _legacy_acceptance_criteria_projection(
             }
             for item in criteria
         ],
+    }
+
+
+def _sha256_json(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
+    path.write_text(
+        json.dumps(dict(payload), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _hidden_answer_leaks(value: Any) -> list[str]:
+    rendered = json.dumps(value, sort_keys=True, default=str)
+    leaks = []
+    for needle in ("PROBE_REPAIR_CODE", "A = 42.0", "BindStepSpec.base_params.code"):
+        if needle in rendered:
+            leaks.append(needle)
+    return leaks
+
+
+def _decision_record(
+    *,
+    decision: str,
+    reason: str,
+    phase: str,
+    live_repair_dispatched: bool = False,
+    verify_repair_ran: bool = False,
+    **extra: Any,
+) -> dict[str, Any]:
+    return {
+        "schema": "rook.lm6a_decision:v1",
+        "decision": decision,
+        "reason": reason,
+        "phase": phase,
+        "live_repair_dispatched": live_repair_dispatched,
+        "verify_repair_ran": verify_repair_ran,
+        **extra,
+    }
+
+
+def _run_live_create_and_verify(*, agent: Any) -> dict[str, Any]:
+    raise RuntimeError("live create/verify is implemented in Task 10")
+
+
+def _run_phase_a_recon(*, run_dir: Path, agent: Any) -> dict[str, Any]:
+    live = _run_live_create_and_verify(agent=agent)
+    report = validate_worker_visible_source_routing(
+        _LM6A_ROUTING_ARTIFACT,
+        workflow_contract=live["workflow_contract"],
+        graph=live["graph"],
+        convention_packets=live["convention_packets"],
+        worker_node_ids=("repair_same_component",),
+    )
+    if report.routability_evaluated is not True:
+        decision = _decision_record(
+            decision="gate_failed",
+            reason="phase_a_routability_not_evaluated",
+            phase="receipt_recon",
+        )
+        return {"decision": decision, "routing_report": report, **live}
+
+    errors = [
+        diagnostic
+        for diagnostic in (*report.static_diagnostics, *report.routability_diagnostics)
+        if diagnostic.severity == "error"
+    ]
+    if errors:
+        decision = _decision_record(
+            decision="gate_failed",
+            reason="phase_a_routability_failed",
+            phase="receipt_recon",
+        )
+        return {"decision": decision, "routing_report": report, **live}
+
+    sources = extract_acceptance_criteria_sources(
+        workflow_contract=live["workflow_contract"],
+        graph=live["graph"],
+        convention_packets=live["convention_packets"],
+    )
+    packet = assemble_acceptance_criteria_packet(sources)
+    visible = _legacy_acceptance_criteria_projection(packet)
+    if _hidden_answer_leaks(visible):
+        decision = _decision_record(
+            decision="gate_failed",
+            reason="phase_a_hidden_answer_leak",
+            phase="receipt_recon",
+        )
+        return {
+            "decision": decision,
+            "routing_report": report,
+            "acceptance_criteria_packet": packet,
+            **live,
+        }
+
+    return {
+        "decision": None,
+        "routing_report": report,
+        "acceptance_criteria_packet": packet,
+        "legacy_acceptance_criteria": visible,
+        **live,
     }
 
 
