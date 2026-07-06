@@ -1337,3 +1337,143 @@ def test_write_actor_metadata_bundle_v2_rejects_non_list_collections(
     assert data["code"] == "metadata_collection_invalid"
     assert data["field_path"] == field_path
     _assert_no_rook_files(model.parent)
+
+
+def test_storage_identity_ref_vectors_are_stable():
+    cases = [
+        (
+            metadata.KIND_ACTOR_SET,
+            {
+                "kind": "actor_set",
+                "actor_set_id": "roof_uplift_vertical_test_chunk_001",
+            },
+            ".rook/director/v2/actor_sets/as_c1ec0538f22b.json",
+        ),
+        (
+            metadata.KIND_SELECTION_SNAPSHOT,
+            {
+                "kind": "selection_snapshot",
+                "snapshot_id": "intent_007_20260701_151718",
+            },
+            ".rook/director/v2/snapshots/snap_df85677fc72b.json",
+        ),
+        (
+            metadata.KIND_ACTOR_SUBSET,
+            {
+                "kind": "subset",
+                "actor_set_id": "roof_uplift_vertical_test_chunk_001",
+                "subset_id": "same_orientation_mullions_001",
+            },
+            ".rook/director/v2/subsets/sub_441d535918e7.json",
+        ),
+        (
+            metadata.KIND_ACTOR_GROUPING,
+            {
+                "kind": "grouping",
+                "actor_set_id": "roof_uplift_vertical_test_chunk_001",
+                "subset_id": "same_orientation_mullions_001",
+                "band_set_id": "same_orientation_mullions_001_bands_001",
+            },
+            ".rook/director/v2/groupings/grp_bc337869b2f0.json",
+        ),
+    ]
+
+    for metadata_kind, identity, expected_ref in cases:
+        ref = metadata.canonical_ref_for_storage_identity(identity)
+        assert ref == expected_ref
+        assert metadata.canonical_ref_matches_storage_identity(ref, identity)
+        assert metadata.metadata_kind_for_storage_identity(identity) == metadata_kind
+
+
+def test_storage_identity_ref_uses_expected_canonical_hash():
+    identity = {
+        "kind": "grouping",
+        "actor_set_id": "roof_uplift_vertical_test_chunk_001",
+        "subset_id": "same_orientation_mullions_001",
+        "band_set_id": "same_orientation_mullions_001_bands_001",
+    }
+
+    assert metadata.storage_identity_hash(identity) == "bc337869b2f0"
+    assert metadata.storage_identity_hash(
+        {
+            "band_set_id": "same_orientation_mullions_001_bands_001",
+            "subset_id": "same_orientation_mullions_001",
+            "actor_set_id": "roof_uplift_vertical_test_chunk_001",
+            "kind": "grouping",
+        }
+    ) == "bc337869b2f0"
+    assert metadata.canonical_ref_for_storage_identity(identity) == (
+        ".rook/director/v2/groupings/grp_bc337869b2f0.json"
+    )
+
+
+@pytest.mark.parametrize(
+    "identity",
+    [
+        {"kind": "unknown", "actor_set_id": "actor_set_001"},
+        {
+            "kind": "actor_set",
+            "actor_set_id": "actor_set_001",
+            "subset_id": "extra",
+        },
+        {"kind": "selection_snapshot", "snapshot_id": ""},
+        {"kind": "subset", "actor_set_id": "actor_set_001"},
+        {
+            "kind": "grouping",
+            "actor_set_id": "actor_set_001",
+            "subset_id": "subset_001",
+            "band_set_id": 123,
+        },
+    ],
+)
+def test_storage_identity_ref_rejects_invalid_canonical_identity(identity):
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        metadata.storage_identity_hash(identity)
+
+    assert _error_code(exc) == "storage_identity_invalid"
+
+
+def test_canonical_refs_have_path_budget_and_no_semantic_path_leakage():
+    semantic_values = {
+        "roof_uplift_vertical_test_chunk_001",
+        "same_orientation_mullions_001",
+        "same_orientation_mullions_001_bands_001",
+        "intent_007_20260701_151718",
+    }
+    identities = [
+        {
+            "kind": "actor_set",
+            "actor_set_id": "roof_uplift_vertical_test_chunk_001",
+        },
+        {
+            "kind": "selection_snapshot",
+            "snapshot_id": "intent_007_20260701_151718",
+        },
+        {
+            "kind": "subset",
+            "actor_set_id": "roof_uplift_vertical_test_chunk_001",
+            "subset_id": "same_orientation_mullions_001",
+        },
+        {
+            "kind": "grouping",
+            "actor_set_id": "roof_uplift_vertical_test_chunk_001",
+            "subset_id": "same_orientation_mullions_001",
+            "band_set_id": "same_orientation_mullions_001_bands_001",
+        },
+    ]
+    deep_root = Path(
+        "C:/Users/aryan/Documents/Project Transfers/"
+        "Pearson Director Animation Transfer/V2"
+    )
+
+    for identity in identities:
+        ref = metadata.canonical_ref_for_storage_identity(identity)
+        assert len(ref) <= metadata.CANONICAL_REF_MAX_LENGTH
+        assert (
+            len(str(deep_root / Path(*ref.split("/"))))
+            < metadata.DEEP_TRANSFER_PATH_MAX_LENGTH
+        )
+        segments = ref.split("/")
+        for semantic_value in semantic_values:
+            assert semantic_value not in segments
+            assert semantic_value not in ref

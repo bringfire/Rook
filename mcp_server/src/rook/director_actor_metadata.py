@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 from collections import Counter
 import datetime
+import hashlib
 import json
 import re
 import uuid
@@ -30,6 +31,32 @@ LEGACY_DURABLE_PATH_FIELDS = {
     "path",
     "accepted_selection_snapshot_path",
     "exemplar_selection_snapshot_path",
+}
+
+STORAGE_VERSION = 2
+REF_PROTOCOL = "director_short_refs_v1"
+CANONICAL_REF_PREFIX = ".rook/director/v2/"
+LEGACY_REF_PREFIX = ".rook/director_planning/"
+CANONICAL_REF_MAX_LENGTH = 120
+DEEP_TRANSFER_PATH_MAX_LENGTH = 240
+
+STORAGE_KIND_ACTOR_SET = "actor_set"
+STORAGE_KIND_SELECTION_SNAPSHOT = "selection_snapshot"
+STORAGE_KIND_SUBSET = "subset"
+STORAGE_KIND_GROUPING = "grouping"
+
+_STORAGE_KIND_TO_METADATA_KIND = {
+    STORAGE_KIND_ACTOR_SET: KIND_ACTOR_SET,
+    STORAGE_KIND_SELECTION_SNAPSHOT: KIND_SELECTION_SNAPSHOT,
+    STORAGE_KIND_SUBSET: KIND_ACTOR_SUBSET,
+    STORAGE_KIND_GROUPING: KIND_ACTOR_GROUPING,
+}
+
+_STORAGE_KIND_TO_REF_PARTS = {
+    STORAGE_KIND_ACTOR_SET: ("actor_sets", "as"),
+    STORAGE_KIND_SELECTION_SNAPSHOT: ("snapshots", "snap"),
+    STORAGE_KIND_SUBSET: ("subsets", "sub"),
+    STORAGE_KIND_GROUPING: ("groupings", "grp"),
 }
 
 _DRIVE_PREFIX_RE = re.compile(r"^[A-Za-z]:")
@@ -400,6 +427,86 @@ def _is_safe_windows_filename_segment(value: str) -> bool:
         or _DRIVE_PREFIX_RE.match(value)
         or reserved_name in _WINDOWS_RESERVED_DEVICE_NAMES
     )
+
+
+def _canonical_identity_bytes(identity: dict[str, Any]) -> bytes:
+    return json.dumps(
+        identity,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+
+
+def storage_identity_hash(identity: dict[str, Any]) -> str:
+    _validate_storage_identity(identity)
+    return hashlib.sha256(_canonical_identity_bytes(identity)).hexdigest()[:12]
+
+
+def _validate_storage_identity(identity: dict[str, Any]) -> None:
+    if not isinstance(identity, dict):
+        _raise("storage_identity_invalid", "Storage identity must be an object.")
+    kind = identity.get("kind")
+    if kind not in _STORAGE_KIND_TO_METADATA_KIND:
+        _raise(
+            "storage_identity_invalid",
+            "Storage identity kind is unsupported.",
+            kind=kind,
+        )
+    required_by_kind = {
+        STORAGE_KIND_ACTOR_SET: ("kind", "actor_set_id"),
+        STORAGE_KIND_SELECTION_SNAPSHOT: ("kind", "snapshot_id"),
+        STORAGE_KIND_SUBSET: ("kind", "actor_set_id", "subset_id"),
+        STORAGE_KIND_GROUPING: (
+            "kind",
+            "actor_set_id",
+            "subset_id",
+            "band_set_id",
+        ),
+    }
+    required = required_by_kind[kind]
+    if set(identity) != set(required):
+        _raise(
+            "storage_identity_invalid",
+            "Storage identity fields do not match the storage kind.",
+            kind=kind,
+            expected_fields=list(required),
+            actual_fields=sorted(identity),
+        )
+    for key in required:
+        value = identity[key]
+        if not isinstance(value, str) or not value:
+            _raise(
+                "storage_identity_invalid",
+                "Storage identity fields must be non-empty strings.",
+                field=key,
+            )
+
+
+def metadata_kind_for_storage_identity(identity: dict[str, Any]) -> str:
+    _validate_storage_identity(identity)
+    return _STORAGE_KIND_TO_METADATA_KIND[identity["kind"]]
+
+
+def canonical_ref_for_storage_identity(identity: dict[str, Any]) -> str:
+    _validate_storage_identity(identity)
+    folder, prefix = _STORAGE_KIND_TO_REF_PARTS[identity["kind"]]
+    ref = f"{CANONICAL_REF_PREFIX}{folder}/{prefix}_{storage_identity_hash(identity)}.json"
+    validate_metadata_ref(ref)
+    if len(ref) > CANONICAL_REF_MAX_LENGTH:
+        _raise(
+            "metadata_ref_path_budget_exceeded",
+            "Canonical Director metadata ref exceeds the path budget.",
+            ref=ref,
+            ref_length=len(ref),
+            max_ref_length=CANONICAL_REF_MAX_LENGTH,
+        )
+    return ref
+
+
+def canonical_ref_matches_storage_identity(ref: str, identity: dict[str, Any]) -> bool:
+    return validate_metadata_ref(ref) == canonical_ref_for_storage_identity(identity)
 
 
 def _optional_list(
