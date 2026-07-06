@@ -249,6 +249,54 @@ def test_pass1_decision_invalid_maps_to_status() -> None:
     assert result.response_payload is None
 
 
+def test_decision_guard_blocks_full_decision_before_pass2() -> None:
+    hidden_decision = json.dumps(
+        {
+            "kind": "action_request",
+            "action_id": "draft_repair_params",
+            "rationale": "x" * 80 + " A = 42.0;",
+        }
+    )
+    provider = _FakeProvider(
+        [
+            _ollama_response(hidden_decision),
+            _ollama_response(
+                json.dumps(
+                    {
+                        "schema": "rook.local_worker_turn_response:v1",
+                        "kind": "action_request",
+                        "action_id": "draft_repair_params",
+                        "rationale": "clean",
+                        "input": {"code": "A = 0.0;", "mode": "body"},
+                    }
+                )
+            ),
+        ]
+    )
+
+    result = HELPER.run_two_pass_worker_publication(
+        _request_payload(),
+        model="gemma4:12b-it-qat",
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=30,
+        post_chat=provider,
+        decision_guard=lambda decision: (
+            "pass1_hidden_answer_leak"
+            if "A = 42.0" in json.dumps(decision, sort_keys=True)
+            else None
+        ),
+    )
+
+    assert result.row["status"] == "pass1_decision_invalid"
+    assert result.row["failure_reason"] == "pass1_hidden_answer_leak"
+    assert result.row["pass1_content_excerpt"] == hidden_decision[:30]
+    assert "A = 42.0" not in result.row["pass1_content_excerpt"]
+    assert result.response_payload is None
+    assert len(provider.calls) == 1
+
+
 def test_pass2_lm5g_invalid_maps_to_status() -> None:
     provider = _FakeProvider(
         [

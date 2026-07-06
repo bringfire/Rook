@@ -184,6 +184,115 @@ def test_phase_a_gate_fails_when_routability_not_evaluated(
     assert recon["decision"]["reason"] == "phase_a_routability_not_evaluated"
 
 
+def test_phase_a_extraction_failure_writes_gate_decision_and_honest_recon(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    class _Report:
+        valid = True
+        routability_evaluated = True
+        static_diagnostics = ()
+        routability_diagnostics = ()
+
+    monkeypatch.setattr(
+        PROBE,
+        "_run_live_create_and_verify",
+        lambda *args, **kwargs: {
+            "graph": object(),
+            "workflow_contract": PROBE._lm6a_bind_free_contract(),
+            "convention_packets": (),
+            "anchor_binding": {"component_guid": "GUID-1", "language": "csharp"},
+            "live_create_summary": {"repair_anchor": {"component_guid": "GUID-1"}},
+            "verify_create_summary": {},
+        },
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "validate_worker_visible_source_routing",
+        lambda *args, **kwargs: _Report(),
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "extract_acceptance_criteria_sources",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("missing source")),
+    )
+
+    recon = PROBE._run_phase_a_recon(run_dir=tmp_path, agent=None)
+
+    phase_a_recon = json.loads((tmp_path / "phase_a_recon.json").read_text())
+    assert phase_a_recon["repair_anchor_target_errors_present"] is False
+    assert phase_a_recon["repair_anchor_target_error_count"] is None
+    assert recon["decision"]["decision"] == "gate_failed"
+    assert recon["decision"]["reason"] == (
+        "phase_a_acceptance_criteria_extraction_failed:ValueError"
+    )
+
+
+def test_phase_a_worker_request_failure_writes_gate_decision(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    class _Report:
+        valid = True
+        routability_evaluated = True
+        static_diagnostics = ()
+        routability_diagnostics = ()
+
+    packet = {
+        "criteria": [
+            {
+                "criterion_id": "output_a_assigned",
+                "description": "Output A must be assigned.",
+                "source": "create_script.initial_execution_params.pins_out",
+                "source_class": "pin_contract",
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        PROBE,
+        "_run_live_create_and_verify",
+        lambda *args, **kwargs: {
+            "graph": object(),
+            "scaffold": object(),
+            "workflow_contract": PROBE._lm6a_bind_free_contract(),
+            "convention_packets": (),
+            "anchor_binding": {"component_guid": "GUID-1", "language": "csharp"},
+            "live_create_summary": {
+                "repair_anchor": {
+                    "component_guid": "GUID-1",
+                    "target_errors": [PROBE.REPAIR_TARGET_ERROR],
+                }
+            },
+            "verify_create_summary": {},
+        },
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "validate_worker_visible_source_routing",
+        lambda *args, **kwargs: _Report(),
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "extract_acceptance_criteria_sources",
+        lambda *args, **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "assemble_acceptance_criteria_packet",
+        lambda *args, **kwargs: packet,
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "_worker_request_payload",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("no request")),
+    )
+
+    recon = PROBE._run_phase_a_recon(run_dir=tmp_path, agent=None)
+
+    assert recon["decision"]["decision"] == "gate_failed"
+    assert recon["decision"]["reason"] == "phase_a_worker_request_failed:RuntimeError"
+
+
 def _published_payload(kind: str, **extra) -> dict:
     payload = {"schema": "rook.local_worker_turn_response:v1", "kind": kind}
     payload.update(extra)
@@ -241,10 +350,26 @@ def test_worker_action_apply_failure_maps_to_rejected() -> None:
         reason = "invalid_mode"
         params_sha256 = None
 
-    decision = PROBE._decision_from_worker_action_apply(_ApplyResult())
+    decision = PROBE._decision_from_worker_action_apply(
+        _ApplyResult(),
+        action_context={
+            "worker_response_kind": "action_request",
+            "worker_action_id": "draft_repair_params",
+            "worker_action_input_sha256": "abc123",
+            "worker_action_input_excerpt": '{"code":"A = 0.0;","mode":"body"}',
+            "worker_action_input_full_path": "probe_runs/demo/worker_action.json",
+        },
+    )
 
     assert decision["decision"] == "rejected"
     assert decision["reason"] == "worker_action_apply_failed:invalid_mode"
+    assert decision["worker_response_kind"] == "action_request"
+    assert decision["worker_action_id"] == "draft_repair_params"
+    assert decision["worker_action_input_sha256"] == "abc123"
+    assert decision["worker_action_input_excerpt"] == '{"code":"A = 0.0;","mode":"body"}'
+    assert decision["worker_action_input_full_path"] == (
+        "probe_runs/demo/worker_action.json"
+    )
     assert decision["live_repair_dispatched"] is False
     assert decision["verify_repair_ran"] is False
 
@@ -332,8 +457,161 @@ def test_full_flow_action_apply_rejection_writes_decision(
     decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
     assert decision["decision"] == "rejected"
     assert decision["reason"] == "worker_action_apply_failed:invalid_mode"
+    assert decision["worker_response_kind"] == "action_request"
+    assert decision["worker_action_id"] == "draft_repair_params"
+    assert decision["worker_action_input_sha256"]
+    assert decision["worker_action_input_excerpt"]
+    assert decision["worker_action_input_full_path"].endswith("worker_action.json")
     assert not (run_dir / "live_repair_summary.json").exists()
     assert (run_dir / "worker_action.json").exists()
+
+
+def test_full_flow_publication_row_hidden_answer_leak_stops_before_artifact(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        PROBE,
+        "_run_phase_a_recon",
+        lambda **kwargs: {
+            "decision": None,
+            "request_payload": {"context": {"allowed_actions": []}},
+        },
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "run_two_pass_worker_publication",
+        lambda *args, **kwargs: type(
+            "Result",
+            (),
+            {
+                "row": {
+                    "status": "published",
+                    "pass2_content_excerpt": "hidden A = 42.0;",
+                },
+                "response_payload": None,
+            },
+        )(),
+    )
+
+    run_dir = PROBE._run_probe(
+        phase="full",
+        model="gemma4:12b-it-qat",
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        run_root=tmp_path,
+        agent=None,
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "worker_publication_hidden_answer_leak"
+    assert not (run_dir / "worker_publication_row.json").exists()
+
+
+def test_full_flow_passes_hidden_answer_guard_to_publication_helper(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    def _fake_publication(*_args, **kwargs):
+        guard = kwargs["decision_guard"]
+        assert guard({"kind": "action_request", "rationale": "A = 42.0;"}) == (
+            "pass1_hidden_answer_leak"
+        )
+        return type(
+            "Result",
+            (),
+            {
+                "row": {
+                    "status": "pass1_decision_invalid",
+                    "failure_reason": "pass1_hidden_answer_leak",
+                },
+                "response_payload": None,
+            },
+        )()
+
+    monkeypatch.setattr(
+        PROBE,
+        "_run_phase_a_recon",
+        lambda **kwargs: {
+            "decision": None,
+            "request_payload": {"context": {"allowed_actions": []}},
+        },
+    )
+    monkeypatch.setattr(PROBE, "run_two_pass_worker_publication", _fake_publication)
+
+    run_dir = PROBE._run_probe(
+        phase="full",
+        model="gemma4:12b-it-qat",
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        run_root=tmp_path,
+        agent=None,
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "pass1_hidden_answer_leak"
+    assert (run_dir / "worker_publication_row.json").exists()
+    assert not (run_dir / "worker_action.json").exists()
+
+
+def test_full_flow_worker_action_hidden_answer_leak_rejects_without_dispatch(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        PROBE,
+        "_run_phase_a_recon",
+        lambda **kwargs: {
+            "decision": None,
+            "graph": object(),
+            "anchor_binding": {"component_guid": "GUID-1", "language": "csharp"},
+            "request_payload": {"context": {"allowed_actions": []}},
+        },
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "run_two_pass_worker_publication",
+        lambda *args, **kwargs: type(
+            "Result",
+            (),
+            {
+                "row": {"status": "published"},
+                "response_payload": {
+                    "schema": "rook.local_worker_turn_response:v1",
+                    "kind": "action_request",
+                    "action_id": "draft_repair_params",
+                    "rationale": "Acting.",
+                    "input": {"code": "A = 42.0;", "mode": "body"},
+                },
+            },
+        )(),
+    )
+
+    run_dir = PROBE._run_probe(
+        phase="full",
+        model="gemma4:12b-it-qat",
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        run_root=tmp_path,
+        agent=None,
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    assert decision["decision"] == "rejected"
+    assert decision["reason"] == "worker_action_hidden_answer_leak"
+    assert decision["live_repair_dispatched"] is False
+    assert "worker_action_input_excerpt" not in decision
+    assert "A = 42.0" not in json.dumps(decision, sort_keys=True)
+    assert (run_dir / "worker_action.json").exists()
+    assert not (run_dir / "live_repair_summary.json").exists()
 
 
 def test_live_summary_extracts_bounded_repair_anchor() -> None:
@@ -360,6 +638,8 @@ def test_live_summary_extracts_bounded_repair_anchor() -> None:
         "language": "csharp",
         "target_errors": [PROBE.REPAIR_TARGET_ERROR],
     }
+    assert summary["artifact_status"] == "created_with_errors"
+    assert summary["receipt_status"] == "created_with_errors"
     assert summary["receipt_sha256"] is not None
 
 

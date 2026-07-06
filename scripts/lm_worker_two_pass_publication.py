@@ -540,6 +540,7 @@ def run_two_pass_worker_publication(
     timeout_s: float,
     excerpt_chars: int,
     post_chat: Callable[[str, dict[str, Any], float], str] = _post_ollama_chat,
+    decision_guard: Callable[[Mapping[str, Any]], str | None] | None = None,
 ) -> TwoPassPublicationResult:
     row = _empty_publication_row(model=model)
     pass1_body = _build_pass1_body(
@@ -594,6 +595,13 @@ def run_two_pass_worker_publication(
     row["pass1_observation_action_intent_reasons"] = pass1_observation_reasons
     row["pass1_observation_action_intent_anomaly"] = bool(pass1_observation_reasons)
     _set_combined_observation_anomaly(row)
+
+    if decision_guard is not None:
+        guard_failure = decision_guard(decision)
+        if guard_failure is not None:
+            row["status"] = "pass1_decision_invalid"
+            row["failure_reason"] = guard_failure
+            return _result(row)
 
     single_kind_schema = _single_kind_response_schema(decision)
     row["pass2_schema_kind"] = decision["kind"]

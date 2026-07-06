@@ -228,6 +228,57 @@ def _hidden_answer_leaks(value: Any) -> list[str]:
     return leaks
 
 
+def _phase_a_recon_summary(live: Mapping[str, Any]) -> dict[str, Any]:
+    live_create_summary = live.get("live_create_summary")
+    repair_anchor = (
+        live_create_summary.get("repair_anchor")
+        if isinstance(live_create_summary, Mapping)
+        else None
+    )
+    target_errors = (
+        repair_anchor.get("target_errors") if isinstance(repair_anchor, Mapping) else None
+    )
+    return {
+        "repair_anchor_target_errors_present": (
+            isinstance(target_errors, list) and bool(target_errors)
+        ),
+        "repair_anchor_target_error_count": (
+            len(target_errors) if isinstance(target_errors, list) else None
+        ),
+        "anchor_binding": live["anchor_binding"],
+    }
+
+
+def _worker_action_input_text(action_input: Any) -> str:
+    return json.dumps(action_input, sort_keys=True, default=str)
+
+
+def _worker_action_context(
+    *,
+    response_payload: Mapping[str, Any],
+    run_dir: Path,
+    excerpt_chars: int,
+    include_excerpt: bool = True,
+) -> dict[str, Any]:
+    action_input = response_payload.get("input")
+    action_input_text = _worker_action_input_text(action_input)
+    context = {
+        "worker_response_kind": response_payload.get("kind"),
+        "worker_action_id": response_payload.get("action_id"),
+        "worker_action_input_sha256": hashlib.sha256(
+            action_input_text.encode("utf-8")
+        ).hexdigest(),
+        "worker_action_input_full_path": str(run_dir / "worker_action.json"),
+    }
+    if include_excerpt:
+        context["worker_action_input_excerpt"] = action_input_text[:excerpt_chars]
+    return context
+
+
+def _pass1_decision_hidden_answer_failure(decision: Mapping[str, Any]) -> str | None:
+    return "pass1_hidden_answer_leak" if _hidden_answer_leaks(decision) else None
+
+
 def _decision_record(
     *,
     decision: str,
@@ -342,6 +393,9 @@ def _live_result_summary(
         "tool_name": tool_name,
         "node_status": node_status,
         "outcome_status": outcome_status,
+        "artifact_status": (
+            receipt.get("artifact_status") if isinstance(receipt, Mapping) else None
+        ),
         "verified": verified,
         "receipt_status": (
             receipt.get("artifact_status") if isinstance(receipt, Mapping) else None
@@ -395,15 +449,19 @@ def _worker_request_payload(
 
 def _run_phase_a_recon(*, run_dir: Path, agent: Any) -> dict[str, Any]:
     live = _run_live_create_and_verify(agent=agent)
+    if _hidden_answer_leaks(live["live_create_summary"]) or _hidden_answer_leaks(
+        live["verify_create_summary"]
+    ):
+        decision = _decision_record(
+            decision="gate_failed",
+            reason="phase_a_hidden_answer_leak",
+            phase="receipt_recon",
+        )
+        return {"decision": decision, **live}
+
     _write_json(run_dir / "live_create_summary.json", live["live_create_summary"])
     _write_json(run_dir / "verify_create_summary.json", live["verify_create_summary"])
-    _write_json(
-        run_dir / "phase_a_recon.json",
-        {
-            "repair_anchor_target_errors_present": True,
-            "anchor_binding": live["anchor_binding"],
-        },
-    )
+    _write_json(run_dir / "phase_a_recon.json", _phase_a_recon_summary(live))
     report = validate_worker_visible_source_routing(
         _LM6A_ROUTING_ARTIFACT,
         workflow_contract=live["workflow_contract"],
@@ -445,13 +503,45 @@ def _run_phase_a_recon(*, run_dir: Path, agent: Any) -> dict[str, Any]:
         )
         return {"decision": decision, "routing_report": report, **live}
 
-    sources = extract_acceptance_criteria_sources(
-        workflow_contract=live["workflow_contract"],
-        graph=live["graph"],
-        convention_packets=live["convention_packets"],
-    )
-    packet = assemble_acceptance_criteria_packet(sources)
-    visible = _legacy_acceptance_criteria_projection(packet)
+    try:
+        sources = extract_acceptance_criteria_sources(
+            workflow_contract=live["workflow_contract"],
+            graph=live["graph"],
+            convention_packets=live["convention_packets"],
+        )
+    except Exception as exc:
+        decision = _decision_record(
+            decision="gate_failed",
+            reason=f"phase_a_acceptance_criteria_extraction_failed:{type(exc).__name__}",
+            phase="receipt_recon",
+        )
+        return {"decision": decision, "routing_report": report, **live}
+
+    try:
+        packet = assemble_acceptance_criteria_packet(sources)
+    except Exception as exc:
+        decision = _decision_record(
+            decision="gate_failed",
+            reason=f"phase_a_acceptance_criteria_assembly_failed:{type(exc).__name__}",
+            phase="receipt_recon",
+        )
+        return {"decision": decision, "routing_report": report, **live}
+
+    try:
+        visible = _legacy_acceptance_criteria_projection(packet)
+    except Exception as exc:
+        decision = _decision_record(
+            decision="gate_failed",
+            reason=f"phase_a_acceptance_criteria_projection_failed:{type(exc).__name__}",
+            phase="receipt_recon",
+        )
+        return {
+            "decision": decision,
+            "routing_report": report,
+            "acceptance_criteria_packet": packet,
+            **live,
+        }
+
     if _hidden_answer_leaks(visible):
         decision = _decision_record(
             decision="gate_failed",
@@ -464,10 +554,24 @@ def _run_phase_a_recon(*, run_dir: Path, agent: Any) -> dict[str, Any]:
             "acceptance_criteria_packet": packet,
             **live,
         }
-    request_payload = _worker_request_payload(
-        scaffold=live["scaffold"],
-        graph=live["graph"],
-    )
+    try:
+        request_payload = _worker_request_payload(
+            scaffold=live["scaffold"],
+            graph=live["graph"],
+        )
+    except Exception as exc:
+        decision = _decision_record(
+            decision="gate_failed",
+            reason=f"phase_a_worker_request_failed:{type(exc).__name__}",
+            phase="receipt_recon",
+        )
+        return {
+            "decision": decision,
+            "routing_report": report,
+            "acceptance_criteria_packet": packet,
+            **live,
+        }
+
     if _hidden_answer_leaks(request_payload):
         decision = _decision_record(
             decision="gate_failed",
@@ -533,11 +637,16 @@ def _decision_from_worker_publication(
     )
 
 
-def _decision_from_worker_action_apply(apply_result: Any) -> dict[str, Any]:
+def _decision_from_worker_action_apply(
+    apply_result: Any,
+    *,
+    action_context: Mapping[str, Any],
+) -> dict[str, Any]:
     return _decision_record(
         decision="rejected",
         reason=f"worker_action_apply_failed:{apply_result.reason}",
         phase="worker_action_apply",
+        **dict(action_context),
         worker_action_apply={
             "applied": False,
             "reason": apply_result.reason,
@@ -601,6 +710,7 @@ def _dispatch_repair_and_verify(
     agent: Any,
     params_sha256: str | None,
     run_dir: Path,
+    action_context: Mapping[str, Any],
 ) -> dict[str, Any]:
     from rook.learning.plan_graph_runner import apply_verifier_step
 
@@ -608,18 +718,27 @@ def _dispatch_repair_and_verify(
     graph = repair_result.graph
     repair_receipt = _extract_script_receipt(graph, "repair_same_component")
     repair_evidence = graph.nodes["repair_same_component"].evidence
-    _write_json(
-        run_dir / "live_repair_summary.json",
-        _live_result_summary(
-            node_id="repair_same_component",
-            tool_name=repair_result.tool_name,
-            node_status=graph.nodes["repair_same_component"].status,
-            outcome_status=str(repair_result.outcome_status),
-            verified=repair_evidence.verified if repair_evidence is not None else None,
-            receipt=repair_receipt,
-            params_sha256=params_sha256,
-        ),
+    live_repair_summary = _live_result_summary(
+        node_id="repair_same_component",
+        tool_name=repair_result.tool_name,
+        node_status=graph.nodes["repair_same_component"].status,
+        outcome_status=str(repair_result.outcome_status),
+        verified=repair_evidence.verified if repair_evidence is not None else None,
+        receipt=repair_receipt,
+        params_sha256=params_sha256,
     )
+    if _hidden_answer_leaks(live_repair_summary):
+        return {
+            "decision": _decision_record(
+                decision="rejected",
+                reason="live_repair_summary_hidden_answer_leak",
+                phase="live_repair",
+                live_repair_dispatched=True,
+                verify_repair_ran=False,
+                **dict(action_context),
+            )
+        }
+    _write_json(run_dir / "live_repair_summary.json", live_repair_summary)
     if repair_result.applied is not True:
         return {
             "decision": _decision_record(
@@ -628,6 +747,7 @@ def _dispatch_repair_and_verify(
                 phase="live_repair",
                 live_repair_dispatched=True,
                 verify_repair_ran=False,
+                **dict(action_context),
             )
         }
 
@@ -636,15 +756,24 @@ def _dispatch_repair_and_verify(
         "verify_repair",
         "repair_same_component",
     )
-    _write_json(
-        run_dir / "verify_repair_summary.json",
-        {
-            "verifier_node_id": "verify_repair",
-            "source_node_id": "repair_same_component",
-            "applied": verify_repair.applied,
-            "outcome_status": verify_repair.outcome_status,
-        },
-    )
+    verify_repair_summary = {
+        "verifier_node_id": "verify_repair",
+        "source_node_id": "repair_same_component",
+        "applied": verify_repair.applied,
+        "outcome_status": verify_repair.outcome_status,
+    }
+    if _hidden_answer_leaks(verify_repair_summary):
+        return {
+            "decision": _decision_record(
+                decision="rejected",
+                reason="verify_repair_summary_hidden_answer_leak",
+                phase="verify_repair",
+                live_repair_dispatched=True,
+                verify_repair_ran=True,
+                **dict(action_context),
+            )
+        }
+    _write_json(run_dir / "verify_repair_summary.json", verify_repair_summary)
     accepted = (
         verify_repair.applied is True and verify_repair.outcome_status == "succeeded"
     )
@@ -655,6 +784,7 @@ def _dispatch_repair_and_verify(
             phase="verify_repair",
             live_repair_dispatched=True,
             verify_repair_ran=True,
+            **dict(action_context),
         )
     }
 
@@ -715,7 +845,16 @@ def _run_probe(
         temperature=temperature,
         timeout_s=timeout_s,
         excerpt_chars=excerpt_chars,
+        decision_guard=_pass1_decision_hidden_answer_failure,
     )
+    if _hidden_answer_leaks(publication.row):
+        decision = _decision_record(
+            decision="publication_failed",
+            reason="worker_publication_hidden_answer_leak",
+            phase="worker_publication",
+        )
+        _write_json(run_dir / "decision.json", decision)
+        return run_dir
     _write_json(run_dir / "worker_publication_row.json", publication.row)
     decision = _decision_from_worker_publication(
         publication_row=publication.row,
@@ -727,7 +866,23 @@ def _run_probe(
 
     response_payload = publication.response_payload
     action_input = response_payload["input"]
+    worker_action_leaks = _hidden_answer_leaks(response_payload)
+    action_context = _worker_action_context(
+        response_payload=response_payload,
+        run_dir=run_dir,
+        excerpt_chars=excerpt_chars,
+        include_excerpt=not worker_action_leaks,
+    )
     _write_json(run_dir / "worker_action.json", response_payload)
+    if worker_action_leaks:
+        decision = _decision_record(
+            decision="rejected",
+            reason="worker_action_hidden_answer_leak",
+            phase="worker_action",
+            **action_context,
+        )
+        _write_json(run_dir / "decision.json", decision)
+        return run_dir
     apply_result = apply_worker_action_to_node(
         recon["graph"],
         "repair_same_component",
@@ -738,7 +893,10 @@ def _run_probe(
     if apply_result.applied is not True:
         _write_json(
             run_dir / "decision.json",
-            _decision_from_worker_action_apply(apply_result),
+            _decision_from_worker_action_apply(
+                apply_result,
+                action_context=action_context,
+            ),
         )
         return run_dir
 
@@ -747,6 +905,7 @@ def _run_probe(
         agent=agent,
         params_sha256=apply_result.params_sha256,
         run_dir=run_dir,
+        action_context=action_context,
     )
     _write_json(run_dir / "decision.json", final["decision"])
     return run_dir
