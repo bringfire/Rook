@@ -375,9 +375,21 @@ def test_pearson_fixture_contains_project_bindings_and_valid_template_refs() -> 
     assert fixture["proposal_id"] == "pearson_v2_smoke"
     assert fixture["templates"] == sorted(REQUIRED_TEMPLATE_IDS)
     assert set(fixture["templates"]) <= ids
-    assert fixture["actor_bindings"]["actor_set_ref"].endswith("roof_uplift_vertical_test_chunk_001.json")
     assert fixture["motion"]["strategy"] == "band_peel_wave"
     assert fixture["motion"]["max_height"] == 12000
+
+
+def test_pearson_fixture_uses_canonical_short_actor_refs() -> None:
+    fixture = _load_pearson_fixture()
+    refs = [
+        fixture["actor_bindings"]["actor_set_ref"],
+        fixture["actor_bindings"]["actor_grouping_ref"],
+    ]
+    for ref in refs:
+        assert ref.startswith(".rook/director/v2/")
+        assert ".rook/director_planning/" not in ref
+        assert "roof_uplift_vertical_test_chunk_001" not in ref
+        assert "same_orientation_mullions_001" not in ref
 
 
 def test_instantiation_plan_uses_existing_grasshopper_tools_only() -> None:

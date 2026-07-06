@@ -25,8 +25,8 @@
     "height": 720
   },
   "actor_bindings": {
-    "actor_set_ref": ".rook/director_planning/actor_sets/roof_uplift_vertical_test_chunk_001.json",
-    "actor_grouping_ref": ".rook/director_planning/actor_sets/roof_uplift_vertical_test_chunk_001_subsets/same_orientation_mullions_001_band_sets/same_orientation_mullions_001_bands_001.json",
+    "actor_set_ref": ".rook/director/v2/actor_sets/as_c1ec0538f22b.json",
+    "actor_grouping_ref": ".rook/director/v2/groupings/grp_bc337869b2f0.json",
     "source_object_ids": [
       "a28cbdb5-51fa-46b2-b18b-ab880b54ded7"
     ]

@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from rook import server, targeting
+from rook import director_actor_metadata, server, targeting
 from rook.agent import tool_groups
 from rook.agent.tool_registry import ToolRegistry
 
@@ -642,16 +642,17 @@ async def test_capture_source_occurrence_v2_tool_dispatch_success():
         "snapshot_id": "source_occurrence_roof_uplift_vertical_test_chunk_001",
         "ids": ["a28cbdb5-51fa-46b2-b18b-ab880b54ded7"],
     }
+    canonical_snapshot_ref = director_actor_metadata.canonical_ref_for_storage_identity(
+        {
+            "kind": "selection_snapshot",
+            "snapshot_id": "source_occurrence_roof_uplift_vertical_test_chunk_001",
+        }
+    )
 
     async def fake_capture(arguments, *, port=None):
         assert arguments == request
         assert port is None
-        return {
-            "snapshot_ref": (
-                ".rook/director_planning/selection_snapshots/"
-                "source_occurrence_roof_uplift_vertical_test_chunk_001.json"
-            )
-        }
+        return {"snapshot_ref": canonical_snapshot_ref}
 
     with patch(
         "rook.server.director_actor_metadata.capture_source_occurrence_v2",
@@ -663,9 +664,7 @@ async def test_capture_source_occurrence_v2_tool_dispatch_success():
         )
 
     payload = json.loads(out[0].text)
-    assert payload["snapshot_ref"].endswith(
-        "source_occurrence_roof_uplift_vertical_test_chunk_001.json"
-    )
+    assert payload["snapshot_ref"] == canonical_snapshot_ref
 
 
 @pytest.mark.asyncio
@@ -694,11 +693,14 @@ async def test_capture_source_occurrence_v2_tool_dispatch_error():
 @pytest.mark.asyncio
 async def test_write_actor_metadata_v2_tool_dispatch_success():
     request = {"actor_set": {"actor_set_id": "set_001"}}
+    canonical_actor_ref = director_actor_metadata.canonical_ref_for_storage_identity(
+        {"kind": "actor_set", "actor_set_id": "set_001"}
+    )
 
     async def fake_write(arguments, *, port=None):
         assert arguments == request
         assert port is None
-        return {"actor_set_ref": ".rook/director_planning/actor_sets/set_001.json"}
+        return {"actor_set_ref": canonical_actor_ref}
 
     with patch(
         "rook.server.director_actor_metadata.write_actor_metadata_bundle_v2",
@@ -709,10 +711,7 @@ async def test_write_actor_metadata_v2_tool_dispatch_success():
         )
 
     payload = json.loads(out[0].text)
-    assert (
-        payload["actor_set_ref"]
-        == ".rook/director_planning/actor_sets/set_001.json"
-    )
+    assert payload["actor_set_ref"] == canonical_actor_ref
 
 
 @pytest.mark.asyncio
