@@ -461,8 +461,8 @@ the second-instance variants are the residual measurements.
   inverse-reset proof (apply full rotated track, inverse-restore, verify
   against manifest) — bbox alone is weaker/noisier under arbitrary rotation
   and is never the sole rotation evidence.
-- Capture pacing: the worker capture loop runs unpaced (no dwell), with no
-  on-screen redraw required for frame output; assembled video plays at the
+- Capture pacing: the worker capture loop runs unpaced — no dwell and no
+  user-visible live preview required; assembled video plays at the
   requested fps.
 - Nested instance members: recursive explode produces occurrence-path-keyed
   mapping entries with layer encoding preserved, or rejects the member with a
