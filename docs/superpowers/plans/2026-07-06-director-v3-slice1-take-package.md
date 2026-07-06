@@ -306,10 +306,12 @@ IDENTITY_XFORM = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0],
 def make_fake_native(*, modified=False, save_copy_ok=True, invariants_hold=True,
                      modes=("Arctic", "Render_Layer_Color_AMR"), drift=False,
                      loose_second_member=False, instance_id=INSTANCE_ID,
-                     member_drift=False):
+                     member_drift=False, instance_xform_drift=False,
+                     legacy_evidence=False):
     calls: list[tuple[str, str, dict | None]] = []
     doc_reads = {"n": 0}
     member_reads = {"n": 0}
+    instance_reads = {"n": 0}
 
     async def fake(endpoint: str, method: str = "GET", data: dict | None = None,
                    port: int | None = None, **kwargs: Any):
@@ -323,6 +325,12 @@ def make_fake_native(*, modified=False, save_copy_ok=True, invariants_hold=True,
                 return {"success": False, "data": "route not found"}
             target = data["path"]
             Path(target).write_bytes(b"3D Geometry File Format fake")
+            if legacy_evidence:
+                # Old native build: no title/save_small fields in evidence.
+                return {"success": True, "data": {
+                    "copy_path": target, "path_before": DOC_PATH,
+                    "path_after": DOC_PATH, "modified_before": modified,
+                    "modified_after": modified}}
             after = modified if invariants_hold else (not modified)
             return {"success": True, "data": {
                 "copy_path": target, "path_before": DOC_PATH, "path_after": DOC_PATH,
@@ -331,9 +339,15 @@ def make_fake_native(*, modified=False, save_copy_ok=True, invariants_hold=True,
                 "save_small_used": False}}
         if endpoint == "/block/instances":
             assert data == {"name": BLOCK}
+            instance_reads["n"] += 1
+            xform = IDENTITY_XFORM
+            if instance_xform_drift and instance_reads["n"] > 1:
+                # Same instance id, moved between enumeration and snapshot.
+                xform = [[1.0, 0.0, 0.0, 5.0], [0.0, 1.0, 0.0, 0.0],
+                         [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
             return {"success": True, "data": {"blockName": BLOCK, "instances": [{
                 "id": instance_id, "layer": "004_DIAGRAM::STRUCTURE", "name": "",
-                "xform": IDENTITY_XFORM,
+                "xform": xform,
                 "definitionId": "d1d1d1d1-0000-0000-0000-000000000001",
                 "definitionName": BLOCK}]}}
         if endpoint == "/block/objects-detailed":
@@ -379,6 +393,8 @@ async def test_happy_path_writes_package(tmp_path):
     for f in ("scene.3dm", "scene_manifest.json", "motion.json", "status.json"):
         assert (root / f).is_file(), f
     assert not (root / "camera.json").exists()  # camera was None
+    # Staging dir was promoted atomically; no remnant left behind.
+    assert not (tmp_path / "packages" / ".take_001.staging").exists()
 
     manifest = json.loads((root / "scene_manifest.json").read_text())
     assert manifest["schema_version"] == dtp.PACKAGE_SCHEMA_VERSION
@@ -490,6 +506,29 @@ async def test_actor_member_drift_after_snapshot_fails(tmp_path):
     with pytest.raises(dtp.DirectorTakePackageError) as exc:
         await dtp.package_take(_args(tmp_path), call_native=fake)
     assert exc.value.code == "package_state_drift"
+    # Atomicity: a failed run must not create the final package directory,
+    # so a retry never hits package_already_exists.
+    assert not (tmp_path / "packages" / "take_001").exists()
+
+
+async def test_source_instance_xform_drift_after_snapshot_fails(tmp_path):
+    """Same instance id, moved (xform changed) between enumeration and
+    snapshot: instance identity/xform drift is gated, not just members."""
+    fake = make_fake_native(instance_xform_drift=True)
+    with pytest.raises(dtp.DirectorTakePackageError) as exc:
+        await dtp.package_take(_args(tmp_path), call_native=fake)
+    assert exc.value.code == "package_state_drift"
+    assert not (tmp_path / "packages" / "take_001").exists()
+
+
+async def test_legacy_save_copy_evidence_fails_invariant_check(tmp_path):
+    """Old native builds returning partial evidence (no title/save_small
+    fields) must not pass the invariant gate."""
+    fake = make_fake_native(legacy_evidence=True)
+    with pytest.raises(dtp.DirectorTakePackageError) as exc:
+        await dtp.package_take(_args(tmp_path), call_native=fake)
+    assert exc.value.code == "save_copy_invariant_violation"
+    assert "title" in str(exc.value)
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -719,16 +758,32 @@ async def package_take(arguments: dict[str, Any], *, call_native=call_rhino,
     actor_sets_manifest = await _resolve_actor_state(
         call_native, spec["actor_sets"], port)
 
-    package_root.mkdir(parents=True, exist_ok=False)
-    scene_path = package_root / "scene.3dm"
+    # Stage everything; promote atomically on success so a failed run can
+    # never poison the output directory (retry-safe: a failed attempt leaves
+    # no <take_id> dir behind, so retries do not hit package_already_exists).
+    staging_root = package_root.parent / f".{spec['take_id']}.staging"
+    if staging_root.exists():
+        shutil.rmtree(staging_root)  # leftover from a crashed run; ours by construction
+    staging_root.mkdir(parents=True, exist_ok=False)
+    scene_path = staging_root / "scene.3dm"
 
     # Scene snapshot: save-copy preferred; raw copy only for a saved, unmodified doc.
     save_copy = await call_native("/document/save-copy", "POST",
                                   {"path": str(scene_path)}, port=port)
     if isinstance(save_copy, dict) and save_copy.get("success"):
         evidence = save_copy.get("data") or {}
-        if (evidence.get("path_before") != evidence.get("path_after")
-                or evidence.get("modified_before") != evidence.get("modified_after")):
+        required = ("path_before", "path_after", "title_before", "title_after",
+                    "modified_before", "modified_after", "save_small_used")
+        missing_fields = [k for k in required if k not in evidence]
+        if missing_fields:
+            raise DirectorTakePackageError(
+                "save_copy_invariant_violation",
+                f"save-copy evidence incomplete (old native build?); "
+                f"missing: {missing_fields}")
+        if (evidence["path_before"] != evidence["path_after"]
+                or evidence["title_before"] != evidence["title_after"]
+                or evidence["modified_before"] != evidence["modified_after"]
+                or evidence["save_small_used"] is not False):
             raise DirectorTakePackageError(
                 "save_copy_invariant_violation",
                 f"save-copy changed document state: {evidence}")
@@ -771,10 +826,10 @@ async def package_take(arguments: dict[str, Any], *, call_native=call_rhino,
             "package_state_drift",
             "live document changed during packaging; re-run packaging")
 
-    motion_hash = _write_json(package_root / "motion.json", spec["motion"])
+    motion_hash = _write_json(staging_root / "motion.json", spec["motion"])
     camera_hash = None
     if spec["camera"] is not None:
-        camera_hash = _write_json(package_root / "camera.json", spec["camera"])
+        camera_hash = _write_json(staging_root / "camera.json", spec["camera"])
     scene_hash = _sha256_file(scene_path)
 
     hashes = {
@@ -802,7 +857,7 @@ async def package_take(arguments: dict[str, Any], *, call_native=call_rhino,
         "display_mode_requirements": display_mode_requirements,
         "hashes": hashes,
     }
-    manifest_hash = _write_json(package_root / "scene_manifest.json", manifest)
+    manifest_hash = _write_json(staging_root / "scene_manifest.json", manifest)
 
     package_id = f"{spec['take_id']}-{manifest_hash[:12]}"
     status = {
@@ -814,7 +869,13 @@ async def package_take(arguments: dict[str, Any], *, call_native=call_rhino,
         "scene_manifest_sha256": manifest_hash,
         "evidence": {"scene_mechanism": scene_mechanism},
     }
-    _write_json(package_root / "status.json", status)
+    _write_json(staging_root / "status.json", status)
+
+    # Atomic promotion: the final <take_id> directory appears only for a
+    # fully-gated, complete package. A failed run leaves only the staging
+    # dir, which the next run removes — so retries never see
+    # package_already_exists from a failure.
+    staging_root.rename(package_root)
 
     return {
         "package_root": str(package_root),
@@ -832,7 +893,7 @@ async def package_take(arguments: dict[str, Any], *, call_native=call_rhino,
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `cd mcp_server && python -m pytest tests/test_director_take_package.py -v`
-Expected: 11 passed.
+Expected: 14 passed.
 
 - [ ] **Step 5: Commit**
 
@@ -1080,6 +1141,13 @@ async def test_package_round_trip_against_live_doc(tmp_path):
     for member in manifest["actor_sets"][0]["members"]:
         assert member["bbox_evidence"]["bbox_method"] == "tight_object"
         assert member["bbox_evidence"]["validation_strength"] == "tight_bbox"
+    # Source-instance evidence proves the Task 1 /block/instances extension
+    # is actually present in the deployed native route.
+    src = manifest["actor_sets"][0]["source_instance"]
+    assert src["instance_id"] == instance_id
+    assert src["definition_id"] and src["definition_name"]
+    assert len(src["xform"]) == 4 and all(len(row) == 4 for row in src["xform"])
+    assert len(src["xform_sha256"]) == 64
     assert (root / "scene.3dm").stat().st_size > 0
     assert manifest["scene"]["mechanism"] in ("save_copy", "raw_copy_saved_file")
     # Live doc untouched:
