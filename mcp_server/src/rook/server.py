@@ -6924,6 +6924,7 @@ Available actions:
 - open: Open an existing .3dm file (requires 'path' parameter). Returns document name, units, object count.
 - new: Create a new blank document
 - save: Save the document to a file (requires 'path' parameter, optional 'small': true for SaveSmall without render meshes)
+- save_copy: Write the active document to a target path WITHOUT retargeting the document, changing its modified flag, or touching its undo stack (requires 'path'). Includes render meshes.
 - undo: Undo the last operation
 - redo: Redo the last undone operation
 - set_units: Set document units (requires 'units' parameter: 'Millimeters', 'Centimeters', 'Meters', 'Inches', 'Feet', etc.)
@@ -6942,12 +6943,12 @@ Examples:
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["open", "new", "save", "undo", "redo", "set_units"],
+                        "enum": ["open", "new", "save", "save_copy", "undo", "redo", "set_units"],
                         "description": "The document operation to perform"
                     },
                     "operation": {
                         "type": "string",
-                        "enum": ["open", "new", "save", "undo", "redo", "set_units"],
+                        "enum": ["open", "new", "save", "save_copy", "undo", "redo", "set_units"],
                         "description": "Alias for action"
                     },
                     "path": {
@@ -14863,6 +14864,12 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                     if arguments.get("small"):
                         payload["small"] = True
                     result = await call_rhino("/document/save", "POST", payload)
+            elif action == "save_copy":
+                path = arguments.get("path")
+                if not path:
+                    result = {"success": False, "data": "Missing required parameter 'path' for save_copy action"}
+                else:
+                    result = await call_rhino("/document/save-copy", "POST", {"path": path})
             elif action == "new":
                 result = await call_rhino("/document/new", "POST", {})
             elif action == "set_units":
@@ -14872,7 +14879,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 else:
                     result = await call_rhino("/document/units", "POST", {"units": units})
             else:
-                result = {"success": False, "data": f"Invalid action '{action}'. Valid actions: open, new, save, undo, redo, set_units"}
+                result = {"success": False, "data": f"Invalid action '{action}'. Valid actions: open, new, save, save_copy, undo, redo, set_units"}
 
         case "rhino_curve_ops":
             action = arguments.get("action")
