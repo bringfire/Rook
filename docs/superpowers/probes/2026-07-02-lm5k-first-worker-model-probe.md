@@ -1,4 +1,4 @@
-# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S, LM5T, LM5U & LM5Y — First Worker Model Probe (2026-07-02)
+# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S, LM5T, LM5U, LM5Y & LM6A — First Worker Model Probe (2026-07-02)
 
 **Doctrine:** evidence, not CI. This summary is the committed artifact; raw
 runs stay local (spec §5, `docs/superpowers/specs/2026-07-02-lm5k-first-worker-model-probe-design.md`).
@@ -709,6 +709,136 @@ extraction and ownership: how real task contracts produce these acceptance
 criteria generally. Do not add another worker-visible evidence packet for this
 fixture.
 
+## LM6A live worker splice arrival run (commit `0d02180a`)
+
+LM6A changes the execution surface, not the worker-visible evidence packet. It
+uses the LM5Y legacy-projected acceptance criteria, then tests the live splice:
+
+```text
+live create -> verify_create -> routing/extraction/criteria gate
+-> two-pass worker publication -> worker-action applier
+-> live gh_update_script -> verify_repair
+```
+
+Canonical identity:
+
+- git commit: `0d02180a`
+- model: `gemma4:12b-it-qat`
+- provider path: direct Ollama `/api/chat`
+- worker-visible acceptance criteria: LM5Y legacy projection
+- bind shape: script-local LM6A contract variant with the repair bind step
+  removed; the worker action is the sole source of repair execution params
+
+### Recon history
+
+LM6A reached the accepted run only after two useful gate failures:
+
+- `probe_runs/lm6a-20260706T131702Z-40cc6b64/`: gate failed before worker
+  publication because the live Rhino/GH surface was not ready to provide the
+  required create receipt. This established the operational requirement for a
+  ready throwaway Rhino/GH document.
+- `probe_runs/lm6a-20260706T214517Z-40cc6b64/`: live create, receipt capture,
+  `repair_anchor`, `target_errors`, LM5AA routing, and hidden-answer leak checks
+  passed, but LM5W acceptance-criteria assembly failed because the live compiler
+  diagnostic differed from the fixture's exact diagnostic prose:
+  `The name 'DefinitelyMissingSymbol' does not exist in the current context
+  [14:13]`.
+- PR #431 fixed only that deterministic seam: LM5W still requires exactly one
+  receipt diagnostic containing `DefinitelyMissingSymbol`, but no longer
+  requires the fixture's exact `CS0103:` string.
+- `probe_runs/lm6a-20260706T215145Z-0d02180a/`: post-fix receipt recon passed
+  with `decision = gate_passed` and `reason = receipt_recon_passed`.
+
+Post-fix recon confirmed:
+
+- live create produced a real receipt
+- `repair_anchor.target_errors` was present
+- LM5AA routability validation was evaluated and valid
+- LM5X extraction and LM5W assembly supported the acceptance-criteria packet
+- no worker/model call was needed for the recon gate
+
+### Full splice result
+
+Run:
+
+```text
+probe_runs/lm6a-20260706T215203Z-0d02180a/
+```
+
+Final decision:
+
+```json
+{
+  "decision": "accepted",
+  "reason": "verify_repair_succeeded",
+  "worker_response_kind": "action_request",
+  "worker_action_id": "draft_repair_params",
+  "worker_action_input_excerpt": "{\"code\": \"A = 0.0;\", \"mode\": \"body\"}",
+  "live_repair_dispatched": true,
+  "verify_repair_ran": true
+}
+```
+
+The worker published a strict LM5G-loadable action request:
+
+```json
+{
+  "action_id": "draft_repair_params",
+  "input": {
+    "code": "A = 0.0;",
+    "mode": "body"
+  }
+}
+```
+
+Publication and splice facts:
+
+- pass one chose `action_request`
+- pass two preserved `action_request`
+- pass two preserved `draft_repair_params`
+- `observation_action_intent_anomaly = false`
+- worker-action applier staged the worker-authored params
+- live `gh_update_script` dispatched
+- live repair summary reported `artifact_status = usable`
+- live repair summary reported `verified = true`
+- `verify_repair` reported `outcome_status = succeeded`
+
+Leak checks:
+
+- `PROBE_REPAIR_CODE` did not appear in the run artifacts.
+- `A = 42.0` did not appear in the run artifacts.
+- `BindStepSpec.base_params.code` did not appear in the run artifacts.
+- The accepted repair came from the worker-authored `A = 0.0;`, not from the
+  hidden fixture answer.
+
+Canvas spot-check after the run showed the accepted repaired component as the
+healthy component with output `A` previewing `0`. Two older failed components
+from previous attempts remained on the canvas with the original
+`DefinitelyMissingSymbol` error; they were stale artifacts, not the accepted
+LM6A repair component.
+
+### LM6A interpretation
+
+LM6A answered the live-arrival question positively:
+
+```text
+A bounded local worker authored repair params,
+those params were staged through the worker-action applier,
+the live GH repair dispatched,
+and verify_repair succeeded,
+without leaking the hidden A = 42.0 answer.
+```
+
+This is the first committed evidence that the bounded worker can reach the live
+verifier floor through the splice. It is not a broad claim that Gemma repairs
+arbitrary code correctly, and it is not a freestyle model-competitiveness result.
+It proves live verifier-floor arrival for this controlled fixture.
+
+Operationally, LM6A requires a ready Rhino/GH document in a throwaway live
+session. Live preflight calls such as `gh_document_new` may update
+`knowledge/gh/operations_knowledge.json` usage counters/timestamps; that drift
+is operational telemetry and should remain unstaged unless intentionally handled.
+
 ## Updated comparison keys
 
 Round 1: `(lm5j.prompt_text:v1, lm5k_golden_repair_v1/fresh_compiled_graph,
@@ -759,6 +889,14 @@ LM5X extraction + LM5W assembly + legacy worker-visible projection,
 ollama gemma4:12b-it-qat, direct Ollama, pass1 think=true/free decision,
 pass2 single-kind constrained publication, observation anomaly scoring,
 acceptance-criteria evidence v3 shape preserved)`.
+
+LM6A: `(lm5s.pass1_decision_instruction:v2,
+LM6A live worker splice probe, LM5Y legacy worker-visible projection,
+live create/verify_create receipt recon, LM5AA routability, LM5X extraction +
+LM5W assembly, ollama gemma4:12b-it-qat, direct Ollama, pass1 think=true/free
+decision, pass2 single-kind constrained publication, worker-action applier
+staging draft_repair_params, live gh_update_script dispatch, verify_repair
+floor)`.
 
 Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
 new experiment.
