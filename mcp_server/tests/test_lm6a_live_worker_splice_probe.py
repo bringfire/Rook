@@ -167,6 +167,7 @@ def test_phase_a_gate_fails_when_routability_not_evaluated(
             "graph": object(),
             "workflow_contract": PROBE._lm6a_bind_free_contract(),
             "convention_packets": (),
+            "anchor_binding": {"component_guid": "GUID-1", "language": "csharp"},
             "live_create_summary": {},
             "verify_create_summary": {},
         },
@@ -333,3 +334,30 @@ def test_full_flow_action_apply_rejection_writes_decision(
     assert decision["reason"] == "worker_action_apply_failed:invalid_mode"
     assert not (run_dir / "live_repair_summary.json").exists()
     assert (run_dir / "worker_action.json").exists()
+
+
+def test_live_summary_extracts_bounded_repair_anchor() -> None:
+    summary = PROBE._live_result_summary(
+        node_id="create_script",
+        tool_name="gh_create_csharp_script",
+        node_status="succeeded",
+        outcome_status="needs_repair",
+        verified=False,
+        receipt={
+            "language": "csharp",
+            "artifact_status": "created_with_errors",
+            "verification": {"status": "failed", "target_error_count": 1},
+            "repair_anchor": {
+                "component_guid": "GUID-1",
+                "language": "csharp",
+                "target_errors": [PROBE.REPAIR_TARGET_ERROR],
+            },
+        },
+    )
+
+    assert summary["repair_anchor"] == {
+        "component_guid": "GUID-1",
+        "language": "csharp",
+        "target_errors": [PROBE.REPAIR_TARGET_ERROR],
+    }
+    assert summary["receipt_sha256"] is not None

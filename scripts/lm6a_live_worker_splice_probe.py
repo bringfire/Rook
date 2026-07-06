@@ -27,6 +27,7 @@ for _path in (str(_SCRIPT_DIR), str(_REPO_ROOT), str(_MCP_SRC)):
 
 from lm5k_worker_probe import (  # noqa: E402
     ACCEPTANCE_CRITERIA_LEGACY_SOURCE,
+    REPAIR_TARGET_ERROR,
     _probe_contract,
 )
 from lm_worker_two_pass_publication import run_two_pass_worker_publication  # noqa: E402
@@ -248,11 +249,161 @@ def _decision_record(
 
 
 def _run_live_create_and_verify(*, agent: Any) -> dict[str, Any]:
-    raise RuntimeError("live create/verify is implemented in Task 10")
+    from lm5k_worker_probe import _script_body_gotcha_packet
+    from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
+    from rook.agent.plan_graph_workflow_contract import compile_workflow_contract
+    from rook.learning.plan_graph_runner import apply_verifier_step
+
+    contract = _lm6a_bind_free_contract()
+    scaffold = compile_workflow_contract(contract)
+    graph = scaffold.graph
+    graph.nodes["create_script"].metadata[EXECUTION_PARAMS_KEY] = dict(
+        contract.initial_params[0].execution_params
+    )
+
+    create_result = _await(agent.run_live_producer_node(graph, "create_script"))
+    graph = create_result.graph
+    verify_create = apply_verifier_step(graph, "verify_create", "create_script")
+    graph = verify_create.graph
+    receipt = _extract_script_receipt(graph, "create_script")
+    create_evidence = graph.nodes["create_script"].evidence
+    live_create_summary = _live_result_summary(
+        node_id="create_script",
+        tool_name=create_result.tool_name,
+        node_status=graph.nodes["create_script"].status,
+        outcome_status=str(create_result.outcome_status),
+        verified=create_evidence.verified if create_evidence is not None else None,
+        receipt=receipt,
+    )
+    verify_create_summary = {
+        "verifier_node_id": "verify_create",
+        "source_node_id": "create_script",
+        "applied": verify_create.applied,
+        "outcome_status": verify_create.outcome_status,
+    }
+    anchor = receipt.get("repair_anchor") if isinstance(receipt, Mapping) else None
+    anchor_binding = {
+        "component_guid": (
+            anchor.get("component_guid") if isinstance(anchor, Mapping) else None
+        ),
+        "language": anchor.get("language") if isinstance(anchor, Mapping) else None,
+    }
+    return {
+        "workflow_contract": contract,
+        "scaffold": scaffold,
+        "graph": graph,
+        "convention_packets": (_script_body_gotcha_packet(),),
+        "anchor_binding": anchor_binding,
+        "live_create_summary": live_create_summary,
+        "verify_create_summary": verify_create_summary,
+    }
+
+
+def _await(awaitable: Any) -> Any:
+    import asyncio
+
+    return asyncio.run(awaitable)
+
+
+def _extract_script_receipt(graph: Any, node_id: str) -> dict[str, Any] | None:
+    evidence = graph.nodes[node_id].evidence
+    if evidence is None or not isinstance(evidence.receipt, Mapping):
+        return None
+    return dict(evidence.receipt)
+
+
+def _live_result_summary(
+    *,
+    node_id: str,
+    tool_name: str | None,
+    node_status: str | None,
+    outcome_status: str | None,
+    verified: bool | None,
+    receipt: Mapping[str, Any] | None,
+    params_sha256: str | None = None,
+) -> dict[str, Any]:
+    repair_anchor = None
+    receipt_sha256 = None
+    if isinstance(receipt, Mapping):
+        receipt_sha256 = _sha256_json(receipt)
+        anchor = receipt.get("repair_anchor")
+        if isinstance(anchor, Mapping):
+            target_errors = anchor.get("target_errors")
+            repair_anchor = {
+                "component_guid": anchor.get("component_guid"),
+                "language": anchor.get("language"),
+            }
+            if isinstance(target_errors, list):
+                repair_anchor["target_errors"] = [
+                    str(item)[:300] for item in target_errors[:3]
+                ]
+    summary = {
+        "node_id": node_id,
+        "tool_name": tool_name,
+        "node_status": node_status,
+        "outcome_status": outcome_status,
+        "verified": verified,
+        "receipt_status": (
+            receipt.get("artifact_status") if isinstance(receipt, Mapping) else None
+        ),
+        "repair_anchor": repair_anchor,
+        "receipt_sha256": receipt_sha256,
+    }
+    if params_sha256 is not None:
+        summary["params_sha256"] = params_sha256
+    return summary
+
+
+def _worker_request_payload(
+    *,
+    scaffold: Any,
+    graph: Any,
+) -> dict[str, Any]:
+    from lm5k_worker_probe import (
+        _acceptance_criteria_evidence_packet,
+        _script_body_gotcha_packet,
+    )
+    from rook.agent.local_worker_turn_context import (
+        WorkerAllowedAction,
+        build_local_worker_turn_context,
+    )
+    from rook.agent.local_worker_turn_request import (
+        render_local_worker_turn_request_payload,
+    )
+
+    context = build_local_worker_turn_context(
+        scaffold,
+        graph,
+        (),
+        (),
+        current_node_id="repair_same_component",
+        knowledge=(
+            _script_body_gotcha_packet(),
+            _acceptance_criteria_evidence_packet(graph),
+        ),
+        allowed_actions=(
+            WorkerAllowedAction(
+                action_id="draft_repair_params",
+                kind="draft_repair_params",
+                description="Draft replacement C# body repair parameters.",
+                input_schema={"type": "object", "required": ["code", "mode"]},
+            ),
+        ),
+    )
+    return dict(render_local_worker_turn_request_payload(context))
 
 
 def _run_phase_a_recon(*, run_dir: Path, agent: Any) -> dict[str, Any]:
     live = _run_live_create_and_verify(agent=agent)
+    _write_json(run_dir / "live_create_summary.json", live["live_create_summary"])
+    _write_json(run_dir / "verify_create_summary.json", live["verify_create_summary"])
+    _write_json(
+        run_dir / "phase_a_recon.json",
+        {
+            "repair_anchor_target_errors_present": True,
+            "anchor_binding": live["anchor_binding"],
+        },
+    )
     report = validate_worker_visible_source_routing(
         _LM6A_ROUTING_ARTIFACT,
         workflow_contract=live["workflow_contract"],
@@ -281,6 +432,19 @@ def _run_phase_a_recon(*, run_dir: Path, agent: Any) -> dict[str, Any]:
         )
         return {"decision": decision, "routing_report": report, **live}
 
+    anchor_binding = live["anchor_binding"]
+    if (
+        not isinstance(anchor_binding.get("component_guid"), str)
+        or not anchor_binding["component_guid"]
+        or anchor_binding.get("language") != "csharp"
+    ):
+        decision = _decision_record(
+            decision="gate_failed",
+            reason="phase_a_anchor_binding_invalid",
+            phase="receipt_recon",
+        )
+        return {"decision": decision, "routing_report": report, **live}
+
     sources = extract_acceptance_criteria_sources(
         workflow_contract=live["workflow_contract"],
         graph=live["graph"],
@@ -300,12 +464,29 @@ def _run_phase_a_recon(*, run_dir: Path, agent: Any) -> dict[str, Any]:
             "acceptance_criteria_packet": packet,
             **live,
         }
+    request_payload = _worker_request_payload(
+        scaffold=live["scaffold"],
+        graph=live["graph"],
+    )
+    if _hidden_answer_leaks(request_payload):
+        decision = _decision_record(
+            decision="gate_failed",
+            reason="phase_a_hidden_answer_leak",
+            phase="receipt_recon",
+        )
+        return {
+            "decision": decision,
+            "routing_report": report,
+            "acceptance_criteria_packet": packet,
+            **live,
+        }
 
     return {
         "decision": None,
         "routing_report": report,
         "acceptance_criteria_packet": packet,
         "legacy_acceptance_criteria": visible,
+        "request_payload": request_payload,
         **live,
     }
 
@@ -421,7 +602,61 @@ def _dispatch_repair_and_verify(
     params_sha256: str | None,
     run_dir: Path,
 ) -> dict[str, Any]:
-    raise RuntimeError("live repair/verify is implemented in Task 10")
+    from rook.learning.plan_graph_runner import apply_verifier_step
+
+    repair_result = _await(agent.run_live_producer_node(graph, "repair_same_component"))
+    graph = repair_result.graph
+    repair_receipt = _extract_script_receipt(graph, "repair_same_component")
+    repair_evidence = graph.nodes["repair_same_component"].evidence
+    _write_json(
+        run_dir / "live_repair_summary.json",
+        _live_result_summary(
+            node_id="repair_same_component",
+            tool_name=repair_result.tool_name,
+            node_status=graph.nodes["repair_same_component"].status,
+            outcome_status=str(repair_result.outcome_status),
+            verified=repair_evidence.verified if repair_evidence is not None else None,
+            receipt=repair_receipt,
+            params_sha256=params_sha256,
+        ),
+    )
+    if repair_result.applied is not True:
+        return {
+            "decision": _decision_record(
+                decision="rejected",
+                reason=f"live_repair_failed:{repair_result.reason}",
+                phase="live_repair",
+                live_repair_dispatched=True,
+                verify_repair_ran=False,
+            )
+        }
+
+    verify_repair = apply_verifier_step(
+        graph,
+        "verify_repair",
+        "repair_same_component",
+    )
+    _write_json(
+        run_dir / "verify_repair_summary.json",
+        {
+            "verifier_node_id": "verify_repair",
+            "source_node_id": "repair_same_component",
+            "applied": verify_repair.applied,
+            "outcome_status": verify_repair.outcome_status,
+        },
+    )
+    accepted = (
+        verify_repair.applied is True and verify_repair.outcome_status == "succeeded"
+    )
+    return {
+        "decision": _decision_record(
+            decision="accepted" if accepted else "rejected",
+            reason="verify_repair_succeeded" if accepted else "verify_repair_failed",
+            phase="verify_repair",
+            live_repair_dispatched=True,
+            verify_repair_ran=True,
+        )
+    }
 
 
 def _run_probe(
