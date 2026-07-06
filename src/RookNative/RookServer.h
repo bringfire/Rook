@@ -184,6 +184,7 @@ private:
     void HandleGroupMembers(const httplib::Request& req, httplib::Response& res);
     void HandleDocumentOpen(const httplib::Request& req, httplib::Response& res);
     void HandleDocumentSave(const httplib::Request& req, httplib::Response& res);
+    void HandleDocumentSaveCopy(const httplib::Request& req, httplib::Response& res);
     void HandleDocumentNew(const httplib::Request& req, httplib::Response& res);
     void HandleDocumentUnits(const httplib::Request& req, httplib::Response& res);
     void HandleGetViews(const httplib::Request& req, httplib::Response& res);

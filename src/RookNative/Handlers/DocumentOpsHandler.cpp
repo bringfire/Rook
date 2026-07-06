@@ -1,8 +1,9 @@
 // DocumentOpsHandler.cpp
 //
-// POST /document/open    — Open an existing .3dm file
-// POST /document/save    — Save document to disk
-// POST /document/new     — Create new document
+// POST /document/open       — Open an existing .3dm file
+// POST /document/save       — Save document to disk
+// POST /document/save-copy  — Write a copy without retargeting the document
+// POST /document/new        — Create new document
 // POST /document/units   — Change model units
 // GET  /views            — List named views
 // POST /views/save       — Save current viewport as named view
@@ -253,6 +254,81 @@ void HandleDocumentSave(const httplib::Request& req, httplib::Response& res)
         wr.success = true;
         wr.data["path"] = WideToUtf8(savePath);
         wr.data["small"] = saveSmall;
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendError(res, result.error);
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+    }
+}
+
+// ─── POST /document/save-copy ───────────────────────────────────────
+// Writes the active document to a target path WITHOUT retargeting the
+// document, changing its modified flag, or touching its undo stack.
+// SDK contract: CRhinoFileWriteOptions::SetUpdateDocumentPath(false) =>
+// "The document's default file path, title and modified state will not
+// be changed under any circumstances." Render meshes stay included.
+
+void HandleDocumentSaveCopy(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    std::string path;
+    if (body.contains("path") && body["path"].is_string())
+        path = body["path"].get<std::string>();
+
+    if (path.empty())
+    {
+        CRookServer::SendError(res, "Missing required parameter 'path'");
+        return;
+    }
+
+    std::string pathErr = Rook::ValidateFilePath(path);
+    if (!pathErr.empty())
+    {
+        CRookServer::SendError(res, pathErr);
+        return;
+    }
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, path]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+
+        const ON_wString pathBefore = pDoc->GetPathName();
+        const ON_wString titleBefore = pDoc->GetTitle();
+        const bool modifiedBefore = pDoc->IsModified();
+
+        ON_wString copyPath = Utf8ToWide(path);
+
+        CRhinoFileWriteOptions opts;
+        opts.SetFileName(static_cast<const wchar_t*>(copyPath));
+        opts.SetUpdateDocumentPath(false);
+        opts.SetUseBatchMode(true);
+        // Render meshes: default is included; never SetIncludeRenderMeshes(false) here.
+
+        if (!pDoc->WriteFile(opts))
+            throw std::runtime_error("save-copy write failed");
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["copy_path"] = path;
+        wr.data["path_before"] = WideToUtf8(pathBefore);
+        wr.data["path_after"] = WideToUtf8(pDoc->GetPathName());
+        wr.data["title_before"] = WideToUtf8(titleBefore);
+        wr.data["title_after"] = WideToUtf8(pDoc->GetTitle());
+        wr.data["modified_before"] = modifiedBefore;
+        wr.data["modified_after"] = pDoc->IsModified() ? true : false;
+        wr.data["save_small_used"] = false;
         return wr;
     });
 

@@ -1183,6 +1183,9 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/document/save", [this](const httplib::Request& req, httplib::Response& res) {
         HandleDocumentSave(req, res);
     });
+    m_server->Post("/document/save-copy", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleDocumentSaveCopy(req, res);
+    });
     m_server->Post("/document/new", [this](const httplib::Request& req, httplib::Response& res) {
         HandleDocumentNew(req, res);
     });
@@ -2825,6 +2828,12 @@ void CRookServer::HandleDocumentSave(const httplib::Request& req, httplib::Respo
 {
     Rook::McpRequestGuard guard;  // C10: Tag commands as MCP source
     Rook::Handlers::HandleDocumentSave(req, res);
+}
+
+void CRookServer::HandleDocumentSaveCopy(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::McpRequestGuard guard;  // C10: Tag commands as MCP source
+    Rook::Handlers::HandleDocumentSaveCopy(req, res);
 }
 
 void CRookServer::HandleDocumentNew(const httplib::Request& req, httplib::Response& res)

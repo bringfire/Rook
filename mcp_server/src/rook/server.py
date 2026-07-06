@@ -71,7 +71,7 @@ from .mcp_tool_profiles import (
     tool_blocked,
 )
 from .capability_index import build_index, validate_arguments
-from . import artifacts, canvas_director, director, director_actor_metadata, director_compiler, director_preview, director_publish, director_video, merge_execution, script_library, targeting, workbench, work_units
+from . import artifacts, canvas_director, director, director_actor_metadata, director_compiler, director_preview, director_publish, director_take_package, director_video, merge_execution, script_library, targeting, workbench, work_units
 from .mesh2splat import pipeline as mesh2splat_pipeline
 targeting.initialize_from_environment()
 from .knowledge import query_knowledge, query_knowledge_tiered, record_knowledge, invalidate_condensed_command_cache
@@ -4098,6 +4098,29 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
             },
         ),
         Tool(
+            name="rhino_director_package_take",
+            description=(
+                "RookVisionDirector v3: build an immutable take package (scene.3dm "
+                "snapshot via non-retargeting save-copy, scene_manifest.json with actor "
+                "member provenance and display-mode requirements, motion.json authoring "
+                "request, optional camera.json, status.json ledger). Read-only for the "
+                "live document; fails typed on unsaved edits without save-copy, missing "
+                "display modes, or document drift during packaging."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["output_root", "take_id", "actor_sets", "motion", "display_modes"],
+                "properties": {
+                    "output_root": {"type": "string", "description": "Directory that will contain the <take_id> package folder."},
+                    "take_id": {"type": "string", "description": "Package folder name, [A-Za-z0-9._-]{1,128}."},
+                    "actor_sets": {"type": "array", "items": {"type": "object"}, "description": "Each {actor_set_id, block_name, source_top_level_object_id (uuid)}."},
+                    "motion": {"type": "object", "description": "Authoring compile-motion request (canonical targets, never worker object ids)."},
+                    "camera": {"type": "object", "description": "Optional camera_planner spec."},
+                    "display_modes": {"type": "array", "items": {"type": "string"}, "description": "Display mode names required for capture passes; verified to exist now."},
+                },
+            },
+        ),
+        Tool(
             name="rhino_director_preview_motion",
             description=(
                 "RookVisionDirector: compile a high-level object-motion authoring spec "
@@ -6924,6 +6947,7 @@ Available actions:
 - open: Open an existing .3dm file (requires 'path' parameter). Returns document name, units, object count.
 - new: Create a new blank document
 - save: Save the document to a file (requires 'path' parameter, optional 'small': true for SaveSmall without render meshes)
+- save_copy: Write the active document to a target path WITHOUT retargeting the document, changing its modified flag, or touching its undo stack (requires 'path'). Includes render meshes.
 - undo: Undo the last operation
 - redo: Redo the last undone operation
 - set_units: Set document units (requires 'units' parameter: 'Millimeters', 'Centimeters', 'Meters', 'Inches', 'Feet', etc.)
@@ -6942,12 +6966,12 @@ Examples:
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["open", "new", "save", "undo", "redo", "set_units"],
+                        "enum": ["open", "new", "save", "save_copy", "undo", "redo", "set_units"],
                         "description": "The document operation to perform"
                     },
                     "operation": {
                         "type": "string",
-                        "enum": ["open", "new", "save", "undo", "redo", "set_units"],
+                        "enum": ["open", "new", "save", "save_copy", "undo", "redo", "set_units"],
                         "description": "Alias for action"
                     },
                     "path": {
@@ -14863,6 +14887,12 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                     if arguments.get("small"):
                         payload["small"] = True
                     result = await call_rhino("/document/save", "POST", payload)
+            elif action == "save_copy":
+                path = arguments.get("path")
+                if not path:
+                    result = {"success": False, "data": "Missing required parameter 'path' for save_copy action"}
+                else:
+                    result = await call_rhino("/document/save-copy", "POST", {"path": path})
             elif action == "new":
                 result = await call_rhino("/document/new", "POST", {})
             elif action == "set_units":
@@ -14872,7 +14902,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 else:
                     result = await call_rhino("/document/units", "POST", {"units": units})
             else:
-                result = {"success": False, "data": f"Invalid action '{action}'. Valid actions: open, new, save, undo, redo, set_units"}
+                result = {"success": False, "data": f"Invalid action '{action}'. Valid actions: open, new, save, save_copy, undo, redo, set_units"}
 
         case "rhino_curve_ops":
             action = arguments.get("action")
@@ -20835,6 +20865,12 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             try:
                 result = {"success": True, "data": await director_compiler.compile_motion(arguments, port=port)}
             except director_compiler.DirectorCompileError as exc:
+                result = {"success": False, "data": exc.to_data()}
+
+        case "rhino_director_package_take":
+            try:
+                result = {"success": True, "data": await director_take_package.package_take(arguments, port=port)}
+            except director_take_package.DirectorTakePackageError as exc:
                 result = {"success": False, "data": exc.to_data()}
 
         case "rhino_director_preview_motion":

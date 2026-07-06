@@ -2200,6 +2200,15 @@ void HandleBlockInstances(const httplib::Request& req, httplib::Response& res)
             ji["layer"] = GetLayerFullPath(pDoc, inst->Attributes().m_layer_index);
             ji["name"] = WideToUtf8(inst->Attributes().m_name);
 
+            nlohmann::json xformRows = nlohmann::json::array();
+            for (int r = 0; r < 4; ++r)
+                xformRows.push_back({ xf[r][0], xf[r][1], xf[r][2], xf[r][3] });
+            ji["xform"] = std::move(xformRows);          // nested 4x4 row-major,
+                                                          // same convention as
+                                                          // director tracks
+            ji["definitionId"] = UuidToString(pIdef->Id());
+            ji["definitionName"] = WideToUtf8(pIdef->Name());
+
             instances.push_back(ji);
         }
 
@@ -3494,13 +3503,19 @@ void HandleBlockObjectsDetailed(const httplib::Request& req, httplib::Response& 
             }
 
             ON_BoundingBox bbox;
-            if (!obj->GetTightBoundingBox(bbox) || !bbox.IsValid())
+            const bool tight = obj->GetTightBoundingBox(bbox) && bbox.IsValid();
+            if (!tight)
                 bbox = obj->BoundingBox();
             if (bbox.IsValid())
             {
                 info["bbox"]["min"] = { bbox.Min().x, bbox.Min().y, bbox.Min().z };
                 info["bbox"]["max"] = { bbox.Max().x, bbox.Max().y, bbox.Max().z };
+                info["bboxMethod"] = tight ? "tight_object" : "loose_fallback";
                 defBbox.Union(bbox);
+            }
+            else
+            {
+                info["bboxMethod"] = "unavailable";
             }
 
             if (includeGeometry)
