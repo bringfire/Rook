@@ -305,6 +305,61 @@ def _run_phase_a_recon(*, run_dir: Path, agent: Any) -> dict[str, Any]:
     }
 
 
+def _decision_from_worker_publication(
+    *,
+    publication_row: Mapping[str, Any],
+    response_payload: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    status = publication_row.get("status")
+    if status != "published" or response_payload is None:
+        return _decision_record(
+            decision="publication_failed",
+            reason=str(publication_row.get("failure_reason") or status),
+            phase="worker_publication",
+        )
+
+    kind = response_payload.get("kind")
+    if kind == "action_request":
+        return None
+    if kind == "clarification_request":
+        reason = "worker_clarified"
+    elif kind == "refusal":
+        reason = "worker_refused"
+    elif kind == "observation":
+        reason = (
+            "worker_observation_action_intent_anomaly"
+            if publication_row.get("observation_action_intent_anomaly") is True
+            else "worker_observed"
+        )
+    else:
+        reason = "worker_unknown_non_action"
+    return _decision_record(
+        decision="worker_declined",
+        reason=reason,
+        phase="worker_publication",
+        worker_response_kind=str(kind),
+        observation_action_intent_anomaly=bool(
+            publication_row.get("observation_action_intent_anomaly")
+        ),
+        observation_action_intent_reasons=list(
+            publication_row.get("observation_action_intent_reasons") or []
+        ),
+    )
+
+
+def _decision_from_worker_action_apply(apply_result: Any) -> dict[str, Any]:
+    return _decision_record(
+        decision="rejected",
+        reason=f"worker_action_apply_failed:{apply_result.reason}",
+        phase="worker_action_apply",
+        worker_action_apply={
+            "applied": False,
+            "reason": apply_result.reason,
+            "params_sha256": apply_result.params_sha256,
+        },
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     _args(argv)
     raise SystemExit("LM6A runtime flow is implemented in later tasks")

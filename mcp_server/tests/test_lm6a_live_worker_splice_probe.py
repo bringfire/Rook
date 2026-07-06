@@ -181,3 +181,68 @@ def test_phase_a_gate_fails_when_routability_not_evaluated(
 
     assert recon["decision"]["decision"] == "gate_failed"
     assert recon["decision"]["reason"] == "phase_a_routability_not_evaluated"
+
+
+def _published_payload(kind: str, **extra) -> dict:
+    payload = {"schema": "rook.local_worker_turn_response:v1", "kind": kind}
+    payload.update(extra)
+    return payload
+
+
+def test_publication_failed_decision_for_invalid_publication() -> None:
+    decision = PROBE._decision_from_worker_publication(
+        publication_row={"status": "pass2_lm5g_invalid", "failure_reason": "bad"},
+        response_payload=None,
+    )
+
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "bad"
+    assert decision["live_repair_dispatched"] is False
+
+
+def test_worker_declined_clarification() -> None:
+    decision = PROBE._decision_from_worker_publication(
+        publication_row={
+            "status": "published",
+            "observation_action_intent_anomaly": False,
+            "observation_action_intent_reasons": [],
+        },
+        response_payload=_published_payload(
+            "clarification_request",
+            question="Need desired value?",
+            rationale=None,
+        ),
+    )
+
+    assert decision["decision"] == "worker_declined"
+    assert decision["reason"] == "worker_clarified"
+
+
+def test_worker_declined_observation_anomaly() -> None:
+    decision = PROBE._decision_from_worker_publication(
+        publication_row={
+            "status": "published",
+            "observation_action_intent_anomaly": True,
+            "observation_action_intent_reasons": [
+                "observation_data_action_id_allowed"
+            ],
+        },
+        response_payload=_published_payload("observation", message="x", data=None),
+    )
+
+    assert decision["decision"] == "worker_declined"
+    assert decision["reason"] == "worker_observation_action_intent_anomaly"
+
+
+def test_worker_action_apply_failure_maps_to_rejected() -> None:
+    class _ApplyResult:
+        applied = False
+        reason = "invalid_mode"
+        params_sha256 = None
+
+    decision = PROBE._decision_from_worker_action_apply(_ApplyResult())
+
+    assert decision["decision"] == "rejected"
+    assert decision["reason"] == "worker_action_apply_failed:invalid_mode"
+    assert decision["live_repair_dispatched"] is False
+    assert decision["verify_repair_ran"] is False
