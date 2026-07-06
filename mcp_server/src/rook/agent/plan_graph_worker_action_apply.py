@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 import hashlib
@@ -35,7 +36,7 @@ def _reject(graph: Any, node_id: str, reason: str) -> WorkerActionApplyResult:
 
 
 def _validate_action_input(action_input: Any) -> str | None:
-    if not isinstance(action_input, dict):
+    if not isinstance(action_input, Mapping):
         return "invalid_action_input"
     if set(action_input) - _ACTION_INPUT_KEYS:
         return "unexpected_action_input_key"
@@ -50,7 +51,7 @@ def _validate_action_input(action_input: Any) -> str | None:
 
 
 def _validate_anchor_binding(anchor_binding: Any) -> str | None:
-    if not isinstance(anchor_binding, dict):
+    if not isinstance(anchor_binding, Mapping):
         return "invalid_anchor_binding"
     if set(anchor_binding) - _ANCHOR_BINDING_KEYS:
         return "unexpected_anchor_binding_key"
@@ -77,8 +78,8 @@ def apply_worker_action_to_node(
     node_id: str,
     *,
     action_id: str,
-    action_input: Any,
-    anchor_binding: Any,
+    action_input: Mapping[str, Any],
+    anchor_binding: Mapping[str, Any],
     allowed_action_id: str = "draft_repair_params",
 ) -> WorkerActionApplyResult:
     if node_id not in graph.nodes:

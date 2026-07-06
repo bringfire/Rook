@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import pathlib
+from types import MappingProxyType
 
 from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
 from rook.agent.plan_graph_worker_action_apply import (
@@ -110,6 +111,25 @@ def test_success_copies_inputs_without_aliasing() -> None:
     anchor["language"] = "python"
     staged = result.graph.nodes[_NODE_ID].metadata[EXECUTION_PARAMS_KEY]
     assert staged == {
+        "guid": "GUID-1",
+        "code": _CODE,
+        "mode": "body",
+        "language": "csharp",
+    }
+
+
+def test_success_accepts_non_dict_mappings() -> None:
+    graph = _graph([_node(_NODE_ID)])
+
+    result = _apply(
+        graph,
+        action_input=MappingProxyType(_valid_action_input()),
+        anchor_binding=MappingProxyType(_valid_anchor()),
+    )
+
+    assert result.applied is True
+    assert result.reason is None
+    assert result.graph.nodes[_NODE_ID].metadata[EXECUTION_PARAMS_KEY] == {
         "guid": "GUID-1",
         "code": _CODE,
         "mode": "body",
