@@ -1,6 +1,6 @@
 # Director v3: Snapshot Boundary + Disposable-Copy Render Worker
 
-Status: direction design, validated by live spikes; amended after Codex review rounds 1-2
+Status: implementation-plan ready; validated by live spikes, amended through Codex review rounds 1-3
 Date: 2026-07-06
 Supersedes (in part): `docs/director/2026-07-06-dynamic-canvas-export-materialization-spec.md` (worktree `director-canvas-export-spec`)
 
@@ -183,10 +183,15 @@ capture there:
    Implementation leans on the native Director frame-capture display-mode
    resolution/readback path, which is already stricter than the generic
    managed viewport capture.
-3. **Compile (file-backed):** existing `director_compiler` logic consuming
-   `resolved_motion.json`, writing `track.json` to the package. The track
-   schema and `absolute_from_source` semantics are unchanged. The
-   preview-shaped caps stay where they are — in the preview path.
+3. **Compile (file-backed, distinct entry point):** the worker compiler is a
+   separate entry point (or factored core) that reuses `director_compiler`'s
+   math — keyframe interpolation, easing, camera planning — but consumes
+   `resolved_motion.json` and does not inherit the preview caps baked into
+   `compile_motion` (`director_compiler.py:139`: 256 objects, dwell, 60 s
+   duration). Worker-path limits, if any, are its own explicit constants.
+   Writes `track.json` to the package. The track schema and
+   `absolute_from_source` semantics are unchanged. The preview entry point
+   and its caps stay untouched.
 4. **Capture (file-backed, not `/director/replay`):** a worker capture route
    reads `track.json` from the package directory (no 8 MiB HTTP body, no
    256-object or 60 s caps), plays frames delta-driven (below), and
@@ -212,6 +217,13 @@ document). The worker contract:
   `delta_i = A_i * inverse(A_(i-1))` (with `A_0 = I`). Objects only move
   forward through the take — the visible progression IS the animation, with
   half the per-frame mutation work of apply+restore.
+- **Composition order pinned by proof, not assumption:** the delta formula
+  assumes a specific transform convention (which side the delta multiplies on
+  under Rhino's `ON_Xform` point convention). Implementation must
+  characterize this with a live proof on *asymmetric geometry* using
+  non-commuting transforms — translate + rotate about a non-origin pivot +
+  non-uniform scale — never with a simple vertical lift, which cannot
+  distinguish composition orders.
 - **In-run drift gate:** deltas are derived from exact absolute matrices, so
   error does not accumulate in the math — only sub-tolerance float noise in
   geometry coordinates. Gate: the final frame's predicted pose
@@ -224,14 +236,19 @@ document). The worker contract:
   manifest tight bboxes; any mismatch triggers a document reload instead of
   trusting the restore. Iterations can never inherit drift because pristine
   state is demonstrated, not assumed.
-- **Unpaced capture, no screen redraw:** dwell/fps pacing exists for human
-  viewing; `ViewCapture` renders offscreen and needs neither an on-screen
-  redraw nor a real-time clock. The worker captures as fast as apply+capture
-  allows; `fps` is video metadata applied at assembly. Reviewing the animation
-  happens by playing the assembled video — smoother and faster than any live
-  redraw of a heavy scene (spike: ~1.4 s/frame live vs 24 fps playback of the
-  finished file). An optional paced on-screen mode may exist for eyeballing
-  inside the worker, but it is not on the capture path.
+- **Unpaced capture — no dwell, no live-preview requirement:** dwell/fps
+  pacing exists for human viewing and is removed entirely from the worker
+  capture loop; `fps` is video metadata applied at assembly. The contract is
+  "unpaced, no user-visible live preview requirement" — NOT "the
+  implementation must never redraw a viewport": current Director frame
+  capture calls `pView->Redraw()` before `ViewCapture`
+  (`DirectorHandler.cpp:1681`), and whether that redraw is separable from
+  correct capture output is a throughput-spike question, not a spec promise.
+  Reviewing the animation happens by playing the assembled video — smoother
+  and faster than any live redraw of a heavy scene (spike: ~1.4 s/frame live
+  vs 24 fps playback of the finished file). An optional paced on-screen mode
+  may exist for eyeballing inside the worker, but it is not on the capture
+  path.
 - **User-session preview unchanged:** the live `/director/replay` keeps its
   per-frame restore — the message pump runs during dwell slices, so a user
   edit mid-replay makes a single end-restore unsafe there. Upgrading preview
@@ -434,6 +451,16 @@ the second-instance variants are the residual measurements.
   pristine-reset produces the same frame-1 state as the first run
   (cross-run iteration proof, both reset mechanisms: fresh-open and verified
   inverse restore).
+- Composition-order proof: delta playback reproduces the absolute track on
+  asymmetric geometry under non-commuting transforms (translate + rotate
+  about a non-origin pivot + non-uniform scale) — a vertical-lift-only proof
+  is insufficient and must not pass this gate.
+- Rotation proofs beyond bbox: bbox prediction (which transforms source bbox
+  corners, `DirectorFrame.cpp:295`) remains the drift *gate*, but rotated
+  tracks additionally require an asymmetric-geometry pose proof and an
+  inverse-reset proof (apply full rotated track, inverse-restore, verify
+  against manifest) — bbox alone is weaker/noisier under arbitrary rotation
+  and is never the sole rotation evidence.
 - Capture pacing: the worker capture loop runs unpaced (no dwell), with no
   on-screen redraw required for frame output; assembled video plays at the
   requested fps.
