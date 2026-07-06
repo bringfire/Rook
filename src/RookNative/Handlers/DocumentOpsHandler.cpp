@@ -327,7 +327,7 @@ void HandleDocumentSaveCopy(const httplib::Request& req, httplib::Response& res)
         wr.data["title_before"] = WideToUtf8(titleBefore);
         wr.data["title_after"] = WideToUtf8(pDoc->GetTitle());
         wr.data["modified_before"] = modifiedBefore;
-        wr.data["modified_after"] = pDoc->IsModified();
+        wr.data["modified_after"] = pDoc->IsModified() ? true : false;
         wr.data["save_small_used"] = false;
         return wr;
     });
