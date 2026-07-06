@@ -71,7 +71,7 @@ from .mcp_tool_profiles import (
     tool_blocked,
 )
 from .capability_index import build_index, validate_arguments
-from . import artifacts, canvas_director, director, director_actor_metadata, director_compiler, director_preview, director_publish, director_take_package, director_video, merge_execution, script_library, targeting, workbench, work_units
+from . import artifacts, canvas_director, director, director_actor_metadata, director_compiler, director_preview, director_publish, director_take_package, director_video, director_worker_prepare, merge_execution, script_library, targeting, workbench, work_units
 from .mesh2splat import pipeline as mesh2splat_pipeline
 targeting.initialize_from_environment()
 from .knowledge import query_knowledge, query_knowledge_tiered, record_knowledge, invalidate_condensed_command_cache
@@ -4118,6 +4118,30 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                     "camera": {"type": "object", "description": "Optional camera_planner spec."},
                     "display_modes": {"type": "array", "items": {"type": "string"}, "description": "Display mode names required for capture passes; verified to exist now."},
                 },
+            },
+        ),
+        Tool(
+            name="rhino_director_prepare_take",
+            description=(
+                "Director v3 worker prepare (Slice 2). Opens a take package's "
+                "scene.3dm as the ACTIVE document (destructive on the copy: explodes "
+                "declared actor-source block instances), records provenance-at-"
+                "creation member mapping, proves 100% member coverage, verifies "
+                "manifest evidence, writes member_map.json and resolved_motion.json "
+                "into the package, and advances status.json to phase 'prepared'. "
+                "Refuses to run if the current document has unsaved changes "
+                "(switching documents would discard them)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "package_root": {
+                        "type": "string",
+                        "description": "Take package directory created by "
+                                       "rhino_director_package_take",
+                    },
+                },
+                "required": ["package_root"],
             },
         ),
         Tool(
@@ -20871,6 +20895,12 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             try:
                 result = {"success": True, "data": await director_take_package.package_take(arguments, port=port)}
             except director_take_package.DirectorTakePackageError as exc:
+                result = {"success": False, "data": exc.to_data()}
+
+        case "rhino_director_prepare_take":
+            try:
+                result = {"success": True, "data": await director_worker_prepare.prepare_take(arguments, port=port)}
+            except director_worker_prepare.DirectorWorkerPrepareError as exc:
                 result = {"success": False, "data": exc.to_data()}
 
         case "rhino_director_preview_motion":
