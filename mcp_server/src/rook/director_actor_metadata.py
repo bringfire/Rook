@@ -128,6 +128,20 @@ def resolve_metadata_ref(project_root: Path, ref: str) -> Path:
     return resolved
 
 
+def classify_metadata_ref(ref: str) -> str:
+    valid_ref = validate_metadata_ref(ref)
+    if valid_ref.startswith(CANONICAL_REF_PREFIX):
+        return "canonical"
+    if valid_ref.startswith(LEGACY_REF_PREFIX):
+        return "legacy"
+    _raise(
+        "metadata_ref_prefix_unsupported",
+        "Director metadata ref must use .rook/director/v2/ or .rook/director_planning/.",
+        ref=valid_ref,
+        allowed_prefixes=[CANONICAL_REF_PREFIX, LEGACY_REF_PREFIX],
+    )
+
+
 def ref_from_project_path(project_root: Path, path: Path) -> str:
     root = Path(project_root).resolve()
     candidate = Path(path)
@@ -254,7 +268,79 @@ def validate_loaded_metadata(payload: dict, *, expected_kind: str) -> dict:
     return payload
 
 
-def load_metadata_ref(project_root: Path, ref: str, *, expected_kind: str) -> dict:
+def validate_loaded_metadata_for_ref(
+    payload: dict,
+    *,
+    ref: str,
+    expected_kind: str,
+) -> dict[str, Any]:
+    valid_ref = validate_metadata_ref(ref)
+    ref_class = classify_metadata_ref(valid_ref)
+    loaded = validate_loaded_metadata(payload, expected_kind=expected_kind)
+    if ref_class == "legacy":
+        return {
+            "payload": loaded,
+            "legacy_ref": True,
+            "storage_protocol": "legacy_director_planning_v2",
+        }
+
+    storage_version = loaded.get("storage_version")
+    if storage_version != STORAGE_VERSION:
+        _raise(
+            "metadata_storage_version_mismatch",
+            "Canonical Director metadata requires the current storage version.",
+            ref=valid_ref,
+            storage_version=storage_version,
+            expected_storage_version=STORAGE_VERSION,
+        )
+    ref_protocol = loaded.get("ref_protocol")
+    if ref_protocol != REF_PROTOCOL:
+        _raise(
+            "metadata_ref_protocol_mismatch",
+            "Canonical Director metadata requires the current ref protocol.",
+            ref=valid_ref,
+            ref_protocol=ref_protocol,
+            expected_ref_protocol=REF_PROTOCOL,
+        )
+    storage_identity = loaded.get("storage_identity")
+    if not isinstance(storage_identity, dict):
+        _raise(
+            "storage_identity_invalid",
+            "Canonical Director metadata requires a storage identity object.",
+            ref=valid_ref,
+        )
+    identity_metadata_kind = metadata_kind_for_storage_identity(storage_identity)
+    if identity_metadata_kind != expected_kind:
+        _raise(
+            "storage_identity_kind_mismatch",
+            "Storage identity kind does not match the expected metadata kind.",
+            ref=valid_ref,
+            storage_identity_kind=storage_identity.get("kind"),
+            metadata_kind=identity_metadata_kind,
+            expected_kind=expected_kind,
+        )
+    if not canonical_ref_matches_storage_identity(valid_ref, storage_identity):
+        _raise(
+            "storage_identity_ref_mismatch",
+            "Canonical Director metadata ref does not match its storage identity.",
+            ref=valid_ref,
+            storage_identity=storage_identity,
+            expected_ref=canonical_ref_for_storage_identity(storage_identity),
+        )
+    return {
+        "payload": loaded,
+        "legacy_ref": False,
+        "storage_protocol": REF_PROTOCOL,
+    }
+
+
+def load_metadata_ref_with_diagnostics(
+    project_root: Path,
+    ref: str,
+    *,
+    expected_kind: str,
+) -> dict[str, Any]:
+    classify_metadata_ref(ref)
     path = resolve_metadata_ref(project_root, ref)
     try:
         text = path.read_text(encoding="utf-8")
@@ -284,7 +370,19 @@ def load_metadata_ref(project_root: Path, ref: str, *, expected_kind: str) -> di
             "Metadata ref did not contain valid JSON.",
             ref=validate_metadata_ref(ref),
         ) from ex
-    return validate_loaded_metadata(payload, expected_kind=expected_kind)
+    return validate_loaded_metadata_for_ref(
+        payload,
+        ref=ref,
+        expected_kind=expected_kind,
+    )
+
+
+def load_metadata_ref(project_root: Path, ref: str, *, expected_kind: str) -> dict:
+    return load_metadata_ref_with_diagnostics(
+        project_root,
+        ref,
+        expected_kind=expected_kind,
+    )["payload"]
 
 
 async def resolve_active_project_root(

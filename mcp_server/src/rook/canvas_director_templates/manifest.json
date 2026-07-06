@@ -404,7 +404,7 @@
       "script": {
         "language": "csharp",
         "path": "scripts/actors_v2.cs",
-        "sha256": "sha256:ce5b40e9a8d5dfb54eabcbed203da75e5ba78be62c7ec539161b6c474efacadc"
+        "sha256": "sha256:cb79772a5eed6d05b8f3be14370b299bfd0e94f7ae5c2f69c3157b66ef6eb9bb"
       },
       "template_id": "canvas_director.actors_v2",
       "template_version": "0.1.0"

@@ -10,6 +10,10 @@ using Grasshopper.Kernel;
 
 public class Script_Instance : GH_ScriptInstance
 {
+    private const string CanonicalDirectorRefPrefix = ".rook/director/v2/";
+    private const string LegacyDirectorRefPrefix = ".rook/director_planning/";
+    private const string DirectorRefPrefixError = "Director metadata ref must use .rook/director/v2/ or .rook/director_planning/";
+
     private void RunScript(
         object ActorSetPath,
         object ActorGroupingPath,
@@ -39,6 +43,8 @@ public class Script_Instance : GH_ScriptInstance
             Info = string.Join("; ", errors);
             return;
         }
+        bool actorLegacyRef = IsLegacyDirectorRef(actorRef);
+        bool groupingLegacyRef = IsLegacyDirectorRef(groupingRef);
 
         string projectRoot = GetProjectRoot(out string rootError);
         if (projectRoot == null)
@@ -91,13 +97,13 @@ public class Script_Instance : GH_ScriptInstance
         long groupingTicks = File.GetLastWriteTimeUtc(groupingPath).Ticks;
         string key = actorMeta.ActorSetId + "|" + actorRef + "|" + actorTicks + "|" + groupingRef + "|" + groupingTicks;
 
-        string payload = BuildPayload(actorRef, groupingRef, actorPath, groupingPath, actorMeta, groupingMeta, source, actorTicks, groupingTicks, key);
+        string payload = BuildPayload(actorRef, groupingRef, actorPath, groupingPath, actorMeta, groupingMeta, source, actorTicks, groupingTicks, key, actorLegacyRef, groupingLegacyRef);
 
         Actors = $"Director Actors: actorSet={actorMeta.ActorSetId}; members={actorMeta.MemberCount}; groups={groupingMeta.GroupCount}";
         RuntimePayload = payload;
         ActorSetId = actorMeta.ActorSetId;
         GroupCount = groupingMeta.GroupCount;
-        Info = $"Director Actors v2: actorSet={actorMeta.ActorSetId}; members={actorMeta.MemberCount}; resolved={actorMeta.ResolvedCount}; groupingKind={groupingMeta.Kind}; groups={groupingMeta.GroupCount}; groupedMembers={groupingMeta.MemberCount}; actorRef={actorRef}; groupingRef={groupingRef}; sourceTop={source.TopLevelInstanceId}; source=metadata-ref.";
+        Info = $"Director Actors v2: actorSet={actorMeta.ActorSetId}; members={actorMeta.MemberCount}; resolved={actorMeta.ResolvedCount}; groupingKind={groupingMeta.Kind}; groups={groupingMeta.GroupCount}; groupedMembers={groupingMeta.MemberCount}; actorRef={actorRef}; groupingRef={groupingRef}; legacyActorRef={actorLegacyRef}; legacyGroupingRef={groupingLegacyRef}; sourceTop={source.TopLevelInstanceId}; source=metadata-ref.";
         }
         catch (Exception ex)
         {
@@ -134,6 +140,23 @@ public class Script_Instance : GH_ScriptInstance
         return text.Trim().Trim('"').Replace('\\', '/');
     }
 
+    private static bool IsCanonicalDirectorRef(string metadataRef)
+    {
+        return !string.IsNullOrWhiteSpace(metadataRef)
+            && metadataRef.StartsWith(CanonicalDirectorRefPrefix, StringComparison.Ordinal);
+    }
+
+    private static bool IsLegacyDirectorRef(string metadataRef)
+    {
+        return !string.IsNullOrWhiteSpace(metadataRef)
+            && metadataRef.StartsWith(LegacyDirectorRefPrefix, StringComparison.Ordinal);
+    }
+
+    private static bool IsSupportedDirectorRef(string metadataRef)
+    {
+        return IsCanonicalDirectorRef(metadataRef) || IsLegacyDirectorRef(metadataRef);
+    }
+
     private static string ResolveMetadataRef(string projectRoot, string metadataRef, out string error)
     {
         error = null;
@@ -148,9 +171,9 @@ public class Script_Instance : GH_ScriptInstance
             error = "Director metadata refs must be project-relative .rook refs, not absolute paths: " + metadataRef;
             return null;
         }
-        if (!normalized.StartsWith(".rook/", StringComparison.Ordinal) || normalized.Contains("../") || normalized.Contains("/.."))
+        if (!IsSupportedDirectorRef(normalized) || normalized.Contains("../") || normalized.Contains("/.."))
         {
-            error = "Director metadata ref must stay under .rook without '..': " + metadataRef;
+            error = DirectorRefPrefixError + " and must stay within that metadata tree without '..': " + metadataRef;
             return null;
         }
 
@@ -249,7 +272,7 @@ public class Script_Instance : GH_ScriptInstance
         return source;
     }
 
-    private static string BuildPayload(string actorRef, string groupingRef, string actorPath, string groupingPath, ActorMetadata actorMeta, ActorGroupingMetadata groupingMeta, SourceOccurrence source, long actorTicks, long groupingTicks, string key)
+    private static string BuildPayload(string actorRef, string groupingRef, string actorPath, string groupingPath, ActorMetadata actorMeta, ActorGroupingMetadata groupingMeta, SourceOccurrence source, long actorTicks, long groupingTicks, string key, bool actorLegacyRef, bool groupingLegacyRef)
     {
         var sb = new StringBuilder();
         sb.Append("{");
@@ -257,6 +280,8 @@ public class Script_Instance : GH_ScriptInstance
         AppendJsonPair(sb, "metadata_kind", "director_actor_runtime_payload", true);
         AppendJsonPair(sb, "actor_set_ref", actorRef, true);
         AppendJsonPair(sb, "actor_grouping_ref", groupingRef, true);
+        AppendJsonPair(sb, "actor_legacy_ref", actorLegacyRef ? "true" : "false", false);
+        AppendJsonPair(sb, "actor_grouping_legacy_ref", groupingLegacyRef ? "true" : "false", false);
         AppendJsonPair(sb, "resolved_actor_set_path", actorPath, true);
         AppendJsonPair(sb, "resolved_actor_grouping_path", groupingPath, true);
         AppendJsonPair(sb, "grouping_kind", groupingMeta.Kind, true);

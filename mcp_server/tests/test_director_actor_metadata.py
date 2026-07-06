@@ -427,6 +427,123 @@ def test_load_metadata_ref_requires_schema_version_2_and_expected_kind(tmp_path)
     assert loaded["metadata_kind"] == metadata.KIND_ACTOR_SET
 
 
+def test_load_metadata_ref_storage_diagnostics_reports_canonical_ref(
+    tmp_path,
+):
+    project_root = tmp_path / "project"
+    identity = {
+        "kind": metadata.STORAGE_KIND_ACTOR_SET,
+        "actor_set_id": "set_001",
+    }
+    ref = metadata.canonical_ref_for_storage_identity(identity)
+    path = project_root / Path(*ref.split("/"))
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": metadata.SCHEMA_VERSION,
+                "metadata_kind": metadata.KIND_ACTOR_SET,
+                "storage_version": metadata.STORAGE_VERSION,
+                "ref_protocol": metadata.REF_PROTOCOL,
+                "storage_identity": identity,
+                "actor_set_id": "set_001",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = metadata.load_metadata_ref_with_diagnostics(
+        project_root,
+        ref,
+        expected_kind=metadata.KIND_ACTOR_SET,
+    )
+
+    assert loaded["payload"]["actor_set_id"] == "set_001"
+    assert loaded["legacy_ref"] is False
+    assert loaded["storage_protocol"] == metadata.REF_PROTOCOL
+
+
+def test_load_metadata_ref_storage_diagnostics_reports_legacy_ref(
+    tmp_path,
+):
+    project_root = tmp_path / "project"
+    ref = ".rook/director_planning/actor_sets/set_001.json"
+    path = project_root / Path(*ref.split("/"))
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": metadata.SCHEMA_VERSION,
+                "metadata_kind": metadata.KIND_ACTOR_SET,
+                "actor_set_id": "set_001",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = metadata.load_metadata_ref_with_diagnostics(
+        project_root,
+        ref,
+        expected_kind=metadata.KIND_ACTOR_SET,
+    )
+
+    assert loaded["payload"]["actor_set_id"] == "set_001"
+    assert loaded["legacy_ref"] is True
+    assert loaded["storage_protocol"] == "legacy_director_planning_v2"
+
+
+def test_load_metadata_ref_with_diagnostics_rejects_wrong_short_ref_pairing(
+    tmp_path,
+):
+    project_root = tmp_path / "project"
+    identity = {
+        "kind": metadata.STORAGE_KIND_ACTOR_SET,
+        "actor_set_id": "set_001",
+    }
+    wrong_ref = metadata.canonical_ref_for_storage_identity(
+        {
+            "kind": metadata.STORAGE_KIND_ACTOR_SET,
+            "actor_set_id": "other_set",
+        }
+    )
+    path = project_root / Path(*wrong_ref.split("/"))
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": metadata.SCHEMA_VERSION,
+                "metadata_kind": metadata.KIND_ACTOR_SET,
+                "storage_version": metadata.STORAGE_VERSION,
+                "ref_protocol": metadata.REF_PROTOCOL,
+                "storage_identity": identity,
+                "actor_set_id": "set_001",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        metadata.load_metadata_ref_with_diagnostics(
+            project_root,
+            wrong_ref,
+            expected_kind=metadata.KIND_ACTOR_SET,
+        )
+
+    assert exc.value.to_data()["code"] == "storage_identity_ref_mismatch"
+
+
+def test_classify_metadata_ref_rejects_wrong_short_ref_prefix():
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        metadata.classify_metadata_ref(".rook/other/actor_sets/set_001.json")
+
+    data = exc.value.to_data()
+    assert data["code"] == "metadata_ref_prefix_unsupported"
+    assert data["allowed_prefixes"] == [
+        metadata.CANONICAL_REF_PREFIX,
+        metadata.LEGACY_REF_PREFIX,
+    ]
+
+
 def test_validate_loaded_metadata_rejects_v1():
     with pytest.raises(metadata.DirectorActorMetadataError) as exc:
         metadata.validate_loaded_metadata(

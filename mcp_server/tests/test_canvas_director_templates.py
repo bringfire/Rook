@@ -299,6 +299,40 @@ def test_actors_v2_contains_metadata_read_failures() -> None:
     assert "Director Actors v2 error:" in text
 
 
+def test_actors_v2_script_requires_explicit_director_ref_prefixes() -> None:
+    text = (TEMPLATE_SCRIPTS_ROOT / "actors_v2.cs").read_text(encoding="utf-8")
+
+    assert ".rook/director/v2/" in text
+    assert ".rook/director_planning/" in text
+    assert (
+        "Director metadata ref must use .rook/director/v2/ or .rook/director_planning/"
+        in text
+    )
+    assert 'StartsWith(".rook/", StringComparison.Ordinal)' not in text
+
+
+def test_actors_v2_script_emits_legacy_ref_payload_fields() -> None:
+    text = (TEMPLATE_SCRIPTS_ROOT / "actors_v2.cs").read_text(encoding="utf-8")
+
+    assert "actorLegacyRef" in text
+    assert "groupingLegacyRef" in text
+    assert '"actor_legacy_ref"' in text
+    assert '"actor_grouping_legacy_ref"' in text
+    assert "legacyActorRef=" in text
+    assert "legacyGroupingRef=" in text
+
+
+def test_actors_v2_script_uses_exact_build_payload_legacy_call_shape() -> None:
+    text = (TEMPLATE_SCRIPTS_ROOT / "actors_v2.cs").read_text(encoding="utf-8")
+
+    assert (
+        "BuildPayload(actorRef, groupingRef, actorPath, groupingPath, actorMeta, "
+        "groupingMeta, source, actorTicks, groupingTicks, key, actorLegacyRef, "
+        "groupingLegacyRef)"
+        in text
+    )
+
+
 def test_loaded_manifest_root_is_used_for_script_validation(tmp_path: Path) -> None:
     manifest_path = _write_minimal_template_pack(tmp_path)
 

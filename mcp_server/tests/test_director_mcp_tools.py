@@ -753,11 +753,15 @@ async def test_read_actor_metadata_v2_tool_dispatch_success():
         assert port is None
         return ("C:/projects", source_document)
 
-    def fake_load_metadata_ref(project_root, ref, *, expected_kind):
+    def fake_load_metadata_ref_with_diagnostics(project_root, ref, *, expected_kind):
         assert project_root == "C:/projects"
         assert ref == request["ref"]
         assert expected_kind == "director_actor_set"
-        return {"metadata_kind": expected_kind, "actor_set_id": "set_001"}
+        return {
+            "payload": {"metadata_kind": expected_kind, "actor_set_id": "set_001"},
+            "legacy_ref": True,
+            "storage_protocol": "legacy_director_planning_v2",
+        }
 
     def fake_resolve_metadata_ref(project_root, ref):
         assert project_root == "C:/projects"
@@ -770,8 +774,8 @@ async def test_read_actor_metadata_v2_tool_dispatch_success():
             new=fake_resolve_active_project_root,
         ),
         patch(
-            "rook.server.director_actor_metadata.load_metadata_ref",
-            new=fake_load_metadata_ref,
+            "rook.server.director_actor_metadata.load_metadata_ref_with_diagnostics",
+            new=fake_load_metadata_ref_with_diagnostics,
         ),
         patch(
             "rook.server.director_actor_metadata.resolve_metadata_ref",
@@ -786,6 +790,8 @@ async def test_read_actor_metadata_v2_tool_dispatch_success():
     assert payload["ref"] == request["ref"]
     assert payload["expected_kind"] == "director_actor_set"
     assert payload["payload"]["actor_set_id"] == "set_001"
+    assert payload["legacy_ref"] is True
+    assert payload["storage_protocol"] == "legacy_director_planning_v2"
     assert payload["source_document"]["file_name"] == "scene.3dm"
     assert payload["resolved_metadata_path"].endswith("set_001.json")
 

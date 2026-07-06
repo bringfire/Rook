@@ -20869,8 +20869,10 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 project_root, source_document = (
                     await director_actor_metadata.resolve_active_project_root(port=port)
                 )
-                payload = director_actor_metadata.load_metadata_ref(
-                    project_root, ref, expected_kind=expected_kind
+                metadata_result = (
+                    director_actor_metadata.load_metadata_ref_with_diagnostics(
+                        project_root, ref, expected_kind=expected_kind
+                    )
                 )
                 resolved_metadata_path = director_actor_metadata.resolve_metadata_ref(
                     project_root, ref
@@ -20882,7 +20884,9 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                         "expected_kind": expected_kind,
                         "resolved_metadata_path": str(resolved_metadata_path),
                         "source_document": source_document,
-                        "payload": payload,
+                        "payload": metadata_result["payload"],
+                        "legacy_ref": metadata_result["legacy_ref"],
+                        "storage_protocol": metadata_result["storage_protocol"],
                     },
                 }
             except director_actor_metadata.DirectorActorMetadataError as exc:
