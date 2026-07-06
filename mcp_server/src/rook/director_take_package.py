@@ -222,6 +222,7 @@ async def package_take(arguments: dict[str, Any], *, call_native=call_rhino,
     # no <take_id> dir behind, so retries do not hit package_already_exists).
     staging_root = package_root.parent / f".{spec['take_id']}.staging"
     if staging_root.exists():
+        # Single-writer assumption: concurrent package_take calls must use distinct take_ids.
         shutil.rmtree(staging_root)  # leftover from a crashed run; ours by construction
     staging_root.mkdir(parents=True, exist_ok=False)
     scene_path = staging_root / "scene.3dm"
