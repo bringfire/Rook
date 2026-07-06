@@ -53,18 +53,27 @@ def test_canonical_evidence_only_for_five_gemma_qat_attempts() -> None:
 
 
 def test_tool_result_ok_accepts_successful_mapping() -> None:
-    assert PROBE._tool_result_ok({"ok": True}) is True
-    assert PROBE._tool_result_ok({"status": "ready"}) is True
+    assert PROBE._tool_result_ok("some_tool", {"ok": True}) is True
+    assert PROBE._tool_result_ok("some_tool", {"status": "ready"}) is True
+
+
+def test_tool_result_ok_accepts_real_preflight_success_shapes() -> None:
+    assert PROBE._tool_result_ok("rhino_ping", "pong") is True
+    assert PROBE._tool_result_ok("rhino_ping", {"success": True, "data": "pong"}) is True
+    assert PROBE._tool_result_ok("gh_document_new", {"created": True}) is True
 
 
 def test_tool_result_ok_rejects_failure_shapes() -> None:
-    assert PROBE._tool_result_ok(None) is False
-    assert PROBE._tool_result_ok({"ok": False}) is False
-    assert PROBE._tool_result_ok({"success": False}) is False
-    assert PROBE._tool_result_ok({"status": "error"}) is False
-    assert PROBE._tool_result_ok({"status": "failed"}) is False
-    assert PROBE._tool_result_ok({"error": "bad"}) is False
-    assert PROBE._tool_result_ok({"errors": ["bad"]}) is False
+    assert PROBE._tool_result_ok("some_tool", None) is False
+    assert PROBE._tool_result_ok("some_tool", {"ok": False}) is False
+    assert PROBE._tool_result_ok("some_tool", {"success": False}) is False
+    assert PROBE._tool_result_ok("some_tool", {"status": "error"}) is False
+    assert PROBE._tool_result_ok("some_tool", {"status": "failed"}) is False
+    assert PROBE._tool_result_ok("some_tool", {"error": "bad"}) is False
+    assert PROBE._tool_result_ok("some_tool", {"errors": ["bad"]}) is False
+    assert PROBE._tool_result_ok("rhino_ping", "not-pong") is False
+    assert PROBE._tool_result_ok("rhino_ping", {"success": True, "data": "not-pong"}) is False
+    assert PROBE._tool_result_ok("gh_document_new", {"created": False}) is False
 
 
 def test_preflight_failed_row_does_not_invoke_lm6a() -> None:

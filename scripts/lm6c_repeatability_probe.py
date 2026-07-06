@@ -190,7 +190,7 @@ def _scheduled_attempt_id(attempt_index: int) -> str:
     return f"attempt-{attempt_index:03d}"
 
 
-def _tool_result_ok(result: object) -> bool:
+def _mapping_result_ok(result: object) -> bool:
     if not isinstance(result, Mapping):
         return False
     if result.get("ok") is False:
@@ -204,6 +204,26 @@ def _tool_result_ok(result: object) -> bool:
     return True
 
 
+def _tool_result_ok(tool_name: str, result: object) -> bool:
+    if tool_name == "rhino_ping":
+        if result == "pong":
+            return True
+        if not _mapping_result_ok(result):
+            return False
+        if isinstance(result, Mapping) and "data" in result:
+            return result.get("data") == "pong"
+        return True
+
+    if tool_name == "gh_document_new":
+        if not _mapping_result_ok(result):
+            return False
+        if isinstance(result, Mapping) and "created" in result:
+            return result.get("created") is True
+        return True
+
+    return _mapping_result_ok(result)
+
+
 async def _run_preflight() -> tuple[bool, str | None]:
     from rook.server import _mcp_tool_executor
 
@@ -212,7 +232,7 @@ async def _run_preflight() -> tuple[bool, str | None]:
             result = await _mcp_tool_executor(tool_name, {})
         except Exception as exc:
             return False, f"{tool_name}_exception:{exc.__class__.__name__}"
-        if not _tool_result_ok(result):
+        if not _tool_result_ok(tool_name, result):
             return False, f"{tool_name}_failed"
     return True, None
 
