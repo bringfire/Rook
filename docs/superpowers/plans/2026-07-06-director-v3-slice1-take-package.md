@@ -16,7 +16,9 @@
 - `scene.3dm` must include render meshes — never SaveSmall on the save-copy path (spec).
 - The save-copy invariants (SDK-documented for `SetUpdateDocumentPath(false)`): document path, title, and modified state unchanged "under any circumstances"; the undo stack is proven unchanged by the live gate. Do not trust these until the live gate passes (spec: "a live gate, not an assumption").
 - New MCP tools must be classified in BOTH `mcp_server/src/rook/agent/targeting.py` AND `mcp_server/src/rook/mcp_tool_profiles.py`, and surface counts are pinned in two test files — grep for the set/group name containing `rhino_director_compile_motion`, never search for the raw number (project memory rule).
-- Error taxonomy for this slice (typed codes on `DirectorTakePackageError`): `invalid_input`, `document_not_saved`, `save_copy_failed`, `save_copy_invariant_violation`, `package_already_exists`, `display_mode_missing`, `actor_set_resolution_failed`, `package_state_drift`, `tight_bbox_unavailable`.
+- Error taxonomy for this slice (typed codes on `DirectorTakePackageError`): `invalid_input`, `document_not_saved`, `save_copy_failed`, `save_copy_invariant_violation`, `package_already_exists`, `display_mode_missing`, `actor_set_resolution_failed`, `source_instance_mismatch`, `package_state_drift`, `tight_bbox_unavailable`.
+- Save-copy proof scope (honest claims only): the route evidence and live gate prove path, title, and modified-flag invariance plus undo-stack survival, and record `save_small_used: false` as route evidence. A nonzero file with a valid 3dm header proves the copy exists — it does NOT prove render meshes are present; render-mesh/open-fidelity proof belongs to the Slice 2 worker gate.
+- Use `rg` (ripgrep), not `grep`, for all search instructions in this plan.
 - Tight-bbox rule (spec DEC-021 lineage): `tight_object` is the ONLY bbox method admissible as manifest evidence. `/block/objects-detailed` already computes tight bbox first but silently falls back to the loose cached bbox (`BlocksHandler.cpp:3496-3498`) with no method label — Task 1 adds the label, and the package builder hard-fails (`tight_bbox_unavailable`) for any member whose bbox is not labeled `tight_object`. Loose/unlabeled bboxes never enter `scene_manifest.json` as evidence. Manifest bbox values are rounded to 4 decimal places with the rounding policy recorded.
 
 ---
@@ -25,15 +27,17 @@
 
 **Files:**
 - Modify: `src/RookNative/Handlers/DocumentOpsHandler.cpp` (add handler after `HandleDocumentSave`, which ends at ~line 271)
-- Modify: the header declaring `HandleDocumentSave` (find it: `grep -rn "HandleDocumentSave" src/RookNative/Handlers/*.h`) — add `HandleDocumentSaveCopy` beside it
+- Modify: the header declaring `HandleDocumentSave` (find it: `rg -n "HandleDocumentSave" src/RookNative/Handlers/ -g "*.h"`) — add `HandleDocumentSaveCopy` beside it
 - Modify: `src/RookNative/RookServer.cpp` (route registration near line 1183 where `/document/save` is registered; member forwarder near line 2824 where `CRookServer::HandleDocumentSave` forwards)
-- Modify: `src/RookNative/RookServer.h` (member declaration beside `HandleDocumentSave` — find with grep)
+- Modify: `src/RookNative/RookServer.h` (member declaration beside `HandleDocumentSave` — find with rg)
 - Modify: `src/RookNative/Handlers/BlocksHandler.cpp:3496-3504` (label the bbox method in `/block/objects-detailed`)
+- Modify: `src/RookNative/Handlers/BlocksHandler.cpp:2187-2203` (emit full instance xform + definition identity on `/block/instances`)
 
 **Interfaces:**
 - Produces: `POST /document/save-copy` with body `{"path": "<absolute .3dm target>"}`. Success data:
-  `{"copy_path": str, "path_before": str, "path_after": str, "modified_before": bool, "modified_after": bool, "include_render_meshes": true}`.
+  `{"copy_path": str, "path_before": str, "path_after": str, "title_before": str, "title_after": str, "modified_before": bool, "modified_after": bool, "save_small_used": false}`.
   Errors use the standard `CRookServer::SendError` envelope. Task 3's Python treats any non-success as `save_copy_failed`.
+- Produces: `/block/instances` entries additionally carry `"xform"` (nested 4x4 row-major, same convention as director tracks), `"definitionId"`, `"definitionName"`.
 
 - [ ] **Step 1: Add the handler to `DocumentOpsHandler.cpp`** (directly below `HandleDocumentSave`; mirror its structure exactly — same `ParseBodyAndDocSn`, `ValidateFilePath`, dispatcher, try/catch):
 
@@ -72,6 +76,7 @@ void HandleDocumentSaveCopy(const httplib::Request& req, httplib::Response& res)
         CRhinoDoc* pDoc = ResolveDoc(docSn);
 
         const ON_wString pathBefore = pDoc->GetPathName();
+        const ON_wString titleBefore = pDoc->GetTitle();
         const bool modifiedBefore = pDoc->IsModified();
 
         ON_wString copyPath = Utf8ToWide(path);
@@ -90,9 +95,11 @@ void HandleDocumentSaveCopy(const httplib::Request& req, httplib::Response& res)
         wr.data["copy_path"] = path;
         wr.data["path_before"] = WideToUtf8(pathBefore);
         wr.data["path_after"] = WideToUtf8(pDoc->GetPathName());
+        wr.data["title_before"] = WideToUtf8(titleBefore);
+        wr.data["title_after"] = WideToUtf8(pDoc->GetTitle());
         wr.data["modified_before"] = modifiedBefore;
         wr.data["modified_after"] = pDoc->IsModified();
-        wr.data["include_render_meshes"] = true;
+        wr.data["save_small_used"] = false;
         return wr;
     });
 
@@ -156,16 +163,31 @@ void CRookServer::HandleDocumentSaveCopy(const httplib::Request& req, httplib::R
 
 This is additive — existing consumers keep the `bbox` field unchanged; the new `bboxMethod` label lets Director callers reject non-tight evidence (spec: never inherit the silent fallback's pass semantics).
 
-- [ ] **Step 5: Build**
+- [ ] **Step 5: Emit full instance xform + definition identity on `/block/instances`** — in `HandleBlockInstances` (`BlocksHandler.cpp`, instance JSON built at lines 2195–2201), the full `ON_Xform xf` is already in hand (line 2187) but only insertion point and derived scale are serialized. Add, after `ji["name"] = ...`:
+
+```cpp
+            nlohmann::json xformRows = nlohmann::json::array();
+            for (int r = 0; r < 4; ++r)
+                xformRows.push_back({ xf[r][0], xf[r][1], xf[r][2], xf[r][3] });
+            ji["xform"] = std::move(xformRows);          // nested 4x4 row-major,
+                                                          // same convention as
+                                                          // director tracks
+            ji["definitionId"] = UuidToString(pIdef->Id());
+            ji["definitionName"] = WideToUtf8(pIdef->Name());
+```
+
+Additive — existing consumers (`rhino_block_instances`) keep their fields.
+
+- [ ] **Step 6: Build**
 
 Run: `cmd /c scripts\build-native.bat`
 Expected: build succeeds with zero errors. (No native unit-test framework exists in this repo; the route's behavior test is the Task 5 live gate.)
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/RookNative
-git commit -m "feat(director): add POST /document/save-copy route; label bbox method on /block/objects-detailed"
+git commit -m "feat(director): save-copy route, bbox method labels, instance xform evidence"
 ```
 
 ---
@@ -173,7 +195,7 @@ git commit -m "feat(director): add POST /document/save-copy route; label bbox me
 ### Task 2: `rhino_document_ops` gains action `save_copy`
 
 **Files:**
-- Modify: `mcp_server/src/rook/server.py` — dispatch at the `case "rhino_document_ops":` block (line ~14845), and the `rhino_document_ops` Tool `inputSchema`/description (find with `grep -n 'name="rhino_document_ops"' mcp_server/src/rook/server.py`)
+- Modify: `mcp_server/src/rook/server.py` — dispatch at the `case "rhino_document_ops":` block (line ~14845), and the `rhino_document_ops` Tool `inputSchema`/description (find with `rg -n 'name="rhino_document_ops"' mcp_server/src/rook/server.py`)
 
 **Interfaces:**
 - Produces: MCP `rhino_document_ops` accepts `{"action": "save_copy", "path": "<target .3dm>"}` and forwards to `POST /document/save-copy`, returning the native evidence payload unchanged.
@@ -216,7 +238,7 @@ git commit -m "feat(director): expose save_copy action on rhino_document_ops"
 - Test: `mcp_server/tests/test_director_take_package.py`
 
 **Interfaces:**
-- Consumes: `rook.bridge.call_rhino(endpoint, method, data, port=...)` returning the internal envelope `{"success": bool, "data": ...}`; native routes `GET /document`, `POST /document/save-copy`, `POST /block/objects-detailed` (body `{"name": <block>}` → `{"objects": [{"id","index","type","layer","name","bbox":{"min","max"},"visible",...}]}`), `GET /display-modes` (→ `{"modes": [{"id","name","isActive"}]}`).
+- Consumes: `rook.bridge.call_rhino(endpoint, method, data, port=...)` returning the internal envelope `{"success": bool, "data": ...}`; native routes `GET /document`, `POST /document/save-copy`, `POST /block/instances` (body `{"name": <block>}` → `{"instances": [{"id","layer","name","xform","definitionId","definitionName",...}]}` — xform/definition fields from Task 1), `POST /block/objects-detailed` (body `{"name": <block>}` → `{"objects": [{"id","index","type","layer","name","bbox":{"min","max"},"bboxMethod","visible",...}]}`), `GET /display-modes` (→ `{"modes": [{"id","name","isActive"}]}`).
 - Produces: `async def package_take(arguments: dict, *, call_native=call_rhino, port: int | None = None, now_fn=None) -> dict` and `class DirectorTakePackageError(Exception)` with `.code: str` and `.to_data() -> {"code", "message"}`. Task 4 dispatches to `package_take`; Task 5 calls it live.
 
 **Input contract (`arguments`):**
@@ -277,11 +299,17 @@ def _members(loose_second: bool = False) -> list[dict[str, Any]]:
     ]
 
 
+IDENTITY_XFORM = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0],
+                  [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
+
+
 def make_fake_native(*, modified=False, save_copy_ok=True, invariants_hold=True,
                      modes=("Arctic", "Render_Layer_Color_AMR"), drift=False,
-                     loose_second_member=False):
+                     loose_second_member=False, instance_id=INSTANCE_ID,
+                     member_drift=False):
     calls: list[tuple[str, str, dict | None]] = []
     doc_reads = {"n": 0}
+    member_reads = {"n": 0}
 
     async def fake(endpoint: str, method: str = "GET", data: dict | None = None,
                    port: int | None = None, **kwargs: Any):
@@ -298,12 +326,25 @@ def make_fake_native(*, modified=False, save_copy_ok=True, invariants_hold=True,
             after = modified if invariants_hold else (not modified)
             return {"success": True, "data": {
                 "copy_path": target, "path_before": DOC_PATH, "path_after": DOC_PATH,
+                "title_before": "live", "title_after": "live",
                 "modified_before": modified, "modified_after": after,
-                "include_render_meshes": True}}
+                "save_small_used": False}}
+        if endpoint == "/block/instances":
+            assert data == {"name": BLOCK}
+            return {"success": True, "data": {"blockName": BLOCK, "instances": [{
+                "id": instance_id, "layer": "004_DIAGRAM::STRUCTURE", "name": "",
+                "xform": IDENTITY_XFORM,
+                "definitionId": "d1d1d1d1-0000-0000-0000-000000000001",
+                "definitionName": BLOCK}]}}
         if endpoint == "/block/objects-detailed":
             assert data == {"name": BLOCK}
-            return {"success": True, "data": {
-                "name": BLOCK, "objects": _members(loose_second=loose_second_member)}}
+            member_reads["n"] += 1
+            members = _members(loose_second=loose_second_member)
+            if member_drift and member_reads["n"] > 1:
+                # Simulate a dirty-doc edit between enumeration and snapshot:
+                # same count, changed layer — object count would NOT catch this.
+                members[0]["layer"] = "001_MATERIAL::001_01_CONCRETE"
+            return {"success": True, "data": {"name": BLOCK, "objects": members}}
         if endpoint == "/display-modes":
             return {"success": True, "data": {"modes": [
                 {"id": f"id-{m}", "name": m, "isActive": False} for m in modes]}}
@@ -345,6 +386,12 @@ async def test_happy_path_writes_package(tmp_path):
     assert manifest["source_document"]["path"] == DOC_PATH
     [actor_set] = manifest["actor_sets"]
     assert actor_set["member_count"] == 2
+    src = actor_set["source_instance"]
+    assert src["instance_id"] == INSTANCE_ID
+    assert src["definition_name"] == BLOCK
+    assert src["definition_id"] == "d1d1d1d1-0000-0000-0000-000000000001"
+    assert src["xform"] == IDENTITY_XFORM
+    assert len(src["xform_sha256"]) == 64
     m0 = actor_set["members"][0]
     assert m0["actor_member_id"] == "roof_001_member_0000"
     assert m0["definition_object_index"] == 0
@@ -426,6 +473,23 @@ async def test_loose_bbox_member_fails_tight_bbox_unavailable(tmp_path):
     assert exc.value.code == "tight_bbox_unavailable"
     # The failing member is named so the user can fix or exclude it.
     assert "roof_001_member_0001" in str(exc.value)
+
+
+async def test_id_not_an_instance_of_block_fails_source_instance_mismatch(tmp_path):
+    """The claimed source id must be a CURRENT instance of the named block."""
+    fake = make_fake_native(instance_id="00000000-0000-0000-0000-000000000099")
+    with pytest.raises(dtp.DirectorTakePackageError) as exc:
+        await dtp.package_take(_args(tmp_path), call_native=fake)
+    assert exc.value.code == "source_instance_mismatch"
+
+
+async def test_actor_member_drift_after_snapshot_fails(tmp_path):
+    """Same object count, changed member layer between enumeration and
+    snapshot: the deep actor-state gate must catch what count cannot."""
+    fake = make_fake_native(member_drift=True)
+    with pytest.raises(dtp.DirectorTakePackageError) as exc:
+        await dtp.package_take(_args(tmp_path), call_native=fake)
+    assert exc.value.code == "package_state_drift"
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -534,39 +598,41 @@ def _validate(arguments: dict[str, Any]) -> dict[str, Any]:
             "motion": motion, "display_modes": display_modes, "camera": camera}
 
 
-async def package_take(arguments: dict[str, Any], *, call_native=call_rhino,
-                       port: int | None = None, now_fn=_utc_now,
-                       source_path_override: str | None = None) -> dict[str, Any]:
-    spec = _validate(arguments)
+async def _resolve_actor_state(call_native, actor_sets: list[dict[str, Any]],
+                               port: int | None) -> list[dict[str, Any]]:
+    """Resolve source instances + member evidence. Called twice: before the
+    scene snapshot and after it — the two results must be identical
+    (deep drift gate), so everything here must be deterministic."""
+    resolved = []
+    for entry in actor_sets:
+        instances = await _native(call_native, "/block/instances", "POST",
+                                  {"name": entry["block_name"]}, port,
+                                  "actor_set_resolution_failed")
+        match = next((inst for inst in (instances.get("instances") or [])
+                      if inst.get("id") == entry["source_top_level_object_id"]), None)
+        if match is None:
+            raise DirectorTakePackageError(
+                "source_instance_mismatch",
+                f"object {entry['source_top_level_object_id']} is not a current "
+                f"instance of block '{entry['block_name']}'")
+        xform = match.get("xform")
+        if not xform:
+            raise DirectorTakePackageError(
+                "source_instance_mismatch",
+                "native /block/instances returned no xform; deploy the Slice 1 "
+                "native build")
+        xform_rounded = [[round(v, 6) for v in row] for row in xform]
+        source_instance = {
+            "instance_id": match["id"],
+            "definition_id": match.get("definitionId"),
+            "definition_name": match.get("definitionName"),
+            "layer": match.get("layer"),
+            "name": match.get("name") or "",
+            "xform": xform_rounded,
+            "xform_sha256": hashlib.sha256(
+                json.dumps(xform_rounded).encode("utf-8")).hexdigest(),
+        }
 
-    package_root = Path(spec["output_root"]).expanduser().resolve() / spec["take_id"]
-    if package_root.exists():
-        raise DirectorTakePackageError(
-            "package_already_exists",
-            f"package directory already exists: {package_root}")
-
-    doc = await _native(call_native, "/document", "GET", None, port, "invalid_input")
-    doc_path = source_path_override or doc.get("path") or ""
-    doc_modified = bool(doc.get("modified"))
-    doc_object_count = doc.get("objectCount")
-
-    # Display-mode requirements: verify every requested mode exists NOW, by name.
-    modes_data = await _native(call_native, "/display-modes", "GET", None, port,
-                               "display_mode_missing")
-    available = {m.get("name"): m.get("id") for m in modes_data.get("modes", [])}
-    missing = [m for m in spec["display_modes"] if m not in available]
-    if missing:
-        raise DirectorTakePackageError(
-            "display_mode_missing",
-            f"requested display modes not present in this Rhino: {missing}")
-    display_mode_requirements = [
-        {"name": name, "id": available[name], "settings_fingerprint": None}
-        for name in spec["display_modes"]
-    ]
-
-    # Member enumeration per actor set (definition-object order = provenance order).
-    actor_sets_manifest = []
-    for entry in spec["actor_sets"]:
         block = await _native(call_native, "/block/objects-detailed", "POST",
                               {"name": entry["block_name"]}, port,
                               "actor_set_resolution_failed")
@@ -607,13 +673,51 @@ async def package_take(arguments: dict[str, Any], *, call_native=call_rhino,
             raise DirectorTakePackageError(
                 "tight_bbox_unavailable",
                 "tight bbox unavailable for members: " + ", ".join(non_tight))
-        actor_sets_manifest.append({
+        resolved.append({
             "actor_set_id": entry["actor_set_id"],
             "block_name": entry["block_name"],
             "source_top_level_object_id": entry["source_top_level_object_id"],
+            "source_instance": source_instance,
             "member_count": len(members),
             "members": members,
         })
+    return resolved
+
+
+async def package_take(arguments: dict[str, Any], *, call_native=call_rhino,
+                       port: int | None = None, now_fn=_utc_now,
+                       source_path_override: str | None = None) -> dict[str, Any]:
+    spec = _validate(arguments)
+
+    package_root = Path(spec["output_root"]).expanduser().resolve() / spec["take_id"]
+    if package_root.exists():
+        raise DirectorTakePackageError(
+            "package_already_exists",
+            f"package directory already exists: {package_root}")
+
+    doc = await _native(call_native, "/document", "GET", None, port, "invalid_input")
+    doc_path = source_path_override or doc.get("path") or ""
+    doc_modified = bool(doc.get("modified"))
+    doc_object_count = doc.get("objectCount")
+
+    # Display-mode requirements: verify every requested mode exists NOW, by name.
+    modes_data = await _native(call_native, "/display-modes", "GET", None, port,
+                               "display_mode_missing")
+    available = {m.get("name"): m.get("id") for m in modes_data.get("modes", [])}
+    missing = [m for m in spec["display_modes"] if m not in available]
+    if missing:
+        raise DirectorTakePackageError(
+            "display_mode_missing",
+            f"requested display modes not present in this Rhino: {missing}")
+    display_mode_requirements = [
+        {"name": name, "id": available[name], "settings_fingerprint": None}
+        for name in spec["display_modes"]
+    ]
+
+    # Actor state resolution (source instance identity + member evidence).
+    # Definition-object order = provenance order.
+    actor_sets_manifest = await _resolve_actor_state(
+        call_native, spec["actor_sets"], port)
 
     package_root.mkdir(parents=True, exist_ok=False)
     scene_path = package_root / "scene.3dm"
@@ -646,7 +750,19 @@ async def package_take(arguments: dict[str, Any], *, call_native=call_rhino,
     if not scene_path.is_file() or scene_path.stat().st_size == 0:
         raise DirectorTakePackageError("save_copy_failed", "scene.3dm missing or empty")
 
-    # Drift check: the document must not have changed while we enumerated/packaged.
+    # Deep drift gate: the ACTOR STATE (instance identity/xform + every member's
+    # id/type/layer/name/tight bbox) must be identical before and after the
+    # scene snapshot. Object count alone is NOT sufficient — a dirty document
+    # can mutate actors while preserving count (Codex plan review, finding 2).
+    actor_state_after = await _resolve_actor_state(
+        call_native, spec["actor_sets"], port)
+    if actor_state_after != actor_sets_manifest:
+        raise DirectorTakePackageError(
+            "package_state_drift",
+            "actor state changed between enumeration and snapshot; "
+            "scene.3dm and scene_manifest.json would disagree — re-run packaging")
+
+    # Cheap document-level check as a second line (path/modified/count).
     doc_after = await _native(call_native, "/document", "GET", None, port, "invalid_input")
     if (doc_after.get("objectCount") != doc_object_count
             or bool(doc_after.get("modified")) != doc_modified
@@ -716,7 +832,7 @@ async def package_take(arguments: dict[str, Any], *, call_native=call_rhino,
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `cd mcp_server && python -m pytest tests/test_director_take_package.py -v`
-Expected: 9 passed.
+Expected: 11 passed.
 
 - [ ] **Step 5: Commit**
 
@@ -730,9 +846,9 @@ git commit -m "feat(director): take package builder with save-copy gate and scen
 ### Task 4: MCP tool `rhino_director_package_take`
 
 **Files:**
-- Modify: `mcp_server/src/rook/server.py` — Tool definition (place after `rhino_director_compile_motion`, ~line 4099) and dispatch case (place after `case "rhino_director_compile_motion":`, ~line 20834); add `director_take_package` to the module's director imports (grep `from . import` / `import director_compiler` near the top to find the import block and mirror it)
-- Modify: `mcp_server/src/rook/agent/targeting.py` and `mcp_server/src/rook/mcp_tool_profiles.py` — classify the new tool in the SAME sets/groups that contain `rhino_director_compile_motion` (grep that name in each file)
-- Modify: the two test files that pin tool-surface counts (find them: `grep -rln "rhino_director_compile_motion" mcp_server/tests/` then within those, the ones asserting set sizes/membership) — update per their failure output
+- Modify: `mcp_server/src/rook/server.py` — Tool definition (place after `rhino_director_compile_motion`, ~line 4099) and dispatch case (place after `case "rhino_director_compile_motion":`, ~line 20834); add `director_take_package` to the module's director imports (rg `from . import` / `import director_compiler` near the top to find the import block and mirror it)
+- Modify: `mcp_server/src/rook/agent/targeting.py` and `mcp_server/src/rook/mcp_tool_profiles.py` — classify the new tool in the SAME sets/groups that contain `rhino_director_compile_motion` (rg that name in each file)
+- Modify: the two test files that pin tool-surface counts (find them: `rg -l "rhino_director_compile_motion" mcp_server/tests/` then within those, the ones asserting set sizes/membership) — update per their failure output
 - Test: `mcp_server/tests/test_director_take_package.py` (extend)
 
 **Interfaces:**
@@ -742,27 +858,22 @@ git commit -m "feat(director): take package builder with save-copy gate and scen
 - [ ] **Step 1: Write the failing dispatch test** — append to `mcp_server/tests/test_director_take_package.py`:
 
 ```python
-async def test_mcp_tool_is_registered_and_dispatches(monkeypatch, tmp_path):
+async def test_mcp_tool_is_registered_and_dispatches():
+    """Mirrors the call_tool + AsyncMock pattern of test_director_mcp_tools.py."""
+    from unittest.mock import AsyncMock, patch
+
     from rook import server
 
-    tools = await server.list_tools()
-    names = {t.name for t in tools}
-    assert "rhino_director_package_take" in names
-
-    captured: dict[str, Any] = {}
-
-    async def fake_package_take(arguments, *, port=None, **kwargs):
-        captured["arguments"] = arguments
-        captured["port"] = port
-        return {"package_root": str(tmp_path), "package_id": "x", "take_id": "t"}
-
-    monkeypatch.setattr(server.director_take_package, "package_take", fake_package_take)
-    result = await server.dispatch_tool("rhino_director_package_take", {"take_id": "t"})
-    assert result["success"] is True
-    assert captured["arguments"]["take_id"] == "t"
+    request = {"take_id": "t", "output_root": "C:/x", "actor_sets": [],
+               "motion": {}, "display_modes": ["Arctic"]}
+    with patch.object(server.director_take_package, "package_take",
+                      new_callable=AsyncMock) as mock:
+        mock.return_value = {"package_root": "C:/x/t", "package_id": "t-abc",
+                             "take_id": "t"}
+        result = await server.call_tool("rhino_director_package_take", request)
+    mock.assert_awaited_once()
+    assert "t-abc" in result[0].text
 ```
-
-Note: if `server.py` exposes the dispatcher under a different name than `dispatch_tool`, mirror whatever `mcp_server/tests/test_director_mcp_tools.py` uses to invoke tools — copy its exact call pattern.
 
 - [ ] **Step 2: Run it to verify it fails**
 
@@ -909,18 +1020,23 @@ async def test_save_copy_four_invariants(tmp_path):
     assert envelope.get("success"), envelope
     evidence = envelope["data"]
 
-    # Invariant 1+2: path and modified flag unchanged (native evidence + re-read).
+    # Invariants 1-3: path, title, and modified flag unchanged
+    # (native evidence + independent re-read).
     assert evidence["path_before"] == evidence["path_after"]
+    assert evidence["title_before"] == evidence["title_after"]
     assert evidence["modified_before"] is True and evidence["modified_after"] is True
+    assert evidence["save_small_used"] is False
     after = await _doc()
     assert after["path"] == dirty["path"]
     assert after["modified"] is True
 
-    # Invariant 4: render meshes included => nonzero, plausible 3dm on disk.
+    # Copy-exists proof: nonzero file with a valid 3dm header. This does NOT
+    # prove render meshes are present — that open-fidelity proof belongs to
+    # the Slice 2 worker gate; save_small_used=False is the route's evidence.
     assert target.is_file() and target.stat().st_size > 0
     assert target.read_bytes()[:24].startswith(b"3D Geometry File Format")
 
-    # Invariant 3: the undo stack survived the write — undo removes the box.
+    # Invariant 4: the undo stack survived the write — undo removes the box.
     envelope = await _post("/undo", {})
     assert envelope.get("success"), envelope
     restored = await _doc()
