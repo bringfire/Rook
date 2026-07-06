@@ -295,3 +295,68 @@ def test_apply_leak_scan_updates_row_report_only(tmp_path: Path) -> None:
     PROBE._apply_leak_scan(no_run_row)
     assert no_run_row["leak_check_performed"] is False
     assert no_run_row["leak_marker_match_count"] == 0
+
+
+def test_build_summary_separates_scheduled_and_worker_denominators() -> None:
+    rows = [
+        {
+            **PROBE._base_attempt_row(attempt_index=1),
+            "terminal_category": "accepted",
+            "lm6a_invoked": True,
+            "lm6a_run_dir": "run-a",
+            "leak_marker_match_count": 0,
+        },
+        {
+            **PROBE._base_attempt_row(attempt_index=2),
+            "terminal_category": "gate_failed",
+            "lm6a_invoked": True,
+            "lm6a_run_dir": "run-b",
+            "leak_marker_match_count": 1,
+        },
+        {
+            **PROBE._base_attempt_row(attempt_index=3),
+            "terminal_category": "preflight_failed",
+            "lm6a_invoked": False,
+            "leak_marker_match_count": 0,
+        },
+        {
+            **PROBE._base_attempt_row(attempt_index=4),
+            "terminal_category": "wrapper_error",
+            "lm6a_invoked": True,
+            "leak_marker_match_count": 0,
+        },
+        {
+            **PROBE._base_attempt_row(attempt_index=5),
+            "terminal_category": "worker_declined",
+            "lm6a_invoked": True,
+            "lm6a_run_dir": "run-e",
+            "leak_marker_match_count": 0,
+        },
+    ]
+
+    summary = PROBE._build_summary(
+        rows,
+        attempts=5,
+        model="gemma4:12b-it-qat",
+    )
+
+    assert summary["scheduled_attempts"] == 5
+    assert summary["terminal_category_counts"] == {
+        "accepted": 1,
+        "gate_failed": 1,
+        "preflight_failed": 1,
+        "worker_declined": 1,
+        "wrapper_error": 1,
+    }
+    assert summary["preflight_failed_count"] == 1
+    assert summary["lm6a_invoked_count"] == 4
+    assert summary["gate_failed_count"] == 1
+    assert summary["worker_reached_count"] == 2
+    assert summary["worker_terminal_counts"] == {
+        "accepted": 1,
+        "worker_declined": 1,
+    }
+    assert summary["accepted_count"] == 1
+    assert summary["leak_marker_match_count"] == 1
+    assert summary["attempt_run_dirs"] == ["run-a", "run-b", "run-e"]
+    assert summary["canonical_evidence"] is True

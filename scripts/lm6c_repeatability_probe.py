@@ -7,7 +7,8 @@ import argparse
 import json
 import subprocess
 import sys
-from collections.abc import Mapping
+from collections import Counter
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -145,6 +146,43 @@ def _apply_leak_scan(row: dict[str, Any]) -> None:
     row["leak_check_performed"] = True
     row["leak_marker_matches"] = matches
     row["leak_marker_match_count"] = len(matches)
+
+
+def _compact_counts(counter: Counter[str]) -> dict[str, int]:
+    return {key: counter[key] for key in sorted(counter) if counter[key]}
+
+
+def _build_summary(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    attempts: int,
+    model: str,
+) -> dict[str, Any]:
+    terminal_counts = Counter(str(row.get("terminal_category")) for row in rows)
+    worker_rows = [
+        row
+        for row in rows
+        if row.get("terminal_category") in WORKER_TERMINAL_CATEGORIES
+    ]
+    worker_counts = Counter(str(row.get("terminal_category")) for row in worker_rows)
+    return {
+        "schema": SCRIPT_SCHEMA,
+        "scheduled_attempts": attempts,
+        "terminal_category_counts": _compact_counts(terminal_counts),
+        "preflight_failed_count": terminal_counts["preflight_failed"],
+        "lm6a_invoked_count": sum(1 for row in rows if row.get("lm6a_invoked")),
+        "gate_failed_count": terminal_counts["gate_failed"],
+        "worker_reached_count": len(worker_rows),
+        "worker_terminal_counts": _compact_counts(worker_counts),
+        "accepted_count": terminal_counts["accepted"],
+        "leak_marker_match_count": sum(
+            int(row.get("leak_marker_match_count") or 0) for row in rows
+        ),
+        "attempt_run_dirs": [
+            str(row["lm6a_run_dir"]) for row in rows if row.get("lm6a_run_dir")
+        ],
+        "canonical_evidence": _canonical_evidence(attempts=attempts, model=model),
+    }
 
 
 def _scheduled_attempt_id(attempt_index: int) -> str:
