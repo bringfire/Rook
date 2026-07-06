@@ -229,6 +229,8 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "rhino_director_canvas_extract",
         "rhino_director_package_take",
         "rhino_director_prepare_take",
+        "rhino_director_compile_take",
+        "rhino_director_worker_play",
     ],
     "director_readonly": [
         "rhino_objects", "rhino_views", "rhino_display_modes", "rhino_document",

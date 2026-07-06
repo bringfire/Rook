@@ -516,3 +516,23 @@ async def test_subset_compile_succeeds_and_tracks_only_animated_objects(tmp_path
     assert track["animated_object_ids"] == [_uuid(3)]
     for frame in track["object_frames"]:
         assert [t["object_id"] for t in frame["object_transforms"]] == [_uuid(3)]
+
+
+async def test_mcp_dispatch_compile_take():
+    """Mirrors the module-attribute AsyncMock dispatch pattern."""
+    from unittest.mock import AsyncMock, patch
+
+    from rook import server, targeting
+
+    with patch.object(targeting, "discover_instances", lambda: [
+        {"host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native"},
+    ]):
+        with patch.object(server.director_worker_compile, "compile_take",
+                          new_callable=AsyncMock) as mock_compile:
+            mock_compile.return_value = {"phase": "compiled", "take_id": "take1"}
+            result = await server.call_tool(
+                "rhino_director_compile_take", {"package_root": "C:/takes/take1"})
+        mock_compile.assert_awaited_once()
+    payload = json.loads(result[0].text)
+    assert payload["phase"] == "compiled"
+    assert payload["take_id"] == "take1"
