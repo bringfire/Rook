@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import subprocess
 import sys
@@ -350,3 +351,112 @@ def _row_from_completed_lm6a(
         }
     )
     return row
+
+
+def _manifest(*, attempts: int, model: str) -> dict[str, Any]:
+    return {
+        "schema": SCRIPT_SCHEMA,
+        "git_commit": _git_short_sha(),
+        "attempts": attempts,
+        "model": model,
+        "canonical_evidence": _canonical_evidence(attempts=attempts, model=model),
+    }
+
+
+def _lm6a_command(*, model: str, lm6a_runs_dir: Path) -> list[str]:
+    return [
+        sys.executable,
+        str(_REPO_ROOT / "scripts" / "lm6a_live_worker_splice_probe.py"),
+        "--model",
+        model,
+        "--run-dir",
+        str(lm6a_runs_dir),
+    ]
+
+
+def _timeout_row(
+    *,
+    attempt_index: int,
+    exc: subprocess.TimeoutExpired,
+    child_run_dir: Path | None,
+) -> dict[str, Any]:
+    row = _base_attempt_row(attempt_index=attempt_index)
+    row.update(
+        {
+            "preflight_status": "passed",
+            "lm6a_invoked": True,
+            "lm6a_run_dir": str(child_run_dir) if child_run_dir is not None else None,
+            "terminal_category": "wrapper_error",
+            "stdout_excerpt": _excerpt(_completed_text(exc.stdout)),
+            "stderr_excerpt": _excerpt(_completed_text(exc.stderr)),
+            "failure_reason": "lm6a_timeout",
+        }
+    )
+    return row
+
+
+def _run_probe(
+    *,
+    attempts: int,
+    model: str,
+    run_root: str | Path,
+    attempt_timeout_s: int,
+    run_subprocess=subprocess.run,
+) -> Path:
+    run_dir = _new_run_dir(run_root)
+    lm6a_runs_root = run_dir / "lm6a_runs"
+    lm6a_runs_root.mkdir(parents=True, exist_ok=True)
+    _write_json(run_dir / "manifest.json", _manifest(attempts=attempts, model=model))
+
+    rows: list[dict[str, Any]] = []
+    attempts_path = run_dir / "attempts.jsonl"
+    for attempt_index in range(1, attempts + 1):
+        lm6a_runs_dir = lm6a_runs_root / _scheduled_attempt_id(attempt_index)
+        lm6a_runs_dir.mkdir(parents=True, exist_ok=True)
+        ok, reason = asyncio.run(_run_preflight())
+        if not ok:
+            row = _preflight_failed_row(
+                attempt_index=attempt_index,
+                reason=reason or "preflight_failed",
+            )
+            rows.append(row)
+            _append_jsonl(attempts_path, row)
+            continue
+
+        before = set(lm6a_runs_dir.glob("lm6a-*"))
+        command = _lm6a_command(model=model, lm6a_runs_dir=lm6a_runs_dir)
+        try:
+            completed = run_subprocess(
+                command,
+                cwd=_REPO_ROOT,
+                capture_output=True,
+                text=True,
+                timeout=attempt_timeout_s,
+            )
+        except subprocess.TimeoutExpired as exc:
+            child_run_dir = _discover_child_run_dir(lm6a_runs_dir, before)
+            row = _timeout_row(
+                attempt_index=attempt_index,
+                exc=exc,
+                child_run_dir=child_run_dir,
+            )
+            _apply_leak_scan(row)
+            rows.append(row)
+            _append_jsonl(attempts_path, row)
+            continue
+
+        child_run_dir = _discover_child_run_dir(lm6a_runs_dir, before)
+        row = _row_from_completed_lm6a(
+            attempt_index=attempt_index,
+            completed=completed,
+            child_run_dir=child_run_dir,
+        )
+        _apply_leak_scan(row)
+        rows.append(row)
+        _append_jsonl(attempts_path, row)
+
+    _write_json(
+        run_dir / "summary.json",
+        _build_summary(rows, attempts=attempts, model=model),
+    )
+    return run_dir

@@ -360,3 +360,129 @@ def test_build_summary_separates_scheduled_and_worker_denominators() -> None:
     assert summary["leak_marker_match_count"] == 1
     assert summary["attempt_run_dirs"] == ["run-a", "run-b", "run-e"]
     assert summary["canonical_evidence"] is True
+
+
+def test_run_probe_records_preflight_failure_without_lm6a(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    async def fake_preflight():
+        return False, "rhino_ping_failed"
+
+    monkeypatch.setattr(PROBE, "_run_preflight", fake_preflight)
+
+    run_dir = PROBE._run_probe(
+        attempts=1,
+        model="gemma4:12b-it-qat",
+        run_root=tmp_path,
+        attempt_timeout_s=600,
+        run_subprocess=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("LM6A should not be invoked")
+        ),
+    )
+
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    rows = [
+        json.loads(line)
+        for line in (run_dir / "attempts.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert rows[0]["terminal_category"] == "preflight_failed"
+    assert rows[0]["lm6a_invoked"] is False
+    assert (run_dir / "lm6a_runs" / "attempt-001").is_dir()
+    assert summary["preflight_failed_count"] == 1
+    assert summary["lm6a_invoked_count"] == 0
+
+
+def test_run_probe_invokes_lm6a_after_preflight(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    async def fake_preflight():
+        return True, None
+
+    def fake_run_subprocess(command, **kwargs):
+        lm6a_runs_dir = Path(command[-1])
+        assert lm6a_runs_dir.name == "attempt-001"
+        assert lm6a_runs_dir.parent.name == "lm6a_runs"
+        child = lm6a_runs_dir / "lm6a-child"
+        child.mkdir(parents=True)
+        (child / "decision.json").write_text(
+            '{"decision": "accepted", "reason": "verify_repair_succeeded"}',
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout="LM6A complete",
+            stderr="",
+        )
+
+    monkeypatch.setattr(PROBE, "_run_preflight", fake_preflight)
+
+    run_dir = PROBE._run_probe(
+        attempts=1,
+        model="gemma4:12b-it-qat",
+        run_root=tmp_path,
+        attempt_timeout_s=600,
+        run_subprocess=fake_run_subprocess,
+    )
+
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    rows = [
+        json.loads(line)
+        for line in (run_dir / "attempts.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert rows[0]["terminal_category"] == "accepted"
+    assert rows[0]["lm6a_invoked"] is True
+    assert Path(rows[0]["lm6a_run_dir"]).parent.name == "attempt-001"
+    assert summary["accepted_count"] == 1
+    assert summary["worker_reached_count"] == 1
+
+
+def test_run_probe_timeout_discovers_child_run_and_scans_leaks(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    async def fake_preflight():
+        return True, None
+
+    def fake_run_subprocess(command, **kwargs):
+        lm6a_runs_dir = Path(command[-1])
+        assert lm6a_runs_dir.name == "attempt-001"
+        assert lm6a_runs_dir.parent.name == "lm6a_runs"
+        child = lm6a_runs_dir / "lm6a-child"
+        child.mkdir(parents=True)
+        (child / "worker_action.json").write_text(
+            '{"code": "A = 42.0;"}',
+            encoding="utf-8",
+        )
+        raise subprocess.TimeoutExpired(
+            cmd=command,
+            timeout=kwargs["timeout"],
+            output="partial stdout",
+            stderr="partial stderr",
+        )
+
+    monkeypatch.setattr(PROBE, "_run_preflight", fake_preflight)
+
+    run_dir = PROBE._run_probe(
+        attempts=1,
+        model="gemma4:12b-it-qat",
+        run_root=tmp_path,
+        attempt_timeout_s=600,
+        run_subprocess=fake_run_subprocess,
+    )
+
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    rows = [
+        json.loads(line)
+        for line in (run_dir / "attempts.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert rows[0]["terminal_category"] == "wrapper_error"
+    assert rows[0]["failure_reason"] == "lm6a_timeout"
+    assert rows[0]["lm6a_run_dir"].endswith("lm6a-child")
+    assert Path(rows[0]["lm6a_run_dir"]).parent.name == "attempt-001"
+    assert rows[0]["leak_check_performed"] is True
+    assert rows[0]["leak_marker_match_count"] == 1
+    assert summary["terminal_category_counts"] == {"wrapper_error": 1}
+    assert summary["leak_marker_match_count"] == 1
