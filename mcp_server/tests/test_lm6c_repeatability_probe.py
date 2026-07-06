@@ -48,3 +48,38 @@ def test_canonical_evidence_only_for_five_gemma_qat_attempts() -> None:
     assert PROBE._canonical_evidence(attempts=5, model="gemma4:12b-it-qat") is True
     assert PROBE._canonical_evidence(attempts=1, model="gemma4:12b-it-qat") is False
     assert PROBE._canonical_evidence(attempts=5, model="qwen3:14b") is False
+
+
+def test_tool_result_ok_accepts_successful_mapping() -> None:
+    assert PROBE._tool_result_ok({"ok": True}) is True
+    assert PROBE._tool_result_ok({"status": "ready"}) is True
+
+
+def test_tool_result_ok_rejects_failure_shapes() -> None:
+    assert PROBE._tool_result_ok(None) is False
+    assert PROBE._tool_result_ok({"ok": False}) is False
+    assert PROBE._tool_result_ok({"success": False}) is False
+    assert PROBE._tool_result_ok({"status": "error"}) is False
+    assert PROBE._tool_result_ok({"status": "failed"}) is False
+    assert PROBE._tool_result_ok({"error": "bad"}) is False
+    assert PROBE._tool_result_ok({"errors": ["bad"]}) is False
+
+
+def test_preflight_failed_row_does_not_invoke_lm6a() -> None:
+    row = PROBE._preflight_failed_row(
+        attempt_index=1,
+        reason="gh_document_new_failed",
+    )
+
+    assert row["attempt_index"] == 1
+    assert row["scheduled_attempt_id"] == "attempt-001"
+    assert row["preflight_status"] == "failed"
+    assert row["lm6a_invoked"] is False
+    assert row["lm6a_returncode"] is None
+    assert row["lm6a_run_dir"] is None
+    assert row["lm6a_decision"] is None
+    assert row["lm6a_reason"] is None
+    assert row["terminal_category"] == "preflight_failed"
+    assert row["failure_reason"] == "gh_document_new_failed"
+    assert row["leak_check_performed"] is False
+    assert row["leak_marker_match_count"] == 0

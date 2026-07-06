@@ -113,3 +113,66 @@ def _excerpt(text: str | None, *, limit: int = EXCERPT_CHARS) -> str:
     if len(text) <= limit:
         return text
     return text[:limit]
+
+
+def _scheduled_attempt_id(attempt_index: int) -> str:
+    return f"attempt-{attempt_index:03d}"
+
+
+def _tool_result_ok(result: object) -> bool:
+    if not isinstance(result, Mapping):
+        return False
+    if result.get("ok") is False:
+        return False
+    if result.get("success") is False:
+        return False
+    if result.get("status") in {"error", "failed"}:
+        return False
+    if result.get("error") or result.get("errors"):
+        return False
+    return True
+
+
+async def _run_preflight() -> tuple[bool, str | None]:
+    from rook.server import _mcp_tool_executor
+
+    for tool_name in ("rhino_ping", "gh_document_new"):
+        try:
+            result = await _mcp_tool_executor(tool_name, {})
+        except Exception as exc:
+            return False, f"{tool_name}_exception:{exc.__class__.__name__}"
+        if not _tool_result_ok(result):
+            return False, f"{tool_name}_failed"
+    return True, None
+
+
+def _base_attempt_row(*, attempt_index: int) -> dict[str, Any]:
+    return {
+        "attempt_index": attempt_index,
+        "scheduled_attempt_id": _scheduled_attempt_id(attempt_index),
+        "preflight_status": None,
+        "lm6a_invoked": False,
+        "lm6a_returncode": None,
+        "lm6a_run_dir": None,
+        "lm6a_decision": None,
+        "lm6a_reason": None,
+        "terminal_category": None,
+        "stdout_excerpt": "",
+        "stderr_excerpt": "",
+        "failure_reason": None,
+        "leak_check_performed": False,
+        "leak_marker_matches": [],
+        "leak_marker_match_count": 0,
+    }
+
+
+def _preflight_failed_row(*, attempt_index: int, reason: str) -> dict[str, Any]:
+    row = _base_attempt_row(attempt_index=attempt_index)
+    row.update(
+        {
+            "preflight_status": "failed",
+            "terminal_category": "preflight_failed",
+            "failure_reason": reason,
+        }
+    )
+    return row
