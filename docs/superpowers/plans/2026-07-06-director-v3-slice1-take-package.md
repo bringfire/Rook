@@ -16,7 +16,8 @@
 - `scene.3dm` must include render meshes — never SaveSmall on the save-copy path (spec).
 - The save-copy invariants (SDK-documented for `SetUpdateDocumentPath(false)`): document path, title, and modified state unchanged "under any circumstances"; the undo stack is proven unchanged by the live gate. Do not trust these until the live gate passes (spec: "a live gate, not an assumption").
 - New MCP tools must be classified in BOTH `mcp_server/src/rook/agent/targeting.py` AND `mcp_server/src/rook/mcp_tool_profiles.py`, and surface counts are pinned in two test files — grep for the set/group name containing `rhino_director_compile_motion`, never search for the raw number (project memory rule).
-- Error taxonomy for this slice (typed codes on `DirectorTakePackageError`): `invalid_input`, `document_not_saved`, `save_copy_failed`, `save_copy_invariant_violation`, `package_already_exists`, `display_mode_missing`, `actor_set_resolution_failed`, `package_state_drift`.
+- Error taxonomy for this slice (typed codes on `DirectorTakePackageError`): `invalid_input`, `document_not_saved`, `save_copy_failed`, `save_copy_invariant_violation`, `package_already_exists`, `display_mode_missing`, `actor_set_resolution_failed`, `package_state_drift`, `tight_bbox_unavailable`.
+- Tight-bbox rule (spec DEC-021 lineage): `tight_object` is the ONLY bbox method admissible as manifest evidence. `/block/objects-detailed` already computes tight bbox first but silently falls back to the loose cached bbox (`BlocksHandler.cpp:3496-3498`) with no method label — Task 1 adds the label, and the package builder hard-fails (`tight_bbox_unavailable`) for any member whose bbox is not labeled `tight_object`. Loose/unlabeled bboxes never enter `scene_manifest.json` as evidence. Manifest bbox values are rounded to 4 decimal places with the rounding policy recorded.
 
 ---
 
@@ -27,6 +28,7 @@
 - Modify: the header declaring `HandleDocumentSave` (find it: `grep -rn "HandleDocumentSave" src/RookNative/Handlers/*.h`) — add `HandleDocumentSaveCopy` beside it
 - Modify: `src/RookNative/RookServer.cpp` (route registration near line 1183 where `/document/save` is registered; member forwarder near line 2824 where `CRookServer::HandleDocumentSave` forwards)
 - Modify: `src/RookNative/RookServer.h` (member declaration beside `HandleDocumentSave` — find with grep)
+- Modify: `src/RookNative/Handlers/BlocksHandler.cpp:3496-3504` (label the bbox method in `/block/objects-detailed`)
 
 **Interfaces:**
 - Produces: `POST /document/save-copy` with body `{"path": "<absolute .3dm target>"}`. Success data:
@@ -132,7 +134,29 @@ void CRookServer::HandleDocumentSaveCopy(const httplib::Request& req, httplib::R
 }
 ```
 
-- [ ] **Step 4: Build**
+- [ ] **Step 4: Label the bbox method in `/block/objects-detailed`** — in `BlocksHandler.cpp`, replace the silent-fallback bbox block (lines 3496–3504):
+
+```cpp
+            ON_BoundingBox bbox;
+            const bool tight = obj->GetTightBoundingBox(bbox) && bbox.IsValid();
+            if (!tight)
+                bbox = obj->BoundingBox();
+            if (bbox.IsValid())
+            {
+                info["bbox"]["min"] = { bbox.Min().x, bbox.Min().y, bbox.Min().z };
+                info["bbox"]["max"] = { bbox.Max().x, bbox.Max().y, bbox.Max().z };
+                info["bboxMethod"] = tight ? "tight_object" : "loose_fallback";
+                defBbox.Union(bbox);
+            }
+            else
+            {
+                info["bboxMethod"] = "unavailable";
+            }
+```
+
+This is additive — existing consumers keep the `bbox` field unchanged; the new `bboxMethod` label lets Director callers reject non-tight evidence (spec: never inherit the silent fallback's pass semantics).
+
+- [ ] **Step 5: Build**
 
 Run: `cmd /c scripts\build-native.bat`
 Expected: build succeeds with zero errors. (No native unit-test framework exists in this repo; the route's behavior test is the Task 5 live gate.)
@@ -141,7 +165,7 @@ Expected: build succeeds with zero errors. (No native unit-test framework exists
 
 ```bash
 git add src/RookNative
-git commit -m "feat(director): add POST /document/save-copy route with non-retargeting write"
+git commit -m "feat(director): add POST /document/save-copy route; label bbox method on /block/objects-detailed"
 ```
 
 ---
@@ -239,19 +263,23 @@ def _doc_data(modified: bool = False, object_count: int = 112) -> dict[str, Any]
             "objectCount": object_count, "layerCount": 5, "units": "millimeters"}
 
 
-def _members() -> list[dict[str, Any]]:
+def _members(loose_second: bool = False) -> list[dict[str, Any]]:
     return [
         {"id": "8136d5f4-6d5c-47df-8f89-590df238c8e7", "index": 0, "type": "Brep",
          "layer": "001_MATERIAL::001_01_GARDEN WOOD", "name": "",
-         "bbox": {"min": [0, 0, 0], "max": [10, 10, 10]}, "visible": True},
+         "bbox": {"min": [0, 0, 0], "max": [10.123456, 10, 10]},
+         "bboxMethod": "tight_object", "visible": True},
         {"id": "9247e6a5-7e6d-58e0-9f9a-6a1ef349d9f8", "index": 1, "type": "Curve",
          "layer": "000_SETOUT LINES::000_SETOUT_PRIMARY", "name": "axis",
-         "bbox": {"min": [0, 0, 0], "max": [5, 0, 0]}, "visible": True},
+         "bbox": {"min": [0, 0, 0], "max": [5, 0, 0]},
+         "bboxMethod": "loose_fallback" if loose_second else "tight_object",
+         "visible": True},
     ]
 
 
 def make_fake_native(*, modified=False, save_copy_ok=True, invariants_hold=True,
-                     modes=("Arctic", "Render_Layer_Color_AMR"), drift=False):
+                     modes=("Arctic", "Render_Layer_Color_AMR"), drift=False,
+                     loose_second_member=False):
     calls: list[tuple[str, str, dict | None]] = []
     doc_reads = {"n": 0}
 
@@ -274,7 +302,8 @@ def make_fake_native(*, modified=False, save_copy_ok=True, invariants_hold=True,
                 "include_render_meshes": True}}
         if endpoint == "/block/objects-detailed":
             assert data == {"name": BLOCK}
-            return {"success": True, "data": {"name": BLOCK, "objects": _members()}}
+            return {"success": True, "data": {
+                "name": BLOCK, "objects": _members(loose_second=loose_second_member)}}
         if endpoint == "/display-modes":
             return {"success": True, "data": {"modes": [
                 {"id": f"id-{m}", "name": m, "isActive": False} for m in modes]}}
@@ -321,7 +350,10 @@ async def test_happy_path_writes_package(tmp_path):
     assert m0["definition_object_index"] == 0
     assert m0["definition_object_id"] == "8136d5f4-6d5c-47df-8f89-590df238c8e7"
     assert m0["expected"]["layer"] == "001_MATERIAL::001_01_GARDEN WOOD"
-    assert m0["bbox_evidence"]["validation_strength"] == "diagnostic"
+    assert m0["bbox_evidence"]["bbox_method"] == "tight_object"
+    assert m0["bbox_evidence"]["validation_strength"] == "tight_bbox"
+    assert m0["bbox_evidence"]["rounding_policy"] == "round_to_4_decimal_places"
+    assert m0["bbox_evidence"]["max"][0] == 10.1235  # rounded to 4 decimals
     dm = {d["name"]: d for d in manifest["display_mode_requirements"]}
     assert dm["Arctic"]["id"] == "id-Arctic"
     assert manifest["hashes"]["motion_json_sha256"] == result["hashes"]["motion_json_sha256"]
@@ -384,6 +416,16 @@ async def test_bad_take_id_rejected(tmp_path):
     with pytest.raises(dtp.DirectorTakePackageError) as exc:
         await dtp.package_take(_args(tmp_path, take_id="../evil"), call_native=fake)
     assert exc.value.code == "invalid_input"
+
+
+async def test_loose_bbox_member_fails_tight_bbox_unavailable(tmp_path):
+    """DEC-021: tight_object is the only admissible manifest bbox evidence."""
+    fake = make_fake_native(loose_second_member=True)
+    with pytest.raises(dtp.DirectorTakePackageError) as exc:
+        await dtp.package_take(_args(tmp_path), call_native=fake)
+    assert exc.value.code == "tight_bbox_unavailable"
+    # The failing member is named so the user can fix or exclude it.
+    assert "roof_001_member_0001" in str(exc.value)
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -534,21 +576,37 @@ async def package_take(arguments: dict[str, Any], *, call_native=call_rhino,
                 "actor_set_resolution_failed",
                 f"block '{entry['block_name']}' has no definition objects")
         members = []
+        non_tight: list[str] = []
         for obj in objects:
             index = obj.get("index")
+            member_id = f"{entry['actor_set_id']}_member_{index:04d}"
+            bbox = obj.get("bbox") or {}
+            bbox_method = obj.get("bboxMethod")
+            if bbox_method != "tight_object":
+                # DEC-021: loose/unlabeled bbox never enters the manifest as
+                # evidence. Old native builds (no bboxMethod field) fail here
+                # too — deploy the labeled build.
+                non_tight.append(f"{member_id} (bboxMethod={bbox_method!r})")
+                continue
             members.append({
-                "actor_member_id": f"{entry['actor_set_id']}_member_{index:04d}",
+                "actor_member_id": member_id,
                 "definition_object_index": index,
                 "definition_object_id": obj.get("id"),
                 "expected": {"type": obj.get("type"), "layer": obj.get("layer"),
                              "name": obj.get("name") or ""},
                 "bbox_evidence": {
-                    "method": "definition_object_world_bbox",
-                    "min": (obj.get("bbox") or {}).get("min"),
-                    "max": (obj.get("bbox") or {}).get("max"),
-                    "validation_strength": "diagnostic",
+                    "bbox_method": "tight_object",
+                    "bbox_space": "definition_object",
+                    "min": [round(v, 4) for v in (bbox.get("min") or [])],
+                    "max": [round(v, 4) for v in (bbox.get("max") or [])],
+                    "rounding_policy": "round_to_4_decimal_places",
+                    "validation_strength": "tight_bbox",
                 },
             })
+        if non_tight:
+            raise DirectorTakePackageError(
+                "tight_bbox_unavailable",
+                "tight bbox unavailable for members: " + ", ".join(non_tight))
         actor_sets_manifest.append({
             "actor_set_id": entry["actor_set_id"],
             "block_name": entry["block_name"],
@@ -658,7 +716,7 @@ async def package_take(arguments: dict[str, Any], *, call_native=call_rhino,
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `cd mcp_server && python -m pytest tests/test_director_take_package.py -v`
-Expected: 8 passed.
+Expected: 9 passed.
 
 - [ ] **Step 5: Commit**
 
@@ -902,6 +960,10 @@ async def test_package_round_trip_against_live_doc(tmp_path):
     root = Path(result["package_root"])
     manifest = json.loads((root / "scene_manifest.json").read_text())
     assert manifest["actor_sets"][0]["member_count"] == block["objectCount"]
+    # DEC-021 live proof: every manifest member carries tight-bbox evidence.
+    for member in manifest["actor_sets"][0]["members"]:
+        assert member["bbox_evidence"]["bbox_method"] == "tight_object"
+        assert member["bbox_evidence"]["validation_strength"] == "tight_bbox"
     assert (root / "scene.3dm").stat().st_size > 0
     assert manifest["scene"]["mechanism"] in ("save_copy", "raw_copy_saved_file")
     # Live doc untouched:
