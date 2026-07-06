@@ -1,21 +1,20 @@
 """Slice 2 live gate: package -> open copy -> prepare -> verify -> restore.
 
-DOCUMENT-SWITCHING TEST. Requires ROOK_S2_DOC_SWITCH=1 and an unmodified
-live document.
+DOCUMENT-SWITCHING TEST. Requires ROOK_S2_DOC_SWITCH=1, an unmodified live
+document, and a SCRATCH document (the fixture is temporarily saved into it).
 
-Why this flow is safe: the gate first verifies the live doc is UNMODIFIED
-before touching anything. Fixture objects (a nested-block pair) are then
-created in the live doc, which dirties it. `dtp.package_take` builds the
-take package via save-copy, which works fine against a dirty doc and does
-not touch the live document itself. `dwp.prepare_take` then calls
-`/document/open` to switch the active document to the take copy --
-deliberately discarding the only unsaved changes in the live doc, which
-are the fixture objects themselves (they were never saved). Because the
-fixture is the entirety of the live doc's dirty state, discarding it via
-the document switch restores the live doc to its last-saved state with
-zero residue -- no undo bookkeeping is required. The final step reopens
-the original document path to put the user's document back in the
-foreground.
+Flow rationale: prepare_take's document_not_saved guard refuses to switch
+away from a dirty document (correct: native /document/open silently
+discards unsaved edits). So the single-instance gate mirrors the real v3
+workflow -- fixture objects (a nested-block pair) are created in the live
+doc and the doc is SAVED before prepare runs. An earlier draft tried to
+let the fixture "evaporate" by switching away from the dirty doc; the
+guard forbids exactly that, by design (first live-gate run, 2026-07-06).
+After the round trip the gate reopens the original document, deletes the
+fixture block definitions (with instances), and saves again, restoring
+the document to its pre-gate object count. Run this on a scratch file:
+a mid-gate failure can leave the fixture saved in the document until the
+cleanup is re-run.
 """
 from __future__ import annotations
 
@@ -85,6 +84,21 @@ async def _instance_id(block_name: str) -> str:
     return instances[0]["id"]
 
 
+async def _save_document(path: str) -> None:
+    envelope = await _post("/document/save", {"path": path})
+    assert envelope.get("success"), envelope
+
+
+async def _delete_block(name: str) -> None:
+    base_url = _require_host()
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.request(
+            "DELETE", f"{base_url}/block",
+            json={"name": name, "deleteInstances": True})
+    envelope = resp.json()
+    assert envelope.get("success"), envelope
+
+
 async def test_prepare_round_trip_with_nested_block(tmp_path):
     _require_opt_in()
     before = await _doc()
@@ -110,7 +124,12 @@ async def test_prepare_round_trip_with_nested_block(tmp_path):
     await _make_block(outer_name, [outer_box, inner_instance])
     outer_instance = await _instance_id(outer_name)
 
-    # Package the take (read-only on the live doc; save-copy handles dirty).
+    # Save the fixture into the (scratch) document: prepare_take's
+    # document_not_saved guard refuses to switch away from a dirty doc.
+    # The cleanup section below removes the fixture and saves again.
+    await _save_document(original_path)
+
+    # Package the take (read-only on the live doc).
     motion = {
         "timeline": {"fps": 24, "frame_count": 48},
         "groups": {"all": ["s2live"]},
@@ -172,8 +191,19 @@ async def test_prepare_round_trip_with_nested_block(tmp_path):
         (Path(package_root) / "status.json").read_text(encoding="utf-8"))
     assert status["phase"] == "prepared"
 
-    # Restore the user's document (fixture evaporates: it was never saved).
+    # Restore the original document (the fixture is saved in it), then
+    # remove the fixture blocks and save the document back to its
+    # pre-gate state.
     restore = await _post("/document/open", {"path": original_path})
     assert restore.get("success"), restore
     after = await _doc()
     assert (after.get("path") or "").lower() == original_path.lower()
+
+    await _delete_block(outer_name)   # removes the top-level instance too
+    await _delete_block(inner_name)   # definition only; its sole instance
+                                      # lived inside the outer definition
+    await _save_document(original_path)
+    final = await _doc()
+    assert final.get("objectCount") == before.get("objectCount"), (
+        "fixture cleanup left residue objects")
+    assert not final.get("modified")
