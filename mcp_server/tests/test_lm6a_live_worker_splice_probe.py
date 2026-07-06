@@ -246,3 +246,90 @@ def test_worker_action_apply_failure_maps_to_rejected() -> None:
     assert decision["reason"] == "worker_action_apply_failed:invalid_mode"
     assert decision["live_repair_dispatched"] is False
     assert decision["verify_repair_ran"] is False
+
+
+def test_full_flow_stops_after_recon_only(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        PROBE,
+        "_run_phase_a_recon",
+        lambda **kwargs: {"decision": None},
+    )
+
+    run_dir = PROBE._run_probe(
+        phase="receipt_recon",
+        model="gemma4:12b-it-qat",
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        run_root=tmp_path,
+        agent=None,
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    assert decision["decision"] == "gate_passed"
+    assert decision["reason"] == "receipt_recon_passed"
+
+
+def test_full_flow_action_apply_rejection_writes_decision(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    class _ApplyResult:
+        applied = False
+        reason = "invalid_mode"
+        params_sha256 = None
+
+    monkeypatch.setattr(
+        PROBE,
+        "_run_phase_a_recon",
+        lambda **kwargs: {
+            "decision": None,
+            "graph": object(),
+            "anchor_binding": {"component_guid": "GUID-1", "language": "csharp"},
+            "request_payload": {"context": {"allowed_actions": []}},
+        },
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "run_two_pass_worker_publication",
+        lambda *args, **kwargs: type(
+            "Result",
+            (),
+            {
+                "row": {
+                    "status": "published",
+                    "observation_action_intent_anomaly": False,
+                },
+                "response_payload": {
+                    "schema": "rook.local_worker_turn_response:v1",
+                    "kind": "action_request",
+                    "action_id": "draft_repair_params",
+                    "rationale": "Acting.",
+                    "input": {"code": "A = 0.0;", "mode": "bad"},
+                },
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "apply_worker_action_to_node",
+        lambda *args, **kwargs: _ApplyResult(),
+    )
+
+    run_dir = PROBE._run_probe(
+        phase="full",
+        model="gemma4:12b-it-qat",
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        run_root=tmp_path,
+        agent=None,
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    assert decision["decision"] == "rejected"
+    assert decision["reason"] == "worker_action_apply_failed:invalid_mode"
+    assert not (run_dir / "live_repair_summary.json").exists()
+    assert (run_dir / "worker_action.json").exists()

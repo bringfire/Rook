@@ -13,6 +13,7 @@ import hashlib
 import json
 import sys
 from collections.abc import Mapping
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,7 @@ from lm5k_worker_probe import (  # noqa: E402
     ACCEPTANCE_CRITERIA_LEGACY_SOURCE,
     _probe_contract,
 )
+from lm_worker_two_pass_publication import run_two_pass_worker_publication  # noqa: E402
 from rook.agent.local_worker_acceptance_criteria import (  # noqa: E402
     assemble_acceptance_criteria_packet,
 )
@@ -36,6 +38,9 @@ from rook.agent.local_worker_acceptance_criteria_sources import (  # noqa: E402
 )
 from rook.agent.local_worker_source_routing_validator import (  # noqa: E402
     validate_worker_visible_source_routing,
+)
+from rook.agent.plan_graph_worker_action_apply import (  # noqa: E402
+    apply_worker_action_to_node,
 )
 
 
@@ -358,6 +363,158 @@ def _decision_from_worker_action_apply(apply_result: Any) -> dict[str, Any]:
             "params_sha256": apply_result.params_sha256,
         },
     )
+
+
+def _git_short_sha() -> str:
+    import subprocess
+
+    result = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else "unknown"
+
+
+def _new_run_dir(run_root: str | Path) -> Path:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    run_dir = Path(run_root) / f"lm6a-{timestamp}-{_git_short_sha()}"
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return run_dir
+
+
+def _diagnostic_json(diagnostic: Any) -> dict[str, Any]:
+    return {
+        "severity": diagnostic.severity,
+        "code": diagnostic.code,
+        "node_id": diagnostic.node_id,
+        "route_id": diagnostic.route_id,
+        "source_class": diagnostic.source_class,
+        "source_path": diagnostic.source_path,
+        "purpose": diagnostic.purpose,
+        "message": diagnostic.message,
+    }
+
+
+def _routing_report_json(report: Any) -> dict[str, Any]:
+    return {
+        "schema": report.schema,
+        "valid": report.valid,
+        "routability_evaluated": report.routability_evaluated,
+        "static_diagnostics": [
+            _diagnostic_json(diagnostic)
+            for diagnostic in report.static_diagnostics
+        ],
+        "routability_diagnostics": [
+            _diagnostic_json(diagnostic)
+            for diagnostic in report.routability_diagnostics
+        ],
+    }
+
+
+def _dispatch_repair_and_verify(
+    *,
+    graph: Any,
+    agent: Any,
+    params_sha256: str | None,
+    run_dir: Path,
+) -> dict[str, Any]:
+    raise RuntimeError("live repair/verify is implemented in Task 10")
+
+
+def _run_probe(
+    *,
+    phase: str,
+    model: str,
+    endpoint: str,
+    temperature: float,
+    timeout_s: float,
+    excerpt_chars: int,
+    run_root: str | Path,
+    agent: Any,
+) -> Path:
+    run_dir = _new_run_dir(run_root)
+    git_commit = _git_short_sha()
+    _write_json(
+        run_dir / "manifest.json",
+        {
+            "script_schema": SCRIPT_SCHEMA,
+            "git_commit": git_commit,
+            "phase": phase,
+            "model": model,
+            "endpoint": endpoint,
+            "temperature": temperature,
+            "raw_artifacts": "local evidence under probe_runs; do not commit",
+        },
+    )
+
+    recon = _run_phase_a_recon(run_dir=run_dir, agent=agent)
+    if recon.get("routing_report") is not None:
+        _write_json(
+            run_dir / "routing_validation.json",
+            _routing_report_json(recon["routing_report"]),
+        )
+    if recon.get("acceptance_criteria_packet") is not None:
+        _write_json(
+            run_dir / "acceptance_criteria_packet.json",
+            recon["acceptance_criteria_packet"],
+        )
+    if recon.get("decision") is not None:
+        _write_json(run_dir / "decision.json", recon["decision"])
+        return run_dir
+    if phase == "receipt_recon":
+        decision = _decision_record(
+            decision="gate_passed",
+            reason="receipt_recon_passed",
+            phase="receipt_recon",
+        )
+        _write_json(run_dir / "decision.json", decision)
+        return run_dir
+
+    publication = run_two_pass_worker_publication(
+        recon["request_payload"],
+        model=model,
+        endpoint=endpoint,
+        temperature=temperature,
+        timeout_s=timeout_s,
+        excerpt_chars=excerpt_chars,
+    )
+    _write_json(run_dir / "worker_publication_row.json", publication.row)
+    decision = _decision_from_worker_publication(
+        publication_row=publication.row,
+        response_payload=publication.response_payload,
+    )
+    if decision is not None:
+        _write_json(run_dir / "decision.json", decision)
+        return run_dir
+
+    response_payload = publication.response_payload
+    action_input = response_payload["input"]
+    _write_json(run_dir / "worker_action.json", response_payload)
+    apply_result = apply_worker_action_to_node(
+        recon["graph"],
+        "repair_same_component",
+        action_id=response_payload["action_id"],
+        action_input=action_input,
+        anchor_binding=recon["anchor_binding"],
+    )
+    if apply_result.applied is not True:
+        _write_json(
+            run_dir / "decision.json",
+            _decision_from_worker_action_apply(apply_result),
+        )
+        return run_dir
+
+    final = _dispatch_repair_and_verify(
+        graph=apply_result.graph,
+        agent=agent,
+        params_sha256=apply_result.params_sha256,
+        run_dir=run_dir,
+    )
+    _write_json(run_dir / "decision.json", final["decision"])
+    return run_dir
 
 
 def main(argv: list[str] | None = None) -> int:
