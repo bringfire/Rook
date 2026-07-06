@@ -368,6 +368,10 @@ def _derive_resolved_motion(motion: dict[str, Any],
             continue
         resolved_groups[target] = expand([target], f"target {target!r}")
 
+    # motion[].target strings are intentionally left unresolved: each now
+    # names a group in resolved_groups, and the Slice 3 file-backed compiler
+    # expands them through expand_targets exactly like authored groups. One
+    # track per target name keeps its duplicate_object_target check happy.
     resolved = dict(motion)
     resolved["groups"] = resolved_groups
     resolved["metadata_kind"] = "director_resolved_motion"
