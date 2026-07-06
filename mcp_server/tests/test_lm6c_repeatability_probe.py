@@ -488,6 +488,48 @@ def test_run_probe_timeout_discovers_child_run_and_scans_leaks(
     assert summary["leak_marker_match_count"] == 1
 
 
+def test_run_probe_subprocess_error_discovers_child_run_and_continues(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    async def fake_preflight():
+        return True, None
+
+    def fake_run_subprocess(command, **kwargs):
+        lm6a_runs_dir = Path(command[-1])
+        assert lm6a_runs_dir.name == "attempt-001"
+        child = lm6a_runs_dir / "lm6a-child"
+        child.mkdir(parents=True)
+        (child / "worker_action.json").write_text(
+            '{"code": "PROBE_REPAIR_CODE"}',
+            encoding="utf-8",
+        )
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(PROBE, "_run_preflight", fake_preflight)
+
+    run_dir = PROBE._run_probe(
+        attempts=1,
+        model="gemma4:12b-it-qat",
+        run_root=tmp_path,
+        attempt_timeout_s=600,
+        run_subprocess=fake_run_subprocess,
+    )
+
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    rows = [
+        json.loads(line)
+        for line in (run_dir / "attempts.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert rows[0]["terminal_category"] == "wrapper_error"
+    assert rows[0]["failure_reason"] == "lm6a_subprocess_error:RuntimeError"
+    assert rows[0]["lm6a_run_dir"].endswith("lm6a-child")
+    assert rows[0]["leak_check_performed"] is True
+    assert rows[0]["leak_marker_match_count"] == 1
+    assert summary["terminal_category_counts"] == {"wrapper_error": 1}
+    assert summary["leak_marker_match_count"] == 1
+
+
 def test_main_prints_run_dir(monkeypatch, tmp_path: Path, capsys) -> None:
     def fake_run_probe(**kwargs):
         run_dir = tmp_path / "lm6c-demo"

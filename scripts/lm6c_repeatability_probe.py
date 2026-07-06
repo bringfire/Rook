@@ -395,6 +395,25 @@ def _timeout_row(
     return row
 
 
+def _subprocess_error_row(
+    *,
+    attempt_index: int,
+    exc: Exception,
+    child_run_dir: Path | None,
+) -> dict[str, Any]:
+    row = _base_attempt_row(attempt_index=attempt_index)
+    row.update(
+        {
+            "preflight_status": "passed",
+            "lm6a_invoked": True,
+            "lm6a_run_dir": str(child_run_dir) if child_run_dir is not None else None,
+            "terminal_category": "wrapper_error",
+            "failure_reason": f"lm6a_subprocess_error:{type(exc).__name__}",
+        }
+    )
+    return row
+
+
 def _run_probe(
     *,
     attempts: int,
@@ -436,6 +455,17 @@ def _run_probe(
         except subprocess.TimeoutExpired as exc:
             child_run_dir = _discover_child_run_dir(lm6a_runs_dir, before)
             row = _timeout_row(
+                attempt_index=attempt_index,
+                exc=exc,
+                child_run_dir=child_run_dir,
+            )
+            _apply_leak_scan(row)
+            rows.append(row)
+            _append_jsonl(attempts_path, row)
+            continue
+        except Exception as exc:
+            child_run_dir = _discover_child_run_dir(lm6a_runs_dir, before)
+            row = _subprocess_error_row(
                 attempt_index=attempt_index,
                 exc=exc,
                 child_run_dir=child_run_dir,
