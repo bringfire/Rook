@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from .bridge import call_rhino
+from .director_worker_common import native_call, norm_path, open_package_document
 from .director_take_package import (
     PACKAGE_SCHEMA_VERSION,
     canonical_json_text,
@@ -45,16 +46,14 @@ def _sha256_text(text: str) -> str:
 
 
 def _norm_path(value: str) -> str:
-    return str(Path(value)).replace("\\", "/").casefold()
+    return norm_path(value)
 
 
 async def _native(call_native, endpoint: str, method: str, data: dict | None,
                   port: int | None, error_code: str) -> Any:
-    envelope = await call_native(endpoint, method, data, port=port)
-    if not isinstance(envelope, dict) or not envelope.get("success"):
-        detail = envelope.get("data") if isinstance(envelope, dict) else envelope
-        raise DirectorWorkerPrepareError(error_code, f"{endpoint} failed: {detail}")
-    return envelope.get("data")
+    return await native_call(
+        call_native, endpoint, method, data, port, error_code,
+        DirectorWorkerPrepareError)
 
 
 def _load_package(package_root_arg: Any) -> dict[str, Any]:
@@ -124,45 +123,9 @@ def _verify_package_hashes(pkg: dict[str, Any]) -> None:
 
 async def _open_scene_document(call_native, pkg: dict[str, Any],
                                port: int | None) -> None:
-    scene_path = pkg["root"] / "scene.3dm"
-    live = await _native(call_native, "/document", "GET", None, port,
-                         "document_open_failed")
-    already_on_scene = (
-        _norm_path(live.get("path") or "") == _norm_path(str(scene_path)))
-    if not already_on_scene and bool(live.get("modified")):
-        # Switching documents discards unsaved edits: native /document/open
-        # clears the modified flag to suppress the save dialog
-        # (DocumentOpsHandler.cpp:124). Refuse on a dirty live document.
-        raise DirectorWorkerPrepareError(
-            "document_not_saved",
-            "the current document has unsaved changes; opening the take "
-            "copy would silently discard them — save the document first")
-    # ALWAYS (re)open — including when the copy is already active. A prior
-    # prepare may have mutated the in-memory copy, and the modified flag is
-    # unreliable here (native /document/open force-clears it before opening,
-    # and its same-path branch can no-op with alreadyOpen=true —
-    # DocumentOpsHandler.cpp:162-172).
-    open_data = await _native(call_native, "/document/open", "POST",
-                              {"path": str(scene_path)}, port,
-                              "document_open_failed")
-    if isinstance(open_data, dict) and open_data.get("alreadyOpen"):
-        # Native no-opped: the copy was already active and was NOT reloaded
-        # from disk. Pristine state cannot be proven for an un-reloaded
-        # copy — a partially mutated one can still hold its source
-        # instances plus stray duplicates, which the instance-presence gate
-        # below cannot see. Fail closed.
-        raise DirectorWorkerPrepareError(
-            "take_copy_not_pristine",
-            "the take copy was already the active document and Rhino did "
-            "not reload it from disk; close the document in Rhino, then "
-            "re-run prepare")
-    after = await _native(call_native, "/document", "GET", None, port,
-                          "document_open_failed")
-    if _norm_path(after.get("path") or "") != _norm_path(str(scene_path)):
-        raise DirectorWorkerPrepareError(
-            "wrong_document",
-            f"active document is {after.get('path')!r}; expected the take "
-            f"copy {scene_path}")
+    await open_package_document(
+        call_native, pkg["root"], pkg["root"] / "scene.3dm", port=port,
+        error_cls=DirectorWorkerPrepareError, mode="fail_closed")
 
 
 async def _verify_take_copy_pristine(call_native, manifest: dict[str, Any],
