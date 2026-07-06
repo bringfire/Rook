@@ -752,9 +752,33 @@ def _run_probe(
     return run_dir
 
 
+def _build_agent() -> Any:
+    from rook.agent.base_agent import RookAgent
+    from rook.server import _mcp_tool_executor
+
+    return RookAgent(tool_executor=_mcp_tool_executor)
+
+
 def main(argv: list[str] | None = None) -> int:
-    _args(argv)
-    raise SystemExit("LM6A runtime flow is implemented in later tasks")
+    args = _args(argv)
+    run_dir = _run_probe(
+        phase=args.phase,
+        model=args.model,
+        endpoint=args.endpoint,
+        temperature=args.temperature,
+        timeout_s=args.timeout_s,
+        excerpt_chars=args.excerpt_chars,
+        run_root=args.run_dir,
+        agent=_build_agent(),
+    )
+    decision_path = run_dir / "decision.json"
+    decision = json.loads(decision_path.read_text(encoding="utf-8"))
+    print(
+        "LM6A live worker splice probe complete: "
+        f"run_dir={run_dir} decision={decision['decision']} "
+        f"reason={decision['reason']}"
+    )
+    return 0
 
 
 if __name__ == "__main__":

@@ -361,3 +361,25 @@ def test_live_summary_extracts_bounded_repair_anchor() -> None:
         "target_errors": [PROBE.REPAIR_TARGET_ERROR],
     }
     assert summary["receipt_sha256"] is not None
+
+
+def test_script_help_runs_from_repo_root() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    python = repo_root / "mcp_server" / ".venv" / "Scripts" / "python.exe"
+    result = __import__("subprocess").run(
+        [str(python), "scripts/lm6a_live_worker_splice_probe.py", "--help"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "LM6A live worker splice probe." in result.stdout
+
+
+def test_script_static_forbidden_imports_and_graph_dump_guard() -> None:
+    source = _script_path().read_text(encoding="utf-8")
+    assert "LiteLLM" not in source
+    assert "anthropic" not in source.lower()
+    assert "debug-full-graph" not in source
