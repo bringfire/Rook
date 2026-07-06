@@ -47,6 +47,9 @@
 - Modify `mcp_server/src/rook/canvas_director_templates/manifest.json`
   - Task 0 only: repair stale Canvas Director script hashes if the focused baseline test proves the checked-in manifest is out of sync.
 
+- Modify `.gitattributes`
+  - Task 0 only: pin Canvas Director template script line endings if the focused baseline test proves raw-byte hashes are checkout-dependent.
+
 ---
 
 ### Task 0: Repair Canvas Director Template Hash Baseline
@@ -84,11 +87,11 @@ for entry in pack["templates"]:
         print(entry["template_id"], expected, actual)
 ```
 
-If the mismatches are exact checked-in script byte hashes differing from manifest values, treat the baseline issue as stale manifest hashes. If the script contents are unexpectedly modified or semantically wrong, stop and report the content drift instead of silently updating hashes.
+If the mismatches are exact checked-in script byte hashes differing from manifest values, treat the baseline issue as stale manifest hashes. If the mismatches are line-ending/hash calculation drift, keep the manifest hashes aligned to the LF Git blob bytes and add a narrow `.gitattributes` rule so Canvas Director template scripts check out with stable LF bytes. If the script contents are unexpectedly modified or semantically wrong, stop and report the content drift instead of silently updating hashes.
 
 - [ ] **Step 3: Update only the manifest hash source of truth when stale**
 
-If Step 2 proves stale manifest hashes, update only `script.sha256` values in `mcp_server/src/rook/canvas_director_templates/manifest.json` using the computed exact-byte hashes. Do not refactor templates, reorder manifest entries, change script behavior, or touch Director storage files in this task.
+If Step 2 proves stale manifest hashes, update only `script.sha256` values in `mcp_server/src/rook/canvas_director_templates/manifest.json` using the computed exact-byte hashes. If Step 2 proves checkout-dependent line-ending drift, update only the narrow line-ending policy needed for Canvas Director template scripts and normalize those script working-tree bytes without semantic script edits. Do not refactor templates, reorder manifest entries, change script behavior, or touch Director storage files in this task.
 
 - [ ] **Step 4: Verify and commit the baseline repair separately**
 

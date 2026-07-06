@@ -1,1 +1,4 @@
 third_party/ffmpeg/ffmpeg.exe filter=lfs diff=lfs merge=lfs -text
+
+# Canvas Director template hashes are computed from checked-out script bytes.
+mcp_server/src/rook/canvas_director_templates/scripts/*.cs text eol=lf
