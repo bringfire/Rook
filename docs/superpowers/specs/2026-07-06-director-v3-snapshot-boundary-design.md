@@ -144,6 +144,96 @@ longer on the path to final capture. Fix the undo-corruption bug regardless.
    frame-camera path should transfer unchanged).
 6. Worker launch UX honoring user-controlled Rhino lifecycle.
 
+## Appendix: Spike Narrative (2026-07-06)
+
+All spikes ran live against the open production document
+`C:\Users\aryan\V2\Axon_Pearson_Experimental_TESTING.3dm` (426 MB on disk,
+112 top-level objects, 120 layers, ~200+ block definitions, unmodified at
+session start), through the normal MCP tool surface, with Rhino as a
+background window (Claude Code terminal in the foreground) the entire time.
+No second Rhino instance was launched (user controls instance lifecycle);
+the second-instance variants are the residual measurements.
+
+### Spike A: capture fidelity of stylized/custom modes, backgrounded
+
+1. `rhino_display_modes` enumerated 41 modes: the stock set plus ~30
+   user-tuned custom modes (`Render_Layer_Color_AMR`, `PEN_WHITE_BKGND`,
+   `Arctic with Object Color`, `Render_Sketch_White`, `WhiteCard`, project
+   modes like `SOH-Rendered-2`, `MBS-Rendered-3`, ...). This inventory is
+   what settled the render-backend question: the AI-steering encoding is not
+   three stock modes but a tuned library.
+2. `rhino_viewport` captures at 1280x720 with `displayMode` override (no
+   persistent mode change) for `Arctic`, `Pen`, and custom
+   `Render_Layer_Color_AMR`. All three rendered correctly while Rhino had no
+   foreground focus: Arctic white-matte with linework, Pen dense line
+   extraction, the custom mode with layer-color semantic coding intact.
+
+### Spike B: does layer/material encoding survive explode?
+
+1. Target selection: listed placed blocks by member count; chose
+   `3D_BLOCK_ARCH_ROOF_0502 UPLIFT ROOF - VERTICAL` (890 members, 1 instance,
+   id `a28cbdb5-51fa-46b2-b18b-ab880b54ded7`) — the same source object the
+   materialization spec uses in its worked examples, i.e. the real Pearson
+   proof target.
+2. Pre-explode census via `rhino_block_objects_detailed`: 443 Breps, 221
+   Curves, 220 Points, 6 nested InstanceReferences. Every member
+   `ColorFromLayer` + `MaterialFromLayer`, with per-member layer assignments
+   (425 on `001_MATERIAL::001_01_GARDEN WOOD`, 400 on setout-line layers,
+   plus glass/concrete/metal layers). Also confirms the mixed-block case the
+   spec worried about (renderable actors + setout linework + nested blocks in
+   one definition) is the normal case, not an edge.
+3. `rhino_block_explode` on the instance: 880 top-level objects created
+   (document went 112 -> ~991).
+4. Post-explode check: 421 Breps sat top-level on
+   `001_MATERIAL::001_01_GARDEN WOOD`, matching the pre-explode census
+   (Brep-only; curves/points account for the remainder). Layer-driven color
+   encoding preserved exactly. PASS.
+
+### Spike C: live-document replay throughput at near-Pearson scale
+
+1. Took 250 of the exploded GARDEN WOOD brep ids (compiler cap is 256; the
+   Pearson actor set is 338).
+2. `rhino_director_compile_motion`: one group, one keyframe (t=1, translate
+   +8 m Z, ease_in_out), 48 frames @ 24 fps. Compile succeeded; the baked
+   track serialized to 4.4 MB compact JSON (12.2 MB pretty-printed tool
+   response) — ~370 bytes per object-frame for a motion whose authoring form
+   is one keyframe. Linear extrapolation to Pearson (338 objects x 240
+   frames) is ~30 MB vs the 8 MiB replay transport cap.
+3. `rhino_director_replay` (track_path, restore_on_finish=true,
+   session `spike_throughput_01`): the MCP client timed out at ~60 s;
+   wall-clock from dispatch to the post-timeout probe was ~85 s.
+   `rhino_director_replay_cancel` then reported `no_active_replay`, so the
+   replay had completed somewhere in the 60-85 s window: ~1.3-1.7 s/frame
+   for apply-250-transforms + full-scene redraw + restore-250-transforms,
+   vs the 41.7 ms/frame real-time budget (~35x too slow), with the user's
+   UI dispatch suspended throughout.
+
+### The unplanned finding: replay corrupts undo coverage
+
+1. Cleanup plan was a single `undo` to revert the explode. Result: object
+   count landed at 362 = 112 + exactly the 250 replay-touched objects, and a
+   second undo reported "Nothing to undo". The undo restored the block
+   instance and removed the 630 exploded objects the replay never touched,
+   but the 250 objects the replay had transformed (and restored) were left
+   as orphan duplicates outside undo's reach.
+2. Recovery: verified the 250 orphans on the GARDEN WOOD layer were exactly
+   the spike's id set (set comparison: exact match, zero non-spike ids),
+   then `rhino_delete` on precisely that list. Document back to 112 objects,
+   block instance intact.
+3. Interpretation: `DirectorObjectPoseGuard`'s direct ON_Xform apply/restore
+   interacts destructively with undo records of prior operations. Filed as a
+   separate fix task (repro: explode -> replay -> undo must restore original
+   object count). This is the restore/undo brittleness class of the
+   live-document architecture demonstrated end-to-end in one session.
+
+### Residuals not yet measured
+
+- Capture throughput and `ViewCapture` fidelity in a dedicated minimized
+  second instance (expected fine — capture is offscreen-buffer based — but
+  unproven).
+- Whether user-profile custom display modes resolve by name in a fresh
+  worker instance (they are not stored in the document).
+
 ## Test Gates
 
 - Take package round-trip: package -> worker open -> prepare -> member map
