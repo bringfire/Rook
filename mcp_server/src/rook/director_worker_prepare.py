@@ -17,11 +17,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 from .bridge import call_rhino
-from .director_worker_common import native_call, norm_path, open_package_document
+from .director_worker_common import (
+    enforce_save_copy_evidence,
+    native_call,
+    norm_path,
+    open_package_document,
+)
 from .director_take_package import (
     PACKAGE_SCHEMA_VERSION,
     canonical_json_text,
@@ -376,6 +382,30 @@ async def prepare_take(arguments: dict[str, Any], *, call_native=call_rhino,
     prepare_data = await _run_prepare(call_native, pkg, port)
     map_sets = _verify_and_map(pkg["manifest"], prepare_data)
 
+    staging = pkg["root"] / ".prepared.3dm.staging"
+    prepared_path = pkg["root"] / "prepared.3dm"
+    if staging.exists():
+        staging.unlink()
+    try:
+        evidence = await _native(
+            call_native, "/document/save-copy", "POST",
+            {"path": str(staging)}, port, "save_copy_failed")
+        enforce_save_copy_evidence(evidence, DirectorWorkerPrepareError)
+        if not staging.is_file() or staging.stat().st_size == 0:
+            raise DirectorWorkerPrepareError(
+                "save_copy_failed", "prepared.3dm staging missing or empty")
+        os.replace(staging, prepared_path)
+    except Exception:
+        if staging.exists():
+            staging.unlink()
+        raise
+    prepared_sha = sha256_file(prepared_path)
+    prepared_scene = {
+        "file": "prepared.3dm",
+        "sha256": prepared_sha,
+        "bytes": prepared_path.stat().st_size,
+    }
+
     manifest_sha = pkg["status"].get("scene_manifest_sha256")
     member_map = {
         "schema_version": MEMBER_MAP_SCHEMA_VERSION,
@@ -384,6 +414,7 @@ async def prepare_take(arguments: dict[str, Any], *, call_native=call_rhino,
         "package_id": pkg["status"].get("package_id"),
         "prepared_at_utc": now_fn(),
         "scene_manifest_sha256": manifest_sha,
+        "prepared_scene": prepared_scene,
         "actor_sets": map_sets,
     }
     # Hash before writing so a failed resolved-motion derivation leaves no
@@ -407,7 +438,8 @@ async def prepare_take(arguments: dict[str, Any], *, call_native=call_rhino,
     status["heartbeat_utc"] = now_fn()
     status["evidence"] = {**(status.get("evidence") or {}),
                           "member_map_sha256": member_map_sha,
-                          "resolved_motion_sha256": resolved_sha}
+                          "resolved_motion_sha256": resolved_sha,
+                          "prepared_scene_sha256": prepared_sha}
     status_text = canonical_json_text(status)
     (pkg["root"] / "status.json").write_text(status_text, encoding="utf-8")
 
@@ -423,6 +455,7 @@ async def prepare_take(arguments: dict[str, Any], *, call_native=call_rhino,
                  len(m["created_object_ids"]) for m in s["members"])}
             for s in map_sets
         ],
+        "prepared_scene": prepared_scene,
         "member_map_sha256": member_map_sha,
         "resolved_motion_sha256": resolved_sha,
     }
