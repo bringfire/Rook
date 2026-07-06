@@ -115,6 +115,38 @@ def _excerpt(text: str | None, *, limit: int = EXCERPT_CHARS) -> str:
     return text[:limit]
 
 
+def _scan_leak_markers(run_dir: Path) -> list[dict[str, Any]]:
+    if not run_dir.exists() or not run_dir.is_dir():
+        return []
+
+    matches: list[dict[str, Any]] = []
+    for path in sorted(run_dir.rglob("*.json")):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for marker in LEAK_MARKERS:
+            if marker in text:
+                matches.append(
+                    {
+                        "path": str(path),
+                        "marker": marker,
+                    }
+                )
+    return matches
+
+
+def _apply_leak_scan(row: dict[str, Any]) -> None:
+    run_dir = row.get("lm6a_run_dir")
+    if not run_dir:
+        return
+
+    matches = _scan_leak_markers(Path(run_dir))
+    row["leak_check_performed"] = True
+    row["leak_marker_matches"] = matches
+    row["leak_marker_match_count"] = len(matches)
+
+
 def _scheduled_attempt_id(attempt_index: int) -> str:
     return f"attempt-{attempt_index:03d}"
 

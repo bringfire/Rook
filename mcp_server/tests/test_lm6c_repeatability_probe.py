@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -239,3 +240,58 @@ def test_attempt_row_for_successful_lm6a_decision(tmp_path: Path) -> None:
     assert row["failure_reason"] is None
     assert len(row["stdout_excerpt"]) == 2000
     assert len(row["stderr_excerpt"]) == 2000
+
+
+def test_leak_scan_reports_markers_without_changing_decision(tmp_path: Path) -> None:
+    child = tmp_path / "lm6a_runs" / "lm6a-child"
+    nested = child / "nested"
+    nested.mkdir(parents=True)
+    (child / "decision.json").write_text(
+        '{"decision": "accepted", "reason": "verify_repair_succeeded"}',
+        encoding="utf-8",
+    )
+    (nested / "trace.json").write_text(
+        '{"repair": "PROBE_REPAIR_CODE", "code": "A = 42.0"}',
+        encoding="utf-8",
+    )
+    (nested / "notes.txt").write_text(
+        "BindStepSpec.base_params.code",
+        encoding="utf-8",
+    )
+
+    matches = PROBE._scan_leak_markers(child)
+
+    assert len(matches) == 2
+    assert {match["marker"] for match in matches} == {
+        "PROBE_REPAIR_CODE",
+        "A = 42.0",
+    }
+    assert all(match["path"].endswith(".json") for match in matches)
+    assert json.loads((child / "decision.json").read_text(encoding="utf-8"))[
+        "decision"
+    ] == "accepted"
+    assert PROBE._scan_leak_markers(tmp_path / "missing-run") == []
+
+
+def test_apply_leak_scan_updates_row_report_only(tmp_path: Path) -> None:
+    child = tmp_path / "lm6a_runs" / "lm6a-child"
+    child.mkdir(parents=True)
+    (child / "worker.json").write_text(
+        '{"bind": "BindStepSpec.base_params.code"}',
+        encoding="utf-8",
+    )
+    row = PROBE._base_attempt_row(attempt_index=1)
+    row["terminal_category"] = "accepted"
+    row["lm6a_run_dir"] = str(child)
+
+    PROBE._apply_leak_scan(row)
+
+    assert row["terminal_category"] == "accepted"
+    assert row["leak_check_performed"] is True
+    assert row["leak_marker_match_count"] == 1
+    assert row["leak_marker_matches"][0]["marker"] == "BindStepSpec.base_params.code"
+
+    no_run_row = PROBE._base_attempt_row(attempt_index=2)
+    PROBE._apply_leak_scan(no_run_row)
+    assert no_run_row["leak_check_performed"] is False
+    assert no_run_row["leak_marker_match_count"] == 0
