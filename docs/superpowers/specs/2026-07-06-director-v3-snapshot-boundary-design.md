@@ -1,6 +1,6 @@
 # Director v3: Snapshot Boundary + Disposable-Copy Render Worker
 
-Status: direction design, validated by live spikes; amended after Codex review round 1
+Status: direction design, validated by live spikes; amended after Codex review rounds 1-2
 Date: 2026-07-06
 Supersedes (in part): `docs/director/2026-07-06-dynamic-canvas-export-materialization-spec.md` (worktree `director-canvas-export-spec`)
 
@@ -67,11 +67,22 @@ document once and writes an immutable take package:
 take_package/
   scene.3dm              # scene snapshot (see below; NOT a naive raw file copy)
   scene_manifest.json    # real contract, see below
-  motion.json            # the existing compile-motion authoring request
-                         # (from GH canvas extract / motion fragments)
+  motion.json            # AUTHORING artifact: actor/member-level compile-motion
+                         # request (from GH canvas extract / motion fragments);
+                         # targets canonical actor members, never Rhino ids
   camera.json            # camera planner spec
   status.json            # job ledger: package id, phase, heartbeat, evidence
+  -- written by the worker after prepare --
+  resolved_motion.json   # DERIVED artifact: motion.json with canonical members
+                         # mapped through the post-explode member map to concrete
+                         # worker object ids; the compiler consumes ONLY this
+  track.json             # compiled replay track (file-backed)
 ```
+
+`motion.json` and `resolved_motion.json` are distinct on purpose (Codex round 2,
+finding 2): the authoring artifact stays reusable across re-prepares and
+re-packages, while the derived artifact is valid only for the worker document
+state whose member-map hash it records.
 
 Nothing downstream ever reads or mutates the live document again. Authoring
 (GH clock/oscillator/movement components, CanvasDirector Export, motion
@@ -143,11 +154,23 @@ capture there:
      spike produced 880 of 890) — the prepare route must report every skipped
      definition object with a reason; coverage below 100% of *claimed actor
      members* is a hard failure (`prepare_coverage_incomplete`).
-   - Nested `InstanceReference` members: recursive explode in the disposable
-     copy is acceptable (easier than v2's preserve-as-instance) provided the
-     recursion emits occurrence-path-keyed mapping entries and layer/visual
-     encoding is preserved. Reject the member only when mapping or
+   - Mandatory (Codex round 2, finding 3): the prepare route explicitly
+     assigns fresh UUIDs to every generated object and records the source
+     definition-object UUID as a separate member-map field — it must not rely
+     on the incidental UUID behavior of copying definition attributes into
+     `AddGeometryToDoc` (the generic path copies `defObj->Attributes()`
+     wholesale, `BlocksHandler.cpp:1537`).
+   - Mandatory: nested `InstanceReference` members are handled by explicit
+     recursion emitting occurrence-path-keyed mapping entries — never passed
+     through the generic geometry-add path, which mishandles/skips them (the
+     spike's 890 -> 880 gap). Recursive explode in the disposable copy is
+     acceptable (easier than v2's preserve-as-instance) provided layer/visual
+     encoding is preserved; reject the member only when mapping or
      verification fails.
+   - After prepare, the worker writes `resolved_motion.json` by mapping every
+     canonical member in `motion.json` through the member map; unmapped
+     members are a hard failure, and the artifact records the member-map hash
+     it was derived from.
    - No capture duplicates, no visibility manifests, no cleanup ledger, no
      binding reconciliation — the copy is throwaway.
 2. **Verify display modes — fail hard.** Current managed capture silently
@@ -157,18 +180,63 @@ capture there:
    not the document, so the worker verifies each requested mode by name/id
    (and settings fingerprint when packaged) and fails with
    `display_mode_missing` / `display_mode_mismatch` before capturing anything.
-3. **Compile (file-backed):** existing `director_compiler` logic against
-   post-explode ids, reading from and writing to package files. The
+   Implementation leans on the native Director frame-capture display-mode
+   resolution/readback path, which is already stricter than the generic
+   managed viewport capture.
+3. **Compile (file-backed):** existing `director_compiler` logic consuming
+   `resolved_motion.json`, writing `track.json` to the package. The track
+   schema and `absolute_from_source` semantics are unchanged. The
    preview-shaped caps stay where they are — in the preview path.
 4. **Capture (file-backed, not `/director/replay`):** a worker capture route
-   reads the compiled track from the package directory (no 8 MiB HTTP body,
-   no 256-object or 60 s caps), applies frames, `ViewCapture`s at the verified
-   display mode. No per-frame restore (the next frame overwrites; the copy is
-   disposable). Multi-pass = re-run the deterministic take per display mode /
-   layer state; `rhino_capture_depth` covers depth.
+   reads `track.json` from the package directory (no 8 MiB HTTP body, no
+   256-object or 60 s caps), plays frames delta-driven (below), and
+   `ViewCapture`s at the verified display mode. Multi-pass = re-run the
+   deterministic take per display mode / layer state; `rhino_capture_depth`
+   covers depth.
 5. **Assemble:** existing Media Foundation video assembly + publish pipeline.
 
 The user's Rhino stays free the whole time.
+
+### Worker playback math: delta-driven forward playback, proven-pristine reset
+
+"No per-frame restore" means no restore *for user cleanup* — it does not mean
+absolute matrices magically overwrite. Applying `absolute_from_source`
+transforms repeatedly without normalization would compound (Codex round 2,
+finding 1; the current replay avoids this by restoring to source between
+frames, which doubles mutation work and exists only to protect a live
+document). The worker contract:
+
+- **Track semantics unchanged:** the compiler still emits exact
+  `absolute_from_source` matrices `A_i` per object per frame.
+- **Forward delta playback:** the worker applies
+  `delta_i = A_i * inverse(A_(i-1))` (with `A_0 = I`). Objects only move
+  forward through the take — the visible progression IS the animation, with
+  half the per-frame mutation work of apply+restore.
+- **In-run drift gate:** deltas are derived from exact absolute matrices, so
+  error does not accumulate in the math — only sub-tolerance float noise in
+  geometry coordinates. Gate: the final frame's predicted pose
+  (`A_N` applied to manifest source bbox) must match the observed tight bbox
+  within tolerance, else `playback_drift_detected` fails the run.
+- **Cross-run pristine proof (the iteration guarantee):** every capture run
+  starts from proven-pristine state. Default: fresh-open `scene.3dm`
+  (authoritative — the snapshot file is immutable). Optimization: a single
+  end-of-run inverse restore (`inverse(A_N)` per object) *verified* against
+  manifest tight bboxes; any mismatch triggers a document reload instead of
+  trusting the restore. Iterations can never inherit drift because pristine
+  state is demonstrated, not assumed.
+- **Unpaced capture, no screen redraw:** dwell/fps pacing exists for human
+  viewing; `ViewCapture` renders offscreen and needs neither an on-screen
+  redraw nor a real-time clock. The worker captures as fast as apply+capture
+  allows; `fps` is video metadata applied at assembly. Reviewing the animation
+  happens by playing the assembled video — smoother and faster than any live
+  redraw of a heavy scene (spike: ~1.4 s/frame live vs 24 fps playback of the
+  finished file). An optional paced on-screen mode may exist for eyeballing
+  inside the worker, but it is not on the capture path.
+- **User-session preview unchanged:** the live `/director/replay` keeps its
+  per-frame restore — the message pump runs during dwell slices, so a user
+  edit mid-replay makes a single end-restore unsafe there. Upgrading preview
+  to delta playback is a possible follow-up with its own risk note, out of v3
+  scope.
 
 ### Worker lifecycle
 
@@ -352,7 +420,23 @@ the second-instance variants are the residual measurements.
   skipped definition object reported with a reason.
 - Post-explode mapping is recorded at creation time (definition object
   index/id -> created id) and verified against scene-manifest type/layer/
-  tight-bbox evidence; bbox never acts as identity.
+  tight-bbox evidence; bbox never acts as identity. Generated objects carry
+  explicitly assigned fresh UUIDs; the source definition-object UUID is a
+  separate recorded field.
+- `resolved_motion.json` derivation: every canonical member in `motion.json`
+  resolves to a concrete worker object id or the derivation fails; the
+  artifact records the member-map hash; the compiler rejects a
+  `resolved_motion.json` whose member-map hash does not match the current
+  prepare evidence.
+- Delta playback correctness: for a multi-keyframe track, the observed final
+  pose matches the analytically predicted `A_N` pose within tolerance
+  (`playback_drift_detected` otherwise), and a second run after
+  pristine-reset produces the same frame-1 state as the first run
+  (cross-run iteration proof, both reset mechanisms: fresh-open and verified
+  inverse restore).
+- Capture pacing: the worker capture loop runs unpaced (no dwell), with no
+  on-screen redraw required for frame output; assembled video plays at the
+  requested fps.
 - Nested instance members: recursive explode produces occurrence-path-keyed
   mapping entries with layer encoding preserved, or rejects the member with a
   typed error.
