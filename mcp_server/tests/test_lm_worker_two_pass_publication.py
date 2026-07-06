@@ -76,6 +76,42 @@ def _request_payload() -> dict:
             ],
             "knowledge": [],
         },
+        "response_schema": "rook.local_worker_turn_response:v1",
+        "response_contract": {
+            "kinds": [
+                "action_request",
+                "clarification_request",
+                "refusal",
+                "observation",
+            ],
+            "field_sets": {
+                "action_request": [
+                    "schema",
+                    "kind",
+                    "action_id",
+                    "rationale",
+                    "input",
+                ],
+                "clarification_request": [
+                    "schema",
+                    "kind",
+                    "question",
+                    "rationale",
+                ],
+                "refusal": ["schema", "kind", "category", "reason"],
+                "observation": ["schema", "kind", "message", "data"],
+            },
+            "required_nullable_fields": {
+                "clarification_request": ["rationale"],
+                "observation": ["data"],
+            },
+            "refusal_categories": [
+                "unsafe",
+                "insufficient_context",
+                "unsupported_action",
+                "out_of_scope",
+            ],
+        },
     }
 
 
