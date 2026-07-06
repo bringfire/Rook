@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 
@@ -129,3 +130,112 @@ def test_classify_decision_rejects_unknown_decision() -> None:
         "wrapper_error",
         "lm6a_missing_decision",
     )
+
+
+def test_attempt_row_for_nonzero_lm6a_returncode(tmp_path: Path) -> None:
+    child = tmp_path / "lm6a_runs" / "lm6a-child"
+    child.mkdir(parents=True)
+    (child / "decision.json").write_text(
+        '{"decision": "accepted", "reason": "verify_repair_succeeded"}',
+        encoding="utf-8",
+    )
+    completed = subprocess.CompletedProcess(
+        args=["python"],
+        returncode=2,
+        stdout="some stdout",
+        stderr="some stderr",
+    )
+
+    row = PROBE._row_from_completed_lm6a(
+        attempt_index=1,
+        completed=completed,
+        child_run_dir=child,
+    )
+
+    assert row["terminal_category"] == "wrapper_error"
+    assert row["failure_reason"] == "lm6a_nonzero_returncode:2"
+    assert row["lm6a_returncode"] == 2
+    assert row["lm6a_invoked"] is True
+    assert row["lm6a_run_dir"] == str(child)
+    assert row["stdout_excerpt"] == "some stdout"
+    assert row["stderr_excerpt"] == "some stderr"
+
+
+def test_attempt_row_for_missing_decision_json(tmp_path: Path) -> None:
+    child = tmp_path / "lm6a_runs" / "lm6a-child"
+    child.mkdir(parents=True)
+    completed = subprocess.CompletedProcess(
+        args=["python"],
+        returncode=0,
+        stdout="done",
+        stderr="",
+    )
+
+    row = PROBE._row_from_completed_lm6a(
+        attempt_index=1,
+        completed=completed,
+        child_run_dir=child,
+    )
+
+    assert row["terminal_category"] == "wrapper_error"
+    assert row["failure_reason"] == "lm6a_missing_decision_json"
+    assert row["lm6a_decision"] is None
+    assert row["lm6a_reason"] is None
+
+
+def test_attempt_row_for_non_mapping_decision_json(tmp_path: Path) -> None:
+    child = tmp_path / "lm6a_runs" / "lm6a-child"
+    child.mkdir(parents=True)
+    (child / "decision.json").write_text(
+        '["accepted"]',
+        encoding="utf-8",
+    )
+    completed = subprocess.CompletedProcess(
+        args=["python"],
+        returncode=0,
+        stdout="done",
+        stderr="",
+    )
+
+    row = PROBE._row_from_completed_lm6a(
+        attempt_index=1,
+        completed=completed,
+        child_run_dir=child,
+    )
+
+    assert row["terminal_category"] == "wrapper_error"
+    assert row["failure_reason"] == "lm6a_decision_not_mapping"
+    assert row["lm6a_decision"] is None
+    assert row["lm6a_reason"] is None
+
+
+def test_attempt_row_for_successful_lm6a_decision(tmp_path: Path) -> None:
+    child = tmp_path / "lm6a_runs" / "lm6a-child"
+    child.mkdir(parents=True)
+    (child / "decision.json").write_text(
+        '{"decision": "accepted", "reason": "verify_repair_succeeded"}',
+        encoding="utf-8",
+    )
+    completed = subprocess.CompletedProcess(
+        args=["python"],
+        returncode=0,
+        stdout="x" * 2100,
+        stderr="y" * 2100,
+    )
+
+    row = PROBE._row_from_completed_lm6a(
+        attempt_index=1,
+        completed=completed,
+        child_run_dir=child,
+    )
+
+    assert row["preflight_status"] == "passed"
+    assert row["lm6a_invoked"] is True
+    assert row["lm6a_returncode"] == 0
+    assert row["lm6a_run_dir"] == str(child)
+    assert row["lm6a_decision"] == "accepted"
+    assert row["lm6a_reason"] == "verify_repair_succeeded"
+    assert row["terminal_category"] == "accepted"
+    assert row["failure_reason"] is None
+    assert len(row["stdout_excerpt"]) == 2000
+    assert len(row["stderr_excerpt"]) == 2000

@@ -197,3 +197,86 @@ def _classify_decision(decision: Mapping[str, Any]) -> tuple[str, str | None]:
     if value == "wrapper_error":
         return "wrapper_error", "lm6a_unexpected_wrapper_error_decision"
     return value, None
+
+
+def _read_decision(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+    if not path.exists():
+        return None, "lm6a_missing_decision_json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None, "lm6a_invalid_decision_json"
+    except OSError as exc:
+        return None, f"lm6a_unreadable_decision_json:{exc.__class__.__name__}"
+    if not isinstance(payload, dict):
+        return None, "lm6a_decision_not_mapping"
+    return payload, None
+
+
+def _completed_text(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def _row_from_completed_lm6a(
+    *,
+    attempt_index: int,
+    completed: subprocess.CompletedProcess,
+    child_run_dir: Path | None,
+) -> dict[str, Any]:
+    row = _base_attempt_row(attempt_index=attempt_index)
+    row.update(
+        {
+            "preflight_status": "passed",
+            "lm6a_invoked": True,
+            "lm6a_returncode": completed.returncode,
+            "lm6a_run_dir": str(child_run_dir) if child_run_dir is not None else None,
+            "stdout_excerpt": _excerpt(_completed_text(completed.stdout)),
+            "stderr_excerpt": _excerpt(_completed_text(completed.stderr)),
+        }
+    )
+
+    if completed.returncode != 0:
+        row.update(
+            {
+                "terminal_category": "wrapper_error",
+                "failure_reason": f"lm6a_nonzero_returncode:{completed.returncode}",
+            }
+        )
+        return row
+
+    if child_run_dir is None:
+        row.update(
+            {
+                "terminal_category": "wrapper_error",
+                "failure_reason": "lm6a_missing_child_run_dir",
+            }
+        )
+        return row
+
+    decision, read_error = _read_decision(child_run_dir / "decision.json")
+    if read_error is not None:
+        row.update(
+            {
+                "terminal_category": "wrapper_error",
+                "failure_reason": read_error,
+            }
+        )
+        return row
+
+    assert decision is not None
+    terminal_category, failure_reason = _classify_decision(decision)
+    decision_value = decision.get("decision")
+    reason_value = decision.get("reason")
+    row.update(
+        {
+            "lm6a_decision": decision_value if isinstance(decision_value, str) else None,
+            "lm6a_reason": reason_value if isinstance(reason_value, str) else None,
+            "terminal_category": terminal_category,
+            "failure_reason": failure_reason,
+        }
+    )
+    return row
