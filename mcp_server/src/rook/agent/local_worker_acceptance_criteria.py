@@ -14,9 +14,7 @@ _DIAGNOSTIC_SOURCE_PATH = (
     "create_script.receipt.script_receipt.repair_anchor.target_errors"
 )
 _CONVENTION_SOURCE_PATH = "script_body_gotcha"
-_TARGET_DIAGNOSTIC = (
-    "CS0103: The name 'DefinitelyMissingSymbol' does not exist in the current context."
-)
+_TARGET_SYMBOL = "DefinitelyMissingSymbol"
 
 
 @dataclass(frozen=True)
@@ -179,13 +177,13 @@ def _validate_receipt_diagnostic(value: Any) -> None:
         raise ValueError("LM5W v1 requires a non-empty receipt diagnostic list.")
     if not all(isinstance(diagnostic, str) for diagnostic in value):
         raise ValueError("LM5W v1 receipt diagnostics must be strings.")
-    if _TARGET_DIAGNOSTIC not in value:
-        raise ValueError(
-            "LM5W v1 requires the DefinitelyMissingSymbol target diagnostic."
-        )
-    if value != [_TARGET_DIAGNOSTIC]:
+    if len(value) != 1:
         raise ValueError(
             "LM5W v1 requires exactly one target diagnostic: DefinitelyMissingSymbol."
+        )
+    if _TARGET_SYMBOL not in value[0]:
+        raise ValueError(
+            "LM5W v1 requires the DefinitelyMissingSymbol target diagnostic."
         )
 
 

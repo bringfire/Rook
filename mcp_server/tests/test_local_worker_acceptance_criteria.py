@@ -26,6 +26,9 @@ CONVENTION_SOURCE_PATH = "script_body_gotcha"
 TARGET_DIAGNOSTIC = (
     "CS0103: The name 'DefinitelyMissingSymbol' does not exist in the current context."
 )
+LIVE_TARGET_DIAGNOSTIC = (
+    "The name 'DefinitelyMissingSymbol' does not exist in the current context [14:13]"
+)
 
 
 def _valid_sources(**overrides):
@@ -297,6 +300,22 @@ def test_fingerprint_is_stable_for_equivalent_source_dict_order():
     )
 
     assert equivalent["fingerprint"] == baseline["fingerprint"]
+
+
+def test_live_target_diagnostic_format_keeps_canonical_packet_and_fingerprint():
+    baseline = assemble_acceptance_criteria_packet(_valid_sources())
+    live_format = assemble_acceptance_criteria_packet(
+        _valid_sources(
+            receipt_diagnostic=AcceptanceCriteriaSource(
+                source_class="receipt_diagnostic",
+                source_path=DIAGNOSTIC_SOURCE_PATH,
+                value=[LIVE_TARGET_DIAGNOSTIC],
+            )
+        )
+    )
+
+    assert live_format["criteria"] == baseline["criteria"]
+    assert live_format["fingerprint"] == baseline["fingerprint"]
 
 
 def test_fingerprint_changes_when_source_path_changes():
