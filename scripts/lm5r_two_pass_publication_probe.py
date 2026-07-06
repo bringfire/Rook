@@ -40,6 +40,7 @@ from rook.agent.local_worker_turn_response import (
     LOCAL_WORKER_TURN_RESPONSE_SCHEMA,
     load_local_worker_turn_response_payload,
 )
+from lm_worker_two_pass_publication import run_two_pass_worker_publication
 from lm5k_worker_probe import _SCENARIOS, build_probe_context
 
 
@@ -592,169 +593,19 @@ def _run_attempt(
     excerpt_chars: int,
     post_chat: Any = _post_ollama_chat,
 ) -> dict[str, Any]:
-    row = _empty_attempt_row(model=model, scenario=scenario, attempt=attempt)
-    pass1_messages, request_payload = _pass1_messages_for_scenario(scenario)
-    pass1_body = _build_pass1_body(
+    _messages, request_payload = _pass1_messages_for_scenario(scenario)
+    result = run_two_pass_worker_publication(
+        request_payload,
         model=model,
-        messages=pass1_messages,
+        endpoint=endpoint,
         temperature=temperature,
-    )
-
-    try:
-        pass1_text = post_chat(endpoint, pass1_body, timeout_s)
-    except urllib.error.HTTPError as exc:
-        row["status"] = "pass1_provider_error"
-        row["failure_reason"] = f"pass1_http_error:{exc.code}"
-        row["pass1_provider_status"] = "error"
-        return row
-    except Exception as exc:
-        row["status"] = "pass1_provider_error"
-        row["failure_reason"] = f"pass1_provider_error:{type(exc).__name__}"
-        row["pass1_provider_status"] = "error"
-        return row
-
-    pass1_fields, pass1_failure = _provider_message_fields(
-        pass1_text,
-        prefix="pass1",
+        timeout_s=timeout_s,
         excerpt_chars=excerpt_chars,
+        post_chat=post_chat,
     )
-    if pass1_fields is None:
-        row["status"] = "pass1_decision_invalid"
-        row["failure_reason"] = pass1_failure
-        row["pass1_provider_status"] = "ok"
-        return row
-
-    row["pass1_provider_status"] = "ok"
-    row["pass1_content_excerpt"] = pass1_fields["content_excerpt"]
-    row["pass1_content_sha256"] = pass1_fields["content_sha256"]
-    row["pass1_thinking_present"] = pass1_fields["thinking_present"]
-    row["pass1_thinking_chars"] = pass1_fields["thinking_chars"]
-    row["pass1_thinking_sha256"] = pass1_fields["thinking_sha256"]
-    row["pass1_prompt_eval_count"] = pass1_fields["prompt_eval_count"]
-    row["pass1_eval_count"] = pass1_fields["eval_count"]
-
-    decision, decision_failure = _parse_pass1_decision(pass1_fields["content"])
-    if decision is None:
-        row["status"] = "pass1_decision_invalid"
-        row["failure_reason"] = decision_failure
-        return row
-
-    decision_text = json.dumps(decision, sort_keys=True)
-    row["pass1_decision_sha256"] = _sha256_text(decision_text)
-    row["pass1_kind"] = decision["kind"]
-    row["pass1_action_id"] = decision.get("action_id")
-    row["pass1_refusal_category"] = decision.get("category")
-    allowed_action_ids = _allowed_action_ids_from_request(request_payload)
-    pass1_observation_reasons = list(
-        _observation_action_intent_reasons(
-            payload=decision,
-            allowed_action_ids=allowed_action_ids,
-        )
-    )
-    row["pass1_observation_action_intent_reasons"] = pass1_observation_reasons
-    row["pass1_observation_action_intent_anomaly"] = bool(pass1_observation_reasons)
-    _set_combined_observation_anomaly(row)
-
-    single_kind_schema = _single_kind_response_schema(decision)
-    row["pass2_schema_kind"] = decision["kind"]
-    pass2_body = _build_pass2_body(
-        model=model,
-        request_payload=request_payload,
-        decision=decision,
-        single_kind_schema=single_kind_schema,
-        temperature=temperature,
-    )
-
-    try:
-        pass2_text = post_chat(endpoint, pass2_body, timeout_s)
-    except urllib.error.HTTPError as exc:
-        row["status"] = "pass2_provider_error"
-        row["failure_reason"] = f"pass2_http_error:{exc.code}"
-        row["pass2_provider_status"] = "error"
-        return row
-    except Exception as exc:
-        row["status"] = "pass2_provider_error"
-        row["failure_reason"] = f"pass2_provider_error:{type(exc).__name__}"
-        row["pass2_provider_status"] = "error"
-        return row
-
-    pass2_fields, pass2_failure = _provider_message_fields(
-        pass2_text,
-        prefix="pass2",
-        excerpt_chars=excerpt_chars,
-    )
-    if pass2_fields is None:
-        row["status"] = "pass2_lm5g_invalid"
-        row["failure_reason"] = pass2_failure
-        row["pass2_provider_status"] = "ok"
-        return row
-
-    row["pass2_provider_status"] = "ok"
-    row["pass2_content_excerpt"] = pass2_fields["content_excerpt"]
-    row["pass2_content_sha256"] = pass2_fields["content_sha256"]
-    row["pass2_prompt_eval_count"] = pass2_fields["prompt_eval_count"]
-    row["pass2_eval_count"] = pass2_fields["eval_count"]
-
-    try:
-        parsed_response = json.loads(pass2_fields["content"])
-    except (json.JSONDecodeError, RecursionError) as exc:
-        row["status"] = "pass2_lm5g_invalid"
-        row["failure_reason"] = f"pass2_content_json_invalid:{type(exc).__name__}"
-        return row
-
-    if not isinstance(parsed_response, Mapping):
-        row["status"] = "pass2_lm5g_invalid"
-        row["failure_reason"] = "pass2_content_not_mapping"
-        return row
-
-    row["pass2_response_kind"] = parsed_response.get("kind")
-    row["pass2_action_id"] = parsed_response.get("action_id")
-    row["pass2_refusal_category"] = parsed_response.get("category")
-
-    try:
-        load_local_worker_turn_response_payload(parsed_response)
-    except (TypeError, ValueError) as exc:
-        row["status"] = "pass2_lm5g_invalid"
-        row["failure_reason"] = f"pass2_lm5g_load_failed:{type(exc).__name__}"
-        return row
-
-    pass2_observation_reasons = list(
-        _observation_action_intent_reasons(
-            payload=parsed_response,
-            allowed_action_ids=allowed_action_ids,
-        )
-    )
-    row["pass2_observation_action_intent_reasons"] = pass2_observation_reasons
-    row["pass2_observation_action_intent_anomaly"] = bool(pass2_observation_reasons)
-    _set_combined_observation_anomaly(row)
-    row["lm5g_loadable"] = True
-    row["kind_preserved"] = row["pass2_response_kind"] == row["pass1_kind"]
-    row["action_id_preserved"] = (
-        row["pass2_action_id"] == row["pass1_action_id"]
-        if row["pass1_kind"] == "action_request"
-        else None
-    )
-    row["refusal_category_preserved"] = (
-        row["pass2_refusal_category"] == row["pass1_refusal_category"]
-        if row["pass1_kind"] == "refusal"
-        else None
-    )
-
-    if row["kind_preserved"] is not True:
-        row["status"] = "pass2_invariant_violation"
-        row["failure_reason"] = "pass2_kind_changed"
-        return row
-    if row["action_id_preserved"] is False:
-        row["status"] = "pass2_invariant_violation"
-        row["failure_reason"] = "pass2_action_id_changed"
-        return row
-    if row["refusal_category_preserved"] is False:
-        row["status"] = "pass2_invariant_violation"
-        row["failure_reason"] = "pass2_refusal_category_changed"
-        return row
-
-    row["status"] = "published"
-    row["failure_reason"] = None
+    row = dict(result.row)
+    row["scenario"] = scenario
+    row["attempt"] = attempt
     return row
 
 
