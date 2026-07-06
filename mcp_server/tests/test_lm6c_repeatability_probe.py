@@ -486,3 +486,30 @@ def test_run_probe_timeout_discovers_child_run_and_scans_leaks(
     assert rows[0]["leak_marker_match_count"] == 1
     assert summary["terminal_category_counts"] == {"wrapper_error": 1}
     assert summary["leak_marker_match_count"] == 1
+
+
+def test_main_prints_run_dir(monkeypatch, tmp_path: Path, capsys) -> None:
+    def fake_run_probe(**kwargs):
+        run_dir = tmp_path / "lm6c-demo"
+        run_dir.mkdir()
+        (run_dir / "summary.json").write_text(
+            '{"terminal_category_counts": {"accepted": 1}}',
+            encoding="utf-8",
+        )
+        return run_dir
+
+    monkeypatch.setattr(PROBE, "_run_probe", fake_run_probe)
+
+    assert PROBE.main(["--attempts", "1", "--run-dir", str(tmp_path)]) == 0
+    output = capsys.readouterr().out
+    assert "LM6C repeatability probe complete" in output
+    assert f"run_dir={tmp_path / 'lm6c-demo'}" in output
+
+
+def test_lm6c_script_does_not_import_lm6a_internals() -> None:
+    source = PROBE._script_path().read_text(encoding="utf-8")
+
+    assert "import lm6a_live_worker_splice_probe" not in source
+    assert "from lm6a_live_worker_splice_probe" not in source
+    assert "_run_probe(" in source
+    assert "subprocess.run" in source

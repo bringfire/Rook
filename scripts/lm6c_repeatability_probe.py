@@ -460,3 +460,28 @@ def _run_probe(
         _build_summary(rows, attempts=attempts, model=model),
     )
     return run_dir
+
+
+def _script_path() -> Path:
+    return Path(__file__).resolve()
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _args(argv)
+    run_dir = _run_probe(
+        attempts=args.attempts,
+        model=args.model,
+        run_root=args.run_dir,
+        attempt_timeout_s=args.attempt_timeout_s,
+    )
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    print(
+        "LM6C repeatability probe complete: "
+        f"run_dir={run_dir} "
+        f"terminal_category_counts={summary['terminal_category_counts']}"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
