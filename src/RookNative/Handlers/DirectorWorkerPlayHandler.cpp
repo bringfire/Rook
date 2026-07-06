@@ -434,9 +434,9 @@ nlohmann::json MakePristineEvidence(
 nlohmann::json MakeProbeObjectEvidence(const std::string& objectId, const ON_BoundingBox& bbox)
 {
     return {
-        {"object_id", objectId},
-        {"bbox_min", PointToJson(bbox.Min())},
-        {"bbox_max", PointToJson(bbox.Max())}
+        {"objectId", objectId},
+        {"bboxMin", PointToJson(bbox.Min())},
+        {"bboxMax", PointToJson(bbox.Max())}
     };
 }
 
@@ -634,7 +634,7 @@ void HandleDirectorWorkerPlay(const httplib::Request& req, httplib::Response& re
                     probeObjects.push_back(MakeProbeObjectEvidence(objectId, observed));
                 }
                 probes.push_back({
-                    {"frame_index", frameIndex},
+                    {"frameIndex", frameIndex},
                     {"objects", std::move(probeObjects)}
                 });
             }
