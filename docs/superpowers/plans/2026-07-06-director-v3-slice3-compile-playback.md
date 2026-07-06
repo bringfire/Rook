@@ -47,7 +47,7 @@
 }
 ```
 
-Defaults: `fromFrame` 0, `playTo` frame_count, `probeFrames` [] (max 32), `driftTolerance` null → 10 × doc absolute tolerance. Constraint `0 <= fromFrame < playTo <= frame_count`.
+Defaults: `fromFrame` 0, `playTo` frame_count, `probeFrames` [] (max 32). `driftTolerance`: **absent or JSON `null` → default (10 × doc absolute tolerance); present and non-null → must be a positive finite number, anything else is `track_invalid`.** Constraint `0 <= fromFrame < playTo <= frame_count`.
 
 **Success response `data`:**
 
@@ -327,7 +327,7 @@ async def compile_take(arguments, *, call_native=call_rhino, port=None,
     #            track_json_sha256, compile_provenance_sha256}
 ```
 
-- [ ] **Step 1: Write the failing tests** (~14; build `make_compiled_package(tmp_path, ...)` on top of the Task 2 fixtures — a helper that fabricates a fully-hashed post-prepare package: scene.3dm + prepared.3dm bytes, manifest, member_map with `prepared_scene`, resolved_motion with correct `derived_from`, status phase `prepared` with correct evidence hashes; parameterize for each tamper case. Fake native adds `/director/object-states` returning configurable `bbox_method` and bboxes, and reuses the Task 1 open/document fake):
+- [ ] **Step 1: Write the failing tests** (~15; build `make_compiled_package(tmp_path, ...)` on top of the Task 2 fixtures — a helper that fabricates a fully-hashed post-prepare package: scene.3dm + prepared.3dm bytes, manifest, member_map with `prepared_scene`, resolved_motion with correct `derived_from`, status phase `prepared` with correct evidence hashes; parameterize for each tamper case. Fake native adds `/director/object-states` returning configurable `bbox_method` and bboxes, and reuses the Task 1 open/document fake):
 
 1. missing prepared.3dm → `package_invalid` (message mentions re-run prepare)
 2. wrong phase (`packaged`) → `package_invalid`
@@ -343,6 +343,7 @@ async def compile_take(arguments, *, call_native=call_rhino, port=None,
 12. frame_count > `WORKER_MAX_FRAME_COUNT` → `compile_failed`
 13. `DirectorCompileError` from `expand_targets` (e.g. UUID-shaped group name) → `compile_failed` with original code in the message
 14. recompile (phase already `compiled`) overwrites track.json and updates hashes
+15. **subset compile succeeds (the product decision, tested directly):** member_map has 4 created objects, resolved_motion animates exactly 1 of them (its group expands to that single id) → compile SUCCEEDS; `track.json["animated_object_ids"]` contains only that id (never the static three); every `object_frames[].object_transforms` list has exactly 1 entry
 
 - [ ] **Step 2: RED run.** `cd mcp_server && python -m pytest tests/test_director_worker_compile.py -v` → ModuleNotFoundError.
 
@@ -375,8 +376,8 @@ async def compile_take(arguments, *, call_native=call_rhino, port=None,
   - `EnvelopeOfTransformedBbox(const ON_BoundingBox& src, const ON_Xform& xf) -> ON_BoundingBox` — transform the 8 corners, take min/max.
   - `BboxFromMinMax(const nlohmann::json& mn, const nlohmann::json& mx)`.
   - `FailureResult(const char* reason, nlohmann::json evidence) -> WriteResult` — `success=false`, `data["reason"]=reason`, merge evidence.
-- Request parsing (before dispatch): required string `expectedDocumentPath`, required string `trackPath`; optional ints `fromFrame` (default 0) / `playTo` (default −1 = frame_count) / array `probeFrames` (ints, max 32 → error beyond); optional number `driftTolerance` (> 0).
-- Read `trackPath` with `std::ifstream` and `nlohmann::json::parse` (exceptions → `SendError`). **Do NOT use the `DirectorFrame` parser** — it rejects `validation_strength != "bbox_only"` (`DirectorFrame.cpp:589`). Validate locally: `transform_semantics == "absolute_from_source"`; `frame_count` int ≥ 1; `object_frames` array of exactly `frame_count`, each with ordered `frame_index` (1-based) and `object_transforms` arrays; every `object_transforms` entry has `object_id`, `source_state.bbox_min/bbox_max`, `source_state.validation_strength == "tight_bbox"`, and `transform` parseable by `ParseXform`; the per-frame object id sets are identical across frames and equal `animated_object_ids`. Any violation → `FailureResult("track_invalid", {...which check, where...})`.
+- Request parsing (before dispatch): required string `expectedDocumentPath`, required string `trackPath` — missing/mistyped REQUEST fields are plain `SendError` (caller bugs, `play_route_failed` on the Python side is correct for those). But everything about the TRACK and the play parameters carries the taxonomy: optional ints `fromFrame` (default 0) / `playTo` (default −1 = frame_count); `probeFrames` array of ints, > 32 entries → `SendErrorData` with `data.reason = "track_invalid"`; `driftTolerance` absent or JSON `null` → default, present non-null must be a positive finite number else `data.reason = "track_invalid"`.
+- Read `trackPath` with `std::ifstream` and `nlohmann::json::parse`. **File-open failure, read failure, JSON parse failure, every schema-validation failure, and the frame-range check all return `SendErrorData` with `data.reason = "track_invalid"` plus evidence (which check, what was found)** — never generic `SendError`, which would collapse the taxonomy to `play_route_failed` on the Python side. (These run before dispatch; build the same `{"reason": ..., ...evidence}` JSON that `FailureResult` produces inside the dispatch and pass it to `CRookServer::SendErrorData` directly.) **Do NOT use the `DirectorFrame` parser** — it rejects `validation_strength != "bbox_only"` (`DirectorFrame.cpp:589`). Validate locally: `transform_semantics == "absolute_from_source"`; `frame_count` int ≥ 1; `object_frames` array of exactly `frame_count`, each with ordered `frame_index` (1-based) and `object_transforms` arrays; every `object_transforms` entry has `object_id`, `source_state.bbox_min/bbox_max`, `source_state.validation_strength == "tight_bbox"`, and `transform` parseable by `ParseXform`; the per-frame object id sets are identical across frames and equal `animated_object_ids`. Any violation → `FailureResult("track_invalid", {...which check, where...})`.
 - Range check `0 <= fromFrame < playTo <= frame_count` → `track_invalid`.
 - Dispatch once via `CMainThreadDispatcher::Instance().Dispatch` (the whole play is one UI-thread call; chunking is the caller's tool). Inside:
   1. `ResolveDoc`; document-path gate vs `expectedDocumentPath` (normalized) → `FailureResult("wrong_document", ...)` exactly like prepare-take.
