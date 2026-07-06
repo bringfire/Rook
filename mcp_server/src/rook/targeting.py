@@ -412,6 +412,7 @@ _ALL_KNOWN_TOOLS = {
     "rhino_director_compile_motion",
     "rhino_director_curve_samples",
     "rhino_director_package_take",
+    "rhino_director_prepare_take",
     "rhino_director_preview_motion",
     "rhino_director_publish_video",
     "rhino_director_read_actor_metadata_v2",

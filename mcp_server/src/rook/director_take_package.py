@@ -34,11 +34,11 @@ class DirectorTakePackageError(Exception):
         return {"code": self.code, "message": str(self)}
 
 
-def _utc_now() -> str:
+def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _sha256_file(path: Path) -> str:
+def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(65536), b""):
@@ -46,10 +46,21 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _write_json(path: Path, payload: dict[str, Any]) -> str:
-    text = json.dumps(payload, indent=2, sort_keys=True)
+def canonical_json_text(payload: dict[str, Any]) -> str:
+    """The ONE serialization all package hashes are computed over."""
+    return json.dumps(payload, indent=2, sort_keys=True)
+
+
+def write_canonical_json(path: Path, payload: dict[str, Any]) -> str:
+    text = canonical_json_text(payload)
     path.write_text(text, encoding="utf-8")
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+# Backward-compat aliases (internal call sites + any test references).
+_utc_now = utc_now_iso
+_sha256_file = sha256_file
+_write_json = write_canonical_json
 
 
 async def _native(call_native, endpoint: str, method: str, data: dict | None,
@@ -183,7 +194,7 @@ async def _resolve_actor_state(call_native, actor_sets: list[dict[str, Any]],
 
 
 async def package_take(arguments: dict[str, Any], *, call_native=call_rhino,
-                       port: int | None = None, now_fn=_utc_now,
+                       port: int | None = None, now_fn=utc_now_iso,
                        source_path_override: str | None = None) -> dict[str, Any]:
     spec = _validate(arguments)
 
