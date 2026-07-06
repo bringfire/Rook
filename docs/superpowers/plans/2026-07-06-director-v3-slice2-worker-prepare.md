@@ -25,6 +25,7 @@ Every task's requirements implicitly include this section.
 **Safety contract:**
 - Destructive prepare must never run against anything but the opened take copy. Belt: Python compares the active document path to the package's `scene.3dm` before calling prepare (`wrong_document`). Braces: the native route receives `expectedDocumentPath` and refuses to run on a mismatch.
 - Native `/document/open` **clears the current doc's modified flag to suppress the save dialog** (`DocumentOpsHandler.cpp:124`), silently discarding unsaved edits. Python must refuse to switch documents while the live doc is modified (`document_not_saved`).
+- Native `/document/open` on a path that is already the active document may **no-op and report `alreadyOpen: true`** (`DocumentOpsHandler.cpp:162-172`), and because the handler cleared the modified flag first, a no-op leaves a mutated copy looking clean. Therefore: (a) when the copy is already the active document, prepare still issues a reopen, and (b) the decisive pristine gate is **object-level** — every actor-set source instance must exist in the (re)opened copy (`take_copy_not_pristine` otherwise). Dirty-flag checks alone cannot detect a mutated copy.
 
 **Slice boundary:** No compile, no capture, no worker lifecycle/orchestration (Slices 3–4). Single-instance live gate: open `scene.3dm` as the active doc in the user's one Rhino. `compile_motion` / `director_compiler.py` are NOT modified.
 
@@ -38,6 +39,7 @@ Every task's requirements implicitly include this section.
 | `document_not_saved` | live doc has unsaved edits; switching would discard them |
 | `document_open_failed` | `/document` or `/document/open` native failure |
 | `wrong_document` | active doc after open is not the package's scene.3dm |
+| `take_copy_not_pristine` | an actor-set source instance is missing from the opened copy — the copy was mutated (e.g. a prior prepare) and could not be freshly reloaded |
 | `display_mode_missing` | a manifest-required display mode is absent in this Rhino |
 | `prepare_route_failed` | `/director/prepare-take` envelope failure (includes native-side wrong-document refusal) |
 | `prepare_coverage_incomplete` | any claimed member missing/skipped/identity-mismatched |
@@ -151,7 +153,22 @@ Rules:
 }
 ```
 
-`resolved_motion.json` = `motion.json` copied verbatim except: `groups` values become lists of created object UUIDs (canonical names expanded, order-preserving dedupe); every bare timeline `target` that is a canonical name gets a synthesized group of that name; plus `metadata_kind: "director_resolved_motion"`, `schema_version: 1`, and `derived_from: {member_map_sha256, motion_json_sha256, scene_manifest_sha256}`. All other motion keys (fps, timeline track bodies, easing, etc.) pass through untouched — their semantics belong to the Slice 3 file-backed compiler.
+**motion.json shape (the real compiler vocabulary — see `director_compiler.py:56` `resolve_compiler_timeline` and `:102` `expand_targets`, and the Slice 1 fixture `test_director_take_package.py:112`):**
+
+```json
+{
+  "timeline": {"fps": 24, "frame_count": 48},
+  "groups": {"roof": ["setA"]},
+  "motion": [
+    {"target": "roof", "keyframes": [{"t": 1, "translate": [0, 0, 8000]}]},
+    {"target": "setA_member_0001", "keyframes": [{"t": 1, "translate": [0, 0, 100]}]}
+  ]
+}
+```
+
+`timeline` is the fps/duration **dict** (never a track list); `motion` is the track **array** whose entries carry `target` + `keyframes`.
+
+`resolved_motion.json` = `motion.json` copied verbatim except: `groups` values become lists of created object UUIDs (canonical names expanded, order-preserving dedupe); every `motion[].target` that is a canonical name (not already a group) gets a synthesized group of that name; plus `metadata_kind: "director_resolved_motion"`, `schema_version: 1`, and `derived_from: {member_map_sha256, motion_json_sha256, scene_manifest_sha256}`. The `timeline` dict, keyframe bodies, easing, and every other motion key pass through untouched — their semantics belong to the Slice 3 file-backed compiler.
 
 `status.json` update: `phase: "prepared"`, fresh `heartbeat_utc`, `evidence` merged with `{member_map_sha256, resolved_motion_sha256}`. Re-running prepare after a fresh re-open of scene.3dm overwrites `member_map.json` / `resolved_motion.json` (created UUIDs are new each run — that is correct; the hash pin makes the pairing unambiguous).
 
@@ -167,7 +184,7 @@ Rules:
 - Modify: `src/RookNative/RookNative.vcxproj` and `src/RookNative/RookNative.vcxproj.filters` (entries adjacent to the `DirectorReplayHandler` ones at vcxproj lines 136/275, filters lines 87/176)
 
 **Interfaces:**
-- Consumes: shared helpers `ParseBodyAndDocSn` (`Infrastructure/JsonHelpers.h`), `ResolveDoc`/`UuidToString`/`WideToUtf8`/`Utf8ToWide` (`Models/DocumentHelpers.h`), `ParseUuid` (`JsonHelpers.h`), `GetLayerFullPath` (`Infrastructure/LayerHelpers.h` — same wire format as the BlocksHandler static that produced the manifest), `UndoScope` (`Infrastructure/UndoScope.h`), `WriteResult` (`Infrastructure/WriteResult.h`), `CMainThreadDispatcher` (`Threading/MainThreadDispatcher.h`).
+- Consumes: shared helpers `ParseBodyAndDocSn` (`Infrastructure/JsonHelpers.h`), `ResolveDoc`/`UuidToString`/`WideToUtf8`/`Utf8ToWide` (`Models/DocumentHelpers.h`), `ParseUuid` (`JsonHelpers.h`), `Rook::Infrastructure::GetLayerFullPath` (`Infrastructure/LayerHelpers.h` — namespace-qualified; same wire format as the BlocksHandler file-local static that produced the manifest), `UndoScope` (`Infrastructure/UndoScope.h`), `WriteResult` (`Infrastructure/WriteResult.h`), `CMainThreadDispatcher` (`Threading/MainThreadDispatcher.h`).
 - Produces: the Native Contract above, consumed by Task 2's `_run_prepare`.
 
 - [ ] **Step 1: Write the header**
@@ -477,7 +494,11 @@ void HandleDirectorPrepareTake(const httplib::Request& req, httplib::Response& r
                 const ON_3dmObjectAttributes& defAttrs = defObj->Attributes();
                 member["definitionObjectId"] = UuidToString(defAttrs.m_uuid);
                 member["type"] = MemberTypeName(defObj);
-                member["layer"] = GetLayerFullPath(pDoc, defAttrs.m_layer_index);
+                // Shared helper lives in Rook::Infrastructure — this handler
+                // is in Rook::Handlers, so it MUST be qualified (BlocksHandler
+                // only calls it unqualified via its own file-local static).
+                // Same wire format either way: GetLayerPathName -> UTF-8.
+                member["layer"] = Infrastructure::GetLayerFullPath(pDoc, defAttrs.m_layer_index);
                 member["name"] = WideToUtf8(defAttrs.m_name);
 
                 // Definition-space tight bbox — the identical call
@@ -729,12 +750,16 @@ def make_manifest(scene_sha: str, scene_bytes: int, motion_sha: str) -> dict:
 
 
 def make_motion() -> dict:
+    # The REAL compiler vocabulary (director_compiler.py:56/:102; Slice 1
+    # fixture test_director_take_package.py:112): timeline is the fps dict,
+    # motion is the track array.
     return {
-        "fps": 24,
+        "timeline": {"fps": 24, "frame_count": 48},
         "groups": {"roof": ["setA"]},
-        "timeline": [
-            {"target": "roof", "keyframes": [{"frame": 0}]},
-            {"target": "setA_member_0001", "keyframes": [{"frame": 0}]},
+        "motion": [
+            {"target": "roof", "keyframes": [{"t": 1, "translate": [0, 0, 8000]}]},
+            {"target": "setA_member_0001",
+             "keyframes": [{"t": 1, "translate": [0, 0, 100]}]},
         ],
     }
 
@@ -806,13 +831,17 @@ def make_prepare_payload(root: Path, **overrides: Any) -> dict:
 
 def make_fake_native(root: Path, *, live_modified: bool = False,
                      open_ok: bool = True, opened_path: str | None = None,
+                     start_on_scene: bool = False,
+                     instance_missing: bool = False,
                      modes: tuple[str, ...] = ("Shaded",),
                      prepare_ok: bool = True,
                      prepare_payload: dict | None = None):
     """Stateful fake: /document reports the live doc until /document/open
-    succeeds, then reports the opened path."""
+    succeeds, then reports the opened path. start_on_scene=True simulates a
+    take copy already being the active document (the re-prepare scenario);
+    instance_missing=True simulates a mutated copy (source instance gone)."""
     scene_path = str(root / "scene.3dm")
-    state = {"opened": False, "calls": []}
+    state = {"opened": start_on_scene, "calls": []}
 
     async def fake(endpoint: str, method: str, data: dict | None = None, *,
                    port: int | None = None) -> dict:
@@ -830,6 +859,9 @@ def make_fake_native(root: Path, *, live_modified: bool = False,
                 return {"success": False, "data": {"error": "open failed"}}
             state["opened"] = True
             return {"success": True, "data": {"path": data["path"]}}
+        if endpoint == "/block/instances":
+            instances = [] if instance_missing else [{"id": INSTANCE_ID}]
+            return {"success": True, "data": {"instances": instances}}
         if endpoint == "/display-modes":
             return {"success": True, "data": {
                 "modes": [{"name": n, "id": f"mode-{i}"}
@@ -927,6 +959,32 @@ async def test_wrong_document_after_open(tmp_path):
         "wrong_document")
 
 
+async def test_reprepare_forces_reopen_of_open_copy(tmp_path):
+    # Re-prepare scenario: the take copy is ALREADY the active document
+    # (e.g. a previous prepare ran in this session). A fresh reopen must be
+    # issued anyway — the in-memory copy may be mutated, and the dirty flag
+    # is unreliable (native /document/open force-clears it).
+    root = make_package(tmp_path)
+    fake = make_fake_native(root, start_on_scene=True)
+    result = await dwp.prepare_take({"package_root": str(root)}, call_native=fake)
+    assert result["phase"] == "prepared"
+    assert any(c[0] == "/document/open" for c in fake.state["calls"]), (
+        "same-path prepare must force a fresh reopen of scene.3dm")
+
+
+async def test_mutated_copy_rejected_as_not_pristine(tmp_path):
+    # If the source instance is gone after (re)open — a prior prepare
+    # exploded it and the reopen no-opped (alreadyOpen) — prepare must
+    # refuse before any destructive call.
+    root = make_package(tmp_path)
+    fake = make_fake_native(root, start_on_scene=True, instance_missing=True)
+    await expect_error(
+        dwp.prepare_take({"package_root": str(root)}, call_native=fake),
+        "take_copy_not_pristine")
+    assert not any(c[0] == "/director/prepare-take"
+                   for c in fake.state["calls"])
+
+
 async def test_missing_display_mode_rejected(tmp_path):
     root = make_package(tmp_path)
     fake = make_fake_native(root, modes=("Wireframe",))
@@ -1015,8 +1073,10 @@ async def test_happy_path_writes_all_artifacts(tmp_path):
     # Bare canonical target became a synthesized group.
     assert resolved["groups"]["setA_member_0001"] == [CREATED1_ID]
     assert resolved["derived_from"]["member_map_sha256"] == member_map_sha
-    # Untouched motion keys pass through.
-    assert resolved["fps"] == 24
+    # Untouched motion keys pass through — timeline is the fps DICT, never
+    # rewritten (real compiler vocabulary).
+    assert resolved["timeline"] == {"fps": 24, "frame_count": 48}
+    assert resolved["motion"] == make_motion()["motion"]
 
     status = json.loads((root / "status.json").read_text(encoding="utf-8"))
     assert status["phase"] == "prepared"
@@ -1025,7 +1085,8 @@ async def test_happy_path_writes_all_artifacts(tmp_path):
 
 async def test_unmapped_motion_target_rejected(tmp_path):
     motion = make_motion()
-    motion["timeline"].append({"target": "not_a_member", "keyframes": []})
+    motion["motion"].append(
+        {"target": "not_a_member", "keyframes": [{"t": 1}]})
     root = make_package(tmp_path, motion=motion)
     fake = make_fake_native(root)
     await expect_error(
@@ -1185,17 +1246,24 @@ async def _open_scene_document(call_native, pkg: dict[str, Any],
     scene_path = pkg["root"] / "scene.3dm"
     live = await _native(call_native, "/document", "GET", None, port,
                          "document_open_failed")
-    if _norm_path(live.get("path") or "") != _norm_path(str(scene_path)):
+    already_on_scene = (
+        _norm_path(live.get("path") or "") == _norm_path(str(scene_path)))
+    if not already_on_scene and bool(live.get("modified")):
         # Switching documents discards unsaved edits: native /document/open
         # clears the modified flag to suppress the save dialog
         # (DocumentOpsHandler.cpp:124). Refuse on a dirty live document.
-        if bool(live.get("modified")):
-            raise DirectorWorkerPrepareError(
-                "document_not_saved",
-                "the current document has unsaved changes; opening the take "
-                "copy would silently discard them — save the document first")
-        await _native(call_native, "/document/open", "POST",
-                      {"path": str(scene_path)}, port, "document_open_failed")
+        raise DirectorWorkerPrepareError(
+            "document_not_saved",
+            "the current document has unsaved changes; opening the take "
+            "copy would silently discard them — save the document first")
+    # ALWAYS (re)open — including when the copy is already active. A prior
+    # prepare may have mutated the in-memory copy, and the modified flag is
+    # unreliable here (native /document/open force-clears it before opening,
+    # and its same-path branch can no-op with alreadyOpen=true —
+    # DocumentOpsHandler.cpp:162-172). The object-level pristine gate below
+    # (_verify_take_copy_pristine) is the decisive check for a no-op reopen.
+    await _native(call_native, "/document/open", "POST",
+                  {"path": str(scene_path)}, port, "document_open_failed")
     after = await _native(call_native, "/document", "GET", None, port,
                           "document_open_failed")
     if _norm_path(after.get("path") or "") != _norm_path(str(scene_path)):
@@ -1203,6 +1271,27 @@ async def _open_scene_document(call_native, pkg: dict[str, Any],
             "wrong_document",
             f"active document is {after.get('path')!r}; expected the take "
             f"copy {scene_path}")
+
+
+async def _verify_take_copy_pristine(call_native, manifest: dict[str, Any],
+                                     port: int | None) -> None:
+    """Object-level pristine gate: every actor-set source instance must
+    exist in the opened copy. A prior prepare deletes the source instances,
+    so their absence proves the copy is mutated (flag checks cannot — see
+    _open_scene_document). Mirrors Slice 1's /block/instances resolution."""
+    for actor in manifest["actor_sets"]:
+        data = await _native(call_native, "/block/instances", "POST",
+                             {"name": actor["block_name"]}, port,
+                             "take_copy_not_pristine")
+        ids = {inst.get("id") for inst in data.get("instances") or []}
+        if actor["source_top_level_object_id"] not in ids:
+            raise DirectorWorkerPrepareError(
+                "take_copy_not_pristine",
+                f"actor set {actor['actor_set_id']!r}: source instance "
+                f"{actor['source_top_level_object_id']} is missing from the "
+                "opened copy — the copy was mutated (e.g. a prior prepare) "
+                "and the reopen did not reload it; close the document in "
+                "Rhino and re-run prepare")
 
 
 async def _verify_display_modes(call_native, manifest: dict[str, Any],
@@ -1362,6 +1451,13 @@ def _derive_resolved_motion(motion: dict[str, Any],
                     out.append(oid)
         return out
 
+    # Real compiler vocabulary (director_compiler.py:56/:102): timeline is
+    # the fps/duration DICT (passes through untouched); motion is the track
+    # ARRAY whose entries carry target + keyframes.
+    if not isinstance(motion.get("timeline"), dict):
+        raise DirectorWorkerPrepareError(
+            "package_invalid", "motion.json timeline must be an object")
+
     groups_in = motion.get("groups") or {}
     if not isinstance(groups_in, dict):
         raise DirectorWorkerPrepareError(
@@ -1374,19 +1470,19 @@ def _derive_resolved_motion(motion: dict[str, Any],
                 f"motion.json group {name!r} must be a non-empty list")
         resolved_groups[name] = expand(members, f"group {name!r}")
 
-    timeline = motion.get("timeline")
-    if not isinstance(timeline, list) or not timeline:
+    tracks = motion.get("motion")
+    if not isinstance(tracks, list) or not tracks:
         raise DirectorWorkerPrepareError(
-            "package_invalid", "motion.json must contain a non-empty timeline list")
-    for track in timeline:
+            "package_invalid", "motion.json must contain a non-empty motion array")
+    for track in tracks:
         if not isinstance(track, dict):
             raise DirectorWorkerPrepareError(
-                "package_invalid", "motion.json timeline entries must be objects")
+                "package_invalid", "motion.json motion entries must be objects")
         target = track.get("target")
         if not isinstance(target, str) or not target:
             raise DirectorWorkerPrepareError(
                 "package_invalid",
-                "motion.json timeline entries need a string target")
+                "motion.json motion entries need a string target")
         if target in resolved_groups:
             continue
         resolved_groups[target] = expand([target], f"target {target!r}")
@@ -1405,6 +1501,7 @@ async def prepare_take(arguments: dict[str, Any], *, call_native=call_rhino,
     pkg = _load_package(arguments.get("package_root"))
     _verify_package_hashes(pkg)
     await _open_scene_document(call_native, pkg, port)
+    await _verify_take_copy_pristine(call_native, pkg["manifest"], port)
     await _verify_display_modes(call_native, pkg["manifest"], port)
     prepare_data = await _run_prepare(call_native, pkg, port)
     map_sets = _verify_and_map(pkg["manifest"], prepare_data)
@@ -1464,7 +1561,7 @@ async def prepare_take(arguments: dict[str, Any], *, call_native=call_rhino,
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `cd mcp_server && python -m pytest tests/test_director_worker_prepare.py tests/test_director_take_package.py -v`
-Expected: 18 new tests PASS + all Slice 1 tests still PASS.
+Expected: 20 new tests PASS + all Slice 1 tests still PASS.
 
 - [ ] **Step 6: Commit**
 
@@ -1479,7 +1576,7 @@ git commit -m "feat(director): worker prepare with member map + resolved motion"
 
 **Files:**
 - Modify: `mcp_server/src/rook/server.py` (Tool definition + dispatch)
-- Modify: every classification/profile/count site that mentions `rhino_director_package_take` — find them ALL with `grep -rn "rhino_director_package_take" mcp_server/src mcp_server/tests` and mirror each one, with ONE deliberate exception below.
+- Modify: every classification/profile/count site that mentions `rhino_director_package_take` — find them ALL with `rg -n "rhino_director_package_take" mcp_server/src mcp_server/tests` and mirror each one, with ONE deliberate exception below.
 - Test: `mcp_server/tests/test_director_worker_prepare.py` (append dispatch test), `mcp_server/tests/test_server_tool_profiles.py` (pins 438→439)
 
 **Interfaces:**
@@ -1560,7 +1657,7 @@ if name == "rhino_director_prepare_take":
 
 - [ ] **Step 4: Classify the tool everywhere**
 
-Run `grep -rn "rhino_director_package_take" mcp_server/src mcp_server/tests`. For each hit, add `rhino_director_prepare_take` at the analogous site — with ONE exception: `rhino_director_prepare_take` is **destructive** (explodes objects, switches documents), so it must NOT be added to any read-only set (`_RHINO_READ_TOOLS` in `targeting.py` or any read-only profile list where package_take appears because packaging is read-only). Expected sites:
+Run `rg -n "rhino_director_package_take" mcp_server/src mcp_server/tests`. For each hit, add `rhino_director_prepare_take` at the analogous site — with ONE exception: `rhino_director_prepare_take` is **destructive** (explodes objects, switches documents), so it must NOT be added to any read-only set (`_RHINO_READ_TOOLS` in `targeting.py` or any read-only profile list where package_take appears because packaging is read-only). Expected sites:
 - `mcp_server/src/rook/targeting.py` — `_ALL_KNOWN_TOOLS` yes; `_RHINO_READ_TOOLS` **no**.
 - `mcp_server/src/rook/agent/tool_groups.py` — director group yes.
 - Any `mcp_tool_profiles.py` classification — mirror with write/destructive semantics.
@@ -1569,7 +1666,7 @@ Run `grep -rn "rhino_director_package_take" mcp_server/src mcp_server/tests`. Fo
 - [ ] **Step 5: Run the full affected suites**
 
 Run: `cd mcp_server && python -m pytest tests/test_director_worker_prepare.py tests/test_server_tool_profiles.py tests/test_director_take_package.py -v`
-Expected: all PASS (19 in the new file: 18 from Task 2 + 1 dispatch).
+Expected: all PASS (21 in the new file: 20 from Task 2 + 1 dispatch).
 
 - [ ] **Step 6: Commit**
 
@@ -1713,11 +1810,14 @@ async def test_prepare_round_trip_with_nested_block(tmp_path):
 
     # Package the take (read-only on the live doc; save-copy handles dirty).
     motion = {
-        "fps": 24,
+        "timeline": {"fps": 24, "frame_count": 48},
         "groups": {"all": ["s2live"]},
-        "timeline": [{"target": "all", "keyframes": [{"frame": 0}]},
-                     {"target": "s2live_member_0001",
-                      "keyframes": [{"frame": 0}]}],
+        "motion": [
+            {"target": "all",
+             "keyframes": [{"t": 1, "translate": [0, 0, 100]}]},
+            {"target": "s2live_member_0001",
+             "keyframes": [{"t": 1, "translate": [0, 0, 50]}]},
+        ],
     }
     package = await dtp.package_take({
         "take_id": f"s2live_{run}",
@@ -1811,3 +1911,10 @@ git commit -m "test(director): slice 2 live gate — prepare round trip with nes
 - **Deliberate exclusions (slice boundary):** no compile, no capture, no worker lifecycle, no `.ini` fingerprints, no SubD/text/hatch/point-cloud add support (typed skip reasons surface real demand first — YAGNI).
 - **Type consistency:** `prepare_take(arguments, *, call_native, port, now_fn)` matches Slice 1's `package_take` shape; camelCase on the native wire, snake_case in package artifacts, matching Slice 1 conventions.
 - **Known risk, accepted:** `/block/objects-detailed` bbox for nested InstanceReference members must label `tight_object` for packaging to succeed on nested fixtures — `CRhinoInstanceObject::GetTightBoundingBox` resolves through the nested definition, and the Slice 1 live gate already proved tight-bbox packaging on a real block. If the live gate hits `tight_bbox_unavailable` at packaging, that is a Slice 1 evidence gap to report, not to silently patch here.
+
+## Codex Review Round 1 (2026-07-06) — amendments applied
+
+1. **Motion schema corrected (P1):** plan had invented `timeline`-as-track-list; real vocabulary is `{"timeline": {fps,...}, "groups": {...}, "motion": [tracks]}` (`director_compiler.py:56/:102`, Slice 1 fixture). `_derive_resolved_motion`, all test fixtures, and the live-gate motion now use the real shape; `timeline` dict passes through untouched.
+2. **Re-prepare on a mutated copy blocked (P1, hardened beyond the finding):** verified that native `/document/open` force-clears the modified flag and its same-path branch can no-op with `alreadyOpen: true` — so a dirty-flag branch cannot detect a mutated copy. Fix: unconditional reopen when the copy is already active, plus a decisive **object-level pristine gate** (`_verify_take_copy_pristine`: every actor-set source instance must exist in the opened copy, via `/block/instances`; `take_copy_not_pristine` otherwise). `/director/object-states` was rejected for this check because it throws on missing ids. Two new unit tests.
+3. **Layer helper qualified (P2):** `Rook::Infrastructure::GetLayerFullPath` — the handler lives in `Rook::Handlers`, so unqualified lookup never reaches it (BlocksHandler only works unqualified via its own file-local static).
+4. **`rg` over `grep -rn` in Task 3 commands (P3).**
