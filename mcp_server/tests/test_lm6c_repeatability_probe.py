@@ -83,3 +83,49 @@ def test_preflight_failed_row_does_not_invoke_lm6a() -> None:
     assert row["failure_reason"] == "gh_document_new_failed"
     assert row["leak_check_performed"] is False
     assert row["leak_marker_match_count"] == 0
+
+
+def test_discover_child_run_dir_uses_new_directory_not_stdout(tmp_path: Path) -> None:
+    runs = tmp_path / "lm6a_runs"
+    runs.mkdir()
+    before = set(runs.glob("lm6a-*"))
+    child = runs / "lm6a-20260706T000000Z-abc123"
+    child.mkdir()
+
+    assert PROBE._discover_child_run_dir(runs, before) == child
+
+
+def test_discover_child_run_dir_rejects_missing_or_ambiguous(tmp_path: Path) -> None:
+    runs = tmp_path / "lm6a_runs"
+    runs.mkdir()
+    before = set(runs.glob("lm6a-*"))
+    assert PROBE._discover_child_run_dir(runs, before) is None
+    (runs / "lm6a-a").mkdir()
+    (runs / "lm6a-b").mkdir()
+    assert PROBE._discover_child_run_dir(runs, before) is None
+
+
+def test_classify_decision_preserves_lm6a_terminal_categories() -> None:
+    assert PROBE._classify_decision({"decision": "accepted"}) == (
+        "accepted",
+        None,
+    )
+    assert PROBE._classify_decision({"decision": "gate_failed"}) == (
+        "gate_failed",
+        None,
+    )
+    assert PROBE._classify_decision({"decision": "publication_failed"}) == (
+        "publication_failed",
+        None,
+    )
+
+
+def test_classify_decision_rejects_unknown_decision() -> None:
+    assert PROBE._classify_decision({"decision": "strange"}) == (
+        "wrapper_error",
+        "lm6a_unknown_decision:strange",
+    )
+    assert PROBE._classify_decision({}) == (
+        "wrapper_error",
+        "lm6a_missing_decision",
+    )

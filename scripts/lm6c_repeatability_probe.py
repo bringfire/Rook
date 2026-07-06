@@ -176,3 +176,24 @@ def _preflight_failed_row(*, attempt_index: int, reason: str) -> dict[str, Any]:
         }
     )
     return row
+
+
+def _discover_child_run_dir(lm6a_runs_dir: Path, before: set[Path]) -> Path | None:
+    after = set(lm6a_runs_dir.glob("lm6a-*"))
+    created = sorted(after - before, key=lambda path: path.stat().st_mtime)
+    if len(created) != 1:
+        return None
+    return created[0]
+
+
+def _classify_decision(decision: Mapping[str, Any]) -> tuple[str, str | None]:
+    value = decision.get("decision")
+    if not isinstance(value, str):
+        return "wrapper_error", "lm6a_missing_decision"
+    if value not in TERMINAL_CATEGORIES:
+        return "wrapper_error", f"lm6a_unknown_decision:{value}"
+    if value == "preflight_failed":
+        return "wrapper_error", "lm6a_unexpected_preflight_failed_decision"
+    if value == "wrapper_error":
+        return "wrapper_error", "lm6a_unexpected_wrapper_error_decision"
+    return value, None
