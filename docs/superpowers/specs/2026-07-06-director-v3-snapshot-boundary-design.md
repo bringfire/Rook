@@ -316,9 +316,12 @@ Still open:
    different and should be faster, but must be measured).
 2. Second-instance `ViewCapture` fidelity while minimized (residual of
    spike 1; expected to pass since capture is offscreen-buffer based).
-3. `CRhinoFileWriteOptions` mode selection for save-copy: which mode provably
-   preserves document path, modified flag, undo stack, and render meshes
-   (autosave-style vs export-style write) — a live gate, not an assumption.
+3. RESOLVED (2026-07-06 live gate, Slice 1): `SetUpdateDocumentPath(false)` +
+   `SetUseBatchMode(true)` on `CRhinoFileWriteOptions` proves all four
+   invariants live — path, title, and modified flag unchanged on a dirty
+   document, undo stack intact after the write. No `SetIsAutosave` escalation
+   was needed. (One evidence-fidelity bug found and fixed: `IsModified()`
+   returns Win32 BOOL and must be cast to bool before JSON serialization.)
 4. Whether display-mode settings fingerprinting (`.ini` export) is available
    programmatically for all modes, or only name/id verification is feasible
    in v1 (name/id + fail-hard is the floor; fingerprint is the target).
