@@ -893,7 +893,7 @@ async def package_take(arguments: dict[str, Any], *, call_native=call_rhino,
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `cd mcp_server && python -m pytest tests/test_director_take_package.py -v`
-Expected: 14 passed.
+Expected: 13 passed.
 
 - [ ] **Step 5: Commit**
 
