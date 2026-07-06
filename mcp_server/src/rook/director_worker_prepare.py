@@ -141,10 +141,21 @@ async def _open_scene_document(call_native, pkg: dict[str, Any],
     # prepare may have mutated the in-memory copy, and the modified flag is
     # unreliable here (native /document/open force-clears it before opening,
     # and its same-path branch can no-op with alreadyOpen=true —
-    # DocumentOpsHandler.cpp:162-172). The object-level pristine gate below
-    # (_verify_take_copy_pristine) is the decisive check for a no-op reopen.
-    await _native(call_native, "/document/open", "POST",
-                  {"path": str(scene_path)}, port, "document_open_failed")
+    # DocumentOpsHandler.cpp:162-172).
+    open_data = await _native(call_native, "/document/open", "POST",
+                              {"path": str(scene_path)}, port,
+                              "document_open_failed")
+    if isinstance(open_data, dict) and open_data.get("alreadyOpen"):
+        # Native no-opped: the copy was already active and was NOT reloaded
+        # from disk. Pristine state cannot be proven for an un-reloaded
+        # copy — a partially mutated one can still hold its source
+        # instances plus stray duplicates, which the instance-presence gate
+        # below cannot see. Fail closed.
+        raise DirectorWorkerPrepareError(
+            "take_copy_not_pristine",
+            "the take copy was already the active document and Rhino did "
+            "not reload it from disk; close the document in Rhino, then "
+            "re-run prepare")
     after = await _native(call_native, "/document", "GET", None, port,
                           "document_open_failed")
     if _norm_path(after.get("path") or "") != _norm_path(str(scene_path)):
@@ -343,6 +354,17 @@ def _derive_resolved_motion(motion: dict[str, Any],
     if not isinstance(groups_in, dict):
         raise DirectorWorkerPrepareError(
             "package_invalid", "motion.json groups must be an object")
+    # An authored group named exactly like a canonical actor_set_id or
+    # actor_member_id would silently shadow it: the compiler resolves group
+    # names before bare targets (director_compiler.py:122), so a canonical
+    # target would animate the group's expansion instead of the canonical
+    # members. Reject the collision outright.
+    collisions = sorted(name for name in groups_in if name in lookup)
+    if collisions:
+        raise DirectorWorkerPrepareError(
+            "package_invalid",
+            "motion.json group names collide with canonical actor/member "
+            f"ids and would shadow them in the compiler: {collisions}")
     resolved_groups: dict[str, list[str]] = {}
     for name, members in groups_in.items():
         if not isinstance(members, list) or not members:

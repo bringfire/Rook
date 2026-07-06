@@ -150,13 +150,16 @@ def make_fake_native(root: Path, *, live_modified: bool = False,
                      open_ok: bool = True, opened_path: str | None = None,
                      start_on_scene: bool = False,
                      instance_missing: bool = False,
+                     open_already_open: bool = False,
                      modes: tuple[str, ...] = ("Shaded",),
                      prepare_ok: bool = True,
                      prepare_payload: dict | None = None):
     """Stateful fake: /document reports the live doc until /document/open
     succeeds, then reports the opened path. start_on_scene=True simulates a
     take copy already being the active document (the re-prepare scenario);
-    instance_missing=True simulates a mutated copy (source instance gone)."""
+    instance_missing=True simulates a mutated copy (source instance gone);
+    open_already_open=True simulates the native same-path no-op branch
+    (alreadyOpen: true — the doc was NOT reloaded from disk)."""
     scene_path = str(root / "scene.3dm")
     state = {"opened": start_on_scene, "calls": []}
 
@@ -175,7 +178,10 @@ def make_fake_native(root: Path, *, live_modified: bool = False,
             if not open_ok:
                 return {"success": False, "data": {"error": "open failed"}}
             state["opened"] = True
-            return {"success": True, "data": {"path": data["path"]}}
+            payload = {"path": data["path"]}
+            if open_already_open:
+                payload["alreadyOpen"] = True
+            return {"success": True, "data": payload}
         if endpoint == "/block/instances":
             instances = [] if instance_missing else [{"id": INSTANCE_ID}]
             return {"success": True, "data": {"instances": instances}}
@@ -287,6 +293,21 @@ async def test_reprepare_forces_reopen_of_open_copy(tmp_path):
     assert result["phase"] == "prepared"
     assert any(c[0] == "/document/open" for c in fake.state["calls"]), (
         "same-path prepare must force a fresh reopen of scene.3dm")
+
+
+async def test_same_path_noop_open_rejected(tmp_path):
+    # Native's same-path branch can report success with alreadyOpen=true
+    # WITHOUT reloading from disk. A partially mutated copy can still hold
+    # its source instances (so the instance-presence gate passes) plus
+    # stray duplicates — the only safe response to a no-op reopen is to
+    # fail closed, even though the source instance is present in this fake.
+    root = make_package(tmp_path)
+    fake = make_fake_native(root, start_on_scene=True, open_already_open=True)
+    await expect_error(
+        dwp.prepare_take({"package_root": str(root)}, call_native=fake),
+        "take_copy_not_pristine")
+    assert not any(c[0] == "/director/prepare-take"
+                   for c in fake.state["calls"])
 
 
 async def test_mutated_copy_rejected_as_not_pristine(tmp_path):
@@ -422,6 +443,23 @@ async def test_raw_uuid_motion_target_rejected(tmp_path):
     await expect_error(
         dwp.prepare_take({"package_root": str(root)}, call_native=fake),
         "motion_member_unmapped")
+
+
+async def test_group_name_shadowing_canonical_id_rejected(tmp_path):
+    # A group named exactly like a canonical id would silently shadow it:
+    # the compiler resolves group names before bare targets, so target
+    # "setA" would animate the authored group instead of the whole set.
+    motion = make_motion()
+    motion["groups"]["setA"] = ["setA_member_0000"]
+    root = make_package(tmp_path, motion=motion)
+    fake = make_fake_native(root)
+    err = await expect_error(
+        dwp.prepare_take({"package_root": str(root)}, call_native=fake),
+        "package_invalid")
+    assert "setA" in str(err)
+    # Collision detected during derivation — no partial artifacts.
+    assert not (root / "member_map.json").exists()
+    assert not (root / "resolved_motion.json").exists()
 
 
 async def test_mcp_dispatch_prepare_take():
