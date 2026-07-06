@@ -540,6 +540,75 @@ def test_lm5x_value_error_mapping_uses_declared_routes_and_known_path_fragments(
     assert diagnostic.source_path == CONVENTION_SOURCE_PATH
 
 
+def test_mapped_lm5x_value_error_keeps_unroutable_planner_intent_visible():
+    fixture = _fixture_objects()
+    artifact = _valid_repair_artifact(
+        visible_sources=[
+            {
+                "route_id": "repair_body_mode_convention",
+                "source_class": "convention",
+                "source_path": CONVENTION_SOURCE_PATH,
+                "purpose": "acceptance_criteria",
+                "required": True,
+            },
+            {
+                "route_id": "optional_desired_output_value",
+                "source_class": "planner_user_intent",
+                "source_path": PLANNER_INTENT_SOURCE_PATH,
+                "purpose": "unresolved_intent",
+                "required": False,
+            },
+        ]
+    )
+
+    report = validate_worker_visible_source_routing(
+        artifact,
+        workflow_contract=fixture["workflow_contract"],
+        graph=fixture["graph"],
+        convention_packets=(),
+        worker_node_ids={"repair_same_component"},
+    )
+
+    assert report.valid is False
+    assert report.routability_evaluated is True
+    assert [
+        (diagnostic.code, diagnostic.severity, diagnostic.route_id)
+        for diagnostic in report.routability_diagnostics
+    ] == [
+        (
+            "required_route_unresolved",
+            "error",
+            "repair_body_mode_convention",
+        ),
+        (
+            "optional_route_unresolved",
+            "warning",
+            "optional_desired_output_value",
+        ),
+    ]
+
+
+def test_mapped_lm5x_value_error_keeps_unroutable_gh_pressure_routes_visible():
+    fixture = _fixture_objects()
+
+    report = validate_worker_visible_source_routing(
+        _gh_pressure_artifact(),
+        workflow_contract=fixture["workflow_contract"],
+        graph=fixture["graph"],
+        convention_packets=(),
+        worker_node_ids={"solve_grasshopper_definition"},
+    )
+
+    assert report.valid is False
+    assert report.routability_evaluated is True
+    assert _codes(report.routability_diagnostics) == [
+        "required_route_unresolved",
+        "required_route_unresolved",
+        "required_route_unresolved",
+        "optional_route_unresolved",
+    ]
+
+
 def test_lm5x_value_error_without_known_fragment_fails_declared_lm5x_routes_closed(
     monkeypatch,
 ):

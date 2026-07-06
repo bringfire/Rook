@@ -116,8 +116,8 @@ class WorkerVisibleSourceRoutingValidationReport:
     schema: str
     valid: bool
     routability_evaluated: bool
-    static_diagnostics: Sequence[SourceRoutingDiagnostic]
-    routability_diagnostics: Sequence[SourceRoutingDiagnostic]
+    static_diagnostics: tuple[SourceRoutingDiagnostic, ...]
+    routability_diagnostics: tuple[SourceRoutingDiagnostic, ...]
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "static_diagnostics", tuple(self.static_diagnostics))
@@ -454,7 +454,7 @@ def _routability_diagnostics(
             source_class = visible_source["source_class"]
             source_path = visible_source["source_path"]
             if failed_paths is not None:
-                if source_path in failed_paths:
+                if source_path in failed_paths or source_path not in _LM5X_SOURCE_PATHS:
                     diagnostics.append(
                         _unresolved_route_diagnostic(node_id, visible_source)
                     )
