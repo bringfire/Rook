@@ -124,6 +124,24 @@ def test_constants_are_pinned() -> None:
     )
 
 
+def test_lm5r_pass1_instruction_identity_matches_shared_helper() -> None:
+    import lm_worker_two_pass_publication as helper
+
+    assert (
+        PROBE.PASS1_DECISION_INSTRUCTION_VERSION
+        == helper.PASS1_DECISION_INSTRUCTION_VERSION
+    )
+    assert PROBE._sha256_text(PROBE._PASS1_DECISION_INSTRUCTION) == PROBE._sha256_text(
+        helper._PASS1_DECISION_INSTRUCTION
+    )
+
+
+def test_lm5r_status_vocabulary_matches_shared_helper() -> None:
+    import lm_worker_two_pass_publication as helper
+
+    assert PROBE.STATUSES == helper.STATUSES
+
+
 def test_args_defaults_and_custom_values() -> None:
     defaults = PROBE._args([])
     assert defaults.model == PROBE.DEFAULT_MODEL
