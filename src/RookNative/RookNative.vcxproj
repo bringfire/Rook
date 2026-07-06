@@ -135,6 +135,7 @@
     <ClCompile Include="Handlers\DirectorHandler.cpp" />
     <ClCompile Include="Handlers\DirectorReplayHandler.cpp" />
     <ClCompile Include="Handlers\DirectorPrepareHandler.cpp" />
+    <ClCompile Include="Handlers\DirectorWorkerPlayHandler.cpp" />
     <ClCompile Include="Handlers\MeasureHandler.cpp" />
     <ClCompile Include="Handlers\GroupsHandler.cpp" />
     <ClCompile Include="Handlers\DocumentOpsHandler.cpp" />
@@ -275,6 +276,7 @@
     <ClInclude Include="Handlers\DirectorHandler.h" />
     <ClInclude Include="Handlers\DirectorReplayHandler.h" />
     <ClInclude Include="Handlers\DirectorPrepareHandler.h" />
+    <ClInclude Include="Handlers\DirectorWorkerPlayHandler.h" />
     <ClInclude Include="Handlers\MeasureHandler.h" />
     <ClInclude Include="Infrastructure\LayerHelpers.h" />
     <ClInclude Include="Infrastructure\UndoScope.h" />
