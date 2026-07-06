@@ -238,6 +238,52 @@ def _write_bundle(bundle: dict, model: Path) -> dict:
     )
 
 
+def _expected_storage_identity(payload: dict) -> dict:
+    metadata_kind = payload["metadata_kind"]
+    if metadata_kind == metadata.KIND_ACTOR_SET:
+        return {
+            "kind": metadata.STORAGE_KIND_ACTOR_SET,
+            "actor_set_id": payload["actor_set_id"],
+        }
+    if metadata_kind == metadata.KIND_SELECTION_SNAPSHOT:
+        return {
+            "kind": metadata.STORAGE_KIND_SELECTION_SNAPSHOT,
+            "snapshot_id": payload["snapshot_id"],
+        }
+    if metadata_kind == metadata.KIND_ACTOR_SUBSET:
+        return {
+            "kind": metadata.STORAGE_KIND_SUBSET,
+            "actor_set_id": payload["parent_actor_set_id"],
+            "subset_id": payload["subset_id"],
+        }
+    if metadata_kind == metadata.KIND_ACTOR_GROUPING:
+        return {
+            "kind": metadata.STORAGE_KIND_GROUPING,
+            "actor_set_id": payload["parent_actor_set_id"],
+            "subset_id": payload["parent_subset_id"],
+            "band_set_id": payload["band_set_id"],
+        }
+    raise AssertionError(f"unexpected metadata kind {metadata_kind}")
+
+
+def _canonical_actor_set_ref(actor_set_id: str) -> str:
+    return metadata.canonical_ref_for_storage_identity(
+        {
+            "kind": metadata.STORAGE_KIND_ACTOR_SET,
+            "actor_set_id": actor_set_id,
+        }
+    )
+
+
+def _canonical_snapshot_ref(snapshot_id: str) -> str:
+    return metadata.canonical_ref_for_storage_identity(
+        {
+            "kind": metadata.STORAGE_KIND_SELECTION_SNAPSHOT,
+            "snapshot_id": snapshot_id,
+        }
+    )
+
+
 def _assert_no_rook_files(project_root: Path) -> None:
     rook_dir = project_root / ".rook"
     assert not rook_dir.exists() or not any(rook_dir.rglob("*.json"))
@@ -550,10 +596,7 @@ def test_write_actor_metadata_bundle_v2_creates_refs_and_no_legacy_paths(tmp_pat
         )
     )
 
-    actor_set_ref = (
-        ".rook/director_planning/actor_sets/"
-        "roof_uplift_vertical_test_chunk_001.json"
-    )
+    actor_set_ref = _canonical_actor_set_ref("roof_uplift_vertical_test_chunk_001")
     assert result["actor_set_ref"] == actor_set_ref
 
     actor_set_path = metadata.resolve_metadata_ref(model.parent, actor_set_ref)
@@ -563,10 +606,11 @@ def test_write_actor_metadata_bundle_v2_creates_refs_and_no_legacy_paths(tmp_pat
     assert actor_set["source_document"]["file_name"] == model.name
     assert (
         actor_set["source_snapshot_ref"]
-        == ".rook/director_planning/selection_snapshots/"
-        "intent_005_20260701_144245.json"
+        == _canonical_snapshot_ref("intent_005_20260701_144245")
     )
-    assert actor_set["subsets"][0]["ref"].endswith("same_orientation_mullions_001.json")
+    assert actor_set["actor_set_id"] == "roof_uplift_vertical_test_chunk_001"
+    assert actor_set["subsets"][0]["subset_id"] == "same_orientation_mullions_001"
+    assert actor_set["subsets"][0]["ref"].startswith(metadata.CANONICAL_REF_PREFIX)
     assert "model_path" not in actor_set
     assert "source_snapshot_path" not in actor_set
 
@@ -575,12 +619,15 @@ def test_write_actor_metadata_bundle_v2_creates_refs_and_no_legacy_paths(tmp_pat
         actor_set["subsets"][0]["ref"],
     )
     subset = json.loads(subset_path.read_text(encoding="utf-8"))
-    assert subset["acceptance"]["accepted_selection_snapshot_ref"].endswith(
-        "intent_005_20260701_144245.json"
+    assert (
+        subset["acceptance"]["accepted_selection_snapshot_ref"]
+        == _canonical_snapshot_ref("intent_005_20260701_144245")
     )
-    assert subset["band_sets"][0]["ref"].endswith(
-        "same_orientation_mullions_001_bands_001.json"
+    assert subset["subset_id"] == "same_orientation_mullions_001"
+    assert subset["band_sets"][0]["band_set_id"] == (
+        "same_orientation_mullions_001_bands_001"
     )
+    assert subset["band_sets"][0]["ref"].startswith(metadata.CANONICAL_REF_PREFIX)
     assert "accepted_selection_snapshot_path" not in subset["acceptance"]
 
     grouping_path = metadata.resolve_metadata_ref(
@@ -589,16 +636,94 @@ def test_write_actor_metadata_bundle_v2_creates_refs_and_no_legacy_paths(tmp_pat
     )
     grouping = json.loads(grouping_path.read_text(encoding="utf-8"))
     assert grouping["metadata_kind"] == metadata.KIND_ACTOR_GROUPING
-    assert grouping["exemplar_selection_snapshot_ref"].endswith(
-        "intent_007_20260701_151718.json"
+    assert (
+        grouping["exemplar_selection_snapshot_ref"]
+        == _canonical_snapshot_ref("intent_007_20260701_151718")
     )
+    assert grouping["band_set_id"] == "same_orientation_mullions_001_bands_001"
     assert "exemplar_selection_snapshot_path" not in grouping
 
     for item in result["written"]:
-        assert item["ref"].startswith(".rook/")
+        assert item["ref"].startswith(metadata.CANONICAL_REF_PREFIX)
         assert item["resolved_path"].endswith(".json")
         persisted = json.loads(Path(item["resolved_path"]).read_text(encoding="utf-8"))
         _assert_no_absolute_or_backslash_refs(persisted)
+
+
+def test_write_actor_metadata_bundle_v2_writes_only_canonical_short_refs(tmp_path):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir()
+
+    result = _write_bundle(_minimal_bundle(), model)
+
+    assert metadata.LEGACY_REF_PREFIX not in json.dumps(result, sort_keys=True)
+    assert result["actor_set_ref"].startswith(metadata.CANONICAL_REF_PREFIX)
+    assert len(result["actor_set_ref"]) <= metadata.CANONICAL_REF_MAX_LENGTH
+    for item in result["written"]:
+        ref = item["ref"]
+        assert ref.startswith(metadata.CANONICAL_REF_PREFIX)
+        assert len(ref) <= metadata.CANONICAL_REF_MAX_LENGTH
+        persisted = json.loads(Path(item["resolved_path"]).read_text(encoding="utf-8"))
+        assert metadata.LEGACY_REF_PREFIX not in json.dumps(persisted, sort_keys=True)
+        expected_identity = _expected_storage_identity(persisted)
+        assert persisted["schema_version"] == 2
+        assert persisted["storage_version"] == metadata.STORAGE_VERSION
+        assert persisted["ref_protocol"] == metadata.REF_PROTOCOL
+        assert persisted["storage_identity"] == expected_identity
+        assert metadata.canonical_ref_for_storage_identity(expected_identity) == ref
+
+
+def test_write_actor_metadata_bundle_v2_same_identity_updates_same_ref(tmp_path):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir()
+    first = _write_bundle(_minimal_bundle(), model)
+    second_bundle = _minimal_bundle()
+    second_bundle["actor_set"]["summary"] = "Updated roof uplift vertical summary."
+
+    second = _write_bundle(second_bundle, model)
+
+    assert second["actor_set_ref"] == first["actor_set_ref"]
+    assert second["resolved_actor_set_path"] == first["resolved_actor_set_path"]
+    actor_set = json.loads(
+        Path(second["resolved_actor_set_path"]).read_text(encoding="utf-8")
+    )
+    assert actor_set["summary"] == "Updated roof uplift vertical summary."
+    assert actor_set["storage_identity"] == {
+        "kind": metadata.STORAGE_KIND_ACTOR_SET,
+        "actor_set_id": "roof_uplift_vertical_test_chunk_001",
+    }
+
+
+def test_write_actor_metadata_bundle_v2_existing_ref_with_wrong_storage_identity(
+    tmp_path,
+):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir()
+    actor_set_ref = _canonical_actor_set_ref("roof_uplift_vertical_test_chunk_001")
+    actor_set_path = metadata.resolve_metadata_ref(model.parent, actor_set_ref)
+    actor_set_path.parent.mkdir(parents=True)
+    existing_payload = {
+        "schema_version": 2,
+        "metadata_kind": metadata.KIND_ACTOR_SET,
+        "storage_version": metadata.STORAGE_VERSION,
+        "ref_protocol": metadata.REF_PROTOCOL,
+        "storage_identity": {
+            "kind": metadata.STORAGE_KIND_ACTOR_SET,
+            "actor_set_id": "different_actor_set",
+        },
+        "actor_set_id": "roof_uplift_vertical_test_chunk_001",
+        "source_document": {"file_name": model.name},
+        "generated_at_utc": "2026-07-06T00:00:00Z",
+        "summary": "Existing file must survive.",
+    }
+    original_text = json.dumps(existing_payload, indent=2, sort_keys=True) + "\n"
+    actor_set_path.write_text(original_text, encoding="utf-8")
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        _write_bundle(_minimal_bundle(), model)
+
+    assert _error_code(exc) == "metadata_ref_collision"
+    assert actor_set_path.read_text(encoding="utf-8") == original_text
 
 
 def test_generated_bundle_contains_no_durable_absolute_identity_paths(tmp_path):
@@ -640,9 +765,8 @@ def test_capture_source_occurrence_v2_writes_selection_snapshot_without_takes(
         )
     )
 
-    assert result["snapshot_ref"] == (
-        ".rook/director_planning/selection_snapshots/"
-        "source_occurrence_roof_uplift_vertical_test_chunk_001.json"
+    assert result["snapshot_ref"] == _canonical_snapshot_ref(
+        "source_occurrence_roof_uplift_vertical_test_chunk_001"
     )
     assert result["metadata_kind"] == metadata.KIND_SELECTION_SNAPSHOT
     assert "resolved_snapshot_path" in result
@@ -654,6 +778,12 @@ def test_capture_source_occurrence_v2_writes_selection_snapshot_without_takes(
         expected_kind=metadata.KIND_SELECTION_SNAPSHOT,
     )
     assert loaded["snapshot_id"] == "source_occurrence_roof_uplift_vertical_test_chunk_001"
+    assert loaded["storage_version"] == metadata.STORAGE_VERSION
+    assert loaded["ref_protocol"] == metadata.REF_PROTOCOL
+    assert loaded["storage_identity"] == {
+        "kind": metadata.STORAGE_KIND_SELECTION_SNAPSHOT,
+        "snapshot_id": "source_occurrence_roof_uplift_vertical_test_chunk_001",
+    }
     assert loaded["objects"][0]["id"] == "a28cbdb5-51fa-46b2-b18b-ab880b54ded7"
     occurrence = loaded["source_occurrence"]
     assert occurrence["source_top_level_object_id"] == (
@@ -791,14 +921,50 @@ def test_write_actor_metadata_bundle_v2_accepts_captured_source_occurrence_ref(
     assert actor_set["source_occurrence_snapshot_ref"] == capture["snapshot_ref"]
 
 
+def test_write_actor_metadata_bundle_v2_rejects_legacy_source_occurrence_ref(
+    tmp_path,
+):
+    model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
+    model.parent.mkdir(parents=True)
+    legacy_ref = (
+        ".rook/director_planning/selection_snapshots/"
+        "legacy_source_occurrence.json"
+    )
+    legacy_path = metadata.resolve_metadata_ref(model.parent, legacy_ref)
+    legacy_path.parent.mkdir(parents=True)
+    legacy_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "metadata_kind": metadata.KIND_SELECTION_SNAPSHOT,
+                "snapshot_id": "legacy_source_occurrence",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    bundle = _minimal_bundle()
+    bundle["actor_set"]["source_occurrence_snapshot_ref"] = legacy_ref
+
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        _write_bundle(bundle, model)
+
+    data = exc.value.to_data()
+    assert data["code"] == "metadata_ref_not_canonical"
+    assert data["field_path"] == "$.actor_set.source_occurrence_snapshot_ref"
+    assert data["ref"] == legacy_ref
+    assert not (model.parent / ".rook" / "director" / "v2").exists()
+
+
 def test_write_actor_metadata_bundle_v2_rejects_missing_source_occurrence_ref(
     tmp_path,
 ):
     model = tmp_path / "V2" / "Axon_Pearson_Experimental_TESTING.3dm"
     model.parent.mkdir(parents=True)
     bundle = _minimal_bundle()
-    bundle["actor_set"]["source_occurrence_snapshot_ref"] = (
-        ".rook/director_planning/selection_snapshots/missing_source_occurrence.json"
+    bundle["actor_set"]["source_occurrence_snapshot_ref"] = _canonical_snapshot_ref(
+        "missing_source_occurrence"
     )
 
     with pytest.raises(metadata.DirectorActorMetadataError) as exc:
@@ -836,8 +1002,14 @@ def test_write_actor_metadata_bundle_v2_accepts_document_success_envelope(tmp_pa
         )
     )
 
-    assert result["actor_set_ref"].endswith("roof_uplift_vertical_test_chunk_001.json")
+    assert result["actor_set_ref"] == _canonical_actor_set_ref(
+        "roof_uplift_vertical_test_chunk_001"
+    )
     assert Path(result["resolved_actor_set_path"]).exists()
+    actor_set = json.loads(
+        Path(result["resolved_actor_set_path"]).read_text(encoding="utf-8")
+    )
+    assert actor_set["actor_set_id"] == "roof_uplift_vertical_test_chunk_001"
 
 
 def test_write_actor_metadata_bundle_v2_rejects_unsaved_document():

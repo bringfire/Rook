@@ -509,6 +509,26 @@ def canonical_ref_matches_storage_identity(ref: str, identity: dict[str, Any]) -
     return validate_metadata_ref(ref) == canonical_ref_for_storage_identity(identity)
 
 
+def _require_canonical_metadata_ref(ref: Any, *, field_path: str) -> str:
+    if not isinstance(ref, str):
+        _raise(
+            "invalid_metadata_ref",
+            "Metadata ref must be a string.",
+            field_path=field_path,
+            ref=ref,
+        )
+    valid_ref = validate_metadata_ref(ref)
+    if not valid_ref.startswith(CANONICAL_REF_PREFIX):
+        _raise(
+            "metadata_ref_not_canonical",
+            "Director metadata writer requires canonical metadata refs.",
+            field_path=field_path,
+            ref=valid_ref,
+            required_prefix=CANONICAL_REF_PREFIX,
+        )
+    return valid_ref
+
+
 def _optional_list(
     payload: dict[str, Any],
     key: str,
@@ -528,15 +548,18 @@ def _optional_list(
     return value
 
 
-def _snapshot_ref(snapshot_id: str) -> str:
-    return (
-        ".rook/director_planning/selection_snapshots/"
-        f"{snapshot_id}.json"
-    )
+def _snapshot_identity(snapshot_id: str) -> dict[str, str]:
+    return {
+        "kind": STORAGE_KIND_SELECTION_SNAPSHOT,
+        "snapshot_id": snapshot_id,
+    }
 
 
-def _actor_set_ref(actor_set_id: str) -> str:
-    return f".rook/director_planning/actor_sets/{actor_set_id}.json"
+def _actor_set_identity(actor_set_id: str) -> dict[str, str]:
+    return {
+        "kind": STORAGE_KIND_ACTOR_SET,
+        "actor_set_id": actor_set_id,
+    }
 
 
 def _source_occurrence_snapshot_id_from_object_id(object_id: str) -> str:
@@ -544,30 +567,41 @@ def _source_occurrence_snapshot_id_from_object_id(object_id: str) -> str:
     return f"source_occurrence_{compact[:32]}"
 
 
-def _subset_ref(actor_set_id: str, subset_id: str) -> str:
-    return (
-        ".rook/director_planning/actor_sets/"
-        f"{actor_set_id}_subsets/{subset_id}.json"
-    )
+def _subset_identity(actor_set_id: str, subset_id: str) -> dict[str, str]:
+    return {
+        "kind": STORAGE_KIND_SUBSET,
+        "actor_set_id": actor_set_id,
+        "subset_id": subset_id,
+    }
 
 
-def _grouping_ref(actor_set_id: str, subset_id: str, band_set_id: str) -> str:
-    return (
-        ".rook/director_planning/actor_sets/"
-        f"{actor_set_id}_subsets/{subset_id}_band_sets/{band_set_id}.json"
-    )
+def _grouping_identity(
+    actor_set_id: str,
+    subset_id: str,
+    band_set_id: str,
+) -> dict[str, str]:
+    return {
+        "kind": STORAGE_KIND_GROUPING,
+        "actor_set_id": actor_set_id,
+        "subset_id": subset_id,
+        "band_set_id": band_set_id,
+    }
 
 
 def _normalize_common_metadata(
     payload: dict[str, Any],
     *,
     metadata_kind: str,
+    storage_identity: dict[str, Any],
     source_document: dict[str, Any],
     generated_at_utc: str,
 ) -> dict[str, Any]:
     normalized = copy.deepcopy(payload)
     normalized["schema_version"] = SCHEMA_VERSION
     normalized["metadata_kind"] = metadata_kind
+    normalized["storage_version"] = STORAGE_VERSION
+    normalized["ref_protocol"] = REF_PROTOCOL
+    normalized["storage_identity"] = copy.deepcopy(storage_identity)
     normalized["source_document"] = copy.deepcopy(source_document)
     normalized["generated_at_utc"] = generated_at_utc
     return normalized
@@ -850,7 +884,8 @@ async def capture_source_occurrence_v2(
         key="snapshot_id",
         field_path="$.snapshot_id",
     )
-    snapshot_ref = _snapshot_ref(snapshot_id)
+    storage_identity = _snapshot_identity(snapshot_id)
+    snapshot_ref = canonical_ref_for_storage_identity(storage_identity)
     generated_at_utc = _metadata_timestamp_utc()
 
     endpoints_used = ["/document"]
@@ -915,6 +950,9 @@ async def capture_source_occurrence_v2(
     snapshot = {
         "schema_version": SCHEMA_VERSION,
         "metadata_kind": KIND_SELECTION_SNAPSHOT,
+        "storage_version": STORAGE_VERSION,
+        "ref_protocol": REF_PROTOCOL,
+        "storage_identity": copy.deepcopy(storage_identity),
         "snapshot_id": snapshot_id,
         "intent": arguments.get("intent")
         or "source_occurrence_context_for_director_actor_set",
@@ -946,6 +984,11 @@ async def capture_source_occurrence_v2(
             )
     validate_loaded_metadata(snapshot, expected_kind=KIND_SELECTION_SNAPSHOT)
     resolved_snapshot_path = resolve_metadata_ref(project_root, snapshot_ref)
+    _preflight_existing_canonical_file(
+        resolved_snapshot_path,
+        snapshot_ref,
+        snapshot,
+    )
     _atomic_write_json(resolved_snapshot_path, snapshot)
 
     return {
@@ -1059,6 +1102,42 @@ def _require_parent_subset(
     return parent_subset_id
 
 
+def _preflight_existing_canonical_file(
+    path: Path,
+    ref: str,
+    payload: dict[str, Any],
+) -> None:
+    if not path.exists():
+        return
+    try:
+        existing = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as ex:
+        raise DirectorActorMetadataError(
+            "metadata_ref_collision",
+            "Existing canonical Director metadata ref could not be verified.",
+            ref=ref,
+            resolved_path=str(path),
+        ) from ex
+    if not isinstance(existing, dict):
+        _raise(
+            "metadata_ref_collision",
+            "Existing canonical Director metadata ref is not an object.",
+            ref=ref,
+            resolved_path=str(path),
+        )
+    storage_identity = payload.get("storage_identity")
+    existing_storage_identity = existing.get("storage_identity")
+    if existing_storage_identity != storage_identity:
+        _raise(
+            "metadata_ref_collision",
+            "Existing canonical Director metadata ref belongs to a different storage identity.",
+            ref=ref,
+            resolved_path=str(path),
+            storage_identity=storage_identity,
+            existing_storage_identity=existing_storage_identity,
+        )
+
+
 def _preflight_payloads(
     project_root: Path,
     payloads: list[tuple[str, str, dict[str, Any]]],
@@ -1079,6 +1158,8 @@ def _preflight_payloads(
             )
         refs_by_resolved_path[resolved_path] = ref
         validate_loaded_metadata(payload, expected_kind=expected_kind)
+        if ref.startswith(CANONICAL_REF_PREFIX):
+            _preflight_existing_canonical_file(resolved_path, ref, payload)
         resolved_payloads.append((resolved_path, payload))
     return resolved_payloads
 
@@ -1109,11 +1190,19 @@ async def write_actor_metadata_bundle_v2(
         "actor_set_id",
         field_path="$.actor_set.actor_set_id",
     )
-    actor_ref = _actor_set_ref(actor_set_id)
+    actor_identity = _actor_set_identity(actor_set_id)
+    actor_ref = canonical_ref_for_storage_identity(actor_identity)
     source_occurrence_snapshot_ref = actor_set_input.get(
         "source_occurrence_snapshot_ref"
     )
     if source_occurrence_snapshot_ref is not None:
+        source_occurrence_snapshot_ref = _require_canonical_metadata_ref(
+            source_occurrence_snapshot_ref,
+            field_path="$.actor_set.source_occurrence_snapshot_ref",
+        )
+        actor_set_input["source_occurrence_snapshot_ref"] = (
+            source_occurrence_snapshot_ref
+        )
         load_metadata_ref(
             project_root,
             source_occurrence_snapshot_ref,
@@ -1146,11 +1235,13 @@ async def write_actor_metadata_bundle_v2(
             value=snapshot_id,
             field_path=snapshot_field_path,
         )
-        ref = _snapshot_ref(snapshot_id)
+        storage_identity = _snapshot_identity(snapshot_id)
+        ref = canonical_ref_for_storage_identity(storage_identity)
         snapshot_refs[snapshot_id] = ref
         snapshot = _normalize_common_metadata(
             snapshot_input,
             metadata_kind=KIND_SELECTION_SNAPSHOT,
+            storage_identity=storage_identity,
             source_document=source_document,
             generated_at_utc=generated_at_utc,
         )
@@ -1180,11 +1271,13 @@ async def write_actor_metadata_bundle_v2(
             actor_set_id,
             field_path=f"$.subsets[{subset_index}].parent_actor_set_id",
         )
-        ref = _subset_ref(parent_actor_set_id, subset_id)
+        storage_identity = _subset_identity(parent_actor_set_id, subset_id)
+        ref = canonical_ref_for_storage_identity(storage_identity)
         subset_refs[subset_id] = ref
         subset = _normalize_common_metadata(
             subset_input,
             metadata_kind=KIND_ACTOR_SUBSET,
+            storage_identity=storage_identity,
             source_document=source_document,
             generated_at_utc=generated_at_utc,
         )
@@ -1267,11 +1360,17 @@ async def write_actor_metadata_bundle_v2(
             grouping_input.get("parent_subset_id"),
             field_path=f"$.groupings[{grouping_index}].parent_subset_id",
         )
-        ref = _grouping_ref(parent_actor_set_id, parent_subset_id, band_set_id)
+        storage_identity = _grouping_identity(
+            parent_actor_set_id,
+            parent_subset_id,
+            band_set_id,
+        )
+        ref = canonical_ref_for_storage_identity(storage_identity)
         grouping_refs[band_set_id] = ref
         grouping = _normalize_common_metadata(
             grouping_input,
             metadata_kind=KIND_ACTOR_GROUPING,
+            storage_identity=storage_identity,
             source_document=source_document,
             generated_at_utc=generated_at_utc,
         )
@@ -1311,6 +1410,7 @@ async def write_actor_metadata_bundle_v2(
     actor_set = _normalize_common_metadata(
         actor_set_input,
         metadata_kind=KIND_ACTOR_SET,
+        storage_identity=actor_identity,
         source_document=source_document,
         generated_at_utc=generated_at_utc,
     )
