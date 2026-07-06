@@ -94,6 +94,7 @@ def _load_compiled_package(package_root_arg: Any) -> dict[str, Any]:
     member_map_sha = _sha256_json_file(root / "member_map.json")
     resolved_sha = _sha256_json_file(root / "resolved_motion.json")
     prepared_sha = sha256_file(root / "prepared.3dm")
+    camera_path = root / "camera.json"
     evidence = status.get("evidence") or {}
     mismatches: list[str] = []
 
@@ -102,6 +103,19 @@ def _load_compiled_package(package_root_arg: Any) -> dict[str, Any]:
     manifest_hashes = manifest.get("hashes") or {}
     if manifest_hashes.get("motion_json_sha256") != motion_sha:
         mismatches.append("motion.json")
+    camera_hash = manifest_hashes.get("camera_json_sha256")
+    camera = None
+    if camera_hash is None:
+        if camera_path.exists():
+            mismatches.append("camera.json")
+    elif not isinstance(camera_hash, str) or not camera_hash:
+        mismatches.append("scene_manifest.hashes.camera_json_sha256")
+    elif not camera_path.is_file():
+        mismatches.append("camera.json")
+    else:
+        if _sha256_json_file(camera_path) != camera_hash:
+            mismatches.append("camera.json")
+        camera = _read_json(camera_path)
     if evidence.get("member_map_sha256") != member_map_sha:
         mismatches.append("member_map.json")
     if evidence.get("resolved_motion_sha256") != resolved_sha:
@@ -134,6 +148,7 @@ def _load_compiled_package(package_root_arg: Any) -> dict[str, Any]:
         "member_map": member_map,
         "resolved_motion": resolved_motion,
         "status": status,
+        "camera": camera,
         "hashes": {
             "manifest": manifest_sha,
             "member_map": member_map_sha,
@@ -300,8 +315,10 @@ async def compile_take(arguments: dict[str, Any], *, call_native=call_rhino,
         call_native, root, root / "prepared.3dm", port=port,
         error_cls=DirectorWorkerCompileError, mode="require_fresh")
 
-    spec = pkg["resolved_motion"]
-    default_easing = arguments.get("default_easing", "linear")
+    spec = dict(pkg["resolved_motion"])
+    if pkg["camera"] is not None:
+        spec["camera"] = pkg["camera"]
+    default_easing = spec.get("default_easing", "linear")
     if default_easing not in director_motion.EASING_NAMES:
         raise DirectorWorkerCompileError(
             "compile_failed", f"invalid_keyframe: unknown default_easing: {default_easing!r}")

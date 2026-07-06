@@ -46,6 +46,25 @@ def _camera_response() -> dict[str, Any]:
     }
 
 
+def _explicit_camera(location: list[float] | None = None) -> dict[str, Any]:
+    camera = dict(_camera_response()["camera"])
+    camera["location"] = location or [11.0, -12.0, 13.0]
+    camera["target"] = [0.0, 0.0, 0.0]
+    camera["direction"] = [
+        camera["target"][i] - camera["location"][i] for i in range(3)]
+    return camera
+
+
+def _camera_spec(camera: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "strategy": "keyframes",
+        "keyframes": [{
+            "frame_index": 1,
+            "source": {"kind": "explicit_camera", "camera": camera},
+        }],
+    }
+
+
 def make_prepared_package(
     tmp_path: Path, *,
     object_count: int = 2,
@@ -53,6 +72,8 @@ def make_prepared_package(
     frame_count: int = 3,
     phase: str = "prepared",
     group_name: str = "moving",
+    default_easing: str | None = None,
+    camera: dict[str, Any] | None = None,
     tamper: str | None = None,
 ) -> Path:
     root = tmp_path / "take1"
@@ -74,6 +95,10 @@ def make_prepared_package(
     }
     motion_sha = write_canonical_json(root / "motion.json", motion)
 
+    camera_sha = None
+    if camera is not None:
+        camera_sha = write_canonical_json(root / "camera.json", camera)
+
     manifest = {
         "schema_version": 1,
         "metadata_kind": "director_take_package_manifest",
@@ -81,7 +106,7 @@ def make_prepared_package(
         "actor_sets": [{"actor_set_id": "setA", "members": []}],
         "hashes": {
             "motion_json_sha256": motion_sha,
-            "camera_json_sha256": None,
+            "camera_json_sha256": camera_sha,
             "scene_3dm_sha256": sha256_file(scene),
             "scene_3dm_bytes": scene.stat().st_size,
         },
@@ -132,6 +157,8 @@ def make_prepared_package(
             "scene_manifest_sha256": manifest_sha,
         },
     }
+    if default_easing is not None:
+        resolved["default_easing"] = default_easing
     resolved_sha = write_canonical_json(root / "resolved_motion.json", resolved)
 
     status = {
@@ -163,6 +190,14 @@ def make_prepared_package(
     elif tamper == "motion":
         (root / "motion.json").write_text(
             (root / "motion.json").read_text(encoding="utf-8") + " ",
+            encoding="utf-8")
+    elif tamper == "unexpected_camera":
+        write_canonical_json(root / "camera.json", _camera_spec(_explicit_camera()))
+    elif tamper == "missing_camera":
+        (root / "camera.json").unlink()
+    elif tamper == "camera":
+        (root / "camera.json").write_text(
+            (root / "camera.json").read_text(encoding="utf-8") + " ",
             encoding="utf-8")
     elif tamper == "resolved_derived_from":
         data = json.loads((root / "resolved_motion.json").read_text(encoding="utf-8"))
@@ -378,6 +413,59 @@ async def test_happy_path_camera_frames_match_frame_count(tmp_path):
     track = json.loads((root / "track.json").read_text(encoding="utf-8"))
     assert len(track["camera_frames"]) == 5
     assert [f["frame_index"] for f in track["camera_frames"]] == [1, 2, 3, 4, 5]
+
+
+async def test_default_easing_from_package_ignores_invocation_arguments(tmp_path):
+    root = make_prepared_package(tmp_path, default_easing="ease_in")
+    fake = make_fake_native(root)
+    await dwc.compile_take(
+        {"package_root": str(root), "default_easing": "ease_out"},
+        call_native=fake)
+    provenance = json.loads(
+        (root / "compile_provenance.json").read_text(encoding="utf-8"))
+    easings = [
+        segment["ease_from_previous"]
+        for segments in provenance["segment_mapping"].values()
+        for segment in segments
+    ]
+    assert easings == ["ease_in", "ease_in"]
+
+
+async def test_camera_json_hash_present_is_loaded_into_track(tmp_path):
+    camera = _explicit_camera([21.0, -22.0, 23.0])
+    root = make_prepared_package(tmp_path, camera=_camera_spec(camera))
+    fake = make_fake_native(root)
+    await dwc.compile_take({"package_root": str(root)}, call_native=fake)
+    track = json.loads((root / "track.json").read_text(encoding="utf-8"))
+    assert track["camera_frames"][0]["camera"]["location"] == camera["location"]
+
+
+async def test_camera_json_present_with_null_hash_is_package_hash_mismatch(tmp_path):
+    root = make_prepared_package(tmp_path, tamper="unexpected_camera")
+    fake = make_fake_native(root)
+    await expect_error(
+        dwc.compile_take({"package_root": str(root)}, call_native=fake),
+        "package_hash_mismatch")
+
+
+async def test_camera_json_hash_present_but_file_missing_is_package_hash_mismatch(tmp_path):
+    root = make_prepared_package(
+        tmp_path, camera=_camera_spec(_explicit_camera()),
+        tamper="missing_camera")
+    fake = make_fake_native(root)
+    await expect_error(
+        dwc.compile_take({"package_root": str(root)}, call_native=fake),
+        "package_hash_mismatch")
+
+
+async def test_camera_json_hash_mismatch_is_package_hash_mismatch(tmp_path):
+    root = make_prepared_package(
+        tmp_path, camera=_camera_spec(_explicit_camera()),
+        tamper="camera")
+    fake = make_fake_native(root)
+    await expect_error(
+        dwc.compile_take({"package_root": str(root)}, call_native=fake),
+        "package_hash_mismatch")
 
 
 async def test_cap_free_compile_allows_300_animated_objects(tmp_path):
