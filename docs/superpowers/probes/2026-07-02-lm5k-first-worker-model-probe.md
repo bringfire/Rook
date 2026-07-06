@@ -1,4 +1,4 @@
-# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S, LM5T, LM5U, LM5Y & LM6A — First Worker Model Probe (2026-07-02)
+# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S, LM5T, LM5U, LM5Y, LM6A & LM6C — First Worker Model Probe (2026-07-02)
 
 **Doctrine:** evidence, not CI. This summary is the committed artifact; raw
 runs stay local (spec §5, `docs/superpowers/specs/2026-07-02-lm5k-first-worker-model-probe-design.md`).
@@ -839,6 +839,144 @@ session. Live preflight calls such as `gh_document_new` may update
 `knowledge/gh/operations_knowledge.json` usage counters/timestamps; that drift
 is operational telemetry and should remain unstaged unless intentionally handled.
 
+## LM6C repeatability run (commit `6d52039f`)
+
+LM6C measures repeatability of the frozen LM6B/LM6A protocol shape. It does not
+change the worker prompt, model, publication mechanics, worker-action applier, or
+worker-visible evidence. The wrapper schedules five independent full LM6A
+attempts, creates a fresh GH document before each attempt, and records scheduled
+outcomes without replacement attempts.
+
+Canonical identity:
+
+- git commit: `6d52039f`
+- wrapper run:
+  `probe_runs/lm6c-20260706T233550Z-6d52039f/`
+- model: `gemma4:12b-it-qat`
+- scheduled attempts: `5`
+- worker-visible acceptance criteria: LM5Y legacy projection
+- child protocol: LM6A live worker splice
+
+### Harness-defect run
+
+The first canonical LM6C invocation after PR #434 was:
+
+```text
+probe_runs/lm6c-20260706T233115Z-efb205b3/
+```
+
+It produced:
+
+```text
+preflight_failed: 5
+lm6a_invoked_count: 0
+worker_reached_count: 0
+```
+
+That run is **not** worker repeatability evidence. Direct diagnostics showed the
+live surface was ready: `rhino_ping` returned `"pong"` and `gh_document_new`
+succeeded. The failure was a wrapper/preflight harness defect: LM6C rejected the
+bare `"pong"` success shape. PR #435 fixed only that deterministic adapter
+predicate before the repeatability run below.
+
+### Repeatability result
+
+The post-fix canonical run reached LM6A in all scheduled attempts:
+
+```text
+scheduled_attempts: 5
+lm6a_invoked_count: 5
+worker_reached_count: 5
+preflight_failed: 0
+gate_failed: 0
+publication_failed: 0
+wrapper_error: 0
+leak_marker_match_count: 0
+```
+
+Terminal decisions:
+
+```text
+accepted: 4
+worker_declined: 1
+```
+
+Accepted attempts:
+
+```text
+attempt-001: accepted, verify_repair_succeeded
+attempt-002: accepted, verify_repair_succeeded
+attempt-004: accepted, verify_repair_succeeded
+attempt-005: accepted, verify_repair_succeeded
+```
+
+All four accepted attempts published the same worker-authored action excerpt:
+
+```json
+{"code": "A = 0.0;", "mode": "body"}
+```
+
+In those rows, the action reached the worker-action applier, staged
+`draft_repair_params`, dispatched live `gh_update_script`, and ended with
+`verify_repair_succeeded`.
+
+The non-accepted attempt was:
+
+```text
+attempt-003: worker_declined, reason worker_observed
+```
+
+It was a clean publication:
+
+```text
+worker_response_kind: observation
+LM5G-loadable: true
+kind_preserved: true
+observation_action_intent_anomaly: false
+live_repair_dispatched: false
+verify_repair_ran: false
+```
+
+The observation text was semantically odd:
+
+```text
+The repair parameters have been determined based on the diagnostics and pin contract.
+```
+
+but it did not smuggle an allowed action id and did not enter the execution path.
+
+Leak scan:
+
+```text
+PROBE_REPAIR_CODE: 0 matches
+A = 42.0: 0 matches
+BindStepSpec.base_params.code: 0 matches
+```
+
+### LM6C interpretation
+
+LM6C supports repeatability of the bounded protocol path for this controlled
+fixture:
+
+```text
+5/5 scheduled attempts reached the worker path
+4/5 completed the live verifier-floor repair path
+1/5 ended in a clean worker decline
+0/5 leaked the hidden answer markers
+```
+
+This is stronger than the LM6A arrival run because it repeats the full frozen
+protocol, but it is still not broad model reliability. It is `N=5` on one
+controlled repair fixture, one local model, one provider path, and one
+acceptance-criteria shape. The evidence says the protocol is no longer a
+one-off arrival; it does not say arbitrary worker repairs are reliable.
+
+The remaining pressure is not more evidence stuffing. The next question is why
+the worker sometimes turns sufficient acceptance criteria into a clean
+observation instead of an action. That can be studied as a small
+decline-analysis/repeatability slice, or addressed architecturally through the
+clarify/resupply pull-loop.
+
 ## Updated comparison keys
 
 Round 1: `(lm5j.prompt_text:v1, lm5k_golden_repair_v1/fresh_compiled_graph,
@@ -897,6 +1035,11 @@ LM5W assembly, ollama gemma4:12b-it-qat, direct Ollama, pass1 think=true/free
 decision, pass2 single-kind constrained publication, worker-action applier
 staging draft_repair_params, live gh_update_script dispatch, verify_repair
 floor)`.
+
+LM6C: `(LM6C repeatability wrapper, five scheduled independent full LM6A
+attempts, fresh gh_document_new per attempt, no replacement attempts, same
+gemma4:12b-it-qat/direct Ollama/frozen LM6B protocol, scheduled and
+worker-reached denominators reported separately, report-only leak marker scan)`.
 
 Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
 new experiment.
