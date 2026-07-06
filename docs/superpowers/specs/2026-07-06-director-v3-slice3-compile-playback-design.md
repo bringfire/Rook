@@ -77,30 +77,54 @@ message)` with `.to_data()`).
    zero new native surface. Only if the double-hop still lands on the wrong
    path does it fail (`take_copy_not_pristine`). S2's prepare keeps its
    original fail-closed behavior (its intermediate file may not exist yet).
+   **Role-aware dirty-doc policy (applies to every S3 open/reset/double-hop
+   decision):** a dirty document whose path is NOT one of this package's
+   files blocks with `document_not_saved` — never silently discard a user's
+   work. A dirty document whose path IS this package's `scene.3dm` or
+   `prepared.3dm` (case/slash-normalized match) is discardable by design —
+   after playback the prepared doc is dirty as a matter of course, and
+   discarding it is exactly what reset means. The disposable-copy rule is a
+   property of the package's files, not of whichever document happens to be
+   active.
 3. **Reuse compiler math, not compiler evidence policy:** call
-   `director_compiler.resolve_compiler_timeline`, `expand_targets` (the
+   `director_compiler.resolve_compiler_timeline` and `expand_targets` (the
    resolved motion is already in its vocabulary — groups are created-UUID
-   lists), `build_object_frames`, `build_camera_frames` (camera spec from
-   packaged `camera.json`; absent → existing active-view default; camera
-   frames are compiled into the track now, applied only in S4). Do NOT call
+   lists) and `build_camera_frames` (camera spec from packaged
+   `camera.json`; absent → existing active-view default; camera frames are
+   compiled into the track now, applied only in S4). Do NOT call
+   `build_object_frames` — it hardcodes `validation_strength: "bbox_only"`
+   into every source state (`director_compiler.py:201`), which contradicts
+   this slice's evidence contract. Instead introduce
+   `build_worker_object_frames` (a parameterized variant or thin sibling
+   that reuses the same per-frame TRS interpolation via `director_motion`
+   but takes the worker source-state dict as-is). Do NOT call
    `validate_caps` — the only worker constant is
    `WORKER_MAX_FRAME_COUNT = 100_000` (absurdity guard, its own explicit
    constant per the parent spec).
 4. **Worker source-state path (tight-bbox contract):** do NOT reuse
-   `resolve_source_states` unchanged — it discards `bbox_method` and
-   hardcodes `validation_strength: "bbox_only"`
-   (`director_compiler.py:201`). The native route already emits
-   `bbox_method` per object (`SerializeObjectState`,
-   `DirectorHandler.cpp:539`) — no native change needed. New
-   `resolve_worker_source_states`: same `/director/object-states` call,
-   REQUIRES `bbox_method == "tight_object"` for every animated object
-   (else `compile_source_state_not_tight`, listing offenders), and writes
-   `{"bbox_min", "bbox_max", "bbox_method": "tight_object",
-   "validation_strength": "tight_bbox", "state_hash"}` into each
+   `resolve_source_states` unchanged — it discards `bbox_method`. The
+   native route already emits `bbox_method` per object
+   (`SerializeObjectState`, `DirectorHandler.cpp:539`) — no native change
+   needed for compile. New `resolve_worker_source_states`: same
+   `/director/object-states` call, REQUIRES `bbox_method == "tight_object"`
+   for every animated object (else `compile_source_state_not_tight`,
+   listing offenders), and writes `{"bbox_min", "bbox_max",
+   "bbox_method": "tight_object", "validation_strength": "tight_bbox",
+   "state_hash"}` into each
    `object_frames[].object_transforms[].source_state`.
-   Additionally cross-check the animated id set == the member map's
-   created-object id set (`compile_track_mismatch` on any difference — the
-   resolved motion and the member map must describe the same objects).
+   **Native corollary:** the existing `DirectorFrame` track parser hard-
+   rejects any `validation_strength != "bbox_only"`
+   (`DirectorFrame.cpp:589-590`) — the worker-play handler must parse its
+   track itself (or via a parameterized validation path), accepting
+   `"tight_bbox"`; it must NOT feed worker tracks through the preview
+   parser.
+   **Id-set check (subset semantics — a product decision, made here):**
+   `animated_object_ids ⊆ member-map created ids`; any animated id NOT in
+   the member map → `compile_track_mismatch`. Partial motion is valid:
+   static members need no identity tracks — they sit in the scene
+   untransformed and are captured as-is in S4. (Requiring full equality
+   would force authoring identity keyframes for every static member, which
+   serves nothing.)
 5. Write `track.json` (schema otherwise unchanged:
    `transform_semantics: "absolute_from_source"`, fps, frame_count,
    `animated_object_ids`, `camera_frames`, `object_frames`) plus a
@@ -148,9 +172,15 @@ default `10 × doc absolute tolerance`.
 3. Resolve every animated object id (`pDoc->LookupObject`); any miss →
    failure `track_objects_missing` listing the ids.
 4. **Stateless pristine self-gate:** every animated object's observed tight
-   bbox must match its pose at `fromFrame` within tolerance — the
-   `source_state` bbox for `fromFrame == 0`, or the predicted envelope of
-   `A_fromFrame` for a chunked resume. Mismatch → failure
+   bbox must prove the document is at the `fromFrame` pose. For
+   `fromFrame == 0`: observed tight bbox must EQUAL the `source_state` bbox
+   within tolerance — valid for arbitrary geometry, because the source
+   state IS the compile-time observed tight bbox of the untransformed
+   object. For `fromFrame > 0` (chunked resume): **containment** in the
+   `A_fromFrame`-transformed source-bbox envelope (+ tolerance) with
+   centroid/diagonal diagnostics reported — the same envelope-not-tight-
+   bbox reasoning as the drift gate; exact equality at intermediate frames
+   is asserted only by proof fixtures. Mismatch → failure
    `worker_scene_not_pristine` (per-object evidence). This is what makes
    the stateless route safe: every call proves the document is where the
    caller claims before mutating anything.
@@ -199,7 +229,9 @@ Registration follows the S2 pattern exactly: free-function handler in
    route's frame-`fromFrame` pose gate is the pristine proof; if the doc is
    mid-mutated from a crashed run, that gate fails with
    `worker_scene_not_pristine` and the operator resets. If the active doc
-   is something else entirely, open `prepared.3dm` (genuine switch).
+   is something else entirely, open `prepared.3dm` (genuine switch), under
+   the role-aware dirty-doc policy: a dirty non-package doc blocks, a dirty
+   package doc is discardable.
    With `reset: true` (Gate B / between-run reset): force a fresh reload —
    direct reopen, with the double-hop fallback (`scene.3dm` →
    `prepared.3dm`) when the native open reports `alreadyOpen`. This is the
@@ -233,7 +265,7 @@ New:
 | code | meaning |
 |------|---------|
 | `compile_source_state_not_tight` | an animated object's `/director/object-states` bbox is not `tight_object` |
-| `compile_track_mismatch` | resolved-motion animated ids ≠ member-map created ids |
+| `compile_track_mismatch` | an animated id is not in the member-map created-id set (subset semantics; partial motion is valid) |
 | `compile_failed` | wrapped `DirectorCompileError` from reused compiler math (original code in detail) |
 | `track_invalid` | track.json unreadable/malformed/inconsistent, bad frame range, non-invertible pose |
 | `track_objects_missing` | animated ids not resolvable in the open document |
