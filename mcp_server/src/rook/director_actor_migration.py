@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -334,6 +335,431 @@ def _require_arguments(arguments: dict) -> tuple[Path, list[Path], bool, str]:
 
 def _output_path(source_path: Path, suffix: str) -> Path:
     return source_path.with_name(f"{source_path.stem}{suffix}{source_path.suffix}")
+
+
+_KNOWN_REF_FIELDS_BY_KIND: dict[str, tuple[tuple[str, str], ...]] = {
+    dam.KIND_ACTOR_SET: (
+        ("source_snapshot_ref", dam.KIND_SELECTION_SNAPSHOT),
+        ("source_occurrence_snapshot_ref", dam.KIND_SELECTION_SNAPSHOT),
+    ),
+    dam.KIND_ACTOR_SUBSET: (),
+    dam.KIND_ACTOR_GROUPING: (
+        ("exemplar_selection_snapshot_ref", dam.KIND_SELECTION_SNAPSHOT),
+    ),
+    dam.KIND_SELECTION_SNAPSHOT: (),
+}
+
+
+def _require_string_id(payload: dict, key: str) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str) or not value:
+        _raise(
+            "metadata_id_required",
+            f"Metadata payload requires a non-empty {key}.",
+            field=key,
+        )
+    return value
+
+
+def _semantic_id(payload: dict) -> str:
+    for key in ("actor_set_id", "subset_id", "band_set_id", "snapshot_id", "entry_id"):
+        value = payload.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return ""
+
+
+def _storage_identity_for_payload(payload: dict) -> dict:
+    kind = payload.get("metadata_kind")
+    if kind == dam.KIND_ACTOR_SET:
+        return {
+            "kind": dam.STORAGE_KIND_ACTOR_SET,
+            "actor_set_id": _require_string_id(payload, "actor_set_id"),
+        }
+    if kind == dam.KIND_SELECTION_SNAPSHOT:
+        snapshot_id = payload.get("snapshot_id")
+        if not isinstance(snapshot_id, str) or not snapshot_id:
+            snapshot_id = _require_string_id(payload, "entry_id")
+        return {
+            "kind": dam.STORAGE_KIND_SELECTION_SNAPSHOT,
+            "snapshot_id": snapshot_id,
+        }
+    if kind == dam.KIND_ACTOR_SUBSET:
+        return {
+            "kind": dam.STORAGE_KIND_SUBSET,
+            "actor_set_id": _require_string_id(payload, "parent_actor_set_id"),
+            "subset_id": _require_string_id(payload, "subset_id"),
+        }
+    if kind == dam.KIND_ACTOR_GROUPING:
+        return {
+            "kind": dam.STORAGE_KIND_GROUPING,
+            "actor_set_id": _require_string_id(payload, "parent_actor_set_id"),
+            "subset_id": _require_string_id(payload, "parent_subset_id"),
+            "band_set_id": _require_string_id(payload, "band_set_id"),
+        }
+    _raise(
+        "metadata_kind_mismatch",
+        "Unsupported Director actor metadata kind for migration.",
+        metadata_kind=kind,
+    )
+
+
+def _collection_refs(
+    payload: dict,
+    collection_key: str,
+    expected_kind: str,
+) -> list[tuple[str, str]]:
+    refs: list[tuple[str, str]] = []
+    collection = payload.get(collection_key)
+    if not isinstance(collection, list):
+        return refs
+    for item in collection:
+        if not isinstance(item, dict):
+            continue
+        ref = item.get("ref")
+        if isinstance(ref, str) and ref:
+            refs.append((ref, expected_kind))
+    return refs
+
+
+def _known_link_refs(payload: dict) -> list[tuple[str, str]]:
+    kind = payload.get("metadata_kind")
+    refs: list[tuple[str, str]] = []
+    for key, expected_kind in _KNOWN_REF_FIELDS_BY_KIND.get(kind, ()):
+        value = payload.get(key)
+        if isinstance(value, str) and value:
+            refs.append((value, expected_kind))
+    if kind == dam.KIND_ACTOR_SET:
+        refs.extend(_collection_refs(payload, "subsets", dam.KIND_ACTOR_SUBSET))
+    elif kind == dam.KIND_ACTOR_SUBSET:
+        acceptance = payload.get("acceptance")
+        if isinstance(acceptance, dict):
+            value = acceptance.get("accepted_selection_snapshot_ref")
+            if isinstance(value, str) and value:
+                refs.append((value, dam.KIND_SELECTION_SNAPSHOT))
+        refs.extend(_collection_refs(payload, "band_sets", dam.KIND_ACTOR_GROUPING))
+    return refs
+
+
+def _is_legacy_ref(ref: str) -> bool:
+    return dam.classify_metadata_ref(ref) == "legacy"
+
+
+def _load_legacy_payload(
+    project_root: Path,
+    ref: str,
+    *,
+    expected_kind: str,
+) -> dict:
+    if not _is_legacy_ref(ref):
+        _raise(
+            "metadata_ref_prefix_unsupported",
+            "Storage-ref migration requires legacy Director actor metadata refs.",
+            ref=ref,
+            allowed_prefixes=[dam.LEGACY_REF_PREFIX],
+        )
+    return dam.load_metadata_ref(project_root, ref, expected_kind=expected_kind)
+
+
+def _rewrite_ref(value: Any, ref_map: dict[str, str]) -> Any:
+    if isinstance(value, str) and value in ref_map:
+        return ref_map[value]
+    return value
+
+
+def _rewrite_known_refs(payload: dict, ref_map: dict[str, str]) -> dict:
+    converted = copy.deepcopy(payload)
+    for key in (
+        "source_snapshot_ref",
+        "source_occurrence_snapshot_ref",
+        "exemplar_selection_snapshot_ref",
+    ):
+        if key in converted:
+            converted[key] = _rewrite_ref(converted[key], ref_map)
+    acceptance = converted.get("acceptance")
+    if isinstance(acceptance, dict) and "accepted_selection_snapshot_ref" in acceptance:
+        acceptance["accepted_selection_snapshot_ref"] = _rewrite_ref(
+            acceptance["accepted_selection_snapshot_ref"],
+            ref_map,
+        )
+    for collection_key in ("subsets", "band_sets"):
+        collection = converted.get(collection_key)
+        if not isinstance(collection, list):
+            continue
+        for item in collection:
+            if isinstance(item, dict) and "ref" in item:
+                item["ref"] = _rewrite_ref(item["ref"], ref_map)
+    return converted
+
+
+def _canonical_json(payload: dict) -> str:
+    return json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+
+
+def _preflight_canonical_payload(
+    project_root: Path,
+    ref: str,
+    payload: dict,
+    *,
+    write: bool,
+) -> str:
+    path = dam.resolve_metadata_ref(project_root, ref)
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            return "conflicted"
+        if not isinstance(existing, dict):
+            return "conflicted"
+        if existing.get("storage_identity") != payload.get("storage_identity"):
+            return "conflicted"
+        if _canonical_json(existing) != _canonical_json(payload):
+            return "conflicted"
+        return "reused"
+    return "created" if write else "planned"
+
+
+def _write_new_canonical_payload(project_root: Path, ref: str, payload: dict) -> None:
+    path = dam.resolve_metadata_ref(project_root, ref)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _report_ref(mappings: list[dict]) -> str:
+    report_identity = [
+        {
+            "old_ref": entry["old_ref"],
+            "new_ref": entry["new_ref"],
+            "metadata_kind": entry["metadata_kind"],
+            "semantic_id": entry["semantic_id"],
+        }
+        for entry in sorted(
+            mappings,
+            key=lambda item: (
+                item["old_ref"],
+                item["new_ref"],
+                item["metadata_kind"],
+                item["semantic_id"],
+            ),
+        )
+    ]
+    digest = hashlib.sha256(
+        json.dumps(
+            report_identity,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()[:12]
+    return f".rook/director/v2/migration_reports/mig_{digest}.json"
+
+
+def _mark_intra_run_ref_conflicts(
+    mappings: list[dict],
+    canonical_payloads: dict[str, dict],
+) -> None:
+    mappings_by_new_ref: dict[str, list[dict]] = {}
+    for mapping in mappings:
+        mappings_by_new_ref.setdefault(mapping["new_ref"], []).append(mapping)
+    for grouped_mappings in mappings_by_new_ref.values():
+        if len(grouped_mappings) < 2:
+            continue
+        canonical_payload_json = {
+            _canonical_json(canonical_payloads[mapping["old_ref"]])
+            for mapping in grouped_mappings
+        }
+        if len(canonical_payload_json) == 1:
+            continue
+        for mapping in grouped_mappings:
+            mapping["status"] = "conflicted"
+
+
+def _require_storage_migration_arguments(
+    arguments: dict,
+) -> tuple[Path, list[str], bool, bool]:
+    if not isinstance(arguments, dict):
+        _raise("migration_arguments_invalid", "Migration arguments must be an object.")
+    project_root_value = arguments.get("project_root")
+    if not isinstance(project_root_value, (str, Path)) or not str(project_root_value):
+        _raise(
+            "migration_arguments_invalid",
+            "Migration requires a project_root string.",
+            field="project_root",
+        )
+    project_root = Path(project_root_value).resolve()
+    actor_set_refs = arguments.get("actor_set_refs")
+    if not isinstance(actor_set_refs, list) or not actor_set_refs:
+        _raise(
+            "migration_arguments_invalid",
+            "Storage-ref migration requires a non-empty actor_set_refs list.",
+            field="actor_set_refs",
+        )
+    refs: list[str] = []
+    for index, item in enumerate(actor_set_refs):
+        if not isinstance(item, str) or not item:
+            _raise(
+                "migration_arguments_invalid",
+                "Actor set ref entries must be non-empty strings.",
+                field=f"actor_set_refs[{index}]",
+            )
+        refs.append(dam.validate_metadata_ref(item))
+    write = arguments.get("write", False)
+    if not isinstance(write, bool):
+        _raise("metadata_invalid", "Migration write must be a boolean.", field="write")
+    write_report = arguments.get("write_report", False)
+    if not isinstance(write_report, bool):
+        _raise(
+            "metadata_invalid",
+            "Migration write_report must be a boolean.",
+            field="write_report",
+        )
+    return project_root, refs, write, write_report
+
+
+def _reachable_legacy_payloads(
+    project_root: Path,
+    actor_set_refs: list[str],
+) -> dict[str, dict]:
+    payloads: dict[str, dict] = {}
+    expected_kinds: dict[str, str] = {
+        ref: dam.KIND_ACTOR_SET for ref in sorted(set(actor_set_refs))
+    }
+    queue = sorted(expected_kinds)
+    while queue:
+        ref = queue.pop(0)
+        expected_kind = expected_kinds[ref]
+        if ref in payloads:
+            continue
+        payload = _load_legacy_payload(project_root, ref, expected_kind=expected_kind)
+        payloads[ref] = payload
+        for linked_ref, linked_kind in sorted(_known_link_refs(payload)):
+            if not _is_legacy_ref(linked_ref):
+                continue
+            previous_kind = expected_kinds.get(linked_ref)
+            if previous_kind is not None and previous_kind != linked_kind:
+                _raise(
+                    "metadata_kind_mismatch",
+                    "Director metadata ref was linked with conflicting kinds.",
+                    ref=linked_ref,
+                    metadata_kind=previous_kind,
+                    expected_kind=linked_kind,
+                )
+            expected_kinds[linked_ref] = linked_kind
+            if linked_ref not in payloads and linked_ref not in queue:
+                queue.append(linked_ref)
+                queue.sort()
+    return payloads
+
+
+def migrate_actor_metadata_storage_refs_v2(arguments: dict) -> dict:
+    project_root, actor_set_refs, write, write_report = (
+        _require_storage_migration_arguments(arguments)
+    )
+    payloads_by_old_ref = _reachable_legacy_payloads(project_root, actor_set_refs)
+    identities_by_old_ref: dict[str, dict] = {}
+    ref_map: dict[str, str] = {}
+    for old_ref, payload in sorted(payloads_by_old_ref.items()):
+        identity = _storage_identity_for_payload(payload)
+        identities_by_old_ref[old_ref] = identity
+        ref_map[old_ref] = dam.canonical_ref_for_storage_identity(identity)
+
+    canonical_payloads: dict[str, dict] = {}
+    mappings: list[dict] = []
+    for old_ref, payload in sorted(payloads_by_old_ref.items()):
+        identity = identities_by_old_ref[old_ref]
+        new_ref = ref_map[old_ref]
+        canonical_payload = _rewrite_known_refs(payload, ref_map)
+        canonical_payload["storage_version"] = dam.STORAGE_VERSION
+        canonical_payload["ref_protocol"] = dam.REF_PROTOCOL
+        canonical_payload["storage_identity"] = copy.deepcopy(identity)
+        dam.validate_loaded_metadata_for_ref(
+            canonical_payload,
+            ref=new_ref,
+            expected_kind=canonical_payload["metadata_kind"],
+        )
+        canonical_payloads[old_ref] = canonical_payload
+        mappings.append(
+            {
+                "old_ref": old_ref,
+                "new_ref": new_ref,
+                "metadata_kind": canonical_payload["metadata_kind"],
+                "semantic_id": _semantic_id(canonical_payload),
+                "status": "pending",
+            }
+        )
+
+    statuses: dict[str, str] = {}
+    for mapping in mappings:
+        old_ref = mapping["old_ref"]
+        status = _preflight_canonical_payload(
+            project_root,
+            mapping["new_ref"],
+            canonical_payloads[old_ref],
+            write=write,
+        )
+        mapping["status"] = status
+        statuses[old_ref] = status
+    _mark_intra_run_ref_conflicts(mappings, canonical_payloads)
+    statuses = {mapping["old_ref"]: mapping["status"] for mapping in mappings}
+
+    state = (
+        "failed"
+        if any(status == "conflicted" for status in statuses.values())
+        else "complete"
+    )
+    if state == "failed":
+        for mapping in mappings:
+            if mapping["status"] == "created":
+                mapping["status"] = "planned"
+    elif write:
+        written_refs: set[str] = set()
+        for mapping in mappings:
+            if mapping["status"] == "created":
+                if mapping["new_ref"] in written_refs:
+                    continue
+                _write_new_canonical_payload(
+                    project_root,
+                    mapping["new_ref"],
+                    canonical_payloads[mapping["old_ref"]],
+                )
+                written_refs.add(mapping["new_ref"])
+    report_ref = _report_ref(mappings)
+    report = {
+        "schema_version": dam.SCHEMA_VERSION,
+        "state": state,
+        "project_root": str(project_root),
+        "write": write,
+        "write_report": write_report,
+        "actor_set_refs": sorted(actor_set_refs),
+        "report_ref": report_ref,
+        "mappings": sorted(
+            mappings,
+            key=lambda item: (
+                item["old_ref"],
+                item["new_ref"],
+                item["metadata_kind"],
+                item["semantic_id"],
+            ),
+        ),
+    }
+    if write_report:
+        report_path = dam.resolve_metadata_ref(project_root, report_ref)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(
+            json.dumps(report, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    return report
 
 
 def migrate_actor_metadata_v2(arguments: dict) -> dict:

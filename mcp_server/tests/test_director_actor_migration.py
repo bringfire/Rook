@@ -18,6 +18,15 @@ def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _read(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
 def test_convert_v1_actor_set_payload_renames_paths_and_preserves_members(tmp_path):
     project_root = tmp_path / "project"
     model = project_root / "Axon.3dm"
@@ -442,3 +451,392 @@ def test_migrate_actor_metadata_v2_preflights_all_files_before_writing(tmp_path)
     assert data["code"] == "path_outside_project_root"
     assert data["field"] == "$.model_path"
     assert not actor_set_path.with_name("set_001.v2.json").exists()
+
+
+def test_migrate_actor_metadata_storage_refs_v2_writes_canonical_short_tree_and_report(
+    tmp_path,
+):
+    root = tmp_path / "project"
+    actor = root / ".rook" / "director_planning" / "actor_sets" / "set_001.json"
+    snapshot = (
+        root
+        / ".rook"
+        / "director_planning"
+        / "selection_snapshots"
+        / "snap_001.json"
+    )
+    subset = (
+        root
+        / ".rook"
+        / "director_planning"
+        / "actor_sets"
+        / "set_001_subsets"
+        / "subset_001.json"
+    )
+    grouping = (
+        root
+        / ".rook"
+        / "director_planning"
+        / "actor_sets"
+        / "set_001_subsets"
+        / "subset_001_band_sets"
+        / "bands_001.json"
+    )
+
+    _write(
+        snapshot,
+        {
+            "schema_version": 2,
+            "metadata_kind": metadata.KIND_SELECTION_SNAPSHOT,
+            "snapshot_id": "snap_001",
+            "objects": [],
+        },
+    )
+    _write(
+        grouping,
+        {
+            "schema_version": 2,
+            "metadata_kind": metadata.KIND_ACTOR_GROUPING,
+            "band_set_id": "bands_001",
+            "parent_actor_set_id": "set_001",
+            "parent_subset_id": "subset_001",
+            "exemplar_selection_snapshot_ref": metadata.ref_from_project_path(
+                root,
+                snapshot,
+            ),
+            "bands": [],
+        },
+    )
+    _write(
+        subset,
+        {
+            "schema_version": 2,
+            "metadata_kind": metadata.KIND_ACTOR_SUBSET,
+            "subset_id": "subset_001",
+            "parent_actor_set_id": "set_001",
+            "acceptance": {
+                "accepted_selection_snapshot_ref": metadata.ref_from_project_path(
+                    root,
+                    snapshot,
+                ),
+            },
+            "band_sets": [
+                {
+                    "band_set_id": "bands_001",
+                    "ref": metadata.ref_from_project_path(root, grouping),
+                }
+            ],
+        },
+    )
+    _write(
+        actor,
+        {
+            "schema_version": 2,
+            "metadata_kind": metadata.KIND_ACTOR_SET,
+            "actor_set_id": "set_001",
+            "source_snapshot_ref": metadata.ref_from_project_path(root, snapshot),
+            "subsets": [
+                {
+                    "subset_id": "subset_001",
+                    "ref": metadata.ref_from_project_path(root, subset),
+                }
+            ],
+        },
+    )
+
+    result = migration.migrate_actor_metadata_storage_refs_v2(
+        {
+            "project_root": str(root),
+            "actor_set_refs": [metadata.ref_from_project_path(root, actor)],
+            "write": True,
+            "write_report": True,
+        }
+    )
+
+    assert result["state"] == "complete"
+    assert result["report_ref"].startswith(".rook/director/v2/migration_reports/mig_")
+    assert all(
+        entry["new_ref"].startswith(".rook/director/v2/")
+        for entry in result["mappings"]
+    )
+    assert {entry["status"] for entry in result["mappings"]} == {"created"}
+    assert actor.exists()
+    assert snapshot.exists()
+    report_path = metadata.resolve_metadata_ref(root, result["report_ref"])
+    assert report_path.exists()
+    canonical_actor_entry = next(
+        entry
+        for entry in result["mappings"]
+        if entry["metadata_kind"] == metadata.KIND_ACTOR_SET
+    )
+    canonical_actor = _read(
+        metadata.resolve_metadata_ref(root, canonical_actor_entry["new_ref"])
+    )
+    canonical_subset_entry = next(
+        entry
+        for entry in result["mappings"]
+        if entry["metadata_kind"] == metadata.KIND_ACTOR_SUBSET
+    )
+    canonical_subset = _read(
+        metadata.resolve_metadata_ref(root, canonical_subset_entry["new_ref"])
+    )
+    canonical_grouping_entry = next(
+        entry
+        for entry in result["mappings"]
+        if entry["metadata_kind"] == metadata.KIND_ACTOR_GROUPING
+    )
+    canonical_grouping = _read(
+        metadata.resolve_metadata_ref(root, canonical_grouping_entry["new_ref"])
+    )
+    assert canonical_actor["subsets"][0]["ref"].startswith(
+        ".rook/director/v2/subsets/sub_"
+    )
+    assert canonical_actor["source_snapshot_ref"].startswith(
+        ".rook/director/v2/snapshots/snap_"
+    )
+    assert canonical_subset["acceptance"]["accepted_selection_snapshot_ref"].startswith(
+        ".rook/director/v2/snapshots/snap_"
+    )
+    assert canonical_subset["band_sets"][0]["ref"].startswith(
+        ".rook/director/v2/groupings/grp_"
+    )
+    assert canonical_grouping["exemplar_selection_snapshot_ref"].startswith(
+        ".rook/director/v2/snapshots/snap_"
+    )
+
+
+def test_migrate_actor_metadata_storage_refs_v2_rerun_reuses_same_report_ref(tmp_path):
+    root = tmp_path / "project"
+    actor = root / ".rook" / "director_planning" / "actor_sets" / "set_001.json"
+    _write(
+        actor,
+        {
+            "schema_version": 2,
+            "metadata_kind": metadata.KIND_ACTOR_SET,
+            "actor_set_id": "set_001",
+            "subsets": [],
+        },
+    )
+    args = {
+        "project_root": str(root),
+        "actor_set_refs": [metadata.ref_from_project_path(root, actor)],
+        "write": True,
+        "write_report": True,
+    }
+
+    first = migration.migrate_actor_metadata_storage_refs_v2(args)
+    second = migration.migrate_actor_metadata_storage_refs_v2(args)
+
+    assert first["report_ref"] == second["report_ref"]
+    assert {entry["status"] for entry in first["mappings"]} == {"created"}
+    assert {entry["status"] for entry in second["mappings"]} == {"reused"}
+
+
+def test_migrate_actor_metadata_storage_refs_v2_dry_run_marks_planned_without_writing(
+    tmp_path,
+):
+    root = tmp_path / "project"
+    actor = root / ".rook" / "director_planning" / "actor_sets" / "set_001.json"
+    _write(
+        actor,
+        {
+            "schema_version": 2,
+            "metadata_kind": metadata.KIND_ACTOR_SET,
+            "actor_set_id": "set_001",
+            "subsets": [],
+        },
+    )
+
+    result = migration.migrate_actor_metadata_storage_refs_v2(
+        {
+            "project_root": str(root),
+            "actor_set_refs": [metadata.ref_from_project_path(root, actor)],
+            "write": False,
+            "write_report": False,
+        }
+    )
+
+    assert result["state"] == "complete"
+    assert {entry["status"] for entry in result["mappings"]} == {"planned"}
+    canonical_actor = metadata.resolve_metadata_ref(
+        root,
+        result["mappings"][0]["new_ref"],
+    )
+    assert not canonical_actor.exists()
+
+
+def test_migrate_actor_metadata_storage_refs_v2_conflict_fails_overall(tmp_path):
+    root = tmp_path / "project"
+    actor = root / ".rook" / "director_planning" / "actor_sets" / "set_001.json"
+    _write(
+        actor,
+        {
+            "schema_version": 2,
+            "metadata_kind": metadata.KIND_ACTOR_SET,
+            "actor_set_id": "set_001",
+            "subsets": [],
+            "summary": "source",
+        },
+    )
+    identity = {"kind": "actor_set", "actor_set_id": "set_001"}
+    canonical_ref = metadata.canonical_ref_for_storage_identity(identity)
+    canonical_path = metadata.resolve_metadata_ref(root, canonical_ref)
+    _write(
+        canonical_path,
+        {
+            "schema_version": 2,
+            "metadata_kind": metadata.KIND_ACTOR_SET,
+            "storage_version": 2,
+            "ref_protocol": metadata.REF_PROTOCOL,
+            "storage_identity": identity,
+            "actor_set_id": "set_001",
+            "summary": "different",
+        },
+    )
+
+    result = migration.migrate_actor_metadata_storage_refs_v2(
+        {
+            "project_root": str(root),
+            "actor_set_refs": [metadata.ref_from_project_path(root, actor)],
+            "write": True,
+            "write_report": True,
+        }
+    )
+
+    assert result["state"] == "failed"
+    assert result["mappings"][0]["status"] == "conflicted"
+
+
+def test_migrate_actor_metadata_storage_refs_v2_conflict_writes_no_partial_tree(
+    tmp_path,
+):
+    root = tmp_path / "project"
+    actor = root / ".rook" / "director_planning" / "actor_sets" / "set_001.json"
+    subset = (
+        root
+        / ".rook"
+        / "director_planning"
+        / "actor_sets"
+        / "set_001_subsets"
+        / "subset_001.json"
+    )
+    _write(
+        subset,
+        {
+            "schema_version": 2,
+            "metadata_kind": metadata.KIND_ACTOR_SUBSET,
+            "subset_id": "subset_001",
+            "parent_actor_set_id": "set_001",
+            "summary": "source subset",
+        },
+    )
+    _write(
+        actor,
+        {
+            "schema_version": 2,
+            "metadata_kind": metadata.KIND_ACTOR_SET,
+            "actor_set_id": "set_001",
+            "subsets": [
+                {
+                    "subset_id": "subset_001",
+                    "ref": metadata.ref_from_project_path(root, subset),
+                }
+            ],
+        },
+    )
+    subset_identity = {
+        "kind": "subset",
+        "actor_set_id": "set_001",
+        "subset_id": "subset_001",
+    }
+    canonical_subset_ref = metadata.canonical_ref_for_storage_identity(
+        subset_identity,
+    )
+    _write(
+        metadata.resolve_metadata_ref(root, canonical_subset_ref),
+        {
+            "schema_version": 2,
+            "metadata_kind": metadata.KIND_ACTOR_SUBSET,
+            "storage_version": 2,
+            "ref_protocol": metadata.REF_PROTOCOL,
+            "storage_identity": subset_identity,
+            "subset_id": "subset_001",
+            "parent_actor_set_id": "set_001",
+            "summary": "different subset",
+        },
+    )
+
+    result = migration.migrate_actor_metadata_storage_refs_v2(
+        {
+            "project_root": str(root),
+            "actor_set_refs": [metadata.ref_from_project_path(root, actor)],
+            "write": True,
+            "write_report": True,
+        }
+    )
+
+    statuses = {
+        entry["metadata_kind"]: entry["status"]
+        for entry in result["mappings"]
+    }
+    actor_entry = next(
+        entry
+        for entry in result["mappings"]
+        if entry["metadata_kind"] == metadata.KIND_ACTOR_SET
+    )
+    assert result["state"] == "failed"
+    assert statuses[metadata.KIND_ACTOR_SET] == "planned"
+    assert statuses[metadata.KIND_ACTOR_SUBSET] == "conflicted"
+    assert not metadata.resolve_metadata_ref(root, actor_entry["new_ref"]).exists()
+
+
+def test_migrate_actor_metadata_storage_refs_v2_intra_run_ref_conflict_fails(
+    tmp_path,
+):
+    root = tmp_path / "project"
+    actor_a = root / ".rook" / "director_planning" / "actor_sets" / "set_001_a.json"
+    actor_b = root / ".rook" / "director_planning" / "actor_sets" / "set_001_b.json"
+    _write(
+        actor_a,
+        {
+            "schema_version": 2,
+            "metadata_kind": metadata.KIND_ACTOR_SET,
+            "actor_set_id": "set_001",
+            "subsets": [],
+            "summary": "first source",
+        },
+    )
+    _write(
+        actor_b,
+        {
+            "schema_version": 2,
+            "metadata_kind": metadata.KIND_ACTOR_SET,
+            "actor_set_id": "set_001",
+            "subsets": [],
+            "summary": "second source",
+        },
+    )
+
+    result = migration.migrate_actor_metadata_storage_refs_v2(
+        {
+            "project_root": str(root),
+            "actor_set_refs": [
+                metadata.ref_from_project_path(root, actor_a),
+                metadata.ref_from_project_path(root, actor_b),
+            ],
+            "write": True,
+            "write_report": True,
+        }
+    )
+
+    assert result["state"] == "failed"
+    assert {entry["new_ref"] for entry in result["mappings"]} == {
+        metadata.canonical_ref_for_storage_identity(
+            {"kind": "actor_set", "actor_set_id": "set_001"}
+        )
+    }
+    assert {entry["status"] for entry in result["mappings"]} == {"conflicted"}
+    assert not metadata.resolve_metadata_ref(
+        root,
+        result["mappings"][0]["new_ref"],
+    ).exists()
