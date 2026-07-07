@@ -356,7 +356,7 @@ def test_set_required_on_disabled_route_is_rejected():
 
 
 @pytest.mark.parametrize("required", [True, False])
-def test_set_required_applies_to_added_unresolved_intent_route(required):
+def test_set_required_on_added_unresolved_intent_route_is_rejected(required):
     request = _valid_request()
     request["routing_delta"]["set_required"] = {
         "missing_desired_output_value": required
@@ -364,14 +364,16 @@ def test_set_required_applies_to_added_unresolved_intent_route(required):
 
     result = materialize_planner_worker_contract_request(request)
 
-    assert result.diagnostics == ()
+    diagnostic = _diagnostics_by_code(result.diagnostics, "route_delta_not_allowed")[0]
+    assert diagnostic.route_id == "missing_desired_output_value"
+    assert diagnostic.path == "routing_delta.set_required"
     visible_sources = result.resolved_routing_artifact["routes"][0]["visible_sources"]
     added_route = next(
         route
         for route in visible_sources
         if route["route_id"] == "missing_desired_output_value"
     )
-    assert added_route["required"] is required
+    assert added_route["required"] is False
 
 
 @pytest.mark.parametrize(

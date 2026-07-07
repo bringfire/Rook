@@ -663,7 +663,15 @@ def _resolved_routing_artifact(
             continue
         added_route = dict(expected)
         if route_id in set_required:
-            added_route["required"] = set_required[route_id]
+            diagnostics.append(
+                _diagnostic(
+                    "route_delta_not_allowed",
+                    "routing",
+                    "Unresolved-intent routes remain optional in LM7A.",
+                    path="routing_delta.set_required",
+                    route_id=route_id,
+                )
+            )
         visible_sources.append(added_route)
         added_route_ids.add(route_id)
 
@@ -701,7 +709,7 @@ def _resolved_routing_artifact(
                     route_id=route_id,
                 )
             )
-        if permissions is None or permissions.get("set_required", False):
+        if permissions is not None and permissions.get("set_required", False):
             for visible_source in visible_sources:
                 if visible_source["route_id"] == route_id:
                     visible_source["required"] = set_required[route_id]
