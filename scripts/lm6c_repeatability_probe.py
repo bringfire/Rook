@@ -67,6 +67,11 @@ def _args(argv: list[str] | None) -> argparse.Namespace:
         type=_positive_int,
         default=DEFAULT_ATTEMPT_TIMEOUT_S,
     )
+    parser.add_argument(
+        "--lm6a-retry-clean-observation",
+        action="store_true",
+        help="Pass --retry-clean-observation through to LM6A.",
+    )
     return parser.parse_args(argv)
 
 
@@ -160,6 +165,7 @@ def _build_summary(
     model: str,
 ) -> dict[str, Any]:
     terminal_counts = Counter(str(row.get("terminal_category")) for row in rows)
+    retry_rows = [row for row in rows if row.get("retry_attempted") is True]
     worker_rows = [
         row
         for row in rows
@@ -176,6 +182,23 @@ def _build_summary(
         "worker_reached_count": len(worker_rows),
         "worker_terminal_counts": _compact_counts(worker_counts),
         "accepted_count": terminal_counts["accepted"],
+        "retry_attempted_count": len(retry_rows),
+        "retry_recovered_count": sum(
+            1
+            for row in retry_rows
+            if row.get("final_worker_response_kind") == "action_request"
+            and row.get("terminal_category") in {"accepted", "rejected"}
+        ),
+        "retry_declined_count": sum(
+            1
+            for row in retry_rows
+            if row.get("terminal_category") == "worker_declined"
+        ),
+        "retry_publication_failed_count": sum(
+            1
+            for row in retry_rows
+            if row.get("terminal_category") == "publication_failed"
+        ),
         "leak_marker_match_count": sum(
             int(row.get("leak_marker_match_count") or 0) for row in rows
         ),
@@ -251,6 +274,11 @@ def _base_attempt_row(*, attempt_index: int) -> dict[str, Any]:
         "stdout_excerpt": "",
         "stderr_excerpt": "",
         "failure_reason": None,
+        "retry_attempted": False,
+        "retry_count": 0,
+        "first_worker_response_kind": None,
+        "first_worker_decline_reason": None,
+        "final_worker_response_kind": None,
         "leak_check_performed": False,
         "leak_marker_matches": [],
         "leak_marker_match_count": 0,
@@ -312,6 +340,25 @@ def _completed_text(value: object) -> str:
     return str(value)
 
 
+def _copy_retry_metadata(row: dict[str, Any], decision: Mapping[str, Any]) -> None:
+    retry_attempted = decision.get("retry_attempted")
+    if isinstance(retry_attempted, bool):
+        row["retry_attempted"] = retry_attempted
+
+    retry_count = decision.get("retry_count")
+    if isinstance(retry_count, int) and not isinstance(retry_count, bool):
+        row["retry_count"] = retry_count
+
+    for key in (
+        "first_worker_response_kind",
+        "first_worker_decline_reason",
+        "final_worker_response_kind",
+    ):
+        value = decision.get(key)
+        if isinstance(value, str):
+            row[key] = value
+
+
 def _row_from_completed_lm6a(
     *,
     attempt_index: int,
@@ -362,6 +409,7 @@ def _row_from_completed_lm6a(
     terminal_category, failure_reason = _classify_decision(decision)
     decision_value = decision.get("decision")
     reason_value = decision.get("reason")
+    _copy_retry_metadata(row, decision)
     row.update(
         {
             "lm6a_decision": decision_value if isinstance(decision_value, str) else None,
@@ -373,18 +421,29 @@ def _row_from_completed_lm6a(
     return row
 
 
-def _manifest(*, attempts: int, model: str) -> dict[str, Any]:
+def _manifest(
+    *,
+    attempts: int,
+    model: str,
+    lm6a_retry_clean_observation: bool,
+) -> dict[str, Any]:
     return {
         "schema": SCRIPT_SCHEMA,
         "git_commit": _git_short_sha(),
         "attempts": attempts,
         "model": model,
+        "lm6a_retry_clean_observation": lm6a_retry_clean_observation,
         "canonical_evidence": _canonical_evidence(attempts=attempts, model=model),
     }
 
 
-def _lm6a_command(*, model: str, lm6a_runs_dir: Path) -> list[str]:
-    return [
+def _lm6a_command(
+    *,
+    model: str,
+    lm6a_runs_dir: Path,
+    retry_clean_observation: bool,
+) -> list[str]:
+    command = [
         sys.executable,
         str(_REPO_ROOT / "scripts" / "lm6a_live_worker_splice_probe.py"),
         "--model",
@@ -392,6 +451,9 @@ def _lm6a_command(*, model: str, lm6a_runs_dir: Path) -> list[str]:
         "--run-dir",
         str(lm6a_runs_dir),
     ]
+    if retry_clean_observation:
+        command.append("--retry-clean-observation")
+    return command
 
 
 def _timeout_row(
@@ -440,12 +502,20 @@ def _run_probe(
     model: str,
     run_root: str | Path,
     attempt_timeout_s: int,
+    lm6a_retry_clean_observation: bool = False,
     run_subprocess=subprocess.run,
 ) -> Path:
     run_dir = _new_run_dir(run_root)
     lm6a_runs_root = run_dir / "lm6a_runs"
     lm6a_runs_root.mkdir(parents=True, exist_ok=True)
-    _write_json(run_dir / "manifest.json", _manifest(attempts=attempts, model=model))
+    _write_json(
+        run_dir / "manifest.json",
+        _manifest(
+            attempts=attempts,
+            model=model,
+            lm6a_retry_clean_observation=lm6a_retry_clean_observation,
+        ),
+    )
 
     rows: list[dict[str, Any]] = []
     attempts_path = run_dir / "attempts.jsonl"
@@ -463,7 +533,11 @@ def _run_probe(
             continue
 
         before = set(lm6a_runs_dir.glob("lm6a-*"))
-        command = _lm6a_command(model=model, lm6a_runs_dir=lm6a_runs_dir)
+        command = _lm6a_command(
+            model=model,
+            lm6a_runs_dir=lm6a_runs_dir,
+            retry_clean_observation=lm6a_retry_clean_observation,
+        )
         try:
             completed = run_subprocess(
                 command,
@@ -523,6 +597,7 @@ def main(argv: list[str] | None = None) -> int:
         model=args.model,
         run_root=args.run_dir,
         attempt_timeout_s=args.attempt_timeout_s,
+        lm6a_retry_clean_observation=args.lm6a_retry_clean_observation,
     )
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     print(
