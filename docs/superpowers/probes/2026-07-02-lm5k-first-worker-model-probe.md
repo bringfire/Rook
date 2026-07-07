@@ -1,4 +1,4 @@
-# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S, LM5T, LM5U, LM5Y, LM6A & LM6C — First Worker Model Probe (2026-07-02)
+# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S, LM5T, LM5U, LM5Y, LM6A, LM6C & LM6E — First Worker Model Probe (2026-07-02)
 
 **Doctrine:** evidence, not CI. This summary is the committed artifact; raw
 runs stay local (spec §5, `docs/superpowers/specs/2026-07-02-lm5k-first-worker-model-probe-design.md`).
@@ -977,6 +977,142 @@ observation instead of an action. That can be studied as a small
 decline-analysis/repeatability slice, or addressed architecturally through the
 clarify/resupply pull-loop.
 
+## LM6E retry-enabled repeatability run (commit `75d8d4cc`)
+
+LM6E adds a diagnostic-only retry variant over the frozen bounded-worker
+protocol. The retry path is explicit and default-off. It allows exactly one
+second worker turn after a clean observation-only non-action disposition, without
+changing the evidence packet, acceptance criteria, model, publication helper,
+worker-action applier, live dispatch semantics, or LM6C scheduled-attempt
+accounting.
+
+Canonical identity:
+
+- git commit: `75d8d4cc`
+- wrapper run:
+  `probe_runs/lm6c-20260707T011533Z-75d8d4cc/`
+- command:
+  `scripts/lm6c_repeatability_probe.py --lm6a-retry-clean-observation`
+- model: `gemma4:12b-it-qat`
+- scheduled attempts: `5`
+- child protocol: LM6A live worker splice with retry flag enabled
+- retry policy: observation-only, exactly one retry, default-off outside this
+  explicit variant
+
+### Retry-variant result
+
+The canonical retry-enabled run reached LM6A in all scheduled attempts:
+
+```text
+scheduled_attempts: 5
+lm6a_invoked_count: 5
+worker_reached_count: 5
+preflight_failed: 0
+gate_failed: 0
+publication_failed: 0
+wrapper_error: 0
+leak_marker_match_count: 0
+```
+
+Terminal decisions:
+
+```text
+accepted: 5
+```
+
+Retry counters:
+
+```text
+retry_attempted_count: 0
+retry_recovered_count: 0
+retry_declined_count: 0
+retry_publication_failed_count: 0
+```
+
+Per-attempt worker disposition:
+
+```text
+attempt-001: first action_request, accepted, verify_repair_succeeded
+attempt-002: first action_request, accepted, verify_repair_succeeded
+attempt-003: first action_request, accepted, verify_repair_succeeded
+attempt-004: first action_request, accepted, verify_repair_succeeded
+attempt-005: first action_request, accepted, verify_repair_succeeded
+```
+
+The retry path was available but not exercised. There was no clean observation
+wobble in this N=5 run.
+
+Worker-authored action bodies were simple body-mode literals:
+
+```text
+A = 1.0;
+A = 0.0;
+A = 0.0;
+A = 1.0;
+A = 0.0;
+```
+
+Leak scan:
+
+```text
+PROBE_REPAIR_CODE: 0 matches
+A = 42.0: 0 matches
+BindStepSpec.base_params.code: 0 matches
+```
+
+### LM6E interpretation
+
+LM6E did not produce retry-recovery evidence because no retry-eligible
+observation occurred. The run instead adds a narrower but useful fact:
+
+```text
+with the retry variant enabled, the frozen protocol still reached and accepted
+the live verifier-floor repair path 5/5 times, with no hidden-answer leak markers
+and no retry needed.
+```
+
+This should not be read as proof that the bounded retry recovers observation
+wobble. It should be read as compatibility evidence for the retry-enabled
+variant plus an additional repeatability data point: five more scheduled
+attempts, five worker-path reaches, five accepted live repairs.
+
+The dormant retry path is not surprising. If the LM6C observed clean-decline
+rate were treated as the working rate estimate (`1/5`), the chance of seeing
+zero clean declines in another `N=5` run is:
+
+```text
+0.8^5 ~= 33%
+```
+
+So this run does not disprove the earlier observation wobble. It simply did not
+sample it.
+
+Because the retry hook was not exercised, LM6E does not justify production retry
+policy by itself. The worker line now has two clean repeatability observations:
+
+```text
+LM6C no-retry:       4/5 accepted, 1/5 clean observation decline
+LM6E retry-enabled:  5/5 accepted, 0/5 retry attempted
+```
+
+Pooled post-freeze evidence:
+
+```text
+worker path reached:        10/10
+accepted:                    9/10
+clean observation decline:   1/10
+leak markers:                0
+```
+
+The first future retry-enabled live run that naturally produces a clean
+observation can be recorded opportunistically as retry-recovery evidence. No
+retry-stress slice is warranted just to force that condition.
+
+That is enough to stop mutating the worker evidence/protocol surface for this
+fixture. The next line should move upstream to Planner-side authoring:
+selecting templates, binding initial params, routing source facts, and declaring
+unresolved intent slots without guessing.
+
 ## Updated comparison keys
 
 Round 1: `(lm5j.prompt_text:v1, lm5k_golden_repair_v1/fresh_compiled_graph,
@@ -1040,6 +1176,12 @@ LM6C: `(LM6C repeatability wrapper, five scheduled independent full LM6A
 attempts, fresh gh_document_new per attempt, no replacement attempts, same
 gemma4:12b-it-qat/direct Ollama/frozen LM6B protocol, scheduled and
 worker-reached denominators reported separately, report-only leak marker scan)`.
+
+LM6E: `(LM6C repeatability wrapper, --lm6a-retry-clean-observation enabled,
+five scheduled independent full LM6A attempts, fresh gh_document_new per
+attempt, same gemma4:12b-it-qat/direct Ollama/frozen LM6B protocol, one
+observation-only retry budget available but not exercised in the canonical run,
+retry counters reported separately, report-only leak marker scan)`.
 
 Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
 new experiment.
