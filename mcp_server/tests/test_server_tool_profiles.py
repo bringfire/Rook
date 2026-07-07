@@ -13,7 +13,7 @@ _GATED = {"rhino_command_experiment", "rhino_learn_next", "rhino_prepare_geometr
 
 
 def _list_names(monkeypatch, profile_value):
-    # Default flag-off state so the live surface is the canonical 441.
+    # Default flag-off state so the live surface is the canonical 442.
     monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
     monkeypatch.delenv("ROOK_MCP_TARGET_MODE", raising=False)
     if profile_value is None:
@@ -24,27 +24,27 @@ def _list_names(monkeypatch, profile_value):
     return {t.name for t in tools}
 
 
-def test_full_surface_is_441_and_gates_deprecated(monkeypatch):
+def test_full_surface_is_442_and_gates_deprecated(monkeypatch):
     full = _list_names(monkeypatch, None)  # absent => full
     # 431 pre-meta base (427 #382 + mesh2splat #384 + openrouter #385
     # + Director v2 actor metadata tools + source occurrence capture) + 4
     # rook_tools_* meta-tools + rhino_director_canvas_extract (#post-436) +
     # rhino_director_package_take (Slice 1) + rhino_director_prepare_take
     # (Slice 2) + rhino_director_compile_take and rhino_director_worker_play
-    # (Slice 3) = 441.
-    assert len(full) == 441
+    # (Slice 3) + rhino_director_capture_take (Slice 4A) = 442.
+    assert len(full) == 442
     assert _GATED.isdisjoint(full)
     assert PUBLIC_LEAN_TOOL_NAMES <= full
     assert PUBLIC_READONLY_TOOL_NAMES <= full
     assert SENTINEL_TOOL_NAMES <= full
 
 
-def test_all_live_tools_is_unprofiled_441(monkeypatch):
+def test_all_live_tools_is_unprofiled_442(monkeypatch):
     monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
-    # Even with a restrictive profile set, the unprofiled source is the full 441.
+    # Even with a restrictive profile set, the unprofiled source is the full 442.
     monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "lean")
     names = {t.name for t in asyncio.run(server._all_live_tools())}
-    assert len(names) == 441
+    assert len(names) == 442
     assert _GATED.isdisjoint(names)
 
 
@@ -74,13 +74,21 @@ def test_readonly_partition_over_live_surface(monkeypatch):
     full = _list_names(monkeypatch, None)
     ro = set(PUBLIC_READONLY_TOOL_NAMES)
     assert ro <= full
-    assert {"rhino_director_compile_take", "rhino_director_worker_play"} <= full
-    assert {"rhino_director_compile_take", "rhino_director_worker_play"}.isdisjoint(ro)
+    assert {
+        "rhino_director_compile_take",
+        "rhino_director_worker_play",
+        "rhino_director_capture_take",
+    } <= full
+    assert {
+        "rhino_director_compile_take",
+        "rhino_director_worker_play",
+        "rhino_director_capture_take",
+    }.isdisjoint(ro)
     assert ro.isdisjoint(SENTINEL_TOOL_NAMES)
     excluded = full - ro
     assert ro | excluded == full
     assert ro.isdisjoint(excluded)
-    assert len(ro) + len(excluded) == len(full) == 441
+    assert len(ro) + len(excluded) == len(full) == 442
 
 
 def _call_text(name, args=None):
