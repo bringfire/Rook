@@ -43,8 +43,19 @@ evidence; frames already written are left on disk (the run root is reported as f
 and is never assembled — Decision 6).
 
 **Full-range only:** `capture` combined with `fromFrame > 0` or a partial `playTo` is
-`invalid_input`. Chunked/resumable capture is a 4B (crash recovery) concern; a capture
-invocation is one full deterministic take.
+`invalid_input` (see the wire rule below). Chunked/resumable capture is a 4B (crash
+recovery) concern; a capture invocation is one full deterministic take.
+
+**Wire rule for capture-mode request failures (pinned):** every failure specific to
+the `capture` block — capture-block parse/validation errors (closed schema, odd
+dimensions, missing/`"current"` displayMode, path policy, collision) and the
+capture×chunking interaction — returns typed `data.reason = "invalid_input"` (or the
+more specific `output_policy_violation`/`run_root_exists` where defined), never a
+generic `SendError` and never S3's `track_invalid` request_parameters path. Python
+adds `invalid_input` to the known native reasons for the capture wrapper so it
+re-raises typed instead of collapsing to `capture_route_failed`. All failure paths
+that exist in S3 (no-capture requests, shared parameters like `driftTolerance`)
+keep their exact S3 behavior — the regression gate covers them.
 
 ## Decision 2: Policy-shaped capture paths — native never accepts a free write target
 
@@ -52,9 +63,8 @@ Request extension (native wire contract, camelCase):
 
 ```json
 {
-  "packageRoot": "...",
-  "trackPath": "...",
   "expectedDocumentPath": "...",
+  "trackPath": "...",
   "capture": {
     "runRoot": "<director_output_root>/takes/<take_id>/<pass_id>",
     "framesDir": "<runRoot>/frames",
@@ -64,6 +74,11 @@ Request extension (native wire contract, camelCase):
   }
 }
 ```
+
+(The S3 request surface — `expectedDocumentPath`, `trackPath`, `fromFrame`, `playTo`,
+`probeFrames`, `driftTolerance` — is unchanged; `capture` is the only addition. There
+is no `packageRoot` at the native layer: Python owns package verification and
+document opening, native owns only the document/track/capture contract.)
 
 Native validation (all failures typed, before any frame is played):
 
@@ -87,6 +102,23 @@ Native validation (all failures typed, before any frame is played):
 
 Python constructs these paths (Decision 6 layout) but native re-verifies; the
 orchestrator is not trusted with path policy.
+
+**Pre-frame ordering (pinned, so pre-frame failures have a run root to mark):**
+
+1. Parse request incl. capture block shape (closed schema, dimensions,
+   displayMode presence — `invalid_input` class).
+2. Load + parse track, incl. `camera_frames` contract when capture is present
+   (`track_invalid` class).
+3. Document gate (`wrong_document`) and capture path policy + collision checks
+   (`output_policy_violation` / `run_root_exists`).
+4. **Reserve the run root:** create `runRoot` and `runRoot/frames`.
+5. Resolve the display mode (`display_mode_missing`).
+6. Pristine self-gate, then the frame loop.
+
+Steps 1–3 fail with no run root created (nothing to clean, no collision poisoning a
+retry). From step 4 onward, any failure — including `display_mode_missing` — leaves
+the empty reserved run root behind, and Python marks it `state: "failed"` (Decision
+6). Gate C asserts exactly this: typed failure, zero frames, failed run root.
 
 ## Decision 3: Camera application from `track.camera_frames`
 
@@ -115,10 +147,25 @@ S3's compile always emits `camera_frames` (`director_worker_compile.py` →
 
 ## Decision 4: Display mode — resolve once, fail hard, readback per frame
 
-- Resolution happens once, before frame 0, via the existing strict resolver
-  (`ResolveDisplayModeId`, `DirectorHandler.cpp:1609` — name or UUID). A mode that
-  does not resolve → `display_mode_missing` (translated from the resolver's generic
-  throw; never generic `invalid_input`).
+- **`capture.displayMode` is required, non-empty, and must not be `"current"`**
+  (case-insensitive) → `invalid_input`. Capture determinism forbids inheriting the
+  worker's ambient display mode; `display_mode_missing` is reserved for a concrete
+  name/UUID that fails to resolve.
+- Resolution happens once, before frame 0 (after run-root reservation — Decision 2
+  ordering), using the same strict name-or-UUID resolution logic as the existing
+  single-frame path. A mode that does not resolve → `display_mode_missing`
+  (translated from the resolver's throw; never generic `invalid_input`).
+- **Linkage (pinned):** `ResolveDisplayModeId`, `CurrentDisplayModeId`, and
+  `DisplayModeToJson` currently live in `DirectorHandler.cpp`'s anonymous namespace
+  (internal linkage) — "reuse" requires extraction. 4A extracts them into a shared
+  `DirectorDisplayMode.{h,cpp}` under `src/RookNative/Handlers/`, with
+  `DirectorHandler.cpp` updated to call the shared versions (mechanical move,
+  behavior-identical — the strictness of mode verification must be single-sourced,
+  not duplicated; duplication was considered and rejected because divergence between
+  two copies of the resolution/readback logic is precisely a mode-verification bug).
+  The `"current"`-rejection rule above is enforced by the worker-play call site, not
+  by changing the shared resolver's semantics (the single-frame route legitimately
+  accepts `current`).
 - The resolved mode is set on the capture viewport once (inside the guard scope),
   then **verified by readback after camera application on every frame** before
   capture (the `CurrentDisplayModeId` readback pattern, `DirectorHandler.cpp:1684`).
@@ -224,14 +271,18 @@ combined convenience wrapper can come later if usage demands it.)
 
 ## Error taxonomy (additive; S2/S3 codes frozen)
 
-Native `data.reason` additions: `output_policy_violation` (reused semantics from the
-assemble policy), `run_root_exists`, `display_mode_missing`, `display_mode_mismatch`,
-`capture_failed`. Existing S3 reasons pass through unchanged.
+Native `data.reason` additions: `invalid_input` (capture-mode request-shape
+failures — the Decision 1 wire rule), `output_policy_violation` (reused semantics
+from the assemble policy), `run_root_exists`, `display_mode_missing`,
+`display_mode_mismatch`, `capture_failed`. Existing S3 reasons pass through
+unchanged.
 
 Python additions: `unsupported_pass_type`, `pass_output_incomplete`,
 `capture_route_failed` (unknown native reason fallback, mirroring
-`play_route_failed`). Known native reasons re-raise under their own codes
-(KNOWN_NATIVE_REASONS extended with the five native additions).
+`play_route_failed`). Known native reasons re-raise under their own codes — the
+capture wrapper's known-reason set is the S3 set plus the six native additions
+above, including `invalid_input`, so no typed native failure collapses to
+`capture_route_failed`.
 
 ## Native response additions (camelCase, only when `capture` present)
 
@@ -239,12 +290,17 @@ Python additions: `unsupported_pass_type`, `pass_output_incomplete`,
 "capture": {
   "runRoot": "...", "framesDir": "...", "framesWritten": 240,
   "displayModeRequested": "Arctic", "displayModeResolved": { "id": "...", "name": "Arctic" },
-  "timing": { "captureTotalMs": 0.0, "capturePerFrameMs": 0.0 }
+  "timing": { "captureTotalMs": 0.0, "capturePerFrameMs": [0.0, 0.0] }
 }
 ```
 
-Existing `timing.{totalMs,perFrameMs}` keep covering the whole loop; the capture
-split feeds Gate D's throughput budget.
+**Timing shape (pinned):** `capturePerFrameMs` is an **array**, one entry per frame
+in play order, length exactly `framesWritten` — Gate D requires the per-frame
+distribution, not a mean. `captureTotalMs` is its sum. Existing
+`timing.{totalMs,perFrameMs}` keep their S3 shapes and cover the whole loop;
+non-capture time per run derives from `totalMs - captureTotalMs`. The pass evidence
+Python writes (Decision 6 step 6) stores the aggregate summary (total, mean, p95,
+max) and keeps the full array in the native response only.
 
 ## Test gates
 
@@ -264,7 +320,10 @@ Unit (all mocked-native where applicable; TDD):
    (validated against `director_video.py:_validate_manifest_identity` and the
    `state == "complete"` gate — imported, not duplicated).
 7. Even-dimension validation; closed capture schema (unknown field → invalid_input);
-   capture + fromFrame/playTo chunking → invalid_input.
+   capture + fromFrame/playTo chunking → invalid_input; `displayMode` absent, empty,
+   or `"current"` (any case) → invalid_input.
+8. Capture timing contract: `capturePerFrameMs` array length equals `framesWritten`;
+   pass evidence stores the aggregate summary (total, mean, p95, max).
 
 Live gates (current manually-managed Rhino instance, saved scratch doc, opt-in env
 vars, deploy ritual unchanged):
