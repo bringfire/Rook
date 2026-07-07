@@ -198,7 +198,7 @@ def test_intent_warning_does_not_block_validity():
     assert report["phases"]["intent"]["diagnostics"][0]["severity"] == "warning"
 
 
-def test_contract_phase_warns_when_routing_error_prevents_evaluation():
+def test_routing_error_still_evaluates_contract_and_source_routing():
     request = _valid_request()
     request["routing_delta"]["enable_routes"] = ["missing_route"]
 
@@ -207,6 +207,18 @@ def test_contract_phase_warns_when_routing_error_prevents_evaluation():
     assert report["valid"] is False
     assert report["phases"]["contract"]["valid"] is True
     assert "unknown_route_id" in _codes(report, "routing")
-    assert "contract_not_evaluated" in _codes(report, "contract")
-    assert report["phases"]["contract"]["diagnostics"][0]["severity"] == "warning"
-    assert report["resolved"]["workflow_contract_fingerprint"] is None
+    assert "contract_not_evaluated" not in _codes(report, "contract")
+    assert report["resolved"]["workflow_contract_fingerprint"].startswith("sha256:")
+    assert report["phases"]["routing"]["source_routing_report"] is not None
+
+
+def test_intent_error_still_evaluates_contract_and_source_routing():
+    request = _valid_request()
+    request["intent_slots"] = []
+
+    report = validate_planner_worker_contract_request(request)
+
+    assert report["valid"] is False
+    assert "unresolved_intent_route_missing_slot" in _codes(report, "intent")
+    assert report["resolved"]["workflow_contract_fingerprint"].startswith("sha256:")
+    assert report["phases"]["routing"]["source_routing_report"] is not None

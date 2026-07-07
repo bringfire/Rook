@@ -124,14 +124,6 @@ def materialize_planner_worker_contract_request(
     all_diagnostics = tuple(
         diagnostics + contract_diagnostics + routing_diagnostics + intent_diagnostics
     )
-    if _has_errors(list(all_diagnostics)):
-        return PlannerWorkerContractMaterialization(
-            request_payload=request_copy,
-            workflow_contract_payload=None,
-            resolved_routing_artifact=None,
-            worker_node_ids=(),
-            diagnostics=all_diagnostics,
-        )
     return PlannerWorkerContractMaterialization(
         request_payload=request_copy,
         workflow_contract_payload=contract_payload,
@@ -170,16 +162,24 @@ def _request_diagnostics(payload: Any) -> list[PlannerRequestDiagnostic]:
                 path=str(field),
             )
         )
-    if payload.get("template_id") != LM7A_TEMPLATE_ID:
+    template_id = payload.get("template_id")
+    if not isinstance(template_id, str) or not template_id:
+        diagnostics.append(
+            _diagnostic(
+                "invalid_template_id",
+                "template",
+                "Planner worker contract template_id must be a non-empty string.",
+                path="template_id",
+            )
+        )
+    elif template_id != LM7A_TEMPLATE_ID:
         diagnostics.append(
             _diagnostic(
                 "unknown_template_id",
                 "template",
                 "Unknown planner worker contract template_id.",
                 path="template_id",
-                template_id=payload.get("template_id")
-                if isinstance(payload.get("template_id"), str)
-                else None,
+                template_id=template_id,
             )
         )
     diagnostics.extend(_initial_param_diagnostics(payload.get("initial_params")))
@@ -539,7 +539,7 @@ def _resolved_routing_artifact(
     artifact = _default_routing_artifact()
     diagnostics: list[PlannerRequestDiagnostic] = []
     visible_sources = artifact["routes"][0]["visible_sources"]
-    route_ids = {route["route_id"] for route in visible_sources}
+    default_route_ids = {route["route_id"] for route in visible_sources}
     enable_routes = list(routing_delta.get("enable_routes", []))
     disable_routes = list(routing_delta.get("disable_routes", []))
     set_required = dict(routing_delta.get("set_required", {}))
@@ -556,8 +556,8 @@ def _resolved_routing_artifact(
             )
         )
 
-    for route_id in enable_routes + disable_routes + list(set_required):
-        if route_id not in route_ids:
+    for route_id in enable_routes + disable_routes:
+        if route_id not in default_route_ids:
             diagnostics.append(
                 _diagnostic(
                     "unknown_route_id",
@@ -571,7 +571,6 @@ def _resolved_routing_artifact(
     for operation, field_name, route_ids_for_operation in (
         ("enable", "enable_routes", enable_routes),
         ("disable", "disable_routes", disable_routes),
-        ("set_required", "set_required", list(set_required)),
     ):
         for route_id in route_ids_for_operation:
             permissions = ROUTE_DELTA_PERMISSIONS.get(route_id)
@@ -586,20 +585,9 @@ def _resolved_routing_artifact(
                     )
                 )
 
-    for route_id in set_required:
-        if route_id in disable_routes:
-            diagnostics.append(
-                _diagnostic(
-                    "set_required_on_disabled_route",
-                    "routing",
-                    "set_required cannot target a disabled route.",
-                    path=f"routing_delta.set_required.{route_id}",
-                    route_id=route_id,
-                )
-            )
-
     added = routing_delta.get("add_unresolved_intent_routes", [])
     seen_added: set[str] = set()
+    added_route_ids: set[str] = set()
     for index, route in enumerate(added):
         path = f"routing_delta.add_unresolved_intent_routes[{index}]"
         if not isinstance(route, Mapping):
@@ -623,7 +611,7 @@ def _resolved_routing_artifact(
                 )
             )
             continue
-        if route_id in route_ids:
+        if route_id in default_route_ids:
             diagnostics.append(
                 _diagnostic(
                     "added_route_id_collides",
@@ -673,7 +661,51 @@ def _resolved_routing_artifact(
                 )
             )
             continue
-        visible_sources.append(dict(expected))
+        added_route = dict(expected)
+        if route_id in set_required:
+            added_route["required"] = set_required[route_id]
+        visible_sources.append(added_route)
+        added_route_ids.add(route_id)
+
+    known_set_required_route_ids = default_route_ids | added_route_ids
+    for route_id in set_required:
+        if route_id not in known_set_required_route_ids:
+            diagnostics.append(
+                _diagnostic(
+                    "unknown_route_id",
+                    "routing",
+                    "Routing delta targets an unknown template route id.",
+                    path="routing_delta",
+                    route_id=route_id,
+                )
+            )
+            continue
+        permissions = ROUTE_DELTA_PERMISSIONS.get(route_id)
+        if permissions is not None and not permissions["set_required"]:
+            diagnostics.append(
+                _diagnostic(
+                    "route_delta_not_allowed",
+                    "routing",
+                    "Route delta operation is not allowed for this template route.",
+                    path="routing_delta.set_required",
+                    route_id=route_id,
+                )
+            )
+        if route_id in disable_routes:
+            diagnostics.append(
+                _diagnostic(
+                    "set_required_on_disabled_route",
+                    "routing",
+                    "set_required cannot target a disabled route.",
+                    path=f"routing_delta.set_required.{route_id}",
+                    route_id=route_id,
+                )
+            )
+        if permissions is None or permissions.get("set_required", False):
+            for visible_source in visible_sources:
+                if visible_source["route_id"] == route_id:
+                    visible_source["required"] = set_required[route_id]
+                    break
 
     return artifact, diagnostics
 

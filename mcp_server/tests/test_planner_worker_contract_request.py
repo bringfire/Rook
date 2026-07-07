@@ -68,6 +68,13 @@ def _assert_not_materialized(result):
     assert result.worker_node_ids == ()
 
 
+def _assert_materialized_with_diagnostics(result):
+    assert result.workflow_contract_payload is not None
+    assert result.resolved_routing_artifact is not None
+    assert result.worker_node_ids == ("repair_same_component",)
+    assert any(diagnostic.severity == "error" for diagnostic in result.diagnostics)
+
+
 def test_public_surface_constants_are_stable():
     assert PLANNER_WORKER_CONTRACT_REQUEST_SCHEMA == (
         "rook.planner_worker_contract_request:v1"
@@ -223,6 +230,21 @@ def test_unknown_template_id_is_rejected():
     _assert_not_materialized(result)
 
 
+@pytest.mark.parametrize("template_id", [None, "", 123])
+def test_invalid_template_id_is_rejected(template_id):
+    request = _valid_request()
+    if template_id is None:
+        request.pop("template_id")
+    else:
+        request["template_id"] = template_id
+
+    result = materialize_planner_worker_contract_request(request)
+
+    assert "invalid_template_id" in _codes(result.diagnostics)
+    assert "unknown_template_id" not in _codes(result.diagnostics)
+    _assert_not_materialized(result)
+
+
 def test_unknown_field_is_rejected():
     request = _valid_request()
     request["surprise"] = True
@@ -285,7 +307,7 @@ def test_route_delta_not_allowed_for_route_lists(field_name):
     diagnostic = _diagnostics_by_code(result.diagnostics, "route_delta_not_allowed")[0]
     assert diagnostic.route_id == "repair_pin_contract"
     assert diagnostic.path == f"routing_delta.{field_name}"
-    _assert_not_materialized(result)
+    _assert_materialized_with_diagnostics(result)
 
 
 def test_route_delta_not_allowed_for_set_required():
@@ -297,7 +319,7 @@ def test_route_delta_not_allowed_for_set_required():
     diagnostic = _diagnostics_by_code(result.diagnostics, "route_delta_not_allowed")[0]
     assert diagnostic.route_id == "repair_pin_contract"
     assert diagnostic.path == "routing_delta.set_required"
-    _assert_not_materialized(result)
+    _assert_materialized_with_diagnostics(result)
 
 
 def test_conflicting_route_operation_is_rejected():
@@ -308,7 +330,7 @@ def test_conflicting_route_operation_is_rejected():
     result = materialize_planner_worker_contract_request(request)
 
     assert "conflicting_route_operation" in _codes(result.diagnostics)
-    _assert_not_materialized(result)
+    _assert_materialized_with_diagnostics(result)
 
 
 def test_unknown_route_id_is_rejected():
@@ -319,7 +341,7 @@ def test_unknown_route_id_is_rejected():
 
     diagnostic = _diagnostics_by_code(result.diagnostics, "unknown_route_id")[0]
     assert diagnostic.route_id == "not_a_template_route"
-    _assert_not_materialized(result)
+    _assert_materialized_with_diagnostics(result)
 
 
 def test_set_required_on_disabled_route_is_rejected():
@@ -330,7 +352,26 @@ def test_set_required_on_disabled_route_is_rejected():
     result = materialize_planner_worker_contract_request(request)
 
     assert "set_required_on_disabled_route" in _codes(result.diagnostics)
-    _assert_not_materialized(result)
+    _assert_materialized_with_diagnostics(result)
+
+
+@pytest.mark.parametrize("required", [True, False])
+def test_set_required_applies_to_added_unresolved_intent_route(required):
+    request = _valid_request()
+    request["routing_delta"]["set_required"] = {
+        "missing_desired_output_value": required
+    }
+
+    result = materialize_planner_worker_contract_request(request)
+
+    assert result.diagnostics == ()
+    visible_sources = result.resolved_routing_artifact["routes"][0]["visible_sources"]
+    added_route = next(
+        route
+        for route in visible_sources
+        if route["route_id"] == "missing_desired_output_value"
+    )
+    assert added_route["required"] is required
 
 
 @pytest.mark.parametrize(
@@ -355,7 +396,7 @@ def test_invalid_unresolved_intent_route_is_rejected(field_name, value):
         "missing_desired_output_value"
     ) == 0
     assert "invalid_unresolved_intent_route" in _codes(result.diagnostics)
-    _assert_not_materialized(result)
+    _assert_materialized_with_diagnostics(result)
 
 
 def test_added_unresolved_intent_route_requires_canonical_route_id():
@@ -370,7 +411,7 @@ def test_added_unresolved_intent_route_requires_canonical_route_id():
         result.diagnostics, "invalid_unresolved_intent_route"
     )[0]
     assert diagnostic.route_id == "other_missing_value"
-    _assert_not_materialized(result)
+    _assert_materialized_with_diagnostics(result)
 
 
 def test_duplicate_added_route_id_is_rejected_and_not_appended_twice():
@@ -390,7 +431,7 @@ def test_duplicate_added_route_id_is_rejected_and_not_appended_twice():
         "missing_desired_output_value"
     ) == 1
     assert "duplicate_added_route_id" in _codes(result.diagnostics)
-    _assert_not_materialized(result)
+    _assert_materialized_with_diagnostics(result)
 
 
 def test_added_route_id_collides_is_rejected_and_not_appended():
@@ -410,7 +451,7 @@ def test_added_route_id_collides_is_rejected_and_not_appended():
         "repair_pin_contract"
     ) == 1
     assert "added_route_id_collides" in _codes(result.diagnostics)
-    _assert_not_materialized(result)
+    _assert_materialized_with_diagnostics(result)
 
 
 def test_unresolved_intent_route_missing_slot_is_rejected_when_slots_are_empty():
@@ -420,7 +461,7 @@ def test_unresolved_intent_route_missing_slot_is_rejected_when_slots_are_empty()
     result = materialize_planner_worker_contract_request(request)
 
     assert "unresolved_intent_route_missing_slot" in _codes(result.diagnostics)
-    _assert_not_materialized(result)
+    _assert_materialized_with_diagnostics(result)
 
 
 def test_invalid_intent_slot_is_rejected():
@@ -430,7 +471,7 @@ def test_invalid_intent_slot_is_rejected():
     result = materialize_planner_worker_contract_request(request)
 
     assert "invalid_intent_slot" in _codes(result.diagnostics)
-    _assert_not_materialized(result)
+    _assert_materialized_with_diagnostics(result)
 
 
 def test_intent_slot_requires_canonical_intent_id():
@@ -441,7 +482,7 @@ def test_intent_slot_requires_canonical_intent_id():
 
     diagnostic = _diagnostics_by_code(result.diagnostics, "invalid_intent_slot")[0]
     assert diagnostic.intent_id == "other_desired_output"
-    _assert_not_materialized(result)
+    _assert_materialized_with_diagnostics(result)
 
 
 def test_second_intent_slot_for_canonical_source_path_is_rejected():
@@ -455,7 +496,7 @@ def test_second_intent_slot_for_canonical_source_path_is_rejected():
     diagnostic = _diagnostics_by_code(result.diagnostics, "invalid_intent_slot")[0]
     assert diagnostic.intent_id == "other_desired_output"
     assert "unresolved_intent_route_missing_slot" not in _codes(result.diagnostics)
-    _assert_not_materialized(result)
+    _assert_materialized_with_diagnostics(result)
 
 
 def test_duplicate_intent_id_is_rejected_and_does_not_overwrite_routed_slot():
@@ -468,7 +509,7 @@ def test_duplicate_intent_id_is_rejected_and_does_not_overwrite_routed_slot():
 
     assert "duplicate_intent_id" in _codes(result.diagnostics)
     assert "unresolved_intent_route_missing_slot" not in _codes(result.diagnostics)
-    _assert_not_materialized(result)
+    _assert_materialized_with_diagnostics(result)
 
 
 def test_intent_slot_without_route_warns_but_materialization_remains_valid():
