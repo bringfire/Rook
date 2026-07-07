@@ -303,7 +303,7 @@ Prompt contents must describe:
 - allowed top-level fields: `schema`, `template_id`, `initial_params`, `routing_delta`, `intent_slots`
 - template menu contains only `repair_same_component_from_create_error`
 - `initial_params.create_script.pins_out` must be `["A:double"]`
-- `intent_complete`: explicit `7.5` means `desired_output_value` is not missing, but v1 has no legal field for that value
+- `intent_complete`: the explicit value in the scenario brief means `desired_output_value` is not missing, but v1 has no legal field for that value
 - `intent_incomplete`: absence of desired output value should be represented with the exact unresolved slot and exact unresolved-intent route
 - no acceptance-criteria prose
 - no repair code
@@ -981,6 +981,7 @@ Rejected canonical flag examples:
 --canonical-evidence --attempts 1
 --canonical-evidence --provider fake --model fake-planner
 --canonical-evidence --provider ceiling-provider --model ceiling-planner-model
+--canonical-evidence --provider ollama --model gemma4:12b-it-qat
 ```
 
 The exact provider/model chosen for a ceiling run is recorded in the manifest and rows.
@@ -1018,6 +1019,13 @@ def test_main_requires_provider_command_for_cli_run(tmp_path: Path, capsys: pyte
             "ceiling-provider",
             "--model",
             "ceiling-planner-model",
+        ],
+        [
+            "--canonical-evidence",
+            "--provider",
+            "ollama",
+            "--model",
+            "gemma4:12b-it-qat",
         ],
     ],
 )
