@@ -96,9 +96,16 @@ def test_cli_defaults_are_canonical_probe_defaults() -> None:
     assert args.temperature == 0
     assert args.run_dir == "probe_runs"
     assert args.output_excerpt_chars == 1200
+    assert args.prompt_profile == "sparse_v1"
     assert args.provider_timeout_s == 120
     assert args.provider_command is None
     assert args.canonical_evidence is False
+
+
+def test_cli_defaults_to_sparse_prompt_profile() -> None:
+    args = PROBE._args([])
+
+    assert args.prompt_profile == "sparse_v1"
 
 
 def test_cli_rejects_live_and_worker_options() -> None:
@@ -136,7 +143,7 @@ def test_briefs_are_paired_and_control_only_intent_availability() -> None:
 
 
 def test_prompt_contains_rules_but_no_full_request_exemplar() -> None:
-    prompt = PROBE._planner_authoring_prompt()
+    prompt = PROBE._planner_authoring_prompt("sparse_v1")
 
     assert PROBE.PLANNER_AUTHORING_PROMPT_VERSION in prompt
     assert PLANNER_WORKER_CONTRACT_REQUEST_SCHEMA in prompt
@@ -151,9 +158,45 @@ def test_prompt_contains_rules_but_no_full_request_exemplar() -> None:
     assert "A = " not in prompt
 
 
-def test_prompt_artifacts_do_not_contain_invention_or_hidden_answer_markers() -> None:
+def test_shape_guidance_prompt_includes_isolated_shape_snippets_only() -> None:
+    prompt = PROBE._planner_authoring_prompt("shape_guidance_v2")
+
+    assert PROBE.SHAPE_GUIDANCE_PROMPT_VERSION in prompt
+    assert '"enable_routes": []' in prompt
+    assert '"disable_routes": []' in prompt
+    assert '"set_required": {}' in prompt
+    assert '"add_unresolved_intent_routes": []' in prompt
+    assert '"intent_id": "desired_output_value"' in prompt
+    assert '"status": "unresolved"' in prompt
+    assert '"source_path": "planner.intent.desired_output_value"' in prompt
+    assert '"description": "Desired output value was not provided."' in prompt
+    assert '"route_id": "missing_desired_output_value"' in prompt
+    assert '"source_class": "planner_user_intent"' in prompt
+    assert '"purpose": "unresolved_intent"' in prompt
+    assert '"required": false' in prompt
+    assert "Use these only when desired_output_value is missing from the brief" in prompt
+    assert "Omit them when desired output intent is present" in prompt
+    assert '"template_id": "repair_same_component_from_create_error"' not in prompt
+    assert '"initial_params": {' not in prompt
+    assert '"schema": "rook.planner_worker_contract_request:v1"' not in prompt
+    assert "7.5" not in prompt
+    assert "A = " not in prompt
+
+
+def test_prompt_version_follows_prompt_profile() -> None:
+    assert PROBE._prompt_version("sparse_v1") == "lm7c.planner_authoring_prompt:v1"
+    assert (
+        PROBE._prompt_version("shape_guidance_v2")
+        == "lm7d.planner_authoring_prompt_shape_guidance:v2"
+    )
+
+
+@pytest.mark.parametrize("prompt_profile", ["sparse_v1", "shape_guidance_v2"])
+def test_prompt_artifacts_do_not_contain_invention_or_hidden_answer_markers(
+    prompt_profile: str,
+) -> None:
     artifacts = {
-        "prompt": PROBE._planner_authoring_prompt(),
+        "prompt": PROBE._planner_authoring_prompt(prompt_profile),
         "template_menu": json.dumps(PROBE._template_menu(), sort_keys=True),
         "intent_complete": PROBE._scenario_brief("intent_complete")["text"],
         "intent_incomplete": PROBE._scenario_brief("intent_incomplete")["text"],
@@ -172,12 +215,61 @@ def test_prompt_artifacts_do_not_contain_invention_or_hidden_answer_markers() ->
     )
     for name, artifact in artifacts.items():
         for marker in forbidden:
-            assert marker not in artifact, (name, marker)
+            assert marker not in artifact, (prompt_profile, name, marker)
 
     assert "7.5" in artifacts["intent_complete"]
     assert "7.5" not in artifacts["prompt"]
     assert "7.5" not in artifacts["template_menu"]
     assert "7.5" not in artifacts["intent_incomplete"]
+
+
+def test_summary_reports_hidden_marker_matches_without_changing_classification() -> None:
+    rows = [
+        {
+            "scenario": "intent_complete",
+            "parse_status": "parse_failed",
+            "validation_status": "not_evaluated",
+            "intent_decision": "not_classifiable",
+            "canonical_success": False,
+            "output_excerpt": "bad model output PROBE_REPAIR_CODE",
+        },
+        {
+            "scenario": "intent_incomplete",
+            "parse_status": "parsed",
+            "validation_status": "workflow_validate_valid",
+            "intent_decision": "correct_declared",
+            "canonical_success": True,
+            "output_excerpt": "{}",
+        },
+    ]
+
+    summary = PROBE._summarize_rows(
+        rows,
+        attempts=1,
+        provider="fake",
+        model="fake-planner",
+        temperature=0,
+        canonical_evidence=False,
+        prompt_profile="shape_guidance_v2",
+    )
+
+    assert summary["parse_success_count"] == 1
+    assert summary["workflow_validate_valid_count"] == 1
+    assert summary["correct_intent_count"] == 1
+    assert summary["canonical_success_count"] == 1
+    assert summary["hidden_marker_match_count"] == 1
+    assert summary["hidden_marker_matches"] == [
+        {
+            "artifact": "rows[0].output_excerpt",
+            "marker": "PROBE_REPAIR_CODE",
+        }
+    ]
+
+
+def test_marker_scan_checks_prompt_artifacts_but_allows_only_complete_brief_value() -> None:
+    matches = PROBE._hidden_marker_matches([], prompt_profile="shape_guidance_v2")
+
+    assert matches == []
 
 
 def test_parse_accepts_exact_json_object() -> None:
@@ -309,6 +401,7 @@ def test_row_for_valid_complete_request_is_canonical_success() -> None:
         provider="fake",
         model="fake-planner",
         temperature=0,
+        prompt_profile="sparse_v1",
         raw_output=json.dumps(_minimal_complete_request()),
         output_excerpt_chars=120,
     )
@@ -320,6 +413,22 @@ def test_row_for_valid_complete_request_is_canonical_success() -> None:
     assert row["request_fingerprint"].startswith("sha256:")
     assert row["workflow_validate_report_fingerprint"].startswith("sha256:")
     assert row["failure_reason"] is None
+
+
+def test_row_records_prompt_profile_and_prompt_version() -> None:
+    row = PROBE._score_model_output(
+        scenario="intent_complete",
+        attempt_index=0,
+        provider="fake",
+        model="fake-planner",
+        temperature=0,
+        prompt_profile="shape_guidance_v2",
+        raw_output=json.dumps(_minimal_complete_request()),
+        output_excerpt_chars=120,
+    )
+
+    assert row["prompt_profile"] == "shape_guidance_v2"
+    assert row["prompt_version"] == "lm7d.planner_authoring_prompt_shape_guidance:v2"
 
 
 def test_row_for_parse_failure_does_not_call_validate(
@@ -336,6 +445,7 @@ def test_row_for_parse_failure_does_not_call_validate(
         provider="fake",
         model="fake-planner",
         temperature=0,
+        prompt_profile="sparse_v1",
         raw_output="```json\n{}\n```",
         output_excerpt_chars=120,
     )
@@ -358,6 +468,7 @@ def test_row_separates_validation_failure_from_intent_decision() -> None:
         provider="fake",
         model="fake-planner",
         temperature=0,
+        prompt_profile="sparse_v1",
         raw_output=json.dumps(payload),
         output_excerpt_chars=120,
     )
@@ -379,6 +490,7 @@ def test_row_separates_valid_shape_from_over_declaration() -> None:
         provider="fake",
         model="fake-planner",
         temperature=0,
+        prompt_profile="sparse_v1",
         raw_output=json.dumps(payload),
         output_excerpt_chars=120,
     )
@@ -414,6 +526,7 @@ def test_run_probe_writes_artifacts_and_summary(tmp_path: Path) -> None:
         attempts=1,
         canonical_evidence=False,
         output_excerpt_chars=120,
+        prompt_profile="shape_guidance_v2",
         call_provider=fake_provider,
     )
 
@@ -440,11 +553,48 @@ def test_run_probe_writes_artifacts_and_summary(tmp_path: Path) -> None:
     ]
     assert len(rows) == 2
     assert all(row["canonical_success"] for row in rows)
+    assert all(row["prompt_profile"] == "shape_guidance_v2" for row in rows)
+    assert all(
+        row["prompt_version"] == "lm7d.planner_authoring_prompt_shape_guidance:v2"
+        for row in rows
+    )
+
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["prompt_profile"] == "shape_guidance_v2"
+    assert manifest["prompt_version"] == "lm7d.planner_authoring_prompt_shape_guidance:v2"
 
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     assert summary["scheduled_attempts_per_scenario"] == 1
+    assert summary["prompt_profile"] == "shape_guidance_v2"
+    assert summary["prompt_version"] == "lm7d.planner_authoring_prompt_shape_guidance:v2"
     assert summary["scenario_counts"]["intent_complete"]["canonical_success_count"] == 1
     assert summary["scenario_counts"]["intent_incomplete"]["canonical_success_count"] == 1
+    assert summary["hidden_marker_match_count"] == 0
+    assert summary["hidden_marker_matches"] == []
+
+
+def test_run_probe_writes_shape_guidance_prompt_artifact(tmp_path: Path) -> None:
+    def fake_provider(call_payload):
+        return json.dumps(_scenario_correct_request(call_payload["scenario"]))
+
+    run_dir = PROBE._run_probe(
+        run_root=tmp_path,
+        provider="fake",
+        model="fake-planner",
+        temperature=0,
+        attempts=1,
+        canonical_evidence=False,
+        output_excerpt_chars=120,
+        prompt_profile="shape_guidance_v2",
+        call_provider=fake_provider,
+    )
+
+    prompt_text = (run_dir / "prompts" / "planner_authoring_prompt.txt").read_text(
+        encoding="utf-8"
+    )
+
+    assert PROBE.SHAPE_GUIDANCE_PROMPT_VERSION in prompt_text
+    assert PROBE.SPARSE_PROMPT_VERSION not in prompt_text
 
 
 def test_run_probe_propagates_scorer_bugs(
@@ -471,6 +621,7 @@ def test_run_probe_propagates_scorer_bugs(
             attempts=1,
             canonical_evidence=False,
             output_excerpt_chars=120,
+            prompt_profile="sparse_v1",
             call_provider=fake_provider,
         )
 
@@ -507,6 +658,7 @@ def test_summary_counts_parse_validation_intent_and_canonical_success() -> None:
         model="fake-planner",
         temperature=0,
         canonical_evidence=False,
+        prompt_profile="sparse_v1",
     )
 
     assert summary["parse_success_count"] == 2
@@ -533,6 +685,7 @@ def test_main_requires_provider_command_for_cli_run(
     "argv",
     [
         ["--canonical-evidence", "--attempts", "1"],
+        ["--canonical-evidence", "--prompt-profile", "sparse_v1"],
         ["--canonical-evidence", "--provider", "fake", "--model", "fake-planner"],
         [
             "--canonical-evidence",
@@ -596,6 +749,8 @@ def test_main_accepts_canonical_evidence_when_only_provider_or_model_matches_loc
             "--run-dir",
             str(tmp_path),
             "--canonical-evidence",
+            "--prompt-profile",
+            "shape_guidance_v2",
             "--provider",
             provider,
             "--model",
@@ -607,6 +762,42 @@ def test_main_accepts_canonical_evidence_when_only_provider_or_model_matches_loc
 
     assert exit_code == 0
     assert len(calls) == len(PROBE.SCENARIOS) * 5
+
+
+def test_main_accepts_lm7d_canonical_evidence_with_shape_guidance_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    def fake_command(command, call_payload, timeout_s):
+        calls.append((command, call_payload, timeout_s))
+        return json.dumps(_scenario_correct_request(call_payload["scenario"]))
+
+    monkeypatch.setattr(PROBE, "_call_provider_command", fake_command)
+
+    exit_code = PROBE.main(
+        [
+            "--run-dir",
+            str(tmp_path),
+            "--canonical-evidence",
+            "--prompt-profile",
+            "shape_guidance_v2",
+            "--provider",
+            "codex-cli-chatgpt",
+            "--model",
+            "gpt-5.5",
+            "--provider-command",
+            "fake-provider",
+        ]
+    )
+
+    assert exit_code == 0
+    assert len(calls) == len(PROBE.SCENARIOS) * 5
+    assert all(
+        call_payload["prompt_profile"] == "shape_guidance_v2"
+        for _command, call_payload, _timeout_s in calls
+    )
 
 
 def test_main_uses_injected_provider_command_without_live_model(
@@ -654,6 +845,23 @@ def test_lm7c_script_does_not_import_live_worker_or_rhino_surfaces() -> None:
         "rhino_ping",
         "gh_document_new",
         "gh_update_script",
+        "validate_worker_visible_source_routing",
+        "materialize_planner_worker_contract_request",
+        "extract_acceptance_criteria_sources",
+        "assemble_acceptance_criteria_packet",
     )
     for token in forbidden:
         assert token not in source
+
+
+def test_lm7d_does_not_add_repair_loop_or_json_repair() -> None:
+    sparse = PROBE._planner_authoring_prompt("sparse_v1").lower()
+    shaped = PROBE._planner_authoring_prompt("shape_guidance_v2").lower()
+    for prompt in (sparse, shaped):
+        assert "validator feedback" not in prompt
+        assert "repair loop" not in prompt
+        assert "retry" not in prompt
+        assert "```json" not in prompt
+        assert "markdown extraction" not in prompt
+        assert "extract json" not in prompt
+        assert "extract the json" not in prompt

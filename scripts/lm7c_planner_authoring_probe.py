@@ -34,7 +34,16 @@ from rook.agent.workflow_validate import (  # noqa: E402
 
 
 PROBE_SCHEMA = "rook.lm7c_planner_authoring_probe:v1"
-PLANNER_AUTHORING_PROMPT_VERSION = "lm7c.planner_authoring_prompt:v1"
+PROMPT_PROFILE_SPARSE_V1 = "sparse_v1"
+PROMPT_PROFILE_SHAPE_GUIDANCE_V2 = "shape_guidance_v2"
+PROMPT_PROFILES = (
+    PROMPT_PROFILE_SPARSE_V1,
+    PROMPT_PROFILE_SHAPE_GUIDANCE_V2,
+)
+
+SPARSE_PROMPT_VERSION = "lm7c.planner_authoring_prompt:v1"
+SHAPE_GUIDANCE_PROMPT_VERSION = "lm7d.planner_authoring_prompt_shape_guidance:v2"
+PLANNER_AUTHORING_PROMPT_VERSION = SPARSE_PROMPT_VERSION
 TEMPLATE_MENU_VERSION = "lm7c.template_menu:v1"
 INTENT_COMPLETE_BRIEF_VERSION = "lm7c.intent_complete_brief:v1"
 INTENT_INCOMPLETE_BRIEF_VERSION = "lm7c.intent_incomplete_brief:v1"
@@ -58,6 +67,14 @@ _PLACEHOLDER_MODELS = {
     "ceiling-planner-model",
 }
 _REJECTED_LOCAL_MODEL_PAIR = ("ollama", "gemma4:12b-it-qat")
+HIDDEN_MARKER_SCAN_TERMS = (
+    "PROBE_REPAIR_CODE",
+    "A = 42.0",
+    "A = 0.0",
+    "A = 1.0",
+    "BindStepSpec.base_params",
+    "repair_same_component.bind.base_params",
+)
 
 
 @dataclass(frozen=True)
@@ -85,6 +102,11 @@ def _args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--temperature", type=float, default=0)
     parser.add_argument("--run-dir", default="probe_runs")
     parser.add_argument("--output-excerpt-chars", type=int, default=1200)
+    parser.add_argument(
+        "--prompt-profile",
+        choices=PROMPT_PROFILES,
+        default=PROMPT_PROFILE_SPARSE_V1,
+    )
     parser.add_argument("--canonical-evidence", action="store_true")
     args = parser.parse_args(argv)
     if args.attempts <= 0:
@@ -94,10 +116,20 @@ def _args(argv: list[str] | None) -> argparse.Namespace:
     return args
 
 
-def _planner_authoring_prompt() -> str:
+def _planner_authoring_prompt(
+    prompt_profile: str = PROMPT_PROFILE_SPARSE_V1,
+) -> str:
+    if prompt_profile == PROMPT_PROFILE_SPARSE_V1:
+        return _sparse_planner_authoring_prompt()
+    if prompt_profile == PROMPT_PROFILE_SHAPE_GUIDANCE_V2:
+        return _shape_guidance_planner_authoring_prompt()
+    raise ValueError(f"unknown_prompt_profile:{prompt_profile}")
+
+
+def _sparse_planner_authoring_prompt() -> str:
     return "\n".join(
         [
-            f"version: {PLANNER_AUTHORING_PROMPT_VERSION}",
+            f"version: {SPARSE_PROMPT_VERSION}",
             "",
             "Author one PlannerWorkerContractRequest from the supplied scenario brief.",
             f"The schema must be {PLANNER_WORKER_CONTRACT_REQUEST_SCHEMA}.",
@@ -111,6 +143,73 @@ def _planner_authoring_prompt() -> str:
             "When the brief omits the desired output intent, declare only the "
             "canonical unresolved desired_output_value slot and emit the matching "
             "missing_desired_output_value unresolved-intent route with required=false.",
+            "Do not write repair code, acceptance prose, hidden bind params, or "
+            "fields outside the request schema.",
+        ]
+    )
+
+
+def _shape_guidance_planner_authoring_prompt() -> str:
+    routing_delta_shape = json.dumps(
+        {
+            "enable_routes": [],
+            "disable_routes": [],
+            "set_required": {},
+            "add_unresolved_intent_routes": [],
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    unresolved_slot_shape = json.dumps(
+        {
+            "intent_id": DESIRED_OUTPUT_VALUE_INTENT_ID,
+            "status": "unresolved",
+            "source_path": PLANNER_INTENT_SOURCE_PATH,
+            "description": "Desired output value was not provided.",
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    unresolved_route_shape = json.dumps(
+        {
+            "route_id": MISSING_DESIRED_OUTPUT_ROUTE_ID,
+            "source_class": "planner_user_intent",
+            "source_path": PLANNER_INTENT_SOURCE_PATH,
+            "purpose": "unresolved_intent",
+            "required": False,
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    return "\n".join(
+        [
+            f"version: {SHAPE_GUIDANCE_PROMPT_VERSION}",
+            "",
+            "Author one PlannerWorkerContractRequest from the supplied scenario brief.",
+            f"The schema must be {PLANNER_WORKER_CONTRACT_REQUEST_SCHEMA}.",
+            "Output exactly one JSON object and no markdown or surrounding prose.",
+            "Required top-level fields are schema, template_id, initial_params, "
+            "routing_delta, and intent_slots.",
+            "Include required empty arrays and objects instead of omitting them.",
+            "The template menu contains only the LM7A repair template.",
+            'The create_script pins_out field must be ["A:double"].',
+            "When the brief provides the desired output intent, it is not missing, "
+            "and v1 has no legal field for that concrete value.",
+            "When no intent is missing, intent_slots is [].",
+            "When no unresolved-intent route is needed, "
+            "routing_delta.add_unresolved_intent_routes is [].",
+            "",
+            "routing_delta container shape:",
+            routing_delta_shape,
+            "",
+            "Canonical unresolved desired_output_value slot shape:",
+            unresolved_slot_shape,
+            "",
+            "Canonical missing_desired_output_value unresolved-intent route shape:",
+            unresolved_route_shape,
+            "",
+            "Use these only when desired_output_value is missing from the brief.",
+            "Omit them when desired output intent is present.",
             "Do not write repair code, acceptance prose, hidden bind params, or "
             "fields outside the request schema.",
         ]
@@ -180,6 +279,7 @@ def _prompt_call_payload(
     provider: str,
     model: str,
     temperature: float,
+    prompt_profile: str,
 ) -> dict[str, Any]:
     return {
         "schema": PROBE_SCHEMA,
@@ -188,17 +288,27 @@ def _prompt_call_payload(
         "provider": provider,
         "model": model,
         "temperature": temperature,
-        "prompt": _planner_authoring_prompt(),
+        "prompt": _planner_authoring_prompt(prompt_profile),
+        "prompt_profile": prompt_profile,
+        "prompt_version": _prompt_version(prompt_profile),
         "template_menu": _template_menu(),
         "brief": _scenario_brief(scenario),
     }
 
 
-def _write_prompt_artifacts(run_dir: Path) -> None:
+def _prompt_version(prompt_profile: str) -> str:
+    if prompt_profile == PROMPT_PROFILE_SPARSE_V1:
+        return SPARSE_PROMPT_VERSION
+    if prompt_profile == PROMPT_PROFILE_SHAPE_GUIDANCE_V2:
+        return SHAPE_GUIDANCE_PROMPT_VERSION
+    raise ValueError(f"unknown_prompt_profile:{prompt_profile}")
+
+
+def _write_prompt_artifacts(run_dir: Path, prompt_profile: str) -> None:
     prompts_dir = run_dir / "prompts"
     prompts_dir.mkdir(parents=True, exist_ok=True)
     (prompts_dir / "planner_authoring_prompt.txt").write_text(
-        _planner_authoring_prompt() + "\n",
+        _planner_authoring_prompt(prompt_profile) + "\n",
         encoding="utf-8",
     )
     (prompts_dir / "template_menu.json").write_text(
@@ -304,6 +414,39 @@ def _contains_invented_concrete_intent(payload: Mapping[str, Any]) -> bool:
     return _contains_repair_code_field(payload)
 
 
+def _hidden_marker_matches(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    prompt_profile: str,
+) -> list[dict[str, str]]:
+    artifacts: list[tuple[str, str]] = [
+        (
+            "prompts/planner_authoring_prompt.txt",
+            _planner_authoring_prompt(prompt_profile),
+        ),
+        ("prompts/template_menu.json", _canonical_json(_template_menu())),
+        ("prompts/intent_complete_brief.txt", _scenario_brief("intent_complete")["text"]),
+        (
+            "prompts/intent_incomplete_brief.txt",
+            _scenario_brief("intent_incomplete")["text"],
+        ),
+    ]
+    artifacts.extend(
+        (
+            f"rows[{index}].output_excerpt",
+            str(row.get("output_excerpt") or ""),
+        )
+        for index, row in enumerate(rows)
+    )
+
+    matches: list[dict[str, str]] = []
+    for artifact, text in artifacts:
+        for marker in HIDDEN_MARKER_SCAN_TERMS:
+            if marker in text:
+                matches.append({"artifact": artifact, "marker": marker})
+    return matches
+
+
 def _contains_repair_code_field(value: Any) -> bool:
     if isinstance(value, Mapping):
         for key, nested in value.items():
@@ -386,6 +529,7 @@ def _base_row(
     provider: str,
     model: str,
     temperature: float,
+    prompt_profile: str,
     raw_output: str,
     output_excerpt_chars: int,
 ) -> dict[str, Any]:
@@ -395,7 +539,8 @@ def _base_row(
         "provider": provider,
         "model": model,
         "temperature": temperature,
-        "prompt_version": PLANNER_AUTHORING_PROMPT_VERSION,
+        "prompt_profile": prompt_profile,
+        "prompt_version": _prompt_version(prompt_profile),
         "template_menu_version": TEMPLATE_MENU_VERSION,
         "brief_version": _scenario_brief(scenario)["version"],
         "parse_status": PARSE_FAILED,
@@ -417,6 +562,7 @@ def _score_model_output(
     provider: str,
     model: str,
     temperature: float,
+    prompt_profile: str,
     raw_output: str,
     output_excerpt_chars: int,
 ) -> dict[str, Any]:
@@ -426,6 +572,7 @@ def _score_model_output(
         provider=provider,
         model=model,
         temperature=temperature,
+        prompt_profile=prompt_profile,
         raw_output=raw_output,
         output_excerpt_chars=output_excerpt_chars,
     )
@@ -530,13 +677,17 @@ def _summarize_rows(
     model: str,
     temperature: float,
     canonical_evidence: bool,
+    prompt_profile: str,
 ) -> dict[str, Any]:
     counts = _scenario_count(rows)
+    marker_matches = _hidden_marker_matches(rows, prompt_profile=prompt_profile)
     return {
         "schema": PROBE_SCHEMA,
         "provider": provider,
         "model": model,
         "temperature": temperature,
+        "prompt_profile": prompt_profile,
+        "prompt_version": _prompt_version(prompt_profile),
         "scheduled_attempts_per_scenario": attempts,
         **counts,
         "scenario_counts": {
@@ -546,6 +697,8 @@ def _summarize_rows(
             for scenario in SCENARIOS
         },
         "canonical_evidence": canonical_evidence,
+        "hidden_marker_match_count": len(marker_matches),
+        "hidden_marker_matches": marker_matches,
     }
 
 
@@ -556,6 +709,7 @@ def _manifest(
     temperature: float,
     attempts: int,
     canonical_evidence: bool,
+    prompt_profile: str,
 ) -> dict[str, Any]:
     return {
         "schema": PROBE_SCHEMA,
@@ -565,7 +719,8 @@ def _manifest(
         "temperature": temperature,
         "scheduled_attempts_per_scenario": attempts,
         "scenarios": list(SCENARIOS),
-        "prompt_version": PLANNER_AUTHORING_PROMPT_VERSION,
+        "prompt_profile": prompt_profile,
+        "prompt_version": _prompt_version(prompt_profile),
         "template_menu_version": TEMPLATE_MENU_VERSION,
         "brief_versions": {
             scenario: _scenario_brief(scenario)["version"] for scenario in SCENARIOS
@@ -582,6 +737,7 @@ def _provider_error_row(
     provider: str,
     model: str,
     temperature: float,
+    prompt_profile: str,
     output_excerpt_chars: int,
     exc: Exception,
 ) -> dict[str, Any]:
@@ -591,6 +747,7 @@ def _provider_error_row(
         provider=provider,
         model=model,
         temperature=temperature,
+        prompt_profile=prompt_profile,
         raw_output="",
         output_excerpt_chars=output_excerpt_chars,
     )
@@ -607,10 +764,11 @@ def _run_probe(
     attempts: int,
     canonical_evidence: bool,
     output_excerpt_chars: int,
+    prompt_profile: str,
     call_provider: Callable[[Mapping[str, Any]], str],
 ) -> Path:
     run_dir = _new_run_dir(Path(run_root))
-    _write_prompt_artifacts(run_dir)
+    _write_prompt_artifacts(run_dir, prompt_profile)
     _write_json(
         run_dir / "manifest.json",
         _manifest(
@@ -619,6 +777,7 @@ def _run_probe(
             temperature=temperature,
             attempts=attempts,
             canonical_evidence=canonical_evidence,
+            prompt_profile=prompt_profile,
         ),
     )
 
@@ -632,6 +791,7 @@ def _run_probe(
                 provider=provider,
                 model=model,
                 temperature=temperature,
+                prompt_profile=prompt_profile,
             )
             try:
                 raw_output = call_provider(payload)
@@ -642,6 +802,7 @@ def _run_probe(
                     provider=provider,
                     model=model,
                     temperature=temperature,
+                    prompt_profile=prompt_profile,
                     output_excerpt_chars=output_excerpt_chars,
                     exc=exc,
                 )
@@ -652,6 +813,7 @@ def _run_probe(
                     provider=provider,
                     model=model,
                     temperature=temperature,
+                    prompt_profile=prompt_profile,
                     raw_output=raw_output,
                     output_excerpt_chars=output_excerpt_chars,
                 )
@@ -667,6 +829,7 @@ def _run_probe(
             model=model,
             temperature=temperature,
             canonical_evidence=canonical_evidence,
+            prompt_profile=prompt_profile,
         ),
     )
     return run_dir
@@ -701,6 +864,8 @@ def _canonical_evidence_is_valid(args: argparse.Namespace) -> bool:
         return True
     if args.attempts != 5:
         return False
+    if args.prompt_profile != PROMPT_PROFILE_SHAPE_GUIDANCE_V2:
+        return False
     if args.provider in _PLACEHOLDER_PROVIDERS:
         return False
     if args.model in _PLACEHOLDER_MODELS:
@@ -727,6 +892,7 @@ def main(argv: list[str] | None = None) -> int:
         attempts=args.attempts,
         canonical_evidence=args.canonical_evidence,
         output_excerpt_chars=args.output_excerpt_chars,
+        prompt_profile=args.prompt_profile,
         call_provider=lambda call_payload: _call_provider_command(
             args.provider_command,
             call_payload,
