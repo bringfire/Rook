@@ -1515,6 +1515,79 @@ the incomplete scenario emitted the exact unresolved slot plus exact
 unresolved-intent route. No schema, validator, classifier, or worker-path
 change was needed.
 
+### LM7D exploratory Gemma floor-finding addendum
+
+After the canonical LM7D evidence landed, the same `shape_guidance_v2` probe was
+run once against the local Ollama model as an exploratory floor-finding row:
+
+```text
+run_dir: probe_runs/lm7c-20260707T230835Z-2cdd783a/
+provider: ollama
+model: gemma4:12b-it-qat
+canonical_evidence: false
+scheduled attempts: 5 per scenario
+scenarios: intent_complete, intent_incomplete
+prompt_profile: shape_guidance_v2
+prompt_version: lm7d.planner_authoring_prompt_shape_guidance:v2
+template_menu_version: lm7c.template_menu:v1
+brief_versions:
+  intent_complete: lm7c.intent_complete_brief:v1
+  intent_incomplete: lm7c.intent_incomplete_brief:v1
+```
+
+Aggregate result:
+
+```text
+parse_success_count: 10/10
+workflow_validate_valid_count: 10/10
+canonical_success_count: 10/10
+correct_intent_count: 10/10
+over_declared_count: 0/10
+invented_count: 0/10
+not_classifiable_count: 0/10
+hidden_marker_match_count: 0
+```
+
+Scenario breakdown:
+
+```text
+intent_complete:
+  parse_success: 5/5
+  workflow_validate_valid: 5/5
+  intent_decision: 5/5 correct_declared
+  canonical_success: 5/5
+
+intent_incomplete:
+  parse_success: 5/5
+  workflow_validate_valid: 5/5
+  intent_decision: 5/5 correct_declared
+  canonical_success: 5/5
+```
+
+Representative complete-case output:
+
+```json
+{"schema":"rook.planner_worker_contract_request:v1","template_id":"repair_same_component_from_create_error","initial_params":{"create_script":{"pins_out":["A:double"]}},"routing_delta":{"add_unresolved_intent_routes":[],"disable_routes":[],"enable_routes":[],"set_required":{}},"intent_slots":[]}
+```
+
+Representative incomplete-case output:
+
+```json
+{"schema":"rook.planner_worker_contract_request:v1","template_id":"repair_same_component_from_create_error","initial_params":{"create_script":{"pins_out":["A:double"]}},"routing_delta":{"add_unresolved_intent_routes":[{"purpose":"unresolved_intent","required":false,"route_id":"missing_desired_output_value","source_class":"planner_user_intent","source_path":"planner.intent.desired_output_value"}],"disable_routes":[],"enable_routes":[],"set_required":{}},"intent_slots":[{"description":"Desired output value was not provided.","intent_id":"desired_output_value","source_path":"planner.intent.desired_output_value","status":"unresolved"}]}
+```
+
+Direct marker scan over the run directory found no matches for
+`PROBE_REPAIR_CODE`, `A = 42.0`, `A = 0.0`, `A = 1.0`,
+`BindStepSpec.base_params`, or `repair_same_component.bind.base_params`.
+
+This does not replace the canonical Planner-tier LM7D evidence. It is a
+non-canonical exploratory floor-finding result. The useful signal is that,
+under the same fenced `shape_guidance_v2` prompt profile, the local 12B model
+also cleared the constrained Planner request-authoring surface without
+invention or over-declaration. That changes the product imagination: the
+Planner role may have a local fast path when the template menu is tight and the
+output surface is strongly fenced.
+
 The next design question is whether to proceed to a request-driven live splice
 using a model-authored valid request, or first run a small Planner-side
 repeatability/variant check.
@@ -1612,6 +1685,16 @@ codex-cli-chatgpt/gpt-5.5 via provider-command adapter,
 strict single-shot JSON object parsing, no schema repair, workflow_validate v1,
 intent_decision classifier, report-only marker scan, attempts 5 per scenario,
 canonical_evidence true)`.
+
+LM7D exploratory Gemma floor-finding: `(LM7C offline Planner authoring probe
+with LM7D prompt profile,
+lm7d.planner_authoring_prompt_shape_guidance:v2, prompt_profile
+shape_guidance_v2, lm7c.template_menu:v1,
+lm7c.intent_complete_brief:v1/lm7c.intent_incomplete_brief:v1,
+ollama/gemma4:12b-it-qat via local provider-command adapter,
+strict single-shot JSON object parsing, no schema repair, workflow_validate v1,
+intent_decision classifier, report-only marker scan, attempts 5 per scenario,
+canonical_evidence false)`.
 
 Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
 new experiment.
