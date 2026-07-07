@@ -323,13 +323,21 @@ def _routing_report_has_errors(report: Any) -> bool:
     )
 
 
+def _json_runtime_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _json_runtime_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_runtime_value(item) for item in value]
+    return value
+
+
 def _run_live_create_and_verify(*, agent: Any, workflow_contract: Any) -> dict[str, Any]:
     if not hasattr(agent, "run_live_producer_node"):
         raise NotImplementedError("LM7B live create/verify requires a live agent.")
 
     scaffold = compile_workflow_contract(workflow_contract)
     graph = scaffold.graph
-    graph.nodes["create_script"].metadata[EXECUTION_PARAMS_KEY] = dict(
+    graph.nodes["create_script"].metadata[EXECUTION_PARAMS_KEY] = _json_runtime_value(
         workflow_contract.initial_params[0].execution_params
     )
 
