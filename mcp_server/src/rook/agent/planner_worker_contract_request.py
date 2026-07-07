@@ -106,13 +106,24 @@ def materialize_planner_worker_contract_request(
 
     pins_out = list(payload["initial_params"][CREATE_NODE_ID]["pins_out"])
     contract_payload = _workflow_contract_payload(pins_out)
+    contract_diagnostics = _worker_bind_step_diagnostics(contract_payload)
+    if _has_errors(contract_diagnostics):
+        return PlannerWorkerContractMaterialization(
+            request_payload=request_copy,
+            workflow_contract_payload=None,
+            resolved_routing_artifact=None,
+            worker_node_ids=(),
+            diagnostics=tuple(diagnostics + contract_diagnostics),
+        )
     routing_artifact, routing_diagnostics = _resolved_routing_artifact(
         payload["routing_delta"]
     )
     intent_diagnostics = _intent_diagnostics(
         payload["intent_slots"], routing_artifact
     )
-    all_diagnostics = tuple(diagnostics + routing_diagnostics + intent_diagnostics)
+    all_diagnostics = tuple(
+        diagnostics + contract_diagnostics + routing_diagnostics + intent_diagnostics
+    )
     if _has_errors(list(all_diagnostics)):
         return PlannerWorkerContractMaterialization(
             request_payload=request_copy,
@@ -448,6 +459,37 @@ def _workflow_contract_payload(pins_out: list[str]) -> dict[str, Any]:
             "slice": "LM7A",
         },
     }
+
+
+def _worker_bind_step_diagnostics(
+    workflow_contract_payload: Mapping[str, Any],
+) -> list[PlannerRequestDiagnostic]:
+    diagnostics: list[PlannerRequestDiagnostic] = []
+    rules = workflow_contract_payload.get("rules")
+    if not isinstance(rules, list):
+        return diagnostics
+    for rule_index, rule in enumerate(rules):
+        if not isinstance(rule, Mapping) or rule.get("node_id") != REPAIR_NODE_ID:
+            continue
+        steps = rule.get("steps_by_seen_count")
+        if not isinstance(steps, list):
+            return diagnostics
+        for step_index, step in enumerate(steps):
+            if isinstance(step, Mapping) and step.get("kind") == "bind":
+                diagnostics.append(
+                    _diagnostic(
+                        "worker_bind_step_forbidden",
+                        "contract",
+                        "repair_same_component worker rule must not contain a bind step.",
+                        path=(
+                            f"rules[{rule_index}].steps_by_seen_count"
+                            f"[{step_index}]"
+                        ),
+                        node_id=REPAIR_NODE_ID,
+                    )
+                )
+        return diagnostics
+    return diagnostics
 
 
 def _default_routing_artifact() -> dict[str, Any]:

@@ -13,6 +13,11 @@ from rook.agent.planner_worker_contract_request import (
     PLANNER_WORKER_CONTRACT_REQUEST_SCHEMA,
     materialize_planner_worker_contract_request,
 )
+from rook.agent.plan_graph_workflow_contract import (
+    BindStepSpec,
+    compile_workflow_contract,
+    load_workflow_contract_payload,
+)
 
 
 def _valid_request() -> dict:
@@ -96,6 +101,31 @@ def test_materializes_valid_request_to_contract_and_routing():
         "repair_body_mode_convention",
         "missing_desired_output_value",
     ]
+
+
+def test_materialized_workflow_contract_loads_and_compiles():
+    result = materialize_planner_worker_contract_request(_valid_request())
+
+    contract = load_workflow_contract_payload(result.workflow_contract_payload)
+    scaffold = compile_workflow_contract(contract)
+
+    assert scaffold.compile_record.workflow_id == (
+        "lm7a_repair_same_component_from_create_error"
+    )
+    assert "repair_same_component" in scaffold.compile_record.graph_node_ids
+
+
+def test_materialized_repair_rule_has_no_bind_step():
+    result = materialize_planner_worker_contract_request(_valid_request())
+
+    contract = load_workflow_contract_payload(result.workflow_contract_payload)
+    repair_rule = next(
+        rule for rule in contract.rules if rule.node_id == "repair_same_component"
+    )
+
+    assert not any(
+        isinstance(step, BindStepSpec) for step in repair_rule.steps_by_seen_count
+    )
 
 
 def test_materialization_returns_fresh_containers():
@@ -412,6 +442,66 @@ def test_intent_slot_without_route_warns_but_materialization_remains_valid():
     diagnostic = _diagnostics_by_code(result.diagnostics, "intent_slot_not_routed")[0]
     assert diagnostic.severity == "warning"
     assert not any(diagnostic.severity == "error" for diagnostic in result.diagnostics)
+    assert result.workflow_contract_payload is not None
+    assert result.resolved_routing_artifact is not None
+    assert result.worker_node_ids == ("repair_same_component",)
+
+
+def test_worker_bind_step_guard_rejects_repair_bind_step(monkeypatch):
+    original_payload = module._workflow_contract_payload
+
+    def payload_with_repair_bind_step(pins_out):
+        payload = original_payload(pins_out)
+        repair_rule = next(
+            rule
+            for rule in payload["rules"]
+            if rule["node_id"] == "repair_same_component"
+        )
+        repair_rule["steps_by_seen_count"].insert(
+            0,
+            {
+                "kind": "bind",
+                "node_id": "repair_same_component",
+                "base_params": {"code": "A = 42.0;"},
+                "bindings": {"guid": ["repair_anchor", "component_guid"]},
+            },
+        )
+        return payload
+
+    monkeypatch.setattr(
+        module,
+        "_workflow_contract_payload",
+        payload_with_repair_bind_step,
+    )
+
+    result = materialize_planner_worker_contract_request(_valid_request())
+
+    diagnostic = _diagnostics_by_code(
+        result.diagnostics,
+        "worker_bind_step_forbidden",
+    )[0]
+    assert diagnostic.phase == "contract"
+    assert diagnostic.node_id == "repair_same_component"
+    _assert_not_materialized(result)
+
+
+def test_contract_diagnostics_are_included_on_materialized_path(monkeypatch):
+    diagnostic = module.PlannerRequestDiagnostic(
+        severity="warning",
+        code="contract_shape_observed",
+        phase="contract",
+        message="Contract shape was observed.",
+    )
+
+    monkeypatch.setattr(
+        module,
+        "_worker_bind_step_diagnostics",
+        lambda workflow_contract_payload: [diagnostic],
+    )
+
+    result = materialize_planner_worker_contract_request(_valid_request())
+
+    assert diagnostic in result.diagnostics
     assert result.workflow_contract_payload is not None
     assert result.resolved_routing_artifact is not None
     assert result.worker_node_ids == ("repair_same_component",)
