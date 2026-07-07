@@ -63,6 +63,131 @@ def test_cli_forbids_request_phase_and_retry_options() -> None:
         PROBE._args(["--retry-clean-observation"])
 
 
+def test_script_static_guard_forbids_request_phase_and_retry_surfaces() -> None:
+    script_source = _script_path().read_text(encoding="utf-8")
+    forbidden = [
+        "--request" + "-json",
+        "--" + "phase",
+        "--retry-clean" + "-observation",
+        "lm6e_bounded" + "_retry_context",
+        "_retry" + "_context_packet",
+        "_request_payload" + "_with_retry_context",
+        "_worker_request" + "_payload",
+        "_acceptance_criteria" + "_evidence_packet",
+    ]
+
+    for marker in forbidden:
+        assert marker not in script_source
+
+
+def test_canonical_request_and_manifest_do_not_embed_hidden_answer_markers() -> None:
+    request = PROBE._canonical_planner_request()
+    manifest = PROBE._manifest(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        request_fingerprint="sha256:req",
+        workflow_validate_report_fingerprint="sha256:report",
+    )
+    rendered = json.dumps({"request": request, "manifest": manifest}, sort_keys=True)
+    forbidden = [
+        "PROBE_REPAIR" + "_CODE",
+        "A = " + "42.0",
+        "BindStepSpec.base_params" + ".code",
+        "BindStepSpec" + ".base_params",
+        "repair_same_component.bind" + ".base_params",
+    ]
+
+    for marker in forbidden:
+        assert marker not in rendered
+
+
+def test_build_agent_uses_rook_agent_with_mcp_tool_executor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import types
+
+    captured = {}
+
+    def fake_executor():
+        return None
+
+    class FakeRookAgent:
+        def __init__(self, *, tool_executor):
+            captured["tool_executor"] = tool_executor
+
+    monkeypatch.setitem(
+        sys.modules,
+        "rook.agent.base_agent",
+        types.SimpleNamespace(RookAgent=FakeRookAgent),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "rook.server",
+        types.SimpleNamespace(_mcp_tool_executor=fake_executor),
+    )
+
+    agent = PROBE._build_agent()
+
+    assert isinstance(agent, FakeRookAgent)
+    assert captured["tool_executor"] is fake_executor
+
+
+def test_main_runs_probe_with_built_agent_and_prints_completion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    built_agent = object()
+    captured = {}
+    run_dir = tmp_path / "lm7b-test-run"
+    run_dir.mkdir()
+    (run_dir / "decision.json").write_text(
+        json.dumps({"decision": "accepted", "reason": "verify_repair_passed"}),
+        encoding="utf-8",
+    )
+
+    def fake_run_probe(**kwargs):
+        captured.update(kwargs)
+        return run_dir
+
+    monkeypatch.setattr(PROBE, "_build_agent", lambda: built_agent)
+    monkeypatch.setattr(PROBE, "_run_probe", fake_run_probe)
+
+    result = PROBE.main(
+        [
+            "--model",
+            "test-model",
+            "--endpoint",
+            "http://example.invalid/chat",
+            "--temperature",
+            "0.25",
+            "--timeout-s",
+            "3",
+            "--excerpt-chars",
+            "17",
+            "--run-dir",
+            str(tmp_path),
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert result == 0
+    assert captured == {
+        "model": "test-model",
+        "endpoint": "http://example.invalid/chat",
+        "temperature": 0.25,
+        "timeout_s": 3,
+        "excerpt_chars": 17,
+        "run_root": str(tmp_path),
+        "agent": built_agent,
+    }
+    assert "LM7B request-driven live splice probe complete" in output
+    assert f"run_dir={run_dir}" in output
+    assert "decision=accepted" in output
+    assert "reason=verify_repair_passed" in output
+
+
 def test_canonical_planner_request_matches_lm7a_schema_and_validates() -> None:
     request = PROBE._canonical_planner_request()
 

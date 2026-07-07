@@ -514,7 +514,7 @@ def _run_probe(
     timeout_s: float,
     excerpt_chars: int,
     run_root: str | Path,
-    agent: str,
+    agent: Any,
 ) -> Path:
     run_dir = _new_run_dir(run_root)
     planner_request = _canonical_planner_request()
@@ -802,3 +802,35 @@ def _run_probe(
         ),
     )
     return run_dir
+
+
+def _build_agent() -> Any:
+    from rook.agent.base_agent import RookAgent
+    from rook.server import _mcp_tool_executor
+
+    return RookAgent(tool_executor=_mcp_tool_executor)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _args(argv)
+    run_dir = _run_probe(
+        model=args.model,
+        endpoint=args.endpoint,
+        temperature=args.temperature,
+        timeout_s=args.timeout_s,
+        excerpt_chars=args.excerpt_chars,
+        run_root=args.run_dir,
+        agent=_build_agent(),
+    )
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    print(
+        "LM7B request-driven live splice probe complete "
+        f"run_dir={run_dir} "
+        f"decision={decision.get('decision')} "
+        f"reason={decision.get('reason')}"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
