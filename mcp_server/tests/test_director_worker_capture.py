@@ -192,6 +192,7 @@ def make_fake_native(root: Path, *, output_root: Path,
                      skip_frame: int | None = None,
                      wrong_dimension_frame: int | None = None,
                      create_run_root_on_failure: bool | None = None,
+                     seed_status_on_failure: dict[str, Any] | None = None,
                      already_open_on_open: bool = False):
     prepared = str(root / "prepared.3dm")
     track = json.loads((root / "track.json").read_text(encoding="utf-8"))
@@ -245,6 +246,9 @@ def make_fake_native(root: Path, *, output_root: Path,
                     }
                 if should_create:
                     frames_dir.mkdir(parents=True, exist_ok=True)
+                    if seed_status_on_failure is not None:
+                        (run_root / "status.json").write_text(
+                            json.dumps(seed_status_on_failure), encoding="utf-8")
                 return {"success": False, "data": {"reason": reason}}
 
             frames_dir.mkdir(parents=True, exist_ok=True)
@@ -338,6 +342,7 @@ async def test_pass_id_validation(tmp_path, director_output_root, passes):
     {"width": 1280, "height": 0},
     None,
     {"width": "1280", "height": 720},
+    {"width": 16384, "height": 8640},  # over the native 8192 cap, mirrored locally
 ])
 async def test_resolution_validation(tmp_path, director_output_root, resolution):
     root = make_compiled_package(tmp_path)
@@ -511,6 +516,27 @@ async def test_failed_native_pass_marks_run_root_failed(tmp_path, director_outpu
         .read_text(encoding="utf-8"))
     assert status["state"] == "failed"
     assert status["reason"] == "capture_failed"
+
+
+async def test_native_run_root_exists_never_overwrites_existing_status(
+        tmp_path, director_output_root):
+    # TOCTOU winner scenario: another run creates the run root (with a COMPLETE
+    # status) between our local pre-check and native's collision check. The
+    # native run_root_exists failure must not flip that run's status to failed.
+    root = make_compiled_package(tmp_path)
+    fake = make_fake_native(root, output_root=director_output_root,
+                            fail_by_call={1: "run_root_exists"},
+                            create_run_root_on_failure=True,
+                            seed_status_on_failure={"state": "complete"})
+    error = await expect_capture_error(
+        capture_take(make_args(root), call_native=fake), "run_root_exists")
+    assert error.to_data()["failed_pass"] == "arctic"
+    run_root = director_output_root / "takes" / "take1" / "arctic"
+    status = json.loads((run_root / "status.json").read_text(encoding="utf-8"))
+    assert status["state"] == "complete"
+    entries = _capture_passes(root)
+    assert entries[-1]["outcome"] == "failed"
+    assert entries[-1]["reason"] == "run_root_exists"
 
 
 async def test_failed_native_pass_without_run_root(tmp_path, director_output_root):

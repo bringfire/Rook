@@ -54,10 +54,10 @@ def _validate_resolution(arguments: dict[str, Any]) -> tuple[int, int]:
     for key in ("width", "height"):
         value = resolution.get(key)
         if (not isinstance(value, int) or isinstance(value, bool)
-                or value <= 0 or value % 2):
+                or value <= 0 or value % 2 or value > 8192):
             raise DirectorWorkerCaptureError(
                 "invalid_input",
-                f"resolution.{key} must be a positive even integer")
+                f"resolution.{key} must be a positive even integer <= 8192")
         values.append(value)
     return values[0], values[1]
 
@@ -301,7 +301,11 @@ async def capture_take(arguments: dict[str, Any], *, call_native=call_rhino,
         try:
             play_data = await _call_worker_play_capture(call_native, request, port)
         except DirectorWorkerCaptureError as exc:
-            _fail(exc.code, str(exc), mark_failed=True)
+            # run_root_exists means the directory belongs to some OTHER run
+            # (TOCTOU past the local pre-check) — never overwrite its status,
+            # which may record a completed, assemblable pass.
+            _fail(exc.code, str(exc),
+                  mark_failed=exc.code != "run_root_exists")
 
         capture_data = play_data.get("capture") or {}
         frames_written = capture_data.get("framesWritten")

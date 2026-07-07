@@ -67,6 +67,20 @@ nlohmann::json InvalidInputData(nlohmann::json evidence = nlohmann::json::object
     return evidence;
 }
 
+// Capture-mode failures must always carry a sanctioned taxonomy reason; helper
+// throws from shared code (e.g. DirectorViewportGuard's unsupported_view) map to
+// capture_failed rather than escaping as untyped SendError.
+std::string SanctionedCaptureReason(const DirectorFrameValidationError& ex)
+{
+    static const std::set<std::string> kSanctionedCaptureReasons = {
+        "invalid_input", "output_policy_violation", "run_root_exists",
+        "display_mode_missing", "display_mode_mismatch", "capture_failed",
+    };
+    if (kSanctionedCaptureReasons.count(ex.code))
+        return ex.code;
+    return "capture_failed";
+}
+
 std::string PathToUtf8(const fs::path& path)
 {
     ON_wString wide(path.native().c_str());
@@ -681,47 +695,60 @@ void HandleDirectorWorkerPlay(const httplib::Request& req, httplib::Response& re
         CRhinoView* captureView = nullptr;
         if (captureRequest.present)
         {
-            const fs::path allowedRoot = GetAllowedDirectorRoot();
-            if (!IsSameOrDescendantPath(allowedRoot, captureRequest.runRoot))
-                return FailureResult("output_policy_violation",
-                    { { "message", "capture.runRoot must be inside the director output root" } });
-            if (!IsSamePath(captureRequest.runRoot / L"frames", captureRequest.framesDir))
-                return FailureResult("output_policy_violation",
-                    { { "message", "capture.framesDir must be exactly runRoot/frames" } });
-
-            std::error_code ec;
-            if (fs::exists(captureRequest.runRoot, ec))
-                return FailureResult("run_root_exists",
-                    { { "runRoot", PathToUtf8(captureRequest.runRoot) } });
-            fs::create_directories(captureRequest.framesDir, ec);
-            if (ec)
-            {
-                return FailureResult("capture_failed",
-                    { { "message", "failed to create frames directory: " + ec.message() } });
-            }
-
             try
             {
-                captureModeId = ResolveDisplayModeId(captureRequest.displayMode);
+                const fs::path allowedRoot = GetAllowedDirectorRoot();
+                if (!IsSameOrDescendantPath(allowedRoot, captureRequest.runRoot))
+                    return FailureResult("output_policy_violation",
+                        { { "message", "capture.runRoot must be inside the director output root" } });
+                if (!IsSamePath(captureRequest.runRoot / L"frames", captureRequest.framesDir))
+                    return FailureResult("output_policy_violation",
+                        { { "message", "capture.framesDir must be exactly runRoot/frames" } });
+
+                std::error_code ec;
+                if (fs::exists(captureRequest.runRoot, ec))
+                    return FailureResult("run_root_exists",
+                        { { "runRoot", PathToUtf8(captureRequest.runRoot) } });
+                fs::create_directories(captureRequest.framesDir, ec);
+                if (ec)
+                {
+                    return FailureResult("capture_failed",
+                        { { "message", "failed to create frames directory: " + ec.message() } });
+                }
+
+                try
+                {
+                    captureModeId = ResolveDisplayModeId(captureRequest.displayMode);
+                }
+                catch (const DirectorFrameValidationError& ex)
+                {
+                    return FailureResult("display_mode_missing", { { "message", ex.what() } });
+                }
+
+                viewportGuard = std::make_unique<DirectorViewportGuard>(pDoc);
+                captureView = viewportGuard->View();
+                if (!captureView)
+                    return FailureResult("capture_failed", { { "message", "no active view for capture" } });
+
+                captureView->ActiveViewport().SetDisplayMode(captureModeId);
+                captureView->Redraw();
+                const ON_UUID initialApplied = CurrentDisplayModeId(captureView);
+                if (ON_UuidCompare(initialApplied, captureModeId) != 0)
+                {
+                    return FailureResult("display_mode_mismatch",
+                        { { "requested", DisplayModeToJson(captureModeId) },
+                          { "applied", DisplayModeToJson(initialApplied) } });
+                }
             }
             catch (const DirectorFrameValidationError& ex)
             {
-                return FailureResult("display_mode_missing", { { "message", ex.what() } });
+                const std::string reason = SanctionedCaptureReason(ex);
+                return FailureResult(reason.c_str(),
+                    { { "message", ex.what() }, { "sourceCode", ex.code } });
             }
-
-            viewportGuard = std::make_unique<DirectorViewportGuard>(pDoc);
-            captureView = viewportGuard->View();
-            if (!captureView)
-                return FailureResult("capture_failed", { { "message", "no active view for capture" } });
-
-            captureView->ActiveViewport().SetDisplayMode(captureModeId);
-            captureView->Redraw();
-            const ON_UUID initialApplied = CurrentDisplayModeId(captureView);
-            if (ON_UuidCompare(initialApplied, captureModeId) != 0)
+            catch (const std::exception& ex)
             {
-                return FailureResult("display_mode_mismatch",
-                    { { "requested", DisplayModeToJson(captureModeId) },
-                      { "applied", DisplayModeToJson(initialApplied) } });
+                return FailureResult("capture_failed", { { "message", ex.what() } });
             }
         }
 
@@ -823,37 +850,44 @@ void HandleDirectorWorkerPlay(const httplib::Request& req, httplib::Response& re
 
             if (captureRequest.present)
             {
-                const auto captureStart = std::chrono::steady_clock::now();
-                SetCameraFromFrame(captureView, track.cameraFrames[static_cast<size_t>(frameIndex - 1)]);
-                const ON_UUID appliedMode = CurrentDisplayModeId(captureView);
-                if (ON_UuidCompare(appliedMode, captureModeId) != 0)
-                {
-                    return FailureResult("display_mode_mismatch",
-                        { { "frameIndex", frameIndex },
-                          { "requested", DisplayModeToJson(captureModeId) },
-                          { "applied", DisplayModeToJson(appliedMode) } });
-                }
-                captureView->Redraw();
-
-                wchar_t frameName[32] = {};
-                swprintf_s(frameName, L"frame_%04d.png", frameIndex);
-                const fs::path framePath = captureRequest.framesDir / frameName;
                 try
                 {
+                    const auto captureStart = std::chrono::steady_clock::now();
+                    SetCameraFromFrame(captureView, track.cameraFrames[static_cast<size_t>(frameIndex - 1)]);
+                    const ON_UUID appliedMode = CurrentDisplayModeId(captureView);
+                    if (ON_UuidCompare(appliedMode, captureModeId) != 0)
+                    {
+                        return FailureResult("display_mode_mismatch",
+                            { { "frameIndex", frameIndex },
+                              { "requested", DisplayModeToJson(captureModeId) },
+                              { "applied", DisplayModeToJson(appliedMode) } });
+                    }
+                    captureView->Redraw();
+
+                    wchar_t frameName[32] = {};
+                    swprintf_s(frameName, L"frame_%04d.png", frameIndex);
+                    const fs::path framePath = captureRequest.framesDir / frameName;
                     const DirectorCaptureResult captureResult =
                         CaptureViewToPng(pDoc, captureView, captureRequest.width,
                                          captureRequest.height, framePath);
                     captureBackend = captureResult.backend;
+                    ++framesWritten;
+                    const auto captureEnd = std::chrono::steady_clock::now();
+                    capturePerFrameMs.push_back(
+                        std::chrono::duration<double, std::milli>(captureEnd - captureStart).count());
                 }
                 catch (const DirectorFrameValidationError& ex)
+                {
+                    const std::string reason = SanctionedCaptureReason(ex);
+                    return FailureResult(reason.c_str(),
+                        { { "frameIndex", frameIndex },
+                          { "message", ex.what() }, { "sourceCode", ex.code } });
+                }
+                catch (const std::exception& ex)
                 {
                     return FailureResult("capture_failed",
                         { { "frameIndex", frameIndex }, { "message", ex.what() } });
                 }
-                ++framesWritten;
-                const auto captureEnd = std::chrono::steady_clock::now();
-                capturePerFrameMs.push_back(
-                    std::chrono::duration<double, std::milli>(captureEnd - captureStart).count());
             }
 
             const auto frameEnd = std::chrono::steady_clock::now();
@@ -1026,53 +1060,59 @@ void HandleDirectorCaptureProbe(const httplib::Request& req, httplib::Response& 
         [docSn, displayMode, width, height, outputPathUtf8]() -> WriteResult
     {
         CRhinoDoc* pDoc = ResolveDoc(docSn);
-        ON_wString wideOutputPath = Utf8ToWide(outputPathUtf8);
-        const fs::path outputPath = NormalizePolicyPath(fs::path(static_cast<const wchar_t*>(wideOutputPath)));
-        const fs::path allowedRoot = GetAllowedDirectorRoot();
-        if (!IsSameOrDescendantPath(allowedRoot, outputPath))
-            return FailureResult("output_policy_violation",
-                {{"message", "outputPath must be inside the director output root"}});
-        std::error_code ec;
-        fs::create_directories(outputPath.parent_path(), ec);
-
-        ON_UUID modeId;
-        try { modeId = ResolveDisplayModeId(displayMode); }
-        catch (const DirectorFrameValidationError& ex)
-        {
-            return FailureResult("display_mode_missing", {{"message", ex.what()}});
-        }
-
-        DirectorViewportGuard guard(pDoc);
-        CRhinoView* pView = guard.View();
-        if (!pView)
-            return FailureResult("capture_failed", {{"message", "no active view"}});
-        CRhinoViewport& vp = pView->ActiveViewport();
-        vp.SetDisplayMode(modeId);
-        pView->Redraw();
-        const ON_UUID applied = CurrentDisplayModeId(pView);
-        if (ON_UuidCompare(applied, modeId) != 0)
-            return FailureResult("display_mode_mismatch",
-                {{"requested", DisplayModeToJson(modeId)},
-                 {"applied", DisplayModeToJson(applied)}});
-
-        nlohmann::json data;
         try
         {
+            ON_wString wideOutputPath = Utf8ToWide(outputPathUtf8);
+            const fs::path outputPath = NormalizePolicyPath(fs::path(static_cast<const wchar_t*>(wideOutputPath)));
+            const fs::path allowedRoot = GetAllowedDirectorRoot();
+            if (!IsSameOrDescendantPath(allowedRoot, outputPath))
+                return FailureResult("output_policy_violation",
+                    {{"message", "outputPath must be inside the director output root"}});
+            std::error_code ec;
+            fs::create_directories(outputPath.parent_path(), ec);
+
+            ON_UUID modeId;
+            try { modeId = ResolveDisplayModeId(displayMode); }
+            catch (const DirectorFrameValidationError& ex)
+            {
+                return FailureResult("display_mode_missing", {{"message", ex.what()}});
+            }
+
+            DirectorViewportGuard guard(pDoc);
+            CRhinoView* pView = guard.View();
+            if (!pView)
+                return FailureResult("capture_failed", {{"message", "no active view"}});
+            CRhinoViewport& vp = pView->ActiveViewport();
+            vp.SetDisplayMode(modeId);
+            pView->Redraw();
+            const ON_UUID applied = CurrentDisplayModeId(pView);
+            if (ON_UuidCompare(applied, modeId) != 0)
+                return FailureResult("display_mode_mismatch",
+                    {{"requested", DisplayModeToJson(modeId)},
+                     {"applied", DisplayModeToJson(applied)}});
+
+            nlohmann::json data;
             const DirectorCaptureResult capture =
                 CaptureViewToPng(pDoc, pView, width, height, outputPath);
             data["backend"] = capture.backend;
+            data["outputPath"] = outputPathUtf8;
+            data["displayModeResolved"] = DisplayModeToJson(modeId);
+            data["readbackMatches"] = true;
+            WriteResult wr;
+            wr.success = true;
+            wr.data = std::move(data);
+            return wr;
         }
         catch (const DirectorFrameValidationError& ex)
         {
-            return FailureResult(ex.code.c_str(), {{"message", ex.what()}});
+            const std::string reason = SanctionedCaptureReason(ex);
+            return FailureResult(reason.c_str(),
+                {{"message", ex.what()}, {"sourceCode", ex.code}});
         }
-        data["outputPath"] = outputPathUtf8;
-        data["displayModeResolved"] = DisplayModeToJson(modeId);
-        data["readbackMatches"] = true;
-        WriteResult wr;
-        wr.success = true;
-        wr.data = std::move(data);
-        return wr;
+        catch (const std::exception& ex)
+        {
+            return FailureResult("capture_failed", {{"message", ex.what()}});
+        }
     });
 
     try
