@@ -109,3 +109,73 @@ def assert_samples_invariants(artifact: dict[str, Any]) -> None:
             "ids_hash_mismatch",
             "ids_sha256 does not match ids",
         )
+
+
+def build_actor_member_ids(
+    block_objects: list[dict[str, Any]],
+    actor_set_id: str,
+) -> tuple[dict[str, str], dict[str, int]]:
+    """Map /block/objects-detailed objects to Director actor_member_id values."""
+    def_to_member: dict[str, str] = {}
+    def_to_index: dict[str, int] = {}
+    for obj in block_objects:
+        def_id = obj.get("id")
+        index = obj.get("index")
+        if def_id is None or index is None:
+            continue
+        if def_id in def_to_member:
+            raise SimulationExportError(
+                "duplicate_definition_object_id",
+                f"block object id {def_id} appears twice",
+            )
+        index_int = int(index)
+        def_to_member[def_id] = f"{actor_set_id}_member_{index_int:04d}"
+        def_to_index[def_id] = index_int
+    return def_to_member, def_to_index
+
+
+def build_motion_json(
+    artifact: dict[str, Any],
+    def_to_member_id: dict[str, str],
+    fps: int,
+) -> dict[str, Any]:
+    """Build declarative per-member motion.json from absolute-from-rest z samples."""
+    ids = artifact["ids"]
+    frames = artifact["frames"]
+    frame_count = artifact["frame_count"]
+    if frame_count < 2:
+        raise SimulationExportError(
+            "frame_count_too_small",
+            f"frame_count {frame_count} < 2",
+        )
+
+    seen_members: set[str] = set()
+    tracks: list[dict[str, Any]] = []
+    for member_index, def_id in enumerate(ids):
+        member_id = def_to_member_id.get(def_id)
+        if member_id is None:
+            raise SimulationExportError(
+                "nested_or_unknown_id",
+                f"def id {def_id} is not a top-level block member",
+            )
+        if member_id in seen_members:
+            raise SimulationExportError(
+                "duplicate_member_id",
+                f"actor_member_id {member_id} generated twice",
+            )
+        seen_members.add(member_id)
+        keyframes = [
+            {
+                "t": p / (frame_count - 1),
+                "translate": [0.0, 0.0, float(frames[p]["translate_z"][member_index])],
+            }
+            for p in range(1, frame_count)
+        ]
+        tracks.append({"target": member_id, "keyframes": keyframes})
+
+    return {
+        "timeline": {"fps": fps, "frame_count": frame_count},
+        "groups": {},
+        "default_easing": "linear",
+        "motion": tracks,
+    }
