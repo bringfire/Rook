@@ -1,4 +1,4 @@
-# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S, LM5T, LM5U, LM5Y, LM6A, LM6C & LM6E — First Worker Model Probe (2026-07-02)
+# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S, LM5T, LM5U, LM5Y, LM6A, LM6C, LM6E & LM7B — First Worker Model Probe (2026-07-02)
 
 **Doctrine:** evidence, not CI. This summary is the committed artifact; raw
 runs stay local (spec §5, `docs/superpowers/specs/2026-07-02-lm5k-first-worker-model-probe-design.md`).
@@ -1113,6 +1113,148 @@ fixture. The next line should move upstream to Planner-side authoring:
 selecting templates, binding initial params, routing source facts, and declaring
 unresolved intent slots without guessing.
 
+## LM7B request-driven live splice arrival run (commit `7c50d3ea`)
+
+LM7B is the first Planner-line live splice. It does not test Planner model
+authorship. Instead, it asks whether a validated, hand-authored
+`PlannerWorkerContractRequest` can head the live provenance chain and drive the
+already-frozen one-turn worker splice without changing the worker-visible
+protocol.
+
+Final accepted run:
+
+```text
+run_dir: probe_runs/lm7b-20260707T133611Z-7c50d3ea
+model: gemma4:12b-it-qat
+provider path: direct Ollama
+worker_retry_enabled: false
+planner request source: script-local canonical LM7A request
+request_fingerprint:
+  sha256:7fc08b9f0c79a81b059a17a49ddf2b9f76e9fd092a4ace167026f3f99a70bec9
+workflow_validate_report_fingerprint:
+  sha256:af1b81f968b937c917ba0b03d2136aaf4126a767dae3080760ab82b9369f10e4
+```
+
+Decision:
+
+```text
+decision: accepted
+reason: verify_repair_succeeded
+workflow_validate_valid: true
+runtime_routing_valid: true
+runtime_routability_evaluated: true
+worker_response_kind: action_request
+worker_action_id: draft_repair_params
+live_repair_dispatched: true
+verify_repair_ran: true
+```
+
+The authoring-time `workflow_validate` report was valid across request,
+template, contract, routing, and intent phases. Runtime routing was also valid.
+The only runtime routing diagnostic was the expected optional unresolved-intent
+warning:
+
+```text
+route_id: missing_desired_output_value
+source_class: planner_user_intent
+purpose: unresolved_intent
+severity: warning
+code: optional_route_unresolved
+```
+
+The worker published a single action request:
+
+```json
+{"code": "A = 0.0;", "mode": "body"}
+```
+
+`gh_update_script` dispatched with the worker-authored params, produced a usable
+and verified repair receipt, and `verify_repair` succeeded:
+
+```text
+live_repair_summary.artifact_status: usable
+live_repair_summary.verified: true
+verify_repair_summary.outcome_status: succeeded
+```
+
+Leak scan:
+
+```text
+PROBE_REPAIR_CODE: 0 matches
+A = 42.0: 0 matches
+BindStepSpec.base_params.code: 0 matches
+```
+
+### LM7B gate failures before arrival
+
+LM7B reached the accepted run only after two deterministic gate failures. Both
+failures happened before the worker/model path and should be read as boundary
+evidence, not as model evidence.
+
+First gate failure:
+
+```text
+run_dir: probe_runs/lm7b-20260707T131133Z-f65e3cb9
+decision: gate_failed
+reason: runtime_routability_failed
+worker reached: no
+```
+
+Live create did not produce a receipt because the LM7A-loaded workflow contract
+stored `pins_in` / `pins_out` as immutable tuples, while the live
+`gh_create_csharp_script` boundary expects JSON-style arrays. PR #445 fixed only
+LM7B live-runtime param staging by normalizing contract params to JSON-style
+containers before dispatch.
+
+Second gate failure:
+
+```text
+run_dir: probe_runs/lm7b-20260707T132242Z-02da751c
+decision: gate_failed
+reason: runtime_routability_failed
+worker reached: no
+```
+
+After PR #445, live create succeeded and produced a real receipt plus
+`repair_anchor.target_errors`. Runtime LM5AA/LM5X validation still received the
+immutable loaded contract view, so `pin_contract` remained unresolved. PR #446
+fixed only LM7B's runtime-routing and worker-evidence contract views by using the
+same JSON-style normalization at those external/extractor boundaries.
+
+These fixes preserve the intended split:
+
+```text
+loaded workflow contract = immutable internal shape
+external/runtime/extractor view = JSON-style containers
+```
+
+### LM7B interpretation
+
+LM7B proves the request-driven live splice once:
+
+```text
+PlannerWorkerContractRequest
+-> workflow_validate
+-> materialized workflow contract and source routing
+-> live create + verify_create
+-> runtime LM5AA routability
+-> LM5X extraction + LM5W assembly
+-> LM5Y legacy worker-visible evidence projection
+-> two-pass worker publication
+-> worker-action applier
+-> live gh_update_script
+-> verify_repair_succeeded
+```
+
+This is not evidence that a Planner model can author the request. It is evidence
+that the validated request artifact can head the provenance chain and drive the
+frozen bounded-worker splice to the live verifier floor for this controlled
+fixture.
+
+The next empirical slice should move to LM7C: an offline Planner-model authorship
+probe, scored by `workflow_validate`, with paired intent-complete and
+intent-incomplete scenarios.
+
 ## Updated comparison keys
 
 Round 1: `(lm5j.prompt_text:v1, lm5k_golden_repair_v1/fresh_compiled_graph,
@@ -1182,6 +1324,14 @@ five scheduled independent full LM6A attempts, fresh gh_document_new per
 attempt, same gemma4:12b-it-qat/direct Ollama/frozen LM6B protocol, one
 observation-only retry budget available but not exercised in the canonical run,
 retry counters reported separately, report-only leak marker scan)`.
+
+LM7B: `(LM7B request-driven live splice probe, script-local canonical
+PlannerWorkerContractRequest v1, workflow_validate v1,
+materialize_planner_worker_contract_request, resolved source routing,
+runtime LM5AA routability, LM5X extraction + LM5W assembly, LM5Y legacy
+worker-visible projection, gemma4:12b-it-qat/direct Ollama, one-turn frozen
+worker splice, worker-action applier, live gh_update_script dispatch,
+verify_repair floor, retry disabled)`.
 
 Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
 new experiment.
