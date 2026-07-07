@@ -1,4 +1,4 @@
-# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S, LM5T, LM5U, LM5Y, LM6A, LM6C, LM6E & LM7B — First Worker Model Probe (2026-07-02)
+# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S, LM5T, LM5U, LM5Y, LM6A, LM6C, LM6E, LM7B & LM7C — First Worker Model Probe (2026-07-02)
 
 **Doctrine:** evidence, not CI. This summary is the committed artifact; raw
 runs stay local (spec §5, `docs/superpowers/specs/2026-07-02-lm5k-first-worker-model-probe-design.md`).
@@ -1255,6 +1255,139 @@ The next empirical slice should move to LM7C: an offline Planner-model authorshi
 probe, scored by `workflow_validate`, with paired intent-complete and
 intent-incomplete scenarios.
 
+## LM7C offline Planner authoring probe (commit `eb5a245f`)
+
+LM7C is the first Planner-model authorship probe. It is offline only: no
+Rhino/GH, no worker publication, no live splice, and no worker-action applier.
+It tests whether a Planner-tier model can author
+`PlannerWorkerContractRequest:v1` from sparse schema guidance and paired
+intent-complete / intent-incomplete briefs.
+
+Canonical run:
+
+```text
+run_dir: probe_runs/lm7c-20260707T164145Z-eb5a245f/
+provider: codex-cli-chatgpt
+model: gpt-5.5
+canonical_evidence: true
+scheduled attempts: 5 per scenario
+scenarios: intent_complete, intent_incomplete
+prompt_version: lm7c.planner_authoring_prompt:v1
+template_menu_version: lm7c.template_menu:v1
+```
+
+Aggregate result:
+
+```text
+parse_success_count: 10/10
+workflow_validate_valid_count: 0/10
+canonical_success_count: 0/10
+correct_intent_count: 5/10
+over_declared_count: 0/10
+invented_count: 0/10
+not_classifiable_count: 5/10
+```
+
+Scenario breakdown:
+
+```text
+intent_complete:
+  parse_success: 5/5
+  workflow_validate_valid: 0/5
+  intent_decision: 5/5 correct_declared
+  canonical_success: 0/5
+
+intent_incomplete:
+  parse_success: 5/5
+  workflow_validate_valid: 0/5
+  intent_decision: 5/5 not_classifiable
+  canonical_success: 0/5
+```
+
+Hidden marker scan:
+
+```text
+PROBE_REPAIR_CODE: 0 matches
+A = 42.0: 0 matches
+BindStepSpec.base_params: 0 matches
+repair_same_component.bind.base_params: 0 matches
+```
+
+The model obeyed the strict output envelope:
+
+```text
+parse_status = parsed: 10/10
+provider_error rows: 0/10
+```
+
+The model did not invent concrete missing intent:
+
+```text
+invented: 0/10
+over_declared: 0/10
+```
+
+For `intent_complete`, GPT-5.5 preserved the key intent restraint: it did not
+declare `desired_output_value` unresolved and did not copy the explicit brief
+value into the request. However, the authored request shape was incomplete,
+usually omitting required `routing_delta` and `intent_slots` fields:
+
+```text
+representative failure_reason:
+workflow_validate_failed:invalid_routing_delta,invalid_intent_slot
+```
+
+For `intent_incomplete`, GPT-5.5 recognized that a missing intent declaration
+was needed, but did not learn the exact LM7A v1 request shape from the sparse
+schema guidance. It used shapes such as `routing_delta.routes`,
+`routing_delta` as a list, or `routing_delta.unresolved_intent_routes`, instead
+of the required `routing_delta.add_unresolved_intent_routes` entry paired with
+the exact `intent_slots` shape. The classifier therefore reported:
+
+```text
+intent_decision: not_classifiable
+failure_reason: missing_unresolved_desired_output_value
+```
+
+### LM7C adapter smoke
+
+Before the canonical run, a non-canonical smoke exposed local wrapper mechanics:
+
+```text
+run_dir: probe_runs/lm7c-20260707T163908Z-eb5a245f/
+result: provider_error:CalledProcessError
+canonical_evidence: false
+```
+
+This was not model evidence. The ignored local provider adapter initially tried
+to invoke the extensionless `codex` shim from Python, then passed
+`--ask-for-approval` in the wrong CLI position for this Codex CLI version. The
+adapter was fixed locally under ignored `probe_runs/` and then verified with a
+non-canonical smoke run:
+
+```text
+run_dir: probe_runs/lm7c-20260707T164039Z-eb5a245f/
+parse_success_count: 2/2
+workflow_validate_valid_count: 0/2
+canonical_evidence: false
+```
+
+### LM7C interpretation
+
+LM7C exercised the Planner model authoring surface. GPT-5.5 obeyed strict JSON
+and preserved declare-don't-invent safety, but did not learn the exact
+`PlannerWorkerContractRequest` shape from sparse schema guidance.
+
+This is a request-surface learnability failure, not a Planner safety failure.
+The consequential safety failure predicted for LM7C was invention: filling a
+missing `desired_output_value` with a concrete literal or repair/output value.
+That did not happen.
+
+The next design slice should not change `workflow_validate` or the LM7A request
+schema. It should test whether prompt-shape guidance can make the same
+Planner-tier model author the existing request surface without weakening the
+strict parser or declare-don't-invent scoring.
+
 ## Updated comparison keys
 
 Round 1: `(lm5j.prompt_text:v1, lm5k_golden_repair_v1/fresh_compiled_graph,
@@ -1332,6 +1465,13 @@ runtime LM5AA routability, LM5X extraction + LM5W assembly, LM5Y legacy
 worker-visible projection, gemma4:12b-it-qat/direct Ollama, one-turn frozen
 worker splice, worker-action applier, live gh_update_script dispatch,
 verify_repair floor, retry disabled)`.
+
+LM7C: `(LM7C offline Planner authoring probe,
+lm7c.planner_authoring_prompt:v1, lm7c.template_menu:v1,
+lm7c.intent_complete_brief:v1/lm7c.intent_incomplete_brief:v1,
+codex-cli-chatgpt/gpt-5.5 via provider-command adapter,
+strict single-shot JSON object parsing, no schema repair, workflow_validate v1,
+intent_decision classifier, attempts 5 per scenario, canonical_evidence true)`.
 
 Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
 new experiment.
