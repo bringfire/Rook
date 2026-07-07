@@ -400,6 +400,75 @@ def test_materialization_uses_same_emitted_planner_request_payload(
     assert decision["reason"] == "runtime_not_implemented"
 
 
+def test_live_create_stages_materialized_pins_as_json_lists() -> None:
+    from rook.agent.plan_graph_live import LiveProducerResult
+    from rook.learning.plan_graph_runner import apply_producer_result
+
+    materialization = materialize_planner_worker_contract_request(
+        PROBE._canonical_planner_request()
+    )
+    workflow_contract = PROBE.load_workflow_contract_payload(
+        materialization.workflow_contract_payload
+    )
+    initial_params = workflow_contract.initial_params[0].execution_params
+    assert isinstance(initial_params["pins_in"], tuple)
+    assert isinstance(initial_params["pins_out"], tuple)
+    captured_params = {}
+
+    class FakeAgent:
+        async def run_live_producer_node(self, graph, node_id):
+            captured_params.update(graph.nodes[node_id].metadata["execution_params"])
+            inner = apply_producer_result(
+                graph,
+                node_id,
+                {
+                    "success": False,
+                    "message": "Component created with compile errors.",
+                    "data": {
+                        "script_receipt": {
+                            "version": 1,
+                            "operation": "create",
+                            "language": "csharp",
+                            "artifact_status": "created_with_errors",
+                            "mutation": {
+                                "status": "created",
+                                "component_guid": "component-1",
+                            },
+                            "verification": {
+                                "status": "failed",
+                                "target_error_count": 1,
+                            },
+                            "repair_anchor": {
+                                "component_guid": "component-1",
+                                "language": "csharp",
+                                "target_errors": [
+                                    "The name 'DefinitelyMissingSymbol' does not exist."
+                                ],
+                            },
+                        },
+                    },
+                },
+            )
+            return LiveProducerResult(
+                graph=inner.graph,
+                applied=inner.applied,
+                node_id=node_id,
+                tool_name="gh_create_csharp_script",
+                outcome_status=inner.outcome_status,
+                reason=inner.reason,
+            )
+
+    PROBE._run_live_create_and_verify(
+        agent=FakeAgent(),
+        workflow_contract=workflow_contract,
+    )
+
+    assert captured_params["pins_in"] == []
+    assert captured_params["pins_out"] == ["A:double"]
+    assert isinstance(captured_params["pins_in"], list)
+    assert isinstance(captured_params["pins_out"], list)
+
+
 def test_valid_workflow_without_live_seam_writes_runtime_not_implemented_decision(
     tmp_path: Path,
 ) -> None:
