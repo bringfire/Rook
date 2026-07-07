@@ -380,8 +380,6 @@ def _build_worker_context(*, live: Mapping[str, Any], run_dir: Path) -> dict[str
     )
     full_packet = assemble_acceptance_criteria_packet(sources)
     worker_visible = _legacy_acceptance_criteria_projection(full_packet)
-    _write_json(run_dir / "acceptance_criteria_packet.json", full_packet)
-    _write_json(run_dir / "worker_visible_acceptance_criteria.json", worker_visible)
     context = build_local_worker_turn_context(
         live["scaffold"],
         live["graph"],
@@ -406,7 +404,16 @@ def _build_worker_context(*, live: Mapping[str, Any], run_dir: Path) -> dict[str
             ),
         ),
     )
-    return dict(render_local_worker_turn_request_payload(context))
+    request_payload = dict(render_local_worker_turn_request_payload(context))
+    if (
+        _hidden_answer_leaks(full_packet)
+        or _hidden_answer_leaks(worker_visible)
+        or _hidden_answer_leaks(request_payload)
+    ):
+        raise ValueError("worker context hidden answer leak")
+    _write_json(run_dir / "acceptance_criteria_packet.json", full_packet)
+    _write_json(run_dir / "worker_visible_acceptance_criteria.json", worker_visible)
+    return request_payload
 
 
 def _legacy_acceptance_criteria_projection(packet: Mapping[str, Any]) -> dict[str, Any]:
@@ -663,6 +670,29 @@ def _run_probe(
             request_payload = _build_worker_context(live=live_result, run_dir=run_dir)
         except NotImplementedError:
             request_payload = None
+        except Exception as exc:
+            message = str(exc)
+            reason = (
+                "phase_a_hidden_answer_leak"
+                if "hidden answer leak" in message
+                else f"worker_context_failed:{type(exc).__name__}"
+            )
+            _write_json(
+                run_dir / "decision.json",
+                _decision_record(
+                    decision="gate_failed",
+                    reason=reason,
+                    phase="worker_context",
+                    request_fingerprint=request_fingerprint,
+                    workflow_validate_valid=True,
+                    workflow_validate_report_fingerprint=(
+                        workflow_validate_report_fingerprint
+                    ),
+                    runtime_routing_valid=runtime_routing_valid,
+                    runtime_routability_evaluated=True,
+                ),
+            )
+            return run_dir
 
         if request_payload is not None:
             publication = run_two_pass_worker_publication(

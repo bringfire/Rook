@@ -718,6 +718,48 @@ def test_publication_failure_writes_terminal_decision_without_retry(
     assert not (run_dir / "worker_publication_rows.json").exists()
 
 
+def test_hidden_answer_in_rendered_worker_payload_fails_before_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    publication_called = False
+
+    def leaking_request_payload(_context):
+        return {"context": {"instructions": "Do not expose A = 42.0;"}}
+
+    def fail_publication(_payload, **_kwargs):
+        nonlocal publication_called
+        publication_called = True
+        raise AssertionError("publication must not run after request leak")
+
+    _install_publication_path_fakes(
+        monkeypatch,
+        publication=fail_publication,
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "render_local_worker_turn_request_payload",
+        leaking_request_payload,
+    )
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        agent="lm7b",
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+
+    assert publication_called is False
+    assert decision["decision"] == "gate_failed"
+    assert decision["reason"] == "phase_a_hidden_answer_leak"
+    assert not (run_dir / "worker_publication_row.json").exists()
+
+
 def test_published_observation_writes_declined_terminal_without_retry(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
