@@ -12,6 +12,11 @@ from rook.agent.planner_worker_contract_request import (
     PLANNER_WORKER_CONTRACT_REQUEST_SCHEMA,
     materialize_planner_worker_contract_request,
 )
+from rook.agent.local_worker_source_routing_validator import (
+    SOURCE_ROUTING_VALIDATION_REPORT_SCHEMA,
+    SourceRoutingDiagnostic,
+    WorkerVisibleSourceRoutingValidationReport,
+)
 from rook.agent.workflow_validate import validate_planner_worker_contract_request
 
 
@@ -238,20 +243,12 @@ def test_materialization_uses_same_emitted_planner_request_payload(
             "report_fingerprint": "sha256:report",
         }
 
-    class FakeMaterialization:
-        workflow_contract_payload = {"schema": "rook.workflow_contract:v1"}
-        resolved_routing_artifact = {
-            "schema": "rook.worker_visible_source_routing:v1"
-        }
-        worker_node_ids = ("repair_same_component",)
-        diagnostics = ()
-
     def fake_materialize(request):
         captured.append(("materialize", request))
-        return FakeMaterialization()
+        return materialize_planner_worker_contract_request(request)
 
     def fake_live(**_kwargs):
-        return {"decision": {"decision": "gate_failed", "reason": "stop_for_test"}}
+        raise NotImplementedError("stop for materialization test")
 
     monkeypatch.setattr(PROBE, "validate_planner_worker_contract_request", fake_validate)
     monkeypatch.setattr(
@@ -275,17 +272,7 @@ def test_materialization_uses_same_emitted_planner_request_payload(
     decision = json.loads((run_dir / "decision.json").read_text())
 
     assert captured == [("validate", emitted), ("materialize", emitted)]
-    assert decision["schema"] == "rook.lm7b_decision:v1"
-    assert decision["decision"] == "gate_failed"
-    assert decision["reason"] == "stop_for_test"
-    assert decision["request_fingerprint"] == "sha256:req"
-    assert decision["workflow_validate_valid"] is True
-    assert decision["workflow_validate_report_fingerprint"] == "sha256:report"
-    assert decision["runtime_routing_valid"] is None
-    assert decision["runtime_routability_evaluated"] is False
-    assert decision["worker_retry_enabled"] is False
-    assert decision["live_repair_dispatched"] is False
-    assert decision["verify_repair_ran"] is False
+    assert decision["reason"] == "runtime_not_implemented"
 
 
 def test_valid_workflow_without_live_seam_writes_runtime_not_implemented_decision(
@@ -307,7 +294,7 @@ def test_valid_workflow_without_live_seam_writes_runtime_not_implemented_decisio
     assert decision["reason"] == "runtime_not_implemented"
 
 
-def test_unsupported_temporary_live_seam_decision_writes_stable_gate_failure(
+def test_temporary_live_seam_decision_does_not_bypass_runtime_gate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -333,14 +320,309 @@ def test_unsupported_temporary_live_seam_decision_writes_stable_gate_failure(
 
     decision = json.loads((run_dir / "decision.json").read_text())
 
-    assert decision["schema"] == "rook.lm7b_decision:v1"
     assert decision["decision"] == "gate_failed"
-    assert decision["reason"] == "temporary_live_seam:demo"
-    assert decision["request_fingerprint"].startswith("sha256:")
-    assert decision["workflow_validate_valid"] is True
-    assert decision["workflow_validate_report_fingerprint"].startswith("sha256:")
+    assert decision["reason"] != "temporary_live_seam:demo"
+    assert decision["reason"] == "runtime_not_implemented"
+
+
+def test_temporary_live_seam_decision_normalizes_runtime_routing_valid(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_live(**_kwargs):
+        return {
+            "decision": {
+                "decision": "gate_failed",
+                "reason": "stop_for_test",
+                "runtime_routing_valid": "yes",
+            }
+        }
+
+    monkeypatch.setattr(PROBE, "_run_live_create_and_verify", fake_live)
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        agent="lm7b",
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+
     assert decision["runtime_routing_valid"] is None
+    assert decision["reason"] != "stop_for_test"
+
+
+def test_runtime_routability_not_evaluated_gate_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_live(**_kwargs):
+        return _fake_live()
+
+    def fake_validate_routing(*_args, **_kwargs):
+        return WorkerVisibleSourceRoutingValidationReport(
+            schema=SOURCE_ROUTING_VALIDATION_REPORT_SCHEMA,
+            valid=True,
+            routability_evaluated=False,
+            static_diagnostics=(),
+            routability_diagnostics=(),
+        )
+
+    monkeypatch.setattr(PROBE, "_run_live_create_and_verify", fake_live)
+    monkeypatch.setattr(
+        PROBE,
+        "validate_worker_visible_source_routing",
+        fake_validate_routing,
+    )
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        agent="lm7b",
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+
+    assert decision["decision"] == "gate_failed"
+    assert decision["reason"] == "runtime_routability_not_evaluated"
+    assert decision["runtime_routing_valid"] is True
     assert decision["runtime_routability_evaluated"] is False
-    assert decision["worker_retry_enabled"] is False
-    assert decision["live_repair_dispatched"] is False
-    assert decision["verify_repair_ran"] is False
+    assert not (run_dir / "worker_publication_row.json").exists()
+
+
+def test_runtime_routability_error_gate_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    diagnostic = SourceRoutingDiagnostic(
+        severity="error",
+        code="required_route_unresolved",
+        node_id="repair_same_component",
+        route_id="repair_pin_contract",
+        source_class="pin_contract",
+        source_path="create_script.initial_execution_params.pins_out",
+        purpose="acceptance_criteria",
+        message="Required route was not resolvable.",
+    )
+
+    def fake_live(**_kwargs):
+        return _fake_live()
+
+    def fake_validate_routing(*_args, **_kwargs):
+        return WorkerVisibleSourceRoutingValidationReport(
+            schema=SOURCE_ROUTING_VALIDATION_REPORT_SCHEMA,
+            valid=False,
+            routability_evaluated=True,
+            static_diagnostics=(),
+            routability_diagnostics=(diagnostic,),
+        )
+
+    monkeypatch.setattr(PROBE, "_run_live_create_and_verify", fake_live)
+    monkeypatch.setattr(
+        PROBE,
+        "validate_worker_visible_source_routing",
+        fake_validate_routing,
+    )
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        agent="lm7b",
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+    routing_report = json.loads(
+        (run_dir / "runtime_routing_validation.json").read_text()
+    )
+
+    assert decision["decision"] == "gate_failed"
+    assert decision["reason"] == "runtime_routability_failed"
+    assert decision["runtime_routing_valid"] is False
+    assert decision["runtime_routability_evaluated"] is True
+    assert routing_report["routability_diagnostics"][0]["code"] == (
+        "required_route_unresolved"
+    )
+
+
+def test_optional_unresolved_intent_warning_reaches_real_worker_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    diagnostic = SourceRoutingDiagnostic(
+        severity="warning",
+        code="optional_route_unresolved",
+        node_id="repair_same_component",
+        route_id="missing_desired_output_value",
+        source_class="planner_user_intent",
+        source_path="planner.intent.desired_output_value",
+        purpose="unresolved_intent",
+        message="Optional intent route was unresolved.",
+    )
+    captured_payloads = []
+
+    class FakePublication:
+        row = {"status": "published"}
+        response_payload = {"kind": "observation"}
+
+    live = _real_live()
+
+    def fake_live(**_kwargs):
+        return live
+
+    def fake_validate_routing(*_args, **_kwargs):
+        return WorkerVisibleSourceRoutingValidationReport(
+            schema=SOURCE_ROUTING_VALIDATION_REPORT_SCHEMA,
+            valid=True,
+            routability_evaluated=True,
+            static_diagnostics=(),
+            routability_diagnostics=(diagnostic,),
+        )
+
+    def fake_publication(payload, **_kwargs):
+        captured_payloads.append(payload)
+        return FakePublication()
+
+    monkeypatch.setattr(PROBE, "_run_live_create_and_verify", fake_live)
+    monkeypatch.setattr(
+        PROBE,
+        "validate_worker_visible_source_routing",
+        fake_validate_routing,
+    )
+    monkeypatch.setattr(PROBE, "run_two_pass_worker_publication", fake_publication)
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        agent="lm7b",
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+
+    assert (run_dir / "worker_publication_row.json").exists()
+    assert decision["decision"] == "worker_declined"
+    assert decision["runtime_routing_valid"] is True
+    assert decision["runtime_routability_evaluated"] is True
+    assert len(captured_payloads) == 1
+    knowledge = captured_payloads[0]["context"]["knowledge"]
+    packets_by_id = {packet["packet_id"]: packet for packet in knowledge}
+    assert "acceptance_criteria" in packets_by_id
+    content = packets_by_id["acceptance_criteria"]["content"]
+    assert set(content) == {"source", "criteria"}
+    assert content["source"] == (
+        "workflow_contract + create_script.initial_execution_params + "
+        "create_script.receipt.script_receipt.repair_anchor + script_body_gotcha"
+    )
+    assert content["criteria"]
+    assert all(
+        set(criterion) == {"criterion_id", "description", "source"}
+        for criterion in content["criteria"]
+    )
+    rendered = json.dumps(content, sort_keys=True)
+    for forbidden in (
+        "schema",
+        "source_set",
+        "source_class",
+        "unresolved_intent",
+        "fingerprint",
+    ):
+        assert forbidden not in rendered
+    assert captured_payloads[0]["context"]["current_node"]["node_id"] == (
+        "repair_same_component"
+    )
+
+
+def _fake_live() -> dict:
+    return {
+        "workflow_contract": object(),
+        "scaffold": object(),
+        "graph": object(),
+        "convention_packets": (object(),),
+        "anchor_binding": {"component_guid": "component-1", "language": "csharp"},
+        "live_create_summary": {"node_id": "create_script"},
+        "verify_create_summary": {"verifier_node_id": "verify_create"},
+    }
+
+
+def _real_live() -> dict:
+    from rook.agent.plan_graph_workflow_contract import compile_workflow_contract
+    from rook.learning.plan_graph_runner import apply_producer_result, apply_verifier_step
+
+    materialization = materialize_planner_worker_contract_request(
+        PROBE._canonical_planner_request()
+    )
+    contract = PROBE.load_workflow_contract_payload(
+        materialization.workflow_contract_payload
+    )
+    scaffold = compile_workflow_contract(contract)
+    graph = scaffold.graph
+    graph.nodes["create_script"].metadata["execution_params"] = {
+        "pins_out": ["A:double"]
+    }
+    producer_result = apply_producer_result(
+        graph,
+        "create_script",
+        {
+            "success": False,
+            "message": "Component created with compile errors.",
+            "data": {
+                "script_receipt": {
+                    "version": 1,
+                    "operation": "create",
+                    "language": "csharp",
+                    "artifact_status": "created_with_errors",
+                    "mutation": {
+                        "status": "created",
+                        "component_guid": "component-1",
+                    },
+                    "verification": {
+                        "status": "failed",
+                        "target_error_count": 1,
+                    },
+                    "repair_anchor": {
+                        "component_guid": "component-1",
+                        "language": "csharp",
+                        "target_errors": [
+                            "The name 'DefinitelyMissingSymbol' does not exist."
+                        ],
+                    },
+                },
+            },
+        },
+    )
+    graph = producer_result.graph
+    verify_create = apply_verifier_step(graph, "verify_create", "create_script")
+    graph = verify_create.graph
+    return {
+        "workflow_contract": contract,
+        "scaffold": scaffold,
+        "graph": graph,
+        "convention_packets": (PROBE._script_body_gotcha_packet(),),
+        "anchor_binding": {"component_guid": "component-1", "language": "csharp"},
+        "live_create_summary": {
+            "node_id": "create_script",
+            "repair_anchor": {
+                "component_guid": "component-1",
+                "language": "csharp",
+                "target_errors": [
+                    "The name 'DefinitelyMissingSymbol' does not exist."
+                ],
+            },
+        },
+        "verify_create_summary": {"verifier_node_id": "verify_create"},
+    }
