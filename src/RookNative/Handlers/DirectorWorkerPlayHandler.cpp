@@ -7,6 +7,7 @@
 
 #include "stdafx.h"
 #include "Handlers/DirectorWorkerPlayHandler.h"
+#include "Handlers/DirectorFrame.h"
 #include "Threading/MainThreadDispatcher.h"
 #include "Infrastructure/JsonHelpers.h"
 #include "Infrastructure/UndoScope.h"
@@ -17,12 +18,16 @@
 #include <chrono>
 #include <cmath>
 #include <cctype>
+#include <filesystem>
 #include <fstream>
 #include <limits>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
+
+namespace fs = std::filesystem;
 
 namespace Rook {
 namespace Handlers {
@@ -54,6 +59,38 @@ nlohmann::json TrackInvalidData(nlohmann::json evidence = nlohmann::json::object
 {
     evidence["reason"] = "track_invalid";
     return evidence;
+}
+
+nlohmann::json InvalidInputData(nlohmann::json evidence = nlohmann::json::object())
+{
+    evidence["reason"] = "invalid_input";
+    return evidence;
+}
+
+// Capture-mode failures must always carry a sanctioned taxonomy reason; helper
+// throws from shared code (e.g. DirectorViewportGuard's unsupported_view) map to
+// capture_failed rather than escaping as untyped SendError.
+std::string SanctionedCaptureReason(const DirectorFrameValidationError& ex)
+{
+    static const std::set<std::string> kSanctionedCaptureReasons = {
+        "invalid_input", "output_policy_violation", "run_root_exists",
+        "display_mode_missing", "display_mode_mismatch", "capture_failed",
+    };
+    if (kSanctionedCaptureReasons.count(ex.code))
+        return ex.code;
+    return "capture_failed";
+}
+
+std::string PathToUtf8(const fs::path& path)
+{
+    ON_wString wide(path.native().c_str());
+    return WideToUtf8(wide);
+}
+
+fs::path PathFromUtf8(const std::string& value)
+{
+    ON_wString wide = Utf8ToWide(value);
+    return fs::path(static_cast<const wchar_t*>(wide));
 }
 
 bool IsFiniteNumber(const nlohmann::json& value)
@@ -152,7 +189,7 @@ ON_BoundingBox InflateBbox(ON_BoundingBox bbox, double tolerance)
     return bbox;
 }
 
-bool BboxAlmostEqual(const ON_BoundingBox& a, const ON_BoundingBox& b, double tolerance)
+bool WorkerBboxAlmostEqual(const ON_BoundingBox& a, const ON_BoundingBox& b, double tolerance)
 {
     return std::fabs(a.m_min.x - b.m_min.x) <= tolerance &&
         std::fabs(a.m_min.y - b.m_min.y) <= tolerance &&
@@ -208,6 +245,7 @@ struct WorkerTrack
     int frameCount = 0;
     std::vector<std::string> objectIds;
     std::map<std::string, ObjectTrack> objects;
+    std::vector<FrameCamera> cameraFrames;
 };
 
 struct PlayRequest
@@ -220,6 +258,18 @@ struct PlayRequest
     std::set<int> probeFrames;
     double driftTolerance = -1.0;
 };
+
+struct CaptureRequest
+{
+    bool present = false;
+    fs::path runRoot;
+    fs::path framesDir;
+    std::string displayMode;
+    int width = 0;
+    int height = 0;
+};
+
+constexpr int kMaxCaptureDim = 8192;
 
 void ValidateStringField(const nlohmann::json& body, const char* field, std::string& out)
 {
@@ -278,6 +328,48 @@ PlayRequest ParsePlayRequest(const nlohmann::json& body)
     }
 
     return request;
+}
+
+CaptureRequest ParseCaptureBlock(const nlohmann::json& body)
+{
+    CaptureRequest capture;
+    if (!body.contains("capture") || body["capture"].is_null())
+        return capture;
+
+    const nlohmann::json& block = body["capture"];
+    if (!block.is_object())
+        throw std::invalid_argument("capture must be an object");
+
+    static const std::set<std::string> kAllowed =
+        { "runRoot", "framesDir", "displayMode", "width", "height" };
+    for (const auto& item : block.items())
+    {
+        if (!kAllowed.count(item.key()))
+            throw std::invalid_argument("capture has unknown field: " + item.key());
+    }
+
+    std::string runRoot;
+    std::string framesDir;
+    ValidateStringField(block, "runRoot", runRoot);
+    ValidateStringField(block, "framesDir", framesDir);
+    ValidateStringField(block, "displayMode", capture.displayMode);
+    if (IEquals(capture.displayMode, "current"))
+        throw std::invalid_argument("capture.displayMode must name a concrete mode, not 'current'");
+    if (!block.contains("width") || !block["width"].is_number_integer() ||
+        !block.contains("height") || !block["height"].is_number_integer())
+        throw std::invalid_argument("capture.width and capture.height must be integers");
+
+    capture.width = block["width"].get<int>();
+    capture.height = block["height"].get<int>();
+    if (capture.width <= 0 || capture.height <= 0 ||
+        (capture.width % 2) != 0 || (capture.height % 2) != 0 ||
+        capture.width > kMaxCaptureDim || capture.height > kMaxCaptureDim)
+        throw std::invalid_argument("capture.width and capture.height must be positive even integers <= 8192");
+
+    capture.runRoot = NormalizePolicyPath(PathFromUtf8(runRoot));
+    capture.framesDir = NormalizePolicyPath(PathFromUtf8(framesDir));
+    capture.present = true;
+    return capture;
 }
 
 WorkerTrack ParseWorkerTrack(const nlohmann::json& track)
@@ -365,7 +457,7 @@ WorkerTrack ParseWorkerTrack(const nlohmann::json& track)
                 objectIt->second.sourceBbox = sourceBbox;
                 sourceBboxSeen.insert(id);
             }
-            else if (!BboxAlmostEqual(objectIt->second.sourceBbox, sourceBbox, 0.0))
+            else if (!WorkerBboxAlmostEqual(objectIt->second.sourceBbox, sourceBbox, 0.0))
             {
                 throw std::invalid_argument("source_state bbox must be stable across frames");
             }
@@ -376,6 +468,42 @@ WorkerTrack ParseWorkerTrack(const nlohmann::json& track)
     }
 
     return parsed;
+}
+
+std::vector<FrameCamera> ParseCameraFrames(const nlohmann::json& trackJson, int frameCount)
+{
+    if (!trackJson.contains("camera_frames") || !trackJson["camera_frames"].is_array())
+        throw std::invalid_argument("capture requires track camera_frames array");
+
+    const auto& entries = trackJson["camera_frames"];
+    if (static_cast<int>(entries.size()) != frameCount)
+        throw std::invalid_argument("camera_frames length must equal frame_count");
+
+    std::vector<FrameCamera> cameras;
+    cameras.reserve(entries.size());
+    for (int i = 0; i < static_cast<int>(entries.size()); ++i)
+    {
+        const auto& entry = entries[static_cast<size_t>(i)];
+        if (!entry.is_object() || !entry.contains("frame_index") ||
+            !entry["frame_index"].is_number_integer() ||
+            entry["frame_index"].get<int>() != i + 1)
+        {
+            throw std::invalid_argument(
+                "camera_frames must be 1-based and contiguous (bad entry at position "
+                + std::to_string(i) + ")");
+        }
+
+        try
+        {
+            cameras.push_back(ParseCamera(entry));
+        }
+        catch (const DirectorFrameValidationError& ex)
+        {
+            throw std::invalid_argument(std::string("camera_frames[") + std::to_string(i)
+                + "]: " + ex.what());
+        }
+    }
+    return cameras;
 }
 
 nlohmann::json LoadTrackJson(const std::string& trackPath)
@@ -467,10 +595,22 @@ void HandleDirectorWorkerPlay(const httplib::Request& req, httplib::Response& re
         return;
     }
 
-    WorkerTrack track;
+    CaptureRequest captureRequest;
     try
     {
-        nlohmann::json trackJson = LoadTrackJson(playRequest.trackPath);
+        captureRequest = ParseCaptureBlock(body);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendErrorData(res, InvalidInputData({ { "message", ex.what() } }));
+        return;
+    }
+
+    WorkerTrack track;
+    nlohmann::json trackJson;
+    try
+    {
+        trackJson = LoadTrackJson(playRequest.trackPath);
         track = ParseWorkerTrack(trackJson);
         if (playRequest.playToDefaulted)
             playRequest.playTo = track.frameCount;
@@ -493,8 +633,36 @@ void HandleDirectorWorkerPlay(const httplib::Request& req, httplib::Response& re
         return;
     }
 
+    if (captureRequest.present &&
+        (playRequest.fromFrame != 0 || playRequest.playTo != track.frameCount))
+    {
+        CRookServer::SendErrorData(res, InvalidInputData({
+            { "message", "capture requires a full-range play: fromFrame 0 and playTo == frame_count" },
+            { "fromFrame", playRequest.fromFrame },
+            { "playTo", playRequest.playTo },
+            { "frameCount", track.frameCount }
+        }));
+        return;
+    }
+
+    if (captureRequest.present)
+    {
+        try
+        {
+            track.cameraFrames = ParseCameraFrames(trackJson, track.frameCount);
+        }
+        catch (const std::invalid_argument& ex)
+        {
+            CRookServer::SendErrorData(res, TrackInvalidData({
+                { "check", "camera_frames" },
+                { "message", ex.what() }
+            }));
+            return;
+        }
+    }
+
     auto future = CMainThreadDispatcher::Instance().Dispatch(
-        [docSn, playRequest, track]() -> WriteResult
+        [docSn, playRequest, track, captureRequest]() -> WriteResult
     {
         CRhinoDoc* pDoc = ResolveDoc(docSn);
         const std::string docPath = WideToUtf8(pDoc->GetPathName());
@@ -522,6 +690,68 @@ void HandleDirectorWorkerPlay(const httplib::Request& req, httplib::Response& re
         if (!missingIds.empty())
             return FailureResult("track_objects_missing", {{"missingIds", MissingIdsJson(missingIds)}});
 
+        ON_UUID captureModeId = ON_nil_uuid;
+        std::unique_ptr<DirectorViewportGuard> viewportGuard;
+        CRhinoView* captureView = nullptr;
+        if (captureRequest.present)
+        {
+            try
+            {
+                const fs::path allowedRoot = GetAllowedDirectorRoot();
+                if (!IsSameOrDescendantPath(allowedRoot, captureRequest.runRoot))
+                    return FailureResult("output_policy_violation",
+                        { { "message", "capture.runRoot must be inside the director output root" } });
+                if (!IsSamePath(captureRequest.runRoot / L"frames", captureRequest.framesDir))
+                    return FailureResult("output_policy_violation",
+                        { { "message", "capture.framesDir must be exactly runRoot/frames" } });
+
+                std::error_code ec;
+                if (fs::exists(captureRequest.runRoot, ec))
+                    return FailureResult("run_root_exists",
+                        { { "runRoot", PathToUtf8(captureRequest.runRoot) } });
+                fs::create_directories(captureRequest.framesDir, ec);
+                if (ec)
+                {
+                    return FailureResult("capture_failed",
+                        { { "message", "failed to create frames directory: " + ec.message() } });
+                }
+
+                try
+                {
+                    captureModeId = ResolveDisplayModeId(captureRequest.displayMode);
+                }
+                catch (const DirectorFrameValidationError& ex)
+                {
+                    return FailureResult("display_mode_missing", { { "message", ex.what() } });
+                }
+
+                viewportGuard = std::make_unique<DirectorViewportGuard>(pDoc);
+                captureView = viewportGuard->View();
+                if (!captureView)
+                    return FailureResult("capture_failed", { { "message", "no active view for capture" } });
+
+                captureView->ActiveViewport().SetDisplayMode(captureModeId);
+                captureView->Redraw();
+                const ON_UUID initialApplied = CurrentDisplayModeId(captureView);
+                if (ON_UuidCompare(initialApplied, captureModeId) != 0)
+                {
+                    return FailureResult("display_mode_mismatch",
+                        { { "requested", DisplayModeToJson(captureModeId) },
+                          { "applied", DisplayModeToJson(initialApplied) } });
+                }
+            }
+            catch (const DirectorFrameValidationError& ex)
+            {
+                const std::string reason = SanctionedCaptureReason(ex);
+                return FailureResult(reason.c_str(),
+                    { { "message", ex.what() }, { "sourceCode", ex.code } });
+            }
+            catch (const std::exception& ex)
+            {
+                return FailureResult("capture_failed", { { "message", ex.what() } });
+            }
+        }
+
         const double tolerance = playRequest.driftTolerance > 0.0
             ? playRequest.driftTolerance
             : 10.0 * pDoc->AbsoluteTolerance();
@@ -542,7 +772,7 @@ void HandleDirectorWorkerPlay(const httplib::Request& req, httplib::Response& re
 
             if (playRequest.fromFrame == 0)
             {
-                if (!BboxAlmostEqual(observed, objectTrack.sourceBbox, tolerance))
+                if (!WorkerBboxAlmostEqual(observed, objectTrack.sourceBbox, tolerance))
                 {
                     pristineOffenders.push_back(
                         MakePristineEvidence(objectId, observed, objectTrack.sourceBbox,
@@ -583,6 +813,11 @@ void HandleDirectorWorkerPlay(const httplib::Request& req, httplib::Response& re
         const auto totalStart = std::chrono::steady_clock::now();
         std::vector<double> perFrameMs;
         perFrameMs.reserve(static_cast<size_t>(playRequest.playTo - playRequest.fromFrame));
+        std::vector<double> capturePerFrameMs;
+        std::string captureBackend;
+        int framesWritten = 0;
+        if (captureRequest.present)
+            capturePerFrameMs.reserve(static_cast<size_t>(playRequest.playTo));
         nlohmann::json probes = nlohmann::json::array();
 
         for (int frameIndex = playRequest.fromFrame + 1; frameIndex <= playRequest.playTo; ++frameIndex)
@@ -611,6 +846,48 @@ void HandleDirectorWorkerPlay(const httplib::Request& req, httplib::Response& re
                     });
                 }
                 prev[objectId] = absolute;
+            }
+
+            if (captureRequest.present)
+            {
+                try
+                {
+                    const auto captureStart = std::chrono::steady_clock::now();
+                    SetCameraFromFrame(captureView, track.cameraFrames[static_cast<size_t>(frameIndex - 1)]);
+                    const ON_UUID appliedMode = CurrentDisplayModeId(captureView);
+                    if (ON_UuidCompare(appliedMode, captureModeId) != 0)
+                    {
+                        return FailureResult("display_mode_mismatch",
+                            { { "frameIndex", frameIndex },
+                              { "requested", DisplayModeToJson(captureModeId) },
+                              { "applied", DisplayModeToJson(appliedMode) } });
+                    }
+                    captureView->Redraw();
+
+                    wchar_t frameName[32] = {};
+                    swprintf_s(frameName, L"frame_%04d.png", frameIndex);
+                    const fs::path framePath = captureRequest.framesDir / frameName;
+                    const DirectorCaptureResult captureResult =
+                        CaptureViewToPng(pDoc, captureView, captureRequest.width,
+                                         captureRequest.height, framePath);
+                    captureBackend = captureResult.backend;
+                    ++framesWritten;
+                    const auto captureEnd = std::chrono::steady_clock::now();
+                    capturePerFrameMs.push_back(
+                        std::chrono::duration<double, std::milli>(captureEnd - captureStart).count());
+                }
+                catch (const DirectorFrameValidationError& ex)
+                {
+                    const std::string reason = SanctionedCaptureReason(ex);
+                    return FailureResult(reason.c_str(),
+                        { { "frameIndex", frameIndex },
+                          { "message", ex.what() }, { "sourceCode", ex.code } });
+                }
+                catch (const std::exception& ex)
+                {
+                    return FailureResult("capture_failed",
+                        { { "frameIndex", frameIndex }, { "message", ex.what() } });
+                }
             }
 
             const auto frameEnd = std::chrono::steady_clock::now();
@@ -713,7 +990,129 @@ void HandleDirectorWorkerPlay(const httplib::Request& req, httplib::Response& re
             {"totalMs", std::chrono::duration<double, std::milli>(totalEnd - totalStart).count()},
             {"perFrameMs", std::move(perFrame)}
         };
+        if (captureRequest.present)
+        {
+            double captureTotal = 0.0;
+            nlohmann::json capturePerFrame = nlohmann::json::array();
+            for (double ms : capturePerFrameMs)
+            {
+                captureTotal += ms;
+                capturePerFrame.push_back(ms);
+            }
+            wr.data["capture"] = {
+                { "backend", captureBackend },
+                { "runRoot", PathToUtf8(captureRequest.runRoot) },
+                { "framesDir", PathToUtf8(captureRequest.framesDir) },
+                { "framesWritten", framesWritten },
+                { "displayModeRequested", captureRequest.displayMode },
+                { "displayModeResolved", DisplayModeToJson(captureModeId) },
+                { "timing", {
+                    { "captureTotalMs", captureTotal },
+                    { "capturePerFrameMs", std::move(capturePerFrame) }
+                } }
+            };
+        }
         return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success) CRookServer::SendSuccess(res, result.data);
+        else CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+    }
+}
+
+void HandleDirectorCaptureProbe(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    std::string displayMode;
+    int width = 0, height = 0;
+    std::string outputPathUtf8;
+    try
+    {
+        ValidateStringField(body, "displayMode", displayMode);
+        if (IEquals(displayMode, "current"))
+            throw std::invalid_argument("displayMode must name a concrete mode, not 'current'");
+        if (!body.contains("width") || !body["width"].is_number_integer() ||
+            !body.contains("height") || !body["height"].is_number_integer())
+            throw std::invalid_argument("width and height must be integers");
+        width = body["width"].get<int>();
+        height = body["height"].get<int>();
+        if (width <= 0 || height <= 0 || (width % 2) != 0 || (height % 2) != 0 ||
+            width > 8192 || height > 8192)
+            throw std::invalid_argument("width and height must be positive even integers <= 8192");
+        ValidateStringField(body, "outputPath", outputPathUtf8);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendErrorData(res, nlohmann::json{
+            {"reason", "invalid_input"}, {"message", ex.what()}});
+        return;
+    }
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, displayMode, width, height, outputPathUtf8]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        try
+        {
+            ON_wString wideOutputPath = Utf8ToWide(outputPathUtf8);
+            const fs::path outputPath = NormalizePolicyPath(fs::path(static_cast<const wchar_t*>(wideOutputPath)));
+            const fs::path allowedRoot = GetAllowedDirectorRoot();
+            if (!IsSameOrDescendantPath(allowedRoot, outputPath))
+                return FailureResult("output_policy_violation",
+                    {{"message", "outputPath must be inside the director output root"}});
+            std::error_code ec;
+            fs::create_directories(outputPath.parent_path(), ec);
+
+            ON_UUID modeId;
+            try { modeId = ResolveDisplayModeId(displayMode); }
+            catch (const DirectorFrameValidationError& ex)
+            {
+                return FailureResult("display_mode_missing", {{"message", ex.what()}});
+            }
+
+            DirectorViewportGuard guard(pDoc);
+            CRhinoView* pView = guard.View();
+            if (!pView)
+                return FailureResult("capture_failed", {{"message", "no active view"}});
+            CRhinoViewport& vp = pView->ActiveViewport();
+            vp.SetDisplayMode(modeId);
+            pView->Redraw();
+            const ON_UUID applied = CurrentDisplayModeId(pView);
+            if (ON_UuidCompare(applied, modeId) != 0)
+                return FailureResult("display_mode_mismatch",
+                    {{"requested", DisplayModeToJson(modeId)},
+                     {"applied", DisplayModeToJson(applied)}});
+
+            nlohmann::json data;
+            const DirectorCaptureResult capture =
+                CaptureViewToPng(pDoc, pView, width, height, outputPath);
+            data["backend"] = capture.backend;
+            data["outputPath"] = outputPathUtf8;
+            data["displayModeResolved"] = DisplayModeToJson(modeId);
+            data["readbackMatches"] = true;
+            WriteResult wr;
+            wr.success = true;
+            wr.data = std::move(data);
+            return wr;
+        }
+        catch (const DirectorFrameValidationError& ex)
+        {
+            const std::string reason = SanctionedCaptureReason(ex);
+            return FailureResult(reason.c_str(),
+                {{"message", ex.what()}, {"sourceCode", ex.code}});
+        }
+        catch (const std::exception& ex)
+        {
+            return FailureResult("capture_failed", {{"message", ex.what()}});
+        }
     });
 
     try

@@ -71,7 +71,7 @@ from .mcp_tool_profiles import (
     tool_blocked,
 )
 from .capability_index import build_index, validate_arguments
-from . import artifacts, canvas_director, director, director_actor_metadata, director_compiler, director_preview, director_publish, director_take_package, director_video, director_worker_compile, director_worker_play, director_worker_prepare, merge_execution, script_library, targeting, workbench, work_units
+from . import artifacts, canvas_director, director, director_actor_metadata, director_compiler, director_preview, director_publish, director_take_package, director_video, director_worker_capture, director_worker_compile, director_worker_play, director_worker_prepare, merge_execution, script_library, targeting, workbench, work_units
 from .mesh2splat import pipeline as mesh2splat_pipeline
 targeting.initialize_from_environment()
 from .knowledge import query_knowledge, query_knowledge_tiered, record_knowledge, invalidate_condensed_command_cache
@@ -4203,6 +4203,57 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                     },
                 },
                 "required": ["package_root"],
+            },
+        ),
+        Tool(
+            name="rhino_director_capture_take",
+            description=(
+                "Director v3 worker capture (Slice 4A). DESTRUCTIVE to the "
+                "active worker document: resets prepared.3dm per pass, plays "
+                "track.json through native delta playback, captures PNG frames "
+                "for display-mode passes, and writes run roots under the "
+                "configured Director output root."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "package_root": {
+                        "type": "string",
+                        "description": "Compiled take package directory.",
+                    },
+                    "passes": {
+                        "type": "array",
+                        "description": "Capture passes to run.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "type": {
+                                    "type": "string",
+                                    "description": "Pass type; Slice 4A supports display_mode.",
+                                },
+                                "display_mode": {
+                                    "type": "string",
+                                    "description": "Concrete Rhino display mode name or UUID.",
+                                },
+                                "pass_id": {
+                                    "type": "string",
+                                    "description": "Output run id under takes/<take_id>/.",
+                                },
+                            },
+                            "required": ["type", "display_mode", "pass_id"],
+                        },
+                    },
+                    "resolution": {
+                        "type": "object",
+                        "description": "Capture resolution.",
+                        "properties": {
+                            "width": {"type": "integer"},
+                            "height": {"type": "integer"},
+                        },
+                        "required": ["width", "height"],
+                    },
+                },
+                "required": ["package_root", "passes", "resolution"],
             },
         ),
         Tool(
@@ -20974,6 +21025,12 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             try:
                 result = {"success": True, "data": await director_worker_play.play_take(arguments, port=port)}
             except director_worker_play.DirectorWorkerPlayError as exc:
+                result = {"success": False, "data": exc.to_data()}
+
+        case "rhino_director_capture_take":
+            try:
+                result = {"success": True, "data": await director_worker_capture.capture_take(arguments, port=port)}
+            except director_worker_capture.DirectorWorkerCaptureError as exc:
                 result = {"success": False, "data": exc.to_data()}
 
         case "rhino_director_preview_motion":

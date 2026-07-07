@@ -333,86 +333,6 @@ fs::path PathFromUtf8(const std::string& value)
     return fs::path(static_cast<const wchar_t*>(wide));
 }
 
-std::wstring GetEnvironmentVariableString(const wchar_t* name)
-{
-    DWORD required = ::GetEnvironmentVariableW(name, nullptr, 0);
-    if (required == 0)
-        return {};
-
-    std::wstring value(required, L'\0');
-    DWORD written = ::GetEnvironmentVariableW(name, value.data(), required);
-    if (written == 0)
-        return {};
-
-    value.resize(written);
-    return value;
-}
-
-fs::path NormalizePolicyPath(const fs::path& path)
-{
-    std::error_code ec;
-    fs::path absolute = fs::absolute(path, ec);
-    if (ec)
-        absolute = path;
-
-    fs::path weak = fs::weakly_canonical(absolute, ec);
-    if (!ec)
-        return weak.lexically_normal();
-
-    return absolute.lexically_normal();
-}
-
-fs::path GetAllowedDirectorRoot()
-{
-    std::wstring configured = GetEnvironmentVariableString(L"ROOK_DIRECTOR_OUTPUT_ROOT");
-    if (!configured.empty())
-        return NormalizePolicyPath(fs::path(configured));
-
-    std::wstring localAppData = GetEnvironmentVariableString(L"LOCALAPPDATA");
-    if (localAppData.empty())
-        throw DirectorFrameValidationError(
-            "output_policy_violation",
-            "LOCALAPPDATA is required when ROOK_DIRECTOR_OUTPUT_ROOT is not set");
-
-    return NormalizePolicyPath(fs::path(localAppData) / L"Rook" / L"rookvision_director");
-}
-
-std::wstring LowerPathPart(const fs::path& part)
-{
-    std::wstring text = part.native();
-    std::transform(text.begin(), text.end(), text.begin(), [](wchar_t ch) {
-        return static_cast<wchar_t>(std::towlower(ch));
-    });
-    return text;
-}
-
-bool IsSameOrDescendantPath(const fs::path& parent, const fs::path& candidate)
-{
-    std::vector<std::wstring> parentParts;
-    std::vector<std::wstring> candidateParts;
-
-    for (const fs::path& part : parent)
-        parentParts.push_back(LowerPathPart(part));
-    for (const fs::path& part : candidate)
-        candidateParts.push_back(LowerPathPart(part));
-
-    if (parentParts.size() > candidateParts.size())
-        return false;
-
-    for (size_t i = 0; i < parentParts.size(); ++i)
-    {
-        if (parentParts[i] != candidateParts[i])
-            return false;
-    }
-
-    return true;
-}
-
-bool IsSamePath(const fs::path& a, const fs::path& b)
-{
-    return IsSameOrDescendantPath(a, b) && IsSameOrDescendantPath(b, a);
-}
-
 void ValidateOutputPolicy(const fs::path& runRoot, const fs::path& outputPath)
 {
     fs::path allowedRoot = GetAllowedDirectorRoot();
@@ -1604,28 +1524,6 @@ std::string PathToUtf8(const fs::path& path)
 {
     ON_wString wide(path.native().c_str());
     return WideToUtf8(wide);
-}
-
-ON_UUID ResolveDisplayModeId(const std::string& displayMode)
-{
-    if (displayMode.empty() || IEquals(displayMode, "current"))
-        return ON_nil_uuid;
-
-    ON_UUID modeId = ON_UuidFromString(displayMode.c_str());
-    if (!ON_UuidIsNil(modeId))
-    {
-        if (!CRhinoDisplayAttrsMgr::FindDisplayAttrs(modeId))
-            throw DirectorFrameValidationError("invalid_input", "Display mode UUID not found");
-        return modeId;
-    }
-
-    ON_wString wName = Utf8ToWide(displayMode);
-    DisplayAttrsMgrListDesc* pDesc =
-        CRhinoDisplayAttrsMgr::FindDisplayAttrsDesc(static_cast<const wchar_t*>(wName));
-    if (!pDesc || !pDesc->m_pAttrs)
-        throw DirectorFrameValidationError("invalid_input", "Display mode '" + displayMode + "' not found");
-
-    return pDesc->m_pAttrs->Id();
 }
 
 std::vector<std::string> FrameObjectIds(const std::vector<FrameObjectTransform>& objects)
