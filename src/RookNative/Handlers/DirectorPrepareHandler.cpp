@@ -74,6 +74,10 @@ PreparedGeometryResult AddBrepWithCleanCopyFallback(CRhinoDoc* pDoc,
 
     ON_Brep clean;
     clean = *brep;
+    // Legacy TL_Brep members can carry stale tolerance/flag data even when
+    // their renderable Brep geometry is usable. Recompute this metadata on the
+    // duplicate before Rhino validates the new top-level object.
+    clean.SetTolerancesBoxesAndFlags(false);
     if (const CRhinoObject* obj = pDoc->AddBrepObject(clean, attrs))
         return { obj, className, "clean_copy", "" };
 
