@@ -845,6 +845,20 @@ def test_lm7c_script_does_not_import_live_worker_or_rhino_surfaces() -> None:
         "rhino_ping",
         "gh_document_new",
         "gh_update_script",
+        "validate_worker_visible_source_routing",
+        "materialize_planner_worker_contract_request",
+        "extract_acceptance_criteria_sources",
+        "assemble_acceptance_criteria_packet",
     )
     for token in forbidden:
         assert token not in source
+
+
+def test_lm7d_does_not_add_repair_loop_or_json_repair() -> None:
+    sparse = PROBE._planner_authoring_prompt("sparse_v1").lower()
+    shaped = PROBE._planner_authoring_prompt("shape_guidance_v2").lower()
+    for prompt in (sparse, shaped):
+        assert "validator feedback" not in prompt
+        assert "repair loop" not in prompt
+        assert "retry" not in prompt
+        assert "```json" not in prompt
