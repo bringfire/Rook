@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -79,6 +80,39 @@ def test_workflow_validate_happy_path_report_shape():
     assert report["resolved"]["workflow_contract_schema"] == "rook.workflow_contract:v1"
     assert report["resolved"]["routing_schema"] == "rook.worker_visible_source_routing:v1"
     assert report["resolved"]["worker_nodes"] == ["repair_same_component"]
+
+
+def test_workflow_validate_report_does_not_expose_full_graph_or_hidden_answers():
+    report = validate_planner_worker_contract_request(_valid_request())
+
+    report_json = json.dumps(report, sort_keys=True)
+
+    for marker in [
+        "PROBE_REPAIR_CODE",
+        "A = 42.0",
+        "repair_same_component.bind.base_params",
+        "BindStepSpec.base_params",
+        "BindStepSpec.base_params.code",
+        "DefinitelyMissingSymbol",
+    ]:
+        assert marker not in report_json
+    assert "graph" not in report["resolved"]
+
+
+def test_workflow_validate_module_has_no_runtime_or_model_imports():
+    module_source = Path(workflow_validate_module.__file__).read_text()
+
+    for forbidden in [
+        "lm6a_live_worker_splice_probe",
+        "lm6c_repeatability_probe",
+        "lm_worker_two_pass_publication",
+        "plan_graph_worker_action_apply",
+        "RookAgent",
+        "_mcp_tool_executor",
+        "ollama",
+        "LiteLLM",
+    ]:
+        assert forbidden not in module_source
 
 
 def test_lm5aa_static_routing_failure_is_surfaced(monkeypatch):

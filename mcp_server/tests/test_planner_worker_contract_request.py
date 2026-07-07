@@ -128,6 +128,28 @@ def test_materialized_repair_rule_has_no_bind_step():
     )
 
 
+def test_materialized_contract_and_routing_do_not_expose_hidden_answer_markers():
+    result = materialize_planner_worker_contract_request(_valid_request())
+
+    assert result.diagnostics == ()
+    materialized_json = json.dumps(
+        {
+            "contract": result.workflow_contract_payload,
+            "routing": result.resolved_routing_artifact,
+        },
+        sort_keys=True,
+    )
+
+    for marker in [
+        "PROBE_REPAIR_CODE",
+        "A = 42.0",
+        "repair_same_component.bind.base_params",
+        "BindStepSpec.base_params",
+        "BindStepSpec.base_params.code",
+    ]:
+        assert marker not in materialized_json
+
+
 def test_materialization_returns_fresh_containers():
     request = _valid_request()
 
@@ -153,6 +175,22 @@ def test_non_json_unknown_field_reports_diagnostic_without_crashing():
 
     assert "unknown_field" in _codes(result.diagnostics)
     assert result.request_payload["unexpected"] == Path("not-json")
+
+
+def test_planner_request_module_has_no_runtime_or_worker_protocol_imports():
+    module_source = Path(module.__file__).read_text()
+
+    for forbidden in [
+        "lm6a_live_worker_splice_probe",
+        "lm6c_repeatability_probe",
+        "lm_worker_two_pass_publication",
+        "plan_graph_worker_action_apply",
+        "RookAgent",
+        "_mcp_tool_executor",
+        "ollama",
+        "LiteLLM",
+    ]:
+        assert forbidden not in module_source
 
 
 def test_malformed_route_id_list_entries_report_diagnostic_without_crashing():
