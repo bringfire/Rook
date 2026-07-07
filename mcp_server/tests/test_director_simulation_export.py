@@ -129,3 +129,122 @@ def test_build_motion_json_rejects_duplicate_generated_member_id():
             fps=24,
         )
     assert ei.value.code == "duplicate_member_id"
+
+
+def _track_with(members):
+    object_frames = []
+    for frame_index in sorted(members):
+        transforms = [
+            {
+                "object_id": cid,
+                "transform": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, dz], [0, 0, 0, 1]],
+            }
+            for cid, dz in members[frame_index].items()
+        ]
+        object_frames.append({"frame_index": frame_index, "object_transforms": transforms})
+    return {"object_frames": object_frames}
+
+
+def test_manifest_matches_ok_and_drift():
+    manifest = {
+        "actor_sets": [
+            {
+                "actor_set_id": "actor_x",
+                "members": [
+                    {
+                        "definition_object_id": "d0",
+                        "definition_object_index": 3,
+                        "actor_member_id": "actor_x_member_0003",
+                    }
+                ],
+            }
+        ]
+    }
+    sx.assert_manifest_matches(manifest, "actor_x", {"d0": "actor_x_member_0003"}, {"d0": 3})
+    bad = {
+        "actor_sets": [
+            {
+                "actor_set_id": "actor_x",
+                "members": [
+                    {
+                        "definition_object_id": "d0",
+                        "definition_object_index": 99,
+                        "actor_member_id": "actor_x_member_0003",
+                    }
+                ],
+            }
+        ]
+    }
+    with pytest.raises(sx.SimulationExportError) as ei:
+        sx.assert_manifest_matches(bad, "actor_x", {"d0": "actor_x_member_0003"}, {"d0": 3})
+    assert ei.value.code == "manifest_drift"
+
+
+def test_motion_roundtrip_ok_including_nested_member():
+    art = sx.build_samples_artifact(["d0", "dNest"], [[0.0, 0.0], [0.0, 7.0]], _meta())
+    member_map = {"d0": ["c0"], "dNest": ["cA", "cB"]}
+    track = _track_with(
+        {
+            1: {"c0": 0.0, "cA": 0.0, "cB": 0.0},
+            2: {"c0": 0.0, "cA": 7.0, "cB": 7.0},
+        }
+    )
+    sx.verify_motion_roundtrip(track, art, member_map, ["d0", "dNest"])
+
+
+def test_motion_roundtrip_mismatch():
+    art = sx.build_samples_artifact(["d0"], [[0.0], [9.0]], _meta())
+    track = _track_with({1: {"c0": 0.0}, 2: {"c0": 8.0}})
+    with pytest.raises(sx.SimulationExportError) as ei:
+        sx.verify_motion_roundtrip(track, art, {"d0": ["c0"]}, ["d0"])
+    assert ei.value.code == "motion_roundtrip_mismatch"
+
+
+def test_camera_roundtrip_ok_and_length_mismatch():
+    cam = {
+        "projection": "perspective",
+        "location": [1, 2, 3],
+        "target": [0, 0, 0],
+        "up": [0, 0, 1],
+        "lens_length": 50,
+    }
+    kfs = [
+        {"frame_index": 1, "source": {"kind": "explicit_camera", "camera": cam}},
+        {"frame_index": 2, "source": {"kind": "explicit_camera", "camera": cam}},
+    ]
+    track = {
+        "camera_frames": [
+            {"frame_index": 1, "camera": cam},
+            {"frame_index": 2, "camera": cam},
+        ]
+    }
+    sx.verify_camera_roundtrip(track, kfs)
+    with pytest.raises(sx.SimulationExportError) as ei:
+        sx.verify_camera_roundtrip({"camera_frames": [{"frame_index": 1, "camera": cam}]}, kfs)
+    assert ei.value.code == "camera_frame_count_mismatch"
+
+
+def test_camera_roundtrip_rejects_lens_or_projection_mismatch():
+    cam = {
+        "projection": "perspective",
+        "location": [1, 2, 3],
+        "target": [0, 0, 0],
+        "up": [0, 0, 1],
+        "lens_length": 50,
+    }
+    kfs = [{"frame_index": 1, "source": {"kind": "explicit_camera", "camera": cam}}]
+    bad_lens = dict(cam, lens_length=35)
+    with pytest.raises(sx.SimulationExportError) as ei:
+        sx.verify_camera_roundtrip(
+            {"camera_frames": [{"frame_index": 1, "camera": bad_lens}]},
+            kfs,
+        )
+    assert ei.value.code == "camera_roundtrip_mismatch"
+
+    bad_projection = dict(cam, projection="parallel")
+    with pytest.raises(sx.SimulationExportError) as ei:
+        sx.verify_camera_roundtrip(
+            {"camera_frames": [{"frame_index": 1, "camera": bad_projection}]},
+            kfs,
+        )
+    assert ei.value.code == "camera_roundtrip_mismatch"

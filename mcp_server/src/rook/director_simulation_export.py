@@ -179,3 +179,137 @@ def build_motion_json(
         "default_easing": "linear",
         "motion": tracks,
     }
+
+
+def assert_manifest_matches(
+    scene_manifest: dict[str, Any],
+    actor_set_id: str,
+    def_to_member_id: dict[str, str],
+    def_to_index: dict[str, int],
+) -> None:
+    """Package-manifest drift gate: the manifest is the authority."""
+    actor_sets = scene_manifest.get("actor_sets") or []
+    manifest_set = next(
+        (a for a in actor_sets if a.get("actor_set_id") == actor_set_id),
+        None,
+    )
+    if manifest_set is None:
+        raise SimulationExportError(
+            "manifest_actor_set_missing",
+            f"actor set {actor_set_id} not in scene_manifest",
+        )
+
+    by_def = {
+        m["definition_object_id"]: m
+        for m in (manifest_set.get("members") or [])
+    }
+    for def_id, member_id in def_to_member_id.items():
+        member = by_def.get(def_id)
+        if member is None:
+            raise SimulationExportError(
+                "manifest_member_missing",
+                f"def id {def_id} absent from manifest",
+            )
+        if member.get("actor_member_id") != member_id:
+            raise SimulationExportError(
+                "manifest_drift",
+                f"{def_id}: manifest member {member.get('actor_member_id')} != {member_id}",
+            )
+        if member.get("definition_object_index") != def_to_index[def_id]:
+            raise SimulationExportError(
+                "manifest_drift",
+                f"{def_id}: manifest index {member.get('definition_object_index')} != {def_to_index[def_id]}",
+            )
+
+
+def verify_motion_roundtrip(
+    track: dict[str, Any],
+    artifact: dict[str, Any],
+    member_map: dict[str, list[str]],
+    sample_def_ids: list[str],
+    tol: float = 1e-6,
+) -> None:
+    """Verify compiled transform z offsets match sampled z for representative members."""
+    ids = artifact["ids"]
+    id_pos = {def_id: i for i, def_id in enumerate(ids)}
+    frames_by_index = {f["frame_index"]: f for f in track["object_frames"]}
+
+    for def_id in sample_def_ids:
+        if def_id not in id_pos:
+            raise SimulationExportError(
+                "roundtrip_unknown_member",
+                f"{def_id} not in artifact ids",
+            )
+        created = member_map.get(def_id) or []
+        if not created:
+            raise SimulationExportError(
+                "roundtrip_no_created",
+                f"{def_id} has no created objects",
+            )
+
+        pos = id_pos[def_id]
+        for p, art_frame in enumerate(artifact["frames"]):
+            frame_index = p + 1
+            expected = float(art_frame["translate_z"][pos])
+            tframe = frames_by_index.get(frame_index)
+            if tframe is None:
+                raise SimulationExportError(
+                    "motion_roundtrip_mismatch",
+                    f"compiled track has no frame {frame_index}",
+                )
+            xf_by_obj = {
+                t["object_id"]: t["transform"]
+                for t in tframe["object_transforms"]
+            }
+            for created_id in created:
+                if created_id not in xf_by_obj:
+                    raise SimulationExportError(
+                        "motion_roundtrip_mismatch",
+                        f"{def_id}->{created_id} absent from frame {frame_index}",
+                    )
+                got = float(xf_by_obj[created_id][2][3])
+                if abs(got - expected) > tol:
+                    raise SimulationExportError(
+                        "motion_roundtrip_mismatch",
+                        f"{def_id}->{created_id} frame {frame_index}: transform z {got} != sampled {expected}",
+                    )
+
+
+def verify_camera_roundtrip(
+    track: dict[str, Any],
+    cam_keyframes: list[dict[str, Any]],
+    tol: float = 1e-6,
+) -> None:
+    cam_frames = track["camera_frames"]
+    if len(cam_frames) != len(cam_keyframes):
+        raise SimulationExportError(
+            "camera_frame_count_mismatch",
+            f"{len(cam_frames)} camera_frames != {len(cam_keyframes)} harvested",
+        )
+
+    for p, (compiled_frame, keyframe) in enumerate(zip(cam_frames, cam_keyframes)):
+        frame_index = p + 1
+        if compiled_frame.get("frame_index") != frame_index:
+            raise SimulationExportError(
+                "camera_frame_disorder",
+                f"camera_frames[{p}].frame_index {compiled_frame.get('frame_index')} != {frame_index}",
+            )
+        want = keyframe["source"]["camera"]
+        got = compiled_frame["camera"]
+        if got.get("projection") != want.get("projection"):
+            raise SimulationExportError(
+                "camera_roundtrip_mismatch",
+                f"camera frame {frame_index} projection: {got.get('projection')} != {want.get('projection')}",
+            )
+        if abs(float(got.get("lens_length")) - float(want.get("lens_length"))) > tol:
+            raise SimulationExportError(
+                "camera_roundtrip_mismatch",
+                f"camera frame {frame_index} lens_length: {got.get('lens_length')} != {want.get('lens_length')}",
+            )
+        for key in ("location", "target", "up"):
+            for actual, expected in zip(got[key], want[key]):
+                if abs(float(actual) - float(expected)) > tol:
+                    raise SimulationExportError(
+                        "camera_roundtrip_mismatch",
+                        f"camera frame {frame_index} {key}: {got[key]} != {want[key]}",
+                    )
