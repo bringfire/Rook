@@ -84,13 +84,16 @@ def _load_play_package(package_root_arg: Any) -> dict[str, Any]:
     prepared_sha = sha256_file(root / "prepared.3dm")
     mismatches: list[str] = []
 
+    # Strict: compile is the only writer of this evidence and always emits
+    # every key — a missing key is a broken package, not an acceptable state
+    # (whole-branch review, 2026-07-06).
     if evidence.get("track_json_sha256") != track_sha:
         mismatches.append("track.json")
-    if evidence.get("member_map_sha256") not in (None, member_map_sha):
+    if evidence.get("member_map_sha256") != member_map_sha:
         mismatches.append("member_map.json")
-    if evidence.get("resolved_motion_sha256") not in (None, resolved_sha):
+    if evidence.get("resolved_motion_sha256") != resolved_sha:
         mismatches.append("resolved_motion.json")
-    if evidence.get("prepared_scene_sha256") not in (None, prepared_sha):
+    if evidence.get("prepared_scene_sha256") != prepared_sha:
         mismatches.append("prepared.3dm")
 
     prepared_scene = member_map.get("prepared_scene") or {}
@@ -103,7 +106,7 @@ def _load_play_package(package_root_arg: Any) -> dict[str, Any]:
         mismatches.append("track.derived_from.member_map_sha256")
     if derived.get("prepared_3dm_sha256") != prepared_sha:
         mismatches.append("track.derived_from.prepared_3dm_sha256")
-    if derived.get("resolved_motion_sha256") not in (None, resolved_sha):
+    if derived.get("resolved_motion_sha256") != resolved_sha:
         mismatches.append("track.derived_from.resolved_motion_sha256")
 
     if mismatches:
