@@ -153,7 +153,9 @@ def make_fake_native(root: Path, *, live_modified: bool = False,
                      open_already_open: bool = False,
                      modes: tuple[str, ...] = ("Shaded",),
                      prepare_ok: bool = True,
-                     prepare_payload: dict | None = None):
+                     prepare_payload: dict | None = None,
+                     save_copy_evidence: dict | None = None,
+                     prepared_bytes: bytes = b"prepared-3dm-bytes"):
     """Stateful fake: /document reports the live doc until /document/open
     succeeds, then reports the opened path. start_on_scene=True simulates a
     take copy already being the active document (the re-prepare scenario);
@@ -194,6 +196,22 @@ def make_fake_native(root: Path, *, live_modified: bool = False,
                 return {"success": False, "data": {"reason": "wrong_document"}}
             return {"success": True,
                     "data": prepare_payload or make_prepare_payload(root)}
+        if endpoint == "/document/save-copy":
+            target = Path(data["path"])
+            target.write_bytes(prepared_bytes)
+            current_path = opened_path or scene_path
+            evidence = {
+                "path_before": current_path,
+                "path_after": current_path,
+                "title_before": Path(current_path).name,
+                "title_after": Path(current_path).name,
+                "modified_before": False,
+                "modified_after": False,
+                "save_small_used": False,
+            }
+            if save_copy_evidence:
+                evidence.update(save_copy_evidence)
+            return {"success": True, "data": evidence}
         raise AssertionError(f"unexpected native call: {endpoint}")
 
     fake.state = state
@@ -419,6 +437,67 @@ async def test_happy_path_writes_all_artifacts(tmp_path):
     status = json.loads((root / "status.json").read_text(encoding="utf-8"))
     assert status["phase"] == "prepared"
     assert status["evidence"]["member_map_sha256"] == member_map_sha
+
+
+async def test_prepare_writes_prepared_scene_snapshot(tmp_path):
+    root = make_package(tmp_path)
+    prepared_bytes = b"prepared-3dm-v1"
+    fake = make_fake_native(root, prepared_bytes=prepared_bytes)
+    result = await dwp.prepare_take(
+        {"package_root": str(root)}, call_native=fake,
+        now_fn=lambda: "2026-07-06T01:00:00+00:00")
+
+    prepared = root / "prepared.3dm"
+    assert prepared.read_bytes() == prepared_bytes
+    assert not (root / ".prepared.3dm.staging").exists()
+    prepared_sha = hashlib.sha256(prepared_bytes).hexdigest()
+
+    member_map = json.loads((root / "member_map.json").read_text(encoding="utf-8"))
+    assert member_map["prepared_scene"] == {
+        "file": "prepared.3dm",
+        "sha256": prepared_sha,
+        "bytes": len(prepared_bytes),
+    }
+
+    status = json.loads((root / "status.json").read_text(encoding="utf-8"))
+    assert status["evidence"]["prepared_scene_sha256"] == prepared_sha
+    assert result["prepared_scene"] == member_map["prepared_scene"]
+
+
+async def test_prepare_save_copy_invariant_violation_fails(tmp_path):
+    root = make_package(tmp_path)
+    fake = make_fake_native(root, save_copy_evidence={"save_small_used": True})
+    await expect_error(
+        dwp.prepare_take({"package_root": str(root)}, call_native=fake),
+        "save_copy_invariant_violation")
+    assert not (root / "member_map.json").exists()
+    assert not (root / "resolved_motion.json").exists()
+    assert not (root / "prepared.3dm").exists()
+    assert not (root / ".prepared.3dm.staging").exists()
+
+
+async def test_reprepare_overwrites_prepared_scene(tmp_path):
+    root = make_package(tmp_path)
+    first = b"prepared-3dm-v1"
+    second = b"prepared-3dm-v2-larger"
+
+    await dwp.prepare_take(
+        {"package_root": str(root)},
+        call_native=make_fake_native(root, prepared_bytes=first),
+        now_fn=lambda: "2026-07-06T01:00:00+00:00")
+    assert (root / "prepared.3dm").read_bytes() == first
+
+    await dwp.prepare_take(
+        {"package_root": str(root)},
+        call_native=make_fake_native(root, prepared_bytes=second),
+        now_fn=lambda: "2026-07-06T02:00:00+00:00")
+
+    prepared = root / "prepared.3dm"
+    assert prepared.read_bytes() == second
+    prepared_sha = hashlib.sha256(second).hexdigest()
+    member_map = json.loads((root / "member_map.json").read_text(encoding="utf-8"))
+    assert member_map["prepared_scene"]["sha256"] == prepared_sha
+    assert member_map["prepared_scene"]["bytes"] == len(second)
 
 
 async def test_unmapped_motion_target_rejected(tmp_path):

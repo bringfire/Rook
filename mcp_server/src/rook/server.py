@@ -71,7 +71,7 @@ from .mcp_tool_profiles import (
     tool_blocked,
 )
 from .capability_index import build_index, validate_arguments
-from . import artifacts, canvas_director, director, director_actor_metadata, director_compiler, director_preview, director_publish, director_take_package, director_video, director_worker_prepare, merge_execution, script_library, targeting, workbench, work_units
+from . import artifacts, canvas_director, director, director_actor_metadata, director_compiler, director_preview, director_publish, director_take_package, director_video, director_worker_compile, director_worker_play, director_worker_prepare, merge_execution, script_library, targeting, workbench, work_units
 from .mesh2splat import pipeline as mesh2splat_pipeline
 targeting.initialize_from_environment()
 from .knowledge import query_knowledge, query_knowledge_tiered, record_knowledge, invalidate_condensed_command_cache
@@ -4139,6 +4139,67 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                         "type": "string",
                         "description": "Take package directory created by "
                                        "rhino_director_package_take",
+                    },
+                },
+                "required": ["package_root"],
+            },
+        ),
+        Tool(
+            name="rhino_director_compile_take",
+            description=(
+                "Director v3 worker compile (Slice 3). Opens prepared.3dm as "
+                "the ACTIVE document (double-hop reload if needed), validates "
+                "the prepared package hash chain, samples tight-bbox source "
+                "states, and writes file-backed track.json plus compile "
+                "provenance. Mutates the worker document only by switching the "
+                "active disposable copy; does not use /director/replay."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "package_root": {
+                        "type": "string",
+                        "description": "Prepared take package directory.",
+                    },
+                },
+                "required": ["package_root"],
+            },
+        ),
+        Tool(
+            name="rhino_director_worker_play",
+            description=(
+                "Director v3 worker playback (Slice 3). Plays the compiled "
+                "track.json in the open prepared.3dm disposable copy, mutating "
+                "that copy with native delta playback and drift validation. "
+                "reset=true forces a fresh reload of prepared.3dm before play."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "package_root": {
+                        "type": "string",
+                        "description": "Compiled take package directory.",
+                    },
+                    "from_frame": {
+                        "type": "integer",
+                        "description": "Source frame for chunked playback; default 0.",
+                    },
+                    "play_to": {
+                        "type": "integer",
+                        "description": "Inclusive destination frame; default track frame_count.",
+                    },
+                    "probe_frames": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "Frames whose observed tight bboxes should be returned.",
+                    },
+                    "drift_tolerance": {
+                        "type": "number",
+                        "description": "Positive native drift tolerance override.",
+                    },
+                    "reset": {
+                        "type": "boolean",
+                        "description": "Force a fresh prepared.3dm reload before playback.",
                     },
                 },
                 "required": ["package_root"],
@@ -20901,6 +20962,18 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             try:
                 result = {"success": True, "data": await director_worker_prepare.prepare_take(arguments, port=port)}
             except director_worker_prepare.DirectorWorkerPrepareError as exc:
+                result = {"success": False, "data": exc.to_data()}
+
+        case "rhino_director_compile_take":
+            try:
+                result = {"success": True, "data": await director_worker_compile.compile_take(arguments, port=port)}
+            except director_worker_compile.DirectorWorkerCompileError as exc:
+                result = {"success": False, "data": exc.to_data()}
+
+        case "rhino_director_worker_play":
+            try:
+                result = {"success": True, "data": await director_worker_play.play_take(arguments, port=port)}
+            except director_worker_play.DirectorWorkerPlayError as exc:
                 result = {"success": False, "data": exc.to_data()}
 
         case "rhino_director_preview_motion":

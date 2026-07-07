@@ -17,10 +17,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 from .bridge import call_rhino
+from .director_worker_common import (
+    enforce_save_copy_evidence,
+    native_call,
+    norm_path,
+    open_package_document,
+)
 from .director_take_package import (
     PACKAGE_SCHEMA_VERSION,
     canonical_json_text,
@@ -45,16 +52,14 @@ def _sha256_text(text: str) -> str:
 
 
 def _norm_path(value: str) -> str:
-    return str(Path(value)).replace("\\", "/").casefold()
+    return norm_path(value)
 
 
 async def _native(call_native, endpoint: str, method: str, data: dict | None,
                   port: int | None, error_code: str) -> Any:
-    envelope = await call_native(endpoint, method, data, port=port)
-    if not isinstance(envelope, dict) or not envelope.get("success"):
-        detail = envelope.get("data") if isinstance(envelope, dict) else envelope
-        raise DirectorWorkerPrepareError(error_code, f"{endpoint} failed: {detail}")
-    return envelope.get("data")
+    return await native_call(
+        call_native, endpoint, method, data, port, error_code,
+        DirectorWorkerPrepareError)
 
 
 def _load_package(package_root_arg: Any) -> dict[str, Any]:
@@ -124,45 +129,9 @@ def _verify_package_hashes(pkg: dict[str, Any]) -> None:
 
 async def _open_scene_document(call_native, pkg: dict[str, Any],
                                port: int | None) -> None:
-    scene_path = pkg["root"] / "scene.3dm"
-    live = await _native(call_native, "/document", "GET", None, port,
-                         "document_open_failed")
-    already_on_scene = (
-        _norm_path(live.get("path") or "") == _norm_path(str(scene_path)))
-    if not already_on_scene and bool(live.get("modified")):
-        # Switching documents discards unsaved edits: native /document/open
-        # clears the modified flag to suppress the save dialog
-        # (DocumentOpsHandler.cpp:124). Refuse on a dirty live document.
-        raise DirectorWorkerPrepareError(
-            "document_not_saved",
-            "the current document has unsaved changes; opening the take "
-            "copy would silently discard them — save the document first")
-    # ALWAYS (re)open — including when the copy is already active. A prior
-    # prepare may have mutated the in-memory copy, and the modified flag is
-    # unreliable here (native /document/open force-clears it before opening,
-    # and its same-path branch can no-op with alreadyOpen=true —
-    # DocumentOpsHandler.cpp:162-172).
-    open_data = await _native(call_native, "/document/open", "POST",
-                              {"path": str(scene_path)}, port,
-                              "document_open_failed")
-    if isinstance(open_data, dict) and open_data.get("alreadyOpen"):
-        # Native no-opped: the copy was already active and was NOT reloaded
-        # from disk. Pristine state cannot be proven for an un-reloaded
-        # copy — a partially mutated one can still hold its source
-        # instances plus stray duplicates, which the instance-presence gate
-        # below cannot see. Fail closed.
-        raise DirectorWorkerPrepareError(
-            "take_copy_not_pristine",
-            "the take copy was already the active document and Rhino did "
-            "not reload it from disk; close the document in Rhino, then "
-            "re-run prepare")
-    after = await _native(call_native, "/document", "GET", None, port,
-                          "document_open_failed")
-    if _norm_path(after.get("path") or "") != _norm_path(str(scene_path)):
-        raise DirectorWorkerPrepareError(
-            "wrong_document",
-            f"active document is {after.get('path')!r}; expected the take "
-            f"copy {scene_path}")
+    await open_package_document(
+        call_native, pkg["root"], pkg["root"] / "scene.3dm", port=port,
+        error_cls=DirectorWorkerPrepareError, mode="fail_closed")
 
 
 async def _verify_take_copy_pristine(call_native, manifest: dict[str, Any],
@@ -413,6 +382,30 @@ async def prepare_take(arguments: dict[str, Any], *, call_native=call_rhino,
     prepare_data = await _run_prepare(call_native, pkg, port)
     map_sets = _verify_and_map(pkg["manifest"], prepare_data)
 
+    staging = pkg["root"] / ".prepared.3dm.staging"
+    prepared_path = pkg["root"] / "prepared.3dm"
+    if staging.exists():
+        staging.unlink()
+    try:
+        evidence = await _native(
+            call_native, "/document/save-copy", "POST",
+            {"path": str(staging)}, port, "save_copy_failed")
+        enforce_save_copy_evidence(evidence, DirectorWorkerPrepareError)
+        if not staging.is_file() or staging.stat().st_size == 0:
+            raise DirectorWorkerPrepareError(
+                "save_copy_failed", "prepared.3dm staging missing or empty")
+        os.replace(staging, prepared_path)
+    except Exception:
+        if staging.exists():
+            staging.unlink()
+        raise
+    prepared_sha = sha256_file(prepared_path)
+    prepared_scene = {
+        "file": "prepared.3dm",
+        "sha256": prepared_sha,
+        "bytes": prepared_path.stat().st_size,
+    }
+
     manifest_sha = pkg["status"].get("scene_manifest_sha256")
     member_map = {
         "schema_version": MEMBER_MAP_SCHEMA_VERSION,
@@ -421,6 +414,7 @@ async def prepare_take(arguments: dict[str, Any], *, call_native=call_rhino,
         "package_id": pkg["status"].get("package_id"),
         "prepared_at_utc": now_fn(),
         "scene_manifest_sha256": manifest_sha,
+        "prepared_scene": prepared_scene,
         "actor_sets": map_sets,
     }
     # Hash before writing so a failed resolved-motion derivation leaves no
@@ -444,7 +438,8 @@ async def prepare_take(arguments: dict[str, Any], *, call_native=call_rhino,
     status["heartbeat_utc"] = now_fn()
     status["evidence"] = {**(status.get("evidence") or {}),
                           "member_map_sha256": member_map_sha,
-                          "resolved_motion_sha256": resolved_sha}
+                          "resolved_motion_sha256": resolved_sha,
+                          "prepared_scene_sha256": prepared_sha}
     status_text = canonical_json_text(status)
     (pkg["root"] / "status.json").write_text(status_text, encoding="utf-8")
 
@@ -460,6 +455,7 @@ async def prepare_take(arguments: dict[str, Any], *, call_native=call_rhino,
                  len(m["created_object_ids"]) for m in s["members"])}
             for s in map_sets
         ],
+        "prepared_scene": prepared_scene,
         "member_map_sha256": member_map_sha,
         "resolved_motion_sha256": resolved_sha,
     }
