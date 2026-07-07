@@ -113,6 +113,14 @@ def materialize_planner_worker_contract_request(
         payload["intent_slots"], routing_artifact
     )
     all_diagnostics = tuple(diagnostics + routing_diagnostics + intent_diagnostics)
+    if _has_errors(list(all_diagnostics)):
+        return PlannerWorkerContractMaterialization(
+            request_payload=request_copy,
+            workflow_contract_payload=None,
+            resolved_routing_artifact=None,
+            worker_node_ids=(),
+            diagnostics=all_diagnostics,
+        )
     return PlannerWorkerContractMaterialization(
         request_payload=request_copy,
         workflow_contract_payload=contract_payload,
@@ -141,14 +149,14 @@ def _request_diagnostics(payload: Any) -> list[PlannerRequestDiagnostic]:
                 path="schema",
             )
         )
-    unknown = sorted(set(payload) - _REQUEST_FIELDS)
+    unknown = _sorted_unknown_fields(payload, _REQUEST_FIELDS)
     for field in unknown:
         diagnostics.append(
             _diagnostic(
                 "unknown_field",
                 "request",
                 f"Unknown top-level field: {field}.",
-                path=field,
+                path=str(field),
             )
         )
     if payload.get("template_id") != LM7A_TEMPLATE_ID:
@@ -188,7 +196,7 @@ def _initial_param_diagnostics(value: Any) -> list[PlannerRequestDiagnostic]:
                 path="initial_params",
             )
         ]
-    unknown_nodes = sorted(set(value) - {CREATE_NODE_ID})
+    unknown_nodes = _sorted_unknown_fields(value, {CREATE_NODE_ID})
     for node_id in unknown_nodes:
         diagnostics.append(
             _diagnostic(
@@ -196,7 +204,7 @@ def _initial_param_diagnostics(value: Any) -> list[PlannerRequestDiagnostic]:
                 "request",
                 "initial_params contains an undeclared node.",
                 path=f"initial_params.{node_id}",
-                node_id=node_id,
+                node_id=node_id if isinstance(node_id, str) else None,
             )
         )
     create_params = value.get(CREATE_NODE_ID)
@@ -211,7 +219,7 @@ def _initial_param_diagnostics(value: Any) -> list[PlannerRequestDiagnostic]:
             )
         )
         return diagnostics
-    unknown_fields = sorted(set(create_params) - {"pins_out"})
+    unknown_fields = _sorted_unknown_fields(create_params, {"pins_out"})
     for field in unknown_fields:
         diagnostics.append(
             _diagnostic(
@@ -253,7 +261,7 @@ def _routing_delta_shape_diagnostics(value: Any) -> list[PlannerRequestDiagnosti
         "set_required",
         "add_unresolved_intent_routes",
     }
-    for field in sorted(set(value) - expected_fields):
+    for field in _sorted_unknown_fields(value, expected_fields):
         diagnostics.append(
             _diagnostic(
                 "invalid_routing_delta",
@@ -299,6 +307,8 @@ def _routing_delta_shape_diagnostics(value: Any) -> list[PlannerRequestDiagnosti
                 path="routing_delta.set_required",
             )
         )
+    else:
+        diagnostics.extend(_set_required_entry_diagnostics(value["set_required"]))
     if not isinstance(value.get("add_unresolved_intent_routes"), list):
         diagnostics.append(
             _diagnostic(
@@ -324,6 +334,32 @@ def _route_id_list_entry_diagnostics(
                     "request",
                     f"routing_delta.{field_name} entries must be strings.",
                     path=f"routing_delta.{field_name}[{index}]",
+                )
+            )
+    return diagnostics
+
+
+def _set_required_entry_diagnostics(
+    values: Mapping[Any, Any],
+) -> list[PlannerRequestDiagnostic]:
+    diagnostics: list[PlannerRequestDiagnostic] = []
+    for route_id, required in values.items():
+        if not isinstance(route_id, str):
+            diagnostics.append(
+                _diagnostic(
+                    "invalid_routing_delta",
+                    "request",
+                    "routing_delta.set_required route ids must be strings.",
+                    path=f"routing_delta.set_required.{route_id}",
+                )
+            )
+        if not isinstance(required, bool):
+            diagnostics.append(
+                _diagnostic(
+                    "invalid_routing_delta",
+                    "request",
+                    "routing_delta.set_required values must be booleans.",
+                    path=f"routing_delta.set_required.{route_id}",
                 )
             )
     return diagnostics
@@ -555,6 +591,7 @@ def _resolved_routing_artifact(
                     route_id=route_id,
                 )
             )
+            continue
         if route_id in seen_added:
             diagnostics.append(
                 _diagnostic(
@@ -565,6 +602,7 @@ def _resolved_routing_artifact(
                     route_id=route_id,
                 )
             )
+            continue
         seen_added.add(route_id)
         expected = {
             "route_id": route_id,
@@ -573,7 +611,7 @@ def _resolved_routing_artifact(
             "purpose": "unresolved_intent",
             "required": False,
         }
-        if dict(route) != expected:
+        if route_id != MISSING_DESIRED_OUTPUT_ROUTE_ID or dict(route) != expected:
             diagnostics.append(
                 _diagnostic(
                     "invalid_unresolved_intent_route",
@@ -592,6 +630,7 @@ def _resolved_routing_artifact(
                     else None,
                 )
             )
+            continue
         visible_sources.append(dict(expected))
 
     return artifact, diagnostics
@@ -629,9 +668,21 @@ def _intent_diagnostics(
             continue
         intent_id = slot["intent_id"]
         source_path = slot["source_path"]
+        if isinstance(intent_id, str) and intent_id in seen_ids:
+            diagnostics.append(
+                _diagnostic(
+                    "duplicate_intent_id",
+                    "intent",
+                    "Duplicate intent_id.",
+                    path=f"{path}.intent_id",
+                    intent_id=intent_id,
+                )
+            )
+            continue
         if (
             not isinstance(intent_id, str)
             or not _ROUTE_ID_RE.fullmatch(intent_id)
+            or intent_id != DESIRED_OUTPUT_VALUE_INTENT_ID
             or slot["status"] != "unresolved"
             or source_path != PLANNER_INTENT_SOURCE_PATH
             or not isinstance(slot["description"], str)
@@ -648,16 +699,18 @@ def _intent_diagnostics(
                 )
             )
             continue
-        if intent_id in seen_ids:
+        if source_path in slot_ids_by_path:
             diagnostics.append(
                 _diagnostic(
-                    "duplicate_intent_id",
+                    "invalid_intent_slot",
                     "intent",
-                    "Duplicate intent_id.",
-                    path=f"{path}.intent_id",
+                    "Intent slot source_path is already declared for LM7A.",
+                    path=f"{path}.source_path",
                     intent_id=intent_id,
+                    source_path=source_path,
                 )
             )
+            continue
         seen_ids.add(intent_id)
         slot_ids_by_path[source_path] = intent_id
 
@@ -695,8 +748,30 @@ def _intent_diagnostics(
 
 
 def _contains_hidden_answer_marker(value: Any) -> bool:
-    text = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+    text = json.dumps(_stringify_for_marker_scan(value), separators=(",", ":"))
     return any(marker in text for marker in HIDDEN_ANSWER_MARKERS)
+
+
+def _sorted_unknown_fields(
+    value: Mapping[Any, Any],
+    expected_fields: set[str] | frozenset[str],
+) -> list[Any]:
+    return sorted((field for field in value if field not in expected_fields), key=str)
+
+
+def _stringify_for_marker_scan(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            str(key): _stringify_for_marker_scan(nested_value)
+            for key, nested_value in value.items()
+        }
+    if isinstance(value, list):
+        return [_stringify_for_marker_scan(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_stringify_for_marker_scan(item) for item in value)
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
 
 
 def _has_errors(diagnostics: list[PlannerRequestDiagnostic]) -> bool:
