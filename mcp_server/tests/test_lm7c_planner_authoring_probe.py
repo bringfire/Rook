@@ -862,3 +862,6 @@ def test_lm7d_does_not_add_repair_loop_or_json_repair() -> None:
         assert "repair loop" not in prompt
         assert "retry" not in prompt
         assert "```json" not in prompt
+        assert "markdown extraction" not in prompt
+        assert "extract json" not in prompt
+        assert "extract the json" not in prompt
