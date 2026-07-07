@@ -624,6 +624,70 @@ def test_full_flow_action_apply_rejection_writes_decision(
     assert (run_dir / "worker_action.json").exists()
 
 
+def test_full_flow_no_retry_writes_single_publication_rows_artifact(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        PROBE,
+        "_run_phase_a_recon",
+        lambda **kwargs: {
+            "decision": None,
+            "request_payload": {
+                "context": {"allowed_actions": [], "knowledge": []},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "run_two_pass_worker_publication",
+        lambda *args, **kwargs: type(
+            "Result",
+            (),
+            {
+                "row": {
+                    "status": "published",
+                    "observation_action_intent_anomaly": False,
+                },
+                "response_payload": {
+                    "schema": "rook.local_worker_turn_response:v1",
+                    "kind": "observation",
+                    "message": "Need more visible context.",
+                },
+            },
+        )(),
+    )
+
+    run_dir = PROBE._run_probe(
+        phase="full",
+        model="gemma4:12b-it-qat",
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        run_root=tmp_path,
+        agent=None,
+    )
+
+    rows_path = run_dir / "worker_publication_rows.json"
+    rows = json.loads(rows_path.read_text(encoding="utf-8"))
+    assert isinstance(rows, list)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["turn_index"] == 1
+    assert row["turn_role"] == "initial"
+    assert row["retry_context_present"] is False
+    assert json.loads(
+        (run_dir / "worker_publication_row.json").read_text(encoding="utf-8")
+    ) == row
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    assert decision["decision"] == "worker_declined"
+    assert decision["reason"] == "worker_observed"
+    assert decision["retry_attempted"] is False
+    assert decision["retry_count"] == 0
+
+
 def test_full_flow_publication_row_hidden_answer_leak_stops_before_artifact(
     monkeypatch,
     tmp_path: Path,
@@ -667,6 +731,65 @@ def test_full_flow_publication_row_hidden_answer_leak_stops_before_artifact(
     assert decision["decision"] == "publication_failed"
     assert decision["reason"] == "worker_publication_hidden_answer_leak"
     assert not (run_dir / "worker_publication_row.json").exists()
+    assert not (run_dir / "worker_publication_rows.json").exists()
+
+
+def test_full_flow_publication_response_hidden_answer_leak_stops_without_retry(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    publication_calls = []
+
+    def _fake_publication(*args, **kwargs):
+        publication_calls.append((args, kwargs))
+        return type(
+            "Result",
+            (),
+            {
+                "row": {
+                    "status": "published",
+                    "observation_action_intent_anomaly": False,
+                },
+                "response_payload": {
+                    "schema": "rook.local_worker_turn_response:v1",
+                    "kind": "observation",
+                    "message": "The hidden answer is A = 42.0;",
+                },
+            },
+        )()
+
+    monkeypatch.setattr(
+        PROBE,
+        "_run_phase_a_recon",
+        lambda **kwargs: {
+            "decision": None,
+            "request_payload": {
+                "context": {"allowed_actions": [], "knowledge": []},
+            },
+        },
+    )
+    monkeypatch.setattr(PROBE, "run_two_pass_worker_publication", _fake_publication)
+
+    run_dir = PROBE._run_probe(
+        phase="full",
+        model="gemma4:12b-it-qat",
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        run_root=tmp_path,
+        agent=None,
+        retry_clean_observation=True,
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "worker_publication_hidden_answer_leak"
+    assert decision["retry_attempted"] is False
+    assert decision["retry_count"] == 0
+    assert len(publication_calls) == 1
+    assert not (run_dir / "worker_publication_row.json").exists()
+    assert not (run_dir / "worker_publication_rows.json").exists()
 
 
 def test_full_flow_passes_hidden_answer_guard_to_publication_helper(
@@ -718,7 +841,7 @@ def test_full_flow_passes_hidden_answer_guard_to_publication_helper(
     assert not (run_dir / "worker_action.json").exists()
 
 
-def test_full_flow_worker_action_hidden_answer_leak_rejects_without_dispatch(
+def test_full_flow_publication_action_payload_hidden_answer_leak_stops_before_artifacts(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -763,12 +886,15 @@ def test_full_flow_worker_action_hidden_answer_leak_rejects_without_dispatch(
     )
 
     decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
-    assert decision["decision"] == "rejected"
-    assert decision["reason"] == "worker_action_hidden_answer_leak"
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "worker_publication_hidden_answer_leak"
+    assert decision["retry_attempted"] is False
+    assert decision["retry_count"] == 0
     assert decision["live_repair_dispatched"] is False
-    assert "worker_action_input_excerpt" not in decision
     assert "A = 42.0" not in json.dumps(decision, sort_keys=True)
-    assert (run_dir / "worker_action.json").exists()
+    assert not (run_dir / "worker_publication_row.json").exists()
+    assert not (run_dir / "worker_publication_rows.json").exists()
+    assert not (run_dir / "worker_action.json").exists()
     assert not (run_dir / "live_repair_summary.json").exists()
 
 

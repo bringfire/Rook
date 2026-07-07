@@ -227,6 +227,13 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     )
 
 
+def _write_json_value(path: Path, payload: Any) -> None:
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 def _hidden_answer_leaks(value: Any) -> list[str]:
     rendered = json.dumps(value, sort_keys=True, default=str)
     leaks = []
@@ -947,7 +954,16 @@ def _run_probe(
         excerpt_chars=excerpt_chars,
         decision_guard=_pass1_decision_hidden_answer_failure,
     )
-    if _hidden_answer_leaks(publication.row):
+    publication_rows = []
+    first_row = _publication_row_for_turn(
+        publication.row,
+        turn_index=1,
+        turn_role="initial",
+        retry_context_present=False,
+    )
+    if _hidden_answer_leaks(first_row) or _hidden_answer_leaks(
+        publication.response_payload
+    ):
         decision = _decision_record(
             decision="publication_failed",
             reason="worker_publication_hidden_answer_leak",
@@ -955,9 +971,11 @@ def _run_probe(
         )
         _write_json(run_dir / "decision.json", decision)
         return run_dir
-    _write_json(run_dir / "worker_publication_row.json", publication.row)
+    publication_rows.append(first_row)
+    _write_json_value(run_dir / "worker_publication_rows.json", publication_rows)
+    _write_json(run_dir / "worker_publication_row.json", first_row)
     decision = _decision_from_worker_publication(
-        publication_row=publication.row,
+        publication_row=first_row,
         response_payload=publication.response_payload,
     )
     if decision is not None:
@@ -966,23 +984,12 @@ def _run_probe(
 
     response_payload = publication.response_payload
     action_input = response_payload["input"]
-    worker_action_leaks = _hidden_answer_leaks(response_payload)
     action_context = _worker_action_context(
         response_payload=response_payload,
         run_dir=run_dir,
         excerpt_chars=excerpt_chars,
-        include_excerpt=not worker_action_leaks,
     )
     _write_json(run_dir / "worker_action.json", response_payload)
-    if worker_action_leaks:
-        decision = _decision_record(
-            decision="rejected",
-            reason="worker_action_hidden_answer_leak",
-            phase="worker_action",
-            **action_context,
-        )
-        _write_json(run_dir / "decision.json", decision)
-        return run_dir
     apply_result = apply_worker_action_to_node(
         recon["graph"],
         "repair_same_component",
