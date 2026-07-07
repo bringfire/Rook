@@ -491,6 +491,30 @@ def test_run_probe_writes_artifacts_and_summary(tmp_path: Path) -> None:
     assert summary["scenario_counts"]["intent_incomplete"]["canonical_success_count"] == 1
 
 
+def test_run_probe_writes_shape_guidance_prompt_artifact(tmp_path: Path) -> None:
+    def fake_provider(call_payload):
+        return json.dumps(_scenario_correct_request(call_payload["scenario"]))
+
+    run_dir = PROBE._run_probe(
+        run_root=tmp_path,
+        provider="fake",
+        model="fake-planner",
+        temperature=0,
+        attempts=1,
+        canonical_evidence=False,
+        output_excerpt_chars=120,
+        prompt_profile="shape_guidance_v2",
+        call_provider=fake_provider,
+    )
+
+    prompt_text = (run_dir / "prompts" / "planner_authoring_prompt.txt").read_text(
+        encoding="utf-8"
+    )
+
+    assert PROBE.SHAPE_GUIDANCE_PROMPT_VERSION in prompt_text
+    assert PROBE.SPARSE_PROMPT_VERSION not in prompt_text
+
+
 def test_run_probe_propagates_scorer_bugs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

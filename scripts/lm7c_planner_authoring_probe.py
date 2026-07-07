@@ -296,11 +296,11 @@ def _prompt_version(prompt_profile: str) -> str:
     raise ValueError(f"unknown_prompt_profile:{prompt_profile}")
 
 
-def _write_prompt_artifacts(run_dir: Path) -> None:
+def _write_prompt_artifacts(run_dir: Path, prompt_profile: str) -> None:
     prompts_dir = run_dir / "prompts"
     prompts_dir.mkdir(parents=True, exist_ok=True)
     (prompts_dir / "planner_authoring_prompt.txt").write_text(
-        _planner_authoring_prompt() + "\n",
+        _planner_authoring_prompt(prompt_profile) + "\n",
         encoding="utf-8",
     )
     (prompts_dir / "template_menu.json").write_text(
@@ -713,7 +713,7 @@ def _run_probe(
     call_provider: Callable[[Mapping[str, Any]], str],
 ) -> Path:
     run_dir = _new_run_dir(Path(run_root))
-    _write_prompt_artifacts(run_dir)
+    _write_prompt_artifacts(run_dir, prompt_profile)
     _write_json(
         run_dir / "manifest.json",
         _manifest(
