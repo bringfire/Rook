@@ -483,13 +483,17 @@ async def run_simulation_export(args: dict[str, Any], *, call_native) -> dict[st
         )
 
     try:
-        roles = await resolve_canvas_roles(call_native)
-        ids, per_frame_z, cam_keyframes = await harvest_samples(
-            call_native,
-            roles,
-            args["frame_count"],
-            args["clock_denominator"],
-        )
+        precomputed = args.get("precomputed_harvest")
+        if precomputed is not None:
+            ids, per_frame_z, cam_keyframes = _normalize_harvest(precomputed)
+        else:
+            roles = await resolve_canvas_roles(call_native)
+            ids, per_frame_z, cam_keyframes = await harvest_samples(
+                call_native,
+                roles,
+                args["frame_count"],
+                args["clock_denominator"],
+            )
         meta = {
             "actor_set_id": args["actor_set_id"],
             "source_block_name": args["block_name"],
@@ -503,6 +507,17 @@ async def run_simulation_export(args: dict[str, Any], *, call_native) -> dict[st
         }
         artifact = build_samples_artifact(ids, per_frame_z, meta)
         assert_samples_invariants(artifact)
+        harvest_payload = {
+            "ids": ids,
+            "per_frame_z": per_frame_z,
+            "cam_keyframes": cam_keyframes,
+        }
+        if args.get("harvest_cache_path"):
+            _write_harvest_cache(
+                Path(args["harvest_cache_path"]),
+                args.get("harvest_cache_signature"),
+                harvest_payload,
+            )
 
         block = (
             await call_native(
@@ -586,12 +601,33 @@ async def run_simulation_export(args: dict[str, Any], *, call_native) -> dict[st
         return {
             "package_root": package_root,
             "artifact": artifact,
+            "harvest": harvest_payload,
             "prepared": prepare_result.get("phase"),
             "compiled": compile_result.get("phase"),
             "capture": capture_result["passes"][0],
         }
     finally:
         await call_native("/document/open", "POST", {"path": original_path})
+
+
+def _normalize_harvest(harvest: dict[str, Any]) -> tuple[list[str], list[list[float]], list[dict[str, Any]]]:
+    return (
+        list(harvest["ids"]),
+        [[float(v) for v in frame] for frame in harvest["per_frame_z"]],
+        [dict(frame) for frame in harvest["cam_keyframes"]],
+    )
+
+
+def _write_harvest_cache(path: Path, signature: str | None, harvest: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "cache_kind": "director_simulation_harvest_cache_v1",
+        "signature": signature,
+        "harvest": harvest,
+    }
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(canonical_json_text(payload), encoding="utf-8")
+    tmp.replace(path)
 
 
 def _member_map_by_def_id(package_root: str) -> dict[str, list[str]]:

@@ -2,7 +2,8 @@
 per-member simulation export, then assemble the video. Requires Rhino open with
 Pearson active + saved and the animation canvas loaded (C42 emits samples on H).
 """
-import sys, asyncio, uuid, json, os, time
+import sys, asyncio, uuid, json, os, time, hashlib
+from pathlib import Path
 sys.path.insert(0, r"C:\Users\aryan\source\repos\Rook\.claude\worktrees\director-v3-sim-export\mcp_server\src")
 import httpx
 from rook.bridge import get_rhino_host
@@ -12,6 +13,56 @@ from rook import director_video
 SCRATCH = (r"C:\Users\aryan\AppData\Local\Temp\claude\C--Users-aryan-source-repos-Rook"
            r"\51f4797b-8702-43db-9b2d-245df8501f2f\scratchpad\sim_take")
 FRAME_COUNT = int(os.environ.get("SIM_FRAMES", "48"))
+HARVEST_CACHE_DIR = Path(SCRATCH) / "harvest_cache"
+
+
+def harvest_cache_signature(doc_path, args, canvas_hash):
+    payload = {
+        "cache_version": 1,
+        "doc_path": doc_path,
+        "actor_set_id": args["actor_set_id"],
+        "block_name": args["block_name"],
+        "source_top_level_object_id": args["source_top_level_object_id"],
+        "frame_count": args["frame_count"],
+        "clock_denominator": args["clock_denominator"],
+        "canvas_hash": canvas_hash,
+    }
+    return hashlib.sha256(sx.canonical_json_text(payload).encode("utf-8")).hexdigest()
+
+
+def harvest_cache_path(signature):
+    return HARVEST_CACHE_DIR / f"{signature}.json"
+
+
+def write_harvest_cache(path, signature, harvest):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "cache_kind": "director_simulation_harvest_cache_v1",
+        "signature": signature,
+        "harvest": harvest,
+    }
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(sx.canonical_json_text(payload), encoding="utf-8")
+    tmp.replace(path)
+
+
+def load_harvest_cache(path, signature):
+    path = Path(path)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if payload.get("signature") != signature:
+        return None
+    harvest = payload.get("harvest")
+    return harvest if isinstance(harvest, dict) else None
+
+
+def _sha256_json(payload):
+    return hashlib.sha256(sx.canonical_json_text(payload).encode("utf-8")).hexdigest()
 
 
 async def call_native(endpoint, method="GET", data=None, *, port=None):
@@ -48,8 +99,24 @@ async def main():
         "capture_mode": "SOH-Rendered-2_NO EDGES",
         "resolution": {"width": 1280, "height": 720},
     }
+    canvas_state = (await call_native("/gh/query", "GET"))["data"]
+    canvas_hash = _sha256_json(canvas_state)
+    cache_sig = harvest_cache_signature(doc.get("path"), args, canvas_hash)
+    cache_path = harvest_cache_path(cache_sig)
+    cached_harvest = load_harvest_cache(cache_path, cache_sig)
+    if cached_harvest:
+        args["precomputed_harvest"] = cached_harvest
+        print("HARVEST CACHE HIT:", cache_path, flush=True)
+    else:
+        args["harvest_cache_path"] = str(cache_path)
+        args["harvest_cache_signature"] = cache_sig
+        print("HARVEST CACHE MISS:", cache_path, flush=True)
     t0 = time.time()
     result = await sx.run_simulation_export(args, call_native=call_native)
+    if not cached_harvest:
+        # run_simulation_export writes this before package/prepare/compile/capture;
+        # this mirror keeps the driver helper covered and the file format explicit.
+        write_harvest_cache(cache_path, cache_sig, result["harvest"])
     print("PIPELINE OK in %.1fs | prepared=%s compiled=%s | artifact frames=%d ids=%d"
           % (time.time() - t0, result["prepared"], result["compiled"],
              result["artifact"]["frame_count"], len(result["artifact"]["ids"])), flush=True)

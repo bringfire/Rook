@@ -514,6 +514,197 @@ def test_run_simulation_export_drives_capture_only_pipeline(tmp_path, monkeypatc
     assert fake_native.opened == ["C:/live/Pearson.3dm"]
 
 
+def test_run_simulation_export_uses_precomputed_harvest_without_scrubbing(tmp_path, monkeypatch):
+    from rook import director_take_package as dtp
+    from rook import director_worker_capture as dwcap
+    from rook import director_worker_compile as dwc
+    from rook import director_worker_prepare as dprep
+
+    cam = {
+        "projection": "perspective",
+        "location": [1, 2, 3],
+        "target": [0, 0, 0],
+        "up": [0, 0, 1],
+        "lens_length": 50,
+    }
+    precomputed = {
+        "ids": ["d0"],
+        "per_frame_z": [[0.0], [8.0]],
+        "cam_keyframes": [
+            {"frame_index": 1, "source": {"kind": "explicit_camera", "camera": cam}},
+            {"frame_index": 2, "source": {"kind": "explicit_camera", "camera": cam}},
+        ],
+    }
+    package_root = tmp_path / "take"
+
+    async def should_not_resolve(call_native):
+        raise AssertionError("resolve_canvas_roles should not run with precomputed_harvest")
+
+    async def should_not_harvest(call_native, roles, frame_count, clock_denominator):
+        raise AssertionError("harvest_samples should not run with precomputed_harvest")
+
+    async def fake_package(args, *, call_native):
+        package_root.mkdir()
+        assert args["motion"]["motion"][0]["keyframes"][0]["translate"] == [0.0, 0.0, 8.0]
+        (package_root / "scene_manifest.json").write_text(
+            _json.dumps(
+                {
+                    "actor_sets": [
+                        {
+                            "actor_set_id": "actor_x",
+                            "members": [
+                                {
+                                    "definition_object_id": "d0",
+                                    "definition_object_index": 0,
+                                    "actor_member_id": "actor_x_member_0000",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        return {"package_root": str(package_root)}
+
+    async def fake_prepare(args, *, call_native):
+        (package_root / "member_map.json").write_text(
+            _json.dumps({"actor_sets": [{"members": [{"definition_object_id": "d0", "created_object_ids": ["c0"]}]}]}),
+            encoding="utf-8",
+        )
+        return {"phase": "prepared"}
+
+    async def fake_compile(args, *, call_native):
+        (package_root / "track.json").write_text(
+            _json.dumps(
+                {
+                    "object_frames": [
+                        {"frame_index": 1, "object_transforms": [{"object_id": "c0", "transform": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]}]},
+                        {"frame_index": 2, "object_transforms": [{"object_id": "c0", "transform": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 8], [0, 0, 0, 1]]}]},
+                    ],
+                    "camera_frames": [
+                        {"frame_index": 1, "camera": cam},
+                        {"frame_index": 2, "camera": cam},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return {"phase": "compiled"}
+
+    async def fake_capture(args, *, call_native):
+        return {"passes": [{"run_root": str(package_root / "sim"), "frames_written": 2}]}
+
+    async def fake_native(endpoint, method="GET", data=None, *, port=None):
+        if endpoint == "/document" and method == "GET":
+            return {"success": True, "data": {"path": "C:/live/Pearson.3dm", "modified": False}}
+        if endpoint == "/block/objects-detailed":
+            return {"success": True, "data": {"objects": [{"id": "d0", "index": 0}]}}
+        if endpoint == "/document/open" and method == "POST":
+            return {"success": True, "data": {}}
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(sx, "resolve_canvas_roles", should_not_resolve)
+    monkeypatch.setattr(sx, "harvest_samples", should_not_harvest)
+    monkeypatch.setattr(dtp, "package_take", fake_package)
+    monkeypatch.setattr(dprep, "prepare_take", fake_prepare)
+    monkeypatch.setattr(dwc, "compile_take", fake_compile)
+    monkeypatch.setattr(dwcap, "capture_take", fake_capture)
+
+    result = asyncio.run(
+        sx.run_simulation_export(
+            {
+                "take_id": "take1",
+                "actor_set_id": "actor_x",
+                "block_name": "BLK",
+                "source_top_level_object_id": "src1",
+                "output_root": str(tmp_path),
+                "frame_count": 2,
+                "fps": 24,
+                "units": "millimeters",
+                "display_modes": ["Shaded"],
+                "capture_mode": "Shaded",
+                "resolution": {"width": 640, "height": 360},
+                "clock_denominator": 240,
+                "precomputed_harvest": precomputed,
+            },
+            call_native=fake_native,
+        )
+    )
+    assert result["artifact"]["ids"] == ["d0"]
+    assert result["harvest"] == precomputed
+
+
+def test_run_simulation_export_writes_harvest_cache_before_downstream_failure(tmp_path, monkeypatch):
+    from rook import director_take_package as dtp
+
+    cam = {
+        "projection": "perspective",
+        "location": [1, 2, 3],
+        "target": [0, 0, 0],
+        "up": [0, 0, 1],
+        "lens_length": 50,
+    }
+    cache_path = tmp_path / "harvest-cache" / "sig.json"
+
+    async def fake_resolve(call_native):
+        return {"frame_in": "fi", "camera_ctrl": "cc", "wave": "wv"}
+
+    async def fake_harvest(call_native, roles, frame_count, clock_denominator):
+        return (
+            ["d0"],
+            [[0.0], [4.0]],
+            [
+                {"frame_index": 1, "source": {"kind": "explicit_camera", "camera": cam}},
+                {"frame_index": 2, "source": {"kind": "explicit_camera", "camera": cam}},
+            ],
+        )
+
+    async def failing_package(args, *, call_native):
+        raise RuntimeError("downstream failed after harvest")
+
+    async def fake_native(endpoint, method="GET", data=None, *, port=None):
+        if endpoint == "/document" and method == "GET":
+            return {"success": True, "data": {"path": "C:/live/Pearson.3dm", "modified": False}}
+        if endpoint == "/block/objects-detailed":
+            return {"success": True, "data": {"objects": [{"id": "d0", "index": 0}]}}
+        if endpoint == "/document/open" and method == "POST":
+            return {"success": True, "data": {}}
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(sx, "resolve_canvas_roles", fake_resolve)
+    monkeypatch.setattr(sx, "harvest_samples", fake_harvest)
+    monkeypatch.setattr(dtp, "package_take", failing_package)
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(
+            sx.run_simulation_export(
+                {
+                    "take_id": "take1",
+                    "actor_set_id": "actor_x",
+                    "block_name": "BLK",
+                    "source_top_level_object_id": "src1",
+                    "output_root": str(tmp_path),
+                    "frame_count": 2,
+                    "fps": 24,
+                    "units": "millimeters",
+                    "display_modes": ["Shaded"],
+                    "capture_mode": "Shaded",
+                    "resolution": {"width": 640, "height": 360},
+                    "clock_denominator": 240,
+                    "harvest_cache_path": str(cache_path),
+                    "harvest_cache_signature": "sig",
+                },
+                call_native=fake_native,
+            )
+        )
+
+    stored = _json.loads(cache_path.read_text(encoding="utf-8"))
+    assert stored["signature"] == "sig"
+    assert stored["harvest"]["ids"] == ["d0"]
+    assert stored["harvest"]["per_frame_z"] == [[0.0], [4.0]]
+
+
 def test_camera_roundtrip_rejects_location_mismatch():
     cam = {
         "projection": "perspective",

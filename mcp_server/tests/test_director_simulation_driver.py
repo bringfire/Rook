@@ -52,3 +52,40 @@ def test_call_native_re_resolves_host_and_retries_once_on_connect_error(monkeypa
         ("http://old-port/document", {"x": "1"}),
         ("http://new-port/document", {"x": "1"}),
     ]
+
+
+def test_harvest_cache_signature_changes_with_frame_count_or_canvas_hash():
+    driver = _load_driver()
+    args = {
+        "actor_set_id": "actor_x",
+        "block_name": "BLK",
+        "source_top_level_object_id": "src1",
+        "frame_count": 120,
+        "clock_denominator": 240,
+    }
+
+    base = driver.harvest_cache_signature("C:/Pearson.3dm", args, "canvas-a")
+    changed_frame_count = driver.harvest_cache_signature(
+        "C:/Pearson.3dm",
+        {**args, "frame_count": 121},
+        "canvas-a",
+    )
+    changed_canvas = driver.harvest_cache_signature("C:/Pearson.3dm", args, "canvas-b")
+
+    assert base != changed_frame_count
+    assert base != changed_canvas
+
+
+def test_harvest_cache_round_trip_requires_matching_signature(tmp_path):
+    driver = _load_driver()
+    cache_path = tmp_path / "harvest" / "sig.json"
+    harvest = {
+        "ids": ["d0"],
+        "per_frame_z": [[0.0], [5.0]],
+        "cam_keyframes": [{"frame_index": 1}, {"frame_index": 2}],
+    }
+
+    driver.write_harvest_cache(cache_path, "sig-a", harvest)
+
+    assert driver.load_harvest_cache(cache_path, "sig-a") == harvest
+    assert driver.load_harvest_cache(cache_path, "sig-b") is None
