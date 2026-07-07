@@ -434,11 +434,17 @@ Definitions:
 retry_recovered =
   retry_attempted == true
   and final_worker_response_kind == action_request
+  and terminal_category in {accepted, rejected}
 
 retry_declined =
   retry_attempted == true
   and terminal_category == worker_declined
 ```
+
+In LM6E, `retry_recovered_count` means the retry recovered to the
+post-publication action path. A retry publication failure must not count as
+recovered even if a partial or malformed decision artifact reports
+`final_worker_response_kind == action_request`.
 
 These fields do not replace or reinterpret terminal categories.
 

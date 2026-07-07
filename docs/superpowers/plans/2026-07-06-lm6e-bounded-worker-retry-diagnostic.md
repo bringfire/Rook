@@ -1566,6 +1566,7 @@ Add these fields to the returned summary:
             1
             for row in retry_rows
             if row.get("final_worker_response_kind") == "action_request"
+            and row.get("terminal_category") in {"accepted", "rejected"}
         ),
         "retry_declined_count": sum(
             1
