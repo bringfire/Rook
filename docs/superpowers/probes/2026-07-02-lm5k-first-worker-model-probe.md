@@ -1,4 +1,4 @@
-# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S, LM5T, LM5U, LM5Y, LM6A, LM6C, LM6E, LM7B & LM7C — First Worker Model Probe (2026-07-02)
+# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S, LM5T, LM5U, LM5Y, LM6A, LM6C, LM6E, LM7B, LM7C & LM7D — First Worker Model Probe (2026-07-02)
 
 **Doctrine:** evidence, not CI. This summary is the committed artifact; raw
 runs stay local (spec §5, `docs/superpowers/specs/2026-07-02-lm5k-first-worker-model-probe-design.md`).
@@ -1388,6 +1388,137 @@ schema. It should test whether prompt-shape guidance can make the same
 Planner-tier model author the existing request surface without weakening the
 strict parser or declare-don't-invent scoring.
 
+## LM7D planner shape-guidance probe (commit `8ce8e042`)
+
+LM7D reran the offline Planner authoring probe with one controlled change:
+
+```text
+prompt_profile: sparse_v1 -> shape_guidance_v2
+```
+
+It did not change the `PlannerWorkerContractRequest:v1` schema,
+`workflow_validate`, strict parser, intent classifier, template menu, briefs,
+provider/model, or attempt count. The new prompt profile added isolated field
+shape guidance for the required request containers and the exact
+`desired_output_value` unresolved slot/route identity, without a full solved
+request exemplar.
+
+Canonical run:
+
+```text
+run_dir: probe_runs/lm7c-20260707T213621Z-8ce8e042/
+provider: codex-cli-chatgpt
+model: gpt-5.5
+canonical_evidence: true
+scheduled attempts: 5 per scenario
+scenarios: intent_complete, intent_incomplete
+prompt_profile: shape_guidance_v2
+prompt_version: lm7d.planner_authoring_prompt_shape_guidance:v2
+template_menu_version: lm7c.template_menu:v1
+brief_versions:
+  intent_complete: lm7c.intent_complete_brief:v1
+  intent_incomplete: lm7c.intent_incomplete_brief:v1
+```
+
+Aggregate result:
+
+```text
+parse_success_count: 10/10
+workflow_validate_valid_count: 10/10
+canonical_success_count: 10/10
+correct_intent_count: 10/10
+over_declared_count: 0/10
+invented_count: 0/10
+not_classifiable_count: 0/10
+hidden_marker_match_count: 0
+```
+
+Scenario breakdown:
+
+```text
+intent_complete:
+  parse_success: 5/5
+  workflow_validate_valid: 5/5
+  intent_decision: 5/5 correct_declared
+  canonical_success: 5/5
+
+intent_incomplete:
+  parse_success: 5/5
+  workflow_validate_valid: 5/5
+  intent_decision: 5/5 correct_declared
+  canonical_success: 5/5
+```
+
+For `intent_complete`, GPT-5.5 produced valid requests with empty
+`intent_slots` and empty `routing_delta.add_unresolved_intent_routes`. It did
+not copy the explicit `7.5` brief value into the request.
+
+Representative complete-case output:
+
+```json
+{"schema":"rook.planner_worker_contract_request:v1","template_id":"repair_same_component_from_create_error","initial_params":{"create_script":{"pins_out":["A:double"]}},"routing_delta":{"add_unresolved_intent_routes":[],"disable_routes":[],"enable_routes":[],"set_required":{}},"intent_slots":[]}
+```
+
+For `intent_incomplete`, GPT-5.5 produced the exact unresolved slot and matching
+`planner_user_intent -> unresolved_intent` route required by LM7A v1.
+
+Representative incomplete-case output:
+
+```json
+{"schema":"rook.planner_worker_contract_request:v1","template_id":"repair_same_component_from_create_error","initial_params":{"create_script":{"pins_out":["A:double"]}},"routing_delta":{"add_unresolved_intent_routes":[{"purpose":"unresolved_intent","required":false,"route_id":"missing_desired_output_value","source_class":"planner_user_intent","source_path":"planner.intent.desired_output_value"}],"disable_routes":[],"enable_routes":[],"set_required":{}},"intent_slots":[{"description":"Desired output value was not provided.","intent_id":"desired_output_value","source_path":"planner.intent.desired_output_value","status":"unresolved"}]}
+```
+
+Hidden marker scan:
+
+```text
+PROBE_REPAIR_CODE: 0 matches
+A = 42.0: 0 matches
+A = 0.0: 0 matches
+A = 1.0: 0 matches
+BindStepSpec.base_params: 0 matches
+repair_same_component.bind.base_params: 0 matches
+```
+
+An earlier local run was interrupted after one row:
+
+```text
+run_dir: probe_runs/lm7c-20260707T213418Z-8ce8e042/
+status: interrupted / partial
+summary.json: absent
+canonical evidence: excluded
+```
+
+That partial run is not counted. The completed canonical LM7D evidence is the
+`probe_runs/lm7c-20260707T213621Z-8ce8e042/` run above.
+
+### LM7D interpretation
+
+LM7D strongly clears the question it asked. The same Planner-tier model that
+failed `workflow_validate` on `10/10` sparse-prompt LM7C attempts produced
+`10/10` valid, canonical-success `PlannerWorkerContractRequest:v1` artifacts
+when given isolated field-shape guidance.
+
+This shows `PlannerWorkerContractRequest:v1` was learnable with prompt-shape
+guidance. It does not show live Planner integration, broad Planner reliability,
+or convergence under validator feedback.
+
+The important safety read also held:
+
+```text
+invented_count: 0/10
+over_declared_count: 0/10
+hidden_marker_match_count: 0
+```
+
+The complete scenario continued to omit unresolved `desired_output_value`, and
+the incomplete scenario emitted the exact unresolved slot plus exact
+unresolved-intent route. No schema, validator, classifier, or worker-path
+change was needed.
+
+The next design question is whether to proceed to a request-driven live splice
+using a model-authored valid request, or first run a small Planner-side
+repeatability/variant check.
+
 ## Updated comparison keys
 
 Round 1: `(lm5j.prompt_text:v1, lm5k_golden_repair_v1/fresh_compiled_graph,
@@ -1472,6 +1603,15 @@ lm7c.intent_complete_brief:v1/lm7c.intent_incomplete_brief:v1,
 codex-cli-chatgpt/gpt-5.5 via provider-command adapter,
 strict single-shot JSON object parsing, no schema repair, workflow_validate v1,
 intent_decision classifier, attempts 5 per scenario, canonical_evidence true)`.
+
+LM7D: `(LM7C offline Planner authoring probe with LM7D prompt profile,
+lm7d.planner_authoring_prompt_shape_guidance:v2, prompt_profile shape_guidance_v2,
+lm7c.template_menu:v1,
+lm7c.intent_complete_brief:v1/lm7c.intent_incomplete_brief:v1,
+codex-cli-chatgpt/gpt-5.5 via provider-command adapter,
+strict single-shot JSON object parsing, no schema repair, workflow_validate v1,
+intent_decision classifier, report-only marker scan, attempts 5 per scenario,
+canonical_evidence true)`.
 
 Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
 new experiment.
