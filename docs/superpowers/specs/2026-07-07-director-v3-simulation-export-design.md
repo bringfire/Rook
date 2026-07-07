@@ -138,28 +138,40 @@ Consequences the spec relies on:
 - Per-leaf nested motion (see Section 7 — member tracks move a member *as a unit*).
 - Promoting the orchestrator to an MCP tool/route (stays a module + driver script here).
 
-## 5. Component 1 — C42 canvas edit (`Ids` output)
+## 5. Component 1 — C42 canvas edit (`Samples` output)
 
-C42 already computes the resolved definition object per member in `BuildCache`
-(`source` in the `objectsById` match) but keeps only `Ordinal` on `CachedMember` and
-discards the id. The edit:
+**Read-path constraint (verified):** `/gh/inspect-output` caps list previews at **5
+items** (`GrasshopperHandler.cs:4988` — `if (previewCount >= 5) break`) and has **no
+length cap on a single-item string** (a ~1KB `Info` string reads in full via
+`preview[0]`). A 338-element **list** output is therefore unreadable in full — this is
+true of the existing `H` list too. The harvestable shape is **one packed JSON string**.
+
+C42 already computes the resolved definition object per member in `BuildCache` (`source`
+in the `objectsById` match) but keeps only `Ordinal` on `CachedMember` and discards the
+id. The edit:
 
 - Add `public string DefId;` to `CachedMember`; in `BuildCache`, set
   `DefId = source.Id.ToString()` when the member resolves.
-- Add `ref object Ids` to `RunScript` (appended **after** `Info` to preserve the indices
-  of `G`/`H`/`Info` and their existing wires).
-- Emit `Ids = cache.Members.Select(m => m.DefId).ToList()` — a `List<string>` parallel
-  to `G`/`H` (same order, same length).
+- Add a single `ref object Samples` output to `RunScript` (appended **after** `Info` to
+  preserve the indices of `G`/`H`/`Info` and their existing wires).
+- Emit `Samples` = a compact JSON **string** for the current frame:
+  `{"ids":[<DefId…>],"z":[<heights…>]}`, `ids[k]` and `z[k]` in `cache.Members` order
+  (same order as `G`/`H`). Build it with a `StringBuilder` (no `System.Linq` dependency),
+  reusing the file's existing `Escape`/`Num` helpers for the id strings and offsets.
 
-**Contract:** `Ids[k]` is the **top-level** `definition_object_id` of the member whose
-offset is `H[k]`. C42 only ever matches against `idef.GetObjects()` (top-level,
-non-recursive), so `Ids` are always top-level member ids — never nested leaf ids.
+`G`/`H` are left unchanged (they still drive the visual preview / debug panels). Only
+`Samples` is harvested.
+
+**Contract:** `Samples.ids[k]` is the **top-level** `definition_object_id` of the member
+whose offset is `Samples.z[k]`. C42 only ever matches against `idef.GetObjects()`
+(top-level, non-recursive), so `ids` are always top-level member ids — never nested leaf
+ids. `Samples` is the per-frame slice of `director_member_motion_samples_v1` (Section 6).
 
 **Edit mechanics / risk:** apply via `gh_set_script` (raw source write; recompiles +
 `ExpireSolution`). Appending an output pin *may* force RhinoCode to drop this
 component's outgoing wires (`G→C47 Preview`, `G→C46`, `H→C38`). Mitigation: after the
-write, `gh_snapshot` and verify (a) `Ids` present with `data_count == len(H)`, (b) the
-three output wires intact; if any dropped, restore via `gh_edit` from the mapped
+write, `gh_snapshot` and verify (a) `Samples` present and parses to `len(ids)==len(z)`,
+(b) the three output wires intact; if any dropped, restore via `gh_edit` from the mapped
 topology. `gh_undo` is the rollback. This is a one-time, reversible edit on the user's
 hand-built canvas and is gated by a live check before any render.
 
@@ -226,18 +238,18 @@ uses the same grid (`director_motion.py`: `t = i/(N-1)`, `frame_index = i+1`).
 ### 7a. Scrub-collect (live; reuses the proven camera-scrub mechanism)
 
 For `p` in `0..N-1`: set `FrameIn` to the value producing timeline position
-`t = p/(N-1)` (`round(t · clock_denominator)`), then read:
-- `C42.Ids` — **every frame**, hashing each read (`ids_sha256`, Section 6); assert equal
-  to the frame-0 hash (Finding 2 — the per-frame read is trivial and makes the stability
-  gate exact). `Ids` values are used from frame 0; later frames only re-assert the hash.
-- `C42.H` — the M offsets at this frame.
+`t = p/(N-1)` (`round(t · clock_denominator)`), then read (via native
+`/gh/inspect-output`, `preview[0]` = the full single-string output):
+- `C42.Samples` — **every frame**; `json.loads(preview[0])` → `{ids, z}`. Hash `ids`
+  each frame (`ids_sha256`, Section 6) and assert equal to the frame-0 hash (Finding 2).
+  `ids` are used from frame 0; later frames only re-assert the hash. `z[k]` is member
+  `ids[k]`'s offset `dz[p]` at this frame.
 - `C16.Camera` (`director_camera_state`) — the resolved camera at this frame; staleness
   guard `local_t ≈ FrameIn/clock_denominator`.
 
-`Ids[k]` at frame `p` names the member; `H[k]` is `dz[p]` for that member. Restore
-`FrameIn = 0` in a `finally`. Reading C42/C16 outputs does not mutate the `.3dm` (C42
-moves *duplicated* preview geometry, not the doc's block). Produces:
-`member_dz = {def_id: [dz[0] … dz[N-1]]}` and
+Restore `FrameIn = 0` in a `finally`. Reading C42/C16 outputs does not mutate the `.3dm`
+(C42 moves *duplicated* preview geometry, not the doc's block). Produces:
+`member_dz = {def_id: [dz[0] … dz[N-1]]}` (from `ids`+`z`) and
 `cam_keyframes = [{frame_index: p+1, source: {kind: "explicit_camera", camera: …}}]`.
 
 ### 7b. def-id → actor_member_id (reproduce the package builder's assignment)
@@ -290,14 +302,15 @@ Input gate (before anything):
   single-frame track has no explicit keyframes. Reject `N < 2`.
 
 Harvest-time (fail the run before packaging):
-- `len(Ids) == len(H)` at every frame.
-- `Ids` **stable** across **all N frames** — `ids_sha256` (Section 6) identical for every
-  frame's read (Finding 2), not just first/last.
-- No duplicate ids in `Ids`, and **no duplicate generated `actor_member_id`** — the
-  orchestrator preflight-rejects dup ids/member ids before packaging (Finding 1; dups are
-  not caught by prepare).
-- Every `Ids` entry maps to **exactly one** top-level member via `/block/objects-detailed`
-  (`id_space` gate); any id not a top-level member id → fail (`nested_or_unknown_id`).
+- `len(Samples.ids) == len(Samples.z)` at every frame.
+- `Samples.ids` **stable** across **all N frames** — `ids_sha256` (Section 6) identical
+  for every frame's read (Finding 2), not just first/last.
+- No duplicate ids in `Samples.ids`, and **no duplicate generated `actor_member_id`** —
+  the orchestrator preflight-rejects dup ids/member ids before packaging (Finding 1; dups
+  are not caught by prepare).
+- Every `Samples.ids` entry maps to **exactly one** top-level member via
+  `/block/objects-detailed` (`id_space` gate); any id not a top-level member id → fail
+  (`nested_or_unknown_id`).
 - **Frame-0 rest:** `dz[0] == 0` for all members (the rest frame, `frame_index 1`,
   `t=0`) — else the declarative path cannot represent it → baked fallback, Section 9.
 
@@ -309,14 +322,14 @@ Package-time (after `package_take`, before `prepare`) — **manifest drift gate*
   this gate makes the **package manifest the authority** and fails the run before prepare
   if the orchestrator's earlier snapshot diverged.
 
-Compile-time round-trip (F4) — **hard gate**, after `compile_take`:
+Motion round-trip — **hard gate**, after `compile_take`:
 - For a representative set of members, the `track.json` frame with `frame_index = p+1`
   has `object_transforms[*].transform[2][3] == dz[p]` (exact, within float tolerance)
   for all `p in 0..N-1`. The set MUST include, where present in the animated actor set, a
   nested member and a TL_Brep-converted member; member types not present in the live
   subset are covered by unit tests with synthetic `member_map` shapes (Section 10).
 
-Camera round-trip (F5) — **hard gate**:
+Camera round-trip — **hard gate**:
 - `camera_frames` has length N, 1-based `frame_index`, and each entry equals the
   harvested camera at that frame (location/target/up/lens exact within tolerance).
 
