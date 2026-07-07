@@ -108,10 +108,20 @@ def _args(argv: list[str] | None) -> argparse.Namespace:
     return args
 
 
-def _planner_authoring_prompt() -> str:
+def _planner_authoring_prompt(
+    prompt_profile: str = PROMPT_PROFILE_SPARSE_V1,
+) -> str:
+    if prompt_profile == PROMPT_PROFILE_SPARSE_V1:
+        return _sparse_planner_authoring_prompt()
+    if prompt_profile == PROMPT_PROFILE_SHAPE_GUIDANCE_V2:
+        return _shape_guidance_planner_authoring_prompt()
+    raise ValueError(f"unknown_prompt_profile:{prompt_profile}")
+
+
+def _sparse_planner_authoring_prompt() -> str:
     return "\n".join(
         [
-            f"version: {PLANNER_AUTHORING_PROMPT_VERSION}",
+            f"version: {SPARSE_PROMPT_VERSION}",
             "",
             "Author one PlannerWorkerContractRequest from the supplied scenario brief.",
             f"The schema must be {PLANNER_WORKER_CONTRACT_REQUEST_SCHEMA}.",
@@ -125,6 +135,73 @@ def _planner_authoring_prompt() -> str:
             "When the brief omits the desired output intent, declare only the "
             "canonical unresolved desired_output_value slot and emit the matching "
             "missing_desired_output_value unresolved-intent route with required=false.",
+            "Do not write repair code, acceptance prose, hidden bind params, or "
+            "fields outside the request schema.",
+        ]
+    )
+
+
+def _shape_guidance_planner_authoring_prompt() -> str:
+    routing_delta_shape = json.dumps(
+        {
+            "enable_routes": [],
+            "disable_routes": [],
+            "set_required": {},
+            "add_unresolved_intent_routes": [],
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    unresolved_slot_shape = json.dumps(
+        {
+            "intent_id": DESIRED_OUTPUT_VALUE_INTENT_ID,
+            "status": "unresolved",
+            "source_path": PLANNER_INTENT_SOURCE_PATH,
+            "description": "Desired output value was not provided.",
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    unresolved_route_shape = json.dumps(
+        {
+            "route_id": MISSING_DESIRED_OUTPUT_ROUTE_ID,
+            "source_class": "planner_user_intent",
+            "source_path": PLANNER_INTENT_SOURCE_PATH,
+            "purpose": "unresolved_intent",
+            "required": False,
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    return "\n".join(
+        [
+            f"version: {SHAPE_GUIDANCE_PROMPT_VERSION}",
+            "",
+            "Author one PlannerWorkerContractRequest from the supplied scenario brief.",
+            f"The schema must be {PLANNER_WORKER_CONTRACT_REQUEST_SCHEMA}.",
+            "Output exactly one JSON object and no markdown or surrounding prose.",
+            "Required top-level fields are schema, template_id, initial_params, "
+            "routing_delta, and intent_slots.",
+            "Include required empty arrays and objects instead of omitting them.",
+            "The template menu contains only the LM7A repair template.",
+            'The create_script pins_out field must be ["A:double"].',
+            "When the brief provides the desired output intent, it is not missing, "
+            "and v1 has no legal field for that concrete value.",
+            "When no intent is missing, intent_slots is [].",
+            "When no unresolved-intent route is needed, "
+            "routing_delta.add_unresolved_intent_routes is [].",
+            "",
+            "routing_delta container shape:",
+            routing_delta_shape,
+            "",
+            "Canonical unresolved desired_output_value slot shape:",
+            unresolved_slot_shape,
+            "",
+            "Canonical missing_desired_output_value unresolved-intent route shape:",
+            unresolved_route_shape,
+            "",
+            "Use these only when desired_output_value is missing from the brief.",
+            "Omit them when desired output intent is present.",
             "Do not write repair code, acceptance prose, hidden bind params, or "
             "fields outside the request schema.",
         ]
@@ -203,7 +280,7 @@ def _prompt_call_payload(
         "provider": provider,
         "model": model,
         "temperature": temperature,
-        "prompt": _planner_authoring_prompt(),
+        "prompt": _planner_authoring_prompt(prompt_profile),
         "prompt_profile": prompt_profile,
         "prompt_version": _prompt_version(prompt_profile),
         "template_menu": _template_menu(),

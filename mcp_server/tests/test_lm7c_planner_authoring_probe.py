@@ -143,7 +143,7 @@ def test_briefs_are_paired_and_control_only_intent_availability() -> None:
 
 
 def test_prompt_contains_rules_but_no_full_request_exemplar() -> None:
-    prompt = PROBE._planner_authoring_prompt()
+    prompt = PROBE._planner_authoring_prompt("sparse_v1")
 
     assert PROBE.PLANNER_AUTHORING_PROMPT_VERSION in prompt
     assert PLANNER_WORKER_CONTRACT_REQUEST_SCHEMA in prompt
@@ -158,9 +158,45 @@ def test_prompt_contains_rules_but_no_full_request_exemplar() -> None:
     assert "A = " not in prompt
 
 
-def test_prompt_artifacts_do_not_contain_invention_or_hidden_answer_markers() -> None:
+def test_shape_guidance_prompt_includes_isolated_shape_snippets_only() -> None:
+    prompt = PROBE._planner_authoring_prompt("shape_guidance_v2")
+
+    assert PROBE.SHAPE_GUIDANCE_PROMPT_VERSION in prompt
+    assert '"enable_routes": []' in prompt
+    assert '"disable_routes": []' in prompt
+    assert '"set_required": {}' in prompt
+    assert '"add_unresolved_intent_routes": []' in prompt
+    assert '"intent_id": "desired_output_value"' in prompt
+    assert '"status": "unresolved"' in prompt
+    assert '"source_path": "planner.intent.desired_output_value"' in prompt
+    assert '"description": "Desired output value was not provided."' in prompt
+    assert '"route_id": "missing_desired_output_value"' in prompt
+    assert '"source_class": "planner_user_intent"' in prompt
+    assert '"purpose": "unresolved_intent"' in prompt
+    assert '"required": false' in prompt
+    assert "Use these only when desired_output_value is missing from the brief" in prompt
+    assert "Omit them when desired output intent is present" in prompt
+    assert '"template_id": "repair_same_component_from_create_error"' not in prompt
+    assert '"initial_params": {' not in prompt
+    assert '"schema": "rook.planner_worker_contract_request:v1"' not in prompt
+    assert "7.5" not in prompt
+    assert "A = " not in prompt
+
+
+def test_prompt_version_follows_prompt_profile() -> None:
+    assert PROBE._prompt_version("sparse_v1") == "lm7c.planner_authoring_prompt:v1"
+    assert (
+        PROBE._prompt_version("shape_guidance_v2")
+        == "lm7d.planner_authoring_prompt_shape_guidance:v2"
+    )
+
+
+@pytest.mark.parametrize("prompt_profile", ["sparse_v1", "shape_guidance_v2"])
+def test_prompt_artifacts_do_not_contain_invention_or_hidden_answer_markers(
+    prompt_profile: str,
+) -> None:
     artifacts = {
-        "prompt": PROBE._planner_authoring_prompt(),
+        "prompt": PROBE._planner_authoring_prompt(prompt_profile),
         "template_menu": json.dumps(PROBE._template_menu(), sort_keys=True),
         "intent_complete": PROBE._scenario_brief("intent_complete")["text"],
         "intent_incomplete": PROBE._scenario_brief("intent_incomplete")["text"],
@@ -179,7 +215,7 @@ def test_prompt_artifacts_do_not_contain_invention_or_hidden_answer_markers() ->
     )
     for name, artifact in artifacts.items():
         for marker in forbidden:
-            assert marker not in artifact, (name, marker)
+            assert marker not in artifact, (prompt_profile, name, marker)
 
     assert "7.5" in artifacts["intent_complete"]
     assert "7.5" not in artifacts["prompt"]
