@@ -538,10 +538,7 @@ def _create_initial_execution_params_from_contract(workflow_contract: Any) -> Ma
     for initial in workflow_contract.initial_params:
         if initial.node_id != "create_script":
             continue
-        return {
-            key: list(value) if isinstance(value, tuple) else value
-            for key, value in initial.execution_params.items()
-        }
+        return _json_runtime_value(initial.execution_params)
     raise RuntimeError("create initial execution params missing")
 
 
@@ -559,10 +556,7 @@ def _expected_repair_outcome_from_contract(workflow_contract: Any) -> str:
 def _acceptance_source_contract(workflow_contract: Any) -> Any:
     initial_params = []
     for initial in workflow_contract.initial_params:
-        execution_params = {
-            key: list(value) if isinstance(value, tuple) else value
-            for key, value in initial.execution_params.items()
-        }
+        execution_params = _json_runtime_value(initial.execution_params)
         initial_params.append(replace(initial, execution_params=execution_params))
     return replace(workflow_contract, initial_params=tuple(initial_params))
 
@@ -743,7 +737,9 @@ def _run_probe(
 
         routing_report = validate_worker_visible_source_routing(
             materialization.resolved_routing_artifact,
-            workflow_contract=live_result["workflow_contract"],
+            workflow_contract=_acceptance_source_contract(
+                live_result["workflow_contract"]
+            ),
             graph=live_result["graph"],
             convention_packets=live_result["convention_packets"],
             worker_node_ids=tuple(materialization.worker_node_ids),

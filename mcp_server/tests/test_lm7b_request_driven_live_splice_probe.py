@@ -555,7 +555,7 @@ def test_runtime_routability_not_evaluated_gate_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fake_live(**_kwargs):
-        return _fake_live()
+        return _real_live()
 
     def fake_validate_routing(*_args, **_kwargs):
         return WorkerVisibleSourceRoutingValidationReport(
@@ -608,7 +608,7 @@ def test_runtime_routability_error_gate_fails(
     )
 
     def fake_live(**_kwargs):
-        return _fake_live()
+        return _real_live()
 
     def fake_validate_routing(*_args, **_kwargs):
         return WorkerVisibleSourceRoutingValidationReport(
@@ -755,6 +755,104 @@ def test_optional_unresolved_intent_warning_reaches_real_worker_publication(
     assert captured_payloads[0]["context"]["current_node"]["node_id"] == (
         "repair_same_component"
     )
+
+
+def test_runtime_routability_receives_json_style_contract_params(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_params = []
+
+    class FakePublication:
+        row = {"status": "published"}
+        response_payload = {"kind": "observation"}
+
+    live = _real_live()
+    assert isinstance(
+        live["workflow_contract"].initial_params[0].execution_params["pins_out"],
+        tuple,
+    )
+
+    def fake_live(**_kwargs):
+        return live
+
+    def fake_validate_routing(*_args, **kwargs):
+        params = kwargs["workflow_contract"].initial_params[0].execution_params
+        captured_params.append(params)
+        return WorkerVisibleSourceRoutingValidationReport(
+            schema=SOURCE_ROUTING_VALIDATION_REPORT_SCHEMA,
+            valid=True,
+            routability_evaluated=True,
+            static_diagnostics=(),
+            routability_diagnostics=(),
+        )
+
+    monkeypatch.setattr(PROBE, "_run_live_create_and_verify", fake_live)
+    monkeypatch.setattr(
+        PROBE,
+        "validate_worker_visible_source_routing",
+        fake_validate_routing,
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "run_two_pass_worker_publication",
+        lambda _payload, **_kwargs: FakePublication(),
+    )
+
+    PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        agent="lm7b",
+    )
+
+    assert len(captured_params) == 1
+    assert captured_params[0]["pins_in"] == []
+    assert captured_params[0]["pins_out"] == ["A:double"]
+    assert isinstance(captured_params[0]["pins_in"], list)
+    assert isinstance(captured_params[0]["pins_out"], list)
+
+
+def test_contract_param_helpers_normalize_nested_json_arrays() -> None:
+    from dataclasses import replace
+
+    materialization = materialize_planner_worker_contract_request(
+        PROBE._canonical_planner_request()
+    )
+    workflow_contract = PROBE.load_workflow_contract_payload(
+        materialization.workflow_contract_payload
+    )
+    initial = workflow_contract.initial_params[0]
+    workflow_contract = replace(
+        workflow_contract,
+        initial_params=(
+            replace(
+                initial,
+                execution_params={
+                    **initial.execution_params,
+                    "nested": (("a", "b"), {"items": ("c", "d")}),
+                },
+            ),
+        ),
+    )
+
+    create_params = PROBE._create_initial_execution_params_from_contract(
+        workflow_contract
+    )
+    acceptance_contract = PROBE._acceptance_source_contract(workflow_contract)
+    acceptance_params = acceptance_contract.initial_params[0].execution_params
+
+    assert create_params["nested"] == [["a", "b"], {"items": ["c", "d"]}]
+    assert acceptance_params["nested"] == [["a", "b"], {"items": ["c", "d"]}]
+    assert isinstance(create_params["nested"], list)
+    assert isinstance(create_params["nested"][0], list)
+    assert isinstance(create_params["nested"][1]["items"], list)
+    assert isinstance(acceptance_params["nested"], list)
+    assert isinstance(acceptance_params["nested"][0], list)
+    assert isinstance(acceptance_params["nested"][1]["items"], list)
 
 
 def test_publication_failure_writes_terminal_decision_without_retry(
