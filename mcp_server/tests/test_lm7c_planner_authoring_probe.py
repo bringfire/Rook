@@ -223,6 +223,55 @@ def test_prompt_artifacts_do_not_contain_invention_or_hidden_answer_markers(
     assert "7.5" not in artifacts["intent_incomplete"]
 
 
+def test_summary_reports_hidden_marker_matches_without_changing_classification() -> None:
+    rows = [
+        {
+            "scenario": "intent_complete",
+            "parse_status": "parse_failed",
+            "validation_status": "not_evaluated",
+            "intent_decision": "not_classifiable",
+            "canonical_success": False,
+            "output_excerpt": "bad model output PROBE_REPAIR_CODE",
+        },
+        {
+            "scenario": "intent_incomplete",
+            "parse_status": "parsed",
+            "validation_status": "workflow_validate_valid",
+            "intent_decision": "correct_declared",
+            "canonical_success": True,
+            "output_excerpt": "{}",
+        },
+    ]
+
+    summary = PROBE._summarize_rows(
+        rows,
+        attempts=1,
+        provider="fake",
+        model="fake-planner",
+        temperature=0,
+        canonical_evidence=False,
+        prompt_profile="shape_guidance_v2",
+    )
+
+    assert summary["parse_success_count"] == 1
+    assert summary["workflow_validate_valid_count"] == 1
+    assert summary["correct_intent_count"] == 1
+    assert summary["canonical_success_count"] == 1
+    assert summary["hidden_marker_match_count"] == 1
+    assert summary["hidden_marker_matches"] == [
+        {
+            "artifact": "rows[0].output_excerpt",
+            "marker": "PROBE_REPAIR_CODE",
+        }
+    ]
+
+
+def test_marker_scan_checks_prompt_artifacts_but_allows_only_complete_brief_value() -> None:
+    matches = PROBE._hidden_marker_matches([], prompt_profile="shape_guidance_v2")
+
+    assert matches == []
+
+
 def test_parse_accepts_exact_json_object() -> None:
     parsed = PROBE._strict_parse_model_output(json.dumps(_minimal_complete_request()))
 
@@ -520,6 +569,8 @@ def test_run_probe_writes_artifacts_and_summary(tmp_path: Path) -> None:
     assert summary["prompt_version"] == "lm7d.planner_authoring_prompt_shape_guidance:v2"
     assert summary["scenario_counts"]["intent_complete"]["canonical_success_count"] == 1
     assert summary["scenario_counts"]["intent_incomplete"]["canonical_success_count"] == 1
+    assert summary["hidden_marker_match_count"] == 0
+    assert summary["hidden_marker_matches"] == []
 
 
 def test_run_probe_writes_shape_guidance_prompt_artifact(tmp_path: Path) -> None:

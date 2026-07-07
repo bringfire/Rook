@@ -67,6 +67,14 @@ _PLACEHOLDER_MODELS = {
     "ceiling-planner-model",
 }
 _REJECTED_LOCAL_MODEL_PAIR = ("ollama", "gemma4:12b-it-qat")
+HIDDEN_MARKER_SCAN_TERMS = (
+    "PROBE_REPAIR_CODE",
+    "A = 42.0",
+    "A = 0.0",
+    "A = 1.0",
+    "BindStepSpec.base_params",
+    "repair_same_component.bind.base_params",
+)
 
 
 @dataclass(frozen=True)
@@ -406,6 +414,39 @@ def _contains_invented_concrete_intent(payload: Mapping[str, Any]) -> bool:
     return _contains_repair_code_field(payload)
 
 
+def _hidden_marker_matches(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    prompt_profile: str,
+) -> list[dict[str, str]]:
+    artifacts: list[tuple[str, str]] = [
+        (
+            "prompts/planner_authoring_prompt.txt",
+            _planner_authoring_prompt(prompt_profile),
+        ),
+        ("prompts/template_menu.json", _canonical_json(_template_menu())),
+        ("prompts/intent_complete_brief.txt", _scenario_brief("intent_complete")["text"]),
+        (
+            "prompts/intent_incomplete_brief.txt",
+            _scenario_brief("intent_incomplete")["text"],
+        ),
+    ]
+    artifacts.extend(
+        (
+            f"rows[{index}].output_excerpt",
+            str(row.get("output_excerpt") or ""),
+        )
+        for index, row in enumerate(rows)
+    )
+
+    matches: list[dict[str, str]] = []
+    for artifact, text in artifacts:
+        for marker in HIDDEN_MARKER_SCAN_TERMS:
+            if marker in text:
+                matches.append({"artifact": artifact, "marker": marker})
+    return matches
+
+
 def _contains_repair_code_field(value: Any) -> bool:
     if isinstance(value, Mapping):
         for key, nested in value.items():
@@ -639,6 +680,7 @@ def _summarize_rows(
     prompt_profile: str,
 ) -> dict[str, Any]:
     counts = _scenario_count(rows)
+    marker_matches = _hidden_marker_matches(rows, prompt_profile=prompt_profile)
     return {
         "schema": PROBE_SCHEMA,
         "provider": provider,
@@ -655,6 +697,8 @@ def _summarize_rows(
             for scenario in SCENARIOS
         },
         "canonical_evidence": canonical_evidence,
+        "hidden_marker_match_count": len(marker_matches),
+        "hidden_marker_matches": marker_matches,
     }
 
 
