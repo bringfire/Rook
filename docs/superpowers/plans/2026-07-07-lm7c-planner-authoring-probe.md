@@ -111,6 +111,7 @@ def test_cli_defaults_are_canonical_probe_defaults() -> None:
     assert args.output_excerpt_chars == 1200
     assert args.provider_timeout_s == 120
     assert args.provider_command is None
+    assert args.canonical_evidence is False
 
 
 def test_cli_rejects_live_and_worker_options() -> None:
@@ -166,6 +167,7 @@ def _run_probe(
     model: str,
     temperature: float,
     attempts: int,
+    canonical_evidence: bool,
     output_excerpt_chars: int,
     call_provider: Callable[[Mapping[str, Any]], str],
 ) -> Path:
@@ -254,19 +256,33 @@ def test_prompt_contains_rules_but_no_full_request_exemplar() -> None:
 Hidden-answer/protocol-drift prompt guard:
 
 ```python
-def test_prompt_artifacts_do_not_contain_worker_hidden_answer_markers() -> None:
-    artifacts = [
-        PROBE._planner_authoring_prompt(),
-        json.dumps(PROBE._template_menu(), sort_keys=True),
-        PROBE._scenario_brief("intent_complete")["text"],
-        PROBE._scenario_brief("intent_incomplete")["text"],
-    ]
+def test_prompt_artifacts_do_not_contain_invention_or_hidden_answer_markers() -> None:
+    artifacts = {
+        "prompt": PROBE._planner_authoring_prompt(),
+        "template_menu": json.dumps(PROBE._template_menu(), sort_keys=True),
+        "intent_complete": PROBE._scenario_brief("intent_complete")["text"],
+        "intent_incomplete": PROBE._scenario_brief("intent_incomplete")["text"],
+    }
 
-    for artifact in artifacts:
-        assert "PROBE_REPAIR_CODE" not in artifact
-        assert "A = 42.0" not in artifact
-        assert "BindStepSpec.base_params" not in artifact
-        assert "repair_same_component.bind.base_params" not in artifact
+    forbidden = (
+        "PROBE_REPAIR_CODE",
+        "A = 42.0",
+        "42.0",
+        "A = 0.0",
+        "A = 1.0",
+        "use a default",
+        "set A to",
+        "BindStepSpec.base_params",
+        "repair_same_component.bind.base_params",
+    )
+    for name, artifact in artifacts.items():
+        for marker in forbidden:
+            assert marker not in artifact, (name, marker)
+
+    assert "7.5" in artifacts["intent_complete"]
+    assert "7.5" not in artifacts["prompt"]
+    assert "7.5" not in artifacts["template_menu"]
+    assert "7.5" not in artifacts["intent_incomplete"]
 ```
 
 - [ ] **Step 2: Implement builders**
@@ -793,6 +809,7 @@ def test_run_probe_writes_artifacts_and_summary(tmp_path: Path) -> None:
         model="fake-planner",
         temperature=0,
         attempts=1,
+        canonical_evidence=False,
         output_excerpt_chars=120,
         call_provider=fake_provider,
     )
@@ -803,6 +820,8 @@ def test_run_probe_writes_artifacts_and_summary(tmp_path: Path) -> None:
     assert (run_dir / "summary.json").is_file()
     assert (run_dir / "prompts" / "planner_authoring_prompt.txt").is_file()
     assert (run_dir / "prompts" / "template_menu.json").is_file()
+    assert (run_dir / "prompts" / "intent_complete_brief.txt").is_file()
+    assert (run_dir / "prompts" / "intent_incomplete_brief.txt").is_file()
 
     rows = [
         json.loads(line)
@@ -845,7 +864,14 @@ def test_summary_counts_parse_validation_intent_and_canonical_success() -> None:
         },
     ]
 
-    summary = PROBE._summarize_rows(rows, attempts=5, provider="fake", model="fake-planner", temperature=0)
+    summary = PROBE._summarize_rows(
+        rows,
+        attempts=5,
+        provider="fake",
+        model="fake-planner",
+        temperature=0,
+        canonical_evidence=False,
+    )
 
     assert summary["parse_success_count"] == 2
     assert summary["workflow_validate_valid_count"] == 2
@@ -865,8 +891,8 @@ def _new_run_dir(root: Path, sha: str | None = None) -> Path: ...
 def _git_short_sha() -> str: ...
 def _write_json(path: Path, value: Mapping[str, Any]) -> None: ...
 def _append_jsonl(path: Path, row: Mapping[str, Any]) -> None: ...
-def _summarize_rows(rows: Sequence[Mapping[str, Any]], *, attempts: int, provider: str, model: str, temperature: float) -> dict[str, Any]: ...
-def _manifest(*, provider: str, model: str, temperature: float, attempts: int) -> dict[str, Any]: ...
+def _summarize_rows(rows: Sequence[Mapping[str, Any]], *, attempts: int, provider: str, model: str, temperature: float, canonical_evidence: bool) -> dict[str, Any]: ...
+def _manifest(*, provider: str, model: str, temperature: float, attempts: int, canonical_evidence: bool) -> dict[str, Any]: ...
 def _run_probe(...) -> Path: ...
 ```
 
@@ -928,12 +954,33 @@ scenario_counts
 canonical_evidence
 ```
 
-`canonical_evidence` should be `True` only when:
+`canonical_evidence` is explicit, not inferred from provider/model names. Add a
+CLI flag:
 
 ```text
-attempts == 5
-provider not in {"fake", "ceiling-provider"}
-model not in {"fake-planner", "ceiling-planner-model"}
+--canonical-evidence       default false
+```
+
+Implementation rules:
+
+- `canonical_evidence` is `False` unless the flag is present.
+- If the flag is present, require:
+  - `attempts == 5`
+  - `provider` is not a placeholder such as `fake` or `ceiling-provider`
+  - `model` is not a placeholder such as `fake-planner` or `ceiling-planner-model`
+- The flag does not prove the provider is truly a ceiling model by itself; it
+  records the operator's pre-registered canonical-run intent after selecting
+  the ceiling provider/model.
+- Local/open-weight rows such as `provider=ollama`, `model=gemma4:12b-it-qat`
+  must leave `canonical_evidence` false unless a later slice explicitly
+  promotes them.
+
+Rejected canonical flag examples:
+
+```text
+--canonical-evidence --attempts 1
+--canonical-evidence --provider fake --model fake-planner
+--canonical-evidence --provider ceiling-provider --model ceiling-planner-model
 ```
 
 The exact provider/model chosen for a ceiling run is recorded in the manifest and rows.
@@ -958,6 +1005,32 @@ def test_main_requires_provider_command_for_cli_run(tmp_path: Path, capsys: pyte
 
     assert exc.value.code == 2
     assert "provider_command_required" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--canonical-evidence", "--attempts", "1"],
+        ["--canonical-evidence", "--provider", "fake", "--model", "fake-planner"],
+        [
+            "--canonical-evidence",
+            "--provider",
+            "ceiling-provider",
+            "--model",
+            "ceiling-planner-model",
+        ],
+    ],
+)
+def test_main_rejects_invalid_canonical_evidence_declarations(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    argv: list[str],
+) -> None:
+    with pytest.raises(SystemExit) as exc:
+        PROBE.main(["--run-dir", str(tmp_path), "--provider-command", "fake-provider", *argv])
+
+    assert exc.value.code == 2
+    assert "invalid_canonical_evidence" in capsys.readouterr().err
 
 
 def test_main_uses_injected_provider_command_without_live_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1001,6 +1074,7 @@ CLI args:
 --temperature               default 0
 --run-dir                   default probe_runs
 --output-excerpt-chars      default 1200
+--canonical-evidence        default false
 ```
 
 Do not add:
@@ -1137,6 +1211,7 @@ Canonical run properties:
 attempts: 5 per scenario
 scenarios: intent_complete, intent_incomplete
 provider/model: actual ceiling/Planner-tier provider selected at run time
+flag: --canonical-evidence
 decoding: deterministic where provider supports it
 no fallback model substitution
 ```
