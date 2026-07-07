@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 from typing import Any
 
 SAMPLES_SCHEMA_VERSION = 1
@@ -313,3 +314,294 @@ def verify_camera_roundtrip(
                         "camera_roundtrip_mismatch",
                         f"camera frame {frame_index} {key}: {got[key]} != {want[key]}",
                     )
+
+
+async def _gh_set_value(call_native, guid: str, value: Any) -> None:
+    response = await call_native("/gh/value", "POST", {"guid": guid, "value": value})
+    if not response.get("success"):
+        raise SimulationExportError(
+            "gh_set_value_failed",
+            f"{guid}={value}: {response.get('data')}",
+        )
+
+
+async def _gh_read_output(call_native, guid: str, param: str) -> Any:
+    response = await call_native(
+        "/gh/inspect-output",
+        "GET",
+        {"guid": guid, "param": param},
+    )
+    data = response.get("data", response)
+    preview = data.get("preview") if isinstance(data, dict) else None
+    if not preview:
+        raise SimulationExportError(
+            "gh_output_empty",
+            f"{guid}.{param} has no data",
+        )
+    return json.loads(preview[0])
+
+
+async def harvest_samples(
+    call_native,
+    roles: dict[str, str],
+    frame_count: int,
+    clock_denominator: float,
+) -> tuple[list[str], list[list[float]], list[dict[str, Any]]]:
+    if frame_count < 2:
+        raise SimulationExportError(
+            "frame_count_too_small",
+            f"frame_count {frame_count} < 2",
+        )
+
+    ids: list[str] | None = None
+    ids_hash: str | None = None
+    per_frame_z: list[list[float]] = []
+    cam_keyframes: list[dict[str, Any]] = []
+    try:
+        for p in range(frame_count):
+            t = p / (frame_count - 1)
+            frame_in = round(t * clock_denominator)
+            await _gh_set_value(call_native, roles["frame_in"], frame_in)
+
+            samples = await _gh_read_output(call_native, roles["wave"], "Samples")
+            frame_ids = list(samples["ids"])
+            frame_z = [float(v) for v in samples["z"]]
+            if len(frame_ids) != len(frame_z):
+                raise SimulationExportError(
+                    "samples_len_mismatch",
+                    f"frame {p}: {len(frame_ids)} ids != {len(frame_z)} z",
+                )
+            current_ids_hash = ids_sha256(frame_ids)
+            if ids is None:
+                ids = frame_ids
+                ids_hash = current_ids_hash
+                if len(set(ids)) != len(ids):
+                    raise SimulationExportError(
+                        "duplicate_member_id",
+                        "Samples.ids has duplicates",
+                    )
+            elif current_ids_hash != ids_hash:
+                raise SimulationExportError(
+                    "ids_unstable",
+                    f"frame {p}: Samples.ids changed mid-scrub",
+                )
+            per_frame_z.append(frame_z)
+
+            camera = await _gh_read_output(call_native, roles["camera_ctrl"], "Camera")
+            local_t = float(camera.get("local_t"))
+            expected_t = frame_in / clock_denominator
+            if abs(local_t - expected_t) > 1e-3:
+                raise SimulationExportError(
+                    "camera_stale",
+                    f"frame {p}: local_t {local_t} != {expected_t}",
+                )
+            cam_keyframes.append(
+                {
+                    "frame_index": p + 1,
+                    "source": {
+                        "kind": "explicit_camera",
+                        "camera": {
+                            "projection": camera.get("projection", "perspective"),
+                            "location": camera["location"],
+                            "target": camera["target"],
+                            "up": camera.get("up", [0.0, 0.0, 1.0]),
+                            "lens_length": camera.get("lens_length", 50.0),
+                        },
+                    },
+                }
+            )
+    finally:
+        await _gh_set_value(call_native, roles["frame_in"], 0)
+
+    return ids or [], per_frame_z, cam_keyframes
+
+
+async def resolve_canvas_roles(call_native) -> dict[str, str]:
+    """Resolve live Grasshopper role GUIDs by exact nickName and component type.
+
+    Verified /gh/query shape: {"data": {"objects": [{"guid", "nickName", "type", ...}]}}.
+    The type filter is required because the canvas also contains a GH_Group whose
+    nickname includes "Director Camera Controller".
+    """
+    response = await call_native("/gh/query", "GET", None)
+    objects = response["data"]["objects"]
+
+    def find(nickname: str, obj_type: str, role: str) -> str:
+        hits = [
+            obj
+            for obj in objects
+            if obj.get("nickName") == nickname and obj.get("type") == obj_type
+        ]
+        if len(hits) != 1:
+            raise SimulationExportError(
+                "canvas_role_unresolved",
+                f"{role}: found {len(hits)} candidates",
+            )
+        return hits[0]["guid"]
+
+    return {
+        "frame_in": find("FrameIn", "GH_NumberSlider", "FrameIn slider"),
+        "camera_ctrl": find(
+            "Director Camera Controller",
+            "CSharpComponent",
+            "Camera Controller",
+        ),
+        "wave": find(
+            "Director Band Peel Wave Preview",
+            "CSharpComponent",
+            "Band Peel Wave Preview",
+        ),
+    }
+
+
+async def run_simulation_export(args: dict[str, Any], *, call_native) -> dict[str, Any]:
+    """Harvest, package, prepare, compile, verify, then capture one pass.
+
+    Video assembly is intentionally outside this function; the live driver calls
+    director_video.assemble_director_video against the returned pass run root.
+    """
+    from rook import director_take_package as dtp
+    from rook import director_worker_capture as dwcap
+    from rook import director_worker_compile as dwc
+    from rook import director_worker_prepare as dprep
+
+    before = (await call_native("/document", "GET"))["data"]
+    original_path = before.get("path") or ""
+    if before.get("modified"):
+        raise SimulationExportError(
+            "live_doc_modified",
+            "save the live document before rendering",
+        )
+
+    try:
+        roles = await resolve_canvas_roles(call_native)
+        ids, per_frame_z, cam_keyframes = await harvest_samples(
+            call_native,
+            roles,
+            args["frame_count"],
+            args["clock_denominator"],
+        )
+        meta = {
+            "actor_set_id": args["actor_set_id"],
+            "source_block_name": args["block_name"],
+            "source_top_level_object_id": args["source_top_level_object_id"],
+            "fps": args["fps"],
+            "units": args["units"],
+            "component_provenance": {
+                "component_nick": "Director Band Peel Wave Preview",
+                "clock_denominator": args["clock_denominator"],
+            },
+        }
+        artifact = build_samples_artifact(ids, per_frame_z, meta)
+        assert_samples_invariants(artifact)
+
+        block = (
+            await call_native(
+                "/block/objects-detailed",
+                "POST",
+                {"name": args["block_name"]},
+            )
+        )["data"]
+        def_to_member, def_to_index = build_actor_member_ids(
+            block["objects"],
+            args["actor_set_id"],
+        )
+        for def_id in ids:
+            if def_id not in def_to_member:
+                raise SimulationExportError(
+                    "nested_or_unknown_id",
+                    f"{def_id} not a top-level member of {args['block_name']}",
+                )
+        motion = build_motion_json(artifact, def_to_member, args["fps"])
+
+        package_result = await dtp.package_take(
+            {
+                "take_id": args["take_id"],
+                "output_root": args["output_root"],
+                "actor_sets": [
+                    {
+                        "actor_set_id": args["actor_set_id"],
+                        "block_name": args["block_name"],
+                        "source_top_level_object_id": args["source_top_level_object_id"],
+                    }
+                ],
+                "motion": motion,
+                "camera": {"strategy": "keyframes", "keyframes": cam_keyframes},
+                "display_modes": args["display_modes"],
+            },
+            call_native=call_native,
+        )
+        package_root = package_result["package_root"]
+
+        manifest = json.loads(
+            (Path(package_root) / "scene_manifest.json").read_text(encoding="utf-8")
+        )
+        assert_manifest_matches(
+            manifest,
+            args["actor_set_id"],
+            {def_id: def_to_member[def_id] for def_id in ids},
+            {def_id: def_to_index[def_id] for def_id in ids},
+        )
+
+        prepare_result = await dprep.prepare_take(
+            {"package_root": package_root},
+            call_native=call_native,
+        )
+        compile_result = await dwc.compile_take(
+            {"package_root": package_root},
+            call_native=call_native,
+        )
+
+        track = json.loads(
+            (Path(package_root) / "track.json").read_text(encoding="utf-8")
+        )
+        member_map = _member_map_by_def_id(package_root)
+        sample_def_ids = _pick_sample_members(ids, member_map)
+        verify_motion_roundtrip(track, artifact, member_map, sample_def_ids)
+        verify_camera_roundtrip(track, cam_keyframes)
+
+        capture_result = await dwcap.capture_take(
+            {
+                "package_root": package_root,
+                "passes": [
+                    {
+                        "type": "display_mode",
+                        "pass_id": "sim",
+                        "display_mode": args["capture_mode"],
+                    }
+                ],
+                "resolution": args["resolution"],
+            },
+            call_native=call_native,
+        )
+        return {
+            "package_root": package_root,
+            "artifact": artifact,
+            "prepared": prepare_result.get("phase"),
+            "compiled": compile_result.get("phase"),
+            "capture": capture_result["passes"][0],
+        }
+    finally:
+        await call_native("/document/open", "POST", {"path": original_path})
+
+
+def _member_map_by_def_id(package_root: str) -> dict[str, list[str]]:
+    """Read package_root/member_map.json as {definition_object_id: created ids}."""
+    member_map = json.loads(
+        (Path(package_root) / "member_map.json").read_text(encoding="utf-8")
+    )
+    out: dict[str, list[str]] = {}
+    for actor_set in member_map.get("actor_sets") or []:
+        for member in actor_set.get("members") or []:
+            out[member["definition_object_id"]] = list(member.get("created_object_ids") or [])
+    return out
+
+
+def _pick_sample_members(ids: list[str], member_map: dict[str, list[str]]) -> list[str]:
+    picks = [ids[0]]
+    nested = next((def_id for def_id in ids if len(member_map.get(def_id) or []) > 1), None)
+    if nested and nested not in picks:
+        picks.append(nested)
+    if len(ids) > 1 and ids[-1] not in picks:
+        picks.append(ids[-1])
+    return picks

@@ -1,3 +1,6 @@
+import asyncio
+import json as _json
+
 import pytest
 
 from rook import director_simulation_export as sx
@@ -248,3 +251,264 @@ def test_camera_roundtrip_rejects_lens_or_projection_mismatch():
             kfs,
         )
     assert ei.value.code == "camera_roundtrip_mismatch"
+
+
+class _FakeNative:
+    """Simulates /gh/value + /gh/inspect-output for a 2-member, 3-frame wave."""
+
+    def __init__(self):
+        self.frame_in = 0
+        self._z = {0: [0.0, 0.0], 120: [0.0, 5.0], 240: [0.0, 10.0]}
+
+    async def __call__(self, endpoint, method="GET", data=None, *, port=None):
+        if endpoint == "/gh/value" and method == "POST":
+            self.frame_in = data["value"]
+            return {"success": True, "data": {}}
+        if endpoint.startswith("/gh/inspect-output"):
+            param = data["param"] if data else None
+            local_t = self.frame_in / 240.0
+            if param == "Samples":
+                payload = _json.dumps({"ids": ["d0", "d1"], "z": self._z[self.frame_in]})
+                return {"success": True, "data": {"preview": [payload]}}
+            if param == "Camera":
+                cam = {
+                    "projection": "perspective",
+                    "location": [self.frame_in, 0, 0],
+                    "target": [0, 0, 0],
+                    "up": [0, 0, 1],
+                    "lens_length": 50,
+                    "local_t": local_t,
+                }
+                return {"success": True, "data": {"preview": [_json.dumps(cam)]}}
+        raise AssertionError(f"unexpected {endpoint} {data}")
+
+
+def test_harvest_samples_maps_frames_and_hashes_ids():
+    fake = _FakeNative()
+    roles = {"frame_in": "fi", "camera_ctrl": "cc", "wave": "wv"}
+    ids, per_frame_z, cams = asyncio.run(
+        sx.harvest_samples(fake, roles, frame_count=3, clock_denominator=240)
+    )
+    assert ids == ["d0", "d1"]
+    assert per_frame_z == [[0.0, 0.0], [0.0, 5.0], [0.0, 10.0]]
+    assert [c["frame_index"] for c in cams] == [1, 2, 3]
+    assert cams[1]["source"]["camera"]["location"] == [120, 0, 0]
+    assert fake.frame_in == 0
+
+
+def test_harvest_samples_rejects_ids_drift():
+    fake = _FakeNative()
+    orig = fake.__call__
+
+    async def drift(endpoint, method="GET", data=None, *, port=None):
+        r = await orig(endpoint, method, data, port=port)
+        if data and data.get("param") == "Samples" and fake.frame_in == 240:
+            r = {
+                "success": True,
+                "data": {"preview": [_json.dumps({"ids": ["d0", "dX"], "z": [0.0, 10.0]})]},
+            }
+        return r
+
+    with pytest.raises(sx.SimulationExportError) as ei:
+        asyncio.run(
+            sx.harvest_samples(
+                drift,
+                {"frame_in": "fi", "camera_ctrl": "cc", "wave": "wv"},
+                frame_count=3,
+                clock_denominator=240,
+            )
+        )
+    assert ei.value.code == "ids_unstable"
+
+
+def test_resolve_canvas_roles_matches_exact_nickname_and_type():
+    async def fake(endpoint, method="GET", data=None, *, port=None):
+        assert endpoint == "/gh/query"
+        return {
+            "success": True,
+            "data": {
+                "objects": [
+                    {"guid": "group", "nickName": "Director Camera Controller v0", "type": "GH_Group"},
+                    {"guid": "fi", "nickName": "FrameIn", "type": "GH_NumberSlider"},
+                    {"guid": "cc", "nickName": "Director Camera Controller", "type": "CSharpComponent"},
+                    {"guid": "wv", "nickName": "Director Band Peel Wave Preview", "type": "CSharpComponent"},
+                ]
+            },
+        }
+
+    assert asyncio.run(sx.resolve_canvas_roles(fake)) == {
+        "frame_in": "fi",
+        "camera_ctrl": "cc",
+        "wave": "wv",
+    }
+
+
+def test_run_simulation_export_drives_capture_only_pipeline(tmp_path, monkeypatch):
+    from rook import director_take_package as dtp
+    from rook import director_worker_capture as dwcap
+    from rook import director_worker_compile as dwc
+    from rook import director_worker_prepare as dprep
+
+    cam = {
+        "projection": "perspective",
+        "location": [1, 2, 3],
+        "target": [0, 0, 0],
+        "up": [0, 0, 1],
+        "lens_length": 50,
+    }
+    cam_keyframes = [
+        {"frame_index": 1, "source": {"kind": "explicit_camera", "camera": cam}},
+        {"frame_index": 2, "source": {"kind": "explicit_camera", "camera": cam}},
+    ]
+    package_root = tmp_path / "take"
+    capture_calls = []
+
+    async def fake_resolve(call_native):
+        return {"frame_in": "fi", "camera_ctrl": "cc", "wave": "wv"}
+
+    async def fake_harvest(call_native, roles, frame_count, clock_denominator):
+        assert frame_count == 2
+        assert clock_denominator == 240
+        return ["d0", "d1"], [[0.0, 0.0], [0.0, 5.0]], cam_keyframes
+
+    async def fake_package(args, *, call_native):
+        package_root.mkdir()
+        assert args["motion"]["motion"][1]["target"] == "actor_x_member_0001"
+        assert args["camera"] == {"strategy": "keyframes", "keyframes": cam_keyframes}
+        (package_root / "scene_manifest.json").write_text(
+            _json.dumps(
+                {
+                    "actor_sets": [
+                        {
+                            "actor_set_id": "actor_x",
+                            "members": [
+                                {
+                                    "definition_object_id": "d0",
+                                    "definition_object_index": 0,
+                                    "actor_member_id": "actor_x_member_0000",
+                                },
+                                {
+                                    "definition_object_id": "d1",
+                                    "definition_object_index": 1,
+                                    "actor_member_id": "actor_x_member_0001",
+                                },
+                            ],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        return {"package_root": str(package_root)}
+
+    async def fake_prepare(args, *, call_native):
+        assert args == {"package_root": str(package_root)}
+        (package_root / "member_map.json").write_text(
+            _json.dumps(
+                {
+                    "actor_sets": [
+                        {
+                            "members": [
+                                {"definition_object_id": "d0", "created_object_ids": ["c0"]},
+                                {"definition_object_id": "d1", "created_object_ids": ["c1a", "c1b"]},
+                            ]
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        return {"phase": "prepared"}
+
+    async def fake_compile(args, *, call_native):
+        assert args == {"package_root": str(package_root)}
+        (package_root / "track.json").write_text(
+            _json.dumps(
+                {
+                    "object_frames": [
+                        {
+                            "frame_index": 1,
+                            "object_transforms": [
+                                {"object_id": "c0", "transform": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]},
+                                {"object_id": "c1a", "transform": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]},
+                                {"object_id": "c1b", "transform": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]},
+                            ],
+                        },
+                        {
+                            "frame_index": 2,
+                            "object_transforms": [
+                                {"object_id": "c0", "transform": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]},
+                                {"object_id": "c1a", "transform": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 5], [0, 0, 0, 1]]},
+                                {"object_id": "c1b", "transform": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 5], [0, 0, 0, 1]]},
+                            ],
+                        },
+                    ],
+                    "camera_frames": [
+                        {"frame_index": 1, "camera": cam},
+                        {"frame_index": 2, "camera": cam},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return {"phase": "compiled"}
+
+    async def fake_capture(args, *, call_native):
+        capture_calls.append(args)
+        return {"passes": [{"run_root": str(package_root / "sim"), "frames_written": 2}]}
+
+    class FakeNative:
+        def __init__(self):
+            self.opened = []
+
+        async def __call__(self, endpoint, method="GET", data=None, *, port=None):
+            if endpoint == "/document" and method == "GET":
+                return {"success": True, "data": {"path": "C:/live/Pearson.3dm", "modified": False}}
+            if endpoint == "/block/objects-detailed":
+                return {
+                    "success": True,
+                    "data": {"objects": [{"id": "d0", "index": 0}, {"id": "d1", "index": 1}]},
+                }
+            if endpoint == "/document/open" and method == "POST":
+                self.opened.append(data["path"])
+                return {"success": True, "data": {}}
+            raise AssertionError(f"unexpected {endpoint} {method} {data}")
+
+    monkeypatch.setattr(sx, "resolve_canvas_roles", fake_resolve)
+    monkeypatch.setattr(sx, "harvest_samples", fake_harvest)
+    monkeypatch.setattr(dtp, "package_take", fake_package)
+    monkeypatch.setattr(dprep, "prepare_take", fake_prepare)
+    monkeypatch.setattr(dwc, "compile_take", fake_compile)
+    monkeypatch.setattr(dwcap, "capture_take", fake_capture)
+
+    fake_native = FakeNative()
+    result = asyncio.run(
+        sx.run_simulation_export(
+            {
+                "take_id": "take1",
+                "actor_set_id": "actor_x",
+                "block_name": "BLK",
+                "source_top_level_object_id": "src1",
+                "output_root": str(tmp_path),
+                "frame_count": 2,
+                "fps": 24,
+                "units": "millimeters",
+                "display_modes": ["Shaded"],
+                "capture_mode": "Shaded",
+                "resolution": {"width": 640, "height": 360},
+                "clock_denominator": 240,
+            },
+            call_native=fake_native,
+        )
+    )
+    assert result["prepared"] == "prepared"
+    assert result["compiled"] == "compiled"
+    assert result["capture"]["frames_written"] == 2
+    assert capture_calls == [
+        {
+            "package_root": str(package_root),
+            "passes": [{"type": "display_mode", "pass_id": "sim", "display_mode": "Shaded"}],
+            "resolution": {"width": 640, "height": 360},
+        }
+    ]
+    assert fake_native.opened == ["C:/live/Pearson.3dm"]
