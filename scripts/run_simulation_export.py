@@ -34,19 +34,6 @@ def harvest_cache_path(signature):
     return HARVEST_CACHE_DIR / f"{signature}.json"
 
 
-def write_harvest_cache(path, signature, harvest):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "cache_kind": "director_simulation_harvest_cache_v1",
-        "signature": signature,
-        "harvest": harvest,
-    }
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(sx.canonical_json_text(payload), encoding="utf-8")
-    tmp.replace(path)
-
-
 def load_harvest_cache(path, signature):
     path = Path(path)
     if not path.exists():
@@ -63,6 +50,10 @@ def load_harvest_cache(path, signature):
 
 def _sha256_json(payload):
     return hashlib.sha256(sx.canonical_json_text(payload).encode("utf-8")).hexdigest()
+
+
+def harvest_cache_reuse_enabled(environ=os.environ):
+    return environ.get("SIM_REUSE_HARVEST") == "1"
 
 
 async def call_native(endpoint, method="GET", data=None, *, port=None):
@@ -103,20 +94,18 @@ async def main():
     canvas_hash = _sha256_json(canvas_state)
     cache_sig = harvest_cache_signature(doc.get("path"), args, canvas_hash)
     cache_path = harvest_cache_path(cache_sig)
-    cached_harvest = load_harvest_cache(cache_path, cache_sig)
+    reuse_harvest = harvest_cache_reuse_enabled()
+    cached_harvest = load_harvest_cache(cache_path, cache_sig) if reuse_harvest else None
     if cached_harvest:
         args["precomputed_harvest"] = cached_harvest
         print("HARVEST CACHE HIT:", cache_path, flush=True)
     else:
         args["harvest_cache_path"] = str(cache_path)
         args["harvest_cache_signature"] = cache_sig
-        print("HARVEST CACHE MISS:", cache_path, flush=True)
+        mode = "MISS" if reuse_harvest else "REFRESH (set SIM_REUSE_HARVEST=1 to reuse)"
+        print("HARVEST CACHE", mode + ":", cache_path, flush=True)
     t0 = time.time()
     result = await sx.run_simulation_export(args, call_native=call_native)
-    if not cached_harvest:
-        # run_simulation_export writes this before package/prepare/compile/capture;
-        # this mirror keeps the driver helper covered and the file format explicit.
-        write_harvest_cache(cache_path, cache_sig, result["harvest"])
     print("PIPELINE OK in %.1fs | prepared=%s compiled=%s | artifact frames=%d ids=%d"
           % (time.time() - t0, result["prepared"], result["compiled"],
              result["artifact"]["frame_count"], len(result["artifact"]["ids"])), flush=True)

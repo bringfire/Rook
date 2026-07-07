@@ -1,5 +1,6 @@
 import asyncio
 import importlib.util
+import json
 from pathlib import Path
 
 import httpx
@@ -84,8 +85,31 @@ def test_harvest_cache_round_trip_requires_matching_signature(tmp_path):
         "per_frame_z": [[0.0], [5.0]],
         "cam_keyframes": [{"frame_index": 1}, {"frame_index": 2}],
     }
-
-    driver.write_harvest_cache(cache_path, "sig-a", harvest)
+    cache_path.parent.mkdir()
+    cache_path.write_text(
+        json.dumps(
+            {
+                "cache_kind": "director_simulation_harvest_cache_v1",
+                "signature": "sig-a",
+                "harvest": harvest,
+            }
+        ),
+        encoding="utf-8",
+    )
 
     assert driver.load_harvest_cache(cache_path, "sig-a") == harvest
     assert driver.load_harvest_cache(cache_path, "sig-b") is None
+
+
+def test_harvest_cache_reuse_requires_explicit_env():
+    driver = _load_driver()
+
+    assert driver.harvest_cache_reuse_enabled({}) is False
+    assert driver.harvest_cache_reuse_enabled({"SIM_REUSE_HARVEST": "0"}) is False
+    assert driver.harvest_cache_reuse_enabled({"SIM_REUSE_HARVEST": "1"}) is True
+
+
+def test_driver_does_not_define_second_harvest_cache_writer():
+    driver = _load_driver()
+
+    assert not hasattr(driver, "write_harvest_cache")
