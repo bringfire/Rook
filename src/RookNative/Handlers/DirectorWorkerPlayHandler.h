@@ -9,4 +9,3 @@ void HandleDirectorWorkerPlay(const httplib::Request& req, httplib::Response& re
 
 } // namespace Handlers
 } // namespace Rook
-
