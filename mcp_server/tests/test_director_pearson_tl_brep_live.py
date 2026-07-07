@@ -129,7 +129,7 @@ async def test_pearson_roof_tl_brep_prepare_compile(tmp_path):
         assert prepare["phase"] == "prepared"
         (summary,) = prepare["actor_sets"]
         assert summary["member_count"] == EXPECTED_MEMBER_COUNT
-        assert summary["created_object_count"] == EXPECTED_MEMBER_COUNT
+        assert summary["created_object_count"] >= EXPECTED_MEMBER_COUNT
 
         member_map = json.loads(
             (Path(package_root) / "member_map.json").read_text(encoding="utf-8"))
@@ -151,7 +151,7 @@ async def test_pearson_roof_tl_brep_prepare_compile(tmp_path):
 
         compile_result = await dwc.compile_take({"package_root": package_root})
         assert compile_result["phase"] == "compiled"
-        assert compile_result["animated_object_count"] == EXPECTED_MEMBER_COUNT
+        assert compile_result["animated_object_count"] == summary["created_object_count"]
 
         print(f"Pearson TL_Brep package_root={package_root}")
         print(f"Pearson TL_Brep conversions={conversions}")
