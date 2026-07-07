@@ -46,6 +46,16 @@ def test_cli_receipt_recon_phase() -> None:
     assert args.phase == "receipt_recon"
 
 
+def test_cli_retry_clean_observation_default_off() -> None:
+    args = PROBE._args([])
+    assert args.retry_clean_observation is False
+
+
+def test_cli_retry_clean_observation_flag() -> None:
+    args = PROBE._args(["--retry-clean-observation"])
+    assert args.retry_clean_observation is True
+
+
 def test_bind_free_contract_removes_only_repair_bind_step() -> None:
     contract = PROBE._lm6a_bind_free_contract()
     repair_rules = [
@@ -140,6 +150,20 @@ def test_decision_for_gate_failed_is_bounded() -> None:
     rendered = json.dumps(decision, sort_keys=True)
     assert "A = 42.0" not in rendered
     assert "PROBE_REPAIR_CODE" not in rendered
+
+
+def test_decision_record_includes_retry_defaults() -> None:
+    decision = PROBE._decision_record(
+        decision="worker_declined",
+        reason="worker_observed",
+        phase="worker_publication",
+    )
+    assert decision["retry_attempted"] is False
+    assert decision["retry_count"] == 0
+    assert decision["retry_eligibility_reason"] is None
+    assert decision["first_worker_response_kind"] is None
+    assert decision["first_worker_decline_reason"] is None
+    assert decision["final_worker_response_kind"] is None
 
 
 def test_hidden_answer_scan_rejects_visible_leak() -> None:

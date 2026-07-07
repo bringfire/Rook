@@ -115,6 +115,14 @@ def _args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--timeout-s", type=float, default=DEFAULT_TIMEOUT_S)
     parser.add_argument("--excerpt-chars", type=int, default=DEFAULT_EXCERPT_CHARS)
     parser.add_argument("--run-dir", default="probe_runs")
+    parser.add_argument(
+        "--retry-clean-observation",
+        action="store_true",
+        help=(
+            "Diagnostic LM6E mode: retry exactly once after a clean observation "
+            "disposition. Default is off."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -288,6 +296,12 @@ def _decision_record(
     verify_repair_ran: bool = False,
     **extra: Any,
 ) -> dict[str, Any]:
+    extra.setdefault("retry_attempted", False)
+    extra.setdefault("retry_count", 0)
+    extra.setdefault("retry_eligibility_reason", None)
+    extra.setdefault("first_worker_response_kind", None)
+    extra.setdefault("first_worker_decline_reason", None)
+    extra.setdefault("final_worker_response_kind", None)
     return {
         "schema": "rook.lm6a_decision:v1",
         "decision": decision,
@@ -799,6 +813,7 @@ def _run_probe(
     excerpt_chars: int,
     run_root: str | Path,
     agent: Any,
+    retry_clean_observation: bool = False,
 ) -> Path:
     run_dir = _new_run_dir(run_root)
     git_commit = _git_short_sha()
@@ -929,6 +944,7 @@ def main(argv: list[str] | None = None) -> int:
         excerpt_chars=args.excerpt_chars,
         run_root=args.run_dir,
         agent=_build_agent(),
+        retry_clean_observation=args.retry_clean_observation,
     )
     decision_path = run_dir / "decision.json"
     decision = json.loads(decision_path.read_text(encoding="utf-8"))
