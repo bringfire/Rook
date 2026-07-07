@@ -609,6 +609,91 @@ def _run_phase_a_recon(*, run_dir: Path, agent: Any) -> dict[str, Any]:
     }
 
 
+def _publication_row_for_turn(
+    row: Mapping[str, Any],
+    *,
+    turn_index: int,
+    turn_role: str,
+    retry_context_present: bool,
+) -> dict[str, Any]:
+    tagged = dict(row)
+    tagged["turn_index"] = turn_index
+    tagged["turn_role"] = turn_role
+    tagged["retry_context_present"] = retry_context_present
+    return tagged
+
+
+def _observation_message(response_payload: Mapping[str, Any] | None) -> str:
+    if not isinstance(response_payload, Mapping):
+        return ""
+    message = response_payload.get("message")
+    return message if isinstance(message, str) else ""
+
+
+def _retry_eligibility_reason(
+    *,
+    publication_row: Mapping[str, Any],
+    response_payload: Mapping[str, Any] | None,
+) -> str | None:
+    status = publication_row.get("status")
+    if status != "published":
+        return f"not_retry_eligible:status_{status}"
+    if not isinstance(response_payload, Mapping):
+        return "not_retry_eligible:no_response_payload"
+    kind = response_payload.get("kind")
+    if kind != "observation":
+        return f"not_retry_eligible:kind_{kind}"
+    if publication_row.get("observation_action_intent_anomaly") is True:
+        return "not_retry_eligible:observation_action_intent_anomaly"
+    return None
+
+
+def _retry_context_packet(
+    *,
+    previous_response_payload: Mapping[str, Any],
+    previous_reason: str,
+    excerpt_chars: int,
+) -> dict[str, Any]:
+    message = _observation_message(previous_response_payload)
+    message_sha = hashlib.sha256(message.encode("utf-8")).hexdigest()
+    packet = {
+        "packet_id": "lm6e_bounded_retry_context",
+        "kind": "retry_context",
+        "fields": {
+            "retry_count": 1,
+            "max_retries": 1,
+            "previous_response_kind": "observation",
+            "previous_response_reason": previous_reason,
+            "previous_observation_message_excerpt": message[:excerpt_chars],
+            "previous_observation_message_sha256": f"sha256:{message_sha}",
+            "instruction": (
+                "Re-evaluate the same request after your prior observation. "
+                "If the visible acceptance criteria are sufficient to draft "
+                "repair parameters, publish action_request. If they are still "
+                "insufficient, publish observation again."
+            ),
+        },
+    }
+    if _hidden_answer_leaks(packet):
+        raise ValueError("retry context hidden answer leak")
+    return packet
+
+
+def _request_payload_with_retry_context(
+    request_payload: Mapping[str, Any],
+    retry_packet: Mapping[str, Any],
+) -> dict[str, Any]:
+    copied = json.loads(json.dumps(request_payload, default=str))
+    context = copied.get("context")
+    if not isinstance(context, dict):
+        raise ValueError("request payload context missing")
+    knowledge = context.get("knowledge")
+    if not isinstance(knowledge, list):
+        raise ValueError("request payload context knowledge missing")
+    knowledge.append(json.loads(json.dumps(retry_packet, default=str)))
+    return copied
+
+
 def _decision_from_worker_publication(
     *,
     publication_row: Mapping[str, Any],

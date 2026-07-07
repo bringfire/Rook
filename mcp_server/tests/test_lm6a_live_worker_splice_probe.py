@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 from rook.agent.local_worker_source_routing_validator import (
     validate_worker_visible_source_routing,
 )
@@ -321,6 +323,138 @@ def _published_payload(kind: str, **extra) -> dict:
     payload = {"schema": "rook.local_worker_turn_response:v1", "kind": kind}
     payload.update(extra)
     return payload
+
+
+def test_publication_row_for_turn_copies_and_tags_row() -> None:
+    original = {"status": "published"}
+    tagged = PROBE._publication_row_for_turn(
+        original,
+        turn_index=1,
+        turn_role="initial",
+        retry_context_present=False,
+    )
+    assert tagged == {
+        "status": "published",
+        "turn_index": 1,
+        "turn_role": "initial",
+        "retry_context_present": False,
+    }
+    assert original == {"status": "published"}
+
+
+def test_retry_eligibility_allows_clean_observation() -> None:
+    reason = PROBE._retry_eligibility_reason(
+        publication_row={"status": "published", "observation_action_intent_anomaly": False},
+        response_payload=_published_payload("observation", message="Visible state.", data=None),
+    )
+    assert reason is None
+
+
+def test_retry_eligibility_rejects_non_observation_and_anomaly() -> None:
+    assert PROBE._retry_eligibility_reason(
+        publication_row={"status": "published", "observation_action_intent_anomaly": False},
+        response_payload=_published_payload("clarification_request", question="Need desired value?", rationale=None),
+    ) == "not_retry_eligible:kind_clarification_request"
+    assert PROBE._retry_eligibility_reason(
+        publication_row={"status": "published", "observation_action_intent_anomaly": True},
+        response_payload=_published_payload("observation", message="x", data=None),
+    ) == "not_retry_eligible:observation_action_intent_anomaly"
+
+
+def test_retry_eligibility_rejects_non_published_status() -> None:
+    assert PROBE._retry_eligibility_reason(
+        publication_row={"status": "pass2_lm5g_invalid"},
+        response_payload=_published_payload("observation", message="x", data=None),
+    ) == "not_retry_eligible:status_pass2_lm5g_invalid"
+
+
+def test_retry_eligibility_rejects_missing_response_payload() -> None:
+    assert PROBE._retry_eligibility_reason(
+        publication_row={"status": "published", "observation_action_intent_anomaly": False},
+        response_payload=None,
+    ) == "not_retry_eligible:no_response_payload"
+
+
+def test_retry_context_packet_is_bounded_and_factual() -> None:
+    response = _published_payload(
+        "observation",
+        message="Observation " + ("x" * 50),
+        data=None,
+    )
+    packet = PROBE._retry_context_packet(
+        previous_response_payload=response,
+        previous_reason="worker_observed",
+        excerpt_chars=20,
+    )
+    assert packet["packet_id"] == "lm6e_bounded_retry_context"
+    assert packet["kind"] == "retry_context"
+    fields = packet["fields"]
+    assert fields["retry_count"] == 1
+    assert fields["max_retries"] == 1
+    assert fields["previous_response_kind"] == "observation"
+    assert fields["previous_response_reason"] == "worker_observed"
+    assert fields["previous_observation_message_excerpt"].startswith("Observation ")
+    assert len(fields["previous_observation_message_excerpt"]) == 20
+    assert fields["previous_observation_message_sha256"].startswith("sha256:")
+    assert "A = 42.0" not in json.dumps(packet, sort_keys=True)
+    assert "PROBE_REPAIR_CODE" not in json.dumps(packet, sort_keys=True)
+
+
+def test_retry_context_packet_fails_closed_on_hidden_answer_leak() -> None:
+    response = _published_payload(
+        "observation",
+        message="Prior observation leaked A = 42.0;",
+        data=None,
+    )
+
+    with pytest.raises(ValueError, match="retry context hidden answer leak"):
+        PROBE._retry_context_packet(
+            previous_response_payload=response,
+            previous_reason="worker_observed",
+            excerpt_chars=200,
+        )
+
+
+def test_request_payload_with_retry_context_appends_packet_without_mutation() -> None:
+    payload = {
+        "schema": "demo",
+        "context": {
+            "knowledge": [
+                {"packet_id": "script_body_gotcha", "kind": "gotcha"},
+            ],
+            "allowed_actions": [{"action_id": "draft_repair_params"}],
+        },
+    }
+    packet = {"packet_id": "lm6e_bounded_retry_context", "kind": "retry_context"}
+    retry_payload = PROBE._request_payload_with_retry_context(payload, packet)
+    assert retry_payload is not payload
+    assert retry_payload["context"] is not payload["context"]
+    assert retry_payload["context"]["knowledge"] == [
+        {"packet_id": "script_body_gotcha", "kind": "gotcha"},
+        {"packet_id": "lm6e_bounded_retry_context", "kind": "retry_context"},
+    ]
+    assert payload["context"]["knowledge"] == [
+        {"packet_id": "script_body_gotcha", "kind": "gotcha"},
+    ]
+
+
+def test_request_payload_with_retry_context_deep_copies_retry_packet() -> None:
+    payload = {
+        "schema": "demo",
+        "context": {
+            "knowledge": [],
+        },
+    }
+    packet = {
+        "packet_id": "lm6e_bounded_retry_context",
+        "kind": "retry_context",
+        "fields": {"retry_count": 1},
+    }
+    retry_payload = PROBE._request_payload_with_retry_context(payload, packet)
+
+    packet["fields"]["retry_count"] = 99
+
+    assert retry_payload["context"]["knowledge"][0]["fields"]["retry_count"] == 1
 
 
 def test_publication_failed_decision_for_invalid_publication() -> None:
