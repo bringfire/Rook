@@ -136,11 +136,15 @@ Failed passes append the same entry with `"outcome": "failed", "reason": "<code>
 **Interfaces (later tasks consume these exactly):**
 
 ```cpp
-// DirectorFrame.h — new section "Path policy + capture primitives (Slice 4A)"
-fs::path GetAllowedDirectorRoot();                       // moved from DirectorHandler.cpp
-fs::path NormalizePolicyPath(const fs::path& path);      // moved
-bool IsSameOrDescendantPath(const fs::path& root, const fs::path& candidate);  // moved
-bool IsSamePath(const fs::path& a, const fs::path& b);   // moved
+// DirectorFrame.h — new section "Path policy + capture primitives (Slice 4A)".
+// DirectorFrame.h has NO <filesystem> include today: add `#include <filesystem>`
+// to its include block, and use fully qualified std::filesystem::path in the
+// header (no `fs` alias in a header — it would leak into every includer).
+std::filesystem::path GetAllowedDirectorRoot();          // moved from DirectorHandler.cpp
+std::filesystem::path NormalizePolicyPath(const std::filesystem::path& path);  // moved
+bool IsSameOrDescendantPath(const std::filesystem::path& root,
+                            const std::filesystem::path& candidate);           // moved
+bool IsSamePath(const std::filesystem::path& a, const std::filesystem::path& b);  // moved
 ON_UUID ResolveDisplayModeId(const std::string& displayMode);  // moved (behavior identical)
 
 struct DirectorCaptureResult { std::string backend; };   // "sdk" or "scripted_command"
@@ -151,6 +155,13 @@ DirectorCaptureResult CaptureViewToPng(CRhinoDoc* pDoc, CRhinoView* pView,
                                        int width, int height,
                                        const std::filesystem::path& outputPath);
 ```
+
+**Filesystem plumbing (build-breaking if skipped):** `DirectorFrame.cpp` and
+`DirectorWorkerPlayHandler.cpp` currently have neither `<filesystem>` nor an `fs`
+alias. In BOTH `.cpp` files add `#include <filesystem>` and
+`namespace fs = std::filesystem;` below the includes (matching
+`DirectorHandler.cpp`'s existing pattern) — the `.cpp` snippets in this plan use
+`fs::path` and assume that alias. Header declarations stay fully qualified.
 
 - [ ] **Step 1: Move the path-policy helpers and `ResolveDisplayModeId` to `DirectorFrame.{h,cpp}`**
 
@@ -473,16 +484,15 @@ std::vector<FrameCamera> ParseCameraFrames(const nlohmann::json& trackJson, int 
 }
 ```
 
-Call it in the handler's track-loading `try` block, ONLY when `captureRequest.present`, after `ValidateFrameRange` (reuse the loaded `trackJson` — keep it in scope):
+Wire it into the handler in this exact order — the full-range `invalid_input` check
+must fire BEFORE camera parsing, so a chunked capture request never surfaces as
+`track_invalid` merely because the track's camera data is also bad:
 
-```cpp
-if (captureRequest.present)
-    track.cameraFrames = ParseCameraFrames(trackJson, track.frameCount);
-```
-
-The existing catch maps `std::invalid_argument` → `track_invalid` — exactly the spec's class for camera-contract violations.
-
-Then enforce the full-range rule (after `playTo` defaulting, still outside the dispatch):
+1. The existing track-loading `try` block stays as-is through `ValidateFrameRange`
+   (S3 behavior untouched) — but hoist `trackJson` so it remains in scope after
+   the block (declare `nlohmann::json trackJson;` before the `try`, assign inside).
+2. Immediately AFTER that `try`/`catch`, enforce the full-range rule (values, not
+   defaulting — an explicit `playTo == track.frameCount` passes):
 
 ```cpp
 if (captureRequest.present &&
@@ -496,7 +506,26 @@ if (captureRequest.present &&
 }
 ```
 
-(Note: an explicit `playTo == track.frameCount` passes — the check is on values, not on whether `playTo` was defaulted.)
+3. THEN parse camera frames in their own `try` block, mapping to `track_invalid`
+   (the spec's class for camera-contract violations):
+
+```cpp
+if (captureRequest.present)
+{
+    try
+    {
+        track.cameraFrames = ParseCameraFrames(trackJson, track.frameCount);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendErrorData(res, TrackInvalidData({
+            {"check", "camera_frames"},
+            {"message", ex.what()}
+        }));
+        return;
+    }
+}
+```
 
 - [ ] **Step 4: Capture setup inside the dispatch lambda (pinned ordering)**
 
@@ -645,7 +674,7 @@ Report per the Execution Contract. Reviewer will check the no-capture path again
 
 Read `tests/test_director_worker_play.py` FIRST — reuse its fake-native and package-fixture conventions (fixture builder that writes a full hash-consistent package: `scene.3dm`, `prepared.3dm`, `member_map.json`, `resolved_motion.json`, `track.json`, `status.json` with phase `"compiled"` and complete evidence hashes). The capture fake-native must additionally: record every `/director/worker-play` request body; on a capture request, create the requested `framesDir` and write `frame_count` valid PNG files (a real 8-byte-signature + IHDR header helper writing `width×height` — a 33-byte minimal PNG header + zero-length IDAT is fine since only `_png_size` semantics are checked), then return a success envelope with the capture response shape from the Wire Contracts section; support per-test overrides (fail pass N with a given reason, write wrong-dimension PNGs, skip one file, return `alreadyOpen` on open). Point `_default_output_root` at a tmp dir via `ROOK_DIRECTOR_OUTPUT_ROOT` monkeypatch in every test.
 
-Tests (24):
+Tests (25):
 
 1. `test_rejects_non_dict_arguments` — `capture_take("x")` → `invalid_input`.
 2. `test_unsupported_pass_type_rejected_before_native` — pass `{"type": "depth", ...}` → `unsupported_pass_type`; fake native asserts ZERO calls of any kind.
@@ -671,6 +700,10 @@ Tests (24):
 22. `test_package_evidence_append_only` — run capture_take twice (fresh pass_ids) → `evidence.capture_passes` has entries from both runs, prior entries untouched, `pass_index` monotonically increasing.
 23. `test_success_payload_shape` — matches the Wire Contracts `capture_take` payload exactly (keys, types), `backend` threaded from native.
 24. `test_atomic_metadata_writes` — no `*.staging` residue in the run root after success or failure.
+25. `test_bad_capture_timing_shape_is_incomplete` — parametrize the fake's capture
+    response over `capturePerFrameMs`: scalar `3.5`, array one short, array with a
+    string entry, absent key → each yields `pass_output_incomplete` (never a raw
+    `TypeError`/`ValueError`), run-local status `state: "failed"`, no `manifest.json`.
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -952,20 +985,32 @@ async def capture_take(arguments: dict[str, Any], *, call_native=call_rhino,
 
         capture_data = play_data.get("capture") or {}
         frames_written = capture_data.get("framesWritten")
-        per_frame = list((capture_data.get("timing") or {}).get("capturePerFrameMs") or [])
+        raw_per_frame = (capture_data.get("timing") or {}).get("capturePerFrameMs")
         try:
             if frames_written != frame_count:
                 raise DirectorWorkerCaptureError(
                     "pass_output_incomplete",
                     f"native reported {frames_written} frames, expected {frame_count}")
+            # Timing contract: numeric array, one entry per frame. A scalar, short
+            # array, or non-numeric entry is a broken native response — it must take
+            # the failed-status path, never leak a raw TypeError past the run root.
+            if (not isinstance(raw_per_frame, list)
+                    or len(raw_per_frame) != frame_count
+                    or not all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                               for v in raw_per_frame)):
+                raise DirectorWorkerCaptureError(
+                    "pass_output_incomplete",
+                    "native capture timing is not a numeric array of length "
+                    f"{frame_count}: {type(raw_per_frame).__name__}")
             _verify_frames(frames_dir, frame_count, width, height)
         except DirectorWorkerCaptureError as exc:
             _fail(exc.code, str(exc), mark_failed=True)
+        per_frame = [float(v) for v in raw_per_frame]
 
         run_id = f"{take_id}-{pass_id}"
         _write_run_manifest(run_root, run_id=run_id, frame_count=frame_count,
                             width=width, height=height, fps=float(fps))
-        capture_ms = _capture_ms_summary([float(v) for v in per_frame])
+        capture_ms = _capture_ms_summary(per_frame)
         _write_run_status(run_root, state="complete", now_fn=now_fn, detail={
             "run_id": run_id, "frame_count": frame_count,
             "capture_ms": capture_ms, "drift": play_data.get("drift"),
