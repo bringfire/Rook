@@ -1105,7 +1105,21 @@ Read `tests/test_director_worker_play_live.py` FIRST and mirror its structure ex
 - `test_gate_c_display_mode_fail_hard` (`ROOK_S4A_CAPTURE=1`): request pass with `display_mode="RookNoSuchMode_S4A"` → `DirectorWorkerCaptureError` code `display_mode_missing`; assert the run root exists with `status.json state: "failed"` and `frames/` contains ZERO files.
 - `test_gate_d_capture_throughput` (`ROOK_S4A_THROUGHPUT=1`): 300-object synthetic take (mirror Gate D's S3 builder), 60 frames, one pass; report (print) `capture_ms` summary and per-frame mean vs the S3 19.2 ms/frame transform baseline; no hard threshold — this gate MEASURES (the number feeds the parent spec's open question 1).
 
-Every gate cleans up its run roots (`shutil.rmtree` under the env-pinned `ROOK_DIRECTOR_OUTPUT_ROOT` tmp target — set it in the fixture so gates never write into the real `%LOCALAPPDATA%`; EXCEPT Gate A's MP4 path, which is printed for human review before cleanup, guarded by `ROOK_S4A_KEEP_OUTPUT=1`).
+**Output-root rule (AMENDED after Task 5 round 1 — the original instruction was a
+plan bug):** do NOT set `ROOK_DIRECTOR_OUTPUT_ROOT` in the live-gate process. The
+env var only affects the pytest process, while native `GetAllowedDirectorRoot()`
+reads the RHINO process environment — a pytest-local tmp root makes every capture
+call fail `output_policy_violation` before any frame plays. Live gates instead use
+the SAME root both sides resolve by default: derive
+`output_root = director_video._default_output_root()` (real
+`%LOCALAPPDATA%/Rook/rookvision_director` unless Rhino itself was launched with the
+env var — note this assumption in a comment). Uniqueness comes from uuid-suffixed
+`take_id`s. Cleanup targets ONLY `<output_root>/takes/<take_id>` (never the shared
+director root — it holds real user outputs); Gate A's take dir survives cleanup
+under `ROOK_S4A_KEEP_OUTPUT=1` with the MP4 path printed for human review. Gate C
+computes its expected run root from the derived output root. (The Task 3 unit
+tests keep their env pinning — the fake native runs in-process, where it is
+correct.)
 
 - [ ] **Step 2: Run the file WITHOUT env vars**
 
