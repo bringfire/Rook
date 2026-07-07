@@ -646,17 +646,33 @@ def test_optional_unresolved_intent_warning_reaches_real_worker_publication(
     assert len(captured_payloads) == 1
     knowledge = captured_payloads[0]["context"]["knowledge"]
     packets_by_id = {packet["packet_id"]: packet for packet in knowledge}
-    assert "acceptance_criteria" in packets_by_id
-    content = packets_by_id["acceptance_criteria"]["content"]
-    assert set(content) == {"source", "criteria"}
-    assert content["source"] == (
+    assert "lm5u_acceptance_criteria_evidence" in packets_by_id
+    packet = packets_by_id["lm5u_acceptance_criteria_evidence"]
+    assert packet["kind"] == "evidence"
+    content = packet["content"]
+    assert content["source"] == "planner_worker_contract_request"
+    assert content["trust"] == "high"
+    assert content["state"] == "post_verify_pre_worker"
+    fields = content["fields"]
+    assert {
+        "current_code",
+        "language",
+        "recommended_mode",
+        "repair_anchor",
+        "pin_contract",
+        "target_diagnostics",
+        "expected_repair_outcome",
+        "acceptance_criteria",
+    } <= set(fields)
+    acceptance = fields["acceptance_criteria"]
+    assert acceptance["source"] == (
         "workflow_contract + create_script.initial_execution_params + "
         "create_script.receipt.script_receipt.repair_anchor + script_body_gotcha"
     )
-    assert content["criteria"]
+    assert acceptance["criteria"]
     assert all(
         set(criterion) == {"criterion_id", "description", "source"}
-        for criterion in content["criteria"]
+        for criterion in acceptance["criteria"]
     )
     rendered = json.dumps(content, sort_keys=True)
     for forbidden in (
@@ -969,9 +985,9 @@ def _real_live() -> dict:
     )
     scaffold = compile_workflow_contract(contract)
     graph = scaffold.graph
-    graph.nodes["create_script"].metadata["execution_params"] = {
-        "pins_out": ["A:double"]
-    }
+    graph.nodes["create_script"].metadata["execution_params"] = dict(
+        contract.initial_params[0].execution_params
+    )
     producer_result = apply_producer_result(
         graph,
         "create_script",

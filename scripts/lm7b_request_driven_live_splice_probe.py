@@ -44,7 +44,16 @@ from lm6a_live_worker_splice_probe import (  # noqa: E402
     _routing_report_json,
     _worker_action_context,
 )
-from lm5k_worker_probe import _script_body_gotcha_packet  # noqa: E402
+from lm5k_worker_probe import (  # noqa: E402
+    ACCEPTANCE_CRITERIA_EVIDENCE_PACKET_ID,
+    _acceptance_pin_contract_from_params,
+    _bounded_current_code,
+    _bounded_target_diagnostics,
+    _require_create_execution_params,
+    _require_receipt_mapping,
+    _script_body_gotcha_packet,
+    _stable_repair_anchor_value,
+)
 from lm_worker_two_pass_publication import run_two_pass_worker_publication  # noqa: E402
 from rook.agent.local_worker_acceptance_criteria import (  # noqa: E402
     AcceptanceCriteriaSources,
@@ -380,6 +389,10 @@ def _build_worker_context(*, live: Mapping[str, Any], run_dir: Path) -> dict[str
     )
     full_packet = assemble_acceptance_criteria_packet(sources)
     worker_visible = _legacy_acceptance_criteria_projection(full_packet)
+    evidence_packet = _lm7b_worker_evidence_packet(
+        live=live,
+        visible_acceptance_criteria=worker_visible,
+    )
     context = build_local_worker_turn_context(
         live["scaffold"],
         live["graph"],
@@ -387,13 +400,8 @@ def _build_worker_context(*, live: Mapping[str, Any], run_dir: Path) -> dict[str
         (),
         current_node_id="repair_same_component",
         knowledge=(
-            WorkerKnowledgePacket(
-                packet_id="acceptance_criteria",
-                kind="acceptance_criteria",
-                title="Materialized acceptance criteria",
-                content=worker_visible,
-            ),
             *tuple(live["convention_packets"]),
+            evidence_packet,
         ),
         allowed_actions=(
             WorkerAllowedAction(
@@ -408,12 +416,97 @@ def _build_worker_context(*, live: Mapping[str, Any], run_dir: Path) -> dict[str
     if (
         _hidden_answer_leaks(full_packet)
         or _hidden_answer_leaks(worker_visible)
+        or _hidden_answer_leaks(evidence_packet.content)
         or _hidden_answer_leaks(request_payload)
     ):
         raise ValueError("worker context hidden answer leak")
     _write_json(run_dir / "acceptance_criteria_packet.json", full_packet)
     _write_json(run_dir / "worker_visible_acceptance_criteria.json", worker_visible)
     return request_payload
+
+
+def _lm7b_worker_evidence_packet(
+    *,
+    live: Mapping[str, Any],
+    visible_acceptance_criteria: Mapping[str, Any],
+) -> WorkerKnowledgePacket:
+    graph = live["graph"]
+    receipt = _require_receipt_mapping(graph)
+    params = _require_create_execution_params(graph)
+    initial_params = _create_initial_execution_params_from_contract(
+        live["workflow_contract"]
+    )
+    receipt_repair_anchor = receipt.get("repair_anchor")
+    if not isinstance(receipt_repair_anchor, Mapping):
+        raise ValueError("receipt repair anchor missing")
+
+    facts = getattr(getattr(graph, "memory", None), "facts", {})
+    repair_anchor = facts.get("repair_anchor") if isinstance(facts, Mapping) else None
+    if not isinstance(repair_anchor, Mapping):
+        raise ValueError("repair anchor missing")
+
+    diagnostic_fields: dict[str, Any] = {}
+    if "target_errors" in receipt_repair_anchor:
+        diagnostic_fields["target_errors"] = _bounded_target_diagnostics(
+            receipt_repair_anchor.get("target_errors"),
+            source=(
+                "create_script.receipt.script_receipt.repair_anchor."
+                "target_errors"
+            ),
+        )
+    if "target_warnings" in receipt_repair_anchor:
+        diagnostic_fields["target_warnings"] = _bounded_target_diagnostics(
+            receipt_repair_anchor.get("target_warnings"),
+            source=(
+                "create_script.receipt.script_receipt.repair_anchor."
+                "target_warnings"
+            ),
+        )
+    if not diagnostic_fields:
+        raise ValueError("target diagnostics missing")
+
+    return WorkerKnowledgePacket(
+        packet_id=ACCEPTANCE_CRITERIA_EVIDENCE_PACKET_ID,
+        kind="evidence",
+        title="Acceptance-criteria repair evidence",
+        content={
+            "source": "planner_worker_contract_request",
+            "trust": "high",
+            "state": "post_verify_pre_worker",
+            "fields": {
+                "current_code": _bounded_current_code(params.get("code")),
+                "language": {
+                    "value": receipt.get("language"),
+                    "source": "create_script.receipt.script_receipt.language",
+                },
+                "recommended_mode": {
+                    "value": "body",
+                    "source": "script_body_gotcha",
+                    "derivation": "existing worker-visible gotcha convention",
+                },
+                "repair_anchor": {
+                    "value": _stable_repair_anchor_value(repair_anchor),
+                    "source": "graph.memory.facts.repair_anchor",
+                },
+                "pin_contract": _acceptance_pin_contract_from_params(initial_params),
+                "target_diagnostics": {
+                    "source": (
+                        "create_script.receipt.script_receipt.repair_anchor"
+                    ),
+                    "fields": diagnostic_fields,
+                },
+                "expected_repair_outcome": {
+                    "value": _expected_repair_outcome_from_contract(
+                        live["workflow_contract"]
+                    ),
+                    "source": (
+                        "workflow_contract.rules.verify_repair.expected_outcome"
+                    ),
+                },
+                "acceptance_criteria": dict(visible_acceptance_criteria),
+            },
+        },
+    )
 
 
 def _legacy_acceptance_criteria_projection(packet: Mapping[str, Any]) -> dict[str, Any]:
@@ -431,6 +524,28 @@ def _legacy_acceptance_criteria_projection(packet: Mapping[str, Any]) -> dict[st
             for item in criteria
         ],
     }
+
+
+def _create_initial_execution_params_from_contract(workflow_contract: Any) -> Mapping[str, Any]:
+    for initial in workflow_contract.initial_params:
+        if initial.node_id != "create_script":
+            continue
+        return {
+            key: list(value) if isinstance(value, tuple) else value
+            for key, value in initial.execution_params.items()
+        }
+    raise RuntimeError("create initial execution params missing")
+
+
+def _expected_repair_outcome_from_contract(workflow_contract: Any) -> str:
+    for rule in workflow_contract.rules:
+        if rule.node_id != "verify_repair":
+            continue
+        for step in rule.steps_by_seen_count:
+            expected = getattr(step, "expected_outcome", None)
+            if isinstance(expected, str) and expected:
+                return expected
+    raise RuntimeError("verify_repair expected outcome missing")
 
 
 def _acceptance_source_contract(workflow_contract: Any) -> Any:
