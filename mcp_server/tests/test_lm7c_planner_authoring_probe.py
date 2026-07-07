@@ -77,6 +77,16 @@ def _exact_unresolved_route() -> dict[str, object]:
     }
 
 
+def _scenario_correct_request(scenario: str) -> dict[str, object]:
+    request = _minimal_complete_request()
+    if scenario == "intent_incomplete":
+        request["intent_slots"] = [_exact_unresolved_slot()]
+        request["routing_delta"]["add_unresolved_intent_routes"] = [
+            _exact_unresolved_route()
+        ]
+    return request
+
+
 def test_cli_defaults_are_canonical_probe_defaults() -> None:
     args = PROBE._args([])
 
@@ -132,6 +142,8 @@ def test_prompt_contains_rules_but_no_full_request_exemplar() -> None:
     assert PLANNER_WORKER_CONTRACT_REQUEST_SCHEMA in prompt
     assert "exactly one JSON object" in prompt
     assert "no markdown" in prompt.lower()
+    assert "missing_desired_output_value unresolved-intent route with required=false" in prompt
+    assert "optional missing_desired_output_value unresolved-intent route" not in prompt
     assert '"template_id": "repair_same_component_from_create_error"' not in prompt
     assert '"initial_params": {' not in prompt
     assert '"add_unresolved_intent_routes": [' not in prompt
@@ -413,6 +425,14 @@ def test_run_probe_writes_artifacts_and_summary(tmp_path: Path) -> None:
     assert (run_dir / "prompts" / "template_menu.json").is_file()
     assert (run_dir / "prompts" / "intent_complete_brief.txt").is_file()
     assert (run_dir / "prompts" / "intent_incomplete_brief.txt").is_file()
+    template_menu_text = (run_dir / "prompts" / "template_menu.json").read_text(
+        encoding="utf-8"
+    )
+    assert template_menu_text == (
+        json.dumps(PROBE._template_menu(), sort_keys=True, separators=(",", ":"))
+        + "\n"
+    )
+    assert "\n" not in template_menu_text[:-1]
 
     rows = [
         json.loads(line)
@@ -520,6 +540,45 @@ def test_main_rejects_invalid_canonical_evidence_declarations(
 
     assert exc.value.code == 2
     assert "invalid_canonical_evidence" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("provider", "model"),
+    [
+        ("ollama", "some-approved-ceiling-alias"),
+        ("some-provider", "gemma4:12b-it-qat"),
+    ],
+)
+def test_main_accepts_canonical_evidence_when_only_provider_or_model_matches_local_pair(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    provider: str,
+    model: str,
+) -> None:
+    calls = []
+
+    def fake_command(command, call_payload, timeout_s):
+        calls.append((command, call_payload, timeout_s))
+        return json.dumps(_scenario_correct_request(call_payload["scenario"]))
+
+    monkeypatch.setattr(PROBE, "_call_provider_command", fake_command)
+
+    exit_code = PROBE.main(
+        [
+            "--run-dir",
+            str(tmp_path),
+            "--canonical-evidence",
+            "--provider",
+            provider,
+            "--model",
+            model,
+            "--provider-command",
+            "fake-provider",
+        ]
+    )
+
+    assert exit_code == 0
+    assert len(calls) == len(PROBE.SCENARIOS) * 5
 
 
 def test_main_uses_injected_provider_command_without_live_model(

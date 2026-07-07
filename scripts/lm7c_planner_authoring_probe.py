@@ -52,12 +52,12 @@ INTENT_OVER_DECLARED = "over_declared"
 INTENT_INVENTED = "invented"
 INTENT_NOT_CLASSIFIABLE = "not_classifiable"
 
-_PLACEHOLDER_PROVIDERS = {"fake", "ceiling-provider", "ollama"}
+_PLACEHOLDER_PROVIDERS = {"fake", "ceiling-provider"}
 _PLACEHOLDER_MODELS = {
     "fake-planner",
     "ceiling-planner-model",
-    "gemma4:12b-it-qat",
 }
+_REJECTED_LOCAL_MODEL_PAIR = ("ollama", "gemma4:12b-it-qat")
 
 
 @dataclass(frozen=True)
@@ -109,8 +109,8 @@ def _planner_authoring_prompt() -> str:
             "When the brief provides the desired output intent, it is not missing, "
             "and v1 has no legal field for that concrete value.",
             "When the brief omits the desired output intent, declare only the "
-            "canonical unresolved desired_output_value slot and optional "
-            "missing_desired_output_value unresolved-intent route.",
+            "canonical unresolved desired_output_value slot and emit the matching "
+            "missing_desired_output_value unresolved-intent route with required=false.",
             "Do not write repair code, acceptance prose, hidden bind params, or "
             "fields outside the request schema.",
         ]
@@ -202,7 +202,7 @@ def _write_prompt_artifacts(run_dir: Path) -> None:
         encoding="utf-8",
     )
     (prompts_dir / "template_menu.json").write_text(
-        json.dumps(_template_menu(), indent=2, sort_keys=True) + "\n",
+        json.dumps(_template_menu(), sort_keys=True, separators=(",", ":")) + "\n",
         encoding="utf-8",
     )
     for scenario in SCENARIOS:
@@ -703,6 +703,8 @@ def _canonical_evidence_is_valid(args: argparse.Namespace) -> bool:
     if args.provider in _PLACEHOLDER_PROVIDERS:
         return False
     if args.model in _PLACEHOLDER_MODELS:
+        return False
+    if (args.provider, args.model) == _REJECTED_LOCAL_MODEL_PAIR:
         return False
     return True
 
