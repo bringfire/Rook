@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 from rook.agent.local_worker_source_routing_validator import (
     validate_worker_visible_source_routing,
 )
@@ -44,6 +46,16 @@ def test_cli_defaults_are_canonical() -> None:
 def test_cli_receipt_recon_phase() -> None:
     args = PROBE._args(["--phase", "receipt_recon"])
     assert args.phase == "receipt_recon"
+
+
+def test_cli_retry_clean_observation_default_off() -> None:
+    args = PROBE._args([])
+    assert args.retry_clean_observation is False
+
+
+def test_cli_retry_clean_observation_flag() -> None:
+    args = PROBE._args(["--retry-clean-observation"])
+    assert args.retry_clean_observation is True
 
 
 def test_bind_free_contract_removes_only_repair_bind_step() -> None:
@@ -140,6 +152,20 @@ def test_decision_for_gate_failed_is_bounded() -> None:
     rendered = json.dumps(decision, sort_keys=True)
     assert "A = 42.0" not in rendered
     assert "PROBE_REPAIR_CODE" not in rendered
+
+
+def test_decision_record_includes_retry_defaults() -> None:
+    decision = PROBE._decision_record(
+        decision="worker_declined",
+        reason="worker_observed",
+        phase="worker_publication",
+    )
+    assert decision["retry_attempted"] is False
+    assert decision["retry_count"] == 0
+    assert decision["retry_eligibility_reason"] is None
+    assert decision["first_worker_response_kind"] is None
+    assert decision["first_worker_decline_reason"] is None
+    assert decision["final_worker_response_kind"] is None
 
 
 def test_hidden_answer_scan_rejects_visible_leak() -> None:
@@ -297,6 +323,138 @@ def _published_payload(kind: str, **extra) -> dict:
     payload = {"schema": "rook.local_worker_turn_response:v1", "kind": kind}
     payload.update(extra)
     return payload
+
+
+def test_publication_row_for_turn_copies_and_tags_row() -> None:
+    original = {"status": "published"}
+    tagged = PROBE._publication_row_for_turn(
+        original,
+        turn_index=1,
+        turn_role="initial",
+        retry_context_present=False,
+    )
+    assert tagged == {
+        "status": "published",
+        "turn_index": 1,
+        "turn_role": "initial",
+        "retry_context_present": False,
+    }
+    assert original == {"status": "published"}
+
+
+def test_retry_eligibility_allows_clean_observation() -> None:
+    reason = PROBE._retry_eligibility_reason(
+        publication_row={"status": "published", "observation_action_intent_anomaly": False},
+        response_payload=_published_payload("observation", message="Visible state.", data=None),
+    )
+    assert reason is None
+
+
+def test_retry_eligibility_rejects_non_observation_and_anomaly() -> None:
+    assert PROBE._retry_eligibility_reason(
+        publication_row={"status": "published", "observation_action_intent_anomaly": False},
+        response_payload=_published_payload("clarification_request", question="Need desired value?", rationale=None),
+    ) == "not_retry_eligible:kind_clarification_request"
+    assert PROBE._retry_eligibility_reason(
+        publication_row={"status": "published", "observation_action_intent_anomaly": True},
+        response_payload=_published_payload("observation", message="x", data=None),
+    ) == "not_retry_eligible:observation_action_intent_anomaly"
+
+
+def test_retry_eligibility_rejects_non_published_status() -> None:
+    assert PROBE._retry_eligibility_reason(
+        publication_row={"status": "pass2_lm5g_invalid"},
+        response_payload=_published_payload("observation", message="x", data=None),
+    ) == "not_retry_eligible:status_pass2_lm5g_invalid"
+
+
+def test_retry_eligibility_rejects_missing_response_payload() -> None:
+    assert PROBE._retry_eligibility_reason(
+        publication_row={"status": "published", "observation_action_intent_anomaly": False},
+        response_payload=None,
+    ) == "not_retry_eligible:no_response_payload"
+
+
+def test_retry_context_packet_is_bounded_and_factual() -> None:
+    response = _published_payload(
+        "observation",
+        message="Observation " + ("x" * 50),
+        data=None,
+    )
+    packet = PROBE._retry_context_packet(
+        previous_response_payload=response,
+        previous_reason="worker_observed",
+        excerpt_chars=20,
+    )
+    assert packet["packet_id"] == "lm6e_bounded_retry_context"
+    assert packet["kind"] == "retry_context"
+    fields = packet["fields"]
+    assert fields["retry_count"] == 1
+    assert fields["max_retries"] == 1
+    assert fields["previous_response_kind"] == "observation"
+    assert fields["previous_response_reason"] == "worker_observed"
+    assert fields["previous_observation_message_excerpt"].startswith("Observation ")
+    assert len(fields["previous_observation_message_excerpt"]) == 20
+    assert fields["previous_observation_message_sha256"].startswith("sha256:")
+    assert "A = 42.0" not in json.dumps(packet, sort_keys=True)
+    assert "PROBE_REPAIR_CODE" not in json.dumps(packet, sort_keys=True)
+
+
+def test_retry_context_packet_fails_closed_on_hidden_answer_leak() -> None:
+    response = _published_payload(
+        "observation",
+        message="Prior observation leaked A = 42.0;",
+        data=None,
+    )
+
+    with pytest.raises(ValueError, match="retry context hidden answer leak"):
+        PROBE._retry_context_packet(
+            previous_response_payload=response,
+            previous_reason="worker_observed",
+            excerpt_chars=200,
+        )
+
+
+def test_request_payload_with_retry_context_prepends_packet_without_mutation() -> None:
+    payload = {
+        "schema": "demo",
+        "context": {
+            "knowledge": [
+                {"packet_id": "script_body_gotcha", "kind": "gotcha"},
+            ],
+            "allowed_actions": [{"action_id": "draft_repair_params"}],
+        },
+    }
+    packet = {"packet_id": "lm6e_bounded_retry_context", "kind": "retry_context"}
+    retry_payload = PROBE._request_payload_with_retry_context(payload, packet)
+    assert retry_payload is not payload
+    assert retry_payload["context"] is not payload["context"]
+    assert retry_payload["context"]["knowledge"] == [
+        {"packet_id": "lm6e_bounded_retry_context", "kind": "retry_context"},
+        {"packet_id": "script_body_gotcha", "kind": "gotcha"},
+    ]
+    assert payload["context"]["knowledge"] == [
+        {"packet_id": "script_body_gotcha", "kind": "gotcha"},
+    ]
+
+
+def test_request_payload_with_retry_context_deep_copies_retry_packet() -> None:
+    payload = {
+        "schema": "demo",
+        "context": {
+            "knowledge": [],
+        },
+    }
+    packet = {
+        "packet_id": "lm6e_bounded_retry_context",
+        "kind": "retry_context",
+        "fields": {"retry_count": 1},
+    }
+    retry_payload = PROBE._request_payload_with_retry_context(payload, packet)
+
+    packet["fields"]["retry_count"] = 99
+
+    assert retry_payload["context"]["knowledge"][0]["fields"]["retry_count"] == 1
 
 
 def test_publication_failed_decision_for_invalid_publication() -> None:
@@ -466,6 +624,465 @@ def test_full_flow_action_apply_rejection_writes_decision(
     assert (run_dir / "worker_action.json").exists()
 
 
+def test_full_flow_no_retry_writes_single_publication_rows_artifact(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        PROBE,
+        "_run_phase_a_recon",
+        lambda **kwargs: {
+            "decision": None,
+            "request_payload": {
+                "context": {"allowed_actions": [], "knowledge": []},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "run_two_pass_worker_publication",
+        lambda *args, **kwargs: type(
+            "Result",
+            (),
+            {
+                "row": {
+                    "status": "published",
+                    "observation_action_intent_anomaly": False,
+                },
+                "response_payload": {
+                    "schema": "rook.local_worker_turn_response:v1",
+                    "kind": "observation",
+                    "message": "Need more visible context.",
+                },
+            },
+        )(),
+    )
+
+    run_dir = PROBE._run_probe(
+        phase="full",
+        model="gemma4:12b-it-qat",
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        run_root=tmp_path,
+        agent=None,
+    )
+
+    rows_path = run_dir / "worker_publication_rows.json"
+    rows = json.loads(rows_path.read_text(encoding="utf-8"))
+    assert isinstance(rows, list)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["turn_index"] == 1
+    assert row["turn_role"] == "initial"
+    assert row["retry_context_present"] is False
+    assert json.loads(
+        (run_dir / "worker_publication_row.json").read_text(encoding="utf-8")
+    ) == row
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    assert decision["decision"] == "worker_declined"
+    assert decision["reason"] == "worker_observed"
+    assert decision["retry_attempted"] is False
+    assert decision["retry_count"] == 0
+
+
+def test_full_flow_retry_observation_recovers_action_and_accepts(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    publication_calls = []
+
+    class _ApplyResult:
+        applied = True
+        reason = None
+        params_sha256 = "sha256:params"
+        graph = object()
+
+    def _fake_publication(request_payload, *args, **kwargs):
+        publication_calls.append(request_payload)
+        if len(publication_calls) == 1:
+            return type(
+                "Result",
+                (),
+                {
+                    "row": {
+                        "status": "published",
+                        "observation_action_intent_anomaly": False,
+                    },
+                    "response_payload": _published_payload(
+                        "observation",
+                        message="Visible error context is present.",
+                        data=None,
+                    ),
+                },
+            )()
+        return type(
+            "Result",
+            (),
+            {
+                "row": {
+                    "status": "published",
+                    "observation_action_intent_anomaly": False,
+                },
+                "response_payload": _published_payload(
+                    "action_request",
+                    action_id="draft_repair_params",
+                    rationale="Drafting repair.",
+                    input={"code": "A = 0.0;", "mode": "body"},
+                ),
+            },
+        )()
+
+    def _fake_dispatch(*, action_context, **kwargs):
+        return {
+            "decision": PROBE._decision_record(
+                decision="accepted",
+                reason="verify_repair_succeeded",
+                phase="verify_repair",
+                live_repair_dispatched=True,
+                verify_repair_ran=True,
+                **dict(action_context),
+            )
+        }
+
+    monkeypatch.setattr(
+        PROBE,
+        "_run_phase_a_recon",
+        lambda **kwargs: {
+            "decision": None,
+            "graph": object(),
+            "anchor_binding": {"component_guid": "GUID-1", "language": "csharp"},
+            "request_payload": {
+                "context": {
+                    "allowed_actions": [{"action_id": "draft_repair_params"}],
+                    "knowledge": [{"packet_id": "base_packet", "kind": "base"}],
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(PROBE, "run_two_pass_worker_publication", _fake_publication)
+    monkeypatch.setattr(
+        PROBE,
+        "apply_worker_action_to_node",
+        lambda *args, **kwargs: _ApplyResult(),
+    )
+    monkeypatch.setattr(PROBE, "_dispatch_repair_and_verify", _fake_dispatch)
+
+    run_dir = PROBE._run_probe(
+        phase="full",
+        model="gemma4:12b-it-qat",
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        run_root=tmp_path,
+        agent=None,
+        retry_clean_observation=True,
+    )
+
+    assert len(publication_calls) == 2
+    assert all(
+        item.get("packet_id") != "lm6e_bounded_retry_context"
+        for item in publication_calls[0]["context"]["knowledge"]
+    )
+    assert (
+        publication_calls[1]["context"]["knowledge"][0]["packet_id"]
+        == "lm6e_bounded_retry_context"
+    )
+
+    rows = json.loads(
+        (run_dir / "worker_publication_rows.json").read_text(encoding="utf-8")
+    )
+    assert [row["turn_role"] for row in rows] == ["initial", "retry"]
+    final_row = json.loads(
+        (run_dir / "worker_publication_row.json").read_text(encoding="utf-8")
+    )
+    assert final_row == rows[1]
+    assert (run_dir / "retry_context.json").exists()
+    assert (run_dir / "worker_action.json").exists()
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    assert decision["decision"] == "accepted"
+    assert decision["retry_attempted"] is True
+    assert decision["retry_count"] == 1
+    assert decision["first_worker_response_kind"] == "observation"
+    assert decision["first_worker_decline_reason"] == "worker_observed"
+    assert decision["final_worker_response_kind"] == "action_request"
+    assert decision["worker_action_id"] == "draft_repair_params"
+
+
+def test_full_flow_retry_observation_declines_with_retry_reason(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    publication_calls = []
+
+    def _fake_publication(request_payload, *args, **kwargs):
+        publication_calls.append(request_payload)
+        return type(
+            "Result",
+            (),
+            {
+                "row": {
+                    "status": "published",
+                    "observation_action_intent_anomaly": False,
+                },
+                "response_payload": _published_payload(
+                    "observation",
+                    message="Still only observing.",
+                    data=None,
+                ),
+            },
+        )()
+
+    monkeypatch.setattr(
+        PROBE,
+        "_run_phase_a_recon",
+        lambda **kwargs: {
+            "decision": None,
+            "request_payload": {"context": {"allowed_actions": [], "knowledge": []}},
+        },
+    )
+    monkeypatch.setattr(PROBE, "run_two_pass_worker_publication", _fake_publication)
+
+    run_dir = PROBE._run_probe(
+        phase="full",
+        model="gemma4:12b-it-qat",
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        run_root=tmp_path,
+        agent=None,
+        retry_clean_observation=True,
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    assert decision["decision"] == "worker_declined"
+    assert decision["reason"] == "worker_observed_after_retry"
+    assert decision["retry_attempted"] is True
+    assert decision["retry_count"] == 1
+    assert decision["first_worker_response_kind"] == "observation"
+    assert decision["final_worker_response_kind"] == "observation"
+    assert len(publication_calls) == 2
+
+
+def test_full_flow_retry_observation_anomaly_declines_with_retry_reason(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    publication_calls = []
+
+    def _fake_publication(request_payload, *args, **kwargs):
+        publication_calls.append(request_payload)
+        anomalous = len(publication_calls) == 2
+        return type(
+            "Result",
+            (),
+            {
+                "row": {
+                    "status": "published",
+                    "observation_action_intent_anomaly": anomalous,
+                    "observation_action_intent_reasons": (
+                        ["observation_data_action_id_allowed"] if anomalous else []
+                    ),
+                },
+                "response_payload": _published_payload(
+                    "observation",
+                    message="Observation with action-looking data.",
+                    data={"action_id": "draft_repair_params"} if anomalous else None,
+                ),
+            },
+        )()
+
+    monkeypatch.setattr(
+        PROBE,
+        "_run_phase_a_recon",
+        lambda **kwargs: {
+            "decision": None,
+            "request_payload": {"context": {"allowed_actions": [], "knowledge": []}},
+        },
+    )
+    monkeypatch.setattr(PROBE, "run_two_pass_worker_publication", _fake_publication)
+
+    run_dir = PROBE._run_probe(
+        phase="full",
+        model="gemma4:12b-it-qat",
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        run_root=tmp_path,
+        agent=None,
+        retry_clean_observation=True,
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    assert decision["decision"] == "worker_declined"
+    assert decision["reason"] == (
+        "worker_observation_action_intent_anomaly_after_retry"
+    )
+    assert decision["retry_attempted"] is True
+    assert decision["retry_count"] == 1
+    assert decision["final_worker_response_kind"] == "observation"
+
+
+def test_full_flow_retry_publication_failure_maps_to_publication_failed(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    publication_calls = []
+
+    def _fake_publication(request_payload, *args, **kwargs):
+        publication_calls.append(request_payload)
+        if len(publication_calls) == 1:
+            return type(
+                "Result",
+                (),
+                {
+                    "row": {
+                        "status": "published",
+                        "observation_action_intent_anomaly": False,
+                    },
+                    "response_payload": _published_payload(
+                        "observation",
+                        message="Clean observation.",
+                        data=None,
+                    ),
+                },
+            )()
+        return type(
+            "Result",
+            (),
+            {
+                "row": {
+                    "status": "pass2_lm5g_invalid",
+                    "failure_reason": "pass2_content_json_invalid:RecursionError",
+                },
+                "response_payload": None,
+            },
+        )()
+
+    monkeypatch.setattr(
+        PROBE,
+        "_run_phase_a_recon",
+        lambda **kwargs: {
+            "decision": None,
+            "request_payload": {"context": {"allowed_actions": [], "knowledge": []}},
+        },
+    )
+    monkeypatch.setattr(PROBE, "run_two_pass_worker_publication", _fake_publication)
+
+    run_dir = PROBE._run_probe(
+        phase="full",
+        model="gemma4:12b-it-qat",
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        run_root=tmp_path,
+        agent=None,
+        retry_clean_observation=True,
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == (
+        "retry_publication_failed:pass2_content_json_invalid:RecursionError"
+    )
+    assert decision["retry_attempted"] is True
+    assert decision["retry_count"] == 1
+    assert decision["final_worker_response_kind"] is None
+    assert len(publication_calls) == 2
+    assert not (run_dir / "worker_action.json").exists()
+
+
+def test_full_flow_retry_publication_hidden_answer_leak_stops_without_dispatch(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    publication_calls = []
+
+    def _fake_publication(request_payload, *args, **kwargs):
+        publication_calls.append(request_payload)
+        if len(publication_calls) == 1:
+            return type(
+                "Result",
+                (),
+                {
+                    "row": {
+                        "status": "published",
+                        "observation_action_intent_anomaly": False,
+                    },
+                    "response_payload": _published_payload(
+                        "observation",
+                        message="Clean observation.",
+                        data=None,
+                    ),
+                },
+            )()
+        return type(
+            "Result",
+            (),
+            {
+                "row": {
+                    "status": "pass2_lm5g_invalid",
+                    "pass2_content_excerpt": "bad A = 42.0;",
+                },
+                "response_payload": None,
+            },
+        )()
+
+    def _fail_dispatch(*args, **kwargs):
+        raise AssertionError("dispatch should not run")
+
+    monkeypatch.setattr(
+        PROBE,
+        "_run_phase_a_recon",
+        lambda **kwargs: {
+            "decision": None,
+            "request_payload": {"context": {"allowed_actions": [], "knowledge": []}},
+        },
+    )
+    monkeypatch.setattr(PROBE, "run_two_pass_worker_publication", _fake_publication)
+    monkeypatch.setattr(PROBE, "_dispatch_repair_and_verify", _fail_dispatch)
+
+    run_dir = PROBE._run_probe(
+        phase="full",
+        model="gemma4:12b-it-qat",
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        run_root=tmp_path,
+        agent=None,
+        retry_clean_observation=True,
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "retry_worker_publication_hidden_answer_leak"
+    assert decision["retry_attempted"] is True
+    assert decision["retry_count"] == 1
+    assert decision["live_repair_dispatched"] is False
+
+    rows = json.loads(
+        (run_dir / "worker_publication_rows.json").read_text(encoding="utf-8")
+    )
+    row = json.loads(
+        (run_dir / "worker_publication_row.json").read_text(encoding="utf-8")
+    )
+    assert len(rows) == 1
+    assert rows[0]["turn_role"] == "initial"
+    assert row == rows[0]
+    assert "A = 42.0" not in json.dumps(rows, sort_keys=True)
+    assert "A = 42.0" not in json.dumps(row, sort_keys=True)
+    assert len(publication_calls) == 2
+    assert not (run_dir / "worker_action.json").exists()
+
+
 def test_full_flow_publication_row_hidden_answer_leak_stops_before_artifact(
     monkeypatch,
     tmp_path: Path,
@@ -509,6 +1126,65 @@ def test_full_flow_publication_row_hidden_answer_leak_stops_before_artifact(
     assert decision["decision"] == "publication_failed"
     assert decision["reason"] == "worker_publication_hidden_answer_leak"
     assert not (run_dir / "worker_publication_row.json").exists()
+    assert not (run_dir / "worker_publication_rows.json").exists()
+
+
+def test_full_flow_publication_response_hidden_answer_leak_stops_without_retry(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    publication_calls = []
+
+    def _fake_publication(*args, **kwargs):
+        publication_calls.append((args, kwargs))
+        return type(
+            "Result",
+            (),
+            {
+                "row": {
+                    "status": "published",
+                    "observation_action_intent_anomaly": False,
+                },
+                "response_payload": {
+                    "schema": "rook.local_worker_turn_response:v1",
+                    "kind": "observation",
+                    "message": "The hidden answer is A = 42.0;",
+                },
+            },
+        )()
+
+    monkeypatch.setattr(
+        PROBE,
+        "_run_phase_a_recon",
+        lambda **kwargs: {
+            "decision": None,
+            "request_payload": {
+                "context": {"allowed_actions": [], "knowledge": []},
+            },
+        },
+    )
+    monkeypatch.setattr(PROBE, "run_two_pass_worker_publication", _fake_publication)
+
+    run_dir = PROBE._run_probe(
+        phase="full",
+        model="gemma4:12b-it-qat",
+        endpoint="http://fake.local/api/chat",
+        temperature=0,
+        timeout_s=9,
+        excerpt_chars=500,
+        run_root=tmp_path,
+        agent=None,
+        retry_clean_observation=True,
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "worker_publication_hidden_answer_leak"
+    assert decision["retry_attempted"] is False
+    assert decision["retry_count"] == 0
+    assert len(publication_calls) == 1
+    assert not (run_dir / "worker_publication_row.json").exists()
+    assert not (run_dir / "worker_publication_rows.json").exists()
 
 
 def test_full_flow_passes_hidden_answer_guard_to_publication_helper(
@@ -560,7 +1236,7 @@ def test_full_flow_passes_hidden_answer_guard_to_publication_helper(
     assert not (run_dir / "worker_action.json").exists()
 
 
-def test_full_flow_worker_action_hidden_answer_leak_rejects_without_dispatch(
+def test_full_flow_publication_action_payload_hidden_answer_leak_stops_before_artifacts(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -605,12 +1281,15 @@ def test_full_flow_worker_action_hidden_answer_leak_rejects_without_dispatch(
     )
 
     decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
-    assert decision["decision"] == "rejected"
-    assert decision["reason"] == "worker_action_hidden_answer_leak"
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "worker_publication_hidden_answer_leak"
+    assert decision["retry_attempted"] is False
+    assert decision["retry_count"] == 0
     assert decision["live_repair_dispatched"] is False
-    assert "worker_action_input_excerpt" not in decision
     assert "A = 42.0" not in json.dumps(decision, sort_keys=True)
-    assert (run_dir / "worker_action.json").exists()
+    assert not (run_dir / "worker_publication_row.json").exists()
+    assert not (run_dir / "worker_publication_rows.json").exists()
+    assert not (run_dir / "worker_action.json").exists()
     assert not (run_dir / "live_repair_summary.json").exists()
 
 
@@ -660,6 +1339,13 @@ def test_script_help_runs_from_repo_root() -> None:
 
 def test_script_static_forbidden_imports_and_graph_dump_guard() -> None:
     source = _script_path().read_text(encoding="utf-8")
+    assert "def run_two_pass_worker_publication" not in source
+    assert "lm_worker_two_pass_publication.py" not in source
     assert "LiteLLM" not in source
+    assert "openrouter" not in source.lower()
     assert "anthropic" not in source.lower()
     assert "debug-full-graph" not in source
+    assert (
+        "from lm_worker_two_pass_publication import run_two_pass_worker_publication"
+        in source
+    )

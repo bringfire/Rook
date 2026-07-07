@@ -115,6 +115,14 @@ def _args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--timeout-s", type=float, default=DEFAULT_TIMEOUT_S)
     parser.add_argument("--excerpt-chars", type=int, default=DEFAULT_EXCERPT_CHARS)
     parser.add_argument("--run-dir", default="probe_runs")
+    parser.add_argument(
+        "--retry-clean-observation",
+        action="store_true",
+        help=(
+            "Diagnostic LM6E mode: retry exactly once after a clean observation "
+            "disposition. Default is off."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -219,6 +227,13 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     )
 
 
+def _write_json_value(path: Path, payload: Any) -> None:
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 def _hidden_answer_leaks(value: Any) -> list[str]:
     rendered = json.dumps(value, sort_keys=True, default=str)
     leaks = []
@@ -288,6 +303,12 @@ def _decision_record(
     verify_repair_ran: bool = False,
     **extra: Any,
 ) -> dict[str, Any]:
+    extra.setdefault("retry_attempted", False)
+    extra.setdefault("retry_count", 0)
+    extra.setdefault("retry_eligibility_reason", None)
+    extra.setdefault("first_worker_response_kind", None)
+    extra.setdefault("first_worker_decline_reason", None)
+    extra.setdefault("final_worker_response_kind", None)
     return {
         "schema": "rook.lm6a_decision:v1",
         "decision": decision,
@@ -595,6 +616,126 @@ def _run_phase_a_recon(*, run_dir: Path, agent: Any) -> dict[str, Any]:
     }
 
 
+def _publication_row_for_turn(
+    row: Mapping[str, Any],
+    *,
+    turn_index: int,
+    turn_role: str,
+    retry_context_present: bool,
+) -> dict[str, Any]:
+    tagged = dict(row)
+    tagged["turn_index"] = turn_index
+    tagged["turn_role"] = turn_role
+    tagged["retry_context_present"] = retry_context_present
+    return tagged
+
+
+def _observation_message(response_payload: Mapping[str, Any] | None) -> str:
+    if not isinstance(response_payload, Mapping):
+        return ""
+    message = response_payload.get("message")
+    return message if isinstance(message, str) else ""
+
+
+def _retry_eligibility_reason(
+    *,
+    publication_row: Mapping[str, Any],
+    response_payload: Mapping[str, Any] | None,
+) -> str | None:
+    status = publication_row.get("status")
+    if status != "published":
+        return f"not_retry_eligible:status_{status}"
+    if not isinstance(response_payload, Mapping):
+        return "not_retry_eligible:no_response_payload"
+    kind = response_payload.get("kind")
+    if kind != "observation":
+        return f"not_retry_eligible:kind_{kind}"
+    if publication_row.get("observation_action_intent_anomaly") is True:
+        return "not_retry_eligible:observation_action_intent_anomaly"
+    return None
+
+
+def _worker_response_kind(response_payload: Mapping[str, Any] | None) -> str | None:
+    if not isinstance(response_payload, Mapping):
+        return None
+    kind = response_payload.get("kind")
+    return str(kind) if kind is not None else None
+
+
+def _retry_metadata(
+    *,
+    retry_attempted: bool,
+    retry_count: int,
+    retry_eligibility_reason: str | None,
+    first_response_payload: Mapping[str, Any] | None,
+    first_decline_reason: str | None,
+    final_response_payload: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    return {
+        "retry_attempted": retry_attempted,
+        "retry_count": retry_count,
+        "retry_eligibility_reason": retry_eligibility_reason,
+        "first_worker_response_kind": _worker_response_kind(first_response_payload),
+        "first_worker_decline_reason": first_decline_reason,
+        "final_worker_response_kind": _worker_response_kind(final_response_payload),
+    }
+
+
+def _decision_with_retry_metadata(
+    decision: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+) -> dict[str, Any]:
+    copied = dict(decision)
+    copied.update(dict(metadata))
+    return copied
+
+
+def _retry_context_packet(
+    *,
+    previous_response_payload: Mapping[str, Any],
+    previous_reason: str,
+    excerpt_chars: int,
+) -> dict[str, Any]:
+    message = _observation_message(previous_response_payload)
+    message_sha = hashlib.sha256(message.encode("utf-8")).hexdigest()
+    packet = {
+        "packet_id": "lm6e_bounded_retry_context",
+        "kind": "retry_context",
+        "fields": {
+            "retry_count": 1,
+            "max_retries": 1,
+            "previous_response_kind": "observation",
+            "previous_response_reason": previous_reason,
+            "previous_observation_message_excerpt": message[:excerpt_chars],
+            "previous_observation_message_sha256": f"sha256:{message_sha}",
+            "instruction": (
+                "Re-evaluate the same request after your prior observation. "
+                "If the visible acceptance criteria are sufficient to draft "
+                "repair parameters, publish action_request. If they are still "
+                "insufficient, publish observation again."
+            ),
+        },
+    }
+    if _hidden_answer_leaks(packet):
+        raise ValueError("retry context hidden answer leak")
+    return packet
+
+
+def _request_payload_with_retry_context(
+    request_payload: Mapping[str, Any],
+    retry_packet: Mapping[str, Any],
+) -> dict[str, Any]:
+    copied = json.loads(json.dumps(request_payload, default=str))
+    context = copied.get("context")
+    if not isinstance(context, dict):
+        raise ValueError("request payload context missing")
+    knowledge = context.get("knowledge")
+    if not isinstance(knowledge, list):
+        raise ValueError("request payload context knowledge missing")
+    knowledge.insert(0, json.loads(json.dumps(retry_packet, default=str)))
+    return copied
+
+
 def _decision_from_worker_publication(
     *,
     publication_row: Mapping[str, Any],
@@ -799,6 +940,7 @@ def _run_probe(
     excerpt_chars: int,
     run_root: str | Path,
     agent: Any,
+    retry_clean_observation: bool = False,
 ) -> Path:
     run_dir = _new_run_dir(run_root)
     git_commit = _git_short_sha()
@@ -838,6 +980,14 @@ def _run_probe(
         _write_json(run_dir / "decision.json", decision)
         return run_dir
 
+    final_retry_metadata = _retry_metadata(
+        retry_attempted=False,
+        retry_count=0,
+        retry_eligibility_reason=None,
+        first_response_payload=None,
+        first_decline_reason=None,
+        final_response_payload=None,
+    )
     publication = run_two_pass_worker_publication(
         recon["request_payload"],
         model=model,
@@ -847,7 +997,16 @@ def _run_probe(
         excerpt_chars=excerpt_chars,
         decision_guard=_pass1_decision_hidden_answer_failure,
     )
-    if _hidden_answer_leaks(publication.row):
+    publication_rows = []
+    first_row = _publication_row_for_turn(
+        publication.row,
+        turn_index=1,
+        turn_role="initial",
+        retry_context_present=False,
+    )
+    if _hidden_answer_leaks(first_row) or _hidden_answer_leaks(
+        publication.response_payload
+    ):
         decision = _decision_record(
             decision="publication_failed",
             reason="worker_publication_hidden_answer_leak",
@@ -855,34 +1014,141 @@ def _run_probe(
         )
         _write_json(run_dir / "decision.json", decision)
         return run_dir
-    _write_json(run_dir / "worker_publication_row.json", publication.row)
-    decision = _decision_from_worker_publication(
-        publication_row=publication.row,
+    publication_rows.append(first_row)
+    _write_json_value(run_dir / "worker_publication_rows.json", publication_rows)
+    _write_json(run_dir / "worker_publication_row.json", first_row)
+    first_decision = _decision_from_worker_publication(
+        publication_row=first_row,
         response_payload=publication.response_payload,
     )
-    if decision is not None:
-        _write_json(run_dir / "decision.json", decision)
-        return run_dir
+    if first_decision is not None:
+        first_decline_reason = (
+            first_decision["reason"]
+            if first_decision.get("decision") == "worker_declined"
+            else None
+        )
+        retry_eligibility_reason = (
+            "not_retry_enabled"
+            if retry_clean_observation is not True
+            else _retry_eligibility_reason(
+                publication_row=first_row,
+                response_payload=publication.response_payload,
+            )
+        )
+        if retry_eligibility_reason is not None:
+            final_retry_metadata = _retry_metadata(
+                retry_attempted=False,
+                retry_count=0,
+                retry_eligibility_reason=retry_eligibility_reason,
+                first_response_payload=publication.response_payload,
+                first_decline_reason=first_decline_reason,
+                final_response_payload=publication.response_payload,
+            )
+            _write_json(
+                run_dir / "decision.json",
+                _decision_with_retry_metadata(first_decision, final_retry_metadata),
+            )
+            return run_dir
 
-    response_payload = publication.response_payload
+        retry_packet = _retry_context_packet(
+            previous_response_payload=publication.response_payload,
+            previous_reason=str(first_decision["reason"]),
+            excerpt_chars=excerpt_chars,
+        )
+        _write_json(run_dir / "retry_context.json", retry_packet)
+        retry_publication = run_two_pass_worker_publication(
+            _request_payload_with_retry_context(
+                recon["request_payload"],
+                retry_packet,
+            ),
+            model=model,
+            endpoint=endpoint,
+            temperature=temperature,
+            timeout_s=timeout_s,
+            excerpt_chars=excerpt_chars,
+            decision_guard=_pass1_decision_hidden_answer_failure,
+        )
+        retry_row = _publication_row_for_turn(
+            retry_publication.row,
+            turn_index=2,
+            turn_role="retry",
+            retry_context_present=True,
+        )
+        final_retry_metadata = _retry_metadata(
+            retry_attempted=True,
+            retry_count=1,
+            retry_eligibility_reason=retry_eligibility_reason,
+            first_response_payload=publication.response_payload,
+            first_decline_reason=first_decline_reason,
+            final_response_payload=retry_publication.response_payload,
+        )
+        if _hidden_answer_leaks(retry_row) or _hidden_answer_leaks(
+            retry_publication.response_payload
+        ):
+            decision = _decision_record(
+                decision="publication_failed",
+                reason="retry_worker_publication_hidden_answer_leak",
+                phase="worker_publication",
+            )
+            _write_json(
+                run_dir / "decision.json",
+                _decision_with_retry_metadata(decision, final_retry_metadata),
+            )
+            return run_dir
+
+        publication_rows.append(retry_row)
+        _write_json_value(run_dir / "worker_publication_rows.json", publication_rows)
+        _write_json(run_dir / "worker_publication_row.json", retry_row)
+        retry_decision = _decision_from_worker_publication(
+            publication_row=retry_row,
+            response_payload=retry_publication.response_payload,
+        )
+        if retry_decision is not None:
+            retry_decision = dict(retry_decision)
+            if retry_decision.get("decision") == "publication_failed":
+                retry_decision["reason"] = (
+                    f"retry_publication_failed:{retry_decision['reason']}"
+                )
+            elif retry_decision.get("reason") == "worker_observed":
+                retry_decision["reason"] = "worker_observed_after_retry"
+            elif (
+                retry_decision.get("reason")
+                == "worker_observation_action_intent_anomaly"
+            ):
+                retry_decision["reason"] = (
+                    "worker_observation_action_intent_anomaly_after_retry"
+                )
+            _write_json(
+                run_dir / "decision.json",
+                _decision_with_retry_metadata(retry_decision, final_retry_metadata),
+            )
+            return run_dir
+
+        response_payload = retry_publication.response_payload
+    else:
+        response_payload = publication.response_payload
+        final_retry_metadata = _retry_metadata(
+            retry_attempted=False,
+            retry_count=0,
+            retry_eligibility_reason=(
+                _retry_eligibility_reason(
+                    publication_row=first_row,
+                    response_payload=response_payload,
+                )
+            ),
+            first_response_payload=response_payload,
+            first_decline_reason=None,
+            final_response_payload=response_payload,
+        )
+
     action_input = response_payload["input"]
-    worker_action_leaks = _hidden_answer_leaks(response_payload)
     action_context = _worker_action_context(
         response_payload=response_payload,
         run_dir=run_dir,
         excerpt_chars=excerpt_chars,
-        include_excerpt=not worker_action_leaks,
     )
+    action_context.update(final_retry_metadata)
     _write_json(run_dir / "worker_action.json", response_payload)
-    if worker_action_leaks:
-        decision = _decision_record(
-            decision="rejected",
-            reason="worker_action_hidden_answer_leak",
-            phase="worker_action",
-            **action_context,
-        )
-        _write_json(run_dir / "decision.json", decision)
-        return run_dir
     apply_result = apply_worker_action_to_node(
         recon["graph"],
         "repair_same_component",
@@ -929,6 +1195,7 @@ def main(argv: list[str] | None = None) -> int:
         excerpt_chars=args.excerpt_chars,
         run_root=args.run_dir,
         agent=_build_agent(),
+        retry_clean_observation=args.retry_clean_observation,
     )
     decision_path = run_dir / "decision.json"
     decision = json.loads(decision_path.read_text(encoding="utf-8"))

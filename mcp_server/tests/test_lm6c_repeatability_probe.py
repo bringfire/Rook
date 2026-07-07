@@ -39,6 +39,56 @@ def test_cli_defaults_are_canonical() -> None:
     assert args.model == "gemma4:12b-it-qat"
     assert args.run_dir == "probe_runs"
     assert args.attempt_timeout_s == 600
+    assert args.lm6a_retry_clean_observation is False
+
+
+def test_cli_retry_pass_through_default_off(monkeypatch, tmp_path: Path) -> None:
+    seen_kwargs = {}
+
+    def fake_run_probe(**kwargs):
+        seen_kwargs.update(kwargs)
+        run_dir = tmp_path / "lm6c-demo"
+        run_dir.mkdir()
+        (run_dir / "summary.json").write_text(
+            '{"terminal_category_counts": {"accepted": 1}}',
+            encoding="utf-8",
+        )
+        return run_dir
+
+    monkeypatch.setattr(PROBE, "_run_probe", fake_run_probe)
+
+    assert PROBE.main(["--attempts", "1", "--run-dir", str(tmp_path)]) == 0
+    assert seen_kwargs["lm6a_retry_clean_observation"] is False
+
+
+def test_cli_retry_pass_through_flag(monkeypatch, tmp_path: Path) -> None:
+    seen_kwargs = {}
+
+    def fake_run_probe(**kwargs):
+        seen_kwargs.update(kwargs)
+        run_dir = tmp_path / "lm6c-demo"
+        run_dir.mkdir()
+        (run_dir / "summary.json").write_text(
+            '{"terminal_category_counts": {"accepted": 1}}',
+            encoding="utf-8",
+        )
+        return run_dir
+
+    monkeypatch.setattr(PROBE, "_run_probe", fake_run_probe)
+
+    assert (
+        PROBE.main(
+            [
+                "--attempts",
+                "1",
+                "--run-dir",
+                str(tmp_path),
+                "--lm6a-retry-clean-observation",
+            ]
+        )
+        == 0
+    )
+    assert seen_kwargs["lm6a_retry_clean_observation"] is True
 
 
 def test_cli_rejects_non_positive_attempts() -> None:
@@ -50,6 +100,33 @@ def test_canonical_evidence_only_for_five_gemma_qat_attempts() -> None:
     assert PROBE._canonical_evidence(attempts=5, model="gemma4:12b-it-qat") is True
     assert PROBE._canonical_evidence(attempts=1, model="gemma4:12b-it-qat") is False
     assert PROBE._canonical_evidence(attempts=5, model="qwen3:14b") is False
+
+
+def test_lm6a_command_adds_retry_flag_only_when_enabled(tmp_path: Path) -> None:
+    base_command = PROBE._lm6a_command(
+        model="gemma4:12b-it-qat",
+        lm6a_runs_dir=tmp_path,
+        retry_clean_observation=False,
+    )
+    retry_command = PROBE._lm6a_command(
+        model="gemma4:12b-it-qat",
+        lm6a_runs_dir=tmp_path,
+        retry_clean_observation=True,
+    )
+
+    assert "--retry-clean-observation" not in base_command
+    assert retry_command[-1] == "--retry-clean-observation"
+    assert retry_command[:-1] == base_command
+
+
+def test_manifest_records_retry_pass_through_flag() -> None:
+    manifest = PROBE._manifest(
+        attempts=5,
+        model="gemma4:12b-it-qat",
+        lm6a_retry_clean_observation=True,
+    )
+
+    assert manifest["lm6a_retry_clean_observation"] is True
 
 
 def test_tool_result_ok_accepts_successful_mapping() -> None:
@@ -251,6 +328,44 @@ def test_attempt_row_for_successful_lm6a_decision(tmp_path: Path) -> None:
     assert len(row["stderr_excerpt"]) == 2000
 
 
+def test_attempt_row_copies_retry_metadata_from_lm6a_decision(tmp_path: Path) -> None:
+    child = tmp_path / "lm6a_runs" / "lm6a-child"
+    child.mkdir(parents=True)
+    (child / "decision.json").write_text(
+        json.dumps(
+            {
+                "decision": "worker_declined",
+                "reason": "worker_refused_task",
+                "retry_attempted": True,
+                "retry_count": 1,
+                "first_worker_response_kind": "invalid_json",
+                "first_worker_decline_reason": "missing_action_request",
+                "final_worker_response_kind": "decline",
+            }
+        ),
+        encoding="utf-8",
+    )
+    completed = subprocess.CompletedProcess(
+        args=["python"],
+        returncode=0,
+        stdout="done",
+        stderr="",
+    )
+
+    row = PROBE._row_from_completed_lm6a(
+        attempt_index=1,
+        completed=completed,
+        child_run_dir=child,
+    )
+
+    assert row["terminal_category"] == "worker_declined"
+    assert row["retry_attempted"] is True
+    assert row["retry_count"] == 1
+    assert row["first_worker_response_kind"] == "invalid_json"
+    assert row["first_worker_decline_reason"] == "missing_action_request"
+    assert row["final_worker_response_kind"] == "decline"
+
+
 def test_leak_scan_reports_markers_without_changing_decision(tmp_path: Path) -> None:
     child = tmp_path / "lm6a_runs" / "lm6a-child"
     nested = child / "nested"
@@ -369,6 +484,59 @@ def test_build_summary_separates_scheduled_and_worker_denominators() -> None:
     assert summary["leak_marker_match_count"] == 1
     assert summary["attempt_run_dirs"] == ["run-a", "run-b", "run-e"]
     assert summary["canonical_evidence"] is True
+
+
+def test_build_summary_adds_retry_report_counts() -> None:
+    rows = [
+        {
+            **PROBE._base_attempt_row(attempt_index=1),
+            "terminal_category": "accepted",
+            "retry_attempted": True,
+            "final_worker_response_kind": "action_request",
+        },
+        {
+            **PROBE._base_attempt_row(attempt_index=2),
+            "terminal_category": "rejected",
+            "retry_attempted": True,
+            "final_worker_response_kind": "action_request",
+        },
+        {
+            **PROBE._base_attempt_row(attempt_index=3),
+            "terminal_category": "publication_failed",
+            "retry_attempted": True,
+            "final_worker_response_kind": "action_request",
+        },
+        {
+            **PROBE._base_attempt_row(attempt_index=4),
+            "terminal_category": "worker_declined",
+            "retry_attempted": True,
+            "final_worker_response_kind": "decline",
+        },
+        {
+            **PROBE._base_attempt_row(attempt_index=5),
+            "terminal_category": "accepted",
+            "retry_attempted": False,
+            "final_worker_response_kind": "action_request",
+        },
+    ]
+
+    summary = PROBE._build_summary(
+        rows,
+        attempts=5,
+        model="gemma4:12b-it-qat",
+    )
+
+    assert summary["retry_attempted_count"] == 4
+    assert summary["retry_recovered_count"] == 2
+    assert summary["retry_declined_count"] == 1
+    assert summary["retry_publication_failed_count"] == 1
+    assert summary["terminal_category_counts"] == {
+        "accepted": 2,
+        "publication_failed": 1,
+        "rejected": 1,
+        "worker_declined": 1,
+    }
+    assert summary["worker_reached_count"] == 5
 
 
 def test_run_probe_records_preflight_failure_without_lm6a(
@@ -560,7 +728,10 @@ def test_main_prints_run_dir(monkeypatch, tmp_path: Path, capsys) -> None:
 def test_lm6c_script_does_not_import_lm6a_internals() -> None:
     source = PROBE._script_path().read_text(encoding="utf-8")
 
+    assert "--retry-clean-observation" in source
     assert "import lm6a_live_worker_splice_probe" not in source
     assert "from lm6a_live_worker_splice_probe" not in source
+    assert "run_two_pass_worker_publication" not in source
+    assert "apply_worker_action_to_node" not in source
     assert "_run_probe(" in source
     assert "subprocess.run" in source
