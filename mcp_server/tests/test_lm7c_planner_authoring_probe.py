@@ -96,9 +96,16 @@ def test_cli_defaults_are_canonical_probe_defaults() -> None:
     assert args.temperature == 0
     assert args.run_dir == "probe_runs"
     assert args.output_excerpt_chars == 1200
+    assert args.prompt_profile == "sparse_v1"
     assert args.provider_timeout_s == 120
     assert args.provider_command is None
     assert args.canonical_evidence is False
+
+
+def test_cli_defaults_to_sparse_prompt_profile() -> None:
+    args = PROBE._args([])
+
+    assert args.prompt_profile == "sparse_v1"
 
 
 def test_cli_rejects_live_and_worker_options() -> None:
@@ -414,6 +421,7 @@ def test_run_probe_writes_artifacts_and_summary(tmp_path: Path) -> None:
         attempts=1,
         canonical_evidence=False,
         output_excerpt_chars=120,
+        prompt_profile="sparse_v1",
         call_provider=fake_provider,
     )
 
@@ -471,6 +479,7 @@ def test_run_probe_propagates_scorer_bugs(
             attempts=1,
             canonical_evidence=False,
             output_excerpt_chars=120,
+            prompt_profile="sparse_v1",
             call_provider=fake_provider,
         )
 
@@ -533,6 +542,7 @@ def test_main_requires_provider_command_for_cli_run(
     "argv",
     [
         ["--canonical-evidence", "--attempts", "1"],
+        ["--canonical-evidence", "--prompt-profile", "sparse_v1"],
         ["--canonical-evidence", "--provider", "fake", "--model", "fake-planner"],
         [
             "--canonical-evidence",
@@ -596,6 +606,8 @@ def test_main_accepts_canonical_evidence_when_only_provider_or_model_matches_loc
             "--run-dir",
             str(tmp_path),
             "--canonical-evidence",
+            "--prompt-profile",
+            "shape_guidance_v2",
             "--provider",
             provider,
             "--model",
@@ -607,6 +619,42 @@ def test_main_accepts_canonical_evidence_when_only_provider_or_model_matches_loc
 
     assert exit_code == 0
     assert len(calls) == len(PROBE.SCENARIOS) * 5
+
+
+def test_main_accepts_lm7d_canonical_evidence_with_shape_guidance_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    def fake_command(command, call_payload, timeout_s):
+        calls.append((command, call_payload, timeout_s))
+        return json.dumps(_scenario_correct_request(call_payload["scenario"]))
+
+    monkeypatch.setattr(PROBE, "_call_provider_command", fake_command)
+
+    exit_code = PROBE.main(
+        [
+            "--run-dir",
+            str(tmp_path),
+            "--canonical-evidence",
+            "--prompt-profile",
+            "shape_guidance_v2",
+            "--provider",
+            "codex-cli-chatgpt",
+            "--model",
+            "gpt-5.5",
+            "--provider-command",
+            "fake-provider",
+        ]
+    )
+
+    assert exit_code == 0
+    assert len(calls) == len(PROBE.SCENARIOS) * 5
+    assert all(
+        call_payload["prompt_profile"] == "shape_guidance_v2"
+        for _command, call_payload, _timeout_s in calls
+    )
 
 
 def test_main_uses_injected_provider_command_without_live_model(

@@ -34,7 +34,16 @@ from rook.agent.workflow_validate import (  # noqa: E402
 
 
 PROBE_SCHEMA = "rook.lm7c_planner_authoring_probe:v1"
-PLANNER_AUTHORING_PROMPT_VERSION = "lm7c.planner_authoring_prompt:v1"
+PROMPT_PROFILE_SPARSE_V1 = "sparse_v1"
+PROMPT_PROFILE_SHAPE_GUIDANCE_V2 = "shape_guidance_v2"
+PROMPT_PROFILES = (
+    PROMPT_PROFILE_SPARSE_V1,
+    PROMPT_PROFILE_SHAPE_GUIDANCE_V2,
+)
+
+SPARSE_PROMPT_VERSION = "lm7c.planner_authoring_prompt:v1"
+SHAPE_GUIDANCE_PROMPT_VERSION = "lm7d.planner_authoring_prompt_shape_guidance:v2"
+PLANNER_AUTHORING_PROMPT_VERSION = SPARSE_PROMPT_VERSION
 TEMPLATE_MENU_VERSION = "lm7c.template_menu:v1"
 INTENT_COMPLETE_BRIEF_VERSION = "lm7c.intent_complete_brief:v1"
 INTENT_INCOMPLETE_BRIEF_VERSION = "lm7c.intent_incomplete_brief:v1"
@@ -85,6 +94,11 @@ def _args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--temperature", type=float, default=0)
     parser.add_argument("--run-dir", default="probe_runs")
     parser.add_argument("--output-excerpt-chars", type=int, default=1200)
+    parser.add_argument(
+        "--prompt-profile",
+        choices=PROMPT_PROFILES,
+        default=PROMPT_PROFILE_SPARSE_V1,
+    )
     parser.add_argument("--canonical-evidence", action="store_true")
     args = parser.parse_args(argv)
     if args.attempts <= 0:
@@ -180,6 +194,7 @@ def _prompt_call_payload(
     provider: str,
     model: str,
     temperature: float,
+    prompt_profile: str,
 ) -> dict[str, Any]:
     return {
         "schema": PROBE_SCHEMA,
@@ -189,9 +204,19 @@ def _prompt_call_payload(
         "model": model,
         "temperature": temperature,
         "prompt": _planner_authoring_prompt(),
+        "prompt_profile": prompt_profile,
+        "prompt_version": _prompt_version(prompt_profile),
         "template_menu": _template_menu(),
         "brief": _scenario_brief(scenario),
     }
+
+
+def _prompt_version(prompt_profile: str) -> str:
+    if prompt_profile == PROMPT_PROFILE_SPARSE_V1:
+        return SPARSE_PROMPT_VERSION
+    if prompt_profile == PROMPT_PROFILE_SHAPE_GUIDANCE_V2:
+        return SHAPE_GUIDANCE_PROMPT_VERSION
+    raise ValueError(f"unknown_prompt_profile:{prompt_profile}")
 
 
 def _write_prompt_artifacts(run_dir: Path) -> None:
@@ -607,6 +632,7 @@ def _run_probe(
     attempts: int,
     canonical_evidence: bool,
     output_excerpt_chars: int,
+    prompt_profile: str,
     call_provider: Callable[[Mapping[str, Any]], str],
 ) -> Path:
     run_dir = _new_run_dir(Path(run_root))
@@ -632,6 +658,7 @@ def _run_probe(
                 provider=provider,
                 model=model,
                 temperature=temperature,
+                prompt_profile=prompt_profile,
             )
             try:
                 raw_output = call_provider(payload)
@@ -701,6 +728,8 @@ def _canonical_evidence_is_valid(args: argparse.Namespace) -> bool:
         return True
     if args.attempts != 5:
         return False
+    if args.prompt_profile != PROMPT_PROFILE_SHAPE_GUIDANCE_V2:
+        return False
     if args.provider in _PLACEHOLDER_PROVIDERS:
         return False
     if args.model in _PLACEHOLDER_MODELS:
@@ -727,6 +756,7 @@ def main(argv: list[str] | None = None) -> int:
         attempts=args.attempts,
         canonical_evidence=args.canonical_evidence,
         output_excerpt_chars=args.output_excerpt_chars,
+        prompt_profile=args.prompt_profile,
         call_provider=lambda call_payload: _call_provider_command(
             args.provider_command,
             call_payload,
