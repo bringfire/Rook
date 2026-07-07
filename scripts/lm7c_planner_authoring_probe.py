@@ -635,15 +635,6 @@ def _run_probe(
             )
             try:
                 raw_output = call_provider(payload)
-                row = _score_model_output(
-                    scenario=scenario,
-                    attempt_index=attempt_index,
-                    provider=provider,
-                    model=model,
-                    temperature=temperature,
-                    raw_output=raw_output,
-                    output_excerpt_chars=output_excerpt_chars,
-                )
             except Exception as exc:
                 row = _provider_error_row(
                     scenario=scenario,
@@ -653,6 +644,16 @@ def _run_probe(
                     temperature=temperature,
                     output_excerpt_chars=output_excerpt_chars,
                     exc=exc,
+                )
+            else:
+                row = _score_model_output(
+                    scenario=scenario,
+                    attempt_index=attempt_index,
+                    provider=provider,
+                    model=model,
+                    temperature=temperature,
+                    raw_output=raw_output,
+                    output_excerpt_chars=output_excerpt_chars,
                 )
             rows.append(row)
             _append_jsonl(rows_path, row)

@@ -447,6 +447,34 @@ def test_run_probe_writes_artifacts_and_summary(tmp_path: Path) -> None:
     assert summary["scenario_counts"]["intent_incomplete"]["canonical_success_count"] == 1
 
 
+def test_run_probe_propagates_scorer_bugs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ScorerBug(RuntimeError):
+        pass
+
+    def fake_provider(_call_payload):
+        return json.dumps(_minimal_complete_request())
+
+    def broken_score(**_kwargs):
+        raise ScorerBug("deterministic scoring bug")
+
+    monkeypatch.setattr(PROBE, "_score_model_output", broken_score)
+
+    with pytest.raises(ScorerBug):
+        PROBE._run_probe(
+            run_root=tmp_path,
+            provider="fake",
+            model="fake-planner",
+            temperature=0,
+            attempts=1,
+            canonical_evidence=False,
+            output_excerpt_chars=120,
+            call_provider=fake_provider,
+        )
+
+
 def test_summary_counts_parse_validation_intent_and_canonical_success() -> None:
     rows = [
         {
