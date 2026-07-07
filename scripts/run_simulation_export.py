@@ -16,7 +16,7 @@ FRAME_COUNT = int(os.environ.get("SIM_FRAMES", "48"))
 
 
 async def call_native(endpoint, method="GET", data=None, *, port=None):
-    async with httpx.AsyncClient(timeout=1800.0) as c:
+    async with httpx.AsyncClient(timeout=3600.0) as c:  # 1h: heavy SOH capture must not client-timeout
         resp = (await c.get(f"{BASE}{endpoint}", params=data or None) if method == "GET"
                 else await c.post(f"{BASE}{endpoint}", json=data or {}))
     return resp.json()
@@ -34,7 +34,10 @@ async def main():
         "output_root": SCRATCH,
         "frame_count": FRAME_COUNT, "fps": 24, "units": doc.get("units", "millimeters"),
         "clock_denominator": 240,
-        "display_modes": ["Shaded"], "capture_mode": "Shaded",
+        # SOH-Rendered-2_NO EDGES by NAME — package_take validates display_modes by
+        # name (director_take_package.py:215), not id, so the UUID reads as "missing".
+        "display_modes": ["SOH-Rendered-2_NO EDGES"],
+        "capture_mode": "SOH-Rendered-2_NO EDGES",
         "resolution": {"width": 1280, "height": 720},
     }
     t0 = time.time()
