@@ -214,7 +214,7 @@ def assert_samples_invariants(artifact: dict[str, Any]) -> None:
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `cd mcp_server && python -m pytest tests/test_director_simulation_export.py -v`
-Expected: PASS (6 tests).
+Expected: PASS (7 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -341,7 +341,7 @@ def build_motion_json(artifact: dict[str, Any], def_to_member_id: dict[str, str]
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `cd mcp_server && python -m pytest tests/test_director_simulation_export.py -v`
-Expected: PASS (11 tests total).
+Expected: PASS (12 tests total).
 
 - [ ] **Step 5: Commit**
 
@@ -395,11 +395,8 @@ def test_motion_roundtrip_ok_including_nested_member():
 
 
 def test_motion_roundtrip_mismatch():
-    art = sx.build_samples_artifact(["d0"], [[0.0], [0.0, ]], _meta()) if False else \
-        sx.build_samples_artifact(["d0"], [[0.0], [9.0]], _meta())
-    # frame 0 rest violated intentionally? No — use rest-at-0, mismatch at frame 2:
     art = sx.build_samples_artifact(["d0"], [[0.0], [9.0]], _meta())
-    track = _track_with({1: {"c0": 0.0}, 2: {"c0": 8.0}})  # 8 != 9
+    track = _track_with({1: {"c0": 0.0}, 2: {"c0": 8.0}})  # frame 2: 8 != sampled 9
     with pytest.raises(sx.SimulationExportError) as ei:
         sx.verify_motion_roundtrip(track, art, {"d0": ["c0"]}, ["d0"])
     assert ei.value.code == "motion_roundtrip_mismatch"
@@ -515,6 +512,7 @@ git commit -m "feat(director-sim): manifest-drift + motion/camera round-trip ver
 - Create: `docs/superpowers/specs/artifacts/2026-07-07-c42-band-peel-wave-preview-samples.cs` (full modified source)
 
 **Exact edits to the current C42 source** (read live via `gh_set_script(guid="C42")` GET; the current source is the "Director movement primitive v2" script):
+0. Add `using System.Text;` to the top imports. The current source imports `System.Text.Json` but **not** `System.Text`; `StringBuilder` (used in edit 5) requires `using System.Text;` (or fully-qualify as `System.Text.StringBuilder`).
 1. Add field to `CachedMember`: `public string DefId;`
 2. In `BuildCache`, immediately after the successful resolve (`cache.Members.Add(new CachedMember { ... BaseMesh = ... })`), set `DefId = source.Id.ToString()` inside that initializer:
    ```csharp
@@ -705,33 +703,41 @@ async def harvest_samples(call_native, roles: dict[str, str], frame_count: int,
 
 
 async def resolve_canvas_roles(call_native) -> dict[str, str]:
-    """Resolve instance guids of the FrameIn slider, Camera Controller, and Band Peel Wave
-    Preview by nick/name via /gh/query. Fails loudly if a role is missing/ambiguous."""
-    r = await call_native("/gh/query", "GET", None)
-    comps = (r.get("data") or {}).get("components") or r.get("components") or []
-    def _find(pred, role):
-        hits = [c for c in comps if pred(c)]
+    """Resolve instance guids of the three canvas roles via /gh/query.
+    VERIFIED shape (2026-07-07): {"data": {"objectCount": int,
+    "objects": [{"guid", "nickName", "type", "category", "name", "position", "size", ...}]}}.
+    Match by EXACT nickName + type: a 'Camera Controller' substring also matches a GH_Group
+    'Director Camera Controller v0', so the type filter (CSharpComponent) is required to exclude it.
+    Fails loudly unless exactly one match. Verified guids on the current canvas:
+    FrameIn=c70b8895 (GH_NumberSlider), Director Camera Controller=224e065e (CSharpComponent),
+    Director Band Peel Wave Preview=5e5398db (CSharpComponent)."""
+    objs = (await call_native("/gh/query", "GET", None))["data"]["objects"]
+    def _find(nick: str, typ: str, role: str) -> str:
+        hits = [o for o in objs if o.get("nickName") == nick and o.get("type") == typ]
         if len(hits) != 1:
             raise SimulationExportError("canvas_role_unresolved", f"{role}: found {len(hits)} candidates")
-        return hits[0]["id"] if "id" in hits[0] else hits[0]["guid"]
-    def _nick(c):
-        return (c.get("nick") or c.get("nickname") or c.get("name") or "")
+        return hits[0]["guid"]
     return {
-        "frame_in": _find(lambda c: _nick(c) == "FrameIn", "FrameIn slider"),
-        "camera_ctrl": _find(lambda c: "Camera Controller" in _nick(c), "Camera Controller"),
-        "wave": _find(lambda c: "Band Peel Wave Preview" in _nick(c), "Band Peel Wave Preview"),
+        "frame_in": _find("FrameIn", "GH_NumberSlider", "FrameIn slider"),
+        "camera_ctrl": _find("Director Camera Controller", "CSharpComponent", "Camera Controller"),
+        "wave": _find("Director Band Peel Wave Preview", "CSharpComponent", "Band Peel Wave Preview"),
     }
 ```
 
-> **Note on `resolve_canvas_roles`:** confirm the exact `/gh/query` response shape and the id field (`id` vs `guid`) during Task 5 against the live canvas; adjust `_find`/`_nick` to the real keys. This is the one seam that reads a native shape not covered by a unit test — verify it live before Task 6 and pin the observed shape in a docstring.
+**`call_native` contract (used by the harvest helpers and unit-test fake):** GET passes `data`
+as **query params**, POST passes `data` as the JSON body. The live driver (Task 6) must define
+it accordingly (see Task 6 Step-0 code): `client.get(url, params=data or None)` /
+`client.post(url, json=data or {})`. This is why `_gh_read_output(call_native, guid, param)`
+passes `{"guid", "param"}` on a GET and `resolve_canvas_roles` passes `None`.
 
 - [ ] **Step 4: Add `run_simulation_export` (orchestration wiring)**
 
 ```python
 async def run_simulation_export(args: dict[str, Any], *, call_native) -> dict[str, Any]:
-    """Harvest → artifact → motion.json → package/prepare/compile (+gates) → capture → assemble.
-    args: {actor_set_id, block_name, source_top_level_object_id, output_root, frame_count, fps,
-           units, display_modes, capture_mode, resolution, clock_denominator}."""
+    """Harvest → artifact → motion.json → package/prepare/compile (+gates) → CAPTURE only.
+    Assembly is the live driver's job (Task 6 calls director_video.assemble_director_video).
+    args: {take_id, actor_set_id, block_name, source_top_level_object_id, output_root,
+           frame_count, fps, units, display_modes, capture_mode, resolution, clock_denominator}."""
     from rook import director_take_package as dtp
     from rook import director_worker_prepare as dprep
     from rook import director_worker_compile as dwc
@@ -786,12 +792,12 @@ async def run_simulation_export(args: dict[str, Any], *, call_native) -> dict[st
 
         # 4a. Round-trip gates (motion + camera) against the compiled track.
         track = json.loads((__import__("pathlib").Path(package_root) / "track.json").read_text())
-        member_map = _member_map_by_def_id(prep)
+        member_map = _member_map_by_def_id(package_root)
         sample_def_ids = _pick_sample_members(ids, member_map)
         verify_motion_roundtrip(track, artifact, member_map, sample_def_ids)
         verify_camera_roundtrip(track, cam_keyframes)
 
-        # 5. Capture + assemble.
+        # 5. Capture only (assembly is the driver's job — director_video.assemble_director_video).
         cap = await dwcap.capture_take({
             "package_root": package_root,
             "passes": [{"type": "display_mode", "pass_id": "sim", "display_mode": args["capture_mode"]}],
@@ -804,10 +810,15 @@ async def run_simulation_export(args: dict[str, Any], *, call_native) -> dict[st
         await call_native("/document/open", "POST", {"path": original})
 
 
-def _member_map_by_def_id(prep: dict[str, Any]) -> dict[str, list[str]]:
-    """From prepare_take result → {definition_object_id: [created_object_id,...]}."""
+def _member_map_by_def_id(package_root: str) -> dict[str, list[str]]:
+    """Read package_root/member_map.json → {definition_object_id: [created_object_id,...]}.
+    prepare_take's RETURN carries only actor-set summaries (director_worker_prepare.py:471);
+    the per-member mapping lives in the member_map.json artifact (written at :458),
+    shape {actor_sets: [{members: [{definition_object_id, created_object_ids, ...}]}]}."""
+    from pathlib import Path
+    mm = json.loads((Path(package_root) / "member_map.json").read_text(encoding="utf-8"))
     out: dict[str, list[str]] = {}
-    for actor in prep.get("actor_sets") or prep.get("member_map", {}).get("actor_sets") or []:
+    for actor in mm.get("actor_sets") or []:
         for m in actor.get("members") or []:
             out[m["definition_object_id"]] = list(m.get("created_object_ids") or [])
     return out
@@ -824,7 +835,12 @@ def _pick_sample_members(ids: list[str], member_map: dict[str, list[str]]) -> li
     return picks
 ```
 
-> **Note:** confirm the exact shape of `prepare_take`'s return (`actor_sets` vs a nested `member_map` key) and `compile_take`'s `track.json` location during implementation against `director_worker_prepare.py` / `director_worker_compile.py`; adjust `_member_map_by_def_id` and the `track.json` path accordingly. These are read-model shapes — verify, do not guess.
+> **Read-model shapes (verified, do not re-derive):** `member_map.json` and `track.json`
+> are both written at `package_root` by prepare/compile (director_worker_prepare.py:458,
+> director_worker_compile.py:380). `member_map.json` is `{actor_sets:[{members:[{
+> definition_object_id, created_object_ids}]}]}`; `track.json` is `{object_frames:[{
+> frame_index, object_transforms:[{object_id, transform}]}], camera_frames:[{frame_index,
+> camera}]}` (spec §consumption). The functions above read exactly these.
 
 - [ ] **Step 5: Run all unit tests**
 
@@ -845,7 +861,48 @@ git commit -m "feat(director-sim): scrub-collect harvest + orchestration wiring"
 **This is a live end-to-end gate, not a pytest task.** Prerequisites: Rhino open with the Pearson doc and the `animation test_smoke-01.gh` canvas loaded; Task 4 applied (C42 `Samples` live); the live doc saved (`modified:False`).
 
 **Files:**
-- Create: `scripts/run_simulation_export.py` — a thin driver that sets `sys.path` to `mcp_server/src`, builds `args` (mullion actor set: `block_name = "3D_BLOCK_ARCH_ROOF_0502 UPLIFT ROOF - VERTICAL"`, `source_top_level_object_id = "a28cbdb5-51fa-46b2-b18b-ab880b54ded7"`, `actor_set_id = "actor_a28cbdb551fa"`, `frame_count = 48`, `fps = 24`, `units` from `/document`, `clock_denominator = 240`, `display_modes=["Shaded"]`, `capture_mode=<Shaded UUID 8bc8debe>`, `resolution={"width":1280,"height":720}`, `output_root=<scratch>`), and runs `asyncio.run(director_simulation_export.run_simulation_export(args, call_native=<httpx-against-native, timeout 1800>))`, then assembles the video via `/director/video-assemble` and restores the doc.
+- Create: `scripts/run_simulation_export.py` — a thin live driver. It defines `call_native`
+  (GET → query params; POST → JSON body), builds `args`, runs `run_simulation_export`, then
+  assembles via the sanctioned `director_video.assemble_director_video` wrapper (which reads the
+  run's `manifest.json`/`status.json` and validates policy — NOT the raw `/director/video-assemble`
+  route).
+
+```python
+# scripts/run_simulation_export.py (live gate driver)
+import sys, asyncio, uuid
+sys.path.insert(0, r"C:\Users\aryan\source\repos\Rook\mcp_server\src")
+import httpx
+from rook.bridge import get_rhino_host
+from rook import director_simulation_export as sx
+from rook import director_video
+
+BASE = get_rhino_host()
+
+async def call_native(endpoint, method="GET", data=None, *, port=None):
+    async with httpx.AsyncClient(timeout=1800.0) as c:
+        resp = (await c.get(f"{BASE}{endpoint}", params=data or None) if method == "GET"
+                else await c.post(f"{BASE}{endpoint}", json=data or {}))
+    return resp.json()
+
+async def main():
+    units = (await call_native("/document", "GET"))["data"].get("units", "millimeters")
+    args = {
+        "take_id": f"sim_{uuid.uuid4().hex[:6]}",
+        "actor_set_id": "actor_a28cbdb551fa",
+        "block_name": "3D_BLOCK_ARCH_ROOF_0502 UPLIFT ROOF - VERTICAL",
+        "source_top_level_object_id": "a28cbdb5-51fa-46b2-b18b-ab880b54ded7",
+        "output_root": r"C:\Users\aryan\AppData\Local\Temp\claude\...\scratchpad\sim_take",
+        "frame_count": 48, "fps": 24, "units": units, "clock_denominator": 240,
+        "display_modes": ["Shaded"], "capture_mode": "8bc8debe-...",  # Shaded UUID
+        "resolution": {"width": 1280, "height": 720},
+    }
+    result = await sx.run_simulation_export(args, call_native=call_native)
+    run_root = result["capture"]["run_root"]
+    aenv = await director_video.assemble_director_video({"run_root": run_root}, call_native=call_native)
+    print("VIDEO:", aenv)
+
+asyncio.run(main())
+```
 
 - [ ] **Step 1: Confirm connection + doc pristine**
 
@@ -854,7 +911,7 @@ git commit -m "feat(director-sim): scrub-collect harvest + orchestration wiring"
 - [ ] **Step 2: Run the driver for N=48**
 
 Run: `python scripts/run_simulation_export.py`
-Expected: package → prepare (≈338 mullions animate, others static) → compile → **motion round-trip gate passes** → **camera round-trip gate passes** → capture 48 → assemble → **live doc restored `modified:False`**.
+Expected: package → prepare (≈338 mullions animate, others static) → compile → **motion round-trip gate passes** → **camera round-trip gate passes** → capture 48 → **live doc restored `modified:False`** (in `run_simulation_export`'s `finally`) → driver assembles the video (`assemble_director_video`, reads frames from disk; Rhino stays alive for the encoder).
 
 - [ ] **Step 3: Assert the gate results**
 
@@ -876,6 +933,6 @@ git commit -m "test(director-sim): live gate driver — Pearson mullion wave 48f
 
 **Spec coverage:** §2 identity (Tasks 2/4 use def_id top-level + `_member_{index:04d}`); §3 resolution chain (Global Constraints + Task 2 targets); §4 scope (all tasks; no compile change); §5 C42 `Samples` (Task 4); §6 typed artifact (Task 1); §7 orchestrator (Task 5) + camera dense keyframes (Task 5 harvest + `package_take` camera); §8 gates — frame_count>=2 (Task 1), len/stability/dup/top-level (Tasks 1/2/5), manifest drift (Task 3/5), motion + camera round-trip (Task 3/5), frame-0-rest (Task 1); §9 nested uniform (Task 3 `verify_motion_roundtrip` + Task 5 `_member_map_by_def_id`), baked fallback (Global Constraints — escalate); §10 tests (Tasks 1–3, 5) + live gate (Task 6); §11 risks (C42 pin edit Task 4, throughput 48f Task 6). No gaps.
 
-**Placeholder scan:** no TBD/TODO. Two "verify the live/read-model shape" notes (`resolve_canvas_roles` `/gh/query`, `_member_map_by_def_id`/`track.json` path) are explicit live-verification steps with concrete fallbacks, not placeholders — the implementer confirms the observed shape and pins it.
+**Placeholder scan:** no TBD/TODO, no live-discovery steps. The formerly-hedged read-model shapes are now pinned with file:line evidence: `/gh/query` → `{data:{objects:[{guid,nickName,type}]}}` (verified live 2026-07-07, exact role guids in `resolve_canvas_roles`); `member_map.json` at `package_root` (director_worker_prepare.py:458); `track.json` at `package_root` (director_worker_compile.py:380). The `call_native` GET→query-param / POST→body contract is pinned in the Task 6 driver and matched by the harvest unit-test fake.
 
 **Type consistency:** `SimulationExportError(code,message)` used uniformly; `build_samples_artifact(ids, per_frame_z, meta)` / `build_motion_json(artifact, def_to_member_id, fps)` / `verify_motion_roundtrip(track, artifact, member_map, sample_def_ids)` signatures match across tasks; `member_map` is `{def_id: [created_id,...]}` in Task 3 and produced identically by `_member_map_by_def_id` in Task 5; `cam_keyframes` shape (`{frame_index, source:{kind:"explicit_camera", camera}}`) matches between `harvest_samples` (Task 5) and `verify_camera_roundtrip` (Task 3).
