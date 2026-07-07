@@ -45,13 +45,6 @@ THROUGHPUT_SKIP = pytest.mark.skipif(
 )
 
 
-@pytest.fixture(autouse=True)
-def _pin_director_output_root(monkeypatch, tmp_path) -> Path:
-    root = tmp_path / "rook_director_output"
-    monkeypatch.setenv("ROOK_DIRECTOR_OUTPUT_ROOT", str(root))
-    return root
-
-
 def _require_host() -> str:
     from rook.bridge import get_rhino_host
 
@@ -288,18 +281,26 @@ def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _cleanup_output_root(root: Path, *, keep: bool = False) -> None:
+def _director_output_root() -> Path:
+    # Must match the already-running Rhino process. A pytest-local
+    # ROOK_DIRECTOR_OUTPUT_ROOT monkeypatch does not cross the process boundary,
+    # so this agrees with native unless Rhino itself was launched with that env.
+    return dvid._default_output_root()
+
+
+def _cleanup_take_dir(output_root: Path, take_id: str, *, keep: bool = False) -> None:
     if keep:
         return
-    shutil.rmtree(root, ignore_errors=True)
+    shutil.rmtree(output_root / "takes" / take_id, ignore_errors=True)
 
 
 @CAPTURE_SKIP
-async def test_gate_a_single_pass_to_video(tmp_path, _pin_director_output_root):
+async def test_gate_a_single_pass_to_video(tmp_path):
     before, original_path = await _assert_clean_scratch_doc()
     run = uuid4().hex[:8]
     mode = os.environ.get("ROOK_S4A_MODE", "Arctic")
     take_id = f"s4a_gate_a_{run}"
+    output_root = _director_output_root()
     block_names: list[str] = []
     keep_output = os.environ.get("ROOK_S4A_KEEP_OUTPUT") == "1"
     try:
@@ -323,20 +324,21 @@ async def test_gate_a_single_pass_to_video(tmp_path, _pin_director_output_root):
             width=1280, height=720)
         print(f"S4A Gate A first v3 video: {output_path}")
         if keep_output:
-            print(f"S4A Gate A kept output root: {_pin_director_output_root}")
+            print(f"S4A Gate A kept take dir: {output_root / 'takes' / take_id}")
     finally:
         await _restore_and_cleanup(
             original_path, block_names, before.get("objectCount"))
-        _cleanup_output_root(_pin_director_output_root, keep=keep_output)
+        _cleanup_take_dir(output_root, take_id, keep=keep_output)
 
 
 @CAPTURE_SKIP
-async def test_gate_b_two_pass_fidelity(tmp_path, _pin_director_output_root):
+async def test_gate_b_two_pass_fidelity(tmp_path):
     before, original_path = await _assert_clean_scratch_doc()
     run = uuid4().hex[:8]
     mode_a = os.environ.get("ROOK_S4A_MODE", "Arctic")
     mode_b = os.environ.get("ROOK_S4A_MODE_B", "Pen")
     take_id = f"s4a_gate_b_{run}"
+    output_root = _director_output_root()
     block_names: list[str] = []
     try:
         package_root = await _build_capture_package(
@@ -362,14 +364,15 @@ async def test_gate_b_two_pass_fidelity(tmp_path, _pin_director_output_root):
     finally:
         await _restore_and_cleanup(
             original_path, block_names, before.get("objectCount"))
-        _cleanup_output_root(_pin_director_output_root)
+        _cleanup_take_dir(output_root, take_id)
 
 
 @CAPTURE_SKIP
-async def test_gate_c_display_mode_fail_hard(tmp_path, _pin_director_output_root):
+async def test_gate_c_display_mode_fail_hard(tmp_path):
     before, original_path = await _assert_clean_scratch_doc()
     run = uuid4().hex[:8]
     take_id = f"s4a_gate_c_{run}"
+    output_root = _director_output_root()
     block_names: list[str] = []
     try:
         package_root = await _build_capture_package(
@@ -383,22 +386,23 @@ async def test_gate_c_display_mode_fail_hard(tmp_path, _pin_director_output_root
                 "display_mode": "RookNoSuchMode_S4A",
             }])
         assert exc_info.value.code == "display_mode_missing"
-        run_root = _pin_director_output_root / "takes" / take_id / "missing_mode"
+        run_root = output_root / "takes" / take_id / "missing_mode"
         assert _run_status(run_root)["state"] == "failed"
         frames = list((run_root / "frames").glob("*.png"))
         assert frames == []
     finally:
         await _restore_and_cleanup(
             original_path, block_names, before.get("objectCount"))
-        _cleanup_output_root(_pin_director_output_root)
+        _cleanup_take_dir(output_root, take_id)
 
 
 @THROUGHPUT_SKIP
-async def test_gate_d_capture_throughput(tmp_path, _pin_director_output_root):
+async def test_gate_d_capture_throughput(tmp_path):
     before, original_path = await _assert_clean_scratch_doc()
     run = uuid4().hex[:8]
     mode = os.environ.get("ROOK_S4A_MODE", "Arctic")
     take_id = f"s4a_gate_d_{run}"
+    output_root = _director_output_root()
     block_names: list[str] = []
     try:
         package_root = await _build_capture_package(
@@ -420,4 +424,4 @@ async def test_gate_d_capture_throughput(tmp_path, _pin_director_output_root):
     finally:
         await _restore_and_cleanup(
             original_path, block_names, before.get("objectCount"))
-        _cleanup_output_root(_pin_director_output_root)
+        _cleanup_take_dir(output_root, take_id)
