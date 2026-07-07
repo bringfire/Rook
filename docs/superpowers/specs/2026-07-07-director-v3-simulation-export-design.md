@@ -103,8 +103,13 @@ motion.json  target = actor_member_id
 ```
 
 Consequences the spec relies on:
-- An unknown or duplicate `actor_member_id` fails in **prepare** (coverage /
-  `duplicate_object_target`), before compile — the correct, early failure surface.
+- An **unknown** `actor_member_id` fails in **prepare** — `expand()` raises when the
+  target is not in the `member_map` lookup (director_worker_prepare.py:323-334).
+- **Duplicate** member tracks are **not** caught in prepare: `_derive_resolved_motion`
+  *skips* an already-resolved target (director_worker_prepare.py:383), so a dup would
+  surface only later in `compile.expand_targets` as `duplicate_object_target`. The
+  orchestrator therefore **preflight-rejects duplicate generated `actor_member_id`s
+  before packaging** (Section 8) — the earliest, correct failure surface.
 - Created-id resolution and its hashes live in `resolved_motion.json`
   (`resolved_motion_sha256`, `member_map_sha256`) — provenance is intact; nothing
   bypasses the snapshot boundary.
@@ -200,6 +205,14 @@ interpretation: `frames[j].translate_z[m]` is the absolute-from-rest Z translati
 member `ids[m]` at frame `j+1`. `id_space` fixes the ids as top-level definition object
 ids (Section 8 gate rejects anything else).
 
+**`ids_sha256` canonicalization (Finding 5):** `ids_sha256 = sha256(canonical_json_text(ids)
+.encode("utf-8"))`, where `canonical_json_text` is the repo helper
+(`director_take_package.py:49` — `json.dumps(payload, indent=2, sort_keys=True)`). This is
+the **same** canonical-JSON rule used for `motion_json_sha256` / `scene_manifest_sha256`,
+so every producer/consumer hashes the identical byte representation. `sort_keys` does not
+reorder the `ids` array (it is a list), so the ordered ids — hence any reordering across
+frames — is what the hash pins.
+
 Camera is **not** part of this artifact (it is not member motion). It is harvested in
 parallel as dense `explicit_camera` keyframes (Section 7).
 
@@ -214,8 +227,9 @@ uses the same grid (`director_motion.py`: `t = i/(N-1)`, `frame_index = i+1`).
 
 For `p` in `0..N-1`: set `FrameIn` to the value producing timeline position
 `t = p/(N-1)` (`round(t · clock_denominator)`), then read:
-- `C42.Ids` — **once**, at the first frame (static across frames; re-read at the last
-  frame to assert stability).
+- `C42.Ids` — **every frame**, hashing each read (`ids_sha256`, Section 6); assert equal
+  to the frame-0 hash (Finding 2 — the per-frame read is trivial and makes the stability
+  gate exact). `Ids` values are used from frame 0; later frames only re-assert the hash.
 - `C42.H` — the M offsets at this frame.
 - `C16.Camera` (`director_camera_state`) — the resolved camera at this frame; staleness
   guard `local_t ≈ FrameIn/clock_denominator`.
@@ -271,14 +285,29 @@ display_modes=[…])` → `prepare_take` → `compile_take` → `capture_take` �
 
 ## 8. Invariants & hard gates
 
+Input gate (before anything):
+- `frame_count >= 2` (Finding 4). `t = p/(N-1)` divides by zero at `N=1`, and a
+  single-frame track has no explicit keyframes. Reject `N < 2`.
+
 Harvest-time (fail the run before packaging):
 - `len(Ids) == len(H)` at every frame.
-- `Ids` **stable** across all N frames — `ids_sha256` identical at first and last frame.
-- No duplicate ids in `Ids`.
+- `Ids` **stable** across **all N frames** — `ids_sha256` (Section 6) identical for every
+  frame's read (Finding 2), not just first/last.
+- No duplicate ids in `Ids`, and **no duplicate generated `actor_member_id`** — the
+  orchestrator preflight-rejects dup ids/member ids before packaging (Finding 1; dups are
+  not caught by prepare).
 - Every `Ids` entry maps to **exactly one** top-level member via `/block/objects-detailed`
   (`id_space` gate); any id not a top-level member id → fail (`nested_or_unknown_id`).
 - **Frame-0 rest:** `dz[0] == 0` for all members (the rest frame, `frame_index 1`,
   `t=0`) — else the declarative path cannot represent it → baked fallback, Section 9.
+
+Package-time (after `package_take`, before `prepare`) — **manifest drift gate** (Finding 3):
+- Load `scene_manifest.json` and assert, for every animated member, that the manifest's
+  `{definition_object_id, definition_object_index, actor_member_id}` triple **exactly
+  matches** the orchestrator's precomputed mapping. `package_take` runs its own
+  `/block/objects-detailed` and assigns ids independently (director_take_package.py:157);
+  this gate makes the **package manifest the authority** and fails the run before prepare
+  if the orchestrator's earlier snapshot diverged.
 
 Compile-time round-trip (F4) — **hard gate**, after `compile_take`:
 - For a representative set of members, the `track.json` frame with `frame_index = p+1`
@@ -312,8 +341,13 @@ Unit (no Rhino):
 - `build_actor_member_ids` — def index → `member_{index:04d}` formatting; def_id lookup.
 - `build_motion_json` — per-member track shape; keyframe `t` grid `= j/(N-1)`, `j=1..N-1`;
   omits `t=0`; one track per animated member; frame-0-rest assertion.
-- `build_samples_artifact` / `assert_samples_invariants` — all Section 8 harvest gates;
-  `ids_sha256` stability; dup-id and non-top-level-id rejection.
+- `build_samples_artifact` / `assert_samples_invariants` — all Section 8 harvest gates:
+  `frame_count >= 2` rejection (Finding 4); `ids_sha256` stability across frames (Finding
+  2); duplicate `Ids` **and** duplicate generated `actor_member_id` rejection (Finding 1);
+  non-top-level-id rejection; frame-0-rest.
+- Manifest drift gate (Finding 3): a synthetic `scene_manifest.json` whose
+  `{definition_object_id, definition_object_index, actor_member_id}` triple disagrees with
+  the precomputed mapping must fail before prepare; a matching manifest passes.
 - Nested + TL_Brep round-trip at the data level: synthetic `member_map` with a 1→N
   member and a converted member; assert the generated tracks resolve to all created ids
   and that a compiled track (via the real `compile_take` over a stubbed prepare result)
