@@ -14,9 +14,9 @@ ordinary per-member `motion.json` tracks.
 
 ## Architecture (one sentence)
 
-The canvas motion primitive (C42 "Director Band Peel Wave Preview") is taught to emit
-its resolved per-member identity (`Ids`) alongside the offsets it already emits (`H`);
-a new Python orchestrator scrubs the Clock 0→N, assembles a typed
+The canvas motion primitive (C42 "Director Band Peel Wave Preview") is taught to emit its
+resolved per-member identity + offsets as a packed samples JSON on its existing `H`
+output; a new Python orchestrator scrubs the Clock 0→N, assembles a typed
 `director_member_motion_samples_v1` artifact, derives a per-member `motion.json` from it,
 and drives the existing v3 pipeline unchanged.
 
@@ -69,9 +69,10 @@ for the camera).
 - **C42 already emits per-member offsets.** Output `H` = ordered list of per-member Z
   offsets, `dz = maxH·smoothstep(clamp((front − bandIndex)/spread, 0, 1))`,
   `front = effectiveProgress·((bandCount−1)+spread)` — a pure function of `Progress`
-  (← Oscillator ← Clock), deterministic. At `progress = 0`, all `H = 0` (rest).
+  (← Oscillator ← Clock), deterministic. At `progress = 0`, all offsets are `0` (rest).
 - **Output order** = band `sequence_index` (C42 `LoadBandMembers` stable-sorts by it).
-  Order is irrelevant to the join once C42 also emits `Ids` (below).
+  Order is irrelevant to the join once C42 also emits the member ids in its samples
+  payload (Section 5).
 - **C42 resolves members against `idef.GetObjects()`** — the **top-level** definition
   objects of the source block instance — and poses them with `InstanceXform`. This is
   the **same object space** v3 prepare explodes (`pDef->Object(i)`), so the join key is
@@ -119,10 +120,10 @@ Consequences the spec relies on:
 ## 4. Scope / Non-goals
 
 **In scope (this slice — "prove on the prototype"):**
-1. C42 canvas edit: add an `Ids` output (ordered top-level `definition_object_id`s,
-   parallel to `G`/`H`).
+1. C42 canvas edit: repurpose the `H` output to carry a packed samples JSON `{ids, z}`
+   (ordered top-level `definition_object_id`s + per-member Z offsets) — see Section 5.
 2. `director_member_motion_samples_v1` typed artifact (Section 6) assembled by the
-   orchestrator from `Ids`+`H`.
+   orchestrator from the harvested `H` samples.
 3. A new Python orchestrator (`director_simulation_export.py`): scrub-collect, def-id →
    `actor_member_id` derivation, `motion.json` + dense camera generation, and driving
    the existing pipeline.
@@ -132,7 +133,7 @@ Consequences the spec relies on:
 **Non-goals (explicit — next slice):**
 - Promoting the per-member motion primitive into the template pack, and having the
   template emit `director_member_motion_samples_v1` natively. (This slice's C42 edit is
-  the interim prototype; the orchestrator assembles the typed artifact from `Ids`+`H`.)
+  the interim prototype; the orchestrator assembles the typed artifact from the `H` samples.)
 - Any change to `director_worker_compile.py` / native compile/capture — unless the
   round-trip gate fails, in which case the baked fallback (Section 9) is the escalation.
 - Per-leaf nested motion (see Section 7 — member tracks move a member *as a unit*).
@@ -140,61 +141,51 @@ Consequences the spec relies on:
 
 ## 5. Component 1 — C42 canvas edit (packed samples on the `H` output)
 
-> **IMPLEMENTATION NOTE (2026-07-07, live).** Adding a dedicated `Samples` output pin
-> via `gh_set_script`/`SetSource` does **not** work: RhinoCode regenerates the RunScript
-> signature from the component's *existing* pins on recompile, dropping the new param and
-> leaving the body referencing an undefined variable (compile error → empty outputs). Live
-> pin surgery on the hand-built canvas is risky. So the edit **repurposes the existing `H`
-> output** to carry the packed JSON string `{"ids":[...],"z":[...]}` (built with
-> `System.Text.Json.JsonSerializer`, not `StringBuilder`/`Escape`/`Num` — those helpers do
-> not exist in this script). `H`'s heights-list was unreadable in full anyway (5-item
-> preview cap), so this is strictly better. The harvest reads `H`, not `Samples`. A proper
-> dedicated output pin is deferred to the template-promotion slice (built fresh, not via
-> live pin surgery). The subsections below describe the original `Samples`-pin intent;
-> the shipped edit is the `H`-repurpose. Verified live: `H` emits `len(ids)==len(z)==338`;
-> 338/338 members lift to `maxH` at the Oscillator PingPong peaks; frame-0 = rest.
+*This section describes what was actually built and live-verified 2026-07-07.*
 
+**Read-path constraint (verified):** `/gh/inspect-output` caps list previews at **5 items**
+(`GrasshopperHandler.cs:4988` — `if (previewCount >= 5) break`) and has **no length cap on
+a single-item string** (a ~1KB `Info` string reads in full via `preview[0]`). A 338-element
+**list** output is therefore unreadable in full — true of the existing `H` heights list.
+The harvestable shape is **one packed JSON string**.
 
-**Read-path constraint (verified):** `/gh/inspect-output` caps list previews at **5
-items** (`GrasshopperHandler.cs:4988` — `if (previewCount >= 5) break`) and has **no
-length cap on a single-item string** (a ~1KB `Info` string reads in full via
-`preview[0]`). A 338-element **list** output is therefore unreadable in full — this is
-true of the existing `H` list too. The harvestable shape is **one packed JSON string**.
+**Pin constraint (verified live):** adding a *new* output pin via `gh_set_script`/`SetSource`
+does **not** work — RhinoCode regenerates the RunScript signature from the component's
+*existing* pins on recompile, dropping the added param; the body then references an
+undefined variable → compile error → empty outputs ("add pins = recreate"). Live pin
+surgery on the hand-built canvas is risky. **So the edit repurposes the existing `H`
+output** (its heights list was unreadable anyway, so this is strictly better).
 
-C42 already computes the resolved definition object per member in `BuildCache` (`source`
-in the `objectsById` match) but keeps only `Ordinal` on `CachedMember` and discards the
-id. The edit:
+**The edit** (C42 already resolves each member's definition object in `BuildCache` but
+keeps only `Ordinal` on `CachedMember`):
+- Add `public string DefId;` to `CachedMember`; set `DefId = source.Id.ToString()` on resolve.
+- Replace `H = heights;` with
+  `H = System.Text.Json.JsonSerializer.Serialize(new { ids = sampleIds, z = heights })`,
+  where `sampleIds[i] = cache.Members[i].DefId` (parallel to `heights`). `System.Text.Json`
+  is already imported; **no** `StringBuilder`/`Escape`/`Num` (those helpers don't exist in
+  this script) and **no** new `using`; JSON numbers are locale-invariant, GUIDs need no escaping.
+- `G` (geometry → Preview) and `Info` (diagnostic) unchanged; **no signature/pin change**,
+  so no wire loss.
 
-- Add `public string DefId;` to `CachedMember`; in `BuildCache`, set
-  `DefId = source.Id.ToString()` when the member resolves.
-- Add a single `ref object Samples` output to `RunScript` (appended **after** `Info` to
-  preserve the indices of `G`/`H`/`Info` and their existing wires).
-- Emit `Samples` = a compact JSON **string** for the current frame:
-  `{"ids":[<DefId…>],"z":[<heights…>]}`, `ids[k]` and `z[k]` in `cache.Members` order
-  (same order as `G`/`H`). Build it with a `StringBuilder` (no `System.Linq` dependency),
-  reusing the file's existing `Escape`/`Num` helpers for the id strings and offsets.
+**Contract:** `H` carries `{"ids":[<def_id>…],"z":[<offset>…]}` for the current frame —
+`ids[k]` the **top-level** `definition_object_id`, `z[k]` its absolute-from-rest Z offset.
+C42 matches only against `idef.GetObjects()` (top-level, non-recursive), so `ids` are
+always top-level member ids. `H` is the per-frame slice of `director_member_motion_samples_v1`.
 
-`G`/`H` are left unchanged (they still drive the visual preview / debug panels). Only
-`Samples` is harvested.
+**Verified live (2026-07-07):** applied via `gh_set_script` (reversible, `gh_undo`); `H`
+parses to `len(ids)==len(z)==338`; 338/338 members lift to `maxH=12000` at the Oscillator
+PingPong peaks (troughs at localT `0/.25/.5/.75/1`); frame-0 = rest; `G` (338 geometry) and
+the camera output intact. Reference source:
+`docs/superpowers/specs/artifacts/2026-07-07-c42-band-peel-wave-preview-samples.cs`.
 
-**Contract:** `Samples.ids[k]` is the **top-level** `definition_object_id` of the member
-whose offset is `Samples.z[k]`. C42 only ever matches against `idef.GetObjects()`
-(top-level, non-recursive), so `ids` are always top-level member ids — never nested leaf
-ids. `Samples` is the per-frame slice of `director_member_motion_samples_v1` (Section 6).
-
-**Edit mechanics / risk:** apply via `gh_set_script` (raw source write; recompiles +
-`ExpireSolution`). Appending an output pin *may* force RhinoCode to drop this
-component's outgoing wires (`G→C47 Preview`, `G→C46`, `H→C38`). Mitigation: after the
-write, `gh_snapshot` and verify (a) `Samples` present and parses to `len(ids)==len(z)`,
-(b) the three output wires intact; if any dropped, restore via `gh_edit` from the mapped
-topology. `gh_undo` is the rollback. This is a one-time, reversible edit on the user's
-hand-built canvas and is gated by a live check before any render.
+**Deferred:** a dedicated typed `MotionSamples` output pin (built fresh in the template, not
+via live pin surgery) belongs to the template-promotion slice.
 
 ## 6. Component 2 — typed artifact `director_member_motion_samples_v1`
 
-The durable member-motion contract (assembled by the orchestrator this slice; emitted by
-the template natively next slice). `H` stays preview/debug; this typed artifact is the
-boundary record of what the canvas produced.
+The durable member-motion contract (assembled by the orchestrator this slice from the
+harvested `H` samples; emitted by the template natively next slice). This typed artifact
+is the boundary record of what the canvas produced.
 
 ```jsonc
 {
@@ -209,7 +200,7 @@ boundary record of what the canvas produced.
   "transform_semantics": "absolute_from_source",
   "sample_kind": "translate_z",                  // this primitive lifts in Z; contract allows others later
   "id_space": "top_level_definition_object_id",
-  "ids": ["3944de90-…", "…"],                    // ordered top-level def ids (== C42.Ids), length M
+  "ids": ["3944de90-…", "…"],                    // ordered top-level def ids (== the H samples' ids), length M
   "frames": [                                    // length N, 1-based frame_index
     { "frame_index": 1, "translate_z": [0.0, 0.0, /* … M values, aligned to ids[] */] },
     { "frame_index": 2, "translate_z": [ /* … */ ] }
@@ -254,13 +245,15 @@ uses the same grid (`director_motion.py`: `t = i/(N-1)`, `frame_index = i+1`).
 
 For `p` in `0..N-1`: set `FrameIn` to the value producing timeline position
 `t = p/(N-1)` (`round(t · clock_denominator)`), then read (via native
-`/gh/inspect-output`, `preview[0]` = the full single-string output):
-- `C42.Samples` — **every frame**; `json.loads(preview[0])` → `{ids, z}`. Hash `ids`
+`/gh/inspect-output`, `preview[0]` = the full single-string output), **camera first**:
+- `C16.Camera` (`director_camera_state`) — the resolved camera at this frame; staleness
+  guard `local_t ≈ FrameIn/clock_denominator`. Read **first**: its `local_t` guard
+  confirms this frame's solve completed, which guarantees the `H` read below is from the
+  same fresh solve (`H` itself carries no freshness marker).
+- `C42.H` — the packed samples string; `json.loads(preview[0])` → `{ids, z}`. Hash `ids`
   each frame (`ids_sha256`, Section 6) and assert equal to the frame-0 hash (Finding 2).
   `ids` are used from frame 0; later frames only re-assert the hash. `z[k]` is member
   `ids[k]`'s offset `dz[p]` at this frame.
-- `C16.Camera` (`director_camera_state`) — the resolved camera at this frame; staleness
-  guard `local_t ≈ FrameIn/clock_denominator`.
 
 Restore `FrameIn = 0` in a `finally`. Reading C42/C16 outputs does not mutate the `.3dm`
 (C42 moves *duplicated* preview geometry, not the doc's block). Produces:
@@ -316,16 +309,16 @@ Input gate (before anything):
 - `frame_count >= 2` (Finding 4). `t = p/(N-1)` divides by zero at `N=1`, and a
   single-frame track has no explicit keyframes. Reject `N < 2`.
 
-Harvest-time (fail the run before packaging):
-- `len(Samples.ids) == len(Samples.z)` at every frame.
-- `Samples.ids` **stable** across **all N frames** — `ids_sha256` (Section 6) identical
-  for every frame's read (Finding 2), not just first/last.
-- No duplicate ids in `Samples.ids`, and **no duplicate generated `actor_member_id`** —
-  the orchestrator preflight-rejects dup ids/member ids before packaging (Finding 1; dups
-  are not caught by prepare).
-- Every `Samples.ids` entry maps to **exactly one** top-level member via
-  `/block/objects-detailed` (`id_space` gate); any id not a top-level member id → fail
-  (`nested_or_unknown_id`).
+Harvest-time (fail the run before packaging) — the per-frame samples payload `{ids, z}`
+is read from the `H` output (Section 5):
+- `len(ids) == len(z)` at every frame.
+- `ids` **stable** across **all N frames** — `ids_sha256` (Section 6) identical for every
+  frame's read (Finding 2), not just first/last.
+- No duplicate ids in `ids`, and **no duplicate generated `actor_member_id`** — the
+  orchestrator preflight-rejects dup ids/member ids before packaging (Finding 1; dups are
+  not caught by prepare).
+- Every `ids` entry maps to **exactly one** top-level member via `/block/objects-detailed`
+  (`id_space` gate); any id not a top-level member id → fail (`nested_or_unknown_id`).
 - **Frame-0 rest:** `dz[0] == 0` for all members (the rest frame, `frame_index 1`,
   `t=0`) — else the declarative path cannot represent it → baked fallback, Section 9.
 
@@ -371,7 +364,7 @@ Unit (no Rhino):
   omits `t=0`; one track per animated member; frame-0-rest assertion.
 - `build_samples_artifact` / `assert_samples_invariants` — all Section 8 harvest gates:
   `frame_count >= 2` rejection (Finding 4); `ids_sha256` stability across frames (Finding
-  2); duplicate `Ids` **and** duplicate generated `actor_member_id` rejection (Finding 1);
+  2); duplicate ids **and** duplicate generated `actor_member_id` rejection (Finding 1);
   non-top-level-id rejection; frame-0-rest.
 - Manifest drift gate (Finding 3): a synthetic `scene_manifest.json` whose
   `{definition_object_id, definition_object_index, actor_member_id}` triple disagrees with
@@ -379,11 +372,11 @@ Unit (no Rhino):
 - Nested + TL_Brep round-trip at the data level: synthetic `member_map` with a 1→N
   member and a converted member; assert the generated tracks resolve to all created ids
   and that a compiled track (via the real `compile_take` over a stubbed prepare result)
-  yields `transform[2][3] == H_j` for each child.
+  yields `transform[2][3] == dz[p]` for each child.
 
 Live gate (Rhino open, Pearson canvas loaded):
-1. Apply the C42 `Ids` edit; verify `Ids` count `== H` count and the three output wires
-   intact (Section 5).
+1. Apply the C42 `H`-samples edit; verify `H` parses to `len(ids)==len(z)` and the
+   `G`/`Info` output wires stay intact (Section 5).
 2. Run the orchestrator for a short take (e.g. N=48) on the mullion actor set.
 3. Assert: package/prepare/compile/capture/assemble succeed; **round-trip gate** passes
    on representative mullions; camera round-trip passes; `take.mp4` produced; **Pearson

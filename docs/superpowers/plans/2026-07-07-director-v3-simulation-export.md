@@ -4,7 +4,7 @@
 
 **Goal:** Render the CanvasDirector band-peel wave's per-member motion as a Director v3 take by harvesting per-member offsets + camera from the live canvas and feeding them through the existing package/prepare/compile/capture pipeline as ordinary per-member `motion.json` tracks.
 
-**Architecture:** C42 "Director Band Peel Wave Preview" emits a per-frame `Samples` JSON string (`{ids, z}`); a new Python orchestrator scrubs the Clock 0→N, assembles a typed `director_member_motion_samples_v1` artifact, generates a per-member `motion.json` keyed by `actor_member_id`, and drives the existing pipeline unchanged (no compile/prepare/camera/native changes).
+**Architecture:** C42 "Director Band Peel Wave Preview" emits a per-frame samples JSON string (`{ids, z}`) on its `H` output (as-built — see Task 4; the original plan added a `Samples` pin, which RhinoCode won't create via SetSource); a new Python orchestrator scrubs the Clock 0→N, assembles a typed `director_member_motion_samples_v1` artifact, generates a per-member `motion.json` keyed by `actor_member_id`, and drives the existing pipeline unchanged (no compile/prepare/camera/native changes).
 
 **Tech Stack:** Python 3 (`mcp_server/src/rook/`); pytest (`mcp_server/tests/`); RhinoCode C# script (live canvas edit); native HTTP routes via `httpx` (`/gh/*`, `/block/objects-detailed`, `/director/*`).
 
@@ -504,64 +504,36 @@ git commit -m "feat(director-sim): manifest-drift + motion/camera round-trip ver
 
 ---
 
-### Task 4: C42 canvas `Samples` output (LIVE — controller)
+### Task 4: C42 canvas edit — packed samples on `H` (LIVE — controller) [AS-BUILT]
 
-**This is a live Grasshopper edit, not a pytest task.** The controller (Claude) has the live Rhino connection; a Codex subagent cannot apply it. The deliverable is the modified C42 source saved as a repo reference artifact **and** applied to the live canvas and verified.
+**This is a live Grasshopper edit, not a pytest task**, performed by the controller (Claude); a Codex subagent cannot apply it.
+
+**AS-BUILT correction:** the original plan added a dedicated `Samples` output pin. That does **not** work — `gh_set_script`/`SetSource` recompiles and RhinoCode regenerates the RunScript signature from the component's *existing* pins, dropping the added param (the body then references an undefined variable → compile error → empty outputs; "add pins = recreate"). Live pin surgery on the hand-built canvas is risky, so the shipped edit **repurposes the existing `H` output** to carry the packed samples JSON (its heights list was unreadable anyway under the 5-item preview cap). See spec §5.
 
 **Files:**
-- Create: `docs/superpowers/specs/artifacts/2026-07-07-c42-band-peel-wave-preview-samples.cs` (full modified source)
+- Create: `docs/superpowers/specs/artifacts/2026-07-07-c42-band-peel-wave-preview-samples.cs` (full modified source, live-applied)
 
-**Exact edits to the current C42 source** (read live via `gh_set_script(guid="C42")` GET; the current source is the "Director movement primitive v2" script):
-0. Add `using System.Text;` to the top imports. The current source imports `System.Text.Json` but **not** `System.Text`; `StringBuilder` (used in edit 5) requires `using System.Text;` (or fully-qualify as `System.Text.StringBuilder`).
+**Edits to the current C42 source** (read live via `gh_set_script(guid=<wave>)` GET; wave instance guid on this canvas = `5e5398db-3031-44cb-af74-b1ce77f40599`):
 1. Add field to `CachedMember`: `public string DefId;`
-2. In `BuildCache`, immediately after the successful resolve (`cache.Members.Add(new CachedMember { ... BaseMesh = ... })`), set `DefId = source.Id.ToString()` inside that initializer:
+2. In `BuildCache`'s `cache.Members.Add(new CachedMember { ... })`, add `DefId = source.Id.ToString(),`.
+3. Replace `H = heights;` with the packed-JSON emit — `System.Text.Json` is already imported; **no** `StringBuilder`/`Escape`/`Num` (those helpers do not exist in this script) and **no** new `using`:
    ```csharp
-   cache.Members.Add(new CachedMember {
-       BandIndex = member.BandIndex,
-       Ordinal = member.Ordinal,
-       DefId = source.Id.ToString(),
-       BaseBrep = baseBrep,
-       BaseMesh = BuildPreviewMesh(baseBrep)
-   });
+   var sampleIds = new string[cache.Members.Count];
+   for (int i = 0; i < cache.Members.Count; i++)
+       sampleIds[i] = cache.Members[i].DefId;
+   H = System.Text.Json.JsonSerializer.Serialize(new { ids = sampleIds, z = heights });
    ```
-3. Add `ref object Samples` to the `RunScript` signature, appended **after** `ref object Info`.
-4. Initialize near the other outputs: `Samples = "";`
-5. After `H = heights;` (just before or after setting `Info`), build the packed JSON string with a `StringBuilder` (reuse the file's existing `Escape` and `Num` helpers; do NOT add `System.Linq`):
-   ```csharp
-   var sb = new StringBuilder();
-   sb.Append("{\"ids\":[");
-   for (int i = 0; i < cache.Members.Count; i++) {
-       if (i > 0) sb.Append(",");
-       sb.Append("\"").Append(Escape(cache.Members[i].DefId)).Append("\"");
-   }
-   sb.Append("],\"z\":[");
-   for (int i = 0; i < heights.Count; i++) {
-       if (i > 0) sb.Append(",");
-       sb.Append(Num(heights[i]));
-   }
-   sb.Append("]}");
-   Samples = sb.ToString();
-   ```
-   (`cache.Members` and `heights` are the same length and order — one entry per resolved member.)
+   `G` (geometry → Preview) and `Info` are unchanged; **no signature/pin change → no wire loss.**
 
-- [ ] **Step 1: Capture current + write modified source artifact**
+- [ ] **Step 1: Apply + verify live (hard gate)**
 
-Read the current C42 source (`gh_set_script(guid="C42")` with no `script`), apply edits 1–5, save the full modified source to `docs/superpowers/specs/artifacts/2026-07-07-c42-band-peel-wave-preview-samples.cs`.
+Read the current source, apply the edits, save the full modified source to the reference artifact, then `gh_set_script(guid=<wave>, script=<modified>)`. Force a solve (`POST /gh/value {guid: FrameIn, value: 0}`) and read `H` via `/gh/inspect-output?guid=<wave>&param=H`: `json.loads(preview[0])` must give `len(ids)==len(z)` (338), `ids[0]` a valid GUID. Confirm `G` still produces geometry and the camera still solves. Verify motion at a PingPong peak (FrameIn=30 → `z` lifts to `maxH`). Restore FrameIn=0. `gh_undo` is the rollback.
 
-- [ ] **Step 2: Apply to the live canvas**
-
-`gh_set_script(guid="C42", script=<full modified source>)`.
-
-- [ ] **Step 3: Verify live (hard gate)**
-
-- `gh_snapshot`: confirm C42 has a `Samples` output; confirm the wires `C42.G→C47`, `C42.G→C46`, `C42.H→C38` are intact. If any wire dropped, restore via `gh_edit`; if the edit is wrong, `gh_undo` and retry.
-- Read `Samples` via native `/gh/inspect-output?guid=<C42 instance guid>&param=Samples`, `json.loads(preview[0])`; assert `len(parsed["ids"]) == len(parsed["z"])` and equals the member count in `Info` (currently 338), and that `ids[0]` is a valid GUID string.
-
-- [ ] **Step 4: Commit the reference artifact**
+- [ ] **Step 2: Commit the reference artifact**
 
 ```bash
 git add docs/superpowers/specs/artifacts/2026-07-07-c42-band-peel-wave-preview-samples.cs
-git commit -m "feat(director-sim): C42 Samples output (reference source) — live-applied"
+git commit -m "feat(director-sim): C42 samples output on H (reference source) — live-applied"
 ```
 
 ---
@@ -600,7 +572,7 @@ class _FakeNative:
             # endpoint carries guid+param as query in this fake; inspect data arg
             param = data["param"] if data else None
             local_t = self.frame_in / 240.0
-            if param == "Samples":
+            if param == "H":  # wave emits packed samples JSON on the H output
                 z = self._z[self.frame_in]
                 payload = _json.dumps({"ids": ["d0", "d1"], "z": z})
                 return {"success": True, "data": {"preview": [payload]}}
@@ -629,7 +601,7 @@ def test_harvest_samples_rejects_ids_drift():
     orig = fake.__call__
     async def drift(endpoint, method="GET", data=None, *, port=None):
         r = await orig(endpoint, method, data, port=port)
-        if data and data.get("param") == "Samples" and fake.frame_in == 240:
+        if data and data.get("param") == "H" and fake.frame_in == 240:
             r = {"success": True, "data": {"preview": [_json.dumps({"ids": ["d0", "dX"], "z": [0.0, 10.0]})]}}
         return r
     with pytest.raises(sx.SimulationExportError) as ei:
@@ -674,7 +646,20 @@ async def harvest_samples(call_native, roles: dict[str, str], frame_count: int,
             t = p / (frame_count - 1)
             frame_in = round(t * clock_denominator)
             await _gh_set_value(call_native, roles["frame_in"], frame_in)
-            samples = await _gh_read_output(call_native, roles["wave"], "Samples")
+            # Read camera FIRST: its local_t guard confirms this frame's solve
+            # completed, which then guarantees the H read below is from the same
+            # fresh solve (H carries no freshness marker).
+            cam = await _gh_read_output(call_native, roles["camera_ctrl"], "Camera")
+            local_t = float(cam.get("local_t"))
+            if abs(local_t - frame_in / clock_denominator) > 1e-3:
+                raise SimulationExportError("camera_stale", f"frame {p}: local_t {local_t} != {frame_in/clock_denominator}")
+            cam_keyframes.append({"frame_index": p + 1, "source": {"kind": "explicit_camera", "camera": {
+                "projection": cam.get("projection", "perspective"),
+                "location": cam["location"], "target": cam["target"],
+                "up": cam.get("up", [0.0, 0.0, 1.0]), "lens_length": cam.get("lens_length", 50.0)}}})
+
+            # Wave samples are emitted on the H output (packed JSON), not a Samples pin.
+            samples = await _gh_read_output(call_native, roles["wave"], "H")
             frame_ids = list(samples["ids"])
             frame_z = [float(v) for v in samples["z"]]
             if len(frame_ids) != len(frame_z):
@@ -684,19 +669,10 @@ async def harvest_samples(call_native, roles: dict[str, str], frame_count: int,
             if ids is None:
                 ids, ids_hash = frame_ids, h
                 if len(set(ids)) != len(ids):
-                    raise SimulationExportError("duplicate_member_id", "Samples.ids has duplicates")
+                    raise SimulationExportError("duplicate_member_id", "samples ids has duplicates")
             elif h != ids_hash:
-                raise SimulationExportError("ids_unstable", f"frame {p}: Samples.ids changed mid-scrub")
+                raise SimulationExportError("ids_unstable", f"frame {p}: samples ids changed mid-scrub")
             per_frame_z.append(frame_z)
-
-            cam = await _gh_read_output(call_native, roles["camera_ctrl"], "Camera")
-            local_t = float(cam.get("local_t"))
-            if abs(local_t - frame_in / clock_denominator) > 1e-3:
-                raise SimulationExportError("camera_stale", f"frame {p}: local_t {local_t} != {frame_in/clock_denominator}")
-            cam_keyframes.append({"frame_index": p + 1, "source": {"kind": "explicit_camera", "camera": {
-                "projection": cam.get("projection", "perspective"),
-                "location": cam["location"], "target": cam["target"],
-                "up": cam.get("up", [0.0, 0.0, 1.0]), "lens_length": cam.get("lens_length", 50.0)}}})
     finally:
         await _gh_set_value(call_native, roles["frame_in"], 0)
     return ids, per_frame_z, cam_keyframes
@@ -858,7 +834,7 @@ git commit -m "feat(director-sim): scrub-collect harvest + orchestration wiring"
 
 ### Task 6: Live gate — render the Pearson mullion wave (LIVE — controller)
 
-**This is a live end-to-end gate, not a pytest task.** Prerequisites: Rhino open with the Pearson doc and the `animation test_smoke-01.gh` canvas loaded; Task 4 applied (C42 `Samples` live); the live doc saved (`modified:False`).
+**This is a live end-to-end gate, not a pytest task.** Prerequisites: Rhino open with the Pearson doc and the animation canvas loaded (shipped run used `animation test_smoke-02.gh`); Task 4 applied (C42 emits samples on `H` live); the live doc saved (`modified:False`).
 
 **Files:**
 - Create: `scripts/run_simulation_export.py` — a thin live driver. It defines `call_native`
@@ -906,7 +882,7 @@ asyncio.run(main())
 
 - [ ] **Step 1: Confirm connection + doc pristine**
 
-`rhino_ping` → `pong`; `/document` → `modified: False`; `gh_status` → canvas loaded, C42 `Samples` present (Task 4).
+`rhino_ping` → `pong`; `/document` → `modified: False`; `gh_status` → canvas loaded, C42 emits samples on `H` (Task 4).
 
 - [ ] **Step 2: Run the driver for N=48**
 
@@ -931,7 +907,7 @@ git commit -m "test(director-sim): live gate driver — Pearson mullion wave 48f
 
 ## Self-Review
 
-**Spec coverage:** §2 identity (Tasks 2/4 use def_id top-level + `_member_{index:04d}`); §3 resolution chain (Global Constraints + Task 2 targets); §4 scope (all tasks; no compile change); §5 C42 `Samples` (Task 4); §6 typed artifact (Task 1); §7 orchestrator (Task 5) + camera dense keyframes (Task 5 harvest + `package_take` camera); §8 gates — frame_count>=2 (Task 1), len/stability/dup/top-level (Tasks 1/2/5), manifest drift (Task 3/5), motion + camera round-trip (Task 3/5), frame-0-rest (Task 1); §9 nested uniform (Task 3 `verify_motion_roundtrip` + Task 5 `_member_map_by_def_id`), baked fallback (Global Constraints — escalate); §10 tests (Tasks 1–3, 5) + live gate (Task 6); §11 risks (C42 pin edit Task 4, throughput 48f Task 6). No gaps.
+**Spec coverage:** §2 identity (Tasks 2/4 use def_id top-level + `_member_{index:04d}`); §3 resolution chain (Global Constraints + Task 2 targets); §4 scope (all tasks; no compile change); §5 C42 samples-on-`H` (Task 4); §6 typed artifact (Task 1); §7 orchestrator (Task 5) + camera dense keyframes (Task 5 harvest + `package_take` camera); §8 gates — frame_count>=2 (Task 1), len/stability/dup/top-level (Tasks 1/2/5), manifest drift (Task 3/5), motion + camera round-trip (Task 3/5), frame-0-rest (Task 1); §9 nested uniform (Task 3 `verify_motion_roundtrip` + Task 5 `_member_map_by_def_id`), baked fallback (Global Constraints — escalate); §10 tests (Tasks 1–3, 5) + live gate (Task 6); §11 risks (C42 pin edit Task 4, throughput 48f Task 6). No gaps.
 
 **Placeholder scan:** no TBD/TODO, no live-discovery steps. The formerly-hedged read-model shapes are now pinned with file:line evidence: `/gh/query` → `{data:{objects:[{guid,nickName,type}]}}` (verified live 2026-07-07, exact role guids in `resolve_canvas_roles`); `member_map.json` at `package_root` (director_worker_prepare.py:458); `track.json` at `package_root` (director_worker_compile.py:380). The `call_native` GET→query-param / POST→body contract is pinned in the Task 6 driver and matched by the harvest unit-test fake.
 

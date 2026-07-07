@@ -512,3 +512,78 @@ def test_run_simulation_export_drives_capture_only_pipeline(tmp_path, monkeypatc
         }
     ]
     assert fake_native.opened == ["C:/live/Pearson.3dm"]
+
+
+def test_camera_roundtrip_rejects_location_mismatch():
+    cam = {
+        "projection": "perspective",
+        "location": [1, 2, 3],
+        "target": [0, 0, 0],
+        "up": [0, 0, 1],
+        "lens_length": 50,
+    }
+    kfs = [{"frame_index": 1, "source": {"kind": "explicit_camera", "camera": cam}}]
+    for key in ("location", "target", "up"):
+        bad = dict(cam)
+        bad[key] = [9, 9, 9]
+        with pytest.raises(sx.SimulationExportError) as ei:
+            sx.verify_camera_roundtrip({"camera_frames": [{"frame_index": 1, "camera": bad}]}, kfs)
+        assert ei.value.code == "camera_roundtrip_mismatch", key
+
+
+def test_manifest_matches_rejects_missing_member_and_actor_set():
+    # actor set present but the def id is absent from its members
+    empty_members = {"actor_sets": [{"actor_set_id": "actor_x", "members": []}]}
+    with pytest.raises(sx.SimulationExportError) as ei:
+        sx.assert_manifest_matches(empty_members, "actor_x", {"d0": "actor_x_member_0003"}, {"d0": 3})
+    assert ei.value.code == "manifest_member_missing"
+    # actor set itself absent
+    with pytest.raises(sx.SimulationExportError) as ei:
+        sx.assert_manifest_matches({"actor_sets": []}, "actor_x", {"d0": "actor_x_member_0003"}, {"d0": 3})
+    assert ei.value.code == "manifest_actor_set_missing"
+
+
+def test_harvest_samples_rejects_camera_stale():
+    """Camera is read first; a local_t that disagrees with the set frame must fail."""
+
+    class StaleCamNative:
+        def __init__(self):
+            self.frame_in = 0
+
+        async def __call__(self, endpoint, method="GET", data=None, *, port=None):
+            if endpoint == "/gh/value" and method == "POST":
+                self.frame_in = data["value"]
+                return {"success": True, "data": {}}
+            if endpoint.startswith("/gh/inspect-output"):
+                if data["param"] == "Camera":
+                    cam = {
+                        "projection": "perspective",
+                        "location": [0, 0, 0],
+                        "target": [1, 0, 0],
+                        "up": [0, 0, 1],
+                        "lens_length": 50,
+                        "local_t": 0.99,  # never matches frame_in/240
+                    }
+                    return {"success": True, "data": {"preview": [_json.dumps(cam)]}}
+                return {"success": True, "data": {"preview": [_json.dumps({"ids": ["d0"], "z": [0.0]})]}}
+            raise AssertionError(endpoint)
+
+    with pytest.raises(sx.SimulationExportError) as ei:
+        asyncio.run(
+            sx.harvest_samples(
+                StaleCamNative(),
+                {"frame_in": "fi", "camera_ctrl": "cc", "wave": "wv"},
+                frame_count=2,
+                clock_denominator=240,
+            )
+        )
+    assert ei.value.code == "camera_stale"
+
+
+def test_gh_read_output_rejects_empty_preview():
+    async def empty(endpoint, method="GET", data=None, *, port=None):
+        return {"success": True, "data": {"preview": []}}
+
+    with pytest.raises(sx.SimulationExportError) as ei:
+        asyncio.run(sx._gh_read_output(empty, "guid", "H"))
+    assert ei.value.code == "gh_output_empty"
