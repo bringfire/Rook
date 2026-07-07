@@ -352,6 +352,7 @@ def test_row_for_valid_complete_request_is_canonical_success() -> None:
         provider="fake",
         model="fake-planner",
         temperature=0,
+        prompt_profile="sparse_v1",
         raw_output=json.dumps(_minimal_complete_request()),
         output_excerpt_chars=120,
     )
@@ -363,6 +364,22 @@ def test_row_for_valid_complete_request_is_canonical_success() -> None:
     assert row["request_fingerprint"].startswith("sha256:")
     assert row["workflow_validate_report_fingerprint"].startswith("sha256:")
     assert row["failure_reason"] is None
+
+
+def test_row_records_prompt_profile_and_prompt_version() -> None:
+    row = PROBE._score_model_output(
+        scenario="intent_complete",
+        attempt_index=0,
+        provider="fake",
+        model="fake-planner",
+        temperature=0,
+        prompt_profile="shape_guidance_v2",
+        raw_output=json.dumps(_minimal_complete_request()),
+        output_excerpt_chars=120,
+    )
+
+    assert row["prompt_profile"] == "shape_guidance_v2"
+    assert row["prompt_version"] == "lm7d.planner_authoring_prompt_shape_guidance:v2"
 
 
 def test_row_for_parse_failure_does_not_call_validate(
@@ -379,6 +396,7 @@ def test_row_for_parse_failure_does_not_call_validate(
         provider="fake",
         model="fake-planner",
         temperature=0,
+        prompt_profile="sparse_v1",
         raw_output="```json\n{}\n```",
         output_excerpt_chars=120,
     )
@@ -401,6 +419,7 @@ def test_row_separates_validation_failure_from_intent_decision() -> None:
         provider="fake",
         model="fake-planner",
         temperature=0,
+        prompt_profile="sparse_v1",
         raw_output=json.dumps(payload),
         output_excerpt_chars=120,
     )
@@ -422,6 +441,7 @@ def test_row_separates_valid_shape_from_over_declaration() -> None:
         provider="fake",
         model="fake-planner",
         temperature=0,
+        prompt_profile="sparse_v1",
         raw_output=json.dumps(payload),
         output_excerpt_chars=120,
     )
@@ -457,7 +477,7 @@ def test_run_probe_writes_artifacts_and_summary(tmp_path: Path) -> None:
         attempts=1,
         canonical_evidence=False,
         output_excerpt_chars=120,
-        prompt_profile="sparse_v1",
+        prompt_profile="shape_guidance_v2",
         call_provider=fake_provider,
     )
 
@@ -484,9 +504,20 @@ def test_run_probe_writes_artifacts_and_summary(tmp_path: Path) -> None:
     ]
     assert len(rows) == 2
     assert all(row["canonical_success"] for row in rows)
+    assert all(row["prompt_profile"] == "shape_guidance_v2" for row in rows)
+    assert all(
+        row["prompt_version"] == "lm7d.planner_authoring_prompt_shape_guidance:v2"
+        for row in rows
+    )
+
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["prompt_profile"] == "shape_guidance_v2"
+    assert manifest["prompt_version"] == "lm7d.planner_authoring_prompt_shape_guidance:v2"
 
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     assert summary["scheduled_attempts_per_scenario"] == 1
+    assert summary["prompt_profile"] == "shape_guidance_v2"
+    assert summary["prompt_version"] == "lm7d.planner_authoring_prompt_shape_guidance:v2"
     assert summary["scenario_counts"]["intent_complete"]["canonical_success_count"] == 1
     assert summary["scenario_counts"]["intent_incomplete"]["canonical_success_count"] == 1
 
@@ -576,6 +607,7 @@ def test_summary_counts_parse_validation_intent_and_canonical_success() -> None:
         model="fake-planner",
         temperature=0,
         canonical_evidence=False,
+        prompt_profile="sparse_v1",
     )
 
     assert summary["parse_success_count"] == 2

@@ -488,6 +488,7 @@ def _base_row(
     provider: str,
     model: str,
     temperature: float,
+    prompt_profile: str,
     raw_output: str,
     output_excerpt_chars: int,
 ) -> dict[str, Any]:
@@ -497,7 +498,8 @@ def _base_row(
         "provider": provider,
         "model": model,
         "temperature": temperature,
-        "prompt_version": PLANNER_AUTHORING_PROMPT_VERSION,
+        "prompt_profile": prompt_profile,
+        "prompt_version": _prompt_version(prompt_profile),
         "template_menu_version": TEMPLATE_MENU_VERSION,
         "brief_version": _scenario_brief(scenario)["version"],
         "parse_status": PARSE_FAILED,
@@ -519,6 +521,7 @@ def _score_model_output(
     provider: str,
     model: str,
     temperature: float,
+    prompt_profile: str,
     raw_output: str,
     output_excerpt_chars: int,
 ) -> dict[str, Any]:
@@ -528,6 +531,7 @@ def _score_model_output(
         provider=provider,
         model=model,
         temperature=temperature,
+        prompt_profile=prompt_profile,
         raw_output=raw_output,
         output_excerpt_chars=output_excerpt_chars,
     )
@@ -632,6 +636,7 @@ def _summarize_rows(
     model: str,
     temperature: float,
     canonical_evidence: bool,
+    prompt_profile: str,
 ) -> dict[str, Any]:
     counts = _scenario_count(rows)
     return {
@@ -639,6 +644,8 @@ def _summarize_rows(
         "provider": provider,
         "model": model,
         "temperature": temperature,
+        "prompt_profile": prompt_profile,
+        "prompt_version": _prompt_version(prompt_profile),
         "scheduled_attempts_per_scenario": attempts,
         **counts,
         "scenario_counts": {
@@ -658,6 +665,7 @@ def _manifest(
     temperature: float,
     attempts: int,
     canonical_evidence: bool,
+    prompt_profile: str,
 ) -> dict[str, Any]:
     return {
         "schema": PROBE_SCHEMA,
@@ -667,7 +675,8 @@ def _manifest(
         "temperature": temperature,
         "scheduled_attempts_per_scenario": attempts,
         "scenarios": list(SCENARIOS),
-        "prompt_version": PLANNER_AUTHORING_PROMPT_VERSION,
+        "prompt_profile": prompt_profile,
+        "prompt_version": _prompt_version(prompt_profile),
         "template_menu_version": TEMPLATE_MENU_VERSION,
         "brief_versions": {
             scenario: _scenario_brief(scenario)["version"] for scenario in SCENARIOS
@@ -684,6 +693,7 @@ def _provider_error_row(
     provider: str,
     model: str,
     temperature: float,
+    prompt_profile: str,
     output_excerpt_chars: int,
     exc: Exception,
 ) -> dict[str, Any]:
@@ -693,6 +703,7 @@ def _provider_error_row(
         provider=provider,
         model=model,
         temperature=temperature,
+        prompt_profile=prompt_profile,
         raw_output="",
         output_excerpt_chars=output_excerpt_chars,
     )
@@ -722,6 +733,7 @@ def _run_probe(
             temperature=temperature,
             attempts=attempts,
             canonical_evidence=canonical_evidence,
+            prompt_profile=prompt_profile,
         ),
     )
 
@@ -746,6 +758,7 @@ def _run_probe(
                     provider=provider,
                     model=model,
                     temperature=temperature,
+                    prompt_profile=prompt_profile,
                     output_excerpt_chars=output_excerpt_chars,
                     exc=exc,
                 )
@@ -756,6 +769,7 @@ def _run_probe(
                     provider=provider,
                     model=model,
                     temperature=temperature,
+                    prompt_profile=prompt_profile,
                     raw_output=raw_output,
                     output_excerpt_chars=output_excerpt_chars,
                 )
@@ -771,6 +785,7 @@ def _run_probe(
             model=model,
             temperature=temperature,
             canonical_evidence=canonical_evidence,
+            prompt_profile=prompt_profile,
         ),
     )
     return run_dir
