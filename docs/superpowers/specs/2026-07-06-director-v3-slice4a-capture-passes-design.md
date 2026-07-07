@@ -42,9 +42,11 @@ frame aborts immediately with typed `capture_failed` and the failing frame index
 evidence; frames already written are left on disk (the run root is reported as failed
 and is never assembled — Decision 6).
 
-**Full-range only:** `capture` combined with `fromFrame > 0` or a partial `playTo` is
-`invalid_input` (see the wire rule below). Chunked/resumable capture is a 4B (crash
-recovery) concern; a capture invocation is one full deterministic take.
+**Full-range only (exact rule):** with `capture` present, `fromFrame` must be absent
+or `0`, and `playTo` must be absent or **exactly** `frame_count`; any other value of
+either is `invalid_input` (see the wire rule below). An explicit
+`playTo == frame_count` is valid. Chunked/resumable capture is a 4B (crash recovery)
+concern; a capture invocation is one full deterministic take.
 
 **Wire rule for capture-mode request failures (pinned):** every failure specific to
 the `capture` block — capture-block parse/validation errors (closed schema, odd
@@ -138,9 +140,9 @@ S3's compile always emits `camera_frames` (`director_worker_compile.py` →
   the track frame count, else `track_invalid`. (Determinism: the camera comes from the
   compiled track, never from the worker's ambient viewport state.)
 - Application reuses the existing pure camera-set helper shared with replay/frame
-  capture (`SetCameraFromFrame` path in `DirectorHandler.cpp`), inside a
-  `DirectorViewportGuard` that snapshots the worker viewport before frame 0 and
-  restores it after the run (success or failure). This resolves parent open question 5
+  capture (`SetCameraFromFrame`, already externally linked via
+  `DirectorFrame.h:100`), inside a `DirectorViewportGuard` that snapshots the worker
+  viewport before frame 0 and restores it after the run (success or failure). This resolves parent open question 5
   as predicted: the guard transfers unchanged.
 - The worker-play track parser stays self-contained (S3 rule); it gains its own
   `camera_frames` parsing — it does not import the `DirectorFrame` parser.
@@ -155,17 +157,20 @@ S3's compile always emits `camera_frames` (`director_worker_compile.py` →
   ordering), using the same strict name-or-UUID resolution logic as the existing
   single-frame path. A mode that does not resolve → `display_mode_missing`
   (translated from the resolver's throw; never generic `invalid_input`).
-- **Linkage (pinned):** `ResolveDisplayModeId`, `CurrentDisplayModeId`, and
-  `DisplayModeToJson` currently live in `DirectorHandler.cpp`'s anonymous namespace
-  (internal linkage) — "reuse" requires extraction. 4A extracts them into a shared
-  `DirectorDisplayMode.{h,cpp}` under `src/RookNative/Handlers/`, with
-  `DirectorHandler.cpp` updated to call the shared versions (mechanical move,
-  behavior-identical — the strictness of mode verification must be single-sourced,
-  not duplicated; duplication was considered and rejected because divergence between
-  two copies of the resolution/readback logic is precisely a mode-verification bug).
-  The `"current"`-rejection rule above is enforced by the worker-play call site, not
-  by changing the shared resolver's semantics (the single-frame route legitimately
-  accepts `current`).
+- **Linkage (pinned, corrected round 2):** `CurrentDisplayModeId` and
+  `DisplayModeToJson` are already shared with external linkage in
+  `DirectorFrame.h:109-110` — worker-play uses them directly. Only
+  `ResolveDisplayModeId` is file-local (`DirectorHandler.cpp` anonymous namespace);
+  4A moves that one function into `DirectorFrame.{h,cpp}` beside the existing
+  display-mode helpers, with `DirectorHandler.cpp` calling the shared version
+  (mechanical move, behavior-identical — resolution strictness stays
+  single-sourced). No new file; no broader refactor. Note: S3's "worker-play parser
+  stays self-contained" rule bars importing the `DirectorFrame` track/frame
+  *parser* (which hard-rejects non-bbox_only); it does not bar linking
+  `DirectorFrame.h` helper functions — S4A uses the helper closure, never the
+  parser. The `"current"`-rejection rule above is enforced by the worker-play call
+  site, not by changing the shared resolver's semantics (the single-frame route
+  legitimately accepts `current`).
 - The resolved mode is set on the capture viewport once (inside the guard scope),
   then **verified by readback after camera application on every frame** before
   capture (the `CurrentDisplayModeId` readback pattern, `DirectorHandler.cpp:1684`).
@@ -238,8 +243,12 @@ Per pass, in order:
    package manifest). Pre-check nonexistence Python-side for a friendly early error;
    native remains the authority (`run_root_exists`).
 3. One native `/director/worker-play` call with the `capture` block.
-4. Verify output: every `frame_%04d.png` for 1..frame_count exists and is non-empty
-   → `pass_output_incomplete` otherwise.
+4. Verify output: every `frame_%04d.png` for 1..frame_count exists, is non-empty,
+   **and its PNG header (IHDR) reports exactly the requested `width × height`** —
+   same semantics as `director_video.py:_png_size` (use a shared helper, do not
+   duplicate the header parse). Any missing, empty, unparsable, or wrong-dimension
+   frame → `pass_output_incomplete` with the failing frame and observed dimensions
+   in evidence. A run that would fail assembly must never be marked complete.
 5. Write assembly-compatible run metadata into the run root (amendment 2 — package
    `status.json` evidence alone is not enough):
    - `manifest.json`: `schema_version: 1`, `director_version: "slice1"` (the exact
@@ -314,6 +323,9 @@ Unit (all mocked-native where applicable; TDD):
    (camera_frames starting at 0 or with a gap → `track_invalid`; pairing of object
    frame position i with camera index i+1 asserted).
 4. `unsupported_pass_type` rejected before any native call (mock asserts zero calls).
+4b. Output verification: wrong-dimension PNG (valid header, wrong IHDR size) →
+   `pass_output_incomplete`, run root not marked complete; explicit
+   `playTo == frame_count` with capture is accepted.
 5. Partial pass failure preserves prior pass evidence, marks failed run root
    `state: "failed"`, and the failed pass is not assemblable.
 6. Generated run root contains assembly-compatible `manifest.json`/`status.json`
