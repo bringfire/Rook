@@ -138,7 +138,22 @@ Consequences the spec relies on:
 - Per-leaf nested motion (see Section 7 — member tracks move a member *as a unit*).
 - Promoting the orchestrator to an MCP tool/route (stays a module + driver script here).
 
-## 5. Component 1 — C42 canvas edit (`Samples` output)
+## 5. Component 1 — C42 canvas edit (packed samples on the `H` output)
+
+> **IMPLEMENTATION NOTE (2026-07-07, live).** Adding a dedicated `Samples` output pin
+> via `gh_set_script`/`SetSource` does **not** work: RhinoCode regenerates the RunScript
+> signature from the component's *existing* pins on recompile, dropping the new param and
+> leaving the body referencing an undefined variable (compile error → empty outputs). Live
+> pin surgery on the hand-built canvas is risky. So the edit **repurposes the existing `H`
+> output** to carry the packed JSON string `{"ids":[...],"z":[...]}` (built with
+> `System.Text.Json.JsonSerializer`, not `StringBuilder`/`Escape`/`Num` — those helpers do
+> not exist in this script). `H`'s heights-list was unreadable in full anyway (5-item
+> preview cap), so this is strictly better. The harvest reads `H`, not `Samples`. A proper
+> dedicated output pin is deferred to the template-promotion slice (built fresh, not via
+> live pin surgery). The subsections below describe the original `Samples`-pin intent;
+> the shipped edit is the `H`-repurpose. Verified live: `H` emits `len(ids)==len(z)==338`;
+> 338/338 members lift to `maxH` at the Oscillator PingPong peaks; frame-0 = rest.
+
 
 **Read-path constraint (verified):** `/gh/inspect-output` caps list previews at **5
 items** (`GrasshopperHandler.cs:4988` — `if (previewCount >= 5) break`) and has **no

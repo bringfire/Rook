@@ -267,7 +267,7 @@ class _FakeNative:
         if endpoint.startswith("/gh/inspect-output"):
             param = data["param"] if data else None
             local_t = self.frame_in / 240.0
-            if param == "Samples":
+            if param == "H":  # wave emits packed samples JSON on the H output
                 payload = _json.dumps({"ids": ["d0", "d1"], "z": self._z[self.frame_in]})
                 return {"success": True, "data": {"preview": [payload]}}
             if param == "Camera":
@@ -302,7 +302,7 @@ def test_harvest_samples_rejects_ids_drift():
 
     async def drift(endpoint, method="GET", data=None, *, port=None):
         r = await orig(endpoint, method, data, port=port)
-        if data and data.get("param") == "Samples" and fake.frame_in == 240:
+        if data and data.get("param") == "H" and fake.frame_in == 240:
             r = {
                 "success": True,
                 "data": {"preview": [_json.dumps({"ids": ["d0", "dX"], "z": [0.0, 10.0]})]},

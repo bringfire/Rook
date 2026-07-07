@@ -363,7 +363,24 @@ async def harvest_samples(
             frame_in = round(t * clock_denominator)
             await _gh_set_value(call_native, roles["frame_in"], frame_in)
 
-            samples = await _gh_read_output(call_native, roles["wave"], "Samples")
+            # Read the camera FIRST: its local_t staleness guard confirms this
+            # frame's solve completed, which then guarantees the H read below is
+            # from the same fresh solve (H itself carries no freshness marker).
+            camera = await _gh_read_output(call_native, roles["camera_ctrl"], "Camera")
+            local_t = float(camera.get("local_t"))
+            expected_t = frame_in / clock_denominator
+            if abs(local_t - expected_t) > 1e-3:
+                raise SimulationExportError(
+                    "camera_stale",
+                    f"frame {p}: local_t {local_t} != {expected_t}",
+                )
+
+            # The wave's packed samples JSON is emitted on the H output (a single
+            # string), not a dedicated Samples pin: adding an output pin via
+            # SetSource is unreliable (RhinoCode regenerates the signature from
+            # existing pins), so the existing H channel is repurposed to carry
+            # {"ids":[...],"z":[...]}. See the C42 reference artifact.
+            samples = await _gh_read_output(call_native, roles["wave"], "H")
             frame_ids = list(samples["ids"])
             frame_z = [float(v) for v in samples["z"]]
             if len(frame_ids) != len(frame_z):
@@ -387,14 +404,6 @@ async def harvest_samples(
                 )
             per_frame_z.append(frame_z)
 
-            camera = await _gh_read_output(call_native, roles["camera_ctrl"], "Camera")
-            local_t = float(camera.get("local_t"))
-            expected_t = frame_in / clock_denominator
-            if abs(local_t - expected_t) > 1e-3:
-                raise SimulationExportError(
-                    "camera_stale",
-                    f"frame {p}: local_t {local_t} != {expected_t}",
-                )
             cam_keyframes.append(
                 {
                     "frame_index": p + 1,
