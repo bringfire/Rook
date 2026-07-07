@@ -110,6 +110,18 @@ def make_package(tmp_path: Path, *, motion: dict | None = None,
     return root
 
 
+def rewrite_manifest(root: Path, mutator) -> None:
+    manifest_path = root / "scene_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    mutator(manifest)
+    manifest_sha = write_canonical_json(manifest_path, manifest)
+
+    status_path = root / "status.json"
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    status["scene_manifest_sha256"] = manifest_sha
+    write_canonical_json(status_path, status)
+
+
 def make_prepare_payload(root: Path, **overrides: Any) -> dict:
     member0 = {
         "index": 0, "definitionObjectId": MEMBER0_ID, "type": "Brep",
@@ -395,6 +407,67 @@ async def test_verification_failure_on_layer_mismatch(tmp_path):
     await expect_error(
         dwp.prepare_take({"package_root": str(root)}, call_native=fake),
         "prepare_verification_failed")
+
+
+async def test_converted_member_type_mismatch_is_sanctioned_and_recorded(tmp_path):
+    root = make_package(tmp_path)
+    rewrite_manifest(
+        root,
+        lambda manifest: manifest["actor_sets"][0]["members"][0]["expected"]
+        .update({"type": "Other"}))
+    payload = make_prepare_payload(root)
+    member0 = payload["actorSets"][0]["members"][0]
+    member0["type"] = "Brep"
+    member0["created"][0]["convertedFrom"] = "TL_Brep"
+    member0["created"][0]["conversionPath"] = "brep_form"
+    fake = make_fake_native(root, prepare_payload=payload)
+
+    result = await dwp.prepare_take(
+        {"package_root": str(root)}, call_native=fake,
+        now_fn=lambda: "2026-07-06T01:00:00+00:00")
+
+    assert result["phase"] == "prepared"
+    member_map = json.loads((root / "member_map.json").read_text(encoding="utf-8"))
+    occurrence = member_map["actor_sets"][0]["members"][0]["occurrences"][0]
+    assert occurrence["type"] == "Brep"
+    assert occurrence["converted_from"] == "TL_Brep"
+    assert occurrence["conversion_path"] == "brep_form"
+
+
+async def test_type_mismatch_without_conversion_evidence_still_fails(tmp_path):
+    root = make_package(tmp_path)
+    rewrite_manifest(
+        root,
+        lambda manifest: manifest["actor_sets"][0]["members"][0]["expected"]
+        .update({"type": "Other"}))
+    payload = make_prepare_payload(root)
+    payload["actorSets"][0]["members"][0]["type"] = "Brep"
+    fake = make_fake_native(root, prepare_payload=payload)
+
+    err = await expect_error(
+        dwp.prepare_take({"package_root": str(root)}, call_native=fake),
+        "prepare_verification_failed")
+    assert "setA_member_0000" in str(err)
+    assert "type 'Brep' != expected 'Other'" in str(err)
+
+
+async def test_conversion_refused_member_still_fails_with_staged_reason(tmp_path):
+    root = make_package(tmp_path)
+    payload = make_prepare_payload(root)
+    member0 = payload["actorSets"][0]["members"][0]
+    member0["created"] = []
+    member0["skipped"] = [{
+        "occurrencePath": "0",
+        "definitionObjectId": MEMBER0_ID,
+        "reason": "unsupported_geometry_type:TL_Brep:add_rejected_clean_copy",
+    }]
+    fake = make_fake_native(root, prepare_payload=payload)
+
+    err = await expect_error(
+        dwp.prepare_take({"package_root": str(root)}, call_native=fake),
+        "prepare_coverage_incomplete")
+    assert "setA_member_0000" in str(err)
+    assert "unsupported_geometry_type:TL_Brep:add_rejected_clean_copy" in str(err)
 
 
 async def test_happy_path_writes_all_artifacts(tmp_path):

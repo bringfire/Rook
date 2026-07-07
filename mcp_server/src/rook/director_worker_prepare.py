@@ -228,10 +228,28 @@ def _verify_and_map(manifest: dict[str, Any],
                 coverage.append(f"{mid}: no objects created")
 
             expected = member["expected"]
+            converted_entries: list[dict[str, Any]] = []
+            for c in created:
+                has_conversion_field = (
+                    "convertedFrom" in c or "conversionPath" in c)
+                if not has_conversion_field:
+                    continue
+                converted_from = c.get("convertedFrom")
+                conversion_path = c.get("conversionPath")
+                if (not isinstance(converted_from, str) or not converted_from
+                        or conversion_path not in ("clean_copy", "brep_form")):
+                    verification.append(
+                        f"{mid}: malformed conversion evidence on "
+                        f"{c.get('occurrencePath')}")
+                    continue
+                converted_entries.append(c)
+            conversion_sanctions_type = (
+                bool(created) and len(converted_entries) == len(created))
             if got.get("type") != expected.get("type"):
-                verification.append(
-                    f"{mid}: type {got.get('type')!r} != expected "
-                    f"{expected.get('type')!r}")
+                if not conversion_sanctions_type:
+                    verification.append(
+                        f"{mid}: type {got.get('type')!r} != expected "
+                        f"{expected.get('type')!r}")
             if got.get("layer") != expected.get("layer"):
                 verification.append(
                     f"{mid}: layer {got.get('layer')!r} != expected "
@@ -253,19 +271,26 @@ def _verify_and_map(manifest: dict[str, Any],
                         f"({got_min}/{got_max} != "
                         f"{evidence['min']}/{evidence['max']})")
 
+            occurrences: list[dict[str, Any]] = []
+            for c in created:
+                occurrence = {
+                    "occurrence_path": c.get("occurrencePath"),
+                    "definition_object_id": c.get("definitionObjectId"),
+                    "created_object_id": c.get("createdObjectId"),
+                    "type": c.get("type"),
+                }
+                if "convertedFrom" in c:
+                    occurrence["converted_from"] = c.get("convertedFrom")
+                    occurrence["conversion_path"] = c.get("conversionPath")
+                occurrences.append(occurrence)
+
             map_members.append({
                 "actor_member_id": mid,
                 "definition_object_index": idx,
                 "definition_object_id": member["definition_object_id"],
                 "member_type": expected.get("type"),
                 "created_object_ids": [c["createdObjectId"] for c in created],
-                "occurrences": [
-                    {"occurrence_path": c.get("occurrencePath"),
-                     "definition_object_id": c.get("definitionObjectId"),
-                     "created_object_id": c.get("createdObjectId"),
-                     "type": c.get("type")}
-                    for c in created
-                ],
+                "occurrences": occurrences,
             })
 
         map_sets.append({

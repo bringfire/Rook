@@ -18,6 +18,7 @@
 #include "Models/DocumentHelpers.h"
 #include "RookServer.h"
 #include <cctype>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
@@ -45,18 +46,57 @@ std::string MemberTypeName(const CRhinoObject* obj)
     return "Other";
 }
 
+std::string GeometryClassName(const ON_Geometry* geom)
+{
+    if (!geom)
+        return "unknown";
+    const ON_ClassId* classId = geom->ClassId();
+    return classId ? classId->ClassName() : "unknown";
+}
+
+struct PreparedGeometryResult
+{
+    const CRhinoObject* object = nullptr;
+    std::string convertedFrom;
+    std::string conversionPath;
+    std::string failureStage;
+};
+
+PreparedGeometryResult AddBrepWithCleanCopyFallback(CRhinoDoc* pDoc,
+    const ON_Brep* brep, const ON_3dmObjectAttributes* attrs,
+    const std::string& className)
+{
+    if (!brep)
+        return {};
+
+    if (const CRhinoObject* obj = pDoc->AddBrepObject(*brep, attrs))
+        return { obj, "", "", "" };
+
+    ON_Brep clean;
+    clean = *brep;
+    // Legacy TL_Brep members can carry stale tolerance/flag data even when
+    // their renderable Brep geometry is usable. Recompute this metadata on the
+    // duplicate before Rhino validates the new top-level object.
+    clean.SetTolerancesBoxesAndFlags(false);
+    if (const CRhinoObject* obj = pDoc->AddBrepObject(clean, attrs))
+        return { obj, className, "clean_copy", "" };
+
+    return { nullptr, "", "", "add_rejected_clean_copy" };
+}
+
 // Same type coverage as BlocksHandler.cpp's AddGeometryToDoc. Unsupported
 // geometry returns nullptr and the caller records a typed skip reason —
 // never a silent continue.
-const CRhinoObject* AddPreparedGeometry(CRhinoDoc* pDoc,
+PreparedGeometryResult AddPreparedGeometry(CRhinoDoc* pDoc,
     const ON_Geometry* geom, const ON_3dmObjectAttributes* attrs)
 {
+    const std::string className = GeometryClassName(geom);
     if (const ON_Curve* curve = ON_Curve::Cast(geom))
-        return pDoc->AddCurveObject(*curve, attrs);
+        return { pDoc->AddCurveObject(*curve, attrs), "", "", "" };
     if (const ON_Brep* brep = ON_Brep::Cast(geom))
-        return pDoc->AddBrepObject(*brep, attrs);
+        return AddBrepWithCleanCopyFallback(pDoc, brep, attrs, className);
     if (const ON_Mesh* mesh = ON_Mesh::Cast(geom))
-        return pDoc->AddMeshObject(*mesh, attrs);
+        return { pDoc->AddMeshObject(*mesh, attrs), "", "", "" };
     if (const ON_Extrusion* ext = ON_Extrusion::Cast(geom))
     {
         ON_Brep* brep = ext->BrepForm();
@@ -64,11 +104,11 @@ const CRhinoObject* AddPreparedGeometry(CRhinoDoc* pDoc,
         {
             const CRhinoObject* obj = pDoc->AddBrepObject(*brep, attrs);
             delete brep;
-            return obj;
+            return { obj, "", "", "" };
         }
     }
     if (const ON_Point* pt = ON_Point::Cast(geom))
-        return pDoc->AddPointObject(pt->point, attrs);
+        return { pDoc->AddPointObject(pt->point, attrs), "", "", "" };
     if (const ON_Surface* srf = ON_Surface::Cast(geom))
     {
         ON_Brep* brep = srf->BrepForm();
@@ -76,10 +116,20 @@ const CRhinoObject* AddPreparedGeometry(CRhinoDoc* pDoc,
         {
             const CRhinoObject* obj = pDoc->AddBrepObject(*brep, attrs);
             delete brep;
-            return obj;
+            return { obj, "", "", "" };
         }
     }
-    return nullptr;
+    if (geom && geom->HasBrepForm())
+    {
+        std::unique_ptr<ON_Brep> brep(geom->BrepForm());
+        if (brep)
+        {
+            if (const CRhinoObject* obj = pDoc->AddBrepObject(*brep, attrs))
+                return { obj, className, "brep_form", "" };
+            return { nullptr, "", "", "add_rejected_clean_copy" };
+        }
+    }
+    return { nullptr, "", "", "cast_failed_no_brep_form" };
 }
 
 std::string NormalizePathForCompare(std::string s)
@@ -159,21 +209,29 @@ void ExplodeDefinitionObject(CRhinoDoc* pDoc, const CRhinoObject* defObj,
 
     ON_3dmObjectAttributes attrs = defObj->Attributes();
     attrs.m_uuid = ON_nil_uuid;  // fresh UUID mandate (spec Decision 2)
-    const CRhinoObject* newObj = AddPreparedGeometry(pDoc, dupGeom, &attrs);
-    if (!newObj)
+    PreparedGeometryResult addResult = AddPreparedGeometry(pDoc, dupGeom, &attrs);
+    if (!addResult.object)
     {
-        const ON_ClassId* classId = defObj->Geometry()->ClassId();
-        const std::string cls = classId ? classId->ClassName() : "unknown";
-        AddSkip(skipped, path, defObjId, "unsupported_geometry_type:" + cls);
+        const std::string cls = GeometryClassName(defObj->Geometry());
+        std::string reason = "unsupported_geometry_type:" + cls;
+        if (!addResult.failureStage.empty())
+            reason += ":" + addResult.failureStage;
+        AddSkip(skipped, path, defObjId, reason);
         delete dupGeom;
         return;
     }
     delete dupGeom;
 
-    created.push_back({{"occurrencePath", path},
-                       {"definitionObjectId", defObjId},
-                       {"createdObjectId", UuidToString(newObj->Attributes().m_uuid)},
-                       {"type", MemberTypeName(newObj)}});
+    nlohmann::json createdEntry = {{"occurrencePath", path},
+                                   {"definitionObjectId", defObjId},
+                                   {"createdObjectId", UuidToString(addResult.object->Attributes().m_uuid)},
+                                   {"type", MemberTypeName(addResult.object)}};
+    if (!addResult.convertedFrom.empty())
+    {
+        createdEntry["convertedFrom"] = addResult.convertedFrom;
+        createdEntry["conversionPath"] = addResult.conversionPath;
+    }
+    created.push_back(std::move(createdEntry));
 }
 
 } // anonymous namespace
