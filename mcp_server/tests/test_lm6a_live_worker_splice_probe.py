@@ -1339,6 +1339,13 @@ def test_script_help_runs_from_repo_root() -> None:
 
 def test_script_static_forbidden_imports_and_graph_dump_guard() -> None:
     source = _script_path().read_text(encoding="utf-8")
+    assert "def run_two_pass_worker_publication" not in source
+    assert "lm_worker_two_pass_publication.py" not in source
     assert "LiteLLM" not in source
+    assert "openrouter" not in source.lower()
     assert "anthropic" not in source.lower()
     assert "debug-full-graph" not in source
+    assert (
+        "from lm_worker_two_pass_publication import run_two_pass_worker_publication"
+        in source
+    )

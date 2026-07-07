@@ -728,7 +728,10 @@ def test_main_prints_run_dir(monkeypatch, tmp_path: Path, capsys) -> None:
 def test_lm6c_script_does_not_import_lm6a_internals() -> None:
     source = PROBE._script_path().read_text(encoding="utf-8")
 
+    assert "--retry-clean-observation" in source
     assert "import lm6a_live_worker_splice_probe" not in source
     assert "from lm6a_live_worker_splice_probe" not in source
+    assert "run_two_pass_worker_publication" not in source
+    assert "apply_worker_action_to_node" not in source
     assert "_run_probe(" in source
     assert "subprocess.run" in source
