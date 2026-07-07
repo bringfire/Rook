@@ -547,6 +547,237 @@ def test_optional_unresolved_intent_warning_reaches_real_worker_publication(
     )
 
 
+def test_publication_failure_writes_terminal_decision_without_retry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_kwargs = []
+
+    class FakePublication:
+        row = {"status": "failed", "failure_reason": "model_timeout"}
+        response_payload = None
+
+    def fake_publication(_payload, **kwargs):
+        captured_kwargs.append(kwargs)
+        return FakePublication()
+
+    _install_publication_path_fakes(
+        monkeypatch,
+        publication=fake_publication,
+    )
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        agent="lm7b",
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+    row = json.loads((run_dir / "worker_publication_row.json").read_text())
+
+    assert decision["schema"] == "rook.lm7b_decision:v1"
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "model_timeout"
+    assert decision["worker_retry_enabled"] is False
+    assert decision["retry_attempted"] is False
+    assert decision["retry_count"] == 0
+    assert row["status"] == "failed"
+    assert captured_kwargs[0]["decision_guard"] is (
+        PROBE._pass1_decision_hidden_answer_failure
+    )
+    assert not (run_dir / "retry_context.json").exists()
+    assert not (run_dir / "worker_publication_rows.json").exists()
+
+
+def test_published_observation_writes_declined_terminal_without_retry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakePublication:
+        row = {"status": "published"}
+        response_payload = {"kind": "observation", "message": "Cannot repair safely."}
+
+    _install_publication_path_fakes(
+        monkeypatch,
+        publication=lambda _payload, **_kwargs: FakePublication(),
+    )
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        agent="lm7b",
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+    row = json.loads((run_dir / "worker_publication_row.json").read_text())
+
+    assert decision["decision"] == "worker_declined"
+    assert decision["reason"] == "worker_observed"
+    assert decision["worker_response_kind"] == "observation"
+    assert decision["worker_retry_enabled"] is False
+    assert decision["retry_attempted"] is False
+    assert decision["retry_count"] == 0
+    assert row["status"] == "published"
+    assert not (run_dir / "retry_context.json").exists()
+    assert not (run_dir / "worker_publication_rows.json").exists()
+    assert not (run_dir / "worker_action.json").exists()
+
+
+def test_action_request_apply_rejection_writes_worker_action_and_rejected_decision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    action_response = {
+        "kind": "action_request",
+        "action_id": "draft_repair_params",
+        "input": {"code": "A = 0.0;", "mode": "replace"},
+    }
+
+    class FakePublication:
+        row = {"status": "published"}
+        response_payload = action_response
+
+    def fail_dispatch(**_kwargs):
+        raise AssertionError("repair dispatch should not run after apply rejection")
+
+    _install_publication_path_fakes(
+        monkeypatch,
+        publication=lambda _payload, **_kwargs: FakePublication(),
+    )
+    monkeypatch.setattr(PROBE, "_dispatch_repair_and_verify", fail_dispatch)
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        agent="lm7b",
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+    worker_action = json.loads((run_dir / "worker_action.json").read_text())
+
+    assert worker_action == action_response
+    assert decision["schema"] == "rook.lm7b_decision:v1"
+    assert decision["decision"] == "rejected"
+    assert decision["reason"] == "worker_action_apply_failed:invalid_mode"
+    assert decision["phase"] == "worker_action_apply"
+    assert decision["worker_action_id"] == "draft_repair_params"
+    assert decision["worker_action_input_sha256"]
+    assert decision["worker_action_input_full_path"].endswith("worker_action.json")
+    assert decision["worker_action_apply"] == {
+        "applied": False,
+        "params_sha256": None,
+        "reason": "invalid_mode",
+    }
+    assert decision["worker_retry_enabled"] is False
+    assert decision["retry_attempted"] is False
+    assert decision["retry_count"] == 0
+    assert not (run_dir / "live_repair_summary.json").exists()
+
+
+def test_action_request_success_dispatches_repair_verify_and_writes_final_decision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    action_response = {
+        "kind": "action_request",
+        "action_id": "draft_repair_params",
+        "input": {"code": "A = 0.0;", "mode": "body"},
+    }
+    dispatch_calls = []
+
+    class FakePublication:
+        row = {"status": "published"}
+        response_payload = action_response
+
+    def fake_dispatch(**kwargs):
+        dispatch_calls.append(kwargs)
+        return {
+            "decision": {
+                "schema": "rook.lm6a_decision:v1",
+                "decision": "accepted",
+                "reason": "verify_repair_passed",
+                "phase": "verify_repair",
+                "live_repair_dispatched": True,
+                "verify_repair_ran": True,
+            }
+        }
+
+    _install_publication_path_fakes(
+        monkeypatch,
+        publication=lambda _payload, **_kwargs: FakePublication(),
+    )
+    monkeypatch.setattr(PROBE, "_dispatch_repair_and_verify", fake_dispatch)
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        agent="lm7b",
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+
+    assert len(dispatch_calls) == 1
+    assert dispatch_calls[0]["params_sha256"]
+    assert dispatch_calls[0]["action_context"]["worker_action_id"] == (
+        "draft_repair_params"
+    )
+    assert decision["schema"] == "rook.lm7b_decision:v1"
+    assert decision["decision"] == "accepted"
+    assert decision["reason"] == "verify_repair_passed"
+    assert decision["phase"] == "verify_repair"
+    assert decision["live_repair_dispatched"] is True
+    assert decision["verify_repair_ran"] is True
+    assert decision["worker_retry_enabled"] is False
+    assert decision["retry_attempted"] is False
+    assert decision["retry_count"] == 0
+    assert (run_dir / "worker_action.json").exists()
+    assert not (run_dir / "retry_context.json").exists()
+
+
+def _install_publication_path_fakes(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    publication,
+) -> None:
+    monkeypatch.setattr(
+        PROBE,
+        "_run_live_create_and_verify",
+        lambda **_kwargs: _real_live(),
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "validate_worker_visible_source_routing",
+        lambda *_args, **_kwargs: _valid_routing_report(),
+    )
+    monkeypatch.setattr(PROBE, "run_two_pass_worker_publication", publication)
+
+
+def _valid_routing_report() -> WorkerVisibleSourceRoutingValidationReport:
+    return WorkerVisibleSourceRoutingValidationReport(
+        schema=SOURCE_ROUTING_VALIDATION_REPORT_SCHEMA,
+        valid=True,
+        routability_evaluated=True,
+        static_diagnostics=(),
+        routability_diagnostics=(),
+    )
+
+
 def _fake_live() -> dict:
     return {
         "workflow_contract": object(),

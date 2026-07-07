@@ -33,12 +33,16 @@ from lm6a_live_worker_splice_probe import (  # noqa: E402
     DEFAULT_TEMPERATURE,
     DEFAULT_TIMEOUT_S,
     _await,
+    _decision_from_worker_action_apply,
     _decision_from_worker_publication,
+    _dispatch_repair_and_verify,
     _extract_script_receipt,
     _hidden_answer_leaks,
     _live_result_summary,
+    _pass1_decision_hidden_answer_failure,
     _phase_a_recon_summary,
     _routing_report_json,
+    _worker_action_context,
 )
 from lm5k_worker_probe import _script_body_gotcha_packet  # noqa: E402
 from lm_worker_two_pass_publication import run_two_pass_worker_publication  # noqa: E402
@@ -62,6 +66,9 @@ from rook.agent.local_worker_turn_request import (  # noqa: E402
     render_local_worker_turn_request_payload,
 )
 from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY  # noqa: E402
+from rook.agent.plan_graph_worker_action_apply import (  # noqa: E402
+    apply_worker_action_to_node,
+)
 from rook.agent.plan_graph_workflow_contract import (  # noqa: E402
     compile_workflow_contract,
     load_workflow_contract_payload,
@@ -265,6 +272,37 @@ def _decision_record(
     if extra:
         record.update(dict(extra))
     return record
+
+
+def _with_lm7b_metadata(
+    decision: Mapping[str, Any],
+    *,
+    request_fingerprint: str | None,
+    workflow_validate_report_fingerprint: str | None,
+    runtime_routing_valid: bool | None,
+    runtime_routability_evaluated: bool,
+    workflow_validate_valid: bool = True,
+) -> dict[str, Any]:
+    extra = dict(decision)
+    decision_value = str(extra.pop("decision"))
+    reason = str(extra.pop("reason"))
+    phase = str(extra.pop("phase"))
+    extra.pop("schema", None)
+    extra.pop("worker_retry_enabled", None)
+    extra["retry_attempted"] = False
+    extra["retry_count"] = 0
+    return _decision_record(
+        decision=decision_value,
+        reason=reason,
+        phase=phase,
+        request_fingerprint=request_fingerprint,
+        workflow_validate_valid=workflow_validate_valid,
+        workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
+        runtime_routing_valid=runtime_routing_valid,
+        runtime_routability_evaluated=runtime_routability_evaluated,
+        extra=extra,
+    )
+
 
 def _routing_report_has_errors(report: Any) -> bool:
     diagnostics = tuple(getattr(report, "static_diagnostics", ())) + tuple(
@@ -634,19 +672,17 @@ def _run_probe(
                 temperature=temperature,
                 timeout_s=timeout_s,
                 excerpt_chars=excerpt_chars,
+                decision_guard=_pass1_decision_hidden_answer_failure,
             )
-            _write_json(run_dir / "worker_publication_row.json", publication.row)
-            publication_decision = _decision_from_worker_publication(
-                publication_row=publication.row,
-                response_payload=publication.response_payload,
-            )
-            if publication_decision is not None:
+            if _hidden_answer_leaks(publication.row) or _hidden_answer_leaks(
+                publication.response_payload
+            ):
                 _write_json(
                     run_dir / "decision.json",
                     _decision_record(
-                        decision=publication_decision["decision"],
-                        reason=publication_decision["reason"],
-                        phase=publication_decision["phase"],
+                        decision="publication_failed",
+                        reason="worker_publication_hidden_answer_leak",
+                        phase="worker_publication",
                         request_fingerprint=request_fingerprint,
                         workflow_validate_valid=True,
                         workflow_validate_report_fingerprint=(
@@ -655,21 +691,94 @@ def _run_probe(
                         runtime_routing_valid=runtime_routing_valid,
                         runtime_routability_evaluated=True,
                         extra={
-                            key: value
-                            for key, value in publication_decision.items()
-                            if key
-                            not in {
-                                "schema",
-                                "decision",
-                                "reason",
-                                "phase",
-                                "live_repair_dispatched",
-                                "verify_repair_ran",
-                            }
+                            "retry_attempted": False,
+                            "retry_count": 0,
                         },
                     ),
                 )
                 return run_dir
+            _write_json(run_dir / "worker_publication_row.json", publication.row)
+            publication_decision = _decision_from_worker_publication(
+                publication_row=publication.row,
+                response_payload=publication.response_payload,
+            )
+            if publication_decision is not None:
+                _write_json(
+                    run_dir / "decision.json",
+                    _with_lm7b_metadata(
+                        publication_decision,
+                        request_fingerprint=request_fingerprint,
+                        workflow_validate_report_fingerprint=(
+                            workflow_validate_report_fingerprint
+                        ),
+                        runtime_routing_valid=runtime_routing_valid,
+                        runtime_routability_evaluated=True,
+                    ),
+                )
+                return run_dir
+
+            response_payload = publication.response_payload
+            action_context = _worker_action_context(
+                response_payload=response_payload,
+                run_dir=run_dir,
+                excerpt_chars=excerpt_chars,
+            )
+            action_context.update(
+                {
+                    "retry_attempted": False,
+                    "retry_count": 0,
+                    "retry_eligibility_reason": None,
+                    "first_worker_response_kind": response_payload.get("kind"),
+                    "first_worker_decline_reason": None,
+                    "final_worker_response_kind": response_payload.get("kind"),
+                }
+            )
+            _write_json(run_dir / "worker_action.json", response_payload)
+            apply_result = apply_worker_action_to_node(
+                live_result["graph"],
+                "repair_same_component",
+                action_id=response_payload["action_id"],
+                action_input=response_payload["input"],
+                anchor_binding=live_result["anchor_binding"],
+            )
+            if apply_result.applied is not True:
+                _write_json(
+                    run_dir / "decision.json",
+                    _with_lm7b_metadata(
+                        _decision_from_worker_action_apply(
+                            apply_result,
+                            action_context=action_context,
+                        ),
+                        request_fingerprint=request_fingerprint,
+                        workflow_validate_report_fingerprint=(
+                            workflow_validate_report_fingerprint
+                        ),
+                        runtime_routing_valid=runtime_routing_valid,
+                        runtime_routability_evaluated=True,
+                    ),
+                )
+                return run_dir
+
+            final = _dispatch_repair_and_verify(
+                graph=apply_result.graph,
+                agent=agent,
+                params_sha256=apply_result.params_sha256,
+                run_dir=run_dir,
+                action_context=action_context,
+            )
+            _write_json(
+                run_dir / "decision.json",
+                _with_lm7b_metadata(
+                    final["decision"],
+                    request_fingerprint=request_fingerprint,
+                    workflow_validate_report_fingerprint=(
+                        workflow_validate_report_fingerprint
+                    ),
+                    runtime_routing_valid=runtime_routing_valid,
+                    runtime_routability_evaluated=True,
+                ),
+            )
+            return run_dir
 
     _write_json(
         run_dir / "decision.json",
