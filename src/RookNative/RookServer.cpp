@@ -1008,6 +1008,9 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/director/worker-play", [this](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleDirectorWorkerPlay(req, res);
     });
+    m_server->Post("/director/capture-probe", [this](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleDirectorCaptureProbe(req, res);
+    });
 
     // Vision (PR-5a/5b): all routes proxy through a single managed
     // bridge callback (vision_dispatch, ABI v14). Native injects the op

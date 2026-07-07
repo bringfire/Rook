@@ -10,11 +10,141 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cwctype>
+#include <filesystem>
 #include <stdexcept>
 #include <vector>
 
+namespace fs = std::filesystem;
+
 namespace Rook {
 namespace Handlers {
+
+// ---------------------------------------------------------------------------
+// Path policy + capture primitives
+// ---------------------------------------------------------------------------
+
+std::wstring GetEnvironmentVariableString(const wchar_t* name)
+{
+    DWORD required = ::GetEnvironmentVariableW(name, nullptr, 0);
+    if (required == 0)
+        return {};
+
+    std::wstring value(required, L'\0');
+    DWORD written = ::GetEnvironmentVariableW(name, value.data(), required);
+    if (written == 0)
+        return {};
+
+    value.resize(written);
+    return value;
+}
+
+fs::path NormalizePolicyPath(const fs::path& path)
+{
+    std::error_code ec;
+    fs::path absolute = fs::absolute(path, ec);
+    if (ec)
+        absolute = path;
+
+    fs::path weak = fs::weakly_canonical(absolute, ec);
+    if (!ec)
+        return weak.lexically_normal();
+
+    return absolute.lexically_normal();
+}
+
+fs::path GetAllowedDirectorRoot()
+{
+    std::wstring configured = GetEnvironmentVariableString(L"ROOK_DIRECTOR_OUTPUT_ROOT");
+    if (!configured.empty())
+        return NormalizePolicyPath(fs::path(configured));
+
+    std::wstring localAppData = GetEnvironmentVariableString(L"LOCALAPPDATA");
+    if (localAppData.empty())
+        throw DirectorFrameValidationError(
+            "output_policy_violation",
+            "LOCALAPPDATA is required when ROOK_DIRECTOR_OUTPUT_ROOT is not set");
+
+    return NormalizePolicyPath(fs::path(localAppData) / L"Rook" / L"rookvision_director");
+}
+
+std::wstring LowerPathPart(const fs::path& part)
+{
+    std::wstring text = part.native();
+    std::transform(text.begin(), text.end(), text.begin(), [](wchar_t ch) {
+        return static_cast<wchar_t>(std::towlower(ch));
+    });
+    return text;
+}
+
+bool IsSameOrDescendantPath(const fs::path& parent, const fs::path& candidate)
+{
+    std::vector<std::wstring> parentParts;
+    std::vector<std::wstring> candidateParts;
+
+    for (const fs::path& part : parent)
+        parentParts.push_back(LowerPathPart(part));
+    for (const fs::path& part : candidate)
+        candidateParts.push_back(LowerPathPart(part));
+
+    if (parentParts.size() > candidateParts.size())
+        return false;
+
+    for (size_t i = 0; i < parentParts.size(); ++i)
+    {
+        if (parentParts[i] != candidateParts[i])
+            return false;
+    }
+
+    return true;
+}
+
+bool IsSamePath(const fs::path& a, const fs::path& b)
+{
+    return IsSameOrDescendantPath(a, b) && IsSameOrDescendantPath(b, a);
+}
+
+DirectorCaptureResult CaptureViewToPng(CRhinoDoc* pDoc, CRhinoView* pView,
+                                       int width, int height,
+                                       const std::filesystem::path& outputPath)
+{
+    if (!pDoc || !pView)
+        throw DirectorFrameValidationError("capture_failed", "document or view unavailable");
+    if (pDoc->ActiveView() != pView)
+        throw DirectorFrameValidationError("capture_failed", "capture view must be the active view");
+
+    const std::filesystem::path tempPath =
+        outputPath.parent_path() / (outputPath.filename().native() + L".tmp.png");
+
+    std::error_code ec;
+    std::filesystem::remove(tempPath, ec);
+
+    ON_wString wFilePath(tempPath.native().c_str());
+    std::wstring captureCmd = std::wstring(L"_-ViewCaptureToFile") +
+        L" _Width=" + std::to_wstring(width) +
+        L" _Height=" + std::to_wstring(height) +
+        L" _Scale=1" +
+        L" _DrawGrid=No" +
+        L" _DrawWorldAxes=No" +
+        L" _DrawCPlaneAxes=No" +
+        L" _TransparentBackground=No" +
+        L" \"" + std::wstring(static_cast<const wchar_t*>(wFilePath)) + L"\"" +
+        L" _Enter";
+    RhinoApp().RunScript(pDoc->RuntimeSerialNumber(), captureCmd.c_str(), 0);
+
+    if (!std::filesystem::exists(tempPath, ec) || std::filesystem::file_size(tempPath, ec) == 0)
+        throw DirectorFrameValidationError("capture_failed",
+            "capture did not produce a non-empty file: " + outputPath.filename().string());
+    std::filesystem::remove(outputPath, ec);
+    std::filesystem::rename(tempPath, outputPath, ec);
+    if (ec || !std::filesystem::exists(outputPath, ec))
+        throw DirectorFrameValidationError("capture_failed",
+            "failed to move capture into place: " + ec.message());
+
+    DirectorCaptureResult result;
+    result.backend = "scripted_command";
+    return result;
+}
 
 // ---------------------------------------------------------------------------
 // Scalar / point / vector comparison helpers
@@ -86,6 +216,28 @@ nlohmann::json DisplayModeToJson(const ON_UUID& modeId)
         : CRhinoDisplayAttrsMgr::FindDisplayAttrs(modeId);
     data["name"] = pAttrs ? nlohmann::json(WideToUtf8(pAttrs->EnglishName())) : nlohmann::json(nullptr);
     return data;
+}
+
+ON_UUID ResolveDisplayModeId(const std::string& displayMode)
+{
+    if (displayMode.empty() || IEquals(displayMode, "current"))
+        return ON_nil_uuid;
+
+    ON_UUID modeId = ON_UuidFromString(displayMode.c_str());
+    if (!ON_UuidIsNil(modeId))
+    {
+        if (!CRhinoDisplayAttrsMgr::FindDisplayAttrs(modeId))
+            throw DirectorFrameValidationError("invalid_input", "Display mode UUID not found");
+        return modeId;
+    }
+
+    ON_wString wName = Utf8ToWide(displayMode);
+    DisplayAttrsMgrListDesc* pDesc =
+        CRhinoDisplayAttrsMgr::FindDisplayAttrsDesc(static_cast<const wchar_t*>(wName));
+    if (!pDesc || !pDesc->m_pAttrs)
+        throw DirectorFrameValidationError("invalid_input", "Display mode '" + displayMode + "' not found");
+
+    return pDesc->m_pAttrs->Id();
 }
 
 // ---------------------------------------------------------------------------

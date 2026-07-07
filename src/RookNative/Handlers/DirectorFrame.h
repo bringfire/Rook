@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <filesystem>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -108,6 +109,25 @@ bool VectorAlmostEqual(const ON_3dVector& a, const ON_3dVector& b, double tolera
 bool ViewportAlmostEqual(const ON_Viewport& a, const ON_Viewport& b, double tolerance);
 ON_UUID CurrentDisplayModeId(CRhinoView* pView);
 nlohmann::json DisplayModeToJson(const ON_UUID& modeId);
+ON_UUID ResolveDisplayModeId(const std::string& displayMode);
+
+// ---------------------------------------------------------------------------
+// Path policy + capture primitives (Slice 4A)
+// ---------------------------------------------------------------------------
+std::filesystem::path GetAllowedDirectorRoot();
+std::filesystem::path NormalizePolicyPath(const std::filesystem::path& path);
+bool IsSameOrDescendantPath(const std::filesystem::path& root,
+                            const std::filesystem::path& candidate);
+bool IsSamePath(const std::filesystem::path& a, const std::filesystem::path& b);
+
+struct DirectorCaptureResult
+{
+    std::string backend;
+};
+
+DirectorCaptureResult CaptureViewToPng(CRhinoDoc* pDoc, CRhinoView* pView,
+                                       int width, int height,
+                                       const std::filesystem::path& outputPath);
 
 // ---------------------------------------------------------------------------
 // View validation helpers

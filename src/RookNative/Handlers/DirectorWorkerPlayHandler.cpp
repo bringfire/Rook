@@ -7,6 +7,7 @@
 
 #include "stdafx.h"
 #include "Handlers/DirectorWorkerPlayHandler.h"
+#include "Handlers/DirectorFrame.h"
 #include "Threading/MainThreadDispatcher.h"
 #include "Infrastructure/JsonHelpers.h"
 #include "Infrastructure/UndoScope.h"
@@ -17,12 +18,15 @@
 #include <chrono>
 #include <cmath>
 #include <cctype>
+#include <filesystem>
 #include <fstream>
 #include <limits>
 #include <map>
 #include <set>
 #include <string>
 #include <vector>
+
+namespace fs = std::filesystem;
 
 namespace Rook {
 namespace Handlers {
@@ -152,7 +156,7 @@ ON_BoundingBox InflateBbox(ON_BoundingBox bbox, double tolerance)
     return bbox;
 }
 
-bool BboxAlmostEqual(const ON_BoundingBox& a, const ON_BoundingBox& b, double tolerance)
+bool WorkerBboxAlmostEqual(const ON_BoundingBox& a, const ON_BoundingBox& b, double tolerance)
 {
     return std::fabs(a.m_min.x - b.m_min.x) <= tolerance &&
         std::fabs(a.m_min.y - b.m_min.y) <= tolerance &&
@@ -365,7 +369,7 @@ WorkerTrack ParseWorkerTrack(const nlohmann::json& track)
                 objectIt->second.sourceBbox = sourceBbox;
                 sourceBboxSeen.insert(id);
             }
-            else if (!BboxAlmostEqual(objectIt->second.sourceBbox, sourceBbox, 0.0))
+            else if (!WorkerBboxAlmostEqual(objectIt->second.sourceBbox, sourceBbox, 0.0))
             {
                 throw std::invalid_argument("source_state bbox must be stable across frames");
             }
@@ -542,7 +546,7 @@ void HandleDirectorWorkerPlay(const httplib::Request& req, httplib::Response& re
 
             if (playRequest.fromFrame == 0)
             {
-                if (!BboxAlmostEqual(observed, objectTrack.sourceBbox, tolerance))
+                if (!WorkerBboxAlmostEqual(observed, objectTrack.sourceBbox, tolerance))
                 {
                     pristineOffenders.push_back(
                         MakePristineEvidence(objectId, observed, objectTrack.sourceBbox,
@@ -713,6 +717,100 @@ void HandleDirectorWorkerPlay(const httplib::Request& req, httplib::Response& re
             {"totalMs", std::chrono::duration<double, std::milli>(totalEnd - totalStart).count()},
             {"perFrameMs", std::move(perFrame)}
         };
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success) CRookServer::SendSuccess(res, result.data);
+        else CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+    }
+}
+
+void HandleDirectorCaptureProbe(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    std::string displayMode;
+    int width = 0, height = 0;
+    std::string outputPathUtf8;
+    try
+    {
+        ValidateStringField(body, "displayMode", displayMode);
+        if (IEquals(displayMode, "current"))
+            throw std::invalid_argument("displayMode must name a concrete mode, not 'current'");
+        if (!body.contains("width") || !body["width"].is_number_integer() ||
+            !body.contains("height") || !body["height"].is_number_integer())
+            throw std::invalid_argument("width and height must be integers");
+        width = body["width"].get<int>();
+        height = body["height"].get<int>();
+        if (width <= 0 || height <= 0 || (width % 2) != 0 || (height % 2) != 0 ||
+            width > 8192 || height > 8192)
+            throw std::invalid_argument("width and height must be positive even integers <= 8192");
+        ValidateStringField(body, "outputPath", outputPathUtf8);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendErrorData(res, nlohmann::json{
+            {"reason", "invalid_input"}, {"message", ex.what()}});
+        return;
+    }
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, displayMode, width, height, outputPathUtf8]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        ON_wString wideOutputPath = Utf8ToWide(outputPathUtf8);
+        const fs::path outputPath = NormalizePolicyPath(fs::path(static_cast<const wchar_t*>(wideOutputPath)));
+        const fs::path allowedRoot = GetAllowedDirectorRoot();
+        if (!IsSameOrDescendantPath(allowedRoot, outputPath))
+            return FailureResult("output_policy_violation",
+                {{"message", "outputPath must be inside the director output root"}});
+        std::error_code ec;
+        fs::create_directories(outputPath.parent_path(), ec);
+
+        ON_UUID modeId;
+        try { modeId = ResolveDisplayModeId(displayMode); }
+        catch (const DirectorFrameValidationError& ex)
+        {
+            return FailureResult("display_mode_missing", {{"message", ex.what()}});
+        }
+
+        DirectorViewportGuard guard(pDoc);
+        CRhinoView* pView = guard.View();
+        if (!pView)
+            return FailureResult("capture_failed", {{"message", "no active view"}});
+        CRhinoViewport& vp = pView->ActiveViewport();
+        vp.SetDisplayMode(modeId);
+        pView->Redraw();
+        const ON_UUID applied = CurrentDisplayModeId(pView);
+        if (ON_UuidCompare(applied, modeId) != 0)
+            return FailureResult("display_mode_mismatch",
+                {{"requested", DisplayModeToJson(modeId)},
+                 {"applied", DisplayModeToJson(applied)}});
+
+        nlohmann::json data;
+        try
+        {
+            const DirectorCaptureResult capture =
+                CaptureViewToPng(pDoc, pView, width, height, outputPath);
+            data["backend"] = capture.backend;
+        }
+        catch (const DirectorFrameValidationError& ex)
+        {
+            return FailureResult(ex.code.c_str(), {{"message", ex.what()}});
+        }
+        data["outputPath"] = outputPathUtf8;
+        data["displayModeResolved"] = DisplayModeToJson(modeId);
+        data["readbackMatches"] = true;
+        WriteResult wr;
+        wr.success = true;
+        wr.data = std::move(data);
         return wr;
     });
 
