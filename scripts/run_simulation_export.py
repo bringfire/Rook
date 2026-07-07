@@ -9,21 +9,29 @@ from rook.bridge import get_rhino_host
 from rook import director_simulation_export as sx
 from rook import director_video
 
-BASE = get_rhino_host()
 SCRATCH = (r"C:\Users\aryan\AppData\Local\Temp\claude\C--Users-aryan-source-repos-Rook"
            r"\51f4797b-8702-43db-9b2d-245df8501f2f\scratchpad\sim_take")
 FRAME_COUNT = int(os.environ.get("SIM_FRAMES", "48"))
 
 
 async def call_native(endpoint, method="GET", data=None, *, port=None):
-    async with httpx.AsyncClient(timeout=3600.0) as c:  # 1h: heavy SOH capture must not client-timeout
-        resp = (await c.get(f"{BASE}{endpoint}", params=data or None) if method == "GET"
-                else await c.post(f"{BASE}{endpoint}", json=data or {}))
-    return resp.json()
+    async def _send_once():
+        base = get_rhino_host()
+        if not base:
+            raise RuntimeError("No active Rhino host found")
+        async with httpx.AsyncClient(timeout=3600.0) as c:  # 1h: heavy SOH capture must not client-timeout
+            resp = (await c.get(f"{base}{endpoint}", params=data or None) if method == "GET"
+                    else await c.post(f"{base}{endpoint}", json=data or {}))
+        return resp.json()
+
+    try:
+        return await _send_once()
+    except httpx.ConnectError:
+        return await _send_once()
 
 
 async def main():
-    print("HOST:", BASE, "| frames:", FRAME_COUNT, flush=True)
+    print("HOST:", get_rhino_host(), "| frames:", FRAME_COUNT, flush=True)
     doc = (await call_native("/document", "GET"))["data"]
     print("Rhino doc:", doc.get("path"), "| modified:", doc.get("modified"), flush=True)
     args = {
@@ -63,4 +71,5 @@ async def main():
     print("Rhino doc restored:", after.get("path"), "| modified:", after.get("modified"), flush=True)
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
