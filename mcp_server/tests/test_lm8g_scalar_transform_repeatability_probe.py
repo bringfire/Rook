@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import json
-import sys
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -676,3 +677,47 @@ def test_main_prints_run_dir_and_returns_zero(monkeypatch, tmp_path: Path, capsy
     output = capsys.readouterr().out
     assert "LM8G scalar transform repeatability probe complete" in output
     assert "run_dir=" in output
+
+
+def test_lm8g_source_does_not_import_lm8f_or_live_tooling():
+    source = inspect.getsource(PROBE)
+
+    forbidden = (
+        "import lm8f_scalar_transform_depth_probe",
+        "from lm8f_scalar_transform_depth_probe",
+        "_mcp_tool_executor",
+        '"rhino_ping"',
+        '"gh_document_new"',
+        '"gh_set_value"',
+        '"gh_inspect_output"',
+        "run_two_pass_worker_publication",
+        "apply_gh_scalar_value_action_to_node",
+    )
+    for fragment in forbidden:
+        assert fragment not in source
+
+
+def test_lm8g_rejects_unsupported_flags_and_does_not_forward_them(tmp_path: Path):
+    unsupported = (
+        "--retry-clean-observation",
+        "--gh-edit",
+        "--planner-provider-command",
+    )
+
+    for flag in unsupported:
+        with pytest.raises(SystemExit):
+            PROBE._args([flag])
+
+    command = PROBE._lm8f_command(
+        model="gemma4:12b-it-qat",
+        lm8f_runs_dir=tmp_path / "lm8f_runs",
+    )
+    for flag in unsupported:
+        assert flag not in command
+
+
+def test_lm8g_source_contains_lm8f_subprocess_script_path():
+    source = inspect.getsource(PROBE)
+
+    assert "lm8f_scalar_transform_depth_probe.py" in source
+    assert "from scripts.lm8f_scalar_transform_depth_probe" not in source
