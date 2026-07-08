@@ -82,6 +82,12 @@ def test_named_sentinels_present():
         assert name not in PUBLIC_READONLY_TOOL_NAMES
 
 
+def test_actor_set_builder_stays_out_of_readonly_and_lean_profiles():
+    tool = "rhino_director_build_actor_set_from_source_occurrence_v2"
+    assert tool not in PUBLIC_READONLY_TOOL_NAMES
+    assert tool not in PUBLIC_LEAN_TOOL_NAMES
+
+
 from rook.mcp_tool_profiles import (
     filter_tools,
     profile_blocked_envelope,

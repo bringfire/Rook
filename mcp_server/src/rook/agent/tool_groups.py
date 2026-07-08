@@ -222,6 +222,7 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "rhino_director_compile_motion",
         "rhino_director_preview_motion",
         "rhino_director_capture_source_occurrence_v2",
+        "rhino_director_build_actor_set_from_source_occurrence_v2",
         "rhino_director_write_actor_metadata_v2",
         "rhino_director_read_actor_metadata_v2",
         "rhino_director_assemble_video",

@@ -615,6 +615,10 @@ def test_actor_metadata_v2_tools_are_in_director_group():
         "rhino_director_capture_source_occurrence_v2"
         in tool_groups.TOOL_GROUPS["director"]
     )
+    assert (
+        "rhino_director_build_actor_set_from_source_occurrence_v2"
+        in tool_groups.TOOL_GROUPS["director"]
+    )
     assert "rhino_director_write_actor_metadata_v2" in tool_groups.TOOL_GROUPS["director"]
     assert "rhino_director_read_actor_metadata_v2" in tool_groups.TOOL_GROUPS["director"]
 
