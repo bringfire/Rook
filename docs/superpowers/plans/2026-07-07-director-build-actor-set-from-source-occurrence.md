@@ -20,7 +20,7 @@
 - Do not emit `actor_member_id`, `definition_object_index`, `current_reference`, or `observed_selection` in authoring members.
 - `/block/objects-detailed` native semantics are authoritative: it skips `!obj || !obj->Geometry()`, emits raw def-table `index`, and labels `bboxMethod`; admit only `tight_object`.
 - Existing error codes must pass through for existing infrastructure failures: `document_path_required`, `metadata_ref_not_found`, `metadata_kind_mismatch`.
-- New typed codes: `snapshot_not_single_source`, `snapshot_source_mismatch`, `snapshot_source_not_block`, `source_occurrence_missing_in_document`, `block_definition_drift`, `block_enumeration_empty`, `tight_bbox_unavailable`, `actor_set_exists`, `actor_set_source_mismatch`.
+- New typed codes: `snapshot_not_single_source`, `snapshot_source_mismatch`, `snapshot_source_not_block`, `source_occurrence_missing_in_document`, `block_definition_drift`, `block_enumeration_empty`, `block_enumeration_invalid`, `tight_bbox_unavailable`, `actor_set_exists`, `actor_set_source_mismatch`.
 - Full MCP surface count moves `442 -> 443`; readonly stays `149`; lean stays `22`.
 - Run commands from `mcp_server/` unless a task says otherwise.
 - One commit per task. Stop after each task and report changed files, tests, and deviations.
@@ -125,6 +125,8 @@ class FakeActorSetBuilderNative:
         block_info=None,
         objects=None,
         document_path: str | None = "USE_MODEL",
+        fail_instances: bool = False,
+        fail_info: bool = False,
     ):
         self.model_path = model_path
         self.document_path = str(model_path) if document_path == "USE_MODEL" else document_path
@@ -152,6 +154,8 @@ class FakeActorSetBuilderNative:
                 "bbox": {"min": [5.0, 6.0, 7.0], "max": [8.0, 9.0, 10.0]},
             },
         ]
+        self.fail_instances = fail_instances
+        self.fail_info = fail_info
         self.calls = []
 
     async def __call__(self, endpoint: str, method: str = "GET", data: dict | None = None, port: int | None = None) -> dict:
@@ -161,10 +165,14 @@ class FakeActorSetBuilderNative:
         if endpoint == "/block/instances":
             assert method == "POST"
             assert data == {"name": BLOCK_NAME, "depth": 0}
+            if self.fail_instances:
+                return {"success": False, "error": {"message": f"Block definition '{BLOCK_NAME}' not found"}}
             return {"success": True, "data": {"blockName": BLOCK_NAME, "instances": copy.deepcopy(self.instances)}}
         if endpoint == "/block/info":
             assert method == "POST"
             assert data == {"name": BLOCK_NAME}
+            if self.fail_info:
+                return {"success": False, "error": {"message": f"Block definition '{BLOCK_NAME}' not found"}}
             return {"success": True, "data": copy.deepcopy(self.block_info)}
         if endpoint == "/block/objects-detailed":
             assert method == "POST"
@@ -283,19 +291,53 @@ def _round_bbox_values(values: Any) -> list[float]:
     return [round(float(value), 4) for value in values]
 
 
-def _member_from_block_object(obj: dict[str, Any]) -> dict[str, Any]:
+def _member_from_block_object(
+    obj: dict[str, Any],
+    *,
+    seen_ordinals: set[int],
+    seen_definition_ids: set[str],
+) -> dict[str, Any]:
+    ordinal = obj.get("index")
+    if not isinstance(ordinal, int) or isinstance(ordinal, bool) or ordinal < 0:
+        _raise(
+            "block_enumeration_invalid",
+            "Block object entry requires a non-negative integer index.",
+            index=ordinal,
+            object_id=obj.get("id"),
+        )
+    if ordinal in seen_ordinals:
+        _raise(
+            "block_enumeration_invalid",
+            "Block object enumeration returned a duplicate ordinal.",
+            ordinal=ordinal,
+        )
+    definition_object_id = obj.get("id")
+    if not isinstance(definition_object_id, str) or not definition_object_id:
+        _raise(
+            "block_enumeration_invalid",
+            "Block object entry requires a non-empty id.",
+            ordinal=ordinal,
+        )
+    if definition_object_id in seen_definition_ids:
+        _raise(
+            "block_enumeration_invalid",
+            "Block object enumeration returned a duplicate definition object id.",
+            definition_object_id=definition_object_id,
+        )
+    seen_ordinals.add(ordinal)
+    seen_definition_ids.add(definition_object_id)
     if obj.get("bboxMethod") != "tight_object":
         _raise(
             "tight_bbox_unavailable",
             "Actor-set builder requires tight_object bbox for every member.",
-            object_id=obj.get("id"),
+            object_id=definition_object_id,
             bbox_method=obj.get("bboxMethod"),
         )
     bbox = obj.get("bbox") if isinstance(obj.get("bbox"), dict) else {}
     return {
-        "ordinal": obj.get("index"),
+        "ordinal": ordinal,
         "resolved_reference": {
-            "definition_object_id": obj.get("id"),
+            "definition_object_id": definition_object_id,
         },
         "expected": {
             "type": obj.get("type"),
@@ -315,6 +357,33 @@ def _member_from_block_object(obj: dict[str, Any]) -> dict[str, Any]:
 
 def _same_source_snapshot(existing: dict[str, Any], source_ref: str) -> bool:
     return existing.get("source_occurrence_snapshot_ref") == source_ref
+
+
+async def _call_block_route_or_drift(
+    endpoint: str,
+    data: dict[str, Any],
+    *,
+    call_native=call_rhino,
+    port=None,
+    block_name: str,
+) -> Any:
+    try:
+        return await _call_native_data(
+            endpoint,
+            "POST",
+            data,
+            call_native=call_native,
+            port=port,
+        )
+    except DirectorActorMetadataError as ex:
+        _raise(
+            "block_definition_drift",
+            "Captured block definition is not available in the active document.",
+            block_name=block_name,
+            endpoint=endpoint,
+            upstream_code=ex.code,
+            upstream_message=ex.message,
+        )
 
 
 async def build_actor_set_from_source_occurrence_v2(
@@ -371,17 +440,25 @@ async def build_actor_set_from_source_occurrence_v2(
         key="actor_set_id",
         field_path="$.actor_set_id",
     )
-    replace_existing = bool(arguments.get("replace_existing", False))
+    replace_existing_value = arguments.get("replace_existing", False)
+    if not isinstance(replace_existing_value, bool):
+        _raise(
+            "metadata_bundle_invalid",
+            "replace_existing must be a boolean.",
+            field="replace_existing",
+            value=replace_existing_value,
+        )
+    replace_existing = replace_existing_value
     actor_ref = _actor_set_ref(actor_set_id)
     actor_path = resolve_metadata_ref(project_root, actor_ref)
     if actor_path.exists():
-        existing = load_metadata_ref(project_root, actor_ref, expected_kind=KIND_ACTOR_SET)
         if not replace_existing:
             _raise(
                 "actor_set_exists",
                 "Actor set already exists; pass replace_existing=true to overwrite.",
                 actor_set_ref=actor_ref,
             )
+        existing = load_metadata_ref(project_root, actor_ref, expected_kind=KIND_ACTOR_SET)
         if not _same_source_snapshot(existing, source_ref):
             _raise(
                 "actor_set_source_mismatch",
@@ -391,12 +468,12 @@ async def build_actor_set_from_source_occurrence_v2(
                 source_occurrence_snapshot_ref=source_ref,
             )
 
-    instances = await _call_native_data(
+    instances = await _call_block_route_or_drift(
         "/block/instances",
-        "POST",
         {"name": block_name, "depth": 0},
         call_native=call_native,
         port=port,
+        block_name=block_name,
     )
     instance_rows = instances.get("instances") if isinstance(instances, dict) else None
     if not isinstance(instance_rows, list) or not any(
@@ -409,12 +486,12 @@ async def build_actor_set_from_source_occurrence_v2(
             block_name=block_name,
         )
 
-    block_info = await _call_native_data(
+    block_info = await _call_block_route_or_drift(
         "/block/info",
-        "POST",
         {"name": block_name},
         call_native=call_native,
         port=port,
+        block_name=block_name,
     )
     if not isinstance(block_info, dict) or block_info.get("id") != block_id or block_info.get("name") != block_name:
         _raise(
@@ -442,10 +519,18 @@ async def build_actor_set_from_source_occurrence_v2(
             block_name=block_name,
         )
     members = []
+    seen_ordinals: set[int] = set()
+    seen_definition_ids: set[str] = set()
     for obj in objects:
         if not isinstance(obj, dict):
-            _raise("block_enumeration_empty", "Block object entry was not an object.")
-        members.append(_member_from_block_object(obj))
+            _raise("block_enumeration_invalid", "Block object entry was not an object.")
+        members.append(
+            _member_from_block_object(
+                obj,
+                seen_ordinals=seen_ordinals,
+                seen_definition_ids=seen_definition_ids,
+            )
+        )
 
     actor_set = {
         "actor_set_id": actor_set_id,
@@ -553,6 +638,70 @@ def test_build_actor_set_rejects_non_tight_bbox(tmp_path):
     assert _error_code(exc) == "tight_bbox_unavailable"
 
 
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda obj: obj.pop("index"),
+        lambda obj: obj.update({"index": -1}),
+        lambda obj: obj.update({"index": "0"}),
+        lambda obj: obj.pop("id"),
+    ],
+)
+def test_build_actor_set_rejects_invalid_member_identity(tmp_path, mutate):
+    model = tmp_path / "scene.3dm"
+    obj = {
+        "index": 0,
+        "id": "11111111-1111-1111-1111-111111111111",
+        "type": "Brep",
+        "layer": "L",
+        "name": "",
+        "bboxMethod": "tight_object",
+        "bbox": {"min": [0, 0, 0], "max": [1, 1, 1]},
+    }
+    mutate(obj)
+    _write_snapshot(tmp_path)
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(metadata.build_actor_set_from_source_occurrence_v2(
+            {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+            call_native=FakeActorSetBuilderNative(model, objects=[obj]),
+        ))
+    assert _error_code(exc) == "block_enumeration_invalid"
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("index", 0), ("id", "11111111-1111-1111-1111-111111111111")],
+)
+def test_build_actor_set_rejects_duplicate_member_identity(tmp_path, field, value):
+    model = tmp_path / "scene.3dm"
+    a = {
+        "index": 0,
+        "id": "11111111-1111-1111-1111-111111111111",
+        "type": "Brep",
+        "layer": "L",
+        "name": "",
+        "bboxMethod": "tight_object",
+        "bbox": {"min": [0, 0, 0], "max": [1, 1, 1]},
+    }
+    b = {
+        "index": 1,
+        "id": "22222222-2222-2222-2222-222222222222",
+        "type": "Brep",
+        "layer": "L",
+        "name": "",
+        "bboxMethod": "tight_object",
+        "bbox": {"min": [2, 2, 2], "max": [3, 3, 3]},
+    }
+    b[field] = value
+    _write_snapshot(tmp_path)
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(metadata.build_actor_set_from_source_occurrence_v2(
+            {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+            call_native=FakeActorSetBuilderNative(model, objects=[a, b]),
+        ))
+    assert _error_code(exc) == "block_enumeration_invalid"
+
+
 def test_build_actor_set_existing_ref_fails_without_replace(tmp_path):
     result = _build_actor_set(tmp_path)
     model = tmp_path / "scene.3dm"
@@ -562,6 +711,22 @@ def test_build_actor_set_existing_ref_fails_without_replace(tmp_path):
             call_native=FakeActorSetBuilderNative(model),
         ))
     assert result["actor_set_ref"].endswith("source_occurrence_roof.json")
+    assert _error_code(exc) == "actor_set_exists"
+
+
+def test_build_actor_set_existing_corrupt_ref_still_fails_actor_set_exists_without_replace(tmp_path):
+    _build_actor_set(tmp_path)
+    actor_path = metadata.resolve_metadata_ref(
+        tmp_path,
+        ".rook/director_planning/actor_sets/source_occurrence_roof.json",
+    )
+    actor_path.write_text("{not-json", encoding="utf-8")
+    model = tmp_path / "scene.3dm"
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(metadata.build_actor_set_from_source_occurrence_v2(
+            {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+            call_native=FakeActorSetBuilderNative(model),
+        ))
     assert _error_code(exc) == "actor_set_exists"
 
 
@@ -588,6 +753,17 @@ def test_build_actor_set_replace_existing_different_source_fails(tmp_path):
     assert _error_code(exc) == "actor_set_source_mismatch"
 
 
+def test_build_actor_set_rejects_non_bool_replace_existing(tmp_path):
+    model = tmp_path / "scene.3dm"
+    _write_snapshot(tmp_path)
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(metadata.build_actor_set_from_source_occurrence_v2(
+            {"source_occurrence_snapshot_ref": SNAPSHOT_REF, "replace_existing": "false"},
+            call_native=FakeActorSetBuilderNative(model),
+        ))
+    assert _error_code(exc) == "metadata_bundle_invalid"
+
+
 def test_build_actor_set_rejects_missing_source_instance(tmp_path):
     model = tmp_path / "scene.3dm"
     _write_snapshot(tmp_path)
@@ -606,6 +782,18 @@ def test_build_actor_set_rejects_block_definition_drift(tmp_path):
         asyncio.run(metadata.build_actor_set_from_source_occurrence_v2(
             {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
             call_native=FakeActorSetBuilderNative(model, block_info={"id": "different", "name": BLOCK_NAME}),
+        ))
+    assert _error_code(exc) == "block_definition_drift"
+
+
+@pytest.mark.parametrize("kwargs", [{"fail_instances": True}, {"fail_info": True}])
+def test_build_actor_set_translates_missing_block_route_failure_to_drift(tmp_path, kwargs):
+    model = tmp_path / "scene.3dm"
+    _write_snapshot(tmp_path)
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(metadata.build_actor_set_from_source_occurrence_v2(
+            {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+            call_native=FakeActorSetBuilderNative(model, **kwargs),
         ))
     assert _error_code(exc) == "block_definition_drift"
 
@@ -660,7 +848,9 @@ Modify `test_actor_metadata_v2_tools_registered` in `mcp_server/tests/test_direc
     assert "rhino_director_build_actor_set_from_source_occurrence_v2" in by_name
 ```
 
-Add it to the `for name in {...}` set in that test. Modify `test_actor_metadata_v2_tools_are_in_director_group` to assert the new tool is in `TOOL_GROUPS["director"]`; this assertion will stay RED until Task 3, so do not run that test in this task's initial RED command.
+Add it to the `for name in {...}` set in that test. Do **not** modify
+`test_actor_metadata_v2_tools_are_in_director_group` in this task; group membership belongs to
+Task 3 so every stop-for-review commit has a green covering set.
 
 Append dispatch tests:
 

@@ -58,7 +58,7 @@ authoring phase, emitting the v2 authoring schema instead of a per-take manifest
 |---|---|---|---|
 | `source_occurrence_snapshot_ref` | string (`.rook/...` ref) | yes | Must resolve to a `director_selection_snapshot` whose `source_occurrences` has length `1` and whose single source occurrence is a block instance. |
 | `actor_set_id` | string | no | Safe filename segment. **Default = the snapshot's `snapshot_id`** (already validated as a safe filename segment by capture). Caller may override with a semantic name. |
-| `replace_existing` | bool | no (default `false`) | When `false`, fail if the target actor-set ref already exists. When `true`, overwrite **only if** the existing file's `source_occurrence_snapshot_ref` equals this call's. |
+| `replace_existing` | bool | no (default `false`) | Must be a real boolean, not a truthy string. When `false`, fail if the target actor-set ref already exists. When `true`, overwrite **only if** the existing file's `source_occurrence_snapshot_ref` equals this call's. |
 
 **Algorithm:**
 1. Resolve active project root via `resolve_active_project_root` (raises `document_path_required`
@@ -82,7 +82,9 @@ authoring phase, emitting the v2 authoring schema instead of a per-take manifest
      snapshot's `block_definition` (else `block_definition_drift`).
 4. Enumerate the block definition's direct objects via `/block/objects-detailed` (native
    `BlocksHandler.cpp:3457`). The route skips geometry-less objects and returns the def-table
-   `index` per object (see §8). Empty result → `block_enumeration_empty`.
+   `index` per object (see §8). Empty result → `block_enumeration_empty`. Malformed member
+   identity from the route (missing/non-integer/negative `index`, missing `id`, duplicate
+   `index`, duplicate definition object id) → `block_enumeration_invalid`.
 5. Build members (schema §5). Require tight bbox for every member (`bboxMethod == "tight_object"`);
    any `loose_fallback` / `unavailable` → fail typed `tight_bbox_unavailable` (mirrors
    `package_take` DEC-021, `director_take_package.py:160`).
@@ -194,8 +196,10 @@ invent parallel names:
 
 New codes for genuinely-new conditions: `snapshot_not_single_source`, `snapshot_source_mismatch`,
 `snapshot_source_not_block`, `source_occurrence_missing_in_document` (drift),
-`block_definition_drift` (id/name mismatch), `block_enumeration_empty` (zero surviving objects),
-`tight_bbox_unavailable`, `actor_set_exists`, `actor_set_source_mismatch`.
+`block_definition_drift` (id/name mismatch or route-level missing/renamed block failure),
+`block_enumeration_empty` (zero surviving objects), `block_enumeration_invalid` (malformed or
+duplicate member identity from `/block/objects-detailed`), `tight_bbox_unavailable`,
+`actor_set_exists`, `actor_set_source_mismatch`.
 
 ## 11. Exposure / classification
 
@@ -221,17 +225,22 @@ Unit tests (mock native, per the sibling `test_director_actor_metadata.py` patte
 4. Mismatched `source_occurrence` convenience field vs `source_occurrences[0]` →
    `snapshot_source_mismatch`.
 5. Zero enumerated objects → `block_enumeration_empty`.
-6. Loose / missing bbox (`bboxMethod != "tight_object"`) → `tight_bbox_unavailable`.
-7. Existing actor set, `replace_existing=false` → `actor_set_exists`.
-8. `replace_existing=true`, same snapshot ref → overwrite succeeds.
-9. `replace_existing=true`, different snapshot ref → `actor_set_source_mismatch`.
-10. **Drift** — snapshot block def id/name ≠ live `/block/info` → `block_definition_drift`;
+6. Missing/non-integer/negative `index`, missing definition object id, duplicate ordinal, or
+   duplicate definition object id → `block_enumeration_invalid`.
+7. Loose / missing bbox (`bboxMethod != "tight_object"`) → `tight_bbox_unavailable`.
+8. Existing actor set, `replace_existing=false` → `actor_set_exists` even if the existing file is
+   corrupt or wrong-kind.
+9. `replace_existing=true`, same snapshot ref → overwrite succeeds.
+10. `replace_existing=true`, different snapshot ref → `actor_set_source_mismatch`.
+11. Non-boolean `replace_existing` such as `"false"` → `metadata_bundle_invalid`.
+12. **Drift** — snapshot block def id/name ≠ live `/block/info`, or native `/block/instances` /
+   `/block/info` reports the captured block name missing → `block_definition_drift`;
    source occurrence absent from doc → `source_occurrence_missing_in_document`.
-11. Unsaved / no active document → `document_path_required`.
-12. Schema assertion — emitted member has `ordinal` + `resolved_reference.definition_object_id`
+13. Unsaved / no active document → `document_path_required`.
+14. Schema assertion — emitted member has `ordinal` + `resolved_reference.definition_object_id`
     and **no** `actor_member_id`, `definition_object_index`, `current_reference`,
     `observed_selection`.
-13. MCP exposure — tool present, classified mutating, in both targeting + profile surfaces.
+15. MCP exposure — tool present, classified mutating, in both targeting + profile surfaces.
 
 ## 13. Resolved code facts (verified this session)
 
