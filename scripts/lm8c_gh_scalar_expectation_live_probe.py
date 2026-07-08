@@ -308,12 +308,17 @@ def _tool_data(result: Any) -> Any:
 
 
 def _tool_field(result: Any, *names: str) -> Any:
-    payload = _tool_data(result)
-    if not isinstance(payload, Mapping):
+    if not isinstance(result, Mapping):
         return None
     for name in names:
-        if name in payload:
-            return payload[name]
+        if name in result:
+            return result[name]
+    data = result.get("data")
+    if not isinstance(data, Mapping):
+        return None
+    for name in names:
+        if name in data:
+            return data[name]
     return None
 
 
@@ -342,6 +347,8 @@ async def _create_scalar_fixture(
     create_result = await tool_executor("gh_create_slider", create_args)
     if _tool_result_failed(create_result):
         raise ValueError("gh_create_slider_failed")
+    if _tool_field(create_result, "created", "Created") is not True:
+        raise ValueError("gh_create_slider_failed")
     component_guid = _guid_from_result(create_result)
 
     get_result = await tool_executor("gh_get_value", {"guid": component_guid})
@@ -360,7 +367,7 @@ async def _create_scalar_fixture(
     receipt = {
         "observed_output_value": observed,
         "scalar_anchor": {
-            "component_guid": component_guid,
+            "internal_component_guid": component_guid,
             "editable_value_contract": dict(editable_contract),
         },
     }

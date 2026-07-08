@@ -304,7 +304,10 @@ def test_create_scalar_fixture_uses_direct_slider_tools_and_hashes_guid() -> Non
     ]
     assert fixture["component_guid"] == "SLIDER-GUID-1"
     assert fixture["observed_output_value"] == 0.0
-    assert fixture["receipt"]["scalar_anchor"]["component_guid"] == "SLIDER-GUID-1"
+    assert (
+        fixture["receipt"]["scalar_anchor"]["internal_component_guid"]
+        == "SLIDER-GUID-1"
+    )
     assert "component_guid" not in fixture["receipt"]["scalar_anchor"][
         "editable_value_contract"
     ]
@@ -313,6 +316,85 @@ def test_create_scalar_fixture_uses_direct_slider_tools_and_hashes_guid() -> Non
     assert fixture["live_create_scalar_summary"]["component_guid"] == "SLIDER-GUID-1"
     assert fixture["live_create_scalar_summary"]["component_guid_sha256"].startswith(
         "sha256:"
+    )
+
+
+def test_guid_from_result_prefers_top_level_field_in_mixed_envelope() -> None:
+    result = {"success": True, "guid": "TOP", "data": {"Guid": "NESTED"}}
+
+    assert PROBE._guid_from_result(result) == "TOP"
+
+
+def test_tool_field_prefers_top_level_value_in_mixed_envelope() -> None:
+    result = {"success": True, "value": "TOP", "data": {"Value": "NESTED"}}
+
+    assert PROBE._tool_field(result, "value", "Value") == "TOP"
+
+
+def test_create_scalar_fixture_rejects_nested_created_false_even_with_guid() -> None:
+    executor = FakeToolExecutor(
+        {
+            "gh_create_slider": {
+                "success": True,
+                "data": {"Created": False, "Guid": "SLIDER-GUID-1"},
+            },
+            "gh_get_value": {
+                "success": True,
+                "data": {"Guid": "SLIDER-GUID-1", "Value": 0},
+            },
+        }
+    )
+
+    with pytest.raises(ValueError, match="gh_create_slider_failed"):
+        _run(PROBE._create_scalar_fixture(executor))
+
+    assert executor.calls == [
+        (
+            "gh_create_slider",
+            {
+                "nickname": "LM8C_Target",
+                "min": 0,
+                "max": 10,
+                "value": 0.0,
+                "x": 20,
+                "y": 80,
+            },
+        )
+    ]
+
+
+def test_fixture_receipt_raw_guid_is_internal_only() -> None:
+    executor = FakeToolExecutor(
+        {
+            "gh_create_slider": {
+                "success": True,
+                "data": {
+                    "Created": True,
+                    "Guid": "INTERNAL-SLIDER-GUID",
+                },
+            },
+            "gh_get_value": {
+                "success": True,
+                "data": {
+                    "Guid": "INTERNAL-SLIDER-GUID",
+                    "Value": 0,
+                },
+            },
+        }
+    )
+
+    fixture = _run(PROBE._create_scalar_fixture(executor))
+
+    internal_anchor = fixture["receipt"]["scalar_anchor"]
+    visible_anchor = fixture["visible_receipt"]["scalar_anchor"]
+    assert internal_anchor["internal_component_guid"] == "INTERNAL-SLIDER-GUID"
+    assert "component_guid" not in internal_anchor
+    assert "internal_component_guid" not in visible_anchor
+    assert "component_guid" not in visible_anchor
+    assert visible_anchor["guid_present"] is True
+    assert visible_anchor["component_guid_sha256"].startswith("sha256:")
+    assert "INTERNAL-SLIDER-GUID" not in json.dumps(
+        fixture["visible_receipt"], sort_keys=True
     )
 
 
