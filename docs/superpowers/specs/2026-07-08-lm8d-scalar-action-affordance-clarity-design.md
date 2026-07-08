@@ -285,7 +285,7 @@ Suggested focused verification:
   mcp_server\tests\test_lm8c_gh_scalar_expectation_live_probe.py `
   mcp_server\tests\test_gh_scalar_expectation_acceptance_criteria.py `
   mcp_server\tests\test_gh_scalar_expectation_sources.py `
-  mcp_server\tests\test_plan_graph_gh_scalar_action_apply.py `
+  mcp_server\tests\test_plan_graph_gh_scalar_value_apply.py `
   mcp_server\tests\test_lm_worker_two_pass_publication.py `
   -q
 
