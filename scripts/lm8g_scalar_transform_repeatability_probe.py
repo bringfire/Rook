@@ -157,7 +157,7 @@ def _base_attempt_row(*, attempt_index: int) -> dict[str, Any]:
 
 
 def _discover_child_run_dirs(lm8f_runs_dir: Path, before: set[Path]) -> list[Path]:
-    after = set(lm8f_runs_dir.glob("lm8f-*"))
+    after = {path for path in lm8f_runs_dir.glob("lm8f-*") if path.is_dir()}
     created = sorted(after - before, key=lambda path: path.stat().st_mtime)
     return created
 
@@ -227,6 +227,14 @@ def _copy_decision_metadata(row: dict[str, Any], decision: Mapping[str, Any]) ->
         row["observed_output_after"] = observed
 
 
+def _copy_decision_identity(row: dict[str, Any], decision: Mapping[str, Any]) -> None:
+    decision_value = decision.get("decision")
+    reason_value = decision.get("reason")
+    row["lm8f_decision"] = decision_value if isinstance(decision_value, str) else None
+    row["lm8f_reason"] = reason_value if isinstance(reason_value, str) else None
+    _copy_decision_metadata(row, decision)
+
+
 def _row_from_completed_lm8f(
     *,
     attempt_index: int,
@@ -245,6 +253,10 @@ def _row_from_completed_lm8f(
         }
     )
     if completed.returncode != 0:
+        if child_run_dir is not None:
+            decision, read_error = _read_decision(child_run_dir / "decision.json")
+            if read_error is None and decision is not None:
+                _copy_decision_identity(row, decision)
         row["terminal_category"] = "wrapper_error"
         row["failure_reason"] = f"lm8f_nonzero_returncode:{completed.returncode}"
         row["child_run_dir_error"] = child_error
@@ -265,11 +277,7 @@ def _row_from_completed_lm8f(
     terminal_category, failure_reason = _classify_decision(decision)
     row["terminal_category"] = terminal_category
     row["failure_reason"] = failure_reason
-    decision_value = decision.get("decision")
-    reason_value = decision.get("reason")
-    row["lm8f_decision"] = decision_value if isinstance(decision_value, str) else None
-    row["lm8f_reason"] = reason_value if isinstance(reason_value, str) else None
-    _copy_decision_metadata(row, decision)
+    _copy_decision_identity(row, decision)
     return row
 
 

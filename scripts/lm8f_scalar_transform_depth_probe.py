@@ -161,9 +161,20 @@ def _git_short_sha() -> str:
 
 def _new_run_dir(run_root: str | Path) -> Path:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_dir = Path(run_root) / f"lm8f-{timestamp}-{_git_short_sha()}"
-    run_dir.mkdir(parents=True, exist_ok=False)
-    return run_dir
+    base_dir = Path(run_root) / f"lm8f-{timestamp}-{_git_short_sha()}"
+    suffix = 0
+    while True:
+        run_dir = (
+            base_dir
+            if suffix == 0
+            else base_dir.parent / f"{base_dir.name}-{suffix:03d}"
+        )
+        try:
+            run_dir.mkdir(parents=True, exist_ok=False)
+        except FileExistsError:
+            suffix += 1
+            continue
+        return run_dir
 
 
 def _fingerprint_json(value: Any) -> str:

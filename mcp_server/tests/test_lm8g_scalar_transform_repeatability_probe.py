@@ -122,6 +122,8 @@ def test_discover_child_run_dirs_uses_filesystem_delta(tmp_path: Path):
     runs_dir.mkdir()
     existing = runs_dir / "lm8f-existing"
     existing.mkdir()
+    ignored_file = runs_dir / "lm8f-file"
+    ignored_file.write_text("not a run dir", encoding="utf-8")
     before = set(runs_dir.glob("lm8f-*"))
     child = runs_dir / "lm8f-new"
     child.mkdir()
@@ -233,7 +235,19 @@ def test_row_from_completed_accepted_lm8f_child(tmp_path: Path):
 
 def test_row_from_completed_nonzero_returncode_is_wrapper_error(tmp_path: Path):
     child = tmp_path / "lm8f-child"
-    _write_child_decision(child, {"decision": "accepted"})
+    _write_child_decision(
+        child,
+        {
+            "decision": "accepted",
+            "reason": "verify_scalar_output_succeeded",
+            "worker_publication_ran": True,
+            "live_fixture_created": True,
+            "live_set_value_dispatched": True,
+            "verify_scalar_output_ran": True,
+            "scalar_runtime_ready": True,
+            "observed_output_after": 7.5,
+        },
+    )
     completed = subprocess.CompletedProcess(
         args=["python"],
         returncode=2,
@@ -251,6 +265,13 @@ def test_row_from_completed_nonzero_returncode_is_wrapper_error(tmp_path: Path):
     assert row["failure_reason"] == "lm8f_nonzero_returncode:2"
     assert row["child_run_dir_error"] is None
     assert row["lm8f_run_dir"] == str(child)
+    assert row["lm8f_decision"] == "accepted"
+    assert row["lm8f_reason"] == "verify_scalar_output_succeeded"
+    assert row["worker_publication_ran"] is True
+    assert row["live_set_value_dispatched"] is True
+    assert row["verify_scalar_output_ran"] is True
+    assert row["scalar_runtime_ready"] is True
+    assert row["observed_output_after"] == 7.5
     assert row["stdout_excerpt"] == "partial stdout"
     assert row["stderr_excerpt"] == "partial stderr"
 
