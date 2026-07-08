@@ -93,6 +93,22 @@ HIDDEN_MARKER_SCAN_TERMS = (
     "BindStepSpec.base_params",
     "repair_same_component.bind.base_params",
 )
+PLANNER_MARKER_SCAN_KEYS = frozenset(
+    {
+        "planner_model_output_excerpt",
+        "planner_request",
+        "planner_request.json",
+        "resolved_source_routing",
+        "resolved_source_routing.json",
+        "workflow_contract_summary",
+        "workflow_contract_summary.json",
+        "planner_authoring_prompt",
+        "template_menu",
+        "intent_complete_brief",
+        "intent_incomplete_brief",
+        "prompts",
+    }
+)
 DECISIONS = {
     "accepted",
     "rejected",
@@ -176,7 +192,7 @@ def _contains_marker_value(value: Any) -> bool:
 def _planner_marker_matches_in_metadata(value: Any) -> list[str]:
     matches: list[str] = []
 
-    def scan(current: Any) -> None:
+    def scan(current: Any, *, allow_scan: bool = False) -> None:
         if isinstance(current, Mapping):
             for key, nested in current.items():
                 key_text = str(key)
@@ -184,11 +200,18 @@ def _planner_marker_matches_in_metadata(value: Any) -> list[str]:
                     continue
                 if key_text == "worker_action.json":
                     continue
-                scan(nested)
+                scan(
+                    nested,
+                    allow_scan=allow_scan or key_text in PLANNER_MARKER_SCAN_KEYS,
+                )
             return
         if isinstance(current, (list, tuple)):
+            if not allow_scan:
+                return
             for nested in current:
-                scan(nested)
+                scan(nested, allow_scan=True)
+            return
+        if not allow_scan:
             return
 
         text = json.dumps(current, sort_keys=True, default=str)
@@ -201,7 +224,7 @@ def _planner_marker_matches_in_metadata(value: Any) -> list[str]:
 
 
 def _parsed_request_has_planner_markers(payload: Mapping[str, Any]) -> bool:
-    return bool(_planner_marker_matches_in_metadata(payload))
+    return _contains_marker_value(payload)
 
 
 def _canonical_evidence_is_valid(args: argparse.Namespace) -> bool:

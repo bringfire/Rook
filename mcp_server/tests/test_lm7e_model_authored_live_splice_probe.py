@@ -511,6 +511,42 @@ def test_planner_marker_scan_excludes_worker_action_fields() -> None:
     assert PROBE._planner_marker_matches_in_metadata(decision) == []
 
 
+def test_planner_marker_scan_ignores_unrelated_non_worker_metadata() -> None:
+    decision = {
+        "notes": "A = 0.0;",
+        "planner_model_output_excerpt": "{}",
+    }
+
+    assert PROBE._planner_marker_matches_in_metadata(decision) == []
+
+
+def test_planner_marker_scan_catches_allowed_planner_excerpt_marker() -> None:
+    decision = {
+        "planner_model_output_excerpt": "candidate included A = 0.0;",
+    }
+
+    assert PROBE._planner_marker_matches_in_metadata(decision) == ["A = 0.0"]
+
+
+def test_planner_marker_scan_catches_allowed_workflow_summary_marker() -> None:
+    decision = {
+        "workflow_contract_summary": {
+            "warning": "repair_same_component.bind.base_params should not appear",
+        }
+    }
+
+    assert PROBE._planner_marker_matches_in_metadata(decision) == [
+        "repair_same_component.bind.base_params"
+    ]
+
+
+def test_parsed_request_marker_scan_remains_fail_closed() -> None:
+    request = _valid_incomplete_request()
+    request["notes"] = "A = 0.0;"
+
+    assert PROBE._parsed_request_has_planner_markers(request) is True
+
+
 def test_lm7e_prompt_artifacts_match_lm7d_shape_guidance(tmp_path: Path) -> None:
     PROBE.write_prompt_artifacts(
         tmp_path,
