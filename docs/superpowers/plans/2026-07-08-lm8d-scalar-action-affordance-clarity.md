@@ -322,7 +322,7 @@ Run:
   mcp_server\tests\test_lm8c_gh_scalar_expectation_live_probe.py `
   mcp_server\tests\test_gh_scalar_expectation_acceptance_criteria.py `
   mcp_server\tests\test_gh_scalar_expectation_sources.py `
-  mcp_server\tests\test_plan_graph_gh_scalar_action_apply.py `
+  mcp_server\tests\test_plan_graph_gh_scalar_value_apply.py `
   mcp_server\tests\test_lm_worker_two_pass_publication.py `
   -q
 ```
@@ -385,27 +385,64 @@ Run:
 ```powershell
 Select-String -Path scripts\lm8c_gh_scalar_expectation_live_probe.py `
   -SimpleMatch `
-  -Pattern "_worker_request_payload","lm6a_live_worker_splice_probe","lm7e_model_authored_live_splice_probe","gh_update_script","repair_same_component","retry_clean_observation","gh_edit("
+  -Pattern "_worker_request_payload","lm6a_live_worker_splice_probe","lm7e_model_authored_live_splice_probe","gh_update_script","retry_clean_observation","gh_edit("
 ```
 
-Expected: no matches. The string `gh_edit_enabled` may appear in the manifest and is allowed; do not use a raw ban for plain `gh_edit`.
+Expected: no matches.
+
+Then run targeted allowlist scans for strings that may appear as policy data
+but must not become real coupling:
+
+```powershell
+$repairMatches = Select-String `
+  -Path scripts\lm8c_gh_scalar_expectation_live_probe.py `
+  -SimpleMatch `
+  -Pattern "repair_same_component"
+$unexpectedRepair = $repairMatches | Where-Object {
+  $_.Line -notmatch '"repair_same_component\.bind\.base_params"'
+}
+if ($unexpectedRepair) {
+  $unexpectedRepair
+  exit 1
+}
+
+$ghEditMatches = Select-String `
+  -Path scripts\lm8c_gh_scalar_expectation_live_probe.py `
+  -SimpleMatch `
+  -Pattern "gh_edit"
+$unexpectedGhEdit = $ghEditMatches | Where-Object {
+  $_.Line -notmatch '"gh_edit_enabled"'
+}
+if ($unexpectedGhEdit) {
+  $unexpectedGhEdit
+  exit 1
+}
+```
+
+Expected: exit code 0. `repair_same_component.bind.base_params` is allowed
+only as hidden-marker policy data. `gh_edit_enabled` is allowed only as a
+manifest policy field.
 
 Also verify the policy strings remain only scalar affordance / guard data:
 
 ```powershell
 Select-String -Path scripts\lm8c_gh_scalar_expectation_live_probe.py `
-  -Pattern "PROBE_REPAIR_CODE","A = 42.0","BindStepSpec.base_params"
+  -Pattern "PROBE_REPAIR_CODE","A = 42.0","BindStepSpec.base_params","repair_same_component.bind.base_params"
 ```
 
 Expected: matches only inside `_hidden_marker_leaks(...)` policy data.
 
 - [ ] **Step 6: Commit Task 2 only if verification docs or tests changed**
 
-If Task 2 required no edits, do not create an empty commit. If a test adjustment was needed, commit only that adjustment:
+If Task 2 required no edits, do not create an empty commit. If a verification
+doc or test adjustment was needed, commit only that adjustment:
 
 ```powershell
-git add mcp_server\tests\test_lm8c_gh_scalar_expectation_live_probe.py
-git commit -m "test: guard LM8D scalar affordance drift"
+git add `
+  docs\superpowers\plans\2026-07-08-lm8d-scalar-action-affordance-clarity.md `
+  mcp_server\tests\test_lm8c_gh_scalar_expectation_live_probe.py
+
+git commit -m "docs: fix LM8D verification commands"
 ```
 
 ---
