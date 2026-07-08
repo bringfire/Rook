@@ -223,6 +223,14 @@ def _planner_marker_matches_in_metadata(value: Any) -> list[str]:
     return matches
 
 
+def _planner_marker_metadata(value: Any | None = None) -> dict[str, Any]:
+    matches = sorted(_planner_marker_matches_in_metadata({} if value is None else value))
+    return {
+        "planner_marker_matches": matches,
+        "planner_marker_match_count": len(matches),
+    }
+
+
 def _parsed_request_has_planner_markers(payload: Mapping[str, Any]) -> bool:
     return _contains_marker_value(payload)
 
@@ -279,6 +287,7 @@ def _decision_record(
     workflow_validate_report_fingerprint: str | None,
     live_rhino_work_started: bool,
     worker_publication_ran: bool,
+    planner_marker_metadata: Mapping[str, Any] | None = None,
     extra: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     if decision not in DECISIONS:
@@ -303,6 +312,7 @@ def _decision_record(
         "live_repair_dispatched": False,
         "verify_repair_ran": False,
     }
+    record.update(_planner_marker_metadata() if planner_marker_metadata is None else dict(planner_marker_metadata))
     if extra:
         record.update(dict(extra))
     return record
@@ -320,8 +330,9 @@ def _manifest(
     request_fingerprint: str | None,
     workflow_validate_report_fingerprint: str | None,
     workflow_contract_fingerprint: str | None,
+    planner_marker_metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    manifest = {
         "schema": SCRIPT_SCHEMA,
         "git_commit": _git_short_sha(),
         "planner_provider": planner_provider,
@@ -344,6 +355,12 @@ def _manifest(
         "workflow_contract_fingerprint": workflow_contract_fingerprint,
         "raw_artifacts": "local evidence under probe_runs; do not commit",
     }
+    manifest.update(
+        _planner_marker_metadata()
+        if planner_marker_metadata is None
+        else dict(planner_marker_metadata)
+    )
+    return manifest
 
 
 def _value_shape(value: Any) -> dict[str, Any]:
@@ -462,6 +479,7 @@ def _wrapped_worker_decision(
     output_excerpt: str,
     request_fingerprint: str,
     workflow_validate_report_fingerprint: str,
+    planner_marker_metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     return _decision_record(
         decision=str(worker_decision["decision"]),
@@ -478,6 +496,7 @@ def _wrapped_worker_decision(
         workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
         live_rhino_work_started=True,
         worker_publication_ran=True,
+        planner_marker_metadata=planner_marker_metadata,
         extra={
             key: value
             for key, value in worker_decision.items()
@@ -568,6 +587,10 @@ def _run_probe(
     output_sha = fingerprint_json(raw_output)
     _write_text(run_dir / "planner_model_output.txt", raw_output)
     output_excerpt = _excerpt(raw_output, output_excerpt_chars)
+    planner_marker_artifacts: dict[str, Any] = {
+        "planner_model_output_excerpt": output_excerpt,
+    }
+    planner_marker_metadata = _planner_marker_metadata(planner_marker_artifacts)
 
     parsed = strict_parse_model_output(raw_output)
     if parsed.parse_status != PARSE_PARSED or parsed.payload is None:
@@ -584,6 +607,7 @@ def _run_probe(
                 request_fingerprint=None,
                 workflow_validate_report_fingerprint=None,
                 workflow_contract_fingerprint=None,
+                planner_marker_metadata=planner_marker_metadata,
             ),
         )
         _write_json(
@@ -603,12 +627,15 @@ def _run_probe(
                 workflow_validate_report_fingerprint=None,
                 live_rhino_work_started=False,
                 worker_publication_ran=False,
+                planner_marker_metadata=planner_marker_metadata,
                 extra={"planner_parse_failure_reason": parsed.failure_reason},
             ),
         )
         return run_dir
 
     planner_request = parsed.payload
+    planner_marker_artifacts["planner_request"] = planner_request
+    planner_marker_metadata = _planner_marker_metadata(planner_marker_artifacts)
     _write_json_value(run_dir / "planner_request.json", planner_request)
     request_fingerprint = fingerprint_json(planner_request)
     intent = classify_intent_decision(CANONICAL_SCENARIO, planner_request)
@@ -627,6 +654,7 @@ def _run_probe(
                 request_fingerprint=request_fingerprint,
                 workflow_validate_report_fingerprint=None,
                 workflow_contract_fingerprint=None,
+                planner_marker_metadata=planner_marker_metadata,
             ),
         )
         _write_json(
@@ -646,6 +674,7 @@ def _run_probe(
                 workflow_validate_report_fingerprint=None,
                 live_rhino_work_started=False,
                 worker_publication_ran=False,
+                planner_marker_metadata=planner_marker_metadata,
             ),
         )
         return run_dir
@@ -668,6 +697,7 @@ def _run_probe(
                 request_fingerprint=request_fingerprint,
                 workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
                 workflow_contract_fingerprint=None,
+                planner_marker_metadata=planner_marker_metadata,
             ),
         )
         _write_json(
@@ -687,6 +717,7 @@ def _run_probe(
                 workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
                 live_rhino_work_started=False,
                 worker_publication_ran=False,
+                planner_marker_metadata=planner_marker_metadata,
             ),
         )
         return run_dir
@@ -697,6 +728,8 @@ def _run_probe(
     )
     resolved_routing = materialization.resolved_routing_artifact
     worker_node_ids = tuple(materialization.worker_node_ids)
+    planner_marker_artifacts["resolved_source_routing"] = resolved_routing
+    planner_marker_metadata = _planner_marker_metadata(planner_marker_artifacts)
     _write_json_value(run_dir / "resolved_source_routing.json", resolved_routing)
     contract_summary = _workflow_contract_summary(
         template_id=str(planner_request.get("template_id")),
@@ -704,8 +737,46 @@ def _run_probe(
         workflow_contract=workflow_contract,
         worker_node_ids=worker_node_ids,
     )
+    planner_marker_artifacts["workflow_contract_summary"] = contract_summary
+    planner_marker_metadata = _planner_marker_metadata(planner_marker_artifacts)
     if _contains_marker_value(contract_summary):
-        raise RuntimeError("workflow_contract_summary_hidden_marker")
+        _write_json(
+            run_dir / "manifest.json",
+            _manifest(
+                planner_provider=planner_provider,
+                planner_model=planner_model,
+                worker_model=worker_model,
+                worker_endpoint=worker_endpoint,
+                worker_temperature=worker_temperature,
+                canonical_evidence=canonical_evidence,
+                planner_model_output_sha256=output_sha,
+                request_fingerprint=request_fingerprint,
+                workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
+                workflow_contract_fingerprint=None,
+                planner_marker_metadata=planner_marker_metadata,
+            ),
+        )
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="gate_failed",
+                reason="workflow_contract_summary_hidden_marker",
+                phase="workflow_contract_summary",
+                planner_parse_status=PARSE_PARSED,
+                planner_validation_status="workflow_validate_valid",
+                planner_intent_decision=intent.intent_decision,
+                planner_model_output_sha256=output_sha,
+                planner_model_output_excerpt=output_excerpt,
+                planner_model_output_path="planner_model_output.txt",
+                request_fingerprint=request_fingerprint,
+                workflow_validate_valid=True,
+                workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
+                live_rhino_work_started=False,
+                worker_publication_ran=False,
+                planner_marker_metadata=planner_marker_metadata,
+            ),
+        )
+        return run_dir
     _write_json_value(run_dir / "workflow_contract_summary.json", contract_summary)
     workflow_contract_fingerprint = _workflow_contract_summary_fingerprint(
         contract_summary
@@ -723,6 +794,7 @@ def _run_probe(
             request_fingerprint=request_fingerprint,
             workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
             workflow_contract_fingerprint=workflow_contract_fingerprint,
+            planner_marker_metadata=planner_marker_metadata,
         ),
     )
 
@@ -749,6 +821,7 @@ def _run_probe(
                 workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
                 live_rhino_work_started=False,
                 worker_publication_ran=False,
+                planner_marker_metadata=planner_marker_metadata,
             ),
         )
         return run_dir
@@ -771,6 +844,7 @@ def _run_probe(
                 workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
                 live_rhino_work_started=True,
                 worker_publication_ran=False,
+                planner_marker_metadata=planner_marker_metadata,
             ),
         )
         return run_dir
@@ -818,6 +892,7 @@ def _run_probe(
                 workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
                 live_rhino_work_started=True,
                 worker_publication_ran=False,
+                planner_marker_metadata=planner_marker_metadata,
                 extra={
                     "runtime_routing_valid": runtime_routing_valid,
                     "runtime_routability_evaluated": runtime_routability_evaluated,
@@ -843,6 +918,7 @@ def _run_probe(
                 workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
                 live_rhino_work_started=True,
                 worker_publication_ran=False,
+                planner_marker_metadata=planner_marker_metadata,
                 extra={
                     "runtime_routing_valid": runtime_routing_valid,
                     "runtime_routability_evaluated": runtime_routability_evaluated,
@@ -883,6 +959,7 @@ def _run_probe(
                 workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
                 live_rhino_work_started=True,
                 worker_publication_ran=True,
+                planner_marker_metadata=planner_marker_metadata,
             ),
         )
         return run_dir
@@ -903,6 +980,7 @@ def _run_probe(
                 output_excerpt=output_excerpt,
                 request_fingerprint=request_fingerprint,
                 workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
+                planner_marker_metadata=planner_marker_metadata,
             ),
         )
         return run_dir
@@ -936,6 +1014,7 @@ def _run_probe(
                 output_excerpt=output_excerpt,
                 request_fingerprint=request_fingerprint,
                 workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
+                planner_marker_metadata=planner_marker_metadata,
             ),
         )
         return run_dir
@@ -957,6 +1036,7 @@ def _run_probe(
             output_excerpt=output_excerpt,
             request_fingerprint=request_fingerprint,
             workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
+            planner_marker_metadata=planner_marker_metadata,
         ),
     )
     return run_dir

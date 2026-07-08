@@ -239,6 +239,36 @@ def test_parse_failure_writes_raw_output_and_no_request_or_live(tmp_path: Path) 
     assert live_called is False
 
 
+def test_parse_failure_records_planner_marker_metadata_from_raw_output(
+    tmp_path: Path,
+) -> None:
+    run_dir = PROBE._run_probe(
+        planner_provider="codex-cli-chatgpt",
+        planner_model="gpt-5.5",
+        planner_provider_command="unused",
+        planner_provider_timeout_s=1,
+        worker_model="gemma4:12b-it-qat",
+        worker_endpoint="http://localhost:11434/api/chat",
+        worker_temperature=0,
+        worker_timeout_s=120,
+        output_excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        call_provider=lambda _payload: "planner leaked A = 0.0 before valid JSON",
+        agent=object(),
+    )
+
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    decision = json.loads((run_dir / "decision.json").read_text())
+
+    assert decision["decision"] == "rejected_by_validate"
+    assert decision["reason"] == "planner_parse_failed"
+    assert decision["planner_marker_matches"] == ["A = 0.0"]
+    assert decision["planner_marker_match_count"] == 1
+    assert manifest["planner_marker_matches"] == ["A = 0.0"]
+    assert manifest["planner_marker_match_count"] == 1
+
+
 def test_provider_failure_writes_decision_and_stops_before_request_or_validate(
     tmp_path: Path,
 ) -> None:
@@ -419,6 +449,58 @@ def test_valid_request_writes_resolved_routing_and_bounded_contract_summary(
         assert marker not in rendered_summary
     assert decision["decision"] == "gate_failed"
     assert decision["reason"] == "runtime_not_implemented"
+
+
+def test_workflow_contract_summary_hidden_marker_writes_gate_failed_decision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    live_called = False
+
+    def fake_live_create(**_kwargs):
+        nonlocal live_called
+        live_called = True
+        raise AssertionError("live work should not start")
+
+    monkeypatch.setattr(
+        PROBE,
+        "_run_live_create_and_verify",
+        fake_live_create,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "_workflow_contract_summary",
+        lambda **_kwargs: {
+            "warning": "repair_same_component.bind.base_params should not appear",
+        },
+        raising=False,
+    )
+
+    run_dir = PROBE._run_probe(
+        planner_provider="codex-cli-chatgpt",
+        planner_model="gpt-5.5",
+        planner_provider_command="unused",
+        planner_provider_timeout_s=1,
+        worker_model="gemma4:12b-it-qat",
+        worker_endpoint="http://localhost:11434/api/chat",
+        worker_temperature=0,
+        worker_timeout_s=120,
+        output_excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        call_provider=lambda _payload: json.dumps(_valid_incomplete_request()),
+        agent=object(),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+
+    assert decision["decision"] == "gate_failed"
+    assert decision["reason"] == "workflow_contract_summary_hidden_marker"
+    assert decision["live_rhino_work_started"] is False
+    assert decision["worker_publication_ran"] is False
+    assert live_called is False
+    assert not (run_dir / "worker_action.json").exists()
 
 
 def test_workflow_contract_summary_reports_worker_bind_step_presence_without_base_params() -> None:
@@ -848,4 +930,6 @@ def test_worker_action_apply_rejection_writes_rejected(
     assert decision["verify_repair_ran"] is False
     assert (run_dir / "worker_publication_row.json").exists()
     assert (run_dir / "worker_action.json").exists()
+    assert decision["planner_marker_matches"] == []
+    assert decision["planner_marker_match_count"] == 0
     _assert_valid_planner_metadata(decision)
