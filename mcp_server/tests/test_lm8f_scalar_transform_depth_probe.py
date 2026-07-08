@@ -1000,3 +1000,120 @@ def test_run_probe_artifacts_keep_raw_guid_out_of_source_request_decision_and_ve
     assert "EDITABLE-GUID-1" in (
         run_dir / "live_set_value_summary.json"
     ).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("responses", "expected_reason", "expected_step", "expected_tool"),
+    [
+        (
+            {
+                **_fixture_responses_for_success(),
+                "gh_library": {"success": False, "data": "library offline"},
+            },
+            "transform_fixture_failed:gh_library_failed",
+            "gh_library",
+            "gh_library",
+        ),
+        (
+            {
+                **_fixture_responses_for_success(),
+                "gh_create_slider": [
+                    {"success": False, "data": "slider failed"},
+                ],
+            },
+            "transform_fixture_failed:gh_create_editable_slider_failed",
+            "gh_create_editable_slider",
+            "gh_create_slider",
+        ),
+        (
+            {
+                **_fixture_responses_for_success(),
+                "gh_create_component": {
+                    "success": True,
+                    "data": {"Created": True},
+                },
+            },
+            "transform_fixture_failed:tool_result_guid_missing",
+            "gh_create_addition",
+            "gh_create_component",
+        ),
+        (
+            {
+                **_fixture_responses_for_success(),
+                "gh_connect": [
+                    {"success": False, "data": "connect failed"},
+                ],
+            },
+            "transform_fixture_failed:gh_connect_editable_failed",
+            "gh_connect_editable",
+            "gh_connect",
+        ),
+        (
+            {
+                **_fixture_responses_for_success(),
+                "gh_get_value": {"success": False, "data": "value unavailable"},
+            },
+            "transform_fixture_failed:gh_get_value_failed",
+            "gh_get_value",
+            "gh_get_value",
+        ),
+        (
+            {
+                **_fixture_responses_for_success(),
+                "gh_inspect_output": [
+                    {"success": False, "data": "inspect failed"},
+                ],
+            },
+            "transform_fixture_failed:inspect_output_scalar_result_failed",
+            "gh_inspect_output",
+            "gh_inspect_output",
+        ),
+    ],
+)
+def test_run_probe_writes_bounded_fixture_failure_summary_for_setup_failures(
+    tmp_path, responses, expected_reason, expected_step, expected_tool
+):
+    executor = FakeToolExecutor(responses)
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=120,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *args, **kwargs: pytest.fail(
+            "worker publication must not run after fixture setup failure"
+        ),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    failure = json.loads(
+        (run_dir / "fixture_failure_summary.json").read_text(encoding="utf-8")
+    )
+
+    assert decision["decision"] == "gate_failed"
+    assert decision["reason"] == expected_reason
+    assert decision["phase"] == "live_fixture"
+    assert decision["live_fixture_created"] is False
+    assert decision["worker_publication_ran"] is False
+    assert decision["live_set_value_dispatched"] is False
+    assert decision["verify_scalar_output_ran"] is False
+    assert not (run_dir / "worker_publication_row.json").exists()
+    assert not (run_dir / "live_set_value_summary.json").exists()
+    assert not (run_dir / "verify_scalar_output_summary.json").exists()
+
+    assert failure["step"] == expected_step
+    assert failure["tool_name"] == expected_tool
+    assert failure["failure_reason"] == expected_reason.removeprefix(
+        "transform_fixture_failed:"
+    )
+    assert failure["result_sha256"].startswith("sha256:")
+    assert len(failure["result_excerpt"]) <= 120
+    assert "result_shape" in failure
+    rendered_failure = json.dumps(failure, sort_keys=True)
+    assert "EDITABLE-GUID-1" not in rendered_failure
+    assert "OFFSET-GUID-1" not in rendered_failure
+    assert "ADDITION-GUID-1" not in rendered_failure
