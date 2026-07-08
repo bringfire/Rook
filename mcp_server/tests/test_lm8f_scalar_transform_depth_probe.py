@@ -97,6 +97,42 @@ def test_manifest_records_lm8f_identity():
     assert manifest["gh_edit_enabled"] is False
 
 
+def test_lm8f_source_does_not_import_repair_planner_retry_or_gh_edit_paths():
+    source = inspect.getsource(PROBE)
+
+    forbidden_import_or_call_fragments = (
+        "lm6a_live_worker_splice_probe",
+        "lm7b_request_driven_live_splice_probe",
+        "lm7c_planner_authoring_probe",
+        "lm7e_model_authored_live_splice_probe",
+        "planner_worker_contract_request",
+        "workflow_validate",
+        "--retry-clean-observation",
+        '"gh_edit"',
+        "'gh_edit'",
+        "gh_update_script",
+    )
+    for fragment in forbidden_import_or_call_fragments:
+        assert fragment not in source
+
+    policy_markers_allowed = (
+        "PROBE_REPAIR_CODE",
+        "A = 42.0",
+        "BindStepSpec.base_params",
+        "repair_same_component.bind.base_params",
+    )
+    for marker in policy_markers_allowed:
+        assert marker in source
+
+
+def test_lm8f_source_contains_hidden_expected_value_only_as_policy_or_test_oracle():
+    source = inspect.getsource(PROBE)
+
+    assert "EXPECTED_WORKER_VALUE" not in source
+    assert "set editable value to 6.0" not in source
+    assert "use 6.0" not in source
+
+
 def test_scalar_transform_source_routing_artifact_uses_task1_canonical_route_ids():
     artifact = PROBE._scalar_transform_source_routing_artifact()
 
@@ -925,3 +961,42 @@ def test_run_probe_accepts_worker_value_that_matches_transform_output(tmp_path):
     rendered_decision = json.dumps(decision, sort_keys=True)
     assert "EDITABLE-GUID-1" not in rendered_decision
     assert "ADDITION-GUID-1" not in rendered_decision
+
+
+def test_run_probe_artifacts_keep_raw_guid_out_of_source_request_decision_and_verifier(
+    tmp_path,
+):
+    executor = FakeToolExecutor(_fixture_responses_for_success())
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *args, **kwargs: _published_action(6.0),
+    )
+
+    forbidden_guid_files = [
+        "scalar_sources.json",
+        "acceptance_criteria_packet.json",
+        "worker_visible_acceptance_criteria.json",
+        "worker_request_payload.json",
+        "verify_scalar_output_summary.json",
+        "decision.json",
+    ]
+    for filename in forbidden_guid_files:
+        rendered = (run_dir / filename).read_text(encoding="utf-8")
+        assert "EDITABLE-GUID-1" not in rendered
+        assert "OFFSET-GUID-1" not in rendered
+        assert "ADDITION-GUID-1" not in rendered
+
+    assert "EDITABLE-GUID-1" in (
+        run_dir / "fixture_setup_summary.json"
+    ).read_text(encoding="utf-8")
+    assert "EDITABLE-GUID-1" in (
+        run_dir / "live_set_value_summary.json"
+    ).read_text(encoding="utf-8")
