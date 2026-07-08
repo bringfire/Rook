@@ -1,4 +1,4 @@
-# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S, LM5T, LM5U, LM5Y, LM6A, LM6C, LM6E, LM7B, LM7C, LM7D, LM7E & LM8C — First Worker Model Probe (2026-07-02)
+# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S, LM5T, LM5U, LM5Y, LM6A, LM6C, LM6E, LM7B, LM7C, LM7D, LM7E, LM8C & LM8F — First Worker Model Probe (2026-07-02)
 
 **Doctrine:** evidence, not CI. This summary is the committed artifact; raw
 runs stay local (spec §5, `docs/superpowers/specs/2026-07-02-lm5k-first-worker-model-probe-design.md`).
@@ -1900,6 +1900,179 @@ It also records a live mutation receipt-health lesson: `gh_set_value` may report
 failure after mutating, so verifier-floor observation is the acceptance
 authority.
 
+## LM8F scalar transform depth pressure arrival (commit `44c38c9f`)
+
+LM8F kept the GH-native scalar family but added one non-identity relationship:
+
+```text
+editable slider value: 2.0
+offset slider value: 1.5
+observed output: editable_value + offset_value = 3.5
+expected observed output: 7.5
+worker action: draft_gh_set_value_params {"value": <number>}
+```
+
+The worker was not shown the derived action value as an acceptance criterion.
+The worker-visible evidence exposed only the source-owned facts:
+
+```text
+current_editable_value: 2.0
+offset_value: 1.5
+current_observed_output: 3.5
+expected_output_value: 7.5
+projection: observed_output = editable_value + offset_value
+trusted editable target: fixture anchor, GUID applier-only
+```
+
+The final accepted canonical run:
+
+```text
+run_dir: probe_runs/lm8f-20260708T140249Z-44c38c9f/
+decision: accepted
+reason: verify_scalar_output_succeeded
+scalar_runtime_ready: true
+worker_publication_ran: true
+live_set_value_dispatched: true
+verify_scalar_output_ran: true
+worker_action: draft_gh_set_value_params {"value": 6.0}
+observed_output_after: 7.5
+```
+
+The accepted run proves this chain once:
+
+```text
+deterministic scalar transform fixture built
+-> static scalar routing valid
+-> scalar transform sources extracted and assembled
+-> Gemma worker saw scalar relationship evidence
+-> worker derived editable value 7.5 - 1.5 = 6.0
+-> scalar applier staged trusted editable-slider GUID + worker value
+-> live gh_set_value dispatched
+-> verifier inspected Addition R
+-> verifier-floor output settled to 7.5
+-> verify_scalar_output_succeeded
+```
+
+### LM8F boundary evidence before arrival
+
+The first LM8F live run failed before worker publication:
+
+```text
+run_dir: probe_runs/lm8f-20260708T132128Z-ff647619/
+decision: gate_failed
+reason: transform_fixture_failed:ValueError
+phase: live_fixture
+live_fixture_created: false
+worker_publication_ran: false
+live_set_value_dispatched: false
+verify_scalar_output_ran: false
+```
+
+That failure was opaque at the decision layer. PR #467 added bounded fixture
+failure observability without changing LM8F worker logic, fixture intent, or
+live mutation semantics.
+
+The next run preserved the same terminal class but made the root cause concrete:
+
+```text
+run_dir: probe_runs/lm8f-20260708T133233Z-5fa8c66f/
+decision: gate_failed
+reason: transform_fixture_failed:gh_connect_editable_failed
+fixture_failure_summary.step: gh_connect_editable
+fixture_failure_summary.tool_name: gh_connect
+fixture_failure_summary.result_excerpt: {"data": "Unknown tool: gh_connect", "success": false}
+worker_publication_ran: false
+```
+
+That was a tool-surface readiness failure, not scalar-depth or worker evidence.
+The companion route existed as `POST /gh/connect`, but `gh_connect` was not yet
+registered on the public MCP tool surface. PR #468 exposed the existing
+knowledge wrapper through `list_tools()` and MCP dispatch. It did not alter the
+LM8F protocol, scalar worker request, or live fixture design.
+
+After PR #468, LM8F reached the worker and live mutation floor:
+
+```text
+run_dir: probe_runs/lm8f-20260708T134657Z-b84eb20a/
+decision: rejected
+reason: verify_scalar_output_invalid_value
+scalar_runtime_ready: true
+worker_publication_ran: true
+live_set_value_dispatched: true
+verify_scalar_output_ran: true
+worker_action: draft_gh_set_value_params {"value": 6.0}
+gh_set_value success: true
+```
+
+This run is important evidence because the worker already got the scalar
+relationship right: it derived `6.0` from `7.5 - 1.5`. The rejection was not a
+worker reasoning failure. LM8F immediately inspected Addition `R`, recorded
+`observed_output_value: null`, and rejected, while a later read-only
+`gh_inspect_output` on the same Addition `R` returned `preview: ["7.5"]`.
+
+PR #469 corrected that verifier-readiness boundary. It made LM8F poll
+`gh_inspect_output` for a bounded few attempts after `gh_set_value` and
+`gh_solve`, recording each attempt's bounded shape/excerpt/hash, while keeping
+the verifier floor as the acceptance authority.
+
+The first post-PR #469 accepted run also passed:
+
+```text
+run_dir: probe_runs/lm8f-20260708T140130Z-44c38c9f/
+decision: accepted
+reason: verify_scalar_output_succeeded
+worker_action: draft_gh_set_value_params {"value": 6.0}
+observed_output_after: 7.5
+verifier attempt_count: 1
+```
+
+The second accepted run is the stronger artifact for the verifier-settle fix:
+
+```text
+run_dir: probe_runs/lm8f-20260708T140249Z-44c38c9f/
+decision: accepted
+reason: verify_scalar_output_succeeded
+worker_action: draft_gh_set_value_params {"value": 6.0}
+verifier attempt_count: 2
+attempt 1: empty/not-ready output, inspect_output_scalar_value_invalid
+attempt 2: preview ["7.5"], matched true
+```
+
+### LM8F artifact hygiene
+
+Direct marker scans on the accepted run found:
+
+```text
+PROBE_REPAIR_CODE: 0 matches
+A = 42.0: 0 matches
+BindStepSpec.base_params.code: 0 matches
+repair_same_component.bind.base_params: 0 matches
+```
+
+Raw GUID scans over the worker-visible/source/decision/verifier artifacts found
+no target GUID matches. Full GUIDs remain local audit material in fixture setup
+and live set-value summaries; worker-visible and curated surfaces use
+presence/hash only.
+
+### LM8F interpretation
+
+LM8F proves, once and narrowly, that the second-family scalar path handles one
+non-identity scalar relationship:
+
+```text
+source-owned scalar relationship
+-> worker-derived editable value
+-> trusted applier target binding
+-> live scalar mutation
+-> settled verifier-floor observed output
+```
+
+This is family-depth pressure, not a third family, not repeatability evidence,
+not topology/wiring authorship by the worker, not batch-edit evidence, and not
+complexity scaling. The useful claim is smaller and sharper: the bounded worker
+protocol transferred from identity scalar setting to one scalar relationship
+where the worker's action value differed from the expected output value.
+
 ## Updated comparison keys
 
 Round 1: `(lm5j.prompt_text:v1, lm5k_golden_repair_v1/fresh_compiled_graph,
@@ -2024,6 +2197,18 @@ gemma4:12b-it-qat/direct Ollama frozen one-turn worker publication,
 draft_gh_set_value_params action, scalar applier, live gh_set_value dispatch,
 gh_get_value verifier floor, canonical_evidence true, worker retry disabled,
 no gh_edit, no topology/wiring/batch edit)`.
+
+LM8F: `(LM8F GH-native scalar transform depth probe,
+deterministic slider -> Addition(+1.5) fixture, initial editable scalar 2.0,
+initial observed Addition R 3.5, expected observed output 7.5,
+source-owned projection observed_output = editable_value + offset_value,
+static scalar routing/extraction/assembly, fixture_anchor evidence context with
+trusted GUID applier-only, gh_scalar_transform_expectation_evidence worker
+packet, gemma4:12b-it-qat/direct Ollama frozen one-turn worker publication,
+draft_gh_set_value_params action, scalar applier, live gh_set_value dispatch,
+gh_inspect_output Addition R verifier floor with bounded settle polling,
+canonical_evidence true, worker retry disabled, no gh_edit, no worker topology,
+no wiring/batch edit authority)`.
 
 Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
 new experiment.
