@@ -852,6 +852,33 @@ def test_run_probe_blocks_worker_action_raw_guid_leak_with_different_casing(
     assert not (run_dir / "worker_action.json").exists()
 
 
+def test_run_probe_rejects_malformed_action_without_decision_guid_excerpt(
+    tmp_path: Path,
+) -> None:
+    run_dir = _run_probe_with_publication(
+        tmp_path,
+        FakePublication(
+            row={"status": "published", "pass2_response_kind": "action_request"},
+            response_payload={
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "action_request",
+                "action_id": "draft_gh_set_value_params",
+                "input": {"value": 7.5, "guid": "FAKE-NOT-TRUSTED"},
+            },
+        ),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+    rendered = json.dumps(decision, sort_keys=True)
+
+    assert decision["decision"] == "rejected"
+    assert decision["reason"].startswith("worker_action_apply_failed:")
+    assert decision["phase"] == "worker_action_apply"
+    assert "FAKE-NOT-TRUSTED" not in rendered
+    assert "guid" not in decision["worker_action_input_excerpt"].casefold()
+    assert (run_dir / "worker_action.json").exists()
+
+
 def test_run_probe_preflight_failure_writes_terminal_decision(tmp_path: Path) -> None:
     executor = FakeToolExecutor({"rhino_ping": {"success": False, "error": "offline"}})
 

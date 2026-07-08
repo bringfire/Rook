@@ -454,6 +454,25 @@ def _find_forbidden_decision_extra_paths(
     return forbidden
 
 
+def _sanitize_decision_excerpt_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        sanitized: dict[str, Any] = {}
+        for key, nested_value in value.items():
+            key_text = str(key)
+            if "guid" in key_text.casefold():
+                sanitized["reserved_key"] = "[redacted]"
+            else:
+                sanitized[key_text] = _sanitize_decision_excerpt_value(nested_value)
+        return sanitized
+    if isinstance(value, str):
+        if "guid" in value.casefold() or _UUID_RE.search(value):
+            return "[redacted]"
+        return value
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray, str)):
+        return [_sanitize_decision_excerpt_value(item) for item in value]
+    return value
+
+
 def _decision_record(
     *,
     decision: str,
@@ -831,9 +850,14 @@ def _worker_action_context(
 ) -> dict[str, Any]:
     action_input = response_payload.get("input")
     rendered = json.dumps(action_input, sort_keys=True, default=str)
+    sanitized_rendered = json.dumps(
+        _sanitize_decision_excerpt_value(action_input),
+        sort_keys=True,
+        default=str,
+    )
     return {
         "worker_action_input_sha256": _sha256_text(rendered),
-        "worker_action_input_excerpt": rendered[:excerpt_chars],
+        "worker_action_input_excerpt": sanitized_rendered[:excerpt_chars],
     }
 
 
