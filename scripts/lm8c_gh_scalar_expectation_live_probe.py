@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import json
 import re
@@ -45,6 +46,10 @@ from rook.agent.local_worker_turn_context import (  # noqa: E402
 from rook.agent.local_worker_turn_request import (  # noqa: E402
     render_local_worker_turn_request_payload,
 )
+from rook.agent.plan_graph_gh_scalar_value_apply import (  # noqa: E402
+    apply_gh_scalar_value_action_to_node,
+)
+from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY  # noqa: E402
 from rook.agent.plan_graph_workflow_contract import (  # noqa: E402
     CompiledWorkflowScaffold,
     WorkflowCompileRecord,
@@ -622,6 +627,58 @@ def _receipt_sha256(result: Any) -> str:
     return _fingerprint_json(result)
 
 
+def _decision_from_publication(
+    publication_row: Mapping[str, Any],
+    response_payload: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    status = publication_row.get("status")
+    if status != "published":
+        reason = str(publication_row.get("failure_reason") or status or "unknown")
+        return {
+            "decision": "publication_failed",
+            "reason": f"{status}:{reason}",
+            "phase": "worker_publication",
+        }
+    if not isinstance(response_payload, Mapping):
+        return {
+            "decision": "publication_failed",
+            "reason": "published_response_missing",
+            "phase": "worker_publication",
+        }
+    kind = response_payload.get("kind")
+    if kind == "action_request":
+        return None
+    if publication_row.get("observation_action_intent_anomaly") is True:
+        return {
+            "decision": "worker_declined",
+            "reason": "worker_observation_action_intent_anomaly",
+            "phase": "worker_publication",
+            "final_worker_response_kind": kind,
+        }
+    reasons = {
+        "clarification_request": "worker_clarified",
+        "refusal": "worker_refused",
+        "observation": "worker_observed",
+    }
+    return {
+        "decision": "worker_declined",
+        "reason": reasons.get(str(kind), "worker_non_action"),
+        "phase": "worker_publication",
+        "final_worker_response_kind": kind,
+    }
+
+
+def _hidden_marker_leaks(value: Any) -> bool:
+    rendered = json.dumps(value, sort_keys=True, default=str)
+    forbidden = (
+        "PROBE_REPAIR_CODE",
+        "A = 42.0",
+        "BindStepSpec.base_params",
+        "repair_same_component.bind.base_params",
+    )
+    return any(marker in rendered for marker in forbidden)
+
+
 async def _create_scalar_fixture(
     tool_executor: Callable[[str, Mapping[str, Any]], Awaitable[Any]],
 ) -> dict[str, Any]:
@@ -689,6 +746,96 @@ async def _create_scalar_fixture(
     }
 
 
+async def _dispatch_set_value_and_verify(
+    *,
+    tool_executor: Callable[[str, Mapping[str, Any]], Awaitable[Any]],
+    component_guid: str,
+    worker_value: float | int,
+    expected_value: float | int,
+) -> dict[str, Any]:
+    set_result = await tool_executor(
+        "gh_set_value",
+        {"guid": component_guid, "value": worker_value},
+    )
+    set_summary = {
+        "tool_name": "gh_set_value",
+        "component_guid": component_guid,
+        "component_guid_sha256": _guid_sha256(component_guid),
+        "worker_action_value": worker_value,
+        "success": not _tool_result_failed(set_result),
+        "receipt_sha256": _receipt_sha256(set_result),
+    }
+    if _tool_result_failed(set_result):
+        return {
+            "live_set_value_summary": set_summary,
+            "verify_scalar_output_summary": None,
+            "decision": {
+                "decision": "rejected",
+                "reason": "gh_set_value_failed",
+                "phase": "live_set_value",
+            },
+        }
+
+    get_result = await tool_executor("gh_get_value", {"guid": component_guid})
+    invalid_value = False
+    if _tool_result_failed(get_result) or not isinstance(_tool_data(get_result), Mapping):
+        observed = None
+        matched = False
+    else:
+        try:
+            observed = _coerce_scalar_value(_tool_field(get_result, "value", "Value"))
+        except ValueError:
+            observed = None
+            matched = False
+            invalid_value = True
+        else:
+            matched = abs(float(observed) - float(expected_value)) <= SCALAR_TOLERANCE
+    verify_summary = {
+        "tool_name": "gh_get_value",
+        "component_guid_sha256": _guid_sha256(component_guid),
+        "expected_output_value": expected_value,
+        "observed_output_value": observed,
+        "tolerance": SCALAR_TOLERANCE,
+        "matched": matched,
+        "receipt_sha256": _receipt_sha256(get_result),
+    }
+    return {
+        "live_set_value_summary": set_summary,
+        "verify_scalar_output_summary": verify_summary,
+        "decision": {
+            "decision": "accepted" if matched else "rejected",
+            "reason": (
+                "verify_scalar_output_succeeded"
+                if matched
+                else "verify_scalar_output_invalid_value"
+                if invalid_value
+                else "verify_scalar_output_failed"
+            ),
+            "phase": "verify_scalar_output",
+            "expected_output_value": expected_value,
+            "observed_output_after": observed,
+            "scalar_tolerance": SCALAR_TOLERANCE,
+        },
+    }
+
+
+def _worker_action_context(
+    response_payload: Mapping[str, Any], excerpt_chars: int
+) -> dict[str, Any]:
+    action_input = response_payload.get("input")
+    rendered = json.dumps(action_input, sort_keys=True, default=str)
+    return {
+        "worker_action_input_sha256": _sha256_text(rendered),
+        "worker_action_input_excerpt": rendered[:excerpt_chars],
+    }
+
+
+def _action_context(
+    response_payload: Mapping[str, Any], excerpt_chars: int
+) -> dict[str, Any]:
+    return _worker_action_context(response_payload, excerpt_chars)
+
+
 def _run_probe(
     *,
     model: str,
@@ -699,8 +846,262 @@ def _run_probe(
     run_root: str | Path,
     canonical_evidence: bool,
     tool_executor: Callable[[str, Mapping[str, Any]], Awaitable[Any]] | None = None,
+    publication_runner: Callable[..., Any] | None = None,
 ) -> Path:
-    raise NotImplementedError(
-        "LM8C live probe execution is intentionally not implemented in Task 1; "
-        "later tasks must wire live Grasshopper behavior through this interface."
+    run_dir = _new_run_dir(run_root)
+    _write_json(
+        run_dir / "manifest.json",
+        _manifest(
+            model=model,
+            endpoint=endpoint,
+            temperature=temperature,
+            canonical_evidence=canonical_evidence,
+        ),
     )
+    if tool_executor is None:
+        from rook.server import _mcp_tool_executor
+
+        tool_executor = _mcp_tool_executor
+    publisher = publication_runner or run_two_pass_worker_publication
+
+    ok, preflight_reason, preflight_summaries = asyncio.run(
+        _run_preflight(tool_executor)
+    )
+    if not ok:
+        _write_json_value(run_dir / "preflight_summary.json", preflight_summaries)
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="preflight_failed",
+                reason=str(preflight_reason),
+                phase="preflight",
+                canonical_evidence=canonical_evidence,
+            ),
+        )
+        return run_dir
+
+    try:
+        fixture = asyncio.run(_create_scalar_fixture(tool_executor))
+    except Exception as exc:
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="gate_failed",
+                reason=f"scalar_fixture_failed:{type(exc).__name__}",
+                phase="live_fixture",
+                canonical_evidence=canonical_evidence,
+            ),
+        )
+        return run_dir
+
+    component_guid = fixture["component_guid"]
+    _write_json(
+        run_dir / "live_create_scalar_summary.json",
+        fixture["live_create_scalar_summary"],
+    )
+    _write_json_value(run_dir / "scalar_fixture_contract.json", _scalar_contract_payload())
+
+    graph = _graph_from_scalar_receipt(fixture["receipt"])
+    try:
+        runtime = _scalar_runtime_context(
+            graph=graph,
+            workflow_contract_payload=_scalar_contract_payload(),
+            convention_packets=(),
+        )
+    except Exception as exc:
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="gate_failed",
+                reason=f"scalar_runtime_readiness_failed:{type(exc).__name__}",
+                phase="scalar_runtime_ready",
+                canonical_evidence=canonical_evidence,
+                live_fixture_created=True,
+                component_guid=component_guid,
+            ),
+        )
+        return run_dir
+
+    _write_json_value(run_dir / "scalar_source_routing.json", runtime["routing_artifact"])
+    _write_json(run_dir / "static_routing_validation.json", runtime["static_routing_report"])
+    if runtime["scalar_runtime_ready"] is not True:
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="gate_failed",
+                reason="scalar_runtime_not_ready",
+                phase="scalar_runtime_ready",
+                canonical_evidence=canonical_evidence,
+                scalar_runtime_ready=False,
+                live_fixture_created=True,
+                component_guid=component_guid,
+            ),
+        )
+        return run_dir
+
+    _write_json_value(
+        run_dir / "scalar_sources.json",
+        {
+            "expected_output_contract": runtime[
+                "sources"
+            ].expected_output_contract.__dict__,
+            "receipt_observation": runtime["sources"].receipt_observation.__dict__,
+            "fixture_anchor": runtime["sources"].fixture_anchor.__dict__,
+        },
+    )
+    _write_json_value(run_dir / "acceptance_criteria_packet.json", runtime["packet"])
+    _write_json(run_dir / "worker_visible_acceptance_criteria.json", runtime["worker_visible"])
+    request_payload = _build_worker_request_payload(
+        graph=graph,
+        packet=runtime["packet"],
+        worker_visible=runtime["worker_visible"],
+    )
+    _write_json_value(run_dir / "worker_request_payload.json", request_payload)
+
+    publication = publisher(
+        request_payload,
+        model=model,
+        endpoint=endpoint,
+        temperature=temperature,
+        timeout_s=timeout_s,
+        excerpt_chars=excerpt_chars,
+    )
+    if _hidden_marker_leaks(publication.row) or _hidden_marker_leaks(
+        publication.response_payload
+    ):
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="publication_failed",
+                reason="worker_publication_hidden_answer_leak",
+                phase="worker_publication",
+                canonical_evidence=canonical_evidence,
+                scalar_runtime_ready=True,
+                live_fixture_created=True,
+                worker_publication_ran=True,
+                component_guid=component_guid,
+            ),
+        )
+        return run_dir
+
+    _write_json(run_dir / "worker_publication_row.json", publication.row)
+    worker_decision = _decision_from_publication(
+        publication.row, publication.response_payload
+    )
+    if worker_decision is not None:
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision=worker_decision["decision"],
+                reason=worker_decision["reason"],
+                phase=worker_decision["phase"],
+                canonical_evidence=canonical_evidence,
+                scalar_runtime_ready=True,
+                live_fixture_created=True,
+                worker_publication_ran=True,
+                component_guid=component_guid,
+                extra={
+                    key: value
+                    for key, value in worker_decision.items()
+                    if key not in {"decision", "reason", "phase"}
+                },
+            ),
+        )
+        return run_dir
+
+    response_payload = publication.response_payload
+    _write_json(run_dir / "worker_action.json", response_payload)
+    action_context = _action_context(response_payload, excerpt_chars)
+    apply_result = apply_gh_scalar_value_action_to_node(
+        graph,
+        WORKER_NODE_ID,
+        action_id=str(response_payload.get("action_id") or ""),
+        action_input=response_payload.get("input"),
+        anchor_binding={"component_guid": component_guid},
+    )
+    if apply_result.applied is not True:
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="rejected",
+                reason=f"worker_action_apply_failed:{apply_result.reason}",
+                phase="worker_action_apply",
+                canonical_evidence=canonical_evidence,
+                scalar_runtime_ready=True,
+                live_fixture_created=True,
+                worker_publication_ran=True,
+                component_guid=component_guid,
+                extra=action_context,
+            ),
+        )
+        return run_dir
+
+    params = apply_result.graph.nodes[WORKER_NODE_ID].metadata[EXECUTION_PARAMS_KEY]
+    dispatch = asyncio.run(
+        _dispatch_set_value_and_verify(
+            tool_executor=tool_executor,
+            component_guid=str(params["guid"]),
+            worker_value=params["value"],
+            expected_value=EXPECTED_OUTPUT_VALUE,
+        )
+    )
+    _write_json(run_dir / "live_set_value_summary.json", dispatch["live_set_value_summary"])
+    if dispatch["verify_scalar_output_summary"] is not None:
+        _write_json(
+            run_dir / "verify_scalar_output_summary.json",
+            dispatch["verify_scalar_output_summary"],
+        )
+    final = dispatch["decision"]
+    _write_json(
+        run_dir / "decision.json",
+        _decision_record(
+            decision=final["decision"],
+            reason=final["reason"],
+            phase=final["phase"],
+            canonical_evidence=canonical_evidence,
+            scalar_runtime_ready=True,
+            live_fixture_created=True,
+            worker_publication_ran=True,
+            live_set_value_dispatched=True,
+            verify_scalar_output_ran=dispatch["verify_scalar_output_summary"]
+            is not None,
+            component_guid=component_guid,
+            extra={
+                **action_context,
+                **{
+                    key: value
+                    for key, value in final.items()
+                    if key not in {"decision", "reason", "phase"}
+                },
+            },
+        ),
+    )
+    return run_dir
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _args(argv)
+    if not _canonical_evidence_is_valid(args):
+        print("invalid_canonical_evidence", file=sys.stderr)
+        raise SystemExit(2)
+    run_dir = _run_probe(
+        model=args.model,
+        endpoint=args.endpoint,
+        temperature=args.temperature,
+        timeout_s=args.timeout_s,
+        excerpt_chars=args.excerpt_chars,
+        run_root=args.run_dir,
+        canonical_evidence=args.canonical_evidence,
+    )
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    print(
+        "LM8C GH scalar expectation live splice probe complete "
+        f"run_dir={run_dir} "
+        f"decision={decision.get('decision')} "
+        f"reason={decision.get('reason')}"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

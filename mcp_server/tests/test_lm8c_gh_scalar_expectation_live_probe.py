@@ -97,7 +97,7 @@ def test_decision_record_hashes_guid_without_raw_guid() -> None:
     assert decision["decision"] == "accepted"
 
 
-def test_run_probe_callable_exists_as_task_1_skeleton() -> None:
+def test_run_probe_callable_accepts_task_4_dependencies() -> None:
     signature = inspect.signature(PROBE._run_probe)
 
     assert list(signature.parameters) == [
@@ -109,17 +109,8 @@ def test_run_probe_callable_exists_as_task_1_skeleton() -> None:
         "run_root",
         "canonical_evidence",
         "tool_executor",
+        "publication_runner",
     ]
-    with pytest.raises(NotImplementedError, match="LM8C live probe"):
-        PROBE._run_probe(
-            model="gemma4:12b-it-qat",
-            endpoint="http://localhost:11434/api/chat",
-            temperature=0,
-            timeout_s=120,
-            excerpt_chars=1200,
-            run_root="probe_runs",
-            canonical_evidence=True,
-        )
 
 
 @pytest.mark.parametrize(
@@ -214,6 +205,8 @@ class FakeToolExecutor:
     async def __call__(self, tool_name, args):
         self.calls.append((tool_name, dict(args)))
         value = self.responses[tool_name]
+        if isinstance(value, list):
+            value = value.pop(0)
         if isinstance(value, Exception):
             raise value
         return value
@@ -516,3 +509,212 @@ def test_worker_request_uses_scalar_knowledge_and_never_exposes_raw_guid() -> No
     assert "gh_edit" not in rendered
     assert "gh_update_script" not in rendered
     assert "repair_same_component" not in rendered
+
+
+class FakePublication:
+    def __init__(self, row, response_payload=None):
+        self.row = row
+        self.response_payload = response_payload
+
+
+def test_publication_non_action_maps_to_worker_declined() -> None:
+    row = {
+        "status": "published",
+        "pass2_response_kind": "observation",
+        "observation_action_intent_anomaly": False,
+    }
+    payload = {
+        "schema": "rook.local_worker_turn_response:v1",
+        "kind": "observation",
+        "message": "not acting",
+        "data": None,
+    }
+
+    decision = PROBE._decision_from_publication(row, payload)
+
+    assert decision == {
+        "decision": "worker_declined",
+        "reason": "worker_observed",
+        "phase": "worker_publication",
+        "final_worker_response_kind": "observation",
+    }
+
+
+def test_publication_failure_maps_to_publication_failed() -> None:
+    decision = PROBE._decision_from_publication(
+        {"status": "pass2_lm5g_invalid", "failure_reason": "bad-json"},
+        None,
+    )
+
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "pass2_lm5g_invalid:bad-json"
+
+
+def test_dispatch_set_value_and_verify_accepts_live_observed_match() -> None:
+    executor = FakeToolExecutor(
+        {
+            "gh_set_value": {
+                "success": True,
+                "data": {"Guid": "SLIDER-GUID-1", "NewValue": 7.5},
+            },
+            "gh_get_value": {
+                "success": True,
+                "data": {"Guid": "SLIDER-GUID-1", "Value": "7.5"},
+            },
+        }
+    )
+
+    result = _run(
+        PROBE._dispatch_set_value_and_verify(
+            tool_executor=executor,
+            component_guid="SLIDER-GUID-1",
+            worker_value=7.5,
+            expected_value=7.5,
+        )
+    )
+
+    assert result["decision"]["decision"] == "accepted"
+    assert result["decision"]["reason"] == "verify_scalar_output_succeeded"
+    assert result["live_set_value_summary"]["component_guid"] == "SLIDER-GUID-1"
+    assert result["verify_scalar_output_summary"]["component_guid_sha256"].startswith(
+        "sha256:"
+    )
+    assert "component_guid" not in result["verify_scalar_output_summary"]
+
+
+def test_dispatch_set_value_and_verify_rejects_live_observed_mismatch() -> None:
+    executor = FakeToolExecutor(
+        {
+            "gh_set_value": {
+                "success": True,
+                "data": {"Guid": "SLIDER-GUID-1", "NewValue": 0.0},
+            },
+            "gh_get_value": {
+                "success": True,
+                "data": {"Guid": "SLIDER-GUID-1", "Value": "0.0"},
+            },
+        }
+    )
+
+    result = _run(
+        PROBE._dispatch_set_value_and_verify(
+            tool_executor=executor,
+            component_guid="SLIDER-GUID-1",
+            worker_value=7.5,
+            expected_value=7.5,
+        )
+    )
+
+    assert result["decision"]["decision"] == "rejected"
+    assert result["decision"]["reason"] == "verify_scalar_output_failed"
+
+
+def test_dispatch_set_value_and_verify_receipts_invalid_final_value() -> None:
+    executor = FakeToolExecutor(
+        {
+            "gh_set_value": {
+                "success": True,
+                "data": {"Guid": "SLIDER-GUID-1", "NewValue": 7.5},
+            },
+            "gh_get_value": {
+                "success": True,
+                "data": {"Guid": "SLIDER-GUID-1", "Value": "not-number"},
+            },
+        }
+    )
+
+    result = _run(
+        PROBE._dispatch_set_value_and_verify(
+            tool_executor=executor,
+            component_guid="SLIDER-GUID-1",
+            worker_value=7.5,
+            expected_value=7.5,
+        )
+    )
+
+    assert result["decision"]["decision"] == "rejected"
+    assert result["decision"]["reason"] == "verify_scalar_output_invalid_value"
+    assert result["verify_scalar_output_summary"]["matched"] is False
+
+
+def test_run_probe_happy_path_writes_bounded_artifacts(tmp_path: Path) -> None:
+    executor = FakeToolExecutor(
+        {
+            "rhino_ping": "pong",
+            "gh_document_new": {"success": True, "data": {"Created": True}},
+            "gh_create_slider": {
+                "success": True,
+                "data": {"Created": True, "Guid": "SLIDER-GUID-1"},
+            },
+            "gh_get_value": [
+                {"success": True, "data": {"Guid": "SLIDER-GUID-1", "Value": "0.0"}},
+                {"success": True, "data": {"Guid": "SLIDER-GUID-1", "Value": "7.5"}},
+            ],
+            "gh_set_value": {
+                "success": True,
+                "data": {"Guid": "SLIDER-GUID-1", "NewValue": 7.5},
+            },
+        }
+    )
+
+    def fake_publication_runner(*_args, **_kwargs):
+        return FakePublication(
+            row={"status": "published", "pass2_response_kind": "action_request"},
+            response_payload={
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "action_request",
+                "action_id": "draft_gh_set_value_params",
+                "rationale": "Set to the expected scalar value.",
+                "input": {"value": 7.5},
+            },
+        )
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=fake_publication_runner,
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+    worker_payload = (run_dir / "worker_request_payload.json").read_text()
+    verify_summary = json.loads(
+        (run_dir / "verify_scalar_output_summary.json").read_text()
+    )
+
+    assert decision["decision"] == "accepted"
+    assert decision["reason"] == "verify_scalar_output_succeeded"
+    assert decision["scalar_runtime_ready"] is True
+    assert decision["live_fixture_created"] is True
+    assert decision["worker_publication_ran"] is True
+    assert decision["live_set_value_dispatched"] is True
+    assert decision["verify_scalar_output_ran"] is True
+    assert "SLIDER-GUID-1" not in worker_payload
+    assert "component_guid" not in verify_summary
+    assert verify_summary["matched"] is True
+
+
+def test_run_probe_preflight_failure_writes_terminal_decision(tmp_path: Path) -> None:
+    executor = FakeToolExecutor({"rhino_ping": {"success": False, "error": "offline"}})
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *_args, **_kwargs: pytest.fail("worker called"),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+    assert decision["decision"] == "preflight_failed"
+    assert decision["reason"] == "rhino_ping_failed"
+    assert decision["worker_publication_ran"] is False
