@@ -1,4 +1,4 @@
-# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S, LM5T, LM5U, LM5Y, LM6A, LM6C, LM6E, LM7B, LM7C, LM7D & LM7E — First Worker Model Probe (2026-07-02)
+# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S, LM5T, LM5U, LM5Y, LM6A, LM6C, LM6E, LM7B, LM7C, LM7D, LM7E & LM8C — First Worker Model Probe (2026-07-02)
 
 **Doctrine:** evidence, not CI. This summary is the committed artifact; raw
 runs stay local (spec §5, `docs/superpowers/specs/2026-07-02-lm5k-first-worker-model-probe-design.md`).
@@ -1757,6 +1757,149 @@ Planner model authors request
 -> live verifier floor accepts the repair
 ```
 
+## LM8C GH-native scalar-family live arrival (commit `343fb52d`)
+
+LM8C opened the second tiny task family: GH-native scalar solve/output
+expectation. The fixture stayed intentionally flat:
+
+```text
+one Number Slider
+initial observed value: 0.0
+expected output value: 7.5
+identity projection: true
+worker action: draft_gh_set_value_params {"value": <number>}
+```
+
+The final canonical run:
+
+```text
+run_dir: probe_runs/lm8c-20260708T105826Z-343fb52d/
+decision: accepted
+reason: verify_scalar_output_succeeded
+scalar_runtime_ready: true
+worker_publication_ran: true
+live_set_value_dispatched: true
+verify_scalar_output_ran: true
+worker_action: draft_gh_set_value_params {"value": 7.5}
+```
+
+The accepted run is the first live second-family arrival:
+
+```text
+static scalar routing valid
+-> live scalar receipt/anchor constructed
+-> LM8B scalar extraction and packet assembly succeeded
+-> Gemma worker published draft_gh_set_value_params
+-> scalar applier staged trusted target GUID + worker value
+-> live gh_set_value dispatched
+-> verifier-floor gh_get_value observed 7.5
+-> verify_scalar_output_succeeded
+```
+
+### LM8C boundary evidence before arrival
+
+The first LM8C live run reached the scalar worker boundary but failed worker
+publication shape:
+
+```text
+run_dir: probe_runs/lm8c-20260708T095108Z-fd156708/
+decision: publication_failed
+reason: pass1_decision_invalid:pass1_missing_action_id
+scalar_runtime_ready: true
+worker_publication_ran: true
+live_set_value_dispatched: false
+verify_scalar_output_ran: false
+```
+
+The worker chose `action_request` in pass 1 but omitted `action_id`:
+
+```json
+{"kind":"action_request"}
+```
+
+That was not Rhino/GH readiness, scalar extraction, GUID leakage, or verifier
+failure. It showed that the scalar action affordance did not yet make the
+required action handle clear enough for the worker's first publication turn.
+
+LM8D then added a scalar-local action-selection contract. The next run solved
+that boundary:
+
+```text
+run_dir: probe_runs/lm8c-20260708T104446Z-1d85c8cc/
+decision: rejected
+reason: gh_set_value_failed
+phase: live_set_value
+scalar_runtime_ready: true
+worker_publication_ran: true
+live_set_value_dispatched: true
+verify_scalar_output_ran: false
+worker_action: draft_gh_set_value_params {"value": 7.5}
+```
+
+This run proved LM8D's intended fix: the worker published the scalar action with
+the exact `draft_gh_set_value_params` id and input value. It also exposed a new
+harness/tool-receipt false negative. LM8C short-circuited on
+`gh_set_value success:false`, so the verifier did not run, while the live canvas
+showed `LM8C_Target = 7.500`.
+
+PR #463 corrected that deterministic harness boundary. It did not change the
+worker prompt, worker protocol, scalar evidence shape, or action applier. It
+changed LM8C so a completed `gh_set_value` attempt proceeds to `gh_get_value`;
+`set_value_reported_success` is diagnostic, and the verifier floor decides
+acceptance.
+
+### LM8C final arrival details
+
+In the accepted run, `gh_set_value` still reported failure:
+
+```text
+set_value_reported_success: false
+success: false
+worker_action_value: 7.5
+```
+
+The verifier-floor observation accepted the run:
+
+```text
+expected_output_value: 7.5
+observed_output_value: 7.5
+matched: true
+tolerance: 1e-9
+```
+
+Direct marker and GUID checks on the accepted run found:
+
+```text
+PROBE_REPAIR_CODE: 0 matches
+A = 42.0: 0 matches
+BindStepSpec.base_params.code: 0 matches
+raw component GUID in worker-visible/source/decision/verifier artifacts: 0 matches
+```
+
+The raw target GUID remains local audit material in the live create/set-value
+summaries. Worker-visible and curated artifacts carry only GUID presence/hash.
+
+### LM8C interpretation
+
+LM8C proves, once and narrowly, that the bounded worker protocol can transfer
+from C# script repair to a GH-native scalar expectation family:
+
+```text
+source-owned expected scalar fact
+-> source-owned observed scalar receipt
+-> fixture-anchor target context
+-> worker-authored scalar value
+-> trusted applier GUID binding
+-> live scalar mutation
+-> verifier-floor scalar observation
+```
+
+This is not repeatability evidence, topology or wiring evidence, batch-edit
+evidence, or complexity scaling. It is a first receipted second-family arrival.
+It also records a live mutation receipt-health lesson: `gh_set_value` may report
+failure after mutating, so verifier-floor observation is the acceptance
+authority.
+
 ## Updated comparison keys
 
 Round 1: `(lm5j.prompt_text:v1, lm5k_golden_repair_v1/fresh_compiled_graph,
@@ -1871,6 +2014,16 @@ LM5AA routability, LM5X extraction + LM5W assembly, LM5Y legacy worker-visible
 projection, gemma4:12b-it-qat/direct Ollama frozen one-turn worker splice,
 worker-action applier, live gh_update_script dispatch, verify_repair floor,
 canonical_evidence true, worker retry disabled)`.
+
+LM8C: `(LM8C GH-native scalar expectation live probe,
+identity Number Slider fixture, initial observed scalar 0.0,
+expected_output_value 7.5, LM8B scalar static routing/extraction/assembly,
+fixture_anchor evidence context with trusted GUID applier-only,
+gh_scalar_expectation_evidence worker packet,
+gemma4:12b-it-qat/direct Ollama frozen one-turn worker publication,
+draft_gh_set_value_params action, scalar applier, live gh_set_value dispatch,
+gh_get_value verifier floor, canonical_evidence true, worker retry disabled,
+no gh_edit, no topology/wiring/batch edit)`.
 
 Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
 new experiment.
