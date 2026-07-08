@@ -239,6 +239,41 @@ def test_parse_failure_writes_raw_output_and_no_request_or_live(tmp_path: Path) 
     assert live_called is False
 
 
+def test_provider_failure_writes_decision_and_stops_before_request_or_validate(
+    tmp_path: Path,
+) -> None:
+    def fake_provider(_payload):
+        raise RuntimeError("provider exploded")
+
+    run_dir = PROBE._run_probe(
+        planner_provider="codex-cli-chatgpt",
+        planner_model="gpt-5.5",
+        planner_provider_command="unused",
+        planner_provider_timeout_s=1,
+        worker_model="gemma4:12b-it-qat",
+        worker_endpoint="http://localhost:11434/api/chat",
+        worker_temperature=0,
+        worker_timeout_s=120,
+        output_excerpt_chars=20,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        call_provider=fake_provider,
+        agent=object(),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+
+    assert (run_dir / "planner_model_output.txt").exists()
+    assert not (run_dir / "planner_request.json").exists()
+    assert not (run_dir / "workflow_validate_report.json").exists()
+    assert decision["decision"] == "rejected_by_validate"
+    assert decision["reason"].startswith("planner_provider_failed:")
+    assert decision["planner_parse_status"] == "parse_failed"
+    assert decision["planner_validation_status"] == "not_evaluated"
+    assert decision["live_rhino_work_started"] is False
+    assert decision["worker_publication_ran"] is False
+
+
 def test_parsed_request_marker_fails_before_workflow_validate_and_live(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
