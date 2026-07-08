@@ -21,13 +21,36 @@ for _path in (str(_SCRIPT_DIR), str(_REPO_ROOT), str(_MCP_SRC)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
-from lm5k_worker_probe import _script_body_gotcha_packet  # noqa: E402
 from lm6a_live_worker_splice_probe import (  # noqa: E402
     DEFAULT_ENDPOINT,
     DEFAULT_EXCERPT_CHARS,
     DEFAULT_MODEL,
     DEFAULT_TEMPERATURE,
     DEFAULT_TIMEOUT_S,
+    _decision_from_worker_action_apply,
+    _decision_from_worker_publication,
+    _dispatch_repair_and_verify,
+    _hidden_answer_leaks,
+    _pass1_decision_hidden_answer_failure,
+    _routing_report_json,
+    _worker_action_context,
+)
+from lm7b_request_driven_live_splice_probe import (  # noqa: E402
+    _acceptance_source_contract,
+    _build_agent,
+    _build_worker_context,
+    _is_materialized_live_result,
+    _report_fingerprint,
+    _routing_report_has_errors,
+    _run_live_create_and_verify,
+    _script_body_gotcha_packet,
+)
+from lm_worker_two_pass_publication import run_two_pass_worker_publication  # noqa: E402
+from rook.agent.local_worker_source_routing_validator import (  # noqa: E402
+    validate_worker_visible_source_routing,
+)
+from rook.agent.plan_graph_worker_action_apply import (  # noqa: E402
+    apply_worker_action_to_node,
 )
 from lm7_planner_authoring_prompt_support import (  # noqa: E402
     INTENT_CORRECT,
@@ -381,10 +404,36 @@ def _workflow_contract_summary_fingerprint(summary: Mapping[str, Any]) -> str:
     return fingerprint_json(summary)
 
 
-def _run_live_create_and_verify(*, agent: Any, workflow_contract: Any) -> dict[str, Any]:
-    del agent
-    del workflow_contract
-    raise NotImplementedError("LM7E live create/verify is implemented in Task 4.")
+def _wrapped_worker_decision(
+    worker_decision: Mapping[str, Any],
+    *,
+    intent_decision: str,
+    output_sha: str,
+    output_excerpt: str,
+    request_fingerprint: str,
+    workflow_validate_report_fingerprint: str,
+) -> dict[str, Any]:
+    return _decision_record(
+        decision=str(worker_decision["decision"]),
+        reason=str(worker_decision["reason"]),
+        phase=str(worker_decision["phase"]),
+        planner_parse_status=PARSE_PARSED,
+        planner_validation_status="workflow_validate_valid",
+        planner_intent_decision=intent_decision,
+        planner_model_output_sha256=output_sha,
+        planner_model_output_excerpt=output_excerpt,
+        planner_model_output_path="planner_model_output.txt",
+        request_fingerprint=request_fingerprint,
+        workflow_validate_valid=True,
+        workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
+        live_rhino_work_started=True,
+        worker_publication_ran=True,
+        extra={
+            key: value
+            for key, value in worker_decision.items()
+            if key not in {"schema", "decision", "reason", "phase"}
+        },
+    )
 
 
 def _run_probe(
@@ -403,8 +452,6 @@ def _run_probe(
     call_provider: Callable[[Mapping[str, Any]], str] | None = None,
     agent: Any | None = None,
 ) -> Path:
-    del worker_timeout_s
-
     run_dir = _new_run_dir(run_root)
     write_prompt_artifacts(
         run_dir,
@@ -555,9 +602,7 @@ def _run_probe(
 
     report = validate_planner_worker_contract_request(planner_request)
     _write_json_value(run_dir / "workflow_validate_report.json", report)
-    workflow_validate_report_fingerprint = (
-        report.get("report_fingerprint") or fingerprint_json(report)
-    )
+    workflow_validate_report_fingerprint = _report_fingerprint(report)
     workflow_validate_valid = report.get("valid") is True
     if not workflow_validate_valid:
         _write_json(
@@ -658,8 +703,213 @@ def _run_probe(
         )
         return run_dir
 
-    del live_result
-    raise NotImplementedError("LM7E live result handling is implemented in Task 4.")
+    if not (isinstance(live_result, Mapping) and _is_materialized_live_result(live_result)):
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="gate_failed",
+                reason="live_create_result_invalid",
+                phase="live_create",
+                planner_parse_status=PARSE_PARSED,
+                planner_validation_status="workflow_validate_valid",
+                planner_intent_decision=intent.intent_decision,
+                planner_model_output_sha256=output_sha,
+                planner_model_output_excerpt=output_excerpt,
+                planner_model_output_path="planner_model_output.txt",
+                request_fingerprint=request_fingerprint,
+                workflow_validate_valid=True,
+                workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
+                live_rhino_work_started=True,
+                worker_publication_ran=False,
+            ),
+        )
+        return run_dir
+
+    live_result = dict(live_result)
+    live_result["resolved_routing_artifact"] = resolved_routing
+    live_result["planner_request"] = planner_request
+
+    _write_json(run_dir / "live_create_summary.json", live_result["live_create_summary"])
+    _write_json(
+        run_dir / "verify_create_summary.json", live_result["verify_create_summary"]
+    )
+
+    routing_report = validate_worker_visible_source_routing(
+        resolved_routing,
+        workflow_contract=_acceptance_source_contract(live_result["workflow_contract"]),
+        graph=live_result["graph"],
+        convention_packets=live_result["convention_packets"],
+        worker_node_ids=tuple(worker_node_ids),
+    )
+    _write_json(
+        run_dir / "runtime_routing_validation.json",
+        _routing_report_json(routing_report),
+    )
+
+    runtime_routing_valid = (
+        routing_report.valid if isinstance(routing_report.valid, bool) else None
+    )
+    runtime_routability_evaluated = routing_report.routability_evaluated is True
+    if not runtime_routability_evaluated:
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="gate_failed",
+                reason="runtime_routability_not_evaluated",
+                phase="runtime_routing",
+                planner_parse_status=PARSE_PARSED,
+                planner_validation_status="workflow_validate_valid",
+                planner_intent_decision=intent.intent_decision,
+                planner_model_output_sha256=output_sha,
+                planner_model_output_excerpt=output_excerpt,
+                planner_model_output_path="planner_model_output.txt",
+                request_fingerprint=request_fingerprint,
+                workflow_validate_valid=True,
+                workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
+                live_rhino_work_started=True,
+                worker_publication_ran=False,
+                extra={
+                    "runtime_routing_valid": runtime_routing_valid,
+                    "runtime_routability_evaluated": runtime_routability_evaluated,
+                },
+            ),
+        )
+        return run_dir
+    elif _routing_report_has_errors(routing_report):
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="gate_failed",
+                reason="runtime_routability_failed",
+                phase="runtime_routing",
+                planner_parse_status=PARSE_PARSED,
+                planner_validation_status="workflow_validate_valid",
+                planner_intent_decision=intent.intent_decision,
+                planner_model_output_sha256=output_sha,
+                planner_model_output_excerpt=output_excerpt,
+                planner_model_output_path="planner_model_output.txt",
+                request_fingerprint=request_fingerprint,
+                workflow_validate_valid=True,
+                workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
+                live_rhino_work_started=True,
+                worker_publication_ran=False,
+                extra={
+                    "runtime_routing_valid": runtime_routing_valid,
+                    "runtime_routability_evaluated": runtime_routability_evaluated,
+                },
+            ),
+        )
+        return run_dir
+
+    request_payload = _build_worker_context(live=live_result, run_dir=run_dir)
+
+    publication = run_two_pass_worker_publication(
+        request_payload,
+        model=worker_model,
+        endpoint=worker_endpoint,
+        temperature=worker_temperature,
+        timeout_s=worker_timeout_s,
+        excerpt_chars=output_excerpt_chars,
+        decision_guard=_pass1_decision_hidden_answer_failure,
+    )
+
+    if _hidden_answer_leaks(publication.row) or _hidden_answer_leaks(
+        publication.response_payload
+    ):
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="publication_failed",
+                reason="worker_publication_hidden_answer_leak",
+                phase="worker_publication",
+                planner_parse_status=PARSE_PARSED,
+                planner_validation_status="workflow_validate_valid",
+                planner_intent_decision=intent.intent_decision,
+                planner_model_output_sha256=output_sha,
+                planner_model_output_excerpt=output_excerpt,
+                planner_model_output_path="planner_model_output.txt",
+                request_fingerprint=request_fingerprint,
+                workflow_validate_valid=True,
+                workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
+                live_rhino_work_started=True,
+                worker_publication_ran=True,
+            ),
+        )
+        return run_dir
+
+    _write_json(run_dir / "worker_publication_row.json", publication.row)
+
+    worker_decision = _decision_from_worker_publication(
+        publication_row=publication.row,
+        response_payload=publication.response_payload,
+    )
+    if worker_decision is not None:
+        _write_json(
+            run_dir / "decision.json",
+            _wrapped_worker_decision(
+                worker_decision,
+                intent_decision=intent.intent_decision,
+                output_sha=output_sha,
+                output_excerpt=output_excerpt,
+                request_fingerprint=request_fingerprint,
+                workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
+            ),
+        )
+        return run_dir
+
+    response_payload = publication.response_payload
+    action_context = _worker_action_context(
+        response_payload=response_payload,
+        run_dir=run_dir,
+        excerpt_chars=output_excerpt_chars,
+    )
+    _write_json(run_dir / "worker_action.json", response_payload)
+    apply_result = apply_worker_action_to_node(
+        live_result["graph"],
+        "repair_same_component",
+        action_id=str(response_payload.get("action_id") or ""),
+        action_input=response_payload.get("input"),
+        anchor_binding=live_result["anchor_binding"],
+    )
+
+    if apply_result.applied is not True:
+        worker_decision = _decision_from_worker_action_apply(
+            apply_result,
+            action_context=action_context,
+        )
+        _write_json(
+            run_dir / "decision.json",
+            _wrapped_worker_decision(
+                worker_decision,
+                intent_decision=intent.intent_decision,
+                output_sha=output_sha,
+                output_excerpt=output_excerpt,
+                request_fingerprint=request_fingerprint,
+                workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
+            ),
+        )
+        return run_dir
+
+    repair_result = _dispatch_repair_and_verify(
+        graph=apply_result.graph,
+        agent=agent,
+        params_sha256=apply_result.params_sha256,
+        run_dir=run_dir,
+        action_context=action_context,
+    )
+    worker_decision = repair_result["decision"]
+    _write_json(
+        run_dir / "decision.json",
+        _wrapped_worker_decision(
+            worker_decision,
+            intent_decision=intent.intent_decision,
+            output_sha=output_sha,
+            output_excerpt=output_excerpt,
+            request_fingerprint=request_fingerprint,
+            workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
+        ),
+    )
+    return run_dir
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -679,6 +929,7 @@ def main(argv: list[str] | None = None) -> int:
         output_excerpt_chars=args.output_excerpt_chars,
         run_root=args.run_dir,
         canonical_evidence=args.canonical_evidence,
+        agent=_build_agent(),
     )
     decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
     print(

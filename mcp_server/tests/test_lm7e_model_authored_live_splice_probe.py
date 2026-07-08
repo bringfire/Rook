@@ -466,3 +466,300 @@ def test_workflow_contract_summary_reports_worker_bind_step_presence_without_bas
     assert summary["worker_node_bind_steps"]["repair_same_component"] is True
     assert "base_params" not in rendered
     assert "PROBE_REPAIR_CODE" not in rendered
+
+
+def test_static_guard_forbids_hand_authored_request_and_non_neutral_worker_helpers() -> None:
+    source = _script_path().read_text(encoding="utf-8")
+    forbidden = [
+        "_canonical_planner_request",
+        "_worker_request_payload",
+        "_acceptance_criteria_evidence_packet",
+        "script_local_canonical_lm7a_request",
+        "lm6e_bounded_retry_context",
+        "retry_clean_observation",
+    ]
+
+    for marker in forbidden:
+        assert marker not in source
+
+
+def test_fake_live_action_request_reaches_accepted_decision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    live = _real_live_for_lm7e()
+    captured_worker_kwargs = []
+    captured_routing_contracts = []
+
+    class FakePublication:
+        row = {"status": "published"}
+        response_payload = {
+            "kind": "action_request",
+            "action_id": "draft_repair_params",
+            "input": {"code": "A = 0.0;", "mode": "body"},
+        }
+
+    def fake_live_create(**_kwargs):
+        return live
+
+    def fake_validate_routing(*_args, **kwargs):
+        captured_routing_contracts.append(kwargs["workflow_contract"])
+        return _valid_runtime_routing_report()
+
+    def fake_publication(payload, **kwargs):
+        captured_worker_kwargs.append(kwargs)
+        return FakePublication()
+
+    def fake_apply(graph, node_id, *, action_id, action_input, anchor_binding, **_kwargs):
+        class Result:
+            applied = True
+            reason = None
+            params_sha256 = "sha256:params"
+            graph = live["graph"]
+
+        return Result()
+
+    def fake_dispatch(**_kwargs):
+        return {
+            "decision": {
+                "schema": "rook.lm6a_decision:v1",
+                "decision": "accepted",
+                "reason": "verify_repair_succeeded",
+                "phase": "verify_repair",
+                "live_repair_dispatched": True,
+                "verify_repair_ran": True,
+            }
+        }
+
+    monkeypatch.setattr(PROBE, "_run_live_create_and_verify", fake_live_create)
+    monkeypatch.setattr(
+        PROBE, "validate_worker_visible_source_routing", fake_validate_routing
+    )
+    monkeypatch.setattr(PROBE, "run_two_pass_worker_publication", fake_publication)
+    monkeypatch.setattr(PROBE, "apply_worker_action_to_node", fake_apply)
+    monkeypatch.setattr(PROBE, "_dispatch_repair_and_verify", fake_dispatch)
+
+    run_dir = PROBE._run_probe(
+        planner_provider="codex-cli-chatgpt",
+        planner_model="gpt-5.5",
+        planner_provider_command="unused",
+        planner_provider_timeout_s=1,
+        worker_model="gemma4:12b-it-qat",
+        worker_endpoint="http://localhost:11434/api/chat",
+        worker_temperature=0,
+        worker_timeout_s=120,
+        output_excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        call_provider=lambda _payload: json.dumps(_valid_incomplete_request()),
+        agent=object(),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+
+    assert decision["decision"] == "accepted"
+    assert decision["reason"] == "verify_repair_succeeded"
+    assert decision["worker_publication_ran"] is True
+    assert decision["live_rhino_work_started"] is True
+    assert decision["planner_validation_status"] == "workflow_validate_valid"
+    assert (run_dir / "runtime_routing_validation.json").exists()
+    assert (run_dir / "acceptance_criteria_packet.json").exists()
+    assert (run_dir / "worker_visible_acceptance_criteria.json").exists()
+    assert (run_dir / "worker_publication_row.json").exists()
+    assert (run_dir / "worker_action.json").exists()
+    assert captured_worker_kwargs[0]["model"] == "gemma4:12b-it-qat"
+    assert captured_worker_kwargs[0]["endpoint"] == "http://localhost:11434/api/chat"
+    assert captured_worker_kwargs[0]["temperature"] == 0
+    routing_contract = captured_routing_contracts[0]
+    create_initial = next(
+        item for item in routing_contract.initial_params if item.node_id == "create_script"
+    )
+    assert create_initial.execution_params["pins_out"] == ["A:double"]
+    assert isinstance(create_initial.execution_params["pins_out"], list)
+
+
+def _run_valid_lm7e_with_live_fakes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    routing_report: WorkerVisibleSourceRoutingValidationReport | None = None,
+    publication: object | None = None,
+    apply_result: object | None = None,
+) -> Path:
+    live = _real_live_for_lm7e()
+
+    if routing_report is None:
+        routing_report = _valid_runtime_routing_report()
+
+    if publication is None:
+        class DefaultPublication:
+            row = {"status": "published"}
+            response_payload = {
+                "kind": "action_request",
+                "action_id": "draft_repair_params",
+                "input": {"code": "A = 0.0;", "mode": "body"},
+            }
+
+        publication = DefaultPublication()
+
+    if apply_result is None:
+        class DefaultApplyResult:
+            applied = True
+            reason = None
+            params_sha256 = "sha256:params"
+            graph = live["graph"]
+
+        apply_result = DefaultApplyResult()
+
+    monkeypatch.setattr(PROBE, "_run_live_create_and_verify", lambda **_kwargs: live)
+    monkeypatch.setattr(
+        PROBE,
+        "validate_worker_visible_source_routing",
+        lambda *_args, **_kwargs: routing_report,
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "run_two_pass_worker_publication",
+        lambda *_args, **_kwargs: publication,
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "apply_worker_action_to_node",
+        lambda *_args, **_kwargs: apply_result,
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "_dispatch_repair_and_verify",
+        lambda **_kwargs: {
+            "decision": {
+                "schema": "rook.lm6a_decision:v1",
+                "decision": "accepted",
+                "reason": "verify_repair_succeeded",
+                "phase": "verify_repair",
+                "live_repair_dispatched": True,
+                "verify_repair_ran": True,
+            }
+        },
+    )
+
+    return PROBE._run_probe(
+        planner_provider="codex-cli-chatgpt",
+        planner_model="gpt-5.5",
+        planner_provider_command="unused",
+        planner_provider_timeout_s=1,
+        worker_model="gemma4:12b-it-qat",
+        worker_endpoint="http://localhost:11434/api/chat",
+        worker_temperature=0,
+        worker_timeout_s=120,
+        output_excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        call_provider=lambda _payload: json.dumps(_valid_incomplete_request()),
+        agent=object(),
+    )
+
+
+def _assert_valid_planner_metadata(decision: dict[str, object]) -> None:
+    assert decision["worker_retry_enabled"] is False
+    assert decision["planner_parse_status"] == "parsed"
+    assert decision["planner_validation_status"] == "workflow_validate_valid"
+    assert isinstance(decision["request_fingerprint"], str)
+    assert isinstance(decision["workflow_validate_report_fingerprint"], str)
+
+
+def test_runtime_routing_error_writes_gate_failed_without_worker_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_dir = _run_valid_lm7e_with_live_fakes(
+        tmp_path,
+        monkeypatch,
+        routing_report=_invalid_runtime_routing_report(),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+
+    assert decision["decision"] == "gate_failed"
+    assert decision["reason"] == "runtime_routability_failed"
+    assert decision["worker_publication_ran"] is False
+    assert (run_dir / "runtime_routing_validation.json").exists()
+    assert not (run_dir / "worker_publication_row.json").exists()
+    assert not (run_dir / "worker_action.json").exists()
+    _assert_valid_planner_metadata(decision)
+
+
+def test_worker_observation_decline_reuses_worker_declined_without_retry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ObservationPublication:
+        row = {"status": "published", "observation_action_intent_anomaly": False}
+        response_payload = {"kind": "observation", "message": "I cannot act."}
+
+    run_dir = _run_valid_lm7e_with_live_fakes(
+        tmp_path,
+        monkeypatch,
+        publication=ObservationPublication(),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+
+    assert decision["decision"] == "worker_declined"
+    assert decision["reason"] == "worker_observed"
+    assert decision["worker_publication_ran"] is True
+    assert not (run_dir / "worker_publication_rows.json").exists()
+    assert not (run_dir / "retry_context.json").exists()
+    assert not (run_dir / "worker_action.json").exists()
+    _assert_valid_planner_metadata(decision)
+
+
+def test_worker_publication_hidden_answer_leak_writes_publication_failed_without_row(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class LeakingPublication:
+        row = {"status": "published", "debug": "PROBE_REPAIR_CODE"}
+        response_payload = {"kind": "observation", "message": "no action"}
+
+    run_dir = _run_valid_lm7e_with_live_fakes(
+        tmp_path,
+        monkeypatch,
+        publication=LeakingPublication(),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "worker_publication_hidden_answer_leak"
+    assert decision["worker_publication_ran"] is True
+    assert not (run_dir / "worker_publication_row.json").exists()
+    assert not (run_dir / "worker_action.json").exists()
+    _assert_valid_planner_metadata(decision)
+
+
+def test_worker_action_apply_rejection_writes_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RejectApplyResult:
+        applied = False
+        reason = "invalid_mode"
+        params_sha256 = None
+        graph = object()
+
+    run_dir = _run_valid_lm7e_with_live_fakes(
+        tmp_path,
+        monkeypatch,
+        apply_result=RejectApplyResult(),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+
+    assert decision["decision"] == "rejected"
+    assert decision["reason"] == "worker_action_apply_failed:invalid_mode"
+    assert decision["worker_publication_ran"] is True
+    assert decision["live_repair_dispatched"] is False
+    assert decision["verify_repair_ran"] is False
+    assert (run_dir / "worker_publication_row.json").exists()
+    assert (run_dir / "worker_action.json").exists()
+    _assert_valid_planner_metadata(decision)
