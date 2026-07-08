@@ -131,6 +131,12 @@ class FakeToolExecutor:
         return value
 
 
+class FakePublication:
+    def __init__(self, row, response_payload=None):
+        self.row = row
+        self.response_payload = response_payload
+
+
 def _run(coro):
     import asyncio
 
@@ -549,3 +555,307 @@ def test_worker_request_uses_transform_knowledge_and_never_exposes_raw_guid_or_d
     assert "do not author target GUID" in rendered
     assert "do not call GH tools directly" in rendered
     assert "do not author topology, code, or batch edits" in rendered
+
+
+def test_publication_non_action_maps_to_worker_declined():
+    row = {
+        "status": "published",
+        "pass2_response_kind": "observation",
+        "observation_action_intent_anomaly": False,
+    }
+    payload = {
+        "schema": "rook.local_worker_turn_response:v1",
+        "kind": "observation",
+        "message": "not acting",
+        "data": None,
+    }
+
+    decision = PROBE._decision_from_publication(row, payload)
+
+    assert decision == {
+        "decision": "worker_declined",
+        "reason": "worker_observed",
+        "phase": "worker_publication",
+        "final_worker_response_kind": "observation",
+    }
+
+
+def test_publication_failure_maps_to_publication_failed():
+    decision = PROBE._decision_from_publication(
+        {"status": "pass2_lm5g_invalid", "failure_reason": "bad-json"},
+        None,
+    )
+
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "pass2_lm5g_invalid:bad-json"
+
+
+def test_missing_pass1_action_id_stays_publication_failed():
+    decision = PROBE._decision_from_publication(
+        {
+            "status": "pass1_decision_invalid",
+            "failure_reason": "pass1_missing_action_id",
+            "pass1_content_excerpt": '{"kind": "action_request"}',
+        },
+        None,
+    )
+
+    assert decision == {
+        "decision": "publication_failed",
+        "reason": "pass1_decision_invalid:pass1_missing_action_id",
+        "phase": "worker_publication",
+    }
+
+
+def test_dispatch_set_value_solve_and_verify_accepts_inspected_output_match():
+    executor = FakeToolExecutor(
+        {
+            "gh_set_value": {
+                "success": True,
+                "data": {"Guid": "EDITABLE-GUID-1", "NewValue": 6.0},
+            },
+            "gh_solve": {"success": True, "data": {"scheduled": True}},
+            "gh_inspect_output": {
+                "success": True,
+                "data": {
+                    "param_nickname": "R",
+                    "structure": "single",
+                    "data_count": 1,
+                    "preview": ["7.5"],
+                },
+            },
+        }
+    )
+
+    result = _run(
+        PROBE._dispatch_set_value_solve_and_verify(
+            tool_executor=executor,
+            editable_component_guid="EDITABLE-GUID-1",
+            addition_component_guid="ADDITION-GUID-1",
+            worker_value=6.0,
+            expected_value=7.5,
+        )
+    )
+
+    assert result["decision"]["decision"] == "accepted"
+    assert result["decision"]["reason"] == "verify_scalar_output_succeeded"
+    assert result["live_set_value_summary"]["component_guid"] == "EDITABLE-GUID-1"
+    assert result["live_set_value_summary"]["worker_action_value"] == 6.0
+    assert result["verify_scalar_output_summary"]["component_guid_sha256"].startswith("sha256:")
+    assert "component_guid" not in result["verify_scalar_output_summary"]
+    assert result["verify_scalar_output_summary"]["observed_output_value"] == 7.5
+    assert executor.calls == [
+        ("gh_set_value", {"guid": "EDITABLE-GUID-1", "value": 6.0}),
+        ("gh_solve", {"delay": 25}),
+        ("gh_inspect_output", {"guid": "ADDITION-GUID-1", "param": "R"}),
+    ]
+
+
+def test_dispatch_set_value_solve_and_verify_rejects_inspected_output_mismatch():
+    executor = FakeToolExecutor(
+        {
+            "gh_set_value": {
+                "success": True,
+                "data": {"Guid": "EDITABLE-GUID-1", "NewValue": 6.0},
+            },
+            "gh_solve": {"success": True, "data": {"scheduled": True}},
+            "gh_inspect_output": {
+                "success": True,
+                "data": {"data_count": 1, "preview": ["6.5"]},
+            },
+        }
+    )
+
+    result = _run(
+        PROBE._dispatch_set_value_solve_and_verify(
+            tool_executor=executor,
+            editable_component_guid="EDITABLE-GUID-1",
+            addition_component_guid="ADDITION-GUID-1",
+            worker_value=6.0,
+            expected_value=7.5,
+        )
+    )
+
+    assert result["decision"]["decision"] == "rejected"
+    assert result["decision"]["reason"] == "verify_scalar_output_failed"
+    assert result["verify_scalar_output_summary"]["observed_output_value"] == 6.5
+
+
+def test_dispatch_set_value_solve_and_verify_accepts_when_set_reports_false_but_output_matches():
+    executor = FakeToolExecutor(
+        {
+            "gh_set_value": {
+                "success": False,
+                "data": {"Guid": "EDITABLE-GUID-1", "NewValue": 6.0},
+            },
+            "gh_solve": {"success": True, "data": {"scheduled": True}},
+            "gh_inspect_output": {
+                "success": True,
+                "data": {"data_count": 1, "preview": ["7.5"]},
+            },
+        }
+    )
+
+    result = _run(
+        PROBE._dispatch_set_value_solve_and_verify(
+            tool_executor=executor,
+            editable_component_guid="EDITABLE-GUID-1",
+            addition_component_guid="ADDITION-GUID-1",
+            worker_value=6.0,
+            expected_value=7.5,
+        )
+    )
+
+    assert result["live_set_value_summary"]["set_value_reported_success"] is False
+    assert result["decision"]["decision"] == "accepted"
+
+
+def test_dispatch_set_value_solve_and_verify_rejects_transport_exception_without_verifier():
+    executor = FakeToolExecutor(
+        {
+            "gh_set_value": RuntimeError("transport down"),
+            "gh_solve": {"success": True, "data": {"scheduled": True}},
+            "gh_inspect_output": {"success": True, "data": {"preview": ["7.5"]}},
+        }
+    )
+
+    result = _run(
+        PROBE._dispatch_set_value_solve_and_verify(
+            tool_executor=executor,
+            editable_component_guid="EDITABLE-GUID-1",
+            addition_component_guid="ADDITION-GUID-1",
+            worker_value=6.0,
+            expected_value=7.5,
+        )
+    )
+
+    assert result["decision"]["decision"] == "rejected"
+    assert result["decision"]["reason"].startswith("gh_set_value_exception:")
+    assert result["verify_scalar_output_summary"] is None
+    assert executor.calls == [
+        ("gh_set_value", {"guid": "EDITABLE-GUID-1", "value": 6.0})
+    ]
+
+
+def test_dispatch_set_value_solve_and_verify_rejects_invalid_inspected_value():
+    executor = FakeToolExecutor(
+        {
+            "gh_set_value": {
+                "success": True,
+                "data": {"Guid": "EDITABLE-GUID-1", "NewValue": 6.0},
+            },
+            "gh_solve": {"success": True, "data": {"scheduled": True}},
+            "gh_inspect_output": {
+                "success": True,
+                "data": {"data_count": 1, "preview": ["not-number"]},
+            },
+        }
+    )
+
+    result = _run(
+        PROBE._dispatch_set_value_solve_and_verify(
+            tool_executor=executor,
+            editable_component_guid="EDITABLE-GUID-1",
+            addition_component_guid="ADDITION-GUID-1",
+            worker_value=6.0,
+            expected_value=7.5,
+        )
+    )
+
+    assert result["decision"]["decision"] == "rejected"
+    assert result["decision"]["reason"] == "verify_scalar_output_invalid_value"
+
+
+def _published_action(value=6.0):
+    return FakePublication(
+        row={
+            "status": "published",
+            "pass2_response_kind": "action_request",
+            "observation_action_intent_anomaly": False,
+        },
+        response_payload={
+            "schema": "rook.local_worker_turn_response:v1",
+            "kind": "action_request",
+            "action_id": "draft_gh_set_value_params",
+            "rationale": "Use the offset relationship to match the expected output.",
+            "input": {"value": value},
+        },
+    )
+
+
+def _fixture_responses_for_success():
+    return {
+        "rhino_ping": "pong",
+        "gh_document_new": {"success": True, "data": {"Created": True}},
+        "gh_library": {
+            "success": True,
+            "count": 1,
+            "components": [
+                {
+                    "name": "Addition",
+                    "nickName": "A+B",
+                    "category": "Maths",
+                    "guid": "ADDITION-PROXY-GUID",
+                }
+            ],
+        },
+        "gh_create_slider": [
+            {"success": True, "data": {"Created": True, "Guid": "EDITABLE-GUID-1"}},
+            {"success": True, "data": {"Created": True, "Guid": "OFFSET-GUID-1"}},
+        ],
+        "gh_create_component": {
+            "success": True,
+            "data": {"Created": True, "Guid": "ADDITION-GUID-1"},
+        },
+        "gh_connect": [
+            {"success": True, "data": {"connected": True}},
+            {"success": True, "data": {"connected": True}},
+        ],
+        "gh_solve": [
+            {"success": True, "data": {"scheduled": True}},
+            {"success": True, "data": {"scheduled": True}},
+        ],
+        "gh_get_value": {"success": True, "data": {"Value": "2.0"}},
+        "gh_inspect_output": [
+            {"success": True, "data": {"data_count": 1, "preview": ["3.5"]}},
+            {"success": True, "data": {"data_count": 1, "preview": ["7.5"]}},
+        ],
+        "gh_set_value": {"success": True, "data": {"Guid": "EDITABLE-GUID-1"}},
+    }
+
+
+def test_run_probe_accepts_worker_value_that_matches_transform_output(tmp_path):
+    executor = FakeToolExecutor(_fixture_responses_for_success())
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *args, **kwargs: _published_action(6.0),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    request = json.loads((run_dir / "worker_request_payload.json").read_text(encoding="utf-8"))
+    worker_action = json.loads((run_dir / "worker_action.json").read_text(encoding="utf-8"))
+    verify = json.loads((run_dir / "verify_scalar_output_summary.json").read_text(encoding="utf-8"))
+
+    assert decision["decision"] == "accepted"
+    assert decision["reason"] == "verify_scalar_output_succeeded"
+    assert decision["scalar_runtime_ready"] is True
+    assert decision["worker_publication_ran"] is True
+    assert decision["live_set_value_dispatched"] is True
+    assert decision["verify_scalar_output_ran"] is True
+    assert worker_action["input"] == {"value": 6.0}
+    assert verify["observed_output_value"] == 7.5
+    rendered_request = json.dumps(request, sort_keys=True)
+    assert "6.0" not in rendered_request
+    assert "EDITABLE-GUID-1" not in rendered_request
+    assert "ADDITION-GUID-1" not in rendered_request
+    rendered_decision = json.dumps(decision, sort_keys=True)
+    assert "EDITABLE-GUID-1" not in rendered_decision
+    assert "ADDITION-GUID-1" not in rendered_decision
