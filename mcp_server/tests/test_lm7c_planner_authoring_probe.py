@@ -191,6 +191,89 @@ def test_prompt_version_follows_prompt_profile() -> None:
     )
 
 
+def test_prompt_support_payload_preserves_lm7c_probe_schema() -> None:
+    import importlib.util
+
+    helper_path = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "lm7_planner_authoring_prompt_support.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "lm7_planner_authoring_prompt_support_schema_test",
+        helper_path,
+    )
+    helper = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = helper
+    spec.loader.exec_module(helper)
+
+    payload = helper.prompt_call_payload(
+        scenario="intent_incomplete",
+        attempt_index=0,
+        provider="codex-cli-chatgpt",
+        model="gpt-5.5",
+        temperature=0,
+        prompt_profile="shape_guidance_v2",
+    )
+
+    assert helper.PROBE_SCHEMA == "rook.lm7c_planner_authoring_probe:v1"
+    assert payload["schema"] == helper.PROBE_SCHEMA
+    assert payload["schema"] == PROBE.PROBE_SCHEMA
+
+
+def test_prompt_support_helper_matches_lm7c_sparse_artifacts(tmp_path: Path) -> None:
+    import importlib.util
+
+    helper_path = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "lm7_planner_authoring_prompt_support.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "lm7_planner_authoring_prompt_support_for_test",
+        helper_path,
+    )
+    helper = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = helper
+    spec.loader.exec_module(helper)
+
+    assert helper.planner_authoring_prompt("sparse_v1") == (
+        PROBE._planner_authoring_prompt("sparse_v1")
+    )
+    assert helper.prompt_version("sparse_v1") == PROBE._prompt_version("sparse_v1")
+    assert helper.template_menu() == PROBE._template_menu()
+    assert helper.scenario_brief("intent_complete") == (
+        PROBE._scenario_brief("intent_complete")
+    )
+    assert helper.scenario_brief("intent_incomplete") == (
+        PROBE._scenario_brief("intent_incomplete")
+    )
+
+
+def test_prompt_support_helper_matches_lm7c_shape_guidance_artifacts() -> None:
+    import importlib.util
+
+    helper_path = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "lm7_planner_authoring_prompt_support.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "lm7_planner_authoring_prompt_support_for_shape_test",
+        helper_path,
+    )
+    helper = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = helper
+    spec.loader.exec_module(helper)
+
+    assert helper.planner_authoring_prompt("shape_guidance_v2") == (
+        PROBE._planner_authoring_prompt("shape_guidance_v2")
+    )
+    assert helper.prompt_version("shape_guidance_v2") == (
+        PROBE._prompt_version("shape_guidance_v2")
+    )
+
+
 @pytest.mark.parametrize("prompt_profile", ["sparse_v1", "shape_guidance_v2"])
 def test_prompt_artifacts_do_not_contain_invention_or_hidden_answer_markers(
     prompt_profile: str,
