@@ -97,6 +97,22 @@ _UUID_RE = re.compile(
 )
 
 
+class FixtureSetupFailure(ValueError):
+    def __init__(
+        self,
+        *,
+        step: str,
+        tool_name: str,
+        failure_reason: str,
+        result: Any,
+    ) -> None:
+        super().__init__(failure_reason)
+        self.step = step
+        self.tool_name = tool_name
+        self.failure_reason = failure_reason
+        self.result = result
+
+
 def _args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="LM8F GH scalar transform depth pressure live probe."
@@ -222,6 +238,61 @@ def _sanitize_decision_excerpt_value(value: Any) -> Any:
     if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray, str)):
         return [_sanitize_decision_excerpt_value(item) for item in value]
     return value
+
+
+def _result_shape(value: Any) -> dict[str, Any]:
+    if isinstance(value, Mapping):
+        shape: dict[str, Any] = {
+            "type": "object",
+            "keys": sorted(str(key) for key in value.keys()),
+        }
+        data = value.get("data")
+        if isinstance(data, Mapping):
+            shape["data"] = _result_shape(data)
+        return shape
+    if isinstance(value, Sequence) and not isinstance(
+        value, (str, bytes, bytearray)
+    ):
+        return {"type": "array", "length": len(value)}
+    return {"type": type(value).__name__}
+
+
+def _first_guid_value(value: Any) -> str | None:
+    if isinstance(value, Mapping):
+        for key, nested_value in value.items():
+            if "guid" in str(key).casefold() and isinstance(nested_value, str):
+                if nested_value.strip():
+                    return nested_value
+            nested_guid = _first_guid_value(nested_value)
+            if nested_guid is not None:
+                return nested_guid
+    if isinstance(value, Sequence) and not isinstance(
+        value, (str, bytes, bytearray)
+    ):
+        for item in value:
+            nested_guid = _first_guid_value(item)
+            if nested_guid is not None:
+                return nested_guid
+    return None
+
+
+def _fixture_failure_summary(
+    failure: FixtureSetupFailure, *, excerpt_chars: int
+) -> dict[str, Any]:
+    sanitized = _sanitize_decision_excerpt_value(failure.result)
+    rendered = json.dumps(sanitized, sort_keys=True, default=str)
+    guid = _first_guid_value(failure.result)
+    return {
+        "schema": "rook.lm8f_fixture_failure_summary:v1",
+        "step": failure.step,
+        "tool_name": failure.tool_name,
+        "failure_reason": failure.failure_reason,
+        "result_sha256": _fingerprint_json(failure.result),
+        "result_excerpt": rendered[:excerpt_chars],
+        "result_shape": _result_shape(failure.result),
+        "guid_present": guid is not None,
+        "guid_sha256": _guid_sha256(guid),
+    }
 
 
 def _decision_record(
@@ -692,6 +763,44 @@ def _guid_from_result(result: Any) -> str:
     return guid
 
 
+def _fixture_reason_from_exception(exc: Exception) -> str:
+    reason = str(exc).strip() or type(exc).__name__
+    return re.sub(r"[^a-zA-Z0-9]+", "_", reason).strip("_").casefold()
+
+
+async def _fixture_tool_call(
+    tool_executor: Callable[[str, Mapping[str, Any]], Awaitable[Any]],
+    *,
+    step: str,
+    tool_name: str,
+    args: Mapping[str, Any],
+) -> Any:
+    try:
+        return await tool_executor(tool_name, args)
+    except Exception as exc:
+        raise FixtureSetupFailure(
+            step=step,
+            tool_name=tool_name,
+            failure_reason=f"{tool_name}_exception:{type(exc).__name__}",
+            result={"exception": type(exc).__name__},
+        ) from exc
+
+
+def _raise_fixture_failure(
+    *,
+    step: str,
+    tool_name: str,
+    failure_reason: str,
+    result: Any,
+) -> None:
+    raise FixtureSetupFailure(
+        step=step,
+        tool_name=tool_name,
+        failure_reason=failure_reason,
+        result=result,
+    )
+
+
 def _inspect_output_scalar_value(result: Any) -> float | int:
     if _tool_result_failed(result):
         raise ValueError("inspect output scalar result failed")
@@ -739,14 +848,34 @@ def _addition_proxy_guid_from_library(result: Any) -> str:
 async def _create_transform_fixture(
     tool_executor: Callable[[str, Mapping[str, Any]], Awaitable[Any]],
 ) -> dict[str, Any]:
-    library_result = await tool_executor("gh_library", {"search": "addition", "limit": 20})
+    library_result = await _fixture_tool_call(
+        tool_executor,
+        step="gh_library",
+        tool_name="gh_library",
+        args={"search": "addition", "limit": 20},
+    )
     if _tool_result_failed(library_result):
-        raise ValueError("gh_library_failed")
-    addition_proxy_guid = _addition_proxy_guid_from_library(library_result)
+        _raise_fixture_failure(
+            step="gh_library",
+            tool_name="gh_library",
+            failure_reason="gh_library_failed",
+            result=library_result,
+        )
+    try:
+        addition_proxy_guid = _addition_proxy_guid_from_library(library_result)
+    except ValueError as exc:
+        _raise_fixture_failure(
+            step="gh_library",
+            tool_name="gh_library",
+            failure_reason=_fixture_reason_from_exception(exc),
+            result=library_result,
+        )
 
-    editable_result = await tool_executor(
-        "gh_create_slider",
-        {
+    editable_result = await _fixture_tool_call(
+        tool_executor,
+        step="gh_create_editable_slider",
+        tool_name="gh_create_slider",
+        args={
             "nickname": "LM8F_Editable",
             "min": 0,
             "max": 10,
@@ -758,12 +887,27 @@ async def _create_transform_fixture(
     if _tool_result_failed(editable_result) or _tool_field(
         editable_result, "created", "Created"
     ) is not True:
-        raise ValueError("gh_create_editable_slider_failed")
-    editable_guid = _guid_from_result(editable_result)
+        _raise_fixture_failure(
+            step="gh_create_editable_slider",
+            tool_name="gh_create_slider",
+            failure_reason="gh_create_editable_slider_failed",
+            result=editable_result,
+        )
+    try:
+        editable_guid = _guid_from_result(editable_result)
+    except ValueError as exc:
+        _raise_fixture_failure(
+            step="gh_create_editable_slider",
+            tool_name="gh_create_slider",
+            failure_reason=_fixture_reason_from_exception(exc),
+            result=editable_result,
+        )
 
-    offset_result = await tool_executor(
-        "gh_create_slider",
-        {
+    offset_result = await _fixture_tool_call(
+        tool_executor,
+        step="gh_create_offset_slider",
+        tool_name="gh_create_slider",
+        args={
             "nickname": "LM8F_Offset",
             "min": 0,
             "max": 10,
@@ -775,65 +919,155 @@ async def _create_transform_fixture(
     if _tool_result_failed(offset_result) or _tool_field(
         offset_result, "created", "Created"
     ) is not True:
-        raise ValueError("gh_create_offset_slider_failed")
-    offset_guid = _guid_from_result(offset_result)
+        _raise_fixture_failure(
+            step="gh_create_offset_slider",
+            tool_name="gh_create_slider",
+            failure_reason="gh_create_offset_slider_failed",
+            result=offset_result,
+        )
+    try:
+        offset_guid = _guid_from_result(offset_result)
+    except ValueError as exc:
+        _raise_fixture_failure(
+            step="gh_create_offset_slider",
+            tool_name="gh_create_slider",
+            failure_reason=_fixture_reason_from_exception(exc),
+            result=offset_result,
+        )
 
-    addition_result = await tool_executor(
-        "gh_create_component",
-        {"guid": addition_proxy_guid, "x": 280, "y": 120},
+    addition_result = await _fixture_tool_call(
+        tool_executor,
+        step="gh_create_addition",
+        tool_name="gh_create_component",
+        args={"guid": addition_proxy_guid, "x": 280, "y": 120},
     )
     if _tool_result_failed(addition_result) or _tool_field(
         addition_result, "created", "Created"
     ) is not True:
-        raise ValueError("gh_create_addition_failed")
-    addition_guid = _guid_from_result(addition_result)
+        _raise_fixture_failure(
+            step="gh_create_addition",
+            tool_name="gh_create_component",
+            failure_reason="gh_create_addition_failed",
+            result=addition_result,
+        )
+    try:
+        addition_guid = _guid_from_result(addition_result)
+    except ValueError as exc:
+        _raise_fixture_failure(
+            step="gh_create_addition",
+            tool_name="gh_create_component",
+            failure_reason=_fixture_reason_from_exception(exc),
+            result=addition_result,
+        )
 
-    connect_a_result = await tool_executor(
-        "gh_connect",
-        {
+    connect_a_result = await _fixture_tool_call(
+        tool_executor,
+        step="gh_connect_editable",
+        tool_name="gh_connect",
+        args={
             "sourceGuid": editable_guid,
             "targetGuid": addition_guid,
             "targetParam": "A",
         },
     )
     if _tool_result_failed(connect_a_result):
-        raise ValueError("gh_connect_editable_failed")
+        _raise_fixture_failure(
+            step="gh_connect_editable",
+            tool_name="gh_connect",
+            failure_reason="gh_connect_editable_failed",
+            result=connect_a_result,
+        )
 
-    connect_b_result = await tool_executor(
-        "gh_connect",
-        {
+    connect_b_result = await _fixture_tool_call(
+        tool_executor,
+        step="gh_connect_offset",
+        tool_name="gh_connect",
+        args={
             "sourceGuid": offset_guid,
             "targetGuid": addition_guid,
             "targetParam": "B",
         },
     )
     if _tool_result_failed(connect_b_result):
-        raise ValueError("gh_connect_offset_failed")
+        _raise_fixture_failure(
+            step="gh_connect_offset",
+            tool_name="gh_connect",
+            failure_reason="gh_connect_offset_failed",
+            result=connect_b_result,
+        )
 
-    solve_result = await tool_executor("gh_solve", {"delay": 25})
+    solve_result = await _fixture_tool_call(
+        tool_executor,
+        step="gh_solve",
+        tool_name="gh_solve",
+        args={"delay": 25},
+    )
     if _tool_result_failed(solve_result):
-        raise ValueError("gh_solve_failed")
+        _raise_fixture_failure(
+            step="gh_solve",
+            tool_name="gh_solve",
+            failure_reason="gh_solve_failed",
+            result=solve_result,
+        )
 
-    editable_value_result = await tool_executor("gh_get_value", {"guid": editable_guid})
+    editable_value_result = await _fixture_tool_call(
+        tool_executor,
+        step="gh_get_value",
+        tool_name="gh_get_value",
+        args={"guid": editable_guid},
+    )
     if _tool_result_failed(editable_value_result):
-        raise ValueError("gh_get_value_failed")
-    editable_value = _coerce_scalar_value(
-        _tool_field(editable_value_result, "value", "Value")
-    )
+        _raise_fixture_failure(
+            step="gh_get_value",
+            tool_name="gh_get_value",
+            failure_reason="gh_get_value_failed",
+            result=editable_value_result,
+        )
+    try:
+        editable_value = _coerce_scalar_value(
+            _tool_field(editable_value_result, "value", "Value")
+        )
+    except ValueError as exc:
+        _raise_fixture_failure(
+            step="gh_get_value",
+            tool_name="gh_get_value",
+            failure_reason=_fixture_reason_from_exception(exc),
+            result=editable_value_result,
+        )
 
-    inspect_result = await tool_executor(
-        "gh_inspect_output",
-        {"guid": addition_guid, "param": "R"},
+    inspect_result = await _fixture_tool_call(
+        tool_executor,
+        step="gh_inspect_output",
+        tool_name="gh_inspect_output",
+        args={"guid": addition_guid, "param": "R"},
     )
-    observed_output_value = _inspect_output_scalar_value(inspect_result)
+    try:
+        observed_output_value = _inspect_output_scalar_value(inspect_result)
+    except ValueError as exc:
+        _raise_fixture_failure(
+            step="gh_inspect_output",
+            tool_name="gh_inspect_output",
+            failure_reason=_fixture_reason_from_exception(exc),
+            result=inspect_result,
+        )
 
     if abs(float(editable_value) - float(INITIAL_EDITABLE_VALUE)) > SCALAR_TOLERANCE:
-        raise ValueError("initial_editable_value_mismatch")
+        _raise_fixture_failure(
+            step="gh_get_value",
+            tool_name="gh_get_value",
+            failure_reason="initial_editable_value_mismatch",
+            result=editable_value_result,
+        )
     if (
         abs(float(observed_output_value) - float(INITIAL_OBSERVED_OUTPUT))
         > SCALAR_TOLERANCE
     ):
-        raise ValueError("initial_observed_output_mismatch")
+        _raise_fixture_failure(
+            step="gh_inspect_output",
+            tool_name="gh_inspect_output",
+            failure_reason="initial_observed_output_mismatch",
+            result=inspect_result,
+        )
 
     receipt = {
         "editable_value": editable_value,
@@ -1172,6 +1406,21 @@ def _run_probe(
 
     try:
         fixture = asyncio.run(_create_transform_fixture(tool_executor))
+    except FixtureSetupFailure as exc:
+        _write_json(
+            run_dir / "fixture_failure_summary.json",
+            _fixture_failure_summary(exc, excerpt_chars=excerpt_chars),
+        )
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="gate_failed",
+                reason=f"transform_fixture_failed:{exc.failure_reason}",
+                phase="live_fixture",
+                canonical_evidence=canonical_evidence,
+            ),
+        )
+        return run_dir
     except Exception as exc:
         _write_json(
             run_dir / "decision.json",
