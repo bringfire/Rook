@@ -2273,5 +2273,12 @@ gh_inspect_output Addition R verifier floor with bounded settle polling,
 canonical_evidence true, worker retry disabled, no gh_edit, no worker topology,
 no wiring/batch edit authority)`.
 
+LM8G: `(LM8G scalar transform repeatability wrapper, five scheduled
+independent LM8F scalar-transform attempts, child lm8f_runs directories, no
+replacement attempts, same gemma4:12b-it-qat/direct Ollama/LM8F
+fixture/action/applier/verifier-settle policy, scheduled and worker-reached
+denominators reported, worker_action_values and verifier_attempt_counts
+summarized, report-only leak marker scan)`.
+
 Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
 new experiment.
