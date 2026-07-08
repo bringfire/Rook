@@ -7,6 +7,7 @@ import argparse
 import json
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,15 @@ DEFAULT_MODEL = "gemma4:12b-it-qat"
 DEFAULT_RUN_DIR = "probe_runs"
 DEFAULT_ATTEMPT_TIMEOUT_S = 600
 EXCERPT_CHARS = 2000
+TERMINAL_CATEGORIES = (
+    "accepted",
+    "rejected",
+    "worker_declined",
+    "publication_failed",
+    "gate_failed",
+    "preflight_failed",
+    "wrapper_error",
+)
 
 
 def _positive_int(raw: str) -> int:
@@ -104,3 +114,66 @@ def _lm8f_command(*, model: str, lm8f_runs_dir: Path) -> list[str]:
         "--run-dir",
         str(lm8f_runs_dir),
     ]
+
+
+def _scheduled_attempt_id(attempt_index: int) -> str:
+    return f"attempt-{attempt_index:03d}"
+
+
+def _base_attempt_row(*, attempt_index: int) -> dict[str, Any]:
+    return {
+        "attempt_index": attempt_index,
+        "scheduled_attempt_id": _scheduled_attempt_id(attempt_index),
+        "lm8f_invoked": False,
+        "lm8f_returncode": None,
+        "lm8f_run_dir": None,
+        "lm8f_decision": None,
+        "lm8f_reason": None,
+        "terminal_category": None,
+        "failure_reason": None,
+        "child_run_dir_error": None,
+        "stdout_excerpt": "",
+        "stderr_excerpt": "",
+        "worker_publication_ran": False,
+        "live_fixture_created": False,
+        "live_set_value_dispatched": False,
+        "verify_scalar_output_ran": False,
+        "scalar_runtime_ready": None,
+        "worker_action_value": None,
+        "verifier_attempt_count": None,
+        "observed_output_after": None,
+        "leak_check_performed": False,
+        "leak_marker_matches": [],
+        "leak_marker_match_count": 0,
+    }
+
+
+def _discover_child_run_dirs(lm8f_runs_dir: Path, before: set[Path]) -> list[Path]:
+    after = set(lm8f_runs_dir.glob("lm8f-*"))
+    created = sorted(after - before, key=lambda path: path.stat().st_mtime)
+    return created
+
+
+def _read_decision(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+    if not path.exists():
+        return None, "lm8f_missing_decision_json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None, "lm8f_invalid_decision_json"
+    except OSError as exc:
+        return None, f"lm8f_unreadable_decision_json:{exc.__class__.__name__}"
+    if not isinstance(payload, dict):
+        return None, "lm8f_decision_not_mapping"
+    return payload, None
+
+
+def _classify_decision(decision: Mapping[str, Any]) -> tuple[str, str | None]:
+    value = decision.get("decision")
+    if not isinstance(value, str):
+        return "wrapper_error", "lm8f_missing_decision"
+    if value not in TERMINAL_CATEGORIES:
+        return "wrapper_error", f"lm8f_unknown_decision:{value}"
+    if value == "wrapper_error":
+        return "wrapper_error", "lm8f_unexpected_wrapper_error_decision"
+    return value, None

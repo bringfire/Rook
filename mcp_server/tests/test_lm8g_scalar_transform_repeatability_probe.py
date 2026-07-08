@@ -94,3 +94,74 @@ def test_lm8f_command_uses_sys_executable_and_child_run_dir(tmp_path: Path, monk
     ]
     assert "--retry-clean-observation" not in command
     assert "--gh-edit" not in command
+
+
+def test_scheduled_attempt_id_is_stable():
+    assert PROBE._scheduled_attempt_id(1) == "attempt-001"
+    assert PROBE._scheduled_attempt_id(12) == "attempt-012"
+
+
+def test_base_attempt_row_has_lm8g_fields():
+    row = PROBE._base_attempt_row(attempt_index=1)
+
+    assert row["attempt_index"] == 1
+    assert row["scheduled_attempt_id"] == "attempt-001"
+    assert row["lm8f_invoked"] is False
+    assert row["lm8f_returncode"] is None
+    assert row["lm8f_run_dir"] is None
+    assert row["terminal_category"] is None
+    assert row["leak_check_performed"] is False
+    assert row["leak_marker_match_count"] == 0
+
+
+def test_discover_child_run_dirs_uses_filesystem_delta(tmp_path: Path):
+    runs_dir = tmp_path / "lm8f_runs"
+    runs_dir.mkdir()
+    existing = runs_dir / "lm8f-existing"
+    existing.mkdir()
+    before = set(runs_dir.glob("lm8f-*"))
+    child = runs_dir / "lm8f-new"
+    child.mkdir()
+
+    assert PROBE._discover_child_run_dirs(runs_dir, before) == [child]
+
+
+def test_read_decision_handles_missing_invalid_and_non_mapping(tmp_path: Path):
+    missing, missing_error = PROBE._read_decision(tmp_path / "missing.json")
+    assert missing is None
+    assert missing_error == "lm8f_missing_decision_json"
+
+    invalid_path = tmp_path / "invalid.json"
+    invalid_path.write_text("{bad", encoding="utf-8")
+    invalid, invalid_error = PROBE._read_decision(invalid_path)
+    assert invalid is None
+    assert invalid_error == "lm8f_invalid_decision_json"
+
+    list_path = tmp_path / "list.json"
+    list_path.write_text("[]", encoding="utf-8")
+    non_mapping, non_mapping_error = PROBE._read_decision(list_path)
+    assert non_mapping is None
+    assert non_mapping_error == "lm8f_decision_not_mapping"
+
+
+def test_classify_decision_preserves_known_lm8f_categories():
+    for decision in (
+        "accepted",
+        "rejected",
+        "worker_declined",
+        "publication_failed",
+        "gate_failed",
+        "preflight_failed",
+    ):
+        assert PROBE._classify_decision({"decision": decision}) == (decision, None)
+
+
+def test_classify_decision_rejects_unknown_or_missing_value():
+    assert PROBE._classify_decision({}) == (
+        "wrapper_error",
+        "lm8f_missing_decision",
+    )
+    assert PROBE._classify_decision({"decision": "strange"}) == (
+        "wrapper_error",
+        "lm8f_unknown_decision:strange",
+    )
