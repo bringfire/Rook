@@ -719,5 +719,8 @@ def test_lm8g_rejects_unsupported_flags_and_does_not_forward_them(tmp_path: Path
 def test_lm8g_source_contains_lm8f_subprocess_script_path():
     source = inspect.getsource(PROBE)
 
-    assert "lm8f_scalar_transform_depth_probe.py" in source
-    assert "from scripts.lm8f_scalar_transform_depth_probe" not in source
+    script_name = "lm8f_scalar_transform_depth_probe.py"
+    module_name = "lm8f_scalar_transform_depth_probe"
+
+    assert script_name in source
+    assert module_name not in source.replace(script_name, "")

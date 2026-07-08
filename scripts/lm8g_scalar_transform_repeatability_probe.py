@@ -108,7 +108,7 @@ def _manifest(*, attempts: int, model: str) -> dict[str, Any]:
         "attempts": attempts,
         "model": model,
         "canonical_evidence": _canonical_evidence(attempts=attempts, model=model),
-        "child_probe": "lm8f_scalar_transform_depth_probe",
+        "child_probe": "lm8f_scalar_transform_depth_probe.py",
         "child_probe_invocation": "subprocess",
     }
 
