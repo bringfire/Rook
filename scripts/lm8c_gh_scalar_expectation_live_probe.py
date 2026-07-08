@@ -812,28 +812,38 @@ async def _dispatch_set_value_and_verify(
     worker_value: float | int,
     expected_value: float | int,
 ) -> dict[str, Any]:
-    set_result = await tool_executor(
-        "gh_set_value",
-        {"guid": component_guid, "value": worker_value},
-    )
+    try:
+        set_result = await tool_executor(
+            "gh_set_value",
+            {"guid": component_guid, "value": worker_value},
+        )
+    except Exception as exc:
+        return {
+            "live_set_value_summary": {
+                "tool_name": "gh_set_value",
+                "component_guid": component_guid,
+                "component_guid_sha256": _guid_sha256(component_guid),
+                "worker_action_value": worker_value,
+                "set_value_reported_success": False,
+                "exception": type(exc).__name__,
+            },
+            "verify_scalar_output_summary": None,
+            "decision": {
+                "decision": "rejected",
+                "reason": f"gh_set_value_exception:{type(exc).__name__}",
+                "phase": "live_set_value",
+            },
+        }
+    set_value_reported_success = not _tool_result_failed(set_result)
     set_summary = {
         "tool_name": "gh_set_value",
         "component_guid": component_guid,
         "component_guid_sha256": _guid_sha256(component_guid),
         "worker_action_value": worker_value,
-        "success": not _tool_result_failed(set_result),
+        "success": set_value_reported_success,
+        "set_value_reported_success": set_value_reported_success,
         "receipt_sha256": _receipt_sha256(set_result),
     }
-    if _tool_result_failed(set_result):
-        return {
-            "live_set_value_summary": set_summary,
-            "verify_scalar_output_summary": None,
-            "decision": {
-                "decision": "rejected",
-                "reason": "gh_set_value_failed",
-                "phase": "live_set_value",
-            },
-        }
 
     get_result = await tool_executor("gh_get_value", {"guid": component_guid})
     invalid_value = False
