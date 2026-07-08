@@ -204,3 +204,155 @@ def test_manifest_records_lm8c_identity() -> None:
     assert manifest["worker_retry_enabled"] is False
     assert manifest["planner_model"] is None
     assert manifest["gh_edit_enabled"] is False
+
+
+class FakeToolExecutor:
+    def __init__(self, responses):
+        self.responses = dict(responses)
+        self.calls = []
+
+    async def __call__(self, tool_name, args):
+        self.calls.append((tool_name, dict(args)))
+        value = self.responses[tool_name]
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+
+def _run(coro):
+    import asyncio
+
+    return asyncio.run(coro)
+
+
+def test_preflight_accepts_pong_and_document_created() -> None:
+    executor = FakeToolExecutor(
+        {
+            "rhino_ping": "pong",
+            "gh_document_new": {"success": True, "data": {"Created": True}},
+        }
+    )
+
+    ok, reason, summaries = _run(PROBE._run_preflight(executor))
+
+    assert ok is True
+    assert reason is None
+    assert summaries["rhino_ping"] == "pong"
+    assert summaries["gh_document_new"] == {"success": True, "data": {"Created": True}}
+    assert executor.calls == [("rhino_ping", {}), ("gh_document_new", {})]
+
+
+def test_preflight_classifies_ping_and_document_failures() -> None:
+    ping_failed = FakeToolExecutor(
+        {
+            "rhino_ping": {"success": False, "error": "offline"},
+            "gh_document_new": {"created": True},
+        }
+    )
+    ok, reason, _summaries = _run(PROBE._run_preflight(ping_failed))
+    assert ok is False
+    assert reason == "rhino_ping_failed"
+    assert ping_failed.calls == [("rhino_ping", {})]
+
+    document_failed = FakeToolExecutor(
+        {
+            "rhino_ping": "pong",
+            "gh_document_new": {"created": False},
+        }
+    )
+    ok, reason, _summaries = _run(PROBE._run_preflight(document_failed))
+    assert ok is False
+    assert reason == "gh_document_new_failed"
+
+
+def test_create_scalar_fixture_uses_direct_slider_tools_and_hashes_guid() -> None:
+    executor = FakeToolExecutor(
+        {
+            "gh_create_slider": {
+                "success": True,
+                "data": {
+                    "Created": True,
+                    "Guid": "SLIDER-GUID-1",
+                    "NickName": "LM8C_Target",
+                },
+            },
+            "gh_get_value": {
+                "success": True,
+                "data": {
+                    "Guid": "SLIDER-GUID-1",
+                    "Value": "0.0",
+                },
+            },
+        }
+    )
+
+    fixture = _run(PROBE._create_scalar_fixture(executor))
+
+    assert executor.calls == [
+        (
+            "gh_create_slider",
+            {
+                "nickname": "LM8C_Target",
+                "min": 0,
+                "max": 10,
+                "value": 0.0,
+                "x": 20,
+                "y": 80,
+            },
+        ),
+        ("gh_get_value", {"guid": "SLIDER-GUID-1"}),
+    ]
+    assert fixture["component_guid"] == "SLIDER-GUID-1"
+    assert fixture["observed_output_value"] == 0.0
+    assert fixture["receipt"]["scalar_anchor"]["component_guid"] == "SLIDER-GUID-1"
+    assert "component_guid" not in fixture["receipt"]["scalar_anchor"][
+        "editable_value_contract"
+    ]
+    rendered_sources = json.dumps(fixture["visible_receipt"], sort_keys=True)
+    assert "SLIDER-GUID-1" not in rendered_sources
+    assert fixture["live_create_scalar_summary"]["component_guid"] == "SLIDER-GUID-1"
+    assert fixture["live_create_scalar_summary"]["component_guid_sha256"].startswith(
+        "sha256:"
+    )
+
+
+def test_create_scalar_fixture_accepts_top_level_lowercase_tool_fields() -> None:
+    executor = FakeToolExecutor(
+        {
+            "gh_create_slider": {
+                "success": True,
+                "created": True,
+                "guid": "SLIDER-GUID-2",
+            },
+            "gh_get_value": {
+                "success": True,
+                "guid": "SLIDER-GUID-2",
+                "value": 0,
+            },
+        }
+    )
+
+    fixture = _run(PROBE._create_scalar_fixture(executor))
+
+    assert fixture["component_guid"] == "SLIDER-GUID-2"
+    assert fixture["observed_output_value"] == 0
+    assert fixture["live_create_scalar_summary"]["created"] is True
+
+
+@pytest.mark.parametrize("bad_value", ["not-number", True, None])
+def test_create_scalar_fixture_rejects_bad_initial_get_value(bad_value) -> None:
+    executor = FakeToolExecutor(
+        {
+            "gh_create_slider": {
+                "success": True,
+                "data": {"Created": True, "Guid": "SLIDER-GUID-1"},
+            },
+            "gh_get_value": {
+                "success": True,
+                "data": {"Guid": "SLIDER-GUID-1", "Value": bad_value},
+            },
+        }
+    )
+
+    with pytest.raises(ValueError, match="live scalar value"):
+        _run(PROBE._create_scalar_fixture(executor))

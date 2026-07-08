@@ -224,6 +224,175 @@ def _manifest(
     }
 
 
+def _tool_result_failed(result: Any) -> bool:
+    if result is None:
+        return True
+    if isinstance(result, Mapping):
+        if result.get("success") is False:
+            return True
+        if result.get("error"):
+            return True
+        data = result.get("data")
+        if isinstance(data, str) and data.startswith("Error:"):
+            return True
+    return False
+
+
+def _preflight_ping_ok(result: Any) -> bool:
+    if result == "pong":
+        return True
+    if isinstance(result, Mapping):
+        return result.get("success") is True and result.get("data") == "pong"
+    return False
+
+
+def _document_new_ok(result: Any) -> bool:
+    if not isinstance(result, Mapping):
+        return False
+    data = result.get("data")
+    if result.get("created") is True or result.get("Created") is True:
+        return True
+    if isinstance(data, Mapping):
+        return data.get("created") is True or data.get("Created") is True
+    return False
+
+
+async def _run_preflight(
+    tool_executor: Callable[[str, Mapping[str, Any]], Awaitable[Any]],
+) -> tuple[bool, str | None, dict[str, Any]]:
+    summaries: dict[str, Any] = {}
+    try:
+        ping = await tool_executor("rhino_ping", {})
+    except Exception as exc:
+        summaries["rhino_ping"] = {"exception": type(exc).__name__}
+        return False, "rhino_ping_failed", summaries
+    summaries["rhino_ping"] = ping
+    if _tool_result_failed(ping) or not _preflight_ping_ok(ping):
+        return False, "rhino_ping_failed", summaries
+
+    try:
+        document = await tool_executor("gh_document_new", {})
+    except Exception as exc:
+        summaries["gh_document_new"] = {"exception": type(exc).__name__}
+        return False, "gh_document_new_failed", summaries
+    summaries["gh_document_new"] = document
+    if _tool_result_failed(document) or not _document_new_ok(document):
+        return False, "gh_document_new_failed", summaries
+    return True, None, summaries
+
+
+def _coerce_scalar_value(value: Any) -> float | int:
+    import math
+
+    if isinstance(value, bool):
+        raise ValueError("live scalar value must be a finite number")
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError("live scalar value must be a finite number")
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = float(value)
+        except ValueError as exc:
+            raise ValueError("live scalar value must be a finite number") from exc
+        if not math.isfinite(parsed):
+            raise ValueError("live scalar value must be a finite number")
+        return parsed
+    raise ValueError("live scalar value must be a finite number")
+
+
+def _tool_data(result: Any) -> Any:
+    if isinstance(result, Mapping) and isinstance(result.get("data"), Mapping):
+        return result["data"]
+    return result
+
+
+def _tool_field(result: Any, *names: str) -> Any:
+    payload = _tool_data(result)
+    if not isinstance(payload, Mapping):
+        return None
+    for name in names:
+        if name in payload:
+            return payload[name]
+    return None
+
+
+def _guid_from_result(result: Any) -> str:
+    guid = _tool_field(result, "guid", "Guid", "component_guid")
+    if not isinstance(guid, str) or not guid.strip():
+        raise ValueError("tool result guid missing")
+    return guid
+
+
+def _receipt_sha256(result: Any) -> str:
+    return _fingerprint_json(result)
+
+
+async def _create_scalar_fixture(
+    tool_executor: Callable[[str, Mapping[str, Any]], Awaitable[Any]],
+) -> dict[str, Any]:
+    create_args = {
+        "nickname": "LM8C_Target",
+        "min": 0,
+        "max": 10,
+        "value": INITIAL_SCALAR_VALUE,
+        "x": 20,
+        "y": 80,
+    }
+    create_result = await tool_executor("gh_create_slider", create_args)
+    if _tool_result_failed(create_result):
+        raise ValueError("gh_create_slider_failed")
+    component_guid = _guid_from_result(create_result)
+
+    get_result = await tool_executor("gh_get_value", {"guid": component_guid})
+    if _tool_result_failed(get_result):
+        raise ValueError("gh_get_value_failed")
+    if not isinstance(_tool_data(get_result), Mapping):
+        raise ValueError("gh_get_value_result_invalid")
+    observed = _coerce_scalar_value(_tool_field(get_result, "value", "Value"))
+
+    editable_contract = {
+        "label": "LM8C_Target",
+        "value_type": "number",
+        "current_value": observed,
+        "identity_projection": True,
+    }
+    receipt = {
+        "observed_output_value": observed,
+        "scalar_anchor": {
+            "component_guid": component_guid,
+            "editable_value_contract": dict(editable_contract),
+        },
+    }
+    visible_receipt = {
+        "observed_output_value": observed,
+        "scalar_anchor": {
+            "guid_present": True,
+            "component_guid_sha256": _guid_sha256(component_guid),
+            "editable_value_contract": dict(editable_contract),
+        },
+    }
+    live_summary = {
+        "tool_name": "gh_create_slider",
+        "created": True,
+        "component_guid": component_guid,
+        "component_guid_sha256": _guid_sha256(component_guid),
+        "nickname": create_args["nickname"],
+        "initial_value": INITIAL_SCALAR_VALUE,
+        "observed_value": observed,
+        "receipt_sha256": _receipt_sha256(
+            {"create": create_result, "get_value": get_result}
+        ),
+    }
+    return {
+        "component_guid": component_guid,
+        "observed_output_value": observed,
+        "receipt": receipt,
+        "visible_receipt": visible_receipt,
+        "live_create_scalar_summary": live_summary,
+    }
+
+
 def _run_probe(
     *,
     model: str,
