@@ -1619,6 +1619,67 @@ Keep `_coerce_scalar_value` identical in behavior to LM8C.
 Append:
 
 ```python
+def _fixture_tool_responses(*, editable_value="2.0", observed_output="3.5"):
+    return {
+        "gh_library": {
+            "success": True,
+            "count": 1,
+            "components": [
+                {
+                    "name": "Addition",
+                    "nickName": "A+B",
+                    "category": "Maths",
+                    "guid": "ADDITION-PROXY-GUID",
+                }
+            ],
+        },
+        "gh_create_slider": [
+            {
+                "success": True,
+                "data": {
+                    "Created": True,
+                    "Guid": "EDITABLE-GUID-1",
+                    "NickName": "LM8F_Editable",
+                },
+            },
+            {
+                "success": True,
+                "data": {
+                    "Created": True,
+                    "Guid": "OFFSET-GUID-1",
+                    "NickName": "LM8F_Offset",
+                },
+            },
+        ],
+        "gh_create_component": {
+            "success": True,
+            "data": {
+                "Created": True,
+                "Guid": "ADDITION-GUID-1",
+                "NickName": "A+B",
+            },
+        },
+        "gh_connect": [
+            {"success": True, "data": {"connected": True}},
+            {"success": True, "data": {"connected": True}},
+        ],
+        "gh_solve": {"success": True, "data": {"scheduled": True}},
+        "gh_get_value": {
+            "success": True,
+            "data": {"Guid": "EDITABLE-GUID-1", "Value": editable_value},
+        },
+        "gh_inspect_output": {
+            "success": True,
+            "data": {
+                "param_nickname": "R",
+                "structure": "single",
+                "data_count": 1,
+                "preview": [observed_output],
+            },
+        },
+    }
+
+
 def test_create_transform_fixture_uses_direct_tools_and_hashes_worker_hidden_guid():
     executor = FakeToolExecutor(
         {
@@ -1759,6 +1820,20 @@ def test_create_transform_fixture_rejects_missing_addition_component():
         _run(PROBE._create_transform_fixture(executor))
 
     assert executor.calls == [("gh_library", {"search": "addition", "limit": 20})]
+
+
+def test_create_transform_fixture_rejects_noncanonical_editable_precheck_value():
+    executor = FakeToolExecutor(_fixture_tool_responses(editable_value="2.25"))
+
+    with pytest.raises(ValueError, match="initial_editable_value_mismatch"):
+        _run(PROBE._create_transform_fixture(executor))
+
+
+def test_create_transform_fixture_rejects_noncanonical_initial_observed_output():
+    executor = FakeToolExecutor(_fixture_tool_responses(observed_output="3.25"))
+
+    with pytest.raises(ValueError, match="initial_observed_output_mismatch"):
+        _run(PROBE._create_transform_fixture(executor))
 ```
 
 - [ ] **Step 7: Implement transform fixture setup**
@@ -1817,6 +1892,19 @@ Repeat for offset slider, create Addition, connect A/B, solve, `gh_get_value` ed
 
 The internal receipt may include the editable GUID as `scalar_anchor.internal_component_guid`; the visible receipt must include only `guid_present` and SHA-256 hashes.
 
+After coercing the editable-slider precheck and Addition `R` output, reject any
+non-canonical starting state before returning the fixture:
+
+```python
+if abs(float(editable_value) - float(INITIAL_EDITABLE_VALUE)) > SCALAR_TOLERANCE:
+    raise ValueError("initial_editable_value_mismatch")
+if abs(float(observed_output_value) - float(INITIAL_OBSERVED_OUTPUT)) > SCALAR_TOLERANCE:
+    raise ValueError("initial_observed_output_mismatch")
+```
+
+These checks belong in `_create_transform_fixture(...)` because they fence the
+live fixture setup before scalar source extraction and before the worker path.
+
 - [ ] **Step 8: Run Task 3 tests**
 
 Run:
@@ -1829,6 +1917,8 @@ Run:
   mcp_server\tests\test_lm8f_scalar_transform_depth_probe.py::test_inspect_output_scalar_value_accepts_real_preview_shape `
   mcp_server\tests\test_lm8f_scalar_transform_depth_probe.py::test_create_transform_fixture_uses_direct_tools_and_hashes_worker_hidden_guid `
   mcp_server\tests\test_lm8f_scalar_transform_depth_probe.py::test_create_transform_fixture_rejects_missing_addition_component `
+  mcp_server\tests\test_lm8f_scalar_transform_depth_probe.py::test_create_transform_fixture_rejects_noncanonical_editable_precheck_value `
+  mcp_server\tests\test_lm8f_scalar_transform_depth_probe.py::test_create_transform_fixture_rejects_noncanonical_initial_observed_output `
   -q
 ```
 
@@ -1919,6 +2009,19 @@ def test_scalar_transform_runtime_context_fails_when_live_receipt_missing_output
         PROBE._scalar_runtime_context(
             graph=graph,
             workflow_contract_payload=PROBE._scalar_transform_contract_payload(),
+            convention_packets=(),
+        )
+
+
+def test_scalar_transform_runtime_context_rejects_projection_invariant_mismatch():
+    graph = PROBE._graph_from_transform_receipt(_valid_transform_fixture()["receipt"])
+    payload = PROBE._scalar_transform_contract_payload()
+    payload["rules"]["verify_scalar_transform_output"]["offset_value"] = 1.25
+
+    with pytest.raises(ValueError, match="projection_invariant_mismatch"):
+        PROBE._scalar_runtime_context(
+            graph=graph,
+            workflow_contract_payload=payload,
             convention_packets=(),
         )
 
@@ -2039,6 +2142,33 @@ Build a graph with nodes `create_scalar_transform`, `set_scalar_value`, and `ver
 
 Use `assemble_gh_scalar_transform_expectation_packet(...)` and `project_gh_scalar_transform_expectation_legacy(...)` in `_scalar_runtime_context(...)`.
 
+Before assembling the packet, assert the extracted live/source facts agree with
+the declared projection:
+
+```python
+def _projection_invariant_holds(sources: Any) -> bool:
+    expected_observed = (
+        float(sources.editable_observation.value)
+        + float(sources.offset_contract.value)
+    )
+    return (
+        abs(float(sources.observed_output.value) - expected_observed)
+        <= SCALAR_TOLERANCE
+    )
+```
+
+In `_scalar_runtime_context(...)`:
+
+```python
+sources = extract_gh_scalar_transform_expectation_sources(...)
+if not _projection_invariant_holds(sources):
+    raise ValueError("projection_invariant_mismatch")
+packet = assemble_gh_scalar_transform_expectation_packet(sources)
+```
+
+This keeps a stale or malformed transform fixture from reaching the worker even
+when each individual scalar fact is syntactically valid.
+
 Create worker evidence packet:
 
 ```python
@@ -2081,6 +2211,7 @@ Run:
 .\mcp_server\.venv\Scripts\python.exe -m pytest `
   mcp_server\tests\test_lm8f_scalar_transform_depth_probe.py::test_scalar_transform_runtime_context_static_validates_without_lm5x_routability `
   mcp_server\tests\test_lm8f_scalar_transform_depth_probe.py::test_scalar_transform_runtime_context_fails_when_live_receipt_missing_output `
+  mcp_server\tests\test_lm8f_scalar_transform_depth_probe.py::test_scalar_transform_runtime_context_rejects_projection_invariant_mismatch `
   mcp_server\tests\test_lm8f_scalar_transform_depth_probe.py::test_worker_request_uses_transform_knowledge_and_never_exposes_raw_guid_or_derived_value `
   -q
 ```
