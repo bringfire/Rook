@@ -22,6 +22,10 @@
 - No `PlannerWorkerContractRequest` schema changes.
 - No `RookWorkflowContract` schema changes in LM8B.
 - No broad router implementation.
+- LM8B opens the GH scalar family; it does not claim GH scalar family
+  readiness.
+- After the first live GH scalar receipt, prefer same-family pressure before
+  adding a third family.
 - No package-level re-export from `rook.agent`.
 - Expected scalar value authority is `expected_output_contract`.
 - Observed scalar value authority is `receipt_observation`.
@@ -1579,6 +1583,25 @@ git commit -m "test: cover LM8 scalar expectation boundaries"
 ```
 
 If Task 5 made no changes, do not create an empty commit.
+
+---
+
+## Post-LM8B / LM8C Roadmap Discipline
+
+LM8B is the deterministic prototype for opening a second family. If LM8C later
+produces a receipted live scalar run, the next pressure should generally deepen
+the same GH scalar family before broadening. Useful same-family pressures are:
+
+- non-identity scalar relation
+- numeric tolerance
+- multiple candidate scalar targets
+- multi-fact scalar criteria
+- repeatability under the same scalar fixture
+
+Do not jump directly from a first scalar receipt to missing-wire repair,
+component replacement, `gh_edit` batches, or a broad router unless the LM8B/LM8C
+artifacts expose a cross-family protocol defect. This preserves the distinction
+between task-family transfer and complexity/difficulty scaling.
 
 ---
 
