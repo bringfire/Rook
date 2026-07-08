@@ -108,8 +108,9 @@ async def _wire(
 ) -> None:
     """Wire source.output -> target.input via raw HTTP.
 
-    `gh_connect` is not a registered MCP tool; the wiring route lives on the
-    companion directly as POST /gh/connect (see GrasshopperHandler.cs:5193).
+    This live harness intentionally uses the companion route directly even
+    though `gh_connect` is also exposed on the MCP surface; the route remains
+    POST /gh/connect (see GrasshopperHandler.cs:5193).
 
     `source_param` is required when the source is a multi-output component
     (e.g. the script's second output "Result"). `target_param` can be omitted

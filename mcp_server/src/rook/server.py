@@ -9052,6 +9052,25 @@ Create entry types:
             }
         ),
         Tool(
+            name="gh_connect",
+            description=(
+                "Connect a Grasshopper source component/output to a target component/input. "
+                "Uses the existing /gh/connect route and records knowledge/session telemetry. "
+                "Provide sourceGuid and targetGuid as component instance GUIDs. Use targetParam "
+                "when the target has named inputs, and sourceParam when the source has named outputs."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "sourceGuid": {"type": "string", "description": "Source component instance GUID."},
+                    "targetGuid": {"type": "string", "description": "Target component instance GUID."},
+                    "targetParam": {"type": "string", "description": "Optional target input parameter name, e.g. A or B."},
+                    "sourceParam": {"type": "string", "description": "Optional source output parameter name."},
+                },
+                "required": ["sourceGuid", "targetGuid"],
+            },
+        ),
+        Tool(
             name="gh_undo",
             description="""Undo the last operation on the Grasshopper canvas.
 
@@ -15933,6 +15952,9 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                         )
                     except Exception:
                         pass  # Don't fail the edit if session recording fails
+
+        case "gh_connect":
+            result = await _execute_gh_connect_with_knowledge(arguments, port)
 
         case "gh_undo":
             result = await call_rhino("/gh/undo", "POST", port=port)
