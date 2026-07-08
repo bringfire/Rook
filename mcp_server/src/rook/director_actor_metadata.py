@@ -4,6 +4,7 @@ import copy
 from collections import Counter
 import datetime
 import json
+import math
 import re
 import uuid
 from pathlib import Path
@@ -847,6 +848,355 @@ async def capture_source_occurrence_v2(
         "snapshot_id": snapshot_id,
         "snapshot_ref": snapshot_ref,
         "resolved_snapshot_path": str(resolved_snapshot_path),
+    }
+
+
+def _snapshot_source_occurrence(snapshot: dict[str, Any]) -> dict[str, Any]:
+    occurrences = snapshot.get("source_occurrences")
+    if not isinstance(occurrences, list) or len(occurrences) != 1:
+        _raise(
+            "snapshot_not_single_source",
+            "Source occurrence snapshot must contain exactly one source occurrence.",
+            count=len(occurrences) if isinstance(occurrences, list) else None,
+        )
+    source = occurrences[0]
+    if not isinstance(source, dict):
+        _raise(
+            "snapshot_not_single_source",
+            "Source occurrence snapshot entry must be an object.",
+        )
+    convenience = snapshot.get("source_occurrence")
+    if convenience is not None and convenience != source:
+        _raise(
+            "snapshot_source_mismatch",
+            "source_occurrence convenience field must match source_occurrences[0].",
+        )
+    return source
+
+
+def _block_definition_from_source(source: dict[str, Any]) -> dict[str, Any]:
+    block_definition = source.get("block_definition")
+    if not isinstance(block_definition, dict):
+        _raise(
+            "snapshot_source_not_block",
+            "Source occurrence does not contain block_definition context.",
+        )
+    block_id = block_definition.get("id")
+    block_name = block_definition.get("name")
+    if (
+        not isinstance(block_id, str)
+        or not block_id
+        or not isinstance(block_name, str)
+        or not block_name
+    ):
+        _raise(
+            "snapshot_source_not_block",
+            "Source occurrence block_definition requires id and name.",
+        )
+    return block_definition
+
+
+def _round_bbox_values(values: Any) -> list[float]:
+    if not isinstance(values, list) or len(values) != 3:
+        _raise("tight_bbox_unavailable", "Tight bbox min/max must be 3-number arrays.")
+    rounded: list[float] = []
+    for value in values:
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as ex:
+            raise DirectorActorMetadataError(
+                "tight_bbox_unavailable",
+                "Tight bbox values must be numeric.",
+                value=repr(value),
+            ) from ex
+        if not math.isfinite(number):
+            _raise(
+                "tight_bbox_unavailable",
+                "Tight bbox values must be finite.",
+                value=repr(value),
+            )
+        rounded.append(round(number, 4))
+    return rounded
+
+
+def _canonical_uuid_text(value: Any, *, ordinal: int | None = None) -> str:
+    if not isinstance(value, str) or not value:
+        _raise(
+            "block_enumeration_invalid",
+            "Block object entry requires a non-empty GUID id.",
+            ordinal=ordinal,
+        )
+    try:
+        return str(uuid.UUID(value))
+    except (AttributeError, TypeError, ValueError) as ex:
+        raise DirectorActorMetadataError(
+            "block_enumeration_invalid",
+            "Block object id must parse as a GUID.",
+            ordinal=ordinal,
+            object_id=value,
+        ) from ex
+
+
+def _member_from_block_object(
+    obj: dict[str, Any],
+    *,
+    seen_ordinals: set[int],
+    seen_definition_ids: set[str],
+) -> dict[str, Any]:
+    ordinal = obj.get("index")
+    if not isinstance(ordinal, int) or isinstance(ordinal, bool) or ordinal < 0:
+        _raise(
+            "block_enumeration_invalid",
+            "Block object entry requires a non-negative integer index.",
+            index=ordinal,
+            object_id=obj.get("id"),
+        )
+    if ordinal in seen_ordinals:
+        _raise(
+            "block_enumeration_invalid",
+            "Block object enumeration returned a duplicate ordinal.",
+            ordinal=ordinal,
+        )
+    definition_object_id = _canonical_uuid_text(obj.get("id"), ordinal=ordinal)
+    if definition_object_id in seen_definition_ids:
+        _raise(
+            "block_enumeration_invalid",
+            "Block object enumeration returned a duplicate definition object id.",
+            definition_object_id=definition_object_id,
+        )
+    seen_ordinals.add(ordinal)
+    seen_definition_ids.add(definition_object_id)
+    if obj.get("bboxMethod") != "tight_object":
+        _raise(
+            "tight_bbox_unavailable",
+            "Actor-set builder requires tight_object bbox for every member.",
+            object_id=definition_object_id,
+            bbox_method=obj.get("bboxMethod"),
+        )
+    bbox = obj.get("bbox") if isinstance(obj.get("bbox"), dict) else {}
+    return {
+        "ordinal": ordinal,
+        "resolved_reference": {
+            "definition_object_id": definition_object_id,
+        },
+        "expected": {
+            "type": obj.get("type"),
+            "layer": obj.get("layer"),
+            "name": obj.get("name") or "",
+        },
+        "bbox_evidence": {
+            "bbox_method": "tight_object",
+            "bbox_space": "definition_object",
+            "min": _round_bbox_values(bbox.get("min")),
+            "max": _round_bbox_values(bbox.get("max")),
+            "rounding_policy": "round_to_4_decimal_places",
+            "validation_strength": "tight_bbox",
+        },
+    }
+
+
+def _same_source_snapshot(existing: dict[str, Any], source_ref: str) -> bool:
+    return existing.get("source_occurrence_snapshot_ref") == source_ref
+
+
+async def _call_block_route_or_drift(
+    endpoint: str,
+    data: dict[str, Any],
+    *,
+    call_native=call_rhino,
+    port=None,
+    block_name: str,
+) -> Any:
+    try:
+        return await _call_native_data(
+            endpoint,
+            "POST",
+            data,
+            call_native=call_native,
+            port=port,
+        )
+    except DirectorActorMetadataError as ex:
+        _raise(
+            "block_definition_drift",
+            "Captured block definition is not available in the active document.",
+            block_name=block_name,
+            endpoint=endpoint,
+            upstream_code=ex.code,
+            upstream_message=ex.message,
+        )
+
+
+async def build_actor_set_from_source_occurrence_v2(
+    arguments: dict[str, Any], *, call_native=call_rhino, port=None
+) -> dict[str, Any]:
+    if not isinstance(arguments, dict):
+        _raise("metadata_bundle_invalid", "Actor-set build arguments must be an object.")
+    _reject_legacy_path_fields(arguments)
+    _reject_generated_ref_input_fields(
+        arguments,
+        allowed_field_paths={"$.source_occurrence_snapshot_ref"},
+    )
+    _validate_ref_fields(arguments)
+
+    project_root, _source_document = await resolve_active_project_root(
+        call_native=call_native,
+        port=port,
+    )
+
+    source_ref = arguments.get("source_occurrence_snapshot_ref")
+    snapshot = load_metadata_ref(
+        project_root,
+        source_ref,
+        expected_kind=KIND_SELECTION_SNAPSHOT,
+    )
+    source = _snapshot_source_occurrence(snapshot)
+    if source.get("object_type") != "InstanceReference":
+        _raise(
+            "snapshot_source_not_block",
+            "Source occurrence must be a block InstanceReference.",
+            object_type=source.get("object_type"),
+        )
+    block_definition = _block_definition_from_source(source)
+    block_name = block_definition["name"]
+    block_id = block_definition["id"]
+    source_object_id = source.get("source_top_level_object_id")
+    if not isinstance(source_object_id, str) or not source_object_id:
+        _raise(
+            "snapshot_source_not_block",
+            "Source occurrence requires source_top_level_object_id.",
+        )
+
+    actor_set_id = arguments.get("actor_set_id")
+    if actor_set_id is None:
+        actor_set_id = snapshot.get("snapshot_id")
+    if not isinstance(actor_set_id, str) or not actor_set_id:
+        _raise(
+            "metadata_id_required",
+            "Actor-set builder requires actor_set_id or snapshot_id.",
+            field="actor_set_id",
+        )
+    _validate_filename_segment_id(
+        actor_set_id,
+        key="actor_set_id",
+        field_path="$.actor_set_id",
+    )
+    replace_existing_value = arguments.get("replace_existing", False)
+    if not isinstance(replace_existing_value, bool):
+        _raise(
+            "metadata_bundle_invalid",
+            "replace_existing must be a boolean.",
+            field="replace_existing",
+            value=replace_existing_value,
+        )
+    replace_existing = replace_existing_value
+    actor_ref = _actor_set_ref(actor_set_id)
+    actor_path = resolve_metadata_ref(project_root, actor_ref)
+    if actor_path.exists():
+        if not replace_existing:
+            _raise(
+                "actor_set_exists",
+                "Actor set already exists; pass replace_existing=true to overwrite.",
+                actor_set_ref=actor_ref,
+            )
+        existing = load_metadata_ref(project_root, actor_ref, expected_kind=KIND_ACTOR_SET)
+        if not _same_source_snapshot(existing, source_ref):
+            _raise(
+                "actor_set_source_mismatch",
+                "Existing actor set was built from a different source occurrence snapshot.",
+                actor_set_ref=actor_ref,
+                existing_source_occurrence_snapshot_ref=existing.get(
+                    "source_occurrence_snapshot_ref"
+                ),
+                source_occurrence_snapshot_ref=source_ref,
+            )
+
+    instances = await _call_block_route_or_drift(
+        "/block/instances",
+        {"name": block_name, "depth": 0},
+        call_native=call_native,
+        port=port,
+        block_name=block_name,
+    )
+    instance_rows = instances.get("instances") if isinstance(instances, dict) else None
+    if not isinstance(instance_rows, list) or not any(
+        isinstance(row, dict) and row.get("id") == source_object_id
+        for row in instance_rows
+    ):
+        _raise(
+            "source_occurrence_missing_in_document",
+            "Captured source occurrence is not present in the active document.",
+            source_top_level_object_id=source_object_id,
+            block_name=block_name,
+        )
+
+    block_info = await _call_block_route_or_drift(
+        "/block/info",
+        {"name": block_name},
+        call_native=call_native,
+        port=port,
+        block_name=block_name,
+    )
+    if (
+        not isinstance(block_info, dict)
+        or block_info.get("id") != block_id
+        or block_info.get("name") != block_name
+    ):
+        _raise(
+            "block_definition_drift",
+            "Current block definition id/name does not match the captured source occurrence.",
+            expected_block_definition={"id": block_id, "name": block_name},
+            actual_block_definition={
+                "id": block_info.get("id") if isinstance(block_info, dict) else None,
+                "name": block_info.get("name") if isinstance(block_info, dict) else None,
+            },
+        )
+
+    detail = await _call_native_data(
+        "/block/objects-detailed",
+        "POST",
+        {"name": block_name},
+        call_native=call_native,
+        port=port,
+    )
+    objects = detail.get("objects") if isinstance(detail, dict) else None
+    if not isinstance(objects, list) or not objects:
+        _raise(
+            "block_enumeration_empty",
+            "Block definition has no direct geometry objects to build as actor members.",
+            block_name=block_name,
+        )
+    members = []
+    seen_ordinals: set[int] = set()
+    seen_definition_ids: set[str] = set()
+    for obj in objects:
+        if not isinstance(obj, dict):
+            _raise("block_enumeration_invalid", "Block object entry was not an object.")
+        members.append(
+            _member_from_block_object(
+                obj,
+                seen_ordinals=seen_ordinals,
+                seen_definition_ids=seen_definition_ids,
+            )
+        )
+
+    actor_set = {
+        "actor_set_id": actor_set_id,
+        "source_occurrence_snapshot_ref": source_ref,
+        "summary": {"member_count": len(members), "resolved_count": len(members)},
+        "members": members,
+    }
+    result = await write_actor_metadata_bundle_v2(
+        {"actor_set": actor_set},
+        call_native=call_native,
+        port=port,
+    )
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "metadata_kind": KIND_ACTOR_SET,
+        "actor_set_id": actor_set_id,
+        "actor_set_ref": result["actor_set_ref"],
+        "resolved_actor_set_path": result["resolved_actor_set_path"],
+        "member_count": len(members),
     }
 
 

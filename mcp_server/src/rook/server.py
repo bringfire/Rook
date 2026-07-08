@@ -4321,6 +4321,44 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
             },
         ),
         Tool(
+            name="rhino_director_build_actor_set_from_source_occurrence_v2",
+            description=(
+                "Build a schema-v2 Director ActorSet from an existing source "
+                "occurrence SelectionSnapshot. Enumerates direct block definition "
+                "objects, writes the ActorSet under .rook, and requires a saved "
+                ".3dm document. Mutating: writes Director planning metadata."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["source_occurrence_snapshot_ref"],
+                "properties": {
+                    "source_occurrence_snapshot_ref": {
+                        "type": "string",
+                        "description": (
+                            "Project-relative .rook ref to a "
+                            "director_selection_snapshot captured by "
+                            "rhino_director_capture_source_occurrence_v2."
+                        ),
+                    },
+                    "actor_set_id": {
+                        "type": "string",
+                        "description": (
+                            "Optional safe id for the generated ActorSet. "
+                            "Defaults to the snapshot_id."
+                        ),
+                    },
+                    "replace_existing": {
+                        "type": "boolean",
+                        "description": (
+                            "Default false. If true, replaces only an existing "
+                            "ActorSet built from the same "
+                            "source_occurrence_snapshot_ref."
+                        ),
+                    },
+                },
+            },
+        ),
+        Tool(
             name="rhino_director_write_actor_metadata_v2",
             description=(
                 "Production writer for v2 ActorSet, actor subset, ActorGrouping, "
@@ -21041,6 +21079,17 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 result = {
                     "success": True,
                     "data": await director_actor_metadata.capture_source_occurrence_v2(
+                        arguments, port=port
+                    ),
+                }
+            except director_actor_metadata.DirectorActorMetadataError as exc:
+                result = {"success": False, "data": exc.to_data()}
+
+        case "rhino_director_build_actor_set_from_source_occurrence_v2":
+            try:
+                result = {
+                    "success": True,
+                    "data": await director_actor_metadata.build_actor_set_from_source_occurrence_v2(
                         arguments, port=port
                     ),
                 }

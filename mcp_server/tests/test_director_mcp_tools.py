@@ -596,10 +596,12 @@ async def test_actor_metadata_v2_tools_registered():
     by_name = {tool.name: tool for tool in tools}
 
     assert "rhino_director_capture_source_occurrence_v2" in by_name
+    assert "rhino_director_build_actor_set_from_source_occurrence_v2" in by_name
     assert "rhino_director_write_actor_metadata_v2" in by_name
     assert "rhino_director_read_actor_metadata_v2" in by_name
     for name in {
         "rhino_director_capture_source_occurrence_v2",
+        "rhino_director_build_actor_set_from_source_occurrence_v2",
         "rhino_director_write_actor_metadata_v2",
         "rhino_director_read_actor_metadata_v2",
     }:
@@ -611,6 +613,10 @@ async def test_actor_metadata_v2_tools_registered():
 def test_actor_metadata_v2_tools_are_in_director_group():
     assert (
         "rhino_director_capture_source_occurrence_v2"
+        in tool_groups.TOOL_GROUPS["director"]
+    )
+    assert (
+        "rhino_director_build_actor_set_from_source_occurrence_v2"
         in tool_groups.TOOL_GROUPS["director"]
     )
     assert "rhino_director_write_actor_metadata_v2" in tool_groups.TOOL_GROUPS["director"]
@@ -689,6 +695,67 @@ async def test_capture_source_occurrence_v2_tool_dispatch_error():
     assert text.startswith("Error: ")
     payload = json.loads(text.removeprefix("Error: "))
     assert payload["code"] == "source_occurrence_selection_required"
+
+
+@pytest.mark.asyncio
+async def test_build_actor_set_from_source_occurrence_v2_tool_dispatch_success():
+    request = {
+        "source_occurrence_snapshot_ref": ".rook/director_planning/selection_snapshots/source_occurrence_roof.json",
+        "actor_set_id": "roof_full_set",
+    }
+
+    async def fake_build(arguments, *, port=None):
+        assert arguments == request
+        assert port is None
+        return {
+            "schema_version": 2,
+            "metadata_kind": "director_actor_set",
+            "actor_set_id": "roof_full_set",
+            "actor_set_ref": ".rook/director_planning/actor_sets/roof_full_set.json",
+            "member_count": 376,
+        }
+
+    with patch(
+        "rook.server.director_actor_metadata.build_actor_set_from_source_occurrence_v2",
+        new=fake_build,
+    ):
+        out = await server.call_tool(
+            "rhino_director_build_actor_set_from_source_occurrence_v2",
+            request,
+        )
+
+    payload = json.loads(out[0].text)
+    assert payload["metadata_kind"] == "director_actor_set"
+    assert payload["actor_set_ref"].endswith("roof_full_set.json")
+    assert payload["member_count"] == 376
+
+
+@pytest.mark.asyncio
+async def test_build_actor_set_from_source_occurrence_v2_tool_dispatch_error():
+    async def fake_build(arguments, *, port=None):
+        raise server.director_actor_metadata.DirectorActorMetadataError(
+            "actor_set_exists",
+            "Actor set already exists.",
+        )
+
+    with patch(
+        "rook.server.director_actor_metadata.build_actor_set_from_source_occurrence_v2",
+        new=fake_build,
+    ):
+        out = await server.call_tool(
+            "rhino_director_build_actor_set_from_source_occurrence_v2",
+            {
+                "source_occurrence_snapshot_ref": (
+                    ".rook/director_planning/selection_snapshots/"
+                    "source_occurrence_roof.json"
+                )
+            },
+        )
+
+    text = out[0].text
+    assert text.startswith("Error: ")
+    payload = json.loads(text.removeprefix("Error: "))
+    assert payload["code"] == "actor_set_exists"
 
 
 @pytest.mark.asyncio
