@@ -683,7 +683,7 @@ def _raw_component_guid_leaks(value: Any, component_guid: str) -> bool:
     if not component_guid:
         return False
     rendered = json.dumps(value, sort_keys=True, default=str)
-    return component_guid in rendered
+    return component_guid.casefold() in rendered.casefold()
 
 
 async def _create_scalar_fixture(

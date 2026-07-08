@@ -770,6 +770,35 @@ def test_run_probe_blocks_publication_row_raw_guid_leak(tmp_path: Path) -> None:
     assert not (run_dir / "worker_action.json").exists()
 
 
+def test_run_probe_blocks_publication_row_raw_guid_leak_with_different_casing(
+    tmp_path: Path,
+) -> None:
+    run_dir = _run_probe_with_publication(
+        tmp_path,
+        FakePublication(
+            row={
+                "status": "published",
+                "pass2_response_kind": "action_request",
+                "note": "slider-guid-secret",
+            },
+            response_payload={
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "action_request",
+                "action_id": "draft_gh_set_value_params",
+                "input": {"value": 7.5},
+            },
+        ),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "worker_publication_guid_leak"
+    assert decision["phase"] == "worker_publication"
+    assert not (run_dir / "worker_publication_row.json").exists()
+    assert not (run_dir / "worker_action.json").exists()
+
+
 def test_run_probe_blocks_worker_action_raw_guid_leak(tmp_path: Path) -> None:
     run_dir = _run_probe_with_publication(
         tmp_path,
@@ -794,6 +823,31 @@ def test_run_probe_blocks_worker_action_raw_guid_leak(tmp_path: Path) -> None:
     assert decision["guid_present"] is True
     assert decision["component_guid_sha256"].startswith("sha256:")
     assert "SLIDER-GUID-SECRET" not in rendered
+    assert not (run_dir / "worker_publication_row.json").exists()
+    assert not (run_dir / "worker_action.json").exists()
+
+
+def test_run_probe_blocks_worker_action_raw_guid_leak_with_different_casing(
+    tmp_path: Path,
+) -> None:
+    run_dir = _run_probe_with_publication(
+        tmp_path,
+        FakePublication(
+            row={"status": "published", "pass2_response_kind": "action_request"},
+            response_payload={
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "action_request",
+                "action_id": "draft_gh_set_value_params",
+                "input": {"value": 7.5, "note": "slider-guid-secret"},
+            },
+        ),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "worker_publication_guid_leak"
+    assert decision["phase"] == "worker_publication"
     assert not (run_dir / "worker_publication_row.json").exists()
     assert not (run_dir / "worker_action.json").exists()
 
