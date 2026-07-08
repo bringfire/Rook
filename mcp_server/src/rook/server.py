@@ -745,6 +745,58 @@ def _clear_failure(command: str) -> None:
 # gh_execute_intent correction detection (separate from per-tool tracking)
 _gh_intent_failures: dict[str, dict] = {}
 _GH_FAILURE_EXPIRY_MINUTES = 30
+_recent_gh_failures: dict[str, dict] = {}
+
+
+def _gh_failure_key(operation: str, context: dict[str, Any]) -> str:
+    """Build a stable key for GH operation correction detection."""
+    target_guid = context.get("target_guid") or ""
+    param = context.get("param") or ""
+    if target_guid or param:
+        return f"{operation}:{target_guid}:{param}"
+
+    guids = context.get("guids")
+    if isinstance(guids, list):
+        return f"{operation}:{','.join(str(guid) for guid in guids)}"
+
+    try:
+        context_key = json.dumps(context, sort_keys=True, default=str)
+    except TypeError:
+        context_key = str(context)
+    return f"{operation}:{context_key}"
+
+
+def _track_gh_failure(operation: str, context: dict[str, Any], error: str) -> None:
+    """Track a GH operation failure for later success/correction detection."""
+    _recent_gh_failures[_gh_failure_key(operation, context)] = {
+        "context": dict(context),
+        "error": error,
+        "timestamp": datetime.now(),
+    }
+
+
+def _check_for_gh_correction(
+    operation: str,
+    context: dict[str, Any],
+    success: bool = True,
+) -> dict | None:
+    """Return correction info when a recent matching GH failure is followed by success."""
+    if not success:
+        return None
+
+    key = _gh_failure_key(operation, context)
+    failure = _recent_gh_failures.pop(key, None)
+    if not failure:
+        return None
+
+    age = datetime.now() - failure["timestamp"]
+    if age > timedelta(minutes=_GH_FAILURE_EXPIRY_MINUTES):
+        return None
+
+    return {
+        "failed_context": failure["context"],
+        "error": failure["error"],
+    }
 
 # Agent system state — tracks running/completed agents for status/abort
 _active_agents: dict[str, Any] = {}  # agent_id -> {"agent": ..., "task": asyncio.Task, ...}
