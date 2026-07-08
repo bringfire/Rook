@@ -387,7 +387,7 @@ def _scalar_allowed_action() -> WorkerAllowedAction:
     )
 
 
-def _build_worker_request_payload(
+def _build_local_turn_payload(
     *,
     graph: PlanGraph,
     packet: Mapping[str, Any],
@@ -958,7 +958,7 @@ def _run_probe(
     )
     _write_json_value(run_dir / "acceptance_criteria_packet.json", runtime["packet"])
     _write_json(run_dir / "worker_visible_acceptance_criteria.json", runtime["worker_visible"])
-    request_payload = _build_worker_request_payload(
+    request_payload = _build_local_turn_payload(
         graph=graph,
         packet=runtime["packet"],
         worker_visible=runtime["worker_visible"],

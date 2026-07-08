@@ -494,7 +494,7 @@ def test_worker_request_uses_scalar_knowledge_and_never_exposes_raw_guid() -> No
         convention_packets=(),
     )
 
-    payload = PROBE._build_worker_request_payload(
+    payload = PROBE._build_local_turn_payload(
         graph=graph,
         packet=runtime["packet"],
         worker_visible=runtime["worker_visible"],
@@ -871,3 +871,181 @@ def test_run_probe_preflight_failure_writes_terminal_decision(tmp_path: Path) ->
     assert decision["decision"] == "preflight_failed"
     assert decision["reason"] == "rhino_ping_failed"
     assert decision["worker_publication_ran"] is False
+
+
+def test_script_static_guard_forbids_repair_and_batch_surfaces() -> None:
+    import ast
+
+    source = _script_path().read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    forbidden_import_fragments = [
+        "lm6a_live_worker_splice_probe",
+        "lm7b_request_driven_live_splice_probe",
+        "lm7e_model_authored_live_splice_probe",
+        "planner_worker_contract_request",
+    ]
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            for marker in forbidden_import_fragments:
+                assert marker not in node.module
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                for marker in forbidden_import_fragments:
+                    assert marker not in alias.name
+
+    dispatched_tools = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not node.args:
+            continue
+        first_arg = node.args[0]
+        if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+            dispatched_tools.append(first_arg.value)
+
+    forbidden_dispatched_tools = [
+        "gh_edit",
+        "gh_update_script",
+        "gh_create_csharp_script",
+    ]
+    for marker in forbidden_dispatched_tools:
+        assert marker not in dispatched_tools
+
+    forbidden_call_names = [
+        "_worker_request_payload",
+        "materialize_planner_worker_contract_request",
+        "validate_planner_worker_contract_request",
+        "retry_clean_observation",
+        "lm6e_bounded_retry_context",
+    ]
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            name = ""
+            if isinstance(node.func, ast.Name):
+                name = node.func.id
+            elif isinstance(node.func, ast.Attribute):
+                name = node.func.attr
+            for marker in forbidden_call_names:
+                assert marker not in name
+
+    assert "repair_same_component" not in dispatched_tools
+
+
+def test_source_and_worker_artifacts_do_not_contain_raw_guid(tmp_path: Path) -> None:
+    executor = FakeToolExecutor(
+        {
+            "rhino_ping": "pong",
+            "gh_document_new": {"success": True, "data": {"Created": True}},
+            "gh_create_slider": {
+                "success": True,
+                "data": {"Created": True, "Guid": "SLIDER-GUID-SECRET"},
+            },
+            "gh_get_value": [
+                {
+                    "success": True,
+                    "data": {"Guid": "SLIDER-GUID-SECRET", "Value": "0.0"},
+                },
+                {
+                    "success": True,
+                    "data": {"Guid": "SLIDER-GUID-SECRET", "Value": "7.5"},
+                },
+            ],
+            "gh_set_value": {
+                "success": True,
+                "data": {"Guid": "SLIDER-GUID-SECRET", "NewValue": 7.5},
+            },
+        }
+    )
+
+    async def sequence_executor(tool_name, args):
+        value = executor.responses[tool_name]
+        executor.calls.append((tool_name, dict(args)))
+        if isinstance(value, list):
+            return value.pop(0)
+        return value
+
+    def fake_publication_runner(*_args, **_kwargs):
+        return FakePublication(
+            row={"status": "published", "pass2_response_kind": "action_request"},
+            response_payload={
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "action_request",
+                "action_id": "draft_gh_set_value_params",
+                "rationale": "Set to expected value.",
+                "input": {"value": 7.5},
+            },
+        )
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=sequence_executor,
+        publication_runner=fake_publication_runner,
+    )
+
+    no_guid_files = [
+        "scalar_sources.json",
+        "acceptance_criteria_packet.json",
+        "worker_visible_acceptance_criteria.json",
+        "worker_request_payload.json",
+        "verify_scalar_output_summary.json",
+        "decision.json",
+    ]
+    for name in no_guid_files:
+        assert "SLIDER-GUID-SECRET" not in (run_dir / name).read_text()
+
+    assert (
+        "SLIDER-GUID-SECRET"
+        in (run_dir / "live_create_scalar_summary.json").read_text()
+    )
+    assert "SLIDER-GUID-SECRET" in (run_dir / "live_set_value_summary.json").read_text()
+
+
+def test_main_runs_probe_and_prints_completion(tmp_path: Path, monkeypatch, capsys) -> None:
+    run_dir = tmp_path / "lm8c-test"
+    run_dir.mkdir()
+    (run_dir / "decision.json").write_text(
+        json.dumps({"decision": "accepted", "reason": "verify_scalar_output_succeeded"}),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_run_probe(**kwargs):
+        captured.update(kwargs)
+        return run_dir
+
+    monkeypatch.setattr(PROBE, "_run_probe", fake_run_probe)
+
+    result = PROBE.main(
+        [
+            "--model",
+            "test-model",
+            "--endpoint",
+            "http://example.invalid/chat",
+            "--temperature",
+            "0.25",
+            "--timeout-s",
+            "3",
+            "--excerpt-chars",
+            "17",
+            "--run-dir",
+            str(tmp_path),
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert result == 0
+    assert captured["model"] == "test-model"
+    assert captured["endpoint"] == "http://example.invalid/chat"
+    assert captured["temperature"] == 0.25
+    assert captured["timeout_s"] == 3
+    assert captured["excerpt_chars"] == 17
+    assert captured["run_root"] == str(tmp_path)
+    assert captured["canonical_evidence"] is False
+    assert "LM8C GH scalar expectation live splice probe complete" in output
+    assert f"run_dir={run_dir}" in output
+    assert "decision=accepted" in output
