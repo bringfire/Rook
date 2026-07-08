@@ -7,7 +7,9 @@ import argparse
 import json
 import subprocess
 import sys
+from collections import Counter
 from collections.abc import Mapping, Sequence
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +22,12 @@ DEFAULT_MODEL = "gemma4:12b-it-qat"
 DEFAULT_RUN_DIR = "probe_runs"
 DEFAULT_ATTEMPT_TIMEOUT_S = 600
 EXCERPT_CHARS = 2000
+LEAK_MARKERS = (
+    "PROBE_REPAIR_CODE",
+    "A = 42.0",
+    "BindStepSpec.base_params",
+    "repair_same_component.bind.base_params",
+)
 TERMINAL_CATEGORIES = (
     "accepted",
     "rejected",
@@ -305,3 +313,118 @@ def _subprocess_error_row(
         }
     )
     return row
+
+
+def _scan_leak_markers(run_dir: Path) -> list[dict[str, Any]]:
+    if not run_dir.exists() or not run_dir.is_dir():
+        return []
+
+    matches: list[dict[str, Any]] = []
+    for path in sorted(run_dir.rglob("*.json"), key=lambda item: str(item)):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for marker in LEAK_MARKERS:
+            if marker in text:
+                matches.append({"path": str(path), "marker": marker})
+    return matches
+
+
+def _apply_leak_scan(row: dict[str, Any]) -> None:
+    run_dir_value = row.get("lm8f_run_dir")
+    if not run_dir_value:
+        return
+    matches = _scan_leak_markers(Path(str(run_dir_value)))
+    row["leak_check_performed"] = True
+    row["leak_marker_matches"] = matches
+    row["leak_marker_match_count"] = len(matches)
+
+
+def _read_json_mapping(path: Path) -> Mapping[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return payload if isinstance(payload, Mapping) else None
+
+
+def _copy_child_artifact_summaries(row: dict[str, Any]) -> None:
+    run_dir_value = row.get("lm8f_run_dir")
+    if not run_dir_value:
+        return
+
+    run_dir = Path(str(run_dir_value))
+    worker_action = _read_json_mapping(run_dir / "worker_action.json")
+    if worker_action is not None:
+        action_input = worker_action.get("input")
+        if isinstance(action_input, Mapping):
+            value = action_input.get("value")
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                row["worker_action_value"] = value
+
+    verify_summary = _read_json_mapping(run_dir / "verify_scalar_output_summary.json")
+    if verify_summary is not None:
+        attempt_count = verify_summary.get("attempt_count")
+        if isinstance(attempt_count, int) and not isinstance(attempt_count, bool):
+            row["verifier_attempt_count"] = attempt_count
+
+
+def _compact_counts(counter: Counter[str]) -> dict[str, int]:
+    return {key: counter[key] for key in sorted(counter) if counter[key]}
+
+
+def _build_summary(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    attempts: int,
+    model: str,
+) -> dict[str, Any]:
+    terminal_counts: Counter[str] = Counter()
+    for row in rows:
+        category = row.get("terminal_category")
+        if isinstance(category, str):
+            terminal_counts[category] += 1
+
+    worker_rows = [row for row in rows if row.get("worker_publication_ran") is True]
+    worker_counts: Counter[str] = Counter()
+    for row in worker_rows:
+        category = row.get("terminal_category")
+        if isinstance(category, str):
+            worker_counts[category] += 1
+
+    return {
+        "schema": SCRIPT_SCHEMA,
+        "scheduled_attempts": attempts,
+        "canonical_evidence": _canonical_evidence(attempts=attempts, model=model),
+        "terminal_category_counts": _compact_counts(terminal_counts),
+        "accepted_count": terminal_counts["accepted"],
+        "rejected_count": terminal_counts["rejected"],
+        "worker_declined_count": terminal_counts["worker_declined"],
+        "publication_failed_count": terminal_counts["publication_failed"],
+        "gate_failed_count": terminal_counts["gate_failed"],
+        "preflight_failed_count": terminal_counts["preflight_failed"],
+        "wrapper_error_count": terminal_counts["wrapper_error"],
+        "worker_reached_count": len(worker_rows),
+        "worker_terminal_counts": _compact_counts(worker_counts),
+        "leak_marker_match_count": sum(
+            int(row.get("leak_marker_match_count") or 0) for row in rows
+        ),
+        "attempt_run_dirs": [
+            str(row["lm8f_run_dir"]) for row in rows if row.get("lm8f_run_dir")
+        ],
+        "worker_action_values": [
+            row["worker_action_value"]
+            for row in rows
+            if isinstance(row.get("worker_action_value"), (int, float))
+            and not isinstance(row.get("worker_action_value"), bool)
+        ],
+        "verifier_attempt_counts": [
+            row["verifier_attempt_count"]
+            for row in rows
+            if isinstance(row.get("verifier_attempt_count"), int)
+            and not isinstance(row.get("verifier_attempt_count"), bool)
+        ],
+    }

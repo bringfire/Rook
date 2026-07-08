@@ -167,6 +167,8 @@ def test_classify_decision_rejects_unknown_or_missing_value():
         "wrapper_error",
         "lm8f_unknown_decision:strange",
     )
+
+
 def _write_child_decision(child: Path, payload: dict) -> None:
     child.mkdir(parents=True, exist_ok=True)
     (child / "decision.json").write_text(
@@ -351,3 +353,131 @@ def test_timeout_and_subprocess_error_keep_primary_reason_when_child_missing():
     assert error_row["failure_reason"] == "lm8f_subprocess_error:OSError"
     assert error_row["child_run_dir_error"] == "child_run_dir_missing"
     assert error_row["lm8f_run_dir"] is None
+
+
+def test_read_json_mapping_handles_missing_invalid_and_non_mapping(tmp_path: Path):
+    missing = PROBE._read_json_mapping(tmp_path / "missing.json")
+    assert missing is None
+
+    invalid_path = tmp_path / "invalid.json"
+    invalid_path.write_text("{bad", encoding="utf-8")
+    invalid = PROBE._read_json_mapping(invalid_path)
+    assert invalid is None
+
+    list_path = tmp_path / "list.json"
+    list_path.write_text("[]", encoding="utf-8")
+    non_mapping = PROBE._read_json_mapping(list_path)
+    assert non_mapping is None
+
+    mapping_path = tmp_path / "mapping.json"
+    mapping_path.write_text(json.dumps({"a": 1}), encoding="utf-8")
+    mapping = PROBE._read_json_mapping(mapping_path)
+    assert mapping == {"a": 1}
+
+
+def test_scan_and_apply_leak_markers_are_report_only(tmp_path: Path):
+    child = tmp_path / "lm8f-child"
+    child.mkdir()
+    (child / "notes.json").write_text(
+        json.dumps(
+            {
+                "marker": "PROBE_REPAIR_CODE",
+                "nested": {"value": "A = 42.0"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    row = {
+        "lm8f_run_dir": str(child),
+        "terminal_category": "accepted",
+        "leak_check_performed": False,
+        "leak_marker_matches": [],
+        "leak_marker_match_count": 0,
+    }
+
+    matches = PROBE._scan_leak_markers(child)
+    assert matches == [
+        {"path": str(child / "notes.json"), "marker": "PROBE_REPAIR_CODE"},
+        {"path": str(child / "notes.json"), "marker": "A = 42.0"},
+    ]
+
+    PROBE._apply_leak_scan(row)
+
+    assert row["terminal_category"] == "accepted"
+    assert row["leak_check_performed"] is True
+    assert row["leak_marker_match_count"] == 2
+    assert row["leak_marker_matches"] == matches
+
+
+def test_copy_child_artifact_summaries_reads_worker_and_verifier_metadata(tmp_path: Path):
+    child = tmp_path / "lm8f-child"
+    child.mkdir()
+    (child / "worker_action.json").write_text(
+        json.dumps({"input": {"value": 6.25}}),
+        encoding="utf-8",
+    )
+    (child / "verify_scalar_output_summary.json").write_text(
+        json.dumps({"attempt_count": 4}),
+        encoding="utf-8",
+    )
+    row = {"lm8f_run_dir": str(child)}
+
+    PROBE._copy_child_artifact_summaries(row)
+
+    assert row["worker_action_value"] == 6.25
+    assert row["verifier_attempt_count"] == 4
+
+
+def test_compact_counts_removes_zero_entries_and_sorts_keys():
+    from collections import Counter
+
+    counts = Counter({"rejected": 2, "accepted": 1, "gate_failed": 0})
+
+    assert PROBE._compact_counts(counts) == {"accepted": 1, "rejected": 2}
+
+
+def test_build_summary_uses_worker_publication_flag_for_worker_reached_count():
+    rows = [
+        {
+            "terminal_category": "accepted",
+            "worker_publication_ran": True,
+            "lm8f_run_dir": "run-a",
+            "leak_marker_match_count": 1,
+            "worker_action_value": 6.0,
+            "verifier_attempt_count": 1,
+        },
+        {
+            "terminal_category": "rejected",
+            "worker_publication_ran": False,
+            "lm8f_run_dir": "run-b",
+            "leak_marker_match_count": 0,
+            "worker_action_value": 5.5,
+            "verifier_attempt_count": 3,
+        },
+        {
+            "terminal_category": "gate_failed",
+            "worker_publication_ran": "yes",
+            "lm8f_run_dir": "run-c",
+            "leak_marker_match_count": 0,
+        },
+    ]
+
+    summary = PROBE._build_summary(rows, attempts=5, model="gemma4:12b-it-qat")
+
+    assert summary["schema"] == "rook.lm8g_scalar_transform_repeatability_probe:v1"
+    assert summary["scheduled_attempts"] == 5
+    assert summary["canonical_evidence"] is True
+    assert summary["terminal_category_counts"] == {
+        "accepted": 1,
+        "gate_failed": 1,
+        "rejected": 1,
+    }
+    assert summary["accepted_count"] == 1
+    assert summary["rejected_count"] == 1
+    assert summary["gate_failed_count"] == 1
+    assert summary["worker_reached_count"] == 1
+    assert summary["worker_terminal_counts"] == {"accepted": 1}
+    assert summary["leak_marker_match_count"] == 1
+    assert summary["attempt_run_dirs"] == ["run-a", "run-b", "run-c"]
+    assert summary["worker_action_values"] == [6.0, 5.5]
+    assert summary["verifier_attempt_counts"] == [1, 3]
