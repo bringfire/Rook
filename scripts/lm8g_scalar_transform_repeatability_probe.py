@@ -7,7 +7,7 @@ import argparse
 import json
 import subprocess
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -177,3 +177,131 @@ def _classify_decision(decision: Mapping[str, Any]) -> tuple[str, str | None]:
     if value == "wrapper_error":
         return "wrapper_error", "lm8f_unexpected_wrapper_error_decision"
     return value, None
+
+
+def _completed_text(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def _excerpt(text: str | None, *, limit: int = EXCERPT_CHARS) -> str:
+    if not text:
+        return ""
+    return text if len(text) <= limit else text[:limit]
+
+
+def _single_child_dir_error(child_run_dirs: Sequence[Path]) -> tuple[Path | None, str | None]:
+    if len(child_run_dirs) == 0:
+        return None, "child_run_dir_missing"
+    if len(child_run_dirs) > 1:
+        return None, "child_run_dir_ambiguous"
+    return child_run_dirs[0], None
+
+
+def _copy_decision_metadata(row: dict[str, Any], decision: Mapping[str, Any]) -> None:
+    for key in (
+        "worker_publication_ran",
+        "live_fixture_created",
+        "live_set_value_dispatched",
+        "verify_scalar_output_ran",
+    ):
+        value = decision.get(key)
+        if isinstance(value, bool):
+            row[key] = value
+    scalar_ready = decision.get("scalar_runtime_ready")
+    if isinstance(scalar_ready, bool) or scalar_ready is None:
+        row["scalar_runtime_ready"] = scalar_ready
+    observed = decision.get("observed_output_after")
+    if isinstance(observed, (int, float)) and not isinstance(observed, bool):
+        row["observed_output_after"] = observed
+
+
+def _row_from_completed_lm8f(
+    *,
+    attempt_index: int,
+    completed: subprocess.CompletedProcess,
+    child_run_dirs: Sequence[Path],
+) -> dict[str, Any]:
+    row = _base_attempt_row(attempt_index=attempt_index)
+    child_run_dir, child_error = _single_child_dir_error(child_run_dirs)
+    row.update(
+        {
+            "lm8f_invoked": True,
+            "lm8f_returncode": completed.returncode,
+            "lm8f_run_dir": str(child_run_dir) if child_run_dir is not None else None,
+            "stdout_excerpt": _excerpt(_completed_text(completed.stdout)),
+            "stderr_excerpt": _excerpt(_completed_text(completed.stderr)),
+        }
+    )
+    if completed.returncode != 0:
+        row["terminal_category"] = "wrapper_error"
+        row["failure_reason"] = f"lm8f_nonzero_returncode:{completed.returncode}"
+        row["child_run_dir_error"] = child_error
+        return row
+    if child_error is not None:
+        row["terminal_category"] = "wrapper_error"
+        row["failure_reason"] = child_error
+        return row
+
+    assert child_run_dir is not None
+    decision, read_error = _read_decision(child_run_dir / "decision.json")
+    if read_error is not None:
+        row["terminal_category"] = "wrapper_error"
+        row["failure_reason"] = read_error
+        return row
+
+    assert decision is not None
+    terminal_category, failure_reason = _classify_decision(decision)
+    row["terminal_category"] = terminal_category
+    row["failure_reason"] = failure_reason
+    decision_value = decision.get("decision")
+    reason_value = decision.get("reason")
+    row["lm8f_decision"] = decision_value if isinstance(decision_value, str) else None
+    row["lm8f_reason"] = reason_value if isinstance(reason_value, str) else None
+    _copy_decision_metadata(row, decision)
+    return row
+
+
+def _timeout_row(
+    *,
+    attempt_index: int,
+    exc: subprocess.TimeoutExpired,
+    child_run_dirs: Sequence[Path],
+) -> dict[str, Any]:
+    row = _base_attempt_row(attempt_index=attempt_index)
+    child_run_dir, child_error = _single_child_dir_error(child_run_dirs)
+    row.update(
+        {
+            "lm8f_invoked": True,
+            "lm8f_run_dir": str(child_run_dir) if child_run_dir is not None else None,
+            "terminal_category": "wrapper_error",
+            "failure_reason": "lm8f_timeout",
+            "child_run_dir_error": child_error,
+            "stdout_excerpt": _excerpt(_completed_text(getattr(exc, "output", None))),
+            "stderr_excerpt": _excerpt(_completed_text(getattr(exc, "stderr", None))),
+        }
+    )
+    return row
+
+
+def _subprocess_error_row(
+    *,
+    attempt_index: int,
+    exc: Exception,
+    child_run_dirs: Sequence[Path],
+) -> dict[str, Any]:
+    row = _base_attempt_row(attempt_index=attempt_index)
+    child_run_dir, child_error = _single_child_dir_error(child_run_dirs)
+    row.update(
+        {
+            "lm8f_invoked": True,
+            "lm8f_run_dir": str(child_run_dir) if child_run_dir is not None else None,
+            "terminal_category": "wrapper_error",
+            "failure_reason": f"lm8f_subprocess_error:{exc.__class__.__name__}",
+            "child_run_dir_error": child_error,
+        }
+    )
+    return row

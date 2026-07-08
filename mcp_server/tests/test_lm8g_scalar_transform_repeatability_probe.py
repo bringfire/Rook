@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -165,3 +167,187 @@ def test_classify_decision_rejects_unknown_or_missing_value():
         "wrapper_error",
         "lm8f_unknown_decision:strange",
     )
+def _write_child_decision(child: Path, payload: dict) -> None:
+    child.mkdir(parents=True, exist_ok=True)
+    (child / "decision.json").write_text(
+        json.dumps(payload, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
+def test_completed_text_and_excerpt_handle_bytes_none_and_length():
+    assert PROBE._completed_text(None) == ""
+    assert PROBE._completed_text(b"abc") == "abc"
+    assert PROBE._completed_text("xyz") == "xyz"
+
+    assert PROBE._excerpt(None) == ""
+    assert PROBE._excerpt("") == ""
+    assert PROBE._excerpt("abcdef", limit=4) == "abcd"
+    assert PROBE._excerpt("abc", limit=4) == "abc"
+
+
+def test_row_from_completed_accepted_lm8f_child(tmp_path: Path):
+    child = tmp_path / "lm8f-child"
+    _write_child_decision(
+        child,
+        {
+            "decision": "accepted",
+            "reason": "verify_scalar_output_succeeded",
+            "worker_publication_ran": True,
+            "live_fixture_created": True,
+            "live_set_value_dispatched": True,
+            "verify_scalar_output_ran": True,
+            "scalar_runtime_ready": True,
+            "observed_output_after": 7.5,
+        },
+    )
+    completed = subprocess.CompletedProcess(
+        args=["python"],
+        returncode=0,
+        stdout="run_dir=child decision=accepted",
+        stderr="",
+    )
+
+    row = PROBE._row_from_completed_lm8f(
+        attempt_index=1,
+        completed=completed,
+        child_run_dirs=[child],
+    )
+
+    assert row["lm8f_invoked"] is True
+    assert row["lm8f_returncode"] == 0
+    assert row["lm8f_run_dir"] == str(child)
+    assert row["lm8f_decision"] == "accepted"
+    assert row["lm8f_reason"] == "verify_scalar_output_succeeded"
+    assert row["terminal_category"] == "accepted"
+    assert row["failure_reason"] is None
+    assert row["worker_publication_ran"] is True
+    assert row["live_set_value_dispatched"] is True
+    assert row["verify_scalar_output_ran"] is True
+    assert row["scalar_runtime_ready"] is True
+    assert row["observed_output_after"] == 7.5
+
+
+def test_row_from_completed_nonzero_returncode_is_wrapper_error(tmp_path: Path):
+    child = tmp_path / "lm8f-child"
+    _write_child_decision(child, {"decision": "accepted"})
+    completed = subprocess.CompletedProcess(
+        args=["python"],
+        returncode=2,
+        stdout="partial stdout",
+        stderr="partial stderr",
+    )
+
+    row = PROBE._row_from_completed_lm8f(
+        attempt_index=1,
+        completed=completed,
+        child_run_dirs=[child],
+    )
+
+    assert row["terminal_category"] == "wrapper_error"
+    assert row["failure_reason"] == "lm8f_nonzero_returncode:2"
+    assert row["child_run_dir_error"] is None
+    assert row["lm8f_run_dir"] == str(child)
+    assert row["stdout_excerpt"] == "partial stdout"
+    assert row["stderr_excerpt"] == "partial stderr"
+
+
+def test_row_from_completed_nonzero_returncode_keeps_subprocess_reason_if_child_missing():
+    completed = subprocess.CompletedProcess(
+        args=["python"],
+        returncode=2,
+        stdout="partial stdout",
+        stderr="partial stderr",
+    )
+
+    row = PROBE._row_from_completed_lm8f(
+        attempt_index=1,
+        completed=completed,
+        child_run_dirs=[],
+    )
+
+    assert row["terminal_category"] == "wrapper_error"
+    assert row["failure_reason"] == "lm8f_nonzero_returncode:2"
+    assert row["child_run_dir_error"] == "child_run_dir_missing"
+    assert row["lm8f_run_dir"] is None
+
+
+def test_row_from_completed_missing_and_ambiguous_child_dirs_are_wrapper_errors(tmp_path: Path):
+    completed = subprocess.CompletedProcess(args=["python"], returncode=0, stdout="", stderr="")
+
+    missing = PROBE._row_from_completed_lm8f(
+        attempt_index=1,
+        completed=completed,
+        child_run_dirs=[],
+    )
+    assert missing["terminal_category"] == "wrapper_error"
+    assert missing["failure_reason"] == "child_run_dir_missing"
+
+    first = tmp_path / "lm8f-a"
+    second = tmp_path / "lm8f-b"
+    first.mkdir()
+    second.mkdir()
+    ambiguous = PROBE._row_from_completed_lm8f(
+        attempt_index=2,
+        completed=completed,
+        child_run_dirs=[first, second],
+    )
+    assert ambiguous["terminal_category"] == "wrapper_error"
+    assert ambiguous["failure_reason"] == "child_run_dir_ambiguous"
+
+
+def test_timeout_and_subprocess_error_rows_preserve_child_dir_when_present(tmp_path: Path):
+    child = tmp_path / "lm8f-child"
+    child.mkdir()
+    timeout = subprocess.TimeoutExpired(
+        cmd=["python"],
+        timeout=600,
+        output="stdout before timeout",
+        stderr="stderr before timeout",
+    )
+
+    timeout_row = PROBE._timeout_row(
+        attempt_index=1,
+        exc=timeout,
+        child_run_dirs=[child],
+    )
+    assert timeout_row["terminal_category"] == "wrapper_error"
+    assert timeout_row["failure_reason"] == "lm8f_timeout"
+    assert timeout_row["child_run_dir_error"] is None
+    assert timeout_row["lm8f_run_dir"] == str(child)
+    assert timeout_row["stdout_excerpt"] == "stdout before timeout"
+    assert timeout_row["stderr_excerpt"] == "stderr before timeout"
+
+    error_row = PROBE._subprocess_error_row(
+        attempt_index=2,
+        exc=OSError("launch failed"),
+        child_run_dirs=[child],
+    )
+    assert error_row["terminal_category"] == "wrapper_error"
+    assert error_row["failure_reason"] == "lm8f_subprocess_error:OSError"
+    assert error_row["child_run_dir_error"] is None
+    assert error_row["lm8f_run_dir"] == str(child)
+
+
+def test_timeout_and_subprocess_error_keep_primary_reason_when_child_missing():
+    timeout = subprocess.TimeoutExpired(cmd=["python"], timeout=600)
+
+    timeout_row = PROBE._timeout_row(
+        attempt_index=1,
+        exc=timeout,
+        child_run_dirs=[],
+    )
+    assert timeout_row["terminal_category"] == "wrapper_error"
+    assert timeout_row["failure_reason"] == "lm8f_timeout"
+    assert timeout_row["child_run_dir_error"] == "child_run_dir_missing"
+    assert timeout_row["lm8f_run_dir"] is None
+
+    error_row = PROBE._subprocess_error_row(
+        attempt_index=2,
+        exc=OSError("launch failed"),
+        child_run_dirs=[],
+    )
+    assert error_row["terminal_category"] == "wrapper_error"
+    assert error_row["failure_reason"] == "lm8f_subprocess_error:OSError"
+    assert error_row["child_run_dir_error"] == "child_run_dir_missing"
+    assert error_row["lm8f_run_dir"] is None
