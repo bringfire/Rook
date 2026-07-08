@@ -42,6 +42,16 @@ SOURCE_ROUTING_DIAGNOSTIC_CODES = (
     "optional_route_unresolved",
 )
 
+SCALAR_EXPECTED_OUTPUT_SOURCE_PATH = (
+    "workflow_contract.rules.verify_scalar_output.expected_output_value"
+)
+SCALAR_OBSERVED_OUTPUT_SOURCE_PATH = (
+    "create_scalar_expectation.receipt.gh_receipt.observed_output_value"
+)
+SCALAR_FIXTURE_ANCHOR_SOURCE_PATH = (
+    "create_scalar_expectation.receipt.gh_receipt.scalar_anchor.editable_value_contract"
+)
+SCALAR_CONVENTION_SOURCE_PATH = "gh_set_value_scalar_convention"
 
 _ROUTE_ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 _SOURCE_CLASSES = (
@@ -50,6 +60,9 @@ _SOURCE_CLASSES = (
     "receipt_diagnostic",
     "convention",
     "planner_user_intent",
+    "expected_output_contract",
+    "receipt_observation",
+    "fixture_anchor",
 )
 _PURPOSES = ("acceptance_criteria", "evidence_context", "unresolved_intent")
 _SOURCE_PURPOSES = {
@@ -58,6 +71,9 @@ _SOURCE_PURPOSES = {
     "receipt_diagnostic": ("acceptance_criteria", "evidence_context"),
     "convention": ("acceptance_criteria", "evidence_context"),
     "planner_user_intent": ("unresolved_intent",),
+    "expected_output_contract": ("acceptance_criteria", "evidence_context"),
+    "receipt_observation": ("acceptance_criteria", "evidence_context"),
+    "fixture_anchor": ("evidence_context",),
 }
 _ALLOWED_SOURCE_PATHS = {
     "pin_contract": (
@@ -75,8 +91,12 @@ _ALLOWED_SOURCE_PATHS = {
     "convention": (
         CONVENTION_SOURCE_PATH,
         "grasshopper_definition_style_convention",
+        SCALAR_CONVENTION_SOURCE_PATH,
     ),
     "planner_user_intent": ("planner.intent.desired_output_value",),
+    "expected_output_contract": (SCALAR_EXPECTED_OUTPUT_SOURCE_PATH,),
+    "receipt_observation": (SCALAR_OBSERVED_OUTPUT_SOURCE_PATH,),
+    "fixture_anchor": (SCALAR_FIXTURE_ANCHOR_SOURCE_PATH,),
 }
 _FORBIDDEN_SOURCE_PATHS = ("PROBE_REPAIR_CODE", "A = 42.0")
 _FORBIDDEN_SOURCE_PATH_PREFIXES = (

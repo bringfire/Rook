@@ -29,6 +29,16 @@ GH_VERIFY_SOURCE_PATH = "workflow_contract.rules.gh_solve.expected_outcome"
 GH_DIAGNOSTIC_SOURCE_PATH = "solve_grasshopper_definition.receipt.gh_receipt.solver_errors"
 GH_PIN_SOURCE_PATH = "solve_grasshopper_definition.initial_execution_params.pins_out"
 GH_CONVENTION_SOURCE_PATH = "grasshopper_definition_style_convention"
+SCALAR_EXPECTED_OUTPUT_SOURCE_PATH = (
+    "workflow_contract.rules.verify_scalar_output.expected_output_value"
+)
+SCALAR_OBSERVED_OUTPUT_SOURCE_PATH = (
+    "create_scalar_expectation.receipt.gh_receipt.observed_output_value"
+)
+SCALAR_FIXTURE_ANCHOR_SOURCE_PATH = (
+    "create_scalar_expectation.receipt.gh_receipt.scalar_anchor.editable_value_contract"
+)
+SCALAR_CONVENTION_SOURCE_PATH = "gh_set_value_scalar_convention"
 
 
 def _valid_repair_artifact(*, visible_sources=None):
@@ -108,6 +118,47 @@ def _gh_pressure_artifact():
                         "route_id": "gh_convention_definition_style",
                         "source_class": "convention",
                         "source_path": GH_CONVENTION_SOURCE_PATH,
+                        "purpose": "evidence_context",
+                        "required": False,
+                    },
+                ],
+            }
+        ],
+    }
+
+
+def _gh_scalar_expectation_artifact(*, fixture_anchor_purpose="evidence_context"):
+    return {
+        "schema": SOURCE_ROUTING_SCHEMA,
+        "routes": [
+            {
+                "node_id": "set_scalar_value",
+                "visible_sources": [
+                    {
+                        "route_id": "scalar_expected_output_value",
+                        "source_class": "expected_output_contract",
+                        "source_path": SCALAR_EXPECTED_OUTPUT_SOURCE_PATH,
+                        "purpose": "acceptance_criteria",
+                        "required": True,
+                    },
+                    {
+                        "route_id": "scalar_current_output",
+                        "source_class": "receipt_observation",
+                        "source_path": SCALAR_OBSERVED_OUTPUT_SOURCE_PATH,
+                        "purpose": "acceptance_criteria",
+                        "required": True,
+                    },
+                    {
+                        "route_id": "scalar_editable_target_contract",
+                        "source_class": "fixture_anchor",
+                        "source_path": SCALAR_FIXTURE_ANCHOR_SOURCE_PATH,
+                        "purpose": fixture_anchor_purpose,
+                        "required": True,
+                    },
+                    {
+                        "route_id": "scalar_set_value_convention",
+                        "source_class": "convention",
+                        "source_path": SCALAR_CONVENTION_SOURCE_PATH,
                         "purpose": "evidence_context",
                         "required": False,
                     },
@@ -404,6 +455,47 @@ def test_gh_pressure_example_is_static_valid_but_not_routable_in_v1():
         "required_route_unresolved",
         "optional_route_unresolved",
     ]
+
+
+def test_gh_scalar_expectation_routes_are_static_valid():
+    report = validate_worker_visible_source_routing(_gh_scalar_expectation_artifact())
+
+    assert report.valid is True
+    assert report.routability_evaluated is False
+    assert report.static_diagnostics == ()
+    assert report.routability_diagnostics == ()
+
+
+def test_fixture_anchor_cannot_feed_acceptance_criteria():
+    report = validate_worker_visible_source_routing(
+        _gh_scalar_expectation_artifact(fixture_anchor_purpose="acceptance_criteria")
+    )
+
+    assert report.valid is False
+    assert [
+        (diagnostic.code, diagnostic.source_class, diagnostic.purpose)
+        for diagnostic in report.static_diagnostics
+    ] == [("invalid_source_purpose", "fixture_anchor", "acceptance_criteria")]
+
+
+def test_gh_scalar_source_paths_are_class_keyed():
+    artifact = _gh_scalar_expectation_artifact()
+    artifact["routes"][0]["visible_sources"][0] = {
+        "route_id": "wrong_class_expected_value",
+        "source_class": "receipt_observation",
+        "source_path": SCALAR_EXPECTED_OUTPUT_SOURCE_PATH,
+        "purpose": "acceptance_criteria",
+        "required": True,
+    }
+
+    report = validate_worker_visible_source_routing(artifact)
+
+    assert report.valid is False
+    assert [
+        diagnostic.code
+        for diagnostic in report.static_diagnostics
+        if diagnostic.route_id == "wrong_class_expected_value"
+    ] == ["invalid_source_path"]
 
 
 def test_worker_node_not_found_skips_route_level_routability():
