@@ -173,8 +173,35 @@ def _contains_marker_value(value: Any) -> bool:
     return _contains_marker_text(rendered)
 
 
+def _planner_marker_matches_in_metadata(value: Any) -> list[str]:
+    matches: list[str] = []
+
+    def scan(current: Any) -> None:
+        if isinstance(current, Mapping):
+            for key, nested in current.items():
+                key_text = str(key)
+                if key_text.startswith("worker_action_input_"):
+                    continue
+                if key_text == "worker_action.json":
+                    continue
+                scan(nested)
+            return
+        if isinstance(current, (list, tuple)):
+            for nested in current:
+                scan(nested)
+            return
+
+        text = json.dumps(current, sort_keys=True, default=str)
+        for marker in HIDDEN_MARKER_SCAN_TERMS:
+            if marker in text and marker not in matches:
+                matches.append(marker)
+
+    scan(value)
+    return matches
+
+
 def _parsed_request_has_planner_markers(payload: Mapping[str, Any]) -> bool:
-    return _contains_marker_value(payload)
+    return bool(_planner_marker_matches_in_metadata(payload))
 
 
 def _canonical_evidence_is_valid(args: argparse.Namespace) -> bool:
