@@ -2073,6 +2073,69 @@ complexity scaling. The useful claim is smaller and sharper: the bounded worker
 protocol transferred from identity scalar setting to one scalar relationship
 where the worker's action value differed from the expected output value.
 
+## LM8G scalar transform repeatability run (commit `ee56cde8`)
+
+LM8G wrapped the LM8F scalar-transform fixture in five scheduled independent
+attempts. It did not change the fixture, worker model, action surface, applier,
+or verifier policy.
+
+Canonical run:
+
+```text
+run_dir: probe_runs/lm8g-20260708T202716Z-ee56cde8/
+commit: ee56cde8
+canonical_evidence: true
+model: gemma4:12b-it-qat
+scheduled_attempts: 5
+accepted: 5/5
+worker_reached: 5/5
+worker_action_values: [6.0, 6.0, 6.0, 6.0, 6.0]
+observed_output_after: 7.5 on all attempts
+verifier_attempt_counts: [1, 2, 1, 1, 1]
+leak_marker_match_count: 0
+```
+
+Each accepted child run preserved the same scalar relationship:
+
+```text
+editable slider value: 2.0
+offset slider value: 1.5
+expected observed output: 7.5
+worker-derived editable value: 6.0
+verifier-floor Addition R output: 7.5
+```
+
+LM8G therefore shows repeatability of the LM8F scalar transform fixture: the
+bounded worker repeatedly derived the editable value `6.0` from expected output
+`7.5` and offset `1.5`, staged it through the scalar applier, and reached
+verifier-floor acceptance `5/5`.
+
+The verifier-settle policy is visible in the evidence. Attempt 2 required two
+verifier reads:
+
+```text
+attempt 1: empty/not-ready output
+attempt 2: observed 7.5
+```
+
+So LM8G supports the scalar protocol under the current bounded verifier-settle
+policy, but it does not prove that the fixed settle window scales to larger or
+heavier Grasshopper definitions. Treat solve/readiness policy as a future
+tool/readiness seam, not as solved by LM8G.
+
+Direct marker scans over child LM8F artifacts found no matches for:
+
+```text
+PROBE_REPAIR_CODE
+A = 42.0
+BindStepSpec.base_params
+repair_same_component.bind.base_params
+```
+
+LM8G is scalar-transform repeatability for one controlled fixture. It is not
+broad scalar reasoning reliability, topology/wiring authorship, batch edit
+competence, Planner competence, or complexity scaling.
+
 ## Updated comparison keys
 
 Round 1: `(lm5j.prompt_text:v1, lm5k_golden_repair_v1/fresh_compiled_graph,
@@ -2209,6 +2272,13 @@ draft_gh_set_value_params action, scalar applier, live gh_set_value dispatch,
 gh_inspect_output Addition R verifier floor with bounded settle polling,
 canonical_evidence true, worker retry disabled, no gh_edit, no worker topology,
 no wiring/batch edit authority)`.
+
+LM8G: `(LM8G scalar transform repeatability wrapper, five scheduled
+independent LM8F scalar-transform attempts, child lm8f_runs directories, no
+replacement attempts, same gemma4:12b-it-qat/direct Ollama/LM8F
+fixture/action/applier/verifier-settle policy, scheduled and worker-reached
+denominators reported, worker_action_values and verifier_attempt_counts
+summarized, report-only leak marker scan)`.
 
 Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
 new experiment.
