@@ -382,6 +382,13 @@ def _build_summary(
     attempts: int,
     model: str,
 ) -> dict[str, Any]:
+    worker_summary_categories = {
+        "accepted",
+        "rejected",
+        "worker_declined",
+        "publication_failed",
+    }
+
     terminal_counts: Counter[str] = Counter()
     for row in rows:
         category = row.get("terminal_category")
@@ -392,7 +399,7 @@ def _build_summary(
     worker_counts: Counter[str] = Counter()
     for row in worker_rows:
         category = row.get("terminal_category")
-        if isinstance(category, str):
+        if isinstance(category, str) and category in worker_summary_categories:
             worker_counts[category] += 1
 
     return {

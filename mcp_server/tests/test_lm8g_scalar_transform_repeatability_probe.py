@@ -481,3 +481,35 @@ def test_build_summary_uses_worker_publication_flag_for_worker_reached_count():
     assert summary["attempt_run_dirs"] == ["run-a", "run-b", "run-c"]
     assert summary["worker_action_values"] == [6.0, 5.5]
     assert summary["verifier_attempt_counts"] == [1, 3]
+
+
+def test_build_summary_worker_reached_includes_wrapper_error_without_counting_terminal():
+    rows = [
+        {
+            "terminal_category": "accepted",
+            "worker_publication_ran": True,
+            "lm8f_run_dir": "run-a",
+            "leak_marker_match_count": 1,
+            "worker_action_value": 6.0,
+            "verifier_attempt_count": 1,
+        },
+        {
+            "terminal_category": "wrapper_error",
+            "worker_publication_ran": True,
+            "lm8f_run_dir": "run-b",
+            "leak_marker_match_count": 0,
+            "worker_action_value": 5.5,
+            "verifier_attempt_count": 2,
+        },
+    ]
+
+    summary = PROBE._build_summary(rows, attempts=5, model="gemma4:12b-it-qat")
+
+    assert summary["worker_reached_count"] == 2
+    assert summary["worker_terminal_counts"] == {"accepted": 1}
+    assert summary["terminal_category_counts"] == {
+        "accepted": 1,
+        "wrapper_error": 1,
+    }
+    assert summary["worker_action_values"] == [6.0, 5.5]
+    assert summary["verifier_attempt_counts"] == [1, 2]
