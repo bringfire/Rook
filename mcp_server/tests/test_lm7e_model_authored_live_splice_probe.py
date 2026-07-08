@@ -483,6 +483,56 @@ def test_static_guard_forbids_hand_authored_request_and_non_neutral_worker_helpe
         assert marker not in source
 
 
+def test_static_guard_no_live_prompt_or_protocol_drift() -> None:
+    source = _script_path().read_text(encoding="utf-8")
+    forbidden = [
+        "lm6e_bounded_retry_context",
+        "--retry-clean-observation",
+        "worker_publication_rows.json",
+        "_canonical_planner_request",
+        "script_local_canonical_lm7a_request",
+        "_worker_request_payload",
+        "_acceptance_criteria_evidence_packet",
+        "PROBE_REPAIR_CODE =",
+        "A = 42.0;",
+    ]
+
+    for marker in forbidden:
+        assert marker not in source
+
+
+def test_planner_marker_scan_excludes_worker_action_fields() -> None:
+    decision = {
+        "worker_action_input_excerpt": "A = 0.0;",
+        "worker_action_input_sha256": "sha256:abc",
+        "planner_model_output_excerpt": "{}",
+    }
+
+    assert PROBE._planner_marker_matches_in_metadata(decision) == []
+
+
+def test_lm7e_prompt_artifacts_match_lm7d_shape_guidance(tmp_path: Path) -> None:
+    PROBE.write_prompt_artifacts(
+        tmp_path,
+        PROBE.PROMPT_PROFILE_SHAPE_GUIDANCE_V2,
+        scenarios=("intent_incomplete",),
+    )
+
+    prompt = (tmp_path / "prompts" / "planner_authoring_prompt.txt").read_text()
+    menu = (tmp_path / "prompts" / "template_menu.json").read_text()
+    brief = (tmp_path / "prompts" / "intent_incomplete_brief.txt").read_text()
+
+    assert "lm7d.planner_authoring_prompt_shape_guidance:v2" in prompt
+    assert '"route_id": "missing_desired_output_value"' in prompt
+    assert '"source_path": "planner.intent.desired_output_value"' in prompt
+    assert "lm7c.template_menu:v1" in menu
+    assert "lm7c.intent_incomplete_brief:v1" in brief
+    for marker in ("PROBE_REPAIR_CODE", "A = 42.0", "A = 0.0", "A = 1.0"):
+        assert marker not in prompt
+        assert marker not in menu
+        assert marker not in brief
+
+
 def test_fake_live_action_request_reaches_accepted_decision(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
