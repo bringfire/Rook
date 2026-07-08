@@ -39,6 +39,25 @@ SCALAR_FIXTURE_ANCHOR_SOURCE_PATH = (
     "create_scalar_expectation.receipt.gh_receipt.scalar_anchor.editable_value_contract"
 )
 SCALAR_CONVENTION_SOURCE_PATH = "gh_set_value_scalar_convention"
+TRANSFORM_EXPECTED_OUTPUT_SOURCE_PATH = (
+    "workflow_contract.rules.verify_scalar_transform_output.expected_output_value"
+)
+TRANSFORM_OFFSET_VALUE_SOURCE_PATH = (
+    "workflow_contract.rules.verify_scalar_transform_output.offset_value"
+)
+TRANSFORM_PROJECTION_SOURCE_PATH = (
+    "workflow_contract.rules.verify_scalar_transform_output.projection"
+)
+TRANSFORM_OBSERVED_OUTPUT_SOURCE_PATH = (
+    "create_scalar_transform.receipt.gh_receipt.observed_output_value"
+)
+TRANSFORM_EDITABLE_VALUE_SOURCE_PATH = (
+    "create_scalar_transform.receipt.gh_receipt.editable_value"
+)
+TRANSFORM_FIXTURE_ANCHOR_SOURCE_PATH = (
+    "create_scalar_transform.receipt.gh_receipt.scalar_anchor.editable_value_contract"
+)
+TRANSFORM_CONVENTION_SOURCE_PATH = "gh_scalar_transform_set_value_convention"
 
 
 def _valid_repair_artifact(*, visible_sources=None):
@@ -159,6 +178,68 @@ def _gh_scalar_expectation_artifact(*, fixture_anchor_purpose="evidence_context"
                         "route_id": "scalar_set_value_convention",
                         "source_class": "convention",
                         "source_path": SCALAR_CONVENTION_SOURCE_PATH,
+                        "purpose": "evidence_context",
+                        "required": False,
+                    },
+                ],
+            }
+        ],
+    }
+
+
+def _gh_scalar_transform_artifact(*, fixture_anchor_purpose="evidence_context"):
+    return {
+        "schema": SOURCE_ROUTING_SCHEMA,
+        "routes": [
+            {
+                "node_id": "set_scalar_value",
+                "visible_sources": [
+                    {
+                        "route_id": "scalar_transform_expected_output",
+                        "source_class": "expected_output_contract",
+                        "source_path": TRANSFORM_EXPECTED_OUTPUT_SOURCE_PATH,
+                        "purpose": "acceptance_criteria",
+                        "required": True,
+                    },
+                    {
+                        "route_id": "scalar_transform_offset_value",
+                        "source_class": "expected_output_contract",
+                        "source_path": TRANSFORM_OFFSET_VALUE_SOURCE_PATH,
+                        "purpose": "evidence_context",
+                        "required": True,
+                    },
+                    {
+                        "route_id": "scalar_transform_projection",
+                        "source_class": "expected_output_contract",
+                        "source_path": TRANSFORM_PROJECTION_SOURCE_PATH,
+                        "purpose": "acceptance_criteria",
+                        "required": True,
+                    },
+                    {
+                        "route_id": "scalar_transform_current_output",
+                        "source_class": "receipt_observation",
+                        "source_path": TRANSFORM_OBSERVED_OUTPUT_SOURCE_PATH,
+                        "purpose": "acceptance_criteria",
+                        "required": True,
+                    },
+                    {
+                        "route_id": "scalar_transform_current_editable_value",
+                        "source_class": "receipt_observation",
+                        "source_path": TRANSFORM_EDITABLE_VALUE_SOURCE_PATH,
+                        "purpose": "evidence_context",
+                        "required": True,
+                    },
+                    {
+                        "route_id": "scalar_transform_editable_target_contract",
+                        "source_class": "fixture_anchor",
+                        "source_path": TRANSFORM_FIXTURE_ANCHOR_SOURCE_PATH,
+                        "purpose": fixture_anchor_purpose,
+                        "required": True,
+                    },
+                    {
+                        "route_id": "scalar_transform_set_value_convention",
+                        "source_class": "convention",
+                        "source_path": TRANSFORM_CONVENTION_SOURCE_PATH,
                         "purpose": "evidence_context",
                         "required": False,
                     },
@@ -495,6 +576,47 @@ def test_gh_scalar_source_paths_are_class_keyed():
         diagnostic.code
         for diagnostic in report.static_diagnostics
         if diagnostic.route_id == "wrong_class_expected_value"
+    ] == ["invalid_source_path"]
+
+
+def test_gh_scalar_transform_routes_are_static_valid():
+    report = validate_worker_visible_source_routing(_gh_scalar_transform_artifact())
+
+    assert report.valid is True
+    assert report.routability_evaluated is False
+    assert report.static_diagnostics == ()
+    assert report.routability_diagnostics == ()
+
+
+def test_gh_scalar_transform_fixture_anchor_cannot_feed_acceptance_criteria():
+    report = validate_worker_visible_source_routing(
+        _gh_scalar_transform_artifact(fixture_anchor_purpose="acceptance_criteria")
+    )
+
+    assert report.valid is False
+    assert [
+        (diagnostic.code, diagnostic.source_class, diagnostic.purpose)
+        for diagnostic in report.static_diagnostics
+    ] == [("invalid_source_purpose", "fixture_anchor", "acceptance_criteria")]
+
+
+def test_gh_scalar_transform_source_paths_are_class_keyed():
+    artifact = _gh_scalar_transform_artifact()
+    artifact["routes"][0]["visible_sources"][0] = {
+        "route_id": "wrong_class_transform_expected_value",
+        "source_class": "receipt_observation",
+        "source_path": TRANSFORM_EXPECTED_OUTPUT_SOURCE_PATH,
+        "purpose": "acceptance_criteria",
+        "required": True,
+    }
+
+    report = validate_worker_visible_source_routing(artifact)
+
+    assert report.valid is False
+    assert [
+        diagnostic.code
+        for diagnostic in report.static_diagnostics
+        if diagnostic.route_id == "wrong_class_transform_expected_value"
     ] == ["invalid_source_path"]
 
 
