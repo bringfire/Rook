@@ -1,0 +1,464 @@
+#!/usr/bin/env python
+"""LM8F GH scalar transform depth pressure live probe."""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import hashlib
+import json
+import re
+import subprocess
+import sys
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_MCP_SRC = _REPO_ROOT / "mcp_server" / "src"
+for _path in (str(_SCRIPT_DIR), str(_REPO_ROOT), str(_MCP_SRC)):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
+
+
+SCRIPT_SCHEMA = "rook.lm8f_scalar_transform_depth_probe:v1"
+DECISION_SCHEMA = "rook.lm8f_decision:v1"
+DEFAULT_MODEL = "gemma4:12b-it-qat"
+DEFAULT_ENDPOINT = "http://localhost:11434/api/chat"
+DEFAULT_TEMPERATURE = 0
+DEFAULT_TIMEOUT_S = 120
+DEFAULT_EXCERPT_CHARS = 1200
+INITIAL_EDITABLE_VALUE = 2.0
+OFFSET_VALUE = 1.5
+INITIAL_OBSERVED_OUTPUT = 3.5
+EXPECTED_OUTPUT_VALUE = 7.5
+SCALAR_TOLERANCE = 1e-9
+WORKER_NODE_ID = "set_scalar_value"
+CREATE_NODE_ID = "create_scalar_transform"
+VERIFY_NODE_ID = "verify_scalar_transform_output"
+ACTION_ID = "draft_gh_set_value_params"
+
+
+def _args(argv: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="LM8F GH scalar transform depth pressure live probe."
+    )
+    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--endpoint", default=DEFAULT_ENDPOINT)
+    parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
+    parser.add_argument("--timeout-s", type=float, default=DEFAULT_TIMEOUT_S)
+    parser.add_argument("--excerpt-chars", type=int, default=DEFAULT_EXCERPT_CHARS)
+    parser.add_argument("--run-dir", default="probe_runs")
+    parser.add_argument("--canonical-evidence", action="store_true")
+    args = parser.parse_args(argv)
+    if args.excerpt_chars < 0:
+        parser.error("excerpt_chars_must_be_non_negative")
+    if not args.canonical_evidence:
+        args.canonical_evidence = (
+            args.model == DEFAULT_MODEL
+            and args.endpoint == DEFAULT_ENDPOINT
+            and args.temperature == DEFAULT_TEMPERATURE
+        )
+    return args
+
+
+def _canonical_evidence_is_valid(args: argparse.Namespace) -> bool:
+    if not args.canonical_evidence:
+        return True
+    return (
+        args.model == DEFAULT_MODEL
+        and args.endpoint == DEFAULT_ENDPOINT
+        and args.temperature == DEFAULT_TEMPERATURE
+    )
+
+
+def _git_short_sha() -> str:
+    result = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else "unknown"
+
+
+def _new_run_dir(run_root: str | Path) -> Path:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    run_dir = Path(run_root) / f"lm8f-{timestamp}-{_git_short_sha()}"
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return run_dir
+
+
+def _fingerprint_json(value: Any) -> str:
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+    return f"sha256:{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
+
+
+def _sha256_text(value: str) -> str:
+    return f"sha256:{hashlib.sha256(value.encode('utf-8')).hexdigest()}"
+
+
+def _guid_sha256(guid: str | None) -> str | None:
+    return None if guid is None else _sha256_text(guid)
+
+
+def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
+    path.write_text(
+        json.dumps(dict(payload), indent=2, sort_keys=True, default=str) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_json_value(path: Path, payload: Any) -> None:
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _manifest(
+    *, model: str, endpoint: str, temperature: float, canonical_evidence: bool
+) -> dict[str, Any]:
+    return {
+        "schema": SCRIPT_SCHEMA,
+        "git_commit": _git_short_sha(),
+        "model": model,
+        "endpoint": endpoint,
+        "temperature": temperature,
+        "canonical_evidence": canonical_evidence,
+        "attempts": 1,
+        "initial_editable_value": INITIAL_EDITABLE_VALUE,
+        "offset_value": OFFSET_VALUE,
+        "initial_observed_output": INITIAL_OBSERVED_OUTPUT,
+        "expected_output_value": EXPECTED_OUTPUT_VALUE,
+        "projection_id": "editable_plus_offset",
+        "worker_retry_enabled": False,
+        "planner_model": None,
+        "gh_edit_enabled": False,
+    }
+
+
+def _tool_result_failed(result: Any) -> bool:
+    if result is None:
+        return True
+    if isinstance(result, Mapping):
+        if result.get("success") is False:
+            return True
+        if result.get("error"):
+            return True
+        data = result.get("data")
+        if isinstance(data, str) and data.startswith("Error:"):
+            return True
+    return False
+
+
+def _preflight_ping_ok(result: Any) -> bool:
+    if result == "pong":
+        return True
+    if isinstance(result, Mapping):
+        return result.get("success") is True and result.get("data") == "pong"
+    return False
+
+
+def _document_new_ok(result: Any) -> bool:
+    if not isinstance(result, Mapping):
+        return False
+    data = result.get("data")
+    if result.get("created") is True or result.get("Created") is True:
+        return True
+    if isinstance(data, Mapping):
+        return data.get("created") is True or data.get("Created") is True
+    return False
+
+
+async def _run_preflight(
+    tool_executor: Callable[[str, Mapping[str, Any]], Awaitable[Any]],
+) -> tuple[bool, str | None, dict[str, Any]]:
+    summaries: dict[str, Any] = {}
+    try:
+        ping = await tool_executor("rhino_ping", {})
+    except Exception as exc:
+        summaries["rhino_ping"] = {"exception": type(exc).__name__}
+        return False, "rhino_ping_failed", summaries
+    summaries["rhino_ping"] = ping
+    if _tool_result_failed(ping) or not _preflight_ping_ok(ping):
+        return False, "rhino_ping_failed", summaries
+
+    try:
+        document = await tool_executor("gh_document_new", {})
+    except Exception as exc:
+        summaries["gh_document_new"] = {"exception": type(exc).__name__}
+        return False, "gh_document_new_failed", summaries
+    summaries["gh_document_new"] = document
+    if _tool_result_failed(document) or not _document_new_ok(document):
+        return False, "gh_document_new_failed", summaries
+    return True, None, summaries
+
+
+def _coerce_scalar_value(value: Any) -> float | int:
+    import math
+
+    if isinstance(value, bool):
+        raise ValueError("live scalar value must be a finite number")
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError("live scalar value must be a finite number")
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = float(value)
+        except ValueError as exc:
+            raise ValueError("live scalar value must be a finite number") from exc
+        if not math.isfinite(parsed):
+            raise ValueError("live scalar value must be a finite number")
+        return parsed
+    raise ValueError("live scalar value must be a finite number")
+
+
+def _tool_data(result: Any) -> Any:
+    if isinstance(result, Mapping) and isinstance(result.get("data"), Mapping):
+        return result["data"]
+    return result
+
+
+def _tool_field(result: Any, *names: str) -> Any:
+    if not isinstance(result, Mapping):
+        return None
+    for name in names:
+        if name in result:
+            return result[name]
+    data = result.get("data")
+    if not isinstance(data, Mapping):
+        return None
+    for name in names:
+        if name in data:
+            return data[name]
+    return None
+
+
+def _guid_from_result(result: Any) -> str:
+    guid = _tool_field(result, "guid", "Guid", "component_guid")
+    if not isinstance(guid, str) or not guid.strip():
+        raise ValueError("tool result guid missing")
+    return guid
+
+
+def _inspect_output_scalar_value(result: Any) -> float | int:
+    if _tool_result_failed(result):
+        raise ValueError("inspect output scalar result failed")
+    data = _tool_data(result)
+    if not isinstance(data, Mapping):
+        raise ValueError("inspect output scalar data missing")
+    preview = data.get("preview")
+    if isinstance(preview, Sequence) and not isinstance(
+        preview, (str, bytes, bytearray)
+    ):
+        if len(preview) != 1:
+            raise ValueError("inspect output scalar preview must contain one value")
+        try:
+            return _coerce_scalar_value(preview[0])
+        except ValueError as exc:
+            raise ValueError("inspect output scalar value invalid") from exc
+    value = _tool_field(result, "value", "Value")
+    try:
+        return _coerce_scalar_value(value)
+    except ValueError as exc:
+        raise ValueError("inspect output scalar value invalid") from exc
+
+
+def _addition_proxy_guid_from_library(result: Any) -> str:
+    data = _tool_data(result)
+    components = []
+    if isinstance(result, Mapping) and isinstance(result.get("components"), Sequence):
+        components.extend(result["components"])
+    if isinstance(data, Mapping) and isinstance(data.get("components"), Sequence):
+        components.extend(data["components"])
+    for component in components:
+        if not isinstance(component, Mapping):
+            continue
+        if (
+            component.get("name") == "Addition"
+            and component.get("nickName") == "A+B"
+            and component.get("category") == "Maths"
+        ):
+            guid = component.get("guid") or component.get("Guid")
+            if isinstance(guid, str) and guid.strip():
+                return guid
+    raise ValueError("gh_library_addition_not_found")
+
+
+async def _create_transform_fixture(
+    tool_executor: Callable[[str, Mapping[str, Any]], Awaitable[Any]],
+) -> dict[str, Any]:
+    library_result = await tool_executor("gh_library", {"search": "addition", "limit": 20})
+    if _tool_result_failed(library_result):
+        raise ValueError("gh_library_failed")
+    addition_proxy_guid = _addition_proxy_guid_from_library(library_result)
+
+    editable_result = await tool_executor(
+        "gh_create_slider",
+        {
+            "nickname": "LM8F_Editable",
+            "min": 0,
+            "max": 10,
+            "value": INITIAL_EDITABLE_VALUE,
+            "x": 20,
+            "y": 80,
+        },
+    )
+    if _tool_result_failed(editable_result) or _tool_field(
+        editable_result, "created", "Created"
+    ) is not True:
+        raise ValueError("gh_create_editable_slider_failed")
+    editable_guid = _guid_from_result(editable_result)
+
+    offset_result = await tool_executor(
+        "gh_create_slider",
+        {
+            "nickname": "LM8F_Offset",
+            "min": 0,
+            "max": 10,
+            "value": OFFSET_VALUE,
+            "x": 20,
+            "y": 180,
+        },
+    )
+    if _tool_result_failed(offset_result) or _tool_field(
+        offset_result, "created", "Created"
+    ) is not True:
+        raise ValueError("gh_create_offset_slider_failed")
+    offset_guid = _guid_from_result(offset_result)
+
+    addition_result = await tool_executor(
+        "gh_create_component",
+        {"guid": addition_proxy_guid, "x": 280, "y": 120},
+    )
+    if _tool_result_failed(addition_result) or _tool_field(
+        addition_result, "created", "Created"
+    ) is not True:
+        raise ValueError("gh_create_addition_failed")
+    addition_guid = _guid_from_result(addition_result)
+
+    connect_a_result = await tool_executor(
+        "gh_connect",
+        {
+            "sourceGuid": editable_guid,
+            "targetGuid": addition_guid,
+            "targetParam": "A",
+        },
+    )
+    if _tool_result_failed(connect_a_result):
+        raise ValueError("gh_connect_editable_failed")
+
+    connect_b_result = await tool_executor(
+        "gh_connect",
+        {
+            "sourceGuid": offset_guid,
+            "targetGuid": addition_guid,
+            "targetParam": "B",
+        },
+    )
+    if _tool_result_failed(connect_b_result):
+        raise ValueError("gh_connect_offset_failed")
+
+    solve_result = await tool_executor("gh_solve", {"delay": 25})
+    if _tool_result_failed(solve_result):
+        raise ValueError("gh_solve_failed")
+
+    editable_value_result = await tool_executor("gh_get_value", {"guid": editable_guid})
+    if _tool_result_failed(editable_value_result):
+        raise ValueError("gh_get_value_failed")
+    editable_value = _coerce_scalar_value(
+        _tool_field(editable_value_result, "value", "Value")
+    )
+
+    inspect_result = await tool_executor(
+        "gh_inspect_output",
+        {"guid": addition_guid, "param": "R"},
+    )
+    observed_output_value = _inspect_output_scalar_value(inspect_result)
+
+    if abs(float(editable_value) - float(INITIAL_EDITABLE_VALUE)) > SCALAR_TOLERANCE:
+        raise ValueError("initial_editable_value_mismatch")
+    if (
+        abs(float(observed_output_value) - float(INITIAL_OBSERVED_OUTPUT))
+        > SCALAR_TOLERANCE
+    ):
+        raise ValueError("initial_observed_output_mismatch")
+
+    receipt = {
+        "editable_value": editable_value,
+        "observed_output_value": observed_output_value,
+        "offset_value": OFFSET_VALUE,
+        "scalar_anchor": {
+            "internal_component_guid": editable_guid,
+            "editable_value_contract": {
+                "label": "LM8F_Editable",
+                "value_type": "number",
+                "current_value": editable_value,
+                "projection_id": "editable_plus_offset",
+            },
+        },
+    }
+    visible_receipt = {
+        "editable_value": editable_value,
+        "observed_output_value": observed_output_value,
+        "offset_value": OFFSET_VALUE,
+        "scalar_anchor": {
+            "guid_present": True,
+            "component_guid_sha256": _guid_sha256(editable_guid),
+            "editable_value_contract": {
+                "label": "LM8F_Editable",
+                "value_type": "number",
+                "current_value": editable_value,
+                "projection_id": "editable_plus_offset",
+            },
+        },
+        "offset_component": {
+            "guid_present": True,
+            "component_guid_sha256": _guid_sha256(offset_guid),
+        },
+        "addition_component": {
+            "guid_present": True,
+            "component_guid_sha256": _guid_sha256(addition_guid),
+        },
+    }
+    fixture_setup_summary = {
+        "tool_name": "gh_create_component",
+        "editable_component_guid": editable_guid,
+        "editable_component_guid_sha256": _guid_sha256(editable_guid),
+        "offset_component_guid": offset_guid,
+        "offset_component_guid_sha256": _guid_sha256(offset_guid),
+        "addition_component_guid": addition_guid,
+        "addition_component_guid_sha256": _guid_sha256(addition_guid),
+        "editable_value": editable_value,
+        "offset_value": OFFSET_VALUE,
+        "observed_output_value": observed_output_value,
+        "receipt_sha256": _fingerprint_json(
+            {
+                "gh_library": library_result,
+                "gh_create_slider_editable": editable_result,
+                "gh_create_slider_offset": offset_result,
+                "gh_create_component": addition_result,
+                "gh_connect_editable": connect_a_result,
+                "gh_connect_offset": connect_b_result,
+                "gh_solve": solve_result,
+                "gh_get_value": editable_value_result,
+                "gh_inspect_output": inspect_result,
+            }
+        ),
+    }
+    return {
+        "editable_component_guid": editable_guid,
+        "offset_component_guid": offset_guid,
+        "addition_component_guid": addition_guid,
+        "editable_value": editable_value,
+        "observed_output_value": observed_output_value,
+        "receipt": receipt,
+        "visible_receipt": visible_receipt,
+        "fixture_setup_summary": fixture_setup_summary,
+    }
