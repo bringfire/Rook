@@ -485,6 +485,42 @@ def test_scalar_runtime_context_fails_when_live_receipt_missing_observation() ->
         )
 
 
+def test_scalar_action_selection_contract_preserves_two_pass_shapes() -> None:
+    contract = PROBE._scalar_action_selection_contract()
+
+    assert contract == {
+        "contract_id": "gh_scalar_action_selection:v1",
+        "worker_agency": (
+            "If the acceptance criteria are sufficient and action is warranted, "
+            "publish action_request with the exact required_action_id. If action "
+            "is not warranted, publish a non-action response."
+        ),
+        "required_response_kind_if_acting": "action_request",
+        "required_action_id": "draft_gh_set_value_params",
+        "pass1_decision_required_fields_if_acting": ["kind", "action_id"],
+        "final_action_request_required_fields": [
+            "schema",
+            "kind",
+            "action_id",
+            "rationale",
+            "input",
+        ],
+        "action_input_schema": {
+            "type": "object",
+            "required": ["value"],
+            "properties": {"value": {"type": "number"}},
+            "additionalProperties": False,
+        },
+        "authority_limits": [
+            "do not author target GUID",
+            "do not call GH tools directly",
+            "do not author topology, code, or batch edits",
+        ],
+    }
+    assert "you must act" not in contract["worker_agency"].casefold()
+    assert "input" not in contract["pass1_decision_required_fields_if_acting"]
+
+
 def test_worker_request_uses_scalar_knowledge_and_never_exposes_raw_guid() -> None:
     fixture = _valid_fixture()
     graph = PROBE._graph_from_scalar_receipt(fixture["receipt"])
@@ -509,6 +545,52 @@ def test_worker_request_uses_scalar_knowledge_and_never_exposes_raw_guid() -> No
     assert "gh_edit" not in rendered
     assert "gh_update_script" not in rendered
     assert "repair_same_component" not in rendered
+    assert "action_selection_contract" in rendered
+    assert "pass1_decision_required_fields_if_acting" in rendered
+    assert "final_action_request_required_fields" in rendered
+    assert "do not author target GUID" in rendered
+    assert "do not call GH tools directly" in rendered
+    assert "do not author topology, code, or batch edits" in rendered
+
+
+def test_worker_request_includes_action_selection_contract_without_autofill_hint() -> None:
+    fixture = _valid_fixture()
+    graph = PROBE._graph_from_scalar_receipt(fixture["receipt"])
+    runtime = PROBE._scalar_runtime_context(
+        graph=graph,
+        workflow_contract_payload=PROBE._scalar_contract_payload(),
+        convention_packets=(),
+    )
+
+    payload = PROBE._build_local_turn_payload(
+        graph=graph,
+        packet=runtime["packet"],
+        worker_visible=runtime["worker_visible"],
+    )
+
+    packet = payload["context"]["knowledge"][0]
+    fields = packet["content"]["fields"]
+    contract = fields["action_selection_contract"]
+    rendered = json.dumps(payload, sort_keys=True)
+
+    assert contract["required_action_id"] == "draft_gh_set_value_params"
+    assert contract["pass1_decision_required_fields_if_acting"] == [
+        "kind",
+        "action_id",
+    ]
+    assert contract["final_action_request_required_fields"] == [
+        "schema",
+        "kind",
+        "action_id",
+        "rationale",
+        "input",
+    ]
+    assert contract["action_input_schema"]["required"] == ["value"]
+    assert contract["action_input_schema"]["additionalProperties"] is False
+    assert "SLIDER-GUID-1" not in rendered
+    assert "only one action" not in rendered
+    assert "infer" not in rendered.casefold()
+    assert "autofill" not in rendered.casefold()
 
 
 class FakePublication:
@@ -548,6 +630,23 @@ def test_publication_failure_maps_to_publication_failed() -> None:
 
     assert decision["decision"] == "publication_failed"
     assert decision["reason"] == "pass2_lm5g_invalid:bad-json"
+
+
+def test_missing_pass1_action_id_stays_publication_failed() -> None:
+    decision = PROBE._decision_from_publication(
+        {
+            "status": "pass1_decision_invalid",
+            "failure_reason": "pass1_missing_action_id",
+            "pass1_content_excerpt": '{"kind": "action_request"}',
+        },
+        None,
+    )
+
+    assert decision == {
+        "decision": "publication_failed",
+        "reason": "pass1_decision_invalid:pass1_missing_action_id",
+        "phase": "worker_publication",
+    }
 
 
 def test_dispatch_set_value_and_verify_accepts_live_observed_match() -> None:

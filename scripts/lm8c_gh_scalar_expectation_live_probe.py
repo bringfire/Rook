@@ -347,6 +347,38 @@ def _scalar_scaffold(graph: PlanGraph) -> CompiledWorkflowScaffold:
     )
 
 
+def _scalar_action_selection_contract() -> dict[str, Any]:
+    return {
+        "contract_id": "gh_scalar_action_selection:v1",
+        "worker_agency": (
+            "If the acceptance criteria are sufficient and action is warranted, "
+            "publish action_request with the exact required_action_id. If action "
+            "is not warranted, publish a non-action response."
+        ),
+        "required_response_kind_if_acting": "action_request",
+        "required_action_id": ACTION_ID,
+        "pass1_decision_required_fields_if_acting": ["kind", "action_id"],
+        "final_action_request_required_fields": [
+            "schema",
+            "kind",
+            "action_id",
+            "rationale",
+            "input",
+        ],
+        "action_input_schema": {
+            "type": "object",
+            "required": ["value"],
+            "properties": {"value": {"type": "number"}},
+            "additionalProperties": False,
+        },
+        "authority_limits": [
+            "do not author target GUID",
+            "do not call GH tools directly",
+            "do not author topology, code, or batch edits",
+        ],
+    }
+
+
 def _scalar_worker_evidence_packet(
     *,
     packet: Mapping[str, Any],
@@ -368,6 +400,7 @@ def _scalar_worker_evidence_packet(
                 "editable_value_contract": editable,
                 "acceptance_criteria": dict(worker_visible),
                 "recommended_action_id": ACTION_ID,
+                "action_selection_contract": _scalar_action_selection_contract(),
             },
         },
     )
