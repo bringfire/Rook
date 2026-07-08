@@ -708,6 +708,99 @@ def test_dispatch_set_value_and_verify_rejects_live_observed_mismatch() -> None:
     assert result["decision"]["reason"] == "verify_scalar_output_failed"
 
 
+def test_dispatch_set_value_and_verify_accepts_when_reported_false_but_observed_matches() -> None:
+    executor = FakeToolExecutor(
+        {
+            "gh_set_value": {
+                "success": False,
+                "data": {"Guid": "SLIDER-GUID-1", "NewValue": 7.5},
+            },
+            "gh_get_value": {
+                "success": True,
+                "data": {"Guid": "SLIDER-GUID-1", "Value": "7.5"},
+            },
+        }
+    )
+
+    result = _run(
+        PROBE._dispatch_set_value_and_verify(
+            tool_executor=executor,
+            component_guid="SLIDER-GUID-1",
+            worker_value=7.5,
+            expected_value=7.5,
+        )
+    )
+
+    assert result["live_set_value_summary"]["set_value_reported_success"] is False
+    assert result["verify_scalar_output_summary"]["observed_output_value"] == 7.5
+    assert result["verify_scalar_output_summary"]["matched"] is True
+    assert result["decision"]["decision"] == "accepted"
+    assert result["decision"]["reason"] == "verify_scalar_output_succeeded"
+    assert executor.calls == [
+        ("gh_set_value", {"guid": "SLIDER-GUID-1", "value": 7.5}),
+        ("gh_get_value", {"guid": "SLIDER-GUID-1"}),
+    ]
+
+
+def test_dispatch_set_value_and_verify_rejects_when_reported_false_and_observed_mismatch() -> None:
+    executor = FakeToolExecutor(
+        {
+            "gh_set_value": {
+                "success": False,
+                "data": {"Guid": "SLIDER-GUID-1", "NewValue": 7.5},
+            },
+            "gh_get_value": {
+                "success": True,
+                "data": {"Guid": "SLIDER-GUID-1", "Value": "0.0"},
+            },
+        }
+    )
+
+    result = _run(
+        PROBE._dispatch_set_value_and_verify(
+            tool_executor=executor,
+            component_guid="SLIDER-GUID-1",
+            worker_value=7.5,
+            expected_value=7.5,
+        )
+    )
+
+    assert result["live_set_value_summary"]["set_value_reported_success"] is False
+    assert result["verify_scalar_output_summary"]["observed_output_value"] == 0.0
+    assert result["verify_scalar_output_summary"]["matched"] is False
+    assert result["decision"]["decision"] == "rejected"
+    assert result["decision"]["reason"] == "verify_scalar_output_failed"
+
+
+def test_dispatch_set_value_and_verify_rejects_transport_exception_without_verifier() -> None:
+    executor = FakeToolExecutor(
+        {
+            "gh_set_value": RuntimeError("transport down"),
+            "gh_get_value": {
+                "success": True,
+                "data": {"Guid": "SLIDER-GUID-1", "Value": "7.5"},
+            },
+        }
+    )
+
+    result = _run(
+        PROBE._dispatch_set_value_and_verify(
+            tool_executor=executor,
+            component_guid="SLIDER-GUID-1",
+            worker_value=7.5,
+            expected_value=7.5,
+        )
+    )
+
+    assert result["decision"]["decision"] == "rejected"
+    assert result["decision"]["reason"] == "gh_set_value_exception:RuntimeError"
+    assert result["decision"]["phase"] == "live_set_value"
+    assert result["verify_scalar_output_summary"] is None
+    assert executor.calls == [
+        ("gh_set_value", {"guid": "SLIDER-GUID-1", "value": 7.5}),
+    ]
+
+
 def test_dispatch_set_value_and_verify_receipts_invalid_final_value() -> None:
     executor = FakeToolExecutor(
         {
