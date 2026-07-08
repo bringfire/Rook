@@ -1033,19 +1033,47 @@ async def _dispatch_set_value_solve_and_verify(
             },
         }
 
-    inspect_result = await tool_executor(
-        "gh_inspect_output",
-        {"guid": addition_component_guid, "param": "R"},
-    )
-    invalid_value = False
     try:
-        observed = _inspect_output_scalar_value(inspect_result)
-    except ValueError:
+        inspect_result = await tool_executor(
+            "gh_inspect_output",
+            {"guid": addition_component_guid, "param": "R"},
+        )
+    except Exception as exc:
+        return {
+            "live_set_value_summary": set_summary,
+            "verify_scalar_output_summary": {
+                "tool_name": "gh_inspect_output",
+                "component_guid_sha256": _guid_sha256(addition_component_guid),
+                "expected_output_value": expected_value,
+                "observed_output_value": None,
+                "tolerance": SCALAR_TOLERANCE,
+                "matched": False,
+                "exception": type(exc).__name__,
+            },
+            "decision": {
+                "decision": "rejected",
+                "reason": f"gh_inspect_output_exception:{type(exc).__name__}",
+                "phase": "verify_scalar_output",
+                "expected_output_value": expected_value,
+                "observed_output_after": None,
+                "scalar_tolerance": SCALAR_TOLERANCE,
+            },
+        }
+
+    tool_failed = _tool_result_failed(inspect_result)
+    invalid_value = False
+    if tool_failed:
         observed = None
         matched = False
-        invalid_value = True
     else:
-        matched = abs(float(observed) - float(expected_value)) <= SCALAR_TOLERANCE
+        try:
+            observed = _inspect_output_scalar_value(inspect_result)
+        except ValueError:
+            observed = None
+            matched = False
+            invalid_value = True
+        else:
+            matched = abs(float(observed) - float(expected_value)) <= SCALAR_TOLERANCE
     verify_summary = {
         "tool_name": "gh_inspect_output",
         "component_guid_sha256": _guid_sha256(addition_component_guid),
@@ -1054,6 +1082,7 @@ async def _dispatch_set_value_solve_and_verify(
         "tolerance": SCALAR_TOLERANCE,
         "matched": matched,
         "receipt_sha256": _fingerprint_json(inspect_result),
+        "reported_success": not tool_failed,
     }
     return {
         "live_set_value_summary": set_summary,

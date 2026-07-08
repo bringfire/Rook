@@ -764,6 +764,72 @@ def test_dispatch_set_value_solve_and_verify_rejects_invalid_inspected_value():
 
     assert result["decision"]["decision"] == "rejected"
     assert result["decision"]["reason"] == "verify_scalar_output_invalid_value"
+    assert result["verify_scalar_output_summary"]["reported_success"] is True
+
+
+def test_dispatch_set_value_solve_and_verify_rejects_inspect_exception_without_crashing():
+    executor = FakeToolExecutor(
+        {
+            "gh_set_value": {
+                "success": True,
+                "data": {"Guid": "EDITABLE-GUID-1", "NewValue": 6.0},
+            },
+            "gh_solve": {"success": True, "data": {"scheduled": True}},
+            "gh_inspect_output": RuntimeError("verifier transport down"),
+        }
+    )
+
+    result = _run(
+        PROBE._dispatch_set_value_solve_and_verify(
+            tool_executor=executor,
+            editable_component_guid="EDITABLE-GUID-1",
+            addition_component_guid="ADDITION-GUID-1",
+            worker_value=6.0,
+            expected_value=7.5,
+        )
+    )
+
+    assert result["decision"]["decision"] == "rejected"
+    assert result["decision"]["reason"] == "gh_inspect_output_exception:RuntimeError"
+    assert result["verify_scalar_output_summary"]["exception"] == "RuntimeError"
+    assert result["verify_scalar_output_summary"]["observed_output_value"] is None
+    assert executor.calls == [
+        ("gh_set_value", {"guid": "EDITABLE-GUID-1", "value": 6.0}),
+        ("gh_solve", {"delay": 25}),
+        ("gh_inspect_output", {"guid": "ADDITION-GUID-1", "param": "R"}),
+    ]
+
+
+def test_dispatch_set_value_solve_and_verify_rejects_failed_inspect_without_invalid_value_misclassifying():
+    executor = FakeToolExecutor(
+        {
+            "gh_set_value": {
+                "success": True,
+                "data": {"Guid": "EDITABLE-GUID-1", "NewValue": 6.0},
+            },
+            "gh_solve": {"success": True, "data": {"scheduled": True}},
+            "gh_inspect_output": {
+                "success": False,
+                "data": "Object not found",
+            },
+        }
+    )
+
+    result = _run(
+        PROBE._dispatch_set_value_solve_and_verify(
+            tool_executor=executor,
+            editable_component_guid="EDITABLE-GUID-1",
+            addition_component_guid="ADDITION-GUID-1",
+            worker_value=6.0,
+            expected_value=7.5,
+        )
+    )
+
+    assert result["decision"]["decision"] == "rejected"
+    assert result["decision"]["reason"] == "verify_scalar_output_failed"
+    assert result["decision"]["reason"] != "verify_scalar_output_invalid_value"
+    assert result["verify_scalar_output_summary"]["reported_success"] is False
+    assert result["verify_scalar_output_summary"]["observed_output_value"] is None
 
 
 def _published_action(value=6.0):
