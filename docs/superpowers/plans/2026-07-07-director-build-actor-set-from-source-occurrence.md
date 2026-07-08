@@ -230,6 +230,24 @@ def test_build_actor_set_authoring_member_schema_omits_false_identity_fields(tmp
     assert "definition_object_index" not in member
     assert "current_reference" not in member
     assert "observed_selection" not in member
+
+
+def test_build_actor_set_canonicalizes_definition_object_guid(tmp_path):
+    model = tmp_path / "scene.3dm"
+    objects = copy.deepcopy(FakeActorSetBuilderNative(model).objects)
+    objects[0]["id"] = "{11111111111111111111111111111111}"
+    _write_snapshot(tmp_path)
+
+    result = asyncio.run(metadata.build_actor_set_from_source_occurrence_v2(
+        {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+        call_native=FakeActorSetBuilderNative(model, objects=objects),
+    ))
+
+    actor_set = json.loads(Path(result["resolved_actor_set_path"]).read_text(encoding="utf-8"))
+    assert (
+        actor_set["members"][0]["resolved_reference"]["definition_object_id"]
+        == "11111111-1111-1111-1111-111111111111"
+    )
 ```
 
 - [ ] **Step 2: Run the focused happy-path tests and verify RED**
@@ -303,13 +321,13 @@ def _round_bbox_values(values: Any) -> list[float]:
             raise DirectorActorMetadataError(
                 "tight_bbox_unavailable",
                 "Tight bbox values must be numeric.",
-                value=value,
+                value=repr(value),
             ) from ex
         if not math.isfinite(number):
             _raise(
                 "tight_bbox_unavailable",
                 "Tight bbox values must be finite.",
-                value=value,
+                value=repr(value),
             )
         rounded.append(round(number, 4))
     return rounded

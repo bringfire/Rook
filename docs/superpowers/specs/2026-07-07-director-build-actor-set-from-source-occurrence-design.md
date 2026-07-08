@@ -229,7 +229,8 @@ Unit tests (mock native, per the sibling `test_director_actor_metadata.py` patte
 6. Missing/non-integer/negative `index`, missing/non-GUID definition object id, duplicate ordinal,
    or duplicate definition object id → `block_enumeration_invalid`.
 7. Loose / missing bbox (`bboxMethod != "tight_object"`), malformed bbox arrays, non-numeric bbox
-   values, or non-finite bbox values → `tight_bbox_unavailable`.
+   values, or non-finite bbox values → `tight_bbox_unavailable`. Error data for rejected bbox
+   values must stay strict-JSON-safe; do not include raw `NaN`/`Infinity` floats.
 8. Existing actor set, `replace_existing=false` → `actor_set_exists` even if the existing file is
    corrupt or wrong-kind.
 9. `replace_existing=true`, same snapshot ref → overwrite succeeds.
