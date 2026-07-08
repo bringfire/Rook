@@ -513,3 +513,166 @@ def test_build_summary_worker_reached_includes_wrapper_error_without_counting_te
     }
     assert summary["worker_action_values"] == [6.0, 5.5]
     assert summary["verifier_attempt_counts"] == [1, 2]
+
+
+def test_write_json_and_append_jsonl_are_stable_and_structured(tmp_path: Path):
+    json_path = tmp_path / "artifact.json"
+    jsonl_path = tmp_path / "artifact.jsonl"
+
+    PROBE._write_json(json_path, {"b": 2, "a": 1})
+    PROBE._append_jsonl(jsonl_path, {"b": 2, "a": 1})
+    PROBE._append_jsonl(jsonl_path, {"c": 3})
+
+    assert json_path.read_text(encoding="utf-8") == '{\n  "a": 1,\n  "b": 2\n}\n'
+    assert jsonl_path.read_text(encoding="utf-8").splitlines() == [
+        '{"a": 1, "b": 2}',
+        '{"c": 3}',
+    ]
+
+
+class FakeSubprocessRunner:
+    def __init__(self, child_decisions: list[dict]):
+        self.child_decisions = list(child_decisions)
+        self.calls: list[dict] = []
+
+    def __call__(self, command, *, cwd, capture_output, text, timeout):
+        self.calls.append(
+            {
+                "command": command,
+                "cwd": cwd,
+                "capture_output": capture_output,
+                "text": text,
+                "timeout": timeout,
+            }
+        )
+        run_dir = Path(command[command.index("--run-dir") + 1])
+        decision = self.child_decisions.pop(0)
+        child = run_dir / f"lm8f-child-{len(self.calls):03d}"
+        child.mkdir(parents=True)
+        (child / "decision.json").write_text(
+            json.dumps(decision, sort_keys=True),
+            encoding="utf-8",
+        )
+        if decision.get("worker_action_value") is not None:
+            (child / "worker_action.json").write_text(
+                json.dumps({"input": {"value": decision["worker_action_value"]}}),
+                encoding="utf-8",
+            )
+        if decision.get("verifier_attempt_count") is not None:
+            (child / "verify_scalar_output_summary.json").write_text(
+                json.dumps({"attempt_count": decision["verifier_attempt_count"]}),
+                encoding="utf-8",
+            )
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout=f"run_dir={child}",
+            stderr="",
+        )
+
+
+def test_run_probe_writes_manifest_attempts_and_summary(tmp_path: Path):
+    runner = FakeSubprocessRunner(
+        [
+            {
+                "decision": "accepted",
+                "reason": "verify_scalar_output_succeeded",
+                "worker_publication_ran": True,
+                "live_fixture_created": True,
+                "live_set_value_dispatched": True,
+                "verify_scalar_output_ran": True,
+                "scalar_runtime_ready": True,
+                "observed_output_after": 7.5,
+                "worker_action_value": 6.0,
+                "verifier_attempt_count": 1,
+            },
+            {
+                "decision": "rejected",
+                "reason": "verify_scalar_output_failed",
+                "worker_publication_ran": True,
+                "worker_action_value": 5.5,
+                "verifier_attempt_count": 3,
+            },
+        ]
+    )
+
+    run_dir = PROBE._run_probe(
+        attempts=2,
+        model="gemma4:12b-it-qat",
+        run_root=tmp_path,
+        attempt_timeout_s=600,
+        run_subprocess=runner,
+    )
+
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    rows = [
+        json.loads(line)
+        for line in (run_dir / "attempts.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+
+    assert manifest["attempts"] == 2
+    assert manifest["canonical_evidence"] is False
+    assert [row["terminal_category"] for row in rows] == ["accepted", "rejected"]
+    assert rows[0]["worker_action_value"] == 6.0
+    assert rows[1]["verifier_attempt_count"] == 3
+    assert summary["accepted_count"] == 1
+    assert summary["rejected_count"] == 1
+    assert summary["worker_reached_count"] == 2
+    assert summary["worker_action_values"] == [6.0, 5.5]
+    assert summary["verifier_attempt_counts"] == [1, 3]
+    assert len(runner.calls) == 2
+    assert all(call["timeout"] == 600 for call in runner.calls)
+    assert all(call["capture_output"] is True for call in runner.calls)
+    assert all(call["text"] is True for call in runner.calls)
+
+
+def test_run_probe_continues_after_wrapper_error(tmp_path: Path):
+    calls = []
+
+    def fake_runner(command, *, cwd, capture_output, text, timeout):
+        calls.append(command)
+        run_dir = Path(command[command.index("--run-dir") + 1])
+        if len(calls) == 1:
+            return subprocess.CompletedProcess(command, returncode=0, stdout="", stderr="")
+        child = run_dir / "lm8f-child-002"
+        child.mkdir(parents=True)
+        (child / "decision.json").write_text(
+            json.dumps({"decision": "accepted", "worker_publication_ran": True}),
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, returncode=0, stdout="", stderr="")
+
+    run_dir = PROBE._run_probe(
+        attempts=2,
+        model="gemma4:12b-it-qat",
+        run_root=tmp_path,
+        attempt_timeout_s=600,
+        run_subprocess=fake_runner,
+    )
+    rows = [
+        json.loads(line)
+        for line in (run_dir / "attempts.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert [row["terminal_category"] for row in rows] == ["wrapper_error", "accepted"]
+    assert rows[0]["failure_reason"] == "child_run_dir_missing"
+    assert len(calls) == 2
+
+
+def test_main_prints_run_dir_and_returns_zero(monkeypatch, tmp_path: Path, capsys):
+    def fake_run_probe(**kwargs):
+        run_dir = tmp_path / "lm8g-demo"
+        run_dir.mkdir()
+        (run_dir / "summary.json").write_text(
+            json.dumps({"accepted_count": 1, "scheduled_attempts": 1}),
+            encoding="utf-8",
+        )
+        return run_dir
+
+    monkeypatch.setattr(PROBE, "_run_probe", fake_run_probe)
+
+    assert PROBE.main(["--attempts", "1", "--run-dir", str(tmp_path)]) == 0
+    output = capsys.readouterr().out
+    assert "LM8G scalar transform repeatability probe complete" in output
+    assert "run_dir=" in output
