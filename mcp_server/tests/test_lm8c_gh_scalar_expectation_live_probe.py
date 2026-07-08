@@ -152,6 +152,43 @@ def test_decision_record_rejects_extra_that_overwrites_base_field() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"note": "SLIDER-GUID-SECRET"},
+        {"meta": {"component_guid": "SLIDER-GUID-SECRET"}},
+        {"ids": ["550e8400-e29b-41d4-a716-446655440000"]},
+    ],
+)
+def test_decision_record_rejects_guid_like_extra_values(extra) -> None:
+    with pytest.raises(ValueError, match="LM8C decision extra"):
+        PROBE._decision_record(
+            decision="accepted",
+            reason="verify_scalar_output_succeeded",
+            phase="verify_scalar_output",
+            canonical_evidence=True,
+            component_guid="GUID-SECRET",
+            extra=extra,
+        )
+
+
+def test_decision_record_allows_safe_scalar_and_excerpt_extra_values() -> None:
+    decision = PROBE._decision_record(
+        decision="accepted",
+        reason="verify_scalar_output_succeeded",
+        phase="verify_scalar_output",
+        canonical_evidence=True,
+        component_guid="GUID-SECRET",
+        extra={
+            "observed_output_after": 7.5,
+            "worker_action_input_excerpt": "{\"value\": 7.5}",
+        },
+    )
+
+    assert decision["observed_output_after"] == 7.5
+    assert decision["worker_action_input_excerpt"] == "{\"value\": 7.5}"
+
+
 def test_manifest_records_lm8c_identity() -> None:
     manifest = PROBE._manifest(
         model="gemma4:12b-it-qat",

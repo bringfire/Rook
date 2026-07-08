@@ -6,9 +6,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import sys
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -44,6 +45,11 @@ DECISIONS = {
     "rejected",
     "accepted",
 }
+_UUID_RE = re.compile(
+    r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-"
+    r"[89ab][0-9a-f]{3}-[0-9a-f]{12}\b",
+    re.IGNORECASE,
+)
 
 
 def _args(argv: list[str] | None) -> argparse.Namespace:
@@ -124,6 +130,36 @@ def _write_json_value(path: Path, payload: Any) -> None:
     )
 
 
+def _find_forbidden_decision_extra_paths(
+    value: Any, *, base_keys: set[str], path: str = "extra"
+) -> list[str]:
+    forbidden: list[str] = []
+    if isinstance(value, Mapping):
+        for key, nested_value in value.items():
+            key_text = str(key)
+            key_path = f"{path}.{key_text}"
+            if key_text in base_keys or "guid" in key_text.casefold():
+                forbidden.append(key_path)
+            forbidden.extend(
+                _find_forbidden_decision_extra_paths(
+                    nested_value, base_keys=base_keys, path=key_path
+                )
+            )
+        return forbidden
+    if isinstance(value, str):
+        if "guid" in value.casefold() or _UUID_RE.search(value):
+            forbidden.append(path)
+        return forbidden
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+        for index, nested_value in enumerate(value):
+            forbidden.extend(
+                _find_forbidden_decision_extra_paths(
+                    nested_value, base_keys=base_keys, path=f"{path}[{index}]"
+                )
+            )
+    return forbidden
+
+
 def _decision_record(
     *,
     decision: str,
@@ -156,15 +192,13 @@ def _decision_record(
     }
     if extra:
         extra_record = dict(extra)
-        blocked_keys = [
-            key
-            for key in extra_record
-            if key in record or "guid" in str(key).casefold()
-        ]
-        if blocked_keys:
+        blocked_paths = _find_forbidden_decision_extra_paths(
+            extra_record, base_keys=set(record)
+        )
+        if blocked_paths:
             raise ValueError(
-                "LM8C decision extra contains reserved keys: "
-                + ", ".join(sorted(str(key) for key in blocked_keys))
+                "LM8C decision extra contains reserved identity fields: "
+                + ", ".join(sorted(blocked_paths))
             )
         record.update(extra_record)
     return record
