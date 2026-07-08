@@ -277,6 +277,563 @@ def _assert_not_durable_absolute_identity_path(path, value):
     ), (path, value)
 
 
+SOURCE_ID = "a28cbdb5-51fa-46b2-b18b-ab880b54ded7"
+BLOCK_ID = "2a38c499-7763-4532-a5ff-d71b90d9d95c"
+BLOCK_NAME = "3D_BLOCK_ARCH_ROOF_0502 UPLIFT ROOF - VERTICAL"
+SNAPSHOT_REF = ".rook/director_planning/selection_snapshots/source_occurrence_roof.json"
+
+
+def _source_occurrence(
+    *,
+    object_type="InstanceReference",
+    block_id=BLOCK_ID,
+    block_name=BLOCK_NAME,
+):
+    return {
+        "source_top_level_object_id": SOURCE_ID,
+        "object_type": object_type,
+        "layer": "004_DIAGRAM::STRUCTURE",
+        "name": "",
+        "block_definition": {
+            "id": block_id,
+            "index": 3,
+            "name": block_name,
+            "block_type": "Embedded",
+            "is_linked": False,
+            "instance_count": 1,
+            "direct_object_count": 3,
+        },
+        "instance": {"id": SOURCE_ID, "layer": "004_DIAGRAM::STRUCTURE", "name": ""},
+    }
+
+
+def _selection_snapshot(**overrides):
+    occ = overrides.pop("occurrence", _source_occurrence())
+    payload = {
+        "schema_version": 2,
+        "metadata_kind": metadata.KIND_SELECTION_SNAPSHOT,
+        "snapshot_id": "source_occurrence_roof",
+        "source_occurrences": [copy.deepcopy(occ)],
+        "source_occurrence": copy.deepcopy(occ),
+        "summary": {"selected_count": 1, "source_top_level_object_count": 1},
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _write_snapshot(
+    project_root: Path,
+    payload: dict | None = None,
+    ref: str = SNAPSHOT_REF,
+) -> None:
+    path = metadata.resolve_metadata_ref(project_root, ref)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload or _selection_snapshot(), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+class FakeActorSetBuilderNative:
+    def __init__(
+        self,
+        model_path: Path,
+        *,
+        instances=None,
+        block_info=None,
+        objects=None,
+        document_path: str | None = "USE_MODEL",
+        fail_instances: bool = False,
+        fail_info: bool = False,
+    ):
+        self.model_path = model_path
+        self.document_path = str(model_path) if document_path == "USE_MODEL" else document_path
+        self.instances = instances if instances is not None else [
+            {
+                "id": SOURCE_ID,
+                "definitionId": BLOCK_ID,
+                "definitionName": BLOCK_NAME,
+                "layer": "004_DIAGRAM::STRUCTURE",
+                "name": "",
+            }
+        ]
+        self.block_info = block_info if block_info is not None else {
+            "id": BLOCK_ID,
+            "name": BLOCK_NAME,
+            "index": 3,
+            "objectCount": 3,
+        }
+        self.objects = objects if objects is not None else [
+            {
+                "index": 0,
+                "id": "11111111-1111-1111-1111-111111111111",
+                "type": "Brep",
+                "layer": "001_MATERIAL::001_01_GARDEN WOOD",
+                "name": "",
+                "bboxMethod": "tight_object",
+                "bbox": {
+                    "min": [0.0, 0.0, 0.0],
+                    "max": [10.123456, 2.0, 3.0],
+                },
+            },
+            {
+                "index": 2,
+                "id": "22222222-2222-2222-2222-222222222222",
+                "type": "InstanceReference",
+                "layer": "002_BLOCKS::002_01_BLOCK_ARCH_GARDEN ROOF",
+                "name": "nested-ref",
+                "bboxMethod": "tight_object",
+                "bbox": {"min": [5.0, 6.0, 7.0], "max": [8.0, 9.0, 10.0]},
+            },
+        ]
+        self.fail_instances = fail_instances
+        self.fail_info = fail_info
+        self.calls = []
+
+    async def __call__(
+        self,
+        endpoint: str,
+        method: str = "GET",
+        data: dict | None = None,
+        port: int | None = None,
+    ) -> dict:
+        self.calls.append((endpoint, method, copy.deepcopy(data), port))
+        if endpoint == "/document":
+            return {
+                "success": True,
+                "data": {"name": self.model_path.name, "path": self.document_path},
+            }
+        if endpoint == "/block/instances":
+            assert method == "POST"
+            assert data == {"name": BLOCK_NAME, "depth": 0}
+            if self.fail_instances:
+                return {
+                    "success": False,
+                    "error": {"message": f"Block definition '{BLOCK_NAME}' not found"},
+                }
+            return {
+                "success": True,
+                "data": {"blockName": BLOCK_NAME, "instances": copy.deepcopy(self.instances)},
+            }
+        if endpoint == "/block/info":
+            assert method == "POST"
+            assert data == {"name": BLOCK_NAME}
+            if self.fail_info:
+                return {
+                    "success": False,
+                    "error": {"message": f"Block definition '{BLOCK_NAME}' not found"},
+                }
+            return {"success": True, "data": copy.deepcopy(self.block_info)}
+        if endpoint == "/block/objects-detailed":
+            assert method == "POST"
+            assert data == {"name": BLOCK_NAME}
+            return {
+                "success": True,
+                "data": {"name": BLOCK_NAME, "objects": copy.deepcopy(self.objects)},
+            }
+        raise AssertionError(f"unexpected endpoint {endpoint}")
+
+
+def _build_actor_set(project_root: Path, *, native=None, args=None):
+    model = project_root / "scene.3dm"
+    model.parent.mkdir(parents=True, exist_ok=True)
+    model.write_bytes(b"fake 3dm")
+    _write_snapshot(project_root)
+    return asyncio.run(
+        metadata.build_actor_set_from_source_occurrence_v2(
+            args or {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+            call_native=native or FakeActorSetBuilderNative(model),
+            port=None,
+        )
+    )
+
+
+def test_build_actor_set_from_source_occurrence_v2_happy_path(tmp_path):
+    result = _build_actor_set(tmp_path)
+
+    assert result["schema_version"] == 2
+    assert result["metadata_kind"] == metadata.KIND_ACTOR_SET
+    assert result["actor_set_id"] == "source_occurrence_roof"
+    assert result["member_count"] == 2
+    actor_set = json.loads(Path(result["resolved_actor_set_path"]).read_text(encoding="utf-8"))
+    assert actor_set["source_occurrence_snapshot_ref"] == SNAPSHOT_REF
+    assert actor_set["summary"] == {"member_count": 2, "resolved_count": 2}
+    assert [m["ordinal"] for m in actor_set["members"]] == [0, 2]
+    first = actor_set["members"][0]
+    assert (
+        first["resolved_reference"]["definition_object_id"]
+        == "11111111-1111-1111-1111-111111111111"
+    )
+    assert first["expected"] == {
+        "type": "Brep",
+        "layer": "001_MATERIAL::001_01_GARDEN WOOD",
+        "name": "",
+    }
+    assert first["bbox_evidence"] == {
+        "bbox_method": "tight_object",
+        "bbox_space": "definition_object",
+        "min": [0.0, 0.0, 0.0],
+        "max": [10.1235, 2.0, 3.0],
+        "rounding_policy": "round_to_4_decimal_places",
+        "validation_strength": "tight_bbox",
+    }
+
+
+def test_build_actor_set_authoring_member_schema_omits_false_identity_fields(tmp_path):
+    result = _build_actor_set(tmp_path)
+    actor_set = json.loads(Path(result["resolved_actor_set_path"]).read_text(encoding="utf-8"))
+    member = actor_set["members"][0]
+
+    assert "actor_member_id" not in member
+    assert "definition_object_index" not in member
+    assert "current_reference" not in member
+    assert "observed_selection" not in member
+
+
+def test_build_actor_set_canonicalizes_definition_object_guid(tmp_path):
+    model = tmp_path / "scene.3dm"
+    objects = copy.deepcopy(FakeActorSetBuilderNative(model).objects)
+    objects[0]["id"] = "{11111111111111111111111111111111}"
+    _write_snapshot(tmp_path)
+
+    result = asyncio.run(
+        metadata.build_actor_set_from_source_occurrence_v2(
+            {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+            call_native=FakeActorSetBuilderNative(model, objects=objects),
+        )
+    )
+
+    actor_set = json.loads(Path(result["resolved_actor_set_path"]).read_text(encoding="utf-8"))
+    assert (
+        actor_set["members"][0]["resolved_reference"]["definition_object_id"]
+        == "11111111-1111-1111-1111-111111111111"
+    )
+
+
+def test_build_actor_set_rejects_non_block_snapshot(tmp_path):
+    model = tmp_path / "scene.3dm"
+    _write_snapshot(
+        tmp_path,
+        _selection_snapshot(occurrence=_source_occurrence(object_type="Brep")),
+    )
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(
+            metadata.build_actor_set_from_source_occurrence_v2(
+                {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+                call_native=FakeActorSetBuilderNative(model),
+            )
+        )
+    assert _error_code(exc) == "snapshot_source_not_block"
+
+
+def test_build_actor_set_rejects_multi_source_snapshot(tmp_path):
+    first = _source_occurrence()
+    second = _source_occurrence()
+    second["source_top_level_object_id"] = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    snap = _selection_snapshot()
+    snap["source_occurrences"] = [first, second]
+    snap.pop("source_occurrence", None)
+    model = tmp_path / "scene.3dm"
+    _write_snapshot(tmp_path, snap)
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(
+            metadata.build_actor_set_from_source_occurrence_v2(
+                {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+                call_native=FakeActorSetBuilderNative(model),
+            )
+        )
+    assert _error_code(exc) == "snapshot_not_single_source"
+
+
+def test_build_actor_set_rejects_source_occurrence_convenience_mismatch(tmp_path):
+    snap = _selection_snapshot()
+    snap["source_occurrence"] = _source_occurrence(block_name="Different Block")
+    model = tmp_path / "scene.3dm"
+    _write_snapshot(tmp_path, snap)
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(
+            metadata.build_actor_set_from_source_occurrence_v2(
+                {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+                call_native=FakeActorSetBuilderNative(model),
+            )
+        )
+    assert _error_code(exc) == "snapshot_source_mismatch"
+
+
+def test_build_actor_set_rejects_zero_objects(tmp_path):
+    model = tmp_path / "scene.3dm"
+    _write_snapshot(tmp_path)
+    native = FakeActorSetBuilderNative(model, objects=[])
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(
+            metadata.build_actor_set_from_source_occurrence_v2(
+                {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+                call_native=native,
+            )
+        )
+    assert _error_code(exc) == "block_enumeration_empty"
+
+
+def test_build_actor_set_rejects_non_tight_bbox(tmp_path):
+    model = tmp_path / "scene.3dm"
+    bad = [
+        {
+            "index": 0,
+            "id": "11111111-1111-1111-1111-111111111111",
+            "type": "Brep",
+            "layer": "L",
+            "name": "",
+            "bboxMethod": "loose_fallback",
+            "bbox": {"min": [0, 0, 0], "max": [1, 1, 1]},
+        }
+    ]
+    _write_snapshot(tmp_path)
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(
+            metadata.build_actor_set_from_source_occurrence_v2(
+                {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+                call_native=FakeActorSetBuilderNative(model, objects=bad),
+            )
+        )
+    assert _error_code(exc) == "tight_bbox_unavailable"
+
+
+@pytest.mark.parametrize(
+    "bbox",
+    [
+        {"min": [0, 0], "max": [1, 1, 1]},
+        {"min": [0, "bad", 0], "max": [1, 1, 1]},
+        {"min": [0, 0, 0], "max": [1, float("inf"), 1]},
+    ],
+)
+def test_build_actor_set_rejects_malformed_or_non_finite_tight_bbox(tmp_path, bbox):
+    model = tmp_path / "scene.3dm"
+    obj = {
+        "index": 0,
+        "id": "11111111-1111-1111-1111-111111111111",
+        "type": "Brep",
+        "layer": "L",
+        "name": "",
+        "bboxMethod": "tight_object",
+        "bbox": bbox,
+    }
+    _write_snapshot(tmp_path)
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(
+            metadata.build_actor_set_from_source_occurrence_v2(
+                {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+                call_native=FakeActorSetBuilderNative(model, objects=[obj]),
+            )
+        )
+    assert _error_code(exc) == "tight_bbox_unavailable"
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda obj: obj.pop("index"),
+        lambda obj: obj.update({"index": -1}),
+        lambda obj: obj.update({"index": "0"}),
+        lambda obj: obj.pop("id"),
+        lambda obj: obj.update({"id": "not-a-guid"}),
+    ],
+)
+def test_build_actor_set_rejects_invalid_member_identity(tmp_path, mutate):
+    model = tmp_path / "scene.3dm"
+    obj = {
+        "index": 0,
+        "id": "11111111-1111-1111-1111-111111111111",
+        "type": "Brep",
+        "layer": "L",
+        "name": "",
+        "bboxMethod": "tight_object",
+        "bbox": {"min": [0, 0, 0], "max": [1, 1, 1]},
+    }
+    mutate(obj)
+    _write_snapshot(tmp_path)
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(
+            metadata.build_actor_set_from_source_occurrence_v2(
+                {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+                call_native=FakeActorSetBuilderNative(model, objects=[obj]),
+            )
+        )
+    assert _error_code(exc) == "block_enumeration_invalid"
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("index", 0), ("id", "11111111-1111-1111-1111-111111111111")],
+)
+def test_build_actor_set_rejects_duplicate_member_identity(tmp_path, field, value):
+    model = tmp_path / "scene.3dm"
+    a = {
+        "index": 0,
+        "id": "11111111-1111-1111-1111-111111111111",
+        "type": "Brep",
+        "layer": "L",
+        "name": "",
+        "bboxMethod": "tight_object",
+        "bbox": {"min": [0, 0, 0], "max": [1, 1, 1]},
+    }
+    b = {
+        "index": 1,
+        "id": "22222222-2222-2222-2222-222222222222",
+        "type": "Brep",
+        "layer": "L",
+        "name": "",
+        "bboxMethod": "tight_object",
+        "bbox": {"min": [2, 2, 2], "max": [3, 3, 3]},
+    }
+    b[field] = value
+    _write_snapshot(tmp_path)
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(
+            metadata.build_actor_set_from_source_occurrence_v2(
+                {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+                call_native=FakeActorSetBuilderNative(model, objects=[a, b]),
+            )
+        )
+    assert _error_code(exc) == "block_enumeration_invalid"
+
+
+def test_build_actor_set_existing_ref_fails_without_replace(tmp_path):
+    result = _build_actor_set(tmp_path)
+    model = tmp_path / "scene.3dm"
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(
+            metadata.build_actor_set_from_source_occurrence_v2(
+                {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+                call_native=FakeActorSetBuilderNative(model),
+            )
+        )
+    assert result["actor_set_ref"].endswith("source_occurrence_roof.json")
+    assert _error_code(exc) == "actor_set_exists"
+
+
+def test_build_actor_set_existing_corrupt_ref_still_fails_actor_set_exists_without_replace(
+    tmp_path,
+):
+    _build_actor_set(tmp_path)
+    actor_path = metadata.resolve_metadata_ref(
+        tmp_path,
+        ".rook/director_planning/actor_sets/source_occurrence_roof.json",
+    )
+    actor_path.write_text("{not-json", encoding="utf-8")
+    model = tmp_path / "scene.3dm"
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(
+            metadata.build_actor_set_from_source_occurrence_v2(
+                {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+                call_native=FakeActorSetBuilderNative(model),
+            )
+        )
+    assert _error_code(exc) == "actor_set_exists"
+
+
+def test_build_actor_set_replace_existing_same_source_succeeds(tmp_path):
+    _build_actor_set(tmp_path)
+    model = tmp_path / "scene.3dm"
+    result = asyncio.run(
+        metadata.build_actor_set_from_source_occurrence_v2(
+            {"source_occurrence_snapshot_ref": SNAPSHOT_REF, "replace_existing": True},
+            call_native=FakeActorSetBuilderNative(model),
+        )
+    )
+    assert result["member_count"] == 2
+
+
+def test_build_actor_set_replace_existing_different_source_fails(tmp_path):
+    _build_actor_set(tmp_path)
+    model = tmp_path / "scene.3dm"
+    other_ref = ".rook/director_planning/selection_snapshots/other_source.json"
+    _write_snapshot(tmp_path, _selection_snapshot(snapshot_id="other_source"), ref=other_ref)
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(
+            metadata.build_actor_set_from_source_occurrence_v2(
+                {
+                    "source_occurrence_snapshot_ref": other_ref,
+                    "replace_existing": True,
+                    "actor_set_id": "source_occurrence_roof",
+                },
+                call_native=FakeActorSetBuilderNative(model),
+            )
+        )
+    assert _error_code(exc) == "actor_set_source_mismatch"
+
+
+def test_build_actor_set_rejects_non_bool_replace_existing(tmp_path):
+    model = tmp_path / "scene.3dm"
+    _write_snapshot(tmp_path)
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(
+            metadata.build_actor_set_from_source_occurrence_v2(
+                {"source_occurrence_snapshot_ref": SNAPSHOT_REF, "replace_existing": "false"},
+                call_native=FakeActorSetBuilderNative(model),
+            )
+        )
+    assert _error_code(exc) == "metadata_bundle_invalid"
+
+
+def test_build_actor_set_rejects_missing_source_instance(tmp_path):
+    model = tmp_path / "scene.3dm"
+    _write_snapshot(tmp_path)
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(
+            metadata.build_actor_set_from_source_occurrence_v2(
+                {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+                call_native=FakeActorSetBuilderNative(model, instances=[]),
+            )
+        )
+    assert _error_code(exc) == "source_occurrence_missing_in_document"
+
+
+def test_build_actor_set_rejects_block_definition_drift(tmp_path):
+    model = tmp_path / "scene.3dm"
+    _write_snapshot(tmp_path)
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(
+            metadata.build_actor_set_from_source_occurrence_v2(
+                {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+                call_native=FakeActorSetBuilderNative(
+                    model,
+                    block_info={"id": "different", "name": BLOCK_NAME},
+                ),
+            )
+        )
+    assert _error_code(exc) == "block_definition_drift"
+
+
+@pytest.mark.parametrize("kwargs", [{"fail_instances": True}, {"fail_info": True}])
+def test_build_actor_set_translates_missing_block_route_failure_to_drift(
+    tmp_path,
+    kwargs,
+):
+    model = tmp_path / "scene.3dm"
+    _write_snapshot(tmp_path)
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(
+            metadata.build_actor_set_from_source_occurrence_v2(
+                {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+                call_native=FakeActorSetBuilderNative(model, **kwargs),
+            )
+        )
+    assert _error_code(exc) == "block_definition_drift"
+
+
+def test_build_actor_set_reuses_document_path_required_for_unsaved_doc(tmp_path):
+    model = tmp_path / "scene.3dm"
+    _write_snapshot(tmp_path)
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(
+            metadata.build_actor_set_from_source_occurrence_v2(
+                {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+                call_native=FakeActorSetBuilderNative(model, document_path=None),
+            )
+        )
+    assert _error_code(exc) == "document_path_required"
+
+
 def test_validate_metadata_ref_accepts_project_relative_rook_ref():
     ref = ".rook/director_planning/actor_sets/a.json"
 
