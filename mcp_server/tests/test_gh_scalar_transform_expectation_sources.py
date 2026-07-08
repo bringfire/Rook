@@ -44,7 +44,8 @@ def _graph(
     observed_value=3.5,
     editable_value=2.0,
     editable_contract=None,
-    guid="EDITABLE-GUID-1",
+    component_guid="EDITABLE-GUID-1",
+    internal_component_guid=None,
 ):
     editable_contract = editable_contract or {
         "label": "LM8F_Editable",
@@ -56,10 +57,13 @@ def _graph(
         "observed_output_value": observed_value,
         "editable_value": editable_value,
         "scalar_anchor": {
-            "component_guid": guid,
             "editable_value_contract": editable_contract,
         },
     }
+    if component_guid is not None:
+        receipt["scalar_anchor"]["component_guid"] = component_guid
+    if internal_component_guid is not None:
+        receipt["scalar_anchor"]["internal_component_guid"] = internal_component_guid
     return PlanGraph(
         nodes={
             "create_scalar_transform": PlanGraphNode(
@@ -123,6 +127,22 @@ def test_extracts_transform_sources_without_guid_in_visible_anchor():
     assert sources.convention is not None
     assert sources.convention.source_path == TRANSFORM_CONVENTION_SOURCE_PATH
     assert "EDITABLE-GUID-1" not in repr(sources.fixture_anchor.value)
+
+
+def test_internal_component_guid_is_accepted_without_leaking_to_visible_anchor():
+    sources = extract_gh_scalar_transform_expectation_sources(
+        workflow_contract_payload=_contract_payload(),
+        graph=_graph(component_guid=None, internal_component_guid="EDITABLE-GUID-2"),
+        convention_packets=(),
+    )
+
+    assert sources.fixture_anchor.value == {
+        "label": "LM8F_Editable",
+        "value_type": "number",
+        "current_value": 2.0,
+        "projection_id": "editable_plus_offset",
+    }
+    assert "EDITABLE-GUID-2" not in repr(sources.fixture_anchor.value)
 
 
 @pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), "7.5", True])
@@ -192,6 +212,31 @@ def test_missing_fixture_anchor_contract_fails_closed():
         extract_gh_scalar_transform_expectation_sources(
             workflow_contract_payload=_contract_payload(),
             graph=graph,
+            convention_packets=(),
+        )
+
+
+@pytest.mark.parametrize(
+    ("component_guid", "internal_component_guid"),
+    [
+        (None, None),
+        ("", None),
+        (None, ""),
+        (123, None),
+        (None, 456),
+        ("EDITABLE-GUID-1", "EDITABLE-GUID-2"),
+    ],
+)
+def test_internal_fixture_anchor_guid_must_be_exactly_one_non_empty_string(
+    component_guid, internal_component_guid
+):
+    with pytest.raises(ValueError, match=TRANSFORM_FIXTURE_ANCHOR_SOURCE_PATH):
+        extract_gh_scalar_transform_expectation_sources(
+            workflow_contract_payload=_contract_payload(),
+            graph=_graph(
+                component_guid=component_guid,
+                internal_component_guid=internal_component_guid,
+            ),
             convention_packets=(),
         )
 

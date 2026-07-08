@@ -159,6 +159,7 @@ def _editable_value_contract(graph: PlanGraph) -> dict[str, Any]:
     anchor = receipt.get("scalar_anchor")
     if not isinstance(anchor, Mapping):
         raise ValueError(f"{TRANSFORM_FIXTURE_ANCHOR_SOURCE_PATH} scalar_anchor missing")
+    _trusted_anchor_guid(anchor)
     contract = anchor.get("editable_value_contract")
     if not isinstance(contract, Mapping):
         raise ValueError(f"{TRANSFORM_FIXTURE_ANCHOR_SOURCE_PATH} missing")
@@ -179,6 +180,26 @@ def _editable_value_contract(graph: PlanGraph) -> dict[str, Any]:
     if copied["projection_id"] != "editable_plus_offset":
         raise ValueError(f"{TRANSFORM_FIXTURE_ANCHOR_SOURCE_PATH} projection_id invalid")
     return copied
+
+
+def _trusted_anchor_guid(anchor: Mapping[str, Any]) -> str:
+    component_guid_present = "component_guid" in anchor
+    internal_guid_present = "internal_component_guid" in anchor
+    if component_guid_present == internal_guid_present:
+        raise ValueError(
+            f"{TRANSFORM_FIXTURE_ANCHOR_SOURCE_PATH} trusted anchor guid invalid"
+        )
+
+    guid = (
+        anchor["component_guid"]
+        if component_guid_present
+        else anchor["internal_component_guid"]
+    )
+    if not isinstance(guid, str) or not guid.strip():
+        raise ValueError(
+            f"{TRANSFORM_FIXTURE_ANCHOR_SOURCE_PATH} trusted anchor guid invalid"
+        )
+    return guid
 
 
 def _convention_source(
