@@ -1,4 +1,4 @@
-# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S, LM5T, LM5U, LM5Y, LM6A, LM6C, LM6E, LM7B, LM7C & LM7D — First Worker Model Probe (2026-07-02)
+# LM5K Probe Rounds 1, 1b, 2, 3, LM5N, LM5S, LM5T, LM5U, LM5Y, LM6A, LM6C, LM6E, LM7B, LM7C, LM7D & LM7E — First Worker Model Probe (2026-07-02)
 
 **Doctrine:** evidence, not CI. This summary is the committed artifact; raw
 runs stay local (spec §5, `docs/superpowers/specs/2026-07-02-lm5k-first-worker-model-probe-design.md`).
@@ -1592,6 +1592,171 @@ The next design question is whether to proceed to a request-driven live splice
 using a model-authored valid request, or first run a small Planner-side
 repeatability/variant check.
 
+## LM7E model-authored request-driven live splice arrival (commit `0a3506b9`)
+
+LM7E joined the Planner-authoring line to the live worker-splice line:
+
+```text
+Planner model output
+-> strict PlannerWorkerContractRequest:v1 parse
+-> workflow_validate
+-> materialized contract/routing
+-> runtime LM5AA routability
+-> LM5X/LM5W acceptance criteria assembly
+-> LM5Y legacy worker-visible projection
+-> frozen one-turn Gemma worker splice
+-> worker-action applier
+-> live gh_update_script
+-> verify_repair
+```
+
+Canonical run:
+
+```text
+run_dir: probe_runs/lm7e-20260708T052257Z-0a3506b9/
+planner_provider: codex-cli-chatgpt
+planner_model: gpt-5.5
+worker_model: gemma4:12b-it-qat
+canonical_evidence: true
+scenario: intent_incomplete
+attempts: 1
+prompt_profile: shape_guidance_v2
+prompt_version: lm7d.planner_authoring_prompt_shape_guidance:v2
+template_menu_version: lm7c.template_menu:v1
+brief_version: lm7c.intent_incomplete_brief:v1
+```
+
+Terminal decision:
+
+```text
+decision: accepted
+reason: verify_repair_succeeded
+phase: verify_repair
+planner_parse_status: parsed
+planner_validation_status: workflow_validate_valid
+planner_intent_decision: correct_declared
+workflow_validate_valid: true
+live_rhino_work_started: true
+worker_publication_ran: true
+live_repair_dispatched: true
+verify_repair_ran: true
+worker_retry_enabled: false
+```
+
+Planner request provenance:
+
+```text
+planner_model_output_sha256:
+  sha256:752c95ade31bde2d6ade77fa9a884976c8f2558d7159992b1cfb6e80cdaf4f77
+request_fingerprint:
+  sha256:b1b208b2bcbf0253a061c7252be728e0b4dd832e46cdec49191388a27aed735a
+workflow_validate_report_fingerprint:
+  sha256:af1b81f968b937c917ba0b03d2136aaf4126a767dae3080760ab82b9369f10e4
+workflow_contract_fingerprint:
+  sha256:8b1dc15d4b8376110fc9beb4cff69bd66da2dd25c3c9b0e69111f549d01cd14d
+```
+
+The parsed Planner request used the LM7D `intent_incomplete` shape: it selected
+`repair_same_component_from_create_error`, bound `create_script.pins_out` to
+`["A:double"]`, declared the unresolved `desired_output_value` intent slot, and
+added the matching `planner_user_intent -> unresolved_intent` route with
+`required: false`.
+
+Runtime routing:
+
+```text
+valid: true
+routability_evaluated: true
+static_diagnostics: []
+routability_diagnostics:
+  - optional_route_unresolved
+    route_id: missing_desired_output_value
+    source_class: planner_user_intent
+    purpose: unresolved_intent
+    severity: warning
+```
+
+That warning is expected for LM7A/LM7E v1: unresolved Planner intent is allowed
+to be declared and routed as optional context, but LM5X does not yet resolve it
+as an acceptance-criteria source.
+
+Live create and repair summaries:
+
+```text
+create_script:
+  tool_name: gh_create_csharp_script
+  node_status: succeeded
+  receipt_status: created_with_errors
+  repair_anchor.target_errors:
+    - The name 'DefinitelyMissingSymbol' does not exist in the current context [14:13]
+
+repair_same_component:
+  tool_name: gh_update_script
+  node_status: succeeded
+  receipt_status: usable
+  artifact_status: usable
+  verified: true
+
+verify_repair:
+  applied: true
+  outcome_status: succeeded
+```
+
+Worker publication:
+
+```json
+{"action_id":"draft_repair_params","input":{"code":"A = 0.0;","mode":"body"},"kind":"action_request","schema":"rook.local_worker_turn_response:v1"}
+```
+
+Leak and marker checks:
+
+```text
+planner_marker_match_count: 0
+PROBE_REPAIR_CODE: 0 matches
+A = 42.0: 0 matches
+BindStepSpec.base_params.code: 0 matches
+repair_same_component.bind.base_params: 0 matches
+BindStepSpec.base_params: 0 matches
+```
+
+The worker-authored `A = 0.0;` appears in `worker_action.json` and the bounded
+decision excerpt as the actual action payload. It is not a hidden fixture answer
+and is excluded from Planner marker accounting by LM7E's design.
+
+An earlier local run is excluded from model/protocol evidence:
+
+```text
+run_dir: probe_runs/lm7e-20260708T052042Z-0a3506b9/
+decision: rejected_by_validate
+reason: planner_provider_failed:CalledProcessError
+planner_model_output.txt: empty
+live_rhino_work_started: false
+worker_publication_ran: false
+```
+
+That run exposed temporary provider-adapter wrapper mechanics on Windows: the
+adapter initially invoked the wrong Codex shim. It produced no Planner output,
+did not call the worker, and did not touch the live repair floor.
+
+### LM7E interpretation
+
+LM7E proves the first canonical model-authored request-driven live splice
+arrival. A Planner-tier model authored the `PlannerWorkerContractRequest:v1`
+from the LM7D shape-guidance prompt, the request passed strict parse and
+`workflow_validate`, the materialized routing passed the live LM5AA gate, and
+the already-frozen worker path reached `verify_repair_succeeded`.
+
+This is not broad Planner reliability, not a new worker protocol, and not proof
+of arbitrary workflow authorship. It is the first clean receipted join of:
+
+```text
+Planner model authors request
+-> validator accepts request
+-> compiler/materializer owns contract/routing defaults
+-> worker sees only validated legacy-projected evidence
+-> live verifier floor accepts the repair
+```
+
 ## Updated comparison keys
 
 Round 1: `(lm5j.prompt_text:v1, lm5k_golden_repair_v1/fresh_compiled_graph,
@@ -1695,6 +1860,17 @@ ollama/gemma4:12b-it-qat via local provider-command adapter,
 strict single-shot JSON object parsing, no schema repair, workflow_validate v1,
 intent_decision classifier, report-only marker scan, attempts 5 per scenario,
 canonical_evidence false)`.
+
+LM7E: `(LM7E model-authored request-driven live splice probe,
+lm7d.planner_authoring_prompt_shape_guidance:v2, prompt_profile
+shape_guidance_v2, lm7c.template_menu:v1, lm7c.intent_incomplete_brief:v1,
+codex-cli-chatgpt/gpt-5.5 via provider-command adapter, strict single-shot JSON
+object parsing, no schema repair, workflow_validate v1,
+materialize_planner_worker_contract_request, resolved source routing, runtime
+LM5AA routability, LM5X extraction + LM5W assembly, LM5Y legacy worker-visible
+projection, gemma4:12b-it-qat/direct Ollama frozen one-turn worker splice,
+worker-action applier, live gh_update_script dispatch, verify_repair floor,
+canonical_evidence true, worker retry disabled)`.
 
 Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
 new experiment.
