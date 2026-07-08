@@ -1346,6 +1346,7 @@ async def _dispatch_set_value_solve_and_verify(
             )
         else:
             final_receipt = inspect_result
+            final_exception = None
             tool_failed = _tool_result_failed(inspect_result)
             final_reported_success = not tool_failed
             if tool_failed:

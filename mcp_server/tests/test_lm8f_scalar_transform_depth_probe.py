@@ -865,6 +865,46 @@ def test_dispatch_set_value_solve_and_verify_accepts_invalid_first_valid_second(
     assert "ADDITION-GUID-1" not in json.dumps(verify, sort_keys=True)
 
 
+def test_dispatch_set_value_solve_and_verify_accepts_exception_first_valid_second_without_stale_top_level_exception():
+    executor = FakeToolExecutor(
+        {
+            "gh_set_value": {
+                "success": True,
+                "data": {"Guid": "EDITABLE-GUID-1", "NewValue": 6.0},
+            },
+            "gh_solve": {"success": True, "data": {"scheduled": True}},
+            "gh_inspect_output": [
+                RuntimeError("transient verifier transport down"),
+                {
+                    "success": True,
+                    "data": {"data_count": 1, "preview": ["7.5"]},
+                },
+            ],
+        }
+    )
+
+    result = _run(
+        PROBE._dispatch_set_value_solve_and_verify(
+            tool_executor=executor,
+            editable_component_guid="EDITABLE-GUID-1",
+            addition_component_guid="ADDITION-GUID-1",
+            worker_value=6.0,
+            expected_value=7.5,
+        )
+    )
+
+    assert result["decision"]["decision"] == "accepted"
+    assert result["decision"]["reason"] == "verify_scalar_output_succeeded"
+    verify = result["verify_scalar_output_summary"]
+    assert "exception" not in verify
+    assert verify["attempt_count"] == 2
+    assert verify["attempts"][0]["exception"] == "RuntimeError"
+    assert verify["attempts"][0]["failure_reason"] == (
+        "gh_inspect_output_exception:RuntimeError"
+    )
+    assert verify["attempts"][1]["observed_output_value"] == 7.5
+
+
 def test_dispatch_set_value_solve_and_verify_rejects_inspect_exception_without_crashing():
     executor = FakeToolExecutor(
         {
