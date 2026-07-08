@@ -1,0 +1,514 @@
+#!/usr/bin/env python
+"""LM7E model-authored request-driven live splice probe."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import subprocess
+import sys
+from collections.abc import Callable, Mapping, Sequence
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_MCP_SRC = _REPO_ROOT / "mcp_server" / "src"
+for _path in (str(_SCRIPT_DIR), str(_REPO_ROOT), str(_MCP_SRC)):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
+
+from lm5k_worker_probe import _script_body_gotcha_packet  # noqa: E402
+from lm6a_live_worker_splice_probe import (  # noqa: E402
+    DEFAULT_ENDPOINT,
+    DEFAULT_EXCERPT_CHARS,
+    DEFAULT_MODEL,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_TIMEOUT_S,
+)
+from lm7_planner_authoring_prompt_support import (  # noqa: E402
+    INTENT_CORRECT,
+    INTENT_INCOMPLETE_BRIEF_VERSION,
+    INTENT_NOT_CLASSIFIABLE,
+    PARSE_FAILED,
+    PARSE_PARSED,
+    PROMPT_PROFILE_SHAPE_GUIDANCE_V2,
+    SHAPE_GUIDANCE_PROMPT_VERSION,
+    TEMPLATE_MENU_VERSION,
+    classify_intent_decision,
+    fingerprint_json,
+    prompt_call_payload,
+    strict_parse_model_output,
+    write_prompt_artifacts,
+)
+from rook.agent.plan_graph_workflow_contract import (  # noqa: E402
+    load_workflow_contract_payload,
+)
+from rook.agent.workflow_validate import (  # noqa: E402
+    validate_planner_worker_contract_request,
+)
+
+
+SCRIPT_SCHEMA = "rook.lm7e_model_authored_live_splice_probe:v1"
+DECISION_SCHEMA = "rook.lm7e_decision:v1"
+CANONICAL_PLANNER_PROVIDER = "codex-cli-chatgpt"
+CANONICAL_PLANNER_MODEL = "gpt-5.5"
+CANONICAL_SCENARIO = "intent_incomplete"
+CANONICAL_ATTEMPTS = 1
+HIDDEN_MARKER_SCAN_TERMS = (
+    "PROBE_REPAIR_CODE",
+    "A = 42.0",
+    "A = 0.0",
+    "A = 1.0",
+    "BindStepSpec.base_params",
+    "repair_same_component.bind.base_params",
+)
+DECISIONS = {
+    "accepted",
+    "rejected",
+    "worker_declined",
+    "gate_failed",
+    "publication_failed",
+    "rejected_by_validate",
+}
+
+
+def _args(argv: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="LM7E model-authored request-driven live splice probe."
+    )
+    parser.add_argument("--planner-provider-command", required=True)
+    parser.add_argument("--planner-provider", default=CANONICAL_PLANNER_PROVIDER)
+    parser.add_argument("--planner-provider-timeout-s", type=float, default=120)
+    parser.add_argument("--planner-model", default=CANONICAL_PLANNER_MODEL)
+    parser.add_argument("--worker-model", default=DEFAULT_MODEL)
+    parser.add_argument("--worker-endpoint", default=DEFAULT_ENDPOINT)
+    parser.add_argument("--worker-temperature", type=float, default=DEFAULT_TEMPERATURE)
+    parser.add_argument("--worker-timeout-s", type=float, default=DEFAULT_TIMEOUT_S)
+    parser.add_argument("--run-dir", default="probe_runs")
+    parser.add_argument("--output-excerpt-chars", type=int, default=DEFAULT_EXCERPT_CHARS)
+    parser.add_argument("--canonical-evidence", action="store_true")
+    args = parser.parse_args(argv)
+    if args.output_excerpt_chars < 0:
+        parser.error("output_excerpt_chars_must_be_non_negative")
+    return args
+
+
+def _git_short_sha() -> str:
+    result = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else "unknown"
+
+
+def _new_run_dir(run_root: str | Path) -> Path:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    run_dir = Path(run_root) / f"lm7e-{timestamp}-{_git_short_sha()}"
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return run_dir
+
+
+def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
+    path.write_text(
+        json.dumps(dict(payload), indent=2, sort_keys=True, default=str) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_json_value(path: Path, payload: Any) -> None:
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_text(path: Path, value: str) -> None:
+    path.write_text(value, encoding="utf-8")
+
+
+def _excerpt(value: str, chars: int) -> str:
+    return value[:chars]
+
+
+def _contains_marker_text(value: str) -> bool:
+    return any(marker in value for marker in HIDDEN_MARKER_SCAN_TERMS)
+
+
+def _contains_marker_value(value: Any) -> bool:
+    rendered = json.dumps(value, sort_keys=True, default=str)
+    return _contains_marker_text(rendered)
+
+
+def _parsed_request_has_planner_markers(payload: Mapping[str, Any]) -> bool:
+    return _contains_marker_value(payload)
+
+
+def _canonical_evidence_is_valid(args: argparse.Namespace) -> bool:
+    if not args.canonical_evidence:
+        return True
+    return (
+        args.planner_provider == CANONICAL_PLANNER_PROVIDER
+        and args.planner_model == CANONICAL_PLANNER_MODEL
+        and args.worker_model == DEFAULT_MODEL
+        and args.worker_endpoint == DEFAULT_ENDPOINT
+        and args.worker_temperature == DEFAULT_TEMPERATURE
+    )
+
+
+def _call_provider_command(
+    command: str,
+    call_payload: Mapping[str, Any],
+    timeout_s: float,
+) -> str:
+    result = subprocess.run(
+        command,
+        input=json.dumps(dict(call_payload), sort_keys=True),
+        capture_output=True,
+        text=True,
+        timeout=timeout_s,
+        shell=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise subprocess.CalledProcessError(
+            result.returncode,
+            command,
+            output=result.stdout,
+            stderr=result.stderr,
+        )
+    return result.stdout
+
+
+def _decision_record(
+    *,
+    decision: str,
+    reason: str,
+    phase: str,
+    planner_parse_status: str,
+    planner_validation_status: str,
+    planner_intent_decision: str,
+    planner_model_output_sha256: str | None,
+    planner_model_output_excerpt: str | None,
+    planner_model_output_path: str | None,
+    request_fingerprint: str | None,
+    workflow_validate_valid: bool | None,
+    workflow_validate_report_fingerprint: str | None,
+    live_rhino_work_started: bool,
+    worker_publication_ran: bool,
+    extra: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    if decision not in DECISIONS:
+        raise ValueError(f"Unsupported LM7E decision: {decision}")
+    record = {
+        "schema": DECISION_SCHEMA,
+        "decision": decision,
+        "reason": reason,
+        "phase": phase,
+        "planner_parse_status": planner_parse_status,
+        "planner_validation_status": planner_validation_status,
+        "planner_intent_decision": planner_intent_decision,
+        "planner_model_output_sha256": planner_model_output_sha256,
+        "planner_model_output_excerpt": planner_model_output_excerpt,
+        "planner_model_output_path": planner_model_output_path,
+        "request_fingerprint": request_fingerprint,
+        "workflow_validate_valid": workflow_validate_valid,
+        "workflow_validate_report_fingerprint": workflow_validate_report_fingerprint,
+        "live_rhino_work_started": live_rhino_work_started,
+        "worker_publication_ran": worker_publication_ran,
+        "worker_retry_enabled": False,
+        "live_repair_dispatched": False,
+        "verify_repair_ran": False,
+    }
+    if extra:
+        record.update(dict(extra))
+    return record
+
+
+def _manifest(
+    *,
+    planner_provider: str,
+    planner_model: str,
+    worker_model: str,
+    worker_endpoint: str,
+    worker_temperature: float,
+    canonical_evidence: bool,
+    planner_model_output_sha256: str | None,
+    request_fingerprint: str | None,
+    workflow_validate_report_fingerprint: str | None,
+    workflow_contract_fingerprint: str | None,
+) -> dict[str, Any]:
+    return {
+        "schema": SCRIPT_SCHEMA,
+        "git_commit": _git_short_sha(),
+        "planner_provider": planner_provider,
+        "planner_model": planner_model,
+        "worker_model": worker_model,
+        "worker_endpoint": worker_endpoint,
+        "worker_temperature": worker_temperature,
+        "canonical_evidence": canonical_evidence,
+        "scenario": CANONICAL_SCENARIO,
+        "attempts": CANONICAL_ATTEMPTS,
+        "prompt_profile": PROMPT_PROFILE_SHAPE_GUIDANCE_V2,
+        "prompt_version": SHAPE_GUIDANCE_PROMPT_VERSION,
+        "template_menu_version": TEMPLATE_MENU_VERSION,
+        "brief_version": INTENT_INCOMPLETE_BRIEF_VERSION,
+        "worker_retry_enabled": False,
+        "planner_model_output_path": "planner_model_output.txt",
+        "planner_model_output_sha256": planner_model_output_sha256,
+        "request_fingerprint": request_fingerprint,
+        "workflow_validate_report_fingerprint": workflow_validate_report_fingerprint,
+        "workflow_contract_fingerprint": workflow_contract_fingerprint,
+        "raw_artifacts": "local evidence under probe_runs; do not commit",
+    }
+
+
+def _run_probe(
+    *,
+    planner_provider: str,
+    planner_model: str,
+    planner_provider_command: str,
+    planner_provider_timeout_s: float,
+    worker_model: str,
+    worker_endpoint: str,
+    worker_temperature: float,
+    worker_timeout_s: float,
+    output_excerpt_chars: int,
+    run_root: str | Path,
+    canonical_evidence: bool,
+    call_provider: Callable[[Mapping[str, Any]], str] | None = None,
+    agent: Any | None = None,
+) -> Path:
+    del worker_timeout_s
+    del agent
+
+    run_dir = _new_run_dir(run_root)
+    write_prompt_artifacts(
+        run_dir,
+        PROMPT_PROFILE_SHAPE_GUIDANCE_V2,
+        scenarios=(CANONICAL_SCENARIO,),
+    )
+    call_payload = prompt_call_payload(
+        scenario=CANONICAL_SCENARIO,
+        attempt_index=0,
+        provider=planner_provider,
+        model=planner_model,
+        temperature=0,
+        prompt_profile=PROMPT_PROFILE_SHAPE_GUIDANCE_V2,
+    )
+    provider = call_provider or (
+        lambda payload: _call_provider_command(
+            planner_provider_command,
+            payload,
+            planner_provider_timeout_s,
+        )
+    )
+    try:
+        raw_output = provider(call_payload)
+    except Exception as exc:
+        raw_output = ""
+        output_sha = fingerprint_json(raw_output)
+        _write_text(run_dir / "planner_model_output.txt", raw_output)
+        _write_json(
+            run_dir / "manifest.json",
+            _manifest(
+                planner_provider=planner_provider,
+                planner_model=planner_model,
+                worker_model=worker_model,
+                worker_endpoint=worker_endpoint,
+                worker_temperature=worker_temperature,
+                canonical_evidence=canonical_evidence,
+                planner_model_output_sha256=output_sha,
+                request_fingerprint=None,
+                workflow_validate_report_fingerprint=None,
+                workflow_contract_fingerprint=None,
+            ),
+        )
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="rejected_by_validate",
+                reason=f"planner_provider_failed:{type(exc).__name__}",
+                phase="planner_provider",
+                planner_parse_status=PARSE_FAILED,
+                planner_validation_status="not_evaluated",
+                planner_intent_decision=INTENT_NOT_CLASSIFIABLE,
+                planner_model_output_sha256=output_sha,
+                planner_model_output_excerpt="",
+                planner_model_output_path="planner_model_output.txt",
+                request_fingerprint=None,
+                workflow_validate_valid=None,
+                workflow_validate_report_fingerprint=None,
+                live_rhino_work_started=False,
+                worker_publication_ran=False,
+            ),
+        )
+        return run_dir
+
+    output_sha = fingerprint_json(raw_output)
+    _write_text(run_dir / "planner_model_output.txt", raw_output)
+    output_excerpt = _excerpt(raw_output, output_excerpt_chars)
+
+    parsed = strict_parse_model_output(raw_output)
+    if parsed.parse_status != PARSE_PARSED or parsed.payload is None:
+        _write_json(
+            run_dir / "manifest.json",
+            _manifest(
+                planner_provider=planner_provider,
+                planner_model=planner_model,
+                worker_model=worker_model,
+                worker_endpoint=worker_endpoint,
+                worker_temperature=worker_temperature,
+                canonical_evidence=canonical_evidence,
+                planner_model_output_sha256=output_sha,
+                request_fingerprint=None,
+                workflow_validate_report_fingerprint=None,
+                workflow_contract_fingerprint=None,
+            ),
+        )
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="rejected_by_validate",
+                reason="planner_parse_failed",
+                phase="planner_parse",
+                planner_parse_status=PARSE_FAILED,
+                planner_validation_status="not_evaluated",
+                planner_intent_decision=INTENT_NOT_CLASSIFIABLE,
+                planner_model_output_sha256=output_sha,
+                planner_model_output_excerpt=output_excerpt,
+                planner_model_output_path="planner_model_output.txt",
+                request_fingerprint=None,
+                workflow_validate_valid=None,
+                workflow_validate_report_fingerprint=None,
+                live_rhino_work_started=False,
+                worker_publication_ran=False,
+                extra={"planner_parse_failure_reason": parsed.failure_reason},
+            ),
+        )
+        return run_dir
+
+    planner_request = parsed.payload
+    _write_json_value(run_dir / "planner_request.json", planner_request)
+    request_fingerprint = fingerprint_json(planner_request)
+    intent = classify_intent_decision(CANONICAL_SCENARIO, planner_request)
+
+    if _parsed_request_has_planner_markers(planner_request):
+        _write_json(
+            run_dir / "manifest.json",
+            _manifest(
+                planner_provider=planner_provider,
+                planner_model=planner_model,
+                worker_model=worker_model,
+                worker_endpoint=worker_endpoint,
+                worker_temperature=worker_temperature,
+                canonical_evidence=canonical_evidence,
+                planner_model_output_sha256=output_sha,
+                request_fingerprint=request_fingerprint,
+                workflow_validate_report_fingerprint=None,
+                workflow_contract_fingerprint=None,
+            ),
+        )
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="rejected_by_validate",
+                reason="planner_hidden_marker_detected",
+                phase="planner_request_marker_gate",
+                planner_parse_status=PARSE_PARSED,
+                planner_validation_status="not_evaluated",
+                planner_intent_decision=intent.intent_decision,
+                planner_model_output_sha256=output_sha,
+                planner_model_output_excerpt=output_excerpt,
+                planner_model_output_path="planner_model_output.txt",
+                request_fingerprint=request_fingerprint,
+                workflow_validate_valid=None,
+                workflow_validate_report_fingerprint=None,
+                live_rhino_work_started=False,
+                worker_publication_ran=False,
+            ),
+        )
+        return run_dir
+
+    report = validate_planner_worker_contract_request(planner_request)
+    _write_json_value(run_dir / "workflow_validate_report.json", report)
+    workflow_validate_report_fingerprint = (
+        report.get("report_fingerprint") or fingerprint_json(report)
+    )
+    workflow_validate_valid = report.get("valid") is True
+    if not workflow_validate_valid:
+        _write_json(
+            run_dir / "manifest.json",
+            _manifest(
+                planner_provider=planner_provider,
+                planner_model=planner_model,
+                worker_model=worker_model,
+                worker_endpoint=worker_endpoint,
+                worker_temperature=worker_temperature,
+                canonical_evidence=canonical_evidence,
+                planner_model_output_sha256=output_sha,
+                request_fingerprint=request_fingerprint,
+                workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
+                workflow_contract_fingerprint=None,
+            ),
+        )
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="rejected_by_validate",
+                reason="workflow_validate_failed",
+                phase="workflow_validate",
+                planner_parse_status=PARSE_PARSED,
+                planner_validation_status="workflow_validate_failed",
+                planner_intent_decision=intent.intent_decision,
+                planner_model_output_sha256=output_sha,
+                planner_model_output_excerpt=output_excerpt,
+                planner_model_output_path="planner_model_output.txt",
+                request_fingerprint=request_fingerprint,
+                workflow_validate_valid=False,
+                workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
+                live_rhino_work_started=False,
+                worker_publication_ran=False,
+            ),
+        )
+        return run_dir
+
+    raise NotImplementedError("LM7E materialized live splice not implemented yet")
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _args(argv)
+    if not _canonical_evidence_is_valid(args):
+        print("invalid_canonical_evidence", file=sys.stderr)
+        raise SystemExit(2)
+    run_dir = _run_probe(
+        planner_provider=args.planner_provider,
+        planner_model=args.planner_model,
+        planner_provider_command=args.planner_provider_command,
+        planner_provider_timeout_s=args.planner_provider_timeout_s,
+        worker_model=args.worker_model,
+        worker_endpoint=args.worker_endpoint,
+        worker_temperature=args.worker_temperature,
+        worker_timeout_s=args.worker_timeout_s,
+        output_excerpt_chars=args.output_excerpt_chars,
+        run_root=args.run_dir,
+        canonical_evidence=args.canonical_evidence,
+    )
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    print(
+        "LM7E model-authored live splice probe complete "
+        f"run_dir={run_dir} "
+        f"decision={decision.get('decision')} "
+        f"reason={decision.get('reason')}"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
