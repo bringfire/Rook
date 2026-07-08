@@ -419,3 +419,114 @@ def test_create_transform_fixture_rejects_noncanonical_initial_observed_output()
 
     with pytest.raises(ValueError, match="initial_observed_output_mismatch"):
         _run(PROBE._create_transform_fixture(executor))
+
+
+def _valid_transform_fixture():
+    return {
+        "editable_component_guid": "EDITABLE-GUID-1",
+        "offset_component_guid": "OFFSET-GUID-1",
+        "addition_component_guid": "ADDITION-GUID-1",
+        "editable_value": 2.0,
+        "observed_output_value": 3.5,
+        "receipt": {
+            "editable_value": 2.0,
+            "observed_output_value": 3.5,
+            "scalar_anchor": {
+                "internal_component_guid": "EDITABLE-GUID-1",
+                "editable_value_contract": {
+                    "label": "LM8F_Editable",
+                    "value_type": "number",
+                    "current_value": 2.0,
+                    "projection_id": "editable_plus_offset",
+                },
+            },
+        },
+        "visible_receipt": {},
+        "fixture_setup_summary": {},
+    }
+
+
+def test_scalar_transform_runtime_context_static_validates_without_lm5x_routability():
+    graph = PROBE._graph_from_transform_receipt(_valid_transform_fixture()["receipt"])
+    context = PROBE._scalar_runtime_context(
+        graph=graph,
+        workflow_contract_payload=PROBE._scalar_transform_contract_payload(),
+        convention_packets=(),
+    )
+
+    routing_report = context["static_routing_report"]
+    assert routing_report["valid"] is True
+    assert routing_report["routability_evaluated"] is False
+    assert context["scalar_runtime_ready"] is True
+    assert context["sources"].expected_output_contract.value == 7.5
+    assert context["sources"].offset_contract.value == 1.5
+    assert context["sources"].editable_observation.value == 2.0
+    assert context["sources"].observed_output.value == 3.5
+    assert context["packet"]["fields"]["expected_output_value"] == 7.5
+    assert context["packet"]["fields"]["offset_value"] == 1.5
+    assert context["worker_visible"]["source"] == "gh_scalar_transform_expectation"
+
+
+def test_scalar_transform_runtime_context_fails_when_live_receipt_missing_output():
+    receipt = _valid_transform_fixture()["receipt"]
+    receipt.pop("observed_output_value")
+    graph = PROBE._graph_from_transform_receipt(receipt)
+
+    with pytest.raises(ValueError, match="observed_output_value"):
+        PROBE._scalar_runtime_context(
+            graph=graph,
+            workflow_contract_payload=PROBE._scalar_transform_contract_payload(),
+            convention_packets=(),
+        )
+
+
+def test_scalar_transform_runtime_context_rejects_projection_invariant_mismatch():
+    graph = PROBE._graph_from_transform_receipt(_valid_transform_fixture()["receipt"])
+    payload = PROBE._scalar_transform_contract_payload()
+    payload["rules"]["verify_scalar_transform_output"]["offset_value"] = 1.25
+
+    with pytest.raises(ValueError, match="projection_invariant_mismatch"):
+        PROBE._scalar_runtime_context(
+            graph=graph,
+            workflow_contract_payload=payload,
+            convention_packets=(),
+        )
+
+
+def test_worker_request_uses_transform_knowledge_and_never_exposes_raw_guid_or_derived_value():
+    fixture = _valid_transform_fixture()
+    graph = PROBE._graph_from_transform_receipt(fixture["receipt"])
+    runtime = PROBE._scalar_runtime_context(
+        graph=graph,
+        workflow_contract_payload=PROBE._scalar_transform_contract_payload(),
+        convention_packets=(),
+    )
+
+    payload = PROBE._build_local_turn_payload(
+        graph=graph,
+        packet=runtime["packet"],
+        worker_visible=runtime["worker_visible"],
+    )
+
+    rendered = json.dumps(payload, sort_keys=True)
+    assert payload["schema"] == "rook.local_worker_turn_request:v1"
+    assert "gh_scalar_transform_expectation_evidence" in rendered
+    assert "draft_gh_set_value_params" in rendered
+    assert "observed_output = editable_value + offset_value" in rendered
+    assert "current_editable_value" in rendered
+    assert "offset_value" in rendered
+    assert "expected_output_value" in rendered
+    assert "EDITABLE-GUID-1" not in rendered
+    assert "OFFSET-GUID-1" not in rendered
+    assert "ADDITION-GUID-1" not in rendered
+    assert "6.0" not in rendered
+    assert "set editable value to 6" not in rendered.lower()
+    assert "gh_edit" not in rendered
+    assert "gh_update_script" not in rendered
+    assert "repair_same_component" not in rendered
+    assert "action_selection_contract" in rendered
+    assert "pass1_decision_required_fields_if_acting" in rendered
+    assert "final_action_request_required_fields" in rendered
+    assert "do not author target GUID" in rendered
+    assert "do not call GH tools directly" in rendered
+    assert "do not author topology, code, or batch edits" in rendered

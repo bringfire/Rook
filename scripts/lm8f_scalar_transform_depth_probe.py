@@ -23,6 +23,48 @@ for _path in (str(_SCRIPT_DIR), str(_REPO_ROOT), str(_MCP_SRC)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
+from lm_worker_two_pass_publication import run_two_pass_worker_publication  # noqa: E402,F401
+from rook.agent.gh_scalar_transform_expectation_acceptance_criteria import (  # noqa: E402
+    assemble_gh_scalar_transform_expectation_packet,
+    project_gh_scalar_transform_expectation_legacy,
+)
+from rook.agent.gh_scalar_transform_expectation_sources import (  # noqa: E402
+    TRANSFORM_CONVENTION_SOURCE_PATH,
+    TRANSFORM_EDITABLE_VALUE_SOURCE_PATH,
+    TRANSFORM_EXPECTED_OUTPUT_SOURCE_PATH,
+    TRANSFORM_FIXTURE_ANCHOR_SOURCE_PATH,
+    TRANSFORM_OBSERVED_OUTPUT_SOURCE_PATH,
+    TRANSFORM_OFFSET_VALUE_SOURCE_PATH,
+    TRANSFORM_PROJECTION_SOURCE_PATH,
+    extract_gh_scalar_transform_expectation_sources,
+)
+from rook.agent.local_worker_source_routing_validator import (  # noqa: E402
+    validate_worker_visible_source_routing,
+)
+from rook.agent.local_worker_turn_context import (  # noqa: E402
+    WorkerAllowedAction,
+    WorkerKnowledgePacket,
+    build_local_worker_turn_context,
+)
+from rook.agent.local_worker_turn_request import (  # noqa: E402
+    render_local_worker_turn_request_payload,
+)
+from rook.agent.plan_graph_gh_scalar_value_apply import (  # noqa: E402,F401
+    apply_gh_scalar_value_action_to_node,
+)
+from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY  # noqa: E402,F401
+from rook.agent.plan_graph_workflow_contract import (  # noqa: E402
+    CompiledWorkflowScaffold,
+    WorkflowCompileRecord,
+    WorkflowContractSnapshot,
+)
+from rook.learning.plan_graph import (  # noqa: E402
+    GraphMemory,
+    NodeEvidence,
+    PlanGraph,
+    PlanGraphNode,
+)
+
 
 SCRIPT_SCHEMA = "rook.lm8f_scalar_transform_depth_probe:v1"
 DECISION_SCHEMA = "rook.lm8f_decision:v1"
@@ -118,6 +160,303 @@ def _write_json_value(path: Path, payload: Any) -> None:
         json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n",
         encoding="utf-8",
     )
+
+
+def _routing_report_json(report: Any) -> dict[str, Any]:
+    return {
+        "schema": report.schema,
+        "valid": report.valid,
+        "routability_evaluated": report.routability_evaluated,
+        "static_diagnostics": [
+            {
+                "severity": item.severity,
+                "code": item.code,
+                "node_id": item.node_id,
+                "route_id": item.route_id,
+                "source_class": item.source_class,
+                "source_path": item.source_path,
+                "purpose": item.purpose,
+                "message": item.message,
+            }
+            for item in report.static_diagnostics
+        ],
+        "routability_diagnostics": [
+            {
+                "severity": item.severity,
+                "code": item.code,
+                "node_id": item.node_id,
+                "route_id": item.route_id,
+                "source_class": item.source_class,
+                "source_path": item.source_path,
+                "purpose": item.purpose,
+                "message": item.message,
+            }
+            for item in report.routability_diagnostics
+        ],
+    }
+
+
+def _scalar_transform_source_routing_artifact() -> dict[str, Any]:
+    return {
+        "schema": "rook.worker_visible_source_routing:v1",
+        "routes": [
+            {
+                "node_id": WORKER_NODE_ID,
+                "visible_sources": [
+                    {
+                        "route_id": "transform_expected_output_value",
+                        "source_class": "expected_output_contract",
+                        "source_path": TRANSFORM_EXPECTED_OUTPUT_SOURCE_PATH,
+                        "purpose": "acceptance_criteria",
+                        "required": True,
+                    },
+                    {
+                        "route_id": "transform_offset_value",
+                        "source_class": "expected_output_contract",
+                        "source_path": TRANSFORM_OFFSET_VALUE_SOURCE_PATH,
+                        "purpose": "evidence_context",
+                        "required": True,
+                    },
+                    {
+                        "route_id": "transform_projection",
+                        "source_class": "expected_output_contract",
+                        "source_path": TRANSFORM_PROJECTION_SOURCE_PATH,
+                        "purpose": "acceptance_criteria",
+                        "required": True,
+                    },
+                    {
+                        "route_id": "transform_observed_output",
+                        "source_class": "receipt_observation",
+                        "source_path": TRANSFORM_OBSERVED_OUTPUT_SOURCE_PATH,
+                        "purpose": "acceptance_criteria",
+                        "required": True,
+                    },
+                    {
+                        "route_id": "transform_editable_value",
+                        "source_class": "receipt_observation",
+                        "source_path": TRANSFORM_EDITABLE_VALUE_SOURCE_PATH,
+                        "purpose": "evidence_context",
+                        "required": True,
+                    },
+                    {
+                        "route_id": "transform_editable_target_contract",
+                        "source_class": "fixture_anchor",
+                        "source_path": TRANSFORM_FIXTURE_ANCHOR_SOURCE_PATH,
+                        "purpose": "evidence_context",
+                        "required": True,
+                    },
+                    {
+                        "route_id": "transform_set_value_convention",
+                        "source_class": "convention",
+                        "source_path": TRANSFORM_CONVENTION_SOURCE_PATH,
+                        "purpose": "evidence_context",
+                        "required": False,
+                    },
+                ],
+            }
+        ],
+    }
+
+
+def _scalar_transform_contract_payload() -> dict[str, Any]:
+    return {
+        "rules": {
+            VERIFY_NODE_ID: {
+                "expected_output_value": EXPECTED_OUTPUT_VALUE,
+                "offset_value": OFFSET_VALUE,
+                "projection": {
+                    "projection_id": "editable_plus_offset",
+                    "description": "observed_output = editable_value + offset_value",
+                    "editable_variable": "editable_value",
+                    "offset_variable": "offset_value",
+                    "output_variable": "observed_output",
+                },
+            }
+        }
+    }
+
+
+def _graph_from_transform_receipt(receipt: Mapping[str, Any]) -> PlanGraph:
+    return PlanGraph(
+        nodes={
+            CREATE_NODE_ID: PlanGraphNode(
+                id=CREATE_NODE_ID,
+                intent="Create GH scalar transform fixture",
+                status="succeeded",
+                evidence=NodeEvidence(
+                    tool_status="success",
+                    verified=True,
+                    receipt=dict(receipt),
+                ),
+            ),
+            WORKER_NODE_ID: PlanGraphNode(
+                id=WORKER_NODE_ID,
+                intent="Set editable GH scalar value",
+                execution_ref="gh_set_value:v1",
+                status="ready",
+            ),
+            VERIFY_NODE_ID: PlanGraphNode(
+                id=VERIFY_NODE_ID,
+                intent="Verify GH scalar transform output",
+                execution_ref="gh_inspect_output:v1",
+                status="pending",
+                is_terminal=True,
+            ),
+        },
+        memory=GraphMemory(),
+    )
+
+
+def _projection_invariant_holds(sources: Any) -> bool:
+    expected_observed = (
+        float(sources.editable_observation.value) + float(sources.offset_contract.value)
+    )
+    return (
+        abs(float(sources.observed_output.value) - expected_observed) <= SCALAR_TOLERANCE
+    )
+
+
+def _scalar_runtime_context(
+    *,
+    graph: PlanGraph,
+    workflow_contract_payload: Mapping[str, Any],
+    convention_packets: tuple[WorkerKnowledgePacket, ...],
+) -> dict[str, Any]:
+    routing_artifact = _scalar_transform_source_routing_artifact()
+    static_report = validate_worker_visible_source_routing(routing_artifact)
+    static_report_json = _routing_report_json(static_report)
+    if static_report.valid is not True:
+        return {
+            "scalar_runtime_ready": False,
+            "routing_artifact": routing_artifact,
+            "static_routing_report": static_report_json,
+        }
+    sources = extract_gh_scalar_transform_expectation_sources(
+        workflow_contract_payload=workflow_contract_payload,
+        graph=graph,
+        convention_packets=convention_packets,
+    )
+    if not _projection_invariant_holds(sources):
+        raise ValueError("projection_invariant_mismatch")
+    packet = assemble_gh_scalar_transform_expectation_packet(sources)
+    worker_visible = project_gh_scalar_transform_expectation_legacy(packet)
+    return {
+        "scalar_runtime_ready": True,
+        "routing_artifact": routing_artifact,
+        "static_routing_report": static_report_json,
+        "sources": sources,
+        "packet": packet,
+        "worker_visible": worker_visible,
+    }
+
+
+def _scalar_transform_scaffold(graph: PlanGraph) -> CompiledWorkflowScaffold:
+    normalized_contract = {
+        "schema": "rook.workflow_contract:v1",
+        "workflow_id": "lm8f-gh-scalar-transform",
+    }
+    contract_fingerprint = _fingerprint_json(normalized_contract).removeprefix(
+        "sha256:"
+    )
+    snapshot = WorkflowContractSnapshot(
+        workflow_id="lm8f-gh-scalar-transform",
+        normalized_contract=normalized_contract,
+        contract_fingerprint=contract_fingerprint,
+    )
+    compile_record = WorkflowCompileRecord(
+        workflow_id="lm8f-gh-scalar-transform",
+        compiler_id="lm8f.script_local_transform_scaffold:v1",
+        contract_schema="rook.workflow_contract:v1",
+        contract_fingerprint_algorithm="sha256",
+        contract_fingerprint=contract_fingerprint,
+        provider_id="lm8f.script_local_provider:v1",
+        expected_template_id="gh_scalar_transform_expectation",
+        selected_template_id="gh_scalar_transform_expectation",
+        graph_node_ids=tuple(sorted(graph.nodes)),
+        initial_param_node_ids=(),
+        rule_node_ids=(WORKER_NODE_ID, VERIFY_NODE_ID),
+        terminal_node_ids=(VERIFY_NODE_ID,),
+        expected_refs=((WORKER_NODE_ID, "gh_set_value:v1"),),
+        step_kinds_by_rule=(),
+        max_steps=4,
+    )
+    return CompiledWorkflowScaffold(
+        workflow_id="lm8f-gh-scalar-transform",
+        graph=graph,
+        provider=object(),
+        max_steps=4,
+        metadata={},
+        rules=(),
+        steps=(),
+        contract_snapshot=snapshot,
+        compile_record=compile_record,
+    )
+
+
+def _scalar_transform_worker_evidence_packet(
+    *,
+    packet: Mapping[str, Any],
+    worker_visible: Mapping[str, Any],
+) -> WorkerKnowledgePacket:
+    fields = packet["fields"]
+    return WorkerKnowledgePacket(
+        packet_id="gh_scalar_transform_expectation_evidence",
+        kind="evidence",
+        title="GH scalar transform expectation evidence",
+        content={
+            "source": "gh_scalar_transform_expectation",
+            "trust": "high",
+            "state": "post_scalar_transform_fixture_pre_worker",
+            "fields": {
+                "current_editable_value": fields["current_editable_value"],
+                "offset_value": fields["offset_value"],
+                "current_observed_output": fields["current_observed_output"],
+                "expected_output_value": fields["expected_output_value"],
+                "projection": dict(fields["projection"]),
+                "editable_value_contract": dict(fields["editable_value_contract"]),
+                "acceptance_criteria": dict(worker_visible),
+                "recommended_action_id": ACTION_ID,
+                "action_selection_contract": dict(fields["action_selection_contract"]),
+            },
+        },
+    )
+
+
+def _scalar_transform_allowed_action() -> WorkerAllowedAction:
+    return WorkerAllowedAction(
+        action_id=ACTION_ID,
+        kind="stage_params",
+        description="Draft the scalar value to apply to the trusted editable GH target.",
+        input_schema={
+            "type": "object",
+            "required": ["value"],
+            "properties": {"value": {"type": "number"}},
+            "additionalProperties": False,
+        },
+    )
+
+
+def _build_local_turn_payload(
+    *,
+    graph: PlanGraph,
+    packet: Mapping[str, Any],
+    worker_visible: Mapping[str, Any],
+) -> dict[str, Any]:
+    context = build_local_worker_turn_context(
+        _scalar_transform_scaffold(graph),
+        graph,
+        records=(),
+        supply_records=(),
+        current_node_id=WORKER_NODE_ID,
+        knowledge=(
+            _scalar_transform_worker_evidence_packet(
+                packet=packet,
+                worker_visible=worker_visible,
+            ),
+        ),
+        allowed_actions=(_scalar_transform_allowed_action(),),
+    )
+    return dict(render_local_worker_turn_request_payload(context))
 
 
 def _manifest(
