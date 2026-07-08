@@ -78,6 +78,8 @@ OFFSET_VALUE = 1.5
 INITIAL_OBSERVED_OUTPUT = 3.5
 EXPECTED_OUTPUT_VALUE = 7.5
 SCALAR_TOLERANCE = 1e-9
+VERIFY_INSPECT_ATTEMPTS = 3
+VERIFY_INSPECT_DELAY_S = 0.1
 WORKER_NODE_ID = "set_scalar_value"
 CREATE_NODE_ID = "create_scalar_transform"
 VERIFY_NODE_ID = "verify_scalar_transform_output"
@@ -293,6 +295,53 @@ def _fixture_failure_summary(
         "guid_present": guid is not None,
         "guid_sha256": _guid_sha256(guid),
     }
+
+
+def _bounded_tool_result_artifact(value: Any, *, excerpt_chars: int) -> dict[str, Any]:
+    sanitized = _sanitize_decision_excerpt_value(value)
+    rendered = json.dumps(sanitized, sort_keys=True, default=str)
+    return {
+        "result_sha256": _fingerprint_json(value),
+        "result_excerpt": rendered[:excerpt_chars],
+        "result_shape": _result_shape(sanitized),
+    }
+
+
+def _verifier_attempt_summary(
+    *,
+    attempt_index: int,
+    result: Any = None,
+    exception: Exception | None = None,
+    observed_output_value: float | int | None = None,
+    matched: bool = False,
+    failure_reason: str | None = None,
+    excerpt_chars: int = DEFAULT_EXCERPT_CHARS,
+) -> dict[str, Any]:
+    if exception is not None:
+        artifact_value = {"exception": type(exception).__name__}
+        summary = {
+            "attempt_index": attempt_index,
+            "reported_success": False,
+            "observed_output_value": None,
+            "matched": False,
+            "failure_reason": failure_reason
+            or f"gh_inspect_output_exception:{type(exception).__name__}",
+            "exception": type(exception).__name__,
+        }
+    else:
+        tool_failed = _tool_result_failed(result)
+        artifact_value = result
+        summary = {
+            "attempt_index": attempt_index,
+            "reported_success": not tool_failed,
+            "observed_output_value": observed_output_value,
+            "matched": matched,
+            "failure_reason": failure_reason,
+        }
+    summary.update(
+        _bounded_tool_result_artifact(artifact_value, excerpt_chars=excerpt_chars)
+    )
+    return summary
 
 
 def _decision_record(
@@ -1267,47 +1316,77 @@ async def _dispatch_set_value_solve_and_verify(
             },
         }
 
-    try:
-        inspect_result = await tool_executor(
-            "gh_inspect_output",
-            {"guid": addition_component_guid, "param": "R"},
-        )
-    except Exception as exc:
-        return {
-            "live_set_value_summary": set_summary,
-            "verify_scalar_output_summary": {
-                "tool_name": "gh_inspect_output",
-                "component_guid_sha256": _guid_sha256(addition_component_guid),
-                "expected_output_value": expected_value,
-                "observed_output_value": None,
-                "tolerance": SCALAR_TOLERANCE,
-                "matched": False,
-                "exception": type(exc).__name__,
-            },
-            "decision": {
-                "decision": "rejected",
-                "reason": f"gh_inspect_output_exception:{type(exc).__name__}",
-                "phase": "verify_scalar_output",
-                "expected_output_value": expected_value,
-                "observed_output_after": None,
-                "scalar_tolerance": SCALAR_TOLERANCE,
-            },
-        }
+    attempts: list[dict[str, Any]] = []
+    observed: float | int | None = None
+    matched = False
+    final_reason = "verify_scalar_output_failed"
+    final_exception: str | None = None
+    final_receipt: Any = None
+    final_reported_success = False
 
-    tool_failed = _tool_result_failed(inspect_result)
-    invalid_value = False
-    if tool_failed:
-        observed = None
-        matched = False
-    else:
+    for attempt_index in range(1, VERIFY_INSPECT_ATTEMPTS + 1):
         try:
-            observed = _inspect_output_scalar_value(inspect_result)
-        except ValueError:
+            inspect_result = await tool_executor(
+                "gh_inspect_output",
+                {"guid": addition_component_guid, "param": "R"},
+            )
+        except Exception as exc:
             observed = None
             matched = False
-            invalid_value = True
+            final_exception = type(exc).__name__
+            final_reason = f"gh_inspect_output_exception:{type(exc).__name__}"
+            final_receipt = {"exception": type(exc).__name__}
+            final_reported_success = False
+            attempts.append(
+                _verifier_attempt_summary(
+                    attempt_index=attempt_index,
+                    exception=exc,
+                    failure_reason=final_reason,
+                )
+            )
         else:
-            matched = abs(float(observed) - float(expected_value)) <= SCALAR_TOLERANCE
+            final_receipt = inspect_result
+            final_exception = None
+            tool_failed = _tool_result_failed(inspect_result)
+            final_reported_success = not tool_failed
+            if tool_failed:
+                observed = None
+                matched = False
+                final_reason = "verify_scalar_output_failed"
+                failure_reason = "gh_inspect_output_failed"
+            else:
+                try:
+                    observed = _inspect_output_scalar_value(inspect_result)
+                except ValueError as exc:
+                    observed = None
+                    matched = False
+                    final_reason = "verify_scalar_output_invalid_value"
+                    failure_reason = _fixture_reason_from_exception(exc)
+                else:
+                    matched = (
+                        abs(float(observed) - float(expected_value)) <= SCALAR_TOLERANCE
+                    )
+                    final_reason = (
+                        "verify_scalar_output_succeeded"
+                        if matched
+                        else "verify_scalar_output_failed"
+                    )
+                    failure_reason = None if matched else "verify_scalar_output_mismatch"
+            attempts.append(
+                _verifier_attempt_summary(
+                    attempt_index=attempt_index,
+                    result=inspect_result,
+                    observed_output_value=observed,
+                    matched=matched,
+                    failure_reason=failure_reason,
+                )
+            )
+            if matched:
+                break
+        if attempt_index < VERIFY_INSPECT_ATTEMPTS:
+            await asyncio.sleep(VERIFY_INSPECT_DELAY_S)
+
+    final_attempt = attempts[-1]
     verify_summary = {
         "tool_name": "gh_inspect_output",
         "component_guid_sha256": _guid_sha256(addition_component_guid),
@@ -1315,24 +1394,22 @@ async def _dispatch_set_value_solve_and_verify(
         "observed_output_value": observed,
         "tolerance": SCALAR_TOLERANCE,
         "matched": matched,
-        "receipt_sha256": _fingerprint_json(inspect_result),
-        "reported_success": not tool_failed,
+        "receipt_sha256": _fingerprint_json(final_receipt),
+        "reported_success": final_reported_success,
+        "attempt_count": len(attempts),
+        "attempts": attempts,
     }
+    if final_exception:
+        verify_summary["exception"] = final_exception
     return {
         "live_set_value_summary": set_summary,
         "verify_scalar_output_summary": verify_summary,
         "decision": {
             "decision": "accepted" if matched else "rejected",
-            "reason": (
-                "verify_scalar_output_succeeded"
-                if matched
-                else "verify_scalar_output_invalid_value"
-                if invalid_value
-                else "verify_scalar_output_failed"
-            ),
+            "reason": final_reason,
             "phase": "verify_scalar_output",
             "expected_output_value": expected_value,
-            "observed_output_after": observed,
+            "observed_output_after": final_attempt["observed_output_value"],
             "scalar_tolerance": SCALAR_TOLERANCE,
         },
     }
