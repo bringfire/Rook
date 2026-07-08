@@ -4,6 +4,7 @@ import importlib.util
 import inspect
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -95,6 +96,24 @@ def test_manifest_records_lm8f_identity():
     assert manifest["worker_retry_enabled"] is False
     assert manifest["planner_model"] is None
     assert manifest["gh_edit_enabled"] is False
+
+
+def test_new_run_dir_adds_suffix_on_same_second_collision(tmp_path: Path, monkeypatch):
+    class FixedDateTime:
+        @classmethod
+        def now(cls, tz):
+            return datetime(2026, 7, 8, 12, 0, 0, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(PROBE, "datetime", FixedDateTime)
+    monkeypatch.setattr(PROBE, "_git_short_sha", lambda: "abc123")
+
+    first = PROBE._new_run_dir(tmp_path)
+    second = PROBE._new_run_dir(tmp_path)
+
+    assert first.name == "lm8f-20260708T120000Z-abc123"
+    assert second.name == "lm8f-20260708T120000Z-abc123-001"
+    assert first.is_dir()
+    assert second.is_dir()
 
 
 def test_lm8f_source_does_not_import_repair_planner_retry_or_gh_edit_paths():
