@@ -372,32 +372,6 @@ model-adapter probe, or `LM5J` (worker adapter contract, non-live seam) +
 `workflow_validate` is expected to be the first Planner-Harness slice *after*
 an initial worker-model read exists.
 
-### 5.2 Addendum: evidence through LM7E and next pressure (2026-07-08)
-
-The LM5-LM7 campaign has now discharged the original worker/planner harness
-pressure in a stronger form than this section anticipated:
-
-- the bounded worker path reached live Rhino/GH repair and verification;
-- the bounded retry variant was added without changing the default protocol;
-- a `PlannerWorkerContractRequest:v1` can head the live provenance chain;
-- a Planner-tier model can author that request under shape guidance;
-- the model-authored request can drive the frozen worker splice to a live
-  `verify_repair_succeeded` receipt.
-
-The next empirical pressure is therefore no longer "can the worker-model
-adapter work?" or "can the planner handoff surface work?" It is whether the
-same protocol transfers to a second task family without confusing domain
-transfer with complexity growth.
-
-LM8 opens that pressure with a GH-native scalar solve/output expectation family.
-After the first receipted scalar run, the preferred discipline is to pressure
-the scalar family before broadening: non-identity scalar relations, numeric
-tolerance, multiple candidate scalar targets, multi-fact criteria, and
-repeatability should come before missing-wire repair, component replacement,
-small edit batches, or a router. A router becomes evidence-driven once multiple
-families expose stable differences in model/task assignment; it should not be
-introduced merely because one exploratory local Planner row succeeded.
-
 ---
 
 ## 6. Two plan tiers and RLM depth

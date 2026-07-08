@@ -540,17 +540,6 @@ LM8C: single live GH-native scalar expectation run
 LM8D: doc-only evidence summary
 ```
 
-After the second tiny family is receipted, the preferred next pressure should
-stay inside the GH scalar expectation family before broadening to a third
-family. Candidate same-family pressures include:
-
-- non-identity scalar projection
-- numeric tolerance
-- multiple candidate scalar targets
-- two scalar facts in one worker-visible packet
-- repeatability under the same fixture family
-
-This keeps family transfer separate from complexity growth. A missing-wire
-repair, component replacement, or small edit-batch family should wait until
-the scalar family has either shown stable source/action/verifier semantics or
-produced a receipted finding that clearly requires a broader protocol change.
+Only after the second tiny family is receipted should the project consider a
+more complex GH family such as missing-wire repair, component replacement, or
+small edit batches.

@@ -881,25 +881,6 @@ Exit criteria:
 - local worker failure does not corrupt the master/anchor document;
 - fan-in waits on verified artifact states, not chat summaries.
 
-### 12.1 Addendum: evidence through LM7E and LM8 pressure (2026-07-08)
-
-The LM5-LM7 evidence line validates the central premise of this document in one
-controlled workflow family: a bounded local worker can act inside a
-scaffold-owned plan graph, and a Planner-authored request can head the
-provenance chain that feeds it. The important update is not "local models can
-do everything." It is narrower and stronger: when Rook owns the contract,
-routing, acceptance criteria, applier, live dispatch, verifier, and decision
-record, a small worker model can be useful labor inside the box.
-
-The exploratory local Planner result under LM7D shape guidance is a floor-finding
-signal, not a routing policy. The next local/internal-model pressure should
-therefore avoid broad router work until there is more than one receipted task
-family. LM8 opens the second family with a GH-native scalar expectation. After
-that family reaches a live receipt, the preferred next move is to pressure the
-same family with slightly harder scalar variants before broadening to topology
-repair or edit batches. This keeps domain transfer, complexity scaling, and
-model-tier routing as separate evidence questions.
-
 ---
 
 ## 13. First recommended implementation sequence
