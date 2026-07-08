@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import json
 import sys
 from pathlib import Path
@@ -94,6 +95,61 @@ def test_decision_record_hashes_guid_without_raw_guid() -> None:
     assert decision["guid_present"] is True
     assert "GUID-SECRET" not in rendered
     assert decision["decision"] == "accepted"
+
+
+def test_run_probe_callable_exists_as_task_1_skeleton() -> None:
+    signature = inspect.signature(PROBE._run_probe)
+
+    assert list(signature.parameters) == [
+        "model",
+        "endpoint",
+        "temperature",
+        "timeout_s",
+        "excerpt_chars",
+        "run_root",
+        "canonical_evidence",
+        "tool_executor",
+    ]
+    with pytest.raises(NotImplementedError, match="LM8C live probe"):
+        PROBE._run_probe(
+            model="gemma4:12b-it-qat",
+            endpoint="http://localhost:11434/api/chat",
+            temperature=0,
+            timeout_s=120,
+            excerpt_chars=1200,
+            run_root="probe_runs",
+            canonical_evidence=True,
+        )
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"component_guid": "GUID-SECRET"},
+        {"sourceGuid": "GUID-SECRET"},
+    ],
+)
+def test_decision_record_rejects_guid_bearing_extra_keys(extra) -> None:
+    with pytest.raises(ValueError, match="LM8C decision extra"):
+        PROBE._decision_record(
+            decision="accepted",
+            reason="verify_scalar_output_succeeded",
+            phase="verify_scalar_output",
+            canonical_evidence=True,
+            component_guid="GUID-SECRET",
+            extra=extra,
+        )
+
+
+def test_decision_record_rejects_extra_that_overwrites_base_field() -> None:
+    with pytest.raises(ValueError, match="LM8C decision extra"):
+        PROBE._decision_record(
+            decision="accepted",
+            reason="verify_scalar_output_succeeded",
+            phase="verify_scalar_output",
+            canonical_evidence=True,
+            extra={"decision": "rejected"},
+        )
 
 
 def test_manifest_records_lm8c_identity() -> None:

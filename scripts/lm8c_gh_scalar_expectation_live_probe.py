@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import hashlib
 import json
 import subprocess
@@ -156,7 +155,18 @@ def _decision_record(
         "component_guid_sha256": _guid_sha256(component_guid),
     }
     if extra:
-        record.update(dict(extra))
+        extra_record = dict(extra)
+        blocked_keys = [
+            key
+            for key in extra_record
+            if key in record or "guid" in str(key).casefold()
+        ]
+        if blocked_keys:
+            raise ValueError(
+                "LM8C decision extra contains reserved keys: "
+                + ", ".join(sorted(str(key) for key in blocked_keys))
+            )
+        record.update(extra_record)
     return record
 
 
@@ -178,3 +188,20 @@ def _manifest(
         "planner_model": None,
         "gh_edit_enabled": False,
     }
+
+
+def _run_probe(
+    *,
+    model: str,
+    endpoint: str,
+    temperature: float,
+    timeout_s: float,
+    excerpt_chars: int,
+    run_root: str | Path,
+    canonical_evidence: bool,
+    tool_executor: Callable[[str, Mapping[str, Any]], Awaitable[Any]] | None = None,
+) -> Path:
+    raise NotImplementedError(
+        "LM8C live probe execution is intentionally not implemented in Task 1; "
+        "later tasks must wire live Grasshopper behavior through this interface."
+    )
