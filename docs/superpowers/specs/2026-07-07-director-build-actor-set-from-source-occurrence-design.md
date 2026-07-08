@@ -83,8 +83,8 @@ authoring phase, emitting the v2 authoring schema instead of a per-take manifest
 4. Enumerate the block definition's direct objects via `/block/objects-detailed` (native
    `BlocksHandler.cpp:3457`). The route skips geometry-less objects and returns the def-table
    `index` per object (see §8). Empty result → `block_enumeration_empty`. Malformed member
-   identity from the route (missing/non-integer/negative `index`, missing `id`, duplicate
-   `index`, duplicate definition object id) → `block_enumeration_invalid`.
+   identity from the route (missing/non-integer/negative `index`, missing/non-GUID `id`,
+   duplicate `index`, duplicate definition object id) → `block_enumeration_invalid`.
 5. Build members (schema §5). Require tight bbox for every member (`bboxMethod == "tight_object"`);
    any `loose_fallback` / `unavailable` → fail typed `tight_bbox_unavailable` (mirrors
    `package_take` DEC-021, `director_take_package.py:160`).
@@ -118,7 +118,8 @@ Each member records **only** durable identity, the grouping join key, and verifi
 **Identity model (locked, from design review):**
 - **Durable member identity → `resolved_reference.definition_object_id`.** This is the only
   field that must be correct for canvas resolution; the wave's `LoadActorCandidates` matches
-  candidate GUIDs against `idef.GetObjects()` and resolves by this GUID.
+  candidate GUIDs against `idef.GetObjects()` and resolves by this GUID. The builder must validate
+  the native id parses as a GUID and persist canonical UUID text.
 - **Ordering / grouping join → `ordinal`.** `ordinal` is a **metadata-local join key**: the
   wave's `LoadBandMembers` cross-references `actorCandidates[ordinal]` between the actor-set and
   grouping files. It is **not** a claim about live-document position — a later block edit cannot
@@ -197,8 +198,8 @@ invent parallel names:
 New codes for genuinely-new conditions: `snapshot_not_single_source`, `snapshot_source_mismatch`,
 `snapshot_source_not_block`, `source_occurrence_missing_in_document` (drift),
 `block_definition_drift` (id/name mismatch or route-level missing/renamed block failure),
-`block_enumeration_empty` (zero surviving objects), `block_enumeration_invalid` (malformed or
-duplicate member identity from `/block/objects-detailed`), `tight_bbox_unavailable`,
+`block_enumeration_empty` (zero surviving objects), `block_enumeration_invalid` (malformed,
+non-GUID, or duplicate member identity from `/block/objects-detailed`), `tight_bbox_unavailable`,
 `actor_set_exists`, `actor_set_source_mismatch`.
 
 ## 11. Exposure / classification
@@ -225,9 +226,10 @@ Unit tests (mock native, per the sibling `test_director_actor_metadata.py` patte
 4. Mismatched `source_occurrence` convenience field vs `source_occurrences[0]` →
    `snapshot_source_mismatch`.
 5. Zero enumerated objects → `block_enumeration_empty`.
-6. Missing/non-integer/negative `index`, missing definition object id, duplicate ordinal, or
-   duplicate definition object id → `block_enumeration_invalid`.
-7. Loose / missing bbox (`bboxMethod != "tight_object"`) → `tight_bbox_unavailable`.
+6. Missing/non-integer/negative `index`, missing/non-GUID definition object id, duplicate ordinal,
+   or duplicate definition object id → `block_enumeration_invalid`.
+7. Loose / missing bbox (`bboxMethod != "tight_object"`), malformed bbox arrays, non-numeric bbox
+   values, or non-finite bbox values → `tight_bbox_unavailable`.
 8. Existing actor set, `replace_existing=false` → `actor_set_exists` even if the existing file is
    corrupt or wrong-kind.
 9. `replace_existing=true`, same snapshot ref → overwrite succeeds.

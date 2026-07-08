@@ -21,6 +21,8 @@
 - `/block/objects-detailed` native semantics are authoritative: it skips `!obj || !obj->Geometry()`, emits raw def-table `index`, and labels `bboxMethod`; admit only `tight_object`.
 - Existing error codes must pass through for existing infrastructure failures: `document_path_required`, `metadata_ref_not_found`, `metadata_kind_mismatch`.
 - New typed codes: `snapshot_not_single_source`, `snapshot_source_mismatch`, `snapshot_source_not_block`, `source_occurrence_missing_in_document`, `block_definition_drift`, `block_enumeration_empty`, `block_enumeration_invalid`, `tight_bbox_unavailable`, `actor_set_exists`, `actor_set_source_mismatch`.
+- Definition object ids from `/block/objects-detailed` must parse as GUIDs; persist canonical UUID text.
+- Tight bbox arrays must contain exactly three finite numeric values per min/max.
 - Full MCP surface count moves `442 -> 443`; readonly stays `149`; lean stays `22`.
 - Run commands from `mcp_server/` unless a task says otherwise.
 - One commit per task. Stop after each task and report changed files, tests, and deviations.
@@ -242,7 +244,12 @@ Expected: FAIL with `AttributeError: module 'rook.director_actor_metadata' has n
 
 - [ ] **Step 3: Add the builder implementation**
 
-Add this implementation to `mcp_server/src/rook/director_actor_metadata.py` after `capture_source_occurrence_v2` and before `_remember_unique_id`.
+First add `import math` near the other standard-library imports in
+`mcp_server/src/rook/director_actor_metadata.py`. The file already imports `uuid`; reuse it for
+definition object id validation.
+
+Then add this implementation to `mcp_server/src/rook/director_actor_metadata.py` after
+`capture_source_occurrence_v2` and before `_remember_unique_id`.
 
 ```python
 def _snapshot_source_occurrence(snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -288,7 +295,42 @@ def _block_definition_from_source(source: dict[str, Any]) -> dict[str, Any]:
 def _round_bbox_values(values: Any) -> list[float]:
     if not isinstance(values, list) or len(values) != 3:
         _raise("tight_bbox_unavailable", "Tight bbox min/max must be 3-number arrays.")
-    return [round(float(value), 4) for value in values]
+    rounded = []
+    for value in values:
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as ex:
+            raise DirectorActorMetadataError(
+                "tight_bbox_unavailable",
+                "Tight bbox values must be numeric.",
+                value=value,
+            ) from ex
+        if not math.isfinite(number):
+            _raise(
+                "tight_bbox_unavailable",
+                "Tight bbox values must be finite.",
+                value=value,
+            )
+        rounded.append(round(number, 4))
+    return rounded
+
+
+def _canonical_uuid_text(value: Any, *, ordinal: int | None = None) -> str:
+    if not isinstance(value, str) or not value:
+        _raise(
+            "block_enumeration_invalid",
+            "Block object entry requires a non-empty GUID id.",
+            ordinal=ordinal,
+        )
+    try:
+        return str(uuid.UUID(value))
+    except (AttributeError, TypeError, ValueError) as ex:
+        raise DirectorActorMetadataError(
+            "block_enumeration_invalid",
+            "Block object id must parse as a GUID.",
+            ordinal=ordinal,
+            object_id=value,
+        ) from ex
 
 
 def _member_from_block_object(
@@ -311,13 +353,7 @@ def _member_from_block_object(
             "Block object enumeration returned a duplicate ordinal.",
             ordinal=ordinal,
         )
-    definition_object_id = obj.get("id")
-    if not isinstance(definition_object_id, str) or not definition_object_id:
-        _raise(
-            "block_enumeration_invalid",
-            "Block object entry requires a non-empty id.",
-            ordinal=ordinal,
-        )
+    definition_object_id = _canonical_uuid_text(obj.get("id"), ordinal=ordinal)
     if definition_object_id in seen_definition_ids:
         _raise(
             "block_enumeration_invalid",
@@ -639,12 +675,41 @@ def test_build_actor_set_rejects_non_tight_bbox(tmp_path):
 
 
 @pytest.mark.parametrize(
+    "bbox",
+    [
+        {"min": [0, 0], "max": [1, 1, 1]},
+        {"min": [0, "bad", 0], "max": [1, 1, 1]},
+        {"min": [0, 0, 0], "max": [1, float("inf"), 1]},
+    ],
+)
+def test_build_actor_set_rejects_malformed_or_non_finite_tight_bbox(tmp_path, bbox):
+    model = tmp_path / "scene.3dm"
+    obj = {
+        "index": 0,
+        "id": "11111111-1111-1111-1111-111111111111",
+        "type": "Brep",
+        "layer": "L",
+        "name": "",
+        "bboxMethod": "tight_object",
+        "bbox": bbox,
+    }
+    _write_snapshot(tmp_path)
+    with pytest.raises(metadata.DirectorActorMetadataError) as exc:
+        asyncio.run(metadata.build_actor_set_from_source_occurrence_v2(
+            {"source_occurrence_snapshot_ref": SNAPSHOT_REF},
+            call_native=FakeActorSetBuilderNative(model, objects=[obj]),
+        ))
+    assert _error_code(exc) == "tight_bbox_unavailable"
+
+
+@pytest.mark.parametrize(
     "mutate",
     [
         lambda obj: obj.pop("index"),
         lambda obj: obj.update({"index": -1}),
         lambda obj: obj.update({"index": "0"}),
         lambda obj: obj.pop("id"),
+        lambda obj: obj.update({"id": "not-a-guid"}),
     ],
 )
 def test_build_actor_set_rejects_invalid_member_identity(tmp_path, mutate):
