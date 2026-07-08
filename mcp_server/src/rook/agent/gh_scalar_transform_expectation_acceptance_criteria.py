@@ -189,6 +189,8 @@ def _validate_sources(sources: GhScalarTransformExpectationSources) -> None:
     _finite_number(sources.editable_observation.value, "editable_observation")
     _validate_projection(sources.projection_contract.value)
     _validate_fixture_anchor(sources.fixture_anchor.value)
+    if sources.convention is not None:
+        _validate_convention(sources.convention.value)
 
 
 def _validate_source(
@@ -237,6 +239,15 @@ def _validate_fixture_anchor(value: Any) -> None:
     _finite_number(value["current_value"], "fixture_anchor.current_value")
     if value["projection_id"] != EXPECTED_PROJECTION["projection_id"]:
         raise ValueError("fixture_anchor projection_id must match EXPECTED_PROJECTION")
+
+
+def _validate_convention(value: Any) -> None:
+    if not isinstance(value, dict):
+        raise ValueError("convention value must be a mapping")
+    if set(value) != {"action_id"}:
+        raise ValueError("convention value must only contain action_id")
+    if value["action_id"] != "draft_gh_set_value_params":
+        raise ValueError("convention action_id invalid")
 
 
 __all__ = (

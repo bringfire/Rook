@@ -253,6 +253,43 @@ def test_fixture_anchor_cannot_contain_guid_or_feed_criteria():
         )
 
 
+@pytest.mark.parametrize(
+    ("bad_value", "match"),
+    [
+        ("draft_gh_set_value_params", "convention"),
+        ({}, "convention"),
+        ({"action_id": "gh_edit"}, "convention"),
+        (
+            {
+                "action_id": "draft_gh_set_value_params",
+                "tool": "gh_edit",
+            },
+            "convention",
+        ),
+        (
+            {
+                "action_id": "draft_gh_set_value_params",
+                "semantic_action": "repair_same_component",
+            },
+            "convention",
+        ),
+    ],
+)
+def test_convention_value_fails_closed_for_malformed_worker_authority(
+    bad_value, match
+):
+    with pytest.raises(ValueError, match=match):
+        assemble_gh_scalar_transform_expectation_packet(
+            _valid_sources(
+                convention=GhScalarTransformExpectationSource(
+                    source_class="convention",
+                    source_path=CONVENTION_PATH,
+                    value=bad_value,
+                )
+            )
+        )
+
+
 def test_import_boundary_stays_narrow():
     source = inspect.getsource(module)
     tree = ast.parse(source)
