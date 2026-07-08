@@ -438,3 +438,81 @@ def test_create_scalar_fixture_rejects_bad_initial_get_value(bad_value) -> None:
 
     with pytest.raises(ValueError, match="live scalar value"):
         _run(PROBE._create_scalar_fixture(executor))
+
+
+def _valid_fixture():
+    return {
+        "component_guid": "SLIDER-GUID-1",
+        "observed_output_value": 0.0,
+        "receipt": {
+            "observed_output_value": 0.0,
+            "scalar_anchor": {
+                "component_guid": "SLIDER-GUID-1",
+                "editable_value_contract": {
+                    "label": "LM8C_Target",
+                    "value_type": "number",
+                    "current_value": 0.0,
+                    "identity_projection": True,
+                },
+            },
+        },
+        "visible_receipt": {},
+        "live_create_scalar_summary": {},
+    }
+
+
+def test_scalar_runtime_context_static_validates_without_lm5x_routability() -> None:
+    graph = PROBE._graph_from_scalar_receipt(_valid_fixture()["receipt"])
+    context = PROBE._scalar_runtime_context(
+        graph=graph,
+        workflow_contract_payload=PROBE._scalar_contract_payload(),
+        convention_packets=(),
+    )
+
+    routing_report = context["static_routing_report"]
+    assert routing_report["valid"] is True
+    assert routing_report["routability_evaluated"] is False
+    assert context["scalar_runtime_ready"] is True
+    assert context["sources"].expected_output_contract.value == 7.5
+    assert context["sources"].receipt_observation.value == 0.0
+    assert context["packet"]["fields"]["expected_output_value"] == 7.5
+    assert context["worker_visible"]["source"] == "gh_scalar_expectation"
+
+
+def test_scalar_runtime_context_fails_when_live_receipt_missing_observation() -> None:
+    receipt = _valid_fixture()["receipt"]
+    receipt.pop("observed_output_value")
+    graph = PROBE._graph_from_scalar_receipt(receipt)
+
+    with pytest.raises(ValueError, match="observed_output_value"):
+        PROBE._scalar_runtime_context(
+            graph=graph,
+            workflow_contract_payload=PROBE._scalar_contract_payload(),
+            convention_packets=(),
+        )
+
+
+def test_worker_request_uses_scalar_knowledge_and_never_exposes_raw_guid() -> None:
+    fixture = _valid_fixture()
+    graph = PROBE._graph_from_scalar_receipt(fixture["receipt"])
+    runtime = PROBE._scalar_runtime_context(
+        graph=graph,
+        workflow_contract_payload=PROBE._scalar_contract_payload(),
+        convention_packets=(),
+    )
+
+    payload = PROBE._build_worker_request_payload(
+        graph=graph,
+        packet=runtime["packet"],
+        worker_visible=runtime["worker_visible"],
+    )
+
+    rendered = json.dumps(payload, sort_keys=True)
+    assert payload["schema"] == "rook.local_worker_turn_request:v1"
+    assert "gh_scalar_expectation_evidence" in rendered
+    assert "draft_gh_set_value_params" in rendered
+    assert '"value"' in rendered
+    assert "SLIDER-GUID-1" not in rendered
+    assert "gh_edit" not in rendered
+    assert "gh_update_script" not in rendered
+    assert "repair_same_component" not in rendered
