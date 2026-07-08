@@ -699,6 +699,105 @@ def test_run_probe_happy_path_writes_bounded_artifacts(tmp_path: Path) -> None:
     assert verify_summary["matched"] is True
 
 
+def _run_probe_with_publication(tmp_path: Path, publication: FakePublication) -> Path:
+    executor = FakeToolExecutor(
+        {
+            "rhino_ping": "pong",
+            "gh_document_new": {"success": True, "data": {"Created": True}},
+            "gh_create_slider": {
+                "success": True,
+                "data": {"Created": True, "Guid": "SLIDER-GUID-SECRET"},
+            },
+            "gh_get_value": [
+                {
+                    "success": True,
+                    "data": {"Guid": "SLIDER-GUID-SECRET", "Value": "0.0"},
+                },
+                {
+                    "success": True,
+                    "data": {"Guid": "SLIDER-GUID-SECRET", "Value": "7.5"},
+                },
+            ],
+            "gh_set_value": {
+                "success": True,
+                "data": {"Guid": "SLIDER-GUID-SECRET", "NewValue": 7.5},
+            },
+        }
+    )
+
+    return PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *_args, **_kwargs: publication,
+    )
+
+
+def test_run_probe_blocks_publication_row_raw_guid_leak(tmp_path: Path) -> None:
+    run_dir = _run_probe_with_publication(
+        tmp_path,
+        FakePublication(
+            row={
+                "status": "published",
+                "pass2_response_kind": "action_request",
+                "note": "SLIDER-GUID-SECRET",
+            },
+            response_payload={
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "action_request",
+                "action_id": "draft_gh_set_value_params",
+                "input": {"value": 7.5},
+            },
+        ),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+    rendered = json.dumps(decision, sort_keys=True)
+
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "worker_publication_guid_leak"
+    assert decision["phase"] == "worker_publication"
+    assert decision["worker_publication_ran"] is True
+    assert decision["guid_present"] is True
+    assert decision["component_guid_sha256"].startswith("sha256:")
+    assert "SLIDER-GUID-SECRET" not in rendered
+    assert not (run_dir / "worker_publication_row.json").exists()
+    assert not (run_dir / "worker_action.json").exists()
+
+
+def test_run_probe_blocks_worker_action_raw_guid_leak(tmp_path: Path) -> None:
+    run_dir = _run_probe_with_publication(
+        tmp_path,
+        FakePublication(
+            row={"status": "published", "pass2_response_kind": "action_request"},
+            response_payload={
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "action_request",
+                "action_id": "draft_gh_set_value_params",
+                "input": {"value": 7.5, "note": "SLIDER-GUID-SECRET"},
+            },
+        ),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+    rendered = json.dumps(decision, sort_keys=True)
+
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "worker_publication_guid_leak"
+    assert decision["phase"] == "worker_publication"
+    assert decision["worker_publication_ran"] is True
+    assert decision["guid_present"] is True
+    assert decision["component_guid_sha256"].startswith("sha256:")
+    assert "SLIDER-GUID-SECRET" not in rendered
+    assert not (run_dir / "worker_publication_row.json").exists()
+    assert not (run_dir / "worker_action.json").exists()
+
+
 def test_run_probe_preflight_failure_writes_terminal_decision(tmp_path: Path) -> None:
     executor = FakeToolExecutor({"rhino_ping": {"success": False, "error": "offline"}})
 

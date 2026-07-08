@@ -679,6 +679,13 @@ def _hidden_marker_leaks(value: Any) -> bool:
     return any(marker in rendered for marker in forbidden)
 
 
+def _raw_component_guid_leaks(value: Any, component_guid: str) -> bool:
+    if not component_guid:
+        return False
+    rendered = json.dumps(value, sort_keys=True, default=str)
+    return component_guid in rendered
+
+
 async def _create_scalar_fixture(
     tool_executor: Callable[[str, Mapping[str, Any]], Awaitable[Any]],
 ) -> dict[str, Any]:
@@ -974,6 +981,24 @@ def _run_probe(
             _decision_record(
                 decision="publication_failed",
                 reason="worker_publication_hidden_answer_leak",
+                phase="worker_publication",
+                canonical_evidence=canonical_evidence,
+                scalar_runtime_ready=True,
+                live_fixture_created=True,
+                worker_publication_ran=True,
+                component_guid=component_guid,
+            ),
+        )
+        return run_dir
+
+    if _raw_component_guid_leaks(
+        publication.row, component_guid
+    ) or _raw_component_guid_leaks(publication.response_payload, component_guid):
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="publication_failed",
+                reason="worker_publication_guid_leak",
                 phase="worker_publication",
                 canonical_evidence=canonical_evidence,
                 scalar_runtime_ready=True,
