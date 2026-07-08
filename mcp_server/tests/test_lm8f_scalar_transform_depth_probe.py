@@ -715,6 +715,12 @@ def test_dispatch_set_value_solve_and_verify_rejects_inspected_output_mismatch()
     assert result["decision"]["decision"] == "rejected"
     assert result["decision"]["reason"] == "verify_scalar_output_failed"
     assert result["verify_scalar_output_summary"]["observed_output_value"] == 6.5
+    assert result["verify_scalar_output_summary"]["attempt_count"] == 3
+    assert [attempt["observed_output_value"] for attempt in result["verify_scalar_output_summary"]["attempts"]] == [
+        6.5,
+        6.5,
+        6.5,
+    ]
 
 
 def test_dispatch_set_value_solve_and_verify_accepts_when_set_reports_false_but_output_matches():
@@ -801,6 +807,62 @@ def test_dispatch_set_value_solve_and_verify_rejects_invalid_inspected_value():
     assert result["decision"]["decision"] == "rejected"
     assert result["decision"]["reason"] == "verify_scalar_output_invalid_value"
     assert result["verify_scalar_output_summary"]["reported_success"] is True
+    assert result["verify_scalar_output_summary"]["attempt_count"] == 3
+    assert result["verify_scalar_output_summary"]["attempts"][0]["failure_reason"] == (
+        "inspect_output_scalar_value_invalid"
+    )
+
+
+def test_dispatch_set_value_solve_and_verify_accepts_invalid_first_valid_second():
+    executor = FakeToolExecutor(
+        {
+            "gh_set_value": {
+                "success": True,
+                "data": {"Guid": "EDITABLE-GUID-1", "NewValue": 6.0},
+            },
+            "gh_solve": {"success": True, "data": {"scheduled": True}},
+            "gh_inspect_output": [
+                {
+                    "success": True,
+                    "data": {"data_count": 1, "preview": ["not-ready"]},
+                },
+                {
+                    "success": True,
+                    "data": {"data_count": 1, "preview": ["7.5"]},
+                },
+            ],
+        }
+    )
+
+    result = _run(
+        PROBE._dispatch_set_value_solve_and_verify(
+            tool_executor=executor,
+            editable_component_guid="EDITABLE-GUID-1",
+            addition_component_guid="ADDITION-GUID-1",
+            worker_value=6.0,
+            expected_value=7.5,
+        )
+    )
+
+    assert result["decision"]["decision"] == "accepted"
+    assert result["decision"]["reason"] == "verify_scalar_output_succeeded"
+    verify = result["verify_scalar_output_summary"]
+    assert verify["observed_output_value"] == 7.5
+    assert verify["attempt_count"] == 2
+    assert verify["attempts"][0]["attempt_index"] == 1
+    assert verify["attempts"][0]["reported_success"] is True
+    assert verify["attempts"][0]["observed_output_value"] is None
+    assert verify["attempts"][0]["failure_reason"] == "inspect_output_scalar_value_invalid"
+    assert verify["attempts"][0]["result_shape"]["data"]["keys"] == [
+        "data_count",
+        "preview",
+    ]
+    assert verify["attempts"][0]["result_sha256"].startswith("sha256:")
+    assert "not-ready" in verify["attempts"][0]["result_excerpt"]
+    assert verify["attempts"][1]["attempt_index"] == 2
+    assert verify["attempts"][1]["observed_output_value"] == 7.5
+    assert "EDITABLE-GUID-1" not in json.dumps(verify, sort_keys=True)
+    assert "ADDITION-GUID-1" not in json.dumps(verify, sort_keys=True)
 
 
 def test_dispatch_set_value_solve_and_verify_rejects_inspect_exception_without_crashing():
@@ -829,9 +891,12 @@ def test_dispatch_set_value_solve_and_verify_rejects_inspect_exception_without_c
     assert result["decision"]["reason"] == "gh_inspect_output_exception:RuntimeError"
     assert result["verify_scalar_output_summary"]["exception"] == "RuntimeError"
     assert result["verify_scalar_output_summary"]["observed_output_value"] is None
+    assert result["verify_scalar_output_summary"]["attempt_count"] == 3
     assert executor.calls == [
         ("gh_set_value", {"guid": "EDITABLE-GUID-1", "value": 6.0}),
         ("gh_solve", {"delay": 25}),
+        ("gh_inspect_output", {"guid": "ADDITION-GUID-1", "param": "R"}),
+        ("gh_inspect_output", {"guid": "ADDITION-GUID-1", "param": "R"}),
         ("gh_inspect_output", {"guid": "ADDITION-GUID-1", "param": "R"}),
     ]
 
@@ -866,6 +931,10 @@ def test_dispatch_set_value_solve_and_verify_rejects_failed_inspect_without_inva
     assert result["decision"]["reason"] != "verify_scalar_output_invalid_value"
     assert result["verify_scalar_output_summary"]["reported_success"] is False
     assert result["verify_scalar_output_summary"]["observed_output_value"] is None
+    assert result["verify_scalar_output_summary"]["attempt_count"] == 3
+    assert result["verify_scalar_output_summary"]["attempts"][-1]["failure_reason"] == (
+        "gh_inspect_output_failed"
+    )
 
 
 def _published_action(value=6.0):
