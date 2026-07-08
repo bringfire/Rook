@@ -81,6 +81,29 @@ concerns:
 
 STATUS: DONE
 
+review finding fixed:
+- Updated `_scalar_transform_source_routing_artifact()` to preserve the exact Task 1 canonical route ids instead of the shorter noncanonical aliases.
+- Added a regression in `mcp_server/tests/test_lm8f_scalar_transform_depth_probe.py` that pins the route id list in order.
+- Kept all `source_class`, `source_path`, `purpose`, and `required` values unchanged.
+
+files changed:
+- C:/UDEV/Rook/scripts/lm8f_scalar_transform_depth_probe.py
+- C:/UDEV/Rook/mcp_server/tests/test_lm8f_scalar_transform_depth_probe.py
+- C:/UDEV/Rook/.superpowers/sdd/task-4-report.md
+
+commands run with results:
+- `.\mcp_server\.venv\Scripts\python.exe -m pytest mcp_server\tests\test_lm8f_scalar_transform_depth_probe.py::test_scalar_transform_source_routing_artifact_uses_task1_canonical_route_ids -q`
+  - result: 1 failed; expected RED because the probe still emitted noncanonical route ids before the fix
+- `.\mcp_server\.venv\Scripts\python.exe -m pytest mcp_server\tests\test_lm8f_scalar_transform_depth_probe.py -q`
+  - result: 21 passed
+
+concerns:
+- None.
+
+---
+
+STATUS: DONE
+
 task:
 - LM8F Task 4: Scalar Runtime Readiness And Worker Request Rendering
 

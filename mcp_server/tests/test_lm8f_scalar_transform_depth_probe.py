@@ -97,6 +97,25 @@ def test_manifest_records_lm8f_identity():
     assert manifest["gh_edit_enabled"] is False
 
 
+def test_scalar_transform_source_routing_artifact_uses_task1_canonical_route_ids():
+    artifact = PROBE._scalar_transform_source_routing_artifact()
+
+    route_ids = [
+        item["route_id"]
+        for item in artifact["routes"][0]["visible_sources"]
+    ]
+
+    assert route_ids == [
+        "scalar_transform_expected_output",
+        "scalar_transform_offset_value",
+        "scalar_transform_projection",
+        "scalar_transform_current_output",
+        "scalar_transform_current_editable_value",
+        "scalar_transform_editable_target_contract",
+        "scalar_transform_set_value_convention",
+    ]
+
+
 class FakeToolExecutor:
     def __init__(self, responses):
         self.responses = dict(responses)
