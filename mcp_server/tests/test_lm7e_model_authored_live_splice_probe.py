@@ -366,3 +366,103 @@ def test_workflow_validate_failure_stops_before_materialization_and_live(
     assert decision["decision"] == "rejected_by_validate"
     assert decision["reason"] == "workflow_validate_failed"
     assert decision["workflow_validate_valid"] is False
+
+
+def test_valid_request_writes_resolved_routing_and_bounded_contract_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_live_not_implemented(**_kwargs):
+        raise NotImplementedError("stop before live")
+
+    monkeypatch.setattr(
+        PROBE,
+        "_run_live_create_and_verify",
+        fake_live_not_implemented,
+        raising=False,
+    )
+
+    run_dir = PROBE._run_probe(
+        planner_provider="codex-cli-chatgpt",
+        planner_model="gpt-5.5",
+        planner_provider_command="unused",
+        planner_provider_timeout_s=1,
+        worker_model="gemma4:12b-it-qat",
+        worker_endpoint="http://localhost:11434/api/chat",
+        worker_temperature=0,
+        worker_timeout_s=120,
+        output_excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        call_provider=lambda _payload: json.dumps(_valid_incomplete_request()),
+        agent=object(),
+    )
+
+    routing = json.loads((run_dir / "resolved_source_routing.json").read_text())
+    summary = json.loads((run_dir / "workflow_contract_summary.json").read_text())
+    decision = json.loads((run_dir / "decision.json").read_text())
+
+    rendered_routing = json.dumps(routing, sort_keys=True)
+    assert "missing_desired_output_value" in rendered_routing
+    assert "planner.intent.desired_output_value" in rendered_routing
+    assert summary["template_id"] == "repair_same_component_from_create_error"
+    assert "repair_same_component" in summary["worker_node_ids"]
+    assert summary["worker_node_bind_steps"]["repair_same_component"] is False
+    rendered_summary = json.dumps(summary, sort_keys=True)
+    for marker in (
+        "base_params",
+        "PROBE_REPAIR_CODE",
+        "A = 42.0",
+        "A = 0.0",
+        "A = 1.0",
+    ):
+        assert marker not in rendered_summary
+    assert decision["decision"] == "gate_failed"
+    assert decision["reason"] == "runtime_not_implemented"
+
+
+def test_workflow_contract_summary_reports_worker_bind_step_presence_without_base_params() -> None:
+    payload = {
+        "initial_params": [],
+        "rules": [
+            {
+                "node_id": "repair_same_component",
+                "steps_by_seen_count": [
+                    {
+                        "kind": "bind",
+                        "node_id": "repair_same_component",
+                        "base_params": {"code": "PROBE_REPAIR_CODE"},
+                        "bindings": {},
+                    }
+                ],
+            }
+        ],
+        "expected_refs": [{"node_id": "repair_same_component"}],
+    }
+    loaded_contract = SimpleNamespace(
+        initial_params=(),
+        rules=(
+            SimpleNamespace(
+                node_id="repair_same_component",
+                steps_by_seen_count=(
+                    SimpleNamespace(
+                        kind="bind",
+                        node_id="repair_same_component",
+                        base_params={"code": "PROBE_REPAIR_CODE"},
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    summary = PROBE._workflow_contract_summary(
+        template_id="repair_same_component_from_create_error",
+        workflow_contract_payload=payload,
+        workflow_contract=loaded_contract,
+        worker_node_ids=("repair_same_component",),
+    )
+
+    rendered = json.dumps(summary, sort_keys=True)
+    assert summary["worker_node_bind_steps"]["repair_same_component"] is True
+    assert "base_params" not in rendered
+    assert "PROBE_REPAIR_CODE" not in rendered

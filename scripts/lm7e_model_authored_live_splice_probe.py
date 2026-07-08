@@ -45,7 +45,11 @@ from lm7_planner_authoring_prompt_support import (  # noqa: E402
     write_prompt_artifacts,
 )
 from rook.agent.plan_graph_workflow_contract import (  # noqa: E402
+    BindStepSpec,
     load_workflow_contract_payload,
+)
+from rook.agent.planner_worker_contract_request import (  # noqa: E402
+    materialize_planner_worker_contract_request,
 )
 from rook.agent.workflow_validate import (  # noqa: E402
     validate_planner_worker_contract_request,
@@ -269,6 +273,120 @@ def _manifest(
     }
 
 
+def _value_shape(value: Any) -> dict[str, Any]:
+    if isinstance(value, Mapping):
+        return {
+            "type": "mapping",
+            "keys": sorted(str(key) for key in value.keys()),
+            "sha256": fingerprint_json(value),
+        }
+    if isinstance(value, (list, tuple)):
+        return {
+            "type": "sequence",
+            "count": len(value),
+            "sha256": fingerprint_json(list(value)),
+        }
+    return {
+        "type": type(value).__name__,
+        "sha256": fingerprint_json(str(value)),
+    }
+
+
+def _worker_node_bind_step_presence(
+    *,
+    workflow_contract_payload: Mapping[str, Any],
+    workflow_contract: Any,
+    worker_node_ids: Sequence[str],
+) -> dict[str, bool]:
+    presence = {str(node_id): False for node_id in worker_node_ids}
+    for rule in workflow_contract_payload.get("rules", ()):
+        if not isinstance(rule, Mapping):
+            continue
+        node_id = str(rule.get("node_id") or "")
+        if node_id not in presence:
+            continue
+        for step in rule.get("steps_by_seen_count", ()):
+            if isinstance(step, Mapping) and step.get("kind") == "bind":
+                presence[node_id] = True
+    for rule in getattr(workflow_contract, "rules", ()):
+        node_id = str(getattr(rule, "node_id", ""))
+        if node_id not in presence:
+            continue
+        for step in getattr(rule, "steps_by_seen_count", ()):
+            if isinstance(step, BindStepSpec) or getattr(step, "kind", None) == "bind":
+                presence[node_id] = True
+    return presence
+
+
+def _workflow_contract_summary(
+    *,
+    template_id: str,
+    workflow_contract_payload: Mapping[str, Any],
+    workflow_contract: Any,
+    worker_node_ids: Sequence[str],
+) -> dict[str, Any]:
+    node_ids: set[str] = set()
+    rule_ids: list[str] = []
+    initial_param_summary: dict[str, Any] = {}
+
+    for initial in workflow_contract_payload.get("initial_params", ()):
+        if isinstance(initial, Mapping):
+            node_id = str(initial.get("node_id") or "")
+            if node_id:
+                node_ids.add(node_id)
+
+    for rule in workflow_contract_payload.get("rules", ()):
+        if isinstance(rule, Mapping):
+            node_id = str(rule.get("node_id") or "")
+            if node_id:
+                node_ids.add(node_id)
+
+    for expected_ref in workflow_contract_payload.get("expected_refs", ()):
+        if isinstance(expected_ref, Mapping):
+            node_id = str(expected_ref.get("node_id") or "")
+            if node_id:
+                node_ids.add(node_id)
+
+    for initial in getattr(workflow_contract, "initial_params", ()):
+        node_id = str(getattr(initial, "node_id", ""))
+        if node_id:
+            node_ids.add(node_id)
+            initial_param_summary[node_id] = {
+                str(key): _value_shape(value)
+                for key, value in getattr(initial, "execution_params", {}).items()
+            }
+
+    for rule in getattr(workflow_contract, "rules", ()):
+        node_id = str(getattr(rule, "node_id", ""))
+        if node_id:
+            rule_ids.append(node_id)
+
+    worker_node_bind_steps = _worker_node_bind_step_presence(
+        workflow_contract_payload=workflow_contract_payload,
+        workflow_contract=workflow_contract,
+        worker_node_ids=worker_node_ids,
+    )
+    return {
+        "schema": "rook.lm7e_workflow_contract_summary:v1",
+        "template_id": template_id,
+        "node_ids": sorted(node_ids),
+        "rule_ids": sorted(rule_ids),
+        "worker_node_ids": list(worker_node_ids),
+        "worker_node_bind_steps": worker_node_bind_steps,
+        "initial_param_summary": initial_param_summary,
+    }
+
+
+def _workflow_contract_summary_fingerprint(summary: Mapping[str, Any]) -> str:
+    return fingerprint_json(summary)
+
+
+def _run_live_create_and_verify(*, agent: Any, workflow_contract: Any) -> dict[str, Any]:
+    del agent
+    del workflow_contract
+    raise NotImplementedError("LM7E live create/verify is implemented in Task 4.")
+
+
 def _run_probe(
     *,
     planner_provider: str,
@@ -286,7 +404,6 @@ def _run_probe(
     agent: Any | None = None,
 ) -> Path:
     del worker_timeout_s
-    del agent
 
     run_dir = _new_run_dir(run_root)
     write_prompt_artifacts(
@@ -479,7 +596,70 @@ def _run_probe(
         )
         return run_dir
 
-    raise NotImplementedError("LM7E materialized live splice not implemented yet")
+    materialization = materialize_planner_worker_contract_request(planner_request)
+    workflow_contract = load_workflow_contract_payload(
+        materialization.workflow_contract_payload
+    )
+    resolved_routing = materialization.resolved_routing_artifact
+    worker_node_ids = tuple(materialization.worker_node_ids)
+    _write_json_value(run_dir / "resolved_source_routing.json", resolved_routing)
+    contract_summary = _workflow_contract_summary(
+        template_id=str(planner_request.get("template_id")),
+        workflow_contract_payload=materialization.workflow_contract_payload,
+        workflow_contract=workflow_contract,
+        worker_node_ids=worker_node_ids,
+    )
+    if _contains_marker_value(contract_summary):
+        raise RuntimeError("workflow_contract_summary_hidden_marker")
+    _write_json_value(run_dir / "workflow_contract_summary.json", contract_summary)
+    workflow_contract_fingerprint = _workflow_contract_summary_fingerprint(
+        contract_summary
+    )
+    _write_json(
+        run_dir / "manifest.json",
+        _manifest(
+            planner_provider=planner_provider,
+            planner_model=planner_model,
+            worker_model=worker_model,
+            worker_endpoint=worker_endpoint,
+            worker_temperature=worker_temperature,
+            canonical_evidence=canonical_evidence,
+            planner_model_output_sha256=output_sha,
+            request_fingerprint=request_fingerprint,
+            workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
+            workflow_contract_fingerprint=workflow_contract_fingerprint,
+        ),
+    )
+
+    try:
+        live_result = _run_live_create_and_verify(
+            agent=agent,
+            workflow_contract=workflow_contract,
+        )
+    except NotImplementedError:
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="gate_failed",
+                reason="runtime_not_implemented",
+                phase="runtime_live_create",
+                planner_parse_status=PARSE_PARSED,
+                planner_validation_status="workflow_validate_valid",
+                planner_intent_decision=intent.intent_decision,
+                planner_model_output_sha256=output_sha,
+                planner_model_output_excerpt=output_excerpt,
+                planner_model_output_path="planner_model_output.txt",
+                request_fingerprint=request_fingerprint,
+                workflow_validate_valid=True,
+                workflow_validate_report_fingerprint=workflow_validate_report_fingerprint,
+                live_rhino_work_started=False,
+                worker_publication_ran=False,
+            ),
+        )
+        return run_dir
+
+    del live_result
+    raise NotImplementedError("LM7E live result handling is implemented in Task 4.")
 
 
 def main(argv: list[str] | None = None) -> int:
