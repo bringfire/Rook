@@ -16,6 +16,7 @@
 - LM8J must not reimplement LM8I live behavior.
 - Canonical attempts are exactly `20`.
 - Canonical model is exactly `gemma4:12b-it-qat`.
+- Canonical timeout is exactly `600` seconds per child attempt.
 - Default timeout is exactly `600` seconds per child attempt.
 - No replacement attempts.
 - No support forcing or support disabling flags.
@@ -65,10 +66,10 @@
   - `DEFAULT_RUN_DIR = "probe_runs"`
   - `DEFAULT_ATTEMPT_TIMEOUT_S = 600`
   - `_args(argv: list[str] | None) -> argparse.Namespace`
-  - `_canonical_evidence(*, attempts: int, model: str) -> bool`
+  - `_canonical_evidence(*, attempts: int, model: str, attempt_timeout_s: int) -> bool`
   - `_git_short_sha() -> str`
   - `_new_run_dir(run_root: str | Path) -> Path`
-  - `_manifest(*, attempts: int, model: str) -> dict[str, Any]`
+  - `_manifest(*, attempts: int, model: str, attempt_timeout_s: int) -> dict[str, Any]`
   - `_scheduled_attempt_id(attempt_index: int) -> str`
   - `_base_attempt_row(*, attempt_index: int) -> dict[str, Any>`
 - Consumes: no code from later tasks.
@@ -117,7 +118,14 @@ def test_cli_defaults_are_canonical_lm8j_shape():
     assert args.model == "gemma4:12b-it-qat"
     assert args.run_dir == "probe_runs"
     assert args.attempt_timeout_s == 600
-    assert PROBE._canonical_evidence(attempts=args.attempts, model=args.model) is True
+    assert (
+        PROBE._canonical_evidence(
+            attempts=args.attempts,
+            model=args.model,
+            attempt_timeout_s=args.attempt_timeout_s,
+        )
+        is True
+    )
 
 
 def test_cli_rejects_non_positive_attempts_and_timeout():
@@ -131,10 +139,39 @@ def test_cli_rejects_non_positive_attempts_and_timeout():
             PROBE._args(argv)
 
 
-def test_canonical_evidence_only_for_twenty_default_gemma_attempts():
-    assert PROBE._canonical_evidence(attempts=20, model="gemma4:12b-it-qat") is True
-    assert PROBE._canonical_evidence(attempts=5, model="gemma4:12b-it-qat") is False
-    assert PROBE._canonical_evidence(attempts=20, model="qwen3:14b") is False
+def test_canonical_evidence_only_for_twenty_default_gemma_default_timeout_attempts():
+    assert (
+        PROBE._canonical_evidence(
+            attempts=20,
+            model="gemma4:12b-it-qat",
+            attempt_timeout_s=600,
+        )
+        is True
+    )
+    assert (
+        PROBE._canonical_evidence(
+            attempts=5,
+            model="gemma4:12b-it-qat",
+            attempt_timeout_s=600,
+        )
+        is False
+    )
+    assert (
+        PROBE._canonical_evidence(
+            attempts=20,
+            model="qwen3:14b",
+            attempt_timeout_s=600,
+        )
+        is False
+    )
+    assert (
+        PROBE._canonical_evidence(
+            attempts=20,
+            model="gemma4:12b-it-qat",
+            attempt_timeout_s=1,
+        )
+        is False
+    )
 
 
 def test_cli_rejects_non_lm8j_surfaces():
@@ -154,11 +191,16 @@ def test_cli_rejects_non_lm8j_surfaces():
 
 
 def test_manifest_records_lm8j_identity():
-    manifest = PROBE._manifest(attempts=20, model="gemma4:12b-it-qat")
+    manifest = PROBE._manifest(
+        attempts=20,
+        model="gemma4:12b-it-qat",
+        attempt_timeout_s=600,
+    )
 
     assert manifest["schema"] == "rook.lm8j_affine_support_repeatability_probe:v1"
     assert manifest["attempts"] == 20
     assert manifest["model"] == "gemma4:12b-it-qat"
+    assert manifest["attempt_timeout_s"] == 600
     assert manifest["canonical_evidence"] is True
     assert manifest["child_probe"] == "lm8i_affine_publication_shape_support_probe.py"
     assert manifest["child_probe_invocation"] == "subprocess"
@@ -280,8 +322,12 @@ def _args(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _canonical_evidence(*, attempts: int, model: str) -> bool:
-    return attempts == DEFAULT_ATTEMPTS and model == DEFAULT_MODEL
+def _canonical_evidence(*, attempts: int, model: str, attempt_timeout_s: int) -> bool:
+    return (
+        attempts == DEFAULT_ATTEMPTS
+        and model == DEFAULT_MODEL
+        and attempt_timeout_s == DEFAULT_ATTEMPT_TIMEOUT_S
+    )
 
 
 def _git_short_sha() -> str:
@@ -310,13 +356,18 @@ def _new_run_dir(run_root: str | Path) -> Path:
     return candidate
 
 
-def _manifest(*, attempts: int, model: str) -> dict[str, Any]:
+def _manifest(*, attempts: int, model: str, attempt_timeout_s: int) -> dict[str, Any]:
     return {
         "schema": SCRIPT_SCHEMA,
         "git_commit": _git_short_sha(),
         "attempts": attempts,
         "model": model,
-        "canonical_evidence": _canonical_evidence(attempts=attempts, model=model),
+        "attempt_timeout_s": attempt_timeout_s,
+        "canonical_evidence": _canonical_evidence(
+            attempts=attempts,
+            model=model,
+            attempt_timeout_s=attempt_timeout_s,
+        ),
         "child_probe": "lm8i_affine_publication_shape_support_probe.py",
         "child_probe_invocation": "subprocess",
         "support_mode": "lm8i_default_support_enabled",
@@ -1054,7 +1105,7 @@ git commit -m "feat(lm8j): classify lm8i child artifacts"
   - `_scan_leak_markers(run_dir: Path) -> list[dict[str, Any]]`
   - `_apply_leak_scan(row: dict[str, Any]) -> None`
   - `_compact_counts(counter: Counter[str]) -> dict[str, int]`
-  - `_build_summary(rows: Sequence[Mapping[str, Any]], *, attempts: int, model: str) -> dict[str, Any]`
+  - `_build_summary(rows: Sequence[Mapping[str, Any]], *, attempts: int, model: str, attempt_timeout_s: int) -> dict[str, Any]`
 
 - [ ] **Step 1: Add failing leak scan and summary tests**
 
@@ -1160,10 +1211,16 @@ def test_build_summary_counts_support_and_worker_denominators():
         },
     ]
 
-    summary = PROBE._build_summary(rows, attempts=20, model="gemma4:12b-it-qat")
+    summary = PROBE._build_summary(
+        rows,
+        attempts=20,
+        model="gemma4:12b-it-qat",
+        attempt_timeout_s=600,
+    )
 
     assert summary["schema"] == "rook.lm8j_affine_support_repeatability_probe:v1"
     assert summary["scheduled_attempts"] == 20
+    assert summary["attempt_timeout_s"] == 600
     assert summary["canonical_evidence"] is True
     assert summary["terminal_category_counts"] == {
         "accepted": 2,
@@ -1268,6 +1325,7 @@ def _build_summary(
     *,
     attempts: int,
     model: str,
+    attempt_timeout_s: int,
 ) -> dict[str, Any]:
     worker_summary_categories = {
         "accepted",
@@ -1311,7 +1369,12 @@ def _build_summary(
     return {
         "schema": SCRIPT_SCHEMA,
         "scheduled_attempts": attempts,
-        "canonical_evidence": _canonical_evidence(attempts=attempts, model=model),
+        "attempt_timeout_s": attempt_timeout_s,
+        "canonical_evidence": _canonical_evidence(
+            attempts=attempts,
+            model=model,
+            attempt_timeout_s=attempt_timeout_s,
+        ),
         "terminal_category_counts": _compact_counts(terminal_counts),
         "accepted_count": terminal_counts["accepted"],
         "rejected_count": terminal_counts["rejected"],
@@ -1502,6 +1565,7 @@ def test_run_probe_writes_manifest_attempts_and_summary(tmp_path: Path):
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
 
     assert manifest["attempts"] == 2
+    assert manifest["attempt_timeout_s"] == 600
     assert manifest["canonical_evidence"] is False
     assert [row["terminal_category"] for row in rows] == [
         "accepted",
@@ -1513,6 +1577,7 @@ def test_run_probe_writes_manifest_attempts_and_summary(tmp_path: Path):
     assert rows[1]["support_recovered"] is False
     assert summary["accepted_count"] == 1
     assert summary["publication_failed_count"] == 1
+    assert summary["attempt_timeout_s"] == 600
     assert summary["worker_reached_count"] == 2
     assert summary["publication_support_attempted_count"] == 1
     assert summary["publication_support_recovered_count"] == 0
@@ -1684,7 +1749,14 @@ def _run_probe(
     lm8i_runs_dir = run_dir / "lm8i_runs"
     lm8i_runs_dir.mkdir(parents=True, exist_ok=True)
 
-    _write_json(run_dir / "manifest.json", _manifest(attempts=attempts, model=model))
+    _write_json(
+        run_dir / "manifest.json",
+        _manifest(
+            attempts=attempts,
+            model=model,
+            attempt_timeout_s=attempt_timeout_s,
+        ),
+    )
 
     rows: list[dict[str, Any]] = []
     for attempt_index in range(1, attempts + 1):
@@ -1726,7 +1798,12 @@ def _run_probe(
 
     _write_json(
         run_dir / "summary.json",
-        _build_summary(rows, attempts=attempts, model=model),
+        _build_summary(
+            rows,
+            attempts=attempts,
+            model=model,
+            attempt_timeout_s=attempt_timeout_s,
+        ),
     )
     return run_dir
 

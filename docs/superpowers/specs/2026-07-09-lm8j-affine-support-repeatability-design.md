@@ -135,11 +135,12 @@ support: enabled by LM8I, not forced by LM8J
 ```text
 attempts == 20
 model == "gemma4:12b-it-qat"
+attempt_timeout_s == 600
 LM8I default support-enabled behavior is used
 ```
 
-Ad hoc smoke runs may use smaller `--attempts`, but they must not be cited as
-LM8J canonical repeatability evidence.
+Ad hoc smoke runs may use smaller `--attempts` or non-default timeouts, but
+they must not be cited as LM8J canonical repeatability evidence.
 
 ## 5. CLI
 
@@ -424,6 +425,7 @@ when the terminal category is `gate_failed` or `preflight_failed`.
 ```text
 schema
 scheduled_attempts
+attempt_timeout_s
 canonical_evidence
 terminal_category_counts
 accepted_count
@@ -505,7 +507,8 @@ probe_runs/lm8j-<timestamp>-<sha>/
   summary.json
   lm8i_runs/
     lm8i-<timestamp>-<sha>/
-    ...
+    lm8i-<timestamp>-<sha>-01/
+    lm8i-<timestamp>-<sha>-02/
 ```
 
 There should be twenty child `lm8i-*` directories in the normal canonical case.
@@ -568,7 +571,9 @@ Required deterministic coverage:
 
 - default CLI produces canonical LM8J shape
 - `--attempts` must be positive
+- `--attempt-timeout-s` must be positive
 - non-default model makes `canonical_evidence` false
+- non-default timeout makes `canonical_evidence` false
 - subprocess command uses `sys.executable`
 - child LM8I run dir is discovered from filesystem delta, not stdout
 - accepted child decision classifies as `accepted`
