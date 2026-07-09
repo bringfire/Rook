@@ -2217,6 +2217,165 @@ can pre-register whether to test a bounded publication-shape support mechanism
 or retry/second-turn mechanism for skeletal `action_request` responses missing
 `action_id`.
 
+## LM8I affine publication-shape support run (commit `9909dce3`)
+
+LM8I kept the LM8H affine scalar fixture and made one publication-shape support
+turn available for the exact LM8H failure mode: a skeletal pass-1
+`action_request` missing `action_id`. The support helper and worker publication
+protocol stayed unchanged; support was a script-local second publication turn,
+eligible only from the shared publication row's exact bounded excerpt and hash.
+
+The first post-merge canonical attempt was a canvas-readiness gate failure:
+
+```text
+run_dir: probe_runs/lm8i-20260709T212055Z-9909dce3/
+commit: 9909dce3
+canonical_evidence: true
+decision: gate_failed
+reason: affine_fixture_failed:gh_create_editable_slider_failed
+preflight:
+  rhino_ping: pong
+  gh_document_new: created
+live_fixture_created: false
+scalar_runtime_ready: null
+worker_publication_ran: false
+live_set_value_dispatched: false
+verify_scalar_output_ran: false
+```
+
+The bounded failure summary reported that `gh_create_slider` returned
+`grasshopper_not_ready` because the Grasshopper canvas was not visible:
+
+```text
+Grasshopper canvas is not visible. Show the Grasshopper editor before using GH canvas tools.
+```
+
+This first attempt is an operational/canvas readiness receipt. It is not worker,
+model, publication-support, scalar-depth, or verifier evidence.
+
+After the Grasshopper canvas was intentionally made visible, a deliberate
+canonical LM8I attempt accepted:
+
+```text
+run_dir: probe_runs/lm8i-20260709T212255Z-9909dce3/
+commit: 9909dce3
+canonical_evidence: true
+model: gemma4:12b-it-qat
+fixture:
+  editable_value initial: 2.0
+  factor_value: 2.0
+  offset_value: 1.5
+  initial_observed_output: 5.5
+  expected_output_value: 7.5
+decision: accepted
+reason: verify_scalar_output_succeeded
+scalar_runtime_ready: true
+worker_publication_ran: true
+live_set_value_dispatched: true
+verify_scalar_output_ran: true
+publication_support_attempted: false
+publication_support_count: 0
+```
+
+Gemma published a valid action on the first publication path:
+
+```json
+{"action_id": "draft_gh_set_value_params", "input": {"value": 3.0}}
+```
+
+The worker rationale solved the affine relationship:
+
+```text
+7.5 = editable_value * 2.0 + 1.5
+6.0 = editable_value * 2.0
+editable_value = 3.0
+```
+
+Because the first publication was already valid, LM8I support was available but
+not exercised:
+
+```text
+first_publication_status: published
+first_publication_failure_reason: null
+support_eligible: false
+support_not_attempted_reason: first_publication_not_exact_skeletal_missing_action_id
+final_worker_response_kind: action_request
+```
+
+The live floor accepted:
+
+```text
+gh_set_value:
+  reported_success: true
+  worker_action_value: 3.0
+verifier:
+  attempt 1: empty/not-ready Addition R
+  attempt 2: observed_output_value 7.5
+  matched: true
+  tolerance: 1e-9
+```
+
+The post-run canvas snapshot matched the accepted state:
+
+```text
+LM8I_Editable: 3.0
+LM8I_Factor: 2.0
+Multiplication R: 6
+LM8I_Offset: 1.5
+Addition R: 7.5
+Grasshopper diagnostics: 0 errors, 0 warnings
+```
+
+Marker and authority hygiene held:
+
+```text
+direct marker scan:
+  PROBE_REPAIR_CODE: 0
+  A = 42.0: 0
+  BindStepSpec.base_params: 0
+  repair_same_component.bind.base_params: 0
+
+pre-worker source/request/worker-visible artifacts:
+  hidden derived value 3.0: absent
+
+post-authoring audit/action artifacts:
+  worker-authored value 3.0: present
+```
+
+Interpretation:
+
+```text
+LM8I accepted on the affine scalar fixture.
+Gemma authored the correct editable value 3.0 on the first publication path.
+The support mechanism was available but not exercised.
+Therefore this is affine scalar live-arrival evidence, not support-recovery evidence.
+```
+
+What this proves narrowly:
+
+```text
+The affine fixture/tooling path is healthy when the GH canvas is visibly ready.
+The scalar runtime gate and worker-visible packet are sufficient for Gemma to
+solve editable_value * 2.0 + 1.5 = 7.5 once.
+The worker can publish the full valid scalar action shape on this run.
+The trusted applier, live gh_set_value dispatch, and verifier floor work.
+The hidden-value policy held until worker authorship.
+```
+
+What this does not prove:
+
+```text
+LM8I support can recover pass1_missing_action_id.
+Support improves reliability.
+The earlier LM8H publication-shape failure is gone as a class.
+Repeatability of affine scalar depth.
+Canvas edit readiness is fully solved by gh_document_new preflight.
+```
+
+The exact publication-support recovery question remains unexercised. It should
+be captured opportunistically in a future run that naturally reproduces the
+LM8H skeletal pass-1 failure, not stress-forced unless separately specified.
+
 ## Updated comparison keys
 
 Round 1: `(lm5j.prompt_text:v1, lm5k_golden_repair_v1/fresh_compiled_graph,
@@ -2372,6 +2531,14 @@ draft_gh_set_value_params action contract, scalar applier available but not
 dispatched in the canonical run, gh_inspect_output Addition R verifier floor,
 canonical_evidence true, worker retry disabled, no gh_edit, no worker topology,
 no wiring/batch edit authority)`.
+
+LM8I: `(LM8I affine publication-shape support probe, same deterministic LM8H
+affine fixture and scalar evidence/action/applier/verifier floor, one exact-only
+publication-support turn available for shared-row pass1_missing_action_id with
+bounded pass1 excerpt/hash, same gemma4:12b-it-qat/direct Ollama worker, support
+helper unchanged, no action_id autofill, no retry loop, no gh_edit, no worker
+topology/wiring/batch authority, first visible-canvas canonical run accepted
+without exercising support, canvas-readiness gate failure recorded separately)`.
 
 Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
 new experiment.
