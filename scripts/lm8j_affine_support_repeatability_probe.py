@@ -398,15 +398,16 @@ def _copy_child_artifact_summaries(row: dict[str, Any]) -> None:
         return
 
     run_dir = Path(str(run_dir_value))
-    worker_action = _read_json_mapping(run_dir / "worker_action.json")
+    worker_action_path = run_dir / "worker_action.json"
+    worker_action = _read_json_mapping(worker_action_path)
+    if row.get("publication_support_attempted") is True and worker_action_path.exists():
+        row["support_recovered"] = True
     if worker_action is not None:
         action_input = worker_action.get("input")
         if isinstance(action_input, Mapping):
             value = action_input.get("value")
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 row["worker_action_value"] = value
-        if row.get("publication_support_attempted") is True:
-            row["support_recovered"] = True
 
     verify_summary = _read_json_mapping(run_dir / "verify_scalar_output_summary.json")
     if verify_summary is not None:

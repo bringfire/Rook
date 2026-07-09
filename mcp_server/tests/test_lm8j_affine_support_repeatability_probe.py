@@ -428,3 +428,23 @@ def test_support_recovered_requires_worker_action_receipt(tmp_path: Path):
     PROBE._copy_child_artifact_summaries(row)
 
     assert row["support_recovered"] is False
+
+
+def test_support_recovered_with_malformed_worker_action_file(tmp_path: Path):
+    child = tmp_path / "lm8i-child"
+    child.mkdir()
+    (child / "worker_action.json").write_text(
+        "{not valid json}",
+        encoding="utf-8",
+    )
+    row = {
+        "lm8i_run_dir": str(child),
+        "publication_support_attempted": True,
+        "support_recovered": False,
+        "worker_action_value": None,
+    }
+
+    PROBE._copy_child_artifact_summaries(row)
+
+    assert row["support_recovered"] is True
+    assert row["worker_action_value"] is None
