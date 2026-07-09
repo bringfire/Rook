@@ -181,6 +181,18 @@ activation / command routing
 -> receipts / world model updates
 ```
 
+The governing rule:
+
+```text
+Hooks force process, not meaning.
+```
+
+They are literal machine parts in the host/runtime. They can force command
+routing, skill loading, compile freshness checks, validation gates, execution
+steps, verifier reads, receipts, and downstream wakes. They must not secretly
+decide user intent, invent a design, or mutate semantic authority outside a
+declared source artifact.
+
 They do not replace the compile/run split. The skill itself solves the
 bootstrapping problem: before the compiled graph exists, the host agent needs an
 activation contract that tells it which language it is in, which docs to load,
@@ -198,6 +210,10 @@ authority model for this router is not settled by this note: it could be
 deterministic, model-authored, or hybrid in a later reviewed slice. Until that
 slice exists, the boot layer is a named seam, not a hidden callback with
 semantic authority.
+
+The Rook boot/task-envelope hook is therefore a mandatory mechanical gate. It
+may require classification, validation, fingerprints, and receipts, but any
+semantic choice it records must be explicit, schema-bound, and reviewable.
 
 ## Rook Grounding
 
