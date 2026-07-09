@@ -152,6 +152,29 @@ class FakeToolExecutor:
         return value
 
 
+class FakePublication:
+    def __init__(self, row, response_payload=None):
+        self.row = row
+        self.response_payload = response_payload
+
+
+def _published_action(value=3.0):
+    return FakePublication(
+        row={
+            "status": "published",
+            "pass2_response_kind": "action_request",
+            "observation_action_intent_anomaly": False,
+        },
+        response_payload={
+            "schema": "rook.local_worker_turn_response:v1",
+            "kind": "action_request",
+            "action_id": "draft_gh_set_value_params",
+            "rationale": "Use the affine relationship to match the expected output.",
+            "input": {"value": value},
+        },
+    )
+
+
 def _run(coro):
     import asyncio
 
@@ -214,6 +237,26 @@ def _fixture_tool_responses(
             "data": {"param_nickname": "R", "structure": "single", "data_count": 1, "preview": [observed_output]},
         },
     }
+
+
+def _fixture_responses_for_success():
+    responses = _fixture_tool_responses()
+    responses.update(
+        {
+            "rhino_ping": "pong",
+            "gh_document_new": {"success": True, "data": {"Created": True}},
+            "gh_solve": [
+                {"success": True, "data": {"scheduled": True}},
+                {"success": True, "data": {"scheduled": True}},
+            ],
+            "gh_inspect_output": [
+                {"success": True, "data": {"data_count": 1, "preview": ["5.5"]}},
+                {"success": True, "data": {"data_count": 1, "preview": ["7.5"]}},
+            ],
+            "gh_set_value": {"success": True, "data": {"Guid": "EDITABLE-GUID-1"}},
+        }
+    )
+    return responses
 
 
 def test_component_proxy_guid_uses_top_level_fields_only():
@@ -371,3 +414,130 @@ def test_affine_runtime_context_rejects_projection_invariant_mismatch():
             workflow_contract_payload=payload,
             convention_packets=(),
         )
+
+
+def test_run_probe_accepts_worker_value_that_matches_affine_output(tmp_path):
+    executor = FakeToolExecutor(_fixture_responses_for_success())
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *args, **kwargs: _published_action(3.0),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    request = json.loads((run_dir / "worker_request_payload.json").read_text(encoding="utf-8"))
+    worker_action = json.loads((run_dir / "worker_action.json").read_text(encoding="utf-8"))
+    live_set = json.loads((run_dir / "live_set_value_summary.json").read_text(encoding="utf-8"))
+    verify = json.loads((run_dir / "verify_scalar_output_summary.json").read_text(encoding="utf-8"))
+
+    assert decision["decision"] == "accepted"
+    assert decision["reason"] == "verify_scalar_output_succeeded"
+    assert decision["scalar_runtime_ready"] is True
+    assert decision["worker_publication_ran"] is True
+    assert decision["live_set_value_dispatched"] is True
+    assert decision["verify_scalar_output_ran"] is True
+    assert worker_action["input"] == {"value": 3.0}
+    assert live_set["worker_action_value"] == 3.0
+    assert verify["observed_output_value"] == 7.5
+    assert "3.0" not in json.dumps(request, sort_keys=True)
+    assert "3.0" in json.dumps(worker_action, sort_keys=True)
+
+
+def test_run_probe_prepublication_artifacts_do_not_contain_hidden_derived_value(tmp_path):
+    executor = FakeToolExecutor(_fixture_responses_for_success())
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *args, **kwargs: _published_action(3.0),
+    )
+
+    forbidden_pre_publication = [
+        "scalar_sources.json",
+        "acceptance_criteria_packet.json",
+        "worker_visible_acceptance_criteria.json",
+        "worker_request_payload.json",
+    ]
+    for filename in forbidden_pre_publication:
+        rendered = (run_dir / filename).read_text(encoding="utf-8")
+        assert "3.0" not in rendered
+
+    allowed_post_publication = [
+        "worker_action.json",
+        "live_set_value_summary.json",
+        "decision.json",
+    ]
+    assert any("3.0" in (run_dir / filename).read_text(encoding="utf-8") for filename in allowed_post_publication)
+
+
+def test_run_probe_artifacts_keep_raw_guid_out_of_source_request_decision_and_verifier(tmp_path):
+    executor = FakeToolExecutor(_fixture_responses_for_success())
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *args, **kwargs: _published_action(3.0),
+    )
+
+    forbidden_guid_files = [
+        "scalar_sources.json",
+        "acceptance_criteria_packet.json",
+        "worker_visible_acceptance_criteria.json",
+        "worker_request_payload.json",
+        "verify_scalar_output_summary.json",
+        "decision.json",
+    ]
+    for filename in forbidden_guid_files:
+        rendered = (run_dir / filename).read_text(encoding="utf-8")
+        for raw_guid in ("EDITABLE-GUID-1", "FACTOR-GUID-1", "OFFSET-GUID-1", "MULTIPLY-GUID-1", "ADDITION-GUID-1"):
+            assert raw_guid not in rendered
+
+    assert "EDITABLE-GUID-1" in (run_dir / "fixture_setup_summary.json").read_text(encoding="utf-8")
+    assert "EDITABLE-GUID-1" in (run_dir / "live_set_value_summary.json").read_text(encoding="utf-8")
+
+
+def test_run_probe_rejects_worker_value_that_does_not_match_affine_output(tmp_path):
+    responses = _fixture_responses_for_success()
+    responses["gh_inspect_output"] = [
+        {"success": True, "data": {"data_count": 1, "preview": ["5.5"]}},
+        {"success": True, "data": {"data_count": 1, "preview": ["9.5"]}},
+        {"success": True, "data": {"data_count": 1, "preview": ["9.5"]}},
+        {"success": True, "data": {"data_count": 1, "preview": ["9.5"]}},
+    ]
+    executor = FakeToolExecutor(responses)
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *args, **kwargs: _published_action(4.0),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    assert decision["decision"] == "rejected"
+    assert decision["reason"] == "verify_scalar_output_failed"
+    assert decision["observed_output_after"] == 9.5

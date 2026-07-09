@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import json
 import math
@@ -23,6 +24,7 @@ for _path in (str(_SCRIPT_DIR), str(_REPO_ROOT), str(_MCP_SRC)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
+from lm_worker_two_pass_publication import run_two_pass_worker_publication  # noqa: E402,F401
 from rook.agent.gh_affine_scalar_transform_expectation_acceptance_criteria import (  # noqa: E402
     assemble_gh_affine_scalar_transform_expectation_packet,
     project_gh_affine_scalar_transform_expectation_legacy,
@@ -50,6 +52,10 @@ from rook.agent.local_worker_turn_context import (  # noqa: E402
 from rook.agent.local_worker_turn_request import (  # noqa: E402
     render_local_worker_turn_request_payload,
 )
+from rook.agent.plan_graph_gh_scalar_value_apply import (  # noqa: E402,F401
+    apply_gh_scalar_value_action_to_node,
+)
+from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY  # noqa: E402,F401
 from rook.agent.plan_graph_workflow_contract import (  # noqa: E402
     CompiledWorkflowScaffold,
     WorkflowCompileRecord,
@@ -76,6 +82,8 @@ OFFSET_VALUE = 1.5
 INITIAL_OBSERVED_OUTPUT = 5.5
 EXPECTED_OUTPUT_VALUE = 7.5
 SCALAR_TOLERANCE = 1e-9
+VERIFY_INSPECT_ATTEMPTS = 3
+VERIFY_INSPECT_DELAY_S = 0.1
 WORKER_NODE_ID = "set_scalar_value"
 CREATE_NODE_ID = "create_affine_scalar_transform"
 VERIFY_NODE_ID = "verify_affine_scalar_transform_output"
@@ -83,7 +91,10 @@ ACTION_ID = "draft_gh_set_value_params"
 DECISIONS = {
     "preflight_failed",
     "gate_failed",
-    "runtime_ready",
+    "publication_failed",
+    "worker_declined",
+    "rejected",
+    "accepted",
 }
 _UUID_RE = re.compile(
     r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-"
@@ -195,6 +206,36 @@ def _write_json_value(path: Path, payload: Any) -> None:
         json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n",
         encoding="utf-8",
     )
+
+
+def _find_forbidden_decision_extra_paths(
+    value: Any, *, base_keys: set[str], path: str = "extra"
+) -> list[str]:
+    forbidden: list[str] = []
+    if isinstance(value, Mapping):
+        for key, nested_value in value.items():
+            key_text = str(key)
+            key_path = f"{path}.{key_text}"
+            if key_text in base_keys or "guid" in key_text.casefold():
+                forbidden.append(key_path)
+            forbidden.extend(
+                _find_forbidden_decision_extra_paths(
+                    nested_value, base_keys=base_keys, path=key_path
+                )
+            )
+        return forbidden
+    if isinstance(value, str):
+        if "guid" in value.casefold() or _UUID_RE.search(value):
+            forbidden.append(path)
+        return forbidden
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+        for index, nested_value in enumerate(value):
+            forbidden.extend(
+                _find_forbidden_decision_extra_paths(
+                    nested_value, base_keys=base_keys, path=f"{path}[{index}]"
+                )
+            )
+    return forbidden
 
 
 def _tool_result_failed(result: Any) -> bool:
@@ -472,6 +513,53 @@ def _fixture_failure_summary(
         "guid_present": guid is not None,
         "guid_sha256": _guid_sha256(guid),
     }
+
+
+def _bounded_tool_result_artifact(value: Any, *, excerpt_chars: int) -> dict[str, Any]:
+    sanitized = _sanitize_decision_excerpt_value(value)
+    rendered = json.dumps(sanitized, sort_keys=True, default=str)
+    return {
+        "result_sha256": _fingerprint_json(value),
+        "result_excerpt": rendered[:excerpt_chars],
+        "result_shape": _result_shape(sanitized),
+    }
+
+
+def _verifier_attempt_summary(
+    *,
+    attempt_index: int,
+    result: Any = None,
+    exception: Exception | None = None,
+    observed_output_value: float | int | None = None,
+    matched: bool = False,
+    failure_reason: str | None = None,
+    excerpt_chars: int = DEFAULT_EXCERPT_CHARS,
+) -> dict[str, Any]:
+    if exception is not None:
+        artifact_value = {"exception": type(exception).__name__}
+        summary = {
+            "attempt_index": attempt_index,
+            "reported_success": False,
+            "observed_output_value": None,
+            "matched": False,
+            "failure_reason": failure_reason
+            or f"gh_inspect_output_exception:{type(exception).__name__}",
+            "exception": type(exception).__name__,
+        }
+    else:
+        tool_failed = _tool_result_failed(result)
+        artifact_value = result
+        summary = {
+            "attempt_index": attempt_index,
+            "reported_success": not tool_failed,
+            "observed_output_value": observed_output_value,
+            "matched": matched,
+            "failure_reason": failure_reason,
+        }
+    summary.update(
+        _bounded_tool_result_artifact(artifact_value, excerpt_chars=excerpt_chars)
+    )
+    return summary
 
 
 def _routing_report_json(report: Any) -> dict[str, Any]:
@@ -1064,25 +1152,20 @@ def _affine_scalar_worker_evidence_packet(
 ) -> WorkerKnowledgePacket:
     fields = packet["fields"]
     return WorkerKnowledgePacket(
-        packet_id="gh_affine_scalar_transform_expectation_evidence",
+        packet_id="gh_affine_scalar_transform_evidence",
         kind="evidence",
-        title="GH affine scalar transform expectation evidence",
+        title="GH affine scalar transform evidence",
         content={
-            "source": "gh_affine_scalar_transform_expectation",
-            "trust": "high",
-            "state": "post_affine_scalar_transform_fixture_pre_worker",
-            "fields": {
-                "current_editable_value": fields["current_editable_value"],
-                "factor_value": fields["factor_value"],
-                "offset_value": fields["offset_value"],
-                "current_observed_output": fields["current_observed_output"],
-                "expected_output_value": fields["expected_output_value"],
-                "projection": dict(fields["projection"]),
-                "editable_value_contract": dict(fields["editable_value_contract"]),
-                "acceptance_criteria": dict(worker_visible),
-                "recommended_action_id": ACTION_ID,
-                "action_selection_contract": dict(fields["action_selection_contract"]),
-            },
+            "current_editable_value": fields["current_editable_value"],
+            "factor_value": fields["factor_value"],
+            "offset_value": fields["offset_value"],
+            "current_observed_output": fields["current_observed_output"],
+            "expected_output_value": fields["expected_output_value"],
+            "projection": dict(fields["projection"]),
+            "editable_value_contract": dict(fields["editable_value_contract"]),
+            "recommended_action_id": ACTION_ID,
+            "action_selection_contract": dict(fields["action_selection_contract"]),
+            "acceptance_criteria": dict(worker_visible),
         },
     )
 
@@ -1091,7 +1174,7 @@ def _affine_scalar_allowed_action() -> WorkerAllowedAction:
     return WorkerAllowedAction(
         action_id=ACTION_ID,
         kind="stage_params",
-        description="Draft the scalar value to apply to the trusted editable GH target.",
+        description="Draft parameters for setting the trusted editable GH scalar value.",
         input_schema={
             "type": "object",
             "required": ["value"],
@@ -1155,11 +1238,15 @@ def _decision_record(
     canonical_evidence: bool,
     scalar_runtime_ready: bool | None = None,
     live_fixture_created: bool = False,
+    worker_publication_ran: bool = False,
+    live_set_value_dispatched: bool = False,
+    verify_scalar_output_ran: bool = False,
     component_guid: str | None = None,
+    extra: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     if decision not in DECISIONS:
         raise ValueError(f"Unsupported LM8H decision: {decision}")
-    return {
+    record = {
         "schema": DECISION_SCHEMA,
         "decision": decision,
         "reason": reason,
@@ -1167,9 +1254,269 @@ def _decision_record(
         "canonical_evidence": canonical_evidence,
         "scalar_runtime_ready": scalar_runtime_ready,
         "live_fixture_created": live_fixture_created,
+        "worker_publication_ran": worker_publication_ran,
+        "live_set_value_dispatched": live_set_value_dispatched,
+        "verify_scalar_output_ran": verify_scalar_output_ran,
         "guid_present": component_guid is not None,
         "component_guid_sha256": _guid_sha256(component_guid),
     }
+    if extra:
+        extra_record = dict(extra)
+        blocked_paths = _find_forbidden_decision_extra_paths(
+            extra_record, base_keys=set(record)
+        )
+        if blocked_paths:
+            raise ValueError(
+                "LM8H decision extra contains reserved identity fields: "
+                + ", ".join(sorted(blocked_paths))
+            )
+        record.update(extra_record)
+    return record
+
+
+def _decision_from_publication(
+    publication_row: Mapping[str, Any],
+    response_payload: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    status = publication_row.get("status")
+    if status != "published":
+        reason = str(publication_row.get("failure_reason") or status or "unknown")
+        return {
+            "decision": "publication_failed",
+            "reason": f"{status}:{reason}",
+            "phase": "worker_publication",
+        }
+    if not isinstance(response_payload, Mapping):
+        return {
+            "decision": "publication_failed",
+            "reason": "published_response_missing",
+            "phase": "worker_publication",
+        }
+    kind = response_payload.get("kind")
+    if kind == "action_request":
+        return None
+    if publication_row.get("observation_action_intent_anomaly") is True:
+        return {
+            "decision": "worker_declined",
+            "reason": "worker_observation_action_intent_anomaly",
+            "phase": "worker_publication",
+            "final_worker_response_kind": kind,
+        }
+    reasons = {
+        "clarification_request": "worker_clarified",
+        "refusal": "worker_refused",
+        "observation": "worker_observed",
+    }
+    return {
+        "decision": "worker_declined",
+        "reason": reasons.get(str(kind), "worker_non_action"),
+        "phase": "worker_publication",
+        "final_worker_response_kind": kind,
+    }
+
+
+def _hidden_marker_leaks(value: Any) -> bool:
+    rendered = json.dumps(value, sort_keys=True, default=str)
+    forbidden = (
+        "PROBE_REPAIR_CODE",
+        "A = 42.0",
+        "BindStepSpec.base_params",
+        "repair_same_component.bind.base_params",
+    )
+    return any(marker in rendered for marker in forbidden)
+
+
+def _raw_component_guid_leaks(value: Any, component_guid: str) -> bool:
+    if not component_guid:
+        return False
+    rendered = json.dumps(value, sort_keys=True, default=str)
+    return component_guid.casefold() in rendered.casefold()
+
+
+async def _dispatch_set_value_solve_and_verify(
+    *,
+    tool_executor: Callable[[str, Mapping[str, Any]], Awaitable[Any]],
+    editable_component_guid: str,
+    addition_component_guid: str,
+    worker_value: float | int,
+    expected_value: float | int,
+) -> dict[str, Any]:
+    try:
+        set_result = await tool_executor(
+            "gh_set_value",
+            {"guid": editable_component_guid, "value": worker_value},
+        )
+    except Exception as exc:
+        return {
+            "live_set_value_summary": {
+                "tool_name": "gh_set_value",
+                "component_guid": editable_component_guid,
+                "component_guid_sha256": _guid_sha256(editable_component_guid),
+                "worker_action_value": worker_value,
+                "set_value_reported_success": False,
+                "exception": type(exc).__name__,
+            },
+            "verify_scalar_output_summary": None,
+            "decision": {
+                "decision": "rejected",
+                "reason": f"gh_set_value_exception:{type(exc).__name__}",
+                "phase": "live_set_value",
+            },
+        }
+    set_value_reported_success = not _tool_result_failed(set_result)
+    set_summary = {
+        "tool_name": "gh_set_value",
+        "component_guid": editable_component_guid,
+        "component_guid_sha256": _guid_sha256(editable_component_guid),
+        "worker_action_value": worker_value,
+        "success": set_value_reported_success,
+        "set_value_reported_success": set_value_reported_success,
+        "receipt_sha256": _fingerprint_json(set_result),
+    }
+
+    try:
+        solve_result = await tool_executor("gh_solve", {"delay": 25})
+    except Exception as exc:
+        return {
+            "live_set_value_summary": set_summary,
+            "verify_scalar_output_summary": None,
+            "decision": {
+                "decision": "rejected",
+                "reason": f"gh_solve_exception:{type(exc).__name__}",
+                "phase": "live_set_value",
+            },
+        }
+    set_summary["solve_receipt_sha256"] = _fingerprint_json(solve_result)
+    if _tool_result_failed(solve_result):
+        return {
+            "live_set_value_summary": set_summary,
+            "verify_scalar_output_summary": None,
+            "decision": {
+                "decision": "rejected",
+                "reason": "gh_solve_failed",
+                "phase": "live_set_value",
+            },
+        }
+
+    attempts: list[dict[str, Any]] = []
+    observed: float | int | None = None
+    matched = False
+    final_reason = "verify_scalar_output_failed"
+    final_exception: str | None = None
+    final_receipt: Any = None
+    final_reported_success = False
+
+    for attempt_index in range(1, VERIFY_INSPECT_ATTEMPTS + 1):
+        try:
+            inspect_result = await tool_executor(
+                "gh_inspect_output",
+                {"guid": addition_component_guid, "param": "R"},
+            )
+        except Exception as exc:
+            observed = None
+            matched = False
+            final_exception = type(exc).__name__
+            final_reason = f"gh_inspect_output_exception:{type(exc).__name__}"
+            final_receipt = {"exception": type(exc).__name__}
+            final_reported_success = False
+            attempts.append(
+                _verifier_attempt_summary(
+                    attempt_index=attempt_index,
+                    exception=exc,
+                    failure_reason=final_reason,
+                )
+            )
+        else:
+            final_receipt = inspect_result
+            final_exception = None
+            tool_failed = _tool_result_failed(inspect_result)
+            final_reported_success = not tool_failed
+            if tool_failed:
+                observed = None
+                matched = False
+                final_reason = "verify_scalar_output_failed"
+                failure_reason = "gh_inspect_output_failed"
+            else:
+                try:
+                    observed = _inspect_output_scalar_value(inspect_result)
+                except ValueError as exc:
+                    observed = None
+                    matched = False
+                    final_reason = "verify_scalar_output_invalid_value"
+                    failure_reason = _fixture_reason_from_exception(exc)
+                else:
+                    matched = (
+                        abs(float(observed) - float(expected_value)) <= SCALAR_TOLERANCE
+                    )
+                    final_reason = (
+                        "verify_scalar_output_succeeded"
+                        if matched
+                        else "verify_scalar_output_failed"
+                    )
+                    failure_reason = None if matched else "verify_scalar_output_mismatch"
+            attempts.append(
+                _verifier_attempt_summary(
+                    attempt_index=attempt_index,
+                    result=inspect_result,
+                    observed_output_value=observed,
+                    matched=matched,
+                    failure_reason=failure_reason,
+                )
+            )
+            if matched:
+                break
+        if attempt_index < VERIFY_INSPECT_ATTEMPTS:
+            await asyncio.sleep(VERIFY_INSPECT_DELAY_S)
+
+    final_attempt = attempts[-1]
+    verify_summary = {
+        "tool_name": "gh_inspect_output",
+        "component_guid_sha256": _guid_sha256(addition_component_guid),
+        "expected_output_value": expected_value,
+        "observed_output_value": observed,
+        "tolerance": SCALAR_TOLERANCE,
+        "matched": matched,
+        "receipt_sha256": _fingerprint_json(final_receipt),
+        "reported_success": final_reported_success,
+        "attempt_count": len(attempts),
+        "attempts": attempts,
+    }
+    if final_exception:
+        verify_summary["exception"] = final_exception
+    return {
+        "live_set_value_summary": set_summary,
+        "verify_scalar_output_summary": verify_summary,
+        "decision": {
+            "decision": "accepted" if matched else "rejected",
+            "reason": final_reason,
+            "phase": "verify_scalar_output",
+            "expected_output_value": expected_value,
+            "observed_output_after": final_attempt["observed_output_value"],
+            "scalar_tolerance": SCALAR_TOLERANCE,
+        },
+    }
+
+
+def _worker_action_context(
+    response_payload: Mapping[str, Any], excerpt_chars: int
+) -> dict[str, Any]:
+    action_input = response_payload.get("input")
+    rendered = json.dumps(action_input, sort_keys=True, default=str)
+    sanitized_rendered = json.dumps(
+        _sanitize_decision_excerpt_value(action_input),
+        sort_keys=True,
+        default=str,
+    )
+    return {
+        "worker_action_input_sha256": _sha256_text(rendered),
+        "worker_action_input_excerpt": sanitized_rendered[:excerpt_chars],
+    }
+
+
+def _action_context(
+    response_payload: Mapping[str, Any], excerpt_chars: int
+) -> dict[str, Any]:
+    return _worker_action_context(response_payload, excerpt_chars)
 
 
 def _run_probe(
@@ -1182,8 +1529,8 @@ def _run_probe(
     run_root: str | Path,
     canonical_evidence: bool,
     tool_executor: Callable[[str, Mapping[str, Any]], Awaitable[Any]] | None = None,
+    publication_runner: Callable[..., Any] | None = None,
 ) -> Path:
-    _ = timeout_s
     run_dir = _new_run_dir(run_root)
     _write_json(
         run_dir / "manifest.json",
@@ -1198,8 +1545,9 @@ def _run_probe(
         from rook.server import _mcp_tool_executor
 
         tool_executor = _mcp_tool_executor
+    publisher = publication_runner or run_two_pass_worker_publication
 
-    ok, preflight_reason, preflight_summaries = __import__("asyncio").run(
+    ok, preflight_reason, preflight_summaries = asyncio.run(
         _run_preflight(tool_executor)
     )
     _write_json_value(run_dir / "preflight_summary.json", preflight_summaries)
@@ -1216,7 +1564,7 @@ def _run_probe(
         return run_dir
 
     try:
-        fixture = __import__("asyncio").run(_create_affine_fixture(tool_executor))
+        fixture = asyncio.run(_create_affine_fixture(tool_executor))
     except FixtureSetupFailure as exc:
         _write_json(
             run_dir / "fixture_failure_summary.json",
@@ -1232,7 +1580,23 @@ def _run_probe(
             ),
         )
         return run_dir
+    except Exception as exc:
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="gate_failed",
+                reason=f"affine_fixture_failed:{type(exc).__name__}",
+                phase="live_fixture",
+                canonical_evidence=canonical_evidence,
+            ),
+        )
+        return run_dir
 
+    editable_component_guid = fixture["editable_component_guid"]
+    factor_component_guid = fixture["factor_component_guid"]
+    offset_component_guid = fixture["offset_component_guid"]
+    multiplication_component_guid = fixture["multiplication_component_guid"]
+    addition_component_guid = fixture["addition_component_guid"]
     _write_json(run_dir / "fixture_setup_summary.json", fixture["fixture_setup_summary"])
     _write_json_value(run_dir / "affine_fixture_receipt.json", fixture["visible_receipt"])
     _write_json_value(
@@ -1241,11 +1605,25 @@ def _run_probe(
     )
 
     graph = _graph_from_affine_receipt(fixture["receipt"])
-    runtime = _affine_runtime_context(
-        graph=graph,
-        workflow_contract_payload=_affine_scalar_contract_payload(),
-        convention_packets=(),
-    )
+    try:
+        runtime = _affine_runtime_context(
+            graph=graph,
+            workflow_contract_payload=_affine_scalar_contract_payload(),
+            convention_packets=(),
+        )
+    except Exception as exc:
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="gate_failed",
+                reason=f"scalar_runtime_readiness_failed:{type(exc).__name__}",
+                phase="scalar_runtime_ready",
+                canonical_evidence=canonical_evidence,
+                live_fixture_created=True,
+                component_guid=editable_component_guid,
+            ),
+        )
+        return run_dir
     _write_json_value(
         run_dir / "affine_scalar_source_routing.json", runtime["routing_artifact"]
     )
@@ -1263,13 +1641,13 @@ def _run_probe(
                 canonical_evidence=canonical_evidence,
                 scalar_runtime_ready=False,
                 live_fixture_created=True,
-                component_guid=fixture["editable_component_guid"],
+                component_guid=editable_component_guid,
             ),
         )
         return run_dir
 
     _write_json_value(
-        run_dir / "affine_scalar_sources.json",
+        run_dir / "scalar_sources.json",
         {
             "expected_output_contract": runtime["sources"].expected_output_contract.__dict__,
             "factor_contract": runtime["sources"].factor_contract.__dict__,
@@ -1293,24 +1671,155 @@ def _run_probe(
         run_dir / "worker_visible_acceptance_criteria.json",
         runtime["worker_visible"],
     )
-    _write_json_value(
-        run_dir / "worker_request_payload.json",
-        _build_local_turn_payload(
-            graph=graph,
-            packet=runtime["packet"],
-            worker_visible=runtime["worker_visible"],
-        ),
+    request_payload = _build_local_turn_payload(
+        graph=graph,
+        packet=runtime["packet"],
+        worker_visible=runtime["worker_visible"],
     )
+    _write_json_value(run_dir / "worker_request_payload.json", request_payload)
+
+    publication = publisher(
+        request_payload,
+        model=model,
+        endpoint=endpoint,
+        temperature=temperature,
+        timeout_s=timeout_s,
+        excerpt_chars=excerpt_chars,
+    )
+    if _hidden_marker_leaks(publication.row) or _hidden_marker_leaks(
+        publication.response_payload
+    ):
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="publication_failed",
+                reason="worker_publication_hidden_answer_leak",
+                phase="worker_publication",
+                canonical_evidence=canonical_evidence,
+                scalar_runtime_ready=True,
+                live_fixture_created=True,
+                worker_publication_ran=True,
+                component_guid=editable_component_guid,
+            ),
+        )
+        return run_dir
+
+    component_guids = (
+        editable_component_guid,
+        factor_component_guid,
+        offset_component_guid,
+        multiplication_component_guid,
+        addition_component_guid,
+    )
+    for component_guid in component_guids:
+        if _raw_component_guid_leaks(
+            publication.row, component_guid
+        ) or _raw_component_guid_leaks(publication.response_payload, component_guid):
+            _write_json(
+                run_dir / "decision.json",
+                _decision_record(
+                    decision="publication_failed",
+                    reason="worker_publication_guid_leak",
+                    phase="worker_publication",
+                    canonical_evidence=canonical_evidence,
+                    scalar_runtime_ready=True,
+                    live_fixture_created=True,
+                    worker_publication_ran=True,
+                    component_guid=editable_component_guid,
+                ),
+            )
+            return run_dir
+
+    _write_json(run_dir / "worker_publication_row.json", publication.row)
+    worker_decision = _decision_from_publication(
+        publication.row, publication.response_payload
+    )
+    if worker_decision is not None:
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision=worker_decision["decision"],
+                reason=worker_decision["reason"],
+                phase=worker_decision["phase"],
+                canonical_evidence=canonical_evidence,
+                scalar_runtime_ready=True,
+                live_fixture_created=True,
+                worker_publication_ran=True,
+                component_guid=editable_component_guid,
+                extra={
+                    key: value
+                    for key, value in worker_decision.items()
+                    if key not in {"decision", "reason", "phase"}
+                },
+            ),
+        )
+        return run_dir
+
+    response_payload = publication.response_payload
+    _write_json(run_dir / "worker_action.json", response_payload)
+    action_context = _action_context(response_payload, excerpt_chars)
+    apply_result = apply_gh_scalar_value_action_to_node(
+        graph,
+        WORKER_NODE_ID,
+        action_id=str(response_payload.get("action_id") or ""),
+        action_input=response_payload.get("input"),
+        anchor_binding={"component_guid": editable_component_guid},
+    )
+    if apply_result.applied is not True:
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="rejected",
+                reason=f"worker_action_apply_failed:{apply_result.reason}",
+                phase="worker_action_apply",
+                canonical_evidence=canonical_evidence,
+                scalar_runtime_ready=True,
+                live_fixture_created=True,
+                worker_publication_ran=True,
+                component_guid=editable_component_guid,
+                extra=action_context,
+            ),
+        )
+        return run_dir
+
+    params = apply_result.graph.nodes[WORKER_NODE_ID].metadata[EXECUTION_PARAMS_KEY]
+    dispatch = asyncio.run(
+        _dispatch_set_value_solve_and_verify(
+            tool_executor=tool_executor,
+            editable_component_guid=str(params["guid"]),
+            addition_component_guid=addition_component_guid,
+            worker_value=params["value"],
+            expected_value=EXPECTED_OUTPUT_VALUE,
+        )
+    )
+    _write_json(run_dir / "live_set_value_summary.json", dispatch["live_set_value_summary"])
+    if dispatch["verify_scalar_output_summary"] is not None:
+        _write_json(
+            run_dir / "verify_scalar_output_summary.json",
+            dispatch["verify_scalar_output_summary"],
+        )
+    final = dispatch["decision"]
     _write_json(
         run_dir / "decision.json",
         _decision_record(
-            decision="runtime_ready",
-            reason="affine_scalar_runtime_ready",
-            phase="scalar_runtime_ready",
+            decision=final["decision"],
+            reason=final["reason"],
+            phase=final["phase"],
             canonical_evidence=canonical_evidence,
             scalar_runtime_ready=True,
             live_fixture_created=True,
-            component_guid=fixture["editable_component_guid"],
+            worker_publication_ran=True,
+            live_set_value_dispatched=True,
+            verify_scalar_output_ran=dispatch["verify_scalar_output_summary"] is not None,
+            component_guid=editable_component_guid,
+            extra={
+                **action_context,
+                **{
+                    key: value
+                    for key, value in final.items()
+                    if key not in {"decision", "reason", "phase"}
+                },
+            },
         ),
     )
     return run_dir
