@@ -46,6 +46,12 @@ class FakeToolExecutor:
         return value
 
 
+class FakePublication:
+    def __init__(self, row, response_payload=None):
+        self.row = row
+        self.response_payload = response_payload
+
+
 def _fixture_tool_responses():
     return {
         "gh_library": [
@@ -129,6 +135,61 @@ def _fixture_tool_responses():
             "data": {"data_count": 1, "preview": ["5.5"]},
         },
     }
+
+
+def _fixture_responses_for_success():
+    responses = _fixture_tool_responses()
+    responses.update(
+        {
+            "rhino_ping": "pong",
+            "gh_document_new": {"success": True, "data": {"created": True}},
+            "gh_set_value": {
+                "success": True,
+                "data": {"Guid": "EDITABLE-GUID-1", "Value": "3.0"},
+            },
+            "gh_inspect_output": [
+                {
+                    "success": True,
+                    "data": {"data_count": 1, "preview": ["5.5"]},
+                },
+                {
+                    "success": True,
+                    "data": {"data_count": 1, "preview": ["7.5"]},
+                },
+            ],
+        }
+    )
+    return responses
+
+
+def _pass1_missing_publication(excerpt='{"kind":"action_request"}'):
+    return FakePublication(
+        row={
+            "status": "pass1_decision_invalid",
+            "failure_reason": "pass1_missing_action_id",
+            "pass1_content_excerpt": excerpt,
+            "pass1_content_sha256": "sha256:pass1",
+            "observation_action_intent_anomaly": False,
+        },
+        response_payload=None,
+    )
+
+
+def _published_action(value=3.0):
+    return FakePublication(
+        row={
+            "status": "published",
+            "pass2_response_kind": "action_request",
+            "observation_action_intent_anomaly": False,
+        },
+        response_payload={
+            "schema": "rook.local_worker_turn_response:v1",
+            "kind": "action_request",
+            "action_id": "draft_gh_set_value_params",
+            "rationale": "Use the affine relationship to match the expected output.",
+            "input": {"value": value},
+        },
+    )
 
 
 def _run(coro):
@@ -398,3 +459,185 @@ def test_support_payload_adds_second_knowledge_packet_without_changing_allowed_a
     assert '"gh_set_value"' not in support_rendered
     assert '"tool"' not in support_rendered
     assert '"tool_name"' not in support_rendered
+
+
+def test_run_probe_supports_exact_skeletal_pass1_then_accepts(tmp_path):
+    executor = FakeToolExecutor(_fixture_responses_for_success())
+    captured_payloads = []
+    publications = [_pass1_missing_publication(), _published_action(3.0)]
+
+    def fake_publication_runner(payload, **_kwargs):
+        captured_payloads.append(payload)
+        return publications.pop(0)
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=fake_publication_runner,
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    rows = json.loads(
+        (run_dir / "worker_publication_rows.json").read_text(encoding="utf-8")
+    )
+    final_row = json.loads(
+        (run_dir / "worker_publication_row.json").read_text(encoding="utf-8")
+    )
+    support_context = json.loads(
+        (run_dir / "publication_support_context.json").read_text(encoding="utf-8")
+    )
+    worker_action = json.loads(
+        (run_dir / "worker_action.json").read_text(encoding="utf-8")
+    )
+
+    assert len(captured_payloads) == 2
+    assert decision["decision"] == "accepted"
+    assert decision["reason"] == "verify_scalar_output_succeeded"
+    assert decision["publication_support_attempted"] is True
+    assert decision["publication_support_count"] == 1
+    assert decision["support_eligible"] is True
+    assert decision["first_publication_status"] == "pass1_decision_invalid"
+    assert decision["first_publication_failure_reason"] == "pass1_missing_action_id"
+    assert decision["final_publication_status"] == "published"
+    assert decision["final_worker_response_kind"] == "action_request"
+    assert rows[0]["turn_index"] == 0
+    assert rows[0]["turn_role"] == "initial"
+    assert rows[0]["publication_support_context_present"] is False
+    assert rows[1]["turn_index"] == 1
+    assert rows[1]["turn_role"] == "publication_support"
+    assert rows[1]["publication_support_context_present"] is True
+    assert final_row == rows[1]["row"]
+    assert support_context["fields"]["previous_response_sha256"] == "sha256:pass1"
+    assert worker_action["input"] == {"value": 3.0}
+    assert "lm8i_publication_support_context" in json.dumps(
+        captured_payloads[1]["context"]["knowledge"],
+        sort_keys=True,
+    )
+
+
+@pytest.mark.parametrize(
+    "publication",
+    [
+        _pass1_missing_publication('{"kind":"action_request","action_id":""}'),
+        _pass1_missing_publication('{"kind":"action_request","action_id":"wrong"}'),
+        _pass1_missing_publication('{"kind":"action_request","input":{"value":3.0}}'),
+        _pass1_missing_publication('{"kind":"action_reques'),
+    ],
+)
+def test_run_probe_does_not_support_non_exact_pass1_rows(tmp_path, publication):
+    executor = FakeToolExecutor(_fixture_responses_for_success())
+    calls = []
+
+    def fake_publication_runner(payload, **_kwargs):
+        calls.append(payload)
+        return publication
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=fake_publication_runner,
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    rows = json.loads(
+        (run_dir / "worker_publication_rows.json").read_text(encoding="utf-8")
+    )
+    final_row = json.loads(
+        (run_dir / "worker_publication_row.json").read_text(encoding="utf-8")
+    )
+
+    assert len(calls) == 1
+    assert decision["decision"] == "publication_failed"
+    assert decision["publication_support_attempted"] is False
+    assert decision["publication_support_count"] == 0
+    assert decision["support_eligible"] is False
+    assert decision["support_not_attempted_reason"] in {
+        "pass1_excerpt_not_exact_skeletal_json",
+        "first_publication_not_exact_skeletal_missing_action_id",
+    }
+    assert len(rows) == 1
+    assert rows[0]["turn_role"] == "initial"
+    assert final_row == rows[0]["row"]
+    assert not (run_dir / "publication_support_context.json").exists()
+    assert not (run_dir / "worker_action.json").exists()
+
+
+def test_run_probe_support_repeat_missing_action_id_remains_publication_failed(tmp_path):
+    executor = FakeToolExecutor(_fixture_responses_for_success())
+    publications = [_pass1_missing_publication(), _pass1_missing_publication()]
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *_args, **_kwargs: publications.pop(0),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    rows = json.loads(
+        (run_dir / "worker_publication_rows.json").read_text(encoding="utf-8")
+    )
+
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "pass1_decision_invalid:pass1_missing_action_id"
+    assert decision["publication_support_attempted"] is True
+    assert decision["publication_support_count"] == 1
+    assert len(rows) == 2
+    assert not (run_dir / "worker_action.json").exists()
+
+
+def test_run_probe_support_non_action_maps_to_worker_declined(tmp_path):
+    executor = FakeToolExecutor(_fixture_responses_for_success())
+    publications = [
+        _pass1_missing_publication(),
+        FakePublication(
+            row={
+                "status": "published",
+                "pass2_response_kind": "observation",
+                "observation_action_intent_anomaly": False,
+            },
+            response_payload={
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "observation",
+                "message": "I will not act.",
+                "data": None,
+            },
+        ),
+    ]
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *_args, **_kwargs: publications.pop(0),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+
+    assert decision["decision"] == "worker_declined"
+    assert decision["reason"] == "worker_observed"
+    assert decision["publication_support_attempted"] is True
+    assert decision["final_worker_response_kind"] == "observation"
+    assert not (run_dir / "worker_action.json").exists()

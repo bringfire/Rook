@@ -1718,6 +1718,64 @@ def _publication_support_context(
     }
 
 
+def _annotate_publication_row(
+    row: Mapping[str, Any],
+    *,
+    turn_index: int,
+    turn_role: str,
+    publication_support_context_present: bool,
+) -> dict[str, Any]:
+    if turn_role not in {"initial", "publication_support"}:
+        raise ValueError("unsupported_publication_turn_role")
+    return {
+        "turn_index": turn_index,
+        "turn_role": turn_role,
+        "publication_support_context_present": publication_support_context_present,
+        "row": dict(row),
+    }
+
+
+def _publication_safety_failure(
+    publication: Any,
+    *,
+    component_guids: Sequence[str],
+) -> str | None:
+    if _hidden_marker_leaks(publication.row) or _hidden_marker_leaks(
+        publication.response_payload
+    ):
+        return "worker_publication_hidden_answer_leak"
+    for component_guid in component_guids:
+        if _raw_component_guid_leaks(
+            publication.row, component_guid
+        ) or _raw_component_guid_leaks(publication.response_payload, component_guid):
+            return "worker_publication_guid_leak"
+    return None
+
+
+def _support_metadata(
+    *,
+    attempted: bool,
+    count: int,
+    eligibility: Mapping[str, Any],
+    first_row: Mapping[str, Any],
+    final_row: Mapping[str, Any],
+    final_payload: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    return {
+        "publication_support_attempted": attempted,
+        "publication_support_count": count,
+        "support_eligible": bool(eligibility.get("support_eligible")),
+        "support_not_attempted_reason": eligibility.get("support_not_attempted_reason"),
+        "first_publication_status": first_row.get("status"),
+        "first_publication_failure_reason": first_row.get("failure_reason"),
+        "final_publication_status": final_row.get("status"),
+        "final_publication_failure_reason": final_row.get("failure_reason"),
+        "final_worker_response_kind": (
+            final_payload.get("kind") if isinstance(final_payload, Mapping) else None
+        ),
+    }
+
+
 def _action_context(
     response_payload: Mapping[str, Any], excerpt_chars: int
 ) -> dict[str, Any]:
@@ -1901,7 +1959,7 @@ def _run_probe(
     )
     _write_json_value(run_dir / "worker_request_payload.json", request_payload)
 
-    publication = publisher(
+    first_publication = publisher(
         request_payload,
         model=model,
         endpoint=endpoint,
@@ -1909,14 +1967,23 @@ def _run_probe(
         timeout_s=timeout_s,
         excerpt_chars=excerpt_chars,
     )
-    if _hidden_marker_leaks(publication.row) or _hidden_marker_leaks(
-        publication.response_payload
-    ):
+    component_guids = (
+        editable_component_guid,
+        factor_component_guid,
+        offset_component_guid,
+        multiplication_component_guid,
+        addition_component_guid,
+    )
+    safety_failure = _publication_safety_failure(
+        first_publication,
+        component_guids=component_guids,
+    )
+    if safety_failure is not None:
         _write_json(
             run_dir / "decision.json",
             _decision_record(
                 decision="publication_failed",
-                reason="worker_publication_hidden_answer_leak",
+                reason=safety_failure,
                 phase="worker_publication",
                 canonical_evidence=canonical_evidence,
                 scalar_runtime_ready=True,
@@ -1927,35 +1994,90 @@ def _run_probe(
         )
         return run_dir
 
-    component_guids = (
-        editable_component_guid,
-        factor_component_guid,
-        offset_component_guid,
-        multiplication_component_guid,
-        addition_component_guid,
-    )
-    for component_guid in component_guids:
-        if _raw_component_guid_leaks(
-            publication.row, component_guid
-        ) or _raw_component_guid_leaks(publication.response_payload, component_guid):
+    publication_rows = [
+        _annotate_publication_row(
+            first_publication.row,
+            turn_index=0,
+            turn_role="initial",
+            publication_support_context_present=False,
+        )
+    ]
+    eligibility = _publication_support_eligibility(first_publication.row)
+    support_attempted = False
+    support_count = 0
+    final_publication = first_publication
+
+    if eligibility["support_eligible"] is True:
+        support_context = _publication_support_context(
+            first_publication.row,
+            excerpt_chars=excerpt_chars,
+        )
+        _write_json(run_dir / "publication_support_context.json", support_context)
+        support_payload = _build_local_turn_payload(
+            graph=graph,
+            packet=runtime["packet"],
+            worker_visible=runtime["worker_visible"],
+            publication_support_context=support_context,
+        )
+        support_attempted = True
+        support_count = 1
+        final_publication = publisher(
+            support_payload,
+            model=model,
+            endpoint=endpoint,
+            temperature=temperature,
+            timeout_s=timeout_s,
+            excerpt_chars=excerpt_chars,
+        )
+        safety_failure = _publication_safety_failure(
+            final_publication,
+            component_guids=component_guids,
+        )
+        if safety_failure is not None:
+            _write_json_value(run_dir / "worker_publication_rows.json", publication_rows)
             _write_json(
                 run_dir / "decision.json",
                 _decision_record(
                     decision="publication_failed",
-                    reason="worker_publication_guid_leak",
+                    reason=safety_failure,
                     phase="worker_publication",
                     canonical_evidence=canonical_evidence,
                     scalar_runtime_ready=True,
                     live_fixture_created=True,
                     worker_publication_ran=True,
                     component_guid=editable_component_guid,
+                    extra=_support_metadata(
+                        attempted=support_attempted,
+                        count=support_count,
+                        eligibility=eligibility,
+                        first_row=first_publication.row,
+                        final_row=final_publication.row,
+                        final_payload=final_publication.response_payload,
+                    ),
                 ),
             )
             return run_dir
+        publication_rows.append(
+            _annotate_publication_row(
+                final_publication.row,
+                turn_index=1,
+                turn_role="publication_support",
+                publication_support_context_present=True,
+            )
+        )
 
-    _write_json(run_dir / "worker_publication_row.json", publication.row)
+    _write_json_value(run_dir / "worker_publication_rows.json", publication_rows)
+    _write_json(run_dir / "worker_publication_row.json", final_publication.row)
+    support_extra = _support_metadata(
+        attempted=support_attempted,
+        count=support_count,
+        eligibility=eligibility,
+        first_row=first_publication.row,
+        final_row=final_publication.row,
+        final_payload=final_publication.response_payload,
+    )
     worker_decision = _decision_from_publication(
-        publication.row, publication.response_payload
+        final_publication.row, final_publication.response_payload
     )
     if worker_decision is not None:
         _write_json(
@@ -1970,15 +2092,18 @@ def _run_probe(
                 worker_publication_ran=True,
                 component_guid=editable_component_guid,
                 extra={
-                    key: value
-                    for key, value in worker_decision.items()
-                    if key not in {"decision", "reason", "phase"}
+                    **support_extra,
+                    **{
+                        key: value
+                        for key, value in worker_decision.items()
+                        if key not in {"decision", "reason", "phase"}
+                    },
                 },
             ),
         )
         return run_dir
 
-    response_payload = publication.response_payload
+    response_payload = final_publication.response_payload
     publication_failure_reason = _published_action_payload_failure_reason(
         response_payload
     )
@@ -1994,6 +2119,7 @@ def _run_probe(
                 live_fixture_created=True,
                 worker_publication_ran=True,
                 component_guid=editable_component_guid,
+                extra=support_extra,
             ),
         )
         return run_dir
@@ -2018,7 +2144,10 @@ def _run_probe(
                 live_fixture_created=True,
                 worker_publication_ran=True,
                 component_guid=editable_component_guid,
-                extra=action_context,
+                extra={
+                    **support_extra,
+                    **action_context,
+                },
             ),
         )
         return run_dir
@@ -2054,6 +2183,7 @@ def _run_probe(
             verify_scalar_output_ran=dispatch["verify_scalar_output_summary"] is not None,
             component_guid=editable_component_guid,
             extra={
+                **support_extra,
                 **action_context,
                 **{
                     key: value
