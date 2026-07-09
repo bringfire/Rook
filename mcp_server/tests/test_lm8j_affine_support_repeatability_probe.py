@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import importlib.util
 import sys
 import subprocess
@@ -584,3 +585,251 @@ def test_build_summary_counts_support_and_worker_denominators():
     assert summary["worker_action_values"] == [3.0, 3.0]
     assert summary["verifier_attempt_counts"] == [1, 2]
     assert summary["observed_output_values_after"] == [7.5, 7.5]
+
+
+def test_write_json_and_append_jsonl_are_stable_and_structured(tmp_path: Path):
+    json_path = tmp_path / "artifact.json"
+    jsonl_path = tmp_path / "artifact.jsonl"
+
+    PROBE._write_json(json_path, {"b": 2, "a": 1})
+    PROBE._append_jsonl(jsonl_path, {"b": 2, "a": 1})
+    PROBE._append_jsonl(jsonl_path, {"c": 3})
+
+    assert json_path.read_text(encoding="utf-8") == '{\n  "a": 1,\n  "b": 2\n}\n'
+    assert jsonl_path.read_text(encoding="utf-8").splitlines() == [
+        '{"a": 1, "b": 2}',
+        '{"c": 3}',
+    ]
+
+
+class FakeLm8iRunner:
+    def __init__(self, child_decisions: list[dict]):
+        self.child_decisions = list(child_decisions)
+        self.calls: list[dict] = []
+
+    def __call__(self, command, *, cwd, capture_output, text, timeout):
+        self.calls.append(
+            {
+                "command": command,
+                "cwd": cwd,
+                "capture_output": capture_output,
+                "text": text,
+                "timeout": timeout,
+            }
+        )
+        run_dir = Path(command[command.index("--run-dir") + 1])
+        decision = self.child_decisions.pop(0)
+        child = run_dir / f"lm8i-child-{len(self.calls):03d}"
+        child.mkdir(parents=True)
+        (child / "decision.json").write_text(
+            json.dumps(decision, sort_keys=True),
+            encoding="utf-8",
+        )
+        if decision.get("worker_action_value") is not None:
+            (child / "worker_action.json").write_text(
+                json.dumps({"input": {"value": decision["worker_action_value"]}}),
+                encoding="utf-8",
+            )
+        if decision.get("verifier_attempt_count") is not None:
+            (child / "verify_scalar_output_summary.json").write_text(
+                json.dumps(
+                    {
+                        "attempt_count": decision["verifier_attempt_count"],
+                        "observed_output_value": decision.get("observed_output_after"),
+                    }
+                ),
+                encoding="utf-8",
+            )
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout=f"run_dir={child}",
+            stderr="",
+        )
+
+
+def test_run_probe_writes_manifest_attempts_and_summary(tmp_path: Path):
+    runner = FakeLm8iRunner(
+        [
+            {
+                "decision": "accepted",
+                "reason": "verify_scalar_output_succeeded",
+                "worker_publication_ran": True,
+                "live_fixture_created": True,
+                "live_set_value_dispatched": True,
+                "verify_scalar_output_ran": True,
+                "scalar_runtime_ready": True,
+                "observed_output_after": 7.5,
+                "publication_support_attempted": False,
+                "publication_support_count": 0,
+                "support_eligible": False,
+                "worker_action_value": 3.0,
+                "verifier_attempt_count": 1,
+            },
+            {
+                "decision": "publication_failed",
+                "reason": "pass1_decision_invalid:pass1_missing_action_id",
+                "worker_publication_ran": True,
+                "publication_support_attempted": True,
+                "publication_support_count": 1,
+                "support_eligible": True,
+            },
+        ]
+    )
+
+    run_dir = PROBE._run_probe(
+        attempts=2,
+        model="gemma4:12b-it-qat",
+        run_root=tmp_path,
+        attempt_timeout_s=600,
+        run_subprocess=runner,
+    )
+
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    rows = [
+        json.loads(line)
+        for line in (run_dir / "attempts.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+
+    assert manifest["attempts"] == 2
+    assert manifest["attempt_timeout_s"] == 600
+    assert manifest["canonical_evidence"] is False
+    assert [row["terminal_category"] for row in rows] == [
+        "accepted",
+        "publication_failed",
+    ]
+    assert rows[0]["worker_action_value"] == 3.0
+    assert rows[0]["support_recovered"] is False
+    assert rows[1]["publication_support_attempted"] is True
+    assert rows[1]["support_recovered"] is False
+    assert summary["accepted_count"] == 1
+    assert summary["publication_failed_count"] == 1
+    assert summary["attempt_timeout_s"] == 600
+    assert summary["worker_reached_count"] == 2
+    assert summary["publication_support_attempted_count"] == 1
+    assert summary["publication_support_recovered_count"] == 0
+    assert summary["accepted_without_support_count"] == 1
+    assert summary["worker_action_values"] == [3.0]
+    assert summary["verifier_attempt_counts"] == [1]
+    assert summary["observed_output_values_after"] == [7.5]
+    assert len(runner.calls) == 2
+    assert all(call["timeout"] == 600 for call in runner.calls)
+    assert all(call["capture_output"] is True for call in runner.calls)
+    assert all(call["text"] is True for call in runner.calls)
+
+
+def test_run_probe_continues_after_wrapper_error(tmp_path: Path):
+    calls = []
+
+    def fake_runner(command, *, cwd, capture_output, text, timeout):
+        calls.append(command)
+        run_dir = Path(command[command.index("--run-dir") + 1])
+        if len(calls) == 1:
+            return subprocess.CompletedProcess(command, returncode=0, stdout="", stderr="")
+        child = run_dir / "lm8i-child-002"
+        child.mkdir(parents=True)
+        (child / "decision.json").write_text(
+            json.dumps({"decision": "accepted", "worker_publication_ran": True}),
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, returncode=0, stdout="", stderr="")
+
+    run_dir = PROBE._run_probe(
+        attempts=2,
+        model="gemma4:12b-it-qat",
+        run_root=tmp_path,
+        attempt_timeout_s=600,
+        run_subprocess=fake_runner,
+    )
+    rows = [
+        json.loads(line)
+        for line in (run_dir / "attempts.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert [row["terminal_category"] for row in rows] == ["wrapper_error", "accepted"]
+    assert rows[0]["failure_reason"] == "child_run_dir_missing"
+    assert len(calls) == 2
+
+
+def test_run_probe_counts_support_recovery_only_when_worker_action_exists(tmp_path: Path):
+    runner = FakeLm8iRunner(
+        [
+            {
+                "decision": "accepted",
+                "reason": "verify_scalar_output_succeeded",
+                "worker_publication_ran": True,
+                "publication_support_attempted": True,
+                "publication_support_count": 1,
+                "support_eligible": True,
+                "final_publication_status": "published",
+                "final_worker_response_kind": "action_request",
+                "worker_action_value": 3.0,
+            },
+            {
+                "decision": "publication_failed",
+                "reason": "worker_action_apply_failed:invalid_input",
+                "worker_publication_ran": True,
+                "publication_support_attempted": True,
+                "publication_support_count": 1,
+                "support_eligible": True,
+                "final_publication_status": "published",
+                "final_worker_response_kind": "action_request",
+            },
+        ]
+    )
+
+    run_dir = PROBE._run_probe(
+        attempts=2,
+        model="gemma4:12b-it-qat",
+        run_root=tmp_path,
+        attempt_timeout_s=600,
+        run_subprocess=runner,
+    )
+    rows = [
+        json.loads(line)
+        for line in (run_dir / "attempts.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+
+    assert rows[0]["support_recovered"] is True
+    assert rows[1]["support_recovered"] is False
+    assert summary["publication_support_attempted_count"] == 2
+    assert summary["publication_support_recovered_count"] == 1
+    assert summary["support_accepted_count"] == 1
+
+
+def test_main_prints_run_dir_and_returns_zero(monkeypatch, tmp_path: Path, capsys):
+    def fake_run_probe(**kwargs):
+        run_dir = tmp_path / "lm8j-demo"
+        run_dir.mkdir()
+        (run_dir / "summary.json").write_text(
+            json.dumps({"accepted_count": 1, "scheduled_attempts": 1}),
+            encoding="utf-8",
+        )
+        return run_dir
+
+    monkeypatch.setattr(PROBE, "_run_probe", fake_run_probe)
+
+    assert PROBE.main(["--attempts", "1", "--run-dir", str(tmp_path)]) == 0
+    output = capsys.readouterr().out
+    assert "LM8J affine support repeatability probe complete" in output
+    assert "run_dir=" in output
+
+
+def test_lm8j_source_does_not_import_lm8i_or_live_tooling():
+    source = inspect.getsource(PROBE)
+
+    forbidden = (
+        "import lm8i_affine_publication_shape_support_probe",
+        "from lm8i_affine_publication_shape_support_probe",
+        "_mcp_tool_executor",
+        '"rhino_ping"',
+        '"gh_document_new"',
+        '"gh_set_value"',
+        '"gh_inspect_output"',
+        "run_two_pass_worker_publication",
+        "apply_gh_scalar_value_action_to_node",
+    )
+    for fragment in forbidden:
+        assert fragment not in source

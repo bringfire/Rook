@@ -560,3 +560,114 @@ def _build_summary(
         "verifier_attempt_counts": _int_values(rows, "verifier_attempt_count"),
         "observed_output_values_after": _number_values(rows, "observed_output_after"),
     }
+
+
+def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(dict(payload), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _append_jsonl(path: Path, payload: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(dict(payload), sort_keys=True) + "\n")
+
+
+def _run_probe(
+    *,
+    attempts: int,
+    model: str,
+    run_root: str | Path,
+    attempt_timeout_s: int,
+    run_subprocess=None,
+) -> Path:
+    runner = run_subprocess or subprocess.run
+    run_dir = _new_run_dir(run_root)
+    lm8i_runs_dir = run_dir / "lm8i_runs"
+    lm8i_runs_dir.mkdir(parents=True, exist_ok=True)
+
+    _write_json(
+        run_dir / "manifest.json",
+        _manifest(
+            attempts=attempts,
+            model=model,
+            attempt_timeout_s=attempt_timeout_s,
+        ),
+    )
+
+    rows: list[dict[str, Any]] = []
+    for attempt_index in range(1, attempts + 1):
+        before = {path for path in lm8i_runs_dir.glob("lm8i-*") if path.is_dir()}
+        command = _lm8i_command(model=model, lm8i_runs_dir=lm8i_runs_dir)
+        try:
+            completed = runner(
+                command,
+                cwd=_REPO_ROOT,
+                capture_output=True,
+                text=True,
+                timeout=attempt_timeout_s,
+            )
+        except subprocess.TimeoutExpired as exc:
+            child_run_dirs = _discover_child_run_dirs(lm8i_runs_dir, before)
+            row = _timeout_row(
+                attempt_index=attempt_index,
+                exc=exc,
+                child_run_dirs=child_run_dirs,
+            )
+        except Exception as exc:
+            child_run_dirs = _discover_child_run_dirs(lm8i_runs_dir, before)
+            row = _subprocess_error_row(
+                attempt_index=attempt_index,
+                exc=exc,
+                child_run_dirs=child_run_dirs,
+            )
+        else:
+            child_run_dirs = _discover_child_run_dirs(lm8i_runs_dir, before)
+            row = _row_from_completed_lm8i(
+                attempt_index=attempt_index,
+                completed=completed,
+                child_run_dirs=child_run_dirs,
+            )
+        _copy_child_artifact_summaries(row)
+        _apply_leak_scan(row)
+        rows.append(row)
+        _append_jsonl(run_dir / "attempts.jsonl", row)
+
+    _write_json(
+        run_dir / "summary.json",
+        _build_summary(
+            rows,
+            attempts=attempts,
+            model=model,
+            attempt_timeout_s=attempt_timeout_s,
+        ),
+    )
+    return run_dir
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _args(argv)
+    run_dir = _run_probe(
+        attempts=args.attempts,
+        model=args.model,
+        run_root=args.run_dir,
+        attempt_timeout_s=args.attempt_timeout_s,
+    )
+    summary_path = run_dir / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    print(
+        "LM8J affine support repeatability probe complete "
+        f"run_dir={run_dir} "
+        f"accepted={summary.get('accepted_count')} "
+        f"scheduled={summary.get('scheduled_attempts')} "
+        f"support_attempted={summary.get('publication_support_attempted_count')} "
+        f"support_recovered={summary.get('publication_support_recovered_count')}"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
