@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import subprocess
 import sys
 from collections import Counter
@@ -28,6 +29,7 @@ LEAK_MARKERS = (
     "BindStepSpec.base_params",
     "repair_same_component.bind.base_params",
 )
+LEAK_SCAN_EXTENSIONS = (".json", ".jsonl", ".txt", ".md", ".log")
 TERMINAL_CATEGORIES = (
     "accepted",
     "rejected",
@@ -334,6 +336,33 @@ def _copy_decision_metadata(row: dict[str, Any], decision: Mapping[str, Any]) ->
         row[key] = value if isinstance(value, str) else None
 
 
+def _worker_action_value_from_decision_excerpt(
+    decision: Mapping[str, Any],
+) -> int | float | None:
+    excerpt = decision.get("worker_action_input_excerpt")
+    if not isinstance(excerpt, str):
+        return None
+    try:
+        payload = json.loads(excerpt)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+
+    candidate: object = None
+    nested_input = payload.get("input")
+    if isinstance(nested_input, Mapping):
+        candidate = nested_input.get("value")
+    if candidate is None:
+        candidate = payload.get("value")
+
+    if not isinstance(candidate, (int, float)) or isinstance(candidate, bool):
+        return None
+    if isinstance(candidate, float) and not math.isfinite(candidate):
+        return None
+    return candidate
+
+
 def _copy_decision_identity(row: dict[str, Any], decision: Mapping[str, Any]) -> None:
     decision_value = decision.get("decision")
     reason_value = decision.get("reason")
@@ -408,6 +437,12 @@ def _copy_child_artifact_summaries(row: dict[str, Any]) -> None:
             value = action_input.get("value")
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 row["worker_action_value"] = value
+    elif row.get("worker_action_value") is None:
+        decision = _read_json_mapping(run_dir / "decision.json")
+        if decision is not None:
+            value = _worker_action_value_from_decision_excerpt(decision)
+            if value is not None:
+                row["worker_action_value"] = value
 
     verify_summary = _read_json_mapping(run_dir / "verify_scalar_output_summary.json")
     if verify_summary is not None:
@@ -424,7 +459,9 @@ def _scan_leak_markers(run_dir: Path) -> list[dict[str, Any]]:
         return []
 
     matches: list[dict[str, Any]] = []
-    for path in sorted(run_dir.rglob("*.json"), key=lambda item: str(item)):
+    for path in sorted(run_dir.rglob("*"), key=lambda item: str(item)):
+        if not path.is_file() or path.suffix.lower() not in LEAK_SCAN_EXTENSIONS:
+            continue
         try:
             text = path.read_text(encoding="utf-8")
         except OSError:

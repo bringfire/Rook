@@ -415,6 +415,61 @@ def test_copy_child_artifact_summaries_reads_worker_verifier_and_support_recover
     assert row["support_recovered"] is True
 
 
+def test_copy_child_artifact_summaries_uses_worker_action_excerpt_when_no_worker_action_file(tmp_path: Path):
+    child = tmp_path / "lm8i-child"
+    child.mkdir()
+    _write_child_decision(
+        child,
+        {
+            "decision": "accepted",
+            "reason": "verify_scalar_output_succeeded",
+            "worker_action_input_excerpt": (
+                '{"schema":"rook.worker_action:v1","kind":"action_request",'
+                '"action_id":"draft_gh_set_value_params","input":{"value":3.0}}'
+            ),
+        },
+    )
+    row = {
+        "lm8i_run_dir": str(child),
+        "publication_support_attempted": False,
+        "support_recovered": False,
+        "worker_action_value": None,
+    }
+
+    PROBE._copy_child_artifact_summaries(row)
+
+    assert row["worker_action_value"] == 3.0
+    assert row["support_recovered"] is False
+
+
+def test_support_recovered_stays_false_when_worker_action_missing_but_excerpt_present(tmp_path: Path):
+    child = tmp_path / "lm8i-child"
+    child.mkdir()
+    _write_child_decision(
+        child,
+        {
+            "decision": "publication_failed",
+            "reason": "worker_action_apply_failed:invalid_input",
+            "final_publication_status": "published",
+            "final_worker_response_kind": "action_request",
+            "worker_action_input_excerpt": '{"value":3.0}',
+        },
+    )
+    row = {
+        "lm8i_run_dir": str(child),
+        "publication_support_attempted": True,
+        "final_publication_status": "published",
+        "final_worker_response_kind": "action_request",
+        "support_recovered": False,
+        "worker_action_value": None,
+    }
+
+    PROBE._copy_child_artifact_summaries(row)
+
+    assert row["worker_action_value"] == 3.0
+    assert row["support_recovered"] is False
+
+
 def test_support_recovered_requires_worker_action_receipt(tmp_path: Path):
     child = tmp_path / "lm8i-child"
     child.mkdir()
@@ -463,6 +518,10 @@ def test_scan_and_apply_leak_markers_are_report_only(tmp_path: Path):
         ),
         encoding="utf-8",
     )
+    (child / "notes.txt").write_text(
+        "repair_same_component.bind.base_params",
+        encoding="utf-8",
+    )
     row = {
         "lm8i_run_dir": str(child),
         "terminal_category": "accepted",
@@ -475,13 +534,14 @@ def test_scan_and_apply_leak_markers_are_report_only(tmp_path: Path):
     assert matches == [
         {"path": str(child / "notes.json"), "marker": "PROBE_REPAIR_CODE"},
         {"path": str(child / "notes.json"), "marker": "A = 42.0"},
+        {"path": str(child / "notes.txt"), "marker": "repair_same_component.bind.base_params"},
     ]
 
     PROBE._apply_leak_scan(row)
 
     assert row["terminal_category"] == "accepted"
     assert row["leak_check_performed"] is True
-    assert row["leak_marker_match_count"] == 2
+    assert row["leak_marker_match_count"] == 3
     assert row["leak_marker_matches"] == matches
 
 
