@@ -277,6 +277,8 @@ def _read_decision(path: Path) -> tuple[dict[str, Any] | None, str | None]:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return None, "lm8i_invalid_decision_json"
+    except UnicodeDecodeError:
+        return None, "lm8i_unreadable_decision_json:UnicodeDecodeError"
     except OSError as exc:
         return None, f"lm8i_unreadable_decision_json:{exc.__class__.__name__}"
     if not isinstance(payload, dict):

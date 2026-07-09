@@ -266,6 +266,12 @@ def test_read_decision_handles_missing_invalid_and_non_mapping(tmp_path: Path):
     assert invalid is None
     assert invalid_error == "lm8i_invalid_decision_json"
 
+    invalid_utf8_path = tmp_path / "invalid_utf8.json"
+    invalid_utf8_path.write_bytes(b"{\"decision\":\"accepted\"\xff")
+    invalid_utf8, invalid_utf8_error = PROBE._read_decision(invalid_utf8_path)
+    assert invalid_utf8 is None
+    assert invalid_utf8_error == "lm8i_unreadable_decision_json:UnicodeDecodeError"
+
     list_path = tmp_path / "list.json"
     list_path.write_text("[]", encoding="utf-8")
     non_mapping, non_mapping_error = PROBE._read_decision(list_path)
@@ -392,6 +398,29 @@ def test_row_from_completed_nonzero_returncode_is_wrapper_error(tmp_path: Path):
     assert row["worker_publication_ran"] is True
     assert row["stdout_excerpt"] == "partial stdout"
     assert row["stderr_excerpt"] == "partial stderr"
+
+
+def test_row_from_completed_with_unreadable_decision_json_is_wrapper_error(tmp_path: Path):
+    child = tmp_path / "lm8i-child"
+    child.mkdir()
+    (child / "decision.json").write_bytes(b"{\"decision\":\"accepted\"\xff")
+
+    completed = subprocess.CompletedProcess(
+        args=["python"],
+        returncode=0,
+        stdout="run_dir=child decision=accepted",
+        stderr="",
+    )
+
+    row = PROBE._row_from_completed_lm8i(
+        attempt_index=1,
+        completed=completed,
+        child_run_dirs=[child],
+    )
+
+    assert row["terminal_category"] == "wrapper_error"
+    assert row["failure_reason"] == "lm8i_unreadable_decision_json:UnicodeDecodeError"
+    assert row["lm8i_run_dir"] == str(child)
 
 
 def test_copy_child_artifact_summaries_reads_worker_verifier_and_support_recovery(tmp_path: Path):
