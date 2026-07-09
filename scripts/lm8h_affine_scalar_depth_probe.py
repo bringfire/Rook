@@ -983,7 +983,15 @@ async def _create_affine_fixture(
         tool_name="gh_inspect_output",
         args={"guid": addition_guid, "param": "R"},
     )
-    observed_output_value = _inspect_output_scalar_value(inspect_result)
+    try:
+        observed_output_value = _inspect_output_scalar_value(inspect_result)
+    except ValueError as exc:
+        _raise_fixture_failure(
+            step="gh_inspect_output",
+            tool_name="gh_inspect_output",
+            failure_reason=_fixture_reason_from_exception(exc),
+            result=inspect_result,
+        )
     if abs(float(observed_output_value) - INITIAL_OBSERVED_OUTPUT) > SCALAR_TOLERANCE:
         _raise_fixture_failure(
             step="gh_inspect_output",

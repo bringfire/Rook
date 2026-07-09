@@ -448,6 +448,46 @@ def test_run_probe_writes_fixture_failure_summary_for_projection_invariant_misma
     assert summary["failure_reason"] == "projection_invariant_mismatch"
 
 
+def test_run_probe_writes_fixture_failure_summary_for_invalid_initial_inspect_output(
+    tmp_path,
+):
+    responses = _fixture_responses_for_success()
+    responses["gh_inspect_output"][0] = {
+        "success": True,
+        "data": {"data_count": 0, "preview": []},
+    }
+    executor = FakeToolExecutor(responses)
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *args, **kwargs: _published_action(3.0),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    summary = json.loads(
+        (run_dir / "fixture_failure_summary.json").read_text(encoding="utf-8")
+    )
+
+    assert decision["decision"] == "gate_failed"
+    assert decision["reason"] == "affine_fixture_failed:inspect_output_scalar_preview_invalid"
+    assert decision["worker_publication_ran"] is False
+    assert summary["step"] == "gh_inspect_output"
+    assert summary["tool_name"] == "gh_inspect_output"
+    assert summary["failure_reason"] == "inspect_output_scalar_preview_invalid"
+    assert summary["result_shape"]["type"] == "object"
+    assert summary["result_shape"]["data"]["type"] == "object"
+    assert not (run_dir / "worker_publication_row.json").exists()
+    assert not (run_dir / "worker_action.json").exists()
+    assert all(tool_name != "gh_set_value" for tool_name, _args in executor.calls)
+
+
 def _valid_affine_fixture():
     return {
         "editable_component_guid": "EDITABLE-GUID-1",
