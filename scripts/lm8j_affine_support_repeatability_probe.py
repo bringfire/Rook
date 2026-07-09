@@ -256,3 +256,163 @@ def _subprocess_error_row(
         }
     )
     return row
+
+
+def _read_json_mapping(path: Path) -> Mapping[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return payload if isinstance(payload, Mapping) else None
+
+
+def _read_decision(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+    if not path.exists():
+        return None, "lm8i_missing_decision_json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None, "lm8i_invalid_decision_json"
+    except OSError as exc:
+        return None, f"lm8i_unreadable_decision_json:{exc.__class__.__name__}"
+    if not isinstance(payload, dict):
+        return None, "lm8i_decision_not_mapping"
+    return payload, None
+
+
+def _classify_decision(decision: Mapping[str, Any]) -> tuple[str, str | None]:
+    value = decision.get("decision")
+    if not isinstance(value, str):
+        return "wrapper_error", "lm8i_missing_decision"
+    if value not in TERMINAL_CATEGORIES:
+        return "wrapper_error", f"lm8i_unknown_decision:{value}"
+    if value == "wrapper_error":
+        return "wrapper_error", "lm8i_unexpected_wrapper_error_decision"
+    return value, None
+
+
+def _copy_bool(row: dict[str, Any], decision: Mapping[str, Any], key: str) -> None:
+    value = decision.get(key)
+    if isinstance(value, bool):
+        row[key] = value
+
+
+def _copy_decision_metadata(row: dict[str, Any], decision: Mapping[str, Any]) -> None:
+    for key in (
+        "worker_publication_ran",
+        "live_fixture_created",
+        "live_set_value_dispatched",
+        "verify_scalar_output_ran",
+        "publication_support_attempted",
+        "support_eligible",
+    ):
+        _copy_bool(row, decision, key)
+
+    scalar_ready = decision.get("scalar_runtime_ready")
+    if isinstance(scalar_ready, bool) or scalar_ready is None:
+        row["scalar_runtime_ready"] = scalar_ready
+
+    support_count = decision.get("publication_support_count")
+    if isinstance(support_count, int) and not isinstance(support_count, bool):
+        row["publication_support_count"] = support_count
+
+    observed = decision.get("observed_output_after")
+    if isinstance(observed, (int, float)) and not isinstance(observed, bool):
+        row["observed_output_after"] = observed
+
+    for key in (
+        "support_not_attempted_reason",
+        "first_publication_status",
+        "first_publication_failure_reason",
+        "final_publication_status",
+        "final_publication_failure_reason",
+        "final_worker_response_kind",
+    ):
+        value = decision.get(key)
+        row[key] = value if isinstance(value, str) else None
+
+
+def _copy_decision_identity(row: dict[str, Any], decision: Mapping[str, Any]) -> None:
+    decision_value = decision.get("decision")
+    reason_value = decision.get("reason")
+    row["lm8i_decision"] = decision_value if isinstance(decision_value, str) else None
+    row["lm8i_reason"] = reason_value if isinstance(reason_value, str) else None
+    if row["lm8i_decision"] == "gate_failed":
+        row["gate_failure_reason"] = row["lm8i_reason"]
+    if row["lm8i_decision"] == "preflight_failed":
+        row["preflight_failure_reason"] = row["lm8i_reason"]
+    _copy_decision_metadata(row, decision)
+
+
+def _row_from_completed_lm8i(
+    *,
+    attempt_index: int,
+    completed: subprocess.CompletedProcess,
+    child_run_dirs: Sequence[Path],
+) -> dict[str, Any]:
+    row = _base_attempt_row(attempt_index=attempt_index)
+    child_run_dir, child_error = _single_child_dir_error(child_run_dirs)
+    row.update(
+        {
+            "lm8i_invoked": True,
+            "lm8i_returncode": completed.returncode,
+            "lm8i_run_dir": str(child_run_dir) if child_run_dir is not None else None,
+            "stdout_excerpt": _excerpt(_completed_text(completed.stdout)),
+            "stderr_excerpt": _excerpt(_completed_text(completed.stderr)),
+        }
+    )
+    if completed.returncode != 0:
+        if child_run_dir is not None:
+            decision, read_error = _read_decision(child_run_dir / "decision.json")
+            if read_error is None and decision is not None:
+                _copy_decision_identity(row, decision)
+        row["terminal_category"] = "wrapper_error"
+        row["failure_reason"] = f"lm8i_nonzero_returncode:{completed.returncode}"
+        row["child_run_dir_error"] = child_error
+        return row
+    if child_error is not None:
+        row["terminal_category"] = "wrapper_error"
+        row["failure_reason"] = child_error
+        return row
+
+    assert child_run_dir is not None
+    decision, read_error = _read_decision(child_run_dir / "decision.json")
+    if read_error is not None:
+        row["terminal_category"] = "wrapper_error"
+        row["failure_reason"] = read_error
+        return row
+
+    assert decision is not None
+    terminal_category, failure_reason = _classify_decision(decision)
+    row["terminal_category"] = terminal_category
+    row["failure_reason"] = failure_reason
+    _copy_decision_identity(row, decision)
+    return row
+
+
+def _copy_child_artifact_summaries(row: dict[str, Any]) -> None:
+    run_dir_value = row.get("lm8i_run_dir")
+    if not run_dir_value:
+        return
+
+    run_dir = Path(str(run_dir_value))
+    worker_action = _read_json_mapping(run_dir / "worker_action.json")
+    if worker_action is not None:
+        action_input = worker_action.get("input")
+        if isinstance(action_input, Mapping):
+            value = action_input.get("value")
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                row["worker_action_value"] = value
+        if row.get("publication_support_attempted") is True:
+            row["support_recovered"] = True
+
+    verify_summary = _read_json_mapping(run_dir / "verify_scalar_output_summary.json")
+    if verify_summary is not None:
+        attempt_count = verify_summary.get("attempt_count")
+        if isinstance(attempt_count, int) and not isinstance(attempt_count, bool):
+            row["verifier_attempt_count"] = attempt_count
+        observed_value = verify_summary.get("observed_output_value")
+        if isinstance(observed_value, (int, float)) and not isinstance(observed_value, bool):
+            row["observed_output_after"] = observed_value

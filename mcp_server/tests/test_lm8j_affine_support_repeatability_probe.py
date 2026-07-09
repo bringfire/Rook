@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import subprocess
+import json
 from pathlib import Path
 
 import pytest
@@ -243,3 +244,187 @@ def test_timeout_and_subprocess_error_rows_preserve_child_dir_when_present(tmp_p
     assert error_row["failure_reason"] == "lm8i_subprocess_error:OSError"
     assert error_row["child_run_dir_error"] is None
     assert error_row["lm8i_run_dir"] == str(child)
+
+
+def _write_child_decision(child: Path, payload: dict) -> None:
+    child.mkdir(parents=True, exist_ok=True)
+    (child / "decision.json").write_text(
+        json.dumps(payload, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
+def test_read_decision_handles_missing_invalid_and_non_mapping(tmp_path: Path):
+    missing, missing_error = PROBE._read_decision(tmp_path / "missing.json")
+    assert missing is None
+    assert missing_error == "lm8i_missing_decision_json"
+
+    invalid_path = tmp_path / "invalid.json"
+    invalid_path.write_text("{bad", encoding="utf-8")
+    invalid, invalid_error = PROBE._read_decision(invalid_path)
+    assert invalid is None
+    assert invalid_error == "lm8i_invalid_decision_json"
+
+    list_path = tmp_path / "list.json"
+    list_path.write_text("[]", encoding="utf-8")
+    non_mapping, non_mapping_error = PROBE._read_decision(list_path)
+    assert non_mapping is None
+    assert non_mapping_error == "lm8i_decision_not_mapping"
+
+
+def test_classify_decision_preserves_known_lm8i_categories():
+    for decision in (
+        "accepted",
+        "rejected",
+        "worker_declined",
+        "publication_failed",
+        "gate_failed",
+        "preflight_failed",
+    ):
+        assert PROBE._classify_decision({"decision": decision}) == (decision, None)
+
+
+def test_classify_decision_rejects_unknown_or_missing_value():
+    assert PROBE._classify_decision({}) == (
+        "wrapper_error",
+        "lm8i_missing_decision",
+    )
+    assert PROBE._classify_decision({"decision": "strange"}) == (
+        "wrapper_error",
+        "lm8i_unknown_decision:strange",
+    )
+
+
+def test_row_from_completed_accepted_lm8i_child_copies_support_metadata(tmp_path: Path):
+    child = tmp_path / "lm8i-child"
+    _write_child_decision(
+        child,
+        {
+            "decision": "accepted",
+            "reason": "verify_scalar_output_succeeded",
+            "worker_publication_ran": True,
+            "live_fixture_created": True,
+            "live_set_value_dispatched": True,
+            "verify_scalar_output_ran": True,
+            "scalar_runtime_ready": True,
+            "observed_output_after": 7.5,
+            "publication_support_attempted": True,
+            "publication_support_count": 1,
+            "support_eligible": True,
+            "support_not_attempted_reason": None,
+            "first_publication_status": "pass1_decision_invalid",
+            "first_publication_failure_reason": "pass1_missing_action_id",
+            "final_publication_status": "published",
+            "final_publication_failure_reason": None,
+            "final_worker_response_kind": "action_request",
+        },
+    )
+    completed = subprocess.CompletedProcess(
+        args=["python"],
+        returncode=0,
+        stdout="run_dir=child decision=accepted",
+        stderr="",
+    )
+
+    row = PROBE._row_from_completed_lm8i(
+        attempt_index=1,
+        completed=completed,
+        child_run_dirs=[child],
+    )
+
+    assert row["lm8i_invoked"] is True
+    assert row["lm8i_returncode"] == 0
+    assert row["lm8i_run_dir"] == str(child)
+    assert row["lm8i_decision"] == "accepted"
+    assert row["lm8i_reason"] == "verify_scalar_output_succeeded"
+    assert row["terminal_category"] == "accepted"
+    assert row["failure_reason"] is None
+    assert row["worker_publication_ran"] is True
+    assert row["live_set_value_dispatched"] is True
+    assert row["verify_scalar_output_ran"] is True
+    assert row["scalar_runtime_ready"] is True
+    assert row["observed_output_after"] == 7.5
+    assert row["publication_support_attempted"] is True
+    assert row["publication_support_count"] == 1
+    assert row["support_eligible"] is True
+    assert row["first_publication_failure_reason"] == "pass1_missing_action_id"
+    assert row["final_publication_status"] == "published"
+    assert row["final_worker_response_kind"] == "action_request"
+    assert row["support_recovered"] is False
+
+
+def test_row_from_completed_nonzero_returncode_is_wrapper_error(tmp_path: Path):
+    child = tmp_path / "lm8i-child"
+    _write_child_decision(
+        child,
+        {
+            "decision": "accepted",
+            "reason": "verify_scalar_output_succeeded",
+            "worker_publication_ran": True,
+        },
+    )
+    completed = subprocess.CompletedProcess(
+        args=["python"],
+        returncode=2,
+        stdout="partial stdout",
+        stderr="partial stderr",
+    )
+
+    row = PROBE._row_from_completed_lm8i(
+        attempt_index=1,
+        completed=completed,
+        child_run_dirs=[child],
+    )
+
+    assert row["terminal_category"] == "wrapper_error"
+    assert row["failure_reason"] == "lm8i_nonzero_returncode:2"
+    assert row["child_run_dir_error"] is None
+    assert row["lm8i_run_dir"] == str(child)
+    assert row["lm8i_decision"] == "accepted"
+    assert row["worker_publication_ran"] is True
+    assert row["stdout_excerpt"] == "partial stdout"
+    assert row["stderr_excerpt"] == "partial stderr"
+
+
+def test_copy_child_artifact_summaries_reads_worker_verifier_and_support_recovery(tmp_path: Path):
+    child = tmp_path / "lm8i-child"
+    child.mkdir()
+    (child / "worker_action.json").write_text(
+        json.dumps({"input": {"value": 3.0}}),
+        encoding="utf-8",
+    )
+    (child / "verify_scalar_output_summary.json").write_text(
+        json.dumps({"attempt_count": 2, "observed_output_value": 7.5}),
+        encoding="utf-8",
+    )
+    row = {
+        "lm8i_run_dir": str(child),
+        "publication_support_attempted": True,
+        "support_recovered": False,
+        "worker_action_value": None,
+        "verifier_attempt_count": None,
+        "observed_output_after": None,
+    }
+
+    PROBE._copy_child_artifact_summaries(row)
+
+    assert row["worker_action_value"] == 3.0
+    assert row["verifier_attempt_count"] == 2
+    assert row["observed_output_after"] == 7.5
+    assert row["support_recovered"] is True
+
+
+def test_support_recovered_requires_worker_action_receipt(tmp_path: Path):
+    child = tmp_path / "lm8i-child"
+    child.mkdir()
+    row = {
+        "lm8i_run_dir": str(child),
+        "publication_support_attempted": True,
+        "final_publication_status": "published",
+        "final_worker_response_kind": "action_request",
+        "support_recovered": False,
+    }
+
+    PROBE._copy_child_artifact_summaries(row)
+
+    assert row["support_recovered"] is False
