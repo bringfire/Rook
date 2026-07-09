@@ -2376,6 +2376,126 @@ The exact publication-support recovery question remains unexercised. It should
 be captured opportunistically in a future run that naturally reproduces the
 LM8H skeletal pass-1 failure, not stress-forced unless separately specified.
 
+## LM8J affine support repeatability run (commit `874fdc5b`)
+
+LM8J wrapped the LM8I affine scalar fixture in twenty scheduled independent
+child attempts. The wrapper did not change LM8I behavior: it scheduled child
+LM8I subprocesses, discovered child run directories, classified terminal
+outcomes from child `decision.json` files, summarized child artifacts, and ran
+report-only leak scans.
+
+Canonical run:
+
+```text
+run_dir: probe_runs/lm8j-20260709T230752Z-874fdc5b/
+commit: 874fdc5b
+canonical_evidence: true
+model: gemma4:12b-it-qat
+scheduled_attempts: 20
+attempt_timeout_s: 600
+terminal_category_counts:
+  accepted: 20
+worker_reached_count: 20
+publication_support_attempted_count: 0
+publication_support_recovered_count: 0
+accepted_without_support_count: 20
+wrapper_error_count: 0
+gate_failed_count: 0
+preflight_failed_count: 0
+publication_failed_count: 0
+rejected_count: 0
+leak_marker_match_count: 0
+```
+
+Every child reached the worker and accepted:
+
+```text
+worker_action_values:
+  [3.0, 3.0, 3.0, 3.0, 3.0,
+   3.0, 3.0, 3.0, 3.0, 3.0,
+   3.0, 3.0, 3.0, 3.0, 3.0,
+   3.0, 3.0, 3.0, 3.0, 3.0]
+
+observed_output_values_after:
+  [7.5, 7.5, 7.5, 7.5, 7.5,
+   7.5, 7.5, 7.5, 7.5, 7.5,
+   7.5, 7.5, 7.5, 7.5, 7.5,
+   7.5, 7.5, 7.5, 7.5, 7.5]
+```
+
+Verifier settle remained visible in the evidence:
+
+```text
+verifier_attempt_counts:
+  [2, 1, 1, 1, 1,
+   1, 1, 2, 1, 1,
+   2, 2, 1, 2, 2,
+   2, 1, 2, 1, 2]
+
+first verifier read accepted: 11/20
+second verifier read accepted: 9/20
+```
+
+So LM8J supports the affine scalar protocol under the current bounded
+verifier-settle policy, but it does not prove that the settle window scales to
+larger or heavier Grasshopper definitions. The `9/20` second-read count keeps
+Grasshopper solve/readiness receipt health as a real future tooling seam, not
+something solved by repeatability alone.
+
+Publication support was available but dormant:
+
+```text
+support_eligible_count: 0
+publication_support_attempted_count: 0
+publication_support_recovered_count: 0
+accepted_without_support_count: 20
+```
+
+This means LM8J is strong affine scalar repeatability evidence, but it is not
+support-recovery evidence. The LM8H skeletal pass-1 `action_request` miss did
+not recur in this N=20 sample.
+
+The report-only direct marker scan over child LM8I artifacts found no matches:
+
+```text
+PROBE_REPAIR_CODE: 0
+A = 42.0: 0
+BindStepSpec.base_params: 0
+repair_same_component.bind.base_params: 0
+```
+
+Interpretation:
+
+```text
+LM8J shows repeatability of the affine scalar fixture: the bounded worker
+repeatedly derived editable_value = 3.0 from expected output 7.5, factor 2.0,
+and offset 1.5, staged that value through the scalar applier, and reached
+verifier-floor acceptance 20/20.
+```
+
+What this proves narrowly:
+
+```text
+The LM8I affine scalar path is stable for this controlled fixture across one
+N=20 scheduled run.
+The worker repeatedly published the correct scalar action value on the first
+publication path.
+The trusted scalar applier and verifier-floor path accepted repeatedly.
+The support mechanism remained available but unexercised.
+```
+
+What this does not prove:
+
+```text
+Publication support recovery works.
+Broad scalar reasoning reliability.
+Topology or wiring authorship.
+Batch edit competence.
+Planner competence.
+Complexity scaling.
+Solve/readiness policy for larger or heavier Grasshopper definitions.
+```
+
 ## Updated comparison keys
 
 Round 1: `(lm5j.prompt_text:v1, lm5k_golden_repair_v1/fresh_compiled_graph,
@@ -2539,6 +2659,14 @@ bounded pass1 excerpt/hash, same gemma4:12b-it-qat/direct Ollama worker, support
 helper unchanged, no action_id autofill, no retry loop, no gh_edit, no worker
 topology/wiring/batch authority, first visible-canvas canonical run accepted
 without exercising support, canvas-readiness gate failure recorded separately)`.
+
+LM8J: `(LM8J affine support repeatability wrapper, twenty scheduled independent
+LM8I affine support-enabled attempts, child lm8i_runs directories, no
+replacement attempts, same gemma4:12b-it-qat/direct Ollama/LM8I
+fixture/action/applier/verifier-settle policy, support available but not forced,
+scheduled and worker-reached denominators reported, worker_action_values,
+observed_output_values_after, verifier_attempt_counts, support counters, and
+terminal categories summarized, report-only leak marker scan)`.
 
 Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
 new experiment.
