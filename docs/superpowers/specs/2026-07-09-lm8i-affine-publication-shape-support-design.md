@@ -151,10 +151,8 @@ Eligible only when all are true:
 ```text
 first publication status == pass1_decision_invalid
 first publication failure_reason == pass1_missing_action_id
-pass1_content_excerpt parses as a JSON object
-pass1 object has kind == action_request
-pass1 object has no action_id key
-pass1 object has no other semantic fields
+pass1_content_excerpt exactly equals the observed LM8H skeletal JSON string
+pass1_content_sha256 is present
 ```
 
 Eligibility is evaluated from the shared publication row, not raw provider
@@ -166,15 +164,21 @@ pass1_content_excerpt
 pass1_content_sha256
 ```
 
-LM8I may parse `pass1_content_excerpt` only when the bounded excerpt exactly
-contains the skeletal JSON object. If the excerpt is truncated, ambiguous,
-non-JSON, or contains any extra semantic field, support is not eligible.
-`pass1_content_sha256` is recorded for audit.
+LM8I may treat `pass1_content_excerpt` as eligible only when the bounded
+excerpt exactly equals the observed LM8H skeletal JSON string:
+
+```json
+{"kind": "action_request"}
+```
+
+If the excerpt is truncated, ambiguous, compacted differently, whitespace-varied,
+non-JSON, missing `pass1_content_sha256`, or contains any extra semantic field,
+support is not eligible. `pass1_content_sha256` is recorded for audit.
 
 LM8I must not change the shared two-pass helper and must not persist unbounded
 raw pass-1 provider content only to make eligibility easier.
 
-Eligible example:
+Eligible exact excerpt:
 
 ```json
 {"kind": "action_request"}
@@ -224,7 +228,7 @@ Suggested packet:
   "fields": {
     "support_reason": "previous_pass1_missing_action_id",
     "previous_response_kind": "action_request",
-    "previous_response_excerpt": "{\"kind\":\"action_request\"}",
+    "previous_response_excerpt": "{\"kind\": \"action_request\"}",
     "previous_response_sha256": "sha256:...",
     "required_action_id": "draft_gh_set_value_params",
     "pass1_decision_required_fields_if_acting": ["kind", "action_id"],
@@ -300,11 +304,14 @@ Rules:
 worker_publication_rows.json = ordered audit list
 worker_publication_row.json = final publication row compatibility artifact
 publication_support_context.json = written only if support attempted
-worker_action.json = written only after a valid final action_request
+worker_action.json = written only after the final action_request passes scalar
+action applier validation
 ```
 
-Each entry in `worker_publication_rows.json` should include the shared helper
-row plus LM8I annotations outside the shared helper output:
+Each entry in `worker_publication_rows.json` should include either the safe
+shared helper row, or a redacted/hash-only publication row summary when the
+helper row or response payload fails hidden-marker/raw-GUID safety checks.
+LM8I annotations remain outside the shared helper output or redacted summary:
 
 ```text
 turn_index
@@ -322,6 +329,12 @@ row:
 support not attempted -> initial row
 support attempted -> support row
 ```
+
+Hidden-marker/raw-GUID safety overrides raw row artifact compatibility. If a
+publication row or response payload fails safety checks, LM8I should write
+redacted/hash-only `worker_publication_rows.json` and `worker_publication_row.json`
+entries with status, failure reason, content hashes, response hash, and turn
+annotations, but must not persist the unsafe raw helper row or response payload.
 
 ## 9. Terminal Decisions
 

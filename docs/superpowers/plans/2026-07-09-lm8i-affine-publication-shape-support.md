@@ -250,14 +250,14 @@ def _pass1_missing_row(excerpt, *, sha="sha256:abc"):
 
 def test_support_eligibility_accepts_exact_skeletal_action_request_excerpt():
     result = PROBE._publication_support_eligibility(
-        _pass1_missing_row('{"kind":"action_request"}')
+        _pass1_missing_row('{"kind": "action_request"}')
     )
 
     assert result == {
         "support_eligible": True,
         "support_not_attempted_reason": None,
         "previous_response_kind": "action_request",
-        "previous_response_excerpt": '{"kind":"action_request"}',
+        "previous_response_excerpt": '{"kind": "action_request"}',
         "previous_response_sha256": "sha256:abc",
     }
 
@@ -266,6 +266,10 @@ def test_support_eligibility_accepts_exact_skeletal_action_request_excerpt():
     ("excerpt", "reason"),
     [
         ('{"kind":"action_reques', "pass1_excerpt_not_exact_skeletal_json"),
+        ('{"kind":"action_request"}', "pass1_excerpt_not_exact_skeletal_json"),
+        (' {"kind": "action_request"}', "pass1_excerpt_not_exact_skeletal_json"),
+        ('{"kind": "action_request"} ', "pass1_excerpt_not_exact_skeletal_json"),
+        ('{"kind": "observation", "kind": "action_request"}', "pass1_excerpt_not_exact_skeletal_json"),
         ('{"kind":"action_request","action_id":""}', "pass1_excerpt_not_exact_skeletal_json"),
         ('{"kind":"action_request","action_id":"wrong"}', "pass1_excerpt_not_exact_skeletal_json"),
         ('{"kind":"action_request","input":{"value":3.0}}', "pass1_excerpt_not_exact_skeletal_json"),
@@ -285,7 +289,7 @@ def test_support_eligibility_rejects_wrong_status_or_failure_reason():
         {
             "status": "published",
             "failure_reason": None,
-            "pass1_content_excerpt": '{"kind":"action_request"}',
+            "pass1_content_excerpt": '{"kind": "action_request"}',
             "pass1_content_sha256": "sha256:abc",
         }
     )
@@ -293,7 +297,7 @@ def test_support_eligibility_rejects_wrong_status_or_failure_reason():
         {
             "status": "pass1_decision_invalid",
             "failure_reason": "pass1_unknown_kind",
-            "pass1_content_excerpt": '{"kind":"action_request"}',
+            "pass1_content_excerpt": '{"kind": "action_request"}',
             "pass1_content_sha256": "sha256:abc",
         }
     )
@@ -333,27 +337,31 @@ def _publication_support_eligibility(row: Mapping[str, Any]) -> dict[str, Any]:
         }
 
     excerpt = row.get("pass1_content_excerpt")
+    sha256 = row.get("pass1_content_sha256")
+    if not isinstance(sha256, str) or not sha256:
+        return {
+            "support_eligible": False,
+            "support_not_attempted_reason": "pass1_content_sha256_missing",
+            "previous_response_kind": None,
+            "previous_response_excerpt": excerpt if isinstance(excerpt, str) else None,
+            "previous_response_sha256": sha256,
+        }
     if not isinstance(excerpt, str):
         return {
             "support_eligible": False,
             "support_not_attempted_reason": "pass1_excerpt_not_exact_skeletal_json",
             "previous_response_kind": None,
             "previous_response_excerpt": None,
-            "previous_response_sha256": row.get("pass1_content_sha256"),
+            "previous_response_sha256": sha256,
         }
 
-    try:
-        parsed = json.loads(excerpt.strip())
-    except (json.JSONDecodeError, RecursionError):
-        parsed = None
-
-    if parsed != {"kind": "action_request"}:
+    if excerpt != '{"kind": "action_request"}':
         return {
             "support_eligible": False,
             "support_not_attempted_reason": "pass1_excerpt_not_exact_skeletal_json",
             "previous_response_kind": None,
             "previous_response_excerpt": excerpt,
-            "previous_response_sha256": row.get("pass1_content_sha256"),
+            "previous_response_sha256": sha256,
         }
 
     return {
@@ -361,11 +369,14 @@ def _publication_support_eligibility(row: Mapping[str, Any]) -> dict[str, Any]:
         "support_not_attempted_reason": None,
         "previous_response_kind": "action_request",
         "previous_response_excerpt": excerpt,
-        "previous_response_sha256": row.get("pass1_content_sha256"),
+        "previous_response_sha256": sha256,
     }
 ```
 
-This intentionally accepts whitespace differences but rejects trailing prose, extra fields, empty `action_id`, wrong `action_id`, and embedded `input`.
+This intentionally matches the observed LM8H bounded excerpt exactly. It rejects
+compact/whitespace-varied equivalents, trailing prose, extra fields, empty
+`action_id`, wrong `action_id`, embedded `input`, duplicate-key tricks, and
+missing `pass1_content_sha256`.
 
 - [ ] **Step 3: Write support context tests**
 
@@ -373,7 +384,7 @@ Add:
 
 ```python
 def test_publication_support_context_is_bounded_and_contains_no_authority_leaks():
-    row = _pass1_missing_row('{"kind":"action_request"}', sha="sha256:pass1")
+    row = _pass1_missing_row('{"kind": "action_request"}', sha="sha256:pass1")
 
     context = PROBE._publication_support_context(row, excerpt_chars=1200)
     rendered = json.dumps(context, sort_keys=True)
@@ -382,7 +393,7 @@ def test_publication_support_context_is_bounded_and_contains_no_authority_leaks(
     assert context["kind"] == "publication_support"
     assert context["fields"]["support_reason"] == "previous_pass1_missing_action_id"
     assert context["fields"]["previous_response_kind"] == "action_request"
-    assert context["fields"]["previous_response_excerpt"] == '{"kind":"action_request"}'
+    assert context["fields"]["previous_response_excerpt"] == '{"kind": "action_request"}'
     assert context["fields"]["previous_response_sha256"] == "sha256:pass1"
     assert context["fields"]["required_action_id"] == "draft_gh_set_value_params"
     assert context["fields"]["pass1_decision_required_fields_if_acting"] == [
@@ -487,7 +498,7 @@ def test_support_payload_adds_second_knowledge_packet_without_changing_allowed_a
         convention_packets=(),
     )
     support_context = PROBE._publication_support_context(
-        _pass1_missing_row('{"kind":"action_request"}', sha="sha256:pass1"),
+        _pass1_missing_row('{"kind": "action_request"}', sha="sha256:pass1"),
         excerpt_chars=1200,
     )
 
@@ -660,7 +671,7 @@ class FakePublication:
         self.response_payload = response_payload
 
 
-def _pass1_missing_publication(excerpt='{"kind":"action_request"}'):
+def _pass1_missing_publication(excerpt='{"kind": "action_request"}'):
     return FakePublication(
         row={
             "status": "pass1_decision_invalid",
@@ -914,6 +925,15 @@ def _publication_safety_failure(
     return None
 
 
+def _redacted_publication_row(
+    publication: Any,
+    *,
+    redaction_reason: str,
+) -> dict[str, Any]:
+    """Hash-only publication row summary for unsafe helper rows/payloads."""
+    ...
+
+
 def _support_metadata(
     *,
     attempted: bool,
@@ -963,6 +983,19 @@ safety_failure = _publication_safety_failure(
     component_guids=component_guids,
 )
 if safety_failure is not None:
+    # Write redacted/hash-only row artifacts; never persist the unsafe helper row.
+    redacted_row = _redacted_publication_row(
+        first_publication,
+        redaction_reason=safety_failure,
+    )
+    annotated_row = _annotate_publication_row(
+        redacted_row,
+        turn_index=0,
+        turn_role="initial",
+        publication_support_context_present=False,
+    )
+    _write_json_value(run_dir / "worker_publication_rows.json", [annotated_row])
+    _write_json(run_dir / "worker_publication_row.json", redacted_row)
     _write_json(
         run_dir / "decision.json",
         _decision_record(
@@ -1018,7 +1051,19 @@ if eligibility["support_eligible"] is True:
         component_guids=component_guids,
     )
     if safety_failure is not None:
+        # Replace the support row with a redacted/hash-only summary before writing.
+        redacted_row = _redacted_publication_row(
+            final_publication,
+            redaction_reason=safety_failure,
+        )
+        publication_rows[-1] = _annotate_publication_row(
+            redacted_row,
+            turn_index=1,
+            turn_role="publication_support",
+            publication_support_context_present=True,
+        )
         _write_json_value(run_dir / "worker_publication_rows.json", publication_rows)
+        _write_json(run_dir / "worker_publication_row.json", redacted_row)
         _write_json(
             run_dir / "decision.json",
             _decision_record(
@@ -1064,7 +1109,15 @@ support_extra = _support_metadata(
 
 Then use `final_publication.row` and `final_publication.response_payload` for `_decision_from_publication(...)`, `_published_action_payload_failure_reason(...)`, `worker_action.json`, applier, live dispatch, and verifier. When writing any post-publication decision, merge `support_extra` into the existing `extra` dict.
 
-Do not write `worker_action.json` until the final publication row is valid and `_published_action_payload_failure_reason(...)` returns `None`.
+Do not write `worker_action.json` until the final publication row is valid,
+`_published_action_payload_failure_reason(...)` returns `None`, and the scalar
+action applier accepts the worker input.
+
+Publication hidden-marker/raw-GUID safety overrides raw row artifact compatibility.
+When a helper row or response payload fails the publication safety gate, write
+only redacted/hash-only publication row summaries to `worker_publication_rows.json`
+and `worker_publication_row.json`; do not persist the unsafe helper row or
+response payload verbatim.
 
 - [ ] **Step 7: Run Task 4 tests**
 
@@ -1126,7 +1179,7 @@ def test_run_probe_does_not_write_raw_pass1_transcript_artifact(tmp_path):
     assert artifact_names.isdisjoint(forbidden_names)
     assert all("transcript" not in name for name in artifact_names)
     rows = json.loads((run_dir / "worker_publication_rows.json").read_text(encoding="utf-8"))
-    assert rows[0]["row"]["pass1_content_excerpt"] == '{"kind":"action_request"}'
+    assert rows[0]["row"]["pass1_content_excerpt"] == '{"kind": "action_request"}'
     assert rows[0]["row"]["pass1_content_sha256"] == "sha256:pass1"
 ```
 

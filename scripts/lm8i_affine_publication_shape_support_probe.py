@@ -91,6 +91,7 @@ VERIFY_NODE_ID = "verify_affine_scalar_transform_output"
 ACTION_ID = "draft_gh_set_value_params"
 SUPPORT_PACKET_ID = "lm8i_publication_support_context"
 SUPPORT_REASON = "previous_pass1_missing_action_id"
+EXACT_SKELETAL_PASS1_EXCERPT = '{"kind": "action_request"}'
 DECISIONS = {
     "preflight_failed",
     "gate_failed",
@@ -1653,27 +1654,31 @@ def _publication_support_eligibility(row: Mapping[str, Any]) -> dict[str, Any]:
         }
 
     excerpt = row.get("pass1_content_excerpt")
+    sha256 = row.get("pass1_content_sha256")
+    if not isinstance(sha256, str) or not sha256:
+        return {
+            "support_eligible": False,
+            "support_not_attempted_reason": "pass1_content_sha256_missing",
+            "previous_response_kind": None,
+            "previous_response_excerpt": excerpt if isinstance(excerpt, str) else None,
+            "previous_response_sha256": sha256,
+        }
     if not isinstance(excerpt, str):
         return {
             "support_eligible": False,
             "support_not_attempted_reason": "pass1_excerpt_not_exact_skeletal_json",
             "previous_response_kind": None,
             "previous_response_excerpt": None,
-            "previous_response_sha256": row.get("pass1_content_sha256"),
+            "previous_response_sha256": sha256,
         }
 
-    try:
-        parsed = json.loads(excerpt.strip())
-    except (json.JSONDecodeError, RecursionError):
-        parsed = None
-
-    if parsed != {"kind": "action_request"}:
+    if excerpt != EXACT_SKELETAL_PASS1_EXCERPT:
         return {
             "support_eligible": False,
             "support_not_attempted_reason": "pass1_excerpt_not_exact_skeletal_json",
             "previous_response_kind": None,
             "previous_response_excerpt": excerpt,
-            "previous_response_sha256": row.get("pass1_content_sha256"),
+            "previous_response_sha256": sha256,
         }
 
     return {
@@ -1681,7 +1686,7 @@ def _publication_support_eligibility(row: Mapping[str, Any]) -> dict[str, Any]:
         "support_not_attempted_reason": None,
         "previous_response_kind": "action_request",
         "previous_response_excerpt": excerpt,
-        "previous_response_sha256": row.get("pass1_content_sha256"),
+        "previous_response_sha256": sha256,
     }
 
 
@@ -1732,6 +1737,36 @@ def _annotate_publication_row(
         "turn_role": turn_role,
         "publication_support_context_present": publication_support_context_present,
         "row": dict(row),
+    }
+
+
+def _redacted_publication_row(
+    publication: Any,
+    *,
+    redaction_reason: str,
+) -> dict[str, Any]:
+    row = publication.row if isinstance(publication.row, Mapping) else {}
+    response_payload = (
+        publication.response_payload
+        if isinstance(publication.response_payload, Mapping)
+        else None
+    )
+    return {
+        "row_redacted": True,
+        "redaction_reason": redaction_reason,
+        "status": row.get("status"),
+        "failure_reason": row.get("failure_reason"),
+        "pass1_content_sha256": row.get("pass1_content_sha256"),
+        "pass2_content_sha256": row.get("pass2_content_sha256"),
+        "response_payload_sha256": (
+            _fingerprint_json(response_payload) if response_payload is not None else None
+        ),
+        "response_kind": (
+            response_payload.get("kind") if response_payload is not None else None
+        ),
+        "observation_action_intent_anomaly": row.get(
+            "observation_action_intent_anomaly"
+        ),
     }
 
 
@@ -1990,6 +2025,21 @@ def _run_probe(
     )
     if safety_failure is not None:
         eligibility = _publication_support_eligibility(first_publication.row)
+        redacted_row = _redacted_publication_row(
+            first_publication,
+            redaction_reason=safety_failure,
+        )
+        annotated_row = _annotate_publication_row(
+            redacted_row,
+            turn_index=0,
+            turn_role="initial",
+            publication_support_context_present=False,
+        )
+        _write_publication_artifacts(
+            run_dir,
+            publication_rows=[annotated_row],
+            final_row=redacted_row,
+        )
         _write_json(
             run_dir / "decision.json",
             _decision_record(
@@ -2061,10 +2111,20 @@ def _run_probe(
             component_guids=component_guids,
         )
         if safety_failure is not None:
+            redacted_row = _redacted_publication_row(
+                final_publication,
+                redaction_reason=safety_failure,
+            )
+            publication_rows[-1] = _annotate_publication_row(
+                redacted_row,
+                turn_index=1,
+                turn_role="publication_support",
+                publication_support_context_present=True,
+            )
             _write_publication_artifacts(
                 run_dir,
                 publication_rows=publication_rows,
-                final_row=final_publication.row,
+                final_row=redacted_row,
             )
             _write_json(
                 run_dir / "decision.json",
@@ -2149,7 +2209,6 @@ def _run_probe(
             ),
         )
         return run_dir
-    _write_json(run_dir / "worker_action.json", response_payload)
     action_context = _action_context(response_payload, excerpt_chars)
     apply_result = apply_gh_scalar_value_action_to_node(
         graph,
@@ -2178,6 +2237,7 @@ def _run_probe(
         )
         return run_dir
 
+    _write_json(run_dir / "worker_action.json", response_payload)
     params = apply_result.graph.nodes[WORKER_NODE_ID].metadata[EXECUTION_PARAMS_KEY]
     dispatch = asyncio.run(
         _dispatch_set_value_solve_and_verify(

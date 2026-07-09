@@ -30,6 +30,7 @@ def _load_script():
 
 
 PROBE = _load_script()
+SKELETAL_PASS1 = '{"kind": "action_request"}'
 
 
 class FakeToolExecutor:
@@ -163,7 +164,7 @@ def _fixture_responses_for_success():
     return responses
 
 
-def _pass1_missing_publication(excerpt='{"kind":"action_request"}'):
+def _pass1_missing_publication(excerpt=SKELETAL_PASS1):
     return FakePublication(
         row={
             "status": "pass1_decision_invalid",
@@ -319,14 +320,14 @@ def _pass1_missing_row(excerpt, *, sha="sha256:abc"):
 
 def test_support_eligibility_accepts_exact_skeletal_action_request_excerpt():
     result = PROBE._publication_support_eligibility(
-        _pass1_missing_row('{"kind":"action_request"}')
+        _pass1_missing_row(SKELETAL_PASS1)
     )
 
     assert result == {
         "support_eligible": True,
         "support_not_attempted_reason": None,
         "previous_response_kind": "action_request",
-        "previous_response_excerpt": '{"kind":"action_request"}',
+        "previous_response_excerpt": SKELETAL_PASS1,
         "previous_response_sha256": "sha256:abc",
     }
 
@@ -335,6 +336,10 @@ def test_support_eligibility_accepts_exact_skeletal_action_request_excerpt():
     ("excerpt", "reason"),
     [
         ('{"kind":"action_reques', "pass1_excerpt_not_exact_skeletal_json"),
+        ('{"kind":"action_request"}', "pass1_excerpt_not_exact_skeletal_json"),
+        (' {"kind": "action_request"}', "pass1_excerpt_not_exact_skeletal_json"),
+        ('{"kind": "action_request"} ', "pass1_excerpt_not_exact_skeletal_json"),
+        ('{"kind": "observation", "kind": "action_request"}', "pass1_excerpt_not_exact_skeletal_json"),
         ('{"kind":"action_request","action_id":""}', "pass1_excerpt_not_exact_skeletal_json"),
         ('{"kind":"action_request","action_id":"wrong"}', "pass1_excerpt_not_exact_skeletal_json"),
         ('{"kind":"action_request","input":{"value":3.0}}', "pass1_excerpt_not_exact_skeletal_json"),
@@ -349,12 +354,21 @@ def test_support_eligibility_rejects_non_exact_excerpts(excerpt, reason):
     assert result["support_not_attempted_reason"] == reason
 
 
+def test_support_eligibility_rejects_missing_pass1_hash():
+    result = PROBE._publication_support_eligibility(
+        _pass1_missing_row(SKELETAL_PASS1, sha="")
+    )
+
+    assert result["support_eligible"] is False
+    assert result["support_not_attempted_reason"] == "pass1_content_sha256_missing"
+
+
 def test_support_eligibility_rejects_wrong_status_or_failure_reason():
     wrong_status = PROBE._publication_support_eligibility(
         {
             "status": "published",
             "failure_reason": None,
-            "pass1_content_excerpt": '{"kind":"action_request"}',
+            "pass1_content_excerpt": SKELETAL_PASS1,
             "pass1_content_sha256": "sha256:abc",
         }
     )
@@ -362,7 +376,7 @@ def test_support_eligibility_rejects_wrong_status_or_failure_reason():
         {
             "status": "pass1_decision_invalid",
             "failure_reason": "pass1_unknown_kind",
-            "pass1_content_excerpt": '{"kind":"action_request"}',
+            "pass1_content_excerpt": SKELETAL_PASS1,
             "pass1_content_sha256": "sha256:abc",
         }
     )
@@ -378,7 +392,7 @@ def test_support_eligibility_rejects_wrong_status_or_failure_reason():
 
 
 def test_publication_support_context_is_bounded_and_contains_no_authority_leaks():
-    row = _pass1_missing_row('{"kind":"action_request"}', sha="sha256:pass1")
+    row = _pass1_missing_row(SKELETAL_PASS1, sha="sha256:pass1")
 
     context = PROBE._publication_support_context(row, excerpt_chars=1200)
     rendered = json.dumps(context, sort_keys=True)
@@ -387,7 +401,7 @@ def test_publication_support_context_is_bounded_and_contains_no_authority_leaks(
     assert context["kind"] == "publication_support"
     assert context["fields"]["support_reason"] == "previous_pass1_missing_action_id"
     assert context["fields"]["previous_response_kind"] == "action_request"
-    assert context["fields"]["previous_response_excerpt"] == '{"kind":"action_request"}'
+    assert context["fields"]["previous_response_excerpt"] == SKELETAL_PASS1
     assert context["fields"]["previous_response_sha256"] == "sha256:pass1"
     assert context["fields"]["required_action_id"] == "draft_gh_set_value_params"
     assert context["fields"]["pass1_decision_required_fields_if_acting"] == [
@@ -421,7 +435,7 @@ def test_support_payload_adds_second_knowledge_packet_without_changing_allowed_a
         convention_packets=(),
     )
     support_context = PROBE._publication_support_context(
-        _pass1_missing_row('{"kind":"action_request"}', sha="sha256:pass1"),
+        _pass1_missing_row(SKELETAL_PASS1, sha="sha256:pass1"),
         excerpt_chars=1200,
     )
 
@@ -630,7 +644,7 @@ def test_run_probe_does_not_write_raw_pass1_transcript_artifact(tmp_path):
     assert artifact_names.isdisjoint(forbidden_names)
     assert all("transcript" not in name for name in artifact_names)
     rows = json.loads((run_dir / "worker_publication_rows.json").read_text(encoding="utf-8"))
-    assert rows[0]["row"]["pass1_content_excerpt"] == '{"kind":"action_request"}'
+    assert rows[0]["row"]["pass1_content_excerpt"] == SKELETAL_PASS1
     assert rows[0]["row"]["pass1_content_sha256"] == "sha256:pass1"
 
 
@@ -707,7 +721,7 @@ def test_run_probe_first_publication_safety_failure_includes_support_metadata(tm
         row={
             "status": "pass1_decision_invalid",
             "failure_reason": "pass1_missing_action_id",
-            "pass1_content_excerpt": '{"kind":"action_request"}',
+            "pass1_content_excerpt": SKELETAL_PASS1,
             "pass1_content_sha256": "sha256:pass1",
             "observation_action_intent_anomaly": False,
         },
@@ -730,6 +744,10 @@ def test_run_probe_first_publication_safety_failure_includes_support_metadata(tm
     )
 
     decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    rows = json.loads((run_dir / "worker_publication_rows.json").read_text(encoding="utf-8"))
+    final_row = json.loads((run_dir / "worker_publication_row.json").read_text(encoding="utf-8"))
+    rows_rendered = json.dumps(rows, sort_keys=True)
+    final_row_rendered = json.dumps(final_row, sort_keys=True)
 
     assert decision["decision"] == "publication_failed"
     assert decision["reason"] == "worker_publication_guid_leak"
@@ -741,6 +759,14 @@ def test_run_probe_first_publication_safety_failure_includes_support_metadata(tm
     assert decision["first_publication_failure_reason"] == "pass1_missing_action_id"
     assert decision["final_publication_status"] == "pass1_decision_invalid"
     assert decision["final_publication_failure_reason"] == "pass1_missing_action_id"
+    assert len(rows) == 1
+    assert rows[0]["turn_role"] == "initial"
+    assert rows[0]["row"]["row_redacted"] is True
+    assert rows[0]["row"]["redaction_reason"] == "worker_publication_guid_leak"
+    assert rows[0]["row"]["pass1_content_sha256"] == "sha256:pass1"
+    assert final_row == rows[0]["row"]
+    assert "EDITABLE-GUID-1" not in rows_rendered
+    assert "EDITABLE-GUID-1" not in final_row_rendered
     assert not (run_dir / "worker_action.json").exists()
 
 
@@ -795,11 +821,44 @@ def test_run_probe_support_turn_safety_failure_writes_support_row_and_final_row(
     assert rows[1]["turn_index"] == 1
     assert rows[1]["turn_role"] == "publication_support"
     assert rows[1]["publication_support_context_present"] is True
+    assert rows[1]["row"]["row_redacted"] is True
+    assert rows[1]["row"]["redaction_reason"] == "worker_publication_guid_leak"
+    assert rows[1]["row"]["response_kind"] == "action_request"
+    assert "OFFSET-GUID-1" not in json.dumps(rows, sort_keys=True)
+    assert "OFFSET-GUID-1" not in json.dumps(final_row, sort_keys=True)
     assert final_row == rows[1]["row"]
     assert decision["first_publication_status"] == "pass1_decision_invalid"
     assert decision["final_publication_status"] == "published"
     assert decision["final_worker_response_kind"] == "action_request"
     assert not (run_dir / "worker_action.json").exists()
+
+
+def test_run_probe_does_not_write_worker_action_before_apply_accepts(tmp_path):
+    executor = FakeToolExecutor(_fixture_responses_for_success())
+    publications = [
+        _pass1_missing_publication(),
+        _published_action("bad scalar"),
+    ]
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *_args, **_kwargs: publications.pop(0),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+
+    assert decision["decision"] == "rejected"
+    assert decision["reason"].startswith("worker_action_apply_failed:")
+    assert decision["publication_support_attempted"] is True
+    assert not (run_dir / "worker_action.json").exists()
+    assert not (run_dir / "live_set_value_summary.json").exists()
 
 
 def test_run_probe_support_non_action_maps_to_worker_declined(tmp_path):
