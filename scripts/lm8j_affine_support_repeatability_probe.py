@@ -265,7 +265,7 @@ def _read_json_mapping(path: Path) -> Mapping[str, Any] | None:
         return None
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
         return None
     return payload if isinstance(payload, Mapping) else None
 
@@ -464,7 +464,7 @@ def _scan_leak_markers(run_dir: Path) -> list[dict[str, Any]]:
             continue
         try:
             text = path.read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             continue
         for marker in LEAK_MARKERS:
             if marker in text:

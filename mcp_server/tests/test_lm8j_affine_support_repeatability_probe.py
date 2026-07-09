@@ -273,6 +273,13 @@ def test_read_decision_handles_missing_invalid_and_non_mapping(tmp_path: Path):
     assert non_mapping_error == "lm8i_decision_not_mapping"
 
 
+def test_read_json_mapping_returns_none_for_invalid_utf8_json(tmp_path: Path):
+    invalid = tmp_path / "invalid.json"
+    invalid.write_bytes(b"{\"marker\": \"value\"\xff\xff\xff}")
+
+    assert PROBE._read_json_mapping(invalid) is None
+
+
 def test_classify_decision_preserves_known_lm8i_categories():
     for decision in (
         "accepted",
@@ -543,6 +550,22 @@ def test_scan_and_apply_leak_markers_are_report_only(tmp_path: Path):
     assert row["leak_check_performed"] is True
     assert row["leak_marker_match_count"] == 3
     assert row["leak_marker_matches"] == matches
+
+
+def test_scan_leak_markers_ignores_invalid_utf8_textlike_file(tmp_path: Path):
+    child = tmp_path / "lm8i-child"
+    child.mkdir()
+    (child / "bad.json").write_bytes(b"{\"marker\": \"PROBE_REPAIR_CODE\"}\xff")
+    (child / "notes.txt").write_text(
+        "repair_same_component.bind.base_params",
+        encoding="utf-8",
+    )
+
+    matches = PROBE._scan_leak_markers(child)
+
+    assert matches == [
+        {"path": str(child / "notes.txt"), "marker": "repair_same_component.bind.base_params"},
+    ]
 
 
 def test_compact_counts_removes_zero_entries_and_sorts_keys():
