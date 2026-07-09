@@ -417,3 +417,146 @@ def _copy_child_artifact_summaries(row: dict[str, Any]) -> None:
         observed_value = verify_summary.get("observed_output_value")
         if isinstance(observed_value, (int, float)) and not isinstance(observed_value, bool):
             row["observed_output_after"] = observed_value
+
+
+def _scan_leak_markers(run_dir: Path) -> list[dict[str, Any]]:
+    if not run_dir.exists() or not run_dir.is_dir():
+        return []
+
+    matches: list[dict[str, Any]] = []
+    for path in sorted(run_dir.rglob("*.json"), key=lambda item: str(item)):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for marker in LEAK_MARKERS:
+            if marker in text:
+                matches.append({"path": str(path), "marker": marker})
+    return matches
+
+
+def _apply_leak_scan(row: dict[str, Any]) -> None:
+    run_dir_value = row.get("lm8i_run_dir")
+    if not run_dir_value:
+        return
+    matches = _scan_leak_markers(Path(str(run_dir_value)))
+    row["leak_check_performed"] = True
+    row["leak_marker_matches"] = matches
+    row["leak_marker_match_count"] = len(matches)
+
+
+def _compact_counts(counter: Counter[str]) -> dict[str, int]:
+    return {key: counter[key] for key in sorted(counter) if counter[key]}
+
+
+def _reason_counts(rows: Sequence[Mapping[str, Any]], key: str) -> dict[str, int]:
+    counter: Counter[str] = Counter()
+    for row in rows:
+        value = row.get(key)
+        if isinstance(value, str) and value:
+            counter[value] += 1
+    return _compact_counts(counter)
+
+
+def _number_values(rows: Sequence[Mapping[str, Any]], key: str) -> list[float]:
+    values: list[float] = []
+    for row in rows:
+        value = row.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            values.append(value)
+    return values
+
+
+def _int_values(rows: Sequence[Mapping[str, Any]], key: str) -> list[int]:
+    values: list[int] = []
+    for row in rows:
+        value = row.get(key)
+        if isinstance(value, int) and not isinstance(value, bool):
+            values.append(value)
+    return values
+
+
+def _build_summary(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    attempts: int,
+    model: str,
+    attempt_timeout_s: int,
+) -> dict[str, Any]:
+    worker_summary_categories = {
+        "accepted",
+        "rejected",
+        "worker_declined",
+        "publication_failed",
+    }
+
+    terminal_counts: Counter[str] = Counter()
+    for row in rows:
+        category = row.get("terminal_category")
+        if isinstance(category, str):
+            terminal_counts[category] += 1
+
+    worker_rows = [row for row in rows if row.get("worker_publication_ran") is True]
+    worker_counts: Counter[str] = Counter()
+    for row in worker_rows:
+        category = row.get("terminal_category")
+        if isinstance(category, str) and category in worker_summary_categories:
+            worker_counts[category] += 1
+
+    support_attempted_rows = [
+        row for row in rows if row.get("publication_support_attempted") is True
+    ]
+    support_recovered_rows = [
+        row for row in rows if row.get("support_recovered") is True
+    ]
+    accepted_support_rows = [
+        row
+        for row in rows
+        if row.get("terminal_category") == "accepted"
+        and row.get("publication_support_attempted") is True
+    ]
+    accepted_without_support_rows = [
+        row
+        for row in rows
+        if row.get("terminal_category") == "accepted"
+        and row.get("publication_support_attempted") is not True
+    ]
+
+    return {
+        "schema": SCRIPT_SCHEMA,
+        "scheduled_attempts": attempts,
+        "attempt_timeout_s": attempt_timeout_s,
+        "canonical_evidence": _canonical_evidence(
+            attempts=attempts,
+            model=model,
+            attempt_timeout_s=attempt_timeout_s,
+        ),
+        "terminal_category_counts": _compact_counts(terminal_counts),
+        "accepted_count": terminal_counts["accepted"],
+        "rejected_count": terminal_counts["rejected"],
+        "worker_declined_count": terminal_counts["worker_declined"],
+        "publication_failed_count": terminal_counts["publication_failed"],
+        "gate_failed_count": terminal_counts["gate_failed"],
+        "preflight_failed_count": terminal_counts["preflight_failed"],
+        "wrapper_error_count": terminal_counts["wrapper_error"],
+        "worker_reached_count": len(worker_rows),
+        "worker_terminal_counts": _compact_counts(worker_counts),
+        "publication_support_attempted_count": len(support_attempted_rows),
+        "publication_support_recovered_count": len(support_recovered_rows),
+        "accepted_without_support_count": len(accepted_without_support_rows),
+        "support_eligible_count": sum(
+            1 for row in rows if row.get("support_eligible") is True
+        ),
+        "support_accepted_count": len(accepted_support_rows),
+        "gate_failure_reasons": _reason_counts(rows, "gate_failure_reason"),
+        "preflight_failure_reasons": _reason_counts(rows, "preflight_failure_reason"),
+        "leak_marker_match_count": sum(
+            int(row.get("leak_marker_match_count") or 0) for row in rows
+        ),
+        "attempt_run_dirs": [
+            str(row["lm8i_run_dir"]) for row in rows if row.get("lm8i_run_dir")
+        ],
+        "worker_action_values": _number_values(rows, "worker_action_value"),
+        "verifier_attempt_counts": _int_values(rows, "verifier_attempt_count"),
+        "observed_output_values_after": _number_values(rows, "observed_output_after"),
+    }

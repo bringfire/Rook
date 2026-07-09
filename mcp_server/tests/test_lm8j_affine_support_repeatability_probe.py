@@ -448,3 +448,139 @@ def test_support_recovered_with_malformed_worker_action_file(tmp_path: Path):
 
     assert row["support_recovered"] is True
     assert row["worker_action_value"] is None
+
+
+def test_scan_and_apply_leak_markers_are_report_only(tmp_path: Path):
+    child = tmp_path / "lm8i-child"
+    child.mkdir()
+    (child / "notes.json").write_text(
+        json.dumps(
+            {
+                "marker": "PROBE_REPAIR_CODE",
+                "nested": {"value": "A = 42.0"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    row = {
+        "lm8i_run_dir": str(child),
+        "terminal_category": "accepted",
+        "leak_check_performed": False,
+        "leak_marker_matches": [],
+        "leak_marker_match_count": 0,
+    }
+
+    matches = PROBE._scan_leak_markers(child)
+    assert matches == [
+        {"path": str(child / "notes.json"), "marker": "PROBE_REPAIR_CODE"},
+        {"path": str(child / "notes.json"), "marker": "A = 42.0"},
+    ]
+
+    PROBE._apply_leak_scan(row)
+
+    assert row["terminal_category"] == "accepted"
+    assert row["leak_check_performed"] is True
+    assert row["leak_marker_match_count"] == 2
+    assert row["leak_marker_matches"] == matches
+
+
+def test_compact_counts_removes_zero_entries_and_sorts_keys():
+    from collections import Counter
+
+    counts = Counter({"rejected": 2, "accepted": 1, "gate_failed": 0})
+
+    assert PROBE._compact_counts(counts) == {"accepted": 1, "rejected": 2}
+
+
+def test_build_summary_counts_support_and_worker_denominators():
+    rows = [
+        {
+            "terminal_category": "accepted",
+            "worker_publication_ran": True,
+            "publication_support_attempted": False,
+            "support_eligible": False,
+            "support_recovered": False,
+            "lm8i_run_dir": "run-a",
+            "leak_marker_match_count": 1,
+            "worker_action_value": 3.0,
+            "verifier_attempt_count": 1,
+            "observed_output_after": 7.5,
+        },
+        {
+            "terminal_category": "accepted",
+            "worker_publication_ran": True,
+            "publication_support_attempted": True,
+            "support_eligible": True,
+            "support_recovered": True,
+            "lm8i_run_dir": "run-b",
+            "leak_marker_match_count": 0,
+            "worker_action_value": 3.0,
+            "verifier_attempt_count": 2,
+            "observed_output_after": 7.5,
+        },
+        {
+            "terminal_category": "publication_failed",
+            "worker_publication_ran": True,
+            "publication_support_attempted": True,
+            "support_eligible": True,
+            "support_recovered": False,
+            "lm8i_run_dir": "run-c",
+            "leak_marker_match_count": 0,
+        },
+        {
+            "terminal_category": "gate_failed",
+            "worker_publication_ran": False,
+            "publication_support_attempted": False,
+            "support_eligible": None,
+            "support_recovered": False,
+            "gate_failure_reason": "affine_fixture_failed:gh_connect_failed",
+            "lm8i_run_dir": "run-d",
+            "leak_marker_match_count": 0,
+        },
+        {
+            "terminal_category": "preflight_failed",
+            "worker_publication_ran": False,
+            "publication_support_attempted": False,
+            "support_eligible": None,
+            "support_recovered": False,
+            "preflight_failure_reason": "rhino_ping_failed",
+            "lm8i_run_dir": "run-e",
+            "leak_marker_match_count": 0,
+        },
+    ]
+
+    summary = PROBE._build_summary(
+        rows,
+        attempts=20,
+        model="gemma4:12b-it-qat",
+        attempt_timeout_s=600,
+    )
+
+    assert summary["schema"] == "rook.lm8j_affine_support_repeatability_probe:v1"
+    assert summary["scheduled_attempts"] == 20
+    assert summary["attempt_timeout_s"] == 600
+    assert summary["canonical_evidence"] is True
+    assert summary["terminal_category_counts"] == {
+        "accepted": 2,
+        "gate_failed": 1,
+        "preflight_failed": 1,
+        "publication_failed": 1,
+    }
+    assert summary["accepted_count"] == 2
+    assert summary["publication_failed_count"] == 1
+    assert summary["gate_failed_count"] == 1
+    assert summary["preflight_failed_count"] == 1
+    assert summary["worker_reached_count"] == 3
+    assert summary["worker_terminal_counts"] == {"accepted": 2, "publication_failed": 1}
+    assert summary["publication_support_attempted_count"] == 2
+    assert summary["publication_support_recovered_count"] == 1
+    assert summary["accepted_without_support_count"] == 1
+    assert summary["support_eligible_count"] == 2
+    assert summary["support_accepted_count"] == 1
+    assert summary["gate_failure_reasons"] == {"affine_fixture_failed:gh_connect_failed": 1}
+    assert summary["preflight_failure_reasons"] == {"rhino_ping_failed": 1}
+    assert summary["leak_marker_match_count"] == 1
+    assert summary["attempt_run_dirs"] == ["run-a", "run-b", "run-c", "run-d", "run-e"]
+    assert summary["worker_action_values"] == [3.0, 3.0]
+    assert summary["verifier_attempt_counts"] == [1, 2]
+    assert summary["observed_output_values_after"] == [7.5, 7.5]
