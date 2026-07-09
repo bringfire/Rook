@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import json
 import sys
 from pathlib import Path
@@ -603,6 +604,103 @@ def test_run_probe_support_repeat_missing_action_id_remains_publication_failed(t
     assert not (run_dir / "worker_action.json").exists()
 
 
+def test_run_probe_does_not_write_raw_pass1_transcript_artifact(tmp_path):
+    executor = FakeToolExecutor(_fixture_responses_for_success())
+    publications = [_pass1_missing_publication(), _published_action(3.0)]
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *_args, **_kwargs: publications.pop(0),
+    )
+
+    artifact_names = {path.name for path in run_dir.iterdir()}
+    forbidden_names = {
+        "pass1_raw.txt",
+        "pass1_provider_output.txt",
+        "worker_pass1_transcript.txt",
+        "raw_provider_output.txt",
+    }
+    assert artifact_names.isdisjoint(forbidden_names)
+    assert all("transcript" not in name for name in artifact_names)
+    rows = json.loads((run_dir / "worker_publication_rows.json").read_text(encoding="utf-8"))
+    assert rows[0]["row"]["pass1_content_excerpt"] == '{"kind":"action_request"}'
+    assert rows[0]["row"]["pass1_content_sha256"] == "sha256:pass1"
+
+
+def test_run_probe_support_and_prepublication_artifacts_do_not_contain_hidden_value(
+    tmp_path,
+):
+    executor = FakeToolExecutor(_fixture_responses_for_success())
+    publications = [_pass1_missing_publication(), _published_action(3.0)]
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *_args, **_kwargs: publications.pop(0),
+    )
+
+    forbidden_pre_publication = [
+        "scalar_sources.json",
+        "acceptance_criteria_packet.json",
+        "worker_visible_acceptance_criteria.json",
+        "worker_request_payload.json",
+        "publication_support_context.json",
+        "worker_publication_rows.json",
+    ]
+    for filename in forbidden_pre_publication:
+        rendered = (run_dir / filename).read_text(encoding="utf-8")
+        assert "3.0" not in rendered
+
+    allowed_post_publication = [
+        "worker_action.json",
+        "live_set_value_summary.json",
+        "decision.json",
+    ]
+    assert any(
+        "3.0" in (run_dir / filename).read_text(encoding="utf-8")
+        for filename in allowed_post_publication
+    )
+
+
+def test_lm8i_never_autofills_missing_action_id(tmp_path):
+    executor = FakeToolExecutor(_fixture_responses_for_success())
+    publications = [_pass1_missing_publication(), _pass1_missing_publication()]
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *_args, **_kwargs: publications.pop(0),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    rows = json.loads((run_dir / "worker_publication_rows.json").read_text(encoding="utf-8"))
+
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "pass1_decision_invalid:pass1_missing_action_id"
+    assert all(row["row"].get("pass1_action_id") in {None, ""} for row in rows)
+    assert not (run_dir / "worker_action.json").exists()
+    assert not (run_dir / "live_set_value_summary.json").exists()
+
+
 def test_run_probe_first_publication_safety_failure_includes_support_metadata(tmp_path):
     executor = FakeToolExecutor(_fixture_responses_for_success())
     publication = FakePublication(
@@ -742,3 +840,42 @@ def test_run_probe_support_non_action_maps_to_worker_declined(tmp_path):
     assert decision["publication_support_attempted"] is True
     assert decision["final_worker_response_kind"] == "observation"
     assert not (run_dir / "worker_action.json").exists()
+
+
+def test_lm8i_source_does_not_import_lm8h_lm8g_repair_planner_retry_or_gh_edit_paths():
+    source = inspect.getsource(PROBE)
+    forbidden_import_or_call_fragments = (
+        "lm8h_affine_scalar_depth_probe",
+        "lm8g_scalar_transform_repeatability_probe",
+        "lm6a_live_worker_splice_probe",
+        "lm7e_model_authored_live_splice_probe",
+        "planner_worker_contract_request",
+        "workflow_validate",
+        "--retry-clean-observation",
+        '"gh_edit"',
+        "'gh_edit'",
+        "gh_update_script",
+    )
+    for fragment in forbidden_import_or_call_fragments:
+        assert fragment not in source
+
+
+def test_lm8i_source_does_not_contain_hidden_worker_value_literal():
+    source = inspect.getsource(PROBE)
+    assert "3.0" not in source
+    assert "EXPECTED_WORKER_VALUE" not in source
+    assert "set editable value to 3.0" not in source
+    assert "use 3.0" not in source
+
+
+def test_lm8i_does_not_modify_or_import_shared_publication_helper_for_support_policy():
+    source = inspect.getsource(PROBE)
+    assert "run_two_pass_worker_publication" in source
+    assert "pass1_content_excerpt" in source
+    assert "pass1_content_sha256" in source
+    helper_source = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "lm_worker_two_pass_publication.py"
+    ).read_text(encoding="utf-8")
+    assert "lm8i_publication_support_context" not in helper_source
