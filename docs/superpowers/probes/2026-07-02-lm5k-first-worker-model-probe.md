@@ -2136,6 +2136,87 @@ LM8G is scalar-transform repeatability for one controlled fixture. It is not
 broad scalar reasoning reliability, topology/wiring authorship, batch edit
 competence, Planner competence, or complexity scaling.
 
+## LM8H affine scalar depth pressure run (commit `3264198a`)
+
+LM8H increased scalar-family pressure from the LM8F/LM8G additive transform to
+one affine relationship:
+
+```text
+observed_output = editable_value * factor_value + offset_value
+```
+
+Canonical run:
+
+```text
+run_dir: probe_runs/lm8h-20260709T181451Z-3264198a/
+commit: 3264198a
+canonical_evidence: true
+model: gemma4:12b-it-qat
+fixture:
+  editable_value: 2.0
+  factor_value: 2.0
+  offset_value: 1.5
+  initial_observed_output: 5.5
+  expected_output_value: 7.5
+decision: publication_failed
+reason: pass1_decision_invalid:pass1_missing_action_id
+scalar_runtime_ready: true
+worker_publication_ran: true
+live_set_value_dispatched: false
+verify_scalar_output_ran: false
+```
+
+The live canvas confirmed the deterministic affine fixture was healthy:
+
+```text
+LM8H_Editable: 2.0
+LM8H_Factor: 2.0
+Multiplication R: 4
+LM8H_Offset: 1.5
+Addition R: 5.5
+Grasshopper diagnostics: 0 errors, 0 warnings
+```
+
+The worker-visible packet contained the relevant source-owned facts: expected
+observed output `7.5`, current editable value `2.0`, current observed output
+`5.5`, factor `2.0`, offset `1.5`, the affine projection relationship, and
+the scalar action-selection contract for `draft_gh_set_value_params`.
+
+The worker reached pass 1 and emitted a skeletal action intent:
+
+```json
+{"kind": "action_request"}
+```
+
+The two-pass publisher correctly stopped before pass 2 because `action_id` was
+missing. Therefore no worker action artifact was written, no trusted scalar
+applier dispatch occurred, and no verifier ran. We do not know whether the
+model internally derived the hidden editable value `3.0`; it never published an
+action payload.
+
+Pre-publication artifacts contained no matches for:
+
+```text
+3.0
+PROBE_REPAIR_CODE
+A = 42.0
+BindStepSpec.base_params
+repair_same_component.bind.base_params
+```
+
+Interpretation:
+
+```text
+LM8H reached worker publication on a live affine scalar fixture.
+The model failed at action publication shape before action/value authorship.
+This is worker-boundary pressure evidence, not fixture readiness evidence.
+```
+
+This result should not be patched inside LM8H after the fact. A future slice
+can pre-register whether to test a bounded publication-shape support mechanism
+or retry/second-turn mechanism for skeletal `action_request` responses missing
+`action_id`.
+
 ## Updated comparison keys
 
 Round 1: `(lm5j.prompt_text:v1, lm5k_golden_repair_v1/fresh_compiled_graph,
@@ -2279,6 +2360,18 @@ replacement attempts, same gemma4:12b-it-qat/direct Ollama/LM8F
 fixture/action/applier/verifier-settle policy, scheduled and worker-reached
 denominators reported, worker_action_values and verifier_attempt_counts
 summarized, report-only leak marker scan)`.
+
+LM8H: `(LM8H affine scalar depth pressure probe, deterministic editable slider
+2.0 -> Multiplication(* factor 2.0) -> Addition(+ offset 1.5) fixture, initial
+Addition R 5.5, expected observed output 7.5, source-owned projection
+observed_output = editable_value * factor_value + offset_value, static affine
+scalar routing/extraction/assembly, fixture_anchor evidence context with
+trusted GUID applier-only, gh_affine_scalar_transform_evidence worker packet,
+gemma4:12b-it-qat/direct Ollama frozen one-turn worker publication,
+draft_gh_set_value_params action contract, scalar applier available but not
+dispatched in the canonical run, gh_inspect_output Addition R verifier floor,
+canonical_evidence true, worker retry disabled, no gh_edit, no worker topology,
+no wiring/batch edit authority)`.
 
 Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
 new experiment.
