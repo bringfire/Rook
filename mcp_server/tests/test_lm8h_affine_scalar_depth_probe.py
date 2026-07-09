@@ -121,6 +121,25 @@ def test_lm8h_source_does_not_contain_hidden_worker_value_literal():
     assert "3.0" not in inspect.getsource(PROBE)
 
 
+def test_lm8h_source_contains_hidden_expected_value_only_as_policy_or_test_oracle():
+    source = inspect.getsource(PROBE)
+    assert "3.0" not in source
+    assert "EXPECTED_WORKER_VALUE" not in source
+    assert "set editable value to 3.0" not in source
+    assert "use 3.0" not in source
+
+
+def test_lm8h_source_policy_markers_are_not_worker_visible_evidence():
+    source = inspect.getsource(PROBE)
+    for marker in (
+        "PROBE_REPAIR_CODE",
+        "A = 42.0",
+        "BindStepSpec.base_params",
+        "repair_same_component.bind.base_params",
+    ):
+        assert marker in source
+
+
 def test_affine_source_routing_artifact_uses_canonical_route_ids():
     artifact = PROBE._affine_scalar_source_routing_artifact()
     route_ids = [item["route_id"] for item in artifact["routes"][0]["visible_sources"]]
