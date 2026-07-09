@@ -347,3 +347,54 @@ def test_publication_support_context_refuses_ineligible_row():
             _pass1_missing_row('{"kind":"action_request","action_id":""}'),
             excerpt_chars=1200,
         )
+
+
+def test_support_payload_adds_second_knowledge_packet_without_changing_allowed_action():
+    graph = PROBE._graph_from_affine_receipt(
+        _run(PROBE._create_affine_fixture(FakeToolExecutor(_fixture_tool_responses())))["receipt"]
+    )
+    runtime = PROBE._affine_runtime_context(
+        graph=graph,
+        workflow_contract_payload=PROBE._affine_scalar_contract_payload(),
+        convention_packets=(),
+    )
+    support_context = PROBE._publication_support_context(
+        _pass1_missing_row('{"kind":"action_request"}', sha="sha256:pass1"),
+        excerpt_chars=1200,
+    )
+
+    payload = PROBE._build_local_turn_payload(
+        graph=graph,
+        packet=runtime["packet"],
+        worker_visible=runtime["worker_visible"],
+        publication_support_context=support_context,
+    )
+
+    knowledge = payload["context"]["knowledge"]
+    packets_by_id = {packet["packet_id"]: packet for packet in knowledge}
+    support = packets_by_id["lm8i_publication_support_context"]
+
+    assert "gh_affine_scalar_transform_evidence" in packets_by_id
+    assert support["kind"] == "publication_support"
+    assert support["content"]["required_action_id"] == "draft_gh_set_value_params"
+    assert support["content"]["previous_response_sha256"] == "sha256:pass1"
+    assert payload["context"]["allowed_actions"] == [
+        {
+            "action_id": "draft_gh_set_value_params",
+            "kind": "stage_params",
+            "description": "Draft parameters for setting the trusted editable GH scalar value.",
+            "input_schema": {
+                "type": "object",
+                "required": ["value"],
+                "properties": {"value": {"type": "number"}},
+                "additionalProperties": False,
+            },
+        }
+    ]
+    rendered = json.dumps(payload, sort_keys=True)
+    support_rendered = json.dumps(support, sort_keys=True)
+    assert "3.0" not in rendered
+    assert "EDITABLE-GUID-1" not in rendered
+    assert '"gh_set_value"' not in support_rendered
+    assert '"tool"' not in support_rendered
+    assert '"tool_name"' not in support_rendered

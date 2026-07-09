@@ -1212,6 +1212,22 @@ def _affine_scalar_worker_evidence_packet(
     )
 
 
+def _publication_support_knowledge_packet(
+    context: Mapping[str, Any],
+) -> WorkerKnowledgePacket:
+    if context.get("packet_id") != SUPPORT_PACKET_ID:
+        raise ValueError("unexpected_publication_support_packet_id")
+    fields = context.get("fields")
+    if not isinstance(fields, Mapping):
+        raise ValueError("publication_support_fields_not_mapping")
+    return WorkerKnowledgePacket(
+        packet_id=SUPPORT_PACKET_ID,
+        kind="publication_support",
+        title="Publication shape support",
+        content=dict(fields),
+    )
+
+
 def _affine_scalar_allowed_action() -> WorkerAllowedAction:
     return WorkerAllowedAction(
         action_id=ACTION_ID,
@@ -1231,19 +1247,25 @@ def _build_local_turn_payload(
     graph: PlanGraph,
     packet: Mapping[str, Any],
     worker_visible: Mapping[str, Any],
+    publication_support_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    knowledge_packets: list[WorkerKnowledgePacket] = [
+        _affine_scalar_worker_evidence_packet(
+            packet=packet,
+            worker_visible=worker_visible,
+        )
+    ]
+    if publication_support_context is not None:
+        knowledge_packets.append(
+            _publication_support_knowledge_packet(publication_support_context)
+        )
     context = build_local_worker_turn_context(
         _affine_scalar_scaffold(graph),
         graph,
         records=(),
         supply_records=(),
         current_node_id=WORKER_NODE_ID,
-        knowledge=(
-            _affine_scalar_worker_evidence_packet(
-                packet=packet,
-                worker_visible=worker_visible,
-            ),
-        ),
+        knowledge=tuple(knowledge_packets),
         allowed_actions=(_affine_scalar_allowed_action(),),
     )
     return dict(render_local_worker_turn_request_payload(context))
