@@ -1380,8 +1380,6 @@ def _find_publication_forbidden_marker(value: Any, *, path: str = "") -> str | N
     if isinstance(value, Mapping):
         for key, nested_value in value.items():
             key_text = str(key)
-            if key_text == "input":
-                continue
             next_path = f"{path}.{key_text}" if path else key_text
             if key_text == "action_id":
                 continue

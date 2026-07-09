@@ -760,3 +760,35 @@ def test_run_probe_receipts_forbidden_published_content_before_worker_action_art
     assert decision["decision"] == "publication_failed"
     assert decision["reason"] == expected_reason
     assert not (run_dir / "worker_action.json").exists()
+
+
+def test_run_probe_receipts_forbidden_marker_inside_input_before_worker_action_artifact(
+    tmp_path,
+):
+    executor = FakeToolExecutor(_fixture_responses_for_success())
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *args, **kwargs: _published_action_with_payload(
+            {
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "action_request",
+                "action_id": "draft_gh_set_value_params",
+                "input": {"value": 3.0, "note": "gh_edit"},
+            }
+        ),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "worker_publication_forbidden_content:gh_edit"
+    assert not (run_dir / "worker_action.json").exists()
+    assert not (run_dir / "live_set_value_summary.json").exists()
+    assert all(tool_name != "gh_set_value" for tool_name, _args in executor.calls)
