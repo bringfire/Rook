@@ -71,6 +71,30 @@ SCALAR_TRANSFORM_FIXTURE_ANCHOR_SOURCE_PATH = (
     "create_scalar_transform.receipt.gh_receipt.scalar_anchor.editable_value_contract"
 )
 SCALAR_TRANSFORM_CONVENTION_SOURCE_PATH = "gh_scalar_transform_set_value_convention"
+AFFINE_SCALAR_TRANSFORM_EXPECTED_OUTPUT_SOURCE_PATH = (
+    "workflow_contract.rules.verify_affine_scalar_transform_output.expected_output_value"
+)
+AFFINE_SCALAR_TRANSFORM_FACTOR_VALUE_SOURCE_PATH = (
+    "workflow_contract.rules.verify_affine_scalar_transform_output.factor_value"
+)
+AFFINE_SCALAR_TRANSFORM_OFFSET_VALUE_SOURCE_PATH = (
+    "workflow_contract.rules.verify_affine_scalar_transform_output.offset_value"
+)
+AFFINE_SCALAR_TRANSFORM_PROJECTION_SOURCE_PATH = (
+    "workflow_contract.rules.verify_affine_scalar_transform_output.projection"
+)
+AFFINE_SCALAR_TRANSFORM_OBSERVED_OUTPUT_SOURCE_PATH = (
+    "create_affine_scalar_transform.receipt.gh_receipt.observed_output_value"
+)
+AFFINE_SCALAR_TRANSFORM_EDITABLE_VALUE_SOURCE_PATH = (
+    "create_affine_scalar_transform.receipt.gh_receipt.editable_value"
+)
+AFFINE_SCALAR_TRANSFORM_FIXTURE_ANCHOR_SOURCE_PATH = (
+    "create_affine_scalar_transform.receipt.gh_receipt.scalar_anchor.editable_value_contract"
+)
+AFFINE_SCALAR_TRANSFORM_CONVENTION_SOURCE_PATH = (
+    "gh_affine_scalar_transform_set_value_convention"
+)
 
 _ROUTE_ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 _SOURCE_CLASSES = (
@@ -112,6 +136,7 @@ _ALLOWED_SOURCE_PATHS = {
         "grasshopper_definition_style_convention",
         SCALAR_CONVENTION_SOURCE_PATH,
         SCALAR_TRANSFORM_CONVENTION_SOURCE_PATH,
+        AFFINE_SCALAR_TRANSFORM_CONVENTION_SOURCE_PATH,
     ),
     "planner_user_intent": ("planner.intent.desired_output_value",),
     "expected_output_contract": (
@@ -119,15 +144,22 @@ _ALLOWED_SOURCE_PATHS = {
         SCALAR_TRANSFORM_EXPECTED_OUTPUT_SOURCE_PATH,
         SCALAR_TRANSFORM_OFFSET_VALUE_SOURCE_PATH,
         SCALAR_TRANSFORM_PROJECTION_SOURCE_PATH,
+        AFFINE_SCALAR_TRANSFORM_EXPECTED_OUTPUT_SOURCE_PATH,
+        AFFINE_SCALAR_TRANSFORM_FACTOR_VALUE_SOURCE_PATH,
+        AFFINE_SCALAR_TRANSFORM_OFFSET_VALUE_SOURCE_PATH,
+        AFFINE_SCALAR_TRANSFORM_PROJECTION_SOURCE_PATH,
     ),
     "receipt_observation": (
         SCALAR_OBSERVED_OUTPUT_SOURCE_PATH,
         SCALAR_TRANSFORM_OBSERVED_OUTPUT_SOURCE_PATH,
         SCALAR_TRANSFORM_EDITABLE_VALUE_SOURCE_PATH,
+        AFFINE_SCALAR_TRANSFORM_OBSERVED_OUTPUT_SOURCE_PATH,
+        AFFINE_SCALAR_TRANSFORM_EDITABLE_VALUE_SOURCE_PATH,
     ),
     "fixture_anchor": (
         SCALAR_FIXTURE_ANCHOR_SOURCE_PATH,
         SCALAR_TRANSFORM_FIXTURE_ANCHOR_SOURCE_PATH,
+        AFFINE_SCALAR_TRANSFORM_FIXTURE_ANCHOR_SOURCE_PATH,
     ),
 }
 _FORBIDDEN_SOURCE_PATHS = ("PROBE_REPAIR_CODE", "A = 42.0")
