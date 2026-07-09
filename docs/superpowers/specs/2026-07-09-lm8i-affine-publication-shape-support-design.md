@@ -400,8 +400,9 @@ LM8I inherits the LM8H hidden derived value policy:
 3.0 is the correct affine editable value.
 3.0 must not appear in worker-visible evidence, publication support context,
 prompt text, pre-publication source artifacts, or deterministic criteria text.
-3.0 may appear only after the worker authors it, such as in worker_action.json,
-live set-value summaries, verifier summaries, and bounded decision fields.
+3.0 may appear only after the worker authors it, such as in bounded final
+worker publication row excerpts, worker_action.json, live set-value summaries,
+verifier summaries, and bounded decision fields.
 ```
 
 The worker may see:

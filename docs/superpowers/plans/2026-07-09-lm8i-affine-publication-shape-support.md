@@ -685,19 +685,22 @@ def _pass1_missing_publication(excerpt='{"kind": "action_request"}'):
 
 
 def _published_action(value=3.0):
+    response_payload = {
+        "schema": "rook.local_worker_turn_response:v1",
+        "kind": "action_request",
+        "action_id": "draft_gh_set_value_params",
+        "rationale": "Use the affine relationship to match the expected output.",
+        "input": {"value": value},
+    }
     return FakePublication(
         row={
             "status": "published",
             "pass2_response_kind": "action_request",
+            "pass2_content_excerpt": json.dumps(response_payload, sort_keys=True),
+            "pass2_content_sha256": "sha256:pass2",
             "observation_action_intent_anomaly": False,
         },
-        response_payload={
-            "schema": "rook.local_worker_turn_response:v1",
-            "kind": "action_request",
-            "action_id": "draft_gh_set_value_params",
-            "rationale": "Use the affine relationship to match the expected output.",
-            "input": {"value": value},
-        },
+        response_payload=response_payload,
     )
 ```
 
@@ -1210,13 +1213,14 @@ def test_run_probe_support_and_prepublication_artifacts_do_not_contain_hidden_va
         "worker_visible_acceptance_criteria.json",
         "worker_request_payload.json",
         "publication_support_context.json",
-        "worker_publication_rows.json",
     ]
     for filename in forbidden_pre_publication:
         rendered = (run_dir / filename).read_text(encoding="utf-8")
         assert "3.0" not in rendered
 
     allowed_post_publication = [
+        "worker_publication_rows.json",
+        "worker_publication_row.json",
         "worker_action.json",
         "live_set_value_summary.json",
         "decision.json",
@@ -1225,6 +1229,9 @@ def test_run_probe_support_and_prepublication_artifacts_do_not_contain_hidden_va
         "3.0" in (run_dir / filename).read_text(encoding="utf-8")
         for filename in allowed_post_publication
     )
+    rows = json.loads((run_dir / "worker_publication_rows.json").read_text(encoding="utf-8"))
+    assert "3.0" not in json.dumps(rows[0], sort_keys=True)
+    assert "3.0" in json.dumps(rows[1], sort_keys=True)
 ```
 
 - [ ] **Step 3: Add no autofill regression**
