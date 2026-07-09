@@ -171,3 +171,88 @@ def _base_attempt_row(*, attempt_index: int) -> dict[str, Any]:
         "leak_marker_matches": [],
         "leak_marker_match_count": 0,
     }
+
+
+def _lm8i_command(*, model: str, lm8i_runs_dir: Path) -> list[str]:
+    return [
+        sys.executable,
+        str(_REPO_ROOT / "scripts" / "lm8i_affine_publication_shape_support_probe.py"),
+        "--model",
+        model,
+        "--run-dir",
+        str(lm8i_runs_dir),
+    ]
+
+
+def _discover_child_run_dirs(
+    lm8i_runs_dir: Path, before: set[Path]
+) -> list[Path]:
+    after = {path for path in lm8i_runs_dir.glob("lm8i-*") if path.is_dir()}
+    created = sorted(after - before, key=lambda path: path.stat().st_mtime)
+    return created
+
+
+def _completed_text(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def _excerpt(text: str | None, *, limit: int = EXCERPT_CHARS) -> str:
+    if not text:
+        return ""
+    return text if len(text) <= limit else text[:limit]
+
+
+def _single_child_dir_error(
+    child_run_dirs: Sequence[Path],
+) -> tuple[Path | None, str | None]:
+    if len(child_run_dirs) == 0:
+        return None, "child_run_dir_missing"
+    if len(child_run_dirs) > 1:
+        return None, "child_run_dir_ambiguous"
+    return child_run_dirs[0], None
+
+
+def _timeout_row(
+    *,
+    attempt_index: int,
+    exc: subprocess.TimeoutExpired,
+    child_run_dirs: Sequence[Path],
+) -> dict[str, Any]:
+    row = _base_attempt_row(attempt_index=attempt_index)
+    child_run_dir, child_error = _single_child_dir_error(child_run_dirs)
+    row.update(
+        {
+            "lm8i_invoked": True,
+            "lm8i_run_dir": str(child_run_dir) if child_run_dir is not None else None,
+            "terminal_category": "wrapper_error",
+            "failure_reason": "lm8i_timeout",
+            "child_run_dir_error": child_error,
+            "stdout_excerpt": _excerpt(_completed_text(getattr(exc, "output", None))),
+            "stderr_excerpt": _excerpt(_completed_text(getattr(exc, "stderr", None))),
+        }
+    )
+    return row
+
+
+def _subprocess_error_row(
+    *,
+    attempt_index: int,
+    exc: Exception,
+    child_run_dirs: Sequence[Path],
+) -> dict[str, Any]:
+    row = _base_attempt_row(attempt_index=attempt_index)
+    child_run_dir, child_error = _single_child_dir_error(child_run_dirs)
+    row.update(
+        {
+            "lm8i_invoked": True,
+            "lm8i_run_dir": str(child_run_dir) if child_run_dir is not None else None,
+            "terminal_category": "wrapper_error",
+            "failure_reason": f"lm8i_subprocess_error:{exc.__class__.__name__}",
+            "child_run_dir_error": child_error,
+        }
+    )
+    return row
