@@ -89,6 +89,8 @@ WORKER_NODE_ID = "set_scalar_value"
 CREATE_NODE_ID = "create_affine_scalar_transform"
 VERIFY_NODE_ID = "verify_affine_scalar_transform_output"
 ACTION_ID = "draft_gh_set_value_params"
+SUPPORT_PACKET_ID = "lm8i_publication_support_context"
+SUPPORT_REASON = "previous_pass1_missing_action_id"
 DECISIONS = {
     "preflight_failed",
     "gate_failed",
@@ -1612,6 +1614,85 @@ def _worker_action_context(
     return {
         "worker_action_input_sha256": _sha256_text(rendered),
         "worker_action_input_excerpt": sanitized_rendered[:excerpt_chars],
+    }
+
+
+def _publication_support_eligibility(row: Mapping[str, Any]) -> dict[str, Any]:
+    if (
+        row.get("status") != "pass1_decision_invalid"
+        or row.get("failure_reason") != "pass1_missing_action_id"
+    ):
+        return {
+            "support_eligible": False,
+            "support_not_attempted_reason": "first_publication_not_exact_skeletal_missing_action_id",
+            "previous_response_kind": None,
+            "previous_response_excerpt": None,
+            "previous_response_sha256": row.get("pass1_content_sha256"),
+        }
+
+    excerpt = row.get("pass1_content_excerpt")
+    if not isinstance(excerpt, str):
+        return {
+            "support_eligible": False,
+            "support_not_attempted_reason": "pass1_excerpt_not_exact_skeletal_json",
+            "previous_response_kind": None,
+            "previous_response_excerpt": None,
+            "previous_response_sha256": row.get("pass1_content_sha256"),
+        }
+
+    try:
+        parsed = json.loads(excerpt.strip())
+    except (json.JSONDecodeError, RecursionError):
+        parsed = None
+
+    if parsed != {"kind": "action_request"}:
+        return {
+            "support_eligible": False,
+            "support_not_attempted_reason": "pass1_excerpt_not_exact_skeletal_json",
+            "previous_response_kind": None,
+            "previous_response_excerpt": excerpt,
+            "previous_response_sha256": row.get("pass1_content_sha256"),
+        }
+
+    return {
+        "support_eligible": True,
+        "support_not_attempted_reason": None,
+        "previous_response_kind": "action_request",
+        "previous_response_excerpt": excerpt,
+        "previous_response_sha256": row.get("pass1_content_sha256"),
+    }
+
+
+def _publication_support_context(
+    row: Mapping[str, Any],
+    *,
+    excerpt_chars: int,
+) -> dict[str, Any]:
+    eligibility = _publication_support_eligibility(row)
+    if eligibility["support_eligible"] is not True:
+        raise ValueError("support_context_requires_exact_eligibility")
+    previous_excerpt = str(eligibility["previous_response_excerpt"] or "")
+    return {
+        "packet_id": SUPPORT_PACKET_ID,
+        "kind": "publication_support",
+        "title": "Publication shape support",
+        "fields": {
+            "support_reason": SUPPORT_REASON,
+            "previous_response_kind": "action_request",
+            "previous_response_excerpt": previous_excerpt[:excerpt_chars],
+            "previous_response_sha256": eligibility["previous_response_sha256"],
+            "required_action_id": ACTION_ID,
+            "pass1_decision_required_fields_if_acting": [
+                "kind",
+                "action_id",
+            ],
+            "instruction": (
+                "Your prior pass-1 response selected action_request but omitted "
+                "the required action_id. Re-evaluate the same evidence. If action "
+                f"is still warranted, publish action_request with action_id {ACTION_ID}. "
+                "If action is not warranted, publish a non-action response."
+            ),
+        },
     }
 
 

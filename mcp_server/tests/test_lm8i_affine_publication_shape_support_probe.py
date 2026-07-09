@@ -244,3 +244,106 @@ def test_create_affine_fixture_uses_lm8i_nicknames_and_labels():
     ]
     rendered = json.dumps(fixture, sort_keys=True, default=str).casefold()
     assert "lm8h" not in rendered
+
+
+def _pass1_missing_row(excerpt, *, sha="sha256:abc"):
+    return {
+        "status": "pass1_decision_invalid",
+        "failure_reason": "pass1_missing_action_id",
+        "pass1_content_excerpt": excerpt,
+        "pass1_content_sha256": sha,
+    }
+
+
+def test_support_eligibility_accepts_exact_skeletal_action_request_excerpt():
+    result = PROBE._publication_support_eligibility(
+        _pass1_missing_row('{"kind":"action_request"}')
+    )
+
+    assert result == {
+        "support_eligible": True,
+        "support_not_attempted_reason": None,
+        "previous_response_kind": "action_request",
+        "previous_response_excerpt": '{"kind":"action_request"}',
+        "previous_response_sha256": "sha256:abc",
+    }
+
+
+@pytest.mark.parametrize(
+    ("excerpt", "reason"),
+    [
+        ('{"kind":"action_reques', "pass1_excerpt_not_exact_skeletal_json"),
+        ('{"kind":"action_request","action_id":""}', "pass1_excerpt_not_exact_skeletal_json"),
+        ('{"kind":"action_request","action_id":"wrong"}', "pass1_excerpt_not_exact_skeletal_json"),
+        ('{"kind":"action_request","input":{"value":3.0}}', "pass1_excerpt_not_exact_skeletal_json"),
+        ('{"kind":"observation"}', "pass1_excerpt_not_exact_skeletal_json"),
+        ("not json", "pass1_excerpt_not_exact_skeletal_json"),
+    ],
+)
+def test_support_eligibility_rejects_non_exact_excerpts(excerpt, reason):
+    result = PROBE._publication_support_eligibility(_pass1_missing_row(excerpt))
+
+    assert result["support_eligible"] is False
+    assert result["support_not_attempted_reason"] == reason
+
+
+def test_support_eligibility_rejects_wrong_status_or_failure_reason():
+    wrong_status = PROBE._publication_support_eligibility(
+        {
+            "status": "published",
+            "failure_reason": None,
+            "pass1_content_excerpt": '{"kind":"action_request"}',
+            "pass1_content_sha256": "sha256:abc",
+        }
+    )
+    wrong_reason = PROBE._publication_support_eligibility(
+        {
+            "status": "pass1_decision_invalid",
+            "failure_reason": "pass1_unknown_kind",
+            "pass1_content_excerpt": '{"kind":"action_request"}',
+            "pass1_content_sha256": "sha256:abc",
+        }
+    )
+
+    assert wrong_status["support_eligible"] is False
+    assert wrong_status["support_not_attempted_reason"] == (
+        "first_publication_not_exact_skeletal_missing_action_id"
+    )
+    assert wrong_reason["support_eligible"] is False
+    assert wrong_reason["support_not_attempted_reason"] == (
+        "first_publication_not_exact_skeletal_missing_action_id"
+    )
+
+
+def test_publication_support_context_is_bounded_and_contains_no_authority_leaks():
+    row = _pass1_missing_row('{"kind":"action_request"}', sha="sha256:pass1")
+
+    context = PROBE._publication_support_context(row, excerpt_chars=1200)
+    rendered = json.dumps(context, sort_keys=True)
+
+    assert context["packet_id"] == "lm8i_publication_support_context"
+    assert context["kind"] == "publication_support"
+    assert context["fields"]["support_reason"] == "previous_pass1_missing_action_id"
+    assert context["fields"]["previous_response_kind"] == "action_request"
+    assert context["fields"]["previous_response_excerpt"] == '{"kind":"action_request"}'
+    assert context["fields"]["previous_response_sha256"] == "sha256:pass1"
+    assert context["fields"]["required_action_id"] == "draft_gh_set_value_params"
+    assert context["fields"]["pass1_decision_required_fields_if_acting"] == [
+        "kind",
+        "action_id",
+    ]
+    assert "3.0" not in rendered
+    assert "EDITABLE-GUID-1" not in rendered
+    assert '"gh_set_value"' not in rendered
+    assert '"tool"' not in rendered
+    assert '"tool_name"' not in rendered
+    assert "gh_edit" not in rendered
+    assert "topology" not in rendered.casefold()
+
+
+def test_publication_support_context_refuses_ineligible_row():
+    with pytest.raises(ValueError, match="support_context_requires_exact_eligibility"):
+        PROBE._publication_support_context(
+            _pass1_missing_row('{"kind":"action_request","action_id":""}'),
+            excerpt_chars=1200,
+        )
