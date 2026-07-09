@@ -478,6 +478,34 @@ def test_copy_child_artifact_summaries_uses_worker_action_excerpt_when_no_worker
     assert row["support_recovered"] is False
 
 
+def test_copy_child_artifact_summaries_uses_excerpt_when_worker_action_has_no_numeric_value(tmp_path: Path):
+    child = tmp_path / "lm8i-child"
+    child.mkdir()
+    (child / "worker_action.json").write_text(
+        json.dumps({"input": {"value": "not-a-number"}}),
+        encoding="utf-8",
+    )
+    _write_child_decision(
+        child,
+        {
+            "decision": "rejected",
+            "reason": "worker_action_apply_failed:invalid_input",
+            "worker_action_input_excerpt": '{"input":{"value":3.0}}',
+        },
+    )
+    row = {
+        "lm8i_run_dir": str(child),
+        "publication_support_attempted": False,
+        "support_recovered": False,
+        "worker_action_value": None,
+    }
+
+    PROBE._copy_child_artifact_summaries(row)
+
+    assert row["worker_action_value"] == 3.0
+    assert row["support_recovered"] is False
+
+
 def test_support_recovered_stays_false_when_worker_action_missing_but_excerpt_present(tmp_path: Path):
     child = tmp_path / "lm8i-child"
     child.mkdir()

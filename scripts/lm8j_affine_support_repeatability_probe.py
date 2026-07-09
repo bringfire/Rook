@@ -439,7 +439,7 @@ def _copy_child_artifact_summaries(row: dict[str, Any]) -> None:
             value = action_input.get("value")
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 row["worker_action_value"] = value
-    elif row.get("worker_action_value") is None:
+    if row.get("worker_action_value") is None:
         decision = _read_json_mapping(run_dir / "decision.json")
         if decision is not None:
             value = _worker_action_value_from_decision_excerpt(decision)
