@@ -505,7 +505,7 @@ def _fixture_failure_summary(
     rendered = json.dumps(sanitized, sort_keys=True, default=str)
     guid = _first_guid_value(failure.result)
     return {
-        "schema": "rook.lm8h_fixture_failure_summary:v1",
+        "schema": "rook.lm8i_fixture_failure_summary:v1",
         "step": failure.step,
         "tool_name": failure.tool_name,
         "failure_reason": failure.failure_reason,
@@ -738,7 +738,7 @@ async def _create_affine_fixture(
         step="gh_create_editable_slider",
         tool_name="gh_create_slider",
         args={
-            "nickname": "LM8H_Editable",
+            "nickname": "LM8I_Editable",
             "min": 0,
             "max": 10,
             "value": INITIAL_EDITABLE_VALUE,
@@ -762,7 +762,7 @@ async def _create_affine_fixture(
         step="gh_create_factor_slider",
         tool_name="gh_create_slider",
         args={
-            "nickname": "LM8H_Factor",
+            "nickname": "LM8I_Factor",
             "min": 0,
             "max": 10,
             "value": FACTOR_VALUE,
@@ -786,7 +786,7 @@ async def _create_affine_fixture(
         step="gh_create_offset_slider",
         tool_name="gh_create_slider",
         args={
-            "nickname": "LM8H_Offset",
+            "nickname": "LM8I_Offset",
             "min": 0,
             "max": 10,
             "value": OFFSET_VALUE,
@@ -1008,7 +1008,7 @@ async def _create_affine_fixture(
         "scalar_anchor": {
             "internal_component_guid": editable_guid,
             "editable_value_contract": {
-                "label": "LM8H_Editable",
+                "label": "LM8I_Editable",
                 "value_type": "number",
                 "current_value": editable_value,
                 "projection_id": "editable_times_factor_plus_offset",
@@ -1145,23 +1145,23 @@ def _affine_runtime_context(*, graph, workflow_contract_payload, convention_pack
 def _affine_scalar_scaffold(graph: PlanGraph) -> CompiledWorkflowScaffold:
     normalized_contract = {
         "schema": "rook.workflow_contract:v1",
-        "workflow_id": "lm8h-gh-affine-scalar-transform",
+        "workflow_id": "lm8i-gh-affine-scalar-transform",
     }
     contract_fingerprint = _fingerprint_json(normalized_contract).removeprefix(
         "sha256:"
     )
     snapshot = WorkflowContractSnapshot(
-        workflow_id="lm8h-gh-affine-scalar-transform",
+        workflow_id="lm8i-gh-affine-scalar-transform",
         normalized_contract=normalized_contract,
         contract_fingerprint=contract_fingerprint,
     )
     compile_record = WorkflowCompileRecord(
-        workflow_id="lm8h-gh-affine-scalar-transform",
-        compiler_id="lm8h.script_local_affine_scaffold:v1",
+        workflow_id="lm8i-gh-affine-scalar-transform",
+        compiler_id="lm8i.script_local_affine_scaffold:v1",
         contract_schema="rook.workflow_contract:v1",
         contract_fingerprint_algorithm="sha256",
         contract_fingerprint=contract_fingerprint,
-        provider_id="lm8h.script_local_provider:v1",
+        provider_id="lm8i.script_local_provider:v1",
         expected_template_id="gh_affine_scalar_transform_expectation",
         selected_template_id="gh_affine_scalar_transform_expectation",
         graph_node_ids=tuple(sorted(graph.nodes)),
@@ -1173,7 +1173,7 @@ def _affine_scalar_scaffold(graph: PlanGraph) -> CompiledWorkflowScaffold:
         max_steps=4,
     )
     return CompiledWorkflowScaffold(
-        workflow_id="lm8h-gh-affine-scalar-transform",
+        workflow_id="lm8i-gh-affine-scalar-transform",
         graph=graph,
         provider=object(),
         max_steps=4,
