@@ -1776,6 +1776,16 @@ def _support_metadata(
     }
 
 
+def _write_publication_artifacts(
+    run_dir: Path,
+    *,
+    publication_rows: Sequence[Mapping[str, Any]],
+    final_row: Mapping[str, Any],
+) -> None:
+    _write_json_value(run_dir / "worker_publication_rows.json", publication_rows)
+    _write_json(run_dir / "worker_publication_row.json", final_row)
+
+
 def _action_context(
     response_payload: Mapping[str, Any], excerpt_chars: int
 ) -> dict[str, Any]:
@@ -1979,6 +1989,7 @@ def _run_probe(
         component_guids=component_guids,
     )
     if safety_failure is not None:
+        eligibility = _publication_support_eligibility(first_publication.row)
         _write_json(
             run_dir / "decision.json",
             _decision_record(
@@ -1990,6 +2001,14 @@ def _run_probe(
                 live_fixture_created=True,
                 worker_publication_ran=True,
                 component_guid=editable_component_guid,
+                extra=_support_metadata(
+                    attempted=False,
+                    count=0,
+                    eligibility=eligibility,
+                    first_row=first_publication.row,
+                    final_row=first_publication.row,
+                    final_payload=first_publication.response_payload,
+                ),
             ),
         )
         return run_dir
@@ -2029,12 +2048,24 @@ def _run_probe(
             timeout_s=timeout_s,
             excerpt_chars=excerpt_chars,
         )
+        publication_rows.append(
+            _annotate_publication_row(
+                final_publication.row,
+                turn_index=1,
+                turn_role="publication_support",
+                publication_support_context_present=True,
+            )
+        )
         safety_failure = _publication_safety_failure(
             final_publication,
             component_guids=component_guids,
         )
         if safety_failure is not None:
-            _write_json_value(run_dir / "worker_publication_rows.json", publication_rows)
+            _write_publication_artifacts(
+                run_dir,
+                publication_rows=publication_rows,
+                final_row=final_publication.row,
+            )
             _write_json(
                 run_dir / "decision.json",
                 _decision_record(
@@ -2057,17 +2088,12 @@ def _run_probe(
                 ),
             )
             return run_dir
-        publication_rows.append(
-            _annotate_publication_row(
-                final_publication.row,
-                turn_index=1,
-                turn_role="publication_support",
-                publication_support_context_present=True,
-            )
-        )
 
-    _write_json_value(run_dir / "worker_publication_rows.json", publication_rows)
-    _write_json(run_dir / "worker_publication_row.json", final_publication.row)
+    _write_publication_artifacts(
+        run_dir,
+        publication_rows=publication_rows,
+        final_row=final_publication.row,
+    )
     support_extra = _support_metadata(
         attempted=support_attempted,
         count=support_count,

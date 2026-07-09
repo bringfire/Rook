@@ -603,6 +603,107 @@ def test_run_probe_support_repeat_missing_action_id_remains_publication_failed(t
     assert not (run_dir / "worker_action.json").exists()
 
 
+def test_run_probe_first_publication_safety_failure_includes_support_metadata(tmp_path):
+    executor = FakeToolExecutor(_fixture_responses_for_success())
+    publication = FakePublication(
+        row={
+            "status": "pass1_decision_invalid",
+            "failure_reason": "pass1_missing_action_id",
+            "pass1_content_excerpt": '{"kind":"action_request"}',
+            "pass1_content_sha256": "sha256:pass1",
+            "observation_action_intent_anomaly": False,
+        },
+        response_payload={
+            "kind": "action_request",
+            "rationale": "EDITABLE-GUID-1",
+        },
+    )
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *_args, **_kwargs: publication,
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "worker_publication_guid_leak"
+    assert decision["publication_support_attempted"] is False
+    assert decision["publication_support_count"] == 0
+    assert decision["support_eligible"] is True
+    assert decision["support_not_attempted_reason"] is None
+    assert decision["first_publication_status"] == "pass1_decision_invalid"
+    assert decision["first_publication_failure_reason"] == "pass1_missing_action_id"
+    assert decision["final_publication_status"] == "pass1_decision_invalid"
+    assert decision["final_publication_failure_reason"] == "pass1_missing_action_id"
+    assert not (run_dir / "worker_action.json").exists()
+
+
+def test_run_probe_support_turn_safety_failure_writes_support_row_and_final_row(tmp_path):
+    executor = FakeToolExecutor(_fixture_responses_for_success())
+    publications = [
+        _pass1_missing_publication(),
+        FakePublication(
+            row={
+                "status": "published",
+                "pass2_response_kind": "action_request",
+                "observation_action_intent_anomaly": False,
+            },
+            response_payload={
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "action_request",
+                "action_id": "draft_gh_set_value_params",
+                "rationale": "OFFSET-GUID-1",
+                "input": {"value": 3.0},
+            },
+        ),
+    ]
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *_args, **_kwargs: publications.pop(0),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    rows = json.loads(
+        (run_dir / "worker_publication_rows.json").read_text(encoding="utf-8")
+    )
+    final_row = json.loads(
+        (run_dir / "worker_publication_row.json").read_text(encoding="utf-8")
+    )
+
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "worker_publication_guid_leak"
+    assert decision["publication_support_attempted"] is True
+    assert decision["publication_support_count"] == 1
+    assert decision["support_eligible"] is True
+    assert len(rows) == 2
+    assert rows[0]["turn_index"] == 0
+    assert rows[0]["turn_role"] == "initial"
+    assert rows[1]["turn_index"] == 1
+    assert rows[1]["turn_role"] == "publication_support"
+    assert rows[1]["publication_support_context_present"] is True
+    assert final_row == rows[1]["row"]
+    assert decision["first_publication_status"] == "pass1_decision_invalid"
+    assert decision["final_publication_status"] == "published"
+    assert decision["final_worker_response_kind"] == "action_request"
+    assert not (run_dir / "worker_action.json").exists()
+
+
 def test_run_probe_support_non_action_maps_to_worker_declined(tmp_path):
     executor = FakeToolExecutor(_fixture_responses_for_success())
     publications = [
