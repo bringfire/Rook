@@ -194,6 +194,17 @@ def _published_action(value=3.0):
     )
 
 
+def _published_action_with_payload(payload, *, row_overrides=None):
+    row = {
+        "status": "published",
+        "pass2_response_kind": "action_request",
+        "observation_action_intent_anomaly": False,
+    }
+    if row_overrides:
+        row.update(row_overrides)
+    return FakePublication(row=row, response_payload=payload)
+
+
 def _run(coro):
     import asyncio
 
@@ -366,8 +377,75 @@ def test_create_affine_fixture_selects_active_multiplication_after_deprecated_al
     ],
 )
 def test_create_affine_fixture_rejects_noncanonical_initial_state(responses, expected_reason):
-    with pytest.raises(ValueError, match=expected_reason):
+    with pytest.raises(PROBE.FixtureSetupFailure) as exc:
         _run(PROBE._create_affine_fixture(FakeToolExecutor(responses)))
+
+    assert exc.value.failure_reason == expected_reason
+
+
+def test_run_probe_writes_fixture_failure_summary_for_noncanonical_initial_state(tmp_path):
+    responses = _fixture_responses_for_success()
+    responses["gh_get_value"][0] = {
+        "success": True,
+        "data": {"Guid": "EDITABLE-GUID-1", "Value": "2.25"},
+    }
+    executor = FakeToolExecutor(responses)
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *args, **kwargs: _published_action(3.0),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    summary = json.loads(
+        (run_dir / "fixture_failure_summary.json").read_text(encoding="utf-8")
+    )
+
+    assert decision["decision"] == "gate_failed"
+    assert decision["reason"] == "affine_fixture_failed:initial_editable_value_mismatch"
+    assert summary["failure_reason"] == "initial_editable_value_mismatch"
+
+
+def test_run_probe_writes_fixture_failure_summary_for_projection_invariant_mismatch(
+    tmp_path, monkeypatch
+):
+    original = PROBE._affine_scalar_contract_payload
+
+    def broken_payload():
+        payload = original()
+        payload["rules"]["verify_affine_scalar_transform_output"]["offset_value"] = 1.25
+        return payload
+
+    monkeypatch.setattr(PROBE, "_affine_scalar_contract_payload", broken_payload)
+    executor = FakeToolExecutor(_fixture_responses_for_success())
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *args, **kwargs: _published_action(3.0),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    summary = json.loads(
+        (run_dir / "fixture_failure_summary.json").read_text(encoding="utf-8")
+    )
+
+    assert decision["decision"] == "gate_failed"
+    assert decision["reason"] == "affine_fixture_failed:projection_invariant_mismatch"
+    assert summary["failure_reason"] == "projection_invariant_mismatch"
 
 
 def _valid_affine_fixture():
@@ -560,3 +638,125 @@ def test_run_probe_rejects_worker_value_that_does_not_match_affine_output(tmp_pa
     assert decision["decision"] == "rejected"
     assert decision["reason"] == "verify_scalar_output_failed"
     assert decision["observed_output_after"] == 9.5
+
+
+def test_run_probe_receipts_invalid_published_action_id_before_worker_action_artifact(
+    tmp_path,
+):
+    executor = FakeToolExecutor(_fixture_responses_for_success())
+    publication = _published_action_with_payload(
+        {
+            "schema": "rook.local_worker_turn_response:v1",
+            "kind": "action_request",
+            "action_id": "gh_edit",
+            "rationale": "Use gh_edit to patch the graph.",
+            "input": {"value": 3.0},
+        }
+    )
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *args, **kwargs: publication,
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == "worker_publication_invalid_action_id"
+    assert not (run_dir / "worker_action.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_reason"),
+    [
+        (
+            {
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "action_request",
+                "action_id": "draft_gh_set_value_params",
+                "rationale": "Use gh_edit to patch the graph.",
+                "input": {"value": 3.0},
+            },
+            "worker_publication_forbidden_content:gh_edit",
+        ),
+        (
+            {
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "action_request",
+                "action_id": "draft_gh_set_value_params",
+                "rationale": "Provide code to perform the edit.",
+                "input": {"value": 3.0},
+            },
+            "worker_publication_forbidden_content:code",
+        ),
+        (
+            {
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "action_request",
+                "action_id": "draft_gh_set_value_params",
+                "topology_note": "Adjust graph shape to reach the target.",
+                "input": {"value": 3.0},
+            },
+            "worker_publication_forbidden_content:topology",
+        ),
+        (
+            {
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "action_request",
+                "action_id": "draft_gh_set_value_params",
+                "notes": {"script_hint": "gh_update_script"},
+                "input": {"value": 3.0},
+            },
+            "worker_publication_forbidden_content:gh_update_script",
+        ),
+        (
+            {
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "action_request",
+                "action_id": "draft_gh_set_value_params",
+                "notes": {"tool": "gh_set_value"},
+                "input": {"value": 3.0},
+            },
+            "worker_publication_forbidden_content:gh_set_value",
+        ),
+        (
+            {
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "action_request",
+                "action_id": "draft_gh_set_value_params",
+                "target_guid": "EDITABLE-GUID-1",
+                "input": {"value": 3.0},
+            },
+            "worker_publication_guid_leak",
+        ),
+    ],
+)
+def test_run_probe_receipts_forbidden_published_content_before_worker_action_artifact(
+    tmp_path, payload, expected_reason
+):
+    executor = FakeToolExecutor(_fixture_responses_for_success())
+
+    run_dir = PROBE._run_probe(
+        model="gemma4:12b-it-qat",
+        endpoint="http://localhost:11434/api/chat",
+        temperature=0,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *args, **kwargs: _published_action_with_payload(
+            payload
+        ),
+    )
+
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    assert decision["decision"] == "publication_failed"
+    assert decision["reason"] == expected_reason
+    assert not (run_dir / "worker_action.json").exists()

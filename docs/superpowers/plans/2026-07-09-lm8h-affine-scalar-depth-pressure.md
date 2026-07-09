@@ -21,7 +21,7 @@
 - Canonical fixture is editable `2.0`, factor `2.0`, offset `1.5`, initial observed output `5.5`, expected output `7.5`.
 - Hidden derived worker value `3.0` must not appear in pre-publication worker-visible/source/request artifacts.
 - `3.0` may appear only after worker publication if the model authors it.
-- Multiplication library lookup must select an exact active/non-deprecated Multiplication component; deprecated-first results gate-fail.
+- Multiplication library lookup must select an exact active/non-deprecated Multiplication component; deprecated-only exact results gate-fail, but deprecated aliases may precede a later active exact match and must be skipped.
 - Trusted editable slider GUID remains applier-only runtime authority.
 - Final verifier floor is `gh_inspect_output` on final Addition `R`.
 - No raw probe artifacts committed.

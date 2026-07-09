@@ -922,7 +922,12 @@ async def _create_affine_fixture(
         _tool_field(editable_value_result, "value", "Value")
     )
     if abs(float(editable_value) - INITIAL_EDITABLE_VALUE) > SCALAR_TOLERANCE:
-        raise ValueError("initial_editable_value_mismatch")
+        _raise_fixture_failure(
+            step="gh_get_editable_value",
+            tool_name="gh_get_value",
+            failure_reason="initial_editable_value_mismatch",
+            result=editable_value_result,
+        )
 
     factor_value_result = await _fixture_tool_call(
         tool_executor,
@@ -941,7 +946,12 @@ async def _create_affine_fixture(
         _tool_field(factor_value_result, "value", "Value")
     )
     if abs(float(factor_value) - FACTOR_VALUE) > SCALAR_TOLERANCE:
-        raise ValueError("factor_value_mismatch")
+        _raise_fixture_failure(
+            step="gh_get_factor_value",
+            tool_name="gh_get_value",
+            failure_reason="factor_value_mismatch",
+            result=factor_value_result,
+        )
 
     offset_value_result = await _fixture_tool_call(
         tool_executor,
@@ -960,7 +970,12 @@ async def _create_affine_fixture(
         _tool_field(offset_value_result, "value", "Value")
     )
     if abs(float(offset_value) - OFFSET_VALUE) > SCALAR_TOLERANCE:
-        raise ValueError("offset_value_mismatch")
+        _raise_fixture_failure(
+            step="gh_get_offset_value",
+            tool_name="gh_get_value",
+            failure_reason="offset_value_mismatch",
+            result=offset_value_result,
+        )
 
     inspect_result = await _fixture_tool_call(
         tool_executor,
@@ -970,7 +985,12 @@ async def _create_affine_fixture(
     )
     observed_output_value = _inspect_output_scalar_value(inspect_result)
     if abs(float(observed_output_value) - INITIAL_OBSERVED_OUTPUT) > SCALAR_TOLERANCE:
-        raise ValueError("initial_observed_output_mismatch")
+        _raise_fixture_failure(
+            step="gh_inspect_output",
+            tool_name="gh_inspect_output",
+            failure_reason="initial_observed_output_mismatch",
+            result=inspect_result,
+        )
 
     receipt = {
         "editable_value": editable_value,
@@ -1089,7 +1109,17 @@ def _affine_runtime_context(*, graph, workflow_contract_payload, convention_pack
         convention_packets=convention_packets,
     )
     if not _affine_projection_invariant_holds(sources):
-        raise ValueError("projection_invariant_mismatch")
+        raise FixtureSetupFailure(
+            step="scalar_runtime_ready",
+            tool_name="affine_runtime_context",
+            failure_reason="projection_invariant_mismatch",
+            result={
+                "editable_value": sources.editable_observation.value,
+                "factor_value": sources.factor_contract.value,
+                "offset_value": sources.offset_contract.value,
+                "observed_output_value": sources.observed_output.value,
+            },
+        )
     packet = assemble_gh_affine_scalar_transform_expectation_packet(sources)
     worker_visible = project_gh_affine_scalar_transform_expectation_legacy(packet)
     return {
@@ -1331,6 +1361,67 @@ def _raw_component_guid_leaks(value: Any, component_guid: str) -> bool:
         return False
     rendered = json.dumps(value, sort_keys=True, default=str)
     return component_guid.casefold() in rendered.casefold()
+
+
+_FORBIDDEN_PUBLICATION_MARKERS = (
+    "gh" + "_edit",
+    "gh" + "_update_script",
+    "gh" + "_connect",
+    "gh" + "_set_value",
+    "code",
+    "script",
+    "topology",
+    "wiring",
+    "wire",
+)
+
+
+def _find_publication_forbidden_marker(value: Any, *, path: str = "") -> str | None:
+    if isinstance(value, Mapping):
+        for key, nested_value in value.items():
+            key_text = str(key)
+            if key_text == "input":
+                continue
+            next_path = f"{path}.{key_text}" if path else key_text
+            if key_text == "action_id":
+                continue
+            nested_marker = _find_publication_forbidden_marker(
+                nested_value, path=next_path
+            )
+            if nested_marker is not None:
+                return nested_marker
+            key_marker = _find_publication_forbidden_marker(key_text, path=next_path)
+            if key_marker is not None:
+                return key_marker
+        return None
+    if isinstance(value, str):
+        lowered = value.casefold()
+        for marker in _FORBIDDEN_PUBLICATION_MARKERS:
+            if marker.casefold() in lowered:
+                return marker
+        return None
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray, str)):
+        for index, item in enumerate(value):
+            nested_marker = _find_publication_forbidden_marker(
+                item,
+                path=f"{path}[{index}]",
+            )
+            if nested_marker is not None:
+                return nested_marker
+    return None
+
+
+def _published_action_payload_failure_reason(
+    response_payload: Mapping[str, Any],
+) -> str | None:
+    action_id = response_payload.get("action_id")
+    if action_id != ACTION_ID:
+        return "worker_publication_invalid_action_id"
+
+    marker = _find_publication_forbidden_marker(response_payload)
+    if marker is not None:
+        return f"worker_publication_forbidden_content:{marker}"
+    return None
 
 
 async def _dispatch_set_value_solve_and_verify(
@@ -1599,18 +1690,36 @@ def _run_probe(
     addition_component_guid = fixture["addition_component_guid"]
     _write_json(run_dir / "fixture_setup_summary.json", fixture["fixture_setup_summary"])
     _write_json_value(run_dir / "affine_fixture_receipt.json", fixture["visible_receipt"])
+    workflow_contract_payload = _affine_scalar_contract_payload()
     _write_json_value(
         run_dir / "affine_scalar_contract.json",
-        _affine_scalar_contract_payload(),
+        workflow_contract_payload,
     )
 
     graph = _graph_from_affine_receipt(fixture["receipt"])
     try:
         runtime = _affine_runtime_context(
             graph=graph,
-            workflow_contract_payload=_affine_scalar_contract_payload(),
+            workflow_contract_payload=workflow_contract_payload,
             convention_packets=(),
         )
+    except FixtureSetupFailure as exc:
+        _write_json(
+            run_dir / "fixture_failure_summary.json",
+            _fixture_failure_summary(exc, excerpt_chars=excerpt_chars),
+        )
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="gate_failed",
+                reason=f"affine_fixture_failed:{exc.failure_reason}",
+                phase="scalar_runtime_ready",
+                canonical_evidence=canonical_evidence,
+                live_fixture_created=True,
+                component_guid=editable_component_guid,
+            ),
+        )
+        return run_dir
     except Exception as exc:
         _write_json(
             run_dir / "decision.json",
@@ -1756,6 +1865,24 @@ def _run_probe(
         return run_dir
 
     response_payload = publication.response_payload
+    publication_failure_reason = _published_action_payload_failure_reason(
+        response_payload
+    )
+    if publication_failure_reason is not None:
+        _write_json(
+            run_dir / "decision.json",
+            _decision_record(
+                decision="publication_failed",
+                reason=publication_failure_reason,
+                phase="worker_publication",
+                canonical_evidence=canonical_evidence,
+                scalar_runtime_ready=True,
+                live_fixture_created=True,
+                worker_publication_ran=True,
+                component_guid=editable_component_guid,
+            ),
+        )
+        return run_dir
     _write_json(run_dir / "worker_action.json", response_payload)
     action_context = _action_context(response_payload, excerpt_chars)
     apply_result = apply_gh_scalar_value_action_to_node(
