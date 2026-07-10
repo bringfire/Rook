@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - The approved source of truth is `docs/superpowers/specs/2026-07-10-rook-threejs-render-scene-compiler-design.md` at or after commit `a1330565`. If implementation pressure conflicts with the spec, stop and amend the spec before changing behavior.
-- Slice 1 is Windows-only and local-storage-only. Reject UNC paths, mapped remote drives, remote reparse targets, and any project/source/bookkeeping/derived destination not proven to reside on fixed local storage.
+- Slice 1 is Windows-only and local-storage-only. Reject UNC paths, mapped remote drives, remote reparse targets, removable media, cloud-synchronized roots, cloud placeholders, and any project/source/bookkeeping/derived destination not proven to reside on fixed local storage.
 - RookNative remains the sole HTTP server. The managed companion is an internal capability provider and must not open a second listener.
 - All Rhino SDK reads and writes run on Rhino's main thread. Python never edits `.3dm` bytes directly.
 - The authoritative source document is never changed, saved, or closed by the compiler. Create and Update require it to be saved and unmodified.
@@ -21,9 +21,13 @@
 - Hold exclusive source protection continuously through every destructive rollback transition. Rehash the protected handle and replace/rename while that handle remains open; there must be no close–rehash–replace interval.
 - Implement durable writes with documented Windows primitives. File content is written through a `CreateFileW` handle using `FILE_FLAG_WRITE_THROUGH`, followed by `FlushFileBuffers`; same-directory promotion uses `MoveFileExW` with `MOVEFILE_WRITE_THROUGH`. Do not claim or emulate POSIX directory `fsync`. See [CreateFile](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilea) and [MoveFileEx](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexa).
 - Cross-volume conflict retention is copy-first: copy to a temporary file on the conflict volume, flush it, verify its hash, atomically rename it inside `conflicts/`, durably create the retained-data record, durably update the journal, and only then replace the original.
-- Implement RFC 8785-compatible canonical JSON in the existing Python package without adding a dependency. Self-hashed records omit their own hash field while hashing.
+- Implement RFC 8785-compatible canonical JSON without adding a dependency. Property names sort recursively as unsigned raw UTF-16 code-unit arrays—not Python Unicode code points—and the shared official/non-BMP golden bytes and SHA-256 must match Python, JavaScript, and .NET. Self-hashed records omit their own hash field while hashing.
+- Python never parses `.3dm` geometry. After native candidate synchronization and draft application, RookNative emits bounded, versioned, hash-verified `candidate-export.v1.json` and `candidate-export.v1.bin` attempt sidecars containing all compiler geometry, materials, textures, transforms, pivots, and derived presentation state.
+- Python owns cancellation. Every native capture/candidate request carries the active run ID, native work polls a shared run registry between bounded Rhino phases, and an explicit run-state route transports begin/cancel/complete state and rejects stale run IDs.
+- Render customization accepts only `set_override`, `clear_override`, `adopt_render_only`, and `remove_render_only`; clear/remove are explicit tombstones and cannot remove source-authoritative objects.
 - The publication hash graph stays acyclic and uses the spec's exact order: execution envelope, profile descriptor, candidate render document, GLB, scene manifest, compilation report, prepared preview evidence, visible preview evidence, scene link, then current pointer. No upstream artifact refers to a downstream hash.
 - Preserve exact direct browser dependencies and the tested fixed camera/scene protocol from `codex/threejs-rhino-stress-harness`. Promote code into production-owned modules; production code must not import from `experiments/`.
+- Generate the production execution envelope only after final native, managed, preview, Python, dependency, and lockfile bytes exist; generate the dependent profile descriptor afterward. Schema fixtures are used before the final freeze, and no governed component may rebuild after envelope generation without restarting the freeze sequence.
 - Before the first `npm ci`, create `src/Rook/UI/ThreeScene/Client/.gitignore` and prove `node_modules/` is ignored with `git check-ignore`.
 - No new Python, native, or managed third-party dependency is authorized by this plan.
 - Every task uses red-green-refactor TDD, runs the narrow test first, runs the affected layer before commit, and commits only that task's coherent change.
@@ -78,14 +82,17 @@ mcp_server/src/rook/threejs_scene/
   journal.py               # promotion phases and deterministic recovery
   profiles.py              # balanced@1 descriptor/envelope validation
   source_client.py         # native source/open-document calls
+  candidate_export.py      # bounded native mesh/material sidecar validation
   semantic.py              # source classification and material signatures
   glb.py                   # deterministic GLB writer
   compiler.py              # derived/GLB/manifest/report candidate construction
   preview_client.py        # native-to-managed preview calls
   orchestrator.py          # Create/Update/Relink/customization/status workflow
   tools.py                 # MCP schemas and thin tool handlers
+  profile_templates/
+    balanced-1.json        # immutable policy input; no envelope/self hash
   resources/
-    balanced-1.profile.json
+    profile-descriptor.json
     execution-envelope.json
 mcp_server/tests/threejs_scene/
   test_canonical.py
@@ -95,6 +102,7 @@ mcp_server/tests/threejs_scene/
   test_storage.py
   test_journal.py
   test_profiles.py
+  test_candidate_export.py
   test_semantic.py
   test_glb.py
   test_compiler.py
@@ -104,10 +112,19 @@ mcp_server/tests/threejs_scene/
   test_live.py
 mcp_server/tools/threejs_scene_live_harness.py
 mcp_server/src/rook/bridge.py
+mcp_server/tests/fixtures/threejs_scene/
+  jcs-sort-input.json
+  jcs-sort-canonical.json
+  jcs-sort.sha256
+  components.fixture.json
+  execution-envelope.fixture.json
+  profile-descriptor.fixture.json
 
 src/RookNative/Handlers/
   ThreeSceneHandler.h
   ThreeSceneHandler.cpp
+  ThreeSceneRunRegistry.h
+  ThreeSceneRunRegistry.cpp
 src/RookNative/RookServer.cpp
 src/RookNative/RookNative.vcxproj
 src/RookNative/RookNative.vcxproj.filters
@@ -115,6 +132,7 @@ src/RookNative/Handlers/GrasshopperProxyHandler.cpp
 
 src/Rook/InternalBridge/NativeGhBridgeRegistrar.cs
 src/Rook/UI/ThreeScene/
+  CanonicalJson.cs
   ThreeSceneBridgeContracts.cs
   ThreeSceneRuntimeCoordinator.cs
   ThreeSceneWebSurface.cs
@@ -131,6 +149,7 @@ src/Rook/UI/ThreeScene/
     vitest.config.js
     src/
       actor-index.js
+      canonical-json.js
       disposal.js
       evidence.js
       glb-loader.js
@@ -140,6 +159,7 @@ src/Rook/UI/ThreeScene/
       styles.css
     tests/
       actor-index.test.js
+      canonical-json.test.js
       disposal.test.js
       evidence.test.js
       preview-state.test.js
@@ -147,10 +167,12 @@ src/Rook/UI/ThreeScene/
 src/Rook/Rook.csproj
 src/Rook/RookPlugin.cs
 src/Rook.Tests/UI/ThreeScene/
+  CanonicalJsonTests.cs
   ThreeSceneBridgeContractsTests.cs
   ThreeSceneRuntimeCoordinatorTests.cs
 
 scripts/build-threejs-scene-client.ps1
+scripts/build-threejs-component-manifests.ps1
 scripts/build_threejs_execution_envelope.py
 scripts/run_rhino_runtime_harness.py
 scripts/tests/threejs-scene-packaging-guards.tests.ps1
@@ -185,6 +207,16 @@ Runtime artifact layout is exact:
 
 Completed run directories are immutable. The user-facing derived path is a replaceable working copy of `candidate.render.3dm`; it may diverge only as an explicit saved customization draft.
 
+During construction only, the run owns these native-export inputs; successful compilation verifies and removes them before the run becomes immutable:
+
+```text
+runs/<runId>/.attempt/
+  candidate-export.v1.json
+  candidate-export.v1.bin
+```
+
+`candidate-export.v1.json` has contract `rook-candidate-export@1` and records `sceneId`, `runId`, `candidateRenderSha256`, units/basis/origins, limit counters, stable object/actor/layer/material IDs, transforms, pivots, geometry references, canonical PBR materials, embedded-texture references, cameras, lights, environment, and render-only records. Every buffer view records byte offset, byte length, component type, element count, stride, semantic, bounds, and SHA-256 into `candidate-export.v1.bin`. The native writer and Python reader both enforce profile limits for object, mesh, primitive, vertex, index, material, texture, per-view byte, aggregate-buffer byte, and texture byte counts; reject overflow, overlap, out-of-range offsets, non-finite values, path references, hash mismatch, and trailing unclaimed bytes.
+
 ```python
 # contracts.py
 class Operation(str, Enum):
@@ -210,31 +242,78 @@ class CanonicalPath:
     volume_root: str
 
 @dataclass(frozen=True)
-class BaseTokens:
-    current_run_id: str | None
-    scene_link_hash: str | None
-    source_fingerprint: str
-    working_document_hash: str | None
+class FileToken:
+    present: bool
+    sha256: str | None
+
+@dataclass(frozen=True)
+class WorkingDocumentToken:
+    present: bool
+    canonical_path: str
+    sha256: str | None
+    scene_id: str | None
+    published_run_id: str | None
+    state: Literal["absent", "current", "saved_customization_draft"]
+
+@dataclass(frozen=True)
+class DraftToken:
+    present: bool
     draft_id: str | None
-    draft_revision: int | None
-    draft_base_run_id: str | None
+    revision: int | None
+    base_run_id: str | None
+    registry_sha256: str | None
+
+@dataclass(frozen=True)
+class BaseTokens:
+    current: FileToken
+    current_run_id: str | None
+    scene_link: FileToken
+    source_canonical_path: str
+    source_fingerprint: str
+    source_runtime_serial: int
+    source_modified: bool
+    working_document: WorkingDocumentToken
+    draft: DraftToken
+    descriptor_sha256: str
+    execution_envelope_sha256: str
+    promotion_journal_absent: bool
 
 class ThreeSceneError(RuntimeError):
     def __init__(self, code: str, message: str, *, details: Mapping[str, object] | None = None):
         super().__init__(message)
         self.code = code
         self.details = dict(details or {})
+
+@dataclass(frozen=True)
+class CandidateExportRef:
+    contract: Literal["rook-candidate-export@1"]
+    manifest_path: Path
+    manifest_sha256: str
+    buffer_path: Path
+    buffer_sha256: str
+    candidate_render_sha256: str
 ```
 
 ```cpp
 // ThreeSceneHandler.h
 class ThreeSceneHandler {
 public:
+  static httplib::Response RunState(const httplib::Request& request);
   static httplib::Response OpenDocuments(const httplib::Request& request);
   static httplib::Response CaptureSource(const httplib::Request& request);
   static httplib::Response BuildCandidate(const httplib::Request& request);
   static httplib::Response ApplyCustomization(const httplib::Request& request);
   static httplib::Response Preview(const httplib::Request& request);
+};
+
+class ThreeSceneRunRegistry {
+public:
+  static ThreeSceneRunRegistry& Instance();
+  bool Begin(const ON_UUID& runId);
+  bool Cancel(const ON_UUID& runId);
+  bool IsCancelled(const ON_UUID& runId) const;
+  bool Complete(const ON_UUID& runId);
+  bool IsActive(const ON_UUID& runId) const;
 };
 ```
 
@@ -248,16 +327,65 @@ internal sealed record PreviewRequest(
     string SceneId,
     string RunId,
     string? ManifestPath,
-    string? ManifestHash,
+    string? ExpectedDescriptorHash,
+    string? ExpectedExecutionEnvelopeHash,
+    string? ExpectedCandidateRenderHash,
+    string? ExpectedGlbHash,
+    string? ExpectedManifestHash,
+    string? ExpectedReportHash,
+    string? ExpectedPreparedEvidenceHash,
     string? PriorRunId);
+
+internal sealed record PreviewMetricSet(
+    string Contract,
+    IReadOnlyDictionary<string, double?> Values,
+    long SampleCount,
+    bool Available,
+    string? Qualification);
+
+internal sealed record RuntimeProvenance(
+    string RhinoVersion,
+    string WindowsVersion,
+    string WebView2Version,
+    string WebGlVersion,
+    string Renderer,
+    string Gpu,
+    string Driver,
+    string ManagedAssemblyHash,
+    string PreviewBundleHash);
+
+internal sealed record PackageProfileProvenance(
+    string PackageHash,
+    string ProfileId,
+    string ProfileVersion,
+    string DescriptorHash,
+    string ExecutionEnvelopeHash);
 
 internal sealed record PreviewEvidence(
     bool Ok,
     string Operation,
     string SceneId,
     string? RunId,
+    string? PackageHash,
+    string? DescriptorHash,
+    string? ExecutionEnvelopeHash,
+    string? CandidateRenderHash,
+    string? GlbHash,
     string? ManifestHash,
-    string? VisibleGlbHash,
+    string? ReportHash,
+    string? PreparedEvidenceHash,
+    string? ActorIndexHash,
+    string? RendererStructureHash,
+    long RendererCalls,
+    long RendererTriangles,
+    double? CpuFrameP95Milliseconds,
+    double? GpuFrameP95Milliseconds,
+    PreviewMetricSet CpuMetrics,
+    PreviewMetricSet? GpuMetrics,
+    long GpuSampleCount,
+    bool GpuDisjointObserved,
+    RuntimeProvenance HostRuntimeProvenance,
+    PackageProfileProvenance PackageProfileProvenance,
     string? ErrorCode,
     string? ErrorMessage);
 ```
@@ -266,6 +394,7 @@ Native HTTP contract:
 
 ```text
 GET  /three-scene/open-documents
+POST /three-scene/run-state
 POST /three-scene/capture-source
 POST /three-scene/build-candidate
 POST /three-scene/customization
@@ -286,7 +415,7 @@ rook_acknowledge_preserved_conflict
 rook_delete_preserved_conflict
 ```
 
-## Task 1: Canonical Contracts, Hashes, and the `balanced@1` Envelope
+## Task 1: Canonical Contracts, Profile Schemas, and Cross-Runtime Fixtures
 
 **Files:**
 
@@ -294,15 +423,25 @@ rook_delete_preserved_conflict
 - Create: `mcp_server/src/rook/threejs_scene/contracts.py`
 - Create: `mcp_server/src/rook/threejs_scene/canonical.py`
 - Create: `mcp_server/src/rook/threejs_scene/profiles.py`
-- Create: `mcp_server/src/rook/threejs_scene/resources/balanced-1.profile.json`
-- Create: `mcp_server/src/rook/threejs_scene/resources/execution-envelope.json`
+- Create: `mcp_server/src/rook/threejs_scene/profile_templates/balanced-1.json`
 - Create: `mcp_server/tests/threejs_scene/test_canonical.py`
 - Create: `mcp_server/tests/threejs_scene/test_profiles.py`
+- Create: `mcp_server/tests/fixtures/threejs_scene/jcs-sort-input.json`
+- Create: `mcp_server/tests/fixtures/threejs_scene/jcs-sort-canonical.json`
+- Create: `mcp_server/tests/fixtures/threejs_scene/jcs-sort.sha256`
+- Create: `mcp_server/tests/fixtures/threejs_scene/components.fixture.json`
+- Create: `mcp_server/tests/fixtures/threejs_scene/execution-envelope.fixture.json`
+- Create: `mcp_server/tests/fixtures/threejs_scene/profile-descriptor.fixture.json`
 - Create: `scripts/build_threejs_execution_envelope.py`
 
-- [ ] Write failing canonicalization tests covering sorted object keys, UTF-8 text, escaped controls, integer/finite-float formatting, rejection of NaN/infinity, and self-hash omission.
+- [ ] Write failing canonicalization tests covering the official [RFC 8785 §3.2.3](https://www.rfc-editor.org/rfc/rfc8785.html#section-3.2.3) sorting vector, a non-BMP/private-use ordering case, UTF-8 text, escaped controls, integer/finite-float formatting, rejection of lone surrogates/NaN/infinity, and self-hash omission. Sorting keys by Python code point is forbidden; compare raw names as unsigned, big-endian UTF-16 code-unit arrays with no locale or normalization.
 
 ```python
+FIXTURE_ROOT = Path(__file__).parents[1] / "fixtures" / "threejs_scene"
+FIXTURE_INPUT = FIXTURE_ROOT / "jcs-sort-input.json"
+FIXTURE_CANONICAL = FIXTURE_ROOT / "jcs-sort-canonical.json"
+FIXTURE_SHA = FIXTURE_ROOT / "jcs-sort.sha256"
+
 def test_self_hash_omits_only_declared_field() -> None:
     payload = {"schemaVersion": 1, "overrides": {"actor-1": "mat-1"}, "registrySha256": "old"}
     digest = hash_canonical_object(payload, omit=frozenset({"registrySha256"}))
@@ -314,6 +453,18 @@ def test_self_hash_omits_only_declared_field() -> None:
 def test_non_finite_numbers_are_rejected(value: float) -> None:
     with pytest.raises(CanonicalJsonError, match="finite"):
         canonical_bytes({"value": value})
+
+def test_rfc_8785_property_sort_vector() -> None:
+    value = json.loads(FIXTURE_INPUT.read_text(encoding="utf-8"))
+    canonical = canonical_bytes(value)
+    assert canonical == FIXTURE_CANONICAL.read_bytes()
+    assert hashlib.sha256(canonical).hexdigest() == FIXTURE_SHA.read_text(encoding="ascii").strip()
+    pairs = json.loads(canonical, object_pairs_hook=lambda value: value)
+    assert [key for key, _ in pairs] == ["\r", "1", "\u0080", "ö", "€", "😀", "דּ"]
+
+def test_utf16_sort_differs_from_code_point_sort() -> None:
+    canonical = canonical_bytes({"\ue000": 1, "😀": 2})
+    assert canonical == "{\"😀\":2,\"\":1}".encode("utf-8")
 ```
 
 - [ ] Run the tests and observe the import failure.
@@ -324,28 +475,28 @@ python -m pytest mcp_server/tests/threejs_scene/test_canonical.py -q
 
 Expected: `ModuleNotFoundError` or missing-symbol failures.
 
-- [ ] Implement deterministic canonical bytes and SHA-256 helpers. Encode each string with `json.dumps(value, ensure_ascii=False, separators=(",", ":"))`; recursively sort object keys by Unicode code point; reject non-string keys and non-finite values; format numeric values according to the RFC 8785/ECMAScript number rules exercised by the test vectors. `hash_canonical_object` must construct a new mapping without the named top-level fields and must never mutate its caller.
+- [ ] Implement deterministic canonical bytes and SHA-256 helpers. Encode each string with `json.dumps(value, ensure_ascii=False, separators=(",", ":"))`; recursively sort raw object keys by tuples from `key.encode("utf-16-be", errors="strict")` split into unsigned 16-bit integers; preserve array order and scan nested objects inside arrays; reject non-string keys, lone surrogates, and non-finite values; and format numeric values according to the RFC 8785/ECMAScript rules exercised by the RFC Appendix B vectors. `hash_canonical_object` must construct a new mapping without the named top-level fields and must never mutate its caller. The shared canonical fixture contains exact bytes with no trailing newline and its checked-in lowercase SHA-256.
 
 - [ ] Write failing profile tests asserting exact `balanced@1` content, immutable profile/envelope hashes, Node/npm/Three/Vite/Vitest versions, renderer color/tone/camera settings, static-context-only optimization, and ordinary meshes for actors.
 
 ```python
-def test_balanced_profile_rejects_any_component_drift(tmp_path: Path) -> None:
-    descriptor, envelope = load_bundled_profile()
+def test_balanced_profile_fixture_rejects_component_drift(tmp_path: Path) -> None:
+    descriptor, envelope = load_profile_pair(PROFILE_FIXTURE, ENVELOPE_FIXTURE)
     changed = dataclasses.replace(envelope, three_version="0.181.3")
     with pytest.raises(ThreeSceneError) as error:
         verify_execution_contract(descriptor, changed)
     assert error.value.code == "execution_envelope_mismatch"
 ```
 
-- [ ] Implement `ProfileDescriptor`, `ExecutionEnvelope`, `load_bundled_profile()`, and `verify_execution_contract()`. Generate the two checked-in JSON resources with `scripts/build_threejs_execution_envelope.py`; generation must take explicit version inputs, serialize canonically, embed component hashes, and produce identical bytes on two runs.
+- [ ] Implement `ProfileDescriptor`, `ExecutionEnvelope`, `load_profile_pair()`, and `verify_execution_contract()` against schema fixtures only. Store the immutable `balanced@1` policy input in `profile_templates/balanced-1.json` without `executionEnvelopeSha256` or `descriptorSha256`. Implement `scripts/build_threejs_execution_envelope.py` to consume explicit completed component-manifest paths plus that policy template and emit an envelope followed by its dependent profile, but do not generate or check in production resources in Task 1. The script must reject a missing/unlisted governed file and must exclude only its output `execution-envelope.json` and generated `profile-descriptor.json` from the fixed governed roots.
 
 - [ ] Run the narrow suite and reproducibility probe.
 
 ```powershell
 python -m pytest mcp_server/tests/threejs_scene/test_canonical.py mcp_server/tests/threejs_scene/test_profiles.py -q
-$before = (Get-FileHash mcp_server/src/rook/threejs_scene/resources/*.json -Algorithm SHA256).Hash
-python scripts/build_threejs_execution_envelope.py --node 22.20.0 --npm 10.9.3 --three 0.181.2 --vite 8.1.4 --vitest 4.1.10
-$after = (Get-FileHash mcp_server/src/rook/threejs_scene/resources/*.json -Algorithm SHA256).Hash
+$before = (Get-FileHash mcp_server/tests/fixtures/threejs_scene/*.json -Algorithm SHA256).Hash
+python scripts/build_threejs_execution_envelope.py --component-manifest mcp_server/tests/fixtures/threejs_scene/components.fixture.json --profile-template mcp_server/src/rook/threejs_scene/profile_templates/balanced-1.json --output-envelope $env:TEMP/execution-envelope.json --output-profile $env:TEMP/profile-descriptor.json
+$after = (Get-FileHash mcp_server/tests/fixtures/threejs_scene/*.json -Algorithm SHA256).Hash
 Compare-Object $before $after
 ```
 
@@ -369,7 +520,7 @@ git commit -m "feat: define Three.js scene contracts and profile"
 - Create: `mcp_server/tests/threejs_scene/test_windows_io.py`
 - Create: `mcp_server/tests/threejs_scene/test_locks.py`
 
-- [ ] Write failing path tests for existing files, mixed case, `.`/`..`, symlink/junction final targets, long-path prefixes, a nonexistent filename under an existing parent, multiple nonexistent parent components, UNC input, mapped remote drives, and remote reparse targets.
+- [ ] Write failing path tests for existing files, mixed case, `.`/`..`, symlink/junction final targets, long-path prefixes, a nonexistent filename under an existing parent, multiple nonexistent parent components, UNC input, mapped remote drives, remote reparse targets, `DRIVE_REMOVABLE`, cloud-synchronized roots, Cloud Files reparse tags, and files carrying offline/recall-on-open/recall-on-data-access placeholder attributes. Exercise project root, source, `.rook/render-scenes`, and derived destination independently; an external derived destination on a different local fixed volume must remain supported.
 
 ```python
 def test_first_create_mutex_hashes_comparison_path_not_display_path(fake_win32) -> None:
@@ -454,9 +605,9 @@ git commit -m "feat: enforce local Windows scene storage locks"
 ```text
 1. execution-envelope.json, whose `executionEnvelopeSha256` field is omitted from its own canonical hash input
 2. profile descriptor, whose `descriptorSha256` field is omitted from its own canonical hash input and which records the envelope identity
-3. candidate.3dm, containing stable IDs/source/version/committed bookkeeping but no downstream publication hash
+3. candidate.render.3dm, containing stable IDs/source/version/committed bookkeeping but no downstream publication hash
 4. scene.glb, containing scene identity but no downstream publication hash
-5. scene-manifest.json, recording descriptor, envelope, candidate-document, and GLB hashes
+5. scene.manifest.json, recording descriptor, envelope, candidate-document, and GLB hashes
 6. compilation-report.json, recording the manifest hash
 7. preview-prepared-evidence.json, recording the report and all finalized content hashes through the report
 8. preview-visible-evidence.json, created only after preview commit and recording the prepared-evidence hash plus run/package/profile/envelope identities
@@ -466,7 +617,7 @@ git commit -m "feat: enforce local Windows scene storage locks"
 
 No artifact may point forward or to itself. The candidate render document is finalized before the GLB and is hashed by the later manifest and scene link; it therefore must not embed the scene-link hash. Preview evidence, scene link, and current pointer have no self-hash field. The draft customization registry is separate publication input and computes `registrySha256` with that field omitted.
 
-- [ ] Write cross-volume retained-conflict fault-injection tests after each transition: temporary created, copy flushed, hash verified, retained file renamed, retained record flushed, journal flushed, original replacement begun, original replacement complete. Before the journal reaches `CONFLICT_RETAINED`, recovery must leave the original untouched and may delete only incomplete temporary copies. At and after `CONFLICT_RETAINED`, recovery must preserve both the retained bytes and record until explicit user acknowledgement.
+- [ ] Write cross-volume retained-conflict fault-injection tests after each transition: temporary created, copy flushed, hash verified, retained file renamed, retained record flushed, journal flushed, original replacement begun, original replacement complete. Before the journal reaches `CONFLICT_RETAINED`, recovery must leave the original untouched and may delete only incomplete temporary copies. At and after `CONFLICT_RETAINED`, recovery must preserve both the retained bytes and record through ordinary cleanup, successful recovery, acknowledgement, and every later Update; only the separately confirmed hash-checked delete operation may remove the bytes and it must leave a tombstone record.
 
 - [ ] Implement `retain_conflict()` using this order and no cross-volume move:
 
@@ -512,6 +663,8 @@ git commit -m "feat: add crash-safe scene publication storage"
 
 - Create: `src/RookNative/Handlers/ThreeSceneHandler.h`
 - Create: `src/RookNative/Handlers/ThreeSceneHandler.cpp`
+- Create: `src/RookNative/Handlers/ThreeSceneRunRegistry.h`
+- Create: `src/RookNative/Handlers/ThreeSceneRunRegistry.cpp`
 - Modify: `src/RookNative/RookServer.cpp`
 - Modify: `src/RookNative/RookNative.vcxproj`
 - Modify: `src/RookNative/RookNative.vcxproj.filters`
@@ -520,15 +673,17 @@ git commit -m "feat: add crash-safe scene publication storage"
 - Create: `mcp_server/tests/threejs_scene/test_source_client.py`
 - Modify: `mcp_server/tests/test_server.py`
 
-- [ ] Write Python contract tests first. `GET /three-scene/open-documents` must return every document open in that Rhino process with canonical saved path, runtime serial, modified flag, scene ID, and published run ID. `POST /three-scene/capture-source` must reject untitled/modified/path-mismatched documents and return a versioned capture path, SHA-256, source fingerprint, units, absolute tolerance, object/layer/material metadata, stable Rhino object UUIDs, and main-thread evidence.
+- [ ] Write Python contract tests first. `GET /three-scene/open-documents` must return every document open in that Rhino process with canonical saved path, runtime serial, modified flag, scene ID, and published run ID. `POST /three-scene/run-state` accepts `{operation: begin|cancel|status|complete, runId}` and rejects malformed, unknown, completed, or stale run IDs. `POST /three-scene/capture-source` requires an active `runId`, must reject untitled/modified/path-mismatched documents, and returns a versioned capture path, SHA-256, source fingerprint, units, absolute tolerance, object/layer/material metadata, stable Rhino object UUIDs, and main-thread evidence.
 
-- [ ] Add source-level guard tests that locate all five routes in `RookServer.cpp`, assert `ThreeSceneHandler` is included in both project files, and assert each Rhino-touching handler enters the repository's main-thread invocation helper before accessing `CRhinoDoc`.
+- [ ] Add source-level guard tests that locate all six routes in `RookServer.cpp`, assert `ThreeSceneHandler` and `ThreeSceneRunRegistry` are included in both project files, and assert each Rhino-touching handler enters `CMainThreadDispatcher` before accessing `CRhinoDoc`.
 
 - [ ] Implement the handler registration and C++ DTO validation. Add the explicit `.vcxproj` and `.filters` entries because this task intentionally introduces a focused native handler. Do not change unrelated project settings.
 
-- [ ] Implement open-document enumeration and source capture on Rhino's main thread. Capture immutable JSON metadata and a save-copy/source snapshot into the caller-supplied attempt directory without changing the source path, modified flag, selection, undo stack, or active document. Record pre/post source identity in the response and fail if either changes.
+- [ ] Implement the mutex-protected native run registry. Python calls `begin` before capture, `cancel` when its cancellation token fires, and `complete` in the terminal cleanup path. Capture and candidate requests require the same active run ID, reject stale/completed IDs, split enumeration/copy/serialization into bounded phases, and poll `IsCancelled(runId)` between phases. An individual Rhino SDK call is allowed to finish; after cancellation no later phase may begin.
 
-- [ ] Extend the existing `bridge.py` native request boundary and implement `NativeSceneClient` over it. Reuse current discovery, authentication, timeout, and HTTP error normalization. It must query every discovered Rhino instance for open documents, not only the active port, and normalize native errors to `ThreeSceneError` codes.
+- [ ] Implement open-document enumeration and source capture on Rhino's main thread. Capture immutable JSON metadata and a save-copy/source snapshot into the caller-supplied attempt directory without changing the source path, modified flag, selection, undo stack, or active document. Record pre/post source identity in the response and fail if either changes. Add a real native-boundary cancellation test that pauses after metadata enumeration, sends `cancel`, releases the phase, and proves snapshot serialization never starts.
+
+- [ ] Extend the existing `bridge.py` native request boundary and implement `NativeSceneClient.begin_run()`, `cancel_run()`, `complete_run()`, `capture_source()`, and `open_documents()` over it. Reuse current discovery, authentication, timeout, and HTTP error normalization. It must query every discovered Rhino instance for open documents, not only the active port, and normalize native errors to `ThreeSceneError` codes.
 
 - [ ] Run unit/source guards, then build native.
 
@@ -551,23 +706,29 @@ git commit -m "feat: capture immutable Rhino scene sources"
 **Files:**
 
 - Modify: `src/RookNative/Handlers/ThreeSceneHandler.cpp`
+- Create: `mcp_server/src/rook/threejs_scene/candidate_export.py`
+- Create: `mcp_server/tests/threejs_scene/test_candidate_export.py`
 - Create: `mcp_server/tests/threejs_scene/test_candidate_contract.py`
 - Create: `src/Rook.Tests/UI/ThreeScene/ThreeSceneNativeContractSourceTests.cs`
 
-- [ ] Write contract/source tests for `POST /three-scene/build-candidate` and `POST /three-scene/customization`. Candidate construction must consume the captured source, prior closed working derived file, base run, and draft registry; return a new attempt-owned `.3dm`, object mapping, material mapping, pivot/units evidence, and candidate hash; and never write the publication destination. Customization must validate active canonical path and base run, apply markers plus draft registry in one undo record, mark the derived document modified/stale, and never save it or edit committed scene-link files.
+- [ ] Write contract/source tests for `POST /three-scene/build-candidate` and `POST /three-scene/customization`. Candidate construction requires the active `runId`, consumes the captured source, prior closed working derived file, base run, and draft registry, and returns `candidate.render.3dm` plus a `CandidateExportRef` naming exact attempt-owned `candidate-export.v1.json` and `candidate-export.v1.bin` files. Customization validates active canonical path and base run, applies markers plus draft registry in one undo record, marks the derived document modified/stale, and never saves it or edits committed scene-link files.
 
-- [ ] Add integration seams for an injected `CandidateFaultPoint` after source import, identity mapping, customization application, and candidate save. Every failure must delete only attempt-owned candidate state and leave source/working/publication bytes unchanged.
+- [ ] Add integration seams for an injected `CandidateFaultPoint` after source import, identity mapping, customization application, candidate save, mesh extraction, material/texture extraction, sidecar flush, and sidecar hash. Every failure or observed native cancellation must stop before the next phase, delete only attempt-owned candidate/export state, and leave source/working/publication bytes unchanged. A real boundary test sends `cancel(runId)` during a paused mesh-extraction phase and proves material extraction and serialization never start.
 
-- [ ] Implement main-thread sync with stable source UUID identity. Preserve one source object to one ordinary actor object, preserve governed layer/material semantics, apply explicit tombstones and material overrides only when their marker/draft/base-run contracts match, and keep unsupported edits out of the candidate with a structured diagnostic.
+- [ ] Implement main-thread sync with stable source UUID identity. Preserve one source object to one ordinary actor object, preserve governed layer/material semantics, apply exact draft operations only when their marker/draft/base-run contracts match, and keep unsupported edits out of the candidate with a structured diagnostic.
 
-- [ ] Implement customization actions `set_material_override`, `clear_material_override`, `adopt_material_override`, `remove_actor`, and `restore_actor`. Validate duplicate/malformed IDs with detailed object paths and IDs. Wrap registry plus object-user-string changes in one Rhino undo record.
+- [ ] Implement only the approved customization operations: `set_override`, `clear_override`, `adopt_render_only`, and `remove_render_only`. `clear_override` and `remove_render_only` are explicit ordered tombstones; `remove_render_only` can target only a previously adopted render-only ID and never removes or masks a source-authoritative object. Validate duplicate/malformed IDs, expected before/after markers, material signatures, operation order, and registry hash with detailed object paths and IDs. Wrap registry plus object-user-string changes in one Rhino undo record.
+
+- [ ] After synchronization and override application, copy Rhino-owned mesh, material, texture, transform, camera, light, environment, and render-only values into owned OpenNURBS/value buffers on the main thread. Serialize the versioned sidecar off-thread only from those owned values. Enforce the limits defined in Stable Interfaces before allocation and before every offset/count addition; write both files through attempt-owned create-new handles, flush them, reread/hash them, and return the exact paths, sizes, and hashes. No sidecar field may reference the source or derived filesystem outside the two sidecar files.
+
+- [ ] Implement Python `load_candidate_export(ref, limits) -> CandidateExport` and fail before compilation on a wrong contract/run/candidate hash, unexpected field, noncanonical manifest, sidecar hash mismatch, non-finite transform/bounds, limit excess, arithmetic overflow, overlapping/out-of-range view, or trailing unclaimed binary byte.
 
 - [ ] Add source tests that reject direct `WriteFile`/publication-path replacement in the native candidate handler and reject any Rhino SDK access outside the main-thread block.
 
 - [ ] Run tests and native/managed builds.
 
 ```powershell
-python -m pytest mcp_server/tests/threejs_scene/test_candidate_contract.py -q
+python -m pytest mcp_server/tests/threejs_scene/test_candidate_contract.py mcp_server/tests/threejs_scene/test_candidate_export.py -q
 dotnet test src/Rook.Tests/Rook.Tests.csproj -c Release -f net8.0 --filter ThreeSceneNativeContractSourceTests
 .\build_native.ps1 -Configuration Debug
 ```
@@ -577,7 +738,7 @@ Expected: all tests and builds pass.
 - [ ] Commit.
 
 ```powershell
-git add src/RookNative/Handlers/ThreeSceneHandler.cpp src/Rook.Tests/UI/ThreeScene mcp_server/tests/threejs_scene
+git add src/RookNative/Handlers/ThreeSceneHandler.cpp mcp_server/src/rook/threejs_scene/candidate_export.py src/Rook.Tests/UI/ThreeScene mcp_server/tests/threejs_scene
 git commit -m "feat: build derived Rhino scene candidates"
 ```
 
@@ -585,6 +746,7 @@ git commit -m "feat: build derived Rhino scene candidates"
 
 **Files:**
 
+- Modify: `mcp_server/src/rook/threejs_scene/candidate_export.py`
 - Create: `mcp_server/src/rook/threejs_scene/semantic.py`
 - Create: `mcp_server/src/rook/threejs_scene/glb.py`
 - Create: `mcp_server/src/rook/threejs_scene/compiler.py`
@@ -592,7 +754,7 @@ git commit -m "feat: build derived Rhino scene candidates"
 - Create: `mcp_server/tests/threejs_scene/test_glb.py`
 - Create: `mcp_server/tests/threejs_scene/test_compiler.py`
 
-- [ ] Write semantic tests for actors, static context, excluded objects, repeated geometry evidence, batchable-report-only evidence, canonical material signatures, layer/material overrides, tombstones, malformed/duplicate actor IDs, and unsupported Rhino data. Classification must be deterministic under source enumeration shuffles.
+- [ ] Write semantic tests from a validated `CandidateExport`, not from `.3dm` parsing or metadata-only capture. Cover actors, static context, excluded objects, repeated geometry evidence, batchable-report-only evidence, canonical material signatures, layer/material overrides, exact customization tombstones, cameras/lights/environment/render-only records, malformed/duplicate actor IDs, and unsupported Rhino data. Classification must be deterministic under source enumeration shuffles.
 
 - [ ] Write GLB tests that parse the output independently, assert `extras.rook.actorId` identity, one ordinary Three.js actor node per actor, shared geometry evidence where legal, equal visual material parameters per source signature, units/axis transforms, source/rebase/applied-render-offset separation, off-axis pivot preservation, and byte-identical repeated generation.
 
@@ -603,13 +765,13 @@ git commit -m "feat: build derived Rhino scene candidates"
   - static context is actually merged by compatible material while actor meshes remain ordinary nodes;
   - merged and unbatched context render equivalently in the fixed-camera pixel comparator promoted from the stress harness;
   - fixed-camera coordinate precision meets the approved threshold;
-  - manifest/report/actor map/profile/envelope hashes follow the approved acyclic chain;
+  - `scene.manifest.json`, `compilation-report.json`, actor lookup data, `profile-descriptor.json`, and `execution-envelope.json` hashes follow the approved acyclic chain;
   - descriptor, envelope, and customization-draft self-hash fields are omitted from their own canonical hash inputs;
   - the scene link hashes the already-final candidate derived document and every finalized artifact through visible evidence, but never hashes itself, the current pointer, journal, temporary files, or backups;
   - arbitrary local GLBs report pivot validation `unavailable`, while synthetic fixtures require it;
   - compiler cancellation/failure stops immediately and disposes attempt allocations.
 
-- [ ] Implement `compile_package(capture, candidate_evidence, profile, attempt) -> CompiledPackage`. Keep compiler results pure until storage promotes them. Include provenance, filename/size/SHA-256, actor/source IDs, geometry-sharing evidence, optimization decisions, precision evidence, exclusions, warnings, and exact execution-envelope identity.
+- [ ] Implement `compile_package(capture: SourceCapture, candidate_export: CandidateExport, profile: ProfileDescriptor, attempt: AttemptPaths) -> CompiledPackage`. The compiler must not open or parse a `.3dm`; it verifies that `candidate_export.candidate_render_sha256` equals the finalized `candidate.render.3dm` hash, consumes only validated sidecar values, and checks cancellation between buffer/material/texture/merge stages. Keep results pure until storage promotes them. Include provenance, exact artifact filename/size/SHA-256, actor/source IDs, geometry-sharing evidence, optimization decisions, precision evidence, exclusions, warnings, and execution-envelope identity.
 
 - [ ] Run the full compiler suite twice and compare fixture hashes.
 
@@ -638,6 +800,7 @@ git commit -m "feat: compile deterministic Three.js scene packages"
 - Create: `src/Rook/UI/ThreeScene/Client/vite.config.js`
 - Create: `src/Rook/UI/ThreeScene/Client/vitest.config.js`
 - Create: `src/Rook/UI/ThreeScene/Client/src/actor-index.js`
+- Create: `src/Rook/UI/ThreeScene/Client/src/canonical-json.js`
 - Create: `src/Rook/UI/ThreeScene/Client/src/disposal.js`
 - Create: `src/Rook/UI/ThreeScene/Client/src/evidence.js`
 - Create: `src/Rook/UI/ThreeScene/Client/src/glb-loader.js`
@@ -671,6 +834,8 @@ Remove-Item -LiteralPath src/Rook/UI/ThreeScene/Client/node_modules
 Expected: `git check-ignore` exits `0` and names the client `.gitignore`.
 
 - [ ] Add exact package metadata: `packageManager: npm@10.9.3`, engines `node >=22.12.0 <23`, `three: 0.181.2`, `vite: 8.1.4`, `vitest: 4.1.10`. Only now run `npm install --package-lock-only`, followed by `npm ci`.
+
+- [ ] Write a failing `canonical-json.test.js` that loads the shared `jcs-sort-input.json`, requires byte equality with `jcs-sort-canonical.json` and hash equality with `jcs-sort.sha256`, and separately asserts `😀` sorts before `\uE000`. Implement the JavaScript canonicalizer with raw UTF-16 unsigned code-unit comparison (locale APIs are forbidden), recursive object sorting, unchanged array order, I-JSON validation, and ECMAScript primitive serialization. This shared golden must match the Python result from Task 1.
 
 - [ ] Write failing tests for the state machine:
 
@@ -710,6 +875,7 @@ git commit -m "feat: add production Three.js scene preview client"
 
 **Files:**
 
+- Create: `src/Rook/UI/ThreeScene/CanonicalJson.cs`
 - Create: `src/Rook/UI/ThreeScene/ThreeSceneBridgeContracts.cs`
 - Create: `src/Rook/UI/ThreeScene/ThreeSceneRuntimeCoordinator.cs`
 - Create: `src/Rook/UI/ThreeScene/ThreeSceneWebSurface.cs`
@@ -721,8 +887,9 @@ git commit -m "feat: add production Three.js scene preview client"
 - Modify: `src/RookNative/Handlers/ThreeSceneHandler.cpp`
 - Create: `src/Rook.Tests/UI/ThreeScene/ThreeSceneBridgeContractsTests.cs`
 - Create: `src/Rook.Tests/UI/ThreeScene/ThreeSceneRuntimeCoordinatorTests.cs`
+- Create: `src/Rook.Tests/UI/ThreeScene/CanonicalJsonTests.cs`
 
-- [ ] Write managed tests for strict JSON validation, main-UI-thread dispatch, panel-not-ready errors, timeouts, WebView process failure, hash-bound prepare/commit/rollback, candidate disposal, idempotent retry, and prior/empty restoration.
+- [ ] Write `CanonicalJsonTests` against the same shared RFC/non-BMP fixture and SHA used by Python and JavaScript. Implement ordinal unsigned `char` (UTF-16 code-unit) key comparison, recursive object sorting, unchanged array order, I-JSON validation, and ECMAScript-compatible primitive serialization in `CanonicalJson.cs`; culture-sensitive comparers and Unicode normalization are forbidden. Then write managed tests for strict JSON validation, main-UI-thread dispatch, panel-not-ready errors, timeouts, WebView process failure, hash-bound prepare/commit/rollback, candidate disposal, idempotent retry, and prior/empty restoration. A successful prepare/commit response must carry and match descriptor, envelope, candidate-render, GLB, manifest, report, prepared-evidence, actor-index, renderer-structure, renderer-call/triangle, CPU/GPU, host/runtime, and package/profile provenance fields; omit or mutate each field in a table-driven rejection test.
 
 - [ ] Write ABI parity source tests that fail until both native and managed sides declare ABI `18`, append exactly one `ThreeSceneDispatch` callback without reordering prior ABI fields, and expose bridge readiness through existing capability diagnostics.
 
@@ -760,6 +927,8 @@ git commit -m "feat: host transactional Three.js preview in Rook"
 
 - [ ] Write a fake-driven orchestrator test matrix for first Create, normal Update, no-op Update, construction failure, probe failure, cancellation, open derived document, modified source, source Save As, working-document drift, scene-link drift, draft drift, preview failure, pointer failure, and restart recovery at every journal phase.
 
+- [ ] Serialize the complete `BaseTokens` record canonically at candidate start and recapture the same typed record under both locks. Compare the canonical bytes, not a hand-selected subset. Add one table-driven case for every presence flag, path, hash, embedded ID, stale/current state, source saved/modified field, draft field, descriptor/envelope hash, and journal-absence assertion; each one-field change must return `candidate_base_stale` before `promotion.json` exists.
+
 - [ ] Add race tests that pause immediately before journaling, mutate each optimistic token, then resume. Under destination/scene locks, revalidate all of these immediately before writing the journal:
 
 ```text
@@ -796,7 +965,7 @@ mark journal complete and clean attempt temporaries
 release scene then destination locks
 ```
 
-Guard the initial protocol/capability probe inside the attempt lifecycle. Probe failure returns an aborted result with no candidate construction or disposal call. After abort/cancellation, return immediately and schedule no more scene work.
+Guard the initial protocol/capability probe inside the attempt lifecycle. Probe failure returns an aborted result with no candidate construction or disposal call. Begin the native run registry before capture; when Python cancellation fires, await `cancel_run(runId)`, wait for the in-flight bounded native phase to acknowledge cancellation, discard prepared preview/attempt state, and call `complete_run(runId)` in terminal cleanup. After abort/cancellation, return immediately and schedule no more scene work. Unknown, completed, or mismatched run IDs are blocking stale-run errors rather than implicit new registrations.
 
 - [ ] Ensure preview-visible evidence is absent from the initial journal and is added only after browser commit. Ensure journal expected hashes are phase-local, not future-dependent.
 
@@ -827,15 +996,15 @@ git commit -m "feat: orchestrate atomic render scene publication"
 - Create: `mcp_server/tests/threejs_scene/test_tools.py`
 - Modify: `mcp_server/tests/test_server.py`
 
-- [ ] Write tool-schema tests for the nine public tools named in Stable Interfaces. Require explicit project root and derived path on Create; require existing scene identity on Update; require explicit candidate source and UUID-intersection confirmation on Relink; require an operation enum plus scene/base-run/object/material identifiers for customization staging; and require conflict ID plus recorded hash for acknowledgement/deletion.
+- [ ] Write tool-schema tests for the nine public tools named in Stable Interfaces. Require explicit project root and derived path on Create; require existing scene identity on Update; require explicit candidate source and UUID-intersection confirmation on Relink; restrict customization staging to the exact enum `set_override | clear_override | adopt_render_only | remove_render_only` plus scene/base-run/target/material fields appropriate to that operation; and require conflict ID plus recorded hash for acknowledgement/deletion.
 
-- [ ] Write behavior tests for case-only path equivalence, real Save As requiring Relink, zero UUID intersection rejection, open/modified candidate rejection, stale draft rejection, override adoption, source-material change preservation, override clearing back to source inheritance, actor tombstone/restore, and retained-conflict acknowledgement.
+- [ ] Write behavior tests for case-only path equivalence, real Save As requiring Relink, zero UUID intersection blocking Update with `source_replacement_suspected`, deliberate Relink succeeding only with `confirmUnrelatedSource: true`, open/modified candidate rejection, stale draft rejection, `set_override`, source-material change preservation, `clear_override` returning to source inheritance, `adopt_render_only`, `remove_render_only`, and retained-conflict acknowledgement.
 
 - [ ] Implement thin MCP handlers in `tools.py`; add registrations and dispatch cases in `server.py` following existing Director tool patterns. Keep orchestration in `RenderSceneOrchestrator`, not in the registry file.
 
 - [ ] Return user-oriented structured status with `current`, `stale_source`, `saved_customization_draft`, `recovery_required`, `retained_conflict`, `preview_state`, hashes, and exact next action. Never report a failed publication as current merely because the working draft exists.
 
-- [ ] Implement explicit retained-conflict acknowledgement. It records the acknowledgement durably before eligible cleanup; no automatic path may delete retained user data.
+- [ ] Implement explicit retained-conflict acknowledgement without changing cleanup classification or deletion eligibility. `rook_acknowledge_preserved_conflict` changes only the durable record state to acknowledged/kept; the bytes remain `retained_user_data`. Only `rook_delete_preserved_conflict`, after separate confirmation, confined-path validation, and exact recorded-hash revalidation, may remove them and must retain a deletion tombstone.
 
 - [ ] Run the MCP layer.
 
@@ -852,11 +1021,13 @@ git add mcp_server/src/rook/threejs_scene mcp_server/src/rook/server.py mcp_serv
 git commit -m "feat: expose render scene compiler tools"
 ```
 
-## Task 11: Build, Packaging, and Installed-Runtime Guards
+## Task 11: Define the Final Build and Packaging Pipeline
 
 **Files:**
 
 - Create: `scripts/build-threejs-scene-client.ps1`
+- Create: `scripts/build-threejs-component-manifests.ps1`
+- Modify: `scripts/build_threejs_execution_envelope.py`
 - Create: `scripts/tests/threejs-scene-packaging-guards.tests.ps1`
 - Modify: `scripts/deploy-local-testing.ps1`
 - Modify: `install.ps1`
@@ -864,32 +1035,33 @@ git commit -m "feat: expose render scene compiler tools"
 - Modify: `scripts/tests/release-installer-guards.tests.ps1`
 - Modify: `scripts/tests/deploy-local-testing-guards.tests.ps1`
 
-- [ ] Write PowerShell guard tests first. They must require the client build before companion build/package, all generated preview resources embedded in each target, profile/envelope resources included in the installed MCP package, no `node_modules` in payloads, exact dependency versions, and installed-runtime—not repository-source—resolution.
+- [ ] Write fixture-driven PowerShell guard tests first. They must reject envelope/profile generation before all governed production artifacts exist; require preview build before managed build; require component manifests before envelope, envelope before profile, and both before deployment/package; require all generated preview resources embedded in each target; require exact `execution-envelope.json` and `profile-descriptor.json` resources in the installed MCP package; exclude those two generated outputs from their own governed roots; forbid any later native/managed/preview/Python-governed rebuild after final envelope generation; exclude `node_modules` from payloads; enforce exact dependency versions; and resolve installed-runtime bytes rather than repository substitutes. These tests use temporary fixture artifacts and do not generate the production envelope.
 
 - [ ] Implement `build-threejs-scene-client.ps1` with Node/npm version checks, `npm ci`, `npm test -- --run`, deterministic `npm run build`, copied outputs to `UI/ThreeScene/Resources`, and a dirty-output failure if a second build changes bytes.
 
-- [ ] Wire client generation into source install, local testing deployment, and release packaging before `dotnet build`. Since resources are embedded in `Rook.rhp`, do not add a parallel loose web payload. Ensure the Python package resource JSON files are carried by the existing MCP directory packaging.
+- [ ] Implement `build-threejs-component-manifests.ps1` to run only after the final preview, native Release, and all managed Release target artifacts exist. It writes canonical, ordinal-path manifests containing component-relative path, byte length, and SHA-256 for: `RookNative.rhp`; every shipped `Rook.rhp` target; the final preview `index.html`, `app.js`, `styles.css`, bundled Three.js/GLTFLoader/shader assets; governed Python orchestration/bridge/capture/`rook.threejs_scene` files; the active Python implementation/version/ABI; exact resolved distribution names/versions/content hashes; and `mcp_server/uv.lock`. The fixed Python inclusion rules include `profile_templates/balanced-1.json` and exclude only generated `resources/execution-envelope.json` and `resources/profile-descriptor.json`.
+
+- [ ] Complete `build_threejs_execution_envelope.py` so Task 13 can create `resources/execution-envelope.json`, compute `executionEnvelopeSha256` with that field omitted, then create dependent `resources/profile-descriptor.json` from the immutable template plus envelope/evidence hashes and compute `descriptorSha256` with that field omitted. Its verification mode re-enumerates every governed root/dependency, rejects missing/changed/unlisted bytes, validates host constraints, and proves a second generation is byte-identical. Task 11 tests this behavior only with temporary fixture outputs.
+
+- [ ] Wire this exact order into source install, local-testing deployment, and release packaging: preview build/test → native Release build → all managed Release builds → Python governed/dependency freeze → component manifests → envelope → profile → verification → package. Since preview resources are embedded in `Rook.rhp`, do not add a parallel loose web payload. Do not rebuild a governed component after envelope generation; any such change must restart the sequence from component build.
 
 - [ ] Extend installer/deploy guards rather than weakening existing release checks. Do not change version numbers as part of this feature plan.
 
-- [ ] Run packaging guards and builds.
+- [ ] Run pipeline/packaging guards against fixtures; do not perform the production build or create production envelope/profile resources yet.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/threejs-scene-packaging-guards.tests.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/deploy-local-testing-guards.tests.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/release-installer-guards.tests.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-threejs-scene-client.ps1
-dotnet build src/Rook/Rook.csproj -c Release
-.\build_native.ps1 -Configuration Release
 ```
 
-Expected: all guards and builds pass.
+Expected: all fixture-driven order, manifest, envelope/profile, deployment, and packaging guards pass; production resource paths remain absent.
 
 - [ ] Commit.
 
 ```powershell
-git add scripts install.ps1 installer/RookSetup.iss src/Rook/UI/ThreeScene/Resources mcp_server/src/rook/threejs_scene/resources
-git commit -m "build: package Three.js scene compiler runtime"
+git add scripts install.ps1 installer/RookSetup.iss
+git commit -m "build: define Three.js scene compiler freeze pipeline"
 ```
 
 ## Task 12: Owned-Rhino Integration Harness, Browser Acceptance, and Documentation
@@ -902,42 +1074,30 @@ git commit -m "build: package Three.js scene compiler runtime"
 - Modify: `scripts/run_rhino_runtime_harness.py`
 - Create: `docs/threejs-render-scene.md`
 
-- [ ] Write harness routing tests for a `threejs-scene` mode that uses the existing owned-Rhino launch/readiness/cleanup contract. The harness must never attach destructive tests to an arbitrary user Rhino process.
+- [ ] Write harness routing tests for a `threejs-scene` mode that uses the existing owned-Rhino launch/readiness/cleanup contract. The harness must never attach destructive tests to an arbitrary user Rhino process. Native cancellation cases begin a run, pause a bounded capture/candidate phase, cancel through `/three-scene/run-state`, and prove later native phases do not execute.
 
 - [ ] Implement deterministic Rhino fixtures covering static context, ordinary actors, repeated geometry, off-axis pivots, non-unit scale, layers, source materials, override materials, excluded objects, and stable UUIDs.
 
-- [ ] Implement live assertions for source immutability; refusal of an existing first-Create destination; candidate sync; derived inspection; Create; a second Update that adds, modifies, and deletes source objects; Relink; customization draft success/failure; survival of render-only cameras, lights, environment, and registered overrides; open-document blocking before construction; first-Create races; recovery races; every fault point; exact rollback; shared-storage rejection before construction; preview prepare/commit/restore; missing MCP/native/managed/WebView2/WebGL capability errors; and console cleanliness.
+- [ ] Implement live assertions for source immutability; refusal of an existing first-Create destination; candidate sync and candidate-export sidecar bounds/hashes; derived inspection; Create; a second Update that adds, modifies, and deletes source objects; Relink including deliberately confirmed zero UUID intersection; the exact four customization operations; survival of render-only cameras, lights, environment, and registered overrides; open-document blocking before construction; first-Create races; recovery races; every fault point; exact rollback; removable/cloud/placeholder/shared-storage rejection before construction; preview prepare/commit/restore; missing MCP/native/managed/WebView2/WebGL capability errors; and console cleanliness.
 
 - [ ] Add browser acceptance using the embedded WebView surface, not the experiment page. Validate the reviewed 338- and 1,000-actor tiers, full draw workloads, actor identity, geometry sharing, forward/reverse/shuffled seek checks, pixel-equivalent merged context, precision, Stop/Reset, and visible evidence hashes. Keep 10,000 actors as explicit opt-in and record any GPU disjoint event.
 
 - [ ] Document user workflow, artifact ownership, local-only restriction, explicit Update behavior, status meanings, customization adoption/clearing, retained-conflict handling, and recovery. Clearly state that the Rhino render scene is derived and inspectable while the source Rhino model remains authoritative.
 
-- [ ] Run all automated layers.
+- [ ] Run all automated layers and preliminary builds. This occurs before the Task 13 production freeze.
 
 ```powershell
 python -m pytest mcp_server/tests/threejs_scene -q
 python -m pytest mcp_server/tests/test_server.py -q
 Push-Location src/Rook/UI/ThreeScene/Client
 npm test -- --run
-npm run build
 Pop-Location
-dotnet test src/Rook.Tests/Rook.Tests.csproj -c Release -f net8.0
-.\build_native.ps1 -Configuration Release
+dotnet test src/Rook.Tests/Rook.Tests.csproj -c Release -f net8.0 --no-build
+.\build_native.ps1 -Configuration Debug
 git diff --check
 ```
 
 Expected: every command passes.
-
-- [ ] Deploy only to the isolated local-testing runtime and execute the owned-Rhino acceptance harness.
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-local-testing.ps1 -Configuration Release
-python scripts/run_rhino_runtime_harness.py threejs-scene
-```
-
-Expected: the harness reports owned Rhino PID/ports, all Slice 1 acceptance cases pass, source fixture hash is unchanged, browser console has no warnings/errors, and owned processes are closed by the harness.
-
-- [ ] Perform the one manual OS file-picker check if the preview offers local diagnostic GLB loading. Record filename, size, and SHA-256 provenance; this diagnostic must not bypass published-package hash checks.
 
 - [ ] Commit.
 
@@ -946,22 +1106,77 @@ git add mcp_server/tools mcp_server/tests/threejs_scene mcp_server/src/rook/runt
 git commit -m "test: verify Three.js render scene workflow"
 ```
 
+## Task 13: Freeze Production Artifacts, Generate the Envelope, and Run Live Acceptance
+
+**Files:**
+
+- Create: `mcp_server/src/rook/threejs_scene/resources/execution-envelope.json`
+- Create: `mcp_server/src/rook/threejs_scene/resources/profile-descriptor.json`
+
+- [ ] Execute the only final governed build in exact dependency order. The managed build occurs after the preview bundle because it embeds that bundle; component manifests occur only after native, all managed targets, preview, Python governed sources, dependency distributions, and `mcp_server/uv.lock` are final.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-threejs-scene-client.ps1
+.\build_native.ps1 -Configuration Release
+dotnet build src/Rook/Rook.csproj -c Release
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-threejs-component-manifests.ps1 -Configuration Release -OutputDirectory artifacts/threejs-scene-components
+python scripts/build_threejs_execution_envelope.py --component-manifest artifacts/threejs-scene-components/components.json --profile-template mcp_server/src/rook/threejs_scene/profile_templates/balanced-1.json --output-envelope mcp_server/src/rook/threejs_scene/resources/execution-envelope.json --output-profile mcp_server/src/rook/threejs_scene/resources/profile-descriptor.json
+python scripts/build_threejs_execution_envelope.py --verify --component-manifest artifacts/threejs-scene-components/components.json --profile-template mcp_server/src/rook/threejs_scene/profile_templates/balanced-1.json --output-envelope mcp_server/src/rook/threejs_scene/resources/execution-envelope.json --output-profile mcp_server/src/rook/threejs_scene/resources/profile-descriptor.json
+```
+
+Expected: completed component manifests precede the envelope, the envelope precedes the profile, every governed byte/dependency verifies, and a second generation changes no byte.
+
+- [ ] Deploy those exact frozen artifacts without rebuilding and execute the owned-Rhino/browser harness.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-local-testing.ps1 -Configuration Release -SkipBuild
+python scripts/run_rhino_runtime_harness.py threejs-scene
+```
+
+Expected: the harness reports owned Rhino PID/ports; every Slice 1 case passes; the source fixture hash is unchanged; native cancellation is observed at real phase boundaries; browser console has no warnings/errors; and owned processes close.
+
+- [ ] Perform the one manual OS file-picker check if the preview offers diagnostic GLB loading. Record filename, size, and SHA-256 provenance; this diagnostic cannot bypass published-package hash checks.
+
+- [ ] Run packaging guards and envelope verification without invoking a governed build.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/threejs-scene-packaging-guards.tests.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/deploy-local-testing-guards.tests.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/release-installer-guards.tests.ps1
+python scripts/build_threejs_execution_envelope.py --verify --component-manifest artifacts/threejs-scene-components/components.json --profile-template mcp_server/src/rook/threejs_scene/profile_templates/balanced-1.json --output-envelope mcp_server/src/rook/threejs_scene/resources/execution-envelope.json --output-profile mcp_server/src/rook/threejs_scene/resources/profile-descriptor.json
+```
+
+Expected: all guards pass and no governed-file, dependency, envelope, profile, or installed-payload drift is reported.
+
+- [ ] Commit only the finalized production resources. Build outputs and temporary component-manifest directories remain ignored artifacts.
+
+```powershell
+git add mcp_server/src/rook/threejs_scene/resources/execution-envelope.json mcp_server/src/rook/threejs_scene/resources/profile-descriptor.json
+git commit -m "build: finalize Three.js scene compiler envelope"
+```
+
 ## Final Verification and Review Gate
 
-- [ ] Invoke `superpowers:verification-before-completion` and rerun the exact commands from Task 12 from a clean shell.
-- [ ] Regenerate the profile, execution envelope, deterministic GLB fixture, and production client twice; prove hashes are unchanged and `git status --short` remains empty.
+- [ ] Invoke `superpowers:verification-before-completion` and rerun the exact no-build verification, harness, and packaging commands from Task 13 from a clean shell.
+- [ ] Reverify—not rebuild—the frozen native, managed, preview, Python, dependency, envelope, profile, deterministic GLB fixture, and installed payload hashes. Run envelope/profile verification twice and prove it changes no bytes. No governed build command is allowed after Task 13 finalization; if any governed byte changed, restart Task 13 from the preview build.
 - [ ] Run `git diff main...HEAD --check` and inspect `git diff --stat main...HEAD` for unrelated production changes.
 - [ ] Run `git log --oneline --decorate -15` and verify each task has a focused commit.
 - [ ] Invoke `superpowers:requesting-code-review` for one final whole-branch review against the approved spec, explicitly asking the reviewer to audit:
 
   - canonical comparison-path mutex identity, including nonexistent first Create;
+  - RFC 8785 unsigned UTF-16 property ordering and identical Python/JavaScript/.NET golden hashes;
   - cross-project/same-destination and concurrent-recovery serialization;
-  - local-only storage enforcement;
+  - local-only storage enforcement including removable, cloud-root, and placeholder rejection;
+  - versioned bounded candidate-export geometry/material sidecars and hash verification;
   - protected-handle lifetime across destructive rollback;
   - Windows write-through/flush behavior with no POSIX directory-fsync assumption;
   - cross-volume retained-conflict crash safety;
   - acyclic hashes and phase-correct journal hashes;
-  - full base-token revalidation and open-document TOCTOU rollback;
+  - full byte-for-byte base-token revalidation and complete preview evidence;
+  - run-ID cancellation across real native bounded phases;
+  - exact customization verbs/tombstones and Relink-only unrelated-source confirmation;
+  - open-document TOCTOU rollback and acknowledgement-independent conflict retention;
+  - component manifests → execution envelope → profile ordering after final governed builds;
   - source immutability, draft preservation, preview-last commit, and exact recovery;
   - production preview parity with the reviewed stress evidence.
 
