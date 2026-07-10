@@ -375,6 +375,16 @@ def _is_number_not_bool(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def _finite_number(value: Any) -> float | None:
+    if not _is_number_not_bool(value):
+        return None
+    try:
+        number = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
 def _managed_artifact(
     path: Path,
 ) -> tuple[Mapping[str, Any] | None, str | None]:
@@ -408,11 +418,18 @@ def _empty_managed_audit() -> dict[str, Any]:
 
 def _audit_managed_child(run_dir: Path) -> dict[str, Any]:
     result = _empty_managed_audit()
+    stage_artifact_paths = (
+        run_dir / "live_set_value_summary.json",
+        run_dir / "readiness_wait_summary.json",
+        run_dir / "verify_scalar_output_summary.json",
+    )
+    stage_artifacts_present = any(path.exists() for path in stage_artifact_paths)
     decision, decision_artifact_error = _managed_artifact(run_dir / "decision.json")
     if (
         decision is not None
         and decision.get("decision") != "accepted"
         and decision.get("live_set_value_dispatched") is False
+        and not stage_artifacts_present
     ):
         return result
 
@@ -548,20 +565,23 @@ def _audit_managed_child(run_dir: Path) -> dict[str, Any]:
         if read.get("readiness_fenced") is not True:
             fail("readiness_fenced_not_true")
         expected_output = read.get("expected_output_value")
+        expected_output_number = _finite_number(expected_output)
         if (
-            not _is_number_not_bool(expected_output)
-            or not math.isfinite(float(expected_output))
+            expected_output_number is None
             or not math.isclose(
-                float(expected_output), EXPECTED_OUTPUT_VALUE, rel_tol=0.0, abs_tol=0.0
+                expected_output_number,
+                EXPECTED_OUTPUT_VALUE,
+                rel_tol=0.0,
+                abs_tol=0.0,
             )
         ):
             fail("expected_output_value_mismatch")
         observed_output = read.get("observed_output_value")
+        observed_output_number = _finite_number(observed_output)
         if (
-            not _is_number_not_bool(observed_output)
-            or not math.isfinite(float(observed_output))
+            observed_output_number is None
             or not math.isclose(
-                float(observed_output),
+                observed_output_number,
                 EXPECTED_OUTPUT_VALUE,
                 rel_tol=0.0,
                 abs_tol=SCALAR_TOLERANCE,
@@ -569,10 +589,9 @@ def _audit_managed_child(run_dir: Path) -> dict[str, Any]:
         ):
             fail("observed_output_value_mismatch")
         tolerance = read.get("tolerance")
+        tolerance_number = _finite_number(tolerance)
         if (
-            not _is_number_not_bool(tolerance)
-            or not math.isfinite(float(tolerance))
-            or float(tolerance) != SCALAR_TOLERANCE
+            tolerance_number is None or tolerance_number != SCALAR_TOLERANCE
         ):
             fail("scalar_tolerance_invalid")
 
@@ -595,8 +614,7 @@ def _audit_managed_child(run_dir: Path) -> dict[str, Any]:
         )
         result["observed_output_value"] = (
             observed_output
-            if _is_number_not_bool(observed_output)
-            and math.isfinite(float(observed_output))
+            if observed_output_number is not None
             else None
         )
 

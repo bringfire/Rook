@@ -935,6 +935,126 @@ def test_apply_managed_child_audit_is_not_applicable_before_mutation(tmp_path: P
     assert row["settle_read_count"] == 0
 
 
+@pytest.mark.parametrize(
+    "remaining_stage_artifact",
+    [
+        "live_set_value_summary.json",
+        "readiness_wait_summary.json",
+        "verify_scalar_output_summary.json",
+    ],
+)
+def test_apply_managed_child_audit_rejects_false_dispatch_with_stage_artifact(
+    tmp_path: Path,
+    remaining_stage_artifact: str,
+):
+    child = tmp_path / remaining_stage_artifact
+    _write_managed_child_artifacts(child)
+    for stage_artifact in (
+        "live_set_value_summary.json",
+        "readiness_wait_summary.json",
+        "verify_scalar_output_summary.json",
+    ):
+        if stage_artifact != remaining_stage_artifact:
+            (child / stage_artifact).unlink()
+    _mutate_managed_artifact(
+        child,
+        "decision.json",
+        ("decision",),
+        "worker_declined",
+    )
+    _mutate_managed_artifact(
+        child,
+        "decision.json",
+        ("live_set_value_dispatched",),
+        False,
+    )
+    row = {
+        "lm8i_run_dir": str(child),
+        "lm8i_decision": "worker_declined",
+        "terminal_category": "worker_declined",
+        "failure_reason": None,
+    }
+
+    PROBE._apply_managed_child_audit(row)
+
+    assert row["managed_verifier_audit_performed"] is True
+    assert row["managed_verifier_audit_valid"] is False
+    assert row["managed_verifier_audit_failures"]
+    assert row["terminal_category"] == "worker_declined"
+
+
+def test_apply_managed_child_audit_reclassifies_accepted_false_dispatch(
+    tmp_path: Path,
+):
+    child = tmp_path / "accepted-false-dispatch"
+    _write_managed_child_artifacts(child)
+    _mutate_managed_artifact(
+        child,
+        "decision.json",
+        ("live_set_value_dispatched",),
+        False,
+    )
+    row = {
+        "lm8i_run_dir": str(child),
+        "lm8i_decision": "accepted",
+        "terminal_category": "accepted",
+        "failure_reason": None,
+    }
+
+    PROBE._apply_managed_child_audit(row)
+
+    assert row["managed_verifier_audit_performed"] is True
+    assert row["managed_verifier_audit_valid"] is False
+    assert "live_set_value_dispatched_not_true" in row[
+        "managed_verifier_audit_failures"
+    ]
+    assert row["terminal_category"] == "wrapper_error"
+    assert (
+        row["failure_reason"]
+        == "accepted_child_managed_verifier_audit_failed"
+    )
+
+
+@pytest.mark.parametrize(
+    "field_path, expected_failure",
+    [
+        (("expected_output_value",), "expected_output_value_mismatch"),
+        (("observed_output_value",), "observed_output_value_mismatch"),
+        (("tolerance",), "scalar_tolerance_invalid"),
+    ],
+)
+def test_apply_managed_child_audit_rejects_oversized_json_numbers(
+    tmp_path: Path,
+    field_path: tuple[str, ...],
+    expected_failure: str,
+):
+    child = tmp_path / "oversized-number"
+    _write_managed_child_artifacts(child)
+    _mutate_managed_artifact(
+        child,
+        "verify_scalar_output_summary.json",
+        field_path,
+        10**400,
+    )
+    row = {
+        "lm8i_run_dir": str(child),
+        "lm8i_decision": "accepted",
+        "terminal_category": "accepted",
+        "failure_reason": None,
+    }
+
+    PROBE._apply_managed_child_audit(row)
+
+    assert row["managed_verifier_audit_performed"] is True
+    assert row["managed_verifier_audit_valid"] is False
+    assert expected_failure in row["managed_verifier_audit_failures"]
+    assert row["terminal_category"] == "wrapper_error"
+    assert (
+        row["failure_reason"]
+        == "accepted_child_managed_verifier_audit_failed"
+    )
+
+
 def test_read_decision_handles_missing_invalid_and_non_mapping(tmp_path: Path):
     missing, missing_error = PROBE._read_decision(tmp_path / "missing.json")
     assert missing is None
