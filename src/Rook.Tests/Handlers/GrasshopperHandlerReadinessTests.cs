@@ -318,6 +318,36 @@ namespace Rook.Tests.Handlers
             Assert.Equal(1, document.ObjectsReadCount);
         }
 
+        [Theory]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void FencedInspect_ExplicitBlankReceiptFailsClosedBeforeExtraction(string receiptId)
+        {
+            var component = new FakeComponent(Guid.NewGuid());
+            var document = new FakeDocument(component);
+            var handler = CreateHandler(document, out _);
+
+            var response = handler.InspectOutput(component.InstanceGuid.ToString(), "R", receiptId);
+
+            Assert.False(response.Success);
+            Assert.Equal("readiness_receipt_id_invalid", Error(response));
+            Assert.Equal(0, document.ObjectsReadCount);
+        }
+
+        [Fact]
+        public void InspectOutput_OmittedReceiptPreservesLegacyUnfencedRead()
+        {
+            var component = new FakeComponent(Guid.NewGuid());
+            var document = new FakeDocument(component);
+            var handler = CreateHandler(document, out _);
+
+            var response = handler.InspectOutput(component.InstanceGuid.ToString(), "R");
+
+            Assert.True(response.Success);
+            Assert.False(Element(response.Data).TryGetProperty("readiness_fenced", out _));
+            Assert.Equal(1, document.ObjectsReadCount);
+        }
+
         [Fact]
         public void MutationException_TerminatesReservedReceiptAsUnknown()
         {

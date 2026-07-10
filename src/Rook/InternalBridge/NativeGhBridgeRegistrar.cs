@@ -741,7 +741,8 @@ namespace Rook.InternalBridge
                     var args = ParseRequestArgs(requestJson);
                     return Handler.InspectOutput(
                         GetStringArg(args, "guid"),
-                        GetStringArg(args, "param"));
+                        GetStringArg(args, "param"),
+                        GetStringArg(args, "readiness_receipt_id"));
                 });
         }
 

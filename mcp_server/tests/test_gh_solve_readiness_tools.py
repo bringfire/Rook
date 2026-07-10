@@ -99,3 +99,43 @@ async def test_inspect_output_forwards_readiness_receipt_only_when_supplied(monk
             None,
         ),
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("receipt_id", ["", "   "])
+async def test_inspect_output_forwards_explicit_blank_receipt_for_managed_rejection(
+    monkeypatch, receipt_id
+):
+    calls = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        calls.append((route, method, payload, port))
+        return {"success": False, "data": {"error": "readiness_receipt_id_invalid"}}
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    result = await server._call_tool_dispatch(
+        "gh_inspect_output",
+        {
+            "guid": "COMPONENT",
+            "param": "A",
+            "readiness_receipt_id": receipt_id,
+        },
+    )
+
+    assert result == {
+        "success": False,
+        "data": {"error": "readiness_receipt_id_invalid"},
+    }
+    assert calls == [
+        (
+            "/gh/inspect-output",
+            "GET",
+            {
+                "guid": "COMPONENT",
+                "param": "A",
+                "readiness_receipt_id": receipt_id,
+            },
+            None,
+        )
+    ]

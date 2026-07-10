@@ -4896,8 +4896,11 @@ namespace Rook.Handlers
                 return GrasshopperNotReadyResponse("gh_inspect_output", null, gh.Error);
 
             GhFencedReadGate? readinessGate = null;
-            if (!string.IsNullOrWhiteSpace(readinessReceiptId))
+            if (readinessReceiptId is not null)
             {
+                if (string.IsNullOrWhiteSpace(readinessReceiptId))
+                    return ReadinessIssueFailure("readiness_receipt_id_invalid");
+
                 var gate = _solveReceiptRegistry.CheckFencedRead(readinessReceiptId, gh.Document!);
                 if (!gate.Allowed)
                     return ReadinessFenceFailure(gate);

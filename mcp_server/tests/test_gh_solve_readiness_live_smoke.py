@@ -39,7 +39,7 @@ class FakeToolExecutor:
         return response
 
     def calls_after(self, tool_name: str) -> list[tuple[str, dict[str, object]]]:
-        index = next(index for index, call in enumerate(self.calls) if call[0] == tool_name)
+        index = max(index for index, call in enumerate(self.calls) if call[0] == tool_name)
         return self.calls[index + 1 :]
 
 
@@ -47,14 +47,21 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-def _receipt(status: str = "ready") -> dict[str, object]:
+def _receipt(
+    status: str = "ready",
+    *,
+    receipt_id: str = "opaque-1",
+    mutation_epoch: int = 4,
+    solution_run_epoch: int | None = 9,
+    completed_solution_run_epoch: int = 9,
+) -> dict[str, object]:
     return {
         "schema": "rook.gh_solve_readiness_receipt:v1",
-        "receipt_id": "opaque-1",
+        "receipt_id": receipt_id,
         "document_session_id": "session-1",
-        "mutation_epoch": 4,
-        "solution_run_epoch": 9,
-        "completed_solution_run_epoch": 9,
+        "mutation_epoch": mutation_epoch,
+        "solution_run_epoch": solution_run_epoch,
+        "completed_solution_run_epoch": completed_solution_run_epoch,
         "status": status,
     }
 
@@ -66,6 +73,7 @@ def _flat_provenance(receipt: dict[str, object] | None = None) -> dict[str, obje
         "readiness_receipt_id": receipt["receipt_id"],
         "document_session_id": receipt["document_session_id"],
         "mutation_epoch": receipt["mutation_epoch"],
+        "solution_run_epoch": receipt["solution_run_epoch"],
         "completed_solution_run_epoch": receipt["completed_solution_run_epoch"],
     }
 
@@ -74,10 +82,31 @@ _UNSET = object()
 
 
 def _responses(
-    *, set_receipt: object = _UNSET, wait: object = _UNSET, inspect: object = _UNSET, preview: object = 7.5
+    *,
+    set_receipt: object = _UNSET,
+    wait: object = _UNSET,
+    inspect: object = _UNSET,
+    preview: object = 7.5,
 ):
+    baseline_pending = _receipt(
+        "pending",
+        receipt_id="baseline-1",
+        mutation_epoch=3,
+        solution_run_epoch=None,
+        completed_solution_run_epoch=7,
+    )
+    baseline_ready = _receipt(
+        receipt_id="baseline-1",
+        mutation_epoch=3,
+        solution_run_epoch=8,
+        completed_solution_run_epoch=8,
+    )
     if set_receipt is _UNSET:
-        set_receipt = _receipt("pending")
+        set_receipt = _receipt(
+            "pending",
+            solution_run_epoch=None,
+            completed_solution_run_epoch=8,
+        )
     if wait is _UNSET:
         wait = {"success": True, "data": {"wait_status": "ready", "receipt": _receipt()}}
     if inspect is _UNSET:
@@ -91,11 +120,13 @@ def _responses(
             },
         }
     return {
-        "rhino_ping": "pong",
+        "rhino_ping": {"success": True, "data": "pong"},
         "gh_document_new": {"success": True, "data": {"Created": True}},
         "gh_library": {
             "success": True,
-            "components": [{"name": "Addition", "guid": "ADDITION-PROXY-GUID"}],
+            "data": {
+                "components": [{"name": "Addition", "guid": "ADDITION-PROXY-GUID"}]
+            },
         },
         "gh_create_slider": [
             {"success": True, "data": {"Created": True, "Guid": "EDITABLE-GUID"}},
@@ -106,11 +137,31 @@ def _responses(
             {"success": True, "data": {"connected": True}},
             {"success": True, "data": {"connected": True}},
         ],
-        "gh_set_value": {
-            "success": True,
-            "data": {"Guid": "EDITABLE-GUID", "NewValue": 7.5, "solve_readiness_receipt": set_receipt},
-        },
-        "gh_wait_for_solve_readiness": wait,
+        "gh_set_value": [
+            {
+                "success": True,
+                "data": {
+                    "Guid": "OFFSET-GUID",
+                    "NewValue": 0.0,
+                    "solve_readiness_receipt": baseline_pending,
+                },
+            },
+            {
+                "success": True,
+                "data": {
+                    "Guid": "EDITABLE-GUID",
+                    "NewValue": 7.5,
+                    "solve_readiness_receipt": set_receipt,
+                },
+            },
+        ],
+        "gh_wait_for_solve_readiness": [
+            {
+                "success": True,
+                "data": {"wait_status": "ready", "receipt": baseline_ready},
+            },
+            wait,
+        ],
         "gh_inspect_output": inspect,
     }
 
@@ -143,6 +194,75 @@ def test_smoke_claim_begins_at_receipted_set_value(tmp_path: Path) -> None:
         "decision.json",
     }
     assert json.loads((tmp_path / "decision.json").read_text(encoding="utf-8")) == result["decision"]
+
+
+def test_smoke_consumes_real_dispatch_envelopes(tmp_path: Path) -> None:
+    fake_executor = FakeToolExecutor(_responses())
+
+    result = _run(SMOKE.run_smoke(fake_executor, run_dir=tmp_path))
+
+    assert result["decision"]["accepted"] is True
+
+
+def test_smoke_accepts_correlated_ready_epoch_advance(tmp_path: Path) -> None:
+    pending = {
+        **_receipt("pending"),
+        "solution_run_epoch": None,
+        "completed_solution_run_epoch": 8,
+    }
+    ready = _receipt("ready")
+    fake_executor = FakeToolExecutor(
+        _responses(
+            set_receipt=pending,
+            wait={"success": True, "data": {"wait_status": "ready", "receipt": ready}},
+        )
+    )
+
+    result = _run(SMOKE.run_smoke(fake_executor, run_dir=tmp_path))
+
+    assert result["decision"]["accepted"] is True
+
+
+@pytest.mark.parametrize("missing_field", ["document_session_id", "mutation_epoch"])
+def test_smoke_rejects_ready_transition_missing_immutable_identity(
+    tmp_path: Path, missing_field: str
+) -> None:
+    pending = _receipt(
+        "pending",
+        solution_run_epoch=None,
+        completed_solution_run_epoch=8,
+    )
+    ready = _receipt()
+    pending.pop(missing_field)
+    ready.pop(missing_field)
+    fake_executor = FakeToolExecutor(
+        _responses(
+            set_receipt=pending,
+            wait={"success": True, "data": {"wait_status": "ready", "receipt": ready}},
+        )
+    )
+
+    with pytest.raises(SMOKE.SmokeFailure, match="solve_readiness_wait_not_ready"):
+        _run(SMOKE.run_smoke(fake_executor, run_dir=tmp_path))
+
+
+def test_smoke_establishes_and_records_setup_readiness_before_claim_mutation(
+    tmp_path: Path,
+) -> None:
+    fake_executor = FakeToolExecutor(_responses())
+
+    _run(SMOKE.run_smoke(fake_executor, run_dir=tmp_path))
+
+    set_calls = [call for call in fake_executor.calls if call[0] == "gh_set_value"]
+    assert set_calls == [
+        ("gh_set_value", {"guid": "OFFSET-GUID", "value": 0.0}),
+        ("gh_set_value", {"guid": "EDITABLE-GUID", "value": 7.5}),
+    ]
+    baseline = json.loads(
+        (tmp_path / "baseline_setup_summary.json").read_text(encoding="utf-8")
+    )
+    assert baseline["readiness_established"] is True
+    assert baseline["receipt"]["status"] == "ready"
 
 
 def test_smoke_rejects_missing_set_value_receipt(tmp_path: Path) -> None:
@@ -225,6 +345,27 @@ def test_smoke_rejects_fenced_read_failure(tmp_path: Path) -> None:
 def test_smoke_rejects_mismatched_output_provenance(tmp_path: Path) -> None:
     mismatched_provenance = _flat_provenance()
     mismatched_provenance["mutation_epoch"] = 5
+    fake_executor = FakeToolExecutor(
+        _responses(
+            inspect={
+                "success": True,
+                "data": {
+                    "param_nickname": "R",
+                    "data_count": 1,
+                    "preview": [7.5],
+                    **mismatched_provenance,
+                },
+            }
+        )
+    )
+
+    with pytest.raises(SMOKE.SmokeFailure, match="fenced_output_provenance_mismatch"):
+        _run(SMOKE.run_smoke(fake_executor, run_dir=tmp_path))
+
+
+def test_smoke_rejects_mismatched_solution_run_provenance(tmp_path: Path) -> None:
+    mismatched_provenance = _flat_provenance()
+    mismatched_provenance["solution_run_epoch"] = 10
     fake_executor = FakeToolExecutor(
         _responses(
             inspect={

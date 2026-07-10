@@ -19949,8 +19949,10 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             else:
                 # Call the C# endpoint for full data inspection
                 inspect_arguments = {"guid": guid, "param": param}
-                if readiness_receipt_id := arguments.get("readiness_receipt_id"):
-                    inspect_arguments["readiness_receipt_id"] = readiness_receipt_id
+                if "readiness_receipt_id" in arguments:
+                    inspect_arguments["readiness_receipt_id"] = arguments[
+                        "readiness_receipt_id"
+                    ]
                 result = await call_rhino("/gh/inspect-output", "GET", inspect_arguments, port=port)
 
         # Interactive Command Learning handlers

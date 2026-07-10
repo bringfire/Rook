@@ -71,15 +71,13 @@ def _receipt_from(value: object) -> dict[str, Any] | None:
     return None
 
 
-def _receipt_identity(receipt: dict[str, Any]) -> tuple[object, ...]:
+def _immutable_receipt_identity(receipt: dict[str, Any]) -> tuple[object, ...]:
     return tuple(
         receipt.get(key)
         for key in (
             "receipt_id",
             "document_session_id",
             "mutation_epoch",
-            "solution_run_epoch",
-            "completed_solution_run_epoch",
         )
     )
 
@@ -88,12 +86,43 @@ def _receipt_has_schema_and_status(receipt: dict[str, Any], status: str) -> bool
     return receipt.get("schema") == RECEIPT_SCHEMA and receipt.get("status") == status
 
 
+def _is_epoch(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _is_correlated_ready_transition(
+    pending: dict[str, Any], ready: dict[str, Any]
+) -> bool:
+    receipt_id = pending.get("receipt_id")
+    document_session_id = pending.get("document_session_id")
+    mutation_epoch = pending.get("mutation_epoch")
+    prior_completed = pending.get("completed_solution_run_epoch")
+    ready_run = ready.get("solution_run_epoch")
+    return (
+        _receipt_has_schema_and_status(pending, "pending")
+        and _receipt_has_schema_and_status(ready, "ready")
+        and isinstance(receipt_id, str)
+        and bool(receipt_id)
+        and isinstance(document_session_id, str)
+        and bool(document_session_id)
+        and _is_epoch(mutation_epoch)
+        and mutation_epoch > 0
+        and _immutable_receipt_identity(ready) == _immutable_receipt_identity(pending)
+        and pending.get("solution_run_epoch") is None
+        and _is_epoch(prior_completed)
+        and _is_epoch(ready_run)
+        and ready_run > prior_completed
+        and ready.get("completed_solution_run_epoch") == ready_run
+    )
+
+
 def _fenced_output_matches_receipt(data: dict[str, Any], receipt: dict[str, Any]) -> bool:
     return (
         data.get("readiness_fenced") is True
         and data.get("readiness_receipt_id") == receipt.get("receipt_id")
         and data.get("document_session_id") == receipt.get("document_session_id")
         and data.get("mutation_epoch") == receipt.get("mutation_epoch")
+        and data.get("solution_run_epoch") == receipt.get("solution_run_epoch")
         and data.get("completed_solution_run_epoch") == receipt.get("completed_solution_run_epoch")
     )
 
@@ -128,7 +157,7 @@ async def run_smoke(tool_executor: ToolExecutor, *, run_dir: Path) -> dict[str, 
 
     try:
         ping = await _call_tool(tool_executor, "rhino_ping", {})
-        if ping != "pong":
+        if not isinstance(ping, dict) or not _success(ping) or ping.get("data") != "pong":
             raise SmokeFailure("rhino_ping_failed", ping)
         document = await _call_tool(tool_executor, "gh_document_new", {})
         if not isinstance(document, dict):
@@ -139,7 +168,7 @@ async def run_smoke(tool_executor: ToolExecutor, *, run_dir: Path) -> dict[str, 
         library = await _call_tool(tool_executor, "gh_library", {"search": "addition", "limit": 20})
         if not isinstance(library, dict):
             raise SmokeFailure("gh_library_invalid_result", library)
-        components = library.get("components") if _success(library) else None
+        components = _data(library).get("components") if _success(library) else None
         addition_proxy = next(
             (
                 component.get("guid")
@@ -185,14 +214,51 @@ async def run_smoke(tool_executor: ToolExecutor, *, run_dir: Path) -> dict[str, 
                 raise SmokeFailure("gh_connect_invalid_result", connected)
             if not _success(connected):
                 raise SmokeFailure("gh_connect_failed", connected)
+        baseline_mutation = await _call_tool(
+            tool_executor, "gh_set_value", {"guid": offset, "value": 0.0}
+        )
+        if not isinstance(baseline_mutation, dict):
+            raise SmokeFailure("baseline_readiness_mutation_invalid_result", baseline_mutation)
+        baseline_pending = _receipt_from(_data(baseline_mutation))
+        if not _success(baseline_mutation) or baseline_pending is None:
+            raise SmokeFailure("baseline_readiness_receipt_missing", baseline_mutation)
+        baseline_receipt_id = baseline_pending.get("receipt_id")
+        if (
+            not isinstance(baseline_receipt_id, str)
+            or not baseline_receipt_id
+            or not _receipt_has_schema_and_status(baseline_pending, "pending")
+            or baseline_pending.get("solution_run_epoch") is not None
+        ):
+            raise SmokeFailure("baseline_readiness_receipt_invalid", baseline_pending)
+        baseline_wait = await _call_tool(
+            tool_executor,
+            "gh_wait_for_solve_readiness",
+            {
+                "readiness_receipt_id": baseline_receipt_id,
+                "timeout_ms": WAIT_TIMEOUT_MS,
+            },
+        )
+        if not isinstance(baseline_wait, dict):
+            raise SmokeFailure("baseline_readiness_wait_invalid_result", baseline_wait)
+        baseline_wait_data = _data(baseline_wait)
+        baseline_ready = _receipt_from(baseline_wait_data)
+        if (
+            not _success(baseline_wait)
+            or baseline_wait_data.get("wait_status") != "ready"
+            or baseline_ready is None
+            or not _is_correlated_ready_transition(baseline_pending, baseline_ready)
+        ):
+            raise SmokeFailure("baseline_readiness_wait_not_ready", baseline_wait)
         _write_json(
             run_dir,
             "baseline_setup_summary.json",
             {
                 "baseline_setup_only": True,
+                "readiness_established": True,
                 "editable_initial_value": 0.0,
                 "offset_initial_value": 0.0,
                 "addition_output_read": False,
+                "receipt": baseline_ready,
             },
         )
 
@@ -206,7 +272,10 @@ async def run_smoke(tool_executor: ToolExecutor, *, run_dir: Path) -> dict[str, 
         receipt_id = mutation_receipt.get("receipt_id")
         if not isinstance(receipt_id, str) or not receipt_id:
             raise SmokeFailure("solve_readiness_receipt_missing", mutation_receipt)
-        if not _receipt_has_schema_and_status(mutation_receipt, "pending"):
+        if (
+            not _receipt_has_schema_and_status(mutation_receipt, "pending")
+            or mutation_receipt.get("solution_run_epoch") is not None
+        ):
             raise SmokeFailure("solve_readiness_receipt_invalid", mutation_receipt)
 
         wait = await _call_tool(
@@ -223,8 +292,7 @@ async def run_smoke(tool_executor: ToolExecutor, *, run_dir: Path) -> dict[str, 
             not _success(wait)
             or wait_data.get("wait_status") != "ready"
             or wait_receipt is None
-            or not _receipt_has_schema_and_status(wait_receipt, "ready")
-            or _receipt_identity(wait_receipt) != _receipt_identity(mutation_receipt)
+            or not _is_correlated_ready_transition(mutation_receipt, wait_receipt)
         ):
             raise SmokeFailure("solve_readiness_wait_not_ready", wait)
 

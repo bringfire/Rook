@@ -152,6 +152,16 @@ namespace Rook.Tests.InternalBridge
         }
 
         [Fact]
+        public void InspectOutputCallback_ForwardsOptionalReadinessReceipt()
+        {
+            var method = ExtractMethod(
+                ReadRegistrarSource(),
+                "private static int HandleInspectOutput");
+
+            Assert.Contains("GetStringArg(args, \"readiness_receipt_id\")", method);
+        }
+
+        [Fact]
         public void ReadinessExecutors_RunDirectlyWithoutUiDispatchOrWorkerHop()
         {
             var callerThread = Thread.CurrentThread.ManagedThreadId;
