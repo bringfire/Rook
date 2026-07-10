@@ -21,6 +21,26 @@
 - Use the greater of CPU-submission p95 and valid GPU-duration p95 when at least 270 GPU samples exist; otherwise qualify the tier as cpu_proxy_only.
 - Keep the 10,000-actor case opt-in; never run it on page load.
 - Evaluate animation from explicit absolute time only.
+- Execute through superpowers:subagent-driven-development sequentially: one fresh implementer per task, a requirements review and code-quality review gate after each task, no parallel task dispatch, and one final whole-branch review.
+
+## Execution Preflight: Isolated Feature Worktree
+
+Before Task 1, invoke superpowers:using-git-worktrees and create an isolated worktree from the verified main branch. The intended branch and location are:
+
+~~~text
+branch: codex/threejs-rhino-stress-harness
+worktree: C:/Users/aryan/source/repos/Rook/.worktrees/threejs-rhino-stress-harness
+~~~
+
+The preflight must verify that `.worktrees/` is ignored, create the worktree without changing main, and confirm the new worktree starts clean:
+
+~~~powershell
+git check-ignore -v .worktrees/probe
+git worktree add .worktrees/threejs-rhino-stress-harness -b codex/threejs-rhino-stress-harness
+git -C .worktrees/threejs-rhino-stress-harness status --short
+~~~
+
+Expected: the ignore probe exits 0, worktree creation succeeds, and status output is empty. All Task 1-10 commands run inside the feature worktree. Dependency installation remains forbidden until Task 1 creates the experiment-local `.gitignore` and its separate `node_modules/.probe` check passes.
 
 ## Planned File Structure
 
@@ -523,6 +543,21 @@ describe("scene generator", () => {
     expect(result.actors[0].children[0].geometry)
       .not.toBe(result.actors[1].children[0].geometry);
   });
+
+  it("separates source, rebase, and applied render origins", () => {
+    const rebased = createSyntheticScene({
+      actorCount: 1, coordinateMode: "rebased",
+    });
+    const large = createSyntheticScene({
+      actorCount: 1, coordinateMode: "large",
+    });
+    expect(rebased.sourceOrigin).toEqual([300000, -200000, 20000]);
+    expect(rebased.rebaseOrigin).toEqual([300000, -200000, 20000]);
+    expect(rebased.appliedRenderOffset).toEqual([0, 0, 0]);
+    expect(large.sourceOrigin).toEqual([300000, -200000, 20000]);
+    expect(large.rebaseOrigin).toEqual([0, 0, 0]);
+    expect(large.appliedRenderOffset).toEqual([300000, -200000, 20000]);
+  });
 });
 ~~~
 
@@ -587,10 +622,13 @@ export function createSyntheticScene(overrides = {}) {
   contextRoot.name = "StaticContext";
   scene.add(contextRoot, actorRoot);
 
-  const origin = config.coordinateMode === "large"
-    ? new THREE.Vector3(...LARGE_WORLD_OFFSET) : new THREE.Vector3();
-  actorRoot.position.copy(origin);
-  contextRoot.position.copy(origin);
+  const sourceOrigin = new THREE.Vector3(...LARGE_WORLD_OFFSET);
+  const appliedRenderOffset = config.coordinateMode === "large"
+    ? sourceOrigin.clone() : new THREE.Vector3();
+  const rebaseOrigin = config.coordinateMode === "rebased"
+    ? sourceOrigin.clone() : new THREE.Vector3();
+  actorRoot.position.copy(appliedRenderOffset);
+  contextRoot.position.copy(appliedRenderOffset);
 
   const segments = Math.max(1, Number(config.geometryDensity));
   const sharedGeometry = new THREE.BoxGeometry(0.6, 0.6, 0.6, segments, segments, segments);
@@ -622,7 +660,9 @@ export function createSyntheticScene(overrides = {}) {
   buildContext(contextRoot, config.contextMode);
   return {
     scene, actorRoot, contextRoot, actors, config,
-    rebaseOrigin: origin.toArray(),
+    sourceOrigin: sourceOrigin.toArray(),
+    rebaseOrigin: rebaseOrigin.toArray(),
+    appliedRenderOffset: appliedRenderOffset.toArray(),
   };
 }
 
@@ -705,14 +745,25 @@ import * as THREE from "three";
 import { expect, it } from "vitest";
 import { buildActorIndex } from "../src/actor-index.js";
 
-it("rejects duplicate durable IDs", () => {
+it("reports duplicate and malformed durable IDs", () => {
   const root = new THREE.Group();
   for (let index = 0; index < 2; index += 1) {
     const actor = new THREE.Group();
     actor.userData.actorId = "duplicate";
     root.add(actor);
   }
-  expect(() => buildActorIndex(root)).toThrow(/duplicate actorId: duplicate/);
+  const malformed = new THREE.Group();
+  malformed.userData.actorId = " bad id ";
+  root.add(malformed);
+  const result = buildActorIndex(root);
+  expect(result.duplicates).toEqual([{
+    actorId: "duplicate",
+    firstObject: "Group",
+    duplicateObject: "Group",
+  }]);
+  expect(result.malformedIds).toEqual([{
+    objectName: "Group", value: " bad id ", reason: "invalid_format",
+  }]);
 });
 ~~~
 
@@ -765,17 +816,35 @@ Expected: FAIL because the source modules are absent.
 export function buildActorIndex(root) {
   const actors = new Map();
   let missingActorId = 0;
+  const duplicates = [];
+  const malformedIds = [];
+  const pattern = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
   root.traverse((object) => {
+    const hasActorId = Object.prototype.hasOwnProperty.call(
+      object.userData ?? {}, "actorId");
     const actorId = object.userData?.actorId;
-    if (actorId) {
-      if (actors.has(actorId)) throw new Error("duplicate actorId: " + actorId);
-      actors.set(actorId, object);
+    if (hasActorId) {
+      if (typeof actorId !== "string" || !pattern.test(actorId)) {
+        malformedIds.push({
+          objectName: object.name || object.type,
+          value: actorId,
+          reason: "invalid_format",
+        });
+      } else if (actors.has(actorId)) {
+        duplicates.push({
+          actorId,
+          firstObject: actors.get(actorId).name || actors.get(actorId).type,
+          duplicateObject: object.name || object.type,
+        });
+      } else {
+        actors.set(actorId, object);
+      }
     } else if (object.userData?.actorNode === true ||
       (object.isMesh && !hasActorAncestor(object))) {
       missingActorId += 1;
     }
   });
-  return { actors, missingActorId };
+  return { actors, missingActorId, duplicates, malformedIds };
 }
 
 function hasActorAncestor(object) {
@@ -1089,7 +1158,7 @@ Expected: all tests and the Vite build pass.
 ~~~js
 // tests/benchmark.test.js
 import { expect, it } from "vitest";
-import { runConfiguration } from "../src/benchmark.js";
+import { runConfiguration, runTrial } from "../src/benchmark.js";
 
 it("runs three trials and uses the worst completed trial", async () => {
   const tiers = ["interactive", "marginal", "preview-viable"];
@@ -1100,7 +1169,11 @@ it("runs three trials and uses the worst completed trial", async () => {
     runTrialImpl: async () => ({
       status: "completed",
       classification: { tier: tiers[index++] },
-      cpu: { samples: [1] }, gpu: { samples: [1] },
+      cpu: { samples: [4] },
+      seek: { samples: [1] },
+      matrixTraversal: { samples: [1] },
+      renderSubmission: { samples: [2] },
+      gpu: { samples: [3] },
     }),
   });
   expect(report.trials).toHaveLength(3);
@@ -1108,6 +1181,9 @@ it("runs three trials and uses the worst completed trial", async () => {
     tier: "marginal", source: "worst_completed_trial", trialIndex: 1,
   });
   expect(report.pooled.classificationRole).toBe("descriptive_only");
+  expect(report.pooled.seek.count).toBe(3);
+  expect(report.pooled.matrixTraversal.count).toBe(3);
+  expect(report.pooled.renderSubmission.count).toBe(3);
 });
 
 it("lets an aborted trial override completed trials", async () => {
@@ -1118,6 +1194,35 @@ it("lets an aborted trial override completed trials", async () => {
       : { status: "completed", classification: { tier: "interactive" },
           cpu: { samples: [] }, gpu: { samples: [] } },
   });
+  expect(report.headline.tier).toBe("impractical");
+});
+
+it("converts construction failure into an aborted trial", async () => {
+  const result = await runTrial({
+    trialIndex: 0,
+    renderer: {},
+    buildScene: async () => { throw new Error("construction failed"); },
+    evaluate: () => {},
+    dispose: () => { throw new Error("must not dispose missing context"); },
+    schedule: (callback) => callback(),
+    now: () => 0,
+  });
+  expect(result).toMatchObject({
+    trialIndex: 0, status: "aborted", reason: "construction failed",
+  });
+});
+
+it("stops scheduling after the first aborted trial", async () => {
+  let calls = 0;
+  const report = await runConfiguration({
+    config: {}, trialCount: 3,
+    runTrialImpl: async () => {
+      calls += 1;
+      return { status: "aborted", reason: "cancelled" };
+    },
+  });
+  expect(calls).toBe(1);
+  expect(report.trials).toHaveLength(1);
   expect(report.headline.tier).toBe("impractical");
 });
 ~~~
@@ -1147,38 +1252,60 @@ export async function runTrial({
   schedule = requestAnimationFrame,
   now = performance.now.bind(performance),
 }) {
-  const started = now();
-  const context = await buildScene();
-  const constructionMs = now() - started;
-  const timer = createGpuTimer(renderer.getContext());
-  const cpuSamples = [];
+  let context = null;
+  let timer = null;
+  let constructionMs = null;
   let contextLost = false;
+  let listenerAttached = false;
+  const frameCpuSamples = [];
+  const seekSamples = [];
+  const matrixTraversalSamples = [];
+  const renderSubmissionSamples = [];
   const lost = (event) => {
     event.preventDefault();
     contextLost = true;
   };
-  renderer.domElement.addEventListener("webglcontextlost", lost, { once: true });
   try {
+    const started = now();
+    context = await buildScene();
+    constructionMs = now() - started;
+    timer = createGpuTimer(renderer.getContext());
+    renderer.domElement.addEventListener("webglcontextlost", lost, { once: true });
+    listenerAttached = true;
+
     await frames(protocol.warmupFrames, (frame) => {
       evaluate(context, frame / 60);
+      context.scene.updateMatrixWorld(true);
       renderer.render(context.scene, context.camera);
     }, schedule, signal);
 
     await frames(protocol.measuredFrames, (frame) => {
       const frameStart = now();
-      timer.begin();
+
+      const seekStart = now();
       evaluate(context, frame / 60);
+      seekSamples.push(now() - seekStart);
+
+      const traversalStart = now();
       context.scene.updateMatrixWorld(true);
+      matrixTraversalSamples.push(now() - traversalStart);
+
+      timer.begin();
+      const renderStart = now();
       renderer.render(context.scene, context.camera);
+      renderSubmissionSamples.push(now() - renderStart);
       timer.end();
-      cpuSamples.push(now() - frameStart);
+      frameCpuSamples.push(now() - frameStart);
       timer.poll();
       if (contextLost) throw new DOMException("context lost", "AbortError");
     }, schedule, signal);
 
     await drain(timer, schedule, signal);
     const gpuRaw = timer.snapshot();
-    const cpu = summarizeSamples(cpuSamples);
+    const cpu = summarizeSamples(frameCpuSamples);
+    const seek = summarizeSamples(seekSamples);
+    const matrixTraversal = summarizeSamples(matrixTraversalSamples);
+    const renderSubmission = summarizeSamples(renderSubmissionSamples);
     const gpu = summarizeSamples(gpuRaw.samplesMs);
     const correctness = await checkCorrectness(context);
     const correctnessPassed = correctness.pass;
@@ -1188,7 +1315,14 @@ export async function runTrial({
     });
     return {
       trialIndex, status: "completed", constructionMs,
-      cpu: { ...cpu, samples: cpuSamples },
+      cpu: { ...cpu, samples: frameCpuSamples },
+      seek: { ...seek, samples: seekSamples },
+      matrixTraversal: {
+        ...matrixTraversal, samples: matrixTraversalSamples,
+      },
+      renderSubmission: {
+        ...renderSubmission, samples: renderSubmissionSamples,
+      },
       gpu: { ...gpu, samples: gpuRaw.samplesMs,
         disjointCount: gpuRaw.disjointCount },
       correctness, correctnessPassed, classification,
@@ -1199,9 +1333,11 @@ export async function runTrial({
       reason: contextLost ? "context_lost" : error.message,
     };
   } finally {
-    renderer.domElement.removeEventListener("webglcontextlost", lost);
-    timer.dispose();
-    dispose(context.scene);
+    if (listenerAttached) {
+      renderer.domElement.removeEventListener("webglcontextlost", lost);
+    }
+    timer?.dispose();
+    if (context?.scene) dispose(context.scene);
   }
 }
 
@@ -1211,7 +1347,9 @@ export async function runConfiguration({
 }) {
   const trials = [];
   for (let trialIndex = 0; trialIndex < trialCount; trialIndex += 1) {
-    trials.push(await runTrialImpl({ ...options, config, trialIndex }));
+    const trial = await runTrialImpl({ ...options, config, trialIndex });
+    trials.push(trial);
+    if (trial.status !== "completed" || options.signal?.aborted) break;
   }
   return {
     schemaVersion: 1, config, trials,
@@ -1221,6 +1359,12 @@ export async function runConfiguration({
         (trial) => trial.cpu?.samples ?? [])),
       gpu: summarizeSamples(trials.flatMap(
         (trial) => trial.gpu?.samples ?? [])),
+      seek: summarizeSamples(trials.flatMap(
+        (trial) => trial.seek?.samples ?? [])),
+      matrixTraversal: summarizeSamples(trials.flatMap(
+        (trial) => trial.matrixTraversal?.samples ?? [])),
+      renderSubmission: summarizeSamples(trials.flatMap(
+        (trial) => trial.renderSubmission?.samples ?? [])),
       classificationRole: "descriptive_only",
     },
   };
@@ -1331,6 +1475,8 @@ import { buildActorIndex } from "../src/actor-index.js";
 const indexed = buildActorIndex(gltf.scene);
 expect(indexed.actors.size).toBe(2);
 expect(indexed.missingActorId).toBe(0);
+expect(indexed.duplicates).toEqual([]);
+expect(indexed.malformedIds).toEqual([]);
 ~~~
 
 - [ ] **Step 2: Run the red evidence tests**
@@ -1345,7 +1491,7 @@ Expected: FAIL because evidence.js is absent and fixture lookup assertions are n
 
 ~~~js
 // src/evidence.js
-import { REVISION } from "three";
+import { REVISION, Vector3 } from "three";
 import { evaluateAt, transformSnapshot } from "./animation.js";
 import { BENCHMARK_PROTOCOL } from "./config.js";
 
@@ -1405,10 +1551,21 @@ export function runCorrectnessChecks(context) {
   firstActor.updateMatrixWorld(true);
   const independentTransform = secondActor.matrixWorld.equals(secondBefore);
 
-  const pivotBefore = firstActor.position.clone();
-  firstActor.rotation.y += 0.5;
-  firstActor.updateMatrixWorld(true);
-  const pivotSanity = firstActor.position.equals(pivotBefore);
+  evaluateAt(context, 0);
+  const savedQuaternion = firstActor.quaternion.clone();
+  const pivotExpected = firstActor.parent.localToWorld(
+    firstActor.position.clone());
+  firstActor.rotation.set(0, Math.PI / 2, 0);
+  firstActor.updateWorldMatrix(true, true);
+  const pivotActual = firstActor.localToWorld(new Vector3(0, 0, 0));
+  const offAxisActual = firstActor.localToWorld(new Vector3(1, 0, 0));
+  const offAxisExpected = firstActor.parent.localToWorld(
+    firstActor.position.clone().add(new Vector3(0, 0, -1)));
+  const pivotSanity =
+    pivotActual.distanceTo(pivotExpected) <= 1e-9 &&
+    offAxisActual.distanceTo(offAxisExpected) <= 1e-9;
+  firstActor.quaternion.copy(savedQuaternion);
+  firstActor.updateWorldMatrix(true, true);
 
   evaluateAt(context, 0);
   return {
@@ -1478,6 +1635,12 @@ Return these fields in the completed trial:
 
 ~~~js
 structure: context.structure,
+sceneTraversalMs: context.sceneTraversalMs,
+origins: {
+  sourceOrigin: context.sourceOrigin,
+  rebaseOrigin: context.rebaseOrigin,
+  appliedRenderOffset: context.appliedRenderOffset,
+},
 addressability: context.addressability,
 rendererInfo,
 correctness,
@@ -1631,8 +1794,8 @@ async function buildOrLoad() {
 
 function buildSynthetic(config) {
   const generated = createSyntheticScene(config);
-  addFixedLights(generated.scene, generated.rebaseOrigin);
-  return finalize(generated, createCamera(generated.rebaseOrigin));
+  addFixedLights(generated.scene, generated.appliedRenderOffset);
+  return finalize(generated, createCamera(generated.appliedRenderOffset));
 }
 
 async function loadLocal(config) {
@@ -1642,7 +1805,8 @@ async function loadLocal(config) {
   addFixedLights(gltf.scene);
   return finalize({
     scene: gltf.scene, actorRoot: gltf.scene, contextRoot: gltf.scene,
-    config, rebaseOrigin: [0, 0, 0],
+    config, sourceOrigin: [0, 0, 0], rebaseOrigin: [0, 0, 0],
+    appliedRenderOffset: [0, 0, 0],
   }, createCamera());
 }
 
@@ -1663,6 +1827,10 @@ function renderAt(time) {
 async function run() {
   if (Number(el["actor-count"].value) === 10000 &&
       !confirm("Run the opt-in 10,000 actor benchmark?")) return;
+  if (el.source.value === "glb" && !localGlbBytes) {
+    throw new Error("Build / Load the local GLB before benchmarking");
+  }
+  disposePreview();
   controller = new AbortController();
   const config = readConfig();
   report = await runConfiguration({
@@ -1689,10 +1857,17 @@ function readConfig() {
 
 function reset() {
   controller?.abort();
+  disposePreview();
+  localGlbBytes = null;
+  report = null;
+  el.report.textContent = "No report.";
+  el.status.textContent = "Ready.";
+}
+
+function disposePreview() {
   if (active?.scene) disposeScene(active.scene);
   active = null;
   renderer.clear();
-  el.status.textContent = "Ready.";
 }
 
 function showError(error) {
@@ -1724,18 +1899,26 @@ async function buildLocalFromBytes(config) {
   addFixedLights(gltf.scene);
   return finalize({
     scene: gltf.scene, actorRoot: gltf.scene, contextRoot: gltf.scene,
-    config, rebaseOrigin: [0, 0, 0], sourceKind: "local_glb",
+    config, sourceOrigin: [0, 0, 0], rebaseOrigin: [0, 0, 0],
+    appliedRenderOffset: [0, 0, 0], sourceKind: "local_glb",
   }, createCamera());
 }
 
 function finalize(context, camera) {
+  const traversalStarted = performance.now();
   const addressability = buildActorIndex(context.scene);
+  const structure = countScene(context.scene);
+  const sceneTraversalMs = performance.now() - traversalStarted;
   return {
     ...context, camera, actorIndex: addressability.actors,
     addressability,
     addressabilityPassed:
-      addressability.missingActorId === 0 && addressability.actors.size > 0,
-    structure: countScene(context.scene),
+      addressability.missingActorId === 0 &&
+      addressability.duplicates.length === 0 &&
+      addressability.malformedIds.length === 0 &&
+      addressability.actors.size > 0,
+    structure,
+    sceneTraversalMs,
     motionGranularity: context.config.motionGranularity,
   };
 }
@@ -1826,7 +2009,9 @@ export function compareCoordinateScenes({
 Add to src/main.js imports:
 
 ~~~js
-import { compareCoordinateScenes } from "./precision.js";
+import {
+  compareCoordinateScenes, comparePixelBuffers, readScenePixels,
+} from "./precision.js";
 ~~~
 
 Add the helper and invoke it immediately after runConfiguration resolves:
@@ -1845,6 +2030,22 @@ function runPrecisionEvidence(config) {
   }
 }
 
+function runContextVisibilityEvidence(config) {
+  const unbatched = buildSynthetic({ ...config, contextMode: "unbatched" });
+  const merged = buildSynthetic({ ...config, contextMode: "merged" });
+  try {
+    evaluateAt(unbatched, 0);
+    evaluateAt(merged, 0);
+    return comparePixelBuffers(
+      readScenePixels(renderer, unbatched.scene, unbatched.camera),
+      readScenePixels(renderer, merged.scene, merged.camera),
+    );
+  } finally {
+    disposeScene(unbatched.scene);
+    disposeScene(merged.scene);
+  }
+}
+
 // after runConfiguration:
 if (el.source.value === "synthetic") {
   report.coordinatePrecision = runPrecisionEvidence(config);
@@ -1854,6 +2055,15 @@ if (el.source.value === "synthetic") {
     report.headline = {
       tier: "impractical",
       source: "coordinate_precision",
+      trialIndex: report.headline.trialIndex,
+    };
+  }
+  report.contextVisibleEquivalence =
+    runContextVisibilityEvidence(config);
+  if (!report.contextVisibleEquivalence.pass) {
+    report.headline = {
+      tier: "impractical",
+      source: "context_visible_equivalence",
       trialIndex: report.headline.trialIndex,
     };
   }
@@ -1907,7 +2117,7 @@ git diff --check
 git status --short
 ~~~
 
-Expected: fixture regeneration leaves no diff, all tests pass, build exits 0, diff check exits 0, and only Task 9 files are modified before commit.
+Expected: fixture regeneration leaves no diff, all tests pass, build exits 0, diff check exits 0, and only Task 10 files are modified before commit.
 
 - [ ] **Step 5: Run the manual acceptance matrix**
 
@@ -1938,7 +2148,22 @@ git commit -m "docs: complete Three.js stress harness protocol"
 
 ~~~powershell
 git status --short
-git log -9 --oneline -- experiments/threejs-rhino-stress
+git log -10 --oneline -- experiments/threejs-rhino-stress
 ~~~
 
 Expected: clean worktree and focused experiment commits for scaffold, metrics, fixture, scene generation, actor lifecycle, renderer adapters, orchestration, dashboard, and final integration.
+
+- [ ] **Step 8: Run the final whole-branch review gate**
+
+Dispatch a fresh review agent after all task-level requirements and code-quality gates have passed. The reviewer reads the approved design, this plan, and the complete feature-branch diff against main; it must specifically recheck benchmark isolation, construction/cancellation failure paths, separate seek/traversal/render metrics, actor-ID diagnostics, origin semantics, pivot geometry, and visible equivalence.
+
+After resolving any findings, rerun:
+
+~~~powershell
+npm test
+npm run build
+git diff main...HEAD --check
+git status --short
+~~~
+
+Expected: all tests pass, build exits 0, branch diff check exits 0, status is clean, and the final reviewer reports no blocking findings.
