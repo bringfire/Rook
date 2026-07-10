@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import inspect
+import ast
 import importlib.util
 import sys
 import subprocess
@@ -10,12 +10,510 @@ from pathlib import Path
 import pytest
 
 
+_LM8I_PROBE_MODULE = "lm8i_affine_publication_shape_support_probe"
+_WRAPPER_ALLOWED_IMPORT_ROOTS = frozenset(
+    {
+        "__future__",
+        "argparse",
+        "collections",
+        "datetime",
+        "json",
+        "math",
+        "pathlib",
+        "re",
+        "subprocess",
+        "sys",
+        "typing",
+    }
+)
+_LIVE_DISPATCH_SEAMS = frozenset(
+    {
+        "_mcp_tool_executor",
+        "apply_gh_scalar_value_action_to_node",
+        "call_rhino",
+        "call_tool",
+        "gh_connect",
+        "gh_create_component",
+        "gh_create_slider",
+        "gh_document_new",
+        "gh_get_value",
+        "gh_inspect_output",
+        "gh_library",
+        "gh_set_value",
+        "gh_solve",
+        "gh_wait_for_solve_readiness",
+        "rhino_ping",
+        "run_two_pass_worker_publication",
+    }
+)
+_LIVE_DISPATCH_ENTRYPOINTS = frozenset(
+    {
+        "dispatch",
+        "execute",
+        "invoke",
+        "tool_executor",
+        *_LIVE_DISPATCH_SEAMS,
+    }
+)
+_DYNAMIC_IMPORT_CALLS = frozenset({"__import__", "import_module"})
+_PROCESS_SPAWN_APIS = frozenset(
+    {
+        "asyncio.create_subprocess_exec",
+        "asyncio.create_subprocess_shell",
+        "concurrent.futures.ProcessPoolExecutor",
+        "multiprocessing.Pool",
+        "multiprocessing.Process",
+        "os.execl",
+        "os.execle",
+        "os.execlp",
+        "os.execlpe",
+        "os.execv",
+        "os.execve",
+        "os.execvp",
+        "os.execvpe",
+        "os.popen",
+        "os.posix_spawn",
+        "os.posix_spawnp",
+        "os.spawnl",
+        "os.spawnle",
+        "os.spawnlp",
+        "os.spawnlpe",
+        "os.spawnv",
+        "os.spawnve",
+        "os.spawnvp",
+        "os.spawnvpe",
+        "os.startfile",
+        "os.system",
+        "subprocess.Popen",
+        "subprocess.call",
+        "subprocess.check_call",
+        "subprocess.check_output",
+        "subprocess.getoutput",
+        "subprocess.getstatusoutput",
+        "subprocess.run",
+    }
+)
+
+
 def _script_path() -> Path:
     return (
         Path(__file__).resolve().parents[2]
         / "scripts"
         / "lm8j_affine_support_repeatability_probe.py"
     )
+
+
+def _dotted_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _dotted_name(node.value)
+        return f"{parent}.{node.attr}" if parent else node.attr
+    return None
+
+
+def _target_names(node: ast.AST) -> set[str]:
+    if isinstance(node, ast.Name):
+        return {node.id}
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return set().union(*(_target_names(element) for element in node.elts))
+    return set()
+
+
+def _is_lm8i_module(module_name: str) -> bool:
+    return module_name == _LM8I_PROBE_MODULE or module_name.endswith(
+        f".{_LM8I_PROBE_MODULE}"
+    )
+
+
+def _is_live_reference(node: ast.AST, aliases: set[str]) -> bool:
+    name = _dotted_name(node)
+    if name is None:
+        return False
+    return name in aliases or name.rsplit(".", 1)[-1] in _LIVE_DISPATCH_SEAMS
+
+
+def _call_has_live_tool_name(node: ast.Call) -> bool:
+    return any(
+        isinstance(value, ast.Constant)
+        and isinstance(value.value, str)
+        and value.value in _LIVE_DISPATCH_SEAMS
+        for argument in (*node.args, *(keyword.value for keyword in node.keywords))
+        for value in ast.walk(argument)
+    )
+
+
+def _process_reference(
+    node: ast.AST,
+    module_aliases: dict[str, str],
+    process_aliases: dict[str, str],
+) -> str | None:
+    name = _dotted_name(node)
+    if name in process_aliases:
+        return process_aliases[name]
+    if name is not None:
+        parts = name.split(".")
+        canonical = ".".join((module_aliases.get(parts[0], parts[0]), *parts[1:]))
+        if canonical in _PROCESS_SPAWN_APIS:
+            return canonical
+
+    if (
+        isinstance(node, ast.Call)
+        and _dotted_name(node.func) == "getattr"
+        and len(node.args) >= 2
+        and isinstance(node.args[1], ast.Constant)
+        and isinstance(node.args[1].value, str)
+    ):
+        module_name = _dotted_name(node.args[0])
+        if module_name is not None:
+            canonical_module = module_aliases.get(module_name, module_name)
+            canonical = f"{canonical_module}.{node.args[1].value}"
+            if canonical in _PROCESS_SPAWN_APIS:
+                return canonical
+    return None
+
+
+def _process_reference_from_value(
+    node: ast.AST,
+    module_aliases: dict[str, str],
+    process_aliases: dict[str, str],
+) -> str | None:
+    reference = _process_reference(node, module_aliases, process_aliases)
+    if reference is not None:
+        return reference
+    if isinstance(node, ast.BoolOp):
+        references = {
+            reference
+            for value in node.values
+            if (
+                reference := _process_reference_from_value(
+                    value, module_aliases, process_aliases
+                )
+            )
+            is not None
+        }
+        return next(iter(references)) if len(references) == 1 else None
+    if isinstance(node, ast.IfExp):
+        references = {
+            reference
+            for value in (node.body, node.orelse)
+            if (
+                reference := _process_reference_from_value(
+                    value, module_aliases, process_aliases
+                )
+            )
+            is not None
+        }
+        return next(iter(references)) if len(references) == 1 else None
+    return None
+
+
+def _assignment_value_and_targets(
+    node: ast.AST,
+) -> tuple[ast.AST | None, list[ast.AST]]:
+    if isinstance(node, ast.Assign):
+        return node.value, node.targets
+    if isinstance(node, ast.AnnAssign) and node.value is not None:
+        return node.value, [node.target]
+    return None, []
+
+
+def _module_call_sites(
+    tree: ast.Module,
+) -> list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef | None, ast.Call]]:
+    call_sites = []
+    for statement in tree.body:
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            owner_name = statement.name
+            owner = statement
+        else:
+            owner_name = "<module>"
+            owner = None
+        call_sites.extend(
+            (owner_name, owner, node)
+            for node in ast.walk(statement)
+            if isinstance(node, ast.Call)
+        )
+    return call_sites
+
+
+def _node_owners(tree: ast.Module) -> dict[int, str]:
+    owners: dict[int, str] = {}
+    for statement in tree.body:
+        owner_name = (
+            statement.name
+            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef))
+            else "<module>"
+        )
+        for node in ast.walk(statement):
+            owners[id(node)] = owner_name
+    return owners
+
+
+def _node_parents(tree: ast.Module) -> dict[int, ast.AST]:
+    return {
+        id(child): parent
+        for parent in ast.walk(tree)
+        for child in ast.iter_child_nodes(parent)
+    }
+
+
+def _command_is_from_lm8i_builder(
+    owner: ast.FunctionDef | ast.AsyncFunctionDef | None,
+    process_call: ast.Call,
+) -> bool:
+    command = process_call.args[0] if process_call.args else next(
+        (
+            keyword.value
+            for keyword in process_call.keywords
+            if keyword.arg in {"args", "command"}
+        ),
+        None,
+    )
+    if isinstance(command, ast.Call):
+        return _dotted_name(command.func) == "_lm8i_command"
+    if owner is None or not isinstance(command, ast.Name):
+        return False
+
+    assignments = []
+    for node in ast.walk(owner):
+        value, targets = _assignment_value_and_targets(node)
+        if value is None or getattr(node, "lineno", 0) >= process_call.lineno:
+            continue
+        if command.id in set().union(*(_target_names(target) for target in targets)):
+            assignments.append(node)
+    if not assignments:
+        return False
+    nearest = max(assignments, key=lambda node: node.lineno)
+    value, _targets = _assignment_value_and_targets(nearest)
+    return isinstance(value, ast.Call) and _dotted_name(value.func) == "_lm8i_command"
+
+
+def _is_exact_git_short_sha_call(
+    owner_name: str,
+    process_call: ast.Call,
+) -> bool:
+    if owner_name != "_git_short_sha" or not process_call.args:
+        return False
+    command = process_call.args[0]
+    if not isinstance(command, ast.List):
+        return False
+    command_values = [
+        element.value if isinstance(element, ast.Constant) else None
+        for element in command.elts
+    ]
+    if command_values != ["git", "rev-parse", "--short", "HEAD"]:
+        return False
+    keywords = {keyword.arg: keyword.value for keyword in process_call.keywords}
+    return (
+        set(keywords) == {"cwd", "check", "capture_output", "text"}
+        and isinstance(keywords["cwd"], ast.Name)
+        and keywords["cwd"].id == "_REPO_ROOT"
+        and all(
+            isinstance(keywords[name], ast.Constant)
+            and keywords[name].value is True
+            for name in ("check", "capture_output", "text")
+        )
+    )
+
+
+def _lm8m_wrapper_guard_violations(source: str) -> list[str]:
+    """Return import and call paths that would let the wrapper dispatch live work."""
+
+    tree = ast.parse(source)
+    violations: list[str] = []
+    aliases = set(_LIVE_DISPATCH_SEAMS)
+    module_aliases: dict[str, str] = {}
+    process_aliases: dict[str, str] = {}
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                module_name = alias.name
+                terminal_name = module_name.rsplit(".", 1)[-1]
+                module_aliases[alias.asname or module_name.split(".", 1)[0]] = (
+                    module_name
+                )
+                if module_name == "rook.server" or _is_lm8i_module(module_name):
+                    violations.append(f"forbidden module import:{module_name}")
+                if module_name.split(".", 1)[0] not in _WRAPPER_ALLOWED_IMPORT_ROOTS:
+                    violations.append(f"non-wrapper import:{module_name}")
+                if terminal_name in _LIVE_DISPATCH_SEAMS:
+                    violations.append(f"live seam import:{module_name}")
+                    aliases.add(alias.asname or module_name.split(".", 1)[0])
+        elif isinstance(node, ast.ImportFrom):
+            module_name = node.module or ""
+            if module_name == "rook.server" or _is_lm8i_module(module_name):
+                violations.append(f"forbidden module import:{module_name}")
+            if module_name and module_name.split(".", 1)[0] not in _WRAPPER_ALLOWED_IMPORT_ROOTS:
+                violations.append(f"non-wrapper import:{module_name}")
+            for alias in node.names:
+                imported_name = alias.name
+                qualified_name = f"{module_name}.{imported_name}" if module_name else imported_name
+                local_name = alias.asname or imported_name
+                if qualified_name in _PROCESS_SPAWN_APIS:
+                    process_aliases[local_name] = qualified_name
+                if qualified_name == "rook.server" or _is_lm8i_module(qualified_name):
+                    violations.append(f"forbidden module import:{qualified_name}")
+                if imported_name in _LIVE_DISPATCH_SEAMS:
+                    violations.append(f"live seam import:{qualified_name}")
+                    aliases.add(alias.asname or imported_name)
+
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(tree):
+            value = None
+            targets: list[ast.AST] = []
+            if isinstance(node, ast.Assign):
+                value = node.value
+                targets = node.targets
+            elif isinstance(node, ast.AnnAssign) and node.value is not None:
+                value = node.value
+                targets = [node.target]
+            if value is not None and _is_live_reference(value, aliases):
+                for target in targets:
+                    for target_name in _target_names(target):
+                        if target_name not in aliases:
+                            aliases.add(target_name)
+                            changed = True
+
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(tree):
+            value, targets = _assignment_value_and_targets(node)
+            if value is None:
+                continue
+            process_reference = _process_reference_from_value(
+                value, module_aliases, process_aliases
+            )
+            if process_reference is None:
+                continue
+            for target in targets:
+                for target_name in _target_names(target):
+                    if process_aliases.get(target_name) != process_reference:
+                        process_aliases[target_name] = process_reference
+                        changed = True
+
+    parents = _node_parents(tree)
+    owners = _node_owners(tree)
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Name, ast.Attribute, ast.Call)):
+            continue
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            continue
+        process_reference = _process_reference(
+            node, module_aliases, process_aliases
+        )
+        if process_reference is None:
+            continue
+        parent = parents.get(id(node))
+        owner_name = owners.get(id(node), "<module>")
+        allowed = False
+        if process_reference == "subprocess.run" and owner_name == "_git_short_sha":
+            allowed = (
+                isinstance(parent, ast.Call)
+                and parent.func is node
+                and _is_exact_git_short_sha_call(owner_name, parent)
+            )
+        elif process_reference == "subprocess.run" and owner_name == "_run_probe":
+            allowed = (
+                isinstance(parent, ast.BoolOp)
+                and node in parent.values
+                and isinstance(parents.get(id(parent)), ast.Assign)
+                and any(
+                    isinstance(target, ast.Name) and target.id == "runner"
+                    for target in parents[id(parent)].targets
+                )
+            ) or (
+                isinstance(parent, ast.Call)
+                and parent.func is node
+                and _command_is_from_lm8i_builder(
+                    next(
+                        statement
+                        for statement in tree.body
+                        if isinstance(statement, ast.FunctionDef)
+                        and statement.name == "_run_probe"
+                    ),
+                    parent,
+                )
+            )
+        if not allowed:
+            violations.append(
+                "forbidden direct process reference:"
+                f"{owner_name}:{process_reference}"
+            )
+
+    for statement in tree.body:
+        if not isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for node in ast.walk(statement):
+            if not isinstance(node, ast.Return) or node.value is None:
+                continue
+            returned_process_reference = _process_reference_from_value(
+                node.value, module_aliases, process_aliases
+            )
+            if returned_process_reference is not None:
+                violations.append(
+                    "forbidden process reference return:"
+                    f"{statement.name}:{returned_process_reference}"
+                )
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        call_name = _dotted_name(node.func)
+        terminal_name = call_name.rsplit(".", 1)[-1] if call_name else ""
+        if terminal_name in _DYNAMIC_IMPORT_CALLS:
+            violations.append(f"dynamic import call:{call_name}")
+        if _is_live_reference(node.func, aliases):
+            violations.append(f"live seam call:{call_name}")
+        if (
+            terminal_name in _LIVE_DISPATCH_ENTRYPOINTS
+            or (call_name is not None and call_name in aliases)
+        ) and _call_has_live_tool_name(node):
+            violations.append(f"live tool dispatch:{call_name}")
+
+    allowed_process_call_count = 0
+    for owner_name, owner, call in _module_call_sites(tree):
+        for argument in (*call.args, *(keyword.value for keyword in call.keywords)):
+            passed_process_reference = _process_reference_from_value(
+                argument, module_aliases, process_aliases
+            )
+            if passed_process_reference is not None:
+                violations.append(
+                    "forbidden process spawn:"
+                    f"{owner_name}:process-api-argument:{passed_process_reference}"
+                )
+        process_reference = _process_reference(
+            call.func, module_aliases, process_aliases
+        )
+        if process_reference is None:
+            continue
+        if (
+            process_reference == "subprocess.run"
+            and owner_name == "_run_probe"
+            and _command_is_from_lm8i_builder(owner, call)
+        ):
+            allowed_process_call_count += 1
+            continue
+        if process_reference == "subprocess.run" and _is_exact_git_short_sha_call(
+            owner_name, call
+        ):
+            continue
+        call_name = _dotted_name(call.func) or "<dynamic>"
+        violations.append(
+            f"forbidden process spawn:{owner_name}:{call_name}:{process_reference}"
+        )
+
+    if allowed_process_call_count != 1:
+        violations.append(
+            "intended LM8I process spawn count:"
+            f"expected=1:actual={allowed_process_call_count}"
+        )
+
+    return violations
 
 
 def _load_script():
@@ -40,6 +538,7 @@ def test_cli_defaults_are_canonical_lm8j_shape():
     assert args.model == "gemma4:12b-it-qat"
     assert args.run_dir == "probe_runs"
     assert args.attempt_timeout_s == 600
+    assert args.verifier_profile == PROBE.SETTLE_VERIFIER_PROFILE
     assert (
         PROBE._canonical_evidence(
             attempts=args.attempts,
@@ -47,6 +546,20 @@ def test_cli_defaults_are_canonical_lm8j_shape():
             attempt_timeout_s=args.attempt_timeout_s,
         )
         is True
+    )
+
+
+def test_default_run_identity_is_unchanged():
+    assert PROBE._run_identity(PROBE.SETTLE_VERIFIER_PROFILE) == (
+        "lm8j",
+        PROBE.SCRIPT_SCHEMA,
+    )
+
+
+def test_managed_run_identity_is_lm8m():
+    assert PROBE._run_identity(PROBE.MANAGED_VERIFIER_PROFILE) == (
+        "lm8m",
+        PROBE.LM8M_SCRIPT_SCHEMA,
     )
 
 
@@ -96,6 +609,28 @@ def test_canonical_evidence_only_for_twenty_default_gemma_default_timeout_attemp
     )
 
 
+def test_managed_canonical_evidence_requires_historical_run_values():
+    assert PROBE.READINESS_WAIT_TIMEOUT_MS == 10_000
+    assert (
+        PROBE._canonical_evidence(
+            attempts=20,
+            model="gemma4:12b-it-qat",
+            attempt_timeout_s=600,
+            verifier_profile="managed_receipt_v2",
+        )
+        is True
+    )
+    assert (
+        PROBE._canonical_evidence(
+            attempts=20,
+            model="gemma4:12b-it-qat",
+            attempt_timeout_s=599,
+            verifier_profile="managed_receipt_v2",
+        )
+        is False
+    )
+
+
 def test_cli_rejects_non_lm8j_surfaces():
     forbidden = (
         ["--retry-clean-observation"],
@@ -127,6 +662,26 @@ def test_manifest_records_lm8j_identity():
     assert manifest["child_probe"] == "lm8i_affine_publication_shape_support_probe.py"
     assert manifest["child_probe_invocation"] == "subprocess"
     assert manifest["support_mode"] == "lm8i_default_support_enabled"
+    assert "verifier_profile" not in manifest
+    assert "verifier_mechanism" not in manifest
+    assert "fixture_readiness_profile" not in manifest
+    assert "readiness_wait_timeout_ms" not in manifest
+
+
+def test_managed_manifest_records_lm8m_identity_and_metadata():
+    manifest = PROBE._manifest(
+        attempts=20,
+        model="gemma4:12b-it-qat",
+        attempt_timeout_s=600,
+        verifier_profile=PROBE.MANAGED_VERIFIER_PROFILE,
+    )
+
+    assert manifest["schema"] == PROBE.LM8M_SCRIPT_SCHEMA
+    assert manifest["canonical_evidence"] is True
+    assert manifest["verifier_profile"] == PROBE.MANAGED_VERIFIER_PROFILE
+    assert manifest["verifier_mechanism"] == PROBE.VERIFIER_MECHANISM
+    assert manifest["fixture_readiness_profile"] == PROBE.FIXTURE_READINESS_PROFILE
+    assert manifest["readiness_wait_timeout_ms"] == PROBE.READINESS_WAIT_TIMEOUT_MS
 
 
 def test_scheduled_attempt_id_is_stable():
@@ -171,6 +726,109 @@ def test_lm8i_command_uses_sys_executable_and_child_run_dir(tmp_path: Path):
     assert "--gh-edit" not in command
     assert "--support-forced" not in command
     assert "--support-disabled" not in command
+
+
+def test_default_child_command_is_exact_historical_shape(tmp_path: Path):
+    command = PROBE._lm8i_command(
+        model=PROBE.DEFAULT_MODEL,
+        lm8i_runs_dir=tmp_path,
+        verifier_profile=PROBE.SETTLE_VERIFIER_PROFILE,
+    )
+
+    assert "--verifier-profile" not in command
+
+
+def test_managed_child_command_forwards_only_profile(tmp_path: Path):
+    command = PROBE._lm8i_command(
+        model=PROBE.DEFAULT_MODEL,
+        lm8i_runs_dir=tmp_path,
+        verifier_profile=PROBE.MANAGED_VERIFIER_PROFILE,
+    )
+
+    assert command[-2:] == ["--verifier-profile", "managed_receipt_v2"]
+    assert "--readiness-wait-timeout-ms" not in command
+
+
+@pytest.mark.parametrize(
+    "verifier_profile",
+    [PROBE.SETTLE_VERIFIER_PROFILE, PROBE.MANAGED_VERIFIER_PROFILE],
+)
+def test_lm8i_child_command_uses_only_the_exact_script_and_allowed_flags(
+    tmp_path: Path, verifier_profile: str
+):
+    command = PROBE._lm8i_command(
+        model=PROBE.DEFAULT_MODEL,
+        lm8i_runs_dir=tmp_path,
+        verifier_profile=verifier_profile,
+    )
+    expected_script = str(
+        PROBE._REPO_ROOT / "scripts" / "lm8i_affine_publication_shape_support_probe.py"
+    )
+
+    assert command[0] == sys.executable
+    assert command[1] == expected_script
+    assert "-c" not in command
+    assert [argument for argument in command if argument.endswith(".py")] == [
+        expected_script
+    ]
+    assert {argument for argument in command if argument.startswith("--")} <= {
+        "--model",
+        "--run-dir",
+        "--verifier-profile",
+    }
+
+
+def test_lm8i_command_builder_has_exact_control_and_payload_shape():
+    tree = ast.parse(_script_path().read_text(encoding="utf-8"))
+    function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_lm8i_command"
+    )
+    assert len(function.body) == 4
+    validate, assign, profile_if, returned = function.body
+    assert isinstance(validate, ast.Expr)
+    assert ast.unparse(validate.value) == "_run_identity(verifier_profile)"
+    assert isinstance(assign, ast.Assign)
+    assert [ast.unparse(target) for target in assign.targets] == ["command"]
+    assert ast.unparse(assign.value) == (
+        "[sys.executable, str(_REPO_ROOT / 'scripts' / "
+        "'lm8i_affine_publication_shape_support_probe.py'), '--model', model, "
+        "'--run-dir', str(lm8i_runs_dir)]"
+    )
+    assert isinstance(profile_if, ast.If)
+    assert ast.unparse(profile_if.test) == (
+        "verifier_profile == MANAGED_VERIFIER_PROFILE"
+    )
+    assert len(profile_if.body) == 1 and profile_if.orelse == []
+    assert ast.unparse(profile_if.body[0]) == (
+        "command.extend(['--verifier-profile', MANAGED_VERIFIER_PROFILE])"
+    )
+    assert isinstance(returned, ast.Return)
+    assert ast.unparse(returned.value) == "command"
+
+
+def test_lm8i_child_command_is_not_mutated_before_subprocess_call():
+    tree = ast.parse(_script_path().read_text(encoding="utf-8"))
+    function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_run_probe"
+    )
+    command_names = [
+        node for node in ast.walk(function) if isinstance(node, ast.Name) and node.id == "command"
+    ]
+    assert sum(isinstance(node.ctx, ast.Store) for node in command_names) == 1
+    assert sum(isinstance(node.ctx, ast.Load) for node in command_names) == 1
+    command_load = next(node for node in command_names if isinstance(node.ctx, ast.Load))
+    runner_call = next(
+        node
+        for node in ast.walk(function)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "runner"
+    )
+    assert runner_call.args == [command_load]
 
 
 def test_discover_child_run_dirs_uses_filesystem_delta(tmp_path: Path):
@@ -252,6 +910,886 @@ def _write_child_decision(child: Path, payload: dict) -> None:
     (child / "decision.json").write_text(
         json.dumps(payload, sort_keys=True),
         encoding="utf-8",
+    )
+
+
+def _write_managed_child_artifacts(
+    run_dir: Path,
+    *,
+    decision="accepted",
+    observed=7.5,
+    receipt_hash="sha256:" + "a" * 64,
+    session="session-1",
+    mutation_epoch=13,
+    prior_completed=41,
+    solution_run=42,
+):
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "live_set_value_summary.json").write_text(
+        json.dumps(
+            {
+                "managed_mutation": {
+                    "schema": "rook.lm8l_managed_mutation_summary:v1",
+                    "receipt_schema": "rook.gh_solve_readiness_receipt:v1",
+                    "receipt_status": "pending",
+                    "receipt_id_sha256": receipt_hash,
+                    "document_session_id": session,
+                    "mutation_epoch": mutation_epoch,
+                    "solution_run_epoch": None,
+                    "completed_solution_run_epoch": prior_completed,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "readiness_wait_summary.json").write_text(
+        json.dumps(
+            {
+                "schema": "rook.lm8l_readiness_wait_summary:v1",
+                "receipt_schema": "rook.gh_solve_readiness_receipt:v1",
+                "requested_timeout_ms": 10_000,
+                "readiness_wait_count": 1,
+                "wait_status": "ready",
+                "receipt_status": "ready",
+                "receipt_id_sha256": receipt_hash,
+                "document_session_id": session,
+                "mutation_epoch": mutation_epoch,
+                "solution_run_epoch": solution_run,
+                "completed_solution_run_epoch": solution_run,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "verify_scalar_output_summary.json").write_text(
+        json.dumps(
+            {
+                "schema": "rook.lm8l_fenced_output_verification_summary:v1",
+                "verifier_profile": "managed_receipt_v2",
+                "readiness_wait_timeout_ms": 10_000,
+                "readiness_wait_count": 1,
+                "fenced_output_read_count": 1,
+                "settle_read_count": 0,
+                "readiness_fenced": True,
+                "receipt_id_sha256": receipt_hash,
+                "document_session_id": session,
+                "mutation_epoch": mutation_epoch,
+                "solution_run_epoch": solution_run,
+                "completed_solution_run_epoch": solution_run,
+                "expected_output_value": 7.5,
+                "observed_output_value": observed,
+                "tolerance": 1e-9,
+                "matched": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "decision.json").write_text(
+        json.dumps(
+            {
+                "schema": "rook.lm8i_affine_publication_shape_support_decision:v1",
+                "decision": decision,
+                "reason": "verify_scalar_output_succeeded",
+                "phase": "verify_scalar_output",
+                "canonical_evidence": True,
+                "live_set_value_dispatched": True,
+                "worker_publication_ran": True,
+                "managed_verifier": {
+                    "schema": "rook.lm8l_managed_verifier_decision:v1",
+                    "verifier_profile": "managed_receipt_v2",
+                    "verifier_mechanism": "managed_solve_readiness_receipt",
+                    "fixture_readiness_profile": "lm8i_legacy_setup_v1",
+                    "readiness_wait_timeout_ms": 10_000,
+                    "readiness_wait_count": 1,
+                    "fenced_output_read_count": 1,
+                    "settle_read_count": 0,
+                    "failed_invariants": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+_DELETE = object()
+
+
+def _mutate_managed_artifact(
+    run_dir: Path,
+    filename: str,
+    field_path: tuple[str, ...],
+    value,
+) -> None:
+    path = run_dir / filename
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    target = payload
+    for field in field_path[:-1]:
+        target = target[field]
+    if value is _DELETE:
+        del target[field_path[-1]]
+    else:
+        target[field_path[-1]] = value
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_audit_managed_child_accepts_complete_consistent_artifacts(tmp_path: Path):
+    _write_managed_child_artifacts(tmp_path)
+
+    audit = PROBE._audit_managed_child(tmp_path)
+
+    assert audit["performed"] is True
+    assert audit["valid"] is True
+    assert audit["failures"] == []
+    assert audit["readiness_wait_count"] == 1
+    assert audit["readiness_wait_status"] == "ready"
+    assert audit["readiness_failure_reason"] is None
+    assert audit["fenced_output_read_count"] == 1
+    assert audit["settle_read_count"] == 0
+    assert audit["readiness_fenced"] is True
+    assert audit["observed_output_value"] == 7.5
+    assert audit["receipt_id_hashes_match"] is True
+    assert audit["document_session_ids_match"] is True
+    assert audit["mutation_epochs_match"] is True
+    assert audit["solution_run_epochs_match"] is True
+    assert audit["post_mutation_solution_run_advanced"] is True
+
+
+def test_audit_managed_child_accepts_noncanonical_complete_artifacts(tmp_path: Path):
+    _write_managed_child_artifacts(tmp_path)
+    _mutate_managed_artifact(
+        tmp_path,
+        "decision.json",
+        ("canonical_evidence",),
+        False,
+    )
+
+    audit = PROBE._audit_managed_child(tmp_path)
+
+    assert audit["valid"] is True
+    assert audit["failures"] == []
+
+
+@pytest.mark.parametrize(
+    ("receipt_status", "decision_reason"),
+    [
+        ("solver_locked", "readiness_receipt_solver_locked"),
+        ("unknown", "readiness_receipt_unknown"),
+        ("unknown", "readiness_receipt_expired"),
+    ],
+)
+def test_audit_managed_child_preserves_no_wait_terminal_mutation_reason(
+    tmp_path: Path,
+    receipt_status: str,
+    decision_reason: str,
+):
+    _write_managed_child_artifacts(tmp_path)
+    (tmp_path / "readiness_wait_summary.json").unlink()
+    (tmp_path / "verify_scalar_output_summary.json").unlink()
+    _mutate_managed_artifact(
+        tmp_path,
+        "live_set_value_summary.json",
+        ("managed_mutation", "receipt_status"),
+        receipt_status,
+    )
+    _mutate_managed_artifact(
+        tmp_path,
+        "decision.json",
+        ("decision",),
+        "rejected",
+    )
+    _mutate_managed_artifact(
+        tmp_path,
+        "decision.json",
+        ("reason",),
+        decision_reason,
+    )
+    _mutate_managed_artifact(
+        tmp_path,
+        "decision.json",
+        ("phase",),
+        "verifier_readiness",
+    )
+
+    audit = PROBE._audit_managed_child(tmp_path)
+
+    assert audit["performed"] is True
+    assert audit["readiness_wait_count"] == 0
+    assert audit["readiness_failure_reason"] == decision_reason
+
+    row = {
+        "lm8i_run_dir": str(tmp_path),
+        "lm8i_decision": "rejected",
+        "terminal_category": "rejected",
+        "failure_reason": None,
+        "verifier_profile": PROBE.MANAGED_VERIFIER_PROFILE,
+    }
+    PROBE._apply_managed_child_audit(row)
+    summary = PROBE._build_summary(
+        [row],
+        attempts=1,
+        model=PROBE.DEFAULT_MODEL,
+        attempt_timeout_s=PROBE.DEFAULT_ATTEMPT_TIMEOUT_S,
+        verifier_profile=PROBE.MANAGED_VERIFIER_PROFILE,
+    )
+
+    assert summary["readiness_failure_reason_counts"] == {decision_reason: 1}
+
+
+def test_audit_managed_child_does_not_classify_no_wait_pre_mutation_failure(
+    tmp_path: Path,
+):
+    _write_managed_child_artifacts(tmp_path)
+    (tmp_path / "readiness_wait_summary.json").unlink()
+    (tmp_path / "verify_scalar_output_summary.json").unlink()
+    _mutate_managed_artifact(
+        tmp_path,
+        "live_set_value_summary.json",
+        ("managed_mutation",),
+        _DELETE,
+    )
+    _mutate_managed_artifact(
+        tmp_path,
+        "decision.json",
+        ("decision",),
+        "rejected",
+    )
+    _mutate_managed_artifact(
+        tmp_path,
+        "decision.json",
+        ("reason",),
+        "gh_set_value_exception:RuntimeError",
+    )
+    _mutate_managed_artifact(
+        tmp_path,
+        "decision.json",
+        ("phase",),
+        "live_set_value",
+    )
+
+    audit = PROBE._audit_managed_child(tmp_path)
+
+    assert audit["readiness_failure_reason"] is None
+
+
+@pytest.mark.parametrize(
+    "decision_reason",
+    ["readiness_receipt_missing", "readiness_receipt_malformed"],
+)
+def test_audit_managed_child_counts_no_wait_missing_or_malformed_receipt(
+    tmp_path: Path,
+    decision_reason: str,
+):
+    _write_managed_child_artifacts(tmp_path)
+    (tmp_path / "readiness_wait_summary.json").unlink()
+    (tmp_path / "verify_scalar_output_summary.json").unlink()
+    _mutate_managed_artifact(
+        tmp_path,
+        "live_set_value_summary.json",
+        ("managed_mutation",),
+        _DELETE,
+    )
+    for field_path, value in (
+        (("decision",), "rejected"),
+        (("reason",), decision_reason),
+        (("phase",), "verifier_readiness"),
+    ):
+        _mutate_managed_artifact(
+            tmp_path,
+            "decision.json",
+            field_path,
+            value,
+        )
+
+    audit = PROBE._audit_managed_child(tmp_path)
+
+    assert audit["readiness_wait_count"] == 0
+    assert audit["readiness_failure_reason"] == decision_reason
+
+
+@pytest.mark.parametrize(
+    ("filename", "expected_failure"),
+    [
+        ("live_set_value_summary.json", "mutation_artifact_missing"),
+        ("readiness_wait_summary.json", "wait_artifact_missing"),
+        ("verify_scalar_output_summary.json", "read_artifact_missing"),
+        ("decision.json", "decision_artifact_missing"),
+    ],
+)
+def test_audit_managed_child_rejects_missing_artifacts(
+    tmp_path: Path,
+    filename: str,
+    expected_failure: str,
+):
+    _write_managed_child_artifacts(tmp_path)
+    (tmp_path / filename).unlink()
+
+    audit = PROBE._audit_managed_child(tmp_path)
+
+    assert audit["valid"] is False
+    assert expected_failure in audit["failures"]
+
+
+@pytest.mark.parametrize(
+    ("filename", "content", "expected_failure"),
+    [
+        ("live_set_value_summary.json", "{bad", "mutation_artifact_malformed"),
+        ("readiness_wait_summary.json", "[]", "wait_artifact_malformed"),
+        ("verify_scalar_output_summary.json", "{bad", "read_artifact_malformed"),
+        ("decision.json", "[]", "decision_artifact_malformed"),
+    ],
+)
+def test_audit_managed_child_rejects_malformed_artifacts(
+    tmp_path: Path,
+    filename: str,
+    content: str,
+    expected_failure: str,
+):
+    _write_managed_child_artifacts(tmp_path)
+    (tmp_path / filename).write_text(content, encoding="utf-8")
+
+    audit = PROBE._audit_managed_child(tmp_path)
+
+    assert audit["valid"] is False
+    assert expected_failure in audit["failures"]
+
+
+@pytest.mark.parametrize(
+    ("filename", "field_path", "value", "expected_failure"),
+    [
+        (
+            "live_set_value_summary.json",
+            ("managed_mutation", "schema"),
+            "wrong",
+            "mutation_schema_invalid",
+        ),
+        (
+            "live_set_value_summary.json",
+            ("managed_mutation", "receipt_schema"),
+            "wrong",
+            "mutation_receipt_schema_invalid",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("schema",),
+            "wrong",
+            "wait_schema_invalid",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("receipt_schema",),
+            "wrong",
+            "wait_receipt_schema_invalid",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("schema",),
+            "wrong",
+            "read_schema_invalid",
+        ),
+        ("decision.json", ("schema",), "wrong", "decision_schema_invalid"),
+        (
+            "decision.json",
+            ("managed_verifier", "schema"),
+            "wrong",
+            "managed_decision_schema_invalid",
+        ),
+        (
+            "live_set_value_summary.json",
+            ("managed_mutation", "receipt_id_sha256"),
+            "sha256:ABC",
+            "receipt_id_sha256_invalid",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("receipt_id_sha256",),
+            "sha256:" + "b" * 64,
+            "receipt_id_sha256_mismatch",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("document_session_id",),
+            "session-2",
+            "document_session_id_mismatch",
+        ),
+        (
+            "live_set_value_summary.json",
+            ("managed_mutation", "mutation_epoch"),
+            0,
+            "mutation_epoch_not_positive",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("mutation_epoch",),
+            14,
+            "mutation_epoch_mismatch",
+        ),
+        (
+            "live_set_value_summary.json",
+            ("managed_mutation", "solution_run_epoch"),
+            42,
+            "pending_solution_run_epoch_not_null",
+        ),
+        (
+            "live_set_value_summary.json",
+            ("managed_mutation", "completed_solution_run_epoch"),
+            True,
+            "pending_completed_solution_run_epoch_invalid",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("solution_run_epoch",),
+            41,
+            "post_mutation_solution_run_not_advanced",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("completed_solution_run_epoch",),
+            43,
+            "wait_completed_solution_run_mismatch",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("solution_run_epoch",),
+            43,
+            "read_solution_run_mismatch",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("completed_solution_run_epoch",),
+            43,
+            "read_completed_solution_run_mismatch",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("requested_timeout_ms",),
+            9999,
+            "readiness_wait_timeout_ms_invalid",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("readiness_wait_timeout_ms",),
+            9999,
+            "readiness_wait_timeout_ms_invalid",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("wait_status",),
+            "timeout",
+            "wait_status_not_ready",
+        ),
+        (
+            "live_set_value_summary.json",
+            ("managed_mutation", "receipt_status"),
+            "ready",
+            "mutation_receipt_status_not_pending",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("receipt_status",),
+            "pending",
+            "wait_receipt_status_not_ready",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("readiness_wait_count",),
+            2,
+            "readiness_wait_count_not_one",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("readiness_wait_count",),
+            2,
+            "readiness_wait_count_mismatch",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("fenced_output_read_count",),
+            2,
+            "fenced_output_read_count_not_one",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("settle_read_count",),
+            1,
+            "settle_read_count_not_zero",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("readiness_fenced",),
+            False,
+            "readiness_fenced_not_true",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("observed_output_value",),
+            8.0,
+            "observed_output_value_mismatch",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("tolerance",),
+            1e-6,
+            "scalar_tolerance_invalid",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("verifier_profile",),
+            "settle_v1",
+            "read_verifier_profile_invalid",
+        ),
+        (
+            "decision.json",
+            ("managed_verifier", "verifier_profile"),
+            "settle_v1",
+            "managed_decision_profile_invalid",
+        ),
+        (
+            "decision.json",
+            ("managed_verifier", "verifier_mechanism"),
+            "settle_polling",
+            "managed_decision_mechanism_invalid",
+        ),
+        (
+            "decision.json",
+            ("managed_verifier", "fixture_readiness_profile"),
+            "other",
+            "managed_decision_fixture_profile_invalid",
+        ),
+        (
+            "decision.json",
+            ("managed_verifier", "readiness_wait_timeout_ms"),
+            9999,
+            "managed_decision_timeout_mismatch",
+        ),
+        (
+            "decision.json",
+            ("managed_verifier", "readiness_wait_count"),
+            2,
+            "managed_decision_readiness_wait_count_mismatch",
+        ),
+        (
+            "decision.json",
+            ("managed_verifier", "fenced_output_read_count"),
+            2,
+            "managed_decision_fenced_output_read_count_mismatch",
+        ),
+        (
+            "decision.json",
+            ("managed_verifier", "settle_read_count"),
+            1,
+            "managed_decision_settle_read_count_mismatch",
+        ),
+        (
+            "decision.json",
+            ("managed_verifier", "failed_invariants"),
+            ["stale"],
+            "managed_decision_failed_invariants_not_empty",
+        ),
+    ],
+)
+def test_audit_managed_child_recomputes_each_invariant(
+    tmp_path: Path,
+    filename: str,
+    field_path: tuple[str, ...],
+    value,
+    expected_failure: str,
+):
+    _write_managed_child_artifacts(tmp_path)
+    _mutate_managed_artifact(tmp_path, filename, field_path, value)
+
+    audit = PROBE._audit_managed_child(tmp_path)
+
+    assert audit["valid"] is False
+    assert expected_failure in audit["failures"]
+
+
+@pytest.mark.parametrize(
+    ("field_path", "contradictory", "expected_failure"),
+    [
+        (("schema",), "wrong", "decision_schema_invalid"),
+        (("decision",), "rejected", "child_decision_not_accepted"),
+        (("reason",), "verify_scalar_output_failed", "decision_reason_invalid"),
+        (("phase",), "verifier_readiness", "decision_phase_invalid"),
+        (
+            ("live_set_value_dispatched",),
+            False,
+            "live_set_value_dispatched_not_true",
+        ),
+        (
+            ("worker_publication_ran",),
+            False,
+            "worker_publication_ran_not_true",
+        ),
+        (("managed_verifier",), "wrong", "managed_decision_missing"),
+        (
+            ("managed_verifier", "schema"),
+            "wrong",
+            "managed_decision_schema_invalid",
+        ),
+        (
+            ("managed_verifier", "verifier_profile"),
+            "settle_v1",
+            "managed_decision_profile_invalid",
+        ),
+        (
+            ("managed_verifier", "verifier_mechanism"),
+            "settle_polling",
+            "managed_decision_mechanism_invalid",
+        ),
+        (
+            ("managed_verifier", "fixture_readiness_profile"),
+            "other",
+            "managed_decision_fixture_profile_invalid",
+        ),
+        (
+            ("managed_verifier", "readiness_wait_timeout_ms"),
+            9999,
+            "managed_decision_timeout_mismatch",
+        ),
+        (
+            ("managed_verifier", "readiness_wait_count"),
+            2,
+            "managed_decision_readiness_wait_count_mismatch",
+        ),
+        (
+            ("managed_verifier", "fenced_output_read_count"),
+            2,
+            "managed_decision_fenced_output_read_count_mismatch",
+        ),
+        (
+            ("managed_verifier", "settle_read_count"),
+            1,
+            "managed_decision_settle_read_count_mismatch",
+        ),
+        (
+            ("managed_verifier", "failed_invariants"),
+            ["stale"],
+            "managed_decision_failed_invariants_not_empty",
+        ),
+    ],
+)
+@pytest.mark.parametrize("missing", [False, True], ids=["contradictory", "missing"])
+def test_audit_managed_accepted_child_requires_complete_decision_envelope(
+    tmp_path: Path,
+    field_path: tuple[str, ...],
+    contradictory,
+    expected_failure: str,
+    missing: bool,
+):
+    _write_managed_child_artifacts(tmp_path)
+    _mutate_managed_artifact(
+        tmp_path,
+        "decision.json",
+        field_path,
+        _DELETE if missing else contradictory,
+    )
+
+    audit = PROBE._audit_managed_child(tmp_path)
+
+    assert audit["valid"] is False
+    assert expected_failure in audit["failures"]
+
+
+def test_apply_managed_child_audit_reclassifies_only_contradictory_acceptance(
+    tmp_path: Path,
+):
+    accepted = tmp_path / "accepted"
+    _write_managed_child_artifacts(accepted)
+    _mutate_managed_artifact(
+        accepted,
+        "verify_scalar_output_summary.json",
+        ("solution_run_epoch",),
+        41,
+    )
+    accepted_row = {
+        "lm8i_run_dir": str(accepted),
+        "lm8i_decision": "accepted",
+        "terminal_category": "accepted",
+        "failure_reason": None,
+    }
+
+    PROBE._apply_managed_child_audit(accepted_row)
+
+    assert accepted_row["terminal_category"] == "wrapper_error"
+    assert (
+        accepted_row["failure_reason"]
+        == "accepted_child_managed_verifier_audit_failed"
+    )
+    assert accepted_row["managed_verifier_audit_performed"] is True
+    assert accepted_row["managed_verifier_audit_valid"] is False
+    assert "read_solution_run_mismatch" in accepted_row[
+        "managed_verifier_audit_failures"
+    ]
+
+    rejected = tmp_path / "rejected"
+    _write_managed_child_artifacts(rejected, decision="rejected", observed=8.0)
+    _mutate_managed_artifact(
+        rejected,
+        "decision.json",
+        ("managed_verifier", "failed_invariants"),
+        ["fenced_output_scalar"],
+    )
+    rejected_row = {
+        "lm8i_run_dir": str(rejected),
+        "lm8i_decision": "rejected",
+        "terminal_category": "rejected",
+        "failure_reason": None,
+    }
+
+    PROBE._apply_managed_child_audit(rejected_row)
+
+    assert rejected_row["terminal_category"] == "rejected"
+    assert rejected_row["managed_verifier_audit_performed"] is True
+    assert rejected_row["managed_verifier_audit_valid"] is False
+
+
+def test_apply_managed_child_audit_is_not_applicable_before_mutation(tmp_path: Path):
+    _write_child_decision(
+        tmp_path,
+        {
+            "schema": "rook.lm8i_affine_publication_shape_support_decision:v1",
+            "decision": "worker_declined",
+            "reason": "worker_declined",
+            "phase": "worker_publication",
+            "canonical_evidence": True,
+            "live_set_value_dispatched": False,
+            "worker_publication_ran": True,
+        },
+    )
+    row = {
+        "lm8i_run_dir": str(tmp_path),
+        "lm8i_decision": "worker_declined",
+        "terminal_category": "worker_declined",
+        "failure_reason": None,
+    }
+
+    PROBE._apply_managed_child_audit(row)
+
+    assert row["terminal_category"] == "worker_declined"
+    assert row["managed_verifier_audit_performed"] is False
+    assert row["managed_verifier_audit_valid"] is None
+    assert row["managed_verifier_audit_failures"] == []
+    assert row["readiness_wait_count"] == 0
+    assert row["fenced_output_read_count"] == 0
+    assert row["settle_read_count"] == 0
+
+
+@pytest.mark.parametrize(
+    "remaining_stage_artifact",
+    [
+        "live_set_value_summary.json",
+        "readiness_wait_summary.json",
+        "verify_scalar_output_summary.json",
+    ],
+)
+def test_apply_managed_child_audit_rejects_false_dispatch_with_stage_artifact(
+    tmp_path: Path,
+    remaining_stage_artifact: str,
+):
+    child = tmp_path / remaining_stage_artifact
+    _write_managed_child_artifacts(child)
+    for stage_artifact in (
+        "live_set_value_summary.json",
+        "readiness_wait_summary.json",
+        "verify_scalar_output_summary.json",
+    ):
+        if stage_artifact != remaining_stage_artifact:
+            (child / stage_artifact).unlink()
+    _mutate_managed_artifact(
+        child,
+        "decision.json",
+        ("decision",),
+        "worker_declined",
+    )
+    _mutate_managed_artifact(
+        child,
+        "decision.json",
+        ("live_set_value_dispatched",),
+        False,
+    )
+    row = {
+        "lm8i_run_dir": str(child),
+        "lm8i_decision": "worker_declined",
+        "terminal_category": "worker_declined",
+        "failure_reason": None,
+    }
+
+    PROBE._apply_managed_child_audit(row)
+
+    assert row["managed_verifier_audit_performed"] is True
+    assert row["managed_verifier_audit_valid"] is False
+    assert row["managed_verifier_audit_failures"]
+    assert row["terminal_category"] == "worker_declined"
+
+
+def test_apply_managed_child_audit_reclassifies_accepted_false_dispatch(
+    tmp_path: Path,
+):
+    child = tmp_path / "accepted-false-dispatch"
+    _write_managed_child_artifacts(child)
+    _mutate_managed_artifact(
+        child,
+        "decision.json",
+        ("live_set_value_dispatched",),
+        False,
+    )
+    row = {
+        "lm8i_run_dir": str(child),
+        "lm8i_decision": "accepted",
+        "terminal_category": "accepted",
+        "failure_reason": None,
+    }
+
+    PROBE._apply_managed_child_audit(row)
+
+    assert row["managed_verifier_audit_performed"] is True
+    assert row["managed_verifier_audit_valid"] is False
+    assert "live_set_value_dispatched_not_true" in row[
+        "managed_verifier_audit_failures"
+    ]
+    assert row["terminal_category"] == "wrapper_error"
+    assert (
+        row["failure_reason"]
+        == "accepted_child_managed_verifier_audit_failed"
+    )
+
+
+@pytest.mark.parametrize(
+    "field_path, expected_failure",
+    [
+        (("expected_output_value",), "expected_output_value_mismatch"),
+        (("observed_output_value",), "observed_output_value_mismatch"),
+        (("tolerance",), "scalar_tolerance_invalid"),
+    ],
+)
+def test_apply_managed_child_audit_rejects_oversized_json_numbers(
+    tmp_path: Path,
+    field_path: tuple[str, ...],
+    expected_failure: str,
+):
+    child = tmp_path / "oversized-number"
+    _write_managed_child_artifacts(child)
+    _mutate_managed_artifact(
+        child,
+        "verify_scalar_output_summary.json",
+        field_path,
+        10**400,
+    )
+    row = {
+        "lm8i_run_dir": str(child),
+        "lm8i_decision": "accepted",
+        "terminal_category": "accepted",
+        "failure_reason": None,
+    }
+
+    PROBE._apply_managed_child_audit(row)
+
+    assert row["managed_verifier_audit_performed"] is True
+    assert row["managed_verifier_audit_valid"] is False
+    assert expected_failure in row["managed_verifier_audit_failures"]
+    assert row["terminal_category"] == "wrapper_error"
+    assert (
+        row["failure_reason"]
+        == "accepted_child_managed_verifier_audit_failed"
     )
 
 
@@ -727,6 +2265,185 @@ def test_build_summary_counts_support_and_worker_denominators():
     assert summary["observed_output_values_after"] == [7.5, 7.5]
 
 
+def _valid_managed_summary_rows() -> list[dict]:
+    return [
+        {
+            "terminal_category": "accepted",
+            "worker_publication_ran": True,
+            "publication_support_attempted": False,
+            "support_eligible": False,
+            "support_recovered": False,
+            "lm8i_run_dir": f"run-{index:02d}",
+            "leak_marker_match_count": 0,
+            "worker_action_value": 3.0,
+            "observed_output_after": 7.5,
+            "verifier_profile": PROBE.MANAGED_VERIFIER_PROFILE,
+            "readiness_wait_count": 1,
+            "readiness_wait_status": "ready",
+            "readiness_failure_reason": None,
+            "fenced_output_read_count": 1,
+            "settle_read_count": 0,
+            "managed_verifier_audit_performed": True,
+            "managed_verifier_audit_valid": True,
+            "managed_verifier_audit_failures": [],
+        }
+        for index in range(1, 21)
+    ]
+
+
+def test_build_managed_summary_accounts_exact_twenty_run_success():
+    rows = _valid_managed_summary_rows()
+
+    summary = PROBE._build_summary(
+        rows,
+        attempts=20,
+        model=PROBE.DEFAULT_MODEL,
+        attempt_timeout_s=PROBE.DEFAULT_ATTEMPT_TIMEOUT_S,
+        verifier_profile=PROBE.MANAGED_VERIFIER_PROFILE,
+    )
+
+    assert summary["schema"] == PROBE.LM8M_SCRIPT_SCHEMA
+    assert summary["verifier_profile"] == PROBE.MANAGED_VERIFIER_PROFILE
+    assert summary["verifier_mechanism"] == PROBE.VERIFIER_MECHANISM
+    assert summary["fixture_readiness_profile"] == PROBE.FIXTURE_READINESS_PROFILE
+    assert summary["readiness_wait_timeout_ms"] == 10_000
+    assert summary["child_attempt_timeout_s"] == 600
+    assert summary["readiness_ready_count"] == 20
+    assert summary["readiness_failure_reason_counts"] == {}
+    assert summary["total_readiness_wait_count"] == 20
+    assert summary["total_fenced_output_read_count"] == 20
+    assert summary["total_settle_read_count"] == 0
+    assert summary["managed_verifier_audit_pass_count"] == 20
+    assert summary["managed_verifier_audit_failure_count"] == 0
+    assert summary["managed_verifier_invariant_violation_count"] == 0
+    assert summary["post_mutation_run_advance_failure_count"] == 0
+    assert summary["accepted_child_audit_contradiction_count"] == 0
+    assert summary["worker_action_values"] == [3.0] * 20
+    assert summary["observed_output_values_after"] == [7.5] * 20
+    assert summary["comparison_success"] is True
+
+
+def test_managed_comparison_success_requires_canonical_identity():
+    summary = PROBE._build_summary(
+        _valid_managed_summary_rows(),
+        attempts=20,
+        model="qwen3:14b",
+        attempt_timeout_s=PROBE.DEFAULT_ATTEMPT_TIMEOUT_S,
+        verifier_profile=PROBE.MANAGED_VERIFIER_PROFILE,
+    )
+
+    assert summary["canonical_evidence"] is False
+    assert summary["comparison_success"] is False
+
+
+def test_settle_summary_does_not_gain_managed_shape_or_comparison_success():
+    rows = _valid_managed_summary_rows()
+    for row in rows:
+        row.pop("verifier_profile")
+
+    summary = PROBE._build_summary(
+        rows,
+        attempts=20,
+        model=PROBE.DEFAULT_MODEL,
+        attempt_timeout_s=PROBE.DEFAULT_ATTEMPT_TIMEOUT_S,
+        verifier_profile=PROBE.SETTLE_VERIFIER_PROFILE,
+    )
+
+    assert summary.get("comparison_success", False) is False
+    assert "comparison_success" not in summary
+    assert "verifier_profile" not in summary
+    assert "managed_verifier_audit_pass_count" not in summary
+
+
+def test_build_managed_summary_counts_contradiction_rejection_and_decline():
+    rows = [
+        {
+            "terminal_category": "wrapper_error",
+            "failure_reason": "accepted_child_managed_verifier_audit_failed",
+            "worker_publication_ran": True,
+            "publication_support_attempted": False,
+            "support_recovered": False,
+            "worker_action_value": 3.0,
+            "observed_output_after": 7.5,
+            "leak_marker_match_count": 0,
+            "verifier_profile": PROBE.MANAGED_VERIFIER_PROFILE,
+            "readiness_wait_count": 1,
+            "readiness_wait_status": "ready",
+            "readiness_failure_reason": None,
+            "fenced_output_read_count": 1,
+            "settle_read_count": 0,
+            "managed_verifier_audit_performed": True,
+            "managed_verifier_audit_valid": False,
+            "managed_verifier_audit_failures": [
+                "post_mutation_solution_run_not_advanced"
+            ],
+        },
+        {
+            "terminal_category": "rejected",
+            "failure_reason": None,
+            "worker_publication_ran": True,
+            "publication_support_attempted": False,
+            "support_recovered": False,
+            "worker_action_value": 3.0,
+            "leak_marker_match_count": 0,
+            "verifier_profile": PROBE.MANAGED_VERIFIER_PROFILE,
+            "readiness_wait_count": 1,
+            "readiness_wait_status": "timeout",
+            "readiness_failure_reason": "readiness_receipt_timeout",
+            "fenced_output_read_count": 0,
+            "settle_read_count": 0,
+            "managed_verifier_audit_performed": True,
+            "managed_verifier_audit_valid": False,
+            "managed_verifier_audit_failures": ["wait_artifact_missing"],
+        },
+        {
+            "terminal_category": "worker_declined",
+            "failure_reason": None,
+            "worker_publication_ran": True,
+            "publication_support_attempted": False,
+            "support_recovered": False,
+            "leak_marker_match_count": 0,
+            "verifier_profile": PROBE.MANAGED_VERIFIER_PROFILE,
+            "readiness_wait_count": 0,
+            "readiness_wait_status": None,
+            "readiness_failure_reason": None,
+            "fenced_output_read_count": 0,
+            "settle_read_count": 0,
+            "managed_verifier_audit_performed": False,
+            "managed_verifier_audit_valid": None,
+            "managed_verifier_audit_failures": [],
+        },
+    ]
+
+    summary = PROBE._build_summary(
+        rows,
+        attempts=3,
+        model=PROBE.DEFAULT_MODEL,
+        attempt_timeout_s=PROBE.DEFAULT_ATTEMPT_TIMEOUT_S,
+        verifier_profile=PROBE.MANAGED_VERIFIER_PROFILE,
+    )
+
+    assert summary["terminal_category_counts"] == {
+        "rejected": 1,
+        "worker_declined": 1,
+        "wrapper_error": 1,
+    }
+    assert summary["rejected_count"] == 1
+    assert summary["wrapper_error_count"] == 1
+    assert summary["readiness_failure_reason_counts"] == {
+        "readiness_receipt_timeout": 1
+    }
+    assert summary["total_readiness_wait_count"] == 2
+    assert summary["total_fenced_output_read_count"] == 1
+    assert summary["total_settle_read_count"] == 0
+    assert summary["managed_verifier_audit_pass_count"] == 0
+    assert summary["managed_verifier_audit_failure_count"] == 2
+    assert summary["managed_verifier_invariant_violation_count"] == 2
+    assert summary["post_mutation_run_advance_failure_count"] == 1
+    assert summary["accepted_child_audit_contradiction_count"] == 1
+    assert summary["comparison_success"] is False
+
+
 def test_write_json_and_append_jsonl_are_stable_and_structured(tmp_path: Path):
     json_path = tmp_path / "artifact.json"
     jsonl_path = tmp_path / "artifact.jsonl"
@@ -761,10 +2478,13 @@ class FakeLm8iRunner:
         decision = self.child_decisions.pop(0)
         child = run_dir / f"lm8i-child-{len(self.calls):03d}"
         child.mkdir(parents=True)
-        (child / "decision.json").write_text(
-            json.dumps(decision, sort_keys=True),
-            encoding="utf-8",
-        )
+        if decision.get("_write_managed_artifacts"):
+            _write_managed_child_artifacts(child)
+        else:
+            (child / "decision.json").write_text(
+                json.dumps(decision, sort_keys=True),
+                encoding="utf-8",
+            )
         if decision.get("worker_action_value") is not None:
             (child / "worker_action.json").write_text(
                 json.dumps({"input": {"value": decision["worker_action_value"]}}),
@@ -853,10 +2573,59 @@ def test_run_probe_writes_manifest_attempts_and_summary(tmp_path: Path):
     assert summary["worker_action_values"] == [3.0]
     assert summary["verifier_attempt_counts"] == [1]
     assert summary["observed_output_values_after"] == [7.5]
+    assert "verifier_profile" not in rows[0]
+    assert "managed_verifier_audit_performed" not in rows[0]
+    assert "comparison_success" not in summary
     assert len(runner.calls) == 2
     assert all(call["timeout"] == 600 for call in runner.calls)
     assert all(call["capture_output"] is True for call in runner.calls)
     assert all(call["text"] is True for call in runner.calls)
+
+
+def test_managed_run_probe_uses_lm8m_identity_and_forwards_profile(tmp_path: Path):
+    runner = FakeLm8iRunner(
+        [
+            {
+                "_write_managed_artifacts": True,
+                "worker_action_value": 3.0,
+            }
+        ]
+    )
+
+    run_dir = PROBE._run_probe(
+        attempts=1,
+        model=PROBE.DEFAULT_MODEL,
+        run_root=tmp_path,
+        attempt_timeout_s=PROBE.DEFAULT_ATTEMPT_TIMEOUT_S,
+        verifier_profile=PROBE.MANAGED_VERIFIER_PROFILE,
+        run_subprocess=runner,
+    )
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    rows = [
+        json.loads(line)
+        for line in (run_dir / "attempts.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+
+    assert run_dir.name.startswith("lm8m-")
+    assert manifest["schema"] == PROBE.LM8M_SCRIPT_SCHEMA
+    assert summary["schema"] == PROBE.LM8M_SCRIPT_SCHEMA
+    assert runner.calls[0]["command"][-2:] == [
+        "--verifier-profile",
+        PROBE.MANAGED_VERIFIER_PROFILE,
+    ]
+    assert "--readiness-wait-timeout-ms" not in runner.calls[0]["command"]
+    assert rows[0]["terminal_category"] == "accepted"
+    assert rows[0]["verifier_profile"] == PROBE.MANAGED_VERIFIER_PROFILE
+    assert rows[0]["verifier_mechanism"] == PROBE.VERIFIER_MECHANISM
+    assert rows[0]["fixture_readiness_profile"] == PROBE.FIXTURE_READINESS_PROFILE
+    assert rows[0]["readiness_wait_timeout_ms"] == 10_000
+    assert rows[0]["child_attempt_timeout_s"] == 600
+    assert rows[0]["managed_verifier_audit_performed"] is True
+    assert rows[0]["managed_verifier_audit_valid"] is True
+    assert rows[0]["managed_verifier_audit_failures"] == []
+    assert summary["managed_verifier_audit_pass_count"] == 1
+    assert summary["comparison_success"] is False
 
 
 def test_run_probe_continues_after_wrapper_error(tmp_path: Path):
@@ -940,7 +2709,10 @@ def test_run_probe_counts_support_recovery_only_when_worker_action_exists(tmp_pa
 
 
 def test_main_prints_run_dir_and_returns_zero(monkeypatch, tmp_path: Path, capsys):
+    received_kwargs = {}
+
     def fake_run_probe(**kwargs):
+        received_kwargs.update(kwargs)
         run_dir = tmp_path / "lm8j-demo"
         run_dir.mkdir()
         (run_dir / "summary.json").write_text(
@@ -955,21 +2727,278 @@ def test_main_prints_run_dir_and_returns_zero(monkeypatch, tmp_path: Path, capsy
     output = capsys.readouterr().out
     assert "LM8J affine support repeatability probe complete" in output
     assert "run_dir=" in output
+    assert received_kwargs["verifier_profile"] == PROBE.SETTLE_VERIFIER_PROFILE
 
 
-def test_lm8j_source_does_not_import_lm8i_or_live_tooling():
-    source = inspect.getsource(PROBE)
+def test_lm8m_wrapper_ast_guard_allows_manifest_and_policy_strings():
+    source = '''
+import subprocess
 
-    forbidden = (
-        "import lm8i_affine_publication_shape_support_probe",
-        "from lm8i_affine_publication_shape_support_probe",
-        "_mcp_tool_executor",
-        '"rhino_ping"',
-        '"gh_document_new"',
-        '"gh_set_value"',
-        '"gh_inspect_output"',
-        "run_two_pass_worker_publication",
-        "apply_gh_scalar_value_action_to_node",
+MANIFEST = {"child_probe": "lm8i_affine_publication_shape_support_probe.py"}
+POLICY = ("gh_set_value", "rook.server")
+
+def _lm8i_command():
+    return ["python", "lm8i_affine_publication_shape_support_probe.py"]
+
+def _run_probe():
+    command = _lm8i_command()
+    return subprocess.run(command)
+'''
+
+    assert _lm8m_wrapper_guard_violations(source) == []
+
+
+def test_lm8m_wrapper_ast_guard_allows_only_exact_git_metadata_subprocess():
+    source = '''
+import subprocess
+
+def _git_short_sha():
+    return subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=_REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
     )
-    for fragment in forbidden:
-        assert fragment not in source
+
+def _lm8i_command():
+    return ["python", "lm8i_affine_publication_shape_support_probe.py"]
+
+def _run_probe():
+    command = _lm8i_command()
+    return subprocess.run(command)
+'''
+
+    assert _lm8m_wrapper_guard_violations(source) == []
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        '["git", "status"]',
+        '["python", "-c", "print(1)"]',
+        '["git", "rev-parse", "--short", "HEAD", "--exec-path"]',
+    ],
+)
+def test_lm8m_wrapper_ast_guard_rejects_repurposed_git_metadata_subprocess(
+    command: str,
+):
+    source = f'''
+import subprocess
+
+def _git_short_sha():
+    return subprocess.run(
+        {command},
+        cwd=_REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+def _lm8i_command():
+    return ["python", "lm8i_affine_publication_shape_support_probe.py"]
+
+def _run_probe():
+    command = _lm8i_command()
+    return subprocess.run(command)
+'''
+
+    assert any(
+        violation.startswith("forbidden process spawn:_git_short_sha:")
+        for violation in _lm8m_wrapper_guard_violations(source)
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        '''
+import lm8i_affine_publication_shape_support_probe as child_probe
+''',
+        '''
+from lm8i_affine_publication_shape_support_probe import _run_probe as child_probe
+''',
+        '''
+from rook import server as live_server
+''',
+        '''
+from rook.server import _mcp_tool_executor as invoke_live
+
+def _account_attempt():
+    return invoke_live("gh_set_value", {"value": 3.0})
+''',
+        '''
+from somewhere import call_tool as invoke
+
+def _hidden_live_dispatch():
+    return invoke("gh_set_value", {"value": 3.0})
+
+def _run_probe():
+    return _hidden_live_dispatch()
+''',
+        '''
+def _hidden_live_dispatch():
+    apply_value = gh_set_value
+    return apply_value("component-guid", 3.0)
+
+def _run_probe():
+    return _hidden_live_dispatch()
+''',
+    ],
+)
+def test_lm8m_wrapper_ast_guard_rejects_aliased_live_dispatch(source: str):
+    assert _lm8m_wrapper_guard_violations(source)
+
+
+@pytest.mark.parametrize(
+    "hidden_spawn",
+    [
+        '''
+def _hidden_spawn():
+    return subprocess.run(["git", "status"])
+''',
+        '''
+launch = subprocess.run
+
+def _hidden_spawn():
+    return launch(["git", "status"])
+''',
+        '''
+from subprocess import run as launch
+
+def _hidden_spawn():
+    return launch(["git", "status"])
+''',
+        '''
+def _hidden_spawn():
+    return subprocess.Popen(["git", "status"])
+''',
+        '''
+def _spawn_with(spawn):
+    return spawn(["git", "status"])
+
+def _hidden_spawn():
+    return _spawn_with(subprocess.run)
+''',
+    ],
+)
+def test_lm8m_wrapper_ast_guard_rejects_helper_indirected_process_spawn(
+    hidden_spawn: str,
+):
+    source = f'''
+import subprocess
+
+def _lm8i_command():
+    return ["python", "lm8i_affine_publication_shape_support_probe.py"]
+
+def _run_probe():
+    command = _lm8i_command()
+    return subprocess.run(command)
+
+{hidden_spawn}
+'''
+
+    violations = _lm8m_wrapper_guard_violations(source)
+
+    assert any(
+        violation.startswith("forbidden process spawn:")
+        for violation in violations
+    )
+
+
+def test_lm8m_wrapper_ast_guard_rejects_helper_returned_process_alias():
+    source = '''
+import subprocess
+
+def _lm8i_command():
+    return ["python", "lm8i_affine_publication_shape_support_probe.py"]
+
+def _run_probe():
+    command = _lm8i_command()
+    return subprocess.run(command)
+
+def pick():
+    return subprocess.run
+
+def hidden():
+    return pick()(["git", "status"])
+'''
+
+    assert any(
+        violation.startswith("forbidden process reference return:pick:")
+        for violation in _lm8m_wrapper_guard_violations(source)
+    )
+
+
+@pytest.mark.parametrize(
+    "hidden_reference",
+    [
+        "def pick(spawn=subprocess.run):\n    return spawn",
+        "pick = lambda: subprocess.run",
+        "PICKS = (subprocess.run,)",
+        "PICKS = {'run': subprocess.run}",
+    ],
+)
+def test_lm8m_wrapper_ast_guard_rejects_process_references_in_defaults_lambdas_and_containers(
+    hidden_reference: str,
+):
+    source = f'''
+import subprocess
+
+def _lm8i_command():
+    return ["python", "lm8i_affine_publication_shape_support_probe.py"]
+
+def _run_probe():
+    command = _lm8i_command()
+    return subprocess.run(command)
+
+{hidden_reference}
+'''
+
+    assert any(
+        violation.startswith("forbidden direct process reference:")
+        for violation in _lm8m_wrapper_guard_violations(source)
+    )
+
+
+@pytest.mark.parametrize(
+    "command_expression",
+    [
+        '[sys.executable, "-c", "print(1)"]',
+        '[sys.executable, "other_probe.py"]',
+        '_live_command()',
+    ],
+)
+def test_lm8m_wrapper_ast_guard_requires_exact_lm8i_command_builder(
+    command_expression: str,
+):
+    source = f'''
+import subprocess
+import sys
+
+def _lm8i_command():
+    return [sys.executable, "lm8i_affine_publication_shape_support_probe.py"]
+
+def _run_probe():
+    return subprocess.run({command_expression})
+'''
+
+    violations = _lm8m_wrapper_guard_violations(source)
+
+    assert any(
+        violation.startswith("forbidden process spawn:")
+        for violation in violations
+    )
+
+
+def test_lm8m_wrapper_remains_subprocess_only():
+    source = _script_path().read_text(encoding="utf-8")
+
+    assert _lm8m_wrapper_guard_violations(source) == []
+
+
+def test_no_lm8l_or_lm8m_sibling_scripts_exist():
+    scripts_dir = _script_path().parent
+
+    assert list(scripts_dir.glob("lm8l*.py")) == []
+    assert list(scripts_dir.glob("lm8m*.py")) == []

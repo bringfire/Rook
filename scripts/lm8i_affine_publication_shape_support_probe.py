@@ -85,6 +85,34 @@ EXPECTED_OUTPUT_VALUE = 7.5
 SCALAR_TOLERANCE = 1e-9
 VERIFY_INSPECT_ATTEMPTS = 3
 VERIFY_INSPECT_DELAY_S = 0.1
+SETTLE_VERIFIER_PROFILE = "settle_v1"
+MANAGED_VERIFIER_PROFILE = "managed_receipt_v2"
+VERIFIER_PROFILES = (
+    SETTLE_VERIFIER_PROFILE,
+    MANAGED_VERIFIER_PROFILE,
+)
+READINESS_WAIT_TIMEOUT_MS = 10_000
+VERIFIER_MECHANISM = "managed_solve_readiness_receipt"
+FIXTURE_READINESS_PROFILE = "lm8i_legacy_setup_v1"
+GH_READINESS_RECEIPT_SCHEMA = "rook.gh_solve_readiness_receipt:v1"
+GH_READINESS_WAIT_SCHEMA = "rook.gh_solve_readiness_wait_result:v1"
+MANAGED_MUTATION_SCHEMA = "rook.lm8l_managed_mutation_summary:v1"
+MANAGED_WAIT_SCHEMA = "rook.lm8l_readiness_wait_summary:v1"
+MANAGED_VERIFY_SCHEMA = "rook.lm8l_fenced_output_verification_summary:v1"
+MANAGED_DECISION_SCHEMA = "rook.lm8l_managed_verifier_decision:v1"
+READINESS_FAILURE_REASONS = {
+    "readiness_receipt_missing",
+    "readiness_receipt_malformed",
+    "readiness_receipt_superseded",
+    "readiness_receipt_stale_solution_run",
+    "readiness_receipt_document_replaced",
+    "readiness_receipt_solver_locked",
+    "readiness_receipt_unknown",
+    "readiness_receipt_expired",
+    "readiness_receipt_not_found_or_evicted_or_process_restarted",
+    "readiness_receipt_not_ready",
+    "readiness_wait_already_active",
+}
 WORKER_NODE_ID = "set_scalar_value"
 CREATE_NODE_ID = "create_affine_scalar_transform"
 VERIFY_NODE_ID = "verify_affine_scalar_transform_output"
@@ -134,6 +162,11 @@ def _args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--excerpt-chars", type=int, default=DEFAULT_EXCERPT_CHARS)
     parser.add_argument("--run-dir", default="probe_runs")
     parser.add_argument("--canonical-evidence", action="store_true", default=True)
+    parser.add_argument(
+        "--verifier-profile",
+        choices=VERIFIER_PROFILES,
+        default=SETTLE_VERIFIER_PROFILE,
+    )
     args, unknown = parser.parse_known_args(argv)
     if unknown:
         parser.error(f"unsupported arguments: {' '.join(unknown)}")
@@ -199,6 +232,14 @@ def _guid_sha256(guid: str | None) -> str | None:
     return None if guid is None else _sha256_text(guid)
 
 
+def _is_epoch(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _receipt_id_sha256(receipt_id: str) -> str:
+    return _sha256_text(receipt_id)
+
+
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.write_text(
         json.dumps(dict(payload), indent=2, sort_keys=True, default=str) + "\n",
@@ -214,18 +255,29 @@ def _write_json_value(path: Path, payload: Any) -> None:
 
 
 def _find_forbidden_decision_extra_paths(
-    value: Any, *, base_keys: set[str], path: str = "extra"
+    value: Any,
+    *,
+    base_keys: set[str],
+    allowed_reserved_paths: set[str] | None = None,
+    path: str = "extra",
 ) -> list[str]:
     forbidden: list[str] = []
+    allowed_reserved_paths = allowed_reserved_paths or set()
     if isinstance(value, Mapping):
         for key, nested_value in value.items():
             key_text = str(key)
             key_path = f"{path}.{key_text}"
-            if key_text in base_keys or "guid" in key_text.casefold():
+            if (
+                (key_text in base_keys and key_path not in allowed_reserved_paths)
+                or "guid" in key_text.casefold()
+            ):
                 forbidden.append(key_path)
             forbidden.extend(
                 _find_forbidden_decision_extra_paths(
-                    nested_value, base_keys=base_keys, path=key_path
+                    nested_value,
+                    base_keys=base_keys,
+                    allowed_reserved_paths=allowed_reserved_paths,
+                    path=key_path,
                 )
             )
         return forbidden
@@ -304,6 +356,50 @@ def _tool_data(result: Any) -> Any:
     if isinstance(result, Mapping) and isinstance(result.get("data"), Mapping):
         return result["data"]
     return result
+
+
+def _managed_receipt_from_tool_result(result: Any) -> Mapping[str, Any] | None:
+    data = _tool_data(result)
+    if not isinstance(data, Mapping):
+        return None
+    for key in ("solve_readiness_receipt", "readiness_receipt", "receipt"):
+        receipt = data.get(key)
+        if isinstance(receipt, Mapping):
+            return receipt
+    return None
+
+
+def _managed_wait_data(result: Any) -> Mapping[str, Any] | None:
+    data = _tool_data(result)
+    return data if isinstance(data, Mapping) else None
+
+
+def _normalize_readiness_failure(result: Any, *, stage: str) -> str:
+    data = _tool_data(result)
+    if isinstance(data, Mapping):
+        error = data.get("error")
+        if isinstance(error, str) and error in READINESS_FAILURE_REASONS:
+            return error
+        if stage == "wait" and data.get("wait_status") == "timeout":
+            return "readiness_wait_timeout"
+        receipt = data.get("receipt")
+        if isinstance(receipt, Mapping):
+            if (
+                data.get("wait_status") == "terminal"
+                and receipt.get("status") == "unknown"
+                and receipt.get("reason") == "receipt_expired"
+            ):
+                return "readiness_receipt_expired"
+            status_reason = {
+                "superseded": "readiness_receipt_superseded",
+                "document_replaced": "readiness_receipt_document_replaced",
+                "solver_locked": "readiness_receipt_solver_locked",
+                "unknown": "readiness_receipt_unknown",
+                "pending": "readiness_receipt_not_ready",
+            }.get(receipt.get("status"))
+            if status_reason:
+                return status_reason
+    return "readiness_receipt_malformed"
 
 
 def _tool_field(result: Any, *names: str) -> Any:
@@ -1273,9 +1369,14 @@ def _build_local_turn_payload(
 
 
 def _manifest(
-    *, model: str, endpoint: str, temperature: float, canonical_evidence: bool
+    *,
+    model: str,
+    endpoint: str,
+    temperature: float,
+    canonical_evidence: bool,
+    verifier_profile: str = SETTLE_VERIFIER_PROFILE,
 ) -> dict[str, Any]:
-    return {
+    manifest = {
         "schema": SCRIPT_SCHEMA,
         "git_commit": _git_short_sha(),
         "model": model,
@@ -1296,6 +1397,16 @@ def _manifest(
         "planner_model": None,
         "gh_edit_enabled": False,
     }
+    if verifier_profile == MANAGED_VERIFIER_PROFILE:
+        manifest.update(
+            {
+                "verifier_profile": verifier_profile,
+                "verifier_mechanism": VERIFIER_MECHANISM,
+                "fixture_readiness_profile": FIXTURE_READINESS_PROFILE,
+                "readiness_wait_timeout_ms": READINESS_WAIT_TIMEOUT_MS,
+            }
+        )
+    return manifest
 
 
 def _decision_record(
@@ -1331,7 +1442,9 @@ def _decision_record(
     if extra:
         extra_record = dict(extra)
         blocked_paths = _find_forbidden_decision_extra_paths(
-            extra_record, base_keys=set(record)
+            extra_record,
+            base_keys=set(record),
+            allowed_reserved_paths={"extra.managed_verifier.schema"},
         )
         if blocked_paths:
             raise ValueError(
@@ -1624,6 +1737,578 @@ async def _dispatch_set_value_solve_and_verify(
     }
 
 
+def _managed_receipt_summary(receipt: Mapping[str, Any]) -> dict[str, Any]:
+    receipt_id = receipt.get("receipt_id")
+    return {
+        "receipt_schema": receipt.get("schema"),
+        "receipt_id_sha256": (
+            _receipt_id_sha256(receipt_id)
+            if isinstance(receipt_id, str) and receipt_id
+            else None
+        ),
+        "document_session_id": receipt.get("document_session_id"),
+        "mutation_epoch": receipt.get("mutation_epoch"),
+        "solution_run_epoch": receipt.get("solution_run_epoch"),
+        "completed_solution_run_epoch": receipt.get(
+            "completed_solution_run_epoch"
+        ),
+        "receipt_status": receipt.get("status"),
+    }
+
+
+def _mutation_receipt_terminal_reason(
+    receipt: Mapping[str, Any],
+) -> str | None:
+    status = receipt.get("status")
+    if status == "solver_locked":
+        return "readiness_receipt_solver_locked"
+    if status == "unknown":
+        if receipt.get("reason") == "receipt_expired":
+            return "readiness_receipt_expired"
+        return "readiness_receipt_unknown"
+    return None
+
+
+def _managed_mutation_receipt_failures(
+    receipt: Mapping[str, Any] | None,
+) -> tuple[str, ...]:
+    if receipt is None:
+        return ("mutation_receipt_missing",)
+
+    failures: list[str] = []
+    receipt_id = receipt.get("receipt_id")
+    document_session_id = receipt.get("document_session_id")
+    if receipt.get("schema") != GH_READINESS_RECEIPT_SCHEMA:
+        failures.append("mutation_receipt_schema_invalid")
+    if receipt.get("status") != "pending":
+        failures.append("mutation_receipt_status_not_pending")
+    if not isinstance(receipt_id, str) or not receipt_id:
+        failures.append("mutation_receipt_id_invalid")
+    if not isinstance(document_session_id, str) or not document_session_id:
+        failures.append("mutation_document_session_id_invalid")
+    mutation_epoch = receipt.get("mutation_epoch")
+    if not _is_epoch(mutation_epoch) or mutation_epoch == 0:
+        failures.append("mutation_epoch_not_positive")
+    if receipt.get("solution_run_epoch") is not None:
+        failures.append("pending_solution_run_epoch_not_null")
+    if not _is_epoch(receipt.get("completed_solution_run_epoch")):
+        failures.append("pending_completed_solution_run_epoch_invalid")
+    return tuple(failures)
+
+
+def _managed_wait_structure_failures(
+    wait_data: Mapping[str, Any] | None,
+    ready_receipt: Mapping[str, Any] | None,
+) -> tuple[str, ...]:
+    failures: list[str] = []
+    if wait_data is None or wait_data.get("schema") != GH_READINESS_WAIT_SCHEMA:
+        failures.append("wait_result_schema_invalid")
+    if ready_receipt is None:
+        failures.append("wait_receipt_missing")
+        return tuple(failures)
+    if ready_receipt.get("schema") != GH_READINESS_RECEIPT_SCHEMA:
+        failures.append("wait_receipt_schema_invalid")
+    if ready_receipt.get("status") != "ready":
+        failures.append("wait_receipt_status_not_ready")
+    receipt_id = ready_receipt.get("receipt_id")
+    if not isinstance(receipt_id, str) or not receipt_id:
+        failures.append("wait_receipt_id_invalid")
+    document_session_id = ready_receipt.get("document_session_id")
+    if not isinstance(document_session_id, str) or not document_session_id:
+        failures.append("wait_document_session_id_invalid")
+    return tuple(failures)
+
+
+def _managed_provenance_failures(
+    *,
+    mutation: Mapping[str, Any],
+    wait: Mapping[str, Any],
+    read: Mapping[str, Any],
+) -> tuple[str, ...]:
+    failures: list[str] = []
+    mutation_epoch = mutation.get("mutation_epoch")
+    if not _is_epoch(mutation_epoch) or mutation_epoch == 0:
+        failures.append("mutation_epoch_not_positive")
+    if mutation.get("solution_run_epoch") is not None:
+        failures.append("pending_solution_run_epoch_not_null")
+    prior = mutation.get("completed_solution_run_epoch")
+    ready_run = wait.get("solution_run_epoch")
+    if (
+        not _is_epoch(prior)
+        or not _is_epoch(ready_run)
+        or ready_run <= prior
+    ):
+        failures.append("post_mutation_solution_run_not_advanced")
+    wait_completed_run = wait.get("completed_solution_run_epoch")
+    if not _is_epoch(wait_completed_run) or wait_completed_run != ready_run:
+        failures.append("wait_completed_solution_run_mismatch")
+    for field in ("receipt_id_sha256", "document_session_id", "mutation_epoch"):
+        values = (mutation.get(field), wait.get(field), read.get(field))
+        if (
+            field == "mutation_epoch"
+            and not all(_is_epoch(value) for value in values)
+        ) or not (values[0] == values[1] == values[2]):
+            failures.append(f"{field}_mismatch")
+    read_solution_run = read.get("solution_run_epoch")
+    if not _is_epoch(read_solution_run) or read_solution_run != ready_run:
+        failures.append("read_solution_run_mismatch")
+    read_completed_run = read.get("completed_solution_run_epoch")
+    if not _is_epoch(read_completed_run) or read_completed_run != ready_run:
+        failures.append("read_completed_solution_run_mismatch")
+    if read.get("readiness_fenced") is not True:
+        failures.append("readiness_fenced_not_true")
+    return tuple(failures)
+
+
+def _managed_wait_summary(
+    wait_data: Mapping[str, Any] | None,
+    receipt: Mapping[str, Any] | None,
+    *,
+    normalized_reason: str | None = None,
+) -> dict[str, Any]:
+    summary = {
+        "schema": MANAGED_WAIT_SCHEMA,
+        "tool_name": "gh_wait_for_solve_readiness",
+        "requested_timeout_ms": READINESS_WAIT_TIMEOUT_MS,
+        "readiness_wait_count": 1,
+        "wait_status": wait_data.get("wait_status") if wait_data is not None else None,
+    }
+    if receipt is not None:
+        summary.update(_managed_receipt_summary(receipt))
+    if normalized_reason is not None:
+        summary["normalized_reason"] = normalized_reason
+    return summary
+
+
+def _managed_decision_metadata(
+    *,
+    readiness_wait_count: int,
+    fenced_output_read_count: int,
+    settle_read_count: int,
+    failed_invariants: Sequence[str] = (),
+) -> dict[str, Any]:
+    return {
+        "managed_verifier": {
+            "schema": MANAGED_DECISION_SCHEMA,
+            "verifier_profile": MANAGED_VERIFIER_PROFILE,
+            "verifier_mechanism": VERIFIER_MECHANISM,
+            "fixture_readiness_profile": FIXTURE_READINESS_PROFILE,
+            "readiness_wait_timeout_ms": READINESS_WAIT_TIMEOUT_MS,
+            "readiness_wait_count": readiness_wait_count,
+            "fenced_output_read_count": fenced_output_read_count,
+            "settle_read_count": settle_read_count,
+            "failed_invariants": list(failed_invariants),
+        }
+    }
+
+
+def _managed_rejection(
+    *,
+    reason: str,
+    phase: str,
+    readiness_wait_count: int,
+    fenced_output_read_count: int,
+    failed_invariants: Sequence[str],
+) -> dict[str, Any]:
+    return {
+        "decision": "rejected",
+        "reason": reason,
+        "phase": phase,
+        **_managed_decision_metadata(
+            readiness_wait_count=readiness_wait_count,
+            fenced_output_read_count=fenced_output_read_count,
+            settle_read_count=0,
+            failed_invariants=failed_invariants,
+        ),
+    }
+
+
+def _managed_verify_summary(
+    *,
+    addition_component_guid: str,
+    expected_value: float | int,
+    requested_receipt_id: str,
+    output_data: Mapping[str, Any] | None,
+    reported_success: bool,
+    failure_reason: str | None = None,
+    exception: str | None = None,
+) -> dict[str, Any]:
+    returned_receipt_id = (
+        output_data.get("readiness_receipt_id")
+        if output_data is not None
+        else None
+    )
+    summary = {
+        "schema": MANAGED_VERIFY_SCHEMA,
+        "tool_name": "gh_inspect_output",
+        "component_guid_sha256": _guid_sha256(addition_component_guid),
+        "verifier_profile": MANAGED_VERIFIER_PROFILE,
+        "readiness_wait_timeout_ms": READINESS_WAIT_TIMEOUT_MS,
+        "readiness_wait_count": 1,
+        "expected_output_value": expected_value,
+        "tolerance": SCALAR_TOLERANCE,
+        "requested_receipt_id_sha256": _receipt_id_sha256(
+            requested_receipt_id
+        ),
+        "receipt_id_sha256": (
+            _receipt_id_sha256(returned_receipt_id)
+            if isinstance(returned_receipt_id, str) and returned_receipt_id
+            else None
+        ),
+        "document_session_id": (
+            output_data.get("document_session_id")
+            if output_data is not None
+            else None
+        ),
+        "mutation_epoch": (
+            output_data.get("mutation_epoch") if output_data is not None else None
+        ),
+        "solution_run_epoch": (
+            output_data.get("solution_run_epoch")
+            if output_data is not None
+            else None
+        ),
+        "completed_solution_run_epoch": (
+            output_data.get("completed_solution_run_epoch")
+            if output_data is not None
+            else None
+        ),
+        "fenced_output_read_count": 1,
+        "settle_read_count": 0,
+        "readiness_fenced": (
+            output_data.get("readiness_fenced")
+            if output_data is not None
+            else None
+        ),
+        "reported_success": reported_success,
+        "matched": False,
+    }
+    if failure_reason is not None:
+        summary["failure_reason"] = failure_reason
+    if exception is not None:
+        summary["exception"] = exception
+    return summary
+
+
+async def _dispatch_set_value_managed_receipt_and_verify(
+    *,
+    tool_executor: Callable[[str, Mapping[str, Any]], Awaitable[Any]],
+    editable_component_guid: str,
+    addition_component_guid: str,
+    worker_value: float | int,
+    expected_value: float | int,
+) -> dict[str, Any]:
+    set_summary = {
+        "schema": MANAGED_MUTATION_SCHEMA,
+        "tool_name": "gh_set_value",
+        "component_guid_sha256": _guid_sha256(editable_component_guid),
+        "worker_action_value": worker_value,
+    }
+    try:
+        set_result = await tool_executor(
+            "gh_set_value",
+            {"guid": editable_component_guid, "value": worker_value},
+        )
+    except Exception as exc:
+        set_summary.update(
+            {"set_value_reported_success": False, "exception": type(exc).__name__}
+        )
+        return {
+            "live_set_value_summary": set_summary,
+            "readiness_wait_summary": None,
+            "verify_scalar_output_summary": None,
+            "decision": _managed_rejection(
+                reason=f"gh_set_value_exception:{type(exc).__name__}",
+                phase="live_set_value",
+                readiness_wait_count=0,
+                fenced_output_read_count=0,
+                failed_invariants=("managed_mutation_call",),
+            ),
+        }
+
+    set_summary["set_value_reported_success"] = not _tool_result_failed(set_result)
+    pending_receipt = _managed_receipt_from_tool_result(set_result)
+    if pending_receipt is not None:
+        set_summary["managed_mutation"] = {
+            "schema": MANAGED_MUTATION_SCHEMA,
+            **_managed_receipt_summary(pending_receipt),
+        }
+        terminal_reason = _mutation_receipt_terminal_reason(pending_receipt)
+        if terminal_reason is not None:
+            return {
+                "live_set_value_summary": set_summary,
+                "readiness_wait_summary": None,
+                "verify_scalar_output_summary": None,
+                "decision": _managed_rejection(
+                    reason=terminal_reason,
+                    phase="verifier_readiness",
+                    readiness_wait_count=0,
+                    fenced_output_read_count=0,
+                    failed_invariants=(),
+                ),
+            }
+
+    mutation_failures = _managed_mutation_receipt_failures(pending_receipt)
+    if mutation_failures:
+        mutation_reason = (
+            "readiness_receipt_missing"
+            if pending_receipt is None
+            else "readiness_receipt_malformed"
+        )
+        return {
+            "live_set_value_summary": set_summary,
+            "readiness_wait_summary": None,
+            "verify_scalar_output_summary": None,
+            "decision": _managed_rejection(
+                reason=mutation_reason,
+                phase="verifier_readiness",
+                readiness_wait_count=0,
+                fenced_output_read_count=0,
+                failed_invariants=mutation_failures,
+            ),
+        }
+    mutation_summary = set_summary["managed_mutation"]
+
+    try:
+        wait_result = await tool_executor(
+            "gh_wait_for_solve_readiness",
+            {
+                "readiness_receipt_id": pending_receipt["receipt_id"],
+                "timeout_ms": READINESS_WAIT_TIMEOUT_MS,
+            },
+        )
+    except Exception as exc:
+        reason = f"gh_wait_for_solve_readiness_exception:{type(exc).__name__}"
+        return {
+            "live_set_value_summary": set_summary,
+            "readiness_wait_summary": _managed_wait_summary(
+                None, None, normalized_reason=reason
+            ),
+            "verify_scalar_output_summary": None,
+            "decision": _managed_rejection(
+                reason=reason,
+                phase="verifier_readiness",
+                readiness_wait_count=1,
+                fenced_output_read_count=0,
+                failed_invariants=(),
+            ),
+        }
+
+    wait_data = _managed_wait_data(wait_result)
+    ready_receipt = _managed_receipt_from_tool_result(wait_result)
+    if _tool_result_failed(wait_result) or (
+        wait_data is not None and wait_data.get("wait_status") != "ready"
+    ):
+        reason = _normalize_readiness_failure(wait_result, stage="wait")
+        return {
+            "live_set_value_summary": set_summary,
+            "readiness_wait_summary": _managed_wait_summary(
+                wait_data,
+                ready_receipt,
+                normalized_reason=reason,
+            ),
+            "verify_scalar_output_summary": None,
+            "decision": _managed_rejection(
+                reason=reason,
+                phase="verifier_readiness",
+                readiness_wait_count=1,
+                fenced_output_read_count=0,
+                failed_invariants=(),
+            ),
+        }
+    wait_summary = _managed_wait_summary(wait_data, ready_receipt)
+    wait_failures = list(
+        _managed_wait_structure_failures(wait_data, ready_receipt)
+    )
+    if ready_receipt is not None:
+        wait_failures.extend(
+            _managed_provenance_failures(
+                mutation=mutation_summary,
+                wait=wait_summary,
+                read={
+                    **wait_summary,
+                    "completed_solution_run_epoch": wait_summary.get(
+                        "solution_run_epoch"
+                    ),
+                    "readiness_fenced": True,
+                },
+            )
+        )
+    wait_failures = list(dict.fromkeys(wait_failures))
+    if wait_failures:
+        return {
+            "live_set_value_summary": set_summary,
+            "readiness_wait_summary": wait_summary,
+            "verify_scalar_output_summary": None,
+            "decision": _managed_rejection(
+                reason="managed_verifier_invariant_failed",
+                phase="verifier_readiness",
+                readiness_wait_count=1,
+                fenced_output_read_count=0,
+                failed_invariants=wait_failures,
+            ),
+        }
+
+    try:
+        inspect_result = await tool_executor(
+            "gh_inspect_output",
+            {
+                "guid": addition_component_guid,
+                "param": "R",
+                "readiness_receipt_id": pending_receipt["receipt_id"],
+            },
+        )
+    except Exception as exc:
+        reason = f"gh_inspect_output_exception:{type(exc).__name__}"
+        verify_summary = _managed_verify_summary(
+            addition_component_guid=addition_component_guid,
+            expected_value=expected_value,
+            requested_receipt_id=pending_receipt["receipt_id"],
+            output_data=None,
+            reported_success=False,
+            failure_reason=reason,
+            exception=type(exc).__name__,
+        )
+        return {
+            "live_set_value_summary": set_summary,
+            "readiness_wait_summary": wait_summary,
+            "verify_scalar_output_summary": verify_summary,
+            "decision": _managed_rejection(
+                reason=reason,
+                phase="verifier_readiness",
+                readiness_wait_count=1,
+                fenced_output_read_count=1,
+                failed_invariants=(),
+            ),
+        }
+
+    output_data = _tool_data(inspect_result)
+    if _tool_result_failed(inspect_result) or not isinstance(output_data, Mapping):
+        reason = _normalize_readiness_failure(inspect_result, stage="read")
+        verify_summary = _managed_verify_summary(
+            addition_component_guid=addition_component_guid,
+            expected_value=expected_value,
+            requested_receipt_id=pending_receipt["receipt_id"],
+            output_data=output_data if isinstance(output_data, Mapping) else None,
+            reported_success=False,
+            failure_reason=reason,
+        )
+        return {
+            "live_set_value_summary": set_summary,
+            "readiness_wait_summary": wait_summary,
+            "verify_scalar_output_summary": verify_summary,
+            "decision": _managed_rejection(
+                reason=reason,
+                phase="verifier_readiness",
+                readiness_wait_count=1,
+                fenced_output_read_count=1,
+                failed_invariants=(),
+            ),
+        }
+
+    verify_summary = _managed_verify_summary(
+        addition_component_guid=addition_component_guid,
+        expected_value=expected_value,
+        requested_receipt_id=pending_receipt["receipt_id"],
+        output_data=output_data,
+        reported_success=True,
+    )
+    provenance_failures = _managed_provenance_failures(
+        mutation=mutation_summary,
+        wait=wait_summary,
+        read=verify_summary,
+    )
+    if provenance_failures:
+        return {
+            "live_set_value_summary": set_summary,
+            "readiness_wait_summary": wait_summary,
+            "verify_scalar_output_summary": verify_summary,
+            "decision": _managed_rejection(
+                reason="managed_verifier_invariant_failed",
+                phase="verifier_readiness",
+                readiness_wait_count=1,
+                fenced_output_read_count=1,
+                failed_invariants=provenance_failures,
+            ),
+        }
+    try:
+        observed_output_value = _inspect_output_scalar_value(inspect_result)
+    except ValueError:
+        return {
+            "live_set_value_summary": set_summary,
+            "readiness_wait_summary": wait_summary,
+            "verify_scalar_output_summary": verify_summary,
+            "decision": _managed_rejection(
+                reason="verify_scalar_output_invalid_value",
+                phase="verify_scalar_output",
+                readiness_wait_count=1,
+                fenced_output_read_count=1,
+                failed_invariants=("fenced_output_scalar",),
+            ),
+        }
+
+    matched = abs(float(observed_output_value) - float(expected_value)) <= SCALAR_TOLERANCE
+    verify_summary.update(
+        {
+            "observed_output_value": observed_output_value,
+            "matched": matched,
+        }
+    )
+    return {
+        "live_set_value_summary": set_summary,
+        "readiness_wait_summary": wait_summary,
+        "verify_scalar_output_summary": verify_summary,
+        "decision": {
+            "decision": "accepted" if matched else "rejected",
+            "reason": (
+                "verify_scalar_output_succeeded"
+                if matched
+                else "verify_scalar_output_failed"
+            ),
+            "phase": "verify_scalar_output",
+            "expected_output_value": expected_value,
+            "observed_output_after": observed_output_value,
+            "scalar_tolerance": SCALAR_TOLERANCE,
+            **_managed_decision_metadata(
+                readiness_wait_count=1,
+                fenced_output_read_count=1,
+                settle_read_count=0,
+                failed_invariants=() if matched else ("fenced_output_scalar",),
+            ),
+        },
+    }
+
+
+async def _dispatch_set_value_with_profile(
+    *,
+    verifier_profile: str,
+    tool_executor: Callable[[str, Mapping[str, Any]], Awaitable[Any]],
+    editable_component_guid: str,
+    addition_component_guid: str,
+    worker_value: float | int,
+    expected_value: float | int,
+) -> dict[str, Any]:
+    if verifier_profile == SETTLE_VERIFIER_PROFILE:
+        result = await _dispatch_set_value_solve_and_verify(
+            tool_executor=tool_executor,
+            editable_component_guid=editable_component_guid,
+            addition_component_guid=addition_component_guid,
+            worker_value=worker_value,
+            expected_value=expected_value,
+        )
+        result["readiness_wait_summary"] = None
+        return result
+    if verifier_profile == MANAGED_VERIFIER_PROFILE:
+        return await _dispatch_set_value_managed_receipt_and_verify(
+            tool_executor=tool_executor,
+            editable_component_guid=editable_component_guid,
+            addition_component_guid=addition_component_guid,
+            worker_value=worker_value,
+            expected_value=expected_value,
+        )
+    raise ValueError(f"unsupported_verifier_profile:{verifier_profile}")
+
+
 def _worker_action_context(
     response_payload: Mapping[str, Any], excerpt_chars: int
 ) -> dict[str, Any]:
@@ -1836,6 +2521,7 @@ def _run_probe(
     excerpt_chars: int,
     run_root: str | Path,
     canonical_evidence: bool,
+    verifier_profile: str = SETTLE_VERIFIER_PROFILE,
     tool_executor: Callable[[str, Mapping[str, Any]], Awaitable[Any]] | None = None,
     publication_runner: Callable[..., Any] | None = None,
 ) -> Path:
@@ -1847,6 +2533,7 @@ def _run_probe(
             endpoint=endpoint,
             temperature=temperature,
             canonical_evidence=canonical_evidence,
+            verifier_profile=verifier_profile,
         ),
     )
     if tool_executor is None:
@@ -2240,7 +2927,8 @@ def _run_probe(
     _write_json(run_dir / "worker_action.json", response_payload)
     params = apply_result.graph.nodes[WORKER_NODE_ID].metadata[EXECUTION_PARAMS_KEY]
     dispatch = asyncio.run(
-        _dispatch_set_value_solve_and_verify(
+        _dispatch_set_value_with_profile(
+            verifier_profile=verifier_profile,
             tool_executor=tool_executor,
             editable_component_guid=str(params["guid"]),
             addition_component_guid=addition_component_guid,
@@ -2249,12 +2937,37 @@ def _run_probe(
         )
     )
     _write_json(run_dir / "live_set_value_summary.json", dispatch["live_set_value_summary"])
+    if dispatch["readiness_wait_summary"] is not None:
+        _write_json(
+            run_dir / "readiness_wait_summary.json",
+            dispatch["readiness_wait_summary"],
+        )
     if dispatch["verify_scalar_output_summary"] is not None:
         _write_json(
             run_dir / "verify_scalar_output_summary.json",
             dispatch["verify_scalar_output_summary"],
         )
     final = dispatch["decision"]
+    if verifier_profile == MANAGED_VERIFIER_PROFILE:
+        managed_decision = final.get("managed_verifier")
+        verification_attempt_count = (
+            managed_decision.get("fenced_output_read_count", 0)
+            if isinstance(managed_decision, Mapping)
+            else 0
+        )
+    else:
+        verify_summary = dispatch["verify_scalar_output_summary"]
+        attempts_value = (
+            verify_summary.get("attempts", ())
+            if isinstance(verify_summary, Mapping)
+            else ()
+        )
+        verification_attempt_count = (
+            len(attempts_value)
+            if isinstance(attempts_value, Sequence)
+            and not isinstance(attempts_value, (str, bytes))
+            else 0
+        )
     _write_json(
         run_dir / "decision.json",
         _decision_record(
@@ -2266,7 +2979,7 @@ def _run_probe(
             live_fixture_created=True,
             worker_publication_ran=True,
             live_set_value_dispatched=True,
-            verify_scalar_output_ran=dispatch["verify_scalar_output_summary"] is not None,
+            verify_scalar_output_ran=verification_attempt_count > 0,
             component_guid=editable_component_guid,
             extra={
                 **support_extra,
@@ -2295,6 +3008,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         excerpt_chars=args.excerpt_chars,
         run_root=args.run_dir,
         canonical_evidence=args.canonical_evidence,
+        verifier_profile=args.verifier_profile,
     )
     decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
     print(

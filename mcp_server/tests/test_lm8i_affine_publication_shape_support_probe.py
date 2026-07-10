@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import ast
+import hashlib
 import importlib.util
 import inspect
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -31,6 +34,167 @@ def _load_script():
 
 PROBE = _load_script()
 SKELETAL_PASS1 = '{"kind": "action_request"}'
+RECEIPT_ID = "opaque-lm8l-receipt-1"
+_MANAGED_VERIFIER_ROOT = "_dispatch_set_value_managed_receipt_and_verify"
+_LEGACY_SETTLE_VERIFIER = "_dispatch_set_value_solve_and_verify"
+_EXPECTED_MANAGED_TOOL_COUNTS = {
+    "gh_set_value": 1,
+    "gh_wait_for_solve_readiness": 1,
+    "gh_inspect_output": 1,
+}
+_FORBIDDEN_MANAGED_TOOLS = frozenset(
+    {
+        "gh_get_value",
+        "gh_solve",
+        "gh_solve_readiness",
+    }
+)
+
+
+def _ast_dotted_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _ast_dotted_name(node.value)
+        return f"{parent}.{node.attr}" if parent else node.attr
+    return None
+
+
+def _module_local_functions(
+    tree: ast.Module,
+) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
+    return {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+
+def _reachable_module_local_functions(
+    tree: ast.Module, root_name: str
+) -> list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]]:
+    functions = _module_local_functions(tree)
+    if root_name not in functions:
+        return []
+
+    reachable = []
+    pending = [root_name]
+    visited = set()
+    while pending:
+        function_name = pending.pop()
+        if function_name in visited:
+            continue
+        visited.add(function_name)
+        function = functions[function_name]
+        reachable.append((function_name, function))
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Call):
+                continue
+            call_name = _ast_dotted_name(node.func)
+            if call_name in functions and call_name not in visited:
+                pending.append(call_name)
+    return reachable
+
+
+def _literal_tool_name(call: ast.Call) -> str | None:
+    call_name = _ast_dotted_name(call.func)
+    if call_name is None or call_name.rsplit(".", 1)[-1] not in {
+        "tool_executor",
+        "_mcp_tool_executor",
+        "call_tool",
+        "invoke_tool",
+    }:
+        return None
+    if not call.args:
+        return None
+    first_arg = call.args[0]
+    if (
+        isinstance(first_arg, ast.Constant)
+        and isinstance(first_arg.value, str)
+        and first_arg.value.startswith("gh_")
+    ):
+        return first_arg.value
+    return None
+
+
+def _call_dict_argument_has_key(call: ast.Call, key: str) -> bool:
+    if len(call.args) < 2 or not isinstance(call.args[1], ast.Dict):
+        return False
+    return any(
+        isinstance(item, ast.Constant) and item.value == key
+        for item in call.args[1].keys
+    )
+
+
+def _managed_verifier_guard_violations(source: str) -> list[str]:
+    tree = ast.parse(source)
+    reachable = _reachable_module_local_functions(tree, _MANAGED_VERIFIER_ROOT)
+    if not reachable:
+        return [f"managed verifier root missing:{_MANAGED_VERIFIER_ROOT}"]
+
+    violations = []
+    tool_calls: dict[str, list[tuple[str, ast.Call]]] = {}
+    for function_name, function in reachable:
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Call):
+                continue
+            call_name = _ast_dotted_name(node.func) or "<dynamic>"
+            terminal_name = call_name.rsplit(".", 1)[-1]
+            if call_name == "asyncio.sleep":
+                violations.append(
+                    f"forbidden reachable call:{function_name}:asyncio.sleep"
+                )
+            if terminal_name == _LEGACY_SETTLE_VERIFIER:
+                violations.append(
+                    f"forbidden reachable call:{function_name}:{_LEGACY_SETTLE_VERIFIER}"
+                )
+            if terminal_name in _FORBIDDEN_MANAGED_TOOLS:
+                violations.append(
+                    f"forbidden reachable tool call:{function_name}:{terminal_name}"
+                )
+
+            tool_name = _literal_tool_name(node)
+            if tool_name is None:
+                if terminal_name in _EXPECTED_MANAGED_TOOL_COUNTS:
+                    violations.append(
+                        f"direct reachable tool call:{function_name}:{terminal_name}"
+                    )
+                continue
+            tool_calls.setdefault(tool_name, []).append((function_name, node))
+            if tool_name in _FORBIDDEN_MANAGED_TOOLS:
+                violations.append(
+                    f"forbidden reachable tool dispatch:{function_name}:{tool_name}"
+                )
+            elif tool_name not in _EXPECTED_MANAGED_TOOL_COUNTS:
+                violations.append(
+                    f"unexpected reachable tool dispatch:{function_name}:{tool_name}"
+                )
+
+    for tool_name, expected_count in _EXPECTED_MANAGED_TOOL_COUNTS.items():
+        actual_count = len(tool_calls.get(tool_name, ()))
+        if actual_count != expected_count:
+            violations.append(
+                "managed tool count:"
+                f"{tool_name}:expected={expected_count}:actual={actual_count}"
+            )
+
+    for function_name, call in tool_calls.get("gh_inspect_output", ()):
+        if not _call_dict_argument_has_key(call, "readiness_receipt_id"):
+            violations.append(
+                f"unfenced managed output read:{function_name}:gh_inspect_output"
+            )
+
+    return violations
+
+
+def _managed_verifier_closure_sha256(source: str) -> str:
+    tree = ast.parse(source)
+    reachable = _reachable_module_local_functions(tree, _MANAGED_VERIFIER_ROOT)
+    payload = "\n".join(
+        f"{name}\n{ast.dump(function, include_attributes=False)}"
+        for name, function in sorted(reachable)
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 class FakeToolExecutor:
@@ -164,6 +328,255 @@ def _fixture_responses_for_success():
     return responses
 
 
+def _receipt(
+    status,
+    *,
+    solution_run_epoch,
+    completed_solution_run_epoch,
+    reason=None,
+):
+    return {
+        "schema": "rook.gh_solve_readiness_receipt:v1",
+        "receipt_id": RECEIPT_ID,
+        "document_session_id": "session-1",
+        "mutation_epoch": 13,
+        "solution_run_epoch": solution_run_epoch,
+        "completed_solution_run_epoch": completed_solution_run_epoch,
+        "status": status,
+        "reason": reason,
+    }
+
+
+def _managed_success_responses():
+    responses = _fixture_tool_responses()
+    responses.update(
+        {
+            "rhino_ping": "pong",
+            "gh_document_new": {"success": True, "data": {"created": True}},
+            "gh_set_value": {
+                "success": True,
+                "data": {
+                    "Guid": "EDITABLE-GUID-1",
+                    "Value": "3.0",
+                    "solve_readiness_receipt": _receipt(
+                        "pending",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "gh_wait_for_solve_readiness": {
+                "success": True,
+                "data": {
+                    "schema": "rook.gh_solve_readiness_wait_result:v1",
+                    "wait_status": "ready",
+                    "receipt": _receipt(
+                        "ready",
+                        solution_run_epoch=42,
+                        completed_solution_run_epoch=42,
+                    ),
+                },
+            },
+            "gh_inspect_output": [
+                {
+                    "success": True,
+                    "data": {"data_count": 1, "preview": ["5.5"]},
+                },
+                {
+                    "success": True,
+                    "data": {
+                        "data_count": 1,
+                        "preview": ["7.5"],
+                        "readiness_fenced": True,
+                        "readiness_receipt_id": RECEIPT_ID,
+                        "document_session_id": "session-1",
+                        "mutation_epoch": 13,
+                        "solution_run_epoch": 42,
+                        "completed_solution_run_epoch": 42,
+                    },
+                },
+            ],
+        }
+    )
+    return responses
+
+
+def _run_managed_probe(tmp_path, responses):
+    executor = FakeToolExecutor(responses)
+    run_dir = PROBE._run_probe(
+        model=PROBE.DEFAULT_MODEL,
+        endpoint=PROBE.DEFAULT_ENDPOINT,
+        temperature=PROBE.DEFAULT_TEMPERATURE,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        verifier_profile=PROBE.MANAGED_VERIFIER_PROFILE,
+        tool_executor=executor,
+        publication_runner=lambda *_args, **_kwargs: _published_action(3.0),
+    )
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    return run_dir, executor, decision
+
+
+def _assert_managed_invariant_rejection(
+    decision,
+    *,
+    expected_failures,
+    readiness_wait_count,
+    fenced_output_read_count,
+    expected_reason="managed_verifier_invariant_failed",
+):
+    assert decision["decision"] == "rejected"
+    assert decision["phase"] == "verifier_readiness"
+    assert decision["reason"] == expected_reason
+    assert decision["managed_verifier"]["failed_invariants"] == list(
+        expected_failures
+    )
+    assert (
+        decision["managed_verifier"]["readiness_wait_count"]
+        == readiness_wait_count
+    )
+    assert (
+        decision["managed_verifier"]["fenced_output_read_count"]
+        == fenced_output_read_count
+    )
+    assert decision["managed_verifier"]["settle_read_count"] == 0
+
+
+@pytest.mark.parametrize(
+    ("result", "stage", "expected_reason"),
+    [
+        (
+            {
+                "success": True,
+                "data": {
+                    "wait_status": "timeout",
+                    "receipt": _receipt(
+                        "pending",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "wait",
+            "readiness_wait_timeout",
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "wait_status": "terminal",
+                    "receipt": _receipt(
+                        "unknown",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                        reason="receipt_expired",
+                    ),
+                },
+            },
+            "wait",
+            "readiness_receipt_expired",
+        ),
+        (
+            {
+                "success": False,
+                "data": {
+                    "error": "readiness_receipt_not_found_or_evicted_or_process_restarted"
+                },
+            },
+            "wait",
+            "readiness_receipt_not_found_or_evicted_or_process_restarted",
+        ),
+        (
+            {"success": False, "data": {"error": "readiness_receipt_not_ready"}},
+            "read",
+            "readiness_receipt_not_ready",
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "wait_status": "terminal",
+                    "receipt": _receipt(
+                        "superseded",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "wait",
+            "readiness_receipt_superseded",
+        ),
+        (
+            {
+                "success": False,
+                "data": {"error": "readiness_receipt_stale_solution_run"},
+            },
+            "wait",
+            "readiness_receipt_stale_solution_run",
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "wait_status": "terminal",
+                    "receipt": _receipt(
+                        "document_replaced",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "wait",
+            "readiness_receipt_document_replaced",
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "wait_status": "terminal",
+                    "receipt": _receipt(
+                        "solver_locked",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "wait",
+            "readiness_receipt_solver_locked",
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "wait_status": "terminal",
+                    "receipt": _receipt(
+                        "unknown",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "wait",
+            "readiness_receipt_unknown",
+        ),
+        (
+            {
+                "success": False,
+                "data": {"error": "readiness_wait_already_active"},
+            },
+            "wait",
+            "readiness_wait_already_active",
+        ),
+    ],
+)
+def test_normalize_readiness_failure_preserves_product_reason(
+    result, stage, expected_reason
+):
+    assert PROBE._normalize_readiness_failure(result, stage=stage) == expected_reason
+
+
 def _pass1_missing_publication(excerpt=SKELETAL_PASS1):
     return FakePublication(
         row={
@@ -215,6 +628,23 @@ def test_cli_defaults_are_canonical_lm8i_shape():
     assert args.canonical_evidence is True
 
 
+def test_cli_defaults_to_settle_v1_without_changing_canonical_shape():
+    args = PROBE._args([])
+    assert args.verifier_profile == PROBE.SETTLE_VERIFIER_PROFILE
+    assert args.canonical_evidence is True
+
+
+def test_cli_accepts_only_managed_receipt_v2_as_the_alternate_profile():
+    args = PROBE._args(["--verifier-profile", "managed_receipt_v2"])
+    assert args.verifier_profile == PROBE.MANAGED_VERIFIER_PROFILE
+
+    with pytest.raises(SystemExit):
+        PROBE._args(["--verifier-profile", "unknown"])
+
+    with pytest.raises(SystemExit):
+        PROBE._args(["--readiness-wait-timeout-ms", "1"])
+
+
 def test_cli_rejects_non_lm8i_surfaces():
     forbidden = [
         ["--phase", "receipt_recon"],
@@ -246,6 +676,35 @@ def test_manifest_records_lm8i_identity():
     assert manifest["worker_retry_enabled"] is False
     assert manifest["planner_model"] is None
     assert manifest["gh_edit_enabled"] is False
+
+
+def test_settle_manifest_is_exact_historical_shape():
+    manifest = PROBE._manifest(
+        model=PROBE.DEFAULT_MODEL,
+        endpoint=PROBE.DEFAULT_ENDPOINT,
+        temperature=PROBE.DEFAULT_TEMPERATURE,
+        canonical_evidence=True,
+        verifier_profile=PROBE.SETTLE_VERIFIER_PROFILE,
+    )
+    assert manifest["schema"] == PROBE.SCRIPT_SCHEMA
+    assert "verifier_profile" not in manifest
+    assert "verifier_mechanism" not in manifest
+    assert "fixture_readiness_profile" not in manifest
+    assert "readiness_wait_timeout_ms" not in manifest
+
+
+def test_managed_manifest_records_only_the_new_profile_metadata():
+    manifest = PROBE._manifest(
+        model=PROBE.DEFAULT_MODEL,
+        endpoint=PROBE.DEFAULT_ENDPOINT,
+        temperature=PROBE.DEFAULT_TEMPERATURE,
+        canonical_evidence=True,
+        verifier_profile=PROBE.MANAGED_VERIFIER_PROFILE,
+    )
+    assert manifest["verifier_profile"] == "managed_receipt_v2"
+    assert manifest["verifier_mechanism"] == "managed_solve_readiness_receipt"
+    assert manifest["fixture_readiness_profile"] == "lm8i_legacy_setup_v1"
+    assert manifest["readiness_wait_timeout_ms"] == 10_000
 
 
 def test_lm8i_identity_surfaces_do_not_emit_lm8h_labels():
@@ -537,6 +996,649 @@ def test_run_probe_supports_exact_skeletal_pass1_then_accepts(tmp_path):
         captured_payloads[1]["context"]["knowledge"],
         sort_keys=True,
     )
+
+
+def test_default_settle_path_preserves_tool_tail_and_verify_artifact_shape(tmp_path):
+    executor = FakeToolExecutor(_fixture_responses_for_success())
+    run_dir = PROBE._run_probe(
+        model=PROBE.DEFAULT_MODEL,
+        endpoint=PROBE.DEFAULT_ENDPOINT,
+        temperature=PROBE.DEFAULT_TEMPERATURE,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *_args, **_kwargs: _published_action(3.0),
+    )
+
+    assert [name for name, _ in executor.calls][-3:] == [
+        "gh_set_value",
+        "gh_solve",
+        "gh_inspect_output",
+    ]
+    assert not (run_dir / "readiness_wait_summary.json").exists()
+    verify = json.loads(
+        (run_dir / "verify_scalar_output_summary.json").read_text()
+    )
+    assert "verifier_profile" not in verify
+    assert "settle_read_count" not in verify
+
+
+def test_managed_receipt_path_waits_then_reads_once_with_bounded_artifacts(tmp_path):
+    executor = FakeToolExecutor(_managed_success_responses())
+    run_dir = PROBE._run_probe(
+        model=PROBE.DEFAULT_MODEL,
+        endpoint=PROBE.DEFAULT_ENDPOINT,
+        temperature=PROBE.DEFAULT_TEMPERATURE,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        verifier_profile=PROBE.MANAGED_VERIFIER_PROFILE,
+        tool_executor=executor,
+        publication_runner=lambda *_args, **_kwargs: _published_action(3.0),
+    )
+
+    tool_tail = [name for name, _ in executor.calls][-3:]
+    assert tool_tail == [
+        "gh_set_value",
+        "gh_wait_for_solve_readiness",
+        "gh_inspect_output",
+    ]
+    assert "gh_solve" not in tool_tail
+    wait_call = executor.calls[-2]
+    inspect_call = executor.calls[-1]
+    assert wait_call[1] == {
+        "readiness_receipt_id": RECEIPT_ID,
+        "timeout_ms": 10_000,
+    }
+    assert inspect_call[1]["readiness_receipt_id"] == RECEIPT_ID
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+    assert decision["decision"] == "accepted"
+    assert decision["reason"] == "verify_scalar_output_succeeded"
+
+    mutation = json.loads((run_dir / "live_set_value_summary.json").read_text())
+    wait = json.loads((run_dir / "readiness_wait_summary.json").read_text())
+    verify = json.loads(
+        (run_dir / "verify_scalar_output_summary.json").read_text()
+    )
+
+    managed_mutation = mutation["managed_mutation"]
+    assert managed_mutation == {
+        "schema": "rook.lm8l_managed_mutation_summary:v1",
+        "receipt_schema": "rook.gh_solve_readiness_receipt:v1",
+        "receipt_status": "pending",
+        "receipt_id_sha256": PROBE._receipt_id_sha256(RECEIPT_ID),
+        "document_session_id": "session-1",
+        "mutation_epoch": 13,
+        "solution_run_epoch": None,
+        "completed_solution_run_epoch": 41,
+    }
+    assert wait == {
+        "schema": "rook.lm8l_readiness_wait_summary:v1",
+        "tool_name": "gh_wait_for_solve_readiness",
+        "requested_timeout_ms": 10_000,
+        "readiness_wait_count": 1,
+        "wait_status": "ready",
+        "receipt_schema": "rook.gh_solve_readiness_receipt:v1",
+        "receipt_status": "ready",
+        "receipt_id_sha256": PROBE._receipt_id_sha256(RECEIPT_ID),
+        "document_session_id": "session-1",
+        "mutation_epoch": 13,
+        "solution_run_epoch": 42,
+        "completed_solution_run_epoch": 42,
+    }
+    assert verify == {
+        "schema": "rook.lm8l_fenced_output_verification_summary:v1",
+        "tool_name": "gh_inspect_output",
+        "component_guid_sha256": PROBE._guid_sha256("ADDITION-GUID-1"),
+        "verifier_profile": PROBE.MANAGED_VERIFIER_PROFILE,
+        "readiness_wait_timeout_ms": 10_000,
+        "readiness_wait_count": 1,
+        "fenced_output_read_count": 1,
+        "settle_read_count": 0,
+        "readiness_fenced": True,
+        "expected_output_value": 7.5,
+        "observed_output_value": 7.5,
+        "tolerance": PROBE.SCALAR_TOLERANCE,
+        "matched": True,
+        "reported_success": True,
+        "requested_receipt_id_sha256": PROBE._receipt_id_sha256(RECEIPT_ID),
+        "receipt_id_sha256": PROBE._receipt_id_sha256(RECEIPT_ID),
+        "document_session_id": "session-1",
+        "mutation_epoch": 13,
+        "solution_run_epoch": 42,
+        "completed_solution_run_epoch": 42,
+    }
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", managed_mutation["receipt_id_sha256"])
+    assert wait["receipt_id_sha256"] == managed_mutation["receipt_id_sha256"]
+    assert verify["receipt_id_sha256"] == managed_mutation["receipt_id_sha256"]
+    assert wait["document_session_id"] == managed_mutation["document_session_id"]
+    assert verify["document_session_id"] == managed_mutation["document_session_id"]
+    assert wait["mutation_epoch"] == managed_mutation["mutation_epoch"]
+    assert verify["mutation_epoch"] == managed_mutation["mutation_epoch"]
+    assert verify["solution_run_epoch"] == wait["solution_run_epoch"]
+    assert verify["completed_solution_run_epoch"] == wait["completed_solution_run_epoch"]
+    assert wait["solution_run_epoch"] > managed_mutation["completed_solution_run_epoch"]
+    assert decision["managed_verifier"] == {
+        "schema": "rook.lm8l_managed_verifier_decision:v1",
+        "verifier_profile": PROBE.MANAGED_VERIFIER_PROFILE,
+        "verifier_mechanism": PROBE.VERIFIER_MECHANISM,
+        "fixture_readiness_profile": PROBE.FIXTURE_READINESS_PROFILE,
+        "readiness_wait_timeout_ms": 10_000,
+        "readiness_wait_count": 1,
+        "fenced_output_read_count": 1,
+        "settle_read_count": 0,
+        "failed_invariants": [],
+    }
+
+    for artifact in (mutation, wait, verify, decision):
+        assert RECEIPT_ID not in json.dumps(artifact, sort_keys=True)
+
+
+@pytest.mark.parametrize(
+    ("receipt_status", "receipt_reason", "expected_reason"),
+    [
+        ("solver_locked", "solver_locked", "readiness_receipt_solver_locked"),
+        ("unknown", "scheduling_unknown", "readiness_receipt_unknown"),
+        ("unknown", "receipt_expired", "readiness_receipt_expired"),
+    ],
+)
+def test_managed_terminal_mutation_receipt_stops_before_wait(
+    tmp_path, receipt_status, receipt_reason, expected_reason
+):
+    responses = _managed_success_responses()
+    responses["gh_set_value"]["data"]["solve_readiness_receipt"] = _receipt(
+        receipt_status,
+        solution_run_epoch=None,
+        completed_solution_run_epoch=41,
+        reason=receipt_reason,
+    )
+
+    run_dir, executor, decision = _run_managed_probe(tmp_path, responses)
+
+    assert decision["decision"] == "rejected"
+    assert decision["phase"] == "verifier_readiness"
+    assert decision["reason"] == expected_reason
+    assert decision["managed_verifier"]["readiness_wait_count"] == 0
+    assert decision["managed_verifier"]["fenced_output_read_count"] == 0
+    assert decision["managed_verifier"]["settle_read_count"] == 0
+    names = [name for name, _ in executor.calls]
+    assert names.count("gh_wait_for_solve_readiness") == 0
+    assert names.count("gh_inspect_output") == 1
+    mutation = json.loads(
+        (run_dir / "live_set_value_summary.json").read_text(encoding="utf-8")
+    )
+    assert mutation["managed_mutation"]["receipt_status"] == receipt_status
+    assert RECEIPT_ID not in json.dumps(mutation, sort_keys=True)
+
+
+@pytest.mark.parametrize(
+    ("wait_result", "expected_reason"),
+    [
+        (
+            {
+                "success": True,
+                "data": {
+                    "schema": "rook.gh_solve_readiness_wait_result:v1",
+                    "wait_status": "timeout",
+                    "receipt": _receipt(
+                        "pending",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "readiness_wait_timeout",
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "schema": "rook.gh_solve_readiness_wait_result:v1",
+                    "wait_status": "terminal",
+                    "receipt": _receipt(
+                        "superseded",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "readiness_receipt_superseded",
+        ),
+        (
+            {
+                "success": False,
+                "data": {"error": "readiness_receipt_stale_solution_run"},
+            },
+            "readiness_receipt_stale_solution_run",
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "schema": "rook.gh_solve_readiness_wait_result:v1",
+                    "wait_status": "terminal",
+                    "receipt": _receipt(
+                        "document_replaced",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "readiness_receipt_document_replaced",
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "schema": "rook.gh_solve_readiness_wait_result:v1",
+                    "wait_status": "terminal",
+                    "receipt": _receipt(
+                        "solver_locked",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "readiness_receipt_solver_locked",
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "schema": "rook.gh_solve_readiness_wait_result:v1",
+                    "wait_status": "terminal",
+                    "receipt": _receipt(
+                        "unknown",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "readiness_receipt_unknown",
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "schema": "rook.gh_solve_readiness_wait_result:v1",
+                    "wait_status": "terminal",
+                    "receipt": _receipt(
+                        "unknown",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                        reason="receipt_expired",
+                    ),
+                },
+            },
+            "readiness_receipt_expired",
+        ),
+        (
+            {
+                "success": False,
+                "data": {
+                    "error": "readiness_receipt_not_found_or_evicted_or_process_restarted"
+                },
+            },
+            "readiness_receipt_not_found_or_evicted_or_process_restarted",
+        ),
+        (
+            {
+                "success": False,
+                "data": {"error": "readiness_wait_already_active"},
+            },
+            "readiness_wait_already_active",
+        ),
+    ],
+)
+def test_managed_terminal_wait_outcome_stops_before_fenced_read(
+    tmp_path, wait_result, expected_reason
+):
+    responses = _managed_success_responses()
+    responses["gh_wait_for_solve_readiness"] = wait_result
+
+    run_dir, executor, decision = _run_managed_probe(tmp_path, responses)
+
+    assert decision["decision"] == "rejected"
+    assert decision["phase"] == "verifier_readiness"
+    assert decision["reason"] == expected_reason
+    assert decision["managed_verifier"]["readiness_wait_count"] == 1
+    assert decision["managed_verifier"]["fenced_output_read_count"] == 0
+    assert decision["managed_verifier"]["settle_read_count"] == 0
+    names = [name for name, _ in executor.calls]
+    assert names.count("gh_wait_for_solve_readiness") == 1
+    assert names.count("gh_inspect_output") == 1
+    wait = json.loads(
+        (run_dir / "readiness_wait_summary.json").read_text(encoding="utf-8")
+    )
+    assert wait["normalized_reason"] == expected_reason
+    assert RECEIPT_ID not in json.dumps(wait, sort_keys=True)
+
+
+@pytest.mark.parametrize(
+    ("read_result", "expected_reason"),
+    [
+        (
+            {"success": False, "data": {"error": "readiness_receipt_not_ready"}},
+            "readiness_receipt_not_ready",
+        ),
+        (
+            {
+                "success": False,
+                "data": {
+                    "error": "readiness_receipt_stale_solution_run",
+                    "readiness_receipt_id": RECEIPT_ID,
+                    "document_session_id": "session-1",
+                    "mutation_epoch": 13,
+                    "solution_run_epoch": 43,
+                    "completed_solution_run_epoch": 43,
+                    "readiness_fenced": False,
+                },
+            },
+            "readiness_receipt_stale_solution_run",
+        ),
+    ],
+)
+def test_managed_fenced_read_product_failure_writes_attempt_receipt(
+    tmp_path,
+    read_result,
+    expected_reason,
+):
+    responses = _managed_success_responses()
+    responses["gh_inspect_output"][1] = read_result
+
+    run_dir, executor, decision = _run_managed_probe(tmp_path, responses)
+
+    assert decision["decision"] == "rejected"
+    assert decision["phase"] == "verifier_readiness"
+    assert decision["reason"] == expected_reason
+    assert decision["verify_scalar_output_ran"] is True
+    assert decision["managed_verifier"]["readiness_wait_count"] == 1
+    assert decision["managed_verifier"]["fenced_output_read_count"] == 1
+    assert decision["managed_verifier"]["settle_read_count"] == 0
+    verify = json.loads(
+        (run_dir / "verify_scalar_output_summary.json").read_text(encoding="utf-8")
+    )
+    assert verify["schema"] == "rook.lm8l_fenced_output_verification_summary:v1"
+    assert verify["fenced_output_read_count"] == 1
+    assert verify["settle_read_count"] == 0
+    assert verify["reported_success"] is False
+    assert verify["matched"] is False
+    assert verify["failure_reason"] == expected_reason
+    assert verify["requested_receipt_id_sha256"] == PROBE._receipt_id_sha256(
+        RECEIPT_ID
+    )
+    assert RECEIPT_ID not in json.dumps(verify, sort_keys=True)
+    if expected_reason == "readiness_receipt_stale_solution_run":
+        assert verify["receipt_id_sha256"] == PROBE._receipt_id_sha256(RECEIPT_ID)
+        assert verify["document_session_id"] == "session-1"
+        assert verify["mutation_epoch"] == 13
+        assert verify["solution_run_epoch"] == 43
+        assert verify["completed_solution_run_epoch"] == 43
+    names = [name for name, _ in executor.calls]
+    assert names.count("gh_wait_for_solve_readiness") == 1
+    assert names.count("gh_inspect_output") == 2
+
+
+def test_managed_fenced_read_exception_writes_attempt_receipt(tmp_path):
+    responses = _managed_success_responses()
+    responses["gh_inspect_output"][1] = RuntimeError("transport detail")
+
+    run_dir, executor, decision = _run_managed_probe(tmp_path, responses)
+
+    assert decision["decision"] == "rejected"
+    assert decision["reason"] == "gh_inspect_output_exception:RuntimeError"
+    assert decision["verify_scalar_output_ran"] is True
+    verify = json.loads(
+        (run_dir / "verify_scalar_output_summary.json").read_text(encoding="utf-8")
+    )
+    assert verify["reported_success"] is False
+    assert verify["matched"] is False
+    assert verify["failure_reason"] == "gh_inspect_output_exception:RuntimeError"
+    assert verify["exception"] == "RuntimeError"
+    assert "transport detail" not in json.dumps(verify, sort_keys=True)
+    assert verify["requested_receipt_id_sha256"] == PROBE._receipt_id_sha256(
+        RECEIPT_ID
+    )
+    assert verify["receipt_id_sha256"] is None
+    assert verify["fenced_output_read_count"] == 1
+    assert verify["settle_read_count"] == 0
+    assert RECEIPT_ID not in json.dumps(verify, sort_keys=True)
+    names = [name for name, _ in executor.calls]
+    assert names.count("gh_wait_for_solve_readiness") == 1
+    assert names.count("gh_inspect_output") == 2
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_failures", "expected_reason"),
+    [
+        (
+            "missing_receipt",
+            ("mutation_receipt_missing",),
+            "readiness_receipt_missing",
+        ),
+        (
+            "wrong_receipt_schema",
+            ("mutation_receipt_schema_invalid",),
+            "readiness_receipt_malformed",
+        ),
+        (
+            "mutation_epoch_zero",
+            ("mutation_epoch_not_positive",),
+            "readiness_receipt_malformed",
+        ),
+        (
+            "pending_solution_run_non_null",
+            ("pending_solution_run_epoch_not_null",),
+            "readiness_receipt_malformed",
+        ),
+        (
+            "pending_completed_run_missing",
+            ("pending_completed_solution_run_epoch_invalid",),
+            "readiness_receipt_malformed",
+        ),
+        (
+            "pending_completed_run_non_integer",
+            ("pending_completed_solution_run_epoch_invalid",),
+            "readiness_receipt_malformed",
+        ),
+    ],
+)
+def test_managed_mutation_invariant_failure_stops_before_wait(
+    tmp_path, case, expected_failures, expected_reason
+):
+    responses = _managed_success_responses()
+    receipt = responses["gh_set_value"]["data"]["solve_readiness_receipt"]
+    if case == "missing_receipt":
+        del responses["gh_set_value"]["data"]["solve_readiness_receipt"]
+    elif case == "wrong_receipt_schema":
+        receipt["schema"] = "rook.gh_solve_readiness_receipt:v0"
+    elif case == "mutation_epoch_zero":
+        receipt["mutation_epoch"] = 0
+    elif case == "pending_solution_run_non_null":
+        receipt["solution_run_epoch"] = 42
+    elif case == "pending_completed_run_missing":
+        del receipt["completed_solution_run_epoch"]
+    elif case == "pending_completed_run_non_integer":
+        receipt["completed_solution_run_epoch"] = "41"
+
+    _run_dir, executor, decision = _run_managed_probe(tmp_path, responses)
+
+    _assert_managed_invariant_rejection(
+        decision,
+        expected_failures=expected_failures,
+        readiness_wait_count=0,
+        fenced_output_read_count=0,
+        expected_reason=expected_reason,
+    )
+    names = [name for name, _ in executor.calls]
+    assert names.count("gh_wait_for_solve_readiness") == 0
+    assert names.count("gh_inspect_output") == 1
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_failures"),
+    [
+        ("ready_not_advanced", ("post_mutation_solution_run_not_advanced",)),
+        ("receipt_hash_mismatch", ("receipt_id_sha256_mismatch",)),
+        ("session_mismatch", ("document_session_id_mismatch",)),
+        ("mutation_epoch_mismatch", ("mutation_epoch_mismatch",)),
+        (
+            "wait_completed_run_mismatch",
+            ("wait_completed_solution_run_mismatch",),
+        ),
+        (
+            "wait_completed_run_boolean",
+            ("wait_completed_solution_run_mismatch",),
+        ),
+        ("mutation_epoch_boolean", ("mutation_epoch_mismatch",)),
+        ("wrong_wait_receipt_schema", ("wait_receipt_schema_invalid",)),
+    ],
+)
+def test_managed_wait_invariant_failure_stops_before_fenced_read(
+    tmp_path, case, expected_failures
+):
+    responses = _managed_success_responses()
+    receipt = responses["gh_wait_for_solve_readiness"]["data"]["receipt"]
+    if case == "ready_not_advanced":
+        receipt["solution_run_epoch"] = 41
+        receipt["completed_solution_run_epoch"] = 41
+    elif case == "receipt_hash_mismatch":
+        receipt["receipt_id"] = "different-receipt"
+    elif case == "session_mismatch":
+        receipt["document_session_id"] = "session-2"
+    elif case == "mutation_epoch_mismatch":
+        receipt["mutation_epoch"] = 14
+    elif case == "wait_completed_run_mismatch":
+        receipt["completed_solution_run_epoch"] = 43
+    elif case == "wait_completed_run_boolean":
+        responses["gh_set_value"]["data"]["solve_readiness_receipt"][
+            "completed_solution_run_epoch"
+        ] = 0
+        receipt["solution_run_epoch"] = 1
+        receipt["completed_solution_run_epoch"] = True
+    elif case == "mutation_epoch_boolean":
+        responses["gh_set_value"]["data"]["solve_readiness_receipt"][
+            "mutation_epoch"
+        ] = 1
+        receipt["mutation_epoch"] = True
+    elif case == "wrong_wait_receipt_schema":
+        receipt["schema"] = "rook.gh_solve_readiness_receipt:v0"
+
+    _run_dir, executor, decision = _run_managed_probe(tmp_path, responses)
+
+    _assert_managed_invariant_rejection(
+        decision,
+        expected_failures=expected_failures,
+        readiness_wait_count=1,
+        fenced_output_read_count=0,
+    )
+    names = [name for name, _ in executor.calls]
+    assert names.count("gh_wait_for_solve_readiness") == 1
+    assert names.count("gh_inspect_output") == 1
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_failures"),
+    [
+        ("receipt_hash_mismatch", ("receipt_id_sha256_mismatch",)),
+        ("session_mismatch", ("document_session_id_mismatch",)),
+        ("mutation_epoch_mismatch", ("mutation_epoch_mismatch",)),
+        ("read_solution_run_mismatch", ("read_solution_run_mismatch",)),
+        (
+            "read_completed_run_mismatch",
+            ("read_completed_solution_run_mismatch",),
+        ),
+        ("read_solution_run_boolean", ("read_solution_run_mismatch",)),
+        (
+            "read_completed_run_boolean",
+            ("read_completed_solution_run_mismatch",),
+        ),
+        ("mutation_epoch_boolean", ("mutation_epoch_mismatch",)),
+        ("readiness_fenced_false", ("readiness_fenced_not_true",)),
+        ("readiness_fenced_missing", ("readiness_fenced_not_true",)),
+    ],
+)
+def test_matching_scalar_cannot_override_fenced_read_provenance_failure(
+    tmp_path, case, expected_failures
+):
+    responses = _managed_success_responses()
+    read = responses["gh_inspect_output"][1]["data"]
+    if case == "receipt_hash_mismatch":
+        read["readiness_receipt_id"] = "different-receipt"
+    elif case == "session_mismatch":
+        read["document_session_id"] = "session-2"
+    elif case == "mutation_epoch_mismatch":
+        read["mutation_epoch"] = 14
+    elif case == "read_solution_run_mismatch":
+        read["solution_run_epoch"] = 43
+    elif case == "read_completed_run_mismatch":
+        read["completed_solution_run_epoch"] = 43
+    elif case == "read_solution_run_boolean":
+        responses["gh_set_value"]["data"]["solve_readiness_receipt"][
+            "completed_solution_run_epoch"
+        ] = 0
+        wait = responses["gh_wait_for_solve_readiness"]["data"]["receipt"]
+        wait["solution_run_epoch"] = 1
+        wait["completed_solution_run_epoch"] = 1
+        read["solution_run_epoch"] = True
+        read["completed_solution_run_epoch"] = 1
+    elif case == "read_completed_run_boolean":
+        responses["gh_set_value"]["data"]["solve_readiness_receipt"][
+            "completed_solution_run_epoch"
+        ] = 0
+        wait = responses["gh_wait_for_solve_readiness"]["data"]["receipt"]
+        wait["solution_run_epoch"] = 1
+        wait["completed_solution_run_epoch"] = 1
+        read["solution_run_epoch"] = 1
+        read["completed_solution_run_epoch"] = True
+    elif case == "mutation_epoch_boolean":
+        responses["gh_set_value"]["data"]["solve_readiness_receipt"][
+            "mutation_epoch"
+        ] = 1
+        responses["gh_wait_for_solve_readiness"]["data"]["receipt"][
+            "mutation_epoch"
+        ] = 1
+        read["mutation_epoch"] = True
+    elif case == "readiness_fenced_false":
+        read["readiness_fenced"] = False
+    elif case == "readiness_fenced_missing":
+        del read["readiness_fenced"]
+
+    _run_dir, executor, decision = _run_managed_probe(tmp_path, responses)
+
+    _assert_managed_invariant_rejection(
+        decision,
+        expected_failures=expected_failures,
+        readiness_wait_count=1,
+        fenced_output_read_count=1,
+    )
+    names = [name for name, _ in executor.calls]
+    assert names.count("gh_wait_for_solve_readiness") == 1
+    assert names.count("gh_inspect_output") == 2
+
+
+def test_managed_scalar_mismatch_with_correct_provenance_stays_scalar_failure(tmp_path):
+    responses = _managed_success_responses()
+    responses["gh_inspect_output"][1]["data"]["preview"] = ["7.4"]
+
+    _run_dir, executor, decision = _run_managed_probe(tmp_path, responses)
+
+    assert decision["decision"] == "rejected"
+    assert decision["phase"] == "verify_scalar_output"
+    assert decision["reason"] == "verify_scalar_output_failed"
+    assert decision["managed_verifier"]["failed_invariants"] == [
+        "fenced_output_scalar"
+    ]
+    assert decision["managed_verifier"]["readiness_wait_count"] == 1
+    assert decision["managed_verifier"]["fenced_output_read_count"] == 1
+    assert decision["managed_verifier"]["settle_read_count"] == 0
+    names = [name for name, _ in executor.calls]
+    assert names.count("gh_wait_for_solve_readiness") == 1
+    assert names.count("gh_inspect_output") == 2
 
 
 @pytest.mark.parametrize(
@@ -924,6 +2026,154 @@ def test_lm8i_source_does_not_import_lm8h_lm8g_repair_planner_retry_or_gh_edit_p
     )
     for fragment in forbidden_import_or_call_fragments:
         assert fragment not in source
+
+
+@pytest.mark.parametrize(
+    ("indirect_body", "expected_fragment"),
+    [
+        ('await tool_executor("gh_solve", {})', "gh_solve"),
+        ("await asyncio.sleep(0)", "asyncio.sleep"),
+        (
+            "await _dispatch_set_value_solve_and_verify(tool_executor=tool_executor)",
+            "_dispatch_set_value_solve_and_verify",
+        ),
+        (
+            'await tool_executor("gh_inspect_output", {"guid": "extra"})',
+            "gh_inspect_output",
+        ),
+        ('await gh_inspect_output("extra")', "gh_inspect_output"),
+    ],
+)
+def test_managed_verifier_guard_rejects_forbidden_work_in_indirect_helper(
+    indirect_body, expected_fragment
+):
+    source = f'''
+async def _dispatch_set_value_managed_receipt_and_verify(tool_executor):
+    await tool_executor("gh_set_value", {{}})
+    await tool_executor("gh_wait_for_solve_readiness", {{}})
+    await _first_helper(tool_executor)
+    await tool_executor(
+        "gh_inspect_output",
+        {{"readiness_receipt_id": "receipt-1"}},
+    )
+
+async def _first_helper(tool_executor):
+    await _indirect_helper(tool_executor)
+
+async def _indirect_helper(tool_executor):
+    {indirect_body}
+
+async def _dispatch_set_value_solve_and_verify(**_kwargs):
+    return None
+'''
+
+    violations = _managed_verifier_guard_violations(source)
+
+    assert any(expected_fragment in violation for violation in violations)
+
+
+def test_managed_verifier_guard_ignores_policy_strings_on_non_tool_calls():
+    source = '''
+async def _dispatch_set_value_managed_receipt_and_verify(tool_executor):
+    record("gh_solve")
+    await tool_executor("gh_set_value", {})
+    await tool_executor("gh_wait_for_solve_readiness", {})
+    await tool_executor(
+        "gh_inspect_output",
+        {"readiness_receipt_id": "receipt-1"},
+    )
+'''
+
+    assert _managed_verifier_guard_violations(source) == []
+
+
+def test_managed_profile_locks_root_call_graph_and_executor_contract():
+    tree = ast.parse(_script_path().read_text(encoding="utf-8"))
+    root = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.AsyncFunctionDef)
+        and node.name == _MANAGED_VERIFIER_ROOT
+    )
+    call_names = sorted(
+        {
+            call_name
+            for node in ast.walk(root)
+            if isinstance(node, ast.Call)
+            if (call_name := _ast_dotted_name(node.func)) is not None
+        }
+    )
+    assert call_names == [
+        "_guid_sha256",
+        "_inspect_output_scalar_value",
+        "_managed_decision_metadata",
+        "_managed_mutation_receipt_failures",
+        "_managed_provenance_failures",
+        "_managed_receipt_from_tool_result",
+        "_managed_receipt_summary",
+        "_managed_rejection",
+        "_managed_verify_summary",
+        "_managed_wait_data",
+        "_managed_wait_structure_failures",
+        "_managed_wait_summary",
+        "_mutation_receipt_terminal_reason",
+        "_normalize_readiness_failure",
+        "_tool_data",
+        "_tool_result_failed",
+        "abs",
+        "dict.fromkeys",
+        "float",
+        "isinstance",
+        "list",
+        "set_summary.update",
+        "tool_executor",
+        "type",
+        "verify_summary.update",
+        "wait_data.get",
+        "wait_failures.extend",
+        "wait_summary.get",
+    ]
+
+    executor_loads = [
+        node
+        for node in ast.walk(root)
+        if isinstance(node, ast.Name)
+        and node.id == "tool_executor"
+        and isinstance(node.ctx, ast.Load)
+    ]
+    executor_calls = [
+        node
+        for node in ast.walk(root)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "tool_executor"
+    ]
+    assert len(executor_loads) == 3
+    assert sorted(_literal_tool_name(call) for call in executor_calls) == [
+        "gh_inspect_output",
+        "gh_set_value",
+        "gh_wait_for_solve_readiness",
+    ]
+    inspect_call = next(
+        call
+        for call in executor_calls
+        if _literal_tool_name(call) == "gh_inspect_output"
+    )
+    assert _call_dict_argument_has_key(inspect_call, "readiness_receipt_id")
+
+
+def test_managed_verifier_reviewed_ast_closure_is_unchanged():
+    source = _script_path().read_text(encoding="utf-8")
+
+    assert _managed_verifier_closure_sha256(source) == (
+        "66b0adf07009e5f334918edcd21c18cdadb309f7f25823aded0367fdcab15972"
+    )
+
+
+def test_managed_profile_has_no_settle_fallback_or_extra_solve():
+    source = _script_path().read_text(encoding="utf-8")
+
+    assert _managed_verifier_guard_violations(source) == []
 
 
 def test_lm8i_source_does_not_contain_hidden_worker_value_literal():
