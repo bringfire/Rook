@@ -1407,6 +1407,7 @@ export async function runConfiguration({
 }
 
 function frames(count, callback, schedule, signal) {
+  if (count <= 0) return Promise.resolve();
   return new Promise((resolve, reject) => {
     let frame = 0;
     const step = () => {
@@ -1463,6 +1464,7 @@ Expected: tests prove the headline uses the worst completed trial and pooled dat
 - Create: experiments/threejs-rhino-stress/tests/evidence.test.js
 - Modify: experiments/threejs-rhino-stress/src/scene-generator.js
 - Modify: experiments/threejs-rhino-stress/src/benchmark.js
+- Modify: experiments/threejs-rhino-stress/tests/benchmark.test.js
 - Modify: experiments/threejs-rhino-stress/tests/fixture.test.js
 
 **Interfaces:**
@@ -1516,6 +1518,34 @@ it("reports arbitrary local-GLB pivot validation as unavailable", () => {
 });
 ~~~
 
+Extend tests/benchmark.test.js with the guarded initial-probe contract. The `vi` import already exists from Task 7:
+
+~~~js
+it("converts initial protocol-probe failure into an aborted trial", async () => {
+  const buildScene = vi.fn();
+  const dispose = vi.fn();
+  const result = await runTrial({
+    trialIndex: 0,
+    renderer: {},
+    buildScene,
+    evaluate: () => {},
+    dispose,
+    protocolProbe: () => {
+      throw new Error("benchmark document must remain visible");
+    },
+    schedule: (callback) => callback(),
+    now: () => 0,
+  });
+  expect(result).toMatchObject({
+    trialIndex: 0,
+    status: "aborted",
+    reason: "benchmark document must remain visible",
+  });
+  expect(buildScene).not.toHaveBeenCalled();
+  expect(dispose).not.toHaveBeenCalled();
+});
+~~~
+
 Extend tests/fixture.test.js after actor-index.js exists:
 
 ~~~js
@@ -1532,10 +1562,10 @@ expect(indexed.malformedIds).toEqual([]);
 - [ ] **Step 2: Run the red evidence tests**
 
 ~~~powershell
-npm test -- --run tests/evidence.test.js tests/fixture.test.js
+npm test -- --run tests/evidence.test.js tests/fixture.test.js tests/benchmark.test.js
 ~~~
 
-Expected: FAIL because evidence.js is absent and fixture lookup assertions are not yet supported by the test imports.
+Expected: FAIL because evidence.js is absent, fixture lookup assertions are not yet supported by the test imports, and runTrial does not yet execute the injected protocol probe.
 
 - [ ] **Step 3: Implement evidence capture**
 
@@ -1677,28 +1707,37 @@ export function countScene(root) {
 
 - [ ] **Step 5: Enforce protocol and retain complete trial evidence**
 
-In benchmark.js, import validateProtocolEnvironment and runCorrectnessChecks. Add a `protocolProbe` option whose browser default calls validateProtocolEnvironment, then invoke it at trial start and inside every warm-up/measured callback:
+In benchmark.js, import validateProtocolEnvironment and runCorrectnessChecks. Add a `protocolProbe` option whose browser default calls validateProtocolEnvironment. Invoke the initial probe as the first statement inside the existing guarded `try`, before construction, so probe failure returns the normal aborted-trial record. Also invoke it as the first statement in every warm-up and measured callback:
 
-~~~js
-export async function runTrial({
-  trialIndex, renderer, buildScene, evaluate, dispose, signal,
-  protocol = BENCHMARK_PROTOCOL,
-  checkCorrectness = runCorrectnessChecks,
-  protocolProbe = () => validateProtocolEnvironment({
-    visibilityState: document.visibilityState,
-    width: renderer.domElement.width,
-    height: renderer.domElement.height,
-  }),
-  schedule = requestAnimationFrame,
-  now = performance.now.bind(performance),
-}) {
-  protocolProbe();
-
-  // invoke protocolProbe() again at the start of both frame callbacks
-}
+~~~diff
+ export async function runTrial({
+   trialIndex, renderer, buildScene, evaluate, dispose, signal,
+   protocol = BENCHMARK_PROTOCOL,
+   checkCorrectness = runCorrectnessChecks,
++  protocolProbe = () => validateProtocolEnvironment({
++    visibilityState: document.visibilityState,
++    width: renderer.domElement.width,
++    height: renderer.domElement.height,
++  }),
+   schedule = requestAnimationFrame,
+   now = performance.now.bind(performance),
+ }) {
+@@
+   try {
++    protocolProbe();
+     const started = now();
+     context = await buildScene();
+@@
+     await frames(protocol.warmupFrames, (frame) => {
++      protocolProbe();
+       evaluate(context, frame / 60);
+@@
+     await frames(protocol.measuredFrames, (frame) => {
++      protocolProbe();
+       const frameStart = now();
 ~~~
 
-Update Node-side runTrial tests, including the exactly-one-traversal test, to pass `protocolProbe: () => {}`. This keeps browser protocol enforcement load-bearing without requiring DOM globals in Vitest's Node environment.
+Apply these additions to the single full `try`/`catch`/`finally` lifecycle implemented in Task 7; do not introduce a second lifecycle or call the initial probe before `try`. Update Node-side runTrial tests, including the exactly-one-traversal test, to pass `protocolProbe: () => {}`. This keeps browser protocol enforcement load-bearing without requiring DOM globals in Vitest's Node environment. The initial-probe failure test deliberately injects a throwing probe and proves that construction and disposal do not run when no context exists.
 
 After the final measured render, capture:
 
@@ -1737,11 +1776,11 @@ Make buildSynthetic and the local GLB builder attach countScene(scene) as struct
 npm test -- --run tests/evidence.test.js tests/fixture.test.js tests/benchmark.test.js
 npm test
 npm run build
-git add experiments/threejs-rhino-stress/src/evidence.js experiments/threejs-rhino-stress/src/scene-generator.js experiments/threejs-rhino-stress/src/benchmark.js experiments/threejs-rhino-stress/tests/evidence.test.js experiments/threejs-rhino-stress/tests/fixture.test.js
+git add experiments/threejs-rhino-stress/src/evidence.js experiments/threejs-rhino-stress/src/scene-generator.js experiments/threejs-rhino-stress/src/benchmark.js experiments/threejs-rhino-stress/tests/evidence.test.js experiments/threejs-rhino-stress/tests/benchmark.test.js experiments/threejs-rhino-stress/tests/fixture.test.js
 git commit -m "feat: capture benchmark correctness evidence"
 ~~~
 
-Expected: protocol invalidation, metadata lookup, pivot, independent-transform, deterministic-seek, structure, and report evidence tests pass.
+Expected: protocol invalidation (including guarded initial-probe failure), metadata lookup, pivot, independent-transform, deterministic-seek, structure, and report evidence tests pass.
 
 
 ---
