@@ -1105,6 +1105,7 @@ def test_managed_receipt_path_waits_then_reads_once_with_bounded_artifacts(tmp_p
         "tolerance": PROBE.SCALAR_TOLERANCE,
         "matched": True,
         "reported_success": True,
+        "requested_receipt_id_sha256": PROBE._receipt_id_sha256(RECEIPT_ID),
         "receipt_id_sha256": PROBE._receipt_id_sha256(RECEIPT_ID),
         "document_session_id": "session-1",
         "mutation_epoch": 13,
@@ -1317,21 +1318,95 @@ def test_managed_terminal_wait_outcome_stops_before_fenced_read(
     assert RECEIPT_ID not in json.dumps(wait, sort_keys=True)
 
 
-def test_managed_fenced_read_product_failure_is_terminal_without_follow_up(tmp_path):
+@pytest.mark.parametrize(
+    ("read_result", "expected_reason"),
+    [
+        (
+            {"success": False, "data": {"error": "readiness_receipt_not_ready"}},
+            "readiness_receipt_not_ready",
+        ),
+        (
+            {
+                "success": False,
+                "data": {
+                    "error": "readiness_receipt_stale_solution_run",
+                    "readiness_receipt_id": RECEIPT_ID,
+                    "document_session_id": "session-1",
+                    "mutation_epoch": 13,
+                    "solution_run_epoch": 43,
+                    "completed_solution_run_epoch": 43,
+                    "readiness_fenced": False,
+                },
+            },
+            "readiness_receipt_stale_solution_run",
+        ),
+    ],
+)
+def test_managed_fenced_read_product_failure_writes_attempt_receipt(
+    tmp_path,
+    read_result,
+    expected_reason,
+):
     responses = _managed_success_responses()
-    responses["gh_inspect_output"][1] = {
-        "success": False,
-        "data": {"error": "readiness_receipt_not_ready"},
-    }
+    responses["gh_inspect_output"][1] = read_result
 
-    _run_dir, executor, decision = _run_managed_probe(tmp_path, responses)
+    run_dir, executor, decision = _run_managed_probe(tmp_path, responses)
 
     assert decision["decision"] == "rejected"
     assert decision["phase"] == "verifier_readiness"
-    assert decision["reason"] == "readiness_receipt_not_ready"
+    assert decision["reason"] == expected_reason
+    assert decision["verify_scalar_output_ran"] is True
     assert decision["managed_verifier"]["readiness_wait_count"] == 1
     assert decision["managed_verifier"]["fenced_output_read_count"] == 1
     assert decision["managed_verifier"]["settle_read_count"] == 0
+    verify = json.loads(
+        (run_dir / "verify_scalar_output_summary.json").read_text(encoding="utf-8")
+    )
+    assert verify["schema"] == "rook.lm8l_fenced_output_verification_summary:v1"
+    assert verify["fenced_output_read_count"] == 1
+    assert verify["settle_read_count"] == 0
+    assert verify["reported_success"] is False
+    assert verify["matched"] is False
+    assert verify["failure_reason"] == expected_reason
+    assert verify["requested_receipt_id_sha256"] == PROBE._receipt_id_sha256(
+        RECEIPT_ID
+    )
+    assert RECEIPT_ID not in json.dumps(verify, sort_keys=True)
+    if expected_reason == "readiness_receipt_stale_solution_run":
+        assert verify["receipt_id_sha256"] == PROBE._receipt_id_sha256(RECEIPT_ID)
+        assert verify["document_session_id"] == "session-1"
+        assert verify["mutation_epoch"] == 13
+        assert verify["solution_run_epoch"] == 43
+        assert verify["completed_solution_run_epoch"] == 43
+    names = [name for name, _ in executor.calls]
+    assert names.count("gh_wait_for_solve_readiness") == 1
+    assert names.count("gh_inspect_output") == 2
+
+
+def test_managed_fenced_read_exception_writes_attempt_receipt(tmp_path):
+    responses = _managed_success_responses()
+    responses["gh_inspect_output"][1] = RuntimeError("transport detail")
+
+    run_dir, executor, decision = _run_managed_probe(tmp_path, responses)
+
+    assert decision["decision"] == "rejected"
+    assert decision["reason"] == "gh_inspect_output_exception:RuntimeError"
+    assert decision["verify_scalar_output_ran"] is True
+    verify = json.loads(
+        (run_dir / "verify_scalar_output_summary.json").read_text(encoding="utf-8")
+    )
+    assert verify["reported_success"] is False
+    assert verify["matched"] is False
+    assert verify["failure_reason"] == "gh_inspect_output_exception:RuntimeError"
+    assert verify["exception"] == "RuntimeError"
+    assert "transport detail" not in json.dumps(verify, sort_keys=True)
+    assert verify["requested_receipt_id_sha256"] == PROBE._receipt_id_sha256(
+        RECEIPT_ID
+    )
+    assert verify["receipt_id_sha256"] is None
+    assert verify["fenced_output_read_count"] == 1
+    assert verify["settle_read_count"] == 0
+    assert RECEIPT_ID not in json.dumps(verify, sort_keys=True)
     names = [name for name, _ in executor.calls]
     assert names.count("gh_wait_for_solve_readiness") == 1
     assert names.count("gh_inspect_output") == 2
@@ -2037,12 +2112,12 @@ def test_managed_profile_locks_root_call_graph_and_executor_contract():
         "_managed_receipt_from_tool_result",
         "_managed_receipt_summary",
         "_managed_rejection",
+        "_managed_verify_summary",
         "_managed_wait_data",
         "_managed_wait_structure_failures",
         "_managed_wait_summary",
         "_mutation_receipt_terminal_reason",
         "_normalize_readiness_failure",
-        "_receipt_id_sha256",
         "_tool_data",
         "_tool_result_failed",
         "abs",
@@ -2050,7 +2125,6 @@ def test_managed_profile_locks_root_call_graph_and_executor_contract():
         "float",
         "isinstance",
         "list",
-        "output_data.get",
         "set_summary.update",
         "tool_executor",
         "type",
@@ -2092,7 +2166,7 @@ def test_managed_verifier_reviewed_ast_closure_is_unchanged():
     source = _script_path().read_text(encoding="utf-8")
 
     assert _managed_verifier_closure_sha256(source) == (
-        "0f9b9e3a83ee6625bd26155a0c5ac69e402c5ad1242f106523961ae488670f40"
+        "66b0adf07009e5f334918edcd21c18cdadb309f7f25823aded0367fdcab15972"
     )
 
 

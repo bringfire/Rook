@@ -1923,6 +1923,73 @@ def _managed_rejection(
     }
 
 
+def _managed_verify_summary(
+    *,
+    addition_component_guid: str,
+    expected_value: float | int,
+    requested_receipt_id: str,
+    output_data: Mapping[str, Any] | None,
+    reported_success: bool,
+    failure_reason: str | None = None,
+    exception: str | None = None,
+) -> dict[str, Any]:
+    returned_receipt_id = (
+        output_data.get("readiness_receipt_id")
+        if output_data is not None
+        else None
+    )
+    summary = {
+        "schema": MANAGED_VERIFY_SCHEMA,
+        "tool_name": "gh_inspect_output",
+        "component_guid_sha256": _guid_sha256(addition_component_guid),
+        "verifier_profile": MANAGED_VERIFIER_PROFILE,
+        "readiness_wait_timeout_ms": READINESS_WAIT_TIMEOUT_MS,
+        "readiness_wait_count": 1,
+        "expected_output_value": expected_value,
+        "tolerance": SCALAR_TOLERANCE,
+        "requested_receipt_id_sha256": _receipt_id_sha256(
+            requested_receipt_id
+        ),
+        "receipt_id_sha256": (
+            _receipt_id_sha256(returned_receipt_id)
+            if isinstance(returned_receipt_id, str) and returned_receipt_id
+            else None
+        ),
+        "document_session_id": (
+            output_data.get("document_session_id")
+            if output_data is not None
+            else None
+        ),
+        "mutation_epoch": (
+            output_data.get("mutation_epoch") if output_data is not None else None
+        ),
+        "solution_run_epoch": (
+            output_data.get("solution_run_epoch")
+            if output_data is not None
+            else None
+        ),
+        "completed_solution_run_epoch": (
+            output_data.get("completed_solution_run_epoch")
+            if output_data is not None
+            else None
+        ),
+        "fenced_output_read_count": 1,
+        "settle_read_count": 0,
+        "readiness_fenced": (
+            output_data.get("readiness_fenced")
+            if output_data is not None
+            else None
+        ),
+        "reported_success": reported_success,
+        "matched": False,
+    }
+    if failure_reason is not None:
+        summary["failure_reason"] = failure_reason
+    if exception is not None:
+        summary["exception"] = exception
+    return summary
+
+
 async def _dispatch_set_value_managed_receipt_and_verify(
     *,
     tool_executor: Callable[[str, Mapping[str, Any]], Awaitable[Any]],
@@ -2092,12 +2159,22 @@ async def _dispatch_set_value_managed_receipt_and_verify(
             },
         )
     except Exception as exc:
+        reason = f"gh_inspect_output_exception:{type(exc).__name__}"
+        verify_summary = _managed_verify_summary(
+            addition_component_guid=addition_component_guid,
+            expected_value=expected_value,
+            requested_receipt_id=pending_receipt["receipt_id"],
+            output_data=None,
+            reported_success=False,
+            failure_reason=reason,
+            exception=type(exc).__name__,
+        )
         return {
             "live_set_value_summary": set_summary,
             "readiness_wait_summary": wait_summary,
-            "verify_scalar_output_summary": None,
+            "verify_scalar_output_summary": verify_summary,
             "decision": _managed_rejection(
-                reason=f"gh_inspect_output_exception:{type(exc).__name__}",
+                reason=reason,
                 phase="verifier_readiness",
                 readiness_wait_count=1,
                 fenced_output_read_count=1,
@@ -2108,10 +2185,18 @@ async def _dispatch_set_value_managed_receipt_and_verify(
     output_data = _tool_data(inspect_result)
     if _tool_result_failed(inspect_result) or not isinstance(output_data, Mapping):
         reason = _normalize_readiness_failure(inspect_result, stage="read")
+        verify_summary = _managed_verify_summary(
+            addition_component_guid=addition_component_guid,
+            expected_value=expected_value,
+            requested_receipt_id=pending_receipt["receipt_id"],
+            output_data=output_data if isinstance(output_data, Mapping) else None,
+            reported_success=False,
+            failure_reason=reason,
+        )
         return {
             "live_set_value_summary": set_summary,
             "readiness_wait_summary": wait_summary,
-            "verify_scalar_output_summary": None,
+            "verify_scalar_output_summary": verify_summary,
             "decision": _managed_rejection(
                 reason=reason,
                 phase="verifier_readiness",
@@ -2121,38 +2206,19 @@ async def _dispatch_set_value_managed_receipt_and_verify(
             ),
         }
 
-    read_receipt_id = output_data.get("readiness_receipt_id")
-    verify_summary = {
-        "schema": MANAGED_VERIFY_SCHEMA,
-        "tool_name": "gh_inspect_output",
-        "component_guid_sha256": _guid_sha256(addition_component_guid),
-        "verifier_profile": MANAGED_VERIFIER_PROFILE,
-        "readiness_wait_timeout_ms": READINESS_WAIT_TIMEOUT_MS,
-        "readiness_wait_count": 1,
-        "expected_output_value": expected_value,
-        "tolerance": SCALAR_TOLERANCE,
-        "receipt_id_sha256": (
-            _receipt_id_sha256(read_receipt_id)
-            if isinstance(read_receipt_id, str) and read_receipt_id
-            else None
-        ),
-        "document_session_id": output_data.get("document_session_id"),
-        "mutation_epoch": output_data.get("mutation_epoch"),
-        "solution_run_epoch": output_data.get("solution_run_epoch"),
-        "completed_solution_run_epoch": output_data.get(
-            "completed_solution_run_epoch"
-        ),
-        "fenced_output_read_count": 1,
-        "settle_read_count": 0,
-        "readiness_fenced": output_data.get("readiness_fenced"),
-    }
+    verify_summary = _managed_verify_summary(
+        addition_component_guid=addition_component_guid,
+        expected_value=expected_value,
+        requested_receipt_id=pending_receipt["receipt_id"],
+        output_data=output_data,
+        reported_success=True,
+    )
     provenance_failures = _managed_provenance_failures(
         mutation=mutation_summary,
         wait=wait_summary,
         read=verify_summary,
     )
     if provenance_failures:
-        verify_summary.update({"reported_success": True, "matched": False})
         return {
             "live_set_value_summary": set_summary,
             "readiness_wait_summary": wait_summary,
@@ -2168,7 +2234,6 @@ async def _dispatch_set_value_managed_receipt_and_verify(
     try:
         observed_output_value = _inspect_output_scalar_value(inspect_result)
     except ValueError:
-        verify_summary.update({"reported_success": True, "matched": False})
         return {
             "live_set_value_summary": set_summary,
             "readiness_wait_summary": wait_summary,
@@ -2185,7 +2250,6 @@ async def _dispatch_set_value_managed_receipt_and_verify(
     matched = abs(float(observed_output_value) - float(expected_value)) <= SCALAR_TOLERANCE
     verify_summary.update(
         {
-            "reported_success": True,
             "observed_output_value": observed_output_value,
             "matched": matched,
         }
@@ -2884,6 +2948,26 @@ def _run_probe(
             dispatch["verify_scalar_output_summary"],
         )
     final = dispatch["decision"]
+    if verifier_profile == MANAGED_VERIFIER_PROFILE:
+        managed_decision = final.get("managed_verifier")
+        verification_attempt_count = (
+            managed_decision.get("fenced_output_read_count", 0)
+            if isinstance(managed_decision, Mapping)
+            else 0
+        )
+    else:
+        verify_summary = dispatch["verify_scalar_output_summary"]
+        attempts_value = (
+            verify_summary.get("attempts", ())
+            if isinstance(verify_summary, Mapping)
+            else ()
+        )
+        verification_attempt_count = (
+            len(attempts_value)
+            if isinstance(attempts_value, Sequence)
+            and not isinstance(attempts_value, (str, bytes))
+            else 0
+        )
     _write_json(
         run_dir / "decision.json",
         _decision_record(
@@ -2895,7 +2979,7 @@ def _run_probe(
             live_fixture_created=True,
             worker_publication_ran=True,
             live_set_value_dispatched=True,
-            verify_scalar_output_ran=dispatch["verify_scalar_output_summary"] is not None,
+            verify_scalar_output_ran=verification_attempt_count > 0,
             component_guid=editable_component_guid,
             extra={
                 **support_extra,
