@@ -1705,7 +1705,7 @@ def _managed_receipt_summary(receipt: Mapping[str, Any]) -> dict[str, Any]:
         "mutation_epoch": receipt["mutation_epoch"],
         "solution_run_epoch": receipt["solution_run_epoch"],
         "completed_solution_run_epoch": receipt["completed_solution_run_epoch"],
-        "status": receipt["status"],
+        "receipt_status": receipt["status"],
     }
 
 
@@ -1868,7 +1868,10 @@ async def _dispatch_set_value_managed_receipt_and_verify(
                 failed_invariants=("managed_pending_receipt",),
             ),
         }
-    set_summary["managed_mutation"] = _managed_receipt_summary(pending_receipt)
+    set_summary["managed_mutation"] = {
+        "schema": MANAGED_MUTATION_SCHEMA,
+        **_managed_receipt_summary(pending_receipt),
+    }
 
     try:
         wait_result = await tool_executor(
@@ -1917,6 +1920,8 @@ async def _dispatch_set_value_managed_receipt_and_verify(
     wait_summary = {
         "schema": MANAGED_WAIT_SCHEMA,
         "tool_name": "gh_wait_for_solve_readiness",
+        "requested_timeout_ms": READINESS_WAIT_TIMEOUT_MS,
+        "readiness_wait_count": 1,
         "wait_status": "ready",
         **_managed_receipt_summary(ready_receipt),
     }
@@ -1949,6 +1954,9 @@ async def _dispatch_set_value_managed_receipt_and_verify(
         "schema": MANAGED_VERIFY_SCHEMA,
         "tool_name": "gh_inspect_output",
         "component_guid_sha256": _guid_sha256(addition_component_guid),
+        "verifier_profile": MANAGED_VERIFIER_PROFILE,
+        "readiness_wait_timeout_ms": READINESS_WAIT_TIMEOUT_MS,
+        "readiness_wait_count": 1,
         "expected_output_value": expected_value,
         "tolerance": SCALAR_TOLERANCE,
         "receipt_id_sha256": _receipt_id_sha256(pending_receipt["receipt_id"]),
@@ -1960,6 +1968,7 @@ async def _dispatch_set_value_managed_receipt_and_verify(
         ],
         "fenced_output_read_count": 1,
         "settle_read_count": 0,
+        "readiness_fenced": True,
     }
     if _tool_result_failed(inspect_result) or not isinstance(output_data, Mapping):
         verify_summary.update({"reported_success": False, "matched": False})

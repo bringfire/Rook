@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import inspect
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -708,6 +709,13 @@ def test_managed_receipt_path_waits_then_reads_once_with_bounded_artifacts(tmp_p
         "gh_inspect_output",
     ]
     assert "gh_solve" not in tool_tail
+    wait_call = executor.calls[-2]
+    inspect_call = executor.calls[-1]
+    assert wait_call[1] == {
+        "readiness_receipt_id": RECEIPT_ID,
+        "timeout_ms": 10_000,
+    }
+    assert inspect_call[1]["readiness_receipt_id"] == RECEIPT_ID
 
     decision = json.loads((run_dir / "decision.json").read_text())
     assert decision["decision"] == "accepted"
@@ -719,11 +727,73 @@ def test_managed_receipt_path_waits_then_reads_once_with_bounded_artifacts(tmp_p
         (run_dir / "verify_scalar_output_summary.json").read_text()
     )
 
-    assert mutation["managed_mutation"]["solution_run_epoch"] is None
-    assert mutation["managed_mutation"]["completed_solution_run_epoch"] == 41
-    assert wait["solution_run_epoch"] == 42
-    assert verify["fenced_output_read_count"] == 1
-    assert verify["settle_read_count"] == 0
+    managed_mutation = mutation["managed_mutation"]
+    assert managed_mutation == {
+        "schema": "rook.lm8l_managed_mutation_summary:v1",
+        "receipt_schema": "rook.gh_solve_readiness_receipt:v1",
+        "receipt_status": "pending",
+        "receipt_id_sha256": PROBE._receipt_id_sha256(RECEIPT_ID),
+        "document_session_id": "session-1",
+        "mutation_epoch": 13,
+        "solution_run_epoch": None,
+        "completed_solution_run_epoch": 41,
+    }
+    assert wait == {
+        "schema": "rook.lm8l_readiness_wait_summary:v1",
+        "tool_name": "gh_wait_for_solve_readiness",
+        "requested_timeout_ms": 10_000,
+        "readiness_wait_count": 1,
+        "wait_status": "ready",
+        "receipt_schema": "rook.gh_solve_readiness_receipt:v1",
+        "receipt_status": "ready",
+        "receipt_id_sha256": PROBE._receipt_id_sha256(RECEIPT_ID),
+        "document_session_id": "session-1",
+        "mutation_epoch": 13,
+        "solution_run_epoch": 42,
+        "completed_solution_run_epoch": 42,
+    }
+    assert verify == {
+        "schema": "rook.lm8l_fenced_output_verification_summary:v1",
+        "tool_name": "gh_inspect_output",
+        "component_guid_sha256": PROBE._guid_sha256("ADDITION-GUID-1"),
+        "verifier_profile": PROBE.MANAGED_VERIFIER_PROFILE,
+        "readiness_wait_timeout_ms": 10_000,
+        "readiness_wait_count": 1,
+        "fenced_output_read_count": 1,
+        "settle_read_count": 0,
+        "readiness_fenced": True,
+        "expected_output_value": 7.5,
+        "observed_output_value": 7.5,
+        "tolerance": PROBE.SCALAR_TOLERANCE,
+        "matched": True,
+        "reported_success": True,
+        "receipt_id_sha256": PROBE._receipt_id_sha256(RECEIPT_ID),
+        "document_session_id": "session-1",
+        "mutation_epoch": 13,
+        "solution_run_epoch": 42,
+        "completed_solution_run_epoch": 42,
+    }
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", managed_mutation["receipt_id_sha256"])
+    assert wait["receipt_id_sha256"] == managed_mutation["receipt_id_sha256"]
+    assert verify["receipt_id_sha256"] == managed_mutation["receipt_id_sha256"]
+    assert wait["document_session_id"] == managed_mutation["document_session_id"]
+    assert verify["document_session_id"] == managed_mutation["document_session_id"]
+    assert wait["mutation_epoch"] == managed_mutation["mutation_epoch"]
+    assert verify["mutation_epoch"] == managed_mutation["mutation_epoch"]
+    assert verify["solution_run_epoch"] == wait["solution_run_epoch"]
+    assert verify["completed_solution_run_epoch"] == wait["completed_solution_run_epoch"]
+    assert wait["solution_run_epoch"] > managed_mutation["completed_solution_run_epoch"]
+    assert decision["managed_verifier"] == {
+        "schema": "rook.lm8l_managed_verifier_decision:v1",
+        "verifier_profile": PROBE.MANAGED_VERIFIER_PROFILE,
+        "verifier_mechanism": PROBE.VERIFIER_MECHANISM,
+        "fixture_readiness_profile": PROBE.FIXTURE_READINESS_PROFILE,
+        "readiness_wait_timeout_ms": 10_000,
+        "readiness_wait_count": 1,
+        "fenced_output_read_count": 1,
+        "settle_read_count": 0,
+        "failed_invariants": [],
+    }
 
     for artifact in (mutation, wait, verify, decision):
         assert RECEIPT_ID not in json.dumps(artifact, sort_keys=True)
