@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
+using System.Threading;
 using Rook;
 using Rook.Handlers;
 using Rook.InternalBridge;
@@ -125,6 +126,163 @@ namespace Rook.Tests.InternalBridge
                 $"Bare GetGrasshopper() calls must stay limited to lifecycle routes. Found: {callSummary}");
         }
 
+        [Fact]
+        public void ReadinessWait_UsesDedicatedOffUiExecutor()
+        {
+            var method = ExtractMethod(
+                ReadRegistrarSource(),
+                "private static int HandleWaitForSolveReadiness");
+
+            Assert.Contains("ExecuteReadinessWaitCallback", method);
+            AssertReadinessCodeStaysDirect(method);
+        }
+
+        [Fact]
+        public void ReadinessStatus_UsesDedicatedOffUiExecutor()
+        {
+            var method = ExtractMethod(
+                ReadRegistrarSource(),
+                "private static int HandleSolveReadiness");
+
+            Assert.Contains("ExecuteReadinessStatusCallback", method);
+            AssertReadinessCodeStaysDirect(method);
+        }
+
+        [Fact]
+        public void ReadinessExecutors_RunDirectlyWithoutUiDispatchOrWorkerHop()
+        {
+            var callerThread = Thread.CurrentThread.ManagedThreadId;
+            int? statusThread = null;
+            int? waitThread = null;
+
+            InvokeReadinessExecutorForTests("ExecuteReadinessStatusForTests", () =>
+            {
+                statusThread = Thread.CurrentThread.ManagedThreadId;
+                return new ApiResponse { Success = true, Data = new { status = "ready" } };
+            });
+            InvokeReadinessExecutorForTests("ExecuteReadinessWaitForTests", () =>
+            {
+                waitThread = Thread.CurrentThread.ManagedThreadId;
+                return new ApiResponse { Success = true, Data = new { wait_status = "ready" } };
+            });
+
+            Assert.Equal(callerThread, statusThread);
+            Assert.Equal(callerThread, waitThread);
+        }
+
+        [Fact]
+        public void ReadinessWait_MaximumTimeoutReachesManagedHandlerUnchanged()
+        {
+            string? observedReceiptId = null;
+            int? observedTimeoutMs = null;
+            var method = typeof(NativeGhBridgeRegistrar).GetMethod(
+                "ExecuteReadinessWaitForTests",
+                BindingFlags.Static | BindingFlags.NonPublic,
+                binder: null,
+                types: new[] { typeof(string), typeof(Func<string, int, ApiResponse>) },
+                modifiers: null);
+            Assert.NotNull(method);
+
+            var result = Assert.IsType<ApiResponse>(method!.Invoke(null, new object[]
+            {
+                "{\"readiness_receipt_id\":\"opaque-maximum\",\"timeout_ms\":300000}",
+                new Func<string?, int, ApiResponse>((receiptId, timeoutMs) =>
+                {
+                    observedReceiptId = receiptId;
+                    observedTimeoutMs = timeoutMs;
+                    return new ApiResponse { Success = true, Data = new { wait_status = "terminal" } };
+                }),
+            }));
+
+            Assert.True(result.Success);
+            Assert.Equal("opaque-maximum", observedReceiptId);
+            Assert.Equal(300000, observedTimeoutMs);
+        }
+
+        [Fact]
+        public void ReadinessRoutes_AppendAbi18Callbacks()
+        {
+            var registrar = ReadRegistrarSource();
+            var nativeProxy = ReadNativeProxySource();
+
+            Assert.Contains("private const uint BridgeAbiVersion = 18", registrar);
+            Assert.Contains("constexpr uint32_t kGhBridgeAbiVersion = 18", nativeProxy);
+            AssertStructTail(
+                ExtractTypeBody(registrar, "private struct NativeGhBridgeRegistration"),
+                "public IntPtr GhSolveReadiness;",
+                "public IntPtr GhWaitForSolveReadiness;");
+            AssertStructTail(
+                ExtractTypeBody(nativeProxy, "struct GhBridgeRegistration"),
+                "GhBridgeCallbackFn gh_solve_readiness = nullptr;",
+                "GhBridgeCallbackFn gh_wait_for_solve_readiness = nullptr;");
+
+            Assert.Contains("SolveReadinessCallback = HandleSolveReadiness", registrar);
+            Assert.Contains("WaitForSolveReadinessCallback = HandleWaitForSolveReadiness", registrar);
+            Assert.Contains("GhSolveReadiness = Marshal.GetFunctionPointerForDelegate(SolveReadinessCallback)", registrar);
+            Assert.Contains("GhWaitForSolveReadiness = Marshal.GetFunctionPointerForDelegate(WaitForSolveReadinessCallback)", registrar);
+
+            var registrationCheck = ExtractMethod(
+                nativeProxy,
+                "bool HasGrasshopperCoreRegistrationLocked");
+            Assert.Contains("registration.gh_solve_readiness != nullptr", registrationCheck);
+            Assert.Contains("registration.gh_wait_for_solve_readiness != nullptr", registrationCheck);
+        }
+
+        [Fact]
+        public void ReadinessProxyAndServerRoutes_AreWiredExactly()
+        {
+            var root = FindRepoRoot();
+            var nativeProxy = ReadNativeProxySource();
+            var nativeProxyHeader = File.ReadAllText(Path.Combine(
+                root, "src", "RookNative", "Handlers", "GrasshopperProxyHandler.h"));
+            var server = File.ReadAllText(Path.Combine(root, "src", "RookNative", "RookServer.cpp"));
+            var serverHeader = File.ReadAllText(Path.Combine(root, "src", "RookNative", "RookServer.h"));
+
+            Assert.Contains("void HandleGrasshopperSolveReadiness", nativeProxyHeader);
+            Assert.Contains("void HandleGrasshopperWaitForSolveReadiness", nativeProxyHeader);
+            Assert.Contains("void HandleGrasshopperSolveReadiness", serverHeader);
+            Assert.Contains("void HandleGrasshopperWaitForSolveReadiness", serverHeader);
+
+            var statusProxy = ExtractMethod(nativeProxy, "void HandleGrasshopperSolveReadiness");
+            Assert.Contains("DispatchGrasshopperRoute", statusProxy);
+            Assert.Contains("\"/gh/solve-readiness\"", statusProxy);
+            Assert.Contains("registration.gh_solve_readiness", statusProxy);
+
+            var waitProxy = ExtractMethod(nativeProxy, "void HandleGrasshopperWaitForSolveReadiness");
+            Assert.Contains("DispatchGrasshopperRoute", waitProxy);
+            Assert.Contains("\"/gh/wait-for-solve-readiness\"", waitProxy);
+            Assert.Contains("registration.gh_wait_for_solve_readiness", waitProxy);
+
+            Assert.Contains("ghGet(\"/gh/solve-readiness\"", server);
+            Assert.Contains("HandleGrasshopperSolveReadiness(req, res);", server);
+            Assert.Contains("ghPost(\"/gh/wait-for-solve-readiness\"", server);
+            Assert.Contains("HandleGrasshopperWaitForSolveReadiness(req, res);", server);
+        }
+
+        [Fact]
+        public void ReadinessHandlersAndExecutors_StayOffUiAndNonPolling()
+        {
+            var source = ReadRegistrarSource();
+            var methodSignatures = new[]
+            {
+                "private static int HandleSolveReadiness",
+                "private static int HandleWaitForSolveReadiness",
+                "private static ApiResponse ExecuteReadinessStatusCallback",
+                "private static ApiResponse ExecuteReadinessWaitCallback",
+                "private static int ExecuteDirectReadinessCallback",
+            };
+
+            foreach (var signature in methodSignatures)
+            {
+                AssertReadinessCodeStaysDirect(ExtractMethod(source, signature));
+            }
+
+            var directSerializer = ExtractMethod(
+                source,
+                "private static int ExecuteDirectReadinessCallback");
+            Assert.Contains("MapBridgeStatus(result)", directSerializer);
+        }
+
         private static void AssertGrasshopperNotReady(ApiResponse result, string operation)
         {
             Assert.False(result.Success);
@@ -172,6 +330,117 @@ namespace Rook.Tests.InternalBridge
                 dir = dir.Parent;
             }
             throw new DirectoryNotFoundException("Could not locate Rook.sln from test output directory.");
+        }
+
+        private static string ReadRegistrarSource() => File.ReadAllText(Path.Combine(
+            FindRepoRoot(),
+            "src",
+            "Rook",
+            "InternalBridge",
+            "NativeGhBridgeRegistrar.cs"));
+
+        private static string ReadNativeProxySource() => File.ReadAllText(Path.Combine(
+            FindRepoRoot(),
+            "src",
+            "RookNative",
+            "Handlers",
+            "GrasshopperProxyHandler.cpp"));
+
+        private static string ExtractMethod(string source, string signature)
+        {
+            var signatureIndex = source.IndexOf(signature, StringComparison.Ordinal);
+            Assert.True(signatureIndex >= 0, $"Could not find method: {signature}");
+
+            var bodyStart = source.IndexOf('{', signatureIndex);
+            Assert.True(bodyStart > signatureIndex, $"Could not find method body: {signature}");
+
+            var depth = 0;
+            for (var index = bodyStart; index < source.Length; index++)
+            {
+                if (source[index] == '{')
+                {
+                    depth++;
+                }
+                else if (source[index] == '}' && --depth == 0)
+                {
+                    return source.Substring(signatureIndex, index - signatureIndex + 1);
+                }
+            }
+
+            throw new Xunit.Sdk.XunitException($"Unterminated method body: {signature}");
+        }
+
+        private static string ExtractTypeBody(string source, string declaration)
+        {
+            var declarationIndex = source.IndexOf(declaration, StringComparison.Ordinal);
+            Assert.True(declarationIndex >= 0, $"Could not find type: {declaration}");
+
+            var bodyStart = source.IndexOf('{', declarationIndex);
+            Assert.True(bodyStart > declarationIndex, $"Could not find type body: {declaration}");
+
+            var depth = 0;
+            for (var index = bodyStart; index < source.Length; index++)
+            {
+                if (source[index] == '{')
+                {
+                    depth++;
+                }
+                else if (source[index] == '}' && --depth == 0)
+                {
+                    return source.Substring(bodyStart + 1, index - bodyStart - 1);
+                }
+            }
+
+            throw new Xunit.Sdk.XunitException($"Unterminated type body: {declaration}");
+        }
+
+        private static void AssertStructTail(string body, string penultimateField, string finalField)
+        {
+            var statements = body
+                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => line.Trim())
+                .Where(line => line.EndsWith(";", StringComparison.Ordinal))
+                .ToArray();
+
+            Assert.True(statements.Length >= 2, "Expected at least two fields in the registration structure.");
+            Assert.Equal(penultimateField, statements[statements.Length - 2]);
+            Assert.Equal(finalField, statements[statements.Length - 1]);
+        }
+
+        private static void AssertReadinessCodeStaysDirect(string source)
+        {
+            var forbidden = new[]
+            {
+                "ExecuteApiResponseCallback",
+                "DocumentContext.WithDocument",
+                "RhinoApp.InvokeOnUiThread",
+                "Task.Run",
+                "Thread.Sleep",
+                "Task.Delay",
+                "System.Threading.Timer",
+                "while (",
+                "for (",
+            };
+
+            foreach (var token in forbidden)
+            {
+                Assert.DoesNotContain(token, source, StringComparison.Ordinal);
+            }
+        }
+
+        private static ApiResponse InvokeReadinessExecutorForTests(
+            string methodName,
+            Func<ApiResponse> operation)
+        {
+            var method = typeof(NativeGhBridgeRegistrar).GetMethod(
+                methodName,
+                BindingFlags.Static | BindingFlags.NonPublic,
+                binder: null,
+                types: new[] { typeof(Func<ApiResponse>) },
+                modifiers: null);
+            Assert.NotNull(method);
+
+            return Assert.IsType<ApiResponse>(method!.Invoke(null, new object[] { operation }));
         }
 
         private static string ExtractSwitchArm(string source, string caseLabel)

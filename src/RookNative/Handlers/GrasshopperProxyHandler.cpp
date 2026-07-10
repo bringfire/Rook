@@ -79,7 +79,7 @@ int EnsureMake2dHiddenLayer(CRhinoDoc* pDoc, int parentLayerIdx)
 }
 
 constexpr auto kDiscoveryFolderName = "rook";
-constexpr uint32_t kGhBridgeAbiVersion = 17;
+constexpr uint32_t kGhBridgeAbiVersion = 18;
 
 using GhBridgeCallbackFn = int(__stdcall*)(
     const char* request_json_utf8,
@@ -186,6 +186,9 @@ struct GhBridgeRegistration
     // ABI v16: Reconstruction domain (single generic dispatch; op carried
     // in request JSON). Native /reconstruction/* remains public surface.
     GhBridgeCallbackFn reconstruction_dispatch = nullptr;
+    // ABI v18: solve-readiness status and bounded off-UI wait.
+    GhBridgeCallbackFn gh_solve_readiness = nullptr;
+    GhBridgeCallbackFn gh_wait_for_solve_readiness = nullptr;
 };
 
 enum class BridgeInvokeResult
@@ -277,7 +280,9 @@ bool HasGrasshopperCoreRegistrationLocked(const GhBridgeRegistration& registrati
         && registration.gh_set_value != nullptr
         && registration.gh_delete != nullptr
         && registration.gh_solve != nullptr
-        && registration.gh_bake_output != nullptr;
+        && registration.gh_bake_output != nullptr
+        && registration.gh_solve_readiness != nullptr
+        && registration.gh_wait_for_solve_readiness != nullptr;
 }
 
 bool HasBlockDefinitionMutationRegistrationLocked(const GhBridgeRegistration& registration)
@@ -2075,6 +2080,22 @@ void HandleGrasshopperSolve(const httplib::Request& req, httplib::Response& res)
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
     DispatchGrasshopperRoute(req, res, "/gh/solve", registration.gh_solve);
+}
+
+void HandleGrasshopperSolveReadiness(const httplib::Request& req, httplib::Response& res)
+{
+    const auto registration = GetGhBridgeRegistrationSnapshot();
+    DispatchGrasshopperRoute(req, res, "/gh/solve-readiness", registration.gh_solve_readiness);
+}
+
+void HandleGrasshopperWaitForSolveReadiness(const httplib::Request& req, httplib::Response& res)
+{
+    const auto registration = GetGhBridgeRegistrationSnapshot();
+    DispatchGrasshopperRoute(
+        req,
+        res,
+        "/gh/wait-for-solve-readiness",
+        registration.gh_wait_for_solve_readiness);
 }
 
 void HandleGrasshopperSnapshot(const httplib::Request& req, httplib::Response& res)
