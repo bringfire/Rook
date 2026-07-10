@@ -239,6 +239,181 @@ def _managed_success_responses():
     return responses
 
 
+def _run_managed_probe(tmp_path, responses):
+    executor = FakeToolExecutor(responses)
+    run_dir = PROBE._run_probe(
+        model=PROBE.DEFAULT_MODEL,
+        endpoint=PROBE.DEFAULT_ENDPOINT,
+        temperature=PROBE.DEFAULT_TEMPERATURE,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        verifier_profile=PROBE.MANAGED_VERIFIER_PROFILE,
+        tool_executor=executor,
+        publication_runner=lambda *_args, **_kwargs: _published_action(3.0),
+    )
+    decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
+    return run_dir, executor, decision
+
+
+def _assert_managed_invariant_rejection(
+    decision,
+    *,
+    expected_failures,
+    readiness_wait_count,
+    fenced_output_read_count,
+):
+    assert decision["decision"] == "rejected"
+    assert decision["phase"] == "verifier_readiness"
+    assert decision["reason"] == "managed_verifier_invariant_failed"
+    assert decision["managed_verifier"]["failed_invariants"] == list(
+        expected_failures
+    )
+    assert (
+        decision["managed_verifier"]["readiness_wait_count"]
+        == readiness_wait_count
+    )
+    assert (
+        decision["managed_verifier"]["fenced_output_read_count"]
+        == fenced_output_read_count
+    )
+    assert decision["managed_verifier"]["settle_read_count"] == 0
+
+
+@pytest.mark.parametrize(
+    ("result", "stage", "expected_reason"),
+    [
+        (
+            {
+                "success": True,
+                "data": {
+                    "wait_status": "timeout",
+                    "receipt": _receipt(
+                        "pending",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "wait",
+            "readiness_wait_timeout",
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "wait_status": "terminal",
+                    "receipt": _receipt(
+                        "unknown",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                        reason="receipt_expired",
+                    ),
+                },
+            },
+            "wait",
+            "readiness_receipt_expired",
+        ),
+        (
+            {
+                "success": False,
+                "data": {
+                    "error": "readiness_receipt_not_found_or_evicted_or_process_restarted"
+                },
+            },
+            "wait",
+            "readiness_receipt_not_found_or_evicted_or_process_restarted",
+        ),
+        (
+            {"success": False, "data": {"error": "readiness_receipt_not_ready"}},
+            "read",
+            "readiness_receipt_not_ready",
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "wait_status": "terminal",
+                    "receipt": _receipt(
+                        "superseded",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "wait",
+            "readiness_receipt_superseded",
+        ),
+        (
+            {
+                "success": False,
+                "data": {"error": "readiness_receipt_stale_solution_run"},
+            },
+            "wait",
+            "readiness_receipt_stale_solution_run",
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "wait_status": "terminal",
+                    "receipt": _receipt(
+                        "document_replaced",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "wait",
+            "readiness_receipt_document_replaced",
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "wait_status": "terminal",
+                    "receipt": _receipt(
+                        "solver_locked",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "wait",
+            "readiness_receipt_solver_locked",
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "wait_status": "terminal",
+                    "receipt": _receipt(
+                        "unknown",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "wait",
+            "readiness_receipt_unknown",
+        ),
+        (
+            {
+                "success": False,
+                "data": {"error": "readiness_wait_already_active"},
+            },
+            "wait",
+            "readiness_wait_already_active",
+        ),
+    ],
+)
+def test_normalize_readiness_failure_preserves_product_reason(
+    result, stage, expected_reason
+):
+    assert PROBE._normalize_readiness_failure(result, stage=stage) == expected_reason
+
+
 def _pass1_missing_publication(excerpt=SKELETAL_PASS1):
     return FakePublication(
         row={
@@ -797,6 +972,419 @@ def test_managed_receipt_path_waits_then_reads_once_with_bounded_artifacts(tmp_p
 
     for artifact in (mutation, wait, verify, decision):
         assert RECEIPT_ID not in json.dumps(artifact, sort_keys=True)
+
+
+@pytest.mark.parametrize(
+    ("receipt_status", "receipt_reason", "expected_reason"),
+    [
+        ("solver_locked", "solver_locked", "readiness_receipt_solver_locked"),
+        ("unknown", "scheduling_unknown", "readiness_receipt_unknown"),
+        ("unknown", "receipt_expired", "readiness_receipt_expired"),
+    ],
+)
+def test_managed_terminal_mutation_receipt_stops_before_wait(
+    tmp_path, receipt_status, receipt_reason, expected_reason
+):
+    responses = _managed_success_responses()
+    responses["gh_set_value"]["data"]["solve_readiness_receipt"] = _receipt(
+        receipt_status,
+        solution_run_epoch=None,
+        completed_solution_run_epoch=41,
+        reason=receipt_reason,
+    )
+
+    run_dir, executor, decision = _run_managed_probe(tmp_path, responses)
+
+    assert decision["decision"] == "rejected"
+    assert decision["phase"] == "verifier_readiness"
+    assert decision["reason"] == expected_reason
+    assert decision["managed_verifier"]["readiness_wait_count"] == 0
+    assert decision["managed_verifier"]["fenced_output_read_count"] == 0
+    assert decision["managed_verifier"]["settle_read_count"] == 0
+    names = [name for name, _ in executor.calls]
+    assert names.count("gh_wait_for_solve_readiness") == 0
+    assert names.count("gh_inspect_output") == 1
+    mutation = json.loads(
+        (run_dir / "live_set_value_summary.json").read_text(encoding="utf-8")
+    )
+    assert mutation["managed_mutation"]["receipt_status"] == receipt_status
+    assert RECEIPT_ID not in json.dumps(mutation, sort_keys=True)
+
+
+@pytest.mark.parametrize(
+    ("wait_result", "expected_reason"),
+    [
+        (
+            {
+                "success": True,
+                "data": {
+                    "schema": "rook.gh_solve_readiness_wait_result:v1",
+                    "wait_status": "timeout",
+                    "receipt": _receipt(
+                        "pending",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "readiness_wait_timeout",
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "schema": "rook.gh_solve_readiness_wait_result:v1",
+                    "wait_status": "terminal",
+                    "receipt": _receipt(
+                        "superseded",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "readiness_receipt_superseded",
+        ),
+        (
+            {
+                "success": False,
+                "data": {"error": "readiness_receipt_stale_solution_run"},
+            },
+            "readiness_receipt_stale_solution_run",
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "schema": "rook.gh_solve_readiness_wait_result:v1",
+                    "wait_status": "terminal",
+                    "receipt": _receipt(
+                        "document_replaced",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "readiness_receipt_document_replaced",
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "schema": "rook.gh_solve_readiness_wait_result:v1",
+                    "wait_status": "terminal",
+                    "receipt": _receipt(
+                        "solver_locked",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "readiness_receipt_solver_locked",
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "schema": "rook.gh_solve_readiness_wait_result:v1",
+                    "wait_status": "terminal",
+                    "receipt": _receipt(
+                        "unknown",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "readiness_receipt_unknown",
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "schema": "rook.gh_solve_readiness_wait_result:v1",
+                    "wait_status": "terminal",
+                    "receipt": _receipt(
+                        "unknown",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                        reason="receipt_expired",
+                    ),
+                },
+            },
+            "readiness_receipt_expired",
+        ),
+        (
+            {
+                "success": False,
+                "data": {
+                    "error": "readiness_receipt_not_found_or_evicted_or_process_restarted"
+                },
+            },
+            "readiness_receipt_not_found_or_evicted_or_process_restarted",
+        ),
+        (
+            {
+                "success": False,
+                "data": {"error": "readiness_wait_already_active"},
+            },
+            "readiness_wait_already_active",
+        ),
+    ],
+)
+def test_managed_terminal_wait_outcome_stops_before_fenced_read(
+    tmp_path, wait_result, expected_reason
+):
+    responses = _managed_success_responses()
+    responses["gh_wait_for_solve_readiness"] = wait_result
+
+    run_dir, executor, decision = _run_managed_probe(tmp_path, responses)
+
+    assert decision["decision"] == "rejected"
+    assert decision["phase"] == "verifier_readiness"
+    assert decision["reason"] == expected_reason
+    assert decision["managed_verifier"]["readiness_wait_count"] == 1
+    assert decision["managed_verifier"]["fenced_output_read_count"] == 0
+    assert decision["managed_verifier"]["settle_read_count"] == 0
+    names = [name for name, _ in executor.calls]
+    assert names.count("gh_wait_for_solve_readiness") == 1
+    assert names.count("gh_inspect_output") == 1
+    wait = json.loads(
+        (run_dir / "readiness_wait_summary.json").read_text(encoding="utf-8")
+    )
+    assert wait["normalized_reason"] == expected_reason
+    assert RECEIPT_ID not in json.dumps(wait, sort_keys=True)
+
+
+def test_managed_fenced_read_product_failure_is_terminal_without_follow_up(tmp_path):
+    responses = _managed_success_responses()
+    responses["gh_inspect_output"][1] = {
+        "success": False,
+        "data": {"error": "readiness_receipt_not_ready"},
+    }
+
+    _run_dir, executor, decision = _run_managed_probe(tmp_path, responses)
+
+    assert decision["decision"] == "rejected"
+    assert decision["phase"] == "verifier_readiness"
+    assert decision["reason"] == "readiness_receipt_not_ready"
+    assert decision["managed_verifier"]["readiness_wait_count"] == 1
+    assert decision["managed_verifier"]["fenced_output_read_count"] == 1
+    assert decision["managed_verifier"]["settle_read_count"] == 0
+    names = [name for name, _ in executor.calls]
+    assert names.count("gh_wait_for_solve_readiness") == 1
+    assert names.count("gh_inspect_output") == 2
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_failures"),
+    [
+        ("missing_receipt", ("mutation_receipt_missing",)),
+        ("wrong_receipt_schema", ("mutation_receipt_schema_invalid",)),
+        ("mutation_epoch_zero", ("mutation_epoch_not_positive",)),
+        (
+            "pending_solution_run_non_null",
+            ("pending_solution_run_epoch_not_null",),
+        ),
+        (
+            "pending_completed_run_missing",
+            ("pending_completed_solution_run_epoch_invalid",),
+        ),
+        (
+            "pending_completed_run_non_integer",
+            ("pending_completed_solution_run_epoch_invalid",),
+        ),
+    ],
+)
+def test_managed_mutation_invariant_failure_stops_before_wait(
+    tmp_path, case, expected_failures
+):
+    responses = _managed_success_responses()
+    receipt = responses["gh_set_value"]["data"]["solve_readiness_receipt"]
+    if case == "missing_receipt":
+        del responses["gh_set_value"]["data"]["solve_readiness_receipt"]
+    elif case == "wrong_receipt_schema":
+        receipt["schema"] = "rook.gh_solve_readiness_receipt:v0"
+    elif case == "mutation_epoch_zero":
+        receipt["mutation_epoch"] = 0
+    elif case == "pending_solution_run_non_null":
+        receipt["solution_run_epoch"] = 42
+    elif case == "pending_completed_run_missing":
+        del receipt["completed_solution_run_epoch"]
+    elif case == "pending_completed_run_non_integer":
+        receipt["completed_solution_run_epoch"] = "41"
+
+    _run_dir, executor, decision = _run_managed_probe(tmp_path, responses)
+
+    _assert_managed_invariant_rejection(
+        decision,
+        expected_failures=expected_failures,
+        readiness_wait_count=0,
+        fenced_output_read_count=0,
+    )
+    names = [name for name, _ in executor.calls]
+    assert names.count("gh_wait_for_solve_readiness") == 0
+    assert names.count("gh_inspect_output") == 1
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_failures"),
+    [
+        ("ready_not_advanced", ("post_mutation_solution_run_not_advanced",)),
+        ("receipt_hash_mismatch", ("receipt_id_sha256_mismatch",)),
+        ("session_mismatch", ("document_session_id_mismatch",)),
+        ("mutation_epoch_mismatch", ("mutation_epoch_mismatch",)),
+        (
+            "wait_completed_run_mismatch",
+            ("wait_completed_solution_run_mismatch",),
+        ),
+        (
+            "wait_completed_run_boolean",
+            ("wait_completed_solution_run_mismatch",),
+        ),
+        ("mutation_epoch_boolean", ("mutation_epoch_mismatch",)),
+        ("wrong_wait_receipt_schema", ("wait_receipt_schema_invalid",)),
+    ],
+)
+def test_managed_wait_invariant_failure_stops_before_fenced_read(
+    tmp_path, case, expected_failures
+):
+    responses = _managed_success_responses()
+    receipt = responses["gh_wait_for_solve_readiness"]["data"]["receipt"]
+    if case == "ready_not_advanced":
+        receipt["solution_run_epoch"] = 41
+        receipt["completed_solution_run_epoch"] = 41
+    elif case == "receipt_hash_mismatch":
+        receipt["receipt_id"] = "different-receipt"
+    elif case == "session_mismatch":
+        receipt["document_session_id"] = "session-2"
+    elif case == "mutation_epoch_mismatch":
+        receipt["mutation_epoch"] = 14
+    elif case == "wait_completed_run_mismatch":
+        receipt["completed_solution_run_epoch"] = 43
+    elif case == "wait_completed_run_boolean":
+        responses["gh_set_value"]["data"]["solve_readiness_receipt"][
+            "completed_solution_run_epoch"
+        ] = 0
+        receipt["solution_run_epoch"] = 1
+        receipt["completed_solution_run_epoch"] = True
+    elif case == "mutation_epoch_boolean":
+        responses["gh_set_value"]["data"]["solve_readiness_receipt"][
+            "mutation_epoch"
+        ] = 1
+        receipt["mutation_epoch"] = True
+    elif case == "wrong_wait_receipt_schema":
+        receipt["schema"] = "rook.gh_solve_readiness_receipt:v0"
+
+    _run_dir, executor, decision = _run_managed_probe(tmp_path, responses)
+
+    _assert_managed_invariant_rejection(
+        decision,
+        expected_failures=expected_failures,
+        readiness_wait_count=1,
+        fenced_output_read_count=0,
+    )
+    names = [name for name, _ in executor.calls]
+    assert names.count("gh_wait_for_solve_readiness") == 1
+    assert names.count("gh_inspect_output") == 1
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_failures"),
+    [
+        ("receipt_hash_mismatch", ("receipt_id_sha256_mismatch",)),
+        ("session_mismatch", ("document_session_id_mismatch",)),
+        ("mutation_epoch_mismatch", ("mutation_epoch_mismatch",)),
+        ("read_solution_run_mismatch", ("read_solution_run_mismatch",)),
+        (
+            "read_completed_run_mismatch",
+            ("read_completed_solution_run_mismatch",),
+        ),
+        ("read_solution_run_boolean", ("read_solution_run_mismatch",)),
+        (
+            "read_completed_run_boolean",
+            ("read_completed_solution_run_mismatch",),
+        ),
+        ("mutation_epoch_boolean", ("mutation_epoch_mismatch",)),
+        ("readiness_fenced_false", ("readiness_fenced_not_true",)),
+        ("readiness_fenced_missing", ("readiness_fenced_not_true",)),
+    ],
+)
+def test_matching_scalar_cannot_override_fenced_read_provenance_failure(
+    tmp_path, case, expected_failures
+):
+    responses = _managed_success_responses()
+    read = responses["gh_inspect_output"][1]["data"]
+    if case == "receipt_hash_mismatch":
+        read["readiness_receipt_id"] = "different-receipt"
+    elif case == "session_mismatch":
+        read["document_session_id"] = "session-2"
+    elif case == "mutation_epoch_mismatch":
+        read["mutation_epoch"] = 14
+    elif case == "read_solution_run_mismatch":
+        read["solution_run_epoch"] = 43
+    elif case == "read_completed_run_mismatch":
+        read["completed_solution_run_epoch"] = 43
+    elif case == "read_solution_run_boolean":
+        responses["gh_set_value"]["data"]["solve_readiness_receipt"][
+            "completed_solution_run_epoch"
+        ] = 0
+        wait = responses["gh_wait_for_solve_readiness"]["data"]["receipt"]
+        wait["solution_run_epoch"] = 1
+        wait["completed_solution_run_epoch"] = 1
+        read["solution_run_epoch"] = True
+        read["completed_solution_run_epoch"] = 1
+    elif case == "read_completed_run_boolean":
+        responses["gh_set_value"]["data"]["solve_readiness_receipt"][
+            "completed_solution_run_epoch"
+        ] = 0
+        wait = responses["gh_wait_for_solve_readiness"]["data"]["receipt"]
+        wait["solution_run_epoch"] = 1
+        wait["completed_solution_run_epoch"] = 1
+        read["solution_run_epoch"] = 1
+        read["completed_solution_run_epoch"] = True
+    elif case == "mutation_epoch_boolean":
+        responses["gh_set_value"]["data"]["solve_readiness_receipt"][
+            "mutation_epoch"
+        ] = 1
+        responses["gh_wait_for_solve_readiness"]["data"]["receipt"][
+            "mutation_epoch"
+        ] = 1
+        read["mutation_epoch"] = True
+    elif case == "readiness_fenced_false":
+        read["readiness_fenced"] = False
+    elif case == "readiness_fenced_missing":
+        del read["readiness_fenced"]
+
+    _run_dir, executor, decision = _run_managed_probe(tmp_path, responses)
+
+    _assert_managed_invariant_rejection(
+        decision,
+        expected_failures=expected_failures,
+        readiness_wait_count=1,
+        fenced_output_read_count=1,
+    )
+    names = [name for name, _ in executor.calls]
+    assert names.count("gh_wait_for_solve_readiness") == 1
+    assert names.count("gh_inspect_output") == 2
+
+
+def test_managed_scalar_mismatch_with_correct_provenance_stays_scalar_failure(tmp_path):
+    responses = _managed_success_responses()
+    responses["gh_inspect_output"][1]["data"]["preview"] = ["7.4"]
+
+    _run_dir, executor, decision = _run_managed_probe(tmp_path, responses)
+
+    assert decision["decision"] == "rejected"
+    assert decision["phase"] == "verify_scalar_output"
+    assert decision["reason"] == "verify_scalar_output_failed"
+    assert decision["managed_verifier"]["failed_invariants"] == [
+        "fenced_output_scalar"
+    ]
+    assert decision["managed_verifier"]["readiness_wait_count"] == 1
+    assert decision["managed_verifier"]["fenced_output_read_count"] == 1
+    assert decision["managed_verifier"]["settle_read_count"] == 0
+    names = [name for name, _ in executor.calls]
+    assert names.count("gh_wait_for_solve_readiness") == 1
+    assert names.count("gh_inspect_output") == 2
 
 
 @pytest.mark.parametrize(
