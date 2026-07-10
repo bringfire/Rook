@@ -220,20 +220,26 @@ semantic choice it records must be explicit, schema-bound, and reviewable.
 The `gh_edit` interpretation below is grounded in the current Rook managed GH
 handler, not only inferred from OpenProse:
 
+```text
+Rook source revision reviewed: 1e04ca8576c642e466f6822468b3323a7a1d76b0
+```
+
 - `C:\UDEV\Rook\src\Rook\Handlers\ShortIdRegistry.cs` lines 7-11 define the
   short-ID registry as a bidirectional mapping between stable canvas-facing short
   IDs and Grasshopper instance GUIDs.
-- `ShortIdRegistry.cs` lines 29-75 show epoch rebuild and newly-created object
+- `ShortIdRegistry.cs` lines 21-75 show epoch rebuild and newly-created object
   registration, including persistent short-ID caching inside the session.
-- `C:\UDEV\Rook\src\Rook\Handlers\GrasshopperHandler.cs` lines 6345-6537 show
-  `gh_snapshot` rebuilding the registry and returning the current `epoch`.
-- `GrasshopperHandler.cs` lines 7024-7063 show `ApplyEdit` requiring and
+- `C:\UDEV\Rook\src\Rook\Handlers\GrasshopperHandler.cs` lines 6420 and
+  6608-6615 show `gh_snapshot` rebuilding the registry and returning the
+  current `epoch`.
+- `GrasshopperHandler.cs` lines 7099-7145 show `ApplyEdit` requiring and
   validating the request epoch before mutating the canvas.
-- `GrasshopperHandler.cs` lines 7070, 7125-7128, 7182-7183, 7395-7397, and
-  7589-7593 show batch-local temp IDs being mapped to live GUIDs and resolved
-  during create / disconnect / connect operations.
-- `GrasshopperHandler.cs` lines 7496-7515 show `edit_summary` reporting
-  `solve_scheduled`, `verification_deferred`, `temp_id_map`, and instance GUIDs.
+- `GrasshopperHandler.cs` lines 7197-7204, 7254-7258, and 7468-7472 show
+  batch-local temp IDs being mapped to live GUIDs and resolved during create,
+  disconnect, and connect operations.
+- `GrasshopperHandler.cs` lines 7569-7593 show `edit_summary` reporting
+  `solve_scheduled`, `verification_deferred`, `temp_id_map`, and instance
+  GUIDs.
 
 So the Rook claim is concrete: `gh_edit` already has an epoch-sensitive,
 short-ID/temp-ID, solve/verification contract. That is a compiler target shape,
@@ -361,7 +367,7 @@ C# generator component plus sliders/controls, then lower that to:
 - create script component;
 - snapshot epoch;
 - `gh_edit` sliders / connections / grouping;
-- settle and inspect.
+- managed readiness wait and receipt-fenced inspect.
 
 Anti-goal for LM9A:
 
@@ -372,6 +378,42 @@ epoch-specific mutation payloads.
 ```
 
 Those are compiler responsibilities.
+
+## LM8 Exit Checkpoint And Live-Execution Prerequisite
+
+The evidence line advanced after this note was first drafted:
+
+- the scalar family reached live identity, non-identity, and affine-projection
+  receipts;
+- the affine worker case repeated `20/20` with the same worker-authored `3.0`
+  and source-owned observed result `7.5`;
+- LM8K moved `gh_set_value` freshness from settle polling into a managed
+  Grasshopper solve-readiness receipt;
+- LM8M replayed the affine sample `20/20` with one managed wait and one
+  receipt-fenced read per child, zero settle reads, and no provenance
+  discrepancies.
+
+That closes scalar-family harness qualification for this roadmap horizon. More
+scalar arithmetic can still compare model floors, but it should not delay the
+semantic recipe/compiler boundary.
+
+The live compiler path has one known product prerequisite. Today the template
+instantiator's deferred `gh_edit` path still waits by polling `gh_status` and
+sleeping in
+`mcp_server/src/rook/canvas_director_templates/instantiator.py`.
+`gh_edit` does not yet emit the managed readiness receipt that `gh_set_value`
+now emits. Consequently:
+
+```text
+LM9A semantic recipe design and validation: not blocked
+deterministic recipe-to-tool/verifier compiler: not blocked
+live compiled recipe through gh_edit: blocked on managed readiness fencing
+```
+
+The durable follow-up is to extend the managed receipt mechanism to the exact
+`gh_edit` mutation contract selected by the compiler. It is not a blanket task
+to replace every historical delay in `server.py`; the compiler IR and its final
+mutation boundary should determine the receipt that live verification consumes.
 
 ## Why This Matters
 
