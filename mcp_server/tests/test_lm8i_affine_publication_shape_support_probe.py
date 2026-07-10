@@ -31,6 +31,7 @@ def _load_script():
 
 PROBE = _load_script()
 SKELETAL_PASS1 = '{"kind": "action_request"}'
+RECEIPT_ID = "opaque-lm8l-receipt-1"
 
 
 class FakeToolExecutor:
@@ -157,6 +158,79 @@ def _fixture_responses_for_success():
                 {
                     "success": True,
                     "data": {"data_count": 1, "preview": ["7.5"]},
+                },
+            ],
+        }
+    )
+    return responses
+
+
+def _receipt(
+    status,
+    *,
+    solution_run_epoch,
+    completed_solution_run_epoch,
+    reason=None,
+):
+    return {
+        "schema": "rook.gh_solve_readiness_receipt:v1",
+        "receipt_id": RECEIPT_ID,
+        "document_session_id": "session-1",
+        "mutation_epoch": 13,
+        "solution_run_epoch": solution_run_epoch,
+        "completed_solution_run_epoch": completed_solution_run_epoch,
+        "status": status,
+        "reason": reason,
+    }
+
+
+def _managed_success_responses():
+    responses = _fixture_tool_responses()
+    responses.update(
+        {
+            "rhino_ping": "pong",
+            "gh_document_new": {"success": True, "data": {"created": True}},
+            "gh_set_value": {
+                "success": True,
+                "data": {
+                    "Guid": "EDITABLE-GUID-1",
+                    "Value": "3.0",
+                    "solve_readiness_receipt": _receipt(
+                        "pending",
+                        solution_run_epoch=None,
+                        completed_solution_run_epoch=41,
+                    ),
+                },
+            },
+            "gh_wait_for_solve_readiness": {
+                "success": True,
+                "data": {
+                    "schema": "rook.gh_solve_readiness_wait_result:v1",
+                    "wait_status": "ready",
+                    "receipt": _receipt(
+                        "ready",
+                        solution_run_epoch=42,
+                        completed_solution_run_epoch=42,
+                    ),
+                },
+            },
+            "gh_inspect_output": [
+                {
+                    "success": True,
+                    "data": {"data_count": 1, "preview": ["5.5"]},
+                },
+                {
+                    "success": True,
+                    "data": {
+                        "data_count": 1,
+                        "preview": ["7.5"],
+                        "readiness_fenced": True,
+                        "readiness_receipt_id": RECEIPT_ID,
+                        "document_session_id": "session-1",
+                        "mutation_epoch": 13,
+                        "solution_run_epoch": 42,
+                        "completed_solution_run_epoch": 42,
+                    },
                 },
             ],
         }
@@ -610,6 +684,49 @@ def test_default_settle_path_preserves_tool_tail_and_verify_artifact_shape(tmp_p
     )
     assert "verifier_profile" not in verify
     assert "settle_read_count" not in verify
+
+
+def test_managed_receipt_path_waits_then_reads_once_with_bounded_artifacts(tmp_path):
+    executor = FakeToolExecutor(_managed_success_responses())
+    run_dir = PROBE._run_probe(
+        model=PROBE.DEFAULT_MODEL,
+        endpoint=PROBE.DEFAULT_ENDPOINT,
+        temperature=PROBE.DEFAULT_TEMPERATURE,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        verifier_profile=PROBE.MANAGED_VERIFIER_PROFILE,
+        tool_executor=executor,
+        publication_runner=lambda *_args, **_kwargs: _published_action(3.0),
+    )
+
+    tool_tail = [name for name, _ in executor.calls][-3:]
+    assert tool_tail == [
+        "gh_set_value",
+        "gh_wait_for_solve_readiness",
+        "gh_inspect_output",
+    ]
+    assert "gh_solve" not in tool_tail
+
+    decision = json.loads((run_dir / "decision.json").read_text())
+    assert decision["decision"] == "accepted"
+    assert decision["reason"] == "verify_scalar_output_succeeded"
+
+    mutation = json.loads((run_dir / "live_set_value_summary.json").read_text())
+    wait = json.loads((run_dir / "readiness_wait_summary.json").read_text())
+    verify = json.loads(
+        (run_dir / "verify_scalar_output_summary.json").read_text()
+    )
+
+    assert mutation["managed_mutation"]["solution_run_epoch"] is None
+    assert mutation["managed_mutation"]["completed_solution_run_epoch"] == 41
+    assert wait["solution_run_epoch"] == 42
+    assert verify["fenced_output_read_count"] == 1
+    assert verify["settle_read_count"] == 0
+
+    for artifact in (mutation, wait, verify, decision):
+        assert RECEIPT_ID not in json.dumps(artifact, sort_keys=True)
 
 
 @pytest.mark.parametrize(

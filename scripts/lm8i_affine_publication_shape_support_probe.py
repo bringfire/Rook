@@ -94,6 +94,12 @@ VERIFIER_PROFILES = (
 READINESS_WAIT_TIMEOUT_MS = 10_000
 VERIFIER_MECHANISM = "managed_solve_readiness_receipt"
 FIXTURE_READINESS_PROFILE = "lm8i_legacy_setup_v1"
+GH_READINESS_RECEIPT_SCHEMA = "rook.gh_solve_readiness_receipt:v1"
+GH_READINESS_WAIT_SCHEMA = "rook.gh_solve_readiness_wait_result:v1"
+MANAGED_MUTATION_SCHEMA = "rook.lm8l_managed_mutation_summary:v1"
+MANAGED_WAIT_SCHEMA = "rook.lm8l_readiness_wait_summary:v1"
+MANAGED_VERIFY_SCHEMA = "rook.lm8l_fenced_output_verification_summary:v1"
+MANAGED_DECISION_SCHEMA = "rook.lm8l_managed_verifier_decision:v1"
 WORKER_NODE_ID = "set_scalar_value"
 CREATE_NODE_ID = "create_affine_scalar_transform"
 VERIFY_NODE_ID = "verify_affine_scalar_transform_output"
@@ -213,6 +219,14 @@ def _guid_sha256(guid: str | None) -> str | None:
     return None if guid is None else _sha256_text(guid)
 
 
+def _is_epoch(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _receipt_id_sha256(receipt_id: str) -> str:
+    return _sha256_text(receipt_id)
+
+
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.write_text(
         json.dumps(dict(payload), indent=2, sort_keys=True, default=str) + "\n",
@@ -228,18 +242,29 @@ def _write_json_value(path: Path, payload: Any) -> None:
 
 
 def _find_forbidden_decision_extra_paths(
-    value: Any, *, base_keys: set[str], path: str = "extra"
+    value: Any,
+    *,
+    base_keys: set[str],
+    allowed_reserved_paths: set[str] | None = None,
+    path: str = "extra",
 ) -> list[str]:
     forbidden: list[str] = []
+    allowed_reserved_paths = allowed_reserved_paths or set()
     if isinstance(value, Mapping):
         for key, nested_value in value.items():
             key_text = str(key)
             key_path = f"{path}.{key_text}"
-            if key_text in base_keys or "guid" in key_text.casefold():
+            if (
+                (key_text in base_keys and key_path not in allowed_reserved_paths)
+                or "guid" in key_text.casefold()
+            ):
                 forbidden.append(key_path)
             forbidden.extend(
                 _find_forbidden_decision_extra_paths(
-                    nested_value, base_keys=base_keys, path=key_path
+                    nested_value,
+                    base_keys=base_keys,
+                    allowed_reserved_paths=allowed_reserved_paths,
+                    path=key_path,
                 )
             )
         return forbidden
@@ -318,6 +343,22 @@ def _tool_data(result: Any) -> Any:
     if isinstance(result, Mapping) and isinstance(result.get("data"), Mapping):
         return result["data"]
     return result
+
+
+def _managed_receipt_from_tool_result(result: Any) -> Mapping[str, Any] | None:
+    data = _tool_data(result)
+    if not isinstance(data, Mapping):
+        return None
+    for key in ("solve_readiness_receipt", "readiness_receipt", "receipt"):
+        receipt = data.get(key)
+        if isinstance(receipt, Mapping):
+            return receipt
+    return None
+
+
+def _managed_wait_data(result: Any) -> Mapping[str, Any] | None:
+    data = _tool_data(result)
+    return data if isinstance(data, Mapping) else None
 
 
 def _tool_field(result: Any, *names: str) -> Any:
@@ -1360,7 +1401,9 @@ def _decision_record(
     if extra:
         extra_record = dict(extra)
         blocked_paths = _find_forbidden_decision_extra_paths(
-            extra_record, base_keys=set(record)
+            extra_record,
+            base_keys=set(record),
+            allowed_reserved_paths={"extra.managed_verifier.schema"},
         )
         if blocked_paths:
             raise ValueError(
@@ -1651,6 +1694,379 @@ async def _dispatch_set_value_solve_and_verify(
             "scalar_tolerance": SCALAR_TOLERANCE,
         },
     }
+
+
+def _managed_receipt_summary(receipt: Mapping[str, Any]) -> dict[str, Any]:
+    receipt_id = receipt["receipt_id"]
+    return {
+        "receipt_schema": receipt["schema"],
+        "receipt_id_sha256": _receipt_id_sha256(receipt_id),
+        "document_session_id": receipt["document_session_id"],
+        "mutation_epoch": receipt["mutation_epoch"],
+        "solution_run_epoch": receipt["solution_run_epoch"],
+        "completed_solution_run_epoch": receipt["completed_solution_run_epoch"],
+        "status": receipt["status"],
+    }
+
+
+def _managed_pending_receipt_is_valid(receipt: Mapping[str, Any]) -> bool:
+    receipt_id = receipt.get("receipt_id")
+    document_session_id = receipt.get("document_session_id")
+    return (
+        receipt.get("schema") == GH_READINESS_RECEIPT_SCHEMA
+        and receipt.get("status") == "pending"
+        and isinstance(receipt_id, str)
+        and bool(receipt_id)
+        and isinstance(document_session_id, str)
+        and bool(document_session_id)
+        and _is_epoch(receipt.get("mutation_epoch"))
+        and receipt["mutation_epoch"] > 0
+        and receipt.get("solution_run_epoch") is None
+        and _is_epoch(receipt.get("completed_solution_run_epoch"))
+    )
+
+
+def _managed_ready_receipt_is_valid(
+    pending: Mapping[str, Any], ready: Mapping[str, Any]
+) -> bool:
+    ready_solution_run_epoch = ready.get("solution_run_epoch")
+    prior_completed_solution_run_epoch = pending.get("completed_solution_run_epoch")
+    return (
+        ready.get("schema") == GH_READINESS_RECEIPT_SCHEMA
+        and ready.get("status") == "ready"
+        and ready.get("receipt_id") == pending.get("receipt_id")
+        and ready.get("document_session_id") == pending.get("document_session_id")
+        and ready.get("mutation_epoch") == pending.get("mutation_epoch")
+        and _is_epoch(ready_solution_run_epoch)
+        and _is_epoch(prior_completed_solution_run_epoch)
+        and ready_solution_run_epoch > prior_completed_solution_run_epoch
+        and ready.get("completed_solution_run_epoch") == ready_solution_run_epoch
+    )
+
+
+def _managed_fenced_output_matches_receipt(
+    output_data: Mapping[str, Any], ready_receipt: Mapping[str, Any]
+) -> bool:
+    return (
+        output_data.get("readiness_fenced") is True
+        and output_data.get("readiness_receipt_id") == ready_receipt.get("receipt_id")
+        and output_data.get("document_session_id")
+        == ready_receipt.get("document_session_id")
+        and output_data.get("mutation_epoch") == ready_receipt.get("mutation_epoch")
+        and output_data.get("solution_run_epoch")
+        == ready_receipt.get("solution_run_epoch")
+        and output_data.get("completed_solution_run_epoch")
+        == ready_receipt.get("completed_solution_run_epoch")
+    )
+
+
+def _managed_decision_metadata(
+    *,
+    readiness_wait_count: int,
+    fenced_output_read_count: int,
+    settle_read_count: int,
+    failed_invariants: Sequence[str] = (),
+) -> dict[str, Any]:
+    return {
+        "managed_verifier": {
+            "schema": MANAGED_DECISION_SCHEMA,
+            "verifier_profile": MANAGED_VERIFIER_PROFILE,
+            "verifier_mechanism": VERIFIER_MECHANISM,
+            "fixture_readiness_profile": FIXTURE_READINESS_PROFILE,
+            "readiness_wait_timeout_ms": READINESS_WAIT_TIMEOUT_MS,
+            "readiness_wait_count": readiness_wait_count,
+            "fenced_output_read_count": fenced_output_read_count,
+            "settle_read_count": settle_read_count,
+            "failed_invariants": list(failed_invariants),
+        }
+    }
+
+
+def _managed_rejection(
+    *,
+    reason: str,
+    phase: str,
+    readiness_wait_count: int,
+    fenced_output_read_count: int,
+    failed_invariants: Sequence[str],
+) -> dict[str, Any]:
+    return {
+        "decision": "rejected",
+        "reason": reason,
+        "phase": phase,
+        **_managed_decision_metadata(
+            readiness_wait_count=readiness_wait_count,
+            fenced_output_read_count=fenced_output_read_count,
+            settle_read_count=0,
+            failed_invariants=failed_invariants,
+        ),
+    }
+
+
+async def _dispatch_set_value_managed_receipt_and_verify(
+    *,
+    tool_executor: Callable[[str, Mapping[str, Any]], Awaitable[Any]],
+    editable_component_guid: str,
+    addition_component_guid: str,
+    worker_value: float | int,
+    expected_value: float | int,
+) -> dict[str, Any]:
+    set_summary = {
+        "schema": MANAGED_MUTATION_SCHEMA,
+        "tool_name": "gh_set_value",
+        "component_guid_sha256": _guid_sha256(editable_component_guid),
+        "worker_action_value": worker_value,
+    }
+    try:
+        set_result = await tool_executor(
+            "gh_set_value",
+            {"guid": editable_component_guid, "value": worker_value},
+        )
+    except Exception as exc:
+        set_summary.update(
+            {"set_value_reported_success": False, "exception": type(exc).__name__}
+        )
+        return {
+            "live_set_value_summary": set_summary,
+            "readiness_wait_summary": None,
+            "verify_scalar_output_summary": None,
+            "decision": _managed_rejection(
+                reason=f"gh_set_value_exception:{type(exc).__name__}",
+                phase="live_set_value",
+                readiness_wait_count=0,
+                fenced_output_read_count=0,
+                failed_invariants=("managed_mutation_call",),
+            ),
+        }
+
+    set_value_reported_success = not _tool_result_failed(set_result)
+    set_summary["set_value_reported_success"] = set_value_reported_success
+    pending_receipt = _managed_receipt_from_tool_result(set_result)
+    if not set_value_reported_success or pending_receipt is None:
+        return {
+            "live_set_value_summary": set_summary,
+            "readiness_wait_summary": None,
+            "verify_scalar_output_summary": None,
+            "decision": _managed_rejection(
+                reason="managed_mutation_receipt_missing",
+                phase="live_set_value",
+                readiness_wait_count=0,
+                fenced_output_read_count=0,
+                failed_invariants=("managed_pending_receipt",),
+            ),
+        }
+    if not _managed_pending_receipt_is_valid(pending_receipt):
+        return {
+            "live_set_value_summary": set_summary,
+            "readiness_wait_summary": None,
+            "verify_scalar_output_summary": None,
+            "decision": _managed_rejection(
+                reason="managed_mutation_receipt_invalid",
+                phase="live_set_value",
+                readiness_wait_count=0,
+                fenced_output_read_count=0,
+                failed_invariants=("managed_pending_receipt",),
+            ),
+        }
+    set_summary["managed_mutation"] = _managed_receipt_summary(pending_receipt)
+
+    try:
+        wait_result = await tool_executor(
+            "gh_wait_for_solve_readiness",
+            {
+                "readiness_receipt_id": pending_receipt["receipt_id"],
+                "timeout_ms": READINESS_WAIT_TIMEOUT_MS,
+            },
+        )
+    except Exception as exc:
+        return {
+            "live_set_value_summary": set_summary,
+            "readiness_wait_summary": None,
+            "verify_scalar_output_summary": None,
+            "decision": _managed_rejection(
+                reason=f"gh_wait_for_solve_readiness_exception:{type(exc).__name__}",
+                phase="readiness_wait",
+                readiness_wait_count=1,
+                fenced_output_read_count=0,
+                failed_invariants=("managed_ready_receipt",),
+            ),
+        }
+
+    wait_data = _managed_wait_data(wait_result)
+    ready_receipt = _managed_receipt_from_tool_result(wait_result)
+    if (
+        _tool_result_failed(wait_result)
+        or wait_data is None
+        or wait_data.get("schema") != GH_READINESS_WAIT_SCHEMA
+        or wait_data.get("wait_status") != "ready"
+        or ready_receipt is None
+        or not _managed_ready_receipt_is_valid(pending_receipt, ready_receipt)
+    ):
+        return {
+            "live_set_value_summary": set_summary,
+            "readiness_wait_summary": None,
+            "verify_scalar_output_summary": None,
+            "decision": _managed_rejection(
+                reason="managed_readiness_wait_invalid",
+                phase="readiness_wait",
+                readiness_wait_count=1,
+                fenced_output_read_count=0,
+                failed_invariants=("managed_ready_receipt",),
+            ),
+        }
+    wait_summary = {
+        "schema": MANAGED_WAIT_SCHEMA,
+        "tool_name": "gh_wait_for_solve_readiness",
+        "wait_status": "ready",
+        **_managed_receipt_summary(ready_receipt),
+    }
+
+    try:
+        inspect_result = await tool_executor(
+            "gh_inspect_output",
+            {
+                "guid": addition_component_guid,
+                "param": "R",
+                "readiness_receipt_id": pending_receipt["receipt_id"],
+            },
+        )
+    except Exception as exc:
+        return {
+            "live_set_value_summary": set_summary,
+            "readiness_wait_summary": wait_summary,
+            "verify_scalar_output_summary": None,
+            "decision": _managed_rejection(
+                reason=f"gh_inspect_output_exception:{type(exc).__name__}",
+                phase="verify_scalar_output",
+                readiness_wait_count=1,
+                fenced_output_read_count=1,
+                failed_invariants=("fenced_output_read",),
+            ),
+        }
+
+    output_data = _tool_data(inspect_result)
+    verify_summary = {
+        "schema": MANAGED_VERIFY_SCHEMA,
+        "tool_name": "gh_inspect_output",
+        "component_guid_sha256": _guid_sha256(addition_component_guid),
+        "expected_output_value": expected_value,
+        "tolerance": SCALAR_TOLERANCE,
+        "receipt_id_sha256": _receipt_id_sha256(pending_receipt["receipt_id"]),
+        "document_session_id": ready_receipt["document_session_id"],
+        "mutation_epoch": ready_receipt["mutation_epoch"],
+        "solution_run_epoch": ready_receipt["solution_run_epoch"],
+        "completed_solution_run_epoch": ready_receipt[
+            "completed_solution_run_epoch"
+        ],
+        "fenced_output_read_count": 1,
+        "settle_read_count": 0,
+    }
+    if _tool_result_failed(inspect_result) or not isinstance(output_data, Mapping):
+        verify_summary.update({"reported_success": False, "matched": False})
+        return {
+            "live_set_value_summary": set_summary,
+            "readiness_wait_summary": wait_summary,
+            "verify_scalar_output_summary": verify_summary,
+            "decision": _managed_rejection(
+                reason="verify_scalar_output_failed",
+                phase="verify_scalar_output",
+                readiness_wait_count=1,
+                fenced_output_read_count=1,
+                failed_invariants=("fenced_output_read",),
+            ),
+        }
+    if not _managed_fenced_output_matches_receipt(output_data, ready_receipt):
+        verify_summary.update({"reported_success": True, "matched": False})
+        return {
+            "live_set_value_summary": set_summary,
+            "readiness_wait_summary": wait_summary,
+            "verify_scalar_output_summary": verify_summary,
+            "decision": _managed_rejection(
+                reason="fenced_output_provenance_mismatch",
+                phase="verify_scalar_output",
+                readiness_wait_count=1,
+                fenced_output_read_count=1,
+                failed_invariants=("fenced_output_provenance",),
+            ),
+        }
+    try:
+        observed_output_value = _inspect_output_scalar_value(inspect_result)
+    except ValueError:
+        verify_summary.update({"reported_success": True, "matched": False})
+        return {
+            "live_set_value_summary": set_summary,
+            "readiness_wait_summary": wait_summary,
+            "verify_scalar_output_summary": verify_summary,
+            "decision": _managed_rejection(
+                reason="verify_scalar_output_invalid_value",
+                phase="verify_scalar_output",
+                readiness_wait_count=1,
+                fenced_output_read_count=1,
+                failed_invariants=("fenced_output_scalar",),
+            ),
+        }
+
+    matched = abs(float(observed_output_value) - float(expected_value)) <= SCALAR_TOLERANCE
+    verify_summary.update(
+        {
+            "reported_success": True,
+            "observed_output_value": observed_output_value,
+            "matched": matched,
+        }
+    )
+    return {
+        "live_set_value_summary": set_summary,
+        "readiness_wait_summary": wait_summary,
+        "verify_scalar_output_summary": verify_summary,
+        "decision": {
+            "decision": "accepted" if matched else "rejected",
+            "reason": (
+                "verify_scalar_output_succeeded"
+                if matched
+                else "verify_scalar_output_failed"
+            ),
+            "phase": "verify_scalar_output",
+            "expected_output_value": expected_value,
+            "observed_output_after": observed_output_value,
+            "scalar_tolerance": SCALAR_TOLERANCE,
+            **_managed_decision_metadata(
+                readiness_wait_count=1,
+                fenced_output_read_count=1,
+                settle_read_count=0,
+                failed_invariants=() if matched else ("fenced_output_scalar",),
+            ),
+        },
+    }
+
+
+async def _dispatch_set_value_with_profile(
+    *,
+    verifier_profile: str,
+    tool_executor: Callable[[str, Mapping[str, Any]], Awaitable[Any]],
+    editable_component_guid: str,
+    addition_component_guid: str,
+    worker_value: float | int,
+    expected_value: float | int,
+) -> dict[str, Any]:
+    if verifier_profile == SETTLE_VERIFIER_PROFILE:
+        result = await _dispatch_set_value_solve_and_verify(
+            tool_executor=tool_executor,
+            editable_component_guid=editable_component_guid,
+            addition_component_guid=addition_component_guid,
+            worker_value=worker_value,
+            expected_value=expected_value,
+        )
+        result["readiness_wait_summary"] = None
+        return result
+    if verifier_profile == MANAGED_VERIFIER_PROFILE:
+        return await _dispatch_set_value_managed_receipt_and_verify(
+            tool_executor=tool_executor,
+            editable_component_guid=editable_component_guid,
+            addition_component_guid=addition_component_guid,
+            worker_value=worker_value,
+            expected_value=expected_value,
+        )
+    raise ValueError(f"unsupported_verifier_profile:{verifier_profile}")
 
 
 def _worker_action_context(
@@ -2271,7 +2687,8 @@ def _run_probe(
     _write_json(run_dir / "worker_action.json", response_payload)
     params = apply_result.graph.nodes[WORKER_NODE_ID].metadata[EXECUTION_PARAMS_KEY]
     dispatch = asyncio.run(
-        _dispatch_set_value_solve_and_verify(
+        _dispatch_set_value_with_profile(
+            verifier_profile=verifier_profile,
             tool_executor=tool_executor,
             editable_component_guid=str(params["guid"]),
             addition_component_guid=addition_component_guid,
@@ -2280,6 +2697,11 @@ def _run_probe(
         )
     )
     _write_json(run_dir / "live_set_value_summary.json", dispatch["live_set_value_summary"])
+    if dispatch["readiness_wait_summary"] is not None:
+        _write_json(
+            run_dir / "readiness_wait_summary.json",
+            dispatch["readiness_wait_summary"],
+        )
     if dispatch["verify_scalar_output_summary"] is not None:
         _write_json(
             run_dir / "verify_scalar_output_summary.json",
