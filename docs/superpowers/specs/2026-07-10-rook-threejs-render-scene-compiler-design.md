@@ -92,7 +92,7 @@ The architecture has six bounded components.
    hierarchy, layers, blocks, materials, pivots, render meshes, and Director
    metadata.
 2. **Render-scene synchronizer** creates or updates the derived `.3dm` while
-   preserving recognized render-only content and overrides.
+   preserving registered render-only content and overrides.
 3. **Semantic auditor** applies conventions and classifies every exportable
    object.
 4. **Scene compiler** applies the selected optimization profile and builds the
@@ -104,6 +104,32 @@ The architecture has six bounded components.
 
 These components communicate through versioned plain-data contracts and are
 independently testable.
+
+## Slice 1 Runtime And Process Ownership
+
+Slice 1 explicitly requires the Rook MCP Python process. It does not introduce
+a separately bundled compiler worker or a plugin-only toolbar command. Create
+and Update are exposed as Python MCP tools and are unavailable when the MCP
+process is not running. The current derived document and last published preview
+remain inspectable without MCP.
+
+| Component | Process and entry point | Threading and cancellation | Durable state and availability |
+|---|---|---|---|
+| Transaction orchestrator | Rook MCP Python process; new `rook_create_render_scene` and `rook_update_render_scene` tools | Owns the run ID and cancellation token. Awaits every native and managed phase and checks cancellation between them. | Sole writer of `scene-link.json`, `current.json`, `promotion.json`, run manifests, and publication backups. Requires the MCP process for the full operation. |
+| Source snapshot capture | RookNative C++ plugin; new native HTTP route called through `bridge.py` | The HTTP handler dispatches every Rhino SDK access through `CMainThreadDispatcher`. Native capture is divided into bounded phases and observes the run cancellation state between phases; an individual Rhino SDK call is not interrupted mid-call. | Writes no scene-link state. Requires a live discovered native instance and a saved active source document. |
+| Render-scene synchronizer | RookNative C++ plugin; new native HTTP route called through `bridge.py` | Rhino document reads and mutations run on the Rhino main thread. Candidate serialization may continue off-thread only after all Rhino-owned data has been copied into owned OpenNURBS values. | Produces only the candidate `.3dm` named by the orchestrator. It never promotes the persistent derived document or advances pointers. |
+| Semantic auditor and scene compiler | Rook MCP Python process; a new production `rook.threejs_scene` package | CPU work runs outside the MCP event loop through a bounded executor and checks cancellation between objects and buckets. | Reads the captured contract and immutable profile descriptor; writes only the attempt run directory. |
+| GLB, manifest, and report writer/validator | Rook MCP Python process; production modules under `rook.threejs_scene` | Runs outside the event loop and checks cancellation between buffer/material stages. It may reuse proven low-level GLB framing helpers, but does not broaden the mesh2splat package contract. | Writes only attempt-owned files until the orchestrator promotes them. |
+| Preview host and Three.js runtime | Managed Rook companion `RookWebSurface`, loaded on demand through native P/Invoke callbacks; native HTTP routes remain the only public bridge | Host creation and WebView2 interaction run on the Rhino/managed UI thread; Three.js assembly runs in the WebView. Candidate operations are keyed by run ID and support `prepare`, `commit`, `discard`, and `restore` commands. | Holds only prepared/visible in-memory preview state and emits run-ID/hash evidence through the managed callback status consumed via a native route. It never writes durable scene-link state. |
+
+The Python orchestrator owns cancellation and durable truth. Native and managed
+components must reject stale run IDs and cannot independently promote a run.
+Slice 1 success requires all three runtimes: MCP Python, the discovered native
+plugin, and the managed WebView2 surface with working WebGL. The hardened
+minimal HTML fallback is diagnostic only and cannot satisfy preview acceptance.
+If the companion, WebView2, or WebGL is unavailable, compilation may preserve
+diagnostic artifacts in the immutable run directory, but the transaction does
+not promote.
 
 ## Project Layout And Artifact Model
 
@@ -118,6 +144,8 @@ the user to choose the derived `.3dm` path. The default is a sibling file named
   promotion.json
   runs/<runId>/
     candidate.render.3dm
+    candidate.scene-link.json
+    profile-descriptor.json
     scene.glb
     scene.manifest.json
     compilation-report.json
@@ -131,12 +159,62 @@ and backup. If the process or machine stops between file replacements, the
 next Create or Update command uses the journal and hashes to complete the
 promotion or restore the prior derived document before accepting new work.
 
-The scene link records the source document identity, derived document path,
-selected profile and version, object mappings, last successful source snapshot,
+The scene link records the source binding, derived document path, immutable
+profile descriptor identity, object mappings, last successful source snapshot,
 last successful run ID, and hashes of all promoted artifacts. Paths inside the
 project root use safe project-relative references. External derived-document
-paths require an explicit user selection and are stored as normalized absolute
+paths require an explicit user selection and are stored as canonical absolute
 paths; Rook never infers a writable path outside the project.
+
+Unless a field says otherwise, canonical JSON in this design means the RFC
+8785 JSON Canonicalization Scheme encoded as UTF-8 without a byte-order mark;
+SHA-256 values are lowercase hexadecimal hashes of those exact bytes.
+
+## Source Binding And Project Root
+
+Slice 1 requires a saved, unmodified source `.3dm`. Create and Update reject an
+untitled document or a document for which Rhino reports unsaved changes. The
+runtime document serial number is used only to target the active session; it is
+never persisted as durable identity.
+
+Create requires an explicit project root. If the source is already beneath a
+directory containing `.rook`, that directory is proposed; otherwise the user
+must select or initialize a root that contains the source file. The canonical
+source path must be inside the canonical project root. Project bookkeeping is
+always rooted at that `.rook` directory even when the user explicitly chooses
+an external derived-document destination.
+
+Windows paths are canonicalized by resolving them to absolute final targets,
+normalizing separators and extended-path prefixes, and removing redundant
+segments and trailing separators except at a root. Canonical comparisons are
+case-insensitive. A case-only rename therefore retains the binding. Reparse
+points and UNC paths are accepted only after final-target resolution proves
+that the source remains under the selected project root. The scene link stores
+both a user-facing display path and the canonical comparison path.
+
+The durable Slice 1 binding is the canonical saved path, not an invented Rhino
+document UUID. Each successful snapshot also stores a source version
+fingerprint containing the saved-file SHA-256, byte size, source object-ID-set
+SHA-256, and document-settings SHA-256. Content fingerprints are expected to
+change during normal editing; they identify the compiled source version and
+detect staleness, not the document by themselves. The replacement check is
+deterministic: when both the prior and current object censuses are nonempty and
+their UUID intersection is empty, Update blocks with
+`source_replacement_suspected` rather than silently treating an unrelated
+document as a normal edit. A deliberate replace-all workflow must use Relink,
+even when the canonical path is unchanged.
+
+The object-ID-set hash covers lowercase canonical UUID strings sorted by
+ordinal value and joined with a single LF. The document-settings hash covers a
+versioned canonical JSON object containing model units, absolute tolerance,
+angle tolerance, relative tolerance, and world basis. Adding a fingerprint
+field requires a fingerprint schema-version change.
+
+Save As, a non-case-only rename, or a move changes the binding and requires the
+explicit **Relink Render Scene** action. Relink requires a saved candidate under
+the same project root, shows path, content-hash, and object-ID continuity
+evidence, and updates the binding only after user confirmation. Missing source
+paths and active-document/path mismatches block Create or Update.
 
 ## Update Transaction
 
@@ -148,17 +226,50 @@ paths; Rook never infers a writable path outside the project.
 3. Diff it against the last successful snapshot.
 4. Produce a candidate derived `.3dm` in the new run directory.
 5. Apply semantic preparation and compile the candidate package.
-6. Validate the candidate derived document, GLB, manifest, actor mapping,
-   visible output, and browser assembly.
-7. Write the promotion journal, promote the derived `.3dm`, advance
-   `current.json` and `scene-link.json`, verify the promoted hashes, remove the
-   journal and backup, and refresh the browser preview.
+6. Validate the candidate derived document, GLB, manifest, and actor mapping.
+7. Ask the preview runtime to `prepare` the candidate offscreen. It loads and
+   assembles the candidate, runs visible-output and browser checks without
+   replacing the visible scene, then emits evidence containing the run ID and
+   package/profile hashes.
+8. Execute the journaled promotion protocol below.
 
 The scene link advances only when the derived document, package, report, and
 preview evidence all describe the same successful run. Ordinary cancellation
 or failure stops future work, removes only attempt-owned temporary files, and
 leaves the last known-good run current. Interrupted promotion is a recoverable
 journaled state, not a successful or failed compilation result.
+
+### Journaled promotion protocol
+
+1. Write and fsync `promotion.json` with the previous and candidate run IDs,
+   all expected hashes, backup paths, preview prepared-evidence hash, and phase
+   `prepared`.
+2. Create and verify the same-directory backup of the persistent render
+   `.3dm`, promote the candidate render document, and advance the journal to
+   `render_promoted`. `current.json` and `scene-link.json` still identify the
+   previous run.
+3. Send preview `commit(runId)` and wait for evidence that the candidate is the
+   visible scene with the expected run, package, profile, actor, and renderer
+   hashes. The journal and render-document backup remain present.
+4. After matching preview evidence, replace the candidate scene link, then
+   replace `current.json` last as the durable commit point. Advance the journal
+   after each replacement and verify every promoted hash.
+5. Only when the render document, scene link, current pointer, and visible
+   preview all match the candidate may the orchestrator remove the backup and
+   promotion journal.
+
+A preview prepare or commit failure during a live transaction causes preview
+`discard` or `restore(previousRunId)`, restoration of the prior render document
+and pointer files, and journal removal only after rollback hashes are verified.
+No component may report the candidate as current while a rollback is pending.
+
+If the process or machine stops after the journal is written, the next Create
+or Update performs recovery before serving status or accepting new work. It may
+complete the candidate only when all candidate artifacts remain valid and the
+preview can reproduce matching prepared and committed evidence. Otherwise it
+restores the previous render document, pointer files, and preview. Recovery is
+successful when one run is consistently current and the journal and obsolete
+backup are removed; it never leaves mixed state as an accepted outcome.
 
 ## Synchronization And Ownership Contract
 
@@ -168,17 +279,18 @@ The authoring model is authoritative for:
 - object transforms and hierarchy;
 - object presence or deletion;
 - source layer membership;
-- source material assignments; and
+- source material assignments when no registered render override is active;
+  and
 - Director actor identity, actor-set membership, pivots, and authored motion.
 
 The derived render scene owns:
 
 - render cameras;
 - lights and environments;
-- explicitly recognized material overrides; and
+- explicitly registered material overrides; and
 - render-only helper objects and layers.
 
-Rook maintains a stable mapping from source document ID and source object UUID
+Rook maintains a stable mapping from the source binding and source object UUID
 to the corresponding render-scene object and compiled representation. A source
 object copy receives a new identity. Director-authored actor IDs remain
 authoritative. An object classified as an actor without Director metadata
@@ -197,9 +309,56 @@ On update:
 
 Direct geometry edits to synchronized objects in the render scene are not a
 second source of truth. The next update restores source geometry and reports
-that the render-side edit was superseded. Recognized presentation changes are
-preserved. If the render scene has unsaved or unclassifiable changes, promotion
-is blocked instead of silently discarding them.
+that the render-side edit was superseded. The explicit rules below define every
+presentation change that Slice 1 preserves or rejects.
+
+### Slice 1 material override contract
+
+Slice 1 preserves a material override only when it was created or adopted with
+the explicit **Set Render Material Override** action. That action allocates an
+`overrideId`, keys the record to the source object UUID, captures the complete
+normalized override material payload and signature in `scene-link.json`, and
+marks the corresponding derived object with the user string
+`rook.render.material_override_id=<overrideId>`. The override record also
+contains its source object UUID, creation run ID, material definition ID, and
+active state.
+
+The override payload uses the same canonical material fields and texture-byte
+hashes defined by the compiler's material-compatibility contract. Its signature
+is the SHA-256 of the canonical JSON encoding of that payload. Update
+recomputes the signature from the marked derived material before accepting it.
+
+Appearance precedence for a synchronized object is:
+
+1. active registered render material override;
+2. source object material assignment;
+3. source layer material assignment; and
+4. compiler default material.
+
+A later source material change does not silently remove an active override; the
+report records both the changed source material and retained override. **Clear
+Render Material Override** removes the scene-link record and marker and returns
+the object to source-material inheritance on the next update. A missing,
+duplicate, tampered, or signature-mismatched override record is blocking.
+
+### Other render-document edits
+
+- Cameras, lights, and environments in the derived document are render-owned
+  and preserved.
+- Other render-only objects or layers are preserved only when registered by
+  Rook with the user string `rook.render_only=true`; their stable render-only
+  IDs are stored in the scene link.
+- Saved, unregistered changes to geometry, transform, hierarchy, name, layer,
+  visibility, or material on a source-mapped object are overwritten from the
+  source with an explicit warning. They are not promoted to overrides.
+- Unsaved derived-document changes block Update.
+- Duplicate or altered source-mapping markers, deletion or mutation of
+  Rook-owned bookkeeping layers, missing registered render-only objects, and
+  unresolvable override materials block Update as integrity failures.
+
+These rules let routine source edits synchronize without a conflict dialog
+while ensuring that only deliberate, reproducible render-scene customizations
+survive.
 
 ## Semantic Classification
 
@@ -248,6 +407,39 @@ must pass fixed-camera pixel comparisons before publication.
 Balanced is a versioned profile family. The initial profile is `balanced@1`.
 Profiles are immutable, and a scene link remains pinned until the user
 deliberately adopts another version.
+
+Immutability is enforced with a persisted profile descriptor, not inferred
+from the display name. `profile-descriptor.json` contains:
+
+- descriptor schema version, profile ID, and profile version;
+- compiler contract version;
+- compiler build version and compiler implementation SHA-256;
+- exact Three.js revision;
+- enabled, report-only, and unsupported feature sets;
+- material, geometry, coordinate, visual-equivalence, and capacity thresholds;
+  and
+- fixture, regression-test, and benchmark-evidence SHA-256 values.
+
+`descriptorSha256` is computed from the canonical JSON encoding of
+all descriptor fields except `descriptorSha256` itself. The descriptor is
+shipped with the compiler, copied unchanged into every run, embedded by hash in
+the package manifest, and pinned in the scene link as
+`{profileId, profileVersion, descriptorSha256}`.
+
+The compiler implementation SHA-256 is computed at build time from a canonical
+manifest of every production file under `rook.threejs_scene`: normalized
+package-relative path, byte length, and file SHA-256, sorted by ordinal path.
+Generated caches, tests, and environment-specific metadata are excluded by
+explicit versioned inclusion rules stored in the descriptor. The active
+compiler reports the same manifest hash at runtime.
+
+On Create, Update, recovery, and preview load, Rook recomputes the descriptor
+hash and compares it with the scene link, package manifest, and active
+compiler-reported contract/build/implementation values. Reusing the same
+profile ID and version with a different descriptor, compiler implementation,
+threshold, evidence set, feature set, or Three.js revision is the blocking
+error `profile_descriptor_mismatch`. Rook never silently re-pins the scene; a
+behavior change requires a new profile version and explicit adoption.
 
 Every Balanced version performs only transformations proven to preserve exact
 geometry, material appearance, identity, pivots, transforms, and visible
@@ -326,6 +518,7 @@ enables actor instancing or batching.
 Each successful run contains:
 
 ```text
+profile-descriptor.json
 scene.glb
 scene.manifest.json
 compilation-report.json
@@ -338,7 +531,8 @@ assembly data.
 
 The manifest records:
 
-- schema, package, profile, source snapshot, and render-scene versions;
+- schema, package, profile, source snapshot, and render-scene versions plus the
+  exact profile descriptor SHA-256;
 - GLB filename, byte size, and SHA-256;
 - source units and basis plus package units, basis, and origins;
 - canonical geometry and material signatures;
@@ -360,30 +554,39 @@ shared logic is promoted into production-owned modules with dedicated tests.
 
 The runtime:
 
-1. reads `current.json` and the referenced immutable run;
-2. verifies the GLB and manifest hashes;
-3. loads the GLB with `GLTFLoader`;
-4. builds and validates the ordinary actor index;
-5. applies the manifest assembly plan;
-6. removes replaced ordinary nodes only after successful runtime assembly;
-7. verifies final actor addressability and expected structural counts; and
-8. swaps the candidate scene into view.
+1. reads `current.json` on startup to restore the last committed immutable run;
+2. accepts `prepare(runId, expectedHashes)` only for an immutable candidate run
+   named by the orchestrator;
+3. verifies the profile descriptor, GLB, and manifest hashes;
+4. loads the GLB with `GLTFLoader` into a non-visible candidate scene;
+5. builds and validates the ordinary actor index and manifest assembly plan;
+6. removes replaced ordinary nodes only inside the candidate after successful
+   runtime assembly;
+7. verifies final actor addressability and expected structural counts and emits
+   prepared evidence without changing the visible scene; and
+8. accepts `commit(runId)` only for that prepared candidate, swaps it into view,
+   and emits visible evidence. `discard` removes a prepared candidate and
+   `restore` returns to a specified previously committed run.
 
 It exposes a representation-neutral actor API for lookup, metadata inspection,
 absolute-time transforms, visibility, selection, actor-set operations, and
 translation of raycast results back to actor IDs.
 
-Preview refresh preserves the camera and timeline position when compatible. A
-failed refresh leaves the previous scene visible. The preview reports actual
-renderer calls, triangles, CPU measurements, GPU timing when available, and
-the package/profile provenance.
+Preview commit preserves the camera and timeline position when compatible. A
+failed prepare leaves the previous scene visible. A failed commit participates
+in the journaled rollback protocol and cannot finalize durable state. Preview
+evidence includes the run ID, package and descriptor hashes, actor-index hash,
+renderer-structure hash, actual renderer calls and triangles, CPU measurements,
+GPU timing when available, and package/profile provenance.
 
 ## User Experience
 
 ### Create Render Scene
 
-First use asks for the derived `.3dm` path, selects Balanced by default, creates
-the scene link, completes the first transaction, and opens the Three.js preview.
+First use requires the active authoring document to be saved and unmodified,
+asks for or confirms the project root and derived `.3dm` path, selects the exact
+`balanced@1` descriptor by default, creates the scene link, completes the first
+transaction, and opens the Three.js preview.
 
 ### Update Render Scene
 
@@ -405,7 +608,18 @@ The successful summary reports:
 - unoptimized objects and reasons.
 
 The preview exposes current, stale, running, cancelled, and failed states plus
-links to the derived `.3dm`, current package, and report.
+links to the derived `.3dm`, current package, and report. While a promotion
+journal exists, the only state is recovering; no run is presented as current
+until recovery completes.
+
+### Relink and render customization
+
+**Relink Render Scene** is the only Slice 1 operation that changes the source
+path binding after Save As, move, or rename. **Set Render Material Override**
+and **Clear Render Material Override** are the only operations that create or
+remove persistent material override records. **Adopt Render-Only Object** and
+**Remove Render-Only Object** maintain the scene-link record and
+`rook.render_only=true` marker for render-only geometry and helpers.
 
 ## Failure And Recovery
 
@@ -419,11 +633,19 @@ Warnings are non-blocking when the compiler can preserve the original ordinary
 representation exactly. Unsupported optimization never justifies dropping an
 object.
 
-No failed or cancelled run advances `current.json` or the scene link. Cleanup
-is manifest-driven and limited to attempt-owned staging files. Published run
-directories are immutable. The previous derived scene, package, report, and
-preview remain the last known-good result. On startup, an existing promotion
-journal is recovered before the scene can be updated or presented as current.
+An ordinary failed or cancelled run does not advance `current.json` or the
+scene link. Cleanup is manifest-driven and limited to attempt-owned staging
+files. Published run directories are immutable. The previous derived scene,
+package, report, and preview remain the last known-good result.
+
+An operating-system or process interruption after `promotion.json` is durable
+is not classified as an ordinary failed run. On startup, Rook reports
+`recovering`, blocks normal current-state presentation, and follows the
+journaled completion-or-rollback rules before accepting another command. A
+recovery may legitimately make the candidate current only after it
+re-establishes matching render-document, pointer, profile, package, actor, and
+visible-preview evidence. Otherwise it restores the prior run. Recovery itself
+is tested as a distinct outcome from ordinary failure.
 
 ## Staged Delivery
 
@@ -435,7 +657,7 @@ journal is recovered before the scene can be updated or presented as current.
 - Preserve ordinary actor nodes, metadata, pivots, and absolute-time behavior.
 - Merge exact-compatible static context by material.
 - Produce and validate GLB, manifest, report, and automatic preview refresh.
-- Preserve render-only cameras, lights, environments, and recognized material
+- Preserve render-only cameras, lights, environments, and registered material
   overrides.
 - Publish transactionally and retain the last known-good result.
 - Report instance and batch candidates without applying them.
@@ -463,7 +685,12 @@ policies, and improved override management.
 - semantic classification precedence;
 - Balanced decisions and conservative fallbacks;
 - scene-link and manifest schema validation;
+- source-path canonicalization, version fingerprints, Save As rejection, and
+  explicit relinking;
+- profile descriptor canonicalization, hash enforcement, and active-compiler
+  compatibility rejection;
 - actor mapping across representation changes;
+- material-override marker, precedence, clearing, and tamper behavior;
 - safe path normalization and attempt-owned cleanup; and
 - deterministic reports and hashes.
 
@@ -474,7 +701,9 @@ policies, and improved override management.
 - initial derived-document creation;
 - add, change, delete, hierarchy, layer, and material synchronization;
 - preservation of render-only cameras, lights, environments, and overrides;
-- detection of unsaved or unclassifiable render-scene changes; and
+- detection of unsaved or unclassifiable render-scene changes;
+- preservation and rejection rules for every supported render-document edit;
+  and
 - proof that the authoring document remains unchanged.
 
 ### Package and browser tests
@@ -486,7 +715,19 @@ policies, and improved override management.
 - unit, basis, and large-coordinate comparisons;
 - actual renderer calls and triangle counts;
 - CPU/GPU protocol results across declared presets; and
-- stop, reset, cancellation, context loss, and last-known-good refresh behavior.
+- stop, reset, cancellation, context loss, preview prepare/commit/restore, and
+  last-known-good refresh behavior.
+
+### Process-boundary and recovery tests
+
+- MCP-unavailable, native-unavailable, companion-unavailable, WebView2-failed,
+  and WebGL-failed capability outcomes;
+- main-thread enforcement for every Rhino SDK access;
+- stale run-ID rejection across native and managed callbacks;
+- cancellation between each bounded native, compiler, and writer phase;
+- promotion interruption after every journal phase; and
+- proof that recovery either completes one fully evidenced candidate or
+  restores one fully evidenced prior run, never a mixed accepted state.
 
 ## Slice 1 Acceptance Criteria
 
@@ -496,17 +737,33 @@ presentation content. Acceptance requires:
 
 - Create Render Scene produces the derived `.3dm`, GLB, manifest, report, and
   live browser preview without changing the source file.
+- Create and Update reject untitled or modified source documents, bind to the
+  canonical saved path under the explicit project root, treat case-only path
+  changes as equivalent, and require Relink after Save As or a real move.
 - A second update adds, modifies, and deletes source objects and the changes
   appear across the derived scene and browser preview.
 - Actor IDs, actor sets, pivots, materials, and transforms survive both runs.
-- Render-only cameras, lights, environment, and recognized overrides survive
+- Render-only cameras, lights, environment, and registered overrides survive
   the second update.
+- A registered material override survives a changed source material; clearing
+  the override restores source inheritance, while manual unregistered material
+  changes are overwritten with a warning.
+- The scene link, manifest, copied descriptor, active compiler, and preview all
+  agree on the exact profile descriptor hash; a same-name/version descriptor
+  mutation blocks Update and promotion.
 - Static-context merging reduces actual browser draw calls while passing the
   fixed-camera visible-equivalence gate.
 - Instance and batch candidates are reported deterministically but remain
   ordinary actor nodes in Slice 1.
-- Failure injected at every transaction stage preserves the first run as the
-  current render scene and preview.
+- Ordinary failure injected before and during every live transaction phase
+  preserves the first run as the current render scene and preview.
+- Interruption injected after every durable promotion-journal phase recovers by
+  either completing the fully evidenced second run or restoring the fully
+  evidenced first run; both outcomes clear the journal and leave no mixed
+  current state.
+- The public Slice 1 Create and Update tools require MCP Python, discovered
+  RookNative, managed WebView2, and WebGL; each missing capability returns its
+  declared blocking reason without advancing current state.
 - The source worktree and production dependency boundaries remain clean and
   explicit.
 
