@@ -171,7 +171,7 @@ it("invalidates previously collected GPU samples after a late disjoint", () => {
   expect(timer.snapshot()).toEqual({
     available: true,
     samplesMs: [],
-    disjointCount: 2,
+    disjointCount: 1,
     pendingCount: 0,
   });
 });
