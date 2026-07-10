@@ -2496,6 +2496,73 @@ Complexity scaling.
 Solve/readiness policy for larger or heavier Grasshopper definitions.
 ```
 
+## LM8K GH solve-readiness receipt arrival (commit `425acaf8`)
+
+LM8K moved the Grasshopper post-mutation readiness contract out of probe-level
+settle reads and into the managed GH lifecycle boundary. The post-merge
+deterministic live smoke ran once from merged `main`:
+
+```text
+run_dir: probe_runs/lm8k-20260710T125559Z-425acaf8
+schema: rook.gh_solve_readiness_live_smoke:v1
+model_call: false
+expected_output_value: 7.5
+wait_timeout_ms: 10000
+decision: accepted
+```
+
+The baseline fixture was setup-only. The LM8K evidence claim begins at the
+receipted mutation:
+
+```text
+gh_set_value
+-> pending rook.gh_solve_readiness_receipt:v1
+-> correlated solution_end
+-> ready receipt
+-> one receipt-fenced gh_inspect_output read
+-> observed output 7.5
+```
+
+The mutation receipt recorded `status: pending`, `mutation_epoch: 2`, and an
+opaque receipt id. The managed wait returned `wait_status: ready` with
+`completion_signal: solution_end`, `solution_run_epoch: 8`, and
+`completed_solution_run_epoch: 8`. The single fenced output read reported the
+same receipt id, document session, mutation epoch, and solution-run provenance,
+with `readiness_fenced: true` and preview value `"7.5"`.
+
+Interpretation:
+
+```text
+LM8K proves one durable product-level Grasshopper mutation/read path:
+the managed lifecycle can issue a pending receipt, correlate a post-schedule
+solution completion, and authorize one freshness-fenced output observation.
+Acceptance did not depend on probe-owned settle polling, repeated verifier
+reads, or sleep timing after the receipted mutation.
+```
+
+What this proves narrowly:
+
+```text
+The gh_set_value mutation path can emit and complete an authoritative
+in-memory solve-readiness receipt once.
+The fenced gh_inspect_output path can certify an output from that completed
+mutation/solution run once.
+The readiness mechanism works without Planner, worker, or model participation.
+```
+
+What this does not prove:
+
+```text
+Other GH mutators have migrated to receipts.
+Live document replacement, receipt expiry, or registry-capacity behavior.
+Worker-path integration with receipt-fenced scalar verification.
+Readiness behavior for larger or heavier Grasshopper definitions.
+```
+
+The LM8F/I/J bounded verifier-settle loops remain in place. A separate
+migration slice must prove equivalent receipt-fenced live evidence before any
+of those legacy probe loops are removed.
+
 ## Updated comparison keys
 
 Round 1: `(lm5j.prompt_text:v1, lm5k_golden_repair_v1/fresh_compiled_graph,
@@ -2667,6 +2734,12 @@ fixture/action/applier/verifier-settle policy, support available but not forced,
 scheduled and worker-reached denominators reported, worker_action_values,
 observed_output_values_after, verifier_attempt_counts, support counters, and
 terminal categories summarized, report-only leak marker scan)`.
+
+LM8K: `(LM8K managed GH solve-readiness receipt, gh_set_value-only emitting
+mutation, correlated post-schedule solution lifecycle, opaque in-memory receipt
+authority, bounded managed wait, one receipt-fenced gh_inspect_output read,
+no post-mutation polling/sleep/repeated reads, deterministic live smoke,
+model_call false)`.
 
 Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
 new experiment.
