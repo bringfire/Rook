@@ -1,0 +1,633 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using System.Reflection.Emit;
+using System.Text.Json;
+using System.Threading;
+using Rook.Handlers;
+using Rook.InternalBridge;
+using Xunit;
+
+namespace Rook.Tests.Handlers
+{
+    [CollectionDefinition(CollectionName, DisableParallelization = true)]
+    public sealed class GrasshopperHandlerReadinessCollection
+    {
+        public const string CollectionName = "GrasshopperHandler readiness";
+    }
+
+    [Collection(GrasshopperHandlerReadinessCollection.CollectionName)]
+    public sealed class GrasshopperHandlerReadinessTests
+    {
+        private static readonly PropertyInfo ActiveCanvasProperty = CreateActiveCanvasProperty();
+
+        [Fact]
+        public void SuccessfulSliderMutation_NestsPendingReceiptWithoutChangingSuccess()
+        {
+            var slider = new GH_NumberSlider(Guid.NewGuid());
+            var document = new FakeDocument(slider);
+            var handler = CreateHandler(document, out _);
+
+            var response = handler.SetValue(Body(slider.InstanceGuid, 7.5m));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal("slider", data.GetProperty("Type").GetString());
+            Assert.Equal(7.5m, data.GetProperty("NewValue").GetDecimal());
+            Assert.Equal("pending", MutationReceipt(data).GetProperty("status").GetString());
+            Assert.Equal(1, document.ScheduleCount);
+            Assert.Equal(1, slider.ExpireCount);
+            Assert.False(slider.LastExpireRecompute);
+        }
+
+        [Fact]
+        public void LifecycleUnavailable_SuccessfulMutationReturnsTerminalUnknownReceipt()
+        {
+            var slider = new GH_NumberSlider(Guid.NewGuid());
+            var document = new MissingLifecycleDocument(slider);
+            var handler = CreateHandler(document, out _);
+
+            var response = handler.SetValue(Body(slider.InstanceGuid, 3m));
+
+            Assert.True(response.Success);
+            var receipt = MutationReceipt(Element(response.Data));
+            Assert.Equal("unknown", receipt.GetProperty("status").GetString());
+            Assert.Equal("solution_start_event_missing", receipt.GetProperty("reason").GetString());
+            Assert.Equal(3m, slider.Slider.Value);
+            Assert.Equal(1, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void SolverLocked_SuccessfulMutationReturnsTerminalSolverLockedReceipt()
+        {
+            var slider = new GH_NumberSlider(Guid.NewGuid());
+            var document = new FakeDocument(slider) { Enabled = false };
+            var handler = CreateHandler(document, out _);
+
+            var response = handler.SetValue(Body(slider.InstanceGuid, 4m));
+
+            Assert.True(response.Success);
+            var receipt = MutationReceipt(Element(response.Data));
+            Assert.Equal("solver_locked", receipt.GetProperty("status").GetString());
+            Assert.Equal("solver_locked", receipt.GetProperty("reason").GetString());
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void ActiveRegistryCapacity_SetValueFailsBeforeTouchingSlider()
+        {
+            var slider = new GH_NumberSlider(Guid.NewGuid());
+            var document = new FakeDocument(slider);
+            var registry = new GhSolveReceiptRegistry();
+            var handler = CreateHandler(document, out var canvas, registry);
+            handler.EnsureReadinessSession(document, canvas);
+            for (var i = 0; i < 64; i++)
+            {
+                Assert.True(registry.IssueMutation(new object()).Issued);
+            }
+
+            var response = handler.SetValue(Body(slider.InstanceGuid, 9m));
+
+            Assert.False(response.Success);
+            Assert.Equal("readiness_registry_capacity_exceeded", Error(response));
+            Assert.Equal(0, slider.Slider.ValueSetCount);
+            Assert.Equal(0, slider.ExpireCount);
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void ExternallyReplacedDocument_NextSetValueStartsNewSessionAndTombstonesOldReceipt()
+        {
+            var firstSlider = new GH_NumberSlider(Guid.NewGuid());
+            var firstDocument = new FakeDocument(firstSlider);
+            var registry = new GhSolveReceiptRegistry();
+            var handler = CreateHandler(firstDocument, out var canvas, registry);
+            var firstResponse = handler.SetValue(Body(firstSlider.InstanceGuid, 1m));
+            var firstReceipt = MutationReceipt(Element(firstResponse.Data));
+
+            var secondSlider = new GH_NumberSlider(Guid.NewGuid());
+            var secondDocument = new FakeDocument(secondSlider);
+            canvas.SetDocumentWithoutEvent(secondDocument);
+            var secondResponse = handler.SetValue(Body(secondSlider.InstanceGuid, 2m));
+
+            Assert.True(secondResponse.Success);
+            var secondReceipt = MutationReceipt(Element(secondResponse.Data));
+            Assert.NotEqual(
+                firstReceipt.GetProperty("document_session_id").GetString(),
+                secondReceipt.GetProperty("document_session_id").GetString());
+            Assert.Equal(
+                "document_replaced",
+                Receipt(Element(handler.GetSolveReadiness(firstReceipt.GetProperty("receipt_id").GetString()).Data))
+                    .GetProperty("status").GetString());
+        }
+
+        [Fact]
+        public void CanvasDocumentChanged_EagerlyTombstonesAndSignalsPriorSession()
+        {
+            var document = new FakeDocument();
+            var registry = new GhSolveReceiptRegistry();
+            var handler = CreateHandler(document, out var canvas, registry);
+            var issue = handler.BeginSetValueReceipt(document, canvas);
+            var wait = new Thread(() => handler.WaitForSolveReadiness(issue.Receipt!.ReceiptId, 5000));
+            wait.Start();
+            Assert.True(SpinWait.SpinUntil(
+                () => !registry.CanAcquireWaiterForTests(issue.Receipt!.ReceiptId),
+                TimeSpan.FromSeconds(1)));
+
+            var replacement = new FakeDocument();
+            canvas.ReplaceDocument(replacement);
+
+            Assert.True(wait.Join(TimeSpan.FromSeconds(1)));
+            var status = handler.GetSolveReadiness(issue.Receipt!.ReceiptId);
+            Assert.Equal("document_replaced", Receipt(Element(status.Data)).GetProperty("status").GetString());
+            var replacementIssue = handler.BeginSetValueReceipt(replacement, canvas);
+            Assert.NotEqual(issue.Receipt.DocumentSessionId, replacementIssue.Receipt!.DocumentSessionId);
+            handler.FinalizeSetValueReceipt(replacementIssue.Receipt.ReceiptId, ScheduledOutcome());
+
+            document.RaiseSolutionStart();
+            document.RaiseSolutionEnd();
+
+            Assert.Equal(
+                "pending",
+                Receipt(Element(handler.GetSolveReadiness(replacementIssue.Receipt.ReceiptId).Data))
+                    .GetProperty("status").GetString());
+            replacement.RaiseSolutionStart();
+            replacement.RaiseSolutionEnd();
+            Assert.Equal(
+                "ready",
+                Receipt(Element(handler.GetSolveReadiness(replacementIssue.Receipt.ReceiptId).Data))
+                    .GetProperty("status").GetString());
+        }
+
+        [Fact]
+        public void CanvasDocumentClosed_NullDocumentDoesNotReusePriorSession()
+        {
+            var document = new FakeDocument();
+            var handler = CreateHandler(document, out var canvas);
+            var first = handler.BeginSetValueReceipt(document, canvas).Receipt!;
+
+            canvas.ReplaceDocument(null);
+            canvas.SetDocumentWithoutEvent(document);
+            var reopened = handler.BeginSetValueReceipt(document, canvas).Receipt!;
+
+            Assert.Equal(
+                "document_replaced",
+                Receipt(Element(handler.GetSolveReadiness(first.ReceiptId).Data)).GetProperty("status").GetString());
+            Assert.NotEqual(first.DocumentSessionId, reopened.DocumentSessionId);
+        }
+
+        [Fact]
+        public void KnownTerminalReceipt_StatusIsOuterSuccessWithSnapshot()
+        {
+            var document = new FakeDocument();
+            var handler = CreateHandler(document, out var canvas);
+            var issue = handler.BeginSetValueReceipt(document, canvas);
+            handler.FinalizeSetValueReceipt(issue.Receipt!.ReceiptId, new GhSolveOutcome { SolverLocked = true });
+
+            var response = handler.GetSolveReadiness(issue.Receipt.ReceiptId);
+
+            Assert.True(response.Success);
+            Assert.Equal("solver_locked", Receipt(Element(response.Data)).GetProperty("status").GetString());
+        }
+
+        [Fact]
+        public void WaitResponses_UseOnlyReadyTimeoutOrTerminalAndIncludeReceipt()
+        {
+            var document = new FakeDocument();
+            var handler = CreateHandler(document, out var canvas);
+
+            var ready = handler.BeginSetValueReceipt(document, canvas).Receipt!;
+            handler.FinalizeSetValueReceipt(ready.ReceiptId, ScheduledOutcome());
+            document.RaiseSolutionStart();
+            document.RaiseSolutionEnd();
+            AssertWait(handler.WaitForSolveReadiness(ready.ReceiptId, 1), "ready", "ready");
+
+            var pending = handler.BeginSetValueReceipt(document, canvas).Receipt!;
+            handler.FinalizeSetValueReceipt(pending.ReceiptId, ScheduledOutcome());
+            AssertWait(handler.WaitForSolveReadiness(pending.ReceiptId, 1), "timeout", "pending");
+
+            var terminal = handler.BeginSetValueReceipt(document, canvas).Receipt!;
+            handler.FinalizeSetValueReceipt(terminal.ReceiptId, new GhSolveOutcome { SolverLocked = true });
+            AssertWait(handler.WaitForSolveReadiness(terminal.ReceiptId, 300000), "terminal", "solver_locked");
+        }
+
+        [Fact]
+        public void AbsentReceipt_StatusAndWaitUseStableOuterFailure()
+        {
+            var handler = CreateHandler(new FakeDocument(), out _);
+
+            AssertUnknownReceiptFailure(handler, "absent-id");
+        }
+
+        [Fact]
+        public void EvictedReceipt_StatusAndWaitUseStableOuterFailure()
+        {
+            var registry = new GhSolveReceiptRegistry();
+            var document = new object();
+            var first = registry.IssueMutation(document).Receipt!;
+            registry.MarkSolverLocked(first.ReceiptId);
+            for (var i = 0; i < 256; i++)
+            {
+                var receipt = registry.IssueMutation(document).Receipt!;
+                registry.MarkSolverLocked(receipt.ReceiptId);
+            }
+
+            var handler = CreateHandler(new FakeDocument(), out _, registry);
+
+            AssertUnknownReceiptFailure(handler, first.ReceiptId);
+        }
+
+        [Fact]
+        public void PostRestartReceipt_StatusAndWaitUseStableOuterFailure()
+        {
+            var priorRegistry = new GhSolveReceiptRegistry();
+            var priorReceipt = priorRegistry.IssueMutation(new object()).Receipt!;
+            var handler = CreateHandler(new FakeDocument(), out _, new GhSolveReceiptRegistry());
+
+            AssertUnknownReceiptFailure(handler, priorReceipt.ReceiptId);
+        }
+
+        private static void AssertUnknownReceiptFailure(GrasshopperHandler handler, string receiptId)
+        {
+            var status = handler.GetSolveReadiness(receiptId);
+            var wait = handler.WaitForSolveReadiness(receiptId, 1);
+
+            Assert.False(status.Success);
+            Assert.False(wait.Success);
+            Assert.Equal("readiness_receipt_not_found_or_evicted_or_process_restarted", Error(status));
+            Assert.Equal("readiness_receipt_not_found_or_evicted_or_process_restarted", Error(wait));
+        }
+
+        [Fact]
+        public void FencedInspect_PendingUnknownAndSupersededFailBeforeExtraction()
+        {
+            var component = new FakeComponent(Guid.NewGuid());
+            var document = new FakeDocument(component);
+            var handler = CreateHandler(document, out var canvas);
+
+            var pending = handler.BeginSetValueReceipt(document, canvas).Receipt!;
+            AssertFenceFailure(handler, document, component, pending.ReceiptId, "readiness_receipt_not_ready");
+
+            handler.FinalizeSetValueReceipt(pending.ReceiptId, new GhSolveOutcome());
+            AssertFenceFailure(handler, document, component, pending.ReceiptId, "readiness_receipt_unknown");
+
+            var older = handler.BeginSetValueReceipt(document, canvas).Receipt!;
+            handler.BeginSetValueReceipt(document, canvas);
+            AssertFenceFailure(handler, document, component, older.ReceiptId, "readiness_receipt_superseded");
+        }
+
+        [Fact]
+        public void FencedInspect_StaleReceiptFailsBeforeExtraction()
+        {
+            var component = new FakeComponent(Guid.NewGuid());
+            var document = new FakeDocument(component);
+            var handler = CreateHandler(document, out var canvas);
+            var receipt = ReadyReceipt(handler, document, canvas);
+            document.RaiseSolutionStart();
+            document.RaiseSolutionEnd();
+
+            AssertFenceFailure(
+                handler,
+                document,
+                component,
+                receipt.ReceiptId,
+                "readiness_receipt_stale_solution_run");
+        }
+
+        [Fact]
+        public void FencedInspect_ReadyReceiptAddsBoundedProvenance()
+        {
+            var component = new FakeComponent(Guid.NewGuid());
+            var document = new FakeDocument(component);
+            var handler = CreateHandler(document, out var canvas);
+            var receipt = ReadyReceipt(handler, document, canvas);
+
+            var response = handler.InspectOutput(component.InstanceGuid.ToString(), "R", receipt.ReceiptId);
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.True(data.GetProperty("readiness_fenced").GetBoolean());
+            Assert.Equal(receipt.ReceiptId, data.GetProperty("readiness_receipt_id").GetString());
+            Assert.Equal(receipt.DocumentSessionId, data.GetProperty("document_session_id").GetString());
+            Assert.Equal(1, data.GetProperty("mutation_epoch").GetInt64());
+            Assert.Equal(1, data.GetProperty("solution_run_epoch").GetInt64());
+            Assert.Equal(1, data.GetProperty("completed_solution_run_epoch").GetInt64());
+            Assert.Equal(1, document.ObjectsReadCount);
+        }
+
+        [Fact]
+        public void MutationException_TerminatesReservedReceiptAsUnknown()
+        {
+            var nextId = 0;
+            var registry = new GhSolveReceiptRegistry(idFactory: () => "id-" + ++nextId);
+            var slider = new GH_NumberSlider(Guid.NewGuid());
+            slider.Slider.ThrowOnValueSet = true;
+            var document = new FakeDocument(slider);
+            var handler = CreateHandler(document, out _, registry);
+
+            var response = handler.SetValue(Body(slider.InstanceGuid, 5m));
+
+            Assert.False(response.Success);
+            var lookup = registry.Get("id-2");
+            Assert.True(lookup.Found);
+            Assert.Equal(GhSolveReadinessStatus.Unknown, lookup.Receipt!.Status);
+            Assert.Equal("mutation_failed", lookup.Receipt.Reason);
+        }
+
+        private static void AssertFenceFailure(
+            GrasshopperHandler handler,
+            FakeDocument document,
+            FakeComponent component,
+            string receiptId,
+            string expectedError)
+        {
+            var readsBefore = document.ObjectsReadCount;
+
+            var response = handler.InspectOutput(component.InstanceGuid.ToString(), "R", receiptId);
+
+            Assert.False(response.Success);
+            Assert.Equal(expectedError, Error(response));
+            Assert.True(Element(response.Data).TryGetProperty("receipt", out _));
+            Assert.Equal(readsBefore, document.ObjectsReadCount);
+        }
+
+        private static void AssertWait(ApiResponse response, string waitStatus, string receiptStatus)
+        {
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal("rook.gh_solve_readiness_wait_result:v1", data.GetProperty("schema").GetString());
+            Assert.Equal(waitStatus, data.GetProperty("wait_status").GetString());
+            Assert.Equal(receiptStatus, Receipt(data).GetProperty("status").GetString());
+            Assert.Equal(3, data.EnumerateObject().Count());
+        }
+
+        private static GhSolveReadinessReceipt ReadyReceipt(
+            GrasshopperHandler handler,
+            FakeDocument document,
+            FakeCanvas canvas)
+        {
+            var receipt = handler.BeginSetValueReceipt(document, canvas).Receipt!;
+            handler.FinalizeSetValueReceipt(receipt.ReceiptId, ScheduledOutcome());
+            document.RaiseSolutionStart();
+            document.RaiseSolutionEnd();
+            return receipt;
+        }
+
+        private static GhSolveOutcome ScheduledOutcome() => new()
+        {
+            SolveScheduled = true,
+            SolverStateKnown = true,
+            Warnings = Array.Empty<string>(),
+        };
+
+        private static GrasshopperHandler CreateHandler(
+            object document,
+            out FakeCanvas canvas,
+            GhSolveReceiptRegistry? registry = null)
+        {
+            FakeDocument.EnableSolutions = true;
+            MissingLifecycleDocument.EnableSolutions = true;
+            canvas = new FakeCanvas(document);
+            ActiveCanvasProperty.SetValue(null, canvas);
+            return new GrasshopperHandler(
+                bridgeCore: new ReadyCore(),
+                solveReceiptRegistry: registry ?? new GhSolveReceiptRegistry(),
+                solutionLifecycleAdapter: new GhSolutionLifecycleAdapter(),
+                canvasDocumentLifecycleAdapter: new GhCanvasDocumentLifecycleAdapter());
+        }
+
+        private static string Body(Guid guid, decimal value) =>
+            JsonSerializer.Serialize(new { guid = guid.ToString(), value });
+
+        private static JsonElement Element(object? data) => JsonSerializer.SerializeToElement(data);
+
+        private static JsonElement Receipt(JsonElement data) => data.GetProperty("receipt");
+
+        private static JsonElement MutationReceipt(JsonElement data) =>
+            data.GetProperty("solve_readiness_receipt");
+
+        private static string Error(ApiResponse response) =>
+            Element(response.Data).GetProperty("error").GetString()!;
+
+        private static PropertyInfo CreateActiveCanvasProperty()
+        {
+            var existing = AppDomain.CurrentDomain.GetAssemblies()
+                .FirstOrDefault(assembly => assembly.GetName().Name == "Grasshopper")
+                ?.GetType("Grasshopper.Instances")
+                ?.GetProperty("ActiveCanvas", BindingFlags.Public | BindingFlags.Static);
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            var assemblyName = new AssemblyName("Grasshopper");
+            var assembly = AppDomain.CurrentDomain.DefineDynamicAssembly(assemblyName, AssemblyBuilderAccess.Run);
+            var module = assembly.DefineDynamicModule("Grasshopper");
+            var type = module.DefineType(
+                "Grasshopper.Instances",
+                TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed);
+            var field = type.DefineField("_activeCanvas", typeof(object), FieldAttributes.Private | FieldAttributes.Static);
+            var property = type.DefineProperty("ActiveCanvas", PropertyAttributes.None, typeof(object), Type.EmptyTypes);
+            var getter = type.DefineMethod(
+                "get_ActiveCanvas",
+                MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                typeof(object),
+                Type.EmptyTypes);
+            var getterIl = getter.GetILGenerator();
+            getterIl.Emit(OpCodes.Ldsfld, field);
+            getterIl.Emit(OpCodes.Ret);
+            var setter = type.DefineMethod(
+                "set_ActiveCanvas",
+                MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                null,
+                new[] { typeof(object) });
+            var setterIl = setter.GetILGenerator();
+            setterIl.Emit(OpCodes.Ldarg_0);
+            setterIl.Emit(OpCodes.Stsfld, field);
+            setterIl.Emit(OpCodes.Ret);
+            property.SetGetMethod(getter);
+            property.SetSetMethod(setter);
+            return type.CreateType()!.GetProperty("ActiveCanvas", BindingFlags.Public | BindingFlags.Static)!;
+        }
+
+        private sealed class ReadyCore : IGrasshopperCore
+        {
+            public BridgeResult<GrasshopperStatusDto> GetStatus() =>
+                BridgeResult<GrasshopperStatusDto>.Ok(new GrasshopperStatusDto
+                {
+                    Available = true,
+                    HasActiveCanvas = true,
+                    HasActiveDocument = true,
+                    CanvasVisible = true,
+                    ReadyForEdit = true,
+                });
+
+            public BridgeResult<GrasshopperDocumentInfoDto> GetDocumentInfo() =>
+                BridgeResult<GrasshopperDocumentInfoDto>.Ok(new GrasshopperDocumentInfoDto());
+
+            public BridgeResult<GrasshopperQueryDto> QueryDocument() =>
+                BridgeResult<GrasshopperQueryDto>.Ok(new GrasshopperQueryDto());
+
+            public BridgeResult<GrasshopperSelectionDto> GetSelection() =>
+                BridgeResult<GrasshopperSelectionDto>.Ok(new GrasshopperSelectionDto());
+        }
+
+        public sealed class FakeCanvasDocumentChangedEventArgs : EventArgs
+        {
+            public FakeCanvasDocumentChangedEventArgs(object? oldDocument, object? newDocument)
+            {
+                OldDocument = oldDocument;
+                NewDocument = newDocument;
+            }
+
+            public object? OldDocument { get; }
+            public object? NewDocument { get; }
+        }
+
+        public sealed class FakeCanvas
+        {
+            public FakeCanvas(object document)
+            {
+                Document = document;
+            }
+
+            public object? Document { get; private set; }
+            public int RefreshCount { get; private set; }
+            public event EventHandler<FakeCanvasDocumentChangedEventArgs>? DocumentChanged;
+
+            public void Refresh() => RefreshCount++;
+
+            public void SetDocumentWithoutEvent(object? document) => Document = document;
+
+            public void ReplaceDocument(object? document)
+            {
+                var oldDocument = Document;
+                Document = document;
+                DocumentChanged?.Invoke(this, new FakeCanvasDocumentChangedEventArgs(oldDocument, document));
+            }
+        }
+
+        public sealed class FakeSolutionEventArgs : EventArgs
+        {
+            public FakeSolutionEventArgs(object document)
+            {
+                Document = document;
+            }
+
+            public object Document { get; }
+        }
+
+        public sealed class FakeDocument
+        {
+            private readonly IReadOnlyList<object> _objects;
+
+            public FakeDocument(params object[] objects)
+            {
+                _objects = objects;
+            }
+
+            public static bool EnableSolutions { get; set; } = true;
+            public bool Enabled { get; set; } = true;
+            public int ScheduleCount { get; private set; }
+            public int ObjectsReadCount { get; private set; }
+            public IReadOnlyList<object> Objects
+            {
+                get
+                {
+                    ObjectsReadCount++;
+                    return _objects;
+                }
+            }
+
+            public event EventHandler<FakeSolutionEventArgs>? SolutionStart;
+            public event EventHandler<FakeSolutionEventArgs>? SolutionEnd;
+
+            public void ScheduleSolution(int delayMs) => ScheduleCount++;
+            public void RaiseSolutionStart() => SolutionStart?.Invoke(this, new FakeSolutionEventArgs(this));
+            public void RaiseSolutionEnd() => SolutionEnd?.Invoke(this, new FakeSolutionEventArgs(this));
+        }
+
+        public sealed class MissingLifecycleDocument
+        {
+            public MissingLifecycleDocument(params object[] objects)
+            {
+                Objects = objects;
+            }
+
+            public static bool EnableSolutions { get; set; } = true;
+            public bool Enabled { get; set; } = true;
+            public IReadOnlyList<object> Objects { get; }
+            public int ScheduleCount { get; private set; }
+
+            public void ScheduleSolution(int delayMs) => ScheduleCount++;
+        }
+
+        public sealed class GH_NumberSlider
+        {
+            public GH_NumberSlider(Guid instanceGuid)
+            {
+                InstanceGuid = instanceGuid;
+            }
+
+            public Guid InstanceGuid { get; }
+            public FakeSlider Slider { get; } = new();
+            public int ExpireCount { get; private set; }
+            public bool LastExpireRecompute { get; private set; }
+
+            public void ExpireSolution(bool recompute)
+            {
+                ExpireCount++;
+                LastExpireRecompute = recompute;
+            }
+        }
+
+        public sealed class FakeSlider
+        {
+            private decimal _value;
+
+            public decimal Minimum { get; set; }
+            public decimal Maximum { get; set; } = 100m;
+            public bool ThrowOnValueSet { get; set; }
+            public int ValueSetCount { get; private set; }
+            public decimal Value
+            {
+                get => _value;
+                set
+                {
+                    ValueSetCount++;
+                    if (ThrowOnValueSet)
+                    {
+                        throw new InvalidOperationException("value mutation failed");
+                    }
+
+                    _value = value;
+                }
+            }
+        }
+
+        public sealed class FakeComponent
+        {
+            public FakeComponent(Guid instanceGuid)
+            {
+                InstanceGuid = instanceGuid;
+            }
+
+            public Guid InstanceGuid { get; }
+            public FakeParams Params { get; } = new();
+        }
+
+        public sealed class FakeParams
+        {
+            public IList<FakeOutput> Output { get; } = new List<FakeOutput> { new() };
+        }
+
+        public sealed class FakeOutput
+        {
+            public string Name { get; } = "Result";
+            public string NickName { get; } = "R";
+            public string TypeName { get; } = "Number";
+            public object? VolatileData => null;
+        }
+    }
+}
