@@ -24,8 +24,21 @@ it("checks deterministic seek, independent transforms, and pivots", () => {
   expect(runCorrectnessChecks(context)).toEqual({
     pass: true,
     deterministicSeek: true,
+    deterministicSeekScope: "actor_root_and_actors",
     independentTransform: true,
     pivotSanity: { status: "passed" },
+  });
+});
+
+it("checks deterministic group motion with root-aware snapshots", () => {
+  const context = createSyntheticScene({ actorCount: 3 });
+  context.actorIndex = buildActorIndex(context.actorRoot).actors;
+  context.motionGranularity = "group";
+
+  expect(runCorrectnessChecks(context)).toMatchObject({
+    pass: true,
+    deterministicSeek: true,
+    deterministicSeekScope: "actor_root_and_actors",
   });
 });
 

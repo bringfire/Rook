@@ -22,6 +22,43 @@ describe("absolute-time animation", () => {
     expect(transformSnapshot(context.actorIndex)).toBe(expected);
   });
 
+  it("observes group-root motion and remains deterministic across seek orders", () => {
+    const context = createContext("group");
+    const orders = [
+      [0, 0.5, 1],
+      [1, 0.5, 0],
+      [0.5, 0, 1],
+    ];
+    const snapshotsByTime = new Map();
+
+    orders.forEach((order) => {
+      order.forEach((time) => {
+        evaluateAt(context, time);
+        const snapshot = transformSnapshot(
+          context.actorIndex, context.actorRoot,
+        );
+        if (!snapshotsByTime.has(time)) snapshotsByTime.set(time, snapshot);
+        expect(snapshot).toBe(snapshotsByTime.get(time));
+      });
+    });
+
+    expect(new Set(snapshotsByTime.values()).size).toBe(3);
+    const diagnostic = JSON.parse(snapshotsByTime.get(0.5));
+    expect(diagnostic.actorRoot).toEqual(expect.any(Array));
+    expect(diagnostic.actorRoot).toHaveLength(10);
+    expect(diagnostic.actors).toHaveLength(4);
+  });
+
+  it("validates the root included in a deterministic snapshot", () => {
+    const context = createContext("group");
+    evaluateAt(context, 0.5);
+    context.actorRoot.position.x = Number.NaN;
+
+    expect(() => transformSnapshot(
+      context.actorIndex, context.actorRoot,
+    )).toThrow(/non-finite transform.*actorRoot/);
+  });
+
   it("is transform-only and leaves world traversal to its caller", () => {
     const context = createContext();
     let traversals = 0;

@@ -49,16 +49,19 @@ export function runCorrectnessChecks(context) {
     return {
       pass: false,
       deterministicSeek: false,
+      deterministicSeekScope: "actor_root_and_actors",
       independentTransform: false,
       pivotSanity: { status: "failed", reason: "no addressable actors" },
     };
   }
 
   evaluateAt(context, 0.75);
-  const first = transformSnapshot(context.actorIndex);
+  const first = transformSnapshot(context.actorIndex, context.actorRoot);
   evaluateAt(context, 0.1);
   evaluateAt(context, 0.75);
-  const deterministicSeek = transformSnapshot(context.actorIndex) === first;
+  const deterministicSeek = transformSnapshot(
+    context.actorIndex, context.actorRoot,
+  ) === first;
   updateWorldMatrices(context);
 
   const firstActor = actors[0];
@@ -108,6 +111,7 @@ export function runCorrectnessChecks(context) {
       && independentTransform
       && pivotSanity.status !== "failed",
     deterministicSeek,
+    deterministicSeekScope: "actor_root_and_actors",
     independentTransform,
     pivotSanity,
   };

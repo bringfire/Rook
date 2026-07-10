@@ -31,20 +31,16 @@ export function evaluateAt({ actorIndex, actorRoot, motionGranularity }, time) {
   });
 }
 
-export function transformSnapshot(index) {
-  return JSON.stringify([...index.entries()]
+export function transformSnapshot(index, actorRoot = null) {
+  const actors = [...index.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([id, actor]) => {
-      validateObjectTransform(actor, id);
-      return [
-        id,
-        ...actor.position.toArray(),
-        ...actor.quaternion.toArray(),
-        ...actor.scale.toArray(),
-      ].map((value) => (
-        typeof value === "number" ? Number(value.toFixed(9)) : value
-      ));
-    }));
+    .map(([id, actor]) => [id, ...serializeTransform(actor, id)]);
+  return JSON.stringify({
+    actorRoot: actorRoot
+      ? serializeTransform(actorRoot, "actorRoot")
+      : null,
+    actors,
+  });
 }
 
 function restore(actor) {
@@ -88,6 +84,15 @@ function validateObjectTransform(actor, actorId, time) {
   ) return;
   const suffix = time === undefined ? "" : ` at time ${time}`;
   throw new Error(`non-finite transform for actor ${actorId}${suffix}`);
+}
+
+function serializeTransform(actor, actorId) {
+  validateObjectTransform(actor, actorId);
+  return [
+    ...actor.position.toArray(),
+    ...actor.quaternion.toArray(),
+    ...actor.scale.toArray(),
+  ].map((value) => Number(value.toFixed(9)));
 }
 
 function stablePhase(value) {
