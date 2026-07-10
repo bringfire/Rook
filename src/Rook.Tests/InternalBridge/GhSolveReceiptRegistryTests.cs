@@ -78,6 +78,34 @@ namespace Rook.Tests.InternalBridge
         }
 
         [Fact]
+        public void MarkScheduleAccepted_AtPendingExpiryBoundary_ExpiresReceiptBeforeAcceptance()
+        {
+            var clock = new TestClock();
+            var registry = CreateRegistry(clock);
+            var issue = registry.IssueMutation(DocumentA);
+            clock.Advance(TimeSpan.FromMinutes(10));
+
+            var accepted = registry.MarkScheduleAccepted(issue.Receipt!.ReceiptId);
+
+            Assert.Equal(GhSolveReadinessStatus.Unknown, accepted.Status);
+            Assert.Equal("receipt_expired", accepted.Reason);
+        }
+
+        [Fact]
+        public void MarkScheduleAccepted_AfterPendingExpiryBoundary_ExpiresReceiptBeforeAcceptance()
+        {
+            var clock = new TestClock();
+            var registry = CreateRegistry(clock);
+            var issue = registry.IssueMutation(DocumentA);
+            clock.Advance(TimeSpan.FromMinutes(10).Add(TimeSpan.FromTicks(1)));
+
+            var accepted = registry.MarkScheduleAccepted(issue.Receipt!.ReceiptId);
+
+            Assert.Equal(GhSolveReadinessStatus.Unknown, accepted.Status);
+            Assert.Equal("receipt_expired", accepted.Reason);
+        }
+
+        [Fact]
         public void ReadyReceipt_AllowsSameSessionFencedRead()
         {
             var registry = CreateReadyRegistry(out var receipt);
@@ -222,6 +250,35 @@ namespace Rook.Tests.InternalBridge
         }
 
         [Fact]
+        public void ReplaceDocument_PreservesExistingTerminalReceiptState()
+        {
+            var registry = CreateRegistry();
+            var issue = registry.IssueMutation(DocumentA);
+            registry.MarkMutationFailed(issue.Receipt!.ReceiptId);
+
+            registry.ReplaceDocument(DocumentB);
+
+            var retained = registry.Get(issue.Receipt.ReceiptId);
+            Assert.Equal(GhSolveReadinessStatus.Unknown, retained.Receipt!.Status);
+            Assert.Equal("mutation_failed", retained.Receipt.Reason);
+        }
+
+        [Fact]
+        public void ReplaceDocument_DoesNotExtendExistingTerminalRetentionAge()
+        {
+            var clock = new TestClock();
+            var registry = CreateRegistry(clock);
+            var issue = registry.IssueMutation(DocumentA);
+            registry.MarkMutationFailed(issue.Receipt!.ReceiptId);
+            clock.Advance(TimeSpan.FromMinutes(14));
+
+            registry.ReplaceDocument(DocumentB);
+            clock.Advance(TimeSpan.FromMinutes(1).Add(TimeSpan.FromTicks(1)));
+
+            Assert.False(registry.Get(issue.Receipt.ReceiptId).Found);
+        }
+
+        [Fact]
         public void LifecycleUnavailable_MarksReceiptUnknownWithStableReason()
         {
             var registry = CreateRegistry();
@@ -304,6 +361,52 @@ namespace Rook.Tests.InternalBridge
         }
 
         [Fact]
+        public void Wait_EvictedSignaledReceipt_ReturnsCapturedTerminalResult()
+        {
+            using var waiterReachedReacquire = new ManualResetEventSlim(false);
+            using var releaseWaiter = new ManualResetEventSlim(false);
+            var registry = CreateRegistry(
+                beforeWaiterReacquire: () =>
+                {
+                    waiterReachedReacquire.Set();
+                    releaseWaiter.Wait(TimeSpan.FromSeconds(1));
+                });
+            var receipt = IssueScheduled(registry, DocumentA);
+            var waitTask = Task.Run(() => registry.Wait(receipt.ReceiptId, TimeSpan.FromSeconds(5), CancellationToken.None));
+            Assert.True(SpinWait.SpinUntil(() => !registry.CanAcquireWaiterForTests(receipt.ReceiptId), TimeSpan.FromSeconds(1)));
+
+            registry.MarkMutationFailed(receipt.ReceiptId);
+            Assert.True(waiterReachedReacquire.Wait(TimeSpan.FromSeconds(1)));
+            for (var index = 0; index < 256; index++)
+            {
+                var issue = registry.IssueMutation(DocumentA);
+                registry.MarkMutationFailed(issue.Receipt!.ReceiptId);
+            }
+
+            releaseWaiter.Set();
+
+            Assert.True(waitTask.Wait(TimeSpan.FromSeconds(1)));
+            Assert.Equal(GhReadinessWaitStatus.Terminal, waitTask.Result.WaitStatus);
+            Assert.Equal(GhSolveReadinessStatus.Unknown, waitTask.Result.Receipt!.Status);
+            Assert.Equal("mutation_failed", waitTask.Result.Receipt.Reason);
+        }
+
+        [Fact]
+        public void ExpiredTerminalReceipt_RemovesInactiveDocumentSessionWhilePreservingCurrentSession()
+        {
+            var clock = new TestClock();
+            var registry = CreateRegistry(clock);
+            registry.ReplaceDocument(DocumentA);
+            var issue = registry.IssueMutation(DocumentB);
+            registry.MarkMutationFailed(issue.Receipt!.ReceiptId);
+            clock.Advance(TimeSpan.FromMinutes(15).Add(TimeSpan.FromTicks(1)));
+
+            registry.Get(issue.Receipt.ReceiptId);
+
+            Assert.Equal(1, registry.SessionCountForTests());
+        }
+
+        [Fact]
         public void ActiveCapacity_RejectsBeforeIssuingAnotherReceipt()
         {
             var registry = CreateRegistry();
@@ -364,14 +467,17 @@ namespace Rook.Tests.InternalBridge
             return receipt;
         }
 
-        private static GhSolveReceiptRegistry CreateRegistry(TestClock? clock = null)
+        private static GhSolveReceiptRegistry CreateRegistry(
+            TestClock? clock = null,
+            Action? beforeWaiterReacquire = null)
         {
             clock ??= new TestClock();
             var nextId = 0;
             return new GhSolveReceiptRegistry(
                 () => clock.Elapsed,
                 () => "test-id-" + ++nextId,
-                () => new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero).Add(clock.Elapsed));
+                () => new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero).Add(clock.Elapsed),
+                beforeWaiterReacquire);
         }
 
         private static string FindRepoRoot()

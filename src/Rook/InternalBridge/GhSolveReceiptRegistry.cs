@@ -68,18 +68,22 @@ namespace Rook.InternalBridge
         private readonly Func<TimeSpan> _monotonicNow;
         private readonly Func<string> _idFactory;
         private readonly Func<DateTimeOffset> _utcNow;
+        private readonly Action? _beforeWaiterReacquire;
         private readonly Dictionary<string, ReceiptEntry> _entries = new(StringComparer.Ordinal);
         private readonly Dictionary<object, DocumentSession> _sessions = new(ObjectReferenceComparer.Instance);
         private long _nextInsertionOrder;
+        private object? _currentDocument;
 
         internal GhSolveReceiptRegistry(
             Func<TimeSpan>? monotonicNow = null,
             Func<string>? idFactory = null,
-            Func<DateTimeOffset>? utcNow = null)
+            Func<DateTimeOffset>? utcNow = null,
+            Action? beforeWaiterReacquire = null)
         {
             _monotonicNow = monotonicNow ?? GetMonotonicNow;
             _idFactory = idFactory ?? CreateSecureId;
             _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
+            _beforeWaiterReacquire = beforeWaiterReacquire;
         }
 
         internal GhReadinessIssueResult IssueMutation(object document)
@@ -98,6 +102,7 @@ namespace Rook.InternalBridge
                     return new GhReadinessIssueResult(false, null, "readiness_registry_capacity_exceeded");
                 }
 
+                _currentDocument ??= document;
                 var session = GetOrCreateSession(document);
                 SupersedeSessionReceipts(session, now);
 
@@ -129,6 +134,7 @@ namespace Rook.InternalBridge
         {
             lock (_sync)
             {
+                Purge(_monotonicNow());
                 var entry = GetRequiredEntry(receiptId);
                 if (entry.Receipt.Status == GhSolveReadinessStatus.Pending)
                 {
@@ -284,12 +290,24 @@ namespace Rook.InternalBridge
                     cancellationToken.ThrowIfCancellationRequested();
                 }
 
+                GhSolveReadinessReceipt? capturedTerminalReceipt = null;
+                if (waitResult == 0)
+                {
+                    _beforeWaiterReacquire?.Invoke();
+                    if (entry.Receipt.Status != GhSolveReadinessStatus.Pending)
+                    {
+                        capturedTerminalReceipt = entry.Receipt;
+                    }
+                }
+
                 lock (_sync)
                 {
                     Purge(_monotonicNow());
                     if (!_entries.TryGetValue(receiptId, out var current))
                     {
-                        return new GhReadinessWaitResult(null, null, NotFoundError);
+                        return capturedTerminalReceipt is not null
+                            ? ResultForTerminal(capturedTerminalReceipt)
+                            : new GhReadinessWaitResult(null, null, NotFoundError);
                     }
 
                     return current.Receipt.Status == GhSolveReadinessStatus.Pending
@@ -302,6 +320,7 @@ namespace Rook.InternalBridge
                 lock (_sync)
                 {
                     entry.WaiterActive = false;
+                    DisposeEvictedSignalIfUnused(entry);
                 }
             }
         }
@@ -355,10 +374,14 @@ namespace Rook.InternalBridge
                 Purge(now);
                 foreach (var entry in _entries.Values)
                 {
-                    TransitionTerminal(entry, GhSolveReadinessStatus.DocumentReplaced, "document_replaced", null, now);
+                    if (entry.Receipt.Status == GhSolveReadinessStatus.Pending)
+                    {
+                        TransitionTerminal(entry, GhSolveReadinessStatus.DocumentReplaced, "document_replaced", null, now);
+                    }
                 }
 
                 _sessions.Clear();
+                _currentDocument = newDocument;
                 if (newDocument is not null)
                 {
                     GetOrCreateSession(newDocument);
@@ -375,6 +398,15 @@ namespace Rook.InternalBridge
                 Purge(_monotonicNow());
                 return _entries.TryGetValue(receiptId, out var entry) &&
                     (entry.Receipt.Status != GhSolveReadinessStatus.Pending || !entry.WaiterActive);
+            }
+        }
+
+        internal int SessionCountForTests()
+        {
+            lock (_sync)
+            {
+                Purge(_monotonicNow());
+                return _sessions.Count;
             }
         }
 
@@ -418,7 +450,7 @@ namespace Rook.InternalBridge
             var expiredPending = new List<ReceiptEntry>();
             foreach (var entry in _entries.Values)
             {
-                if (entry.Receipt.Status == GhSolveReadinessStatus.Pending && now - entry.IssuedAtMonotonic > PendingRetention)
+                if (entry.Receipt.Status == GhSolveReadinessStatus.Pending && now - entry.IssuedAtMonotonic >= PendingRetention)
                 {
                     expiredPending.Add(entry);
                 }
@@ -441,10 +473,11 @@ namespace Rook.InternalBridge
 
             foreach (var receiptId in expiredTerminalIds)
             {
-                _entries.Remove(receiptId);
+                RemoveEntry(receiptId);
             }
 
             TrimTerminalEntries();
+            TrimInactiveSessions();
         }
 
         private void TrimTerminalEntries()
@@ -468,8 +501,63 @@ namespace Rook.InternalBridge
                     return;
                 }
 
-                _entries.Remove(oldest.Receipt.ReceiptId);
+                RemoveEntry(oldest.Receipt.ReceiptId);
             }
+
+        }
+
+        private void RemoveEntry(string receiptId)
+        {
+            if (!_entries.TryGetValue(receiptId, out var entry))
+            {
+                return;
+            }
+
+            _entries.Remove(receiptId);
+            entry.Evicted = true;
+            DisposeEvictedSignalIfUnused(entry);
+        }
+
+        private static void DisposeEvictedSignalIfUnused(ReceiptEntry entry)
+        {
+            if (entry.Evicted && !entry.WaiterActive)
+            {
+                entry.CompletionSignal.Dispose();
+            }
+        }
+
+        private void TrimInactiveSessions()
+        {
+            var documentsToRemove = new List<object>();
+            foreach (var pair in _sessions)
+            {
+                if (ReferenceEquals(pair.Key, _currentDocument) ||
+                    pair.Value.ActiveSolutionRunEpoch.HasValue ||
+                    HasReceiptForSession(pair.Value.SessionId))
+                {
+                    continue;
+                }
+
+                documentsToRemove.Add(pair.Key);
+            }
+
+            foreach (var document in documentsToRemove)
+            {
+                _sessions.Remove(document);
+            }
+        }
+
+        private bool HasReceiptForSession(string sessionId)
+        {
+            foreach (var entry in _entries.Values)
+            {
+                if (entry.Receipt.DocumentSessionId == sessionId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static int CompareTerminalAge(ReceiptEntry left, ReceiptEntry right)
@@ -596,6 +684,7 @@ namespace Rook.InternalBridge
             internal TimeSpan? TerminalizedAtMonotonic { get; set; }
             internal bool ScheduleAccepted { get; set; }
             internal bool WaiterActive { get; set; }
+            internal bool Evicted { get; set; }
         }
 
         private sealed class DocumentSession
