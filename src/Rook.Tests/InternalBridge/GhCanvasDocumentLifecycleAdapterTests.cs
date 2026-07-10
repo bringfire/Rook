@@ -54,9 +54,10 @@ namespace Rook.Tests.InternalBridge
         [Fact]
         public void AttachCanvasDocumentChanged_ForwardsOldAndNewDocuments()
         {
+            var ambientDocument = new FakeDocument();
             var oldDocument = new FakeDocument();
             var newDocument = new FakeDocument();
-            var canvas = new FakeCanvas(oldDocument);
+            var canvas = new FakeCanvas(ambientDocument);
             (object? Old, object? New)? observed = null;
 
             using var subscription = new GhCanvasDocumentLifecycleAdapter().Attach(
@@ -67,6 +68,9 @@ namespace Rook.Tests.InternalBridge
 
             Assert.True(subscription.IsAvailable);
             Assert.True(observed.HasValue);
+            Assert.NotSame(ambientDocument, oldDocument);
+            Assert.NotSame(ambientDocument, newDocument);
+            Assert.NotSame(oldDocument, newDocument);
             Assert.Same(oldDocument, observed.Value.Old);
             Assert.Same(newDocument, observed.Value.New);
         }
