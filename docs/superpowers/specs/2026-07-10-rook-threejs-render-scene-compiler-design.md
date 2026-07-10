@@ -143,6 +143,9 @@ the user to choose the derived `.3dm` path. The default is a sibling file named
   scene-link.json
   current.json
   promotion.json
+  conflicts/<conflictId>/
+    preserved.3dm
+    conflict-record.json
   runs/<runId>/
     candidate.render.3dm
     candidate.scene-link.json
@@ -167,6 +170,13 @@ The validated `candidate.render.3dm` remains in its immutable run directory as
 the committed render-document snapshot. The user-facing derived path is a
 working copy that normally matches that snapshot but may become explicitly
 stale while the user prepares render customizations.
+
+`conflicts/` is retained user data, not attempt-owned staging. Each
+`conflict-record.json` stores schema version, `sceneId`, `conflictId`, source
+journal/run IDs, reason, original canonical path, retained project-relative
+path, byte size, SHA-256, creation time, and acknowledgement/deletion state. The
+record and retained bytes are fsynced before the active promotion journal may
+refer to them or cleanup may continue.
 
 The scene link records the source binding, derived document path, immutable
 profile descriptor and execution-envelope identities, committed customization
@@ -288,14 +298,41 @@ Rhino reloaded the replaced bytes.
 
 The first Create requires a derived destination that does not already exist.
 Update requires the working derived document to be saved and closed. The
-orchestrator acquires a project-and-path-scoped promotion mutex at the
-optimistic-concurrency gate, repeats the open-document check immediately before
-both journal creation and render replacement, and performs the same-directory
-replacement itself. A sharing or replacement failure returns
-`derived_document_locked` and leaves the candidate unpromoted. The mutex is
-an OS-visible named lock keyed by canonical project root, `sceneId`, and
-canonical derived path. It is held through preview commit, pointer commit, and
-any rollback so concurrent MCP processes cannot race on the same path.
+orchestrator acquires the ordered lock set below at the optimistic-concurrency
+gate, repeats the open-document check immediately before both journal creation
+and render replacement, and performs the same-directory replacement itself. A
+sharing or replacement failure returns `derived_document_locked` and leaves the
+candidate unpromoted. The lock set is held through preview commit, pointer
+commit, cleanup, or rollback.
+
+### Lock identities and acquisition order
+
+The primary destination lock is an OS-visible per-user named mutex whose ID is
+the SHA-256 of a canonical JSON object with exactly three fields: `contract`
+is the literal `derived-path-lock@1`, `projectRoot` is the canonical project-root
+string, and `derivedPath` is the canonical derived-path string. It contains no
+`sceneId`, run ID, source identity, or process identity. Consequently, two first
+Creates that chose the same canonical destination contend on the same lock even
+when they allocated different provisional scene IDs.
+
+A secondary scene lock serializes bookkeeping for an existing scene across
+Update, Relink, and recovery. Its ID is the SHA-256 of a canonical JSON object
+with exactly three fields: `contract` is the literal `render-scene-lock@1`,
+`projectRoot` is the canonical project-root string, and `sceneId` is the scene
+ID string.
+Every operation acquires all required destination locks first in ascending lock
+ID order, then all required scene locks in ascending lock ID order, and releases
+them in reverse order. A normal Create or Update needs one of each; Relink needs
+the old and new destination locks followed by the scene lock. No code may
+acquire a destination lock while holding a scene lock. Lock timeout returns
+`render_scene_busy` without changing a journal or publication file.
+
+First Create may allocate a provisional `sceneId` and attempt directory before
+locking, but it cannot create `promotion.json`, claim the destination, or
+publish until it holds the destination lock followed by its scene lock and
+passes full base-state revalidation. The losing concurrent Create sees the
+destination created by the winner, returns `candidate_base_stale`, and leaves
+only cleanup-eligible attempt artifacts.
 
 Replacement success is not sufficient evidence that no Rhino instance loaded
 the old bytes during the last-check/replacement window. Immediately after every
@@ -312,13 +349,24 @@ be enumerated. Preview and pointers remain on the prior run.
 
 Conflict recovery waits for the document to close before restoring the prior
 working bytes. If the open document saved unexpected bytes, Rook first moves
-them to an attempt-owned conflict-preservation file and reports its path; it
-never silently deletes them. Rollback performs the same pre/post replacement
+them into the scene's retained `conflicts/<conflictId>/preserved.3dm`, writes and
+fsyncs `conflict-record.json`, and then records the conflict ID, path, byte size,
+and SHA-256 in `promotion.json`. These bytes are retained user data, never
+attempt-owned files. Rollback performs the same pre/post replacement
 enumerations and disk-hash verification. If a candidate-loaded document appears
 inside the rollback window, Rook re-establishes candidate bytes at the working
 path, remains in `rollback_waiting_for_close`, and retries rollback only after
 that document closes. No preview or pointer commit is allowed while either
 conflict phase is active.
+
+Attempt cleanup, run pruning, successful recovery, journal removal, and normal
+project maintenance explicitly exclude retained conflicts. **Review Preserved
+Conflict** exposes the record and file. **Acknowledge And Keep Conflict** marks
+the record acknowledged without enabling automatic deletion. **Delete
+Preserved Conflict** is the only deletion path: after explicit confirmation it
+revalidates the confined path and recorded hash, deletes the bytes, and retains
+a tombstone record with the original hash and deletion time. A hash mismatch
+blocks deletion.
 
 Rook does not silently close, reload, or rebind the user's document. After a
 successful transaction the user may reopen the path and receives the promoted
@@ -341,8 +389,8 @@ newer published scene.
    assembles the candidate, runs visible-output and browser checks without
    replacing the visible scene, then emits evidence containing the run ID and
    package/profile/envelope hashes.
-8. Acquire the scoped promotion mutex and revalidate the complete base-state
-   token.
+8. Acquire the destination lock followed by the scene lock and revalidate the
+   complete base-state token.
 9. Execute the journaled promotion protocol below.
 
 The scene link advances only when the derived document, package, report, and
@@ -367,19 +415,19 @@ The candidate base-state token contains:
 - absence of any pre-existing promotion journal for the scene.
 
 Expensive capture, compilation, validation, and preview preparation run without
-the promotion mutex. Immediately afterward, the orchestrator acquires the
-scene-and-canonical-derived-path mutex, re-enumerates open Rhino documents, and
+the lock set. Immediately afterward, the orchestrator acquires the destination
+lock followed by the scene lock, re-enumerates open Rhino documents, and
 recaptures every token field from authoritative live state and disk. It also
 rechecks the source document's modified flag. Every field must equal the
 candidate's base token byte-for-byte before `promotion.json` is created.
 
 Any difference returns `candidate_base_stale`, discards the prepared preview,
 and leaves all publication and working files untouched; the candidate cannot be
-rebased or reused. The mutex remains held from successful revalidation through
+rebased or reused. Both locks remain held from successful revalidation through
 journal creation, render replacement, preview commit, pointer commit, cleanup,
 or completed rollback. Thus two candidates built from the same base cannot both
-publish: after the first commits, the second fails its current/link hashes and
-run ID.
+publish: after the first commits, the second fails its destination presence,
+current/link hashes, or run ID.
 
 ### Journaled promotion protocol
 
@@ -394,8 +442,21 @@ the journal records which state it is preserving.
 Recovery does not depend on an existing scene link. Before resolving a Create
 or Update target, the orchestrator scans `.rook/render-scenes/*/promotion.json`
 under the selected project root. A first-Create journal contains the `sceneId`,
-canonical source binding, canonical derived path, and candidate run identity
-needed to recover or safely match a retried Create.
+canonical project root, canonical source binding, canonical derived path, and
+candidate run identity needed to recover or safely match a retried Create.
+
+Recovery's initial journal read is discovery-only. Before changing the journal,
+working path, preview, pointers, backups, or retained conflicts, the recovery
+worker acquires the journal's destination lock and then its scene lock in the
+normal order. It rereads the journal under both locks and verifies that its
+`sceneId`, canonical project root, canonical derived path, journal phase, and
+file hash still match the discovery read. If another recovery already removed
+the journal, the later worker returns `already_recovered`; any other mismatch is
+`recovery_state_changed` and performs no mutation. OS mutex abandonment after a
+process crash transfers ownership only after the new worker acquires both
+mutexes in order and completes this reread. Two journals claiming one canonical
+destination are reported as `duplicate_destination_journals` and neither is
+mutated automatically.
 
 1. Write and fsync `promotion.json` with the complete nullable prior record,
    validated base-state token, candidate run ID, presence flags, and only the
@@ -883,6 +944,14 @@ scene stale, and never mutate the committed scene link. The user saves and
 closes the working document, then Update either publishes the draft with the
 whole scene or preserves it for retry.
 
+### Preserved conflicts
+
+When recovery retains unexpected user bytes, the UI reports the retained path,
+size, SHA-256, source operation, and reason. It offers **Review Preserved
+Conflict**, **Acknowledge And Keep Conflict**, and the separately confirmed
+**Delete Preserved Conflict** action. No age, quota, successful update, or
+acknowledgement alone deletes retained bytes.
+
 ## Failure And Recovery
 
 Failures are stage-specific and include an object ID, actor ID, layer, material,
@@ -898,7 +967,8 @@ object.
 
 An ordinary failed or cancelled run does not advance `current.json` or the
 scene link. Cleanup is manifest-driven and limited to attempt-owned staging
-files. Published run directories are immutable. The previous committed render
+files; retained conflict records and bytes are never cleanup candidates.
+Published run directories are immutable. The previous committed render
 snapshot, package, report, and preview remain the last known-good publication.
 The user-facing working derived document may remain deliberately stale with a
 saved customization draft and is reported separately from that publication.
@@ -964,6 +1034,10 @@ policies, and improved override management.
 - acyclic publication-DAG ordering, phase-available hashes, and explicit
   self-hash-field omission;
 - canonical candidate base-state tokens and byte-for-byte comparison;
+- destination-lock identity independent of `sceneId`, canonical lock ordering,
+  and scene-lock composition;
+- retained-conflict record validation, cleanup exclusion, acknowledgement, and
+  hash-checked explicit deletion;
 - safe path normalization and attempt-owned cleanup; and
 - deterministic reports and hashes.
 
@@ -1011,6 +1085,14 @@ policies, and improved override management.
   journaling, each producing `candidate_base_stale` with no journal or
   publication write;
 - two candidates built from one base, proving only the first can publish;
+- two concurrent first Creates with different provisional scene IDs and the
+  same canonical destination, proving they contend on one destination lock and
+  only one can journal or publish;
+- two concurrent recovery workers for one journal, proving both acquire the
+  destination-then-scene lock order, exactly one mutates state, and the other
+  returns `already_recovered` after its locked reread;
+- recovery after mutex abandonment by a crashed owner, proving no journaled
+  mutation occurs before the new owner reacquires both locks and rereads;
 - promotion interruption after every journal phase for both Update and first
   Create;
 - first-Create rollback to absent derived document, absent pointers, and empty
@@ -1061,6 +1143,14 @@ presentation content. Acceptance requires:
 - Changing any candidate base-state token during compilation, or racing two
   candidates from the same base, prevents the stale candidate from creating a
   promotion journal or replacing the working document.
+- Concurrent first Creates with different provisional `sceneId` values but the
+  same canonical destination serialize on one path lock; one publishes and the
+  other exits stale without creating a journal.
+- Concurrent recovery workers reacquire destination then scene locks and reread
+  the journal under lock, so exactly one changes journaled state.
+- Conflict-preservation bytes and their path/hash record survive ordinary
+  cleanup, successful recovery, and acknowledgement; only the explicitly
+  confirmed, hash-checked delete action removes them and leaves a tombstone.
 - Static-context merging reduces actual browser draw calls while passing the
   fixed-camera visible-equivalence gate.
 - Instance and batch candidates are reported deterministically but remain
