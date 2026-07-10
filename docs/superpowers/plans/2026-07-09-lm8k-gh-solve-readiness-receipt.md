@@ -725,21 +725,29 @@ async def test_wait_dispatches_with_a_transport_deadline_that_covers_the_managed
     )
 
     assert result["success"] is True
-    assert calls == [(
+    route, method, payload, timeout = calls[-1]
+    assert (route, method, payload) == (
         "/gh/wait-for-solve-readiness",
         "POST",
         {"readiness_receipt_id": "opaque", "timeout_ms": 10_000},
-        15.0,
-    )]
+    )
+    assert timeout.connect == 5.0
+    assert timeout.read == 15.0
+    assert timeout.write == 60.0
+    assert timeout.pool == 5.0
 
     await server._call_tool_dispatch(
         "gh_wait_for_solve_readiness",
         {"readiness_receipt_id": "opaque", "timeout_ms": 300_000},
     )
-    assert calls[-1][-1] == 305.0
+    max_timeout = calls[-1][-1]
+    assert max_timeout.connect == 5.0
+    assert max_timeout.read == 305.0
+    assert max_timeout.write == 60.0
+    assert max_timeout.pool == 5.0
 ~~~
 
-Also test gh_inspect_output with and without receipt ID, and preserve solve_readiness_receipt through the existing gh_set_value knowledge wrapper. The wait tests must prove the default and maximum managed waits receive a Python transport deadline equal to `timeout_ms / 1000 + 5.0` seconds, so Python cannot truncate a valid 300-second receipt wait at bridge.py's 120-second default.
+Also test gh_inspect_output with and without receipt ID, and preserve solve_readiness_receipt through the existing gh_set_value knowledge wrapper. The wait tests must prove the default and maximum managed waits receive an `httpx.Timeout` that preserves bridge.py's connect/write/pool values (`5.0`, `60.0`, `5.0`) and sets only `read` to `timeout_ms / 1000 + 5.0`, so Python cannot truncate a valid 300-second receipt wait at bridge.py's 120-second default.
 
 - [ ] **Step 2: Run Python tests and confirm red**
 
@@ -755,7 +763,7 @@ Expected: FAIL because the tools and dispatch arms are absent.
 
 Advertise gh_solve_readiness with required non-empty readiness_receipt_id. Advertise gh_wait_for_solve_readiness with required receipt ID and integer timeout_ms default 10000, minimum 1, maximum 300000.
 
-Define `READINESS_TRANSPORT_GRACE_SECONDS = 5.0`. For `gh_wait_for_solve_readiness`, derive `transport_timeout_seconds = timeout_ms / 1000.0 + READINESS_TRANSPORT_GRACE_SECONDS` after the ordinary tool-schema bounds validation. This is a transport budget only: it never changes receipt status, manages retries, or adds timing policy.
+Define `READINESS_TRANSPORT_GRACE_SECONDS = 5.0`. For `gh_wait_for_solve_readiness`, derive `transport_read_timeout_seconds = timeout_ms / 1000.0 + READINESS_TRANSPORT_GRACE_SECONDS` after the ordinary tool-schema bounds validation, then construct `httpx.Timeout(connect=TIMEOUT.connect, read=transport_read_timeout_seconds, write=TIMEOUT.write, pool=TIMEOUT.pool)`. This is a transport budget only: it never changes receipt status, manages retries, or adds timing policy.
 
 Dispatch directly:
 
@@ -765,15 +773,21 @@ case "gh_solve_readiness":
 
 case "gh_wait_for_solve_readiness":
     timeout_ms = arguments.get("timeout_ms", 10_000)
-    transport_timeout_seconds = (
+    transport_read_timeout_seconds = (
         timeout_ms / 1000.0 + READINESS_TRANSPORT_GRACE_SECONDS
+    )
+    transport_timeout = httpx.Timeout(
+        connect=TIMEOUT.connect,
+        read=transport_read_timeout_seconds,
+        write=TIMEOUT.write,
+        pool=TIMEOUT.pool,
     )
     result = await call_rhino(
         "/gh/wait-for-solve-readiness",
         "POST",
         arguments,
         port=port,
-        timeout=transport_timeout_seconds,
+        timeout=transport_timeout,
     )
 ~~~
 

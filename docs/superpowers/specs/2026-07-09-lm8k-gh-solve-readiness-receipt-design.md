@@ -541,11 +541,13 @@ Python forwards the optional `readiness_receipt_id` for
 inference, receipt interpretation, or a broad `server.py` refactor.
 
 For `gh_wait_for_solve_readiness`, Python must also pass an explicit per-call
-HTTP transport timeout of requested `timeout_ms` plus a fixed bounded response
-grace (LM8K v1: 5 seconds). The global bridge read timeout is not sufficient
-for a valid 300,000 ms receipt wait. This transport budget prevents Python from
-truncating the managed wait; it does not alter receipt status, add a retry, or
-become a second readiness policy.
+`httpx.Timeout` that preserves the bridge's normal connect (5 seconds), write
+(60 seconds), and pool (5 seconds) bounds, while extending only `read` to the
+requested `timeout_ms` plus a fixed bounded response grace (LM8K v1: 5
+seconds). The global bridge read timeout is not sufficient for a valid 300,000
+ms receipt wait. This transport budget prevents Python from truncating the
+managed wait; it does not alter receipt status, add a retry, or become a second
+readiness policy.
 
 ## 9. Deterministic Proof Surface
 
