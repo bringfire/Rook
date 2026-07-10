@@ -49,6 +49,27 @@ export function createRunCoordinator() {
       return { started: true, current, ...outcome };
     },
 
+    async startBuild(task, discard) {
+      const buildEpoch = ++epoch;
+      let outcome;
+      try {
+        outcome = { status: "fulfilled", value: await task() };
+      } catch (error) {
+        outcome = { status: "rejected", error };
+      }
+
+      const current = epoch === buildEpoch;
+      let discardError = null;
+      if (!current && outcome.status === "fulfilled" && discard) {
+        try {
+          discard(outcome.value);
+        } catch (error) {
+          discardError = error;
+        }
+      }
+      return { current, ...outcome, discardError };
+    },
+
     async invalidate() {
       epoch += 1;
       const owner = activeRun;
@@ -93,9 +114,18 @@ function initializeDashboard() {
 async function buildOrLoad() {
   await reset();
   const config = readConfig();
-  active = el.source.value === "glb"
-    ? await loadLocal(config)
-    : buildSynthetic(config);
+  const source = el.source.value;
+  const outcome = await runCoordinator.startBuild(
+    async () => source === "glb"
+      ? loadLocal(config)
+      : { context: buildSynthetic(config), bytes: null },
+    (candidate) => disposeScene(candidate.context.scene),
+  );
+  if (!outcome.current) return;
+  if (outcome.status === "rejected") throw outcome.error;
+
+  active = outcome.value.context;
+  localGlbBytes = outcome.value.bytes;
   renderAt(0);
   el.status.textContent = "Loaded " + active.actorIndex.size + " actors.";
 }
@@ -109,13 +139,16 @@ function buildSynthetic(config) {
 async function loadLocal(config) {
   const file = el["glb-file"].files[0];
   if (!file) throw new Error("Choose a local GLB file first");
-  localGlbBytes = await file.arrayBuffer();
-  return buildLocalFromBytes(config);
+  const bytes = await file.arrayBuffer();
+  return {
+    context: await buildLocalFromBytes(config, bytes),
+    bytes,
+  };
 }
 
-async function buildLocalFromBytes(config) {
-  if (!localGlbBytes) throw new Error("Choose and load a local GLB first");
-  const gltf = await loadGlbArrayBuffer(localGlbBytes.slice(0));
+async function buildLocalFromBytes(config, bytes = localGlbBytes) {
+  if (!bytes) throw new Error("Choose and load a local GLB first");
+  const gltf = await loadGlbArrayBuffer(bytes.slice(0));
   addFixedLights(gltf.scene);
   return finalize({
     scene: gltf.scene,
