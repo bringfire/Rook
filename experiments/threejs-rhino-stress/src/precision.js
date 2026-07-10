@@ -32,6 +32,8 @@ export function readScenePixels(renderer, scene, camera) {
     BENCHMARK_PROTOCOL.height,
   );
   const previous = renderer.getRenderTarget();
+  const previousCubeFace = renderer.getActiveCubeFace();
+  const previousMipmapLevel = renderer.getActiveMipmapLevel();
   const pixels = new Uint8Array(
     BENCHMARK_PROTOCOL.width * BENCHMARK_PROTOCOL.height * 4,
   );
@@ -49,7 +51,7 @@ export function readScenePixels(renderer, scene, camera) {
     );
     return pixels;
   } finally {
-    renderer.setRenderTarget(previous);
+    renderer.setRenderTarget(previous, previousCubeFace, previousMipmapLevel);
     target.dispose();
   }
 }
