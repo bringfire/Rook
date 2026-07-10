@@ -59,10 +59,23 @@ def _receipt(status: str = "ready") -> dict[str, object]:
     }
 
 
+def _flat_provenance(receipt: dict[str, object] | None = None) -> dict[str, object]:
+    receipt = receipt or _receipt()
+    return {
+        "readiness_fenced": True,
+        "readiness_receipt_id": receipt["receipt_id"],
+        "document_session_id": receipt["document_session_id"],
+        "mutation_epoch": receipt["mutation_epoch"],
+        "completed_solution_epoch": receipt["completed_solution_run_epoch"],
+    }
+
+
 _UNSET = object()
 
 
-def _responses(*, set_receipt: object = _UNSET, wait: object = _UNSET, inspect: object = _UNSET):
+def _responses(
+    *, set_receipt: object = _UNSET, wait: object = _UNSET, inspect: object = _UNSET, preview: object = 7.5
+):
     if set_receipt is _UNSET:
         set_receipt = _receipt("pending")
     if wait is _UNSET:
@@ -73,8 +86,8 @@ def _responses(*, set_receipt: object = _UNSET, wait: object = _UNSET, inspect: 
             "data": {
                 "param_nickname": "R",
                 "data_count": 1,
-                "preview": [7.5],
-                "readiness_receipt": _receipt(),
+                "preview": [preview],
+                **_flat_provenance(),
             },
         }
     return {
@@ -182,6 +195,19 @@ def test_smoke_rejects_terminal_wait_outcome(tmp_path: Path) -> None:
     assert [tool for tool, _ in fake_executor.calls_after("gh_set_value")] == ["gh_wait_for_solve_readiness"]
 
 
+def test_smoke_rejects_wait_receipt_with_unexpected_schema(tmp_path: Path) -> None:
+    wait_receipt = _receipt()
+    wait_receipt["schema"] = "rook.gh_solve_readiness_receipt:v0"
+    fake_executor = FakeToolExecutor(
+        _responses(wait={"success": True, "data": {"wait_status": "ready", "receipt": wait_receipt}})
+    )
+
+    with pytest.raises(SMOKE.SmokeFailure, match="solve_readiness_wait_not_ready"):
+        _run(SMOKE.run_smoke(fake_executor, run_dir=tmp_path))
+
+    assert [tool for tool, _ in fake_executor.calls_after("gh_set_value")] == ["gh_wait_for_solve_readiness"]
+
+
 def test_smoke_rejects_fenced_read_failure(tmp_path: Path) -> None:
     fake_executor = FakeToolExecutor(
         _responses(inspect={"success": False, "data": {"error": "readiness_receipt_stale_solution_run"}})
@@ -197,8 +223,8 @@ def test_smoke_rejects_fenced_read_failure(tmp_path: Path) -> None:
 
 
 def test_smoke_rejects_mismatched_output_provenance(tmp_path: Path) -> None:
-    mismatched_receipt = _receipt()
-    mismatched_receipt["mutation_epoch"] = 5
+    mismatched_provenance = _flat_provenance()
+    mismatched_provenance["mutation_epoch"] = 5
     fake_executor = FakeToolExecutor(
         _responses(
             inspect={
@@ -207,7 +233,7 @@ def test_smoke_rejects_mismatched_output_provenance(tmp_path: Path) -> None:
                     "param_nickname": "R",
                     "data_count": 1,
                     "preview": [7.5],
-                    "readiness_receipt": mismatched_receipt,
+                    **mismatched_provenance,
                 },
             }
         )
@@ -217,17 +243,9 @@ def test_smoke_rejects_mismatched_output_provenance(tmp_path: Path) -> None:
         _run(SMOKE.run_smoke(fake_executor, run_dir=tmp_path))
 
 
-@pytest.mark.parametrize(
-    "receipt",
-    [
-        {**_receipt(), "schema": "rook.gh_solve_readiness_receipt:v0"},
-        _receipt("pending"),
-    ],
-    ids=["unexpected_schema", "non_ready_status"],
-)
-def test_smoke_rejects_invalid_fenced_output_receipt(
-    tmp_path: Path, receipt: dict[str, object]
-) -> None:
+def test_smoke_rejects_unfenced_output_provenance(tmp_path: Path) -> None:
+    unfenced_provenance = _flat_provenance()
+    unfenced_provenance["readiness_fenced"] = False
     fake_executor = FakeToolExecutor(
         _responses(
             inspect={
@@ -236,7 +254,7 @@ def test_smoke_rejects_invalid_fenced_output_receipt(
                     "param_nickname": "R",
                     "data_count": 1,
                     "preview": [7.5],
-                    "readiness_receipt": receipt,
+                    **unfenced_provenance,
                 },
             }
         )
@@ -249,6 +267,20 @@ def test_smoke_rejects_invalid_fenced_output_receipt(
         "gh_wait_for_solve_readiness",
         "gh_inspect_output",
     ]
+
+
+def test_smoke_accepts_finite_numeric_string_output_preview(tmp_path: Path) -> None:
+    fake_executor = FakeToolExecutor(_responses(preview="7.5"))
+
+    result = _run(SMOKE.run_smoke(fake_executor, run_dir=tmp_path))
+
+    assert result["decision"]["observed_output_value"] == 7.5
+
+
+@pytest.mark.parametrize("value", ["not-a-number", "nan", "inf", float("nan"), float("inf")])
+def test_smoke_rejects_nonfinite_or_nonnumeric_output_preview(value: object) -> None:
+    with pytest.raises(SMOKE.SmokeFailure, match="fenced_output_value_invalid"):
+        SMOKE._observed_output_value({"data": {"preview": [value]}})
 
 
 def test_harness_source_has_no_sleep_or_post_mutation_output_polling() -> None:

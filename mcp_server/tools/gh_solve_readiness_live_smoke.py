@@ -6,6 +6,7 @@ import argparse
 import asyncio
 from datetime import UTC, datetime
 import json
+import math
 from pathlib import Path
 import subprocess
 import sys
@@ -87,14 +88,30 @@ def _receipt_has_schema_and_status(receipt: dict[str, Any], status: str) -> bool
     return receipt.get("schema") == RECEIPT_SCHEMA and receipt.get("status") == status
 
 
+def _fenced_output_matches_receipt(data: dict[str, Any], receipt: dict[str, Any]) -> bool:
+    return (
+        data.get("readiness_fenced") is True
+        and data.get("readiness_receipt_id") == receipt.get("receipt_id")
+        and data.get("document_session_id") == receipt.get("document_session_id")
+        and data.get("mutation_epoch") == receipt.get("mutation_epoch")
+        and data.get("completed_solution_epoch") == receipt.get("completed_solution_run_epoch")
+    )
+
+
 def _observed_output_value(result: dict[str, Any]) -> float:
     preview = _data(result).get("preview")
     if not isinstance(preview, list) or len(preview) != 1:
         raise SmokeFailure("fenced_output_value_missing", result)
     value = preview[0]
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
         raise SmokeFailure("fenced_output_value_invalid", result)
-    return float(value)
+    try:
+        parsed_value = float(value)
+    except (TypeError, ValueError, OverflowError):
+        raise SmokeFailure("fenced_output_value_invalid", result) from None
+    if not math.isfinite(parsed_value):
+        raise SmokeFailure("fenced_output_value_invalid", result)
+    return parsed_value
 
 
 async def run_smoke(tool_executor: ToolExecutor, *, run_dir: Path) -> dict[str, object]:
@@ -206,7 +223,7 @@ async def run_smoke(tool_executor: ToolExecutor, *, run_dir: Path) -> dict[str, 
             not _success(wait)
             or wait_data.get("wait_status") != "ready"
             or wait_receipt is None
-            or wait_receipt.get("status") != "ready"
+            or not _receipt_has_schema_and_status(wait_receipt, "ready")
             or _receipt_identity(wait_receipt) != _receipt_identity(mutation_receipt)
         ):
             raise SmokeFailure("solve_readiness_wait_not_ready", wait)
@@ -221,12 +238,7 @@ async def run_smoke(tool_executor: ToolExecutor, *, run_dir: Path) -> dict[str, 
         _write_json(run_dir, "fenced_output_summary.json", fenced_output)
         if not _success(fenced_output):
             raise SmokeFailure("fenced_output_read_failed", fenced_output)
-        output_receipt = _receipt_from(_data(fenced_output))
-        if (
-            output_receipt is None
-            or not _receipt_has_schema_and_status(output_receipt, "ready")
-            or _receipt_identity(output_receipt) != _receipt_identity(wait_receipt)
-        ):
+        if not _fenced_output_matches_receipt(_data(fenced_output), wait_receipt):
             raise SmokeFailure("fenced_output_provenance_mismatch", fenced_output)
         observed_output_value = _observed_output_value(fenced_output)
         if observed_output_value != EXPECTED_VALUE:
