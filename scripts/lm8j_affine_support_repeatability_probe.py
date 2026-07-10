@@ -18,10 +18,17 @@ from typing import Any
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 SCRIPT_SCHEMA = "rook.lm8j_affine_support_repeatability_probe:v1"
+LM8M_SCRIPT_SCHEMA = "rook.lm8m_affine_managed_receipt_repeatability_probe:v1"
 DEFAULT_ATTEMPTS = 20
 DEFAULT_MODEL = "gemma4:12b-it-qat"
 DEFAULT_RUN_DIR = "probe_runs"
 DEFAULT_ATTEMPT_TIMEOUT_S = 600
+SETTLE_VERIFIER_PROFILE = "settle_v1"
+MANAGED_VERIFIER_PROFILE = "managed_receipt_v2"
+VERIFIER_PROFILES = (SETTLE_VERIFIER_PROFILE, MANAGED_VERIFIER_PROFILE)
+READINESS_WAIT_TIMEOUT_MS = 10_000
+VERIFIER_MECHANISM = "managed_solve_readiness_receipt"
+FIXTURE_READINESS_PROFILE = "lm8i_legacy_setup_v1"
 EXCERPT_CHARS = 2000
 LEAK_MARKERS = (
     "PROBE_REPAIR_CODE",
@@ -60,6 +67,11 @@ def _args(argv: list[str] | None) -> argparse.Namespace:
         type=_positive_int,
         default=DEFAULT_ATTEMPT_TIMEOUT_S,
     )
+    parser.add_argument(
+        "--verifier-profile",
+        choices=VERIFIER_PROFILES,
+        default=SETTLE_VERIFIER_PROFILE,
+    )
 
     forbidden = {
         "--retry-clean-observation",
@@ -78,11 +90,31 @@ def _args(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _canonical_evidence(*, attempts: int, model: str, attempt_timeout_s: int) -> bool:
+def _run_identity(verifier_profile: str) -> tuple[str, str]:
+    if verifier_profile == SETTLE_VERIFIER_PROFILE:
+        return "lm8j", SCRIPT_SCHEMA
+    if verifier_profile == MANAGED_VERIFIER_PROFILE:
+        return "lm8m", LM8M_SCRIPT_SCHEMA
+    raise ValueError(f"unsupported_verifier_profile:{verifier_profile}")
+
+
+def _canonical_evidence(
+    *,
+    attempts: int,
+    model: str,
+    attempt_timeout_s: int,
+    verifier_profile: str = SETTLE_VERIFIER_PROFILE,
+) -> bool:
+    if verifier_profile not in VERIFIER_PROFILES:
+        return False
     return (
         attempts == DEFAULT_ATTEMPTS
         and model == DEFAULT_MODEL
         and attempt_timeout_s == DEFAULT_ATTEMPT_TIMEOUT_S
+        and (
+            verifier_profile != MANAGED_VERIFIER_PROFILE
+            or READINESS_WAIT_TIMEOUT_MS == 10_000
+        )
     )
 
 
@@ -100,9 +132,13 @@ def _git_short_sha() -> str:
     return completed.stdout.strip() or "unknown"
 
 
-def _new_run_dir(run_root: str | Path) -> Path:
+def _new_run_dir(
+    run_root: str | Path,
+    verifier_profile: str = SETTLE_VERIFIER_PROFILE,
+) -> Path:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    base = Path(run_root) / f"lm8j-{timestamp}-{_git_short_sha()}"
+    run_prefix, _ = _run_identity(verifier_profile)
+    base = Path(run_root) / f"{run_prefix}-{timestamp}-{_git_short_sha()}"
     candidate = base
     suffix = 1
     while candidate.exists():
@@ -112,9 +148,16 @@ def _new_run_dir(run_root: str | Path) -> Path:
     return candidate
 
 
-def _manifest(*, attempts: int, model: str, attempt_timeout_s: int) -> dict[str, Any]:
-    return {
-        "schema": SCRIPT_SCHEMA,
+def _manifest(
+    *,
+    attempts: int,
+    model: str,
+    attempt_timeout_s: int,
+    verifier_profile: str = SETTLE_VERIFIER_PROFILE,
+) -> dict[str, Any]:
+    _, schema = _run_identity(verifier_profile)
+    manifest = {
+        "schema": schema,
         "git_commit": _git_short_sha(),
         "attempts": attempts,
         "model": model,
@@ -123,12 +166,23 @@ def _manifest(*, attempts: int, model: str, attempt_timeout_s: int) -> dict[str,
             attempts=attempts,
             model=model,
             attempt_timeout_s=attempt_timeout_s,
+            verifier_profile=verifier_profile,
         ),
         "child_probe": "lm8i_affine_publication_shape_support_probe.py",
         "child_probe_invocation": "subprocess",
         "support_mode": "lm8i_default_support_enabled",
         "replacement_attempts": False,
     }
+    if verifier_profile == MANAGED_VERIFIER_PROFILE:
+        manifest.update(
+            {
+                "verifier_profile": MANAGED_VERIFIER_PROFILE,
+                "verifier_mechanism": VERIFIER_MECHANISM,
+                "fixture_readiness_profile": FIXTURE_READINESS_PROFILE,
+                "readiness_wait_timeout_ms": READINESS_WAIT_TIMEOUT_MS,
+            }
+        )
+    return manifest
 
 
 def _scheduled_attempt_id(attempt_index: int) -> str:
@@ -175,8 +229,14 @@ def _base_attempt_row(*, attempt_index: int) -> dict[str, Any]:
     }
 
 
-def _lm8i_command(*, model: str, lm8i_runs_dir: Path) -> list[str]:
-    return [
+def _lm8i_command(
+    *,
+    model: str,
+    lm8i_runs_dir: Path,
+    verifier_profile: str = SETTLE_VERIFIER_PROFILE,
+) -> list[str]:
+    _run_identity(verifier_profile)
+    command = [
         sys.executable,
         str(_REPO_ROOT / "scripts" / "lm8i_affine_publication_shape_support_probe.py"),
         "--model",
@@ -184,6 +244,9 @@ def _lm8i_command(*, model: str, lm8i_runs_dir: Path) -> list[str]:
         "--run-dir",
         str(lm8i_runs_dir),
     ]
+    if verifier_profile == MANAGED_VERIFIER_PROFILE:
+        command.extend(["--verifier-profile", MANAGED_VERIFIER_PROFILE])
+    return command
 
 
 def _discover_child_run_dirs(
@@ -521,7 +584,9 @@ def _build_summary(
     attempts: int,
     model: str,
     attempt_timeout_s: int,
+    verifier_profile: str = SETTLE_VERIFIER_PROFILE,
 ) -> dict[str, Any]:
+    _, schema = _run_identity(verifier_profile)
     worker_summary_categories = {
         "accepted",
         "rejected",
@@ -562,13 +627,14 @@ def _build_summary(
     ]
 
     return {
-        "schema": SCRIPT_SCHEMA,
+        "schema": schema,
         "scheduled_attempts": attempts,
         "attempt_timeout_s": attempt_timeout_s,
         "canonical_evidence": _canonical_evidence(
             attempts=attempts,
             model=model,
             attempt_timeout_s=attempt_timeout_s,
+            verifier_profile=verifier_profile,
         ),
         "terminal_category_counts": _compact_counts(terminal_counts),
         "accepted_count": terminal_counts["accepted"],
@@ -621,10 +687,11 @@ def _run_probe(
     model: str,
     run_root: str | Path,
     attempt_timeout_s: int,
+    verifier_profile: str = SETTLE_VERIFIER_PROFILE,
     run_subprocess=None,
 ) -> Path:
     runner = run_subprocess or subprocess.run
-    run_dir = _new_run_dir(run_root)
+    run_dir = _new_run_dir(run_root, verifier_profile=verifier_profile)
     lm8i_runs_dir = run_dir / "lm8i_runs"
     lm8i_runs_dir.mkdir(parents=True, exist_ok=True)
 
@@ -634,13 +701,18 @@ def _run_probe(
             attempts=attempts,
             model=model,
             attempt_timeout_s=attempt_timeout_s,
+            verifier_profile=verifier_profile,
         ),
     )
 
     rows: list[dict[str, Any]] = []
     for attempt_index in range(1, attempts + 1):
         before = {path for path in lm8i_runs_dir.glob("lm8i-*") if path.is_dir()}
-        command = _lm8i_command(model=model, lm8i_runs_dir=lm8i_runs_dir)
+        command = _lm8i_command(
+            model=model,
+            lm8i_runs_dir=lm8i_runs_dir,
+            verifier_profile=verifier_profile,
+        )
         try:
             completed = runner(
                 command,
@@ -682,6 +754,7 @@ def _run_probe(
             attempts=attempts,
             model=model,
             attempt_timeout_s=attempt_timeout_s,
+            verifier_profile=verifier_profile,
         ),
     )
     return run_dir
@@ -694,6 +767,7 @@ def main(argv: list[str] | None = None) -> int:
         model=args.model,
         run_root=args.run_dir,
         attempt_timeout_s=args.attempt_timeout_s,
+        verifier_profile=args.verifier_profile,
     )
     summary_path = run_dir / "summary.json"
     summary = json.loads(summary_path.read_text(encoding="utf-8"))

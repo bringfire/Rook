@@ -40,6 +40,7 @@ def test_cli_defaults_are_canonical_lm8j_shape():
     assert args.model == "gemma4:12b-it-qat"
     assert args.run_dir == "probe_runs"
     assert args.attempt_timeout_s == 600
+    assert args.verifier_profile == PROBE.SETTLE_VERIFIER_PROFILE
     assert (
         PROBE._canonical_evidence(
             attempts=args.attempts,
@@ -47,6 +48,20 @@ def test_cli_defaults_are_canonical_lm8j_shape():
             attempt_timeout_s=args.attempt_timeout_s,
         )
         is True
+    )
+
+
+def test_default_run_identity_is_unchanged():
+    assert PROBE._run_identity(PROBE.SETTLE_VERIFIER_PROFILE) == (
+        "lm8j",
+        PROBE.SCRIPT_SCHEMA,
+    )
+
+
+def test_managed_run_identity_is_lm8m():
+    assert PROBE._run_identity(PROBE.MANAGED_VERIFIER_PROFILE) == (
+        "lm8m",
+        PROBE.LM8M_SCRIPT_SCHEMA,
     )
 
 
@@ -96,6 +111,28 @@ def test_canonical_evidence_only_for_twenty_default_gemma_default_timeout_attemp
     )
 
 
+def test_managed_canonical_evidence_requires_historical_run_values():
+    assert PROBE.READINESS_WAIT_TIMEOUT_MS == 10_000
+    assert (
+        PROBE._canonical_evidence(
+            attempts=20,
+            model="gemma4:12b-it-qat",
+            attempt_timeout_s=600,
+            verifier_profile="managed_receipt_v2",
+        )
+        is True
+    )
+    assert (
+        PROBE._canonical_evidence(
+            attempts=20,
+            model="gemma4:12b-it-qat",
+            attempt_timeout_s=599,
+            verifier_profile="managed_receipt_v2",
+        )
+        is False
+    )
+
+
 def test_cli_rejects_non_lm8j_surfaces():
     forbidden = (
         ["--retry-clean-observation"],
@@ -127,6 +164,26 @@ def test_manifest_records_lm8j_identity():
     assert manifest["child_probe"] == "lm8i_affine_publication_shape_support_probe.py"
     assert manifest["child_probe_invocation"] == "subprocess"
     assert manifest["support_mode"] == "lm8i_default_support_enabled"
+    assert "verifier_profile" not in manifest
+    assert "verifier_mechanism" not in manifest
+    assert "fixture_readiness_profile" not in manifest
+    assert "readiness_wait_timeout_ms" not in manifest
+
+
+def test_managed_manifest_records_lm8m_identity_and_metadata():
+    manifest = PROBE._manifest(
+        attempts=20,
+        model="gemma4:12b-it-qat",
+        attempt_timeout_s=600,
+        verifier_profile=PROBE.MANAGED_VERIFIER_PROFILE,
+    )
+
+    assert manifest["schema"] == PROBE.LM8M_SCRIPT_SCHEMA
+    assert manifest["canonical_evidence"] is True
+    assert manifest["verifier_profile"] == PROBE.MANAGED_VERIFIER_PROFILE
+    assert manifest["verifier_mechanism"] == PROBE.VERIFIER_MECHANISM
+    assert manifest["fixture_readiness_profile"] == PROBE.FIXTURE_READINESS_PROFILE
+    assert manifest["readiness_wait_timeout_ms"] == PROBE.READINESS_WAIT_TIMEOUT_MS
 
 
 def test_scheduled_attempt_id_is_stable():
@@ -171,6 +228,27 @@ def test_lm8i_command_uses_sys_executable_and_child_run_dir(tmp_path: Path):
     assert "--gh-edit" not in command
     assert "--support-forced" not in command
     assert "--support-disabled" not in command
+
+
+def test_default_child_command_is_exact_historical_shape(tmp_path: Path):
+    command = PROBE._lm8i_command(
+        model=PROBE.DEFAULT_MODEL,
+        lm8i_runs_dir=tmp_path,
+        verifier_profile=PROBE.SETTLE_VERIFIER_PROFILE,
+    )
+
+    assert "--verifier-profile" not in command
+
+
+def test_managed_child_command_forwards_only_profile(tmp_path: Path):
+    command = PROBE._lm8i_command(
+        model=PROBE.DEFAULT_MODEL,
+        lm8i_runs_dir=tmp_path,
+        verifier_profile=PROBE.MANAGED_VERIFIER_PROFILE,
+    )
+
+    assert command[-2:] == ["--verifier-profile", "managed_receipt_v2"]
+    assert "--readiness-wait-timeout-ms" not in command
 
 
 def test_discover_child_run_dirs_uses_filesystem_delta(tmp_path: Path):
@@ -859,6 +937,38 @@ def test_run_probe_writes_manifest_attempts_and_summary(tmp_path: Path):
     assert all(call["text"] is True for call in runner.calls)
 
 
+def test_managed_run_probe_uses_lm8m_identity_and_forwards_profile(tmp_path: Path):
+    runner = FakeLm8iRunner(
+        [
+            {
+                "decision": "accepted",
+                "reason": "verify_scalar_output_succeeded",
+                "worker_publication_ran": True,
+            }
+        ]
+    )
+
+    run_dir = PROBE._run_probe(
+        attempts=1,
+        model=PROBE.DEFAULT_MODEL,
+        run_root=tmp_path,
+        attempt_timeout_s=PROBE.DEFAULT_ATTEMPT_TIMEOUT_S,
+        verifier_profile=PROBE.MANAGED_VERIFIER_PROFILE,
+        run_subprocess=runner,
+    )
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+
+    assert run_dir.name.startswith("lm8m-")
+    assert manifest["schema"] == PROBE.LM8M_SCRIPT_SCHEMA
+    assert summary["schema"] == PROBE.LM8M_SCRIPT_SCHEMA
+    assert runner.calls[0]["command"][-2:] == [
+        "--verifier-profile",
+        PROBE.MANAGED_VERIFIER_PROFILE,
+    ]
+    assert "--readiness-wait-timeout-ms" not in runner.calls[0]["command"]
+
+
 def test_run_probe_continues_after_wrapper_error(tmp_path: Path):
     calls = []
 
@@ -940,7 +1050,10 @@ def test_run_probe_counts_support_recovery_only_when_worker_action_exists(tmp_pa
 
 
 def test_main_prints_run_dir_and_returns_zero(monkeypatch, tmp_path: Path, capsys):
+    received_kwargs = {}
+
     def fake_run_probe(**kwargs):
+        received_kwargs.update(kwargs)
         run_dir = tmp_path / "lm8j-demo"
         run_dir.mkdir()
         (run_dir / "summary.json").write_text(
@@ -955,6 +1068,7 @@ def test_main_prints_run_dir_and_returns_zero(monkeypatch, tmp_path: Path, capsy
     output = capsys.readouterr().out
     assert "LM8J affine support repeatability probe complete" in output
     assert "run_dir=" in output
+    assert received_kwargs["verifier_profile"] == PROBE.SETTLE_VERIFIER_PROFILE
 
 
 def test_lm8j_source_does_not_import_lm8i_or_live_tooling():
