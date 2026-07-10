@@ -26,21 +26,31 @@ function createContext(scene = {}) {
 it("runs three trials and uses the worst completed trial", async () => {
   const tiers = ["interactive", "marginal", "preview-viable"];
   let index = 0;
+  let activeCalls = 0;
+  let maximumActiveCalls = 0;
   const report = await runConfiguration({
     config: { actorCount: 338 },
     trialCount: 3,
-    runTrialImpl: async () => ({
-      status: "completed",
-      classification: { tier: tiers[index++] },
-      cpu: { samples: [4] },
-      seek: { samples: [1] },
-      matrixTraversal: { samples: [1] },
-      renderSubmission: { samples: [2] },
-      gpu: { samples: [3] },
-    }),
+    runTrialImpl: async () => {
+      activeCalls += 1;
+      maximumActiveCalls = Math.max(maximumActiveCalls, activeCalls);
+      await Promise.resolve();
+      const tier = tiers[index++];
+      activeCalls -= 1;
+      return {
+        status: "completed",
+        classification: { tier },
+        cpu: { samples: [4] },
+        seek: { samples: [1] },
+        matrixTraversal: { samples: [1] },
+        renderSubmission: { samples: [2] },
+        gpu: { samples: [3] },
+      };
+    },
   });
 
   expect(report.trials).toHaveLength(3);
+  expect(maximumActiveCalls).toBe(1);
   expect(report.headline).toEqual({
     tier: "marginal", source: "worst_completed_trial", trialIndex: 1,
   });
@@ -284,4 +294,226 @@ it("aborts on context loss and removes the listener before disposal", async () =
   expect(renderer.domElement.removeEventListener)
     .toHaveBeenCalledWith("webglcontextlost", lost);
   expect(events).toEqual(["prevented", "listener_removed", "disposed"]);
+});
+
+it("captures context loss while scene construction is pending", async () => {
+  let lost;
+  const renderer = createRenderer();
+  renderer.domElement.addEventListener.mockImplementation((_name, listener) => {
+    lost = listener;
+  });
+  const context = createContext();
+  const evaluate = vi.fn();
+  const dispose = vi.fn();
+  const result = await runTrial({
+    trialIndex: 0,
+    renderer,
+    buildScene: async () => {
+      lost({ preventDefault: vi.fn() });
+      await Promise.resolve();
+      return context;
+    },
+    evaluate,
+    dispose,
+    protocol: { warmupFrames: 0, measuredFrames: 0 },
+    schedule: (callback) => callback(),
+    now: () => 0,
+  });
+
+  expect(result).toMatchObject({
+    status: "aborted", reason: "context_lost",
+  });
+  expect(evaluate).not.toHaveBeenCalled();
+  expect(dispose).toHaveBeenCalledWith(context.scene);
+});
+
+it("captures context loss during the final warm-up frame", async () => {
+  let lost;
+  const renderer = createRenderer({
+    render: () => lost({ preventDefault: vi.fn() }),
+  });
+  renderer.domElement.addEventListener.mockImplementation((_name, listener) => {
+    lost = listener;
+  });
+  const result = await runTrial({
+    trialIndex: 0,
+    renderer,
+    buildScene: async () => createContext(),
+    evaluate: () => {},
+    dispose: () => {},
+    protocol: { warmupFrames: 1, measuredFrames: 0 },
+    schedule: (callback) => callback(),
+    now: () => 0,
+  });
+
+  expect(result).toMatchObject({
+    status: "aborted", reason: "context_lost",
+  });
+});
+
+it("captures context loss while pending GPU queries drain", async () => {
+  const extension = {
+    TIME_ELAPSED_EXT: "time_elapsed",
+    GPU_DISJOINT_EXT: "gpu_disjoint",
+  };
+  let available = false;
+  const gl = {
+    QUERY_RESULT_AVAILABLE: "query_available",
+    QUERY_RESULT: "query_result",
+    getExtension: () => extension,
+    createQuery: () => ({ id: 1 }),
+    beginQuery: () => {},
+    endQuery: () => {},
+    getParameter: () => false,
+    getQueryParameter: (_query, parameter) =>
+      parameter === "query_available" ? available : 5_000_000,
+    deleteQuery: () => {},
+  };
+  let lost;
+  const renderer = createRenderer({ gl });
+  renderer.domElement.addEventListener.mockImplementation((_name, listener) => {
+    lost = listener;
+  });
+  let scheduled = 0;
+  const result = await runTrial({
+    trialIndex: 0,
+    renderer,
+    buildScene: async () => createContext(),
+    evaluate: () => {},
+    dispose: () => {},
+    protocol: { warmupFrames: 0, measuredFrames: 1 },
+    schedule: (callback) => {
+      scheduled += 1;
+      if (scheduled === 2) {
+        lost({ preventDefault: vi.fn() });
+        available = true;
+      }
+      callback();
+    },
+    now: () => 0,
+  });
+
+  expect(result).toMatchObject({
+    status: "aborted", reason: "context_lost",
+  });
+});
+
+it("captures context loss during asynchronous correctness checking", async () => {
+  let lost;
+  const renderer = createRenderer();
+  renderer.domElement.addEventListener.mockImplementation((_name, listener) => {
+    lost = listener;
+  });
+  const result = await runTrial({
+    trialIndex: 0,
+    renderer,
+    buildScene: async () => createContext(),
+    evaluate: () => {},
+    dispose: () => {},
+    checkCorrectness: async () => {
+      lost({ preventDefault: vi.fn() });
+      await Promise.resolve();
+      return { pass: true };
+    },
+    protocol: { warmupFrames: 0, measuredFrames: 0 },
+    schedule: (callback) => callback(),
+    now: () => 0,
+  });
+
+  expect(result).toMatchObject({
+    status: "aborted", reason: "context_lost",
+  });
+  expect(result.classification?.tier).not.toBe("interactive");
+});
+
+it("turns between-trial cancellation into an evidence-preserving abort", async () => {
+  const controller = new AbortController();
+  const cpu = { count: 1, samples: [4] };
+  const report = await runConfiguration({
+    config: {},
+    signal: controller.signal,
+    trialCount: 3,
+    runTrialImpl: async () => {
+      controller.abort();
+      return {
+        status: "completed",
+        classification: { tier: "interactive" },
+        cpu,
+        gpu: { samples: [] },
+      };
+    },
+  });
+
+  expect(report.trials).toHaveLength(1);
+  expect(report.trials[0]).toMatchObject({
+    status: "aborted", reason: "cancelled", cpu,
+  });
+  expect(report.headline).toEqual({
+    tier: "impractical", source: "aborted_trial", trialIndex: 0,
+  });
+});
+
+it("converts scene disposal failure into a resolved aborted trial", async () => {
+  const result = await runTrial({
+    trialIndex: 0,
+    renderer: createRenderer(),
+    buildScene: async () => createContext(),
+    evaluate: () => {},
+    dispose: () => { throw new Error("scene disposal failed"); },
+    protocol: { warmupFrames: 0, measuredFrames: 0 },
+    schedule: (callback) => callback(),
+    now: () => 0,
+  });
+
+  expect(result).toMatchObject({
+    status: "aborted",
+    reason: "cleanup_failed",
+    cleanupErrors: [{
+      stage: "scene_disposal", message: "scene disposal failed",
+    }],
+  });
+});
+
+it("continues timer and scene cleanup after listener cleanup fails", async () => {
+  const events = [];
+  const extension = {
+    TIME_ELAPSED_EXT: "time_elapsed",
+    GPU_DISJOINT_EXT: "gpu_disjoint",
+  };
+  const gl = {
+    getExtension: () => extension,
+    createQuery: () => ({ id: 1 }),
+    beginQuery: () => {},
+    endQuery: () => {},
+    deleteQuery: () => events.push("timer_disposed"),
+  };
+  const renderer = createRenderer({
+    gl,
+    render: () => { throw new Error("render failed"); },
+  });
+  renderer.domElement.removeEventListener.mockImplementation(() => {
+    events.push("listener_cleanup_attempted");
+    throw new Error("listener cleanup failed");
+  });
+  const result = await runTrial({
+    trialIndex: 0,
+    renderer,
+    buildScene: async () => createContext(),
+    evaluate: () => {},
+    dispose: () => events.push("scene_disposed"),
+    protocol: { warmupFrames: 0, measuredFrames: 1 },
+    schedule: (callback) => callback(),
+    now: () => 0,
+  });
+
+  expect(result).toMatchObject({
+    status: "aborted",
+    reason: "render failed",
+    cleanupErrors: [{
+      stage: "listener_removal", message: "listener cleanup failed",
+    }],
+  });
+  expect(events).toEqual([
+    "listener_cleanup_attempted", "timer_disposed", "scene_disposed",
+  ]);
 });

@@ -16,33 +16,45 @@ export async function runTrial({
   let constructionMs = null;
   let contextLost = false;
   let listenerAttached = false;
+  let result;
   const frameCpuSamples = [];
   const seekSamples = [];
   const matrixTraversalSamples = [];
   const renderSubmissionSamples = [];
   const lost = (event) => {
-    event.preventDefault();
     contextLost = true;
+    event.preventDefault();
+  };
+  const assertContextActive = () => {
+    if (contextLost) throw new DOMException("context lost", "AbortError");
   };
 
   try {
+    if (typeof renderer.domElement?.addEventListener === "function" &&
+        typeof renderer.domElement?.removeEventListener === "function") {
+      renderer.domElement.addEventListener(
+        "webglcontextlost", lost, { once: true });
+      listenerAttached = true;
+    }
     const started = now();
     context = await buildScene();
     constructionMs = now() - started;
+    assertContextActive();
     // The benchmark owns the single world-matrix traversal. Three.js r181
     // otherwise performs another traversal inside WebGLRenderer.render().
     context.scene.matrixWorldAutoUpdate = false;
     timer = createGpuTimer(renderer.getContext());
-    renderer.domElement.addEventListener("webglcontextlost", lost, { once: true });
-    listenerAttached = true;
 
     await frames(protocol.warmupFrames, (frame) => {
+      assertContextActive();
       evaluate(context, frame / 60);
       context.scene.updateMatrixWorld(true);
       renderer.render(context.scene, context.camera);
+      assertContextActive();
     }, schedule, signal);
 
     await frames(protocol.measuredFrames, (frame) => {
+      assertContextActive();
       const frameStart = now();
 
       const seekStart = now();
@@ -60,23 +72,25 @@ export async function runTrial({
       timer.end();
       frameCpuSamples.push(now() - frameStart);
       timer.poll();
-      if (contextLost) throw new DOMException("context lost", "AbortError");
+      assertContextActive();
     }, schedule, signal);
 
-    await drain(timer, schedule, signal);
+    await drain(timer, schedule, signal, assertContextActive);
     const gpuRaw = timer.snapshot();
     const cpu = summarizeSamples(frameCpuSamples);
     const seek = summarizeSamples(seekSamples);
     const matrixTraversal = summarizeSamples(matrixTraversalSamples);
     const renderSubmission = summarizeSamples(renderSubmissionSamples);
     const gpu = summarizeSamples(gpuRaw.samplesMs);
+    assertContextActive();
     const correctness = await checkCorrectness(context);
+    assertContextActive();
     const correctnessPassed = correctness.pass;
     const classification = classifyTrial({
       status: "completed", correctnessPassed, constructionMs, cpu,
       gpu: { ...gpu, validCount: gpuRaw.samplesMs.length },
     });
-    return {
+    result = {
       trialIndex,
       status: "completed",
       constructionMs,
@@ -98,18 +112,46 @@ export async function runTrial({
       classification,
     };
   } catch (error) {
-    return {
+    result = {
       trialIndex,
       status: "aborted",
       reason: contextLost ? "context_lost" : error.message,
     };
-  } finally {
-    if (listenerAttached) {
-      renderer.domElement.removeEventListener("webglcontextlost", lost);
-    }
-    timer?.dispose();
-    if (context?.scene) dispose(context.scene);
   }
+
+  const cleanupErrors = [];
+  if (listenerAttached) {
+    try {
+      renderer.domElement.removeEventListener("webglcontextlost", lost);
+    } catch (error) {
+      cleanupErrors.push(cleanupError("listener_removal", error));
+    }
+  }
+  if (timer) {
+    try {
+      timer.dispose();
+    } catch (error) {
+      cleanupErrors.push(cleanupError("gpu_timer_disposal", error));
+    }
+  }
+  if (context?.scene) {
+    try {
+      dispose(context.scene);
+    } catch (error) {
+      cleanupErrors.push(cleanupError("scene_disposal", error));
+    }
+  }
+
+  if (cleanupErrors.length) {
+    result = {
+      ...result,
+      status: "aborted",
+      reason: result.status === "completed" ? "cleanup_failed" : result.reason,
+      cleanupErrors,
+    };
+  }
+
+  return result;
 }
 
 export async function runConfiguration({
@@ -120,9 +162,12 @@ export async function runConfiguration({
 }) {
   const trials = [];
   for (let trialIndex = 0; trialIndex < trialCount; trialIndex += 1) {
-    const trial = await runTrialImpl({ ...options, config, trialIndex });
+    let trial = await runTrialImpl({ ...options, config, trialIndex });
+    if (trial.status === "completed" && options.signal?.aborted) {
+      trial = { ...trial, status: "aborted", reason: "cancelled" };
+    }
     trials.push(trial);
-    if (trial.status !== "completed" || options.signal?.aborted) break;
+    if (trial.status !== "completed") break;
   }
   return {
     schemaVersion: 1,
@@ -167,7 +212,8 @@ function frames(count, callback, schedule, signal) {
   });
 }
 
-async function drain(timer, schedule, signal) {
+async function drain(timer, schedule, signal, assertContextActive) {
+  assertContextActive();
   for (let attempt = 0;
     attempt < 120 && timer.snapshot().pendingCount > 0;
     attempt += 1) {
@@ -175,9 +221,23 @@ async function drain(timer, schedule, signal) {
       if (signal?.aborted) {
         reject(new DOMException("run stopped", "AbortError"));
       } else {
-        timer.poll();
-        resolve();
+        try {
+          assertContextActive();
+          timer.poll();
+          assertContextActive();
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
       }
     }));
   }
+  assertContextActive();
+}
+
+function cleanupError(stage, error) {
+  return {
+    stage,
+    message: error instanceof Error ? error.message : String(error),
+  };
 }
