@@ -4,6 +4,8 @@ import { vi } from "vitest";
 import {
   ACTOR_PRESETS, BENCHMARK_PROTOCOL, DEFAULT_CONFIG,
 } from "../src/config.js";
+import { evaluateAt } from "../src/animation.js";
+import { buildActorIndex } from "../src/actor-index.js";
 import { disposeScene } from "../src/disposal.js";
 import { addFixedLights, createCamera } from "../src/renderer.js";
 import { createSyntheticScene } from "../src/scene-generator.js";
@@ -66,24 +68,59 @@ describe("scene generator", () => {
     expect(farLight.target.parent).toBe(large);
   });
 
-  it.each(ACTOR_PRESETS)("frames all %i actors inside the camera frustum", (actorCount) => {
-    const generated = createSyntheticScene({ actorCount });
-    const camera = createCamera(
-      generated.appliedRenderOffset,
-      generated.scene,
-    );
-    generated.scene.updateMatrixWorld(true);
-    camera.updateMatrixWorld(true);
-    const projectionView = new THREE.Matrix4().multiplyMatrices(
-      camera.projectionMatrix,
-      camera.matrixWorldInverse,
-    );
-    const frustum = new THREE.Frustum().setFromProjectionMatrix(projectionView);
-    const visibleActors = generated.actors.filter((actor) =>
-      frustum.intersectsObject(actor.children[0])).length;
+  it.each(ACTOR_PRESETS)("keeps all %i actors in the fixed-camera frustum", (actorCount) => {
+    for (const coordinateMode of ["rebased", "large"]) {
+      const generated = createSyntheticScene({ actorCount, coordinateMode });
+      generated.actorIndex = buildActorIndex(generated.actorRoot).actors;
+      generated.motionGranularity = "group";
+      const camera = createCamera(generated.appliedRenderOffset);
 
-    expect(visibleActors).toBe(actorCount);
-    disposeScene(generated.scene);
+      for (const time of [0, 0.5, 1]) {
+        evaluateAt(generated, time);
+        generated.scene.updateMatrixWorld(true);
+        camera.updateMatrixWorld(true);
+        const projectionView = new THREE.Matrix4().multiplyMatrices(
+          camera.projectionMatrix,
+          camera.matrixWorldInverse,
+        );
+        const frustum = new THREE.Frustum()
+          .setFromProjectionMatrix(projectionView);
+        const visibleActors = generated.actors.filter((actor) =>
+          frustum.intersectsObject(actor.children[0])).length;
+
+        expect(visibleActors).toBe(actorCount);
+      }
+      disposeScene(generated.scene);
+    }
+  });
+
+  it.each(ACTOR_PRESETS)(
+    "keeps the %i-actor layout inside the fixed benchmark extent",
+    (actorCount) => {
+      const generated = createSyntheticScene({ actorCount });
+      generated.actorRoot.updateMatrixWorld(true);
+      const size = new THREE.Box3()
+        .setFromObject(generated.actorRoot, true)
+        .getSize(new THREE.Vector3());
+
+      expect(size.x).toBeCloseTo(8.7, 6);
+      expect(size.z).toBeCloseTo(8.7, 6);
+      disposeScene(generated.scene);
+    },
+  );
+
+  it("keeps camera values fixed across actor tiers", () => {
+    const small = createSyntheticScene({ actorCount: 100 });
+    const large = createSyntheticScene({ actorCount: 10000 });
+    const smallCamera = createCamera(small.appliedRenderOffset);
+    const largeCamera = createCamera(large.appliedRenderOffset);
+
+    expect(smallCamera.position.toArray()).toEqual([12, 10, 18]);
+    expect(largeCamera.position.toArray()).toEqual([12, 10, 18]);
+    expect(largeCamera.projectionMatrix.toArray())
+      .toEqual(smallCamera.projectionMatrix.toArray());
+    disposeScene(small.scene);
+    disposeScene(large.scene);
   });
 
   it.each([

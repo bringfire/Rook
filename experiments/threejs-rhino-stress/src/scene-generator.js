@@ -2,6 +2,9 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { DEFAULT_CONFIG, LARGE_WORLD_OFFSET } from "./config.js";
 
+// Preserve the fixed-camera protocol while keeping every actor tier in-frustum.
+const ACTOR_GRID_EXTENT = 8.1;
+
 export function createSyntheticScene(overrides = {}) {
   const config = { ...DEFAULT_CONFIG, ...overrides };
   const scene = new THREE.Scene();
@@ -32,6 +35,7 @@ export function createSyntheticScene(overrides = {}) {
   });
   const actors = [];
   const columns = Math.ceil(Math.sqrt(config.actorCount));
+  const rows = Math.ceil(config.actorCount / columns);
 
   for (let index = 0; index < config.actorCount; index += 1) {
     const actor = new THREE.Group();
@@ -41,10 +45,12 @@ export function createSyntheticScene(overrides = {}) {
       sourceKind: "synthetic",
       actorNode: true,
     };
+    const column = index % columns;
+    const row = Math.floor(index / columns);
     actor.position.set(
-      (index % columns) * 0.9,
+      columns > 1 ? (column / (columns - 1)) * ACTOR_GRID_EXTENT : 0,
       0,
-      Math.floor(index / columns) * 0.9,
+      rows > 1 ? (row / (rows - 1)) * ACTOR_GRID_EXTENT : 0,
     );
     actor.userData.basePosition = actor.position.toArray();
 

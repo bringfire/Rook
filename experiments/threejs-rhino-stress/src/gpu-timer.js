@@ -2,7 +2,7 @@ export function createGpuTimer(gl) {
   const extension = gl.getExtension("EXT_disjoint_timer_query_webgl2");
   const pending = [];
   const samplesMs = [];
-  // Number of queued timing samples discarded after disjoint signals.
+  // Number of observed GPU disjoint events.
   let disjointCount = 0;
   let active = null;
 

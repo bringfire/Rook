@@ -18,39 +18,16 @@ export function createFixedRenderer(canvas) {
   return renderer;
 }
 
-export function createCamera(offset = [0, 0, 0], root = null) {
+export function createCamera(offset = [0, 0, 0]) {
   const camera = new THREE.PerspectiveCamera(
     35,
     BENCHMARK_PROTOCOL.width / BENCHMARK_PROTOCOL.height,
     0.1,
     10000,
   );
-  const target = new THREE.Vector3(
-    offset[0] + 6, offset[1], offset[2] + 6,
-  );
-  let distance = Math.sqrt(12 ** 2 + 10 ** 2 + 18 ** 2);
-  if (root) {
-    root.updateMatrixWorld(true);
-    const bounds = new THREE.Box3().setFromObject(root, true);
-    if (!bounds.isEmpty()) {
-      const sphere = bounds.getBoundingSphere(new THREE.Sphere());
-      target.copy(sphere.center);
-      const verticalFov = THREE.MathUtils.degToRad(camera.fov);
-      const horizontalFov = 2 * Math.atan(
-        Math.tan(verticalFov / 2) * camera.aspect,
-      );
-      const limitingFov = Math.min(verticalFov, horizontalFov);
-      distance = (sphere.radius / Math.sin(limitingFov / 2)) * 1.12;
-      camera.far = Math.max(10000, distance + sphere.radius * 4);
-      camera.updateProjectionMatrix();
-    }
-  }
-  const direction = new THREE.Vector3(6, 10, 12).normalize();
-  camera.position.copy(target).addScaledVector(direction, distance);
-  camera.lookAt(target);
+  camera.position.set(offset[0] + 12, offset[1] + 10, offset[2] + 18);
+  camera.lookAt(offset[0] + 6, offset[1], offset[2] + 6);
   camera.updateMatrixWorld(true);
-  camera.userData.frameTarget = target.toArray();
-  camera.userData.frameDistance = distance;
   return camera;
 }
 

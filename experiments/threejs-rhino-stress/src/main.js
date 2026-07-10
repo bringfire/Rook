@@ -313,9 +313,7 @@ async function buildOrLoad() {
 
 function buildSynthetic(config) {
   const generated = createSyntheticScene(config);
-  const camera = createCamera(
-    generated.appliedRenderOffset, generated.actorRoot,
-  );
+  const camera = createCamera(generated.appliedRenderOffset);
   addFixedLights(generated.scene, generated.appliedRenderOffset);
   return finalizeContext(generated, camera);
 }
@@ -339,7 +337,7 @@ async function buildLocalFromBytes(
 ) {
   if (!bytes) throw new Error("Choose and load a local GLB first");
   const gltf = await loadGlbArrayBuffer(bytes.slice(0));
-  const camera = createCamera([0, 0, 0], gltf.scene);
+  const camera = createCamera();
   addFixedLights(gltf.scene);
   return finalizeContext({
     scene: gltf.scene,
