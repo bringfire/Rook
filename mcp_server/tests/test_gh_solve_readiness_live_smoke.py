@@ -141,6 +141,25 @@ def test_smoke_rejects_missing_set_value_receipt(tmp_path: Path) -> None:
     assert [tool for tool, _ in fake_executor.calls_after("gh_set_value")] == []
 
 
+@pytest.mark.parametrize(
+    "receipt",
+    [
+        {**_receipt("pending"), "schema": "rook.gh_solve_readiness_receipt:v0"},
+        _receipt("ready"),
+    ],
+    ids=["unexpected_schema", "non_pending_status"],
+)
+def test_smoke_rejects_invalid_set_value_receipt_before_wait(
+    tmp_path: Path, receipt: dict[str, object]
+) -> None:
+    fake_executor = FakeToolExecutor(_responses(set_receipt=receipt))
+
+    with pytest.raises(SMOKE.SmokeFailure, match="solve_readiness_receipt_invalid"):
+        _run(SMOKE.run_smoke(fake_executor, run_dir=tmp_path))
+
+    assert [tool for tool, _ in fake_executor.calls_after("gh_set_value")] == []
+
+
 def test_smoke_rejects_wait_timeout(tmp_path: Path) -> None:
     fake_executor = FakeToolExecutor(
         _responses(wait={"success": True, "data": {"wait_status": "timeout", "receipt": _receipt("pending")}})
@@ -196,6 +215,40 @@ def test_smoke_rejects_mismatched_output_provenance(tmp_path: Path) -> None:
 
     with pytest.raises(SMOKE.SmokeFailure, match="fenced_output_provenance_mismatch"):
         _run(SMOKE.run_smoke(fake_executor, run_dir=tmp_path))
+
+
+@pytest.mark.parametrize(
+    "receipt",
+    [
+        {**_receipt(), "schema": "rook.gh_solve_readiness_receipt:v0"},
+        _receipt("pending"),
+    ],
+    ids=["unexpected_schema", "non_ready_status"],
+)
+def test_smoke_rejects_invalid_fenced_output_receipt(
+    tmp_path: Path, receipt: dict[str, object]
+) -> None:
+    fake_executor = FakeToolExecutor(
+        _responses(
+            inspect={
+                "success": True,
+                "data": {
+                    "param_nickname": "R",
+                    "data_count": 1,
+                    "preview": [7.5],
+                    "readiness_receipt": receipt,
+                },
+            }
+        )
+    )
+
+    with pytest.raises(SMOKE.SmokeFailure, match="fenced_output_provenance_mismatch"):
+        _run(SMOKE.run_smoke(fake_executor, run_dir=tmp_path))
+
+    assert [tool for tool, _ in fake_executor.calls_after("gh_set_value")] == [
+        "gh_wait_for_solve_readiness",
+        "gh_inspect_output",
+    ]
 
 
 def test_harness_source_has_no_sleep_or_post_mutation_output_polling() -> None:

@@ -15,6 +15,7 @@ from typing import Any, Awaitable, Callable
 ToolExecutor = Callable[[str, dict[str, object]], Awaitable[object]]
 WAIT_TIMEOUT_MS = 10_000
 EXPECTED_VALUE = 7.5
+RECEIPT_SCHEMA = "rook.gh_solve_readiness_receipt:v1"
 
 
 class SmokeFailure(RuntimeError):
@@ -80,6 +81,10 @@ def _receipt_identity(receipt: dict[str, Any]) -> tuple[object, ...]:
             "completed_solution_run_epoch",
         )
     )
+
+
+def _receipt_has_schema_and_status(receipt: dict[str, Any], status: str) -> bool:
+    return receipt.get("schema") == RECEIPT_SCHEMA and receipt.get("status") == status
 
 
 def _observed_output_value(result: dict[str, Any]) -> float:
@@ -184,6 +189,8 @@ async def run_smoke(tool_executor: ToolExecutor, *, run_dir: Path) -> dict[str, 
         receipt_id = mutation_receipt.get("receipt_id")
         if not isinstance(receipt_id, str) or not receipt_id:
             raise SmokeFailure("solve_readiness_receipt_missing", mutation_receipt)
+        if not _receipt_has_schema_and_status(mutation_receipt, "pending"):
+            raise SmokeFailure("solve_readiness_receipt_invalid", mutation_receipt)
 
         wait = await _call_tool(
             tool_executor,
@@ -215,7 +222,11 @@ async def run_smoke(tool_executor: ToolExecutor, *, run_dir: Path) -> dict[str, 
         if not _success(fenced_output):
             raise SmokeFailure("fenced_output_read_failed", fenced_output)
         output_receipt = _receipt_from(_data(fenced_output))
-        if output_receipt is None or _receipt_identity(output_receipt) != _receipt_identity(wait_receipt):
+        if (
+            output_receipt is None
+            or not _receipt_has_schema_and_status(output_receipt, "ready")
+            or _receipt_identity(output_receipt) != _receipt_identity(wait_receipt)
+        ):
             raise SmokeFailure("fenced_output_provenance_mismatch", fenced_output)
         observed_output_value = _observed_output_value(fenced_output)
         if observed_output_value != EXPECTED_VALUE:
