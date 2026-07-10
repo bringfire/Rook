@@ -256,9 +256,19 @@ Windows paths are canonicalized by resolving them to absolute final targets,
 normalizing separators and extended-path prefixes, and removing redundant
 segments and trailing separators except at a root. Canonical comparisons are
 case-insensitive. A case-only rename therefore retains the binding. Reparse
-points and UNC paths are accepted only after final-target resolution proves
-that the source remains under the selected project root. The scene link stores
-both a user-facing display path and the canonical comparison path.
+points and UNC paths are fully resolved for diagnosis and policy enforcement.
+
+Slice 1 requires the project root, source document, derived destination, and
+`.rook/render-scenes` storage to resolve to local fixed storage on the machine
+running Rook. The storage must support durable file flush and atomic rename
+within one directory. UNC paths, mapped network drives, remote reparse targets,
+removable media, cloud-synchronized roots, and cloud placeholder files are
+rejected with `shared_scene_storage_unsupported`. An external derived
+destination may be on a different local fixed volume from the project, which is
+why cross-volume copy recovery is still required. Shared storage is deferred
+until a filesystem-visible multi-machine lease protocol is designed and tested.
+The scene link
+stores both a user-facing display path and the canonical comparison path.
 
 The durable Slice 1 binding is the canonical saved path, not an invented Rhino
 document UUID. Each successful snapshot also stores a source version
@@ -307,19 +317,20 @@ commit, cleanup, or rollback.
 
 ### Lock identities and acquisition order
 
-The primary destination lock is an OS-visible per-user named mutex whose ID is
-the SHA-256 of a canonical JSON object with exactly three fields: `contract`
-is the literal `derived-path-lock@1`, `projectRoot` is the canonical project-root
-string, and `derivedPath` is the canonical derived-path string. It contains no
-`sceneId`, run ID, source identity, or process identity. Consequently, two first
-Creates that chose the same canonical destination contend on the same lock even
-when they allocated different provisional scene IDs.
+The primary destination lock is an OS-visible machine-wide named mutex whose ID
+is the SHA-256 of a canonical JSON object with exactly two fields: `contract` is
+the literal `derived-path-lock@2`, and `derivedPath` is the canonical
+derived-path string. It contains no project root, `sceneId`, run ID, source
+identity, user identity, or process identity. Consequently, first Creates from
+different projects contend on the same lock whenever they choose the same
+canonical destination, even when they allocated different provisional scene
+IDs.
 
-A secondary scene lock serializes bookkeeping for an existing scene across
-Update, Relink, and recovery. Its ID is the SHA-256 of a canonical JSON object
-with exactly three fields: `contract` is the literal `render-scene-lock@1`,
-`projectRoot` is the canonical project-root string, and `sceneId` is the scene
-ID string.
+A secondary machine-wide scene lock serializes bookkeeping for an existing
+scene across Update, Relink, and recovery. Its ID is the SHA-256 of a canonical
+JSON object with exactly three fields: `contract` is the literal
+`render-scene-lock@1`, `projectRoot` is the canonical project-root string, and
+`sceneId` is the scene ID string.
 Every operation acquires all required destination locks first in ascending lock
 ID order, then all required scene locks in ascending lock ID order, and releases
 them in reverse order. A normal Create or Update needs one of each; Relink needs
@@ -347,17 +358,51 @@ rehashes the working path; any value other than the candidate hash produces the
 same conflict, including an old document that saved and closed before it could
 be enumerated. Preview and pointers remain on the prior run.
 
+### Crash-safe conflict preservation
+
 Conflict recovery waits for the document to close before restoring the prior
-working bytes. If the open document saved unexpected bytes, Rook first moves
-them into the scene's retained `conflicts/<conflictId>/preserved.3dm`, writes and
-fsyncs `conflict-record.json`, and then records the conflict ID, path, byte size,
-and SHA-256 in `promotion.json`. These bytes are retained user data, never
-attempt-owned files. Rollback performs the same pre/post replacement
-enumerations and disk-hash verification. If a candidate-loaded document appears
-inside the rollback window, Rook re-establishes candidate bytes at the working
-path, remains in `rollback_waiting_for_close`, and retries rollback only after
-that document closes. No preview or pointer commit is allowed while either
-conflict phase is active.
+working bytes. It never moves unexpected bytes across volumes. With the ordered
+locks still held, it performs this protocol:
+
+1. Open the unexpected working file with write/delete sharing denied, allocate
+   a `conflictId`, and record its size and SHA-256 from that stable source
+   handle. The original remains untouched.
+2. Copy through that handle to
+   `conflicts/<conflictId>/preserved.3dm.tmp-<runId>` on the conflict-store
+   volume while computing the destination hash. Flush the temporary file,
+   reread it, and require its size and hash to equal the source values.
+3. Atomically rename the temporary file to `preserved.3dm` within the same
+   conflict directory and durably flush the directory entry. The original still
+   remains untouched. From this point the retained bytes are user data, not
+   cleanup-eligible staging.
+4. Write `conflict-record.json.tmp`, flush it, atomically rename it to
+   `conflict-record.json` in the same directory, and flush that directory. The
+   record contains the source and retained hashes plus state
+   `preserved_unacknowledged`.
+5. Reread and verify the retained bytes and record, then update and fsync
+   `promotion.json` with phase `conflict_retained`, `conflictId`, retained path,
+   byte size, retained SHA-256, and conflict-record SHA-256.
+6. Only after step 5 may Rook close the source handle and replace or remove the
+   original working path as required by journaled rollback. It immediately
+   revalidates the original path against the captured source hash; a change
+   restarts preservation under a new conflict ID and never deletes the already
+   retained copy.
+
+Recovery is idempotent at every boundary. A crash with only the temporary copy
+leaves the original intact; recovery may resume verification or remove only the
+temporary. A finalized `preserved.3dm` without a record is discovered by the
+conflict-directory scan and receives an `orphan_preserved` record, never
+deletion. A durable record not yet referenced by the journal remains retained
+and is attached after verification. A journal in `conflict_retained` verifies
+the copy and record before continuing. Faults during later replacement use the
+normal journal hashes and presence rules.
+
+Rollback performs the same pre/post replacement enumerations and disk-hash
+verification. If a candidate-loaded document appears inside the rollback
+window, Rook re-establishes candidate bytes at the working path, remains in
+`rollback_waiting_for_close`, and retries rollback only after that document
+closes. No preview or pointer commit is allowed while either conflict phase is
+active.
 
 Attempt cleanup, run pruning, successful recovery, journal removal, and normal
 project maintenance explicitly exclude retained conflicts. **Review Preserved
@@ -903,9 +948,9 @@ versions, and package/profile provenance.
 
 First use requires the active authoring document to be saved and unmodified,
 asks for or confirms the project root and a nonexistent, closed derived `.3dm`
-path, selects the exact `balanced@1` descriptor and execution envelope by
-default, creates the scene link, completes the first transaction, and opens the
-Three.js preview.
+path, verifies the Slice 1 local-storage policy, selects the exact `balanced@1`
+descriptor and execution envelope by default, creates the scene link, completes
+the first transaction, and opens the Three.js preview.
 
 ### Update Render Scene
 
@@ -1034,10 +1079,15 @@ policies, and improved override management.
 - acyclic publication-DAG ordering, phase-available hashes, and explicit
   self-hash-field omission;
 - canonical candidate base-state tokens and byte-for-byte comparison;
-- destination-lock identity independent of `sceneId`, canonical lock ordering,
-  and scene-lock composition;
+- destination-lock identity independent of project root and `sceneId`,
+  canonical lock ordering, and scene-lock composition;
+- local-fixed-storage policy for project/source/derived/conflict paths and
+  rejection of UNC, mapped, remote-reparse, removable, cloud-synchronized, and
+  placeholder targets;
 - retained-conflict record validation, cleanup exclusion, acknowledgement, and
   hash-checked explicit deletion;
+- cross-volume conflict-copy state transitions, orphan discovery, and
+  idempotent recovery;
 - safe path normalization and attempt-owned cleanup; and
 - deterministic reports and hashes.
 
@@ -1085,14 +1135,23 @@ policies, and improved override management.
   journaling, each producing `candidate_base_stale` with no journal or
   publication write;
 - two candidates built from one base, proving only the first can publish;
-- two concurrent first Creates with different provisional scene IDs and the
-  same canonical destination, proving they contend on one destination lock and
-  only one can journal or publish;
+- two concurrent first Creates from different project roots with different
+  provisional scene IDs and the same canonical destination, proving they
+  contend on one destination lock and only one can journal or publish;
 - two concurrent recovery workers for one journal, proving both acquire the
   destination-then-scene lock order, exactly one mutates state, and the other
   returns `already_recovered` after its locked reread;
 - recovery after mutex abandonment by a crashed owner, proving no journaled
   mutation occurs before the new owner reacquires both locks and rereads;
+- rejection of UNC, mapped-network, remote-reparse, removable,
+  cloud-synchronized, placeholder, and unsupported project, source,
+  bookkeeping, or derived paths before candidate construction;
+- cross-volume conflict preservation with fault injection after source hash,
+  temporary copy, temporary flush, verification, retained rename, retained
+  directory flush, record write, record rename, journal update, and original
+  replacement, proving at least one verified user copy always survives;
+- recovery of temporary-only, preserved-without-record, record-without-journal,
+  and `conflict_retained` states;
 - promotion interruption after every journal phase for both Update and first
   Create;
 - first-Create rollback to absent derived document, absent pointers, and empty
@@ -1143,14 +1202,21 @@ presentation content. Acceptance requires:
 - Changing any candidate base-state token during compilation, or racing two
   candidates from the same base, prevents the stale candidate from creating a
   promotion journal or replacing the working document.
-- Concurrent first Creates with different provisional `sceneId` values but the
-  same canonical destination serialize on one path lock; one publishes and the
-  other exits stale without creating a journal.
+- Concurrent first Creates from different project roots with different
+  provisional `sceneId` values but the same canonical destination serialize on
+  one path-only lock; one publishes and the other exits stale without creating
+  a journal.
+- Slice 1 rejects shared/remote project, source, bookkeeping, or derived storage
+  before construction and reports `shared_scene_storage_unsupported`; external
+  derived files on another local fixed volume remain supported.
 - Concurrent recovery workers reacquire destination then scene locks and reread
   the journal under lock, so exactly one changes journaled state.
 - Conflict-preservation bytes and their path/hash record survive ordinary
   cleanup, successful recovery, and acknowledgement; only the explicitly
   confirmed, hash-checked delete action removes them and leaves a tombstone.
+- Cross-volume fault injection after every conflict-copy/finalization step
+  leaves either the untouched original or a durable verified retained copy, and
+  recovery handles every intermediate state without deleting the only copy.
 - Static-context merging reduces actual browser draw calls while passing the
   fixed-camera visible-equivalence gate.
 - Instance and batch candidates are reported deterministically but remain
