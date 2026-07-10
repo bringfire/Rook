@@ -30,8 +30,8 @@ namespace Rook.Tests.InternalBridge
             public event SolutionLifecycleHandler? SolutionStart;
             public event SolutionLifecycleHandler? SolutionEnd;
 
-            public void RaiseStart() => SolutionStart?.Invoke(this, new SolutionLifecycleEventArgs(this));
-            public void RaiseEnd() => SolutionEnd?.Invoke(this, new SolutionLifecycleEventArgs(this));
+            public void RaiseStart(object eventDocument) => SolutionStart?.Invoke(this, new SolutionLifecycleEventArgs(eventDocument));
+            public void RaiseEnd(object eventDocument) => SolutionEnd?.Invoke(this, new SolutionLifecycleEventArgs(eventDocument));
         }
 
         public sealed class MissingEndDocument
@@ -54,6 +54,7 @@ namespace Rook.Tests.InternalBridge
         public void Attach_CompatibleEvents_ForwardsStartThenEnd()
         {
             var document = new FakeDocument();
+            var eventDocument = new object();
             var observed = new List<(string Phase, object Document)>();
 
             using var subscription = new GhSolutionLifecycleAdapter().Attach(
@@ -62,11 +63,12 @@ namespace Rook.Tests.InternalBridge
                 callbackDocument => observed.Add(("end", callbackDocument)));
 
             Assert.True(subscription.IsAvailable);
-            document.RaiseStart();
-            document.RaiseEnd();
+            document.RaiseStart(eventDocument);
+            document.RaiseEnd(eventDocument);
 
             Assert.Equal(new[] { "start", "end" }, observed.Select(item => item.Phase));
-            Assert.All(observed, item => Assert.Same(document, item.Document));
+            Assert.NotSame(document, eventDocument);
+            Assert.All(observed, item => Assert.Same(eventDocument, item.Document));
         }
 
         [Fact]
@@ -102,8 +104,8 @@ namespace Rook.Tests.InternalBridge
 
             subscription.Dispose();
             subscription.Dispose();
-            document.RaiseStart();
-            document.RaiseEnd();
+            document.RaiseStart(new object());
+            document.RaiseEnd(new object());
 
             Assert.Equal(0, callbackCount);
         }
