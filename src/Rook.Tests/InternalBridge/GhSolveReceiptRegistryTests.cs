@@ -1,0 +1,400 @@
+using System;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using Rook.InternalBridge;
+using Xunit;
+
+namespace Rook.Tests.InternalBridge
+{
+    public sealed class GhSolveReceiptRegistryTests
+    {
+        private static readonly object DocumentA = new object();
+        private static readonly object DocumentB = new object();
+
+        [Fact]
+        public void MatchingStartThenEnd_MarksLatestReceiptReady()
+        {
+            var registry = CreateRegistry();
+            var issue = registry.IssueMutation(DocumentA);
+            Assert.True(issue.Issued);
+            var receipt = issue.Receipt!;
+            registry.MarkScheduleAccepted(receipt.ReceiptId);
+            registry.OnSolutionStart(DocumentA);
+            registry.OnSolutionEnd(DocumentA);
+
+            var current = registry.Get(receipt.ReceiptId);
+
+            Assert.True(current.Found);
+            Assert.Equal(GhSolveReadinessStatus.Ready, current.Receipt!.Status);
+            Assert.Equal(1, current.Receipt.SolutionRunEpoch);
+            Assert.Equal(1, current.Receipt.CompletedSolutionRunEpoch);
+            Assert.Equal("solution_end", current.Receipt.CompletionSignal);
+        }
+
+        [Fact]
+        public void SolutionEndWithoutBoundStart_LeavesReceiptPending()
+        {
+            var registry = CreateRegistry();
+            var receipt = IssueScheduled(registry, DocumentA);
+
+            registry.OnSolutionEnd(DocumentA);
+
+            var current = registry.Get(receipt.ReceiptId);
+            Assert.Equal(GhSolveReadinessStatus.Pending, current.Receipt!.Status);
+            Assert.Null(current.Receipt.SolutionRunEpoch);
+            Assert.Equal(0, current.Receipt.CompletedSolutionRunEpoch);
+        }
+
+        [Fact]
+        public void DuplicateStartBeforeCompletion_MarksReceiptUnknownInsteadOfAdvancingIt()
+        {
+            var registry = CreateRegistry();
+            var receipt = IssueScheduled(registry, DocumentA);
+
+            registry.OnSolutionStart(DocumentA);
+            registry.OnSolutionStart(DocumentA);
+            registry.OnSolutionEnd(DocumentA);
+
+            var current = registry.Get(receipt.ReceiptId);
+            Assert.Equal(GhSolveReadinessStatus.Unknown, current.Receipt!.Status);
+            Assert.Equal("lifecycle_correlation_ambiguous", current.Receipt.Reason);
+        }
+
+        [Fact]
+        public void SolutionStartBeforeScheduleAcceptance_DoesNotBindReceipt()
+        {
+            var registry = CreateRegistry();
+            var issue = registry.IssueMutation(DocumentA);
+            var receipt = issue.Receipt!;
+
+            registry.OnSolutionStart(DocumentA);
+            registry.OnSolutionEnd(DocumentA);
+            registry.MarkScheduleAccepted(receipt.ReceiptId);
+
+            var current = registry.Get(receipt.ReceiptId);
+            Assert.Equal(GhSolveReadinessStatus.Pending, current.Receipt!.Status);
+            Assert.Null(current.Receipt.SolutionRunEpoch);
+        }
+
+        [Fact]
+        public void ReadyReceipt_AllowsSameSessionFencedRead()
+        {
+            var registry = CreateReadyRegistry(out var receipt);
+
+            var gate = registry.CheckFencedRead(receipt.ReceiptId, DocumentA);
+
+            Assert.True(gate.Allowed);
+            Assert.Null(gate.Error);
+            Assert.Equal(1, gate.Receipt!.SolutionRunEpoch);
+        }
+
+        [Fact]
+        public void LaterCompletedRun_RejectsEarlierFencedRead()
+        {
+            var registry = CreateReadyRegistry(out var receipt);
+            registry.OnSolutionStart(DocumentA);
+            registry.OnSolutionEnd(DocumentA);
+
+            var gate = registry.CheckFencedRead(receipt.ReceiptId, DocumentA);
+
+            Assert.False(gate.Allowed);
+            Assert.Equal("readiness_receipt_stale_solution_run", gate.Error);
+        }
+
+        [Fact]
+        public void LaterStartedRun_RejectsEarlierFencedReadBeforeCompletion()
+        {
+            var registry = CreateReadyRegistry(out var receipt);
+            registry.OnSolutionStart(DocumentA);
+
+            var gate = registry.CheckFencedRead(receipt.ReceiptId, DocumentA);
+
+            Assert.False(gate.Allowed);
+            Assert.Equal("readiness_receipt_stale_solution_run", gate.Error);
+        }
+
+        [Fact]
+        public void WaitTimeout_LeavesReceiptPending_AndReleasesOwnership()
+        {
+            var registry = CreateRegistry();
+            var receipt = IssueScheduled(registry, DocumentA);
+
+            var result = registry.Wait(receipt.ReceiptId, TimeSpan.FromMilliseconds(1), CancellationToken.None);
+
+            Assert.Equal(GhReadinessWaitStatus.Timeout, result.WaitStatus);
+            Assert.Equal(GhSolveReadinessStatus.Pending, result.Receipt!.Status);
+            Assert.True(registry.CanAcquireWaiterForTests(receipt.ReceiptId));
+        }
+
+        [Fact]
+        public void Wait_BlocksUntilMatchingCompletionSignal()
+        {
+            var registry = CreateRegistry();
+            var receipt = IssueScheduled(registry, DocumentA);
+            var waitTask = Task.Run(() => registry.Wait(receipt.ReceiptId, TimeSpan.FromSeconds(5), CancellationToken.None));
+
+            Assert.True(SpinWait.SpinUntil(() => !registry.CanAcquireWaiterForTests(receipt.ReceiptId), TimeSpan.FromSeconds(1)));
+            Assert.False(waitTask.Wait(TimeSpan.FromMilliseconds(50)));
+
+            registry.OnSolutionStart(DocumentA);
+            registry.OnSolutionEnd(DocumentA);
+
+            Assert.True(waitTask.Wait(TimeSpan.FromSeconds(1)));
+            Assert.Equal(GhReadinessWaitStatus.Ready, waitTask.Result.WaitStatus);
+            Assert.Equal(GhSolveReadinessStatus.Ready, waitTask.Result.Receipt!.Status);
+        }
+
+        [Fact]
+        public void Wait_SecondPendingWaiter_IsRejectedWithoutTakingOwnership()
+        {
+            var registry = CreateRegistry();
+            var receipt = IssueScheduled(registry, DocumentA);
+            var firstWait = Task.Run(() => registry.Wait(receipt.ReceiptId, TimeSpan.FromSeconds(5), CancellationToken.None));
+            Assert.True(SpinWait.SpinUntil(() => !registry.CanAcquireWaiterForTests(receipt.ReceiptId), TimeSpan.FromSeconds(1)));
+
+            var secondWait = registry.Wait(receipt.ReceiptId, TimeSpan.FromMilliseconds(1), CancellationToken.None);
+
+            Assert.Null(secondWait.WaitStatus);
+            Assert.Equal("readiness_wait_already_active", secondWait.Error);
+            registry.OnSolutionStart(DocumentA);
+            registry.OnSolutionEnd(DocumentA);
+            Assert.True(firstWait.Wait(TimeSpan.FromSeconds(1)));
+        }
+
+        [Fact]
+        public void Wait_Cancellation_ReleasesOwnership()
+        {
+            var registry = CreateRegistry();
+            var receipt = IssueScheduled(registry, DocumentA);
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            Assert.Throws<OperationCanceledException>(() => registry.Wait(receipt.ReceiptId, TimeSpan.FromSeconds(1), cancellation.Token));
+
+            Assert.True(registry.CanAcquireWaiterForTests(receipt.ReceiptId));
+        }
+
+        [Fact]
+        public void NewerMutation_SupersedesOlderReceiptImmediately()
+        {
+            var registry = CreateRegistry();
+            var older = IssueScheduled(registry, DocumentA);
+
+            var newerIssue = registry.IssueMutation(DocumentA);
+
+            Assert.True(newerIssue.Issued);
+            var olderLookup = registry.Get(older.ReceiptId);
+            Assert.Equal(GhSolveReadinessStatus.Superseded, olderLookup.Receipt!.Status);
+            Assert.Equal("superseded", olderLookup.Receipt.Reason);
+            Assert.Equal(2, newerIssue.Receipt!.MutationEpoch);
+        }
+
+        [Fact]
+        public void Supersession_SignalsPendingWaiterAndReleasesOwnership()
+        {
+            var registry = CreateRegistry();
+            var older = IssueScheduled(registry, DocumentA);
+            var waitTask = Task.Run(() => registry.Wait(older.ReceiptId, TimeSpan.FromSeconds(5), CancellationToken.None));
+            Assert.True(SpinWait.SpinUntil(() => !registry.CanAcquireWaiterForTests(older.ReceiptId), TimeSpan.FromSeconds(1)));
+
+            registry.IssueMutation(DocumentA);
+
+            Assert.True(waitTask.Wait(TimeSpan.FromSeconds(1)));
+            Assert.Equal(GhReadinessWaitStatus.Terminal, waitTask.Result.WaitStatus);
+            Assert.Equal(GhSolveReadinessStatus.Superseded, waitTask.Result.Receipt!.Status);
+            Assert.True(registry.CanAcquireWaiterForTests(older.ReceiptId));
+        }
+
+        [Fact]
+        public void ReplaceDocument_TombstonesReceiptAndSignalsWaiter()
+        {
+            var registry = CreateRegistry();
+            var receipt = IssueScheduled(registry, DocumentA);
+            var waitTask = Task.Run(() => registry.Wait(receipt.ReceiptId, TimeSpan.FromSeconds(5), CancellationToken.None));
+            Assert.True(SpinWait.SpinUntil(() => !registry.CanAcquireWaiterForTests(receipt.ReceiptId), TimeSpan.FromSeconds(1)));
+
+            registry.ReplaceDocument(DocumentB);
+
+            Assert.True(waitTask.Wait(TimeSpan.FromSeconds(1)));
+            Assert.Equal(GhReadinessWaitStatus.Terminal, waitTask.Result.WaitStatus);
+            Assert.Equal(GhSolveReadinessStatus.DocumentReplaced, waitTask.Result.Receipt!.Status);
+        }
+
+        [Fact]
+        public void LifecycleUnavailable_MarksReceiptUnknownWithStableReason()
+        {
+            var registry = CreateRegistry();
+            var issue = registry.IssueMutation(DocumentA);
+            var receipt = issue.Receipt!;
+
+            registry.MarkLifecycleUnavailable(receipt.ReceiptId, "schedule_unavailable");
+
+            var current = registry.Get(receipt.ReceiptId);
+            Assert.Equal(GhSolveReadinessStatus.Unknown, current.Receipt!.Status);
+            Assert.Equal("schedule_unavailable", current.Receipt.Reason);
+        }
+
+        [Fact]
+        public void MutationFailure_CannotLeakPendingReceipt()
+        {
+            var registry = CreateRegistry();
+            var issue = registry.IssueMutation(DocumentA);
+
+            registry.MarkMutationFailed(issue.Receipt!.ReceiptId);
+
+            var current = registry.Get(issue.Receipt.ReceiptId);
+            Assert.Equal(GhSolveReadinessStatus.Unknown, current.Receipt!.Status);
+            Assert.Equal("mutation_failed", current.Receipt.Reason);
+        }
+
+        [Fact]
+        public void PendingReceipt_ExpiresToUnknown()
+        {
+            var clock = new TestClock();
+            var registry = CreateRegistry(clock);
+            var receipt = IssueScheduled(registry, DocumentA);
+            clock.Advance(TimeSpan.FromMinutes(10).Add(TimeSpan.FromTicks(1)));
+
+            var current = registry.Get(receipt.ReceiptId);
+
+            Assert.Equal(GhSolveReadinessStatus.Unknown, current.Receipt!.Status);
+            Assert.Equal("receipt_expired", current.Receipt.Reason);
+        }
+
+        [Fact]
+        public void TerminalReceipt_ExpiresFromLookupRetention()
+        {
+            var clock = new TestClock();
+            var registry = CreateRegistry(clock);
+            var issue = registry.IssueMutation(DocumentA);
+            registry.MarkMutationFailed(issue.Receipt!.ReceiptId);
+            clock.Advance(TimeSpan.FromMinutes(15).Add(TimeSpan.FromTicks(1)));
+
+            var current = registry.Get(issue.Receipt.ReceiptId);
+
+            Assert.False(current.Found);
+            Assert.Equal("readiness_receipt_not_found_or_evicted_or_process_restarted", current.Error);
+        }
+
+        [Fact]
+        public void TerminalCapacity_EvictsOldestTerminalWithoutBlockingNewMutation()
+        {
+            var registry = CreateRegistry();
+            string? oldestReceiptId = null;
+            string? nextOldestReceiptId = null;
+
+            for (var index = 0; index < 257; index++)
+            {
+                var issue = registry.IssueMutation(DocumentA);
+                Assert.True(issue.Issued);
+                registry.MarkMutationFailed(issue.Receipt!.ReceiptId);
+                if (index == 0)
+                {
+                    oldestReceiptId = issue.Receipt.ReceiptId;
+                }
+                else if (index == 1)
+                {
+                    nextOldestReceiptId = issue.Receipt.ReceiptId;
+                }
+            }
+
+            Assert.False(registry.Get(oldestReceiptId!).Found);
+            Assert.True(registry.Get(nextOldestReceiptId!).Found);
+        }
+
+        [Fact]
+        public void ActiveCapacity_RejectsBeforeIssuingAnotherReceipt()
+        {
+            var registry = CreateRegistry();
+            for (var index = 0; index < 64; index++)
+            {
+                Assert.True(registry.IssueMutation(new object()).Issued);
+            }
+
+            var rejected = registry.IssueMutation(new object());
+
+            Assert.False(rejected.Issued);
+            Assert.Null(rejected.Receipt);
+            Assert.Equal("readiness_registry_capacity_exceeded", rejected.Error);
+        }
+
+        [Fact]
+        public void TerminalReceipt_WaitReturnsImmediately()
+        {
+            var registry = CreateRegistry();
+            var issue = registry.IssueMutation(DocumentA);
+            registry.MarkSolverLocked(issue.Receipt!.ReceiptId);
+
+            var result = registry.Wait(issue.Receipt.ReceiptId, TimeSpan.FromSeconds(1), CancellationToken.None);
+
+            Assert.Equal(GhReadinessWaitStatus.Terminal, result.WaitStatus);
+            Assert.Equal(GhSolveReadinessStatus.SolverLocked, result.Receipt!.Status);
+            Assert.True(registry.CanAcquireWaiterForTests(issue.Receipt.ReceiptId));
+        }
+
+        [Fact]
+        public void RegistrySource_UsesOnlySignalBasedWaits()
+        {
+            var source = File.ReadAllText(Path.Combine(FindRepoRoot(), "src", "Rook", "InternalBridge", "GhSolveReceiptRegistry.cs"));
+
+            Assert.Contains("WaitHandle.WaitAny", source);
+            Assert.DoesNotContain("Thread.Sleep", source);
+            Assert.DoesNotContain("Task.Delay", source);
+            Assert.DoesNotContain("System.Threading.Timer", source);
+            Assert.DoesNotContain("System.Timers", source);
+            Assert.DoesNotContain("DispatcherTimer", source);
+        }
+
+        private static GhSolveReceiptRegistry CreateReadyRegistry(out GhSolveReadinessReceipt receipt)
+        {
+            var registry = CreateRegistry();
+            receipt = IssueScheduled(registry, DocumentA);
+            registry.OnSolutionStart(DocumentA);
+            registry.OnSolutionEnd(DocumentA);
+            return registry;
+        }
+
+        private static GhSolveReadinessReceipt IssueScheduled(GhSolveReceiptRegistry registry, object document)
+        {
+            var issue = registry.IssueMutation(document);
+            Assert.True(issue.Issued);
+            var receipt = issue.Receipt!;
+            registry.MarkScheduleAccepted(receipt.ReceiptId);
+            return receipt;
+        }
+
+        private static GhSolveReceiptRegistry CreateRegistry(TestClock? clock = null)
+        {
+            clock ??= new TestClock();
+            var nextId = 0;
+            return new GhSolveReceiptRegistry(
+                () => clock.Elapsed,
+                () => "test-id-" + ++nextId,
+                () => new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero).Add(clock.Elapsed));
+        }
+
+        private static string FindRepoRoot()
+        {
+            var directory = new DirectoryInfo(AppContext.BaseDirectory);
+            while (directory is not null)
+            {
+                if (Directory.Exists(Path.Combine(directory.FullName, "src", "Rook")))
+                {
+                    return directory.FullName;
+                }
+
+                directory = directory.Parent;
+            }
+
+            throw new DirectoryNotFoundException("Repository root was not found.");
+        }
+
+        private sealed class TestClock
+        {
+            internal TimeSpan Elapsed { get; private set; }
+
+            internal void Advance(TimeSpan elapsed) => Elapsed = Elapsed.Add(elapsed);
+        }
+    }
+}
