@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import inspect
+import ast
 import importlib.util
 import sys
 import subprocess
@@ -10,12 +10,185 @@ from pathlib import Path
 import pytest
 
 
+_LM8I_PROBE_MODULE = "lm8i_affine_publication_shape_support_probe"
+_WRAPPER_ALLOWED_IMPORT_ROOTS = frozenset(
+    {
+        "__future__",
+        "argparse",
+        "collections",
+        "datetime",
+        "json",
+        "math",
+        "pathlib",
+        "re",
+        "subprocess",
+        "sys",
+        "typing",
+    }
+)
+_LIVE_DISPATCH_SEAMS = frozenset(
+    {
+        "_mcp_tool_executor",
+        "apply_gh_scalar_value_action_to_node",
+        "call_rhino",
+        "call_tool",
+        "gh_connect",
+        "gh_create_component",
+        "gh_create_slider",
+        "gh_document_new",
+        "gh_get_value",
+        "gh_inspect_output",
+        "gh_library",
+        "gh_set_value",
+        "gh_solve",
+        "gh_wait_for_solve_readiness",
+        "rhino_ping",
+        "run_two_pass_worker_publication",
+    }
+)
+_LIVE_DISPATCH_ENTRYPOINTS = frozenset(
+    {
+        "dispatch",
+        "execute",
+        "invoke",
+        "tool_executor",
+        *_LIVE_DISPATCH_SEAMS,
+    }
+)
+_DYNAMIC_IMPORT_CALLS = frozenset({"__import__", "import_module"})
+
+
 def _script_path() -> Path:
     return (
         Path(__file__).resolve().parents[2]
         / "scripts"
         / "lm8j_affine_support_repeatability_probe.py"
     )
+
+
+def _dotted_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _dotted_name(node.value)
+        return f"{parent}.{node.attr}" if parent else node.attr
+    return None
+
+
+def _target_names(node: ast.AST) -> set[str]:
+    if isinstance(node, ast.Name):
+        return {node.id}
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return set().union(*(_target_names(element) for element in node.elts))
+    return set()
+
+
+def _is_lm8i_module(module_name: str) -> bool:
+    return module_name == _LM8I_PROBE_MODULE or module_name.endswith(
+        f".{_LM8I_PROBE_MODULE}"
+    )
+
+
+def _is_live_reference(node: ast.AST, aliases: set[str]) -> bool:
+    name = _dotted_name(node)
+    if name is None:
+        return False
+    return name in aliases or name.rsplit(".", 1)[-1] in _LIVE_DISPATCH_SEAMS
+
+
+def _call_has_live_tool_name(node: ast.Call) -> bool:
+    return any(
+        isinstance(value, ast.Constant)
+        and isinstance(value.value, str)
+        and value.value in _LIVE_DISPATCH_SEAMS
+        for argument in (*node.args, *(keyword.value for keyword in node.keywords))
+        for value in ast.walk(argument)
+    )
+
+
+def _lm8m_wrapper_guard_violations(source: str) -> list[str]:
+    """Return import and call paths that would let the wrapper dispatch live work."""
+
+    tree = ast.parse(source)
+    violations: list[str] = []
+    aliases = set(_LIVE_DISPATCH_SEAMS)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                module_name = alias.name
+                terminal_name = module_name.rsplit(".", 1)[-1]
+                if module_name == "rook.server" or _is_lm8i_module(module_name):
+                    violations.append(f"forbidden module import:{module_name}")
+                if module_name.split(".", 1)[0] not in _WRAPPER_ALLOWED_IMPORT_ROOTS:
+                    violations.append(f"non-wrapper import:{module_name}")
+                if terminal_name in _LIVE_DISPATCH_SEAMS:
+                    violations.append(f"live seam import:{module_name}")
+                    aliases.add(alias.asname or module_name.split(".", 1)[0])
+        elif isinstance(node, ast.ImportFrom):
+            module_name = node.module or ""
+            if module_name == "rook.server" or _is_lm8i_module(module_name):
+                violations.append(f"forbidden module import:{module_name}")
+            if module_name and module_name.split(".", 1)[0] not in _WRAPPER_ALLOWED_IMPORT_ROOTS:
+                violations.append(f"non-wrapper import:{module_name}")
+            for alias in node.names:
+                imported_name = alias.name
+                qualified_name = f"{module_name}.{imported_name}" if module_name else imported_name
+                if qualified_name == "rook.server" or _is_lm8i_module(qualified_name):
+                    violations.append(f"forbidden module import:{qualified_name}")
+                if imported_name in _LIVE_DISPATCH_SEAMS:
+                    violations.append(f"live seam import:{qualified_name}")
+                    aliases.add(alias.asname or imported_name)
+
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(tree):
+            value = None
+            targets: list[ast.AST] = []
+            if isinstance(node, ast.Assign):
+                value = node.value
+                targets = node.targets
+            elif isinstance(node, ast.AnnAssign) and node.value is not None:
+                value = node.value
+                targets = [node.target]
+            if value is not None and _is_live_reference(value, aliases):
+                for target in targets:
+                    for target_name in _target_names(target):
+                        if target_name not in aliases:
+                            aliases.add(target_name)
+                            changed = True
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        call_name = _dotted_name(node.func)
+        terminal_name = call_name.rsplit(".", 1)[-1] if call_name else ""
+        if terminal_name in _DYNAMIC_IMPORT_CALLS:
+            violations.append(f"dynamic import call:{call_name}")
+        if _is_live_reference(node.func, aliases):
+            violations.append(f"live seam call:{call_name}")
+        if (
+            terminal_name in _LIVE_DISPATCH_ENTRYPOINTS
+            or (call_name is not None and call_name in aliases)
+        ) and _call_has_live_tool_name(node):
+            violations.append(f"live tool dispatch:{call_name}")
+
+    return violations
+
+
+def _run_probe_call_targets(tree: ast.Module) -> set[str]:
+    run_probe = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_run_probe"
+    )
+    return {
+        call_name
+        for node in ast.walk(run_probe)
+        if isinstance(node, ast.Call)
+        if (call_name := _dotted_name(node.func)) is not None
+    }
 
 
 def _load_script():
@@ -2094,12 +2267,93 @@ def test_main_prints_run_dir_and_returns_zero(monkeypatch, tmp_path: Path, capsy
     assert received_kwargs["verifier_profile"] == PROBE.SETTLE_VERIFIER_PROFILE
 
 
+def test_lm8m_wrapper_ast_guard_allows_manifest_and_policy_strings():
+    source = '''
+import subprocess
+
+MANIFEST = {"child_probe": "lm8i_affine_publication_shape_support_probe.py"}
+POLICY = ("gh_set_value", "rook.server")
+
+def _run_probe(command):
+    return subprocess.run(command)
+'''
+
+    assert _lm8m_wrapper_guard_violations(source) == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        '''
+import lm8i_affine_publication_shape_support_probe as child_probe
+''',
+        '''
+from lm8i_affine_publication_shape_support_probe import _run_probe as child_probe
+''',
+        '''
+from rook import server as live_server
+''',
+        '''
+from rook.server import _mcp_tool_executor as invoke_live
+
+def _account_attempt():
+    return invoke_live("gh_set_value", {"value": 3.0})
+''',
+        '''
+from somewhere import call_tool as invoke
+
+def _hidden_live_dispatch():
+    return invoke("gh_set_value", {"value": 3.0})
+
+def _run_probe():
+    return _hidden_live_dispatch()
+''',
+        '''
+def _hidden_live_dispatch():
+    apply_value = gh_set_value
+    return apply_value("component-guid", 3.0)
+
+def _run_probe():
+    return _hidden_live_dispatch()
+''',
+    ],
+)
+def test_lm8m_wrapper_ast_guard_rejects_aliased_live_dispatch(source: str):
+    assert _lm8m_wrapper_guard_violations(source)
+
+
 def test_lm8m_wrapper_remains_subprocess_only():
     source = _script_path().read_text(encoding="utf-8")
 
-    assert "lm8i_affine_publication_shape_support_probe import" not in source
-    assert "rook.server import" not in source
-    assert "gh_set_value" not in inspect.getsource(PROBE._run_probe)
+    assert _lm8m_wrapper_guard_violations(source) == []
+
+
+def test_lm8m_wrapper_run_probe_only_schedules_child_and_accounts_artifacts():
+    tree = ast.parse(_script_path().read_text(encoding="utf-8"))
+
+    assert _run_probe_call_targets(tree) == {
+        "_append_jsonl",
+        "_apply_leak_scan",
+        "_apply_managed_child_audit",
+        "_build_summary",
+        "_copy_child_artifact_summaries",
+        "_discover_child_run_dirs",
+        "_lm8i_command",
+        "_managed_attempt_fields",
+        "_manifest",
+        "_new_run_dir",
+        "_row_from_completed_lm8i",
+        "_subprocess_error_row",
+        "_timeout_row",
+        "_write_json",
+        "lm8i_runs_dir.glob",
+        "lm8i_runs_dir.mkdir",
+        "path.is_dir",
+        "range",
+        "row.update",
+        "rows.append",
+        "runner",
+    }
 
 
 def test_no_lm8l_or_lm8m_sibling_scripts_exist():
