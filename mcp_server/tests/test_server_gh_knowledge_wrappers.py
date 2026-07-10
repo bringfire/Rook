@@ -167,6 +167,38 @@ async def test_gh_set_value_success_result_does_not_fail_in_knowledge_wrapper(
 
 
 @pytest.mark.asyncio
+async def test_gh_set_value_knowledge_wrapper_preserves_solve_readiness_receipt(
+    monkeypatch,
+    patch_gh_knowledge,
+    patch_session_recording,
+):
+    calls: list[tuple[str, str, dict, int]] = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        calls.append((route, method, payload, port))
+        return {
+            "success": True,
+            "data": {
+                "success": True,
+                "Value": 7.5,
+                "solve_readiness_receipt": "opaque",
+            },
+        }
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    result = await server._execute_gh_set_value_with_knowledge(
+        {"guid": "SLIDER-GUID", "value": 7.5},
+        port=9950,
+    )
+
+    assert calls == [
+        ("/gh/value", "POST", {"guid": "SLIDER-GUID", "value": 7.5}, 9950)
+    ]
+    assert result["data"]["solve_readiness_receipt"] == "opaque"
+
+
+@pytest.mark.asyncio
 async def test_gh_set_value_failure_result_does_not_fail_in_knowledge_wrapper(
     monkeypatch,
     patch_gh_knowledge,

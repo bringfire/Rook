@@ -116,6 +116,8 @@ _dspy_configured = _configure_dspy_if_available()
 # NOTE: TIMEOUT, DISCOVERY_FOLDER, call_rhino, get_rhino_host,
 # and discover_instances are imported from .bridge module above.
 
+READINESS_TRANSPORT_GRACE_SECONDS = 5.0
+
 # Command observation store for learning
 observation_store = ObservationStore(DEFAULT_OBSERVATION_STORE_PATH)
 
@@ -11259,10 +11261,52 @@ Example: Inspect sphere output:
                     "param": {
                         "type": "string",
                         "description": "Output parameter name or index (default: first output)"
+                    },
+                    "readiness_receipt_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Opaque solve readiness receipt ID returned by gh_set_value."
                     }
                 },
                 "required": ["guid"]
             }
+        ),
+        Tool(
+            name="gh_solve_readiness",
+            description="Read the current readiness status for a solve receipt.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "readiness_receipt_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Opaque solve readiness receipt ID returned by gh_set_value.",
+                    }
+                },
+                "required": ["readiness_receipt_id"],
+            },
+        ),
+        Tool(
+            name="gh_wait_for_solve_readiness",
+            description="Wait for a solve receipt to reach a terminal readiness status.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "readiness_receipt_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Opaque solve readiness receipt ID returned by gh_set_value.",
+                    },
+                    "timeout_ms": {
+                        "type": "integer",
+                        "default": 10_000,
+                        "minimum": 1,
+                        "maximum": 300_000,
+                        "description": "Maximum managed wait in milliseconds.",
+                    },
+                },
+                "required": ["readiness_receipt_id"],
+            },
         ),
         Tool(
             name="gh_bake_output",
@@ -16367,6 +16411,28 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 port=port,
             )
 
+        case "gh_solve_readiness":
+            result = await call_rhino("/gh/solve-readiness", "GET", arguments, port=port)
+
+        case "gh_wait_for_solve_readiness":
+            timeout_ms = arguments.get("timeout_ms", 10_000)
+            transport_read_timeout_seconds = (
+                timeout_ms / 1000.0 + READINESS_TRANSPORT_GRACE_SECONDS
+            )
+            transport_timeout = httpx.Timeout(
+                connect=TIMEOUT.connect,
+                read=transport_read_timeout_seconds,
+                write=TIMEOUT.write,
+                pool=TIMEOUT.pool,
+            )
+            result = await call_rhino(
+                "/gh/wait-for-solve-readiness",
+                "POST",
+                arguments,
+                port=port,
+                timeout=transport_timeout,
+            )
+
         case "gh_delete":
             result = await _execute_gh_delete_with_knowledge(arguments, port)
 
@@ -19882,7 +19948,10 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 result = {"success": False, "data": "Missing required parameter: guid"}
             else:
                 # Call the C# endpoint for full data inspection
-                result = await call_rhino("/gh/inspect-output", "GET", {"guid": guid, "param": param}, port=port)
+                inspect_arguments = {"guid": guid, "param": param}
+                if readiness_receipt_id := arguments.get("readiness_receipt_id"):
+                    inspect_arguments["readiness_receipt_id"] = readiness_receipt_id
+                result = await call_rhino("/gh/inspect-output", "GET", inspect_arguments, port=port)
 
         # Interactive Command Learning handlers
         case "rhino_command_interactive_start":
