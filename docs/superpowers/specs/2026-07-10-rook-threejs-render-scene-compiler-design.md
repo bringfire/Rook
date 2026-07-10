@@ -171,20 +171,62 @@ stale while the user prepares render customizations.
 The scene link records the source binding, derived document path, immutable
 profile descriptor and execution-envelope identities, committed customization
 records, object mappings, last successful source snapshot, last successful run
-ID, and hashes of all promoted artifacts. Paths inside the project root use
-safe project-relative references. External derived-document
+ID, and the committed content-artifact hashes defined below. Paths inside the
+project root use safe project-relative references. External derived-document
 paths require an explicit user selection and are stored as canonical absolute
 paths; Rook never infers a writable path outside the project.
 
 Each committed derived document carries document user strings for
-`rook.render.scene_id`, `rook.render.published_run_id`, and
-`rook.render.scene_link_hash`. Customization staging and Update require those
-values to match the selected scene's committed link before accepting the
-document as its working copy.
+`rook.render.scene_id` and `rook.render.published_run_id`. It never embeds a
+scene-link, manifest, or derived-document hash. Customization staging and
+Update require those stable IDs to match the selected scene's committed link,
+which independently records and verifies the derived-document SHA-256.
 
 Unless a field says otherwise, canonical JSON in this design means the RFC
 8785 JSON Canonicalization Scheme encoded as UTF-8 without a byte-order mark;
 SHA-256 values are lowercase hexadecimal hashes of those exact bytes.
+
+### Acyclic publication hash graph
+
+Publication uses this strict finalization order. Arrows constrain finalization;
+the exact hash edges are stated immediately below:
+
+```text
+execution envelope
+  -> profile descriptor
+  -> candidate render document
+  -> GLB
+  -> scene manifest
+  -> compilation report
+  -> prepared preview evidence
+  -> visible preview evidence
+  -> scene-link.json
+  -> current.json
+```
+
+The candidate render document contains only stable IDs, source/version data,
+and committed Rhino bookkeeping. The GLB contains scene data and identity but
+no downstream publication hashes. The manifest contains the descriptor,
+envelope, derived-document, and GLB hashes. The report contains the manifest
+hash. Prepared evidence contains the report hash and every finalized content
+hash through the report. Visible evidence contains the prepared-evidence hash
+and repeats the run, package, descriptor, and envelope identities needed to
+reject a mismatched callback.
+
+Only after visible evidence is finalized does the orchestrator serialize
+`candidate.scene-link.json`. It records hashes for the descriptor, envelope,
+candidate render document, GLB, manifest, report, prepared evidence, and visible
+evidence. It never hashes itself, `current.json`, `promotion.json`, temporary
+files, or backups. The orchestrator then computes the scene-link hash and
+serializes `current.json` as `{sceneId, runId, sceneLinkSha256}`. No upstream
+artifact refers to `current.json` or its hash.
+
+No artifact contains its own SHA-256 unless its schema explicitly defines a
+self-hash field whose value is omitted from the canonical hash input. This
+omission rule applies to `descriptorSha256`, `executionEnvelopeSha256`, and the
+draft registry's `registrySha256`. Preview evidence, the scene link, and the
+current pointer do not carry self-hash fields; their hashes live only in later
+artifacts or the phase journal.
 
 ## Source Binding And Project Root
 
@@ -237,7 +279,8 @@ paths and active-document/path mismatches block Create or Update.
 The persistent derived `.3dm` may be opened, inspected, and customized between
 transactions. It is never an in-memory promotion target. Before Create,
 Update, or promotion recovery begins, the orchestrator asks every discovered
-RookNative instance for a Rhino-main-thread enumeration of open document paths.
+RookNative instance for a Rhino-main-thread enumeration of open document paths;
+each check refreshes instance discovery first.
 If the canonical derived path is open in any instance, the operation fails
 before candidate construction with `derived_document_open`. An open-but-saved
 document is still blocking because reopening the same path does not prove that
@@ -245,12 +288,37 @@ Rhino reloaded the replaced bytes.
 
 The first Create requires a derived destination that does not already exist.
 Update requires the working derived document to be saved and closed. The
-orchestrator acquires a project-and-path-scoped promotion mutex, repeats the
-open-document check immediately before writing `promotion.json`, and performs
-the same-directory replacement itself. A sharing or replacement failure
-returns `derived_document_locked` and leaves the candidate unpromoted. The
-mutex is held through preview commit, pointer commit, and any rollback so two
-Rook transactions cannot race on the same path.
+orchestrator acquires a project-and-path-scoped promotion mutex at the
+optimistic-concurrency gate, repeats the open-document check immediately before
+both journal creation and render replacement, and performs the same-directory
+replacement itself. A sharing or replacement failure returns
+`derived_document_locked` and leaves the candidate unpromoted. The mutex is
+an OS-visible named lock keyed by canonical project root, `sceneId`, and
+canonical derived path. It is held through preview commit, pointer commit, and
+any rollback so concurrent MCP processes cannot race on the same path.
+
+Replacement success is not sufficient evidence that no Rhino instance loaded
+the old bytes during the last-check/replacement window. Immediately after every
+forward replacement and before preview commit, the orchestrator refreshes
+discovery and again asks all live instances for a main-thread enumeration. Each
+matching open document
+reports its in-memory `sceneId`, `publishedRunId`, and modified flag rather than
+only filesystem-handle state. A document reporting the candidate run loaded the
+new bytes and is not stale. A prior, missing, or unknown run marker advances the
+journal to `render_open_conflict`. After enumeration, the orchestrator also
+rehashes the working path; any value other than the candidate hash produces the
+same conflict, including an old document that saved and closed before it could
+be enumerated. Preview and pointers remain on the prior run.
+
+Conflict recovery waits for the document to close before restoring the prior
+working bytes. If the open document saved unexpected bytes, Rook first moves
+them to an attempt-owned conflict-preservation file and reports its path; it
+never silently deletes them. Rollback performs the same pre/post replacement
+enumerations and disk-hash verification. If a candidate-loaded document appears
+inside the rollback window, Rook re-establishes candidate bytes at the working
+path, remains in `rollback_waiting_for_close`, and retries rollback only after
+that document closes. No preview or pointer commit is allowed while either
+conflict phase is active.
 
 Rook does not silently close, reload, or rebind the user's document. After a
 successful transaction the user may reopen the path and receives the promoted
@@ -262,7 +330,8 @@ newer published scene.
 **Update Render Scene** performs one transaction:
 
 1. Validate the scene link, source document, closed derived destination,
-   profile descriptor, execution envelope, and current render-scene state.
+   profile descriptor, execution envelope, and current render-scene state, and
+   persist the complete candidate base-state token defined below.
 2. Capture the authoritative source snapshot.
 3. Diff it against the last successful snapshot.
 4. Produce a candidate derived `.3dm` in the new run directory.
@@ -272,13 +341,45 @@ newer published scene.
    assembles the candidate, runs visible-output and browser checks without
    replacing the visible scene, then emits evidence containing the run ID and
    package/profile/envelope hashes.
-8. Execute the journaled promotion protocol below.
+8. Acquire the scoped promotion mutex and revalidate the complete base-state
+   token.
+9. Execute the journaled promotion protocol below.
 
 The scene link advances only when the derived document, package, report, and
 preview evidence all describe the same successful run. Ordinary cancellation
 or failure stops future work, removes only attempt-owned temporary files, and
 leaves the last known-good run current. Interrupted promotion is a recoverable
 journaled state, not a successful or failed compilation result.
+
+### Optimistic-concurrency gate
+
+The candidate base-state token contains:
+
+- `current.json` presence, SHA-256, and run ID;
+- `scene-link.json` presence and SHA-256;
+- canonical source path, complete saved-file/source-version fingerprint, and
+  the requirement that the targeted live source document remains unmodified;
+- working derived-document presence, canonical path, byte SHA-256, embedded
+  scene/run IDs, and expected stale/current state;
+- customization-draft presence, `baseRunId`, `draftId`, revision, and
+  `registrySha256`;
+- descriptor and execution-envelope SHA-256 values; and
+- absence of any pre-existing promotion journal for the scene.
+
+Expensive capture, compilation, validation, and preview preparation run without
+the promotion mutex. Immediately afterward, the orchestrator acquires the
+scene-and-canonical-derived-path mutex, re-enumerates open Rhino documents, and
+recaptures every token field from authoritative live state and disk. It also
+rechecks the source document's modified flag. Every field must equal the
+candidate's base token byte-for-byte before `promotion.json` is created.
+
+Any difference returns `candidate_base_stale`, discards the prepared preview,
+and leaves all publication and working files untouched; the candidate cannot be
+rebased or reused. The mutex remains held from successful revalidation through
+journal creation, render replacement, preview commit, pointer commit, cleanup,
+or completed rollback. Thus two candidates built from the same base cannot both
+publish: after the first commits, the second fails its current/link hashes and
+run ID.
 
 ### Journaled promotion protocol
 
@@ -297,20 +398,29 @@ canonical source binding, canonical derived path, and candidate run identity
 needed to recover or safely match a retried Create.
 
 1. Write and fsync `promotion.json` with the complete nullable prior record,
-   candidate run ID, all expected hashes and presence flags, preview
-   prepared-evidence hash, and phase `prepared`.
+   validated base-state token, candidate run ID, presence flags, and only the
+   hashes finalized through prepared preview evidence: descriptor, envelope,
+   candidate render document, GLB, manifest, report, and prepared evidence.
+   Set visible-evidence, scene-link, and current outputs to explicit `pending`
+   states and phase `prepared`.
 2. If a prior working document exists, create and verify its same-directory
    backup. Promote the candidate render document and advance the journal to
    `render_promoted`. `current.json` and `scene-link.json` still identify the
-   previous run, or remain absent during first Create.
+   previous run, or remain absent during first Create. Complete the mandatory
+   post-replacement open-document check before continuing.
 3. Send preview `commit(runId)` and wait for evidence that the candidate is the
    visible scene with the expected run, package, profile, envelope, actor, and
-   renderer hashes. The journal and any prior render-document backup remain
-   present.
-4. After matching preview evidence, replace the candidate scene link, then
-   replace `current.json` last as the durable commit point. Advance the journal
-   after each replacement and verify every promoted hash.
-5. Only when the render document, scene link, current pointer, and visible
+   renderer hashes. Serialize and fsync `preview-visible-evidence.json`, hash
+   it, and advance the journal to `preview_evidenced` with that now-final value.
+   The journal and any prior render-document backup remain present.
+4. Serialize `candidate.scene-link.json` from the finalized hash DAG, fsync and
+   hash it, then advance the journal to `link_finalized`. Replace
+   `scene-link.json`, verify its hash, and advance to `link_promoted`.
+5. Serialize `current.json` with the finalized scene-link hash, fsync its
+   expected bytes, and record that expected hash in journal phase
+   `current_ready`. Replace `current.json` last as the durable commit point,
+   verify it, and advance to `current_promoted`.
+6. Only when the render document, scene link, current pointer, and visible
    preview all match the candidate may the orchestrator remove any backup and
    the promotion journal.
 
@@ -393,6 +503,10 @@ The canonical draft registry contains its schema version, `draftId`,
 markers, and any canonical material payload. Clear and remove operations are
 explicit tombstones rather than inferred missing markers.
 
+`registrySha256` is the SHA-256 of the canonical draft registry with the
+`registrySha256` field itself omitted. Validation rejects a missing hash field,
+an unexpected extra field, or a non-canonical operation order.
+
 An action marks the working render scene and preview status stale and leaves
 the Rhino document modified; it never saves unrelated edits automatically. The
 user saves and closes the derived document before Update. If Rhino exits before
@@ -403,11 +517,13 @@ wrong `baseRunId`, duplicate operation, or registry/marker mismatch is blocking.
 Update reads the closed working document, validates the draft against the
 current scene link, and applies its operations while constructing the
 candidate. The candidate derived document contains the resulting committed
-markers but no pending draft registry; `candidate.scene-link.json` contains the
-corresponding committed records. Only the normal journaled promotion publishes
-them together. If compilation, preview, or promotion fails, rollback restores
-the exact saved working document with its draft, the committed scene link and
-preview remain on the prior run, and status remains stale so the user can retry.
+markers but no pending draft registry. The corresponding scene-link model stays
+in memory until visible preview evidence is finalized, then
+`candidate.scene-link.json` is serialized in the acyclic hash order. Only the
+normal journaled promotion publishes them together. If compilation, preview,
+or promotion fails, rollback restores the exact saved working document with its
+draft, the committed scene link and preview remain on the prior run, and status
+remains stale so the user can retry.
 
 ### Slice 1 material override contract
 
@@ -666,6 +782,7 @@ The manifest records:
 
 - schema, package, profile, source snapshot, and render-scene versions plus the
   exact profile descriptor and execution-envelope SHA-256 values;
+- candidate render-document filename, byte size, and SHA-256;
 - GLB filename, byte size, and SHA-256;
 - source units and basis plus package units, basis, and origins;
 - canonical geometry and material signatures;
@@ -674,6 +791,9 @@ The manifest records:
 - ordinary-node, instance, or batch lookup data;
 - compilation warnings and unsupported features; and
 - expected structural counts and validation evidence.
+
+The compilation report records the finalized manifest SHA-256 and does not
+refer to preview evidence, the scene link, or the current pointer.
 
 Instance and batch indices are package-local implementation details. Consumers
 always address actors by `actorId`; the runtime resolves the current index. A
@@ -697,7 +817,8 @@ The runtime:
 6. removes replaced ordinary nodes only inside the candidate after successful
    runtime assembly;
 7. verifies final actor addressability and expected structural counts and emits
-   prepared evidence without changing the visible scene; and
+   prepared evidence containing the finalized descriptor, envelope, render,
+   GLB, manifest, and report hashes without changing the visible scene; and
 8. accepts `commit(runId)` only for that prepared candidate, swaps it into view,
    and emits visible evidence. `discard` removes a prepared candidate,
    `restore` returns to a specified previously committed run, and
@@ -840,6 +961,9 @@ policies, and improved override management.
   behavior;
 - material-override marker, precedence, clearing, and tamper behavior;
 - nullable-prior journal schemas and hash-safe presence/absence rollback;
+- acyclic publication-DAG ordering, phase-available hashes, and explicit
+  self-hash-field omission;
+- canonical candidate base-state tokens and byte-for-byte comparison;
 - safe path normalization and attempt-owned cleanup; and
 - deterministic reports and hashes.
 
@@ -850,6 +974,10 @@ policies, and improved override management.
 - initial derived-document creation;
 - rejection of an open-but-saved derived document before any candidate or
   journal write, followed by success after it is saved and closed;
+- injection of an old derived-document open after the last pre-check but before
+  replacement, proving post-replacement detection, no preview/pointer commit,
+  conflict preservation, and journaled rollback both when it remains open and
+  when it saves and closes before post-replacement enumeration;
 - add, change, delete, hierarchy, layer, and material synchronization;
 - preservation of render-only cameras, lights, environments, and overrides;
 - staging customization intent without changing the committed scene link,
@@ -878,6 +1006,11 @@ policies, and improved override management.
 - main-thread enforcement for every Rhino SDK access;
 - stale run-ID rejection across native and managed callbacks;
 - cancellation between each bounded native, compiler, and writer phase;
+- mutation of each current, scene-link, source, working-document, draft,
+  descriptor, and envelope base token after candidate preparation but before
+  journaling, each producing `candidate_base_stale` with no journal or
+  publication write;
+- two candidates built from one base, proving only the first can publish;
 - promotion interruption after every journal phase for both Update and first
   Create;
 - first-Create rollback to absent derived document, absent pointers, and empty
@@ -906,6 +1039,9 @@ presentation content. Acceptance requires:
 - Update rejects the saved derived document while it is open, performs no
   candidate construction or durable writes, and succeeds after the document is
   closed.
+- An injected open in the final check/replacement window is detected from the
+  Rhino document's in-memory run marker after replacement and forces journaled
+  rollback before preview or pointer commit.
 - Actor IDs, actor sets, pivots, materials, and transforms survive both runs.
 - Render-only cameras, lights, environment, and registered overrides survive
   the second update.
@@ -919,6 +1055,12 @@ presentation content. Acceptance requires:
   agree on the exact descriptor and envelope hashes. A same-name/version policy
   mutation or any governed component, dependency, or ABI mismatch blocks Update
   and promotion.
+- The publication hash graph follows the declared order, no artifact hashes
+  itself or a future output, and the initial journal marks visible evidence,
+  scene link, and current pointer pending until each is finalized.
+- Changing any candidate base-state token during compilation, or racing two
+  candidates from the same base, prevents the stale candidate from creating a
+  promotion journal or replacing the working document.
 - Static-context merging reduces actual browser draw calls while passing the
   fixed-camera visible-equivalence gate.
 - Instance and batch candidates are reported deterministically but remain
