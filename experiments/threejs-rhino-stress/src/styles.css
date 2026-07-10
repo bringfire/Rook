@@ -1,4 +1,13 @@
 :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; }
 * { box-sizing: border-box; }
 body { margin: 0; background: #0b1020; color: #e8edf7; }
-.shell { min-height: 100vh; padding: 24px; }
+.layout { min-height: 100vh; display: grid; grid-template-columns: 320px minmax(0,1fr); grid-template-rows: minmax(0,1fr) 280px; gap: 12px; padding: 12px; }
+.panel { background: #141b2d; border: 1px solid #263149; border-radius: 10px; padding: 16px; overflow: auto; }
+.controls { grid-row: 1 / 3; display: flex; flex-direction: column; gap: 10px; }
+.controls label { display: grid; grid-template-columns: 110px 1fr; gap: 8px; align-items: center; }
+.viewport { display: grid; place-items: center; background: #050811; border-radius: 10px; overflow: hidden; }
+canvas { width: 100%; height: auto; max-height: 100%; object-fit: contain; }
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+button, select, input { min-height: 34px; }
+.report { grid-column: 2; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; }
