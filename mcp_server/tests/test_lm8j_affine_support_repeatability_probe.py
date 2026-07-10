@@ -268,6 +268,34 @@ def _command_is_from_lm8i_builder(
     return isinstance(value, ast.Call) and _dotted_name(value.func) == "_lm8i_command"
 
 
+def _is_exact_git_short_sha_call(
+    owner_name: str,
+    process_call: ast.Call,
+) -> bool:
+    if owner_name != "_git_short_sha" or not process_call.args:
+        return False
+    command = process_call.args[0]
+    if not isinstance(command, ast.List):
+        return False
+    command_values = [
+        element.value if isinstance(element, ast.Constant) else None
+        for element in command.elts
+    ]
+    if command_values != ["git", "rev-parse", "--short", "HEAD"]:
+        return False
+    keywords = {keyword.arg: keyword.value for keyword in process_call.keywords}
+    return (
+        set(keywords) == {"cwd", "check", "capture_output", "text"}
+        and isinstance(keywords["cwd"], ast.Name)
+        and keywords["cwd"].id == "_REPO_ROOT"
+        and all(
+            isinstance(keywords[name], ast.Constant)
+            and keywords[name].value is True
+            for name in ("check", "capture_output", "text")
+        )
+    )
+
+
 def _lm8m_wrapper_guard_violations(source: str) -> list[str]:
     """Return import and call paths that would let the wrapper dispatch live work."""
 
@@ -384,6 +412,10 @@ def _lm8m_wrapper_guard_violations(source: str) -> list[str]:
             and _command_is_from_lm8i_builder(owner, call)
         ):
             allowed_process_call_count += 1
+            continue
+        if process_reference == "subprocess.run" and _is_exact_git_short_sha_call(
+            owner_name, call
+        ):
             continue
         call_name = _dotted_name(call.func) or "<dynamic>"
         violations.append(
@@ -2520,6 +2552,67 @@ def _run_probe():
 '''
 
     assert _lm8m_wrapper_guard_violations(source) == []
+
+
+def test_lm8m_wrapper_ast_guard_allows_only_exact_git_metadata_subprocess():
+    source = '''
+import subprocess
+
+def _git_short_sha():
+    return subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=_REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+def _lm8i_command():
+    return ["python", "lm8i_affine_publication_shape_support_probe.py"]
+
+def _run_probe():
+    command = _lm8i_command()
+    return subprocess.run(command)
+'''
+
+    assert _lm8m_wrapper_guard_violations(source) == []
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        '["git", "status"]',
+        '["python", "-c", "print(1)"]',
+        '["git", "rev-parse", "--short", "HEAD", "--exec-path"]',
+    ],
+)
+def test_lm8m_wrapper_ast_guard_rejects_repurposed_git_metadata_subprocess(
+    command: str,
+):
+    source = f'''
+import subprocess
+
+def _git_short_sha():
+    return subprocess.run(
+        {command},
+        cwd=_REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+def _lm8i_command():
+    return ["python", "lm8i_affine_publication_shape_support_probe.py"]
+
+def _run_probe():
+    command = _lm8i_command()
+    return subprocess.run(command)
+'''
+
+    assert any(
+        violation.startswith("forbidden process spawn:_git_short_sha:")
+        for violation in _lm8m_wrapper_guard_violations(source)
+    )
 
 
 @pytest.mark.parametrize(

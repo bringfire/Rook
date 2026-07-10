@@ -141,55 +141,16 @@ def _canonical_evidence(
 
 def _git_short_sha() -> str:
     try:
-        dot_git = _REPO_ROOT / ".git"
-        if dot_git.is_file():
-            marker = dot_git.read_text(encoding="utf-8").strip()
-            if not marker.startswith("gitdir:"):
-                return "unknown"
-            git_dir = Path(marker.removeprefix("gitdir:").strip())
-            if not git_dir.is_absolute():
-                git_dir = (dot_git.parent / git_dir).resolve()
-        else:
-            git_dir = dot_git
-
-        common_dir = git_dir
-        commondir_path = git_dir / "commondir"
-        if commondir_path.is_file():
-            common_dir = (
-                git_dir / commondir_path.read_text(encoding="utf-8").strip()
-            ).resolve()
-
-        head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
-        if head.startswith("ref: "):
-            ref_name = head.removeprefix("ref: ").strip()
-            sha = None
-            for root in dict.fromkeys((git_dir, common_dir)):
-                ref_path = root / ref_name
-                if ref_path.is_file():
-                    sha = ref_path.read_text(encoding="utf-8").strip()
-                    break
-            if sha is None:
-                packed_refs = common_dir / "packed-refs"
-                if packed_refs.is_file():
-                    packed_lines = packed_refs.read_text(
-                        encoding="utf-8"
-                    ).splitlines()
-                    for line in packed_lines:
-                        if not line or line.startswith(("#", "^")):
-                            continue
-                        packed_sha, packed_name = line.split(" ", 1)
-                        if packed_name == ref_name:
-                            sha = packed_sha
-                            break
-            if sha is None:
-                return "unknown"
-        else:
-            sha = head
+        completed = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=_REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
     except Exception:
         return "unknown"
-    if re.fullmatch(r"[0-9a-fA-F]{8,64}", sha):
-        return sha[:8].lower()
-    return "unknown"
+    return completed.stdout.strip() or "unknown"
 
 
 def _new_run_dir(
