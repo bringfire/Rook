@@ -107,13 +107,19 @@ function buildContext(root, mode) {
 }
 
 export function countScene(root) {
+  const geometries = new Set();
   const materials = new Set();
+  let nodes = 0;
+  let actors = 0;
   let meshes = 0;
   let triangles = 0;
 
   root.traverse((object) => {
+    nodes += 1;
+    if (object.userData?.actorId) actors += 1;
     if (!object.isMesh) return;
     meshes += 1;
+    geometries.add(object.geometry);
     (Array.isArray(object.material) ? object.material : [object.material])
       .forEach((material) => materials.add(material));
     triangles += (
@@ -122,5 +128,12 @@ export function countScene(root) {
     ) / 3;
   });
 
-  return { meshes, materials: materials.size, triangles };
+  return {
+    nodes,
+    actors,
+    geometries: geometries.size,
+    meshes,
+    materials: materials.size,
+    triangles,
+  };
 }

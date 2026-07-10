@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { buildActorMetadataGlb, sha256Hex } from "../scripts/fixture-builder.mjs";
+import { buildActorIndex } from "../src/actor-index.js";
 
 const fixture = new URL("../fixtures/actor-metadata.glb", import.meta.url);
 const checksum = new URL("../fixtures/actor-metadata.sha256", import.meta.url);
@@ -28,5 +29,10 @@ describe("metadata fixture", () => {
     expect(actors.every((actor) => actor.userData.actorSetId === "fixture_set")).toBe(true);
     expect(actors.every((actor) => actor.userData.sourceKind === "fixture")).toBe(true);
     expect(actors[0]).not.toBe(actors[1]);
+    const indexed = buildActorIndex(gltf.scene);
+    expect(indexed.actors.size).toBe(2);
+    expect(indexed.missingActorId).toBe(0);
+    expect(indexed.duplicates).toEqual([]);
+    expect(indexed.malformedIds).toEqual([]);
   });
 });

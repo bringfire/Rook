@@ -1,4 +1,7 @@
 import { BENCHMARK_PROTOCOL } from "./config.js";
+import {
+  runCorrectnessChecks, validateProtocolEnvironment,
+} from "./evidence.js";
 import { createGpuTimer } from "./gpu-timer.js";
 import {
   classifyConfiguration, classifyTrial, summarizeSamples,
@@ -7,7 +10,12 @@ import {
 export async function runTrial({
   trialIndex, renderer, buildScene, evaluate, dispose, signal,
   protocol = BENCHMARK_PROTOCOL,
-  checkCorrectness = async () => ({ pass: true }),
+  checkCorrectness = runCorrectnessChecks,
+  protocolProbe = () => validateProtocolEnvironment({
+    visibilityState: document.visibilityState,
+    width: renderer.domElement.width,
+    height: renderer.domElement.height,
+  }),
   schedule = requestAnimationFrame,
   now = performance.now.bind(performance),
 }) {
@@ -30,6 +38,7 @@ export async function runTrial({
   };
 
   try {
+    protocolProbe();
     if (typeof renderer.domElement?.addEventListener === "function" &&
         typeof renderer.domElement?.removeEventListener === "function") {
       renderer.domElement.addEventListener(
@@ -46,6 +55,7 @@ export async function runTrial({
     timer = createGpuTimer(renderer.getContext());
 
     await frames(protocol.warmupFrames, (frame) => {
+      protocolProbe();
       assertContextActive();
       evaluate(context, frame / 60);
       context.scene.updateMatrixWorld(true);
@@ -54,6 +64,7 @@ export async function runTrial({
     }, schedule, signal);
 
     await frames(protocol.measuredFrames, (frame) => {
+      protocolProbe();
       assertContextActive();
       const frameStart = now();
 
@@ -85,7 +96,14 @@ export async function runTrial({
     assertContextActive();
     const correctness = await checkCorrectness(context);
     assertContextActive();
-    const correctnessPassed = correctness.pass;
+    const correctnessPassed = context.addressabilityPassed !== false
+      && correctness.pass;
+    const rendererInfo = {
+      calls: renderer.info.render.calls,
+      triangles: renderer.info.render.triangles,
+      points: renderer.info.render.points,
+      lines: renderer.info.render.lines,
+    };
     const classification = classifyTrial({
       status: "completed", correctnessPassed, constructionMs, cpu,
       gpu: { ...gpu, validCount: gpuRaw.samplesMs.length },
@@ -107,6 +125,15 @@ export async function runTrial({
         samples: gpuRaw.samplesMs,
         disjointCount: gpuRaw.disjointCount,
       },
+      structure: context.structure,
+      sceneTraversalMs: context.sceneTraversalMs,
+      origins: {
+        sourceOrigin: context.sourceOrigin,
+        rebaseOrigin: context.rebaseOrigin,
+        appliedRenderOffset: context.appliedRenderOffset,
+      },
+      addressability: context.addressability,
+      rendererInfo,
       correctness,
       correctnessPassed,
       classification,
@@ -156,6 +183,7 @@ export async function runTrial({
 
 export async function runConfiguration({
   config,
+  environment,
   trialCount = BENCHMARK_PROTOCOL.trials,
   runTrialImpl = runTrial,
   ...options
@@ -172,6 +200,7 @@ export async function runConfiguration({
   return {
     schemaVersion: 1,
     config,
+    environment,
     trials,
     headline: classifyConfiguration(trials),
     pooled: {

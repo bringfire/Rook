@@ -9,6 +9,7 @@ function createRenderer({ gl, render = () => {} } = {}) {
     },
     getContext: () => gl ?? { getExtension: () => null },
     render,
+    info: { render: { calls: 1, triangles: 2, points: 3, lines: 4 } },
   };
 }
 
@@ -21,6 +22,14 @@ function createContext(scene = {}) {
     },
     camera: {},
   };
+}
+
+function runNodeTrial(options) {
+  return runTrial({
+    protocolProbe: () => {},
+    checkCorrectness: () => ({ pass: true }),
+    ...options,
+  });
 }
 
 it("runs three trials and uses the worst completed trial", async () => {
@@ -81,7 +90,7 @@ it("converts construction failure into an aborted trial", async () => {
   const dispose = vi.fn(() => {
     throw new Error("must not dispose missing context");
   });
-  const result = await runTrial({
+  const result = await runNodeTrial({
     trialIndex: 0,
     renderer: {},
     buildScene: async () => { throw new Error("construction failed"); },
@@ -98,6 +107,109 @@ it("converts construction failure into an aborted trial", async () => {
   expect(dispose).not.toHaveBeenCalled();
 });
 
+it("converts initial protocol-probe failure into an aborted trial", async () => {
+  const buildScene = vi.fn();
+  const dispose = vi.fn();
+  const result = await runNodeTrial({
+    trialIndex: 0,
+    renderer: {},
+    buildScene,
+    evaluate: () => {},
+    dispose,
+    protocolProbe: () => {
+      throw new Error("benchmark document must remain visible");
+    },
+    schedule: (callback) => callback(),
+    now: () => 0,
+  });
+  expect(result).toMatchObject({
+    trialIndex: 0,
+    status: "aborted",
+    reason: "benchmark document must remain visible",
+  });
+  expect(buildScene).not.toHaveBeenCalled();
+  expect(dispose).not.toHaveBeenCalled();
+});
+
+it("aborts callback protocol-probe failure and disposes the scene", async () => {
+  const context = createContext();
+  const evaluate = vi.fn();
+  const dispose = vi.fn();
+  let probes = 0;
+  const result = await runNodeTrial({
+    trialIndex: 0,
+    renderer: createRenderer(),
+    buildScene: async () => context,
+    evaluate,
+    dispose,
+    protocolProbe: () => {
+      probes += 1;
+      if (probes === 2) throw new Error("drawing buffer changed");
+    },
+    protocol: { warmupFrames: 1, measuredFrames: 0 },
+    schedule: (callback) => callback(),
+    now: () => 0,
+  });
+
+  expect(result).toMatchObject({
+    status: "aborted", reason: "drawing buffer changed",
+  });
+  expect(evaluate).not.toHaveBeenCalled();
+  expect(dispose).toHaveBeenCalledWith(context.scene);
+});
+
+it("retains complete trial evidence and addressability correctness", async () => {
+  const context = {
+    ...createContext(),
+    structure: { nodes: 4, actors: 1 },
+    sceneTraversalMs: 7,
+    sourceOrigin: [1, 2, 3],
+    rebaseOrigin: [1, 2, 3],
+    appliedRenderOffset: [0, 0, 0],
+    addressability: { missingActorId: 0, duplicates: [] },
+    addressabilityPassed: false,
+  };
+  const checkCorrectness = vi.fn(() => ({ pass: true }));
+  const result = await runNodeTrial({
+    trialIndex: 0,
+    renderer: createRenderer(),
+    buildScene: async () => context,
+    evaluate: () => {},
+    dispose: () => {},
+    checkCorrectness,
+    protocol: { warmupFrames: 0, measuredFrames: 0 },
+    protocolProbe: () => {},
+    schedule: (callback) => callback(),
+    now: () => 0,
+  });
+
+  expect(checkCorrectness).toHaveBeenCalledWith(context);
+  expect(result).toMatchObject({
+    structure: context.structure,
+    sceneTraversalMs: 7,
+    origins: {
+      sourceOrigin: [1, 2, 3],
+      rebaseOrigin: [1, 2, 3],
+      appliedRenderOffset: [0, 0, 0],
+    },
+    addressability: context.addressability,
+    rendererInfo: { calls: 1, triangles: 2, points: 3, lines: 4 },
+    correctness: { pass: true },
+    correctnessPassed: false,
+  });
+});
+
+it("retains captured environment at the report root", async () => {
+  const environment = { threeRevision: "181", drawingBuffer: [1920, 1080] };
+  const report = await runConfiguration({
+    config: {},
+    environment,
+    trialCount: 0,
+    runTrialImpl: vi.fn(),
+  });
+  expect(report.environment).toBe(environment);
+});
+
 it("performs exactly one scene world-matrix traversal per measured frame", async () => {
   const context = createContext();
   const renderer = createRenderer({
@@ -107,7 +219,7 @@ it("performs exactly one scene world-matrix traversal per measured frame", async
       }
     },
   });
-  const result = await runTrial({
+  const result = await runNodeTrial({
     trialIndex: 0,
     renderer,
     buildScene: async () => context,
@@ -144,7 +256,7 @@ it("stops scheduling after the first aborted trial", async () => {
 it("keeps seek, matrix, render, and combined CPU samples separate", async () => {
   const timestamps = [0, 10, 20, 21, 23, 24, 27, 30, 34, 40];
   const context = createContext();
-  const result = await runTrial({
+  const result = await runNodeTrial({
     trialIndex: 2,
     renderer: createRenderer(),
     buildScene: async () => context,
@@ -170,7 +282,7 @@ it("completes a zero-frame trial without scheduling or fabricating samples", asy
   const schedule = vi.fn();
   const dispose = vi.fn();
   const context = createContext();
-  const result = await runTrial({
+  const result = await runNodeTrial({
     trialIndex: 0,
     renderer: createRenderer(),
     buildScene: async () => context,
@@ -218,7 +330,7 @@ it("drains pending GPU queries before recording the trial", async () => {
     },
     deleteQuery: vi.fn(),
   };
-  const result = await runTrial({
+  const result = await runNodeTrial({
     trialIndex: 0,
     renderer: createRenderer({ gl }),
     buildScene: async () => createContext(),
@@ -244,7 +356,7 @@ it("aborts a cancelled trial and disposes its constructed scene", async () => {
   const dispose = vi.fn();
   const signal = { aborted: true };
   const context = createContext();
-  const result = await runTrial({
+  const result = await runNodeTrial({
     trialIndex: 0,
     renderer: createRenderer(),
     buildScene: async () => context,
@@ -277,7 +389,7 @@ it("aborts on context loss and removes the listener before disposal", async () =
     events.push("listener_removed");
   });
   const dispose = vi.fn(() => events.push("disposed"));
-  const result = await runTrial({
+  const result = await runNodeTrial({
     trialIndex: 0,
     renderer,
     buildScene: async () => createContext(),
@@ -305,7 +417,7 @@ it("captures context loss while scene construction is pending", async () => {
   const context = createContext();
   const evaluate = vi.fn();
   const dispose = vi.fn();
-  const result = await runTrial({
+  const result = await runNodeTrial({
     trialIndex: 0,
     renderer,
     buildScene: async () => {
@@ -335,7 +447,7 @@ it("captures context loss during the final warm-up frame", async () => {
   renderer.domElement.addEventListener.mockImplementation((_name, listener) => {
     lost = listener;
   });
-  const result = await runTrial({
+  const result = await runNodeTrial({
     trialIndex: 0,
     renderer,
     buildScene: async () => createContext(),
@@ -375,7 +487,7 @@ it("captures context loss while pending GPU queries drain", async () => {
     lost = listener;
   });
   let scheduled = 0;
-  const result = await runTrial({
+  const result = await runNodeTrial({
     trialIndex: 0,
     renderer,
     buildScene: async () => createContext(),
@@ -404,7 +516,7 @@ it("captures context loss during asynchronous correctness checking", async () =>
   renderer.domElement.addEventListener.mockImplementation((_name, listener) => {
     lost = listener;
   });
-  const result = await runTrial({
+  const result = await runNodeTrial({
     trialIndex: 0,
     renderer,
     buildScene: async () => createContext(),
@@ -454,7 +566,7 @@ it("turns between-trial cancellation into an evidence-preserving abort", async (
 });
 
 it("converts scene disposal failure into a resolved aborted trial", async () => {
-  const result = await runTrial({
+  const result = await runNodeTrial({
     trialIndex: 0,
     renderer: createRenderer(),
     buildScene: async () => createContext(),
@@ -495,7 +607,7 @@ it("continues timer and scene cleanup after listener cleanup fails", async () =>
     events.push("listener_cleanup_attempted");
     throw new Error("listener cleanup failed");
   });
-  const result = await runTrial({
+  const result = await runNodeTrial({
     trialIndex: 0,
     renderer,
     buildScene: async () => createContext(),
