@@ -1,0 +1,4 @@
+:root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #0b1020; color: #e8edf7; }
+.shell { min-height: 100vh; padding: 24px; }
