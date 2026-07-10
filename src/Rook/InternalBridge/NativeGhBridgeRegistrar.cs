@@ -1345,11 +1345,15 @@ namespace Rook.InternalBridge
             Func<string?, int, ApiResponse> operation)
         {
             const int defaultTimeoutMs = 10_000;
+            const int minimumTimeoutMs = 1;
+            const int maximumTimeoutMs = 300_000;
             var args = ParseRequestArgs(requestJson);
             var timeoutMs = GetIntArg(args, "timeout_ms");
             if (args != null &&
                 args.ContainsKey("timeout_ms") &&
-                !timeoutMs.HasValue)
+                (!timeoutMs.HasValue ||
+                 timeoutMs.Value < minimumTimeoutMs ||
+                 timeoutMs.Value > maximumTimeoutMs))
             {
                 return Handler.ReadinessIssueFailure("readiness_timeout_ms_out_of_range");
             }

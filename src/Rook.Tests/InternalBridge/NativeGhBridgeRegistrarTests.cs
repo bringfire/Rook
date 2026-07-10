@@ -2,6 +2,9 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using Rook;
@@ -199,6 +202,52 @@ namespace Rook.Tests.InternalBridge
             Assert.Equal(300000, observedTimeoutMs);
         }
 
+        [Theory]
+        [InlineData(0)]
+        [InlineData(-1)]
+        [InlineData(300001)]
+        public void ReadinessWait_OutOfRangeTimeoutDoesNotInvokeManagedHandler(int timeoutMs)
+        {
+            var invoked = false;
+            var result = InvokeReadinessWaitRequestForTests(
+                $"{{\"readiness_receipt_id\":\"opaque-invalid\",\"timeout_ms\":{timeoutMs}}}",
+                (_, __) =>
+                {
+                    invoked = true;
+                    return new ApiResponse { Success = true };
+                });
+
+            Assert.False(invoked);
+            Assert.False(result.Success);
+            Assert.Equal(
+                "readiness_timeout_ms_out_of_range",
+                result.Data?.GetType().GetProperty("error")?.GetValue(result.Data));
+        }
+
+        [Fact]
+        public void ReadinessDirectCallback_PropagatesStructuredDataAndExactStatus()
+        {
+            var result = InvokeDirectReadinessCallbackForTests(new ApiResponse
+            {
+                Success = false,
+                HttpStatus = 422,
+                Data = new
+                {
+                    error = "readiness_timeout_ms_out_of_range",
+                    details = new { minimum = 1, maximum = 300000 },
+                },
+            });
+
+            Assert.Equal(0, result.ReturnCode);
+            Assert.Equal(422, result.HttpStatusCode);
+            using var response = JsonDocument.Parse(result.ResponseJson);
+            Assert.False(response.RootElement.GetProperty("success").GetBoolean());
+            var data = response.RootElement.GetProperty("data");
+            Assert.Equal("readiness_timeout_ms_out_of_range", data.GetProperty("error").GetString());
+            Assert.Equal(1, data.GetProperty("details").GetProperty("minimum").GetInt32());
+            Assert.Equal(300000, data.GetProperty("details").GetProperty("maximum").GetInt32());
+        }
+
         [Fact]
         public void ReadinessRoutes_AppendAbi18Callbacks()
         {
@@ -226,6 +275,11 @@ namespace Rook.Tests.InternalBridge
                 "bool HasGrasshopperCoreRegistrationLocked");
             Assert.Contains("registration.gh_solve_readiness != nullptr", registrationCheck);
             Assert.Contains("registration.gh_wait_for_solve_readiness != nullptr", registrationCheck);
+
+            var registerExport = ExtractMethod(
+                nativeProxy,
+                "int __stdcall RookRegisterGhBridge");
+            Assert.Contains("ValidateGhBridgeRegistration", registerExport);
         }
 
         [Fact]
@@ -441,6 +495,90 @@ namespace Rook.Tests.InternalBridge
             Assert.NotNull(method);
 
             return Assert.IsType<ApiResponse>(method!.Invoke(null, new object[] { operation }));
+        }
+
+        private static ApiResponse InvokeReadinessWaitRequestForTests(
+            string requestJson,
+            Func<string?, int, ApiResponse> operation)
+        {
+            var method = typeof(NativeGhBridgeRegistrar).GetMethod(
+                "ExecuteReadinessWaitForTests",
+                BindingFlags.Static | BindingFlags.NonPublic,
+                binder: null,
+                types: new[] { typeof(string), typeof(Func<string, int, ApiResponse>) },
+                modifiers: null);
+            Assert.NotNull(method);
+
+            return Assert.IsType<ApiResponse>(method!.Invoke(null, new object[] { requestJson, operation }));
+        }
+
+        private static DirectCallbackResult InvokeDirectReadinessCallbackForTests(ApiResponse apiResponse)
+        {
+            const int responseCapacity = 4096;
+            var requestBytes = Encoding.UTF8.GetBytes("{}");
+            var requestBuffer = Marshal.AllocHGlobal(requestBytes.Length);
+            var responseBuffer = Marshal.AllocHGlobal(responseCapacity);
+            var responseLength = Marshal.AllocHGlobal(sizeof(int));
+            var httpStatusCode = Marshal.AllocHGlobal(sizeof(int));
+
+            try
+            {
+                Marshal.Copy(requestBytes, 0, requestBuffer, requestBytes.Length);
+                Marshal.WriteInt32(responseLength, 0);
+                Marshal.WriteInt32(httpStatusCode, 0);
+
+                var method = typeof(NativeGhBridgeRegistrar).GetMethod(
+                    "ExecuteDirectReadinessCallback",
+                    BindingFlags.Static | BindingFlags.NonPublic,
+                    binder: null,
+                    types: new[]
+                    {
+                        typeof(IntPtr),
+                        typeof(int),
+                        typeof(IntPtr),
+                        typeof(int),
+                        typeof(IntPtr),
+                        typeof(IntPtr),
+                        typeof(Func<string, ApiResponse>),
+                    },
+                    modifiers: null);
+                Assert.NotNull(method);
+
+                var returnCode = Assert.IsType<int>(method!.Invoke(null, new object[]
+                {
+                    requestBuffer,
+                    requestBytes.Length,
+                    responseBuffer,
+                    responseCapacity,
+                    responseLength,
+                    httpStatusCode,
+                    new Func<string, ApiResponse>(_ => apiResponse),
+                }));
+                var length = Marshal.ReadInt32(responseLength);
+                var responseBytes = new byte[length];
+                Marshal.Copy(responseBuffer, responseBytes, 0, length);
+
+                return new DirectCallbackResult
+                {
+                    ReturnCode = returnCode,
+                    HttpStatusCode = Marshal.ReadInt32(httpStatusCode),
+                    ResponseJson = Encoding.UTF8.GetString(responseBytes),
+                };
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(requestBuffer);
+                Marshal.FreeHGlobal(responseBuffer);
+                Marshal.FreeHGlobal(responseLength);
+                Marshal.FreeHGlobal(httpStatusCode);
+            }
+        }
+
+        private sealed class DirectCallbackResult
+        {
+            public int ReturnCode { get; set; }
+            public int HttpStatusCode { get; set; }
+            public string ResponseJson { get; set; } = string.Empty;
         }
 
         private static string ExtractSwitchArm(string source, string caseLabel)

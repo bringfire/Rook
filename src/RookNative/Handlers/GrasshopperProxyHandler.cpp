@@ -5,6 +5,7 @@
 // remains only for non-GH compatibility paths still being retired.
 
 #include "stdafx.h"
+#include "Handlers/GrasshopperBridgeAbiValidation.h"
 #include "Handlers/GrasshopperProxyHandler.h"
 #include "Infrastructure/JsonHelpers.h"
 #include "Infrastructure/RouteDiagnostics.h"
@@ -897,20 +898,15 @@ void ProxyManagedRequest(
 
 extern "C" __declspec(dllexport) int __stdcall RookRegisterGhBridge(const GhBridgeRegistration* registration)
 {
-    if (registration == nullptr)
-    {
-        return 1;
-    }
-
-    if (registration->version != kGhBridgeAbiVersion)
-    {
-        return 2;
-    }
-
-    if (registration->struct_size < sizeof(GhBridgeRegistration))
-    {
-        return 3;
-    }
+    const bool registrationIsNull = registration == nullptr;
+    const int validation = Rook::Handlers::Detail::ValidateGhBridgeRegistration(
+        registrationIsNull,
+        registrationIsNull ? 0 : registration->version,
+        registrationIsNull ? 0 : registration->struct_size,
+        kGhBridgeAbiVersion,
+        static_cast<uint32_t>(sizeof(GhBridgeRegistration)));
+    if (validation != 0)
+        return validation;
 
     {
         std::lock_guard<std::mutex> lock(g_ghBridgeMutex);
