@@ -333,6 +333,608 @@ def _write_child_decision(child: Path, payload: dict) -> None:
     )
 
 
+def _write_managed_child_artifacts(
+    run_dir: Path,
+    *,
+    decision="accepted",
+    observed=7.5,
+    receipt_hash="sha256:" + "a" * 64,
+    session="session-1",
+    mutation_epoch=13,
+    prior_completed=41,
+    solution_run=42,
+):
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "live_set_value_summary.json").write_text(
+        json.dumps(
+            {
+                "managed_mutation": {
+                    "schema": "rook.lm8l_managed_mutation_summary:v1",
+                    "receipt_schema": "rook.gh_solve_readiness_receipt:v1",
+                    "receipt_status": "pending",
+                    "receipt_id_sha256": receipt_hash,
+                    "document_session_id": session,
+                    "mutation_epoch": mutation_epoch,
+                    "solution_run_epoch": None,
+                    "completed_solution_run_epoch": prior_completed,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "readiness_wait_summary.json").write_text(
+        json.dumps(
+            {
+                "schema": "rook.lm8l_readiness_wait_summary:v1",
+                "requested_timeout_ms": 10_000,
+                "readiness_wait_count": 1,
+                "wait_status": "ready",
+                "receipt_status": "ready",
+                "receipt_id_sha256": receipt_hash,
+                "document_session_id": session,
+                "mutation_epoch": mutation_epoch,
+                "solution_run_epoch": solution_run,
+                "completed_solution_run_epoch": solution_run,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "verify_scalar_output_summary.json").write_text(
+        json.dumps(
+            {
+                "schema": "rook.lm8l_fenced_output_verification_summary:v1",
+                "verifier_profile": "managed_receipt_v2",
+                "readiness_wait_timeout_ms": 10_000,
+                "readiness_wait_count": 1,
+                "fenced_output_read_count": 1,
+                "settle_read_count": 0,
+                "readiness_fenced": True,
+                "receipt_id_sha256": receipt_hash,
+                "document_session_id": session,
+                "mutation_epoch": mutation_epoch,
+                "solution_run_epoch": solution_run,
+                "completed_solution_run_epoch": solution_run,
+                "expected_output_value": 7.5,
+                "observed_output_value": observed,
+                "tolerance": 1e-9,
+                "matched": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "decision.json").write_text(
+        json.dumps(
+            {
+                "schema": "rook.lm8i_affine_publication_shape_support_decision:v1",
+                "decision": decision,
+                "reason": "verify_scalar_output_succeeded",
+                "phase": "verify_scalar_output",
+                "canonical_evidence": True,
+                "live_set_value_dispatched": True,
+                "worker_publication_ran": True,
+                "managed_verifier": {
+                    "schema": "rook.lm8l_managed_verifier_decision:v1",
+                    "verifier_profile": "managed_receipt_v2",
+                    "verifier_mechanism": "managed_solve_readiness_receipt",
+                    "fixture_readiness_profile": "lm8i_legacy_setup_v1",
+                    "readiness_wait_timeout_ms": 10_000,
+                    "readiness_wait_count": 1,
+                    "fenced_output_read_count": 1,
+                    "settle_read_count": 0,
+                    "failed_invariants": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+_DELETE = object()
+
+
+def _mutate_managed_artifact(
+    run_dir: Path,
+    filename: str,
+    field_path: tuple[str, ...],
+    value,
+) -> None:
+    path = run_dir / filename
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    target = payload
+    for field in field_path[:-1]:
+        target = target[field]
+    if value is _DELETE:
+        del target[field_path[-1]]
+    else:
+        target[field_path[-1]] = value
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_audit_managed_child_accepts_complete_consistent_artifacts(tmp_path: Path):
+    _write_managed_child_artifacts(tmp_path)
+
+    audit = PROBE._audit_managed_child(tmp_path)
+
+    assert audit["performed"] is True
+    assert audit["valid"] is True
+    assert audit["failures"] == []
+    assert audit["readiness_wait_count"] == 1
+    assert audit["readiness_wait_status"] == "ready"
+    assert audit["readiness_failure_reason"] is None
+    assert audit["fenced_output_read_count"] == 1
+    assert audit["settle_read_count"] == 0
+    assert audit["readiness_fenced"] is True
+    assert audit["observed_output_value"] == 7.5
+    assert audit["receipt_id_hashes_match"] is True
+    assert audit["document_session_ids_match"] is True
+    assert audit["mutation_epochs_match"] is True
+    assert audit["solution_run_epochs_match"] is True
+    assert audit["post_mutation_solution_run_advanced"] is True
+
+
+@pytest.mark.parametrize(
+    ("filename", "expected_failure"),
+    [
+        ("live_set_value_summary.json", "mutation_artifact_missing"),
+        ("readiness_wait_summary.json", "wait_artifact_missing"),
+        ("verify_scalar_output_summary.json", "read_artifact_missing"),
+        ("decision.json", "decision_artifact_missing"),
+    ],
+)
+def test_audit_managed_child_rejects_missing_artifacts(
+    tmp_path: Path,
+    filename: str,
+    expected_failure: str,
+):
+    _write_managed_child_artifacts(tmp_path)
+    (tmp_path / filename).unlink()
+
+    audit = PROBE._audit_managed_child(tmp_path)
+
+    assert audit["valid"] is False
+    assert expected_failure in audit["failures"]
+
+
+@pytest.mark.parametrize(
+    ("filename", "content", "expected_failure"),
+    [
+        ("live_set_value_summary.json", "{bad", "mutation_artifact_malformed"),
+        ("readiness_wait_summary.json", "[]", "wait_artifact_malformed"),
+        ("verify_scalar_output_summary.json", "{bad", "read_artifact_malformed"),
+        ("decision.json", "[]", "decision_artifact_malformed"),
+    ],
+)
+def test_audit_managed_child_rejects_malformed_artifacts(
+    tmp_path: Path,
+    filename: str,
+    content: str,
+    expected_failure: str,
+):
+    _write_managed_child_artifacts(tmp_path)
+    (tmp_path / filename).write_text(content, encoding="utf-8")
+
+    audit = PROBE._audit_managed_child(tmp_path)
+
+    assert audit["valid"] is False
+    assert expected_failure in audit["failures"]
+
+
+@pytest.mark.parametrize(
+    ("filename", "field_path", "value", "expected_failure"),
+    [
+        (
+            "live_set_value_summary.json",
+            ("managed_mutation", "schema"),
+            "wrong",
+            "mutation_schema_invalid",
+        ),
+        (
+            "live_set_value_summary.json",
+            ("managed_mutation", "receipt_schema"),
+            "wrong",
+            "mutation_receipt_schema_invalid",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("schema",),
+            "wrong",
+            "wait_schema_invalid",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("schema",),
+            "wrong",
+            "read_schema_invalid",
+        ),
+        ("decision.json", ("schema",), "wrong", "decision_schema_invalid"),
+        (
+            "decision.json",
+            ("managed_verifier", "schema"),
+            "wrong",
+            "managed_decision_schema_invalid",
+        ),
+        (
+            "live_set_value_summary.json",
+            ("managed_mutation", "receipt_id_sha256"),
+            "sha256:ABC",
+            "receipt_id_sha256_invalid",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("receipt_id_sha256",),
+            "sha256:" + "b" * 64,
+            "receipt_id_sha256_mismatch",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("document_session_id",),
+            "session-2",
+            "document_session_id_mismatch",
+        ),
+        (
+            "live_set_value_summary.json",
+            ("managed_mutation", "mutation_epoch"),
+            0,
+            "mutation_epoch_not_positive",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("mutation_epoch",),
+            14,
+            "mutation_epoch_mismatch",
+        ),
+        (
+            "live_set_value_summary.json",
+            ("managed_mutation", "solution_run_epoch"),
+            42,
+            "pending_solution_run_epoch_not_null",
+        ),
+        (
+            "live_set_value_summary.json",
+            ("managed_mutation", "completed_solution_run_epoch"),
+            True,
+            "pending_completed_solution_run_epoch_invalid",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("solution_run_epoch",),
+            41,
+            "post_mutation_solution_run_not_advanced",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("completed_solution_run_epoch",),
+            43,
+            "wait_completed_solution_run_mismatch",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("solution_run_epoch",),
+            43,
+            "read_solution_run_mismatch",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("completed_solution_run_epoch",),
+            43,
+            "read_completed_solution_run_mismatch",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("requested_timeout_ms",),
+            9999,
+            "readiness_wait_timeout_ms_invalid",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("readiness_wait_timeout_ms",),
+            9999,
+            "readiness_wait_timeout_ms_invalid",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("wait_status",),
+            "timeout",
+            "wait_status_not_ready",
+        ),
+        (
+            "live_set_value_summary.json",
+            ("managed_mutation", "receipt_status"),
+            "ready",
+            "mutation_receipt_status_not_pending",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("receipt_status",),
+            "pending",
+            "wait_receipt_status_not_ready",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("readiness_wait_count",),
+            2,
+            "readiness_wait_count_not_one",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("readiness_wait_count",),
+            2,
+            "readiness_wait_count_mismatch",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("fenced_output_read_count",),
+            2,
+            "fenced_output_read_count_not_one",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("settle_read_count",),
+            1,
+            "settle_read_count_not_zero",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("readiness_fenced",),
+            False,
+            "readiness_fenced_not_true",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("observed_output_value",),
+            8.0,
+            "observed_output_value_mismatch",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("tolerance",),
+            1e-6,
+            "scalar_tolerance_invalid",
+        ),
+        (
+            "verify_scalar_output_summary.json",
+            ("verifier_profile",),
+            "settle_v1",
+            "read_verifier_profile_invalid",
+        ),
+        (
+            "decision.json",
+            ("managed_verifier", "verifier_profile"),
+            "settle_v1",
+            "managed_decision_profile_invalid",
+        ),
+        (
+            "decision.json",
+            ("managed_verifier", "verifier_mechanism"),
+            "settle_polling",
+            "managed_decision_mechanism_invalid",
+        ),
+        (
+            "decision.json",
+            ("managed_verifier", "fixture_readiness_profile"),
+            "other",
+            "managed_decision_fixture_profile_invalid",
+        ),
+        (
+            "decision.json",
+            ("managed_verifier", "readiness_wait_timeout_ms"),
+            9999,
+            "managed_decision_timeout_mismatch",
+        ),
+        (
+            "decision.json",
+            ("managed_verifier", "readiness_wait_count"),
+            2,
+            "managed_decision_readiness_wait_count_mismatch",
+        ),
+        (
+            "decision.json",
+            ("managed_verifier", "fenced_output_read_count"),
+            2,
+            "managed_decision_fenced_output_read_count_mismatch",
+        ),
+        (
+            "decision.json",
+            ("managed_verifier", "settle_read_count"),
+            1,
+            "managed_decision_settle_read_count_mismatch",
+        ),
+        (
+            "decision.json",
+            ("managed_verifier", "failed_invariants"),
+            ["stale"],
+            "managed_decision_failed_invariants_not_empty",
+        ),
+    ],
+)
+def test_audit_managed_child_recomputes_each_invariant(
+    tmp_path: Path,
+    filename: str,
+    field_path: tuple[str, ...],
+    value,
+    expected_failure: str,
+):
+    _write_managed_child_artifacts(tmp_path)
+    _mutate_managed_artifact(tmp_path, filename, field_path, value)
+
+    audit = PROBE._audit_managed_child(tmp_path)
+
+    assert audit["valid"] is False
+    assert expected_failure in audit["failures"]
+
+
+@pytest.mark.parametrize(
+    ("field_path", "contradictory", "expected_failure"),
+    [
+        (("schema",), "wrong", "decision_schema_invalid"),
+        (("decision",), "rejected", "child_decision_not_accepted"),
+        (("reason",), "verify_scalar_output_failed", "decision_reason_invalid"),
+        (("phase",), "verifier_readiness", "decision_phase_invalid"),
+        (("canonical_evidence",), False, "canonical_evidence_not_true"),
+        (
+            ("live_set_value_dispatched",),
+            False,
+            "live_set_value_dispatched_not_true",
+        ),
+        (
+            ("worker_publication_ran",),
+            False,
+            "worker_publication_ran_not_true",
+        ),
+        (("managed_verifier",), "wrong", "managed_decision_missing"),
+        (
+            ("managed_verifier", "schema"),
+            "wrong",
+            "managed_decision_schema_invalid",
+        ),
+        (
+            ("managed_verifier", "verifier_profile"),
+            "settle_v1",
+            "managed_decision_profile_invalid",
+        ),
+        (
+            ("managed_verifier", "verifier_mechanism"),
+            "settle_polling",
+            "managed_decision_mechanism_invalid",
+        ),
+        (
+            ("managed_verifier", "fixture_readiness_profile"),
+            "other",
+            "managed_decision_fixture_profile_invalid",
+        ),
+        (
+            ("managed_verifier", "readiness_wait_timeout_ms"),
+            9999,
+            "managed_decision_timeout_mismatch",
+        ),
+        (
+            ("managed_verifier", "readiness_wait_count"),
+            2,
+            "managed_decision_readiness_wait_count_mismatch",
+        ),
+        (
+            ("managed_verifier", "fenced_output_read_count"),
+            2,
+            "managed_decision_fenced_output_read_count_mismatch",
+        ),
+        (
+            ("managed_verifier", "settle_read_count"),
+            1,
+            "managed_decision_settle_read_count_mismatch",
+        ),
+        (
+            ("managed_verifier", "failed_invariants"),
+            ["stale"],
+            "managed_decision_failed_invariants_not_empty",
+        ),
+    ],
+)
+@pytest.mark.parametrize("missing", [False, True], ids=["contradictory", "missing"])
+def test_audit_managed_accepted_child_requires_complete_decision_envelope(
+    tmp_path: Path,
+    field_path: tuple[str, ...],
+    contradictory,
+    expected_failure: str,
+    missing: bool,
+):
+    _write_managed_child_artifacts(tmp_path)
+    _mutate_managed_artifact(
+        tmp_path,
+        "decision.json",
+        field_path,
+        _DELETE if missing else contradictory,
+    )
+
+    audit = PROBE._audit_managed_child(tmp_path)
+
+    assert audit["valid"] is False
+    assert expected_failure in audit["failures"]
+
+
+def test_apply_managed_child_audit_reclassifies_only_contradictory_acceptance(
+    tmp_path: Path,
+):
+    accepted = tmp_path / "accepted"
+    _write_managed_child_artifacts(accepted)
+    _mutate_managed_artifact(
+        accepted,
+        "verify_scalar_output_summary.json",
+        ("solution_run_epoch",),
+        41,
+    )
+    accepted_row = {
+        "lm8i_run_dir": str(accepted),
+        "lm8i_decision": "accepted",
+        "terminal_category": "accepted",
+        "failure_reason": None,
+    }
+
+    PROBE._apply_managed_child_audit(accepted_row)
+
+    assert accepted_row["terminal_category"] == "wrapper_error"
+    assert (
+        accepted_row["failure_reason"]
+        == "accepted_child_managed_verifier_audit_failed"
+    )
+    assert accepted_row["managed_verifier_audit_performed"] is True
+    assert accepted_row["managed_verifier_audit_valid"] is False
+    assert "read_solution_run_mismatch" in accepted_row[
+        "managed_verifier_audit_failures"
+    ]
+
+    rejected = tmp_path / "rejected"
+    _write_managed_child_artifacts(rejected, decision="rejected", observed=8.0)
+    _mutate_managed_artifact(
+        rejected,
+        "decision.json",
+        ("managed_verifier", "failed_invariants"),
+        ["fenced_output_scalar"],
+    )
+    rejected_row = {
+        "lm8i_run_dir": str(rejected),
+        "lm8i_decision": "rejected",
+        "terminal_category": "rejected",
+        "failure_reason": None,
+    }
+
+    PROBE._apply_managed_child_audit(rejected_row)
+
+    assert rejected_row["terminal_category"] == "rejected"
+    assert rejected_row["managed_verifier_audit_performed"] is True
+    assert rejected_row["managed_verifier_audit_valid"] is False
+
+
+def test_apply_managed_child_audit_is_not_applicable_before_mutation(tmp_path: Path):
+    _write_child_decision(
+        tmp_path,
+        {
+            "schema": "rook.lm8i_affine_publication_shape_support_decision:v1",
+            "decision": "worker_declined",
+            "reason": "worker_declined",
+            "phase": "worker_publication",
+            "canonical_evidence": True,
+            "live_set_value_dispatched": False,
+            "worker_publication_ran": True,
+        },
+    )
+    row = {
+        "lm8i_run_dir": str(tmp_path),
+        "lm8i_decision": "worker_declined",
+        "terminal_category": "worker_declined",
+        "failure_reason": None,
+    }
+
+    PROBE._apply_managed_child_audit(row)
+
+    assert row["terminal_category"] == "worker_declined"
+    assert row["managed_verifier_audit_performed"] is False
+    assert row["managed_verifier_audit_valid"] is None
+    assert row["managed_verifier_audit_failures"] == []
+    assert row["readiness_wait_count"] == 0
+    assert row["fenced_output_read_count"] == 0
+    assert row["settle_read_count"] == 0
+
+
 def test_read_decision_handles_missing_invalid_and_non_mapping(tmp_path: Path):
     missing, missing_error = PROBE._read_decision(tmp_path / "missing.json")
     assert missing is None
@@ -805,6 +1407,185 @@ def test_build_summary_counts_support_and_worker_denominators():
     assert summary["observed_output_values_after"] == [7.5, 7.5]
 
 
+def _valid_managed_summary_rows() -> list[dict]:
+    return [
+        {
+            "terminal_category": "accepted",
+            "worker_publication_ran": True,
+            "publication_support_attempted": False,
+            "support_eligible": False,
+            "support_recovered": False,
+            "lm8i_run_dir": f"run-{index:02d}",
+            "leak_marker_match_count": 0,
+            "worker_action_value": 3.0,
+            "observed_output_after": 7.5,
+            "verifier_profile": PROBE.MANAGED_VERIFIER_PROFILE,
+            "readiness_wait_count": 1,
+            "readiness_wait_status": "ready",
+            "readiness_failure_reason": None,
+            "fenced_output_read_count": 1,
+            "settle_read_count": 0,
+            "managed_verifier_audit_performed": True,
+            "managed_verifier_audit_valid": True,
+            "managed_verifier_audit_failures": [],
+        }
+        for index in range(1, 21)
+    ]
+
+
+def test_build_managed_summary_accounts_exact_twenty_run_success():
+    rows = _valid_managed_summary_rows()
+
+    summary = PROBE._build_summary(
+        rows,
+        attempts=20,
+        model=PROBE.DEFAULT_MODEL,
+        attempt_timeout_s=PROBE.DEFAULT_ATTEMPT_TIMEOUT_S,
+        verifier_profile=PROBE.MANAGED_VERIFIER_PROFILE,
+    )
+
+    assert summary["schema"] == PROBE.LM8M_SCRIPT_SCHEMA
+    assert summary["verifier_profile"] == PROBE.MANAGED_VERIFIER_PROFILE
+    assert summary["verifier_mechanism"] == PROBE.VERIFIER_MECHANISM
+    assert summary["fixture_readiness_profile"] == PROBE.FIXTURE_READINESS_PROFILE
+    assert summary["readiness_wait_timeout_ms"] == 10_000
+    assert summary["child_attempt_timeout_s"] == 600
+    assert summary["readiness_ready_count"] == 20
+    assert summary["readiness_failure_reason_counts"] == {}
+    assert summary["total_readiness_wait_count"] == 20
+    assert summary["total_fenced_output_read_count"] == 20
+    assert summary["total_settle_read_count"] == 0
+    assert summary["managed_verifier_audit_pass_count"] == 20
+    assert summary["managed_verifier_audit_failure_count"] == 0
+    assert summary["managed_verifier_invariant_violation_count"] == 0
+    assert summary["post_mutation_run_advance_failure_count"] == 0
+    assert summary["accepted_child_audit_contradiction_count"] == 0
+    assert summary["worker_action_values"] == [3.0] * 20
+    assert summary["observed_output_values_after"] == [7.5] * 20
+    assert summary["comparison_success"] is True
+
+
+def test_managed_comparison_success_requires_canonical_identity():
+    summary = PROBE._build_summary(
+        _valid_managed_summary_rows(),
+        attempts=20,
+        model="qwen3:14b",
+        attempt_timeout_s=PROBE.DEFAULT_ATTEMPT_TIMEOUT_S,
+        verifier_profile=PROBE.MANAGED_VERIFIER_PROFILE,
+    )
+
+    assert summary["canonical_evidence"] is False
+    assert summary["comparison_success"] is False
+
+
+def test_settle_summary_does_not_gain_managed_shape_or_comparison_success():
+    rows = _valid_managed_summary_rows()
+    for row in rows:
+        row.pop("verifier_profile")
+
+    summary = PROBE._build_summary(
+        rows,
+        attempts=20,
+        model=PROBE.DEFAULT_MODEL,
+        attempt_timeout_s=PROBE.DEFAULT_ATTEMPT_TIMEOUT_S,
+        verifier_profile=PROBE.SETTLE_VERIFIER_PROFILE,
+    )
+
+    assert summary.get("comparison_success", False) is False
+    assert "comparison_success" not in summary
+    assert "verifier_profile" not in summary
+    assert "managed_verifier_audit_pass_count" not in summary
+
+
+def test_build_managed_summary_counts_contradiction_rejection_and_decline():
+    rows = [
+        {
+            "terminal_category": "wrapper_error",
+            "failure_reason": "accepted_child_managed_verifier_audit_failed",
+            "worker_publication_ran": True,
+            "publication_support_attempted": False,
+            "support_recovered": False,
+            "worker_action_value": 3.0,
+            "observed_output_after": 7.5,
+            "leak_marker_match_count": 0,
+            "verifier_profile": PROBE.MANAGED_VERIFIER_PROFILE,
+            "readiness_wait_count": 1,
+            "readiness_wait_status": "ready",
+            "readiness_failure_reason": None,
+            "fenced_output_read_count": 1,
+            "settle_read_count": 0,
+            "managed_verifier_audit_performed": True,
+            "managed_verifier_audit_valid": False,
+            "managed_verifier_audit_failures": [
+                "post_mutation_solution_run_not_advanced"
+            ],
+        },
+        {
+            "terminal_category": "rejected",
+            "failure_reason": None,
+            "worker_publication_ran": True,
+            "publication_support_attempted": False,
+            "support_recovered": False,
+            "worker_action_value": 3.0,
+            "leak_marker_match_count": 0,
+            "verifier_profile": PROBE.MANAGED_VERIFIER_PROFILE,
+            "readiness_wait_count": 1,
+            "readiness_wait_status": "timeout",
+            "readiness_failure_reason": "readiness_receipt_timeout",
+            "fenced_output_read_count": 0,
+            "settle_read_count": 0,
+            "managed_verifier_audit_performed": True,
+            "managed_verifier_audit_valid": False,
+            "managed_verifier_audit_failures": ["wait_artifact_missing"],
+        },
+        {
+            "terminal_category": "worker_declined",
+            "failure_reason": None,
+            "worker_publication_ran": True,
+            "publication_support_attempted": False,
+            "support_recovered": False,
+            "leak_marker_match_count": 0,
+            "verifier_profile": PROBE.MANAGED_VERIFIER_PROFILE,
+            "readiness_wait_count": 0,
+            "readiness_wait_status": None,
+            "readiness_failure_reason": None,
+            "fenced_output_read_count": 0,
+            "settle_read_count": 0,
+            "managed_verifier_audit_performed": False,
+            "managed_verifier_audit_valid": None,
+            "managed_verifier_audit_failures": [],
+        },
+    ]
+
+    summary = PROBE._build_summary(
+        rows,
+        attempts=3,
+        model=PROBE.DEFAULT_MODEL,
+        attempt_timeout_s=PROBE.DEFAULT_ATTEMPT_TIMEOUT_S,
+        verifier_profile=PROBE.MANAGED_VERIFIER_PROFILE,
+    )
+
+    assert summary["terminal_category_counts"] == {
+        "rejected": 1,
+        "worker_declined": 1,
+        "wrapper_error": 1,
+    }
+    assert summary["rejected_count"] == 1
+    assert summary["wrapper_error_count"] == 1
+    assert summary["readiness_failure_reason_counts"] == {
+        "readiness_receipt_timeout": 1
+    }
+    assert summary["total_readiness_wait_count"] == 2
+    assert summary["total_fenced_output_read_count"] == 1
+    assert summary["total_settle_read_count"] == 0
+    assert summary["managed_verifier_audit_pass_count"] == 0
+    assert summary["managed_verifier_audit_failure_count"] == 2
+    assert summary["managed_verifier_invariant_violation_count"] == 2
+    assert summary["post_mutation_run_advance_failure_count"] == 1
+    assert summary["accepted_child_audit_contradiction_count"] == 1
+    assert summary["comparison_success"] is False
+
+
 def test_write_json_and_append_jsonl_are_stable_and_structured(tmp_path: Path):
     json_path = tmp_path / "artifact.json"
     jsonl_path = tmp_path / "artifact.jsonl"
@@ -839,10 +1620,13 @@ class FakeLm8iRunner:
         decision = self.child_decisions.pop(0)
         child = run_dir / f"lm8i-child-{len(self.calls):03d}"
         child.mkdir(parents=True)
-        (child / "decision.json").write_text(
-            json.dumps(decision, sort_keys=True),
-            encoding="utf-8",
-        )
+        if decision.get("_write_managed_artifacts"):
+            _write_managed_child_artifacts(child)
+        else:
+            (child / "decision.json").write_text(
+                json.dumps(decision, sort_keys=True),
+                encoding="utf-8",
+            )
         if decision.get("worker_action_value") is not None:
             (child / "worker_action.json").write_text(
                 json.dumps({"input": {"value": decision["worker_action_value"]}}),
@@ -931,6 +1715,9 @@ def test_run_probe_writes_manifest_attempts_and_summary(tmp_path: Path):
     assert summary["worker_action_values"] == [3.0]
     assert summary["verifier_attempt_counts"] == [1]
     assert summary["observed_output_values_after"] == [7.5]
+    assert "verifier_profile" not in rows[0]
+    assert "managed_verifier_audit_performed" not in rows[0]
+    assert "comparison_success" not in summary
     assert len(runner.calls) == 2
     assert all(call["timeout"] == 600 for call in runner.calls)
     assert all(call["capture_output"] is True for call in runner.calls)
@@ -941,9 +1728,8 @@ def test_managed_run_probe_uses_lm8m_identity_and_forwards_profile(tmp_path: Pat
     runner = FakeLm8iRunner(
         [
             {
-                "decision": "accepted",
-                "reason": "verify_scalar_output_succeeded",
-                "worker_publication_ran": True,
+                "_write_managed_artifacts": True,
+                "worker_action_value": 3.0,
             }
         ]
     )
@@ -957,6 +1743,10 @@ def test_managed_run_probe_uses_lm8m_identity_and_forwards_profile(tmp_path: Pat
         run_subprocess=runner,
     )
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    rows = [
+        json.loads(line)
+        for line in (run_dir / "attempts.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
 
     assert run_dir.name.startswith("lm8m-")
@@ -967,6 +1757,17 @@ def test_managed_run_probe_uses_lm8m_identity_and_forwards_profile(tmp_path: Pat
         PROBE.MANAGED_VERIFIER_PROFILE,
     ]
     assert "--readiness-wait-timeout-ms" not in runner.calls[0]["command"]
+    assert rows[0]["terminal_category"] == "accepted"
+    assert rows[0]["verifier_profile"] == PROBE.MANAGED_VERIFIER_PROFILE
+    assert rows[0]["verifier_mechanism"] == PROBE.VERIFIER_MECHANISM
+    assert rows[0]["fixture_readiness_profile"] == PROBE.FIXTURE_READINESS_PROFILE
+    assert rows[0]["readiness_wait_timeout_ms"] == 10_000
+    assert rows[0]["child_attempt_timeout_s"] == 600
+    assert rows[0]["managed_verifier_audit_performed"] is True
+    assert rows[0]["managed_verifier_audit_valid"] is True
+    assert rows[0]["managed_verifier_audit_failures"] == []
+    assert summary["managed_verifier_audit_pass_count"] == 1
+    assert summary["comparison_success"] is False
 
 
 def test_run_probe_continues_after_wrapper_error(tmp_path: Path):

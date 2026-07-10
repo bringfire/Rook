@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import subprocess
 import sys
 from collections import Counter
@@ -29,6 +30,14 @@ VERIFIER_PROFILES = (SETTLE_VERIFIER_PROFILE, MANAGED_VERIFIER_PROFILE)
 READINESS_WAIT_TIMEOUT_MS = 10_000
 VERIFIER_MECHANISM = "managed_solve_readiness_receipt"
 FIXTURE_READINESS_PROFILE = "lm8i_legacy_setup_v1"
+LM8I_DECISION_SCHEMA = "rook.lm8i_affine_publication_shape_support_decision:v1"
+GH_READINESS_RECEIPT_SCHEMA = "rook.gh_solve_readiness_receipt:v1"
+MANAGED_MUTATION_SCHEMA = "rook.lm8l_managed_mutation_summary:v1"
+MANAGED_WAIT_SCHEMA = "rook.lm8l_readiness_wait_summary:v1"
+MANAGED_VERIFY_SCHEMA = "rook.lm8l_fenced_output_verification_summary:v1"
+MANAGED_DECISION_SCHEMA = "rook.lm8l_managed_verifier_decision:v1"
+EXPECTED_OUTPUT_VALUE = 7.5
+SCALAR_TOLERANCE = 1e-9
 EXCERPT_CHARS = 2000
 LEAK_MARKERS = (
     "PROBE_REPAIR_CODE",
@@ -46,6 +55,7 @@ TERMINAL_CATEGORIES = (
     "preflight_failed",
     "wrapper_error",
 )
+_SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 def _positive_int(raw: str) -> int:
@@ -229,6 +239,30 @@ def _base_attempt_row(*, attempt_index: int) -> dict[str, Any]:
     }
 
 
+def _managed_attempt_fields(*, child_attempt_timeout_s: int) -> dict[str, Any]:
+    return {
+        "verifier_profile": MANAGED_VERIFIER_PROFILE,
+        "verifier_mechanism": VERIFIER_MECHANISM,
+        "fixture_readiness_profile": FIXTURE_READINESS_PROFILE,
+        "readiness_wait_timeout_ms": READINESS_WAIT_TIMEOUT_MS,
+        "child_attempt_timeout_s": child_attempt_timeout_s,
+        "readiness_wait_count": 0,
+        "readiness_wait_status": None,
+        "readiness_failure_reason": None,
+        "fenced_output_read_count": 0,
+        "settle_read_count": 0,
+        "readiness_fenced": None,
+        "managed_verifier_audit_performed": False,
+        "managed_verifier_audit_valid": None,
+        "managed_verifier_audit_failures": [],
+        "receipt_id_hashes_match": None,
+        "document_session_ids_match": None,
+        "mutation_epochs_match": None,
+        "solution_run_epochs_match": None,
+        "post_mutation_solution_run_advanced": None,
+    }
+
+
 def _lm8i_command(
     *,
     model: str,
@@ -331,6 +365,448 @@ def _read_json_mapping(path: Path) -> Mapping[str, Any] | None:
     except (json.JSONDecodeError, OSError, UnicodeDecodeError):
         return None
     return payload if isinstance(payload, Mapping) else None
+
+
+def _is_int_not_bool(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_number_not_bool(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _managed_artifact(
+    path: Path,
+) -> tuple[Mapping[str, Any] | None, str | None]:
+    if not path.exists():
+        return None, f"{path.stem}_missing"
+    value = _read_json_mapping(path)
+    if value is None:
+        return None, f"{path.stem}_malformed"
+    return value, None
+
+
+def _empty_managed_audit() -> dict[str, Any]:
+    return {
+        "performed": False,
+        "valid": None,
+        "failures": [],
+        "readiness_wait_count": 0,
+        "readiness_wait_status": None,
+        "readiness_failure_reason": None,
+        "fenced_output_read_count": 0,
+        "settle_read_count": 0,
+        "readiness_fenced": None,
+        "observed_output_value": None,
+        "receipt_id_hashes_match": None,
+        "document_session_ids_match": None,
+        "mutation_epochs_match": None,
+        "solution_run_epochs_match": None,
+        "post_mutation_solution_run_advanced": None,
+    }
+
+
+def _audit_managed_child(run_dir: Path) -> dict[str, Any]:
+    result = _empty_managed_audit()
+    decision, decision_artifact_error = _managed_artifact(run_dir / "decision.json")
+    if (
+        decision is not None
+        and decision.get("decision") != "accepted"
+        and decision.get("live_set_value_dispatched") is False
+    ):
+        return result
+
+    result["performed"] = True
+    failures: list[str] = []
+
+    def fail(reason: str) -> None:
+        if reason not in failures:
+            failures.append(reason)
+
+    mutation_artifact, mutation_artifact_error = _managed_artifact(
+        run_dir / "live_set_value_summary.json"
+    )
+    wait, wait_artifact_error = _managed_artifact(
+        run_dir / "readiness_wait_summary.json"
+    )
+    read, read_artifact_error = _managed_artifact(
+        run_dir / "verify_scalar_output_summary.json"
+    )
+    for artifact_error, missing_reason, malformed_reason in (
+        (
+            mutation_artifact_error,
+            "mutation_artifact_missing",
+            "mutation_artifact_malformed",
+        ),
+        (wait_artifact_error, "wait_artifact_missing", "wait_artifact_malformed"),
+        (read_artifact_error, "read_artifact_missing", "read_artifact_malformed"),
+        (
+            decision_artifact_error,
+            "decision_artifact_missing",
+            "decision_artifact_malformed",
+        ),
+    ):
+        if artifact_error is not None:
+            fail(
+                missing_reason
+                if artifact_error.endswith("_missing")
+                else malformed_reason
+            )
+
+    mutation: Mapping[str, Any] | None = None
+    if mutation_artifact is not None:
+        candidate = mutation_artifact.get("managed_mutation")
+        if isinstance(candidate, Mapping):
+            mutation = candidate
+        else:
+            fail("mutation_summary_missing")
+
+    if mutation is not None:
+        if mutation.get("schema") != MANAGED_MUTATION_SCHEMA:
+            fail("mutation_schema_invalid")
+        if mutation.get("receipt_schema") != GH_READINESS_RECEIPT_SCHEMA:
+            fail("mutation_receipt_schema_invalid")
+        if mutation.get("receipt_status") != "pending":
+            fail("mutation_receipt_status_not_pending")
+        mutation_epoch = mutation.get("mutation_epoch")
+        if not _is_int_not_bool(mutation_epoch) or mutation_epoch <= 0:
+            fail("mutation_epoch_not_positive")
+        if mutation.get("solution_run_epoch") is not None:
+            fail("pending_solution_run_epoch_not_null")
+        prior_completed = mutation.get("completed_solution_run_epoch")
+        if not _is_int_not_bool(prior_completed) or prior_completed < 0:
+            fail("pending_completed_solution_run_epoch_invalid")
+
+    wait_count_value: Any = None
+    wait_status: Any = None
+    if wait is not None:
+        if wait.get("schema") != MANAGED_WAIT_SCHEMA:
+            fail("wait_schema_invalid")
+        if (
+            not _is_int_not_bool(wait.get("requested_timeout_ms"))
+            or wait.get("requested_timeout_ms") != READINESS_WAIT_TIMEOUT_MS
+        ):
+            fail("readiness_wait_timeout_ms_invalid")
+        wait_count_value = wait.get("readiness_wait_count")
+        if not _is_int_not_bool(wait_count_value) or wait_count_value != 1:
+            fail("readiness_wait_count_not_one")
+        wait_status = wait.get("wait_status")
+        if wait_status != "ready":
+            fail("wait_status_not_ready")
+        if wait.get("receipt_status") != "ready":
+            fail("wait_receipt_status_not_ready")
+        ready_run = wait.get("solution_run_epoch")
+        if not _is_int_not_bool(ready_run) or ready_run < 0:
+            fail("ready_solution_run_epoch_invalid")
+        wait_completed = wait.get("completed_solution_run_epoch")
+        if (
+            not _is_int_not_bool(wait_completed)
+            or not _is_int_not_bool(ready_run)
+            or wait_completed != ready_run
+        ):
+            fail("wait_completed_solution_run_mismatch")
+
+        result["readiness_wait_count"] = (
+            wait_count_value
+            if _is_int_not_bool(wait_count_value) and wait_count_value >= 0
+            else 0
+        )
+        result["readiness_wait_status"] = (
+            wait_status if isinstance(wait_status, str) else None
+        )
+
+    read_wait_count_value: Any = None
+    fenced_read_count_value: Any = None
+    settle_read_count_value: Any = None
+    if read is not None:
+        if read.get("schema") != MANAGED_VERIFY_SCHEMA:
+            fail("read_schema_invalid")
+        if read.get("verifier_profile") != MANAGED_VERIFIER_PROFILE:
+            fail("read_verifier_profile_invalid")
+        if (
+            not _is_int_not_bool(read.get("readiness_wait_timeout_ms"))
+            or read.get("readiness_wait_timeout_ms") != READINESS_WAIT_TIMEOUT_MS
+        ):
+            fail("readiness_wait_timeout_ms_invalid")
+        read_wait_count_value = read.get("readiness_wait_count")
+        if not _is_int_not_bool(read_wait_count_value) or read_wait_count_value != 1:
+            fail("readiness_wait_count_mismatch")
+        if wait is not None and read_wait_count_value != wait_count_value:
+            fail("readiness_wait_count_mismatch")
+        fenced_read_count_value = read.get("fenced_output_read_count")
+        if (
+            not _is_int_not_bool(fenced_read_count_value)
+            or fenced_read_count_value != 1
+        ):
+            fail("fenced_output_read_count_not_one")
+        settle_read_count_value = read.get("settle_read_count")
+        if (
+            not _is_int_not_bool(settle_read_count_value)
+            or settle_read_count_value != 0
+        ):
+            fail("settle_read_count_not_zero")
+        if read.get("readiness_fenced") is not True:
+            fail("readiness_fenced_not_true")
+        expected_output = read.get("expected_output_value")
+        if (
+            not _is_number_not_bool(expected_output)
+            or not math.isfinite(float(expected_output))
+            or not math.isclose(
+                float(expected_output), EXPECTED_OUTPUT_VALUE, rel_tol=0.0, abs_tol=0.0
+            )
+        ):
+            fail("expected_output_value_mismatch")
+        observed_output = read.get("observed_output_value")
+        if (
+            not _is_number_not_bool(observed_output)
+            or not math.isfinite(float(observed_output))
+            or not math.isclose(
+                float(observed_output),
+                EXPECTED_OUTPUT_VALUE,
+                rel_tol=0.0,
+                abs_tol=SCALAR_TOLERANCE,
+            )
+        ):
+            fail("observed_output_value_mismatch")
+        tolerance = read.get("tolerance")
+        if (
+            not _is_number_not_bool(tolerance)
+            or not math.isfinite(float(tolerance))
+            or float(tolerance) != SCALAR_TOLERANCE
+        ):
+            fail("scalar_tolerance_invalid")
+
+        result["fenced_output_read_count"] = (
+            fenced_read_count_value
+            if _is_int_not_bool(fenced_read_count_value)
+            and fenced_read_count_value >= 0
+            else 0
+        )
+        result["settle_read_count"] = (
+            settle_read_count_value
+            if _is_int_not_bool(settle_read_count_value)
+            and settle_read_count_value >= 0
+            else 0
+        )
+        result["readiness_fenced"] = (
+            read.get("readiness_fenced")
+            if isinstance(read.get("readiness_fenced"), bool)
+            else None
+        )
+        result["observed_output_value"] = (
+            observed_output
+            if _is_number_not_bool(observed_output)
+            and math.isfinite(float(observed_output))
+            else None
+        )
+
+    if wait is not None:
+        normalized_reason = wait.get("normalized_reason")
+        if isinstance(normalized_reason, str) and normalized_reason:
+            result["readiness_failure_reason"] = normalized_reason
+        elif wait_status != "ready" and decision is not None:
+            decision_reason = decision.get("reason")
+            if isinstance(decision_reason, str) and decision_reason:
+                result["readiness_failure_reason"] = decision_reason
+
+    if mutation is not None and wait is not None and read is not None:
+        receipt_hashes = [
+            mutation.get("receipt_id_sha256"),
+            wait.get("receipt_id_sha256"),
+            read.get("receipt_id_sha256"),
+        ]
+        receipt_hashes_valid = all(
+            isinstance(value, str) and _SHA256_RE.fullmatch(value) is not None
+            for value in receipt_hashes
+        )
+        if not receipt_hashes_valid:
+            fail("receipt_id_sha256_invalid")
+        result["receipt_id_hashes_match"] = receipt_hashes_valid and len(
+            set(receipt_hashes)
+        ) == 1
+        if receipt_hashes_valid and not result["receipt_id_hashes_match"]:
+            fail("receipt_id_sha256_mismatch")
+
+        session_ids = [
+            mutation.get("document_session_id"),
+            wait.get("document_session_id"),
+            read.get("document_session_id"),
+        ]
+        session_ids_valid = all(
+            isinstance(value, str) and bool(value) for value in session_ids
+        )
+        if not session_ids_valid:
+            fail("document_session_id_invalid")
+        result["document_session_ids_match"] = session_ids_valid and len(
+            set(session_ids)
+        ) == 1
+        if session_ids_valid and not result["document_session_ids_match"]:
+            fail("document_session_id_mismatch")
+
+        mutation_epochs = [
+            mutation.get("mutation_epoch"),
+            wait.get("mutation_epoch"),
+            read.get("mutation_epoch"),
+        ]
+        mutation_epochs_valid = all(
+            _is_int_not_bool(value) and value > 0 for value in mutation_epochs
+        )
+        if not mutation_epochs_valid and (
+            _is_int_not_bool(mutation_epochs[0]) and mutation_epochs[0] > 0
+        ):
+            fail("mutation_epoch_invalid")
+        result["mutation_epochs_match"] = mutation_epochs_valid and len(
+            set(mutation_epochs)
+        ) == 1
+        if mutation_epochs_valid and not result["mutation_epochs_match"]:
+            fail("mutation_epoch_mismatch")
+
+    if mutation is not None and wait is not None:
+        prior_completed = mutation.get("completed_solution_run_epoch")
+        ready_run = wait.get("solution_run_epoch")
+        run_values_valid = (
+            _is_int_not_bool(prior_completed)
+            and prior_completed >= 0
+            and _is_int_not_bool(ready_run)
+            and ready_run >= 0
+        )
+        result["post_mutation_solution_run_advanced"] = (
+            run_values_valid and ready_run > prior_completed
+        )
+        if run_values_valid and not result["post_mutation_solution_run_advanced"]:
+            fail("post_mutation_solution_run_not_advanced")
+
+    if wait is not None and read is not None:
+        ready_run = wait.get("solution_run_epoch")
+        wait_completed = wait.get("completed_solution_run_epoch")
+        read_run = read.get("solution_run_epoch")
+        read_completed = read.get("completed_solution_run_epoch")
+        solution_runs_valid = all(
+            _is_int_not_bool(value) and value >= 0
+            for value in (ready_run, wait_completed, read_run, read_completed)
+        )
+        result["solution_run_epochs_match"] = solution_runs_valid and len(
+            {ready_run, wait_completed, read_run, read_completed}
+        ) == 1
+        if not _is_int_not_bool(read_run) or read_run != ready_run:
+            fail("read_solution_run_mismatch")
+        if not _is_int_not_bool(read_completed) or read_completed != ready_run:
+            fail("read_completed_solution_run_mismatch")
+
+    accepted_child = decision is not None and decision.get("decision") == "accepted"
+    managed_decision: Mapping[str, Any] | None = None
+    if decision is not None:
+        if decision.get("schema") != LM8I_DECISION_SCHEMA:
+            fail("decision_schema_invalid")
+        if not accepted_child:
+            fail("child_decision_not_accepted")
+        else:
+            if decision.get("reason") != "verify_scalar_output_succeeded":
+                fail("decision_reason_invalid")
+            if decision.get("phase") != "verify_scalar_output":
+                fail("decision_phase_invalid")
+            if decision.get("canonical_evidence") is not True:
+                fail("canonical_evidence_not_true")
+            if decision.get("live_set_value_dispatched") is not True:
+                fail("live_set_value_dispatched_not_true")
+            if decision.get("worker_publication_ran") is not True:
+                fail("worker_publication_ran_not_true")
+        candidate = decision.get("managed_verifier")
+        if isinstance(candidate, Mapping):
+            managed_decision = candidate
+        else:
+            fail("managed_decision_missing")
+
+    if managed_decision is not None:
+        if managed_decision.get("schema") != MANAGED_DECISION_SCHEMA:
+            fail("managed_decision_schema_invalid")
+        if managed_decision.get("verifier_profile") != MANAGED_VERIFIER_PROFILE:
+            fail("managed_decision_profile_invalid")
+        if managed_decision.get("verifier_mechanism") != VERIFIER_MECHANISM:
+            fail("managed_decision_mechanism_invalid")
+        if (
+            managed_decision.get("fixture_readiness_profile")
+            != FIXTURE_READINESS_PROFILE
+        ):
+            fail("managed_decision_fixture_profile_invalid")
+
+        decision_timeout = managed_decision.get("readiness_wait_timeout_ms")
+        timeout_values = [decision_timeout]
+        if wait is not None:
+            timeout_values.append(wait.get("requested_timeout_ms"))
+        if read is not None:
+            timeout_values.append(read.get("readiness_wait_timeout_ms"))
+        if (
+            not all(_is_int_not_bool(value) for value in timeout_values)
+            or len(set(timeout_values)) != 1
+            or decision_timeout != READINESS_WAIT_TIMEOUT_MS
+        ):
+            fail("managed_decision_timeout_mismatch")
+
+        decision_wait_count = managed_decision.get("readiness_wait_count")
+        wait_count_values = [decision_wait_count]
+        if wait is not None:
+            wait_count_values.append(wait_count_value)
+        if read is not None:
+            wait_count_values.append(read_wait_count_value)
+        if (
+            not all(_is_int_not_bool(value) for value in wait_count_values)
+            or len(set(wait_count_values)) != 1
+        ):
+            fail("managed_decision_readiness_wait_count_mismatch")
+
+        decision_fenced_count = managed_decision.get("fenced_output_read_count")
+        if read is not None and (
+            not _is_int_not_bool(decision_fenced_count)
+            or decision_fenced_count != fenced_read_count_value
+        ):
+            fail("managed_decision_fenced_output_read_count_mismatch")
+        decision_settle_count = managed_decision.get("settle_read_count")
+        if read is not None and (
+            not _is_int_not_bool(decision_settle_count)
+            or decision_settle_count != settle_read_count_value
+        ):
+            fail("managed_decision_settle_read_count_mismatch")
+
+        failed_invariants = managed_decision.get("failed_invariants")
+        if accepted_child and (
+            not isinstance(failed_invariants, list) or failed_invariants
+        ):
+            fail("managed_decision_failed_invariants_not_empty")
+
+    result["failures"] = failures
+    result["valid"] = not failures
+    return result
+
+
+def _apply_managed_child_audit(row: dict[str, Any]) -> None:
+    run_dir_value = row.get("lm8i_run_dir")
+    if not run_dir_value:
+        return
+    audit = _audit_managed_child(Path(str(run_dir_value)))
+    row.update(
+        {
+            "managed_verifier_audit_performed": audit["performed"],
+            "managed_verifier_audit_valid": audit["valid"],
+            "managed_verifier_audit_failures": audit["failures"],
+            "readiness_wait_count": audit["readiness_wait_count"],
+            "readiness_wait_status": audit["readiness_wait_status"],
+            "readiness_failure_reason": audit["readiness_failure_reason"],
+            "fenced_output_read_count": audit["fenced_output_read_count"],
+            "settle_read_count": audit["settle_read_count"],
+            "readiness_fenced": audit["readiness_fenced"],
+            "receipt_id_hashes_match": audit["receipt_id_hashes_match"],
+            "document_session_ids_match": audit["document_session_ids_match"],
+            "mutation_epochs_match": audit["mutation_epochs_match"],
+            "solution_run_epochs_match": audit["solution_run_epochs_match"],
+            "post_mutation_solution_run_advanced": audit[
+                "post_mutation_solution_run_advanced"
+            ],
+        }
+    )
+    if row.get("lm8i_decision") == "accepted" and not audit["valid"]:
+        row["terminal_category"] = "wrapper_error"
+        row["failure_reason"] = "accepted_child_managed_verifier_audit_failed"
 
 
 def _read_decision(path: Path) -> tuple[dict[str, Any] | None, str | None]:
@@ -625,17 +1101,23 @@ def _build_summary(
         if row.get("terminal_category") == "accepted"
         and row.get("publication_support_attempted") is not True
     ]
+    canonical_evidence = _canonical_evidence(
+        attempts=attempts,
+        model=model,
+        attempt_timeout_s=attempt_timeout_s,
+        verifier_profile=verifier_profile,
+    )
+    leak_marker_match_count = sum(
+        int(row.get("leak_marker_match_count") or 0) for row in rows
+    )
+    worker_action_values = _number_values(rows, "worker_action_value")
+    observed_values = _number_values(rows, "observed_output_after")
 
-    return {
+    summary = {
         "schema": schema,
         "scheduled_attempts": attempts,
         "attempt_timeout_s": attempt_timeout_s,
-        "canonical_evidence": _canonical_evidence(
-            attempts=attempts,
-            model=model,
-            attempt_timeout_s=attempt_timeout_s,
-            verifier_profile=verifier_profile,
-        ),
+        "canonical_evidence": canonical_evidence,
         "terminal_category_counts": _compact_counts(terminal_counts),
         "accepted_count": terminal_counts["accepted"],
         "rejected_count": terminal_counts["rejected"],
@@ -655,16 +1137,104 @@ def _build_summary(
         "support_accepted_count": len(accepted_support_rows),
         "gate_failure_reasons": _reason_counts(rows, "gate_failure_reason"),
         "preflight_failure_reasons": _reason_counts(rows, "preflight_failure_reason"),
-        "leak_marker_match_count": sum(
-            int(row.get("leak_marker_match_count") or 0) for row in rows
-        ),
+        "leak_marker_match_count": leak_marker_match_count,
         "attempt_run_dirs": [
             str(row["lm8i_run_dir"]) for row in rows if row.get("lm8i_run_dir")
         ],
-        "worker_action_values": _number_values(rows, "worker_action_value"),
+        "worker_action_values": worker_action_values,
         "verifier_attempt_counts": _int_values(rows, "verifier_attempt_count"),
-        "observed_output_values_after": _number_values(rows, "observed_output_after"),
+        "observed_output_values_after": observed_values,
     }
+
+    if verifier_profile != MANAGED_VERIFIER_PROFILE:
+        return summary
+
+    managed_rows = [
+        row
+        for row in rows
+        if row.get("verifier_profile") == MANAGED_VERIFIER_PROFILE
+    ]
+    total_waits = sum(
+        int(row.get("readiness_wait_count") or 0) for row in managed_rows
+    )
+    total_fenced_reads = sum(
+        int(row.get("fenced_output_read_count") or 0) for row in managed_rows
+    )
+    total_settle_reads = sum(
+        int(row.get("settle_read_count") or 0) for row in managed_rows
+    )
+    managed_audit_pass_count = sum(
+        1
+        for row in managed_rows
+        if row.get("managed_verifier_audit_valid") is True
+    )
+    managed_audit_failure_count = sum(
+        1
+        for row in managed_rows
+        if row.get("managed_verifier_audit_performed") is True
+        and row.get("managed_verifier_audit_valid") is False
+    )
+    accepted_child_contradictions = sum(
+        1
+        for row in managed_rows
+        if row.get("failure_reason")
+        == "accepted_child_managed_verifier_audit_failed"
+    )
+    comparison_success = (
+        canonical_evidence is True
+        and verifier_profile == MANAGED_VERIFIER_PROFILE
+        and attempts == 20
+        and terminal_counts["accepted"] == 20
+        and managed_audit_pass_count == 20
+        and total_waits == 20
+        and total_fenced_reads == 20
+        and total_settle_reads == 0
+        and accepted_child_contradictions == 0
+        and worker_action_values == [3.0] * 20
+        and all(
+            math.isclose(value, EXPECTED_OUTPUT_VALUE, abs_tol=SCALAR_TOLERANCE)
+            for value in observed_values
+        )
+        and leak_marker_match_count == 0
+    )
+    summary.update(
+        {
+            "verifier_profile": MANAGED_VERIFIER_PROFILE,
+            "verifier_mechanism": VERIFIER_MECHANISM,
+            "fixture_readiness_profile": FIXTURE_READINESS_PROFILE,
+            "readiness_wait_timeout_ms": READINESS_WAIT_TIMEOUT_MS,
+            "child_attempt_timeout_s": attempt_timeout_s,
+            "readiness_ready_count": sum(
+                1
+                for row in managed_rows
+                if row.get("readiness_wait_status") == "ready"
+            ),
+            "readiness_failure_reason_counts": _reason_counts(
+                managed_rows, "readiness_failure_reason"
+            ),
+            "total_readiness_wait_count": total_waits,
+            "total_fenced_output_read_count": total_fenced_reads,
+            "total_settle_read_count": total_settle_reads,
+            "managed_verifier_audit_pass_count": managed_audit_pass_count,
+            "managed_verifier_audit_failure_count": managed_audit_failure_count,
+            "managed_verifier_invariant_violation_count": sum(
+                1
+                for row in managed_rows
+                if row.get("managed_verifier_audit_failures")
+            ),
+            "post_mutation_run_advance_failure_count": sum(
+                1
+                for row in managed_rows
+                if "post_mutation_solution_run_not_advanced"
+                in row.get("managed_verifier_audit_failures", [])
+            ),
+            "accepted_child_audit_contradiction_count": (
+                accepted_child_contradictions
+            ),
+            "comparison_success": comparison_success,
+        }
+    )
+    return summary
 
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -742,7 +1312,15 @@ def _run_probe(
                 completed=completed,
                 child_run_dirs=child_run_dirs,
             )
+        if verifier_profile == MANAGED_VERIFIER_PROFILE:
+            row.update(
+                _managed_attempt_fields(
+                    child_attempt_timeout_s=attempt_timeout_s,
+                )
+            )
         _copy_child_artifact_summaries(row)
+        if verifier_profile == MANAGED_VERIFIER_PROFILE:
+            _apply_managed_child_audit(row)
         _apply_leak_scan(row)
         rows.append(row)
         _append_jsonl(run_dir / "attempts.jsonl", row)
