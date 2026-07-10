@@ -549,15 +549,6 @@ namespace Rook.Handlers
                 if (obj == null)
                     return new ApiResponse { Success = false, Data = $"Object not found: {guid}" };
 
-                // Record generic undo BEFORE changing value
-                try
-                {
-                    var undoUtil = gh.Document!.GetType().GetProperty("UndoUtil")?.GetValue(gh.Document);
-                    if (undoUtil != null)
-                        RecordGenericObjectUndoEvent(undoUtil, "Rook: set value", obj);
-                }
-                catch { /* undo recording is best-effort */ }
-
                 var typeName = obj.GetType().Name;
 
                 // Handle Number Slider
@@ -573,6 +564,15 @@ namespace Rook.Handlers
                         if (!issue.Issued)
                             return ReadinessIssueFailure(issue.Error!);
                         readinessReceiptId = issue.Receipt!.ReceiptId;
+
+                        // Record generic undo after reservation and before changing the slider.
+                        try
+                        {
+                            var undoUtil = gh.Document!.GetType().GetProperty("UndoUtil")?.GetValue(gh.Document);
+                            if (undoUtil != null)
+                                RecordGenericObjectUndoEvent(undoUtil, "Rook: set value", obj);
+                        }
+                        catch { /* undo recording is best-effort */ }
 
                         // Set min/max first if provided (must be set before value)
                         if (minValue.HasValue)
@@ -629,6 +629,16 @@ namespace Rook.Handlers
                     if (!issue.Issued)
                         return ReadinessIssueFailure(issue.Error!);
                     readinessReceiptId = issue.Receipt!.ReceiptId;
+
+                    // Record generic undo after reservation and before changing the panel.
+                    try
+                    {
+                        var undoUtil = gh.Document!.GetType().GetProperty("UndoUtil")?.GetValue(gh.Document);
+                        if (undoUtil != null)
+                            RecordGenericObjectUndoEvent(undoUtil, "Rook: set value", obj);
+                    }
+                    catch { /* undo recording is best-effort */ }
+
                     userTextProp?.SetValue(obj, newContent);
 
                     var solveOutcome = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
@@ -657,6 +667,16 @@ namespace Rook.Handlers
                     if (!issue.Issued)
                         return ReadinessIssueFailure(issue.Error!);
                     readinessReceiptId = issue.Receipt!.ReceiptId;
+
+                    // Record generic undo after reservation and before changing the toggle.
+                    try
+                    {
+                        var undoUtil = gh.Document!.GetType().GetProperty("UndoUtil")?.GetValue(gh.Document);
+                        if (undoUtil != null)
+                            RecordGenericObjectUndoEvent(undoUtil, "Rook: set value", obj);
+                    }
+                    catch { /* undo recording is best-effort */ }
+
                     valueProp?.SetValue(obj, newValue);
 
                     var solveOutcome = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);

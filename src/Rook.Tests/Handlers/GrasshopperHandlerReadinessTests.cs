@@ -39,6 +39,7 @@ namespace Rook.Tests.Handlers
             Assert.Equal(1, document.ScheduleCount);
             Assert.Equal(1, slider.ExpireCount);
             Assert.False(slider.LastExpireRecompute);
+            Assert.Equal(1, document.UndoUtil.RecordCount);
         }
 
         [Fact]
@@ -94,6 +95,7 @@ namespace Rook.Tests.Handlers
             Assert.Equal(0, slider.Slider.ValueSetCount);
             Assert.Equal(0, slider.ExpireCount);
             Assert.Equal(0, document.ScheduleCount);
+            Assert.Equal(0, document.UndoUtil.RecordCount);
         }
 
         [Fact]
@@ -531,6 +533,7 @@ namespace Rook.Tests.Handlers
             public bool Enabled { get; set; } = true;
             public int ScheduleCount { get; private set; }
             public int ObjectsReadCount { get; private set; }
+            public FakeUndoUtil UndoUtil { get; } = new();
             public IReadOnlyList<object> Objects
             {
                 get
@@ -546,6 +549,13 @@ namespace Rook.Tests.Handlers
             public void ScheduleSolution(int delayMs) => ScheduleCount++;
             public void RaiseSolutionStart() => SolutionStart?.Invoke(this, new FakeSolutionEventArgs(this));
             public void RaiseSolutionEnd() => SolutionEnd?.Invoke(this, new FakeSolutionEventArgs(this));
+        }
+
+        public sealed class FakeUndoUtil
+        {
+            public int RecordCount { get; private set; }
+
+            public void RecordGenericObjectEvent(string name, object documentObject) => RecordCount++;
         }
 
         public sealed class MissingLifecycleDocument
