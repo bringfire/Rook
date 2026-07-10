@@ -540,10 +540,29 @@ Python forwards the optional `readiness_receipt_id` for
 `gh_inspect_output`. It must not add polling, `asyncio.sleep`, solver-state
 inference, receipt interpretation, or a broad `server.py` refactor.
 
+For `gh_wait_for_solve_readiness`, Python must also pass an explicit per-call
+HTTP transport timeout of requested `timeout_ms` plus a fixed bounded response
+grace (LM8K v1: 5 seconds). The global bridge read timeout is not sufficient
+for a valid 300,000 ms receipt wait. This transport budget prevents Python from
+truncating the managed wait; it does not alter receipt status, add a retry, or
+become a second readiness policy.
+
 ## 9. Deterministic Proof Surface
 
 The implementation PR uses managed lifecycle fakes and transport fakes only; it
-makes no live Rhino/GH run.
+makes no live Rhino/GH evidence run.
+
+One pre-registry exception is allowed because LM8K's core correlation contract
+depends on real companion lifecycle ordering: after Task 0's adapter is built,
+an implementer may perform one local, debug-deployed, non-evidence lifecycle
+preflight before beginning registry work. It must use a temporary DEBUG-only
+attachment hook that resolves the active canvas/document, attaches the Task 0
+solution and canvas adapters, records callback ordering for one existing
+`gh_solve`, disposes both subscriptions, and is removed before the Task 0
+commit. It creates no public route, no `probe_runs` artifacts, no curated
+evidence, and establishes no product success claim. Its only purpose is to
+confirm the installed lifecycle contract and stop implementation if the
+required schedule-return/start ordering does not hold.
 
 Required deterministic coverage includes:
 

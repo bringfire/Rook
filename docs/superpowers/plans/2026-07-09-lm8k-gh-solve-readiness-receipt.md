@@ -260,7 +260,7 @@ One controlled canvas document replacement raises DocumentChanged with the prior
 Both callbacks run on the GH/UI thread.
 ~~~
 
-This is a development API confirmation, not LM8K evidence: do not create probe_runs artifacts, do not claim a product result, and do not run it as part of the implementation PR verification. If the schedule-return/start ordering differs, stop and revise the receipt correlation design before Task 1; do not treat the current post-return `MarkScheduleAccepted` transition as safe by assumption.
+This is a development API confirmation, not LM8K evidence: do not create probe_runs artifacts, do not claim a product result, and do not run it as part of the implementation PR verification. Use an uncommitted DEBUG-only `NativeGhBridgeRegistrar` preflight hook that resolves `Grasshopper.Instances.ActiveCanvas` and its Document by reflection, attaches both Task 0 adapters, writes only debugger/trace output, and returns a disposable handle. Invoke that hook from the Visual Studio Immediate window, trigger one existing `gh_solve`, inspect the ordered trace, dispose the handle, and remove the hook before the Task 0 commit. It creates no route or durable artifact. If the schedule-return/start ordering differs, stop and revise the receipt correlation design before Task 1; do not treat the current post-return `MarkScheduleAccepted` transition as safe by assumption.
 
 - [ ] **Step 8: Commit Task 0**
 
@@ -455,7 +455,7 @@ public void FencedInspect_StaleReceipt_FailsBeforeExtraction()
 }
 ~~~
 
-Also cover lifecycle unavailable returning a terminal Unknown receipt on successful mutation, solver lock, pending/unknown/superseded fence failures, ready provenance, and document replacement. Add envelope tests: a known terminal receipt returns outer `Success=true` with its receipt snapshot; a valid wait returns outer `Success=true` with exactly `wait_status` in `ready|timeout|terminal` plus its receipt snapshot; absent, evicted, or post-restart IDs return outer `Success=false` with `readiness_receipt_unknown`. Add an active-registry-capacity test proving SetValue returns `readiness_registry_capacity_exceeded` before touching the slider. Add an externally replaced active-document test proving the next receipt-aware SetValue creates a new session and tombstones the former session's pending receipt.
+Also cover lifecycle unavailable returning a terminal Unknown receipt on successful mutation, solver lock, pending/unknown/superseded fence failures, ready provenance, and document replacement. Add envelope tests: a known terminal receipt returns outer `Success=true` with its receipt snapshot; a valid wait returns outer `Success=true` with exactly `wait_status` in `ready|timeout|terminal` plus its receipt snapshot; absent, evicted, or post-restart IDs return outer `Success=false` with `readiness_receipt_not_found_or_evicted_or_process_restarted`. Add an active-registry-capacity test proving SetValue returns `readiness_registry_capacity_exceeded` before touching the slider. Add an externally replaced active-document test proving the next receipt-aware SetValue creates a new session and tombstones the former session's pending receipt.
 
 - [ ] **Step 2: Run handler tests and confirm red**
 
@@ -487,7 +487,7 @@ internal GrasshopperHandler(
 }
 ~~~
 
-The new partial owns attachment/disposal, `EnsureReadinessSession(document, canvas)`, GetSolveReadiness, WaitForSolveReadiness, readiness response envelopes, and fenced-read validation. Attach the canvas adapter once for the active canvas. On its DocumentChanged callback, synchronously tombstone the old session, signal all waiters, dispose the former solution subscription, and attach a solution subscription for the new document before any new receipt can issue. A null NewDocument is a document replacement/close, not a reusable session. Status returns a known receipt snapshot under outer `Success=true`; wait returns outer `Success=true` with `wait_status: ready|timeout|terminal` and that snapshot; lookup absence/eviction/restart returns outer `Success=false` with `readiness_receipt_unknown`; a known non-ready or stale receipt used for a fenced read returns outer `Success=false` with its snapshot and pinned fence code. `EnsureReadinessSession` compares the active GH document and canvas objects by reference on every receipt-issuing SetValue; it attaches the canvas and solution adapters before registration for a first-seen existing document, and remains a lazy backstop when the host swaps a canvas/document without delivering the expected callback. Keep registry policy out of the existing large handler file.
+The new partial owns attachment/disposal, `EnsureReadinessSession(document, canvas)`, GetSolveReadiness, WaitForSolveReadiness, readiness response envelopes, and fenced-read validation. Attach the canvas adapter once for the active canvas. On its DocumentChanged callback, synchronously tombstone the old session, signal all waiters, dispose the former solution subscription, and attach a solution subscription for the new document before any new receipt can issue. A null NewDocument is a document replacement/close, not a reusable session. Status returns a known receipt snapshot under outer `Success=true`; wait returns outer `Success=true` with `wait_status: ready|timeout|terminal` and that snapshot; lookup absence/eviction/restart returns outer `Success=false` with `readiness_receipt_not_found_or_evicted_or_process_restarted`; a known non-ready or stale receipt used for a fenced read returns outer `Success=false` with its snapshot and pinned fence code. A known terminal receipt with status `unknown` remains a distinct receipt-state error, `readiness_receipt_unknown`. `EnsureReadinessSession` compares the active GH document and canvas objects by reference on every receipt-issuing SetValue; it attaches the canvas and solution adapters before registration for a first-seen existing document, and remains a lazy backstop when the host swaps a canvas/document without delivering the expected callback. Keep registry policy out of the existing large handler file.
 
 - [ ] **Step 4: Emit a receipt from existing SetValue branches**
 
@@ -590,19 +590,25 @@ public void ReadinessWait_UsesDedicatedOffUiExecutor()
 }
 
 [Fact]
-public void ReadinessWaitExecutor_RunsOperationOnAWorkerThread()
+public void ReadinessExecutors_RunDirectlyWithoutUiDispatchOrWorkerHop()
 {
     var callerThread = Thread.CurrentThread.ManagedThreadId;
-    int? operationThread = null;
+    int? statusThread = null;
+    int? waitThread = null;
 
+    NativeGhBridgeRegistrar.ExecuteReadinessStatusForTests(() =>
+    {
+        statusThread = Thread.CurrentThread.ManagedThreadId;
+        return new ApiResponse { Success = true, Data = new { status = "ready" } };
+    });
     NativeGhBridgeRegistrar.ExecuteReadinessWaitForTests(() =>
     {
-        operationThread = Thread.CurrentThread.ManagedThreadId;
+        waitThread = Thread.CurrentThread.ManagedThreadId;
         return new ApiResponse { Success = true, Data = new { wait_status = "ready" } };
     });
 
-    Assert.NotNull(operationThread);
-    Assert.NotEqual(callerThread, operationThread);
+    Assert.Equal(callerThread, statusThread);
+    Assert.Equal(callerThread, waitThread);
 }
 
 [Fact]
@@ -615,7 +621,7 @@ public void ReadinessRoutes_AppendAbi18Callbacks()
 }
 ~~~
 
-Add parity assertions for C# and C++ struct append order, callback assignment, proxy registration checks, server declarations, and route registrations. The source-level dispatcher guard plus `ExecuteReadinessWaitForTests` together prove the wait operation is dispatched onto a worker path and does not route through the main-thread executor.
+Add parity assertions for C# and C++ struct append order, callback assignment, proxy registration checks, server declarations, and route registrations. Add source guards for both status and wait handlers/executors: neither may call `ExecuteApiResponseCallback`, `DocumentContext.WithDocument`, `RhinoApp.InvokeOnUiThread`, or `Task.Run`. The native callback is already entered from the HTTP worker in `DispatchGrasshopperRoute`; the direct-executor tests prove LM8K does not consume a second worker or route through the main-thread executor.
 
 - [ ] **Step 2: Run native bridge tests and confirm red**
 
@@ -656,9 +662,9 @@ Use DispatchGrasshopperRoute for response transport. The accepted JSON names are
 
 - [ ] **Step 5: Implement dedicated readiness callbacks**
 
-Add HandleSolveReadiness and HandleWaitForSolveReadiness in NativeGhBridgeRegistrar. The wait handler must call a new ExecuteReadinessWaitCallback that starts the managed blocking signal wait on a worker/task path and waits only in the bridge callback thread. It derives its outer bridge deadline from validated `timeout_ms` plus a small fixed response-marshalling grace, so a valid 300,000 ms request is never silently shortened by an unrelated callback timeout.
+Add HandleSolveReadiness and HandleWaitForSolveReadiness in NativeGhBridgeRegistrar. The status handler calls a direct `ExecuteReadinessStatusCallback`; the wait handler calls a direct `ExecuteReadinessWaitCallback`. Both execute on the HTTP worker already occupying the native callback and serialize the returned ApiResponse there. The wait executor calls the managed bounded signal wait directly; it does not create a Task.Run hop or impose a second native timeout. The handler validates `timeout_ms` before waiting, so that value is the one and only managed wait bound.
 
-It may not call DocumentContext.WithDocument, RhinoApp.InvokeOnUiThread, ExecuteApiResponseCallback, Thread.Sleep, Task.Delay, an application timer, or a polling loop. The status callback is immediate and also must not enter the UI dispatcher. Test a maximum valid timeout and assert the derived bridge deadline is at least the requested wait plus its documented grace.
+Neither executor may call DocumentContext.WithDocument, RhinoApp.InvokeOnUiThread, ExecuteApiResponseCallback, Task.Run, Thread.Sleep, Task.Delay, an application timer, or a polling loop. The status callback is immediate and also stays on the HTTP worker. Test a maximum valid timeout through the managed handler and assert it reaches the registry unchanged; the Python transport bound is tested separately in Task 4.
 
 - [ ] **Step 6: Run bridge tests and build the layers**
 
@@ -705,11 +711,11 @@ async def test_readiness_tools_advertise_exact_inputs():
     assert tools["gh_wait_for_solve_readiness"].inputSchema["properties"]["timeout_ms"]["default"] == 10_000
 
 @pytest.mark.asyncio
-async def test_wait_dispatches_without_python_polling(monkeypatch):
+async def test_wait_dispatches_with_a_transport_deadline_that_covers_the_managed_wait(monkeypatch):
     calls = []
 
-    async def fake_call_rhino(route, method="GET", payload=None, port=None):
-        calls.append((route, method, payload))
+    async def fake_call_rhino(route, method="GET", payload=None, port=None, timeout=None):
+        calls.append((route, method, payload, timeout))
         return {"success": True, "data": {"wait_status": "ready"}}
 
     monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
@@ -723,10 +729,17 @@ async def test_wait_dispatches_without_python_polling(monkeypatch):
         "/gh/wait-for-solve-readiness",
         "POST",
         {"readiness_receipt_id": "opaque", "timeout_ms": 10_000},
+        15.0,
     )]
+
+    await server._call_tool_dispatch(
+        "gh_wait_for_solve_readiness",
+        {"readiness_receipt_id": "opaque", "timeout_ms": 300_000},
+    )
+    assert calls[-1][-1] == 305.0
 ~~~
 
-Also test gh_inspect_output with and without receipt ID, and preserve solve_readiness_receipt through the existing gh_set_value knowledge wrapper.
+Also test gh_inspect_output with and without receipt ID, and preserve solve_readiness_receipt through the existing gh_set_value knowledge wrapper. The wait tests must prove the default and maximum managed waits receive a Python transport deadline equal to `timeout_ms / 1000 + 5.0` seconds, so Python cannot truncate a valid 300-second receipt wait at bridge.py's 120-second default.
 
 - [ ] **Step 2: Run Python tests and confirm red**
 
@@ -742,6 +755,8 @@ Expected: FAIL because the tools and dispatch arms are absent.
 
 Advertise gh_solve_readiness with required non-empty readiness_receipt_id. Advertise gh_wait_for_solve_readiness with required receipt ID and integer timeout_ms default 10000, minimum 1, maximum 300000.
 
+Define `READINESS_TRANSPORT_GRACE_SECONDS = 5.0`. For `gh_wait_for_solve_readiness`, derive `transport_timeout_seconds = timeout_ms / 1000.0 + READINESS_TRANSPORT_GRACE_SECONDS` after the ordinary tool-schema bounds validation. This is a transport budget only: it never changes receipt status, manages retries, or adds timing policy.
+
 Dispatch directly:
 
 ~~~python
@@ -749,7 +764,17 @@ case "gh_solve_readiness":
     result = await call_rhino("/gh/solve-readiness", "GET", arguments, port=port)
 
 case "gh_wait_for_solve_readiness":
-    result = await call_rhino("/gh/wait-for-solve-readiness", "POST", arguments, port=port)
+    timeout_ms = arguments.get("timeout_ms", 10_000)
+    transport_timeout_seconds = (
+        timeout_ms / 1000.0 + READINESS_TRANSPORT_GRACE_SECONDS
+    )
+    result = await call_rhino(
+        "/gh/wait-for-solve-readiness",
+        "POST",
+        arguments,
+        port=port,
+        timeout=transport_timeout_seconds,
+    )
 ~~~
 
 In gh_inspect_output, forward readiness_receipt_id only when supplied. Do not add asyncio.sleep, retry loops, response-state branches, or a Python readiness helper.
