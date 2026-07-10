@@ -8,6 +8,9 @@ import { loadGlbArrayBuffer } from "./glb-loader.js";
 import {
   addFixedLights, createCamera, createFixedRenderer,
 } from "./renderer.js";
+import {
+  compareCoordinateScenes, comparePixelBuffers, readScenePixels,
+} from "./precision.js";
 import { countScene, createSyntheticScene } from "./scene-generator.js";
 
 export const APP_TITLE = "Rook Three.js Rhino Stress Harness";
@@ -82,6 +85,102 @@ export function createRunCoordinator() {
       activeRun?.controller.abort();
     },
   };
+}
+
+export function runPrecisionEvidence(config, {
+  renderer: evidenceRenderer = renderer,
+  buildSynthetic: build = buildSynthetic,
+  evaluate = evaluateAt,
+  dispose = disposeScene,
+} = {}) {
+  const contexts = [];
+  try {
+    const rebased = build({ ...config, coordinateMode: "rebased" });
+    contexts.push(rebased);
+    const large = build({ ...config, coordinateMode: "large" });
+    contexts.push(large);
+    return compareCoordinateScenes({
+      renderer: evidenceRenderer,
+      rebased,
+      large,
+      evaluate,
+    });
+  } finally {
+    disposeEvidenceScenes(contexts, dispose);
+  }
+}
+
+export function runContextVisibilityEvidence(config, {
+  renderer: evidenceRenderer = renderer,
+  buildSynthetic: build = buildSynthetic,
+  evaluate = evaluateAt,
+  dispose = disposeScene,
+} = {}) {
+  const contexts = [];
+  try {
+    const unbatched = build({ ...config, contextMode: "unbatched" });
+    contexts.push(unbatched);
+    const merged = build({ ...config, contextMode: "merged" });
+    contexts.push(merged);
+    evaluate(unbatched, 0);
+    evaluate(merged, 0);
+    return comparePixelBuffers(
+      readScenePixels(
+        evidenceRenderer, unbatched.scene, unbatched.camera,
+      ),
+      readScenePixels(evidenceRenderer, merged.scene, merged.camera),
+    );
+  } finally {
+    disposeEvidenceScenes(contexts, dispose);
+  }
+}
+
+export function addPostTrialEvidence(report, {
+  config,
+  source,
+  precisionEvidence = () => runPrecisionEvidence(config),
+  contextEvidence = () => runContextVisibilityEvidence(config),
+}) {
+  if (source !== "synthetic") {
+    report.coordinatePrecision = {
+      status: "unavailable",
+      reason: "local GLB has no generated rebased comparison pair",
+    };
+    return report;
+  }
+
+  report.coordinatePrecision = precisionEvidence();
+  report.coordinatePrecisionPassed = report.coordinatePrecision
+    .every((sample) => sample.pass);
+  if (!report.coordinatePrecisionPassed) {
+    report.headline = {
+      tier: "impractical",
+      source: "coordinate_precision",
+      trialIndex: report.headline.trialIndex,
+    };
+  }
+
+  report.contextVisibleEquivalence = contextEvidence();
+  if (!report.contextVisibleEquivalence.pass) {
+    report.headline = {
+      tier: "impractical",
+      source: "context_visible_equivalence",
+      trialIndex: report.headline.trialIndex,
+    };
+  }
+  return report;
+}
+
+function disposeEvidenceScenes(contexts, dispose) {
+  let firstError = null;
+  contexts.forEach((context) => {
+    try {
+      dispose(context.scene);
+    } catch (error) {
+      firstError ??= error;
+    }
+  });
+  if (firstError) throw firstError;
 }
 
 let el = null;
@@ -199,19 +298,25 @@ async function run() {
   if (selectedSource === "glb" && !localGlbBytes) {
     throw new Error("Build / Load the local GLB before benchmarking");
   }
-  const config = readConfig();
+  const configSnapshot = Object.freeze(readConfig());
   const outcome = await runCoordinator.start(async ({ signal }) => {
     disposePreview();
     el.run.disabled = true;
     el.status.textContent = "Running 3 trials...";
-    return runConfiguration({
-      config,
+    const timedReport = await runConfiguration({
+      config: configSnapshot,
       renderer,
       signal,
       environment: captureEnvironment(renderer),
-      buildScene: async () => buildTrialSource(config, selectedSource),
+      buildScene: async () => buildTrialSource(
+        configSnapshot, selectedSource,
+      ),
       evaluate: evaluateAt,
       dispose: disposeScene,
+    });
+    return addPostTrialEvidence(timedReport, {
+      config: configSnapshot,
+      source: selectedSource,
     });
   });
 
@@ -226,7 +331,7 @@ async function run() {
   el.status.textContent = "Headline tier: " + report.headline.tier;
 }
 
-function buildTrialSource(config, source = el.source.value) {
+function buildTrialSource(config, source) {
   return source === "glb"
     ? buildLocalFromBytes(config)
     : Promise.resolve(buildSynthetic(config));

@@ -3,6 +3,18 @@ import { BENCHMARK_PROTOCOL } from "./config.js";
 
 export const PRECISION_SAMPLE_TIMES = Object.freeze([0, 0.5, 1]);
 
+export function compareCoordinateScenes({
+  renderer, rebased, large, evaluate,
+}) {
+  return PRECISION_SAMPLE_TIMES.map((time) => {
+    evaluate(rebased, time);
+    evaluate(large, time);
+    const near = readScenePixels(renderer, rebased.scene, rebased.camera);
+    const far = readScenePixels(renderer, large.scene, large.camera);
+    return { time, ...comparePixelBuffers(near, far) };
+  });
+}
+
 export function comparePixelBuffers(left, right) {
   if (!left.length || left.length !== right.length) {
     throw new Error("pixel buffers must have equal nonzero length");

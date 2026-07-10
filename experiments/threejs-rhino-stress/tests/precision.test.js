@@ -1,10 +1,12 @@
 import { expect, it, vi } from "vitest";
 import { createGpuTimer } from "../src/gpu-timer.js";
-import {
+import * as precision from "../src/precision.js";
+
+const {
   comparePixelBuffers,
   PRECISION_SAMPLE_TIMES,
   readScenePixels,
-} from "../src/precision.js";
+} = precision;
 
 vi.mock("three", () => ({
   WebGLRenderTarget: class {
@@ -22,6 +24,54 @@ vi.mock("three", () => ({
 
 it("uses required sample times", () => {
   expect(PRECISION_SAMPLE_TIMES).toEqual([0, 0.5, 1]);
+});
+
+it("compares paired coordinate scenes at every required sample time", () => {
+  expect(precision.compareCoordinateScenes).toBeTypeOf("function");
+  const rebased = { scene: { name: "rebased" }, camera: {}, time: null };
+  const large = { scene: { name: "large" }, camera: {}, time: null };
+  const contexts = new Map([
+    [rebased.scene, rebased],
+    [large.scene, large],
+  ]);
+  const evaluated = [];
+  let renderedScene = null;
+  const renderer = {
+    getRenderTarget: () => null,
+    getActiveCubeFace: () => 0,
+    getActiveMipmapLevel: () => 0,
+    setRenderTarget: vi.fn(),
+    render: vi.fn((scene) => {
+      renderedScene = scene;
+    }),
+    readRenderTargetPixels: vi.fn((_target, _x, _y, _width, _height, pixels) => {
+      const context = contexts.get(renderedScene);
+      pixels[0] = context.scene.name === "large" ? context.time * 2 + 1 : context.time * 2;
+    }),
+  };
+
+  const samples = precision.compareCoordinateScenes({
+    renderer,
+    rebased,
+    large,
+    evaluate(context, time) {
+      context.time = time;
+      evaluated.push([context.scene.name, time]);
+    },
+  });
+
+  expect(evaluated).toEqual([
+    ["rebased", 0], ["large", 0],
+    ["rebased", 0.5], ["large", 0.5],
+    ["rebased", 1], ["large", 1],
+  ]);
+  expect(samples).toHaveLength(3);
+  expect(samples.map(({ time, pass }) => ({ time, pass }))).toEqual([
+    { time: 0, pass: true },
+    { time: 0.5, pass: true },
+    { time: 1, pass: true },
+  ]);
+  expect(renderer.render).toHaveBeenCalledTimes(6);
 });
 
 it("passes within tolerance and fails above it", () => {
