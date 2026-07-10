@@ -170,9 +170,9 @@ namespace Rook.Tests.Handlers
         {
             var source = ReadSourceFile("src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp");
 
-            // ABI tracks the current bridge contract; it was bumped to 17 by the CanvasDirector
-            // dispatch slot. The BIM dispatch slot must remain declared under that ABI.
-            Assert.Contains("kGhBridgeAbiVersion = 17", source);
+            // ABI tracks the current bridge contract; v18 appends solve-readiness callbacks.
+            // The BIM dispatch slot must remain declared under that ABI.
+            Assert.Contains("kGhBridgeAbiVersion = 18", source);
             Assert.Contains("GhBridgeCallbackFn vision_dispatch = nullptr;", source);
             Assert.Contains("GhBridgeCallbackFn canvas_director_dispatch = nullptr;", source);
             Assert.Contains("GhBridgeCallbackFn bim_dispatch = nullptr;", source);
@@ -186,7 +186,7 @@ namespace Rook.Tests.Handlers
         {
             var source = ReadSourceFile("src", "Rook", "InternalBridge", "NativeGhBridgeRegistrar.cs");
 
-            Assert.Contains("BridgeAbiVersion = 17", source);
+            Assert.Contains("BridgeAbiVersion = 18", source);
             Assert.Contains("public IntPtr VisionDispatch;", source);
             Assert.Contains("public IntPtr CanvasDirectorDispatch;", source);
             Assert.Contains("public IntPtr BimDispatch;", source);

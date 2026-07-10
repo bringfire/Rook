@@ -535,6 +535,18 @@ void CRookServer::HandleGrasshopperSolve(const httplib::Request& req, httplib::R
     Rook::Handlers::HandleGrasshopperSolve(req, res);
 }
 
+void CRookServer::HandleGrasshopperSolveReadiness(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleGrasshopperSolveReadiness(req, res);
+}
+
+void CRookServer::HandleGrasshopperWaitForSolveReadiness(
+    const httplib::Request& req,
+    httplib::Response& res)
+{
+    Rook::Handlers::HandleGrasshopperWaitForSolveReadiness(req, res);
+}
+
 void CRookServer::HandleGrasshopperBakeOutput(const httplib::Request& req, httplib::Response& res)
 {
     Rook::Handlers::HandleGrasshopperBakeOutput(req, res);
@@ -849,6 +861,12 @@ void CRookServer::RegisterRoutes()
     });
     ghPost("/gh/solve", [this](const httplib::Request& req, httplib::Response& res) {
         HandleGrasshopperSolve(req, res);
+    });
+    ghGet("/gh/solve-readiness", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleGrasshopperSolveReadiness(req, res);
+    });
+    ghPost("/gh/wait-for-solve-readiness", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleGrasshopperWaitForSolveReadiness(req, res);
     });
     ghPost("/gh/bake", [this](const httplib::Request& req, httplib::Response& res) {
         HandleGrasshopperBakeOutput(req, res);

@@ -23,16 +23,22 @@ namespace Rook.Handlers
         private readonly ShortIdRegistry _idRegistry = new();
 
         public GrasshopperHandler()
-            : this(null, null)
+            : this(null, null, null, null, null)
         {
         }
 
         internal GrasshopperHandler(
             IGrasshopperCore? bridgeCore = null,
-            GhSolveReadinessCoordinator? solveReadinessCoordinator = null)
+            GhSolveReadinessCoordinator? solveReadinessCoordinator = null,
+            GhSolveReceiptRegistry? solveReceiptRegistry = null,
+            GhSolutionLifecycleAdapter? solutionLifecycleAdapter = null,
+            GhCanvasDocumentLifecycleAdapter? canvasDocumentLifecycleAdapter = null)
         {
             _bridgeCore = bridgeCore ?? new GrasshopperCore();
             _solveReadinessCoordinator = solveReadinessCoordinator ?? new GhSolveReadinessCoordinator();
+            _solveReceiptRegistry = solveReceiptRegistry ?? new GhSolveReceiptRegistry();
+            _solutionLifecycleAdapter = solutionLifecycleAdapter ?? new GhSolutionLifecycleAdapter();
+            _canvasDocumentLifecycleAdapter = canvasDocumentLifecycleAdapter ?? new GhCanvasDocumentLifecycleAdapter();
         }
 
         #region Core API
@@ -516,6 +522,7 @@ namespace Rook.Handlers
             JsonElement valueEl = default;
             decimal? minValue = null;
             decimal? maxValue = null;
+            string? readinessReceiptId = null;
 
             try
             {
@@ -542,15 +549,6 @@ namespace Rook.Handlers
                 if (obj == null)
                     return new ApiResponse { Success = false, Data = $"Object not found: {guid}" };
 
-                // Record generic undo BEFORE changing value
-                try
-                {
-                    var undoUtil = gh.Document!.GetType().GetProperty("UndoUtil")?.GetValue(gh.Document);
-                    if (undoUtil != null)
-                        RecordGenericObjectUndoEvent(undoUtil, "Rook: set value", obj);
-                }
-                catch { /* undo recording is best-effort */ }
-
                 var typeName = obj.GetType().Name;
 
                 // Handle Number Slider
@@ -561,6 +559,20 @@ namespace Rook.Handlers
                     if (slider != null)
                     {
                         var sliderType = slider.GetType();
+                        decimal newValue = valueEl.GetDecimal();
+                        var issue = BeginSetValueReceipt(gh.Document!, gh.Canvas!);
+                        if (!issue.Issued)
+                            return ReadinessIssueFailure(issue.Error!);
+                        readinessReceiptId = issue.Receipt!.ReceiptId;
+
+                        // Record generic undo after reservation and before changing the slider.
+                        try
+                        {
+                            var undoUtil = gh.Document!.GetType().GetProperty("UndoUtil")?.GetValue(gh.Document);
+                            if (undoUtil != null)
+                                RecordGenericObjectUndoEvent(undoUtil, "Rook: set value", obj);
+                        }
+                        catch { /* undo recording is best-effort */ }
 
                         // Set min/max first if provided (must be set before value)
                         if (minValue.HasValue)
@@ -573,10 +585,10 @@ namespace Rook.Handlers
                         }
 
                         // Set the value
-                        decimal newValue = valueEl.GetDecimal();
                         sliderType.GetProperty("Value")?.SetValue(slider, newValue);
 
-                        RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
+                        var solveOutcome = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
+                        var receipt = FinalizeSetValueReceipt(readinessReceiptId, solveOutcome);
                         RefreshCanvas(gh.Canvas!, scheduleSolution: false);
 
                         // Get the actual min/max for response
@@ -592,7 +604,8 @@ namespace Rook.Handlers
                                 Type = "slider",
                                 NewValue = newValue,
                                 Min = actualMin,
-                                Max = actualMax
+                                Max = actualMax,
+                                solve_readiness_receipt = ReceiptSnapshot(receipt)
                             }
                         };
                     }
@@ -612,9 +625,24 @@ namespace Rook.Handlers
                         JsonValueKind.Null => "",
                         _ => valueEl.GetRawText()
                     };
+                    var issue = BeginSetValueReceipt(gh.Document!, gh.Canvas!);
+                    if (!issue.Issued)
+                        return ReadinessIssueFailure(issue.Error!);
+                    readinessReceiptId = issue.Receipt!.ReceiptId;
+
+                    // Record generic undo after reservation and before changing the panel.
+                    try
+                    {
+                        var undoUtil = gh.Document!.GetType().GetProperty("UndoUtil")?.GetValue(gh.Document);
+                        if (undoUtil != null)
+                            RecordGenericObjectUndoEvent(undoUtil, "Rook: set value", obj);
+                    }
+                    catch { /* undo recording is best-effort */ }
+
                     userTextProp?.SetValue(obj, newContent);
 
-                    RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
+                    var solveOutcome = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
+                    var receipt = FinalizeSetValueReceipt(readinessReceiptId, solveOutcome);
                     RefreshCanvas(gh.Canvas!, scheduleSolution: false);
 
                     return new ApiResponse
@@ -624,7 +652,8 @@ namespace Rook.Handlers
                         {
                             Guid = guid,
                             Type = "panel",
-                            NewValue = newContent
+                            NewValue = newContent,
+                            solve_readiness_receipt = ReceiptSnapshot(receipt)
                         }
                     };
                 }
@@ -634,9 +663,24 @@ namespace Rook.Handlers
                 {
                     var valueProp = obj.GetType().GetProperty("Value");
                     bool newValue = valueEl.GetBoolean();
+                    var issue = BeginSetValueReceipt(gh.Document!, gh.Canvas!);
+                    if (!issue.Issued)
+                        return ReadinessIssueFailure(issue.Error!);
+                    readinessReceiptId = issue.Receipt!.ReceiptId;
+
+                    // Record generic undo after reservation and before changing the toggle.
+                    try
+                    {
+                        var undoUtil = gh.Document!.GetType().GetProperty("UndoUtil")?.GetValue(gh.Document);
+                        if (undoUtil != null)
+                            RecordGenericObjectUndoEvent(undoUtil, "Rook: set value", obj);
+                    }
+                    catch { /* undo recording is best-effort */ }
+
                     valueProp?.SetValue(obj, newValue);
 
-                    RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
+                    var solveOutcome = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
+                    var receipt = FinalizeSetValueReceipt(readinessReceiptId, solveOutcome);
                     RefreshCanvas(gh.Canvas!, scheduleSolution: false);
 
                     return new ApiResponse
@@ -646,7 +690,8 @@ namespace Rook.Handlers
                         {
                             Guid = guid,
                             Type = "toggle",
-                            NewValue = newValue
+                            NewValue = newValue,
+                            solve_readiness_receipt = ReceiptSnapshot(receipt)
                         }
                     };
                 }
@@ -659,6 +704,12 @@ namespace Rook.Handlers
             }
             catch (Exception ex)
             {
+                if (readinessReceiptId is not null)
+                {
+                    try { MarkSetValueMutationFailed(readinessReceiptId); }
+                    catch { /* Preserve the existing SetValue failure response. */ }
+                }
+
                 return new ApiResponse
                 {
                     Success = false,
@@ -3373,6 +3424,7 @@ namespace Rook.Handlers
                 // Set the document on the active canvas
                 var canvasDocProp = gh.Canvas!.GetType().GetProperty("Document");
                 canvasDocProp?.SetValue(gh.Canvas, newDocument);
+                EnsureReadinessSession(newDocument, gh.Canvas!);
 
                 // Reset short ID registry for new document
                 _idRegistry.Clear();
@@ -3434,6 +3486,7 @@ namespace Rook.Handlers
                 // Set the document on the active canvas
                 var canvasDocProp = gh.Canvas!.GetType().GetProperty("Document");
                 canvasDocProp?.SetValue(gh.Canvas, newDocument);
+                EnsureReadinessSession(newDocument, gh.Canvas!);
 
                 // Reset short ID registry for new document
                 _idRegistry.Clear();
@@ -4832,7 +4885,7 @@ namespace Rook.Handlers
         /// GET /gh/inspect-output?guid=xxx&param=S - Inspect output data structure
         /// Returns detailed info about output data: type, structure (single/list/tree), paths, counts
         /// </summary>
-        public ApiResponse InspectOutput(string? guid, string? param)
+        public ApiResponse InspectOutput(string? guid, string? param, string? readinessReceiptId = null)
         {
             var notReady = EnsureGrasshopperReadyForEdit("gh_inspect_output");
             if (notReady != null)
@@ -4841,6 +4894,18 @@ namespace Rook.Handlers
             var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_inspect_output", null, gh.Error);
+
+            GhFencedReadGate? readinessGate = null;
+            if (readinessReceiptId is not null)
+            {
+                if (string.IsNullOrWhiteSpace(readinessReceiptId))
+                    return ReadinessIssueFailure("readiness_receipt_id_invalid");
+
+                var gate = _solveReceiptRegistry.CheckFencedRead(readinessReceiptId, gh.Document!);
+                if (!gate.Allowed)
+                    return ReadinessFenceFailure(gate);
+                readinessGate = gate;
+            }
 
             if (string.IsNullOrEmpty(guid))
                 return new ApiResponse { Success = false, Data = "Missing guid parameter" };
@@ -5003,6 +5068,16 @@ namespace Rook.Handlers
                 {
                     dataInfo["structure"] = "unknown";
                     dataInfo["note"] = "Could not access VolatileData";
+                }
+
+                if (readinessGate?.Receipt is GhSolveReadinessReceipt receipt)
+                {
+                    dataInfo["readiness_fenced"] = true;
+                    dataInfo["readiness_receipt_id"] = receipt.ReceiptId;
+                    dataInfo["document_session_id"] = receipt.DocumentSessionId;
+                    dataInfo["mutation_epoch"] = receipt.MutationEpoch;
+                    dataInfo["solution_run_epoch"] = receipt.SolutionRunEpoch;
+                    dataInfo["completed_solution_run_epoch"] = receipt.CompletedSolutionRunEpoch;
                 }
 
                 return new ApiResponse

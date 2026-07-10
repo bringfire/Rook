@@ -11,6 +11,7 @@ namespace Rook.Tests.Handlers
             var source = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Rook", "Handlers", "GrasshopperHandler.cs"));
 
             Assert.Contains("_solveReadinessCoordinator.MarkRookManagedDocument(newDocument, \"gh_document_new\")", source);
+            Assert.Contains("EnsureReadinessSession(newDocument, gh.Canvas!)", source);
         }
 
         [Fact]
@@ -19,6 +20,7 @@ namespace Rook.Tests.Handlers
             var source = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Rook", "Handlers", "GrasshopperHandler.cs"));
 
             Assert.Contains("_solveReadinessCoordinator.MarkRookManagedDocument(newDocument, \"gh_document_open\")", source);
+            Assert.Contains("EnsureReadinessSession(newDocument, gh.Canvas!)", source);
         }
 
         private static string RepoRoot()

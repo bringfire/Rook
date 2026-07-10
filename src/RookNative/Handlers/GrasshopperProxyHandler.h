@@ -149,6 +149,8 @@ void HandleGrasshopperSetReference(const httplib::Request& req, httplib::Respons
 void HandleGrasshopperGetReference(const httplib::Request& req, httplib::Response& res);
 void HandleGrasshopperClearReference(const httplib::Request& req, httplib::Response& res);
 void HandleGrasshopperSolve(const httplib::Request& req, httplib::Response& res);
+void HandleGrasshopperSolveReadiness(const httplib::Request& req, httplib::Response& res);
+void HandleGrasshopperWaitForSolveReadiness(const httplib::Request& req, httplib::Response& res);
 void HandleGrasshopperSnapshot(const httplib::Request& req, httplib::Response& res);
 void HandleGrasshopperEdit(const httplib::Request& req, httplib::Response& res);
 void HandleGrasshopperUndo(const httplib::Request& req, httplib::Response& res);

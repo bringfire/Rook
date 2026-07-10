@@ -126,6 +126,14 @@ def test_gh_update_script_policy_is_explicit_rhino_mutate():
     assert policy == targeting.RhinoToolPolicy(True, "mutate")
 
 
+def test_solve_readiness_tools_are_explicit_rhino_reads():
+    for name in {"gh_solve_readiness", "gh_wait_for_solve_readiness"}:
+        assert name in targeting._ALL_KNOWN_TOOLS
+        assert targeting.policy_for_tool(name) == targeting.RhinoToolPolicy(
+            True, "read"
+        )
+
+
 def test_panel_lock_initializes_from_valid_env(monkeypatch):
     targeting.reset_targeting_state_for_tests()
     monkeypatch.setenv("ROOK_MCP_TARGET_MODE", "panel_locked")

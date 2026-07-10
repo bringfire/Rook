@@ -22,7 +22,7 @@ namespace Rook.InternalBridge
     /// </summary>
     public static class NativeGhBridgeRegistrar
     {
-        private const uint BridgeAbiVersion = 17;
+        private const uint BridgeAbiVersion = 18;
         private static readonly object Sync = new();
         private static readonly IGrasshopperCore Core = new GrasshopperCore();
         private static readonly GrasshopperHandler Handler = new();
@@ -161,6 +161,8 @@ namespace Rook.InternalBridge
         private static readonly NativeGhBridgeCallback SetValueCallback = HandleSetValue;
         private static readonly NativeGhBridgeCallback DeleteCallback = HandleDelete;
         private static readonly NativeGhBridgeCallback SolveCallback = HandleSolve;
+        private static readonly NativeGhBridgeCallback SolveReadinessCallback = HandleSolveReadiness;
+        private static readonly NativeGhBridgeCallback WaitForSolveReadinessCallback = HandleWaitForSolveReadiness;
         // Canvas Graph Protocol
         private static readonly NativeGhBridgeCallback SnapshotCallback = HandleSnapshot;
         private static readonly NativeGhBridgeCallback EditCallback = HandleEdit;
@@ -328,6 +330,9 @@ namespace Rook.InternalBridge
             public IntPtr BimDispatch;
             // ABI v16: Reconstruction domain — single generic dispatch.
             public IntPtr ReconstructionDispatch;
+            // ABI v18: solve-readiness status and bounded off-UI wait.
+            public IntPtr GhSolveReadiness;
+            public IntPtr GhWaitForSolveReadiness;
         }
 
         [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Ansi)]
@@ -429,6 +434,8 @@ namespace Rook.InternalBridge
                     CanvasDirectorDispatch = Marshal.GetFunctionPointerForDelegate(CanvasDirectorDispatchCallback),
                     BimDispatch = Marshal.GetFunctionPointerForDelegate(BimDispatchCallback),
                     ReconstructionDispatch = Marshal.GetFunctionPointerForDelegate(ReconstructionDispatchCallback),
+                    GhSolveReadiness = Marshal.GetFunctionPointerForDelegate(SolveReadinessCallback),
+                    GhWaitForSolveReadiness = Marshal.GetFunctionPointerForDelegate(WaitForSolveReadinessCallback),
                 };
 
                 var rc = registerBridge(ref registration);
@@ -734,7 +741,8 @@ namespace Rook.InternalBridge
                     var args = ParseRequestArgs(requestJson);
                     return Handler.InspectOutput(
                         GetStringArg(args, "guid"),
-                        GetStringArg(args, "param"));
+                        GetStringArg(args, "param"),
+                        GetStringArg(args, "readiness_receipt_id"));
                 });
         }
 
@@ -1214,6 +1222,146 @@ namespace Rook.InternalBridge
                 responseJsonLength,
                 httpStatusCode,
                 requestJson => Handler.TriggerSolve(requestJson));
+        }
+
+        private static int HandleSolveReadiness(
+            IntPtr requestJsonUtf8,
+            int requestJsonLength,
+            IntPtr responseJsonUtf8,
+            int responseJsonCapacity,
+            IntPtr responseJsonLength,
+            IntPtr httpStatusCode)
+        {
+            return ExecuteDirectReadinessCallback(
+                requestJsonUtf8,
+                requestJsonLength,
+                responseJsonUtf8,
+                responseJsonCapacity,
+                responseJsonLength,
+                httpStatusCode,
+                requestJson => ExecuteReadinessStatusCallback(() =>
+                {
+                    var args = ParseRequestArgs(requestJson);
+                    return Handler.GetSolveReadiness(
+                        GetStringArg(args, "readiness_receipt_id"));
+                }));
+        }
+
+        private static int HandleWaitForSolveReadiness(
+            IntPtr requestJsonUtf8,
+            int requestJsonLength,
+            IntPtr responseJsonUtf8,
+            int responseJsonCapacity,
+            IntPtr responseJsonLength,
+            IntPtr httpStatusCode)
+        {
+            return ExecuteDirectReadinessCallback(
+                requestJsonUtf8,
+                requestJsonLength,
+                responseJsonUtf8,
+                responseJsonCapacity,
+                responseJsonLength,
+                httpStatusCode,
+                requestJson => ExecuteReadinessWaitCallback(() =>
+                    ExecuteReadinessWaitRequest(
+                        requestJson,
+                        (readinessReceiptId, timeoutMs) => Handler.WaitForSolveReadiness(
+                            readinessReceiptId,
+                            timeoutMs))));
+        }
+
+        private static ApiResponse ExecuteReadinessStatusCallback(Func<ApiResponse> operation)
+        {
+            return operation();
+        }
+
+        private static ApiResponse ExecuteReadinessWaitCallback(Func<ApiResponse> operation)
+        {
+            return operation();
+        }
+
+        private static int ExecuteDirectReadinessCallback(
+            IntPtr requestJsonUtf8,
+            int requestJsonLength,
+            IntPtr responseJsonUtf8,
+            int responseJsonCapacity,
+            IntPtr responseJsonLength,
+            IntPtr httpStatusCode,
+            Func<string, ApiResponse> operation)
+        {
+            try
+            {
+                var requestJson = ReadUtf8(requestJsonUtf8, requestJsonLength);
+                var result = operation(requestJson);
+                var responseJson = JsonSerializer.Serialize(new
+                {
+                    success = result.Success,
+                    data = result.Data,
+                }, JsonOptions);
+
+                return WriteUtf8Response(
+                    responseJsonUtf8,
+                    responseJsonCapacity,
+                    responseJsonLength,
+                    httpStatusCode,
+                    responseJson,
+                    MapBridgeStatus(result));
+            }
+            catch (Exception ex)
+            {
+                return WriteUtf8Response(
+                    responseJsonUtf8,
+                    responseJsonCapacity,
+                    responseJsonLength,
+                    httpStatusCode,
+                    JsonSerializer.Serialize(new
+                    {
+                        success = false,
+                        data = $"Native GH readiness bridge failed: {ex.Message}",
+                    }, JsonOptions),
+                    500);
+            }
+        }
+
+        internal static ApiResponse ExecuteReadinessStatusForTests(Func<ApiResponse> operation)
+        {
+            return ExecuteReadinessStatusCallback(operation);
+        }
+
+        internal static ApiResponse ExecuteReadinessWaitForTests(Func<ApiResponse> operation)
+        {
+            return ExecuteReadinessWaitCallback(operation);
+        }
+
+        internal static ApiResponse ExecuteReadinessWaitForTests(
+            string requestJson,
+            Func<string?, int, ApiResponse> operation)
+        {
+            return ExecuteReadinessWaitCallback(() =>
+                ExecuteReadinessWaitRequest(requestJson, operation));
+        }
+
+        private static ApiResponse ExecuteReadinessWaitRequest(
+            string requestJson,
+            Func<string?, int, ApiResponse> operation)
+        {
+            const int defaultTimeoutMs = 10_000;
+            const int minimumTimeoutMs = 1;
+            const int maximumTimeoutMs = 300_000;
+            var args = ParseRequestArgs(requestJson);
+            var timeoutMs = GetIntArg(args, "timeout_ms");
+            if (args != null &&
+                args.ContainsKey("timeout_ms") &&
+                (!timeoutMs.HasValue ||
+                 timeoutMs.Value < minimumTimeoutMs ||
+                 timeoutMs.Value > maximumTimeoutMs))
+            {
+                return Handler.ReadinessIssueFailure("readiness_timeout_ms_out_of_range");
+            }
+
+            return operation(
+                GetStringArg(args, "readiness_receipt_id"),
+                timeoutMs ?? defaultTimeoutMs);
         }
 
         // Canvas Graph Protocol handlers
