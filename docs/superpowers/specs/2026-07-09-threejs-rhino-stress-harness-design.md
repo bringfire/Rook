@@ -1,7 +1,7 @@
 # Three.js Rhino Stress Harness Design
 
 Date: 2026-07-09
-Status: ready for user review
+Status: revised for user review
 
 ## Purpose
 
@@ -33,12 +33,13 @@ Three.js adapter guidance at the time of design.
 
 ## Questions The Experiment Must Answer
 
-1. How many distinct, independently addressable scene nodes can Three.js load,
-   traverse, seek, and render comfortably on the local workstation?
-2. At what geometry size, draw-call count, or material count does the browser
-   become impractical for an animation workflow?
+1. How many distinct, independently addressable scene nodes meet the defined
+   interactive, preview-viable, or marginal performance tiers on the recorded
+   local workstation and browser configuration?
+2. At what geometry size, draw-call count, or material count does the recorded
+   configuration cross the defined impractical threshold?
 3. How much do shared meshes, parent grouping, coordinate rebasing, and static
-   material merging improve load and render behavior?
+   context batching by material improve measured load and render behavior?
 4. Can absolute-time animation produce identical object transforms for the
    same requested time, independent of playback history?
 5. Can stable actor metadata survive GLB import and support reliable lookup
@@ -53,7 +54,7 @@ budgets or production acceptance thresholds in the first slice.
 
 - a local Vite browser application;
 - pinned local Three.js imports with no CDN dependency;
-- deterministic synthetic actor scenes at 100, 376, 1,000, and 10,000 nodes;
+- deterministic synthetic actor scenes at 100, 338, 1,000, and 10,000 nodes;
 - configurable geometry density;
 - shared-geometry and duplicated-geometry comparisons;
 - individual-node and parent-group animation comparisons;
@@ -77,6 +78,78 @@ budgets or production acceptance thresholds in the first slice.
 - installer, deployment, publishing, or artifact-registry integration;
 - remote assets, CDNs, analytics, telemetry, or network services;
 - shipping Three.js as a Rook runtime dependency.
+
+## Benchmark Protocol
+
+The benchmark produces comparative local evidence, not a universal Three.js
+capacity claim. Every report records enough environment and protocol data to
+repeat the run on the same workstation or compare it with another workstation.
+
+### Fixed render profile
+
+- WebGL2 is required for benchmark runs. A WebGL1 fallback may load scenes for
+  inspection but is not included in benchmark comparisons.
+- The drawing buffer is fixed at `1920 x 1080` pixels.
+- `WebGLRenderer.setPixelRatio(1)` is mandatory. The operating-system DPR and
+  browser zoom are recorded but do not change the drawing-buffer size.
+- Browser zoom must be 100 percent and the document must remain visible. A
+  hidden document or changed drawing-buffer size invalidates the trial.
+- The renderer uses antialiasing, one ambient light, one directional light, no
+  shadows, no post-processing, a fixed perspective camera, and a fixed clear
+  color. Tone mapping, output color space, camera values, and light values are
+  constants in source and are included in the report schema version.
+- Animation sample time is `sample_index / 60`; wall-clock time never selects
+  scene state.
+
+### Warm-up and measured trials
+
+For each configuration, the harness:
+
+1. constructs or decodes the scene and records that duration separately;
+2. renders 120 unmeasured warm-up frames to compile shaders and upload buffers;
+3. renders 300 measured frames, one per `requestAnimationFrame` callback;
+4. repeats steps 1-3 for three trials after disposing the prior trial;
+5. reports every trial and an aggregate over the measured samples.
+
+The harness aborts a trial if the tab becomes hidden, the WebGL context is lost,
+the drawing-buffer size changes, or a non-finite timing/transform appears. It
+does not claim that JavaScript garbage collection or operating-system load can
+be fully controlled; those limitations are recorded with the result.
+
+### Timing definitions
+
+CPU submission time is the `performance.now()` interval around the absolute-time
+scene evaluation, world-matrix update, and `renderer.render()` call. It measures
+JavaScript and driver submission cost, not GPU completion.
+
+GPU duration is measured independently with WebGL2
+`EXT_disjoint_timer_query_webgl2`. Query results are read asynchronously;
+disjoint samples are discarded and counted. At least 270 of the 300 measured
+frames in a trial must produce valid GPU samples for that trial's GPU
+distribution to classify performance. If the extension is unavailable or the
+valid-sample floor is missed, GPU timing is explicitly `unavailable`, and no CPU
+value is relabeled as GPU time.
+
+Sample distributions report nearest-rank p50, p95, p99, and maximum values.
+Average values may also be reported but are not used for tier classification.
+
+### Operational performance tiers
+
+When a valid GPU distribution exists, classification uses the greater of CPU
+submission p95 and GPU-duration p95. Otherwise it uses CPU-submission p95 with
+an explicit `cpu_proxy_only` qualification.
+
+- **Interactive:** p95 is at most 16.67 ms and p99 is at most 33.33 ms.
+- **Preview-viable:** p95 is above 16.67 ms and at most 33.33 ms.
+- **Marginal:** p95 is above 33.33 ms and at most 100 ms, or scene
+  construction/load is above 10 seconds and at most 30 seconds.
+- **Impractical:** p95 is above 100 ms, scene construction/load exceeds 30
+  seconds, the context is lost, the browser terminates the run, or a required
+  correctness check fails.
+
+These are experiment decision thresholds, not promises about final video render
+throughput. A configuration with unavailable GPU timing can identify a local
+CPU-side bottleneck but cannot establish a GPU-complete frame budget.
 
 ## Architecture
 
@@ -126,7 +199,7 @@ Each actor node receives stable metadata:
 
 ```json
 {
-  "actorId": "synthetic_actor_000376",
+  "actorId": "synthetic_actor_000338",
   "actorSetId": "synthetic_set",
   "sourceKind": "synthetic"
 }
@@ -140,6 +213,30 @@ The actor index reports duplicate IDs, missing IDs, and malformed metadata.
 Duplicate actor IDs fail the addressability check rather than silently choosing
 one node.
 
+### Metadata-bearing GLB fixture
+
+The experiment includes a reproducible fixture generator and its generated
+fixture:
+
+```text
+scripts/generate-actor-metadata-fixture.mjs
+fixtures/actor-metadata.glb
+fixtures/actor-metadata.sha256
+```
+
+The generator uses Node core binary/file APIs to write a minimal valid GLB with
+two triangle-mesh nodes. It does not use `GLTFExporter`, so the proof is not a
+Three.js exporter-to-loader round trip. Each glTF node carries application
+`extras` with an exact actor ID, actor-set ID, and source kind. The generator is
+byte-deterministic, and an automated test regenerates the file in memory and
+compares its SHA-256 with the committed checksum.
+
+`GLTFLoader` must import the committed fixture and expose the exact expected
+actor IDs through the resulting objects' `userData`. The test also verifies the
+actor-set IDs, source kind, distinct object instances, and successful actor-index
+lookup. An arbitrary user-selected GLB may legitimately lack this metadata, but
+the known fixture makes metadata survival a required, reproducible proof.
+
 ## Geometry And Grouping Variants
 
 Each synthetic run specifies:
@@ -149,7 +246,8 @@ Each synthetic run specifies:
 - geometry ownership: shared or duplicated;
 - motion granularity: individual or parent group;
 - coordinate mode: rebased or large-world-coordinate;
-- material mode: shared or per-actor.
+- actor material ownership: shared or per-actor;
+- static context mode: unbatched or merged by compatible material.
 
 Shared geometry means distinct actor nodes reference the same immutable
 `BufferGeometry` and compatible material. Each node retains an independent
@@ -159,9 +257,38 @@ actor to establish a deliberately expensive comparison.
 Group animation changes a parent `THREE.Group` transform. Individual animation
 changes each actor node's transform. Both modes preserve child addressability.
 
+Actor material sharing measures allocation and state reuse; it is not described
+as draw-call batching. The explicit static-context comparison creates the same
+deterministic, non-animatable context geometry in two forms:
+
+- **unbatched:** one mesh node per context piece;
+- **merged by material:** compatible context geometries are transformed into a
+  common local frame and merged into one `BufferGeometry` per material.
+
+Triangle content, materials, camera, and actor nodes remain equivalent across
+the comparison. Animatable actors are never included in merged context
+geometry. The report compares context node count, draw calls, construction
+time, CPU submission time, and GPU duration.
+
 The large-coordinate variant offsets actors by a deterministic Rhino-like
 world coordinate. The rebased variant subtracts a recorded scene origin before
 rendering. The report records the origin and coordinate mode.
+
+Coordinate rebasing is evaluated visually, not only recorded. At requested
+times `0`, `0.5`, and `1.0` seconds, the harness renders the same relative scene
+twice into fixed-size offscreen targets: once near the origin and once with both
+scene and camera shifted by the deterministic large-world offset. It reads both
+pixel buffers and reports mean absolute channel error, maximum channel error,
+and the ratio of channels whose absolute difference exceeds 2 on an 8-bit
+scale. The comparison passes when mean absolute channel error is at most 0.25
+and the differing-channel ratio is at most 0.1 percent. Maximum channel error
+is retained as diagnostic evidence but is not a separate pass gate. A failure
+is reported as large-coordinate precision divergence; it does not make the
+renderer or loader itself fail.
+
+Offscreen pixel readback and comparison run outside the warm-up and 300-frame
+performance sample windows so synchronous `readPixels` cost does not contaminate
+the CPU or GPU frame distributions.
 
 ## Deterministic Time Contract
 
@@ -199,8 +326,10 @@ The interface remains functional rather than productized. It contains:
 - a structural and performance report table;
 - an error panel that preserves the last failed configuration.
 
-The default synthetic configuration uses 376 actors because it matches the
-existing Pearson roof actor-set size observed during design exploration.
+The default synthetic configuration uses 338 actors because that is the current
+verified Pearson grouped animation set size. The broader captured parent actor
+set and older mocked dispatch examples are not treated as the animation-set
+provenance for this preset.
 
 The harness does not automatically run the 10,000-node case on page load.
 Expensive cases require an explicit user action.
@@ -215,13 +344,17 @@ Each completed run reports, when supported by the browser:
 - load or construction duration;
 - scene traversal duration;
 - node, actor, mesh, material, triangle, and draw-call counts;
+- geometry/material ownership and static-context batching mode;
 - actor IDs discovered, duplicate IDs, and missing-ID counts;
-- seek sample count, average seek time, and worst seek time;
-- render sample count, average render time, and worst render time;
+- seek sample count with p50, p95, p99, and maximum CPU time;
+- render sample count with p50, p95, p99, and maximum CPU-submission time;
+- valid/disjoint GPU sample counts with p50, p95, p99, and maximum GPU duration
+  when the timer-query extension is available;
 - deterministic-seek pass or failure;
 - independent-transform pass or failure;
 - pivot sanity pass or failure;
 - coordinate mode and recorded rebase origin;
+- fixed-camera coordinate precision comparison at all required sample times;
 - JavaScript heap observations only when the browser exposes them;
 - warnings and failures.
 
@@ -259,6 +392,13 @@ pivots in local GLBs because that requires the later Rook export contract.
 Repeated evaluation of the same time must produce the same stable transform
 hash regardless of evaluation order.
 
+### Coordinate precision
+
+The fixed-camera offscreen comparison verifies that applying a Rhino-like world
+offset to both scene and camera does not silently change the rendered result
+beyond the defined tolerance. Results retain the raw error metrics even when
+the pass/fail threshold is met.
+
 ## Failure Handling
 
 - WebGL initialization failure stops the run and reports the renderer error.
@@ -279,20 +419,30 @@ hash regardless of evaluation order.
 
 Focused automated tests cover:
 
+- the metadata fixture generator is byte-deterministic and matches the
+  committed SHA-256;
+- `GLTFLoader` imports the known metadata-bearing fixture with the exact actor
+  and actor-set IDs available through `userData`;
 - identical synthetic input produces identical actor parameters and IDs;
 - requested actor counts produce the expected unique actor index;
 - shared geometry preserves distinct actor transforms;
+- static-context merged and unbatched variants preserve triangle/material
+  equivalence while reporting their different node and draw-call counts;
 - duplicate IDs fail indexing;
 - absolute-time evaluation is order-independent;
-- large-coordinate and rebased configurations record the expected origin;
+- large-coordinate and rebased configurations record the expected origin and
+  execute the fixed-camera pixel-difference check at all required times;
 - report averages and worst-case calculations handle empty and populated
   samples without fabricating unavailable values;
+- nearest-rank p50, p95, and p99 calculations match fixed test vectors, and GPU
+  classification becomes unavailable below the valid-sample floor;
 - disposal visits generated resources without double-disposing shared assets.
 
 Manual browser checks cover:
 
 - all four actor-count presets;
 - shared versus duplicated geometry;
+- static context unbatched versus merged by material;
 - individual versus group animation;
 - rebased versus large-coordinate scenes;
 - local GLB loading;
@@ -305,12 +455,49 @@ The experiment owns its `package.json` and lockfile. Production Rook projects do
 not reference those dependencies. The experiment uses npm scripts for local
 development, tests, and a production build check.
 
+The tested toolchain baseline is Node `22.20.0` with npm `10.9.3`. The package
+declares `engines.node` as `>=22.12.0 <23` and
+`packageManager: "npm@10.9.3"`. Direct dependencies are exact versions with no
+caret or tilde ranges:
+
+```text
+dependencies:
+  three: 0.181.2
+devDependencies:
+  vite: 8.1.4
+  vitest: 4.1.10
+```
+
+The committed `package-lock.json` is the transitive dependency lock. Changing a
+direct version or Node major requires an explicit experiment update and a fresh
+benchmark-environment record.
+
+Before any `npm install`, the implementation creates:
+
+```text
+experiments/threejs-rhino-stress/.gitignore
+```
+
+with at least:
+
+```text
+node_modules/
+dist/
+reports/
+tmp/
+```
+
+The install step is blocked until `git check-ignore` confirms that a probe path
+under the experiment's `node_modules/` is ignored. The repository root does not
+currently ignore `node_modules`, so this experiment-local file is a load-bearing
+precondition rather than documentation of an existing repository rule.
+
 Generated directories and files are ignored locally, including:
 
 - `node_modules/`;
 - `dist/`;
-- temporary GLBs copied solely for testing;
-- generated report files if persistence is added later.
+- `tmp/`, including temporary GLBs copied solely for testing;
+- `reports/`, including generated report files if persistence is added later.
 
 No Rook installer or deployment script discovers or packages this experiment.
 
@@ -319,15 +506,24 @@ No Rook installer or deployment script discovers or packages this experiment.
 The first slice is complete when:
 
 - the experiment installs independently from its directory;
+- the experiment-local `.gitignore` exists and `git check-ignore` proves
+  `node_modules/` is ignored before dependency installation;
+- Node, npm, and all direct dependency versions match the pinned policy;
 - its automated tests pass;
 - its production build succeeds;
-- the browser harness runs synthetic scenes at 100, 376, 1,000, and 10,000
+- the browser harness runs synthetic scenes at 100, 338, 1,000, and 10,000
   actors only when requested;
 - stable actor lookup and independent transforms are verified;
 - shared and duplicated geometry variants are measurable;
-- rebased and large-coordinate variants are measurable;
+- static-context batching preserves equivalent visible content and reports its
+  node, draw-call, CPU, and GPU differences;
+- rebased and large-coordinate variants execute the defined fixed-camera image
+  comparison and report precision divergence rather than only recording an
+  origin;
 - absolute-time seek determinism is verified;
 - a local GLB can be loaded without a network request;
+- the committed metadata-bearing GLB fixture survives `GLTFLoader` import with
+  its exact actor identities and passes actor-index lookup;
 - structural and timing results are visible and copyable as JSON;
 - no production Rook project, runtime, installer, or deploy artifact depends on
   Three.js or Vite.
