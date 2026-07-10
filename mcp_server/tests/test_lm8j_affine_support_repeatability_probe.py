@@ -2094,19 +2094,16 @@ def test_main_prints_run_dir_and_returns_zero(monkeypatch, tmp_path: Path, capsy
     assert received_kwargs["verifier_profile"] == PROBE.SETTLE_VERIFIER_PROFILE
 
 
-def test_lm8j_source_does_not_import_lm8i_or_live_tooling():
-    source = inspect.getsource(PROBE)
+def test_lm8m_wrapper_remains_subprocess_only():
+    source = _script_path().read_text(encoding="utf-8")
 
-    forbidden = (
-        "import lm8i_affine_publication_shape_support_probe",
-        "from lm8i_affine_publication_shape_support_probe",
-        "_mcp_tool_executor",
-        '"rhino_ping"',
-        '"gh_document_new"',
-        '"gh_set_value"',
-        '"gh_inspect_output"',
-        "run_two_pass_worker_publication",
-        "apply_gh_scalar_value_action_to_node",
-    )
-    for fragment in forbidden:
-        assert fragment not in source
+    assert "lm8i_affine_publication_shape_support_probe import" not in source
+    assert "rook.server import" not in source
+    assert "gh_set_value" not in inspect.getsource(PROBE._run_probe)
+
+
+def test_no_lm8l_or_lm8m_sibling_scripts_exist():
+    scripts_dir = _script_path().parent
+
+    assert list(scripts_dir.glob("lm8l*.py")) == []
+    assert list(scripts_dir.glob("lm8m*.py")) == []

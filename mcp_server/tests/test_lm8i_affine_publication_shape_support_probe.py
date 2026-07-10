@@ -1774,6 +1774,17 @@ def test_lm8i_source_does_not_import_lm8h_lm8g_repair_planner_retry_or_gh_edit_p
         assert fragment not in source
 
 
+def test_managed_profile_has_no_settle_fallback_or_extra_solve():
+    managed_source = inspect.getsource(
+        PROBE._dispatch_set_value_managed_receipt_and_verify
+    )
+
+    assert '"gh_solve"' not in managed_source
+    assert "asyncio.sleep" not in managed_source
+    assert '"gh_solve_readiness"' not in managed_source
+    assert "_dispatch_set_value_solve_and_verify" not in managed_source
+
+
 def test_lm8i_source_does_not_contain_hidden_worker_value_literal():
     source = inspect.getsource(PROBE)
     assert "3.0" not in source
