@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { vi } from "vitest";
-import { BENCHMARK_PROTOCOL, DEFAULT_CONFIG } from "../src/config.js";
+import {
+  ACTOR_PRESETS, BENCHMARK_PROTOCOL, DEFAULT_CONFIG,
+} from "../src/config.js";
+import { disposeScene } from "../src/disposal.js";
+import { addFixedLights, createCamera } from "../src/renderer.js";
 import { createSyntheticScene } from "../src/scene-generator.js";
 
 describe("scene generator", () => {
@@ -38,9 +42,48 @@ describe("scene generator", () => {
   });
 
   it("duplicates materials only when selected", () => {
-    const result = createSyntheticScene({ actorCount: 2, materialOwnership: "duplicated" });
-    expect(result.actors[0].children[0].material)
-      .not.toBe(result.actors[1].children[0].material);
+    const result = createSyntheticScene({ actorCount: 2, materialOwnership: "per-actor" });
+    const left = result.actors[0].children[0].material;
+    const right = result.actors[1].children[0].material;
+    expect(left).not.toBe(right);
+    expect(left.color.getHex()).toBe(right.color.getHex());
+    expect(left.roughness).toBe(right.roughness);
+    expect(left.metalness).toBe(right.metalness);
+  });
+
+  it("keeps directional-light direction invariant under world rebasing", () => {
+    const rebased = new THREE.Scene();
+    const large = new THREE.Scene();
+    addFixedLights(rebased, [0, 0, 0]);
+    addFixedLights(large, [300000, -200000, 20000]);
+    const nearLight = rebased.children.find((object) => object.isDirectionalLight);
+    const farLight = large.children.find((object) => object.isDirectionalLight);
+    const nearDirection = nearLight.position.clone().sub(nearLight.target.position);
+    const farDirection = farLight.position.clone().sub(farLight.target.position);
+
+    expect(farDirection.toArray()).toEqual(nearDirection.toArray());
+    expect(nearLight.target.parent).toBe(rebased);
+    expect(farLight.target.parent).toBe(large);
+  });
+
+  it.each(ACTOR_PRESETS)("frames all %i actors inside the camera frustum", (actorCount) => {
+    const generated = createSyntheticScene({ actorCount });
+    const camera = createCamera(
+      generated.appliedRenderOffset,
+      generated.scene,
+    );
+    generated.scene.updateMatrixWorld(true);
+    camera.updateMatrixWorld(true);
+    const projectionView = new THREE.Matrix4().multiplyMatrices(
+      camera.projectionMatrix,
+      camera.matrixWorldInverse,
+    );
+    const frustum = new THREE.Frustum().setFromProjectionMatrix(projectionView);
+    const visibleActors = generated.actors.filter((actor) =>
+      frustum.intersectsObject(actor.children[0])).length;
+
+    expect(visibleActors).toBe(actorCount);
+    disposeScene(generated.scene);
   });
 
   it.each([

@@ -246,6 +246,7 @@ let renderer = null;
 let active = null;
 let report = null;
 let localGlbBytes = null;
+let localGlbProvenance = null;
 const runCoordinator = createRunCoordinator();
 
 if (typeof document !== "undefined") initializeDashboard();
@@ -305,31 +306,40 @@ async function buildOrLoad() {
 
   active = outcome.value.context;
   localGlbBytes = outcome.value.bytes;
+  localGlbProvenance = outcome.value.provenance;
   renderAt(0);
   el.status.textContent = "Loaded " + active.actorIndex.size + " actors.";
 }
 
 function buildSynthetic(config) {
   const generated = createSyntheticScene(config);
-  addFixedLights(generated.scene, generated.appliedRenderOffset);
-  return finalizeContext(
-    generated, createCamera(generated.appliedRenderOffset),
+  const camera = createCamera(
+    generated.appliedRenderOffset, generated.actorRoot,
   );
+  addFixedLights(generated.scene, generated.appliedRenderOffset);
+  return finalizeContext(generated, camera);
 }
 
 async function loadLocal(config) {
   const file = el["glb-file"].files[0];
   if (!file) throw new Error("Choose a local GLB file first");
   const bytes = await file.arrayBuffer();
+  const provenance = await createLocalGlbProvenance(file, bytes);
   return {
-    context: await buildLocalFromBytes(config, bytes),
+    context: await buildLocalFromBytes(config, bytes, provenance),
     bytes,
+    provenance,
   };
 }
 
-async function buildLocalFromBytes(config, bytes = localGlbBytes) {
+async function buildLocalFromBytes(
+  config,
+  bytes = localGlbBytes,
+  provenance = localGlbProvenance,
+) {
   if (!bytes) throw new Error("Choose and load a local GLB first");
   const gltf = await loadGlbArrayBuffer(bytes.slice(0));
+  const camera = createCamera([0, 0, 0], gltf.scene);
   addFixedLights(gltf.scene);
   return finalizeContext({
     scene: gltf.scene,
@@ -340,7 +350,26 @@ async function buildLocalFromBytes(config, bytes = localGlbBytes) {
     rebaseOrigin: [0, 0, 0],
     appliedRenderOffset: [0, 0, 0],
     sourceKind: "local_glb",
-  }, createCamera());
+    sourceProvenance: provenance,
+  }, camera);
+}
+
+export async function createLocalGlbProvenance(
+  file,
+  bytes,
+  subtle = globalThis.crypto?.subtle,
+) {
+  if (!subtle) throw new Error("Web Crypto is required for GLB provenance");
+  const digest = await subtle.digest("SHA-256", bytes);
+  const sha256 = [...new Uint8Array(digest)]
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+  return {
+    sourceKind: "local_glb",
+    filename: file.name,
+    sizeBytes: bytes.byteLength,
+    sha256,
+  };
 }
 
 export function finalizeContext(context, camera, now = performance.now.bind(performance)) {
@@ -382,6 +411,10 @@ async function run() {
     throw new Error("Build / Load the local GLB before benchmarking");
   }
   const configSnapshot = Object.freeze(readConfig());
+  const sourceKind = selectedSource === "glb" ? "local_glb" : "synthetic";
+  const sourceProvenance = selectedSource === "glb"
+    ? { ...localGlbProvenance }
+    : { sourceKind: "synthetic", actorCount: configSnapshot.actorCount };
   const outcome = await runCoordinator.start(async ({ signal }) => {
     disposePreview();
     el.run.disabled = true;
@@ -391,8 +424,10 @@ async function run() {
       renderer,
       signal,
       environment: captureEnvironment(renderer),
+      sourceKind,
+      sourceProvenance,
       buildScene: async () => buildTrialSource(
-        configSnapshot, selectedSource,
+        configSnapshot, selectedSource, sourceProvenance,
       ),
       evaluate: evaluateAt,
       dispose: disposeScene,
@@ -415,9 +450,9 @@ async function run() {
   el.status.textContent = "Headline tier: " + report.headline.tier;
 }
 
-function buildTrialSource(config, source) {
+function buildTrialSource(config, source, provenance) {
   return source === "glb"
-    ? buildLocalFromBytes(config)
+    ? buildLocalFromBytes(config, localGlbBytes, provenance)
     : Promise.resolve(buildSynthetic(config));
 }
 
@@ -438,6 +473,7 @@ async function reset() {
   await runCoordinator.invalidate();
   disposePreview();
   localGlbBytes = null;
+  localGlbProvenance = null;
   report = null;
   el.run.disabled = false;
   el.report.textContent = "No report.";

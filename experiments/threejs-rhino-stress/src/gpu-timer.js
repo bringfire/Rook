@@ -23,9 +23,10 @@ export function createGpuTimer(gl) {
       if (!extension) return;
       const disjoint = gl.getParameter(extension.GPU_DISJOINT_EXT);
       if (disjoint) {
-        disjointCount += pending.length;
+        disjointCount += pending.length + samplesMs.length;
         pending.forEach((query) => gl.deleteQuery(query));
         pending.length = 0;
+        samplesMs.length = 0;
         return;
       }
       for (let index = pending.length - 1; index >= 0; index -= 1) {

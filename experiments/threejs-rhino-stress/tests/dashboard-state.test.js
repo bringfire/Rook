@@ -198,6 +198,23 @@ it("uses one structured GLB build failure for display and copying", () => {
   expect(JSON.parse(JSON.stringify(failure))).toEqual(failure);
 });
 
+it("creates safe local GLB provenance with filename, size, and SHA-256", async () => {
+  expect(dashboard.createLocalGlbProvenance).toBeTypeOf("function");
+  const bytes = new TextEncoder().encode("abc");
+  const input = bytes.buffer.slice(
+    bytes.byteOffset, bytes.byteOffset + bytes.byteLength,
+  );
+
+  await expect(dashboard.createLocalGlbProvenance({
+    name: "fixture.glb", size: bytes.byteLength,
+  }, input)).resolves.toEqual({
+    sourceKind: "local_glb",
+    filename: "fixture.glb",
+    sizeBytes: 3,
+    sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+  });
+});
+
 it("disposes the first precision scene when the paired build fails", () => {
   expect(dashboard.runPrecisionEvidence).toBeTypeOf("function");
   const rebased = { scene: {} };

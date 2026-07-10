@@ -136,6 +136,46 @@ it("discards every pending query when a GPU disjoint is observed", () => {
   expect(timer.snapshot().samplesMs).toEqual([]);
 });
 
+it("invalidates previously collected GPU samples after a late disjoint", () => {
+  const extension = {
+    TIME_ELAPSED_EXT: "TIME_ELAPSED_EXT",
+    GPU_DISJOINT_EXT: "GPU_DISJOINT_EXT",
+  };
+  const queries = [{ id: 1 }, { id: 2 }];
+  let disjoint = false;
+  const gl = {
+    QUERY_RESULT_AVAILABLE: "QUERY_RESULT_AVAILABLE",
+    QUERY_RESULT: "QUERY_RESULT",
+    getExtension: vi.fn(() => extension),
+    createQuery: vi.fn(() => queries.shift()),
+    beginQuery: vi.fn(),
+    endQuery: vi.fn(),
+    getParameter: vi.fn(() => disjoint),
+    getQueryParameter: vi.fn((_query, parameter) => (
+      parameter === "QUERY_RESULT_AVAILABLE" ? true : 7_000_000
+    )),
+    deleteQuery: vi.fn(),
+  };
+  const timer = createGpuTimer(gl);
+
+  timer.begin();
+  timer.end();
+  timer.poll();
+  expect(timer.snapshot().samplesMs).toEqual([7]);
+
+  timer.begin();
+  timer.end();
+  disjoint = true;
+  timer.poll();
+
+  expect(timer.snapshot()).toEqual({
+    available: true,
+    samplesMs: [],
+    disjointCount: 2,
+    pendingCount: 0,
+  });
+});
+
 it.each(["render", "readRenderTargetPixels"])(
   "restores the full render-target state when %s throws",
   (failingMethod) => {

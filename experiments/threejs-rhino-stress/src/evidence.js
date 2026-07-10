@@ -2,6 +2,15 @@ import { REVISION, Vector3 } from "three";
 import { evaluateAt, transformSnapshot } from "./animation.js";
 import { BENCHMARK_PROTOCOL } from "./config.js";
 
+const DETERMINISTIC_SEEK_SAMPLE_TIMES = Object.freeze([
+  0, 0.25, 0.5, 0.75, 1,
+]);
+const DETERMINISTIC_SEEK_ORDERS = Object.freeze({
+  forward: DETERMINISTIC_SEEK_SAMPLE_TIMES,
+  reverse: [...DETERMINISTIC_SEEK_SAMPLE_TIMES].reverse(),
+  shuffled: [0.5, 0, 1, 0.25, 0.75],
+});
+
 export function validateProtocolEnvironment({
   visibilityState, width, height,
 }) {
@@ -55,13 +64,9 @@ export function runCorrectnessChecks(context) {
     };
   }
 
-  evaluateAt(context, 0.75);
-  const first = transformSnapshot(context.actorIndex, context.actorRoot);
-  evaluateAt(context, 0.1);
-  evaluateAt(context, 0.75);
-  const deterministicSeek = transformSnapshot(
-    context.actorIndex, context.actorRoot,
-  ) === first;
+  const seekEvidence = checkDeterministicSeek(context);
+  const deterministicSeek = Object.values(seekEvidence.orders)
+    .every(Boolean);
   updateWorldMatrices(context);
 
   const firstActor = actors[0];
@@ -72,6 +77,8 @@ export function runCorrectnessChecks(context) {
   const independentTransform = secondActor.matrixWorld.equals(secondBefore);
 
   let pivotSanity;
+  const syntheticIdentity = checkSyntheticIdentity(context);
+  const sharedGeometry = checkSharedGeometry(context, actors);
   if (context.sourceKind !== "synthetic") {
     pivotSanity = {
       status: "unavailable",
@@ -109,12 +116,64 @@ export function runCorrectnessChecks(context) {
   return {
     pass: deterministicSeek
       && independentTransform
+      && syntheticIdentity.status !== "failed"
+      && sharedGeometry.status !== "failed"
       && pivotSanity.status !== "failed",
     deterministicSeek,
     deterministicSeekScope: "actor_root_and_actors",
+    deterministicSeekOrders: seekEvidence.orders,
+    deterministicSeekSampleTimes: [...DETERMINISTIC_SEEK_SAMPLE_TIMES],
     independentTransform,
+    syntheticIdentity,
+    sharedGeometry,
     pivotSanity,
   };
+}
+
+function checkDeterministicSeek(context) {
+  const hashes = new Map();
+  const orders = {};
+  Object.entries(DETERMINISTIC_SEEK_ORDERS).forEach(([name, times]) => {
+    let passed = true;
+    times.forEach((time) => {
+      evaluateAt(context, time);
+      const snapshot = transformSnapshot(
+        context.actorIndex, context.actorRoot,
+      );
+      if (hashes.has(time)) passed &&= hashes.get(time) === snapshot;
+      else hashes.set(time, snapshot);
+    });
+    orders[name] = passed;
+  });
+  return { orders };
+}
+
+function checkSyntheticIdentity(context) {
+  if (context.sourceKind !== "synthetic") return { status: "unavailable" };
+  const expectedCount = Number(context.config?.actorCount ?? 0);
+  const expectedIds = Array.from({ length: expectedCount }, (_, index) =>
+    `synthetic_actor_${String(index).padStart(6, "0")}`);
+  const actualIds = [...context.actorIndex.keys()].sort();
+  const passed = actualIds.length === expectedIds.length
+    && actualIds.every((actorId, index) => actorId === expectedIds[index]);
+  return {
+    status: passed ? "passed" : "failed",
+    expectedCount,
+    actualCount: actualIds.length,
+  };
+}
+
+function checkSharedGeometry(context, actors) {
+  if (context.sourceKind !== "synthetic") return { status: "unavailable" };
+  if (context.config?.geometryOwnership !== "shared") {
+    return { status: "not_applicable" };
+  }
+  const firstGeometry = actors[0]?.children?.find(
+    (child) => child.isMesh,
+  )?.geometry;
+  const passed = Boolean(firstGeometry) && actors.every((actor) =>
+    actor.children.find((child) => child.isMesh)?.geometry === firstGeometry);
+  return { status: passed ? "passed" : "failed" };
 }
 
 function updateWorldMatrices(context) {

@@ -25,7 +25,17 @@ it("checks deterministic seek, independent transforms, and pivots", () => {
     pass: true,
     deterministicSeek: true,
     deterministicSeekScope: "actor_root_and_actors",
+    deterministicSeekOrders: {
+      forward: true,
+      reverse: true,
+      shuffled: true,
+    },
+    deterministicSeekSampleTimes: [0, 0.25, 0.5, 0.75, 1],
     independentTransform: true,
+    syntheticIdentity: {
+      status: "passed", expectedCount: 3, actualCount: 3,
+    },
+    sharedGeometry: { status: "passed" },
     pivotSanity: { status: "passed" },
   });
 });
@@ -39,6 +49,40 @@ it("checks deterministic group motion with root-aware snapshots", () => {
     pass: true,
     deterministicSeek: true,
     deterministicSeekScope: "actor_root_and_actors",
+    deterministicSeekOrders: {
+      forward: true,
+      reverse: true,
+      shuffled: true,
+    },
+  });
+});
+
+it("fails synthetic correctness when the expected ID set changes", () => {
+  const context = createSyntheticScene({ actorCount: 3 });
+  context.actorIndex = buildActorIndex(context.actorRoot).actors;
+  context.actorIndex.delete("synthetic_actor_000002");
+  context.motionGranularity = "individual";
+
+  expect(runCorrectnessChecks(context)).toMatchObject({
+    pass: false,
+    syntheticIdentity: {
+      status: "failed", expectedCount: 3, actualCount: 2,
+    },
+  });
+});
+
+it("fails shared-geometry correctness when sharing is broken", () => {
+  const context = createSyntheticScene({
+    actorCount: 3, geometryOwnership: "shared",
+  });
+  context.actorIndex = buildActorIndex(context.actorRoot).actors;
+  context.actors[2].children[0].geometry =
+    context.actors[2].children[0].geometry.clone();
+  context.motionGranularity = "individual";
+
+  expect(runCorrectnessChecks(context)).toMatchObject({
+    pass: false,
+    sharedGeometry: { status: "failed" },
   });
 });
 
@@ -49,6 +93,8 @@ it("reports arbitrary local-GLB pivot validation as unavailable", () => {
   context.motionGranularity = "individual";
   const result = runCorrectnessChecks(context);
   expect(result.pass).toBe(true);
+  expect(result.syntheticIdentity).toEqual({ status: "unavailable" });
+  expect(result.sharedGeometry).toEqual({ status: "unavailable" });
   expect(result.pivotSanity).toEqual({
     status: "unavailable",
     reason: "arbitrary local GLB pivot semantics are outside this experiment",

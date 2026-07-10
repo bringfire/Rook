@@ -53,7 +53,7 @@ export function createSyntheticScene(overrides = {}) {
       : sharedGeometry.clone();
     const material = config.materialOwnership === "shared"
       ? sharedMaterial
-      : new THREE.MeshStandardMaterial({ color: 0x4aa3ff + (index % 32) });
+      : sharedMaterial.clone();
     actor.add(new THREE.Mesh(geometry, material));
     actorRoot.add(actor);
     actors.push(actor);
@@ -70,6 +70,10 @@ export function createSyntheticScene(overrides = {}) {
     actors,
     config,
     sourceKind: "synthetic",
+    sourceProvenance: {
+      sourceKind: "synthetic",
+      actorCount: config.actorCount,
+    },
     sourceOrigin: sourceOrigin.toArray(),
     rebaseOrigin: rebaseOrigin.toArray(),
     appliedRenderOffset: appliedRenderOffset.toArray(),

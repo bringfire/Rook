@@ -161,6 +161,10 @@ it("aborts callback protocol-probe failure and disposes the scene", async () => 
 it("retains complete trial evidence and addressability correctness", async () => {
   const context = {
     ...createContext(),
+    sourceKind: "synthetic",
+    sourceProvenance: {
+      sourceKind: "synthetic", actorCount: 1,
+    },
     structure: { nodes: 4, actors: 1 },
     sceneTraversalMs: 7,
     sourceOrigin: [1, 2, 3],
@@ -185,6 +189,10 @@ it("retains complete trial evidence and addressability correctness", async () =>
 
   expect(checkCorrectness).toHaveBeenCalledWith(context);
   expect(result).toMatchObject({
+    sourceKind: "synthetic",
+    sourceProvenance: {
+      sourceKind: "synthetic", actorCount: 1,
+    },
     structure: context.structure,
     sceneTraversalMs: 7,
     origins: {
@@ -208,6 +216,29 @@ it("retains captured environment at the report root", async () => {
     runTrialImpl: vi.fn(),
   });
   expect(report.environment).toBe(environment);
+});
+
+it("retains serializable source provenance at the report root", async () => {
+  const sourceProvenance = {
+    sourceKind: "local_glb",
+    filename: "actor-metadata.glb",
+    sizeBytes: 896,
+    sha256: "efc13eb1b477a8f64faa64ec83983691e8c095121a3689109b4bad26c59071e4",
+  };
+  const report = await runConfiguration({
+    config: {},
+    sourceKind: "local_glb",
+    sourceProvenance,
+    trialCount: 0,
+    runTrialImpl: vi.fn(),
+  });
+
+  expect(report).toMatchObject({
+    sourceKind: "local_glb",
+    sourceProvenance,
+  });
+  expect(JSON.parse(JSON.stringify(report)).sourceProvenance)
+    .toEqual(sourceProvenance);
 });
 
 it("performs exactly one scene world-matrix traversal per measured frame", async () => {

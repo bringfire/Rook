@@ -134,6 +134,8 @@ export async function runTrial({
         disjointCount: gpuRaw.disjointCount,
       },
       structure: context.structure,
+      sourceKind: context.sourceKind,
+      sourceProvenance: context.sourceProvenance,
       sceneTraversalMs: context.sceneTraversalMs,
       origins: {
         sourceOrigin: context.sourceOrigin,
@@ -193,6 +195,8 @@ export async function runTrial({
 export async function runConfiguration({
   config,
   environment,
+  sourceKind,
+  sourceProvenance,
   trialCount = BENCHMARK_PROTOCOL.trials,
   runTrialImpl = runTrial,
   ...options
@@ -210,6 +214,8 @@ export async function runConfiguration({
     schemaVersion: 1,
     config,
     environment,
+    sourceKind,
+    sourceProvenance,
     trials,
     headline: classifyConfiguration(trials),
     pooled: {
