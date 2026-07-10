@@ -215,6 +215,23 @@ def test_cli_defaults_are_canonical_lm8i_shape():
     assert args.canonical_evidence is True
 
 
+def test_cli_defaults_to_settle_v1_without_changing_canonical_shape():
+    args = PROBE._args([])
+    assert args.verifier_profile == PROBE.SETTLE_VERIFIER_PROFILE
+    assert args.canonical_evidence is True
+
+
+def test_cli_accepts_only_managed_receipt_v2_as_the_alternate_profile():
+    args = PROBE._args(["--verifier-profile", "managed_receipt_v2"])
+    assert args.verifier_profile == PROBE.MANAGED_VERIFIER_PROFILE
+
+    with pytest.raises(SystemExit):
+        PROBE._args(["--verifier-profile", "unknown"])
+
+    with pytest.raises(SystemExit):
+        PROBE._args(["--readiness-wait-timeout-ms", "1"])
+
+
 def test_cli_rejects_non_lm8i_surfaces():
     forbidden = [
         ["--phase", "receipt_recon"],
@@ -246,6 +263,35 @@ def test_manifest_records_lm8i_identity():
     assert manifest["worker_retry_enabled"] is False
     assert manifest["planner_model"] is None
     assert manifest["gh_edit_enabled"] is False
+
+
+def test_settle_manifest_is_exact_historical_shape():
+    manifest = PROBE._manifest(
+        model=PROBE.DEFAULT_MODEL,
+        endpoint=PROBE.DEFAULT_ENDPOINT,
+        temperature=PROBE.DEFAULT_TEMPERATURE,
+        canonical_evidence=True,
+        verifier_profile=PROBE.SETTLE_VERIFIER_PROFILE,
+    )
+    assert manifest["schema"] == PROBE.SCRIPT_SCHEMA
+    assert "verifier_profile" not in manifest
+    assert "verifier_mechanism" not in manifest
+    assert "fixture_readiness_profile" not in manifest
+    assert "readiness_wait_timeout_ms" not in manifest
+
+
+def test_managed_manifest_records_only_the_new_profile_metadata():
+    manifest = PROBE._manifest(
+        model=PROBE.DEFAULT_MODEL,
+        endpoint=PROBE.DEFAULT_ENDPOINT,
+        temperature=PROBE.DEFAULT_TEMPERATURE,
+        canonical_evidence=True,
+        verifier_profile=PROBE.MANAGED_VERIFIER_PROFILE,
+    )
+    assert manifest["verifier_profile"] == "managed_receipt_v2"
+    assert manifest["verifier_mechanism"] == "managed_solve_readiness_receipt"
+    assert manifest["fixture_readiness_profile"] == "lm8i_legacy_setup_v1"
+    assert manifest["readiness_wait_timeout_ms"] == 10_000
 
 
 def test_lm8i_identity_surfaces_do_not_emit_lm8h_labels():
@@ -537,6 +583,33 @@ def test_run_probe_supports_exact_skeletal_pass1_then_accepts(tmp_path):
         captured_payloads[1]["context"]["knowledge"],
         sort_keys=True,
     )
+
+
+def test_default_settle_path_preserves_tool_tail_and_verify_artifact_shape(tmp_path):
+    executor = FakeToolExecutor(_fixture_responses_for_success())
+    run_dir = PROBE._run_probe(
+        model=PROBE.DEFAULT_MODEL,
+        endpoint=PROBE.DEFAULT_ENDPOINT,
+        temperature=PROBE.DEFAULT_TEMPERATURE,
+        timeout_s=120,
+        excerpt_chars=1200,
+        run_root=tmp_path,
+        canonical_evidence=True,
+        tool_executor=executor,
+        publication_runner=lambda *_args, **_kwargs: _published_action(3.0),
+    )
+
+    assert [name for name, _ in executor.calls][-3:] == [
+        "gh_set_value",
+        "gh_solve",
+        "gh_inspect_output",
+    ]
+    assert not (run_dir / "readiness_wait_summary.json").exists()
+    verify = json.loads(
+        (run_dir / "verify_scalar_output_summary.json").read_text()
+    )
+    assert "verifier_profile" not in verify
+    assert "settle_read_count" not in verify
 
 
 @pytest.mark.parametrize(

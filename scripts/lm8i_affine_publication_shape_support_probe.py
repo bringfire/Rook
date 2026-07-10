@@ -85,6 +85,15 @@ EXPECTED_OUTPUT_VALUE = 7.5
 SCALAR_TOLERANCE = 1e-9
 VERIFY_INSPECT_ATTEMPTS = 3
 VERIFY_INSPECT_DELAY_S = 0.1
+SETTLE_VERIFIER_PROFILE = "settle_v1"
+MANAGED_VERIFIER_PROFILE = "managed_receipt_v2"
+VERIFIER_PROFILES = (
+    SETTLE_VERIFIER_PROFILE,
+    MANAGED_VERIFIER_PROFILE,
+)
+READINESS_WAIT_TIMEOUT_MS = 10_000
+VERIFIER_MECHANISM = "managed_solve_readiness_receipt"
+FIXTURE_READINESS_PROFILE = "lm8i_legacy_setup_v1"
 WORKER_NODE_ID = "set_scalar_value"
 CREATE_NODE_ID = "create_affine_scalar_transform"
 VERIFY_NODE_ID = "verify_affine_scalar_transform_output"
@@ -134,6 +143,11 @@ def _args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--excerpt-chars", type=int, default=DEFAULT_EXCERPT_CHARS)
     parser.add_argument("--run-dir", default="probe_runs")
     parser.add_argument("--canonical-evidence", action="store_true", default=True)
+    parser.add_argument(
+        "--verifier-profile",
+        choices=VERIFIER_PROFILES,
+        default=SETTLE_VERIFIER_PROFILE,
+    )
     args, unknown = parser.parse_known_args(argv)
     if unknown:
         parser.error(f"unsupported arguments: {' '.join(unknown)}")
@@ -1273,9 +1287,14 @@ def _build_local_turn_payload(
 
 
 def _manifest(
-    *, model: str, endpoint: str, temperature: float, canonical_evidence: bool
+    *,
+    model: str,
+    endpoint: str,
+    temperature: float,
+    canonical_evidence: bool,
+    verifier_profile: str = SETTLE_VERIFIER_PROFILE,
 ) -> dict[str, Any]:
-    return {
+    manifest = {
         "schema": SCRIPT_SCHEMA,
         "git_commit": _git_short_sha(),
         "model": model,
@@ -1296,6 +1315,16 @@ def _manifest(
         "planner_model": None,
         "gh_edit_enabled": False,
     }
+    if verifier_profile == MANAGED_VERIFIER_PROFILE:
+        manifest.update(
+            {
+                "verifier_profile": verifier_profile,
+                "verifier_mechanism": VERIFIER_MECHANISM,
+                "fixture_readiness_profile": FIXTURE_READINESS_PROFILE,
+                "readiness_wait_timeout_ms": READINESS_WAIT_TIMEOUT_MS,
+            }
+        )
+    return manifest
 
 
 def _decision_record(
@@ -1836,6 +1865,7 @@ def _run_probe(
     excerpt_chars: int,
     run_root: str | Path,
     canonical_evidence: bool,
+    verifier_profile: str = SETTLE_VERIFIER_PROFILE,
     tool_executor: Callable[[str, Mapping[str, Any]], Awaitable[Any]] | None = None,
     publication_runner: Callable[..., Any] | None = None,
 ) -> Path:
@@ -1847,6 +1877,7 @@ def _run_probe(
             endpoint=endpoint,
             temperature=temperature,
             canonical_evidence=canonical_evidence,
+            verifier_profile=verifier_profile,
         ),
     )
     if tool_executor is None:
@@ -2295,6 +2326,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         excerpt_chars=args.excerpt_chars,
         run_root=args.run_dir,
         canonical_evidence=args.canonical_evidence,
+        verifier_profile=args.verifier_profile,
     )
     decision = json.loads((run_dir / "decision.json").read_text(encoding="utf-8"))
     print(
