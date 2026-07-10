@@ -2559,9 +2559,131 @@ Worker-path integration with receipt-fenced scalar verification.
 Readiness behavior for larger or heavier Grasshopper definitions.
 ```
 
-The LM8F/I/J bounded verifier-settle loops remain in place. A separate
-migration slice must prove equivalent receipt-fenced live evidence before any
-of those legacy probe loops are removed.
+At LM8K arrival, the LM8F/I/J bounded verifier-settle loops remained in place.
+The LM8M section below records the separate worker-path migration evidence;
+historical settle behavior remains available as the unchanged LM8J baseline.
+
+## LM8M managed-receipt affine repeatability run (commit `3dddf920`)
+
+LM8M changed only the LM8I post-worker verification mechanism. Fixture setup,
+Gemma worker, publication support policy, scalar action contract, trusted
+applier, expected value, and twenty-attempt accounting stayed fixed. The
+historical LM8J baseline used bounded repeated output reads; LM8M required one
+managed readiness wait followed by exactly one receipt-fenced output read.
+
+Canonical run:
+
+```text
+run_dir: probe_runs/lm8m-20260710T192642Z-3dddf920/
+commit: 3dddf920
+schema: rook.lm8m_affine_managed_receipt_repeatability_probe:v1
+canonical_evidence: true
+comparison_success: true
+model: gemma4:12b-it-qat
+verifier_profile: managed_receipt_v2
+verifier_mechanism: managed_solve_readiness_receipt
+fixture_readiness_profile: lm8i_legacy_setup_v1
+scheduled_attempts: 20
+attempt_timeout_s: 600
+readiness_wait_timeout_ms: 10000
+replacement_attempts: false
+terminal_category_counts:
+  accepted: 20
+worker_reached_count: 20
+wrapper_error_count: 0
+rejected_count: 0
+gate_failed_count: 0
+preflight_failed_count: 0
+publication_failed_count: 0
+```
+
+The managed verifier contract held on every scheduled child:
+
+```text
+readiness_ready_count: 20
+total_readiness_wait_count: 20
+total_fenced_output_read_count: 20
+total_settle_read_count: 0
+managed_verifier_audit_pass_count: 20
+managed_verifier_audit_failure_count: 0
+managed_verifier_invariant_violation_count: 0
+accepted_child_audit_contradiction_count: 0
+post_mutation_run_advance_failure_count: 0
+readiness_failure_reason_counts: {}
+```
+
+Independent curation checks read all twenty `attempts.jsonl` rows and all sixty
+managed child stage artifacts. Every child had a pending mutation receipt, a
+ready wait receipt, and one fenced-read summary. Receipt hashes, document
+session ids, and mutation epochs matched across all three stages. Every ready
+solution run strictly advanced beyond its pending receipt's prior completed
+run, and wait/read solution epochs matched exactly.
+
+Worker and verifier results remained identical to LM8J:
+
+```text
+worker_action_values: 20 x 3.0
+observed_output_values_after: 20 x 7.5
+publication_support_attempted_count: 0
+publication_support_recovered_count: 0
+accepted_without_support_count: 20
+leak_marker_match_count: 0
+```
+
+The controlled comparison is:
+
+```text
+LM8J:
+  20/20 accepted
+  11 accepted on the first verifier read
+  9 required a second verifier read
+  probe-owned bounded settling
+
+LM8M:
+  20/20 accepted
+  20 managed readiness waits
+  exactly 20 receipt-fenced verifier reads
+  0 settle reads
+```
+
+The report-only marker scan over all child artifacts found no matches:
+
+```text
+PROBE_REPAIR_CODE: 0
+A = 42.0: 0
+BindStepSpec.base_params: 0
+repair_same_component.bind.base_params: 0
+```
+
+Interpretation:
+
+```text
+LM8M preserved the LM8J affine worker repeatability result while replacing
+timing-dependent verifier settling with the durable LM8K readiness receipt.
+For this controlled fixture, each worker-authored mutation reached a correlated
+ready solution and one freshness-fenced output read, with no polling fallback.
+```
+
+What this proves narrowly:
+
+```text
+The LM8K managed readiness receipt can be consumed by the LM8I worker path.
+The affine scalar fixture retained 20/20 acceptance under receipt-fenced
+verification.
+The managed verifier enforced one wait, one fenced read, and zero settle reads
+for every accepted child.
+```
+
+What this does not prove:
+
+```text
+Other Grasshopper mutators emit or consume readiness receipts.
+Production workflow runners have migrated from legacy settling.
+Receipt behavior scales to larger or heavier Grasshopper definitions.
+Publication support recovery works.
+Broad scalar reasoning, topology authorship, batch editing, Planner competence,
+or complexity scaling.
+```
 
 ## Updated comparison keys
 
@@ -2740,6 +2862,15 @@ mutation, correlated post-schedule solution lifecycle, opaque in-memory receipt
 authority, bounded managed wait, one receipt-fenced gh_inspect_output read,
 no post-mutation polling/sleep/repeated reads, deterministic live smoke,
 model_call false)`.
+
+LM8M: `(LM8J affine support repeatability wrapper with LM8M run identity,
+twenty scheduled independent LM8I affine attempts, verifier_profile
+managed_receipt_v2, same gemma4:12b-it-qat/direct Ollama/fixture/worker prompt/
+action/applier/support policy, gh_set_value managed pending receipt, one bounded
+managed readiness wait, exactly one receipt-fenced gh_inspect_output read, zero
+settle reads, child mutation/wait/read artifact audit, exact receipt/session/
+mutation/solution-run provenance checks, no replacement attempts, report-only
+leak marker scan, canonical_evidence true)`.
 
 Any prompt-text, scenario, params, candidate panel, or evidence-push change is a
 new experiment.
