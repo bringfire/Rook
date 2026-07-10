@@ -237,6 +237,27 @@ def _module_call_sites(
     return call_sites
 
 
+def _node_owners(tree: ast.Module) -> dict[int, str]:
+    owners: dict[int, str] = {}
+    for statement in tree.body:
+        owner_name = (
+            statement.name
+            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef))
+            else "<module>"
+        )
+        for node in ast.walk(statement):
+            owners[id(node)] = owner_name
+    return owners
+
+
+def _node_parents(tree: ast.Module) -> dict[int, ast.AST]:
+    return {
+        id(child): parent
+        for parent in ast.walk(tree)
+        for child in ast.iter_child_nodes(parent)
+    }
+
+
 def _command_is_from_lm8i_builder(
     owner: ast.FunctionDef | ast.AsyncFunctionDef | None,
     process_call: ast.Call,
@@ -374,6 +395,55 @@ def _lm8m_wrapper_guard_violations(source: str) -> list[str]:
                     if process_aliases.get(target_name) != process_reference:
                         process_aliases[target_name] = process_reference
                         changed = True
+
+    parents = _node_parents(tree)
+    owners = _node_owners(tree)
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Name, ast.Attribute, ast.Call)):
+            continue
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            continue
+        process_reference = _process_reference(
+            node, module_aliases, process_aliases
+        )
+        if process_reference is None:
+            continue
+        parent = parents.get(id(node))
+        owner_name = owners.get(id(node), "<module>")
+        allowed = False
+        if process_reference == "subprocess.run" and owner_name == "_git_short_sha":
+            allowed = (
+                isinstance(parent, ast.Call)
+                and parent.func is node
+                and _is_exact_git_short_sha_call(owner_name, parent)
+            )
+        elif process_reference == "subprocess.run" and owner_name == "_run_probe":
+            allowed = (
+                isinstance(parent, ast.BoolOp)
+                and node in parent.values
+                and isinstance(parents.get(id(parent)), ast.Assign)
+                and any(
+                    isinstance(target, ast.Name) and target.id == "runner"
+                    for target in parents[id(parent)].targets
+                )
+            ) or (
+                isinstance(parent, ast.Call)
+                and parent.func is node
+                and _command_is_from_lm8i_builder(
+                    next(
+                        statement
+                        for statement in tree.body
+                        if isinstance(statement, ast.FunctionDef)
+                        and statement.name == "_run_probe"
+                    ),
+                    parent,
+                )
+            )
+        if not allowed:
+            violations.append(
+                "forbidden direct process reference:"
+                f"{owner_name}:{process_reference}"
+            )
 
     for statement in tree.body:
         if not isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -876,6 +946,7 @@ def _write_managed_child_artifacts(
         json.dumps(
             {
                 "schema": "rook.lm8l_readiness_wait_summary:v1",
+                "receipt_schema": "rook.gh_solve_readiness_receipt:v1",
                 "requested_timeout_ms": 10_000,
                 "readiness_wait_count": 1,
                 "wait_status": "ready",
@@ -982,6 +1053,21 @@ def test_audit_managed_child_accepts_complete_consistent_artifacts(tmp_path: Pat
     assert audit["post_mutation_solution_run_advanced"] is True
 
 
+def test_audit_managed_child_accepts_noncanonical_complete_artifacts(tmp_path: Path):
+    _write_managed_child_artifacts(tmp_path)
+    _mutate_managed_artifact(
+        tmp_path,
+        "decision.json",
+        ("canonical_evidence",),
+        False,
+    )
+
+    audit = PROBE._audit_managed_child(tmp_path)
+
+    assert audit["valid"] is True
+    assert audit["failures"] == []
+
+
 @pytest.mark.parametrize(
     ("receipt_status", "decision_reason"),
     [
@@ -1085,6 +1171,41 @@ def test_audit_managed_child_does_not_classify_no_wait_pre_mutation_failure(
 
 
 @pytest.mark.parametrize(
+    "decision_reason",
+    ["readiness_receipt_missing", "readiness_receipt_malformed"],
+)
+def test_audit_managed_child_counts_no_wait_missing_or_malformed_receipt(
+    tmp_path: Path,
+    decision_reason: str,
+):
+    _write_managed_child_artifacts(tmp_path)
+    (tmp_path / "readiness_wait_summary.json").unlink()
+    (tmp_path / "verify_scalar_output_summary.json").unlink()
+    _mutate_managed_artifact(
+        tmp_path,
+        "live_set_value_summary.json",
+        ("managed_mutation",),
+        _DELETE,
+    )
+    for field_path, value in (
+        (("decision",), "rejected"),
+        (("reason",), decision_reason),
+        (("phase",), "verifier_readiness"),
+    ):
+        _mutate_managed_artifact(
+            tmp_path,
+            "decision.json",
+            field_path,
+            value,
+        )
+
+    audit = PROBE._audit_managed_child(tmp_path)
+
+    assert audit["readiness_wait_count"] == 0
+    assert audit["readiness_failure_reason"] == decision_reason
+
+
+@pytest.mark.parametrize(
     ("filename", "expected_failure"),
     [
         ("live_set_value_summary.json", "mutation_artifact_missing"),
@@ -1151,6 +1272,12 @@ def test_audit_managed_child_rejects_malformed_artifacts(
             ("schema",),
             "wrong",
             "wait_schema_invalid",
+        ),
+        (
+            "readiness_wait_summary.json",
+            ("receipt_schema",),
+            "wrong",
+            "wait_receipt_schema_invalid",
         ),
         (
             "verify_scalar_output_summary.json",
@@ -1382,7 +1509,6 @@ def test_audit_managed_child_recomputes_each_invariant(
         (("decision",), "rejected", "child_decision_not_accepted"),
         (("reason",), "verify_scalar_output_failed", "decision_reason_invalid"),
         (("phase",), "verifier_readiness", "decision_phase_invalid"),
-        (("canonical_evidence",), False, "canonical_evidence_not_true"),
         (
             ("live_set_value_dispatched",),
             False,
@@ -2800,6 +2926,37 @@ def hidden():
 
     assert any(
         violation.startswith("forbidden process reference return:pick:")
+        for violation in _lm8m_wrapper_guard_violations(source)
+    )
+
+
+@pytest.mark.parametrize(
+    "hidden_reference",
+    [
+        "def pick(spawn=subprocess.run):\n    return spawn",
+        "pick = lambda: subprocess.run",
+        "PICKS = (subprocess.run,)",
+        "PICKS = {'run': subprocess.run}",
+    ],
+)
+def test_lm8m_wrapper_ast_guard_rejects_process_references_in_defaults_lambdas_and_containers(
+    hidden_reference: str,
+):
+    source = f'''
+import subprocess
+
+def _lm8i_command():
+    return ["python", "lm8i_affine_publication_shape_support_probe.py"]
+
+def _run_probe():
+    command = _lm8i_command()
+    return subprocess.run(command)
+
+{hidden_reference}
+'''
+
+    assert any(
+        violation.startswith("forbidden direct process reference:")
         for violation in _lm8m_wrapper_guard_violations(source)
     )
 

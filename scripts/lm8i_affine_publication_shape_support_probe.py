@@ -101,6 +101,8 @@ MANAGED_WAIT_SCHEMA = "rook.lm8l_readiness_wait_summary:v1"
 MANAGED_VERIFY_SCHEMA = "rook.lm8l_fenced_output_verification_summary:v1"
 MANAGED_DECISION_SCHEMA = "rook.lm8l_managed_verifier_decision:v1"
 READINESS_FAILURE_REASONS = {
+    "readiness_receipt_missing",
+    "readiness_receipt_malformed",
     "readiness_receipt_superseded",
     "readiness_receipt_stale_solution_run",
     "readiness_receipt_document_replaced",
@@ -1981,12 +1983,17 @@ async def _dispatch_set_value_managed_receipt_and_verify(
 
     mutation_failures = _managed_mutation_receipt_failures(pending_receipt)
     if mutation_failures:
+        mutation_reason = (
+            "readiness_receipt_missing"
+            if pending_receipt is None
+            else "readiness_receipt_malformed"
+        )
         return {
             "live_set_value_summary": set_summary,
             "readiness_wait_summary": None,
             "verify_scalar_output_summary": None,
             "decision": _managed_rejection(
-                reason="managed_verifier_invariant_failed",
+                reason=mutation_reason,
                 phase="verifier_readiness",
                 readiness_wait_count=0,
                 fenced_output_read_count=0,

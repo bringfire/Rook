@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import importlib.util
 import inspect
 import json
@@ -184,6 +185,16 @@ def _managed_verifier_guard_violations(source: str) -> list[str]:
             )
 
     return violations
+
+
+def _managed_verifier_closure_sha256(source: str) -> str:
+    tree = ast.parse(source)
+    reachable = _reachable_module_local_functions(tree, _MANAGED_VERIFIER_ROOT)
+    payload = "\n".join(
+        f"{name}\n{ast.dump(function, include_attributes=False)}"
+        for name, function in sorted(reachable)
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 class FakeToolExecutor:
@@ -414,10 +425,11 @@ def _assert_managed_invariant_rejection(
     expected_failures,
     readiness_wait_count,
     fenced_output_read_count,
+    expected_reason="managed_verifier_invariant_failed",
 ):
     assert decision["decision"] == "rejected"
     assert decision["phase"] == "verifier_readiness"
-    assert decision["reason"] == "managed_verifier_invariant_failed"
+    assert decision["reason"] == expected_reason
     assert decision["managed_verifier"]["failed_invariants"] == list(
         expected_failures
     )
@@ -1326,27 +1338,42 @@ def test_managed_fenced_read_product_failure_is_terminal_without_follow_up(tmp_p
 
 
 @pytest.mark.parametrize(
-    ("case", "expected_failures"),
+    ("case", "expected_failures", "expected_reason"),
     [
-        ("missing_receipt", ("mutation_receipt_missing",)),
-        ("wrong_receipt_schema", ("mutation_receipt_schema_invalid",)),
-        ("mutation_epoch_zero", ("mutation_epoch_not_positive",)),
+        (
+            "missing_receipt",
+            ("mutation_receipt_missing",),
+            "readiness_receipt_missing",
+        ),
+        (
+            "wrong_receipt_schema",
+            ("mutation_receipt_schema_invalid",),
+            "readiness_receipt_malformed",
+        ),
+        (
+            "mutation_epoch_zero",
+            ("mutation_epoch_not_positive",),
+            "readiness_receipt_malformed",
+        ),
         (
             "pending_solution_run_non_null",
             ("pending_solution_run_epoch_not_null",),
+            "readiness_receipt_malformed",
         ),
         (
             "pending_completed_run_missing",
             ("pending_completed_solution_run_epoch_invalid",),
+            "readiness_receipt_malformed",
         ),
         (
             "pending_completed_run_non_integer",
             ("pending_completed_solution_run_epoch_invalid",),
+            "readiness_receipt_malformed",
         ),
     ],
 )
 def test_managed_mutation_invariant_failure_stops_before_wait(
-    tmp_path, case, expected_failures
+    tmp_path, case, expected_failures, expected_reason
 ):
     responses = _managed_success_responses()
     receipt = responses["gh_set_value"]["data"]["solve_readiness_receipt"]
@@ -1370,6 +1397,7 @@ def test_managed_mutation_invariant_failure_stops_before_wait(
         expected_failures=expected_failures,
         readiness_wait_count=0,
         fenced_output_read_count=0,
+        expected_reason=expected_reason,
     )
     names = [name for name, _ in executor.calls]
     assert names.count("gh_wait_for_solve_readiness") == 0
@@ -2058,6 +2086,14 @@ def test_managed_profile_locks_root_call_graph_and_executor_contract():
         if _literal_tool_name(call) == "gh_inspect_output"
     )
     assert _call_dict_argument_has_key(inspect_call, "readiness_receipt_id")
+
+
+def test_managed_verifier_reviewed_ast_closure_is_unchanged():
+    source = _script_path().read_text(encoding="utf-8")
+
+    assert _managed_verifier_closure_sha256(source) == (
+        "0f9b9e3a83ee6625bd26155a0c5ac69e402c5ad1242f106523961ae488670f40"
+    )
 
 
 def test_managed_profile_has_no_settle_fallback_or_extra_solve():

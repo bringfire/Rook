@@ -37,6 +37,8 @@ MANAGED_WAIT_SCHEMA = "rook.lm8l_readiness_wait_summary:v1"
 MANAGED_VERIFY_SCHEMA = "rook.lm8l_fenced_output_verification_summary:v1"
 MANAGED_DECISION_SCHEMA = "rook.lm8l_managed_verifier_decision:v1"
 READINESS_FAILURE_REASONS = {
+    "readiness_receipt_missing",
+    "readiness_receipt_malformed",
     "readiness_receipt_superseded",
     "readiness_receipt_stale_solution_run",
     "readiness_receipt_document_replaced",
@@ -510,6 +512,8 @@ def _audit_managed_child(run_dir: Path) -> dict[str, Any]:
     if wait is not None:
         if wait.get("schema") != MANAGED_WAIT_SCHEMA:
             fail("wait_schema_invalid")
+        if wait.get("receipt_schema") != GH_READINESS_RECEIPT_SCHEMA:
+            fail("wait_receipt_schema_invalid")
         if (
             not _is_int_not_bool(wait.get("requested_timeout_ms"))
             or wait.get("requested_timeout_ms") != READINESS_WAIT_TIMEOUT_MS
@@ -638,8 +642,7 @@ def _audit_managed_child(run_dir: Path) -> dict[str, Any]:
             if isinstance(decision_reason, str) and decision_reason:
                 result["readiness_failure_reason"] = decision_reason
     elif (
-        mutation is not None
-        and decision is not None
+        decision is not None
         and decision.get("phase") == "verifier_readiness"
         and decision.get("live_set_value_dispatched") is True
     ):
@@ -743,8 +746,6 @@ def _audit_managed_child(run_dir: Path) -> dict[str, Any]:
                 fail("decision_reason_invalid")
             if decision.get("phase") != "verify_scalar_output":
                 fail("decision_phase_invalid")
-            if decision.get("canonical_evidence") is not True:
-                fail("canonical_evidence_not_true")
             if decision.get("live_set_value_dispatched") is not True:
                 fail("live_set_value_dispatched_not_true")
             if decision.get("worker_publication_ran") is not True:
