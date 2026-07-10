@@ -59,6 +59,7 @@ export function runCorrectnessChecks(context) {
   evaluateAt(context, 0.1);
   evaluateAt(context, 0.75);
   const deterministicSeek = transformSnapshot(context.actorIndex) === first;
+  updateWorldMatrices(context);
 
   const firstActor = actors[0];
   const secondActor = actors[1] ?? actors[0];
@@ -75,6 +76,7 @@ export function runCorrectnessChecks(context) {
     };
   } else {
     evaluateAt(context, 0);
+    updateWorldMatrices(context);
     const savedQuaternion = firstActor.quaternion.clone();
     const pivotExpected = firstActor.parent.localToWorld(
       firstActor.position.clone(),
@@ -100,6 +102,7 @@ export function runCorrectnessChecks(context) {
   }
 
   evaluateAt(context, 0);
+  updateWorldMatrices(context);
   return {
     pass: deterministicSeek
       && independentTransform
@@ -108,4 +111,9 @@ export function runCorrectnessChecks(context) {
     independentTransform,
     pivotSanity,
   };
+}
+
+function updateWorldMatrices(context) {
+  if (context.scene) context.scene.updateMatrixWorld(true);
+  else context.actorRoot.updateMatrixWorld(true);
 }

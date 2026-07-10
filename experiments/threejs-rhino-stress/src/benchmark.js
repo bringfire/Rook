@@ -47,7 +47,7 @@ export async function runTrial({
     }
     const started = now();
     context = await buildScene();
-    constructionMs = now() - started;
+    constructionMs = finiteDuration("construction", now() - started);
     assertContextActive();
     // The benchmark owns the single world-matrix traversal. Three.js r181
     // otherwise performs another traversal inside WebGLRenderer.render().
@@ -70,24 +70,29 @@ export async function runTrial({
 
       const seekStart = now();
       evaluate(context, frame / 60);
-      seekSamples.push(now() - seekStart);
+      seekSamples.push(finiteDuration("seek", now() - seekStart));
 
       const traversalStart = now();
       context.scene.updateMatrixWorld(true);
-      matrixTraversalSamples.push(now() - traversalStart);
+      matrixTraversalSamples.push(finiteDuration(
+        "matrix_traversal", now() - traversalStart,
+      ));
 
       timer.begin();
       const renderStart = now();
       renderer.render(context.scene, context.camera);
-      renderSubmissionSamples.push(now() - renderStart);
+      renderSubmissionSamples.push(finiteDuration(
+        "render_submission", now() - renderStart,
+      ));
       timer.end();
-      frameCpuSamples.push(now() - frameStart);
+      frameCpuSamples.push(finiteDuration("cpu", now() - frameStart));
       timer.poll();
       assertContextActive();
     }, schedule, signal);
 
     await drain(timer, schedule, signal, assertContextActive);
     const gpuRaw = timer.snapshot();
+    gpuRaw.samplesMs.forEach((sample) => finiteDuration("gpu", sample));
     const cpu = summarizeSamples(frameCpuSamples);
     const seek = summarizeSamples(seekSamples);
     const matrixTraversal = summarizeSamples(matrixTraversalSamples);
@@ -122,6 +127,9 @@ export async function runTrial({
       },
       gpu: {
         ...gpu,
+        available: gpuRaw.available,
+        status: gpuTimingStatus(gpuRaw, protocol.gpuValidSampleFloor ?? 270),
+        validCount: gpuRaw.samplesMs.length,
         samples: gpuRaw.samplesMs,
         disjointCount: gpuRaw.disjointCount,
       },
@@ -143,6 +151,7 @@ export async function runTrial({
       trialIndex,
       status: "aborted",
       reason: contextLost ? "context_lost" : error.message,
+      ...(error.diagnostic ? { diagnostic: error.diagnostic } : {}),
     };
   }
 
@@ -269,4 +278,18 @@ function cleanupError(stage, error) {
     stage,
     message: error instanceof Error ? error.message : String(error),
   };
+}
+
+function finiteDuration(metric, value) {
+  if (Number.isFinite(value)) return value;
+  const error = new Error(`non_finite_timing:${metric}`);
+  error.diagnostic = { stage: "timing", metric, value: String(value) };
+  throw error;
+}
+
+function gpuTimingStatus(snapshot, validSampleFloor) {
+  if (!snapshot.available) return "unavailable";
+  return snapshot.samplesMs.length >= validSampleFloor
+    ? "available"
+    : "insufficient_samples";
 }

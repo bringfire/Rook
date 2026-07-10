@@ -1,7 +1,24 @@
 import { expect, it, vi } from "vitest";
 import * as dashboard from "../src/main.js";
+import { createSyntheticScene } from "../src/scene-generator.js";
 
 const { createRunCoordinator } = dashboard;
+
+it("indexes only synthetic actors while counting the complete scene", () => {
+  expect(dashboard.finalizeContext).toBeTypeOf("function");
+  const generated = createSyntheticScene();
+  const context = dashboard.finalizeContext(generated, {});
+
+  expect(context.structure.nodes).toBeGreaterThan(338);
+  expect(context.addressability).toMatchObject({
+    missingActorId: 0,
+  });
+  expect(context.addressability.actorIds).toHaveLength(338);
+  expect(context.addressability.actorIds[0]).toBe("synthetic_actor_000000");
+  expect(context.addressability.actorIds.at(-1)).toBe("synthetic_actor_000337");
+  expect(context.actorIndex.size).toBe(338);
+  expect(context.addressabilityPassed).toBe(true);
+});
 
 it("records synthetic post-trial evidence and downgrades failed precision", () => {
   expect(dashboard.addPostTrialEvidence).toBeTypeOf("function");
@@ -51,6 +68,134 @@ it("reports local GLB precision as unavailable without generating pairs", () => 
   });
   expect(precisionEvidence).not.toHaveBeenCalled();
   expect(contextEvidence).not.toHaveBeenCalled();
+});
+
+it("skips post-trial evidence when a timed trial aborted", () => {
+  const report = {
+    trials: [{ status: "aborted", reason: "run stopped", cpu: { samples: [4] } }],
+    headline: { tier: "impractical", source: "aborted_trial", trialIndex: 0 },
+  };
+  const precisionEvidence = vi.fn();
+  const contextEvidence = vi.fn();
+
+  dashboard.addPostTrialEvidence(report, {
+    config: {}, source: "synthetic", precisionEvidence, contextEvidence,
+  });
+
+  expect(precisionEvidence).not.toHaveBeenCalled();
+  expect(contextEvidence).not.toHaveBeenCalled();
+  expect(report.postTrialEvidence).toEqual({
+    status: "skipped", reason: "timed_trial_aborted",
+  });
+  expect(report.trials[0].cpu.samples).toEqual([4]);
+});
+
+it.each([
+  ["coordinate_precision", "precisionEvidence"],
+  ["context_visible_equivalence", "contextEvidence"],
+])("retains the timed report when %s evidence fails", (stage, failingOption) => {
+  const report = {
+    trials: [{ status: "completed", cpu: { samples: [5] } }],
+    headline: { tier: "interactive", source: "worst_completed_trial", trialIndex: 0 },
+  };
+  const options = {
+    config: {},
+    source: "synthetic",
+    precisionEvidence: () => [{ time: 0, pass: true }],
+    contextEvidence: () => ({ pass: true }),
+  };
+  options[failingOption] = () => { throw new Error(`${stage} failed`); };
+
+  expect(() => dashboard.addPostTrialEvidence(report, options)).not.toThrow();
+  expect(report.trials[0].cpu.samples).toEqual([5]);
+  expect(report.postTrialEvidence.failures).toContainEqual({
+    stage, message: `${stage} failed`,
+  });
+  expect(report.headline).toEqual({
+    tier: "impractical", source: "post_trial_evidence", trialIndex: 0,
+  });
+});
+
+it("turns WebGL context loss during evidence into structured failure", () => {
+  let lost;
+  const eventTarget = {
+    addEventListener: vi.fn((_name, listener) => { lost = listener; }),
+    removeEventListener: vi.fn(),
+  };
+  const report = {
+    trials: [{ status: "completed" }],
+    headline: { tier: "interactive", trialIndex: 0 },
+  };
+
+  dashboard.addPostTrialEvidence(report, {
+    config: {},
+    source: "synthetic",
+    contextEventTarget: eventTarget,
+    precisionEvidence: () => {
+      lost({ preventDefault: vi.fn() });
+      return [{ time: 0, pass: true }];
+    },
+    contextEvidence: () => ({ pass: true }),
+  });
+
+  expect(report.postTrialEvidence.failures).toContainEqual({
+    stage: "webgl_context", message: "WebGL context lost during post-trial evidence",
+  });
+  expect(report.headline.tier).toBe("impractical");
+  expect(eventTarget.removeEventListener).toHaveBeenCalledWith(
+    "webglcontextlost", lost,
+  );
+});
+
+it("publishes renderer initialization failures at the actual DOM boundary", () => {
+  expect(dashboard.initializeDashboard).toBeTypeOf("function");
+  const elements = fakeElements();
+  const app = dashboard.initializeDashboard({
+    documentRef: {
+      title: "",
+      querySelectorAll: () => Object.values(elements),
+    },
+    createRenderer: () => { throw new Error("WebGL2 unavailable"); },
+  });
+
+  expect(app.getReport()).toMatchObject({
+    status: "failed",
+    failure: {
+      stage: "renderer_initialization",
+      message: "WebGL2 unavailable",
+      source: "synthetic",
+    },
+    headline: { tier: "impractical" },
+  });
+  expect(elements.report.textContent).toContain("renderer_initialization");
+  expect(elements.status.textContent).toContain("WebGL2 unavailable");
+  expect(elements.build.disabled).toBe(true);
+  expect(elements.run.disabled).toBe(true);
+  expect(elements.time.disabled).toBe(true);
+});
+
+it("uses one structured GLB build failure for display and copying", () => {
+  expect(dashboard.createFailureReport).toBeTypeOf("function");
+  const config = { actorCount: 338, geometryOwnership: "shared" };
+  const failure = dashboard.createFailureReport(new Error("invalid GLB"), {
+    stage: "build_or_load",
+    source: "glb",
+    file: "broken.glb",
+    config,
+  });
+
+  expect(failure).toMatchObject({
+    status: "failed",
+    failure: {
+      stage: "build_or_load",
+      message: "invalid GLB",
+      source: "glb",
+      file: "broken.glb",
+      config,
+    },
+    headline: { tier: "impractical" },
+  });
+  expect(JSON.parse(JSON.stringify(failure))).toEqual(failure);
 });
 
 it("disposes the first precision scene when the paired build fails", () => {
@@ -227,4 +372,31 @@ function deferred() {
     resolve = complete;
   });
   return { promise, resolve };
+}
+
+function fakeElements() {
+  const values = {
+    source: "synthetic",
+    "actor-count": "338",
+    density: "1",
+    geometry: "shared",
+    motion: "individual",
+    coordinates: "rebased",
+    materials: "shared",
+    context: "unbatched",
+    time: "0",
+  };
+  const ids = [
+    "source", "glb-file", "actor-count", "density", "geometry", "motion",
+    "coordinates", "materials", "context", "time", "build", "run", "stop",
+    "reset", "status", "report", "copy-report", "canvas",
+  ];
+  return Object.fromEntries(ids.map((id) => [id, {
+    id,
+    value: values[id] ?? "",
+    files: [],
+    disabled: false,
+    textContent: "",
+    addEventListener: vi.fn(),
+  }]));
 }

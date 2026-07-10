@@ -28,8 +28,16 @@ it("uses required sample times", () => {
 
 it("compares paired coordinate scenes at every required sample time", () => {
   expect(precision.compareCoordinateScenes).toBeTypeOf("function");
-  const rebased = { scene: { name: "rebased" }, camera: {}, time: null };
-  const large = { scene: { name: "large" }, camera: {}, time: null };
+  const rebased = {
+    scene: { name: "rebased", updateMatrixWorld: vi.fn() },
+    camera: {},
+    time: null,
+  };
+  const large = {
+    scene: { name: "large", updateMatrixWorld: vi.fn() },
+    camera: {},
+    time: null,
+  };
   const contexts = new Map([
     [rebased.scene, rebased],
     [large.scene, large],
@@ -72,6 +80,8 @@ it("compares paired coordinate scenes at every required sample time", () => {
     { time: 1, pass: true },
   ]);
   expect(renderer.render).toHaveBeenCalledTimes(6);
+  expect(rebased.scene.updateMatrixWorld).toHaveBeenCalledTimes(3);
+  expect(large.scene.updateMatrixWorld).toHaveBeenCalledTimes(3);
 });
 
 it("passes within tolerance and fails above it", () => {

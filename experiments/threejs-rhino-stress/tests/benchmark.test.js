@@ -347,9 +347,59 @@ it("drains pending GPU queries before recording the trial", async () => {
   expect(result.status).toBe("completed");
   expect(availabilityChecks).toBe(2);
   expect(result.gpu).toMatchObject({
-    count: 1, samples: [5], disjointCount: 0,
+    available: true,
+    status: "insufficient_samples",
+    validCount: 1,
+    count: 1,
+    samples: [5],
+    disjointCount: 0,
   });
   expect(gl.deleteQuery).toHaveBeenCalledOnce();
+});
+
+it("reports unavailable GPU timing explicitly", async () => {
+  const result = await runNodeTrial({
+    trialIndex: 0,
+    renderer: createRenderer(),
+    buildScene: async () => createContext(),
+    evaluate: () => {},
+    dispose: () => {},
+    protocol: { warmupFrames: 0, measuredFrames: 1, gpuValidSampleFloor: 270 },
+    schedule: (callback) => callback(),
+    now: (() => { let value = 0; return () => value++; })(),
+  });
+
+  expect(result.gpu).toMatchObject({
+    available: false,
+    status: "unavailable",
+    validCount: 0,
+    disjointCount: 0,
+    samples: [],
+  });
+  expect(result.classification.basis).toBe("cpu_proxy_only");
+});
+
+it.each([
+  ["construction", [0, Number.NaN]],
+  ["seek", [0, 1, Number.NaN]],
+])("aborts before recording a non-finite %s duration", async (metric, timestamps) => {
+  const result = await runNodeTrial({
+    trialIndex: 0,
+    renderer: createRenderer(),
+    buildScene: async () => createContext(),
+    evaluate: () => {},
+    dispose: () => {},
+    protocol: { warmupFrames: 0, measuredFrames: metric === "construction" ? 0 : 1 },
+    schedule: (callback) => callback(),
+    now: () => timestamps.shift(),
+  });
+
+  expect(result).toMatchObject({
+    status: "aborted",
+    reason: `non_finite_timing:${metric}`,
+    diagnostic: { stage: "timing", metric },
+  });
+  expect(result.cpu?.samples ?? []).not.toContainEqual(Number.NaN);
 });
 
 it("aborts a cancelled trial and disposes its constructed scene", async () => {

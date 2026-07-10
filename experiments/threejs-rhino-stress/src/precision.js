@@ -9,6 +9,8 @@ export function compareCoordinateScenes({
   return PRECISION_SAMPLE_TIMES.map((time) => {
     evaluate(rebased, time);
     evaluate(large, time);
+    rebased.scene.updateMatrixWorld(true);
+    large.scene.updateMatrixWorld(true);
     const near = readScenePixels(renderer, rebased.scene, rebased.camera);
     const far = readScenePixels(renderer, large.scene, large.camera);
     return { time, ...comparePixelBuffers(near, far) };

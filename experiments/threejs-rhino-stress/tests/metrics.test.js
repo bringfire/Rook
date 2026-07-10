@@ -17,6 +17,32 @@ describe("metrics", () => {
     });
   });
 
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    "rejects non-finite samples (%s)",
+    (value) => {
+      expect(() => summarizeSamples([1, value])).toThrow(/finite/);
+    },
+  );
+
+  it("classifies invalid required timing metrics as impractical", () => {
+    expect(classifyTrial({
+      status: "completed", correctnessPassed: true, constructionMs: 200,
+      cpu: { p95: Number.NaN, p99: 12 },
+      gpu: { validCount: 0, p95: null, p99: null },
+    })).toMatchObject({ tier: "impractical", basis: "invalid_metrics" });
+    expect(classifyTrial({
+      status: "completed", correctnessPassed: true,
+      constructionMs: Number.POSITIVE_INFINITY,
+      cpu: { p95: 8, p99: 12 },
+      gpu: { validCount: 0 },
+    })).toMatchObject({ tier: "impractical", basis: "invalid_metrics" });
+    expect(classifyTrial({
+      status: "completed", correctnessPassed: true, constructionMs: 200,
+      cpu: { p95: 8, p99: 12 },
+      gpu: { validCount: 300, p95: Number.NaN, p99: 10 },
+    })).toMatchObject({ tier: "impractical", basis: "invalid_metrics" });
+  });
+
   it("uses the slower valid CPU or GPU p95", () => {
     expect(classifyTrial({
       status: "completed", correctnessPassed: true, constructionMs: 200,
@@ -46,5 +72,11 @@ describe("metrics", () => {
       { status: "completed", classification: { tier: "interactive" } },
       { status: "aborted", reason: "context_lost" },
     ])).toEqual({ tier: "impractical", source: "aborted_trial", trialIndex: 1 });
+  });
+
+  it("makes an empty configuration exactly no_completed_trial impractical", () => {
+    expect(classifyConfiguration([])).toEqual({
+      tier: "impractical", source: "no_completed_trial", trialIndex: null,
+    });
   });
 });

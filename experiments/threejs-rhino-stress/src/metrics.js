@@ -12,6 +12,9 @@ export function summarizeSamples(values) {
   if (!values.length) {
     return { count: 0, average: null, p50: null, p95: null, p99: null, max: null };
   }
+  if (values.some((value) => !Number.isFinite(value))) {
+    throw new Error("samples must contain only finite durations");
+  }
   return {
     count: values.length,
     average: values.reduce((sum, value) => sum + value, 0) / values.length,
@@ -23,10 +26,28 @@ export function summarizeSamples(values) {
 }
 
 export function classifyTrial({ status, correctnessPassed, constructionMs, cpu, gpu }) {
-  if (status !== "completed" || !correctnessPassed || constructionMs > 30000) {
+  if (status !== "completed" || !correctnessPassed) {
     return { tier: "impractical", basis: "trial_failure", frameP95: null, frameP99: null };
   }
-  const gpuValid = gpu?.validCount >= 270 && Number.isFinite(gpu?.p95);
+  if (!Number.isFinite(constructionMs)
+      || !Number.isFinite(cpu?.p95)
+      || !Number.isFinite(cpu?.p99)) {
+    return {
+      tier: "impractical", basis: "invalid_metrics",
+      frameP95: null, frameP99: null,
+    };
+  }
+  if (constructionMs > 30000) {
+    return { tier: "impractical", basis: "trial_failure", frameP95: null, frameP99: null };
+  }
+  if (gpu?.validCount >= 270
+      && (!Number.isFinite(gpu?.p95) || !Number.isFinite(gpu?.p99))) {
+    return {
+      tier: "impractical", basis: "invalid_metrics",
+      frameP95: null, frameP99: null,
+    };
+  }
+  const gpuValid = gpu?.validCount >= 270;
   const basis = gpuValid ? "cpu_and_gpu" : "cpu_proxy_only";
   const frameP95 = gpuValid ? Math.max(cpu.p95, gpu.p95) : cpu.p95;
   const frameP99 = gpuValid ? Math.max(cpu.p99, gpu.p99) : cpu.p99;

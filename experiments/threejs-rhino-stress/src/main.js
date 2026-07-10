@@ -140,35 +140,93 @@ export function addPostTrialEvidence(report, {
   source,
   precisionEvidence = () => runPrecisionEvidence(config),
   contextEvidence = () => runContextVisibilityEvidence(config),
+  contextEventTarget = renderer?.domElement,
 }) {
+  if (report.trials?.some((trial) => trial.status !== "completed")) {
+    report.postTrialEvidence = {
+      status: "skipped", reason: "timed_trial_aborted",
+    };
+    return report;
+  }
+
   if (source !== "synthetic") {
     report.coordinatePrecision = {
       status: "unavailable",
       reason: "local GLB has no generated rebased comparison pair",
     };
+    report.postTrialEvidence = { status: "completed", failures: [] };
     return report;
   }
 
-  report.coordinatePrecision = precisionEvidence();
-  report.coordinatePrecisionPassed = report.coordinatePrecision
-    .every((sample) => sample.pass);
-  if (!report.coordinatePrecisionPassed) {
-    report.headline = {
-      tier: "impractical",
-      source: "coordinate_precision",
-      trialIndex: report.headline.trialIndex,
-    };
+  const failures = [];
+  let contextLost = false;
+  const lost = (event) => {
+    contextLost = true;
+    event.preventDefault();
+  };
+  if (contextEventTarget?.addEventListener) {
+    contextEventTarget.addEventListener("webglcontextlost", lost, { once: true });
+  }
+  try {
+    try {
+      report.coordinatePrecision = precisionEvidence();
+      report.coordinatePrecisionPassed = report.coordinatePrecision
+        .every((sample) => sample.pass);
+      if (!report.coordinatePrecisionPassed) {
+        report.headline = impracticalHeadline(report, "coordinate_precision");
+      }
+    } catch (error) {
+      const failure = evidenceFailure("coordinate_precision", error);
+      failures.push(failure);
+      report.coordinatePrecision = { status: "failed", ...failure };
+    }
+
+    try {
+      report.contextVisibleEquivalence = contextEvidence();
+      if (!report.contextVisibleEquivalence.pass) {
+        report.headline = impracticalHeadline(
+          report, "context_visible_equivalence",
+        );
+      }
+    } catch (error) {
+      const failure = evidenceFailure("context_visible_equivalence", error);
+      failures.push(failure);
+      report.contextVisibleEquivalence = { status: "failed", ...failure };
+    }
+
+    if (contextLost) {
+      failures.push({
+        stage: "webgl_context",
+        message: "WebGL context lost during post-trial evidence",
+      });
+    }
+  } finally {
+    contextEventTarget?.removeEventListener?.("webglcontextlost", lost);
   }
 
-  report.contextVisibleEquivalence = contextEvidence();
-  if (!report.contextVisibleEquivalence.pass) {
-    report.headline = {
-      tier: "impractical",
-      source: "context_visible_equivalence",
-      trialIndex: report.headline.trialIndex,
-    };
+  report.postTrialEvidence = {
+    status: failures.length ? "failed" : "completed",
+    failures,
+  };
+  if (failures.length) {
+    report.headline = impracticalHeadline(report, "post_trial_evidence");
   }
   return report;
+}
+
+function evidenceFailure(stage, error) {
+  return {
+    stage,
+    message: error instanceof Error ? error.message : String(error),
+  };
+}
+
+function impracticalHeadline(report, source) {
+  return {
+    tier: "impractical",
+    source,
+    trialIndex: report.headline?.trialIndex ?? null,
+  };
 }
 
 function disposeEvidenceScenes(contexts, dispose) {
@@ -192,22 +250,44 @@ const runCoordinator = createRunCoordinator();
 
 if (typeof document !== "undefined") initializeDashboard();
 
-function initializeDashboard() {
-  document.title = APP_TITLE;
-  el = Object.fromEntries([...document.querySelectorAll("[id]")]
+export function initializeDashboard({
+  documentRef = document,
+  navigatorRef = globalThis.navigator,
+  createRenderer = createFixedRenderer,
+} = {}) {
+  documentRef.title = APP_TITLE;
+  el = Object.fromEntries([...documentRef.querySelectorAll("[id]")]
     .map((node) => [node.id, node]));
-  renderer = createFixedRenderer(el.canvas);
+  renderer = null;
+
+  el["copy-report"].addEventListener("click", () =>
+    navigatorRef?.clipboard?.writeText(JSON.stringify(report, null, 2)));
+
+  try {
+    renderer = createRenderer(el.canvas);
+  } catch (error) {
+    publishFailure(error, {
+      stage: "renderer_initialization",
+      source: el.source?.value ?? null,
+      file: selectedFilename(),
+      config: safeReadConfig(),
+    });
+    setRendererControlsDisabled(true);
+    return dashboardApi();
+  }
 
   el.source.addEventListener("change", () => {
     el["glb-file"].disabled = el.source.value !== "glb";
   });
-  el.build.addEventListener("click", () => buildOrLoad().catch(showError));
-  el.run.addEventListener("click", () => run().catch(showError));
+  el.build.addEventListener("click", () => buildOrLoad().catch((error) =>
+    showError(error, { stage: "build_or_load" })));
+  el.run.addEventListener("click", () => run().catch((error) =>
+    showError(error, { stage: "benchmark_run" })));
   el.stop.addEventListener("click", () => runCoordinator.stop());
-  el.reset.addEventListener("click", () => reset().catch(showError));
+  el.reset.addEventListener("click", () => reset().catch((error) =>
+    showError(error, { stage: "reset" })));
   el.time.addEventListener("input", () => renderAt(Number(el.time.value)));
-  el["copy-report"].addEventListener("click", () =>
-    navigator.clipboard.writeText(JSON.stringify(report, null, 2)));
+  return dashboardApi();
 }
 
 async function buildOrLoad() {
@@ -232,7 +312,9 @@ async function buildOrLoad() {
 function buildSynthetic(config) {
   const generated = createSyntheticScene(config);
   addFixedLights(generated.scene, generated.appliedRenderOffset);
-  return finalize(generated, createCamera(generated.appliedRenderOffset));
+  return finalizeContext(
+    generated, createCamera(generated.appliedRenderOffset),
+  );
 }
 
 async function loadLocal(config) {
@@ -249,7 +331,7 @@ async function buildLocalFromBytes(config, bytes = localGlbBytes) {
   if (!bytes) throw new Error("Choose and load a local GLB first");
   const gltf = await loadGlbArrayBuffer(bytes.slice(0));
   addFixedLights(gltf.scene);
-  return finalize({
+  return finalizeContext({
     scene: gltf.scene,
     actorRoot: gltf.scene,
     contextRoot: gltf.scene,
@@ -261,11 +343,11 @@ async function buildLocalFromBytes(config, bytes = localGlbBytes) {
   }, createCamera());
 }
 
-function finalize(context, camera) {
-  const traversalStarted = performance.now();
-  const addressability = buildActorIndex(context.scene);
+export function finalizeContext(context, camera, now = performance.now.bind(performance)) {
+  const traversalStarted = now();
+  const addressability = buildActorIndex(context.actorRoot);
   const structure = countScene(context.scene);
-  const sceneTraversalMs = performance.now() - traversalStarted;
+  const sceneTraversalMs = now() - traversalStarted;
   return {
     ...context,
     camera,
@@ -285,6 +367,7 @@ function finalize(context, camera) {
 function renderAt(time) {
   if (!active) return;
   evaluateAt(active, time);
+  active.scene.updateMatrixWorld(true);
   renderer.render(active.scene, active.camera);
 }
 
@@ -317,6 +400,7 @@ async function run() {
     return addPostTrialEvidence(timedReport, {
       config: configSnapshot,
       source: selectedSource,
+      contextEventTarget: renderer.domElement,
     });
   });
 
@@ -366,7 +450,55 @@ function disposePreview() {
   renderer.clear();
 }
 
-function showError(error) {
-  el.status.textContent = error.message;
-  el.report.textContent = JSON.stringify({ error: error.message }, null, 2);
+export function createFailureReport(error, {
+  stage, source = null, file = null, config = null,
+}) {
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    schemaVersion: 1,
+    status: "failed",
+    failure: { stage, message, source, file, config },
+    headline: { tier: "impractical", source: stage, trialIndex: null },
+  };
+}
+
+function showError(error, { stage = "dashboard_action" } = {}) {
+  publishFailure(error, {
+    stage,
+    source: el?.source?.value ?? null,
+    file: selectedFilename(),
+    config: safeReadConfig(),
+  });
+}
+
+function publishFailure(error, context) {
+  report = createFailureReport(error, context);
+  el.status.textContent = report.failure.message;
+  el.report.textContent = JSON.stringify(report, null, 2);
+  return report;
+}
+
+function selectedFilename() {
+  return el?.["glb-file"]?.files?.[0]?.name ?? null;
+}
+
+function safeReadConfig() {
+  try {
+    return readConfig();
+  } catch {
+    return null;
+  }
+}
+
+function setRendererControlsDisabled(disabled) {
+  ["build", "run", "stop", "reset", "time"].forEach((id) => {
+    if (el[id]) el[id].disabled = disabled;
+  });
+}
+
+function dashboardApi() {
+  return {
+    getReport: () => report,
+    getRenderer: () => renderer,
+  };
 }

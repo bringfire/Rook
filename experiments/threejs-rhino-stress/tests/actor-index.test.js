@@ -44,8 +44,25 @@ describe("actor index", () => {
     const result = buildActorIndex(root);
 
     expect([...result.actors]).toEqual([["actor:valid-1", actor]]);
+    expect(result.actorIds).toEqual(["actor:valid-1"]);
     expect(result.missingActorId).toBe(2);
     expect(result.duplicates).toEqual([]);
     expect(result.malformedIds).toEqual([]);
+  });
+
+  it("serializes stable sorted actor IDs while retaining the runtime Map", () => {
+    const root = new THREE.Group();
+    ["actor_z", "actor_a"].forEach((actorId) => {
+      const actor = new THREE.Group();
+      actor.userData.actorId = actorId;
+      root.add(actor);
+    });
+
+    const result = buildActorIndex(root);
+    const copied = JSON.parse(JSON.stringify(result));
+
+    expect(result.actors).toBeInstanceOf(Map);
+    expect(copied.actors).toEqual({});
+    expect(copied.actorIds).toEqual(["actor_a", "actor_z"]);
   });
 });

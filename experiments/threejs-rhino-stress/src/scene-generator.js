@@ -59,6 +59,9 @@ export function createSyntheticScene(overrides = {}) {
     actors.push(actor);
   }
 
+  if (config.geometryOwnership !== "shared") sharedGeometry.dispose();
+  if (config.materialOwnership !== "shared") sharedMaterial.dispose();
+
   buildContext(contextRoot, config.contextMode);
   return {
     scene,

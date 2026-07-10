@@ -37,7 +37,13 @@ export function buildActorIndex(root) {
     }
   });
 
-  return { actors, missingActorId, duplicates, malformedIds };
+  return {
+    actors,
+    actorIds: [...actors.keys()].sort((left, right) => left.localeCompare(right)),
+    missingActorId,
+    duplicates,
+    malformedIds,
+  };
 }
 
 function hasActorAncestor(object) {

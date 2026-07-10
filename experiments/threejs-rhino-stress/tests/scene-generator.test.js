@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import * as THREE from "three";
+import { vi } from "vitest";
 import { BENCHMARK_PROTOCOL, DEFAULT_CONFIG } from "../src/config.js";
 import { createSyntheticScene } from "../src/scene-generator.js";
 
@@ -39,6 +41,25 @@ describe("scene generator", () => {
     const result = createSyntheticScene({ actorCount: 2, materialOwnership: "duplicated" });
     expect(result.actors[0].children[0].material)
       .not.toBe(result.actors[1].children[0].material);
+  });
+
+  it.each([
+    ["duplicated geometry", { geometryOwnership: "duplicated" }, THREE.BufferGeometry.prototype],
+    ["per-actor material", { materialOwnership: "per-actor" }, THREE.Material.prototype],
+  ])("disposes the unused shared template for %s", (_label, overrides, prototype) => {
+    const dispose = vi.spyOn(prototype, "dispose");
+    try {
+      const result = createSyntheticScene({ actorCount: 2, ...overrides });
+      const live = new Set();
+      result.scene.traverse((object) => {
+        if (object.geometry) live.add(object.geometry);
+        if (object.material) live.add(object.material);
+      });
+      const disposedObjects = dispose.mock.contexts;
+      expect(disposedObjects.some((object) => !live.has(object))).toBe(true);
+    } finally {
+      dispose.mockRestore();
+    }
   });
 
   it("separates source, rebase, and applied render origins", () => {
