@@ -56,6 +56,43 @@ _LIVE_DISPATCH_ENTRYPOINTS = frozenset(
     }
 )
 _DYNAMIC_IMPORT_CALLS = frozenset({"__import__", "import_module"})
+_PROCESS_SPAWN_APIS = frozenset(
+    {
+        "asyncio.create_subprocess_exec",
+        "asyncio.create_subprocess_shell",
+        "concurrent.futures.ProcessPoolExecutor",
+        "multiprocessing.Pool",
+        "multiprocessing.Process",
+        "os.execl",
+        "os.execle",
+        "os.execlp",
+        "os.execlpe",
+        "os.execv",
+        "os.execve",
+        "os.execvp",
+        "os.execvpe",
+        "os.popen",
+        "os.posix_spawn",
+        "os.posix_spawnp",
+        "os.spawnl",
+        "os.spawnle",
+        "os.spawnlp",
+        "os.spawnlpe",
+        "os.spawnv",
+        "os.spawnve",
+        "os.spawnvp",
+        "os.spawnvpe",
+        "os.startfile",
+        "os.system",
+        "subprocess.Popen",
+        "subprocess.call",
+        "subprocess.check_call",
+        "subprocess.check_output",
+        "subprocess.getoutput",
+        "subprocess.getstatusoutput",
+        "subprocess.run",
+    }
+)
 
 
 def _script_path() -> Path:
@@ -106,18 +143,148 @@ def _call_has_live_tool_name(node: ast.Call) -> bool:
     )
 
 
+def _process_reference(
+    node: ast.AST,
+    module_aliases: dict[str, str],
+    process_aliases: dict[str, str],
+) -> str | None:
+    name = _dotted_name(node)
+    if name in process_aliases:
+        return process_aliases[name]
+    if name is not None:
+        parts = name.split(".")
+        canonical = ".".join((module_aliases.get(parts[0], parts[0]), *parts[1:]))
+        if canonical in _PROCESS_SPAWN_APIS:
+            return canonical
+
+    if (
+        isinstance(node, ast.Call)
+        and _dotted_name(node.func) == "getattr"
+        and len(node.args) >= 2
+        and isinstance(node.args[1], ast.Constant)
+        and isinstance(node.args[1].value, str)
+    ):
+        module_name = _dotted_name(node.args[0])
+        if module_name is not None:
+            canonical_module = module_aliases.get(module_name, module_name)
+            canonical = f"{canonical_module}.{node.args[1].value}"
+            if canonical in _PROCESS_SPAWN_APIS:
+                return canonical
+    return None
+
+
+def _process_reference_from_value(
+    node: ast.AST,
+    module_aliases: dict[str, str],
+    process_aliases: dict[str, str],
+) -> str | None:
+    reference = _process_reference(node, module_aliases, process_aliases)
+    if reference is not None:
+        return reference
+    if isinstance(node, ast.BoolOp):
+        references = {
+            reference
+            for value in node.values
+            if (
+                reference := _process_reference_from_value(
+                    value, module_aliases, process_aliases
+                )
+            )
+            is not None
+        }
+        return next(iter(references)) if len(references) == 1 else None
+    if isinstance(node, ast.IfExp):
+        references = {
+            reference
+            for value in (node.body, node.orelse)
+            if (
+                reference := _process_reference_from_value(
+                    value, module_aliases, process_aliases
+                )
+            )
+            is not None
+        }
+        return next(iter(references)) if len(references) == 1 else None
+    return None
+
+
+def _assignment_value_and_targets(
+    node: ast.AST,
+) -> tuple[ast.AST | None, list[ast.AST]]:
+    if isinstance(node, ast.Assign):
+        return node.value, node.targets
+    if isinstance(node, ast.AnnAssign) and node.value is not None:
+        return node.value, [node.target]
+    return None, []
+
+
+def _module_call_sites(
+    tree: ast.Module,
+) -> list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef | None, ast.Call]]:
+    call_sites = []
+    for statement in tree.body:
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            owner_name = statement.name
+            owner = statement
+        else:
+            owner_name = "<module>"
+            owner = None
+        call_sites.extend(
+            (owner_name, owner, node)
+            for node in ast.walk(statement)
+            if isinstance(node, ast.Call)
+        )
+    return call_sites
+
+
+def _command_is_from_lm8i_builder(
+    owner: ast.FunctionDef | ast.AsyncFunctionDef | None,
+    process_call: ast.Call,
+) -> bool:
+    command = process_call.args[0] if process_call.args else next(
+        (
+            keyword.value
+            for keyword in process_call.keywords
+            if keyword.arg in {"args", "command"}
+        ),
+        None,
+    )
+    if isinstance(command, ast.Call):
+        return _dotted_name(command.func) == "_lm8i_command"
+    if owner is None or not isinstance(command, ast.Name):
+        return False
+
+    assignments = []
+    for node in ast.walk(owner):
+        value, targets = _assignment_value_and_targets(node)
+        if value is None or getattr(node, "lineno", 0) >= process_call.lineno:
+            continue
+        if command.id in set().union(*(_target_names(target) for target in targets)):
+            assignments.append(node)
+    if not assignments:
+        return False
+    nearest = max(assignments, key=lambda node: node.lineno)
+    value, _targets = _assignment_value_and_targets(nearest)
+    return isinstance(value, ast.Call) and _dotted_name(value.func) == "_lm8i_command"
+
+
 def _lm8m_wrapper_guard_violations(source: str) -> list[str]:
     """Return import and call paths that would let the wrapper dispatch live work."""
 
     tree = ast.parse(source)
     violations: list[str] = []
     aliases = set(_LIVE_DISPATCH_SEAMS)
+    module_aliases: dict[str, str] = {}
+    process_aliases: dict[str, str] = {}
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 module_name = alias.name
                 terminal_name = module_name.rsplit(".", 1)[-1]
+                module_aliases[alias.asname or module_name.split(".", 1)[0]] = (
+                    module_name
+                )
                 if module_name == "rook.server" or _is_lm8i_module(module_name):
                     violations.append(f"forbidden module import:{module_name}")
                 if module_name.split(".", 1)[0] not in _WRAPPER_ALLOWED_IMPORT_ROOTS:
@@ -134,6 +301,9 @@ def _lm8m_wrapper_guard_violations(source: str) -> list[str]:
             for alias in node.names:
                 imported_name = alias.name
                 qualified_name = f"{module_name}.{imported_name}" if module_name else imported_name
+                local_name = alias.asname or imported_name
+                if qualified_name in _PROCESS_SPAWN_APIS:
+                    process_aliases[local_name] = qualified_name
                 if qualified_name == "rook.server" or _is_lm8i_module(qualified_name):
                     violations.append(f"forbidden module import:{qualified_name}")
                 if imported_name in _LIVE_DISPATCH_SEAMS:
@@ -159,6 +329,24 @@ def _lm8m_wrapper_guard_violations(source: str) -> list[str]:
                             aliases.add(target_name)
                             changed = True
 
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(tree):
+            value, targets = _assignment_value_and_targets(node)
+            if value is None:
+                continue
+            process_reference = _process_reference_from_value(
+                value, module_aliases, process_aliases
+            )
+            if process_reference is None:
+                continue
+            for target in targets:
+                for target_name in _target_names(target):
+                    if process_aliases.get(target_name) != process_reference:
+                        process_aliases[target_name] = process_reference
+                        changed = True
+
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -174,21 +362,41 @@ def _lm8m_wrapper_guard_violations(source: str) -> list[str]:
         ) and _call_has_live_tool_name(node):
             violations.append(f"live tool dispatch:{call_name}")
 
+    allowed_process_call_count = 0
+    for owner_name, owner, call in _module_call_sites(tree):
+        for argument in (*call.args, *(keyword.value for keyword in call.keywords)):
+            passed_process_reference = _process_reference_from_value(
+                argument, module_aliases, process_aliases
+            )
+            if passed_process_reference is not None:
+                violations.append(
+                    "forbidden process spawn:"
+                    f"{owner_name}:process-api-argument:{passed_process_reference}"
+                )
+        process_reference = _process_reference(
+            call.func, module_aliases, process_aliases
+        )
+        if process_reference is None:
+            continue
+        if (
+            process_reference == "subprocess.run"
+            and owner_name == "_run_probe"
+            and _command_is_from_lm8i_builder(owner, call)
+        ):
+            allowed_process_call_count += 1
+            continue
+        call_name = _dotted_name(call.func) or "<dynamic>"
+        violations.append(
+            f"forbidden process spawn:{owner_name}:{call_name}:{process_reference}"
+        )
+
+    if allowed_process_call_count != 1:
+        violations.append(
+            "intended LM8I process spawn count:"
+            f"expected=1:actual={allowed_process_call_count}"
+        )
+
     return violations
-
-
-def _run_probe_call_targets(tree: ast.Module) -> set[str]:
-    run_probe = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name == "_run_probe"
-    )
-    return {
-        call_name
-        for node in ast.walk(run_probe)
-        if isinstance(node, ast.Call)
-        if (call_name := _dotted_name(node.func)) is not None
-    }
 
 
 def _load_script():
@@ -422,6 +630,35 @@ def test_managed_child_command_forwards_only_profile(tmp_path: Path):
 
     assert command[-2:] == ["--verifier-profile", "managed_receipt_v2"]
     assert "--readiness-wait-timeout-ms" not in command
+
+
+@pytest.mark.parametrize(
+    "verifier_profile",
+    [PROBE.SETTLE_VERIFIER_PROFILE, PROBE.MANAGED_VERIFIER_PROFILE],
+)
+def test_lm8i_child_command_uses_only_the_exact_script_and_allowed_flags(
+    tmp_path: Path, verifier_profile: str
+):
+    command = PROBE._lm8i_command(
+        model=PROBE.DEFAULT_MODEL,
+        lm8i_runs_dir=tmp_path,
+        verifier_profile=verifier_profile,
+    )
+    expected_script = str(
+        PROBE._REPO_ROOT / "scripts" / "lm8i_affine_publication_shape_support_probe.py"
+    )
+
+    assert command[0] == sys.executable
+    assert command[1] == expected_script
+    assert "-c" not in command
+    assert [argument for argument in command if argument.endswith(".py")] == [
+        expected_script
+    ]
+    assert {argument for argument in command if argument.startswith("--")} <= {
+        "--model",
+        "--run-dir",
+        "--verifier-profile",
+    }
 
 
 def test_discover_child_run_dirs_uses_filesystem_delta(tmp_path: Path):
@@ -2274,7 +2511,11 @@ import subprocess
 MANIFEST = {"child_probe": "lm8i_affine_publication_shape_support_probe.py"}
 POLICY = ("gh_set_value", "rook.server")
 
-def _run_probe(command):
+def _lm8i_command():
+    return ["python", "lm8i_affine_publication_shape_support_probe.py"]
+
+def _run_probe():
+    command = _lm8i_command()
     return subprocess.run(command)
 '''
 
@@ -2322,38 +2563,96 @@ def test_lm8m_wrapper_ast_guard_rejects_aliased_live_dispatch(source: str):
     assert _lm8m_wrapper_guard_violations(source)
 
 
+@pytest.mark.parametrize(
+    "hidden_spawn",
+    [
+        '''
+def _hidden_spawn():
+    return subprocess.run(["git", "status"])
+''',
+        '''
+launch = subprocess.run
+
+def _hidden_spawn():
+    return launch(["git", "status"])
+''',
+        '''
+from subprocess import run as launch
+
+def _hidden_spawn():
+    return launch(["git", "status"])
+''',
+        '''
+def _hidden_spawn():
+    return subprocess.Popen(["git", "status"])
+''',
+        '''
+def _spawn_with(spawn):
+    return spawn(["git", "status"])
+
+def _hidden_spawn():
+    return _spawn_with(subprocess.run)
+''',
+    ],
+)
+def test_lm8m_wrapper_ast_guard_rejects_helper_indirected_process_spawn(
+    hidden_spawn: str,
+):
+    source = f'''
+import subprocess
+
+def _lm8i_command():
+    return ["python", "lm8i_affine_publication_shape_support_probe.py"]
+
+def _run_probe():
+    command = _lm8i_command()
+    return subprocess.run(command)
+
+{hidden_spawn}
+'''
+
+    violations = _lm8m_wrapper_guard_violations(source)
+
+    assert any(
+        violation.startswith("forbidden process spawn:")
+        for violation in violations
+    )
+
+
+@pytest.mark.parametrize(
+    "command_expression",
+    [
+        '[sys.executable, "-c", "print(1)"]',
+        '[sys.executable, "other_probe.py"]',
+        '_live_command()',
+    ],
+)
+def test_lm8m_wrapper_ast_guard_requires_exact_lm8i_command_builder(
+    command_expression: str,
+):
+    source = f'''
+import subprocess
+import sys
+
+def _lm8i_command():
+    return [sys.executable, "lm8i_affine_publication_shape_support_probe.py"]
+
+def _run_probe():
+    return subprocess.run({command_expression})
+'''
+
+    violations = _lm8m_wrapper_guard_violations(source)
+
+    assert any(
+        violation.startswith("forbidden process spawn:")
+        for violation in violations
+    )
+
+
 def test_lm8m_wrapper_remains_subprocess_only():
     source = _script_path().read_text(encoding="utf-8")
 
     assert _lm8m_wrapper_guard_violations(source) == []
-
-
-def test_lm8m_wrapper_run_probe_only_schedules_child_and_accounts_artifacts():
-    tree = ast.parse(_script_path().read_text(encoding="utf-8"))
-
-    assert _run_probe_call_targets(tree) == {
-        "_append_jsonl",
-        "_apply_leak_scan",
-        "_apply_managed_child_audit",
-        "_build_summary",
-        "_copy_child_artifact_summaries",
-        "_discover_child_run_dirs",
-        "_lm8i_command",
-        "_managed_attempt_fields",
-        "_manifest",
-        "_new_run_dir",
-        "_row_from_completed_lm8i",
-        "_subprocess_error_row",
-        "_timeout_row",
-        "_write_json",
-        "lm8i_runs_dir.glob",
-        "lm8i_runs_dir.mkdir",
-        "path.is_dir",
-        "range",
-        "row.update",
-        "rows.append",
-        "runner",
-    }
 
 
 def test_no_lm8l_or_lm8m_sibling_scripts_exist():

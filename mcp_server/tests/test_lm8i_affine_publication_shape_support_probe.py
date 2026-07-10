@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import importlib.util
 import inspect
 import json
@@ -33,6 +34,148 @@ def _load_script():
 PROBE = _load_script()
 SKELETAL_PASS1 = '{"kind": "action_request"}'
 RECEIPT_ID = "opaque-lm8l-receipt-1"
+_MANAGED_VERIFIER_ROOT = "_dispatch_set_value_managed_receipt_and_verify"
+_LEGACY_SETTLE_VERIFIER = "_dispatch_set_value_solve_and_verify"
+_EXPECTED_MANAGED_TOOL_COUNTS = {
+    "gh_set_value": 1,
+    "gh_wait_for_solve_readiness": 1,
+    "gh_inspect_output": 1,
+}
+_FORBIDDEN_MANAGED_TOOLS = frozenset(
+    {
+        "gh_get_value",
+        "gh_solve",
+        "gh_solve_readiness",
+    }
+)
+
+
+def _ast_dotted_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _ast_dotted_name(node.value)
+        return f"{parent}.{node.attr}" if parent else node.attr
+    return None
+
+
+def _module_local_functions(
+    tree: ast.Module,
+) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
+    return {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+
+def _reachable_module_local_functions(
+    tree: ast.Module, root_name: str
+) -> list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]]:
+    functions = _module_local_functions(tree)
+    if root_name not in functions:
+        return []
+
+    reachable = []
+    pending = [root_name]
+    visited = set()
+    while pending:
+        function_name = pending.pop()
+        if function_name in visited:
+            continue
+        visited.add(function_name)
+        function = functions[function_name]
+        reachable.append((function_name, function))
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Call):
+                continue
+            call_name = _ast_dotted_name(node.func)
+            if call_name in functions and call_name not in visited:
+                pending.append(call_name)
+    return reachable
+
+
+def _literal_tool_name(call: ast.Call) -> str | None:
+    if not call.args:
+        return None
+    first_arg = call.args[0]
+    if (
+        isinstance(first_arg, ast.Constant)
+        and isinstance(first_arg.value, str)
+        and first_arg.value.startswith("gh_")
+    ):
+        return first_arg.value
+    return None
+
+
+def _call_dict_argument_has_key(call: ast.Call, key: str) -> bool:
+    if len(call.args) < 2 or not isinstance(call.args[1], ast.Dict):
+        return False
+    return any(
+        isinstance(item, ast.Constant) and item.value == key
+        for item in call.args[1].keys
+    )
+
+
+def _managed_verifier_guard_violations(source: str) -> list[str]:
+    tree = ast.parse(source)
+    reachable = _reachable_module_local_functions(tree, _MANAGED_VERIFIER_ROOT)
+    if not reachable:
+        return [f"managed verifier root missing:{_MANAGED_VERIFIER_ROOT}"]
+
+    violations = []
+    tool_calls: dict[str, list[tuple[str, ast.Call]]] = {}
+    for function_name, function in reachable:
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Call):
+                continue
+            call_name = _ast_dotted_name(node.func) or "<dynamic>"
+            terminal_name = call_name.rsplit(".", 1)[-1]
+            if call_name == "asyncio.sleep":
+                violations.append(
+                    f"forbidden reachable call:{function_name}:asyncio.sleep"
+                )
+            if terminal_name == _LEGACY_SETTLE_VERIFIER:
+                violations.append(
+                    f"forbidden reachable call:{function_name}:{_LEGACY_SETTLE_VERIFIER}"
+                )
+            if terminal_name in _FORBIDDEN_MANAGED_TOOLS:
+                violations.append(
+                    f"forbidden reachable tool call:{function_name}:{terminal_name}"
+                )
+
+            tool_name = _literal_tool_name(node)
+            if tool_name is None:
+                if terminal_name in _EXPECTED_MANAGED_TOOL_COUNTS:
+                    violations.append(
+                        f"direct reachable tool call:{function_name}:{terminal_name}"
+                    )
+                continue
+            tool_calls.setdefault(tool_name, []).append((function_name, node))
+            if tool_name in _FORBIDDEN_MANAGED_TOOLS:
+                violations.append(
+                    f"forbidden reachable tool dispatch:{function_name}:{tool_name}"
+                )
+            elif tool_name not in _EXPECTED_MANAGED_TOOL_COUNTS:
+                violations.append(
+                    f"unexpected reachable tool dispatch:{function_name}:{tool_name}"
+                )
+
+    for tool_name, expected_count in _EXPECTED_MANAGED_TOOL_COUNTS.items():
+        actual_count = len(tool_calls.get(tool_name, ()))
+        if actual_count != expected_count:
+            violations.append(
+                "managed tool count:"
+                f"{tool_name}:expected={expected_count}:actual={actual_count}"
+            )
+
+    for function_name, call in tool_calls.get("gh_inspect_output", ()):
+        if not _call_dict_argument_has_key(call, "readiness_receipt_id"):
+            violations.append(
+                f"unfenced managed output read:{function_name}:gh_inspect_output"
+            )
+
+    return violations
 
 
 class FakeToolExecutor:
@@ -1774,15 +1917,54 @@ def test_lm8i_source_does_not_import_lm8h_lm8g_repair_planner_retry_or_gh_edit_p
         assert fragment not in source
 
 
-def test_managed_profile_has_no_settle_fallback_or_extra_solve():
-    managed_source = inspect.getsource(
-        PROBE._dispatch_set_value_managed_receipt_and_verify
+@pytest.mark.parametrize(
+    ("indirect_body", "expected_fragment"),
+    [
+        ('await tool_executor("gh_solve", {})', "gh_solve"),
+        ("await asyncio.sleep(0)", "asyncio.sleep"),
+        (
+            "await _dispatch_set_value_solve_and_verify(tool_executor=tool_executor)",
+            "_dispatch_set_value_solve_and_verify",
+        ),
+        (
+            'await tool_executor("gh_inspect_output", {"guid": "extra"})',
+            "gh_inspect_output",
+        ),
+        ('await gh_inspect_output("extra")', "gh_inspect_output"),
+    ],
+)
+def test_managed_verifier_guard_rejects_forbidden_work_in_indirect_helper(
+    indirect_body, expected_fragment
+):
+    source = f'''
+async def _dispatch_set_value_managed_receipt_and_verify(tool_executor):
+    await tool_executor("gh_set_value", {{}})
+    await tool_executor("gh_wait_for_solve_readiness", {{}})
+    await _first_helper(tool_executor)
+    await tool_executor(
+        "gh_inspect_output",
+        {{"readiness_receipt_id": "receipt-1"}},
     )
 
-    assert '"gh_solve"' not in managed_source
-    assert "asyncio.sleep" not in managed_source
-    assert '"gh_solve_readiness"' not in managed_source
-    assert "_dispatch_set_value_solve_and_verify" not in managed_source
+async def _first_helper(tool_executor):
+    await _indirect_helper(tool_executor)
+
+async def _indirect_helper(tool_executor):
+    {indirect_body}
+
+async def _dispatch_set_value_solve_and_verify(**_kwargs):
+    return None
+'''
+
+    violations = _managed_verifier_guard_violations(source)
+
+    assert any(expected_fragment in violation for violation in violations)
+
+
+def test_managed_profile_has_no_settle_fallback_or_extra_solve():
+    source = _script_path().read_text(encoding="utf-8")
+
+    assert _managed_verifier_guard_violations(source) == []
 
 
 def test_lm8i_source_does_not_contain_hidden_worker_value_literal():
