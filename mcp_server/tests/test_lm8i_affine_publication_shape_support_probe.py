@@ -96,6 +96,14 @@ def _reachable_module_local_functions(
 
 
 def _literal_tool_name(call: ast.Call) -> str | None:
+    call_name = _ast_dotted_name(call.func)
+    if call_name is None or call_name.rsplit(".", 1)[-1] not in {
+        "tool_executor",
+        "_mcp_tool_executor",
+        "call_tool",
+        "invoke_tool",
+    }:
+        return None
     if not call.args:
         return None
     first_arg = call.args[0]
@@ -1959,6 +1967,97 @@ async def _dispatch_set_value_solve_and_verify(**_kwargs):
     violations = _managed_verifier_guard_violations(source)
 
     assert any(expected_fragment in violation for violation in violations)
+
+
+def test_managed_verifier_guard_ignores_policy_strings_on_non_tool_calls():
+    source = '''
+async def _dispatch_set_value_managed_receipt_and_verify(tool_executor):
+    record("gh_solve")
+    await tool_executor("gh_set_value", {})
+    await tool_executor("gh_wait_for_solve_readiness", {})
+    await tool_executor(
+        "gh_inspect_output",
+        {"readiness_receipt_id": "receipt-1"},
+    )
+'''
+
+    assert _managed_verifier_guard_violations(source) == []
+
+
+def test_managed_profile_locks_root_call_graph_and_executor_contract():
+    tree = ast.parse(_script_path().read_text(encoding="utf-8"))
+    root = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.AsyncFunctionDef)
+        and node.name == _MANAGED_VERIFIER_ROOT
+    )
+    call_names = sorted(
+        {
+            call_name
+            for node in ast.walk(root)
+            if isinstance(node, ast.Call)
+            if (call_name := _ast_dotted_name(node.func)) is not None
+        }
+    )
+    assert call_names == [
+        "_guid_sha256",
+        "_inspect_output_scalar_value",
+        "_managed_decision_metadata",
+        "_managed_mutation_receipt_failures",
+        "_managed_provenance_failures",
+        "_managed_receipt_from_tool_result",
+        "_managed_receipt_summary",
+        "_managed_rejection",
+        "_managed_wait_data",
+        "_managed_wait_structure_failures",
+        "_managed_wait_summary",
+        "_mutation_receipt_terminal_reason",
+        "_normalize_readiness_failure",
+        "_receipt_id_sha256",
+        "_tool_data",
+        "_tool_result_failed",
+        "abs",
+        "dict.fromkeys",
+        "float",
+        "isinstance",
+        "list",
+        "output_data.get",
+        "set_summary.update",
+        "tool_executor",
+        "type",
+        "verify_summary.update",
+        "wait_data.get",
+        "wait_failures.extend",
+        "wait_summary.get",
+    ]
+
+    executor_loads = [
+        node
+        for node in ast.walk(root)
+        if isinstance(node, ast.Name)
+        and node.id == "tool_executor"
+        and isinstance(node.ctx, ast.Load)
+    ]
+    executor_calls = [
+        node
+        for node in ast.walk(root)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "tool_executor"
+    ]
+    assert len(executor_loads) == 3
+    assert sorted(_literal_tool_name(call) for call in executor_calls) == [
+        "gh_inspect_output",
+        "gh_set_value",
+        "gh_wait_for_solve_readiness",
+    ]
+    inspect_call = next(
+        call
+        for call in executor_calls
+        if _literal_tool_name(call) == "gh_inspect_output"
+    )
+    assert _call_dict_argument_has_key(inspect_call, "readiness_receipt_id")
 
 
 def test_managed_profile_has_no_settle_fallback_or_extra_solve():

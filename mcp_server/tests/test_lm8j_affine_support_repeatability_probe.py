@@ -375,6 +375,21 @@ def _lm8m_wrapper_guard_violations(source: str) -> list[str]:
                         process_aliases[target_name] = process_reference
                         changed = True
 
+    for statement in tree.body:
+        if not isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for node in ast.walk(statement):
+            if not isinstance(node, ast.Return) or node.value is None:
+                continue
+            returned_process_reference = _process_reference_from_value(
+                node.value, module_aliases, process_aliases
+            )
+            if returned_process_reference is not None:
+                violations.append(
+                    "forbidden process reference return:"
+                    f"{statement.name}:{returned_process_reference}"
+                )
+
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -691,6 +706,59 @@ def test_lm8i_child_command_uses_only_the_exact_script_and_allowed_flags(
         "--run-dir",
         "--verifier-profile",
     }
+
+
+def test_lm8i_command_builder_has_exact_control_and_payload_shape():
+    tree = ast.parse(_script_path().read_text(encoding="utf-8"))
+    function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_lm8i_command"
+    )
+    assert len(function.body) == 4
+    validate, assign, profile_if, returned = function.body
+    assert isinstance(validate, ast.Expr)
+    assert ast.unparse(validate.value) == "_run_identity(verifier_profile)"
+    assert isinstance(assign, ast.Assign)
+    assert [ast.unparse(target) for target in assign.targets] == ["command"]
+    assert ast.unparse(assign.value) == (
+        "[sys.executable, str(_REPO_ROOT / 'scripts' / "
+        "'lm8i_affine_publication_shape_support_probe.py'), '--model', model, "
+        "'--run-dir', str(lm8i_runs_dir)]"
+    )
+    assert isinstance(profile_if, ast.If)
+    assert ast.unparse(profile_if.test) == (
+        "verifier_profile == MANAGED_VERIFIER_PROFILE"
+    )
+    assert len(profile_if.body) == 1 and profile_if.orelse == []
+    assert ast.unparse(profile_if.body[0]) == (
+        "command.extend(['--verifier-profile', MANAGED_VERIFIER_PROFILE])"
+    )
+    assert isinstance(returned, ast.Return)
+    assert ast.unparse(returned.value) == "command"
+
+
+def test_lm8i_child_command_is_not_mutated_before_subprocess_call():
+    tree = ast.parse(_script_path().read_text(encoding="utf-8"))
+    function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_run_probe"
+    )
+    command_names = [
+        node for node in ast.walk(function) if isinstance(node, ast.Name) and node.id == "command"
+    ]
+    assert sum(isinstance(node.ctx, ast.Store) for node in command_names) == 1
+    assert sum(isinstance(node.ctx, ast.Load) for node in command_names) == 1
+    command_load = next(node for node in command_names if isinstance(node.ctx, ast.Load))
+    runner_call = next(
+        node
+        for node in ast.walk(function)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "runner"
+    )
+    assert runner_call.args == [command_load]
 
 
 def test_discover_child_run_dirs_uses_filesystem_delta(tmp_path: Path):
@@ -2709,6 +2777,30 @@ def _run_probe():
     assert any(
         violation.startswith("forbidden process spawn:")
         for violation in violations
+    )
+
+
+def test_lm8m_wrapper_ast_guard_rejects_helper_returned_process_alias():
+    source = '''
+import subprocess
+
+def _lm8i_command():
+    return ["python", "lm8i_affine_publication_shape_support_probe.py"]
+
+def _run_probe():
+    command = _lm8i_command()
+    return subprocess.run(command)
+
+def pick():
+    return subprocess.run
+
+def hidden():
+    return pick()(["git", "status"])
+'''
+
+    assert any(
+        violation.startswith("forbidden process reference return:pick:")
+        for violation in _lm8m_wrapper_guard_violations(source)
     )
 
 
