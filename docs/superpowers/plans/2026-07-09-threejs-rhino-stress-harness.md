@@ -660,6 +660,7 @@ export function createSyntheticScene(overrides = {}) {
   buildContext(contextRoot, config.contextMode);
   return {
     scene, actorRoot, contextRoot, actors, config,
+    sourceKind: "synthetic",
     sourceOrigin: sourceOrigin.toArray(),
     rebaseOrigin: rebaseOrigin.toArray(),
     appliedRenderOffset: appliedRenderOffset.toArray(),
@@ -1157,7 +1158,7 @@ Expected: all tests and the Vite build pass.
 
 ~~~js
 // tests/benchmark.test.js
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { runConfiguration, runTrial } from "../src/benchmark.js";
 
 it("runs three trials and uses the worst completed trial", async () => {
@@ -1204,12 +1205,44 @@ it("converts construction failure into an aborted trial", async () => {
     buildScene: async () => { throw new Error("construction failed"); },
     evaluate: () => {},
     dispose: () => { throw new Error("must not dispose missing context"); },
+    protocolProbe: () => {},
     schedule: (callback) => callback(),
     now: () => 0,
   });
   expect(result).toMatchObject({
     trialIndex: 0, status: "aborted", reason: "construction failed",
   });
+});
+
+it("performs exactly one scene world-matrix traversal per measured frame", async () => {
+  const scene = {
+    matrixWorldAutoUpdate: true,
+    updateMatrixWorld: vi.fn(),
+  };
+  const domElement = {
+    addEventListener: vi.fn(), removeEventListener: vi.fn(),
+  };
+  const renderer = {
+    domElement,
+    getContext: () => ({ getExtension: () => null }),
+    render: (renderedScene) => {
+      if (renderedScene.matrixWorldAutoUpdate) {
+        renderedScene.updateMatrixWorld();
+      }
+    },
+  };
+  const result = await runTrial({
+    trialIndex: 0, renderer,
+    buildScene: async () => ({ scene, camera: {} }),
+    evaluate: () => {}, dispose: () => {},
+    protocol: { warmupFrames: 0, measuredFrames: 3 },
+    protocolProbe: () => {},
+    schedule: (callback) => callback(),
+    now: performance.now.bind(performance),
+  });
+  expect(result.status).toBe("completed");
+  expect(scene.matrixWorldAutoUpdate).toBe(false);
+  expect(scene.updateMatrixWorld).toHaveBeenCalledTimes(3);
 });
 
 it("stops scheduling after the first aborted trial", async () => {
@@ -1269,6 +1302,9 @@ export async function runTrial({
     const started = now();
     context = await buildScene();
     constructionMs = now() - started;
+    // The benchmark owns the single world-matrix traversal. Three.js r181
+    // otherwise performs another traversal inside WebGLRenderer.render().
+    context.scene.matrixWorldAutoUpdate = false;
     timer = createGpuTimer(renderer.getContext());
     renderer.domElement.addEventListener("webglcontextlost", lost, { once: true });
     listenerAttached = true;
@@ -1455,13 +1491,27 @@ it("invalidates hidden or resized trials", () => {
 
 it("checks deterministic seek, independent transforms, and pivots", () => {
   const context = createSyntheticScene({ actorCount: 3 });
+  context.actors[0].scale.set(2, 3, 4);
   context.actorIndex = buildActorIndex(context.scene).actors;
   context.motionGranularity = "individual";
   expect(runCorrectnessChecks(context)).toEqual({
     pass: true,
     deterministicSeek: true,
     independentTransform: true,
-    pivotSanity: true,
+    pivotSanity: { status: "passed" },
+  });
+});
+
+it("reports arbitrary local-GLB pivot validation as unavailable", () => {
+  const context = createSyntheticScene({ actorCount: 3 });
+  context.sourceKind = "local_glb";
+  context.actorIndex = buildActorIndex(context.scene).actors;
+  context.motionGranularity = "individual";
+  const result = runCorrectnessChecks(context);
+  expect(result.pass).toBe(true);
+  expect(result.pivotSanity).toEqual({
+    status: "unavailable",
+    reason: "arbitrary local GLB pivot semantics are outside this experiment",
   });
 });
 ~~~
@@ -1533,7 +1583,8 @@ export function runCorrectnessChecks(context) {
   if (!actors.length) {
     return {
       pass: false, deterministicSeek: false,
-      independentTransform: false, pivotSanity: false,
+      independentTransform: false,
+      pivotSanity: { status: "failed", reason: "no addressable actors" },
     };
   }
 
@@ -1551,25 +1602,44 @@ export function runCorrectnessChecks(context) {
   firstActor.updateMatrixWorld(true);
   const independentTransform = secondActor.matrixWorld.equals(secondBefore);
 
-  evaluateAt(context, 0);
-  const savedQuaternion = firstActor.quaternion.clone();
-  const pivotExpected = firstActor.parent.localToWorld(
-    firstActor.position.clone());
-  firstActor.rotation.set(0, Math.PI / 2, 0);
-  firstActor.updateWorldMatrix(true, true);
-  const pivotActual = firstActor.localToWorld(new Vector3(0, 0, 0));
-  const offAxisActual = firstActor.localToWorld(new Vector3(1, 0, 0));
-  const offAxisExpected = firstActor.parent.localToWorld(
-    firstActor.position.clone().add(new Vector3(0, 0, -1)));
-  const pivotSanity =
-    pivotActual.distanceTo(pivotExpected) <= 1e-9 &&
-    offAxisActual.distanceTo(offAxisExpected) <= 1e-9;
-  firstActor.quaternion.copy(savedQuaternion);
-  firstActor.updateWorldMatrix(true, true);
+  let pivotSanity;
+  if (context.sourceKind !== "synthetic") {
+    pivotSanity = {
+      status: "unavailable",
+      reason: "arbitrary local GLB pivot semantics are outside this experiment",
+    };
+  } else {
+    evaluateAt(context, 0);
+    const savedQuaternion = firstActor.quaternion.clone();
+    const pivotExpected = firstActor.parent.localToWorld(
+      firstActor.position.clone());
+    firstActor.rotation.set(0, Math.PI / 2, 0);
+    firstActor.updateWorldMatrix(true, true);
+    const pivotActual = firstActor.localToWorld(new Vector3(0, 0, 0));
+    const localProbe = new Vector3(1, 0, 0);
+    const offAxisActual = firstActor.localToWorld(localProbe.clone());
+    const expectedOffset = localProbe.multiply(firstActor.scale)
+      .applyAxisAngle(new Vector3(0, 1, 0), Math.PI / 2);
+    const offAxisExpected = firstActor.parent.localToWorld(
+      firstActor.position.clone().add(expectedOffset));
+    const passed =
+      pivotActual.distanceTo(pivotExpected) <= 1e-9 &&
+      offAxisActual.distanceTo(offAxisExpected) <= 1e-9;
+    pivotSanity = passed
+      ? { status: "passed" }
+      : {
+          status: "failed",
+          pivotError: pivotActual.distanceTo(pivotExpected),
+          offAxisError: offAxisActual.distanceTo(offAxisExpected),
+        };
+    firstActor.quaternion.copy(savedQuaternion);
+    firstActor.updateWorldMatrix(true, true);
+  }
 
   evaluateAt(context, 0);
   return {
-    pass: deterministicSeek && independentTransform && pivotSanity,
+    pass: deterministicSeek && independentTransform &&
+      pivotSanity.status !== "failed",
     deterministicSeek, independentTransform, pivotSanity,
   };
 }
@@ -1607,15 +1677,28 @@ export function countScene(root) {
 
 - [ ] **Step 5: Enforce protocol and retain complete trial evidence**
 
-In benchmark.js, import validateProtocolEnvironment and runCorrectnessChecks. At trial start and inside every warm-up/measured callback, call:
+In benchmark.js, import validateProtocolEnvironment and runCorrectnessChecks. Add a `protocolProbe` option whose browser default calls validateProtocolEnvironment, then invoke it at trial start and inside every warm-up/measured callback:
 
 ~~~js
-validateProtocolEnvironment({
-  visibilityState: document.visibilityState,
-  width: renderer.domElement.width,
-  height: renderer.domElement.height,
-});
+export async function runTrial({
+  trialIndex, renderer, buildScene, evaluate, dispose, signal,
+  protocol = BENCHMARK_PROTOCOL,
+  checkCorrectness = runCorrectnessChecks,
+  protocolProbe = () => validateProtocolEnvironment({
+    visibilityState: document.visibilityState,
+    width: renderer.domElement.width,
+    height: renderer.domElement.height,
+  }),
+  schedule = requestAnimationFrame,
+  now = performance.now.bind(performance),
+}) {
+  protocolProbe();
+
+  // invoke protocolProbe() again at the start of both frame callbacks
+}
 ~~~
+
+Update Node-side runTrial tests, including the exactly-one-traversal test, to pass `protocolProbe: () => {}`. This keeps browser protocol enforcement load-bearing without requiring DOM globals in Vitest's Node environment.
 
 After the final measured render, capture:
 
