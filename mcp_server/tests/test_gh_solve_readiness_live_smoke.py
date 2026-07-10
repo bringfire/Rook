@@ -66,7 +66,7 @@ def _flat_provenance(receipt: dict[str, object] | None = None) -> dict[str, obje
         "readiness_receipt_id": receipt["receipt_id"],
         "document_session_id": receipt["document_session_id"],
         "mutation_epoch": receipt["mutation_epoch"],
-        "completed_solution_epoch": receipt["completed_solution_run_epoch"],
+        "completed_solution_run_epoch": receipt["completed_solution_run_epoch"],
     }
 
 

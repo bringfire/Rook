@@ -94,7 +94,7 @@ def _fenced_output_matches_receipt(data: dict[str, Any], receipt: dict[str, Any]
         and data.get("readiness_receipt_id") == receipt.get("receipt_id")
         and data.get("document_session_id") == receipt.get("document_session_id")
         and data.get("mutation_epoch") == receipt.get("mutation_epoch")
-        and data.get("completed_solution_epoch") == receipt.get("completed_solution_run_epoch")
+        and data.get("completed_solution_run_epoch") == receipt.get("completed_solution_run_epoch")
     )
 
 
