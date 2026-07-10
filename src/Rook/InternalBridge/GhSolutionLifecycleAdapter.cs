@@ -35,8 +35,9 @@ namespace Rook.InternalBridge
                 return GhSolutionLifecycleSubscription.Unavailable("solution_end_event_missing");
             }
 
-            if (!TryCreateHandler(solutionStart, onSolutionStart, out var startHandler) ||
-                !TryCreateHandler(solutionEnd, onSolutionEnd, out var endHandler))
+            var callbackGate = new CallbackGate(onSolutionStart, onSolutionEnd);
+            if (!TryCreateHandler(solutionStart, callbackGate.InvokeStart, out var startHandler) ||
+                !TryCreateHandler(solutionEnd, callbackGate.InvokeEnd, out var endHandler))
             {
                 return GhSolutionLifecycleSubscription.Unavailable("solution_lifecycle_delegate_incompatible");
             }
@@ -59,11 +60,35 @@ namespace Rook.InternalBridge
                     solutionStart,
                     startHandler,
                     solutionEnd,
-                    endHandler);
+                    endHandler,
+                    callbackGate.Disable);
             }
             catch
             {
+                callbackGate.Disable();
                 return GhSolutionLifecycleSubscription.Unavailable("solution_lifecycle_subscribe_failed");
+            }
+        }
+
+        private sealed class CallbackGate
+        {
+            private Action<object>? _onSolutionStart;
+            private Action<object>? _onSolutionEnd;
+
+            internal CallbackGate(Action<object> onSolutionStart, Action<object> onSolutionEnd)
+            {
+                _onSolutionStart = onSolutionStart;
+                _onSolutionEnd = onSolutionEnd;
+            }
+
+            internal void InvokeStart(object document) => Volatile.Read(ref _onSolutionStart)?.Invoke(document);
+
+            internal void InvokeEnd(object document) => Volatile.Read(ref _onSolutionEnd)?.Invoke(document);
+
+            internal void Disable()
+            {
+                Interlocked.Exchange(ref _onSolutionStart, null);
+                Interlocked.Exchange(ref _onSolutionEnd, null);
             }
         }
 
@@ -116,6 +141,7 @@ namespace Rook.InternalBridge
         private readonly Delegate? _startHandler;
         private readonly EventInfo? _solutionEnd;
         private readonly Delegate? _endHandler;
+        private readonly Action? _disableCallbacks;
         private int _disposed;
 
         private GhSolutionLifecycleSubscription(
@@ -125,7 +151,8 @@ namespace Rook.InternalBridge
             EventInfo? solutionStart = null,
             Delegate? startHandler = null,
             EventInfo? solutionEnd = null,
-            Delegate? endHandler = null)
+            Delegate? endHandler = null,
+            Action? disableCallbacks = null)
         {
             IsAvailable = isAvailable;
             Reason = reason;
@@ -134,6 +161,7 @@ namespace Rook.InternalBridge
             _startHandler = startHandler;
             _solutionEnd = solutionEnd;
             _endHandler = endHandler;
+            _disableCallbacks = disableCallbacks;
         }
 
         internal bool IsAvailable { get; }
@@ -146,28 +174,42 @@ namespace Rook.InternalBridge
             EventInfo solutionStart,
             Delegate startHandler,
             EventInfo solutionEnd,
-            Delegate endHandler) =>
-            new(true, null, document, solutionStart, startHandler, solutionEnd, endHandler);
+            Delegate endHandler,
+            Action disableCallbacks) =>
+            new(true, null, document, solutionStart, startHandler, solutionEnd, endHandler, disableCallbacks);
 
         public void Dispose()
         {
-            if (Interlocked.Exchange(ref _disposed, 1) != 0 ||
-                _document is null ||
-                _solutionStart is null ||
-                _startHandler is null ||
-                _solutionEnd is null ||
-                _endHandler is null)
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
             {
                 return;
             }
 
+            _disableCallbacks?.Invoke();
+            if (_document is null)
+            {
+                return;
+            }
+
+            if (_solutionStart is not null && _startHandler is not null)
+            {
+                RemoveEventHandlerBestEffort(_solutionStart, _document, _startHandler);
+            }
+
+            if (_solutionEnd is not null && _endHandler is not null)
+            {
+                RemoveEventHandlerBestEffort(_solutionEnd, _document, _endHandler);
+            }
+        }
+
+        private static void RemoveEventHandlerBestEffort(EventInfo eventInfo, object target, Delegate handler)
+        {
             try
             {
-                _solutionStart.RemoveEventHandler(_document, _startHandler);
+                eventInfo.RemoveEventHandler(target, handler);
             }
-            finally
+            catch
             {
-                _solutionEnd.RemoveEventHandler(_document, _endHandler);
             }
         }
     }

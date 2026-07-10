@@ -50,6 +50,38 @@ namespace Rook.Tests.InternalBridge
             public void RaiseEnd() => SolutionEnd?.Invoke(this, new IncompatibleLifecycleEventArgs());
         }
 
+        public sealed class ThrowingRemoveDocument
+        {
+            private SolutionLifecycleHandler? _solutionStart;
+            private SolutionLifecycleHandler? _solutionEnd;
+
+            public int StartRemoveAttempts { get; private set; }
+            public int EndRemoveAttempts { get; private set; }
+
+            public event SolutionLifecycleHandler? SolutionStart
+            {
+                add => _solutionStart += value;
+                remove
+                {
+                    StartRemoveAttempts++;
+                    throw new InvalidOperationException("solution_start_remove_failed");
+                }
+            }
+
+            public event SolutionLifecycleHandler? SolutionEnd
+            {
+                add => _solutionEnd += value;
+                remove
+                {
+                    EndRemoveAttempts++;
+                    throw new InvalidOperationException("solution_end_remove_failed");
+                }
+            }
+
+            public void RaiseStart(object eventDocument) => _solutionStart?.Invoke(this, new SolutionLifecycleEventArgs(eventDocument));
+            public void RaiseEnd(object eventDocument) => _solutionEnd?.Invoke(this, new SolutionLifecycleEventArgs(eventDocument));
+        }
+
         [Fact]
         public void Attach_CompatibleEvents_ForwardsStartThenEnd()
         {
@@ -108,6 +140,41 @@ namespace Rook.Tests.InternalBridge
             document.RaiseEnd(new object());
 
             Assert.Equal(0, callbackCount);
+        }
+
+        [Fact]
+        public void Dispose_ThrowingSolutionRemovals_AttemptsBothAndLeavesOldCallbacksInert()
+        {
+            var adapter = new GhSolutionLifecycleAdapter();
+            var oldDocument = new ThrowingRemoveDocument();
+            var replacementDocument = new FakeDocument();
+            var oldCallbackCount = 0;
+            var replacementPhases = new List<string>();
+            var oldSubscription = adapter.Attach(oldDocument, _ => oldCallbackCount++, _ => oldCallbackCount++);
+            GhSolutionLifecycleSubscription? replacementSubscription = null;
+
+            var exception = Record.Exception(() =>
+            {
+                oldSubscription.Dispose();
+                oldSubscription.Dispose();
+                replacementSubscription = adapter.Attach(
+                    replacementDocument,
+                    _ => replacementPhases.Add("start"),
+                    _ => replacementPhases.Add("end"));
+            });
+
+            Assert.Null(exception);
+            Assert.NotNull(replacementSubscription);
+            Assert.True(replacementSubscription!.IsAvailable);
+            Assert.Equal(1, oldDocument.StartRemoveAttempts);
+            Assert.Equal(1, oldDocument.EndRemoveAttempts);
+            oldDocument.RaiseStart(new object());
+            oldDocument.RaiseEnd(new object());
+            replacementDocument.RaiseStart(new object());
+            replacementDocument.RaiseEnd(new object());
+            Assert.Equal(0, oldCallbackCount);
+            Assert.Equal(new[] { "start", "end" }, replacementPhases);
+            replacementSubscription.Dispose();
         }
     }
 }

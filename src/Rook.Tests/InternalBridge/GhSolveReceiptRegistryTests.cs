@@ -250,29 +250,70 @@ namespace Rook.Tests.InternalBridge
         }
 
         [Fact]
-        public void ReplaceDocument_PreservesExistingTerminalReceiptState()
+        public void ReplaceDocument_ReadyReceiptInvalidatesStatusWaitAndFence()
         {
-            var registry = CreateRegistry();
-            var issue = registry.IssueMutation(DocumentA);
-            registry.MarkMutationFailed(issue.Receipt!.ReceiptId);
+            var registry = CreateReadyRegistry(out var receipt);
 
             registry.ReplaceDocument(DocumentB);
 
-            var retained = registry.Get(issue.Receipt.ReceiptId);
+            var lookup = registry.Get(receipt.ReceiptId);
+            var wait = registry.Wait(receipt.ReceiptId, TimeSpan.FromSeconds(1), CancellationToken.None);
+            var gate = registry.CheckFencedRead(receipt.ReceiptId, DocumentB);
+            Assert.Equal(GhSolveReadinessStatus.DocumentReplaced, lookup.Receipt!.Status);
+            Assert.Equal("document_replaced", lookup.Receipt.Reason);
+            Assert.Equal(GhReadinessWaitStatus.Terminal, wait.WaitStatus);
+            Assert.Equal(GhSolveReadinessStatus.DocumentReplaced, wait.Receipt!.Status);
+            Assert.False(gate.Allowed);
+            Assert.Equal("readiness_receipt_document_replaced", gate.Error);
+        }
+
+        [Fact]
+        public void ReplaceDocument_ReterminalizesEveryRetainedReceiptFromReplacedSession()
+        {
+            var registry = CreateRegistry();
+            var failed = registry.IssueMutation(DocumentA).Receipt!;
+            registry.MarkMutationFailed(failed.ReceiptId);
+            var locked = registry.IssueMutation(DocumentA).Receipt!;
+            registry.MarkSolverLocked(locked.ReceiptId);
+            var superseded = IssueScheduled(registry, DocumentA);
+            var pending = registry.IssueMutation(DocumentA).Receipt!;
+
+            registry.ReplaceDocument(DocumentB);
+
+            foreach (var receiptId in new[] { failed.ReceiptId, locked.ReceiptId, superseded.ReceiptId, pending.ReceiptId })
+            {
+                var retained = registry.Get(receiptId);
+                Assert.Equal(GhSolveReadinessStatus.DocumentReplaced, retained.Receipt!.Status);
+                Assert.Equal("document_replaced", retained.Receipt.Reason);
+            }
+        }
+
+        [Fact]
+        public void ReplaceDocument_PreservesUnrelatedTerminalReceiptState()
+        {
+            var registry = CreateRegistry();
+            registry.ReplaceDocument(DocumentA);
+            var unrelated = registry.IssueMutation(DocumentB).Receipt!;
+            registry.MarkMutationFailed(unrelated.ReceiptId);
+
+            registry.ReplaceDocument(new object());
+
+            var retained = registry.Get(unrelated.ReceiptId);
             Assert.Equal(GhSolveReadinessStatus.Unknown, retained.Receipt!.Status);
             Assert.Equal("mutation_failed", retained.Receipt.Reason);
         }
 
         [Fact]
-        public void ReplaceDocument_DoesNotExtendExistingTerminalRetentionAge()
+        public void ReplaceDocument_DoesNotExtendUnrelatedTerminalRetentionAge()
         {
             var clock = new TestClock();
             var registry = CreateRegistry(clock);
-            var issue = registry.IssueMutation(DocumentA);
+            registry.ReplaceDocument(DocumentA);
+            var issue = registry.IssueMutation(DocumentB);
             registry.MarkMutationFailed(issue.Receipt!.ReceiptId);
             clock.Advance(TimeSpan.FromMinutes(14));
 
-            registry.ReplaceDocument(DocumentB);
+            registry.ReplaceDocument(new object());
             clock.Advance(TimeSpan.FromMinutes(1).Add(TimeSpan.FromTicks(1)));
 
             Assert.False(registry.Get(issue.Receipt.ReceiptId).Found);

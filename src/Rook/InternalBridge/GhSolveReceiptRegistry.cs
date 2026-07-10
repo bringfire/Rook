@@ -372,11 +372,18 @@ namespace Rook.InternalBridge
             {
                 var now = _monotonicNow();
                 Purge(now);
-                foreach (var entry in _entries.Values)
+                var replacedSessionId = _currentDocument is not null &&
+                    _sessions.TryGetValue(_currentDocument, out var replacedSession)
+                        ? replacedSession.SessionId
+                        : null;
+                if (replacedSessionId is not null)
                 {
-                    if (entry.Receipt.Status == GhSolveReadinessStatus.Pending)
+                    foreach (var entry in _entries.Values)
                     {
-                        TransitionTerminal(entry, GhSolveReadinessStatus.DocumentReplaced, "document_replaced", null, now);
+                        if (entry.Receipt.DocumentSessionId == replacedSessionId)
+                        {
+                            TransitionTerminal(entry, GhSolveReadinessStatus.DocumentReplaced, "document_replaced", null, now);
+                        }
                     }
                 }
 

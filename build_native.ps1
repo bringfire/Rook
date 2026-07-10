@@ -49,6 +49,16 @@ if (-not (Test-Path $vcxproj)) {
     exit 1
 }
 
+$abiTestSource = Join-Path $ScriptRoot "src\RookNative\GrasshopperBridgeAbiValidationTests.cpp"
+if (-not (Test-Path $abiTestSource)) {
+    Write-Error "Grasshopper bridge ABI validation test not found: $abiTestSource"
+    exit 1
+}
+
+$abiTestOutputDir = Join-Path $ScriptRoot "src\RookNative\obj\$Configuration\x64\GrasshopperBridgeAbiValidationTests"
+$abiTestObject = Join-Path $abiTestOutputDir "GrasshopperBridgeAbiValidationTests.obj"
+$abiTestExecutable = Join-Path $abiTestOutputDir "GrasshopperBridgeAbiValidationTests.exe"
+
 Write-Host "Building RookNative ($Configuration x64)"
 Write-Host "  VS Edition:      $($tc.Edition)"
 Write-Host "  VCToolsVersion:  $($tc.VCToolsVersion)"
@@ -64,6 +74,12 @@ try {
 set "VSCMD_START_DIR=%CD%"
 call "$($tc.VcvarsallPath)" x64 -vcvars_ver=$vcvarsVersion >nul 2>&1
 set VCToolsVersion=$($tc.VCToolsVersion)
+if not exist "$abiTestOutputDir" mkdir "$abiTestOutputDir"
+echo Running Grasshopper bridge ABI validation tests
+cl /nologo /std:c++17 /EHsc /W4 /WX /I"$ScriptRoot\src\RookNative" /Fo:"$abiTestObject" /Fe:"$abiTestExecutable" "$abiTestSource"
+if errorlevel 1 exit /b %ERRORLEVEL%
+"$abiTestExecutable"
+if errorlevel 1 exit /b %ERRORLEVEL%
 msbuild "%~1" /p:Configuration=$Configuration /p:Platform=x64 /p:VCToolsVersion=$($tc.VCToolsVersion) /m /v:minimal
 exit /b %ERRORLEVEL%
 "@ | Set-Content -Path $buildBat -Encoding ASCII

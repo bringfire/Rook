@@ -25,7 +25,8 @@ namespace Rook.InternalBridge
                 return GhCanvasDocumentLifecycleSubscription.Unavailable("canvas_document_changed_event_missing");
             }
 
-            if (!TryCreateHandler(documentChanged, onDocumentChanged, out var handler))
+            var callbackGate = new CallbackGate(onDocumentChanged);
+            if (!TryCreateHandler(documentChanged, callbackGate.Invoke, out var handler))
             {
                 return GhCanvasDocumentLifecycleSubscription.Unavailable("canvas_document_changed_delegate_incompatible");
             }
@@ -33,12 +34,28 @@ namespace Rook.InternalBridge
             try
             {
                 documentChanged.AddEventHandler(canvas, handler);
-                return GhCanvasDocumentLifecycleSubscription.Available(canvas, documentChanged, handler);
+                return GhCanvasDocumentLifecycleSubscription.Available(canvas, documentChanged, handler, callbackGate.Disable);
             }
             catch
             {
+                callbackGate.Disable();
                 return GhCanvasDocumentLifecycleSubscription.Unavailable("canvas_document_changed_subscribe_failed");
             }
+        }
+
+        private sealed class CallbackGate
+        {
+            private Action<object?, object?>? _callback;
+
+            internal CallbackGate(Action<object?, object?> callback)
+            {
+                _callback = callback;
+            }
+
+            internal void Invoke(object? oldDocument, object? newDocument) =>
+                Volatile.Read(ref _callback)?.Invoke(oldDocument, newDocument);
+
+            internal void Disable() => Interlocked.Exchange(ref _callback, null);
         }
 
         private static bool TryCreateHandler(EventInfo eventInfo, Action<object?, object?> callback, out Delegate handler)
@@ -89,6 +106,7 @@ namespace Rook.InternalBridge
         private readonly object? _canvas;
         private readonly EventInfo? _documentChanged;
         private readonly Delegate? _handler;
+        private readonly Action? _disableCallbacks;
         private int _disposed;
 
         private GhCanvasDocumentLifecycleSubscription(
@@ -96,13 +114,15 @@ namespace Rook.InternalBridge
             string? reason,
             object? canvas = null,
             EventInfo? documentChanged = null,
-            Delegate? handler = null)
+            Delegate? handler = null,
+            Action? disableCallbacks = null)
         {
             IsAvailable = isAvailable;
             Reason = reason;
             _canvas = canvas;
             _documentChanged = documentChanged;
             _handler = handler;
+            _disableCallbacks = disableCallbacks;
         }
 
         internal bool IsAvailable { get; }
@@ -110,20 +130,36 @@ namespace Rook.InternalBridge
 
         internal static GhCanvasDocumentLifecycleSubscription Unavailable(string reason) => new(false, reason);
 
-        internal static GhCanvasDocumentLifecycleSubscription Available(object canvas, EventInfo documentChanged, Delegate handler) =>
-            new(true, null, canvas, documentChanged, handler);
+        internal static GhCanvasDocumentLifecycleSubscription Available(
+            object canvas,
+            EventInfo documentChanged,
+            Delegate handler,
+            Action disableCallbacks) =>
+            new(true, null, canvas, documentChanged, handler, disableCallbacks);
 
         public void Dispose()
         {
-            if (Interlocked.Exchange(ref _disposed, 1) != 0 ||
-                _canvas is null ||
-                _documentChanged is null ||
-                _handler is null)
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
             {
                 return;
             }
 
-            _documentChanged.RemoveEventHandler(_canvas, _handler);
+            _disableCallbacks?.Invoke();
+            if (_canvas is not null && _documentChanged is not null && _handler is not null)
+            {
+                RemoveEventHandlerBestEffort(_documentChanged, _canvas, _handler);
+            }
+        }
+
+        private static void RemoveEventHandlerBestEffort(EventInfo eventInfo, object target, Delegate handler)
+        {
+            try
+            {
+                eventInfo.RemoveEventHandler(target, handler);
+            }
+            catch
+            {
+            }
         }
     }
 }

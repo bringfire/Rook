@@ -7,6 +7,7 @@ namespace Rook.Tests.InternalBridge
     public sealed class GhCanvasDocumentLifecycleAdapterTests
     {
         public delegate void DocumentChangedHandler(FakeCanvas sender, DocumentChangedEventArgs args);
+        public delegate void ThrowingDocumentChangedHandler(object sender, DocumentChangedEventArgs args);
         public delegate void IncompatibleDocumentChangedHandler(object sender, IncompatibleDocumentChangedEventArgs args);
 
         public sealed class DocumentChangedEventArgs : EventArgs
@@ -49,6 +50,26 @@ namespace Rook.Tests.InternalBridge
 
             public void RaiseDocumentChanged() =>
                 DocumentChanged?.Invoke(this, new IncompatibleDocumentChangedEventArgs());
+        }
+
+        public sealed class ThrowingRemoveCanvas
+        {
+            private ThrowingDocumentChangedHandler? _documentChanged;
+
+            public int RemoveAttempts { get; private set; }
+
+            public event ThrowingDocumentChangedHandler? DocumentChanged
+            {
+                add => _documentChanged += value;
+                remove
+                {
+                    RemoveAttempts++;
+                    throw new InvalidOperationException("document_changed_remove_failed");
+                }
+            }
+
+            public void RaiseDocumentChanged(object? oldDocument, object? newDocument) =>
+                _documentChanged?.Invoke(this, new DocumentChangedEventArgs(oldDocument, newDocument));
         }
 
         [Fact]
@@ -98,6 +119,35 @@ namespace Rook.Tests.InternalBridge
             canvas.RaiseDocumentChanged(new FakeDocument(), new FakeDocument());
 
             Assert.Equal(0, callbackCount);
+        }
+
+        [Fact]
+        public void Dispose_ThrowingCanvasRemoval_AllowsReplacementAndLeavesOldCallbackInert()
+        {
+            var adapter = new GhCanvasDocumentLifecycleAdapter();
+            var oldCanvas = new ThrowingRemoveCanvas();
+            var replacementCanvas = new FakeCanvas(new FakeDocument());
+            var oldCallbackCount = 0;
+            var replacementCallbackCount = 0;
+            var oldSubscription = adapter.Attach(oldCanvas, (_, _) => oldCallbackCount++);
+            GhCanvasDocumentLifecycleSubscription? replacementSubscription = null;
+
+            var exception = Record.Exception(() =>
+            {
+                oldSubscription.Dispose();
+                oldSubscription.Dispose();
+                replacementSubscription = adapter.Attach(replacementCanvas, (_, _) => replacementCallbackCount++);
+            });
+
+            Assert.Null(exception);
+            Assert.NotNull(replacementSubscription);
+            Assert.True(replacementSubscription!.IsAvailable);
+            Assert.Equal(1, oldCanvas.RemoveAttempts);
+            oldCanvas.RaiseDocumentChanged(new FakeDocument(), new FakeDocument());
+            replacementCanvas.RaiseDocumentChanged(new FakeDocument(), new FakeDocument());
+            Assert.Equal(0, oldCallbackCount);
+            Assert.Equal(1, replacementCallbackCount);
+            replacementSubscription.Dispose();
         }
     }
 }
