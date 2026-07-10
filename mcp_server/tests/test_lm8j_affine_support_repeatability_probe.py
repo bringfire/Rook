@@ -473,6 +473,108 @@ def test_audit_managed_child_accepts_complete_consistent_artifacts(tmp_path: Pat
 
 
 @pytest.mark.parametrize(
+    ("receipt_status", "decision_reason"),
+    [
+        ("solver_locked", "readiness_receipt_solver_locked"),
+        ("unknown", "readiness_receipt_unknown"),
+        ("unknown", "readiness_receipt_expired"),
+    ],
+)
+def test_audit_managed_child_preserves_no_wait_terminal_mutation_reason(
+    tmp_path: Path,
+    receipt_status: str,
+    decision_reason: str,
+):
+    _write_managed_child_artifacts(tmp_path)
+    (tmp_path / "readiness_wait_summary.json").unlink()
+    (tmp_path / "verify_scalar_output_summary.json").unlink()
+    _mutate_managed_artifact(
+        tmp_path,
+        "live_set_value_summary.json",
+        ("managed_mutation", "receipt_status"),
+        receipt_status,
+    )
+    _mutate_managed_artifact(
+        tmp_path,
+        "decision.json",
+        ("decision",),
+        "rejected",
+    )
+    _mutate_managed_artifact(
+        tmp_path,
+        "decision.json",
+        ("reason",),
+        decision_reason,
+    )
+    _mutate_managed_artifact(
+        tmp_path,
+        "decision.json",
+        ("phase",),
+        "verifier_readiness",
+    )
+
+    audit = PROBE._audit_managed_child(tmp_path)
+
+    assert audit["performed"] is True
+    assert audit["readiness_wait_count"] == 0
+    assert audit["readiness_failure_reason"] == decision_reason
+
+    row = {
+        "lm8i_run_dir": str(tmp_path),
+        "lm8i_decision": "rejected",
+        "terminal_category": "rejected",
+        "failure_reason": None,
+        "verifier_profile": PROBE.MANAGED_VERIFIER_PROFILE,
+    }
+    PROBE._apply_managed_child_audit(row)
+    summary = PROBE._build_summary(
+        [row],
+        attempts=1,
+        model=PROBE.DEFAULT_MODEL,
+        attempt_timeout_s=PROBE.DEFAULT_ATTEMPT_TIMEOUT_S,
+        verifier_profile=PROBE.MANAGED_VERIFIER_PROFILE,
+    )
+
+    assert summary["readiness_failure_reason_counts"] == {decision_reason: 1}
+
+
+def test_audit_managed_child_does_not_classify_no_wait_pre_mutation_failure(
+    tmp_path: Path,
+):
+    _write_managed_child_artifacts(tmp_path)
+    (tmp_path / "readiness_wait_summary.json").unlink()
+    (tmp_path / "verify_scalar_output_summary.json").unlink()
+    _mutate_managed_artifact(
+        tmp_path,
+        "live_set_value_summary.json",
+        ("managed_mutation",),
+        _DELETE,
+    )
+    _mutate_managed_artifact(
+        tmp_path,
+        "decision.json",
+        ("decision",),
+        "rejected",
+    )
+    _mutate_managed_artifact(
+        tmp_path,
+        "decision.json",
+        ("reason",),
+        "gh_set_value_exception:RuntimeError",
+    )
+    _mutate_managed_artifact(
+        tmp_path,
+        "decision.json",
+        ("phase",),
+        "live_set_value",
+    )
+
+    audit = PROBE._audit_managed_child(tmp_path)
+
+    assert audit["readiness_failure_reason"] is None
+
+
+@pytest.mark.parametrize(
     ("filename", "expected_failure"),
     [
         ("live_set_value_summary.json", "mutation_artifact_missing"),

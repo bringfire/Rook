@@ -36,6 +36,17 @@ MANAGED_MUTATION_SCHEMA = "rook.lm8l_managed_mutation_summary:v1"
 MANAGED_WAIT_SCHEMA = "rook.lm8l_readiness_wait_summary:v1"
 MANAGED_VERIFY_SCHEMA = "rook.lm8l_fenced_output_verification_summary:v1"
 MANAGED_DECISION_SCHEMA = "rook.lm8l_managed_verifier_decision:v1"
+READINESS_FAILURE_REASONS = {
+    "readiness_receipt_superseded",
+    "readiness_receipt_stale_solution_run",
+    "readiness_receipt_document_replaced",
+    "readiness_receipt_solver_locked",
+    "readiness_receipt_unknown",
+    "readiness_receipt_expired",
+    "readiness_receipt_not_found_or_evicted_or_process_restarted",
+    "readiness_receipt_not_ready",
+    "readiness_wait_already_active",
+}
 EXPECTED_OUTPUT_VALUE = 7.5
 SCALAR_TOLERANCE = 1e-9
 EXCERPT_CHARS = 2000
@@ -626,6 +637,15 @@ def _audit_managed_child(run_dir: Path) -> dict[str, Any]:
             decision_reason = decision.get("reason")
             if isinstance(decision_reason, str) and decision_reason:
                 result["readiness_failure_reason"] = decision_reason
+    elif (
+        mutation is not None
+        and decision is not None
+        and decision.get("phase") == "verifier_readiness"
+        and decision.get("live_set_value_dispatched") is True
+    ):
+        decision_reason = decision.get("reason")
+        if decision_reason in READINESS_FAILURE_REASONS:
+            result["readiness_failure_reason"] = decision_reason
 
     if mutation is not None and wait is not None and read is not None:
         receipt_hashes = [
