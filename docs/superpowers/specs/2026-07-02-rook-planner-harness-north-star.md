@@ -398,6 +398,46 @@ small edit batches, or a router. A router becomes evidence-driven once multiple
 families expose stable differences in model/task assignment; it should not be
 introduced merely because one exploratory local Planner row succeeded.
 
+### 5.3 Addendum: LM8 closure and semantic-recipe pressure (2026-07-10)
+
+LM8 discharged the second-family and same-family-depth questions. The bounded
+worker path transferred from script repair to GH-native scalar mutation,
+progressed from identity through non-identity and affine projection, and
+repeated the affine case `20/20`. LM8K then replaced the measured settle-read
+seam with a managed Grasshopper solve-readiness receipt; LM8M repeated the
+affine case `20/20` with one managed wait and one receipt-fenced output read per
+child, zero settle reads, and no provenance discrepancies.
+
+The next pressure belongs above the worker box. It is not another arithmetic
+step and not a router. It is whether the existing Planner box can produce a
+validated semantic source artifact for graph construction while a deterministic
+compiler owns operational lowering.
+
+Candidate slice:
+
+```text
+LM9A = Planner Graph Recipe Surface
+```
+
+The first fixture should remain the previously discussed `10 x 10` radial box
+height field. The Planner owns field semantics, exposed controls, constraints,
+intent gaps, and verifier expectations. The compiler/template layer owns the
+concrete representation and exact tool IR, including script/template choice,
+short IDs, temp IDs, epochs, GUIDs, connections, and `gh_edit` batches. A worker
+may fill a declared formula or script-body slot, but does not author the batch.
+
+LM9A should introduce this recipe as a sibling Stage-1 semantic artifact inside
+the existing Planner harness, rather than overloading the worker-specific
+`PlannerWorkerContractRequest:v1` or creating a second Planner. The first slice
+is offline and deterministic: schema, validator, fixture, diagnostics, and
+proof tests only. Model authorship and live execution remain separate evidence
+questions.
+
+Before a later live recipe-to-`gh_edit` run, the `gh_edit` mutation path must
+emit or participate in a managed solve-readiness receipt so the verifier can
+make the same freshness claim proven by LM8K/LM8M. That prerequisite does not
+block the LM9A authoring surface or the following deterministic compiler slice.
+
 ---
 
 ## 6. Two plan tiers and RLM depth
@@ -607,6 +647,13 @@ Extending the LM north-star's evaluation doctrine (its §11 / phase LM6) upward:
   planner-side bet), not both-in-parallel (blurs failure attribution).
   `workflow_validate` follows once an initial worker-model read exists (user
   decision, 2026-07-02).
+- **LM8 closes the current worker-family qualification line.** The scalar
+  family transferred, deepened, repeated, and migrated to managed
+  receipt-fenced verification without changing bounded worker authority
+  (2026-07-10 addendum).
+- **LM9 pressure moves to Planner semantic recipes and deterministic
+  lowering.** The Planner authors meaning; the compiler owns representation and
+  exact execution IR. Router policy remains deferred (2026-07-10 addendum).
 
 ---
 

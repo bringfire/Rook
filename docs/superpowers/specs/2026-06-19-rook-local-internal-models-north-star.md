@@ -900,6 +900,48 @@ same family with slightly harder scalar variants before broadening to topology
 repair or edit batches. This keeps domain transfer, complexity scaling, and
 model-tier routing as separate evidence questions.
 
+### 12.2 Addendum: LM8 closure and LM9 handoff (2026-07-10)
+
+LM8 completed the pressure prescribed above. The GH-native scalar family now
+has receipted identity, non-identity, and affine-projection cases. The affine
+case repeated `20/20` with the local Gemma worker, which authored `3.0` on every
+attempt and reached the source-owned `7.5` verifier outcome every time. LM8K
+then moved post-mutation freshness from probe-local settle polling into a
+managed Grasshopper solve-readiness receipt. The LM8M replay repeated the same
+affine sample `20/20` with exactly one managed wait and one receipt-fenced read
+per attempt, zero settle reads, and no verification discrepancies.
+
+This closes the current scalar-family harness-readiness question. Additional
+arithmetic variants may still be useful for worker-model comparison and
+selection, but they are no longer prerequisites for the scaffold. Multiple
+target selection and graph construction also introduce Planner/compiler
+authority questions and should not be mislabeled as scalar-worker depth.
+
+The next architecture pressure is therefore the semantic authoring boundary:
+
+```text
+user/task envelope
+-> Planner-authored semantic graph recipe
+-> deterministic validation and lowering
+-> exact tool/verifier IR
+-> mechanical execution
+-> receipted verification
+```
+
+The first candidate is `LM9A = Planner Graph Recipe Surface`. It should keep
+the existing Planner box, add a validated semantic recipe artifact for graph
+construction, and leave representation choice, short IDs, temp IDs, epochs,
+GUIDs, and `gh_edit` batching to the compiler/template layer. A small worker is
+optional and receives only an explicitly declared bounded slot.
+
+Router work remains deferred. Two successful worker families do not yet expose
+a stable model/task-assignment distinction, and the exploratory local-Planner
+success remains capability evidence rather than routing policy. Before any
+live compiler-to-`gh_edit` evidence, `gh_edit` also needs a product-level
+managed solve-readiness receipt equivalent to the `gh_set_value` fence proven
+by LM8K/LM8M. That is a named live-execution prerequisite, not a reason to
+perform a broad cleanup of every historical timing loop now.
+
 ---
 
 ## 13. First recommended implementation sequence
@@ -968,3 +1010,8 @@ Recommendation: they may propose nodes or repairs, but Rook validates and applie
 - Workflow tools are execution-profile-aware generic contract macros, not baked task recipes.
 - Deterministic contract/transcript tests precede live model optimization.
 - The local worker scaffold is the executable bottom tier of the topology north-star.
+- LM8 closes scalar-family harness qualification; additional scalar arithmetic
+  is model-selection evidence unless it introduces a separately named contract
+  or verifier question.
+- LM9 begins at the semantic recipe/compiler boundary. Router policy remains
+  deferred until stable task families expose a measured assignment difference.

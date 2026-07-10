@@ -554,3 +554,19 @@ This keeps family transfer separate from complexity growth. A missing-wire
 repair, component replacement, or small edit-batch family should wait until
 the scalar family has either shown stable source/action/verifier semantics or
 produced a receipted finding that clearly requires a broader protocol change.
+
+### Closure checkpoint (2026-07-10)
+
+That exit condition is now satisfied. LM8 reached live identity, non-identity,
+and affine scalar relationships. The affine case repeated `20/20` under the
+settle-read baseline and then repeated `20/20` after LM8K/LM8M replaced that
+timing mechanism with one managed readiness wait and one receipt-fenced read
+per attempt. The source/action/verifier semantics remained stable.
+
+Numeric-tolerance, multi-target, and multi-fact variants remain valid future
+evaluations, but they are not required before the next architecture slice.
+Tolerance is primarily verifier-contract pressure; sufficiently difficult
+arithmetic becomes worker-model comparison; and target selection or topology
+construction introduces Planner/compiler authority. The next roadmap line is
+therefore a semantic graph-recipe surface and deterministic lowering boundary,
+not a third worker family and not a router.
