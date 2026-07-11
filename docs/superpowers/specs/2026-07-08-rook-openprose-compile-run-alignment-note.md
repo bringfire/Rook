@@ -20,10 +20,10 @@ OpenProse:
 
 Rook:
   user intent
-  -> Planner-authored semantic recipe
-  -> deterministic compiler/lowering
-  -> gh_create_* / gh_edit / verifier plan
-  -> dumb executor + verifier floor
+  -> Planner-authored semantic contract
+  -> bounded intelligent compile
+  -> deterministic validation of gh_create_* / gh_edit / verifier IR
+  -> mechanical executor + authoritative verifier floor
 ```
 
 The key correction is that `gh_edit` should be treated as compiled execution
@@ -260,9 +260,10 @@ The Rook equivalent should be:
 ```text
 User brief
 -> Planner Task Builder / Intent Envelope Builder
--> Planner-authored semantic graph recipe
--> recipe_validate
--> deterministic compiler/lowering
+-> Planner-authored semantic graph contract
+-> semantic_contract_validate
+-> bounded intelligent compile
+-> deterministic IR validation
 -> tool IR:
      gh_create_csharp_script
      gh_snapshot epoch and short-id discovery
@@ -318,8 +319,12 @@ Use:
 Compiler
 ```
 
-for the deterministic lowering from a validated semantic recipe to exact Rook
-tool calls and verifier choreography.
+for the fixed, constrained compile program that lowers a validated semantic
+contract to exact Rook tool calls and verifier choreography. Compile stages may
+use bounded model judgment to select representation, resolve semantic
+relationships, construct topology, or author schema-bounded implementation
+artifacts. The compiler harness deterministically validates those outputs for
+schema, authority, provenance, topology, and IR safety before execution.
 
 Use:
 
@@ -349,20 +354,17 @@ Recommended first fixture:
 10 x 10 radial box height field
 ```
 
-The recipe should express:
+The semantic contract should express the source-owned goal, observations and
+dependencies, desired maintained truth, semantic postconditions, assumptions,
+unresolved intent, invariants, shape boundaries, required capabilities, and any
+bounded worker slots. The fixture brief supplies the 10 x 10 box count and the
+radial height relationship. It does not itself supply spacing, box footprint,
+minimum or maximum height, or falloff behavior. The Planner must either leave
+those details unresolved or label any policy-permitted defaults as assumptions;
+they must not be smuggled in as user facts.
 
-- task family: parametric generated geometry;
-- acceptable template family: generated field geometry with bounded controls;
-- source-owned field semantics: a 10 x 10 box array whose heights are lowest at
-  the center and rise with radial distance;
-- exposed controls desired by the task: grid count, spacing, min height, max
-  height;
-- relationship: radial distance from center maps to height;
-- worker slots, if any: bounded script body or formula fragment;
-- verifier expectations: 100 boxes, height range min/max, no GH errors;
-
-The compiler/template layer may choose a concrete representation such as one
-C# generator component plus sliders/controls, then lower that to:
+The bounded intelligent compile phase may choose a concrete representation such
+as one C# generator component plus sliders/controls, then lower that to:
 
 - create script component;
 - snapshot epoch;
@@ -377,7 +379,10 @@ Do not ask the Planner to author short IDs, temp IDs, connection strings, or
 epoch-specific mutation payloads.
 ```
 
-Those are compiler responsibilities.
+Those are compiler responsibilities. Intelligence inside that boundary remains
+narrower than Planner intelligence and is constrained by fixed compile stages,
+limited context, exact output schemas, deterministic IR validation, and
+fail-closed diagnostics for ambiguous or unsupported lowering.
 
 ## LM8 Exit Checkpoint And Live-Execution Prerequisite
 
@@ -406,7 +411,7 @@ now emits. Consequently:
 
 ```text
 LM9A semantic recipe design and validation: not blocked
-deterministic recipe-to-tool/verifier compiler: not blocked
+bounded intelligent recipe-to-tool/verifier compile and deterministic IR validation: not blocked
 live compiled recipe through gh_edit: blocked on managed readiness fencing
 ```
 

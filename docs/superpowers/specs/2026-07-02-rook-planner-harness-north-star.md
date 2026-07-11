@@ -410,8 +410,10 @@ child, zero settle reads, and no provenance discrepancies.
 
 The next pressure belongs above the worker box. It is not another arithmetic
 step and not a router. It is whether the existing Planner box can produce a
-validated semantic source artifact for graph construction while a deterministic
-compiler owns operational lowering.
+validated semantic source artifact for graph construction. A fixed compiler
+program may then use bounded intelligent delegates for representation and
+semantic lowering, while a deterministic harness validates the resulting IR
+before mechanical execution.
 
 Candidate slice:
 
@@ -420,11 +422,15 @@ LM9A = Planner Graph Recipe Surface
 ```
 
 The first fixture should remain the previously discussed `10 x 10` radial box
-height field. The Planner owns field semantics, exposed controls, constraints,
-intent gaps, and verifier expectations. The compiler/template layer owns the
-concrete representation and exact tool IR, including script/template choice,
-short IDs, temp IDs, epochs, GUIDs, connections, and `gh_edit` batches. A worker
-may fill a declared formula or script-body slot, but does not author the batch.
+height field. The Planner owns the semantic goal, requirements, maintained
+truth, explicit assumptions, unresolved intent, invariants, verifier
+expectations, capability boundary, and any bounded worker slots. The compile
+layer owns representation decisions and exact tool/verifier IR, including
+script/template choice, short IDs, temp IDs, epochs, GUIDs, connections, and
+`gh_edit` batches. Compile-time model judgment is narrower than Planner judgment
+and must emit schema-bounded, provenance-linked artifacts that deterministic IR
+validation can reject. A worker may fill a declared formula or script-body slot,
+but does not author the batch.
 
 LM9A should introduce this recipe as a sibling Stage-1 semantic artifact inside
 the existing Planner harness, rather than overloading the worker-specific
@@ -436,7 +442,8 @@ questions.
 Before a later live recipe-to-`gh_edit` run, the `gh_edit` mutation path must
 emit or participate in a managed solve-readiness receipt so the verifier can
 make the same freshness claim proven by LM8K/LM8M. That prerequisite does not
-block the LM9A authoring surface or the following deterministic compiler slice.
+block the LM9A authoring surface or a following bounded-intelligent-compile and
+deterministic-IR-validation slice.
 
 ---
 
@@ -651,9 +658,11 @@ Extending the LM north-star's evaluation doctrine (its §11 / phase LM6) upward:
   family transferred, deepened, repeated, and migrated to managed
   receipt-fenced verification without changing bounded worker authority
   (2026-07-10 addendum).
-- **LM9 pressure moves to Planner semantic recipes and deterministic
-  lowering.** The Planner authors meaning; the compiler owns representation and
-  exact execution IR. Router policy remains deferred (2026-07-10 addendum).
+- **LM9 pressure moves to Planner semantic contracts, bounded intelligent
+  compile, and deterministic IR validation.** The Planner authors meaning; a
+  fixed compiler program delegates narrower representation and lowering
+  judgments, then accepts only schema-valid, provenance-linked exact execution
+  IR. Router policy remains deferred (2026-07-10 addendum).
 
 ---
 
