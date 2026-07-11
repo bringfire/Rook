@@ -1,5 +1,7 @@
 # Rook OpenProse Compile Run Alignment Note
 
+Theory companion: [Rook Semantic Contract, Compile, And Execution Theory](2026-07-11-rook-semantic-contract-compile-execution-theory.md)
+
 Status: architecture note
 
 Date: 2026-07-08
