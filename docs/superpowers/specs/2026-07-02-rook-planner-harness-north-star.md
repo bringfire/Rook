@@ -550,21 +550,154 @@ evidence exists.
 
 Extending the LM north-star's evaluation doctrine (its §11 / phase LM6) upward:
 
-- **Decomposition-first.** The first real-model evals measure whether the
-  Planner picks the right template/chain and binds the right params — before
-  execution-quality evals. (RLM: the first decomposition choice dominates.)
+- **Decomposition-first.** Earlier staged-authoring evals measure whether the
+  Planner picks the right template/chain and binds the right params. LM9
+  semantic-contract evals measure whether it preserves intent, authority,
+  assumptions, and postconditions. Both happen before compile or execution
+  quality is credited. (RLM: the first decomposition choice dominates.)
 - **Deterministic harness.** The planner loop is testable with a fake model
   exactly as LM5D/LM5F test the worker box: scenario suites of
   (intent, evidence) → expected contract properties (selected template, node
   count, verifier coverage, fingerprint stability), no live model in merge
   gates.
 - **Failure taxonomy extension.** Add planner-tier classes to the existing
-  taxonomy: template selection failure, binding failure, contract mechanics
-  failure (compiles only after N diagnostics), decomposition failure (compiles
-  but wrong shape), replan failure.
+  taxonomy: template selection failure, binding failure, semantic-contract
+  mechanics failure, authority/provenance failure, assumption-policy failure,
+  decomposition failure, bounded-compile failure, deterministic IR-validation
+  failure, and replan failure.
 - **Attributability.** Stage gates (§4.4) exist so a failure is attributable
   to decomposition vs contract mechanics vs worker execution — never "the
   multi-agent system failed."
+
+### 9.1 Authentic semantic-contract evaluation (2026-07-10)
+
+The LM9 semantic-contract line must not confuse a generic product grammar with
+a generic test oracle. The durable rule is:
+
+```text
+Product contracts stay generic.
+Evaluation oracles may be scenario-specific.
+```
+
+A radial-height-field test may assert radial-height-field meaning without
+adding radial-height fields to the Planner harness ontology. New evaluation
+cases expand evidence coverage; they do not automatically create new product
+schema requirements.
+
+LM9 evaluation has three pre-live layers:
+
+1. **Deterministic contract conformance.** Fake-model and hand-authored fixtures
+   verify schema loading, fingerprints, clause IDs, authority-artifact
+   references, freshness/session rules, assumption authorization, conflict
+   precedence, unresolved-intent honesty, and bounded diagnostics. This proves
+   contract mechanics, not Planner intelligence.
+2. **Semantic authorship probes.** A real Planner model receives a real task
+   brief, frozen read-only Rook capability inventory, and receipted Rhino/GH
+   environment snapshot, then authors a semantic contract without mutation.
+   Hard validity and semantic fidelity are scored independently.
+3. **Shadow compilation.** The real bounded intelligent compiler consumes a
+   validated contract and emits compile decisions plus exact tool/verifier IR.
+   Deterministic IR validation runs, but dispatch is disabled. This exercises
+   representation selection, capability resolution, topology, provenance, and
+   verifier construction without touching the canvas.
+
+Hard validity is deterministic:
+
+```text
+strict parse and schema validity
+authority references resolve against exact companion artifacts
+assumptions and policy defaults are explicitly authorized
+environment observations preserve session/freshness provenance
+compiled material values cite clauses, assumptions, policies, or capabilities
+compiled IR satisfies authority, topology, and verifier invariants
+```
+
+Semantic fidelity is a separate score:
+
+```text
+the contract preserves the user's goal
+current environment state is not confused with desired state
+important constraints and postconditions are present
+unsupported semantic commitments are not attributed to the user
+assumptions are useful, visible, and within policy
+irreducibly semantic obligations receive an explicit review disposition
+```
+
+Semantic fidelity cannot always be reduced to deterministic code. Use
+scenario-specific obligation rubrics, an independent ceiling-model review, and
+human spot review. This is analogous to OpenProse's honest distinction between
+deterministic and render-attested postconditions. It is not permission to let a
+model judge runtime wake, mutation, commit, or verifier-floor truth.
+
+Do not score Planner artifacts by exact wording. Each scenario may carry a
+private oracle such as:
+
+```yaml
+required_meanings:
+  - the result contains 100 box elements
+  - the array center is the radial reference
+  - height does not decrease as radial distance increases
+
+forbidden_claims:
+  - the user supplied grid spacing
+  - the user supplied minimum or maximum height
+  - the user selected a C# representation
+
+required_postconditions:
+  - element count
+  - radial-height ordering
+  - no Grasshopper errors
+```
+
+Those fields belong to the evaluation fixture, not
+`rook.planner_graph_recipe:v1`.
+
+Counterfactual pairs are the primary authenticity instrument. Change one
+authority input while holding everything else fixed, then pre-register what
+must change and what must remain stable. Initial pairs should include:
+
+- missing spacing vs user-supplied spacing;
+- policy-authorized World XY vs no plane policy;
+- current `8 x 8` environment state vs desired `10 x 10` user intent;
+- an irrelevant snapshot value that must never become a semantic value;
+- capability present vs capability absent, where the semantic goal remains but
+  compile reports unsupported lowering;
+- representation options changed, where the recipe remains materially stable
+  while compiled IR may change.
+
+Metamorphic checks complement the pairs:
+
+- rewording the brief preserves semantic equivalence;
+- reordering irrelevant snapshot objects does not move the contract
+  fingerprint materially;
+- changing one explicit user value moves only dependent clauses;
+- removing a capability changes compile diagnostics, not user meaning;
+- different valid representations satisfy the same semantic postconditions.
+
+The first fixture remains the `10 x 10` radial box field, but LM9A deterministic
+controls should include at least one other generated-geometry brief and one
+unsupported request. The common output is the semantic-contract grammar, not a
+shared domain payload. Prompt artifacts must not contain worked solved examples
+that leak a scenario's private oracle.
+
+Recommended evidence ladder:
+
+```text
+LM9A: generic semantic-contract schema, validator, and hand-authored controls
+LM9B: real Planner authorship over paired briefs and frozen real snapshots
+LM9C: bounded intelligent compile in no-dispatch shadow mode
+LM9D: hand-authored contract through live compile and execution
+LM9E: model-authored contract through the live compiled path
+```
+
+The governing empirical question is not "did the model reproduce this recipe?"
+It is:
+
+```text
+When source authority, environment, policy, or capabilities change in one
+controlled way, does the semantic contract and compiled output change in the
+correct place, for the correct reason, without inventing authority?
+```
 
 ---
 
@@ -663,6 +796,11 @@ Extending the LM north-star's evaluation doctrine (its §11 / phase LM6) upward:
   fixed compiler program delegates narrower representation and lowering
   judgments, then accepts only schema-valid, provenance-linked exact execution
   IR. Router policy remains deferred (2026-07-10 addendum).
+- **Generic contracts, scenario-specific oracles.** Planner evaluation uses
+  counterfactual pairs, metamorphic checks, separate hard-validity and
+  semantic-fidelity scores, and no-dispatch shadow compilation before live
+  execution. Domain-specific expectations stay in eval fixtures, not the core
+  recipe schema (2026-07-10 addendum).
 
 ---
 

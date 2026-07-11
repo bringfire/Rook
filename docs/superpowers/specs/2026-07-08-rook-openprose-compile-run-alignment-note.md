@@ -420,6 +420,34 @@ The durable follow-up is to extend the managed receipt mechanism to the exact
 to replace every historical delay in `server.py`; the compiler IR and its final
 mutation boundary should determine the receipt that live verification consumes.
 
+## Testability Consequence
+
+The OpenProse split also clarifies how Rook can test this abstraction before a
+full user-intent-to-live-graph run exists. The semantic-contract grammar can
+remain generic while each evaluation fixture carries a private, domain-specific
+oracle. A test may require radial ordering, forbid invented spacing, or expect
+an unsupported-capability diagnostic without making any of those fields part of
+the product schema.
+
+Rook should evaluate the boundary in three stages:
+
+```text
+deterministic semantic-contract conformance
+-> real Planner authorship over paired briefs and frozen real environment state
+-> bounded intelligent compile to deterministically validated IR, no dispatch
+```
+
+Counterfactual and metamorphic cases are more informative than exact recipe
+goldens: change one user fact, environment observation, policy, or capability
+and pre-register which clauses or compile decisions may move. Hard validity and
+semantic fidelity remain separate scores. Irreducibly semantic fidelity may use
+independent model review and human spot review; runtime mutation and verifier
+truth never do.
+
+This preserves the architecture's extensibility. New examples usually add
+evaluation coverage. They become product-language requirements only when they
+expose a genuinely unsupported semantic or compiler capability.
+
 ## Why This Matters
 
 The LM6-LM8 evidence proved that small workers can be useful when the box is
