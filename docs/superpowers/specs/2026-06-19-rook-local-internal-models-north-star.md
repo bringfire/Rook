@@ -921,18 +921,24 @@ The next architecture pressure is therefore the semantic authoring boundary:
 
 ```text
 user/task envelope
--> Planner-authored semantic graph recipe
--> deterministic validation and lowering
+-> Planner-authored semantic graph contract
+-> deterministic semantic-contract validation
+-> bounded intelligent compile
+-> deterministic IR validation
 -> exact tool/verifier IR
 -> mechanical execution
 -> receipted verification
 ```
 
 The first candidate is `LM9A = Planner Graph Recipe Surface`. It should keep
-the existing Planner box, add a validated semantic recipe artifact for graph
-construction, and leave representation choice, short IDs, temp IDs, epochs,
-GUIDs, and `gh_edit` batching to the compiler/template layer. A small worker is
-optional and receives only an explicitly declared bounded slot.
+the existing Planner box and add a validated semantic-contract artifact for
+graph construction. A fixed compiler program may use narrow intelligent
+delegates to select representation, resolve semantic relationships, construct
+topology, and author schema-bounded implementation artifacts. A deterministic
+compiler harness validates authority, provenance, topology, and exact IR before
+mechanical execution. Short IDs, temp IDs, epochs, GUIDs, and `gh_edit` batching
+remain compile-layer concerns. A small worker is optional and receives only an
+explicitly declared bounded slot.
 
 Router work remains deferred. Two successful worker families do not yet expose
 a stable model/task-assignment distinction, and the exploratory local-Planner
