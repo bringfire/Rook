@@ -1035,9 +1035,16 @@ outcomes because their receipt companions are deferred by Section 4.6.
 
 #### Confirmation Subject And Receipt
 
-The pre-confirmation subject fingerprint is computed over the canonical recipe
-excluding `recipe_fingerprint`, with every required `confirmation_ref` value
-replaced by `null` rather than removed.
+The pre-confirmation subject fingerprint is computed over a closed projection of
+the canonical recipe:
+
+1. remove the top-level `recipe_fingerprint` field;
+2. replace every selected `confirmation_ref` value with `null` rather than
+   removing the field;
+3. remove from `authority_artifacts` exactly the `confirmation_receipt`
+   descriptor named by each selected non-null confirmation reference; and
+4. canonicalize and hash the remaining projection with
+   `rook.canonical_json:v1`.
 
 The validator determines that replacement set only after policy and assumption
 evaluation that ignores confirmation-receipt effects. Every assumption whose
@@ -1048,6 +1055,21 @@ outcome is `policy_auto`, `trusted_selection_required`,
 `privileged_authorization_required`, `policy_prohibited`, or
 `policy_ambiguous` is invalid. Gratuitous receipts are never ignored or folded
 into a different subject.
+
+Each selected non-null reference must resolve to exactly one full
+`rook.planner_assumption_confirmation_receipt:v1` companion and exactly one
+matching recipe descriptor. That receipt binds the same assumption ID. One
+descriptor cannot satisfy multiple assumptions. A confirmation-receipt
+descriptor not selected through an eligible assumption is an unused authority
+artifact and invalid; it is not removed from the subject projection merely
+because its `artifact_kind` says `confirmation_receipt`.
+
+The pre-receipt recipe with null references and no receipt descriptors and the
+post-receipt recipe with selected references plus their matching descriptors
+therefore have the same confirmation-subject fingerprint. Their ordinary recipe
+fingerprints differ. Changing any semantic clause, typed assumption value,
+assumption scope, task envelope, cited policy, or other recipe-bound authority
+artifact changes the subject fingerprint and invalidates the old receipt.
 
 An assumption confirmation receipt is issued only by a trusted mechanical
 gateway and binds:
@@ -1065,7 +1087,8 @@ The Planner and compile delegates cannot issue receipts. Rejected, expired,
 revoked, wrong-session, stale-value, or fingerprint-mismatched receipts never
 make a recipe compile-ready. Changing semantics or an authority artifact
 invalidates prior receipts; changing only confirmation-reference values does
-not move the subject fingerprint.
+not move the subject fingerprint when the matching selected receipt descriptors
+are added or removed by the projection above.
 
 ### 6.6 Derived Facts
 
@@ -1981,6 +2004,16 @@ Pointers, diagnostic messages, `related_paths`, and other permitted Unicode
 strings use the same UTF-16 comparison as RFC 8785 object keys. The exhaustive
 v1 set-order table is:
 
+Compound sort keys compare tuple fields from left to right; the first unequal
+field determines order. Numeric rank fields compare by ascending integer value.
+String fields use the UTF-16 comparison above. A list-valued tuple field compares
+lexicographically from its first element using that element's declared
+comparator; when one list is an exact prefix of the other, the shorter list
+sorts first. `related_paths` is first canonicalized by sorting its RFC 6901
+strings, then participates in the enclosing diagnostic or blocker tuple under
+this list rule. No host-language tuple or list comparison semantics are
+implicit.
+
 | Collection | Canonical sort key |
 |---|---|
 | recipe and validation-input `authority_artifacts` | `artifact_id` |
@@ -2425,6 +2458,9 @@ LM9A must prove:
 - LM9A fingerprints use the `sha256:` exact-JCS regime and never call or imitate
   the legacy `_fingerprint_normalized_contract` helper;
 - canonicalization is deterministic across semantically set-ordered input;
+- compound diagnostic and blocker keys compare left-to-right, with
+  `related_paths` using deterministic lexicographic and shorter-prefix-first
+  ordering across runtimes;
 - raw input and normalized payload hashes remain distinct;
 - every report companion descriptor records its closed stable identity plus
   claimed and independently computed fingerprints;
@@ -2451,6 +2487,9 @@ LM9A must prove:
   worker request;
 - the focused confirmation fixture recomputes the subject fingerprint, validates
   the trusted receipt, derives `confirmed`, and reaches `compile_ready=true`;
+- adding an eligible confirmation reference and its exact receipt descriptor
+  changes the recipe fingerprint but leaves the confirmation-subject fingerprint
+  unchanged, while changing semantic or cited-policy material moves both;
 - no compiler, worker, tool, or executable artifact is emitted by validation.
 
 ### 12.2 Negative Proofs
@@ -2490,6 +2529,8 @@ Focused negative fixtures cover at least:
 - no policy match, multiple policy matches, exact prohibition, and wrong unit
   context;
 - confirmation receipt mismatch, expiry, revocation, and wrong task session;
+- missing, duplicate, wrong-assumption, shared, or unselected confirmation-
+  receipt descriptors in the confirmation-subject projection;
 - gratuitous confirmation references on `policy_auto` and every other
   non-confirmable derived authorization outcome;
 - malformed decimal strings, negative zero, unsafe JSON integers, non-integer
