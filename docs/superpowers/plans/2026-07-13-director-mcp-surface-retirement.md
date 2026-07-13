@@ -20,7 +20,20 @@
 - Exact post-change profile counts are: full/default `428`, lean `22`, readonly `148`; static `Tool(...)` definitions are `431`, with 3 deprecated-interactive definitions gated by default.
 - No changes are made in `rook2` or RookStudio.
 - In the feature worktree, create and use that worktree's own `mcp_server/.venv` with `uv sync --extra test`; do not reuse or junction the primary checkout's environment. Before baseline tests or subagent execution, verify `rook.__file__` resolves under the feature worktree. Add no dependency.
+- Run every pytest command from the repository root with `mcp_server/.venv/Scripts/python.exe` and repository-root-relative test paths. Do not `cd mcp_server` for pytest.
 - Work on `codex/director-mcp-surface-retirement`; do not modify `main` directly.
+
+---
+
+## Pre-Implementation Differential Baseline
+
+Before Task 1, keep the worktree-local virtual environment unchanged and run this full non-live gate from the repository root:
+
+```powershell
+.\mcp_server\.venv\Scripts\python.exe -m pytest mcp_server/tests -m "not requires_rhino" -q
+```
+
+Record the exact failed/error node IDs and pass/fail/error/skip totals. Pre-existing failures do not authorize repairs to `main` and do not block this retirement. All new and retirement-focused tests must pass. At final verification, rerun the same command in the same environment: it may retain the recorded pre-existing failed/error node IDs, but it must introduce no new failed/error node IDs. Live-Rhino tests remain a separate, explicitly enabled gate.
 
 ---
 
@@ -265,10 +278,10 @@ def test_director_case_labels_are_absent():
 
 - [ ] **Step 2: Run the tests and confirm the current surface fails**
 
-Run from `mcp_server/`:
+Run from the repository root:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_director_mcp_retirement.py -q
+.\mcp_server\.venv\Scripts\python.exe -m pytest mcp_server/tests/test_director_mcp_retirement.py -q
 ```
 
 Expected: FAIL because Director names and metadata are still advertised, direct calls reach targeting/dispatch, and the 18 case labels still exist.
@@ -340,7 +353,7 @@ The resulting opening order must be exactly:
 Run:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_director_mcp_retirement.py tests/test_server_contract_hardening.py -q
+.\mcp_server\.venv\Scripts\python.exe -m pytest mcp_server/tests/test_director_mcp_retirement.py mcp_server/tests/test_server_contract_hardening.py -q
 ```
 
 Expected: the new retirement tests PASS; server hardening tests PASS. Other existing tests are not expected to be green until Tasks 2 and 3 replace positive Director assertions.
@@ -550,7 +563,7 @@ async def test_scanner_failure_cannot_gate_normal_direct_dispatch(monkeypatch):
 Run:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_director_mcp_retirement.py -q
+.\mcp_server\.venv\Scripts\python.exe -m pytest mcp_server/tests/test_director_mcp_retirement.py -q
 ```
 
 Expected: FAIL on targeting sets, Director agent groups, the internal bridge route, inventory, and meta-dispatch assertions. The profile absence, media, and scanner tests should already PASS.
@@ -665,7 +678,7 @@ assert "rhino_create" not in readonly_names
 Run:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_director_mcp_retirement.py tests/test_mcp_tool_profiles.py tests/test_server_tool_profiles.py tests/test_multi_instance_targeting.py tests/test_rook_tools_meta.py tests/test_capability_index.py tests/test_capability_inventory.py tests/test_dispatcher_safety.py -q
+.\mcp_server\.venv\Scripts\python.exe -m pytest mcp_server/tests/test_director_mcp_retirement.py mcp_server/tests/test_mcp_tool_profiles.py mcp_server/tests/test_server_tool_profiles.py mcp_server/tests/test_multi_instance_targeting.py mcp_server/tests/test_rook_tools_meta.py mcp_server/tests/test_capability_index.py mcp_server/tests/test_capability_inventory.py mcp_server/tests/test_dispatcher_safety.py -q
 ```
 
 Expected: PASS, with full/default `428`, lean `22`, readonly `148`, and no Director record in any callable registry.
@@ -700,7 +713,7 @@ git commit -m "test: close Director capability surfaces"
 Run:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_director_mcp_tools.py tests/test_director_take_package.py tests/test_director_worker_prepare.py tests/test_director_worker_compile.py tests/test_director_worker_play.py tests/test_director_worker_capture.py -q
+.\mcp_server\.venv\Scripts\python.exe -m pytest mcp_server/tests/test_director_mcp_tools.py mcp_server/tests/test_director_take_package.py mcp_server/tests/test_director_worker_prepare.py mcp_server/tests/test_director_worker_compile.py mcp_server/tests/test_director_worker_play.py mcp_server/tests/test_director_worker_capture.py -q
 ```
 
 Expected: wrapper registration/dispatch tests FAIL with `Unknown tool`; direct module tests continue to PASS.
@@ -822,8 +835,7 @@ Expected: no matches. Negative tombstone fixtures and dormant template assertion
 Then run:
 
 ```powershell
-cd mcp_server
-.\.venv\Scripts\python.exe -m pytest tests/test_director.py tests/test_director_compiler.py tests/test_director_video.py tests/test_director_publish.py tests/test_director_actor_metadata.py tests/test_director_take_package.py tests/test_director_worker_prepare.py tests/test_director_worker_compile.py tests/test_director_worker_play.py tests/test_director_worker_capture.py tests/test_canvas_director.py tests/test_canvas_director_templates.py -q
+.\mcp_server\.venv\Scripts\python.exe -m pytest mcp_server/tests/test_director.py mcp_server/tests/test_director_compiler.py mcp_server/tests/test_director_video.py mcp_server/tests/test_director_publish.py mcp_server/tests/test_director_actor_metadata.py mcp_server/tests/test_director_take_package.py mcp_server/tests/test_director_worker_prepare.py mcp_server/tests/test_director_worker_compile.py mcp_server/tests/test_director_worker_play.py mcp_server/tests/test_director_worker_capture.py mcp_server/tests/test_canvas_director.py mcp_server/tests/test_canvas_director_templates.py -q
 ```
 
 Expected: PASS. Tests marked `requires_rhino` remain skipped unless a live test environment is explicitly enabled.
@@ -970,10 +982,10 @@ def test_director_artifact_preservation_guard_remains():
 
 - [ ] **Step 2: Run the documentation tests and confirm the missing notices**
 
-Run from `mcp_server/`:
+Run from the repository root:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_director_mcp_retirement.py -q
+.\mcp_server\.venv\Scripts\python.exe -m pytest mcp_server/tests/test_director_mcp_retirement.py -q
 ```
 
 Expected: FAIL on current README copy and on every route-aware Director document that lacks its required classification marker. The failure list includes the active May 20 camera/video roadmap, the July 6 snapshot-boundary design, and the July 7 actor-set implementation plan. The tracked-guidance and artifact-preservation checks PASS.
@@ -1083,9 +1095,7 @@ Future scene preview, timeline, rendering, and finalized-video export belongs in
 Run:
 
 ```powershell
-cd mcp_server
-.\.venv\Scripts\python.exe -m pytest tests/test_director_mcp_retirement.py tests/test_server_tool_profiles.py -q
-cd ..
+.\mcp_server\.venv\Scripts\python.exe -m pytest mcp_server/tests/test_director_mcp_retirement.py mcp_server/tests/test_server_tool_profiles.py -q
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/release-installer-guards.tests.ps1
 ```
 
@@ -1151,23 +1161,23 @@ Expected current-guidance matches are exactly the three explicit, non-callable b
 
 - [ ] **Step 2: Run the focused MCP/agent acceptance suite**
 
-Run from `mcp_server/`:
+Run from the repository root:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_director_mcp_retirement.py tests/test_mcp_tool_profiles.py tests/test_server_tool_profiles.py tests/test_multi_instance_targeting.py tests/test_rook_tools_meta.py tests/test_capability_index.py tests/test_capability_inventory.py tests/test_dispatcher_safety.py tests/test_director.py tests/test_director_compiler.py tests/test_director_video.py tests/test_director_publish.py tests/test_director_actor_metadata.py tests/test_director_take_package.py tests/test_director_worker_prepare.py tests/test_director_worker_compile.py tests/test_director_worker_play.py tests/test_director_worker_capture.py tests/test_canvas_director.py tests/test_canvas_director_templates.py tests/test_video_mcp_tools.py tests/test_vision_mcp_tools.py tests/test_display_modes.py tests/test_viewport_views.py -q
+.\mcp_server\.venv\Scripts\python.exe -m pytest mcp_server/tests/test_director_mcp_retirement.py mcp_server/tests/test_mcp_tool_profiles.py mcp_server/tests/test_server_tool_profiles.py mcp_server/tests/test_multi_instance_targeting.py mcp_server/tests/test_rook_tools_meta.py mcp_server/tests/test_capability_index.py mcp_server/tests/test_capability_inventory.py mcp_server/tests/test_dispatcher_safety.py mcp_server/tests/test_director.py mcp_server/tests/test_director_compiler.py mcp_server/tests/test_director_video.py mcp_server/tests/test_director_publish.py mcp_server/tests/test_director_actor_metadata.py mcp_server/tests/test_director_take_package.py mcp_server/tests/test_director_worker_prepare.py mcp_server/tests/test_director_worker_compile.py mcp_server/tests/test_director_worker_play.py mcp_server/tests/test_director_worker_capture.py mcp_server/tests/test_canvas_director.py mcp_server/tests/test_canvas_director_templates.py mcp_server/tests/test_video_mcp_tools.py mcp_server/tests/test_vision_mcp_tools.py mcp_server/tests/test_display_modes.py mcp_server/tests/test_viewport_views.py -q
 ```
 
 Expected: PASS, with live-Rhino tests skipped unless explicitly enabled.
 
 - [ ] **Step 3: Run the full Python suite**
 
-Run:
+Run from the repository root using the unchanged worktree environment:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests -q
+.\mcp_server\.venv\Scripts\python.exe -m pytest mcp_server/tests -m "not requires_rhino" -q
 ```
 
-Expected: PASS. Record the exact pass/skip totals in the branch handoff; do not copy a historical total into the claim.
+Expected: every new and retirement-focused test passes, and the failed/error node-ID set introduces no entries beyond the pre-Task-1 differential baseline. Pre-existing failed/error node IDs may remain. Record the exact final totals and node-ID comparison in the branch handoff; do not copy a historical total into the claim.
 
 - [ ] **Step 4: Run repository and artifact checks**
 
