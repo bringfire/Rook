@@ -1,0 +1,1800 @@
+# LM9A Planner Graph Recipe Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Implement an offline, model-free `rook.planner_graph_recipe:v1` validator that produces deterministic `rook.planner_graph_recipe_validation_report:v1` artifacts and proves the generic contract with radial, non-radial, worker-slot, and confirmation fixtures.
+
+**Architecture:** Add a new LM9A-only validation stack beside the existing Planner/worker and workflow-contract code. Raw bytes enter through a strict parser, closed JSON Schemas establish structure, exact RFC 8785 canonicalization establishes identity, phase-specific validators establish authority and readiness, and one orchestrator emits the closed report. The implementation must not compile, schedule, execute, call tools, or mutate the existing Planner/worker protocols.
+
+**Tech Stack:** Python 3.10+, stdlib `json`/`hashlib`/`decimal`/`unicodedata`, `jsonschema` Draft 2020-12 validation (the already-locked `4.26.0` package promoted to a direct dependency), `pytest`.
+
+## Global Constraints
+
+- Implement exactly the LM9A scope in `docs/superpowers/specs/2026-07-13-lm9a-planner-graph-recipe-design.md`.
+- Keep `PlannerWorkerContractRequest:v1`, `RookWorkflowContract`, `TaskSpec`, `workflow_validate`, and their public behavior unchanged.
+- No Planner model, worker model, provider routing, prompt rendering, tool call, `gh_edit`, Rhino/Grasshopper process, compiler, semantic-review gateway, executor, or live run.
+- The validator emits one validation report only. It never emits compiler requests, worker requests, compiled IR, executable artifacts, or runtime receipts.
+- Python support remains `>=3.10`.
+- `jsonschema==4.26.0` is already present in `mcp_server/uv.lock` through `mcp` and `litellm`; promote that exact resolved package to a direct dependency without adding another package or changing its resolved version.
+- `rook.canonical_json:v1` is a new exact RFC 8785 regime. Do not import, call, wrap, copy, or imitate `_fingerprint_normalized_contract` or any other legacy canonical JSON helper.
+- Recipe input is exact raw UTF-8 bytes without BOM. Duplicate object members, unpaired surrogates, invalid UTF-8, and nonconforming product numbers fail closed.
+- Hashes are lowercase `sha256:<hex>` strings.
+- All production LM9A modules are domain-neutral. Radial, box-array, grid-spacing, height-falloff, and layer-control scenario terms belong only in test fixture modules and documentation.
+- Preserve unrelated local knowledge, draft, and telemetry changes. Stage only files named by the current task.
+- Every task uses TDD and ends with its own focused verification and commit.
+
+---
+
+## File Map
+
+Production modules:
+
+- `mcp_server/src/rook/agent/planner_graph_recipe_canonical.py`: strict raw JSON ingress, exact RFC 8785 serialization, UTF-16 comparison, and fingerprint primitives.
+- `mcp_server/src/rook/agent/planner_graph_recipe_schemas.py`: closed Draft 2020-12 schemas, schema-directed normalization, exhaustive set ordering, product-number rules, and local-only registered payload-schema validation.
+- `mcp_server/src/rook/agent/planner_graph_recipe_report.py`: diagnostic/blocker records, phase derivation, deterministic issue ordering, descriptor shapes, and report assembly helpers.
+- `mcp_server/src/rook/agent/planner_graph_recipe_authority.py`: companion indexing, trusted fingerprint/session/freshness checks, RFC 6901 resolution, value bindings, vocabularies, capability registry, and policy registry validation.
+- `mcp_server/src/rook/agent/planner_graph_recipe_semantics.py`: clause graph, source coverage, derived facts, assumptions, confirmations, unresolved intent, shape, capabilities, worker slots, and readiness validation.
+- `mcp_server/src/rook/agent/planner_graph_recipe_validate.py`: public raw-bytes validation entry point and fixed phase orchestration.
+
+Test support and tests:
+
+- `mcp_server/tests/lm9a_contract_factory.py`: generic, domain-neutral companion and recipe builders used by focused unit tests.
+- `mcp_server/tests/lm9a_fixture_factory.py`: radial pair, non-radial layer control, worker-slot, confirmation, and pair-manifest fixtures.
+- `mcp_server/tests/fixtures/lm9a/rfc8785_number_vectors.json`: exact RFC 8785 Appendix B double-serialization vectors.
+- `mcp_server/tests/test_planner_graph_recipe_canonical.py`
+- `mcp_server/tests/test_planner_graph_recipe_schemas.py`
+- `mcp_server/tests/test_planner_graph_recipe_report.py`
+- `mcp_server/tests/test_planner_graph_recipe_authority.py`
+- `mcp_server/tests/test_planner_graph_recipe_semantics.py`
+- `mcp_server/tests/test_planner_graph_recipe_validate.py`
+- `mcp_server/tests/test_lm9a_planner_graph_recipe_fixtures.py`
+- `mcp_server/tests/test_lm9a_planner_graph_recipe_boundaries.py`
+
+Existing dependency metadata:
+
+- `mcp_server/pyproject.toml`
+- `mcp_server/uv.lock`
+
+## Spec Coverage Map
+
+| Spec area | Implemented/proved by |
+|---|---|
+| Artifact boundary and closed validation input (Sections 4.1-4.7) | Tasks 2 and 4 |
+| Materiality, honest validation limits, IDs, references, and clause support (Section 5) | Tasks 2, 4, and 5 |
+| Full recipe grammar (Sections 6.1-6.11) | Tasks 2 and 5-7 |
+| Authority/conflict matrix (Section 7) | Tasks 4 and 6 |
+| Validation report, descriptors, statuses, and phase graph (Section 8) | Tasks 3 and 8 |
+| Exact canonicalization/fingerprints (Section 9) | Tasks 1, 2, and 8 |
+| Future compile/review constraints remain unimplemented (Section 10) | Global constraints and Task 10 guards |
+| Radial pair, control, slot, and confirmation fixtures (Section 11) | Task 9 |
+| Positive, negative, and anti-overfitting proofs (Section 12) | Tasks 1-10, with the cross-cutting matrix in Task 10 |
+| Existing artifact boundaries remain unchanged (Section 13) | Task 10 AST/import and nearby regression gates |
+
+---
+
+### Task 1: Exact RFC 8785 Canonical Bytes And Raw Ingress
+
+**Files:**
+- Create: `mcp_server/src/rook/agent/planner_graph_recipe_canonical.py`
+- Create: `mcp_server/tests/fixtures/lm9a/rfc8785_number_vectors.json`
+- Create: `mcp_server/tests/test_planner_graph_recipe_canonical.py`
+
+**Interfaces:**
+- Consumes: raw `bytes` and already schema-valid JSON values.
+- Produces:
+  - `RawJsonResult(payload: Any | None, input_payload_sha256: str, error_code: str | None, error_message: str | None)`
+  - `parse_raw_json(raw: bytes) -> RawJsonResult`
+  - `utf16_sort_key(value: str) -> bytes`
+  - `canonical_json_bytes(value: Any) -> bytes`
+  - `canonical_sha256(value: Any) -> str`
+  - `typed_value_fingerprint(typed_value: Mapping[str, Any]) -> str`
+  - `normalize_semantic_prose(value: str) -> str`
+  - `normalize_lf(value: str) -> str`
+  - `compare_compound(left: tuple[Any, ...], right: tuple[Any, ...]) -> int`
+
+- [ ] **Step 1: Write strict-ingress and Unicode-ordering tests**
+
+```python
+from __future__ import annotations
+
+import json
+import pathlib
+import struct
+
+import pytest
+
+from rook.agent.planner_graph_recipe_canonical import (
+    CanonicalJsonError,
+    canonical_json_bytes,
+    compare_compound,
+    parse_raw_json,
+    utf16_sort_key,
+)
+
+
+def test_raw_ingress_hashes_exact_bytes_before_rejecting_bom():
+    raw = b"\xef\xbb\xbf{}"
+    parsed = parse_raw_json(raw)
+    assert parsed.payload is None
+    assert parsed.input_payload_sha256.startswith("sha256:")
+    assert parsed.error_code == "utf8_bom_forbidden"
+
+
+@pytest.mark.parametrize(
+    ("raw", "code"),
+    [
+        (b'{"x":1,"x":2}', "duplicate_object_member"),
+        (b'{"x":"\\ud800"}', "unpaired_unicode_surrogate"),
+        (b"\xff", "invalid_utf8"),
+    ],
+)
+def test_raw_ingress_rejects_noncanonical_json_inputs(raw, code):
+    assert parse_raw_json(raw).error_code == code
+
+
+def test_object_keys_use_utf16_code_unit_order():
+    payload = {"\U00010000": 1, "\ue000": 2}
+    assert canonical_json_bytes(payload) == (
+        '{"\U00010000":1,"\ue000":2}'.encode("utf-8")
+    )
+    assert utf16_sort_key("\U00010000") < utf16_sort_key("\ue000")
+
+
+def test_strings_preserve_non_ascii_and_escape_json_controls_exactly():
+    value = {"x": "Euro: €\nquote=\" slash=/ backslash=\\"}
+    assert canonical_json_bytes(value) == (
+        '{"x":"Euro: €\\nquote=\\" slash=/ backslash=\\\\"}'.encode("utf-8")
+    )
+
+
+def test_compound_lists_compare_lexicographically_shorter_prefix_first():
+    assert compare_compound(("x", ["/a"]), ("x", ["/a", "/b"])) < 0
+    assert compare_compound(("x", ["/b"]), ("x", ["/a", "/z"])) > 0
+```
+
+- [ ] **Step 2: Add the exact RFC number vector fixture and tests**
+
+Create `mcp_server/tests/fixtures/lm9a/rfc8785_number_vectors.json` with these exact Appendix B rows:
+
+```json
+[
+  ["0000000000000000", "0"],
+  ["8000000000000000", "0"],
+  ["0000000000000001", "5e-324"],
+  ["8000000000000001", "-5e-324"],
+  ["7fefffffffffffff", "1.7976931348623157e+308"],
+  ["ffefffffffffffff", "-1.7976931348623157e+308"],
+  ["4340000000000000", "9007199254740992"],
+  ["c340000000000000", "-9007199254740992"],
+  ["4430000000000000", "295147905179352830000"],
+  ["44b52d02c7e14af5", "9.999999999999997e+22"],
+  ["44b52d02c7e14af6", "1e+23"],
+  ["44b52d02c7e14af7", "1.0000000000000001e+23"],
+  ["444b1ae4d6e2ef4e", "999999999999999700000"],
+  ["444b1ae4d6e2ef4f", "999999999999999900000"],
+  ["444b1ae4d6e2ef50", "1e+21"],
+  ["3eb0c6f7a0b5ed8c", "9.999999999999997e-7"],
+  ["3eb0c6f7a0b5ed8d", "0.000001"],
+  ["41b3de4355555553", "333333333.3333332"],
+  ["41b3de4355555554", "333333333.33333325"],
+  ["41b3de4355555555", "333333333.3333333"],
+  ["41b3de4355555556", "333333333.3333334"],
+  ["41b3de4355555557", "333333333.33333343"],
+  ["becbf647612f3696", "-0.0000033333333333333333"],
+  ["43143ff3c1cb0959", "1424953923781206.2"]
+]
+```
+
+Add this test:
+
+```python
+def test_rfc8785_appendix_b_number_vectors():
+    fixture = pathlib.Path(__file__).parent / "fixtures/lm9a/rfc8785_number_vectors.json"
+    for ieee_hex, expected in json.loads(fixture.read_text(encoding="utf-8")):
+        value = struct.unpack(">d", bytes.fromhex(ieee_hex))[0]
+        assert canonical_json_bytes(value).decode("utf-8") == expected
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
+def test_nonfinite_numbers_are_rejected(value):
+    with pytest.raises(CanonicalJsonError, match="nonfinite_json_number"):
+        canonical_json_bytes(value)
+
+
+@pytest.mark.parametrize("value", [-(2**53), 2**53])
+def test_integer_values_outside_interoperable_range_are_rejected(value):
+    with pytest.raises(CanonicalJsonError, match="unsafe_json_integer"):
+        canonical_json_bytes(value)
+```
+
+- [ ] **Step 3: Run the focused tests to establish the red state**
+
+Run:
+
+```powershell
+.\mcp_server\.venv\Scripts\python.exe -m pytest `
+  mcp_server/tests/test_planner_graph_recipe_canonical.py -q
+```
+
+Expected: collection fails because `planner_graph_recipe_canonical` does not exist.
+
+- [ ] **Step 4: Implement the isolated JCS adapter and raw parser**
+
+Use these exact public types and keep the serializer self-contained:
+
+```python
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import re
+import unicodedata
+from dataclasses import dataclass
+from decimal import Decimal
+from functools import cmp_to_key
+from typing import Any, Mapping
+
+
+SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+SAFE_INTEGER_MIN = -9007199254740991
+SAFE_INTEGER_MAX = 9007199254740991
+
+
+class CanonicalJsonError(ValueError):
+    def __init__(self, code: str, message: str):
+        super().__init__(f"{code}: {message}")
+        self.code = code
+        self.message = message
+
+
+@dataclass(frozen=True)
+class RawJsonResult:
+    payload: Any | None
+    input_payload_sha256: str
+    error_code: str | None
+    error_message: str | None
+
+
+def sha256_prefixed(raw: bytes) -> str:
+    return "sha256:" + hashlib.sha256(raw).hexdigest()
+
+
+def _pairs_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise CanonicalJsonError("duplicate_object_member", key)
+        result[key] = value
+    return result
+
+
+def _reject_surrogates(value: Any) -> None:
+    if isinstance(value, str):
+        if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+            raise CanonicalJsonError(
+                "unpaired_unicode_surrogate",
+                "JSON strings may not contain surrogate code points.",
+            )
+    elif isinstance(value, list):
+        for item in value:
+            _reject_surrogates(item)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _reject_surrogates(key)
+            _reject_surrogates(item)
+
+
+def parse_raw_json(raw: bytes) -> RawJsonResult:
+    digest = sha256_prefixed(raw)
+    if raw.startswith(b"\xef\xbb\xbf"):
+        return RawJsonResult(None, digest, "utf8_bom_forbidden", "UTF-8 BOM is forbidden.")
+    try:
+        text = raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        return RawJsonResult(None, digest, "invalid_utf8", str(exc))
+    try:
+        payload = json.loads(
+            text,
+            object_pairs_hook=_pairs_without_duplicates,
+            parse_constant=lambda token: (_ for _ in ()).throw(
+                CanonicalJsonError("nonfinite_json_number", token)
+            ),
+        )
+        _reject_surrogates(payload)
+    except (json.JSONDecodeError, CanonicalJsonError) as exc:
+        code = exc.code if isinstance(exc, CanonicalJsonError) else "invalid_json"
+        return RawJsonResult(None, digest, code, str(exc))
+    return RawJsonResult(payload, digest, None, None)
+
+
+def utf16_sort_key(value: str) -> bytes:
+    return value.encode("utf-16-be", errors="strict")
+
+
+def normalize_lf(value: str) -> str:
+    return value.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def normalize_semantic_prose(value: str) -> str:
+    normalized = unicodedata.normalize("NFC", normalize_lf(value))
+    if normalized != normalized.strip():
+        raise CanonicalJsonError(
+            "semantic_prose_outer_whitespace",
+            "Semantic prose may not have leading or trailing whitespace.",
+        )
+    return normalized
+```
+
+Implement `_serialize_number`, `_serialize_string`, and `_serialize_value` in the same module. `_serialize_number` must pass every committed Appendix B vector; do not delegate whole-value serialization to `json.dumps`. `_serialize_string` may use `json.dumps(value, ensure_ascii=False, allow_nan=False)` only for JSON string escaping after `_reject_surrogates`. `_serialize_value` must sort object keys with `utf16_sort_key`, handle `bool` before `int`, serialize finite `float` through `_serialize_number`, and reject unsupported Python types.
+
+Use this number-formatting algorithm, whose committed vector gate is the
+acceptance authority:
+
+```python
+def _serialize_number(value: int | float) -> str:
+    if isinstance(value, bool):
+        raise CanonicalJsonError("invalid_json_number", "Boolean is not a number here.")
+    if isinstance(value, int):
+        if not SAFE_INTEGER_MIN <= value <= SAFE_INTEGER_MAX:
+            raise CanonicalJsonError("unsafe_json_integer", str(value))
+        return str(value)
+    if not math.isfinite(value):
+        raise CanonicalJsonError("nonfinite_json_number", repr(value))
+    if value == 0.0:
+        return "0"
+
+    rendered = repr(value).lower()
+    magnitude = abs(value)
+    if 1e-6 <= magnitude < 1e21:
+        fixed = format(Decimal(rendered), "f")
+        if "." in fixed:
+            fixed = fixed.rstrip("0").rstrip(".")
+        return fixed
+
+    if "e" not in rendered:
+        sign = "-" if rendered.startswith("-") else ""
+        digits = rendered.lstrip("-").replace(".", "").lstrip("0")
+        exponent = len(rendered.lstrip("-").split(".", 1)[0]) - 1
+        coefficient = digits[0] + (("." + digits[1:]) if len(digits) > 1 else "")
+        return f"{sign}{coefficient}e{exponent:+d}"
+
+    coefficient, exponent_text = rendered.split("e", 1)
+    exponent = int(exponent_text)
+    coefficient = coefficient.rstrip("0").rstrip(".")
+    return f"{coefficient}e{exponent:+d}"
+```
+
+Do not accept this code on inspection alone. The entire Appendix B fixture must
+pass, because that fixture catches threshold, shortest-round-trip, negative
+zero, and exponent-format differences between Python and ECMAScript.
+
+Use these final wrappers:
+
+```python
+def canonical_json_bytes(value: Any) -> bytes:
+    _reject_surrogates(value)
+    return _serialize_value(value).encode("utf-8")
+
+
+def canonical_sha256(value: Any) -> str:
+    return sha256_prefixed(canonical_json_bytes(value))
+
+
+def typed_value_fingerprint(typed_value: Mapping[str, Any]) -> str:
+    return canonical_sha256(dict(typed_value))
+```
+
+Implement `compare_compound` explicitly rather than relying on host tuple comparison: compare integers numerically, strings through `utf16_sort_key`, and lists element-by-element with shorter-prefix-first behavior. Reject unsupported key component types.
+
+- [ ] **Step 5: Run canonicalization tests and inspect all vectors**
+
+Run:
+
+```powershell
+.\mcp_server\.venv\Scripts\python.exe -m pytest `
+  mcp_server/tests/test_planner_graph_recipe_canonical.py -q
+```
+
+Expected: all tests pass, including all 24 finite Appendix B vectors.
+
+- [ ] **Step 6: Commit the canonicalization boundary**
+
+```powershell
+git add mcp_server/src/rook/agent/planner_graph_recipe_canonical.py `
+  mcp_server/tests/fixtures/lm9a/rfc8785_number_vectors.json `
+  mcp_server/tests/test_planner_graph_recipe_canonical.py
+git commit -m "feat(lm9a): add exact canonical json boundary"
+```
+
+---
+
+### Task 2: Closed Schema Catalog And Direct JSON Schema Dependency
+
+**Files:**
+- Modify: `mcp_server/pyproject.toml`
+- Modify: `mcp_server/uv.lock`
+- Create: `mcp_server/src/rook/agent/planner_graph_recipe_schemas.py`
+- Create: `mcp_server/tests/lm9a_contract_factory.py`
+- Create: `mcp_server/tests/test_planner_graph_recipe_schemas.py`
+
+**Interfaces:**
+- Consumes: parsed JSON mappings and registered payload schemas.
+- Produces:
+  - `SCHEMA_DIALECT`
+  - schema constants for every LM9A product and report artifact
+  - `schema_for(schema_id: str) -> Mapping[str, Any]`
+  - `validate_closed_payload(payload: Any, schema_id: str) -> tuple[SchemaIssue, ...]`
+  - `validate_registered_schema_document(schema_document: Mapping[str, Any]) -> tuple[SchemaIssue, ...]`
+  - `validate_registered_payload(payload: Any, schema_document: Mapping[str, Any]) -> tuple[SchemaIssue, ...]`
+  - `validate_product_number_tree(payload: Any, schema_id: str) -> tuple[SchemaIssue, ...]`
+  - `normalize_product_payload(payload: Any, schema_id: str) -> Any`
+  - `semantic_reference_sort_key(reference: Mapping[str, Any]) -> tuple[Any, ...]`
+  - `SET_SORT_RULES`
+
+- [ ] **Step 1: Promote the already-resolved JSON Schema package to direct ownership**
+
+Add this dependency to `mcp_server/pyproject.toml`:
+
+```toml
+    "jsonschema==4.26.0",
+```
+
+Then run:
+
+```powershell
+uv lock --project mcp_server
+uv tree --project mcp_server --invert --package jsonschema
+```
+
+Expected: `jsonschema v4.26.0` remains the resolved package and `rook-mcp` now owns a direct edge. Inspect `mcp_server/uv.lock`; no second JSON Schema implementation or JCS package may appear.
+
+- [ ] **Step 2: Write schema-catalog and closed-object tests**
+
+```python
+from jsonschema import Draft202012Validator
+
+from rook.agent.planner_graph_recipe_schemas import (
+    PRODUCT_SCHEMAS,
+    RECIPE_SCHEMA,
+    VALIDATION_INPUT_SCHEMA,
+    VALIDATION_REPORT_SCHEMA,
+    schema_for,
+)
+
+
+def test_every_product_schema_is_valid_draft_2020_12():
+    for schema in PRODUCT_SCHEMAS.values():
+        Draft202012Validator.check_schema(schema)
+
+
+def test_public_schema_catalog_contains_exact_lm9a_contracts():
+    assert set(PRODUCT_SCHEMAS) == {
+        "rook.planner_graph_recipe:v1",
+        "rook.planner_graph_recipe_validation_input:v1",
+        "rook.planner_graph_recipe_validation_report:v1",
+        "rook.planner_task_envelope:v1",
+        "rook.environment_snapshot:v1",
+        "rook.payload_schema_registry:v1",
+        "rook.planning_policy:v1",
+        "rook.planner_assumption_confirmation_receipt:v1",
+        "rook.environment_capability_registry:v1",
+        "rook.semantic_authority_code_vocabulary:v1",
+        "rook.semantic_capability_code_vocabulary:v1",
+        "rook.worker_slot_code_vocabulary:v1",
+        "rook.semantic_materiality_code_vocabulary:v1",
+        "rook.semantic_value_schema_registry:v1",
+    }
+
+
+def test_unknown_properties_fail_at_top_level_and_nested_level():
+    recipe, validation_input = minimal_valid_contract()
+    recipe["unexpected"] = True
+    assert issue_codes(recipe, RECIPE_SCHEMA) == {"additionalProperties"}
+
+    recipe, validation_input = minimal_valid_contract()
+    recipe["goal"]["unexpected"] = True
+    assert issue_codes(recipe, RECIPE_SCHEMA) == {"additionalProperties"}
+
+
+def test_set_order_normalization_is_deterministic_but_ordered_arrays_remain_material():
+    left, _ = minimal_valid_contract()
+    right = copy.deepcopy(left)
+    right["maintains"][0]["source_refs"] = list(
+        reversed(right["maintains"][0]["source_refs"])
+    )
+    assert normalize_product_payload(left, left["schema"]) == (
+        normalize_product_payload(right, right["schema"])
+    )
+
+    left["goal"]["statement"] = "Create output A.\nThen preserve output B."
+    right["goal"]["statement"] = "Then preserve output B.\nCreate output A."
+    assert normalize_product_payload(left, left["schema"]) != (
+        normalize_product_payload(right, right["schema"])
+    )
+
+
+@pytest.mark.parametrize("value", [1.5, -(2**53), 2**53])
+def test_product_number_tree_rejects_float_and_unsafe_integer(value):
+    recipe, _ = minimal_valid_contract()
+    recipe["goal"]["unexpected_numeric_probe"] = value
+    issues = validate_product_number_tree(recipe, recipe["schema"])
+    assert {issue.code for issue in issues} & {
+        "non_integer_product_number",
+        "unsafe_json_integer",
+    }
+
+
+def test_embedded_schema_document_is_the_only_float_exception():
+    _, validation_input = minimal_valid_contract()
+    document = validation_input["validation_context"]["payload_schema_registry"]
+    document["entries"][0]["schema_document"]["multipleOf"] = 0.5
+    assert validate_product_number_tree(document, document["schema"]) == ()
+```
+
+- [ ] **Step 3: Run the schema tests to establish the red state**
+
+```powershell
+.\mcp_server\.venv\Scripts\python.exe -m pytest `
+  mcp_server/tests/test_planner_graph_recipe_schemas.py -q
+```
+
+Expected: import failure for `planner_graph_recipe_schemas`.
+
+- [ ] **Step 4: Implement the closed schema catalog**
+
+Start the module with exact schema/version constants and one closed-object helper:
+
+```python
+from __future__ import annotations
+
+from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Any, Mapping
+
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError
+
+
+SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
+MACHINE_ID_PATTERN = r"^[a-z0-9]+(?:[._:-][a-z0-9]+)*$"
+SHA256_PATTERN = r"^sha256:[0-9a-f]{64}$"
+DECIMAL_PATTERN = r"^-?(0|[1-9][0-9]*)(\.[0-9]+)?$"
+SAFE_INTEGER_MIN = -9007199254740991
+SAFE_INTEGER_MAX = 9007199254740991
+
+
+@dataclass(frozen=True)
+class SchemaIssue:
+    code: str
+    path: str
+    message: str
+
+
+def closed_object(
+    *,
+    required: tuple[str, ...],
+    properties: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "required": list(required),
+        "properties": dict(properties),
+        "additionalProperties": False,
+    }
+```
+
+Define reusable `$defs` for machine IDs, hashes, timestamps, exact RFC 6901 pointers, semantic prose, typed values, the ten-variant semantic-reference union, common clauses, assumptions, derived facts, unresolved intent, shape entries, capability entries, worker-slot entries, all four report descriptors, diagnostics, blockers, and phase rows.
+
+The catalog must encode these exact top-level shapes:
+
+| Schema | Required top-level fields |
+|---|---|
+| recipe | `schema`, `source_task`, `authority_artifacts`, `goal`, `requires`, `maintains`, `assumptions`, `derived_facts`, `unresolved_intent`, `invariants`, `shape`, `required_capabilities`, `worker_slots`, `recipe_fingerprint` |
+| validation input | `schema`, `task_envelope`, `authority_artifacts`, `validation_context` |
+| task envelope | `schema`, `artifact_id`, `task_session_id`, `payload_schema`, `payload_schema_fingerprint`, `payload`, `value_bindings`, `issued_at`, `artifact_fingerprint` |
+| environment snapshot | `schema`, `artifact_id`, `environment_session_id`, `payload_schema`, `payload_schema_fingerprint`, `payload`, `value_bindings`, `observed_at`, `expires_at`, `issuer`, `artifact_fingerprint` |
+| validation report | every field in spec Section 8, including explicit companion descriptors, `phases`, `diagnostics`, `compile_blockers`, `valid`, `compile_ready`, and `report_fingerprint` |
+
+Encode the full closed companion/vocabulary shapes from spec Sections 4.2 through 4.7 and the full recipe shapes from Sections 6.1 through 6.11. Use local `$defs` only. Do not permit remote `$ref`, URI-fragment semantic pointers, unknown receipt kinds, or non-integer product JSON numbers.
+
+Implement schema validation with stable RFC 6901 issue paths:
+
+```python
+def validate_closed_payload(payload: Any, schema_id: str) -> tuple[SchemaIssue, ...]:
+    validator = Draft202012Validator(schema_for(schema_id))
+    issues = []
+    for error in validator.iter_errors(payload):
+        pointer = "".join(
+            "/" + str(part).replace("~", "~0").replace("/", "~1")
+            for part in error.absolute_path
+        )
+        issues.append(SchemaIssue(error.validator or "schema", pointer, error.message))
+    return tuple(sorted(issues, key=lambda issue: (issue.path, issue.code, issue.message)))
+```
+
+For registered payload schemas, require exact Draft 2020-12, run `Draft202012Validator.check_schema`, reject `$ref` values that are not same-document `#...` references, and instantiate the validator without a remote registry.
+
+`validate_product_number_tree` walks every product artifact after parsing. It
+rejects non-integer Python `float` values and integers outside the interoperable
+safe range at every path except values nested under a payload-schema registry
+entry’s `schema_document`. The exception permits finite JCS numbers in embedded
+schema documents only; nonfinite numbers were already rejected by raw ingress.
+
+- [ ] **Step 5: Implement schema-directed normalization and the exhaustive set table**
+
+`normalize_product_payload` deep-copies the schema-valid payload, normalizes only
+schema-designated semantic prose with `normalize_semantic_prose`, preserves JSON
+Pointers and exact property names, rejects duplicate stable identities before
+sorting, and applies only the set rules below. Arrays absent from this table
+retain received order:
+
+```python
+SET_SORT_RULES = {
+    "authority_artifacts": "artifact_id",
+    "environment_snapshots": "artifact_id",
+    "policy_registries": "artifact_id",
+    "value_bindings": "binding_id",
+    "payload_schema_entries": "schema_id",
+    "capability_registry_entries": "capability_code",
+    "vocabulary_entries": "code_or_schema",
+    "requires": "clause_id",
+    "maintains": "clause_id",
+    "invariants": "clause_id",
+    "canonicalization": "clause_id",
+    "postconditions": "clause_id",
+    "semantic_references": "semantic_reference",
+    "goal_projection_ids": "machine_id",
+    "clause_id_lists": "machine_id",
+    "assumptions": "assumption_id",
+    "assumption_affects": "machine_id",
+    "derived_facts": "derived_fact_id",
+    "unresolved_intent": "intent_id",
+    "unresolved_enum_lists": "machine_id",
+    "shape_entries": "shape_id",
+    "required_capability_entries": "capability_id",
+    "worker_slot_entries": "worker_slot_id",
+    "vocabulary_closed_lists": "machine_id",
+    "implementation_refs": "utf16_string",
+    "report_vocabularies": "schema_and_version",
+    "recipe_binding_paths": "utf16_string",
+    "related_paths": "utf16_string",
+}
+```
+
+Associate each rule with exact schema locations, including all aliases listed in
+spec Section 9. Do not dispatch by field name alone: for example, generic arrays
+named `entries` use different keys in payload-schema, capability, vocabulary,
+required-capability, and worker-slot schemas. Encode the association as schema
+annotations or a `(schema_id, RFC6901 path-pattern)` table and add a test that
+every Section 9 collection is represented exactly once.
+
+`semantic_reference_sort_key` uses rank `0..9` and the exact variant tuple from
+spec Section 9. Duplicate semantic-reference tuples fail before sorting.
+
+- [ ] **Step 6: Create the domain-neutral contract factory**
+
+`mcp_server/tests/lm9a_contract_factory.py` must expose:
+
+- `minimal_valid_contract() -> tuple[dict[str, Any], dict[str, Any]]`
+- `stamp_fingerprint(payload: dict[str, Any], field: str) -> dict[str, Any]`
+- `raw_recipe_bytes(recipe: Mapping[str, Any]) -> bytes`
+- `issue_codes(payload: Any, schema: Mapping[str, Any]) -> set[str]`
+- `diagnostic_codes(result: Any) -> set[str]`
+
+`stamp_fingerprint` deep-copies the input, inserts a syntactically valid
+all-zero provisional hash when the required terminal field is absent, validates
+and normalizes the complete object under its product schema, removes only the
+named terminal field from the normalized projection, computes
+`canonical_sha256`, and returns a second deep copy carrying that digest.
+`raw_recipe_bytes` uses normal
+JSON serialization with `ensure_ascii=False` because raw ingress identity is
+intentionally distinct from canonical identity. `minimal_valid_contract`
+returns one neutral layer-maintenance recipe and the complete companion input
+needed to validate it; it must stamp companions from the leaves upward so no
+claimed fingerprint is stale. Its maintained clause has at least two direct
+source references so set-order tests exercise a real permutation.
+
+Use neutral identifiers such as `maintained.output`, `capability.manage_document_layers`, and `fixture-task-session`. The helper may compute fingerprints with Task 1’s canonicalizer. It must not import validator orchestration from later tasks.
+
+- [ ] **Step 7: Run schema and canonicalization tests**
+
+```powershell
+.\mcp_server\.venv\Scripts\python.exe -m pytest `
+  mcp_server/tests/test_planner_graph_recipe_canonical.py `
+  mcp_server/tests/test_planner_graph_recipe_schemas.py -q
+```
+
+Expected: all tests pass.
+
+- [ ] **Step 8: Commit the schema boundary**
+
+```powershell
+git add mcp_server/pyproject.toml mcp_server/uv.lock `
+  mcp_server/src/rook/agent/planner_graph_recipe_schemas.py `
+  mcp_server/tests/lm9a_contract_factory.py `
+  mcp_server/tests/test_planner_graph_recipe_schemas.py
+git commit -m "feat(lm9a): define closed recipe schemas"
+```
+
+---
+
+### Task 3: Deterministic Diagnostics, Phase Status, And Report Descriptors
+
+**Files:**
+- Create: `mcp_server/src/rook/agent/planner_graph_recipe_report.py`
+- Create: `mcp_server/tests/test_planner_graph_recipe_report.py`
+
+**Interfaces:**
+- Consumes: phase-local diagnostics/blockers and companion descriptor payloads.
+- Produces:
+  - `Diagnostic`
+  - `CompileBlocker`
+  - `PhaseIssues(diagnostics: tuple[Diagnostic, ...], blockers: tuple[CompileBlocker, ...])`
+  - `ValidationLedger`
+  - `PHASE_ORDER`, `PHASE_DEPENDENCIES`
+  - `derive_phase_rows(ledger: ValidationLedger) -> tuple[Mapping[str, Any], ...]`
+  - `sorted_diagnostics(issues: Iterable[Diagnostic]) -> tuple[Mapping[str, Any], ...]`
+  - `sorted_blockers(issues: Iterable[CompileBlocker]) -> tuple[Mapping[str, Any], ...]`
+  - descriptor constructors for recipe authority, validation artifacts, registries, and vocabularies.
+
+- [ ] **Step 1: Write issue-ordering and phase-derivation tests**
+
+```python
+def test_related_paths_use_lexicographic_shorter_prefix_first():
+    issues = [
+        diagnostic("schema", "x", related_paths=("/a", "/b")),
+        diagnostic("schema", "x", related_paths=("/a",)),
+    ]
+    assert [row["related_paths"] for row in sorted_diagnostics(issues)] == [
+        ["/a"],
+        ["/a", "/b"],
+    ]
+
+
+def test_blocked_dependency_does_not_suppress_downstream_phase():
+    ledger = ValidationLedger()
+    ledger.add_blocker(blocker("assumptions", "confirmation_required"))
+    rows = {row["phase"]: row for row in derive_phase_rows(ledger)}
+    assert rows["assumptions"]["status"] == "blocked"
+    assert rows["unresolved_intent"]["status"] == "passed"
+    assert rows["readiness"]["status"] == "blocked"
+
+
+def test_failed_dependency_marks_downstream_not_evaluated():
+    ledger = ValidationLedger()
+    ledger.add_diagnostic(diagnostic("companion_artifacts", "invalid_companion"))
+    rows = {row["phase"]: row for row in derive_phase_rows(ledger)}
+    assert rows["provenance"]["status"] == "not_evaluated"
+    assert rows["readiness"]["status"] == "not_evaluated"
+
+
+def test_same_issue_cannot_be_diagnostic_and_blocker():
+    ledger = ValidationLedger()
+    ledger.add_diagnostic(diagnostic("assumptions", "policy_prohibited"))
+    with pytest.raises(ValueError, match="issue_classification_conflict"):
+        ledger.add_blocker(blocker("assumptions", "policy_prohibited"))
+```
+
+- [ ] **Step 2: Run the report tests to establish the red state**
+
+```powershell
+.\mcp_server\.venv\Scripts\python.exe -m pytest `
+  mcp_server/tests/test_planner_graph_recipe_report.py -q
+```
+
+Expected: import failure for `planner_graph_recipe_report`.
+
+- [ ] **Step 3: Implement issue records and the fixed phase graph**
+
+```python
+@dataclass(frozen=True)
+class Diagnostic:
+    severity: str
+    phase: str
+    code: str
+    subject_id: str
+    path: str
+    related_paths: tuple[str, ...]
+    message: str
+
+
+@dataclass(frozen=True)
+class CompileBlocker:
+    phase: str
+    code: str
+    subject_id: str
+    path: str
+    related_paths: tuple[str, ...]
+    message: str
+
+
+@dataclass(frozen=True)
+class PhaseIssues:
+    diagnostics: tuple[Diagnostic, ...] = ()
+    blockers: tuple[CompileBlocker, ...] = ()
+
+
+PHASE_ORDER = (
+    "schema",
+    "fingerprint",
+    "companion_artifacts",
+    "provenance",
+    "clause_graph",
+    "derived_facts",
+    "assumptions",
+    "unresolved_intent",
+    "shape",
+    "capabilities",
+    "worker_slots",
+    "readiness",
+)
+
+PHASE_DEPENDENCIES = {
+    "schema": (),
+    "fingerprint": ("schema",),
+    "companion_artifacts": ("schema",),
+    "provenance": ("companion_artifacts",),
+    "clause_graph": ("schema", "companion_artifacts"),
+    "derived_facts": ("companion_artifacts", "provenance", "clause_graph"),
+    "assumptions": ("companion_artifacts", "provenance", "clause_graph"),
+    "unresolved_intent": (
+        "companion_artifacts", "provenance", "clause_graph", "assumptions"
+    ),
+    "shape": ("companion_artifacts", "clause_graph"),
+    "capabilities": ("companion_artifacts", "clause_graph", "shape"),
+    "worker_slots": ("companion_artifacts", "clause_graph", "shape"),
+    "readiness": PHASE_ORDER[:-1],
+}
+```
+
+Use frozen dataclasses with exactly the closed fields from spec Section 8.5. `Diagnostic.severity` is `error | warning | information`; blockers have no severity. `ValidationLedger` stores each issue under a stable identity `(phase, code, subject_id, path, related_paths)` and rejects an identity being added to both collections.
+
+Sort with Task 1’s explicit comparator and these tuples:
+
+```text
+diagnostic: (phase_rank, severity_rank, code, subject_id, path, related_paths, message)
+blocker:    (phase_rank, code, subject_id, path, related_paths, message)
+```
+
+Derive phase status exactly:
+
+```text
+dependency failed/not_evaluated -> not_evaluated
+evaluated + error diagnostic    -> failed
+evaluated + no error + blocker  -> blocked
+otherwise                       -> passed
+```
+
+Warnings and informational diagnostics do not fail a phase. A blocked dependency remains evaluable.
+`readiness` is the one aggregate phase: when any compile blocker exists anywhere
+in the ledger, its status is `blocked` without copying that blocker into the
+readiness phase.
+
+- [ ] **Step 4: Add closed descriptor constructors**
+
+Implement constructors whose returned key sets exactly match spec Sections 8.2 and 8.3:
+
+- `recipe_authority_descriptor`, accepting the discriminator, stable artifact
+  identity, exact schema, recipe/companion/computed fingerprints, both nullable
+  session fields, and the three derived status fields.
+- `validation_artifact_descriptor`, accepting the validation-only artifact
+  discriminator, stable identity, exact schema, companion/computed
+  fingerprints, session fields, and derived statuses; it has no recipe-claimed
+  fingerprint parameter.
+- `registry_descriptor`, accepting fixed registry identity/kind/schema,
+  companion/computed fingerprints, registry session, and derived statuses.
+- `vocabulary_descriptor`, accepting exact schema/version, sorted binding paths,
+  nullable recipe-claimed fingerprint, companion/computed fingerprints, entry
+  count, and validation status.
+- `validation_context_projection(report: Mapping[str, Any]) -> dict[str, Any]`.
+
+The projection must omit derived status fields and preserve explicit `null` computed fingerprints. Add tests that changing `session_status` does not move the context projection while changing a trusted session ID or computed companion fingerprint does.
+
+- [ ] **Step 5: Run focused tests**
+
+```powershell
+.\mcp_server\.venv\Scripts\python.exe -m pytest `
+  mcp_server/tests/test_planner_graph_recipe_report.py -q
+```
+
+Expected: all tests pass.
+
+- [ ] **Step 6: Commit report primitives**
+
+```powershell
+git add mcp_server/src/rook/agent/planner_graph_recipe_report.py `
+  mcp_server/tests/test_planner_graph_recipe_report.py
+git commit -m "feat(lm9a): add deterministic validation reporting"
+```
+
+---
+
+### Task 4: Companion Authority, Payload Schemas, And Reference Resolution
+
+**Files:**
+- Create: `mcp_server/src/rook/agent/planner_graph_recipe_authority.py`
+- Create: `mcp_server/tests/test_planner_graph_recipe_authority.py`
+- Modify: `mcp_server/tests/lm9a_contract_factory.py`
+
+**Interfaces:**
+- Consumes: schema-valid validation input, schema-valid recipe descriptors, and trusted validation time/session values.
+- Produces:
+  - `CompanionIndex`
+  - `CompanionValidationResult(index, source_task_descriptor, authority_descriptors, context_descriptors, vocabulary_descriptors, diagnostics)`
+  - `validate_companions(recipe, validation_input) -> CompanionValidationResult`
+  - `resolve_semantic_reference(reference, index) -> ResolvedReference`
+  - `resolve_json_pointer(document, pointer) -> Any`
+  - `exact_decimal(value: str) -> Decimal`
+
+- [ ] **Step 1: Write companion and reference tests**
+
+Cover exact positive and negative boundaries:
+
+```python
+def test_artifact_value_resolves_payload_relative_through_one_binding():
+    recipe, validation_input = minimal_valid_contract()
+    result = validate_companions(recipe, validation_input)
+    resolved = resolve_semantic_reference(
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/name"},
+        result.index,
+    )
+    assert resolved.authority_kind == "user_fact"
+    assert resolved.value == "Analysis"
+
+
+def test_duplicate_binding_pointer_is_invalid_even_with_distinct_ids():
+    recipe, validation_input = minimal_valid_contract()
+    bindings = validation_input["task_envelope"]["value_bindings"]
+    bindings.append({**bindings[0], "binding_id": "task-value.duplicate"})
+    result = validate_companions(recipe, validation_input)
+    assert "duplicate_value_binding_pointer" in diagnostic_codes(result)
+
+
+@pytest.mark.parametrize(
+    ("pointer", "expected_code"),
+    [
+        ("", "semantic_pointer_empty"),
+        ("#/facts/name", "json_pointer_uri_fragment_forbidden"),
+        ("/facts/~2name", "json_pointer_escape_invalid"),
+    ],
+)
+def test_semantic_pointer_forms_fail_closed(pointer, expected_code):
+    recipe, validation_input = minimal_valid_contract()
+    recipe["maintains"][0]["source_refs"][0]["json_pointer"] = pointer
+    result = validate_companions(recipe, validation_input)
+    assert expected_code in diagnostic_codes(result)
+```
+
+Add the remaining cases as explicit mutation/expected-result rows:
+
+| Mutation | Exact expected diagnostic/blocker |
+|---|---|
+| payload schema contains `https://example.test/remote.json` `$ref` | `companion_artifacts / payload_schema_remote_ref` diagnostic |
+| task `payload_schema_fingerprint` differs from registry entry | `companion_artifacts / payload_schema_fingerprint_mismatch` diagnostic |
+| environment `expires_at` precedes trusted `evaluated_at` | `companion_artifacts / environment_snapshot_expired` diagnostic |
+| environment session differs from trusted context | `companion_artifacts / environment_session_mismatch` diagnostic |
+| authority companion uses a reserved target/privileged receipt schema | `companion_artifacts / deferred_receipt_kind` diagnostic |
+| required capability registry row says `unavailable` | no authority diagnostic; later `capabilities / capability_unavailable` blocker |
+
+- [ ] **Step 2: Run authority tests to establish the red state**
+
+```powershell
+.\mcp_server\.venv\Scripts\python.exe -m pytest `
+  mcp_server/tests/test_planner_graph_recipe_authority.py -q
+```
+
+Expected: import failure for `planner_graph_recipe_authority`.
+
+- [ ] **Step 3: Implement exact RFC 6901 resolution and companion indexing**
+
+`resolve_json_pointer` must accept only the empty diagnostic root pointer or nonempty `/...` semantic pointers as directed by the caller, decode only `~0` and `~1`, preserve exact property-name Unicode, resolve mapping keys exactly, and resolve list indices only from canonical unsigned decimal tokens (`0` or a nonzero digit followed by digits). The semantic-reference validator still requires the pointer to equal exactly one declared value binding before that resolved value gains authority.
+
+`CompanionIndex` must maintain separate mappings for:
+
+```python
+@dataclass(frozen=True)
+class CompanionIndex:
+    recipe_authorities: Mapping[str, Mapping[str, Any]]
+    validation_artifacts: Mapping[str, Mapping[str, Any]]
+    payload_schemas: Mapping[str, Mapping[str, Any]]
+    policies: Mapping[str, Mapping[str, Any]]
+    capability_registry: Mapping[str, Any]
+    vocabularies: Mapping[tuple[str, str], Mapping[str, Any]]
+    value_bindings: Mapping[tuple[str, str], Mapping[str, Any]]
+```
+
+Reject duplicate artifact IDs across recipe-bound and validation-context companions before indexing. Recompute every companion fingerprint by removing only its terminal fingerprint field, schema-normalizing, and using `canonical_sha256`.
+
+Treat placement in the trusted validation-input companion channel as the trust
+boundary for LM9A v1. Issuer fields are checked against the closed companion
+kind and bound into fingerprints; the recipe cannot promote an untrusted object
+by labeling it. Do not invent a new issuer registry or signature protocol in
+this slice.
+
+- [ ] **Step 4: Validate registered payload schemas and payload bindings**
+
+For each task/environment companion:
+
+1. Find exactly one payload-schema registry entry by `schema_id`.
+2. Recompute and compare `schema_fingerprint`.
+3. verify Draft 2020-12 and local-only `$ref` use.
+4. Validate `payload` against the exact schema document.
+5. Require unique nonempty binding pointers.
+6. Resolve each pointer inside `payload`.
+7. Validate the resolved value under the registered semantic value schema.
+8. Recompute `{schema: value_schema, value: resolved_value}` and compare `typed_value_fingerprint`.
+
+Use trusted `validation_context.evaluated_at` and trusted session fields for freshness/session comparisons. A companion’s own repeated session value is evidence to compare, never freshness authority.
+
+- [ ] **Step 5: Validate policy, capability, and vocabulary registries**
+
+Require all five exact v1 vocabulary companions and minimum entries from spec Section 4.7. Reject duplicate/unknown codes and fingerprint mismatches. Validate policy rules as a stable map keyed by matching `rule_id`; reject overlaps for one semantic key and exact scope. Keep capability availability separate from semantic authority.
+
+- [ ] **Step 6: Run focused tests**
+
+```powershell
+.\mcp_server\.venv\Scripts\python.exe -m pytest `
+  mcp_server/tests/test_planner_graph_recipe_canonical.py `
+  mcp_server/tests/test_planner_graph_recipe_schemas.py `
+  mcp_server/tests/test_planner_graph_recipe_report.py `
+  mcp_server/tests/test_planner_graph_recipe_authority.py -q
+```
+
+Expected: all tests pass.
+
+- [ ] **Step 7: Commit the authority boundary**
+
+```powershell
+git add mcp_server/src/rook/agent/planner_graph_recipe_authority.py `
+  mcp_server/tests/lm9a_contract_factory.py `
+  mcp_server/tests/test_planner_graph_recipe_authority.py
+git commit -m "feat(lm9a): validate recipe authority companions"
+```
+
+---
+
+### Task 5: Clause Graph, Provenance Coverage, And Derived Facts
+
+**Files:**
+- Create: `mcp_server/src/rook/agent/planner_graph_recipe_semantics.py`
+- Create: `mcp_server/tests/test_planner_graph_recipe_semantics.py`
+- Modify: `mcp_server/tests/lm9a_contract_factory.py`
+
+**Interfaces:**
+- Consumes: schema-valid recipe plus validated `CompanionIndex`.
+- Produces:
+  - `RecipeSemanticIndex`
+  - `index_recipe_semantics(recipe) -> RecipeSemanticIndex`
+  - `validate_provenance(recipe, index, companions) -> PhaseIssues`
+  - `validate_clause_graph(recipe, index) -> PhaseIssues`
+  - `validate_derived_facts(recipe, index, companions) -> PhaseIssues`
+
+- [ ] **Step 1: Write stable-ID, projection, coverage, and derivation tests**
+
+Use one valid neutral contract and assert these exact mutations:
+
+| Mutation | Phase/code |
+|---|---|
+| nested postcondition duplicates parent `clause_id` | `clause_graph / duplicate_clause_id` |
+| goal has no maintains or unresolved projection | `clause_graph / goal_projection_missing` |
+| goal projects only to an invariant | `clause_graph / goal_projection_outcome_missing` |
+| requirement supports no maintains/invariant | `clause_graph / orphan_requirement` |
+| requirement cites the output it is meant to create as current evidence | `provenance / circular_requirement` |
+| maintained clause removes direct support and relies on a sibling | `provenance / material_clause_support_missing` |
+| postcondition inherits from a non-parent maintains ID | `provenance / invalid_parent_support_inheritance` |
+| canonicalization cites source support outside its parent’s declared support | `provenance / canonicalization_support_exceeds_parent` |
+| multiply derives `10 * 10` as safe integer `100` | no issue; derived record is accepted |
+| derivation operator becomes `add` | `derived_facts / unsupported_derivation_operator` |
+| claimed derived value becomes `99` | `derived_facts / derived_value_mismatch` |
+
+- [ ] **Step 2: Run semantic tests to establish the red state**
+
+```powershell
+.\mcp_server\.venv\Scripts\python.exe -m pytest `
+  mcp_server/tests/test_planner_graph_recipe_semantics.py -q
+```
+
+Expected: import failure for `planner_graph_recipe_semantics`.
+
+- [ ] **Step 3: Build one stable semantic index**
+
+```python
+@dataclass(frozen=True)
+class RecipeSemanticIndex:
+    clauses: Mapping[str, Mapping[str, Any]]
+    clause_kinds: Mapping[str, str]
+    parent_maintains: Mapping[str, str]
+    assumptions: Mapping[str, Mapping[str, Any]]
+    derived_facts: Mapping[str, Mapping[str, Any]]
+    unresolved_intent: Mapping[str, Mapping[str, Any]]
+    shape_entries: Mapping[str, Mapping[str, Any]]
+    capabilities: Mapping[str, Mapping[str, Any]]
+    worker_slots: Mapping[str, Mapping[str, Any]]
+```
+
+Index goal, requirements, maintains, nested canonicalization, nested postconditions, and invariants. Reject duplicate IDs before any sorting. Record only immediate parent-maintains inheritance for nested clauses.
+
+- [ ] **Step 4: Implement closed provenance traversal**
+
+For each prose-bearing material clause, resolve only:
+
+- direct `source_refs`;
+- direct `assumption_refs`;
+- direct `derived_fact_refs`;
+- requirements whose `supports_clause_ids` explicitly name it;
+- immediate parent-maintains support for nested canonicalization/postcondition clauses declaring that exact parent.
+
+Never borrow from goal, siblings, arbitrary ancestors, or general graph reachability. A clause with no references must carry its exact kind-specific synthesis code. Deterministic validation checks legal references and support structure; it must not claim prose entailment.
+
+- [ ] **Step 5: Implement the v1 derived-fact allowlist**
+
+Support only `multiply` over exactly two integer-valued authority/derived references for LM9A v1. Recompute with Python integers after safe-range validation; do not evaluate expressions or use `eval`. Validate the complete typed value and `typed_value_fingerprint`.
+
+- [ ] **Step 6: Run focused tests and commit**
+
+```powershell
+.\mcp_server\.venv\Scripts\python.exe -m pytest `
+  mcp_server/tests/test_planner_graph_recipe_semantics.py -q
+git add mcp_server/src/rook/agent/planner_graph_recipe_semantics.py `
+  mcp_server/tests/lm9a_contract_factory.py `
+  mcp_server/tests/test_planner_graph_recipe_semantics.py
+git commit -m "feat(lm9a): validate semantic clause graph"
+```
+
+Expected: all focused tests pass before commit.
+
+---
+
+### Task 6: Assumption Authorization, Confirmation Projection, And Unresolved Intent
+
+**Files:**
+- Modify: `mcp_server/src/rook/agent/planner_graph_recipe_semantics.py`
+- Modify: `mcp_server/tests/test_planner_graph_recipe_semantics.py`
+- Modify: `mcp_server/tests/lm9a_contract_factory.py`
+
+**Interfaces:**
+- Consumes: semantic index, companion policy/receipt authority, and trusted time/session.
+- Produces:
+  - `AssumptionAuthorization(assumption_id, status, policy_rule_ref, confirmation_receipt_ref)`
+  - `confirmation_subject_projection(recipe, selected_assumption_ids) -> Mapping[str, Any]`
+  - `confirmation_subject_fingerprint(recipe, selected_assumption_ids) -> str`
+  - `validate_assumptions(recipe: Mapping[str, Any], index: RecipeSemanticIndex, companions: CompanionIndex) -> tuple[tuple[AssumptionAuthorization, ...], PhaseIssues]`
+  - `validate_unresolved_intent(recipe: Mapping[str, Any], index: RecipeSemanticIndex, companions: CompanionIndex, authorizations: tuple[AssumptionAuthorization, ...]) -> PhaseIssues`
+
+Extend `mcp_server/tests/lm9a_contract_factory.py` with these test-only helpers:
+
+- `confirmable_contract_without_receipt() -> tuple[dict[str, Any], dict[str, Any]]`
+- `attach_matching_confirmation_receipt(recipe, validation_input, subject_fingerprint) -> dict[str, Any]`
+- `confirmed_contract() -> tuple[dict[str, Any], dict[str, Any]]`
+- `apply_confirmation_mutation(recipe, validation_input, mutation_code) -> None`
+- `semantic_diagnostic_codes(recipe, validation_input) -> set[str]`
+
+- [ ] **Step 1: Write authorization matrix tests**
+
+Use explicit policy mutations and assert:
+
+| Case | Authorization/result |
+|---|---|
+| one exact allow rule covers key/type/unit/scope/value | `policy_auto`, no blocker |
+| no applicable allow or prohibition | `confirmation_required`, blocker, `valid=true` |
+| one applicable prohibition | `policy_prohibited`, blocker, `valid=true` |
+| two applicable rules | `policy_ambiguous`, blocker, `valid=true` |
+| exact default exists while an unresolved entry claims absence | invalid `stale_unresolved_intent` |
+| unit-context fingerprint differs | `confirmation_required`, not silent authorization |
+| typed material value has no fact/derivation/assumption authority | error `material_value_authority_missing` |
+| assumption’s typed value conflicts with a directly cited same-key authoritative typed value | error `assumption_authority_value_conflict` |
+
+Use `Decimal` for all scalar equality/range checks. Assert that `"2"`, `"2.0"`, and `"2.00"` compare equal but have distinct typed-value fingerprints.
+
+Do not parse unrestricted prose to manufacture a disagreement result. LM9A may
+report `statement_typed_value_mismatch` only when the contradiction is exposed
+by closed structured backing; ordinary prose fidelity remains outside
+deterministic validation.
+
+- [ ] **Step 2: Write confirmation subject and receipt tests**
+
+```python
+def test_attaching_selected_receipt_keeps_subject_fingerprint_stable():
+    before, context = confirmable_contract_without_receipt()
+    subject = confirmation_subject_fingerprint(before, ("assumption.some_value",))
+    after = attach_matching_confirmation_receipt(before, context, subject)
+    assert confirmation_subject_fingerprint(
+        after, ("assumption.some_value",)
+    ) == subject
+    assert after["recipe_fingerprint"] != before["recipe_fingerprint"]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_code"),
+    [
+        ("remove_selected_descriptor", "confirmation_receipt_missing"),
+        ("duplicate_selected_descriptor", "confirmation_receipt_duplicate"),
+        ("bind_other_assumption", "confirmation_assumption_mismatch"),
+        ("reuse_receipt", "confirmation_receipt_shared"),
+        ("expire_receipt", "confirmation_receipt_expired"),
+        ("change_task_session", "confirmation_task_session_mismatch"),
+        ("set_rejected", "confirmation_not_confirmed"),
+    ],
+)
+def test_confirmation_receipt_failures_are_exact(mutation, expected_code):
+    recipe, context = confirmed_contract()
+    apply_confirmation_mutation(recipe, context, mutation)
+    assert expected_code in semantic_diagnostic_codes(recipe, context)
+```
+
+Add separate positive assertions that only the selected descriptor is removed,
+semantic/policy changes move the subject, and a non-null confirmation reference
+on `policy_auto` produces `gratuitous_confirmation_ref`.
+
+- [ ] **Step 3: Implement derived authorization and exact subject projection**
+
+Authorization is validator-derived; never trust an `authorization.mode` from recipe prose. Closed statuses are:
+
+```text
+policy_auto
+confirmation_required
+confirmed
+trusted_selection_required
+privileged_authorization_required
+policy_prohibited
+policy_ambiguous
+```
+
+For the confirmation subject:
+
+1. Deep-copy the normalized recipe.
+2. Remove `recipe_fingerprint`.
+3. Select exactly assumptions whose derived outcome is `confirmation_required` or `confirmed`.
+4. Replace each selected assumption’s required `confirmation_ref` value with explicit `null`.
+5. Remove only authority-artifact descriptors that resolve to the selected assumptions’ exact confirmation receipts.
+6. Leave every unselected authority descriptor and semantic field intact.
+7. Canonicalize and hash.
+
+The ordinary recipe fingerprint still includes the attached receipt descriptor and reference.
+
+- [ ] **Step 4: Implement unresolved-intent honesty**
+
+Validate unique `semantic_key`, legal affected clause IDs reachable from goal projection, registered future value schema, permitted authority/outcome lists, and absence of an already supplied matching authority value. Enforce:
+
+```text
+unresolved entry present -> valid may remain true, compile blocker emitted
+same key in assumption and unresolved -> invalid
+exact policy default already supplies value -> unresolved entry invalid
+policy range only -> unresolved remains honest
+confirmation-required assumption -> not unresolved
+```
+
+No compiler/worker/executable artifact may be created for unresolved recipes.
+
+- [ ] **Step 5: Run semantic tests and commit**
+
+```powershell
+.\mcp_server\.venv\Scripts\python.exe -m pytest `
+  mcp_server/tests/test_planner_graph_recipe_semantics.py -q
+git add mcp_server/src/rook/agent/planner_graph_recipe_semantics.py `
+  mcp_server/tests/lm9a_contract_factory.py `
+  mcp_server/tests/test_planner_graph_recipe_semantics.py
+git commit -m "feat(lm9a): validate assumptions and unresolved intent"
+```
+
+Expected: all focused tests pass.
+
+---
+
+### Task 7: Shape, Capability, Worker-Slot, And Readiness Validation
+
+**Files:**
+- Modify: `mcp_server/src/rook/agent/planner_graph_recipe_semantics.py`
+- Modify: `mcp_server/tests/test_planner_graph_recipe_semantics.py`
+
+**Interfaces:**
+- Consumes: semantic index plus validated authority/capability/slot vocabularies and capability registry.
+- Produces:
+  - `validate_shape(recipe: Mapping[str, Any], index: RecipeSemanticIndex, companions: CompanionIndex) -> PhaseIssues`
+  - `validate_capabilities(recipe: Mapping[str, Any], index: RecipeSemanticIndex, companions: CompanionIndex) -> PhaseIssues`
+  - `validate_worker_slots(recipe: Mapping[str, Any], index: RecipeSemanticIndex, companions: CompanionIndex) -> PhaseIssues`
+  - `validate_readiness(phase_rows: tuple[Mapping[str, Any], ...], authorizations: tuple[AssumptionAuthorization, ...]) -> PhaseIssues`
+
+- [ ] **Step 1: Write shape/capability/slot tests**
+
+Use this exact case matrix:
+
+| Mutation/assertion | Phase/code |
+|---|---|
+| `select_representation` absent from `delegates` | no error; exported delegation allowlist excludes that code |
+| same authority code in `self` and `delegates` | `shape / retained_delegated_overlap` |
+| same entry in `delegates` and `prohibited` | `shape / delegated_prohibited_overlap` |
+| unknown authority code or delegate kind | `shape / unknown_authority_code` or `invalid_delegate_kind` |
+| capability supports a disallowed clause kind | `capabilities / capability_clause_kind_invalid` |
+| available capability has empty implementation refs | `companion_artifacts / available_capability_implementation_missing` |
+| required capability is unavailable | `capabilities / capability_unavailable` blocker |
+| slot/delegate link missing in either direction | `worker_slots / worker_slot_link_mismatch` |
+| output schema or input kind outside slot vocabulary | `worker_slots / worker_slot_schema_not_allowed` or `worker_slot_input_kind_not_allowed` |
+| slot has empty maintained support | `worker_slots / worker_slot_support_missing` |
+| `worker_slots.entries` is empty | valid and no request/output/provider/model artifact exists |
+
+- [ ] **Step 2: Implement shape validation**
+
+Treat `delegates` as a closed allowlist. Unknown codes are errors; a code in `self` and `delegates`, or `delegates` and `prohibited`, is invalid. Validate every statement against its closed code only for deterministic contradictions; do not infer broader authority from prose. Representation authority never grants execution or mutation authority.
+
+- [ ] **Step 3: Implement capability validation**
+
+Require each capability entry to name a known generic vocabulary code and legal supporting clause kinds. Resolve trusted availability from the environment registry. `required_capabilities` expresses semantic need only: available implementations do not grant authority, and unavailable capability evidence emits a blocker rather than changing recipe meaning. Result observation is not a v1 recipe capability and no observation support dependency is emitted by LM9A; that remains a mandatory future compile-output rule.
+
+- [ ] **Step 4: Implement exact shape-to-worker-slot linkage**
+
+For every worker slot, require exactly one `instantiate_worker_slot` delegate whose `worker_slot_id` points back to it, and require the slot’s `permitted_under_shape_id` to point to that delegate. Check output-schema allowlist, input-reference kind allowlist, declared inputs, and nonempty existing maintains support. `worker_slots.entries: []` produces no request and grants no worker authority.
+
+- [ ] **Step 5: Implement readiness blockers**
+
+Readiness aggregates evaluated phase outcomes without running compilation. A valid recipe is compile-ready only when no blockers remain. Trusted target selection and privileged authority remain deferred v1 blockers; any supplied reserved receipt kind remains invalid. Capability unavailability, unresolved intent, pending confirmation, prohibition, and ambiguity remain exact blockers.
+
+- [ ] **Step 6: Run semantic tests and commit**
+
+```powershell
+.\mcp_server\.venv\Scripts\python.exe -m pytest `
+  mcp_server/tests/test_planner_graph_recipe_semantics.py -q
+git add mcp_server/src/rook/agent/planner_graph_recipe_semantics.py `
+  mcp_server/tests/test_planner_graph_recipe_semantics.py
+git commit -m "feat(lm9a): validate semantic delegation readiness"
+```
+
+Expected: all focused tests pass.
+
+---
+
+### Task 8: Public Validator Orchestration And Closed Report Fingerprints
+
+**Files:**
+- Create: `mcp_server/src/rook/agent/planner_graph_recipe_validate.py`
+- Create: `mcp_server/tests/test_planner_graph_recipe_validate.py`
+- Modify: `mcp_server/tests/lm9a_contract_factory.py`
+
+**Interfaces:**
+- Consumes: exact recipe bytes and one closed validation-input mapping.
+- Produces:
+  - `validate_planner_graph_recipe(raw_recipe_bytes: bytes, validation_input: Mapping[str, Any]) -> Mapping[str, Any]`
+  - no other artifacts or side effects.
+
+Extend `mcp_server/tests/lm9a_contract_factory.py` with:
+
+- `recompute_report_fingerprint(report: Mapping[str, Any]) -> str`
+- `phase(report: Mapping[str, Any], phase_name: str) -> str`
+- `blocker_codes(report: Mapping[str, Any]) -> set[str]`
+
+- [ ] **Step 1: Write end-to-end report tests**
+
+```python
+def test_valid_report_recomputes_recipe_context_and_report_fingerprints():
+    recipe, validation_input = minimal_valid_contract()
+    report = validate_planner_graph_recipe(raw_recipe_bytes(recipe), validation_input)
+    assert report["valid"] is True
+    assert report["compile_ready"] is True
+    assert report["claimed_recipe_fingerprint"] == report["computed_recipe_fingerprint"]
+    assert report["report_fingerprint"] == recompute_report_fingerprint(report)
+    assert validate_closed_payload(
+        report, "rook.planner_graph_recipe_validation_report:v1"
+    ) == ()
+
+
+def test_malformed_raw_input_retains_raw_hash_and_null_computed_fingerprint():
+    _, validation_input = minimal_valid_contract()
+    report = validate_planner_graph_recipe(b'{"schema":', validation_input)
+    assert report["input_payload_sha256"].startswith("sha256:")
+    assert report["computed_recipe_fingerprint"] is None
+    assert report["valid"] is False
+    assert phase(report, "schema") == "failed"
+
+
+```
+
+Add these explicit report assertions:
+
+| Setup | Required report result |
+|---|---|
+| wrong claimed recipe fingerprint plus dangling goal projection | `fingerprint` and `clause_graph` both fail |
+| malformed task envelope | `companion_artifacts=failed`; provenance and dependent phases `not_evaluated` |
+| confirmation blocker plus otherwise evaluable unresolved phase | `assumptions=blocked`; `unresolved_intent` evaluated |
+| injected warning only | `valid` and `compile_ready` unchanged |
+| attempt to add identical issue as blocker and diagnostic | ledger raises `issue_classification_conflict` before report emission |
+| every valid/blocked report | top-level keys contain no compiler, worker request/output, executable, tool, or runtime receipt field |
+
+- [ ] **Step 2: Run validator tests to establish the red state**
+
+```powershell
+.\mcp_server\.venv\Scripts\python.exe -m pytest `
+  mcp_server/tests/test_planner_graph_recipe_validate.py -q
+```
+
+Expected: import failure for `planner_graph_recipe_validate`.
+
+- [ ] **Step 3: Implement fixed phase orchestration**
+
+The public function must use this exact runner order after raw parsing, schema,
+fingerprint, and companion validation:
+
+```python
+SEMANTIC_PHASE_ORDER = (
+    "provenance",
+    "clause_graph",
+    "derived_facts",
+    "assumptions",
+    "unresolved_intent",
+    "shape",
+    "capabilities",
+    "worker_slots",
+    "readiness",
+)
+```
+
+Dispatch each name to the exact Task 5–7 function and preserve the returned
+`PhaseIssues`. Before dispatch, consult `PHASE_DEPENDENCIES`; run phases whose
+dependencies are `passed` or `blocked`, and record `not_evaluated` for a phase
+with any failed/not-evaluated dependency without inventing speculative issues.
+The orchestrator retains the assumption-authorization tuple for unresolved and
+readiness phases and the semantic index for all semantic phases.
+
+Set:
+
+```text
+valid = no error diagnostics
+compile_ready = valid and no compile blockers
+```
+
+If `valid` is false, do not speculate blockers from unevaluated phases.
+
+- [ ] **Step 4: Implement recipe and report fingerprint projections**
+
+Recipe fingerprint: schema-normalize the complete recipe, remove only `recipe_fingerprint`, apply every set-order rule from spec Section 9, then `canonical_sha256`.
+
+Validation-context fingerprint: build the exact Section 8.3 projection from descriptors, excluding derived statuses and entry counts, normalize/sort, then hash.
+
+Report fingerprint: normalize the complete closed report, remove only `report_fingerprint`, then hash. Keep claimed and computed recipe/companion fingerprints in distinct fields at every stage.
+
+The validator identity is fixed:
+
+```python
+VALIDATOR_IDENTITY = {
+    "implementation_version": "lm9a.recipe_validator:v1",
+    "ruleset_fingerprint": RULESET_FINGERPRINT,
+    "canonicalization_version": "rook.canonical_json:v1",
+}
+```
+
+Compute `RULESET_FINGERPRINT` from the normalized closed product schemas, fixed phase graph, set-order table, and minimum vocabulary rows. Do not hard-code an unexplained digest.
+
+- [ ] **Step 5: Run the complete unit-level LM9A gate**
+
+```powershell
+.\mcp_server\.venv\Scripts\python.exe -m pytest `
+  mcp_server/tests/test_planner_graph_recipe_canonical.py `
+  mcp_server/tests/test_planner_graph_recipe_schemas.py `
+  mcp_server/tests/test_planner_graph_recipe_report.py `
+  mcp_server/tests/test_planner_graph_recipe_authority.py `
+  mcp_server/tests/test_planner_graph_recipe_semantics.py `
+  mcp_server/tests/test_planner_graph_recipe_validate.py -q
+```
+
+Expected: all tests pass.
+
+- [ ] **Step 6: Commit the validator entry point**
+
+```powershell
+git add mcp_server/src/rook/agent/planner_graph_recipe_validate.py `
+  mcp_server/tests/lm9a_contract_factory.py `
+  mcp_server/tests/test_planner_graph_recipe_validate.py
+git commit -m "feat(lm9a): orchestrate recipe validation"
+```
+
+---
+
+### Task 9: Canonical Radial Pair And Orthogonal Positive Fixtures
+
+**Files:**
+- Create: `mcp_server/tests/lm9a_fixture_factory.py`
+- Create: `mcp_server/tests/test_lm9a_planner_graph_recipe_fixtures.py`
+
+**Interfaces:**
+- Consumes: public `validate_planner_graph_recipe` only.
+- Produces test-only builders:
+  - `radial_ready_fixture()`
+  - `radial_unresolved_fixture()`
+  - `radial_pair_manifest()`
+  - `layer_control_fixture()`
+  - `worker_slot_conformance_fixture()`
+  - `confirmation_conformance_fixture()`
+  - `pair_delta_ids(left_fixture, right_fixture) -> set[str]`
+  - `run_fixture(fixture: tuple[bytes, Mapping[str, Any]]) -> Mapping[str, Any]`
+
+- [ ] **Step 1: Build the radial ready/unresolved pair by stable identity**
+
+The common task envelope supplies only:
+
+```text
+grid_count_x = 10
+grid_count_y = 10
+element_kind = boxes
+radial_height_relationship = lowest near center and nondecreasing with radial distance
+```
+
+Both recipes share every companion, trusted validation time, vocabulary fingerprint, non-controlled assumption, and `worker_slots.entries: []`. The ready recipe has an explicit `assumption.grid_spacing` with typed value `2 model units`; the policy authorizes a range but contains no default or preferred value. The unresolved recipe removes that assumption and adds `unresolved.grid_spacing`.
+
+The pair manifest must compare arrays by stable IDs and permit only:
+
+```python
+ALLOWED_PAIR_DIFFERENCES = {
+    "assumption.grid_spacing",
+    "unresolved.grid_spacing",
+    "clause references affected by grid_spacing",
+    "goal projection references affected by grid_spacing",
+    "recipe_fingerprint",
+}
+```
+
+Any other semantic delta fails the test.
+
+- [ ] **Step 2: Add radial pair assertions**
+
+```python
+def test_radial_ready_and_unresolved_pair_have_controlled_outcomes():
+    ready = run_fixture(radial_ready_fixture())
+    unresolved = run_fixture(radial_unresolved_fixture())
+    assert (ready["valid"], ready["compile_ready"]) == (True, True)
+    assert (unresolved["valid"], unresolved["compile_ready"]) == (True, False)
+    assert blocker_codes(unresolved) == {"unresolved_intent"}
+    assert ready["computed_recipe_fingerprint"] != unresolved["computed_recipe_fingerprint"]
+    delta = pair_delta_ids(radial_ready_fixture(), radial_unresolved_fixture())
+    assert delta <= set(radial_pair_manifest()["allowed_recipe_differences"])
+```
+
+Also prove deterministic reruns under the same fixed clock, derived element count `100`, no workers, and invalidity if spacing is both supplied and unresolved.
+
+- [ ] **Step 3: Add the non-radial layer control fixture**
+
+Use exactly:
+
+```text
+Create a document layer named "Analysis".
+Do not modify existing geometry or existing layers.
+```
+
+The recipe uses user facts, goal, maintains, one invariant, `manage_document_layers`, shape delegation, no assumptions, no unresolved intent, and no workers. Assert `valid=true` and `compile_ready=true`. Do not claim preventive invariant enforcement; LM9A validates declaration and authority only.
+
+- [ ] **Step 4: Add the positive inert worker-slot fixture**
+
+Declare one `author_formula_realization` slot, one exact `instantiate_worker_slot` delegate, one allowed output schema, legal input refs, and nonempty maintained support. Assert `valid=true`, `compile_ready=true`, and absence of any request, invocation, output, provider, or model artifact.
+
+- [ ] **Step 5: Add the positive confirmation fixture**
+
+Create a pre-receipt recipe whose one material assumption derives `confirmation_required`. Recompute the confirmation-subject fingerprint; issue a deterministic trusted same-session, unexpired receipt bound to the task envelope, assumption ID, complete typed-value fingerprint, and subject fingerprint; attach its reference and exact authority descriptor; restamp the ordinary recipe fingerprint. Assert derived status `confirmed`, `valid=true`, and `compile_ready=true`.
+
+Also assert:
+
+```text
+subject before attachment == subject after attachment
+ordinary recipe fingerprint before != ordinary recipe fingerprint after
+semantic or policy change moves both subjects
+```
+
+- [ ] **Step 6: Run fixture tests**
+
+```powershell
+.\mcp_server\.venv\Scripts\python.exe -m pytest `
+  mcp_server/tests/test_lm9a_planner_graph_recipe_fixtures.py -q
+```
+
+Expected: all fixtures pass with no model, worker, compiler, tool, or live process.
+
+- [ ] **Step 7: Commit deterministic proof fixtures**
+
+```powershell
+git add mcp_server/tests/lm9a_fixture_factory.py `
+  mcp_server/tests/test_lm9a_planner_graph_recipe_fixtures.py
+git commit -m "test(lm9a): prove generic recipe fixtures"
+```
+
+---
+
+### Task 10: Negative Matrix, Boundary Guards, And Final Offline Gate
+
+**Files:**
+- Create: `mcp_server/tests/test_lm9a_planner_graph_recipe_boundaries.py`
+- Modify: focused LM9A tests only where a missing negative belongs beside its unit.
+
+**Interfaces:**
+- Consumes: all public LM9A modules and committed proof fixtures.
+- Produces: deterministic structural evidence that LM9A remains generic, offline, and isolated from legacy protocols.
+
+- [ ] **Step 1: Add the complete cross-cutting negative matrix**
+
+Parameterize mutations of a known valid fixture for every spec Section 12.2 class not already asserted beside its unit. At minimum include:
+
+```text
+unknown fields; malformed IDs; duplicate IDs; dangling/mismatched refs;
+URI-fragment and malformed pointers; duplicate members; bad payload schemas;
+descriptor and fingerprint mismatches; context-fingerprint movement;
+orphan requirements; unsupported derivations; policy no-match/overlap/prohibit;
+receipt mismatch/expiry/session/revocation; invalid decimals/numbers;
+unresolved conflicts; unknown shape/capability/slot codes;
+one-way worker-slot links; deferred receipt kinds; recipe-fingerprint mismatch;
+phase not_evaluated propagation; issue-classification collision.
+```
+
+Every parameter must assert exact `phase`, exact diagnostic or blocker `code`, `valid`, and `compile_ready`; do not assert only that validation failed.
+
+- [ ] **Step 2: Add AST/source isolation guards**
+
+```python
+import ast
+import pathlib
+
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+PRODUCTION_MODULES = tuple(
+    ROOT.glob("mcp_server/src/rook/agent/planner_graph_recipe_*.py")
+)
+
+
+def _dotted_name(node):
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        prefix = _dotted_name(node.value)
+        return f"{prefix}.{node.attr}" if prefix else node.attr
+    return ""
+
+
+def imported_module_names(paths):
+    names = set()
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names.add(node.module)
+    return names
+
+
+def called_names(paths):
+    names = set()
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                names.add(_dotted_name(node.func))
+    return names
+
+
+def test_lm9a_production_source_has_no_fixture_ontology():
+    forbidden = (
+        "radial",
+        "box-array",
+        "box_array",
+        "box array",
+        "grid-spacing",
+        "grid_spacing",
+        "height_falloff",
+        "height-falloff",
+    )
+    rendered = "\n".join(path.read_text(encoding="utf-8").lower() for path in PRODUCTION_MODULES)
+    assert all(marker not in rendered for marker in forbidden)
+
+
+def test_lm9a_does_not_import_legacy_or_runtime_surfaces():
+    forbidden_modules = {
+        "rook.agent.plan_graph_workflow_contract",
+        "rook.agent.planner_worker_contract_request",
+        "rook.agent.planner",
+        "rook.server",
+    }
+    imported = imported_module_names(PRODUCTION_MODULES)
+    assert imported.isdisjoint(forbidden_modules)
+
+
+def test_lm9a_source_has_no_model_tool_or_compiler_emission():
+    forbidden_calls = {
+        "run_two_pass_worker_publication",
+        "call_rhino",
+        "gh_edit",
+        "dspy.Predict",
+        "subprocess.run",
+    }
+    assert called_names(PRODUCTION_MODULES).isdisjoint(forbidden_calls)
+```
+
+Use AST visitors for imports and calls; use raw strings only for the fixture-ontology guard. Do not forbid words that appear legitimately in closed policy data or diagnostics.
+
+- [ ] **Step 3: Add schema and fingerprint guards**
+
+Prove:
+
+- all product schemas remain closed and valid Draft 2020-12;
+- all report artifacts validate under the report schema;
+- no LM9A hash is bare or uppercase;
+- exact JCS vectors remain green;
+- no call/import/reference to `_fingerprint_normalized_contract` exists;
+- raw-byte and normalized recipe hashes remain distinct;
+- every declared set-like collection appears in the normalization table and no array is dynamically inferred as a set.
+
+- [ ] **Step 4: Run the focused LM9A gate**
+
+```powershell
+.\mcp_server\.venv\Scripts\python.exe -m pytest `
+  mcp_server/tests/test_planner_graph_recipe_canonical.py `
+  mcp_server/tests/test_planner_graph_recipe_schemas.py `
+  mcp_server/tests/test_planner_graph_recipe_report.py `
+  mcp_server/tests/test_planner_graph_recipe_authority.py `
+  mcp_server/tests/test_planner_graph_recipe_semantics.py `
+  mcp_server/tests/test_planner_graph_recipe_validate.py `
+  mcp_server/tests/test_lm9a_planner_graph_recipe_fixtures.py `
+  mcp_server/tests/test_lm9a_planner_graph_recipe_boundaries.py -q
+```
+
+Expected: all LM9A tests pass.
+
+- [ ] **Step 5: Run nearby regression gates**
+
+```powershell
+.\mcp_server\.venv\Scripts\python.exe -m pytest `
+  mcp_server/tests/test_planner_worker_contract_request.py `
+  mcp_server/tests/test_plan_graph_workflow_contract.py `
+  mcp_server/tests/test_plan_graph_workflow_contract_loader.py `
+  mcp_server/tests/test_plan_graph_workflow_contract_fingerprint.py `
+  mcp_server/tests/test_plan_graph_workflow_contract_chain.py `
+  mcp_server/tests/test_validation.py -q
+
+.\mcp_server\.venv\Scripts\python.exe -m py_compile `
+  mcp_server/src/rook/agent/planner_graph_recipe_canonical.py `
+  mcp_server/src/rook/agent/planner_graph_recipe_schemas.py `
+  mcp_server/src/rook/agent/planner_graph_recipe_report.py `
+  mcp_server/src/rook/agent/planner_graph_recipe_authority.py `
+  mcp_server/src/rook/agent/planner_graph_recipe_semantics.py `
+  mcp_server/src/rook/agent/planner_graph_recipe_validate.py
+
+git diff --check origin/main...HEAD
+```
+
+Expected: all tests and compilation pass; diff check is clean.
+
+- [ ] **Step 6: Verify exact scope and absence of live artifacts**
+
+```powershell
+git diff --name-only origin/main...HEAD
+git status --short
+```
+
+Expected tracked scope: LM9A spec/plan plus the production/test/dependency files named in this plan. No `probe_runs/`, Rhino/GH artifacts, generated reports, model output, knowledge drift, or unrelated docs are staged.
+
+- [ ] **Step 7: Commit final guards**
+
+```powershell
+git add mcp_server/tests/test_lm9a_planner_graph_recipe_boundaries.py `
+  mcp_server/tests/test_planner_graph_recipe_canonical.py `
+  mcp_server/tests/test_planner_graph_recipe_schemas.py `
+  mcp_server/tests/test_planner_graph_recipe_report.py `
+  mcp_server/tests/test_planner_graph_recipe_authority.py `
+  mcp_server/tests/test_planner_graph_recipe_semantics.py `
+  mcp_server/tests/test_planner_graph_recipe_validate.py `
+  mcp_server/tests/test_lm9a_planner_graph_recipe_fixtures.py
+git commit -m "test(lm9a): lock recipe validator boundaries"
+```
+
+---
+
+## Final Review Checklist
+
+- [ ] Every requirement implemented now in spec Section 3.1 has a production task and a positive proof.
+- [ ] Every future-only item in spec Section 3.2 remains absent from production code.
+- [ ] Exact RFC 8785 vectors, UTF-16 ordering, raw-byte parsing, decimal identity, and confirmation projection have focused tests.
+- [ ] The recipe, report, validation input, companions, descriptors, and vocabularies are all closed schemas.
+- [ ] `valid` and `compile_ready` derive mechanically and remain semantically distinct.
+- [ ] Blocked phase dependencies remain evaluable; failed/not-evaluated dependencies suppress dependent phases.
+- [ ] Companion fingerprints, recipe fingerprints, validation-context fingerprints, and report fingerprints remain distinct and independently recomputable.
+- [ ] The ready/unresolved pair differs only under its test-only stable-ID allowlist.
+- [ ] The non-radial fixture proves the validator is not radial-family machinery.
+- [ ] The positive worker-slot fixture never instantiates a request.
+- [ ] The positive confirmation fixture proves subject-fingerprint stability without a hash cycle.
+- [ ] No existing Planner/worker/workflow contract file is modified.
+- [ ] No live test or model invocation occurs in the implementation PR.
