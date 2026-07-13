@@ -37,15 +37,17 @@ $baselineExitCode = $LASTEXITCODE
 
 Capture and retain complete output from this first invocation in ignored SDD scratch or outside the worktree; do not rely on the potentially truncated console view. From that capture, record the exact failed/error node IDs, the exact failed/error set, the pass/fail/error/skip totals, and `$baselineExitCode`. Do not rerun merely to recover evidence when the first capture is complete. Pre-existing failures do not authorize repairs to `main` and do not block this retirement. All new and retirement-focused tests must pass. At final verification, rerun the same pytest selection in the same environment: it may retain the recorded pre-existing failed/error node IDs, but it must introduce no new failed/error node IDs. Live-Rhino tests remain a separate, explicitly enabled gate.
 
-### Approved Narrow Differential Exception (2026-07-13)
+### Approved Narrow CanvasDirector Windows Lock-Race Family Exception (2026-07-13)
 
-The user approved one exception, limited to this exact node:
+The user approved an exception limited to these three exact nodes, which are the only two-thread tests using this unchanged lock path:
 
-`mcp_server/tests/test_canvas_director.py::test_concurrent_first_spec_writes_detect_id_collision`
+- `mcp_server/tests/test_canvas_director.py::test_concurrent_first_spec_writes_detect_id_collision`
+- `mcp_server/tests/test_canvas_director.py::test_concurrent_first_writes_detect_id_collision`
+- `mcp_server/tests/test_canvas_director.py::test_same_state_retry_waits_for_in_progress_first_write`
 
-The retained final-head capture changed the failed/error node-ID set from `111` to `112`, with only that node added. Git blob comparisons showed that the CanvasDirector implementation, test, referenced fixtures, callback bridge, and `pytest.ini` were identical on `main` and this branch. Under load, the node reproduced 4/20 times on `main` and 6/20 times on the branch. The underlying Windows lock-file race raises `WinError 32`, after which the second writer times out. No CanvasDirector source or test fix belongs in this retirement branch.
+The exception applies only when one of those nodes exhibits the established Windows lock-race signature: lock deletion fails with `WinError 32`, then the waiting writer times out. Any different signature, or any other failed/error node added beyond the baseline, remains blocking. This is a real pre-existing lock implementation race that belongs in separate follow-up work, not a general CanvasDirector waiver or a flaky-assertion allowance. Git blob comparisons showed that the CanvasDirector implementation, test, referenced fixtures, callback bridge, and `pytest.ini` were identical on `main` and this branch. No CanvasDirector source or test fix belongs in this retirement branch.
 
-This exception does not relax the differential gate for any other node. Acceptance reporting must state **one explicitly waived new node**, not zero new nodes, even when a fresh run does not reproduce the timing-sensitive failure. A fresh run may separately report its observed totals and comparison, but it does not erase the retained `111 → 112` evidence or broaden the waiver.
+Preserve the historical result exactly: the retained final-head capture changed the failed/error node-ID set from `111` to `112`, with only `test_concurrent_first_spec_writes_detect_id_collision` actually added. Under load, that node reproduced 4/20 times on `main` and 6/20 times on the branch. Do not report `111 → 113` or describe the three-node exception family as three new nodes. A fresh run must report its own observed additions separately; they may be any subset of the three enumerated nodes only when the signature matches, and no others.
 
 ---
 
@@ -1253,7 +1255,7 @@ $finalCapture = ".superpowers/sdd/director-mcp-retirement-final-pytest.txt"
 $finalExitCode = $LASTEXITCODE
 ```
 
-Capture and retain complete output from this first invocation in ignored SDD scratch or outside the worktree; do not rely on the potentially truncated console view, and do not rerun merely to recover evidence when the first capture is complete. Expected: every new and retirement-focused test passes, and the failed/error node-ID set introduces no entries beyond the pre-Task-1 differential baseline except the exact node in the approved narrow exception above. Pre-existing failed/error node IDs may remain. From the retained capture, record `$finalExitCode`, the exact final totals, the exact final failed/error node-ID set, and its set comparison with the baseline in the branch handoff; do not copy a historical total into the claim. The handoff must state **one explicitly waived new node** and identify it exactly, even if a later timing-sensitive run does not reproduce it.
+Capture and retain complete output from this first invocation in ignored SDD scratch or outside the worktree; do not rely on the potentially truncated console view, and do not rerun merely to recover evidence when the first capture is complete. Expected: every new and retirement-focused test passes, and the failed/error node-ID set introduces no entries beyond the pre-Task-1 differential baseline except a subset of the three exact nodes in the approved lock-race family exception above, each with the established signature. Pre-existing failed/error node IDs may remain. From the retained capture, record `$finalExitCode`, the exact final totals, the exact final failed/error node-ID set, its set comparison with the baseline, and the signature of any excepted failure in the branch handoff; do not copy a historical total into the claim. Preserve the historical `111 → 112` result as one actual addition and report the fresh run's observed additions separately; do not describe the three eligible nodes as three new nodes.
 
 - [ ] **Step 4: Run repository and artifact checks**
 
