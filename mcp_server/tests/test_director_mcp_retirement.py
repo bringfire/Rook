@@ -45,7 +45,8 @@ BOUNDARY_GUIDANCE = frozenset(
 DIRECTOR_DOC_PATTERN = re.compile(
     r"rhino_director_|"
     r"(?<![A-Za-z0-9_])/director(?:/|\b)|"
-    r"\b(?:Rook)?VisionDirector\b",
+    r"\b(?:Rook)?VisionDirector\b|"
+    r"test_director_mcp_tools\.py",
     re.IGNORECASE,
 )
 CURRENT_DIRECTOR_RETIREMENT_DOCS = frozenset(
@@ -67,6 +68,7 @@ ACTIONABLE_DIRECTOR_DOCS = frozenset(
         "docs/rook_docs/2026-04-15-typed-route-gap-analysis.md",
         "docs/rook_docs/work-queue.md",
         "docs/superpowers/plans/2026-05-19-rookvisiondirector-slice1-implementation.md",
+        "docs/superpowers/plans/2026-05-20-mcp-schema-array-hardening.md",
         "docs/superpowers/plans/2026-05-20-rookvisiondirector-camera-planning-contract-extraction.md",
         "docs/superpowers/plans/2026-05-20-rookvisiondirector-curve-samples.md",
         "docs/superpowers/plans/2026-05-20-rookvisiondirector-timeline-contract.md",
@@ -583,12 +585,12 @@ def test_every_route_aware_director_document_is_classified():
         HISTORICAL_DIRECTOR_EVIDENCE_DOCS,
         ACTIONABLE_DIRECTOR_DOCS,
     )
-    assert [len(group) for group in groups] == [2, 2, 4, 55]
+    assert [len(group) for group in groups] == [2, 2, 4, 56]
     for index, group in enumerate(groups):
         for other in groups[index + 1 :]:
             assert group.isdisjoint(other)
     expected_documents = frozenset().union(*groups)
-    assert len(expected_documents) == 63
+    assert len(expected_documents) == 64
     assert set(documents) == expected_documents
     assert set(HISTORICAL_REFERENCE_BY_DOCUMENT) == (
         HISTORICAL_DIRECTOR_EVIDENCE_DOCS

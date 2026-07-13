@@ -873,8 +873,8 @@ git commit -m "test: preserve Director implementation below MCP"
 - Modify: `docs/AGENT_ARCHITECTURE.md`
 - Modify: `docs/rook_docs/work-queue.md`
 - Modify: `docs/rook_docs/2026-04-15-typed-route-gap-analysis.md`
-- Modify/classify: every tracked `docs/**/*.md` selected by `DIRECTOR_DOC_PATTERN`. The measured taxonomy is two current-guidance architecture documents, two current retirement documents, four historical-evidence documents, and 55 actionable historical documents with partial-supersession notices. `CURRENT_GUIDANCE` is exempt only from the historical-classification loop and remains covered by its dedicated stricter test.
-- Modify: `docs/superpowers/specs/2026-05-20-rookvisiondirector-camera-video-roadmap.md`, `docs/superpowers/specs/2026-07-06-director-v3-snapshot-boundary-design.md`, and `docs/superpowers/plans/2026-07-07-director-build-actor-set-from-source-occurrence.md` are named load-bearing examples of that repository-wide selection, not its limit.
+- Modify/classify: every tracked `docs/**/*.md` selected by `DIRECTOR_DOC_PATTERN`. The measured taxonomy is two current-guidance architecture documents, two current retirement documents, four historical-evidence documents, and 56 actionable historical documents with partial-supersession notices. `CURRENT_GUIDANCE` is exempt only from the historical-classification loop and remains covered by its dedicated stricter test.
+- Modify: `docs/superpowers/plans/2026-05-20-mcp-schema-array-hardening.md`, `docs/superpowers/specs/2026-05-20-rookvisiondirector-camera-video-roadmap.md`, `docs/superpowers/specs/2026-07-06-director-v3-snapshot-boundary-design.md`, and `docs/superpowers/plans/2026-07-07-director-build-actor-set-from-source-occurrence.md` are named load-bearing examples of that repository-wide selection, not its limit.
 
 **Interfaces:**
 - Consumes: measured counts from Task 2 and the approved product boundary.
@@ -882,7 +882,7 @@ git commit -m "test: preserve Director implementation below MCP"
 
 - [ ] **Step 1: Add failing documentation and preservation tests**
 
-Append to `test_director_mcp_retirement.py`. The executable test must explicitly enumerate the exact 55-path `ACTIONABLE_DIRECTOR_DOCS` frozenset (no glob-derived expected set), define the exact full partial/historical notice strings, and define every directory-correct reference string. The condensed sample below shows the required tracked-only enumeration and assertions; the executable constants carry the complete literal snapshot from Steps 3–4.
+Append to `test_director_mcp_retirement.py`. The executable test must explicitly enumerate the exact 56-path `ACTIONABLE_DIRECTOR_DOCS` frozenset (no glob-derived expected set), define the exact full partial/historical notice strings, and define every directory-correct reference string. The condensed sample below shows the required tracked-only enumeration and assertions; the executable constants carry the complete literal snapshot from Steps 3–4.
 
 ```python
 import re
@@ -912,7 +912,8 @@ BOUNDARY_GUIDANCE = frozenset(
 DIRECTOR_DOC_PATTERN = re.compile(
     r"rhino_director_|"
     r"(?<![A-Za-z0-9_])/director(?:/|\b)|"
-    r"\b(?:Rook)?VisionDirector\b",
+    r"\b(?:Rook)?VisionDirector\b|"
+    r"test_director_mcp_tools\.py",
     re.IGNORECASE,
 )
 CURRENT_DIRECTOR_RETIREMENT_DOCS = {
@@ -925,7 +926,7 @@ HISTORICAL_DIRECTOR_EVIDENCE_DOCS = frozenset({
     "docs/superpowers/plans/2026-05-19-rookvisiondirector-slice1-phase0-inventory.md",
     "docs/superpowers/plans/2026-06-23-hunyuan-3d-pro-image-to-3d.md",
 })
-# ACTIONABLE_DIRECTOR_DOCS is an explicit frozenset of the exact 55 tracked paths.
+# ACTIONABLE_DIRECTOR_DOCS is an explicit frozenset of the exact 56 tracked paths.
 # PARTIAL_SUPERSESSION_NOTICE and HISTORICAL_EVIDENCE_NOTICE are the exact full
 # multiline blocks from Steps 3 and 4, not marker substrings.
 # PARTIAL_REFERENCE_BY_DIRECTORY maps specs/, plans/, and rook_docs/ to the exact
@@ -1007,12 +1008,12 @@ def test_every_route_aware_director_document_is_classified():
         HISTORICAL_DIRECTOR_EVIDENCE_DOCS,
         ACTIONABLE_DIRECTOR_DOCS,
     )
-    assert [len(group) for group in groups] == [2, 2, 4, 55]
+    assert [len(group) for group in groups] == [2, 2, 4, 56]
     for index, group in enumerate(groups):
         for other in groups[index + 1:]:
             assert group.isdisjoint(other)
     expected_documents = frozenset().union(*groups)
-    assert len(expected_documents) == 63
+    assert len(expected_documents) == 64
     assert set(documents) == expected_documents
     assert set(HISTORICAL_REFERENCE_BY_DOCUMENT) == (
         HISTORICAL_DIRECTOR_EVIDENCE_DOCS
@@ -1069,12 +1070,12 @@ Expected: FAIL on current README copy and on every route-aware Director document
 Enumerate the complete tracked route-aware document set from the repository root. This tracked-only audit mirrors the NUL-safe `git ls-files -z` enumeration in the test; filesystem `rglob()`/`rg` results are not the contract because ignored or untracked scratch Markdown must not affect it:
 
 ```powershell
-git grep -Il --perl-regexp 'rhino_director_|(?<![A-Za-z0-9_])/director(?:/|\b)|\b(?:Rook)?VisionDirector\b' -- 'docs/*.md' 'docs/**/*.md' | Sort-Object
+git grep -Il --perl-regexp 'rhino_director_|(?<![A-Za-z0-9_])/director(?:/|\b)|\b(?:Rook)?VisionDirector\b|test_director_mcp_tools\.py' -- 'docs/*.md' 'docs/**/*.md' | Sort-Object
 ```
 
-Classify the 63 measured results into four exact, pairwise-disjoint sets: two current-guidance architecture documents (`docs/CURRENT_ARCHITECTURE.md` and `docs/AGENT_ARCHITECTURE.md`), two paths in `CURRENT_DIRECTOR_RETIREMENT_DOCS`, four paths in `HISTORICAL_DIRECTOR_EVIDENCE_DOCS`, and the explicitly enumerated 55-path `ACTIONABLE_DIRECTOR_DOCS` snapshot. Assert the union equals the complete tracked route-aware set exactly. The two current-guidance documents are exempt only from historical notice classification: do not add a supersession notice to them, and keep all four `CURRENT_GUIDANCE` paths under `test_current_guidance_has_no_actionable_director_instruction`, which allows the exact approved boundary once in the three boundary documents, zero times in README, removes that exact text, and rejects every remaining `DIRECTOR_DOC_PATTERN` match.
+Classify the 64 measured results into four exact, pairwise-disjoint sets: two current-guidance architecture documents (`docs/CURRENT_ARCHITECTURE.md` and `docs/AGENT_ARCHITECTURE.md`), two paths in `CURRENT_DIRECTOR_RETIREMENT_DOCS`, four paths in `HISTORICAL_DIRECTOR_EVIDENCE_DOCS`, and the explicitly enumerated 56-path `ACTIONABLE_DIRECTOR_DOCS` snapshot. Assert the union equals the complete tracked route-aware set exactly. The two current-guidance documents are exempt only from historical notice classification: do not add a supersession notice to them, and keep all four `CURRENT_GUIDANCE` paths under `test_current_guidance_has_no_actionable_director_instruction`, which allows the exact approved boundary once in the three boundary documents, zero times in README, removes that exact text, and rejects every remaining `DIRECTOR_DOC_PATTERN` match.
 
-For each of the 55 actionable historical results, add this notice immediately below the title/status preamble. The contract asserts the complete notice plus its directory-correct reference definition as one exact block, exactly once; marker substrings or a design filename elsewhere do not satisfy it:
+For each of the 56 actionable historical results, add this notice immediately below the title/status preamble. The contract asserts the complete notice plus its directory-correct reference definition as one exact block, exactly once; marker substrings or a design filename elsewhere do not satisfy it:
 
 ```markdown
 > **PARTIALLY SUPERSEDED — Director MCP retirement (2026-07-13):** The general
