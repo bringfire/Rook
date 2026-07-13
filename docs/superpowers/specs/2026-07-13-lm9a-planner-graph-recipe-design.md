@@ -590,6 +590,15 @@ invalid. A `policy_rule` JSON Pointer is the only reference pointer resolved
 against a companion envelope; it resolves from the root of the policy artifact
 to exactly one rule in its stable `rules` map.
 
+All semantic-reference, value-binding, policy-rule, vocabulary-binding, and
+issue-path pointers use RFC 6901 JSON Pointer string syntax. URI-fragment form
+is forbidden. Semantic references and value bindings require a nonempty pointer
+whose first character is `/`; the empty whole-document pointer is invalid.
+Pointer escape sequences use only RFC 6901 `~0` and `~1`, resolution uses exact
+string property names, and neither pointer strings nor resolved property names
+are Unicode-normalized. Diagnostic `path` may be the empty pointer to identify
+the whole submitted recipe; `related_paths` entries, when present, are nonempty.
+
 Homogeneous structural collections such as `affected_clause_ids` and
 `maintains_clause_ids` remain explicit ID lists because their field names fix
 the target type. Every heterogeneous or authority-bearing reference uses the
@@ -1030,6 +1039,16 @@ The pre-confirmation subject fingerprint is computed over the canonical recipe
 excluding `recipe_fingerprint`, with every required `confirmation_ref` value
 replaced by `null` rather than removed.
 
+The validator determines that replacement set only after policy and assumption
+evaluation that ignores confirmation-receipt effects. Every assumption whose
+pre-receipt outcome is `confirmation_required` belongs to the set. It remains
+in the same set after an authentic receipt changes its final outcome to
+`confirmed`. A non-null `confirmation_ref` on an assumption whose pre-receipt
+outcome is `policy_auto`, `trusted_selection_required`,
+`privileged_authorization_required`, `policy_prohibited`, or
+`policy_ambiguous` is invalid. Gratuitous receipts are never ignored or folded
+into a different subject.
+
 An assumption confirmation receipt is issued only by a trusted mechanical
 gateway and binds:
 
@@ -1037,7 +1056,8 @@ gateway and binds:
 - task-envelope fingerprint;
 - confirmation-subject fingerprint;
 - assumption ID;
-- exact typed-value fingerprint, unit, and scope;
+- exact typed-value fingerprint, including unit and unit-context material;
+- assumption scope through the bound confirmation-subject fingerprint;
 - user/task session;
 - decision, issue time, expiry, and receipt fingerprint.
 
@@ -1372,8 +1392,10 @@ output_validation_status:
   not_evaluated | valid | invalid
 ```
 
-`worker_slots.entries: []` absolutely forbids worker request creation. Every
-canonical LM9A proof fixture is workerless.
+`worker_slots.entries: []` absolutely forbids worker request creation. The
+campaign fixtures identified in Sections 11.2 and 11.3 remain workerless. A
+separate focused conformance fixture may declare one inert slot solely to prove
+positive schema and linkage validation; LM9A still creates no worker request.
 
 ## 7. Authority And Conflict Matrix
 
@@ -1542,6 +1564,10 @@ The report and every nested report object are closed with
 validation ingress must retain those bytes. A conforming LM9A validation report
 cannot be issued when ingress cannot supply the raw bytes.
 
+Recipe input bytes must decode as strict UTF-8 and must not begin with a UTF-8
+BOM. Invalid UTF-8 or a BOM still permits hashing the received bytes, but the
+`schema` phase fails and `computed_recipe_fingerprint` is `null`.
+
 Malformed input may still have an input hash while
 `computed_recipe_fingerprint` is `null`; `claimed_recipe_fingerprint` may also
 be `null` when parsing cannot recover it. Claimed and independently computed
@@ -1665,7 +1691,7 @@ entry_count: 0
 validation_status: passed | failed | not_evaluated
 ```
 
-`recipe_binding_paths` contains the normalized recipe JSON Pointers that bind
+`recipe_binding_paths` contains the exact RFC 6901 recipe JSON Pointers that bind
 the shape, capability, or worker-slot vocabulary; it is empty for
 validation-context-only vocabularies. `recipe_claimed_fingerprint` is non-null
 exactly when that list is nonempty, and every bound path must claim the same
@@ -1896,32 +1922,64 @@ blocker is `passed`.
 `rook.canonical_json:v1` is normative:
 
 ```text
-schema validation and schema-defined set sorting
--> Unicode NFC and LF normalization
--> RFC 8785-compatible JSON serialization
+schema validation
+-> schema-directed Unicode NFC and LF normalization
+-> schema-defined set sorting using RFC 8785 UTF-16 code-unit comparison
+-> exact RFC 8785 JSON Canonicalization Scheme serialization
 -> UTF-8 bytes without BOM
 -> SHA-256
 ```
 
 Hash strings use lowercase hexadecimal with a `sha256:` prefix.
 
+This is a new fingerprint regime for the LM9 artifact family. It intentionally
+does not reuse the legacy `_fingerprint_normalized_contract` helper in
+`plan_graph_workflow_contract.py`, whose `json.dumps(sort_keys=True,
+ensure_ascii=True)` encoding and bare digest are not RFC 8785. LM9A must not
+call, wrap, copy, or imitate that helper. No migration of existing LM4X, LM5, or
+LM8 fingerprints is implied.
+
+An LM9A implementation must use a vetted exact RFC 8785 implementation or a
+conformance adapter proved against the RFC 8785 serialization samples and the
+official JSON Canonicalization Scheme reference vectors. The proof suite covers
+Unicode object-key ordering, control and non-ASCII string serialization,
+number serialization in embedded schema documents, and rejection of invalid
+Unicode input. Passing only ordinary ASCII fixtures is insufficient.
+
 Rules:
 
-- identifiers, paths, codes, and schema references reject surrounding
-  whitespace;
+- every schema-designated machine identifier, code, semantic key, vocabulary
+  version, and Rook schema identifier matches
+  `^[a-z0-9]+(?:[._:-][a-z0-9]+)*$` exactly;
+- this machine grammar applies to all `*_id` fields, `semantic_key`, closed
+  vocabulary codes, issuer and authority codes, and task, environment,
+  registry, and receipt session identifiers;
+- fingerprints, timestamps, JSON Pointers, prose, and externally defined
+  implementation references use their own schemas and are not machine
+  identifiers under this rule;
 - semantic prose normalizes Unicode to NFC and line endings to LF;
 - semantic prose rejects leading and trailing whitespace;
 - interior spaces, punctuation, paragraph breaks, and line wrapping remain
   fingerprint-material;
+- JSON Pointer strings and the property names they address are not Unicode-
+  normalized because reference equality is exact;
+- duplicate JSON object member names and parsed strings containing unpaired
+  Unicode surrogates are invalid before canonicalization;
 - no generic trimming or whitespace collapsing occurs;
-- duplicate identities are rejected before sorting;
+- duplicate machine identities are rejected by exact ASCII string equality
+  before sorting;
 - ordering semantics are declared by schema, never inferred dynamically;
 - `null`, absent, and explicit empty collections remain distinct;
 - external artifacts appear through trusted fingerprints rather than embedded
   payloads.
 
-String components in sort keys compare by Unicode scalar value after NFC
-normalization. The exhaustive v1 set-order table is:
+Every string component in every set sort key compares as an unescaped sequence
+of UTF-16 code units using the ordering defined by RFC 8785 Section 3.2.3. This
+comparison occurs after schema-directed normalization. ASCII machine identities
+therefore have the same identity and ordering bytes everywhere, while JSON
+Pointers, diagnostic messages, `related_paths`, and other permitted Unicode
+strings use the same UTF-16 comparison as RFC 8785 object keys. The exhaustive
+v1 set-order table is:
 
 | Collection | Canonical sort key |
 |---|---|
@@ -1950,8 +2008,8 @@ normalization. The exhaustive v1 set-order table is:
 | report `validation_context_artifacts.environment_snapshots` | `artifact_id` |
 | report `validation_context_artifacts.policy_registries` | `artifact_id` |
 | report and validation-context projection `vocabularies` | `(schema, vocabulary_version)` |
-| vocabulary descriptor `recipe_binding_paths` | normalized JSON Pointer |
-| issue `related_paths` | normalized JSON Pointer |
+| vocabulary descriptor `recipe_binding_paths` | exact RFC 6901 string |
+| issue `related_paths` | exact RFC 6901 string |
 | future review-bundle `required_clause_ids` | clause ID |
 
 Policy `rules` is a map keyed by `rule_id`, not a set-like array. RFC 8785
@@ -1977,6 +2035,46 @@ Semantic references sort by the following fixed variant rank and tuple:
 
 Duplicate semantic-reference tuples within one collection are invalid before
 sorting.
+
+### 9.1 Numeric And Typed-Value Rules
+
+Decimal semantic values use this exact string grammar:
+
+```text
+^-?(0|[1-9][0-9]*)(\.[0-9]+)?$
+```
+
+Leading `+`, exponent notation, leading integer zeros, a missing integer or
+fractional part, and every negative-zero representation are invalid. Trailing
+fractional zeros are permitted and remain fingerprint-material. Authorization,
+range, equality, and derivation checks parse with exact decimal arithmetic:
+`"2"`, `"2.0"`, and `"2.00"` compare as the same mathematical value while
+retaining distinct fingerprints. Binary floating-point comparison is forbidden.
+
+Every JSON integer in an LM9A recipe, report, or companion lies in the inclusive
+interoperable range `-9007199254740991` through `9007199254740991`. Semantic
+non-integer values use decimal strings; non-integer JSON numbers are forbidden
+in LM9A product fields. Embedded registered JSON Schema documents are the sole
+v1 exception and are serialized by the exact RFC 8785 implementation and its
+number conformance tests.
+
+For an assumption or derived fact, the validator computes
+`typed_value_fingerprint` as SHA-256 over the complete normalized `typed_value`
+object under `rook.canonical_json:v1`; schema, value, unit, unit-context
+reference, and every other schema-permitted field are inside the fingerprint.
+No typed-value unit or unit-context field may sit outside that object and
+silently escape its identity. Assumption scope such as `affects` remains
+separate recipe material covered by the recipe and confirmation-subject
+fingerprints.
+
+For a task or environment `value_bindings` entry, the fingerprint subject is
+the closed object `{schema: value_schema, value: <exact resolved payload
+value>}`. If a value is unit-sensitive, its registered resolved payload value
+schema must contain the unit and unit-context information inside `value`; a
+parallel unbound unit field is invalid. Confirmation receipts bind the exact
+assumption `typed_value_fingerprint`; they do not recompute a smaller subset.
+
+### 9.2 Final Ordering And Fingerprint Scope
 
 Diagnostics sort by `(phase_rank, severity_rank, code, subject_id, path,
 related_paths, message)`, where severity rank is `error`, `warning`, then
@@ -2289,6 +2387,31 @@ Production later uses a trusted clock. Evaluation time and clock source are
 recorded and included in the validation-context fingerprint. Both radial
 reports use the same fixed context.
 
+### 11.5 Focused Positive Conformance Fixtures
+
+Two additional model-free fixtures prevent rejection-only validator coverage.
+They are focused contract tests, not new campaign scenarios.
+
+The worker-slot conformance fixture declares one inert
+`author_formula_realization` slot, its exact matching
+`instantiate_worker_slot` shape delegate, one allowed output schema, valid
+declared inputs, and nonempty maintained-clause support. Validation must return
+`valid=true` and `compile_ready=true`, and must not instantiate a request, invoke
+a worker, or emit worker output. This proves the positive shape-to-slot link,
+slot-code output allowlist, input-kind, and support-clause paths.
+
+The confirmation conformance fixture contains one otherwise valid material
+assumption whose pre-receipt authorization outcome is
+`confirmation_required`. A trusted, unexpired, same-session confirmation
+receipt binds the exact task envelope, assumption ID, complete typed-value
+fingerprint, and recomputed confirmation-subject fingerprint. Validation must
+derive `confirmed`, return `valid=true` and `compile_ready=true`, and emit no
+compiler, worker, or executable artifact.
+
+Both fixtures use the deterministic validation clock and closed generic
+vocabularies. Neither fixture adds a model, worker execution, confirmation UI,
+compiler, or runtime behavior to LM9A.
+
 ## 12. Deterministic Proof Targets
 
 ### 12.1 Positive Proofs
@@ -2297,6 +2420,10 @@ LM9A must prove:
 
 - canonical recipe and report payloads validate under closed schemas;
 - claimed and independently computed fingerprints match;
+- exact RFC 8785 and JSON Canonicalization Scheme reference vectors pass,
+  including non-ASCII key ordering and embedded-schema number serialization;
+- LM9A fingerprints use the `sha256:` exact-JCS regime and never call or imitate
+  the legacy `_fingerprint_normalized_contract` helper;
 - canonicalization is deterministic across semantically set-ordered input;
 - raw input and normalized payload hashes remain distinct;
 - every report companion descriptor records its closed stable identity plus
@@ -2308,13 +2435,22 @@ LM9A must prove:
   authority binding;
 - fixture payloads validate through the supplied payload-schema registry rather
   than production validator branches;
+- complete typed-value fingerprints move when value, unit, or unit-context
+  material changes;
+- canonical decimal strings compare by exact decimal value while distinct valid
+  spellings such as `"2"` and `"2.0"` remain fingerprint-distinct;
 - derived element count recomputes exactly;
 - the ready radial recipe is `valid=true`, `compile_ready=true`;
 - the unresolved radial recipe is `valid=true`, `compile_ready=false`;
 - both radial reports are deterministic under the same fixed context;
 - the pair differs only by the stable-ID allowlist;
 - the non-radial control is `valid=true`, `compile_ready=true`;
-- every canonical fixture is workerless;
+- the radial pair and non-radial campaign fixture remain workerless;
+- the focused worker-slot fixture validates one permitted, bidirectionally
+  linked inert slot as `valid=true`, `compile_ready=true` without creating a
+  worker request;
+- the focused confirmation fixture recomputes the subject fingerprint, validates
+  the trusted receipt, derives `confirmed`, and reaches `compile_ready=true`;
 - no compiler, worker, tool, or executable artifact is emitted by validation.
 
 ### 12.2 Negative Proofs
@@ -2322,11 +2458,18 @@ LM9A must prove:
 Focused negative fixtures cover at least:
 
 - unknown top-level and nested properties;
+- invalid UTF-8 recipe bytes and UTF-8 BOM input;
+- non-ASCII, uppercase, whitespace-bearing, or malformed machine identities,
+  codes, and semantic keys;
 - duplicate stable IDs before sorting;
 - dangling, malformed, stale, wrong-schema, wrong-session, and fingerprint-
   mismatched source references;
 - artifact-value pointers missing a binding, matching duplicate binding
   pointers, or resolving outside the companion payload;
+- empty semantic-reference pointers, URI-fragment pointers, malformed RFC 6901
+  escapes, and attempted Unicode normalization that changes exact pointer or
+  property-name identity;
+- duplicate JSON object member names and escaped unpaired Unicode surrogates;
 - missing, duplicate, fingerprint-mismatched, remote-reference, or wrong-dialect
   payload-schema registry entries;
 - missing or extra required report descriptors, duplicate report descriptor
@@ -2347,6 +2490,10 @@ Focused negative fixtures cover at least:
 - no policy match, multiple policy matches, exact prohibition, and wrong unit
   context;
 - confirmation receipt mismatch, expiry, revocation, and wrong task session;
+- gratuitous confirmation references on `policy_auto` and every other
+  non-confirmable derived authorization outcome;
+- malformed decimal strings, negative zero, unsafe JSON integers, non-integer
+  JSON numbers in product fields, and binary-float comparison drift;
 - unresolved value coexisting with an assumption for the same semantic key;
 - unresolved value already supplied by the task envelope;
 - duplicate unresolved semantic keys;
