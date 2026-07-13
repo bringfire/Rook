@@ -37,6 +37,16 @@ $baselineExitCode = $LASTEXITCODE
 
 Capture and retain complete output from this first invocation in ignored SDD scratch or outside the worktree; do not rely on the potentially truncated console view. From that capture, record the exact failed/error node IDs, the exact failed/error set, the pass/fail/error/skip totals, and `$baselineExitCode`. Do not rerun merely to recover evidence when the first capture is complete. Pre-existing failures do not authorize repairs to `main` and do not block this retirement. All new and retirement-focused tests must pass. At final verification, rerun the same pytest selection in the same environment: it may retain the recorded pre-existing failed/error node IDs, but it must introduce no new failed/error node IDs. Live-Rhino tests remain a separate, explicitly enabled gate.
 
+### Approved Narrow Differential Exception (2026-07-13)
+
+The user approved one exception, limited to this exact node:
+
+`mcp_server/tests/test_canvas_director.py::test_concurrent_first_spec_writes_detect_id_collision`
+
+The retained final-head capture changed the failed/error node-ID set from `111` to `112`, with only that node added. Git blob comparisons showed that the CanvasDirector implementation, test, referenced fixtures, callback bridge, and `pytest.ini` were identical on `main` and this branch. Under load, the node reproduced 4/20 times on `main` and 6/20 times on the branch. The underlying Windows lock-file race raises `WinError 32`, after which the second writer times out. No CanvasDirector source or test fix belongs in this retirement branch.
+
+This exception does not relax the differential gate for any other node. Acceptance reporting must state **one explicitly waived new node**, not zero new nodes, even when a fresh run does not reproduce the timing-sensitive failure. A fresh run may separately report its observed totals and comparison, but it does not erase the retained `111 → 112` evidence or broaden the waiver.
+
 ---
 
 ## File Structure
@@ -1243,7 +1253,7 @@ $finalCapture = ".superpowers/sdd/director-mcp-retirement-final-pytest.txt"
 $finalExitCode = $LASTEXITCODE
 ```
 
-Capture and retain complete output from this first invocation in ignored SDD scratch or outside the worktree; do not rely on the potentially truncated console view, and do not rerun merely to recover evidence when the first capture is complete. Expected: every new and retirement-focused test passes, and the failed/error node-ID set introduces no entries beyond the pre-Task-1 differential baseline. Pre-existing failed/error node IDs may remain. From the retained capture, record `$finalExitCode`, the exact final totals, the exact final failed/error node-ID set, and its set comparison with the baseline in the branch handoff; do not copy a historical total into the claim.
+Capture and retain complete output from this first invocation in ignored SDD scratch or outside the worktree; do not rely on the potentially truncated console view, and do not rerun merely to recover evidence when the first capture is complete. Expected: every new and retirement-focused test passes, and the failed/error node-ID set introduces no entries beyond the pre-Task-1 differential baseline except the exact node in the approved narrow exception above. Pre-existing failed/error node IDs may remain. From the retained capture, record `$finalExitCode`, the exact final totals, the exact final failed/error node-ID set, and its set comparison with the baseline in the branch handoff; do not copy a historical total into the claim. The handoff must state **one explicitly waived new node** and identify it exactly, even if a later timing-sensitive run does not reproduce it.
 
 - [ ] **Step 4: Run repository and artifact checks**
 
