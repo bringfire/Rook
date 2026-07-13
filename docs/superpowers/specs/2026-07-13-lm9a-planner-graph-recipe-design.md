@@ -244,17 +244,32 @@ validation_context:
 The recipe bytes and `TrustedValidationBundleInput.raw_bytes` are exact built-in
 `bytes`; no caller-owned `Mapping` or parsed Python object is accepted. The
 carrier is a transitively immutable kernel type issued only by trusted ingress
-or deterministic fixture assembly and records this invocation-only identity:
+or deterministic fixture assembly. It binds the exact sealed profile defined by
+the kernel spec:
 
 ```yaml
+schema: rook.trusted_bundle_assembler_profile:v1
+profile_id: ...
 assembler_kind: trusted_host_ingress | deterministic_fixture
 assembler_id: ...
 assembler_version: ...
-assembler_fingerprint: sha256:...
+implementation_fingerprint: sha256:...
+permitted_program_ids:
+  - lm9a.planner_graph_recipe:v1
+permitted_clock_sources:
+  - trusted_system_clock | deterministic_fixture
+profile_fingerprint: sha256:...
 ```
 
-These fields are not parsed from the bundle and cannot be self-asserted by the
-Planner or a future endpoint client. The trusted application supplies the
+The fixed kernel host path seals this content-addressed profile and only that
+sealed profile can issue a carrier through its opaque in-process capability.
+There is no mutable assembler registry and no profile lookup named by bundle
+JSON. A serialized profile or matching fingerprint alone has no authority.
+Preflight verifies the issuer binding, exact profile fingerprint, permitted
+program ID, and permitted clock source.
+
+The profile fields are not parsed from the bundle and cannot be self-asserted by
+the Planner or a future endpoint client. The trusted application supplies the
 already sealed LM9A program as a separate invocation authority. A future public
 endpoint accepts an untrusted task/recipe request and builds the validation
 bundle internally from authenticated sessions, trusted registries, policy, and
@@ -270,11 +285,11 @@ contents are well formed, fresh, mutually consistent, or schema valid. The
 complete bundle and every companion payload are supplied in full, not by
 excerpt.
 
-LM9A tests use an explicitly trusted `deterministic_fixture` assembler whose
-identity and source fingerprint are fixed. It emits the same closed bundle
-schema and passes companions through the same production authority-resolution
-and validation path. It has no shortcut for manufacturing a valid companion,
-confirmation, policy match, or session result.
+LM9A tests use one sealed `deterministic_fixture` assembler profile whose
+profile and implementation fingerprints are fixed and campaign-bound. It emits
+the same closed bundle schema and passes companions through the same production
+authority-resolution and validation path. It has no shortcut for manufacturing
+a valid companion, confirmation, policy match, or session result.
 
 The report binds both the exact raw bundle hash and its canonical owned-value
 fingerprint:
@@ -442,11 +457,13 @@ content keywords, and custom executable keywords.
 
 Each embedded schema is limited to 4,096 nodes, 256 local references, local
 reference depth 16, and a conservative
-`schema_nodes * payload_nodes <= 2,000,000` evaluation shape. Unknown keywords
-fail profile validation rather than being ignored. The exact evaluator package,
-metaschema, keyword allowlist, reference rules, limits, type checker, and trusted
-core schemas are fingerprinted into the sealed validation program. A richer
-payload schema requires a new reviewed profile version.
+`schema_nodes * instance_nodes <= 2,000,000` evaluation shape. Both node counts,
+the exact evaluated instance root, checked multiplication, repeated-evaluation
+charging, and cache independence use the normative kernel Section 4 rules.
+Unknown keywords fail profile validation rather than being ignored. The exact
+evaluator package, metaschema, keyword allowlist, reference rules, limits, type
+checker, and trusted core schemas are fingerprinted into the sealed validation
+program. A richer payload schema requires a new reviewed profile version.
 
 The registry lets fixture and future product payload schemas remain domain-
 specific data without hardcoding those domains into LM9A semantic runners.
@@ -1592,8 +1609,9 @@ precedence order:
 2. the recipe is exact built-in `bytes` and the bundle is a valid trusted-host-
    issued `TrustedValidationBundleInput` whose `raw_bytes` is exact built-in
    `bytes`;
-3. the assembler kind, ID, version, and source fingerprint are captured from the
-   carrier and match a trusted ingress or deterministic fixture profile;
+3. the carrier issuer capability binds one valid sealed assembler profile whose
+   fingerprint recomputes and whose permitted-program set contains the selected
+   `program_id`;
 4. both byte lengths are at or below the sealed inclusive limits;
 5. both admitted inputs are copied and their exact SHA-256 hashes are computed;
 6. the validation bundle parses into one owned immutable value;
@@ -1602,7 +1620,9 @@ precedence order:
 8. the owned bundle contains valid trusted `evaluated_at`,
    `trusted_clock_source`, `task_session_id`, nullable
    `environment_session_id`, and `capability_registry_session_id` values; and
-9. recipe parsing yields either an owned immutable value or one bounded schema-
+9. the captured `trusted_clock_source` is permitted by the sealed assembler
+   profile and matches its closed assembler-kind rule; and
+10. recipe parsing yields either an owned immutable value or one bounded schema-
    phase failure under the same `rook.validation_budget:lm9a_v1` ledger.
 
 `evaluated_at` uses the closed UTC RFC 3339 timestamp schema already used by
@@ -1611,10 +1631,10 @@ tests or `trusted_system_clock` in production. Session values use the LM9A
 machine-identifier grammar; only `environment_session_id` may be `null`.
 `deterministic_fixture` requires an assembler of the same kind;
 `trusted_system_clock` requires `trusted_host_ingress`. The assembler ID and
-version use the machine-identifier grammar, and its fingerprint uses the exact
-lowercase `sha256:<hex>` form. ID and version are each limited to 128 ASCII
-characters. None of these values may be replaced by parsed bundle content after
-capture.
+version use the machine-identifier grammar. Profile ID, assembler ID, and
+version are each limited to 128 ASCII characters. Profile and implementation
+fingerprints use exact lowercase `sha256:<hex>` form. None of these values may be
+replaced by parsed bundle content after capture.
 
 Unknown or extra validation-bundle fields do not fail preflight when the
 constructability envelope and trusted context projection above are intact. They
@@ -1739,10 +1759,12 @@ validation_budget:
 
 validation_context:
   bundle_assembler:
+    profile_id: ...
+    profile_fingerprint: sha256:...
     assembler_kind: trusted_host_ingress | deterministic_fixture
     assembler_id: ...
     assembler_version: ...
-    assembler_fingerprint: sha256:...
+    implementation_fingerprint: sha256:...
   evaluated_at: ...
   trusted_clock_source: ...
   task_session_id: ...
@@ -2097,10 +2119,12 @@ validation_bundle_input_payload_sha256: sha256:...
 validation_bundle_fingerprint: sha256:...
 
 bundle_assembler:
+  profile_id: ...
+  profile_fingerprint: sha256:...
   assembler_kind: trusted_host_ingress | deterministic_fixture
   assembler_id: ...
   assembler_version: ...
-  assembler_fingerprint: sha256:...
+  implementation_fingerprint: sha256:...
 
 evaluated_at: ...
 trusted_clock_source: ...
@@ -2160,11 +2184,11 @@ and `registry_session_id`. Vocabulary projections contain `descriptor_kind`,
 `schema`, `vocabulary_version`, `recipe_binding_paths`, and all three applicable
 fingerprints. The validator identity, budget profile/limits identity, raw
 validation-bundle hash, canonical bundle fingerprint, and trusted invocation
-assembler identity are copied exactly from the report's sealed identity and
-invocation-context fields. The assembler
-identity comes from the host-issued carrier, never the parsed bundle. Observed
-budget consumption is report evidence but not part of the validation-context
-projection.
+assembler-profile identity and implementation fingerprint are copied exactly
+from the report's sealed identity and invocation-context fields. The profile
+comes from the host-issued carrier's opaque issuer binding, never the parsed
+bundle. Observed budget consumption is report evidence but not part of the
+validation-context projection.
 
 The projection excludes derived descriptor fields `session_status`,
 `freshness_status`, `validation_status`, and `entry_count`. It excludes the raw
@@ -2179,10 +2203,10 @@ ordering in Section 9 and is canonicalized with
 input remains an explicit `null`, so invalid contexts still receive stable
 context identities when a conforming report can otherwise be issued.
 
-Identical bundle bytes admitted through a different trusted assembler preserve
-the raw bundle hash and canonical bundle fingerprint but move the validation-
-context and report fingerprints. Principal identity is therefore auditable
-without pretending it changes the bundle payload itself.
+Identical bundle bytes admitted through a different sealed assembler profile
+preserve the raw bundle hash and canonical bundle fingerprint but move the
+validation-context and report fingerprints. Principal identity is therefore
+auditable without pretending it changes the bundle payload itself.
 
 ### 8.4 Valid And Compile-Ready
 
@@ -2827,10 +2851,12 @@ Tests inject trusted validation time:
 
 ```yaml
 bundle_assembler:
+  profile_id: lm9a.fixture_assembler:v1
+  profile_fingerprint: sha256:...
   assembler_kind: deterministic_fixture
   assembler_id: lm9a.fixture_assembler
   assembler_version: v1
-  assembler_fingerprint: sha256:...
+  implementation_fingerprint: sha256:...
 
 validation_context:
   evaluated_at: 2026-07-12T12:00:00Z
@@ -2871,21 +2897,51 @@ compiler, or runtime behavior to LM9A.
 
 ### 11.6 Sealed-Program Budget Feasibility Campaign
 
-LM9A release conformance runs against one exact sealed semantic-program
-fingerprint. It records schema-evaluation shape units for:
+LM9A-Semantics publishes one
+`rook.validation_conformance_campaign:v1` under the kernel contract. Its
+`campaign_id` is `lm9a.planner_graph_recipe:conformance_v1`, and it binds one
+exact sealed semantic `program_fingerprint`, one exact conformance-gate profile,
+and one expanded content-addressed required-case set.
 
-- at least one valid positive instance of every registered core schema;
-- radial ready;
-- radial unresolved;
-- non-radial layer control;
-- confirmed assumption; and
-- valid declared-but-uninstantiated worker slot.
+The required set contains exactly:
 
-Every record binds the exact program fingerprint, schema and instance or fixture
-fingerprints, deterministic fixture-assembler fingerprint, observed per-
-evaluation units, and aggregate invocation units. Every core-schema instance
-must fit its applicable per-evaluation bound, and every named fixture invocation
-must fit the shared 16,000,000-unit schema-shape cap.
+- one `core_schema_positive:<schema_id>` case for every schema entry in the
+  sealed program whose evaluator profile is `lm9a_core_v1`; and
+- these five semantic-fixture case IDs:
+
+```text
+semantic_fixture:radial_ready
+semantic_fixture:radial_unresolved
+semantic_fixture:layer_control
+semantic_fixture:confirmed_assumption
+semantic_fixture:worker_slot_declared
+```
+
+The core-schema mapping is evaluated once against the already sealed program
+manifest, not through source-tree or test discovery. Every core case binds one
+complete positive instance and immutable content reference. Every semantic case
+binds one immutable fixture manifest containing the exact raw recipe hash, raw
+validation-bundle hash, expected result/status claims, content references, and
+the exact `lm9a.fixture_assembler:v1` sealed profile fingerprint from Section
+11.4. Each case and the aggregate campaign receive their own canonical
+fingerprints under the kernel schema.
+
+The exact case count is therefore `sealed_core_schema_count + 5`. The campaign's
+`required_case_set_fingerprint` covers the sorted exact case-ID/fingerprint
+pairs, and trusted release composition supplies that immutable campaign input
+independently of the eventual report. Omitting a core schema, omitting any named
+fixture,
+discovering an extra test file, or
+executing a case twice cannot silently redefine the campaign. It either changes
+the campaign fingerprint before execution or appears as missing, extra,
+duplicate, or mismatched evidence in
+`rook.validation_conformance_report:v1`.
+
+The trusted conformance gate records every schema evaluation row defined by the
+kernel, including complete-schema node count, exact instance-root node count,
+checked product, and aggregate reservation. Every core-schema instance must fit
+its applicable per-evaluation bound, and every named fixture invocation must fit
+the shared 16,000,000-unit schema-shape cap.
 
 This requirement does not promise that every maximum-size syntactically
 admissible input succeeds; aggregate budget rejection remains valid. It proves
@@ -2893,6 +2949,14 @@ that the actual LM9A program and mandatory conformance campaign are usable.
 Changing a core schema, fixture, or fixture assembler invalidates prior release
 evidence. A changed case that exceeds either cap fails the release gate; it does
 not justify silently increasing the profile.
+
+LM9A deployment requires one aggregate
+`rook.validation_conformance_report:v1` that resolves this exact campaign and
+program, recomputes the campaign and required-case-set fingerprints, matches the
+independently supplied campaign input, contains every required case exactly
+once, contains no extra or duplicate rows, and derives `decision=passed`.
+Individually passing rows, caller-supplied report JSON, or an incomplete report
+are not deployment evidence.
 
 ## 12. Deterministic Proof Targets
 
@@ -2921,8 +2985,11 @@ LM9A must prove:
 - both underlying artifacts enter as raw bytes and no mutable caller object
   graph can enter semantic validation;
 - the recipe bytes are untrusted Planner output, while only trusted host ingress
-  or the explicit deterministic fixture assembler may create the validation-
-  bundle carrier; assembler identity cannot be supplied by bundle JSON;
+  or one sealed deterministic fixture assembler profile may issue the validation-
+  bundle carrier; plain profile JSON, a matching fingerprint, and bundle content
+  cannot forge the issuer capability;
+- sealed assembler profiles reject a wrong program, clock source, assembler kind,
+  or profile fingerprint before semantic evidence is produced;
 - a simulated public endpoint cannot promote client-selected bundle bytes or a
   self-asserted assembler descriptor into authority context;
 - byte caps are checked before copying or hashing either input; exact-cap inputs
@@ -2935,7 +3002,11 @@ LM9A must prove:
   preflight invocation failure even when the recipe crosses the limit;
 - each registered core schema positive instance and all five named semantic
   fixture cases record schema-shape units against the exact
-  program/case/assembler fingerprints and pass the sealed-program release gate;
+  program/case/assembler-profile fingerprints and pass the sealed-program
+  release gate;
+- the content-addressed campaign binds the complete mandatory case set, and one
+  aggregate report proves exact-once execution, no extras or duplicates, matching
+  gate/program/campaign identities, and `decision=passed`;
 - report sealing reserves one fixed fingerprinted allowance, runners cannot
   author work counts, and repeated sealing does not change the frozen budget
   receipt;
@@ -3026,7 +3097,7 @@ Focused negative fixtures cover at least:
   payload-schema registry entries;
 - embedded payload schemas using dynamic references, retrieval identifiers,
   regex/format callbacks, combinators, custom keywords, cyclic/deep local
-  references, or excessive schema/payload complexity;
+  references, or excessive schema/instance complexity;
 - unsealed validation programs, manifest/runtime binding mismatch, duplicate
   phase input/output names, dataflow cycles, and producer/consumer type or
   cardinality mismatch;
@@ -3037,10 +3108,14 @@ Focused negative fixtures cover at least:
 - mismatch among recipe-claimed, companion-claimed, and computed companion
   fingerprints, including a registry or vocabulary mismatch;
 - validation-context fingerprint mismatch and context-fingerprint movement when
-  the validation-bundle fingerprint, trusted bundle-assembler identity, trusted
+  the validation-bundle fingerprint, sealed bundle-assembler profile, trusted
   validation time, session identity, registry identity, registry
   content, vocabulary content, validator ruleset, canonicalization version, or
   companion fingerprint evidence changes;
+- conformance evidence with an omitted, extra, duplicated, or case-fingerprint-
+  mismatched row, a mismatched required-case-set fingerprint, a wrong gate
+  profile/implementation binding, a caller-supplied aggregate report, or a
+  non-passing aggregate decision;
 - source coverage borrowed from siblings, goal, or arbitrary graph reachability;
 - invalid goal projections;
 - orphan requirements;

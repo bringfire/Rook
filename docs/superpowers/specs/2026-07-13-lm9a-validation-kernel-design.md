@@ -195,34 +195,66 @@ trusted_validation_bundle.raw_bytes
 ```
 
 `TrustedValidationBundleInput` is a kernel-owned, transitively immutable carrier
-containing exact built-in `bytes` plus a trusted assembler identity:
+containing exact built-in `bytes`, one exact sealed assembler profile, and a
+non-serializable issuer-capability binding to that profile:
 
 ```yaml
+schema: rook.trusted_bundle_assembler_profile:v1
+profile_id: ...
 assembler_kind: trusted_host_ingress | deterministic_fixture
 assembler_id: ...
 assembler_version: ...
-assembler_fingerprint: sha256:...
+implementation_fingerprint: sha256:...
+permitted_program_ids: []
+permitted_clock_sources:
+  - trusted_system_clock | deterministic_fixture
+profile_fingerprint: sha256:...
 ```
 
-The carrier constructor is available only to trusted application composition
-and deterministic fixture assembly code. These fields come from the invocation
-principal, never from JSON inside the bundle, and the kernel captures them once
-for validation-context evidence. This is an in-process trust boundary, not a
-claim that a Python class authenticates its creator. Code able to forge trusted
-kernel carriers is already inside the trusted host boundary.
+The fixed kernel host boundary owns
+`rook.trusted_bundle_assembler_profile_seal:v1`. Trusted application composition
+or deterministic fixture setup builds a candidate profile, the fixed seal path
+validates and transitively freezes it, computes `profile_fingerprint` over exact
+`rook.canonical_json:v1` bytes excluding that field, and returns a
+`SealedTrustedBundleAssemblerProfile`. The final canonical profile bytes are
+retained in the trusted immutable artifact store under that fingerprint.
 
-`assembler_id` and `assembler_version` are ASCII machine identifiers of at most
-128 characters each. `assembler_kind` is the closed enum above and
-`assembler_fingerprint` is exactly `sha256:` plus 64 lowercase hexadecimal
-characters. Invalid carrier metadata fails preflight before either artifact is
-copied or hashed.
+Only a sealed profile can issue `TrustedValidationBundleInput`. Issuance adds an
+opaque in-process capability binding to the exact sealed profile object. The
+kernel verifies that binding before reading either artifact. A plain JSON object,
+a matching profile fingerprint, or a caller-constructed lookalike cannot issue a
+carrier. No ambient profile registry is consulted during validation.
+
+The profile permits one or more exact `program_id` values and one or more closed
+clock-source values. Preflight requires the selected sealed program ID to appear
+in `permitted_program_ids`; after bundle parsing it requires the captured
+`trusted_clock_source` to appear in `permitted_clock_sources`. In v1,
+`deterministic_fixture` assembler profiles permit only
+`deterministic_fixture`, and `trusted_host_ingress` profiles permit only
+`trusted_system_clock`.
+
+Profile arrays are nonempty, reject duplicates, and sort by RFC 8785 UTF-16
+code-unit order before fingerprinting. `profile_id`, `assembler_id`, and
+`assembler_version` are ASCII machine identifiers of at most 128 characters
+each. `implementation_fingerprint` and `profile_fingerprint` are exactly
+`sha256:` plus 64 lowercase hexadecimal characters. Invalid profile or carrier
+metadata fails preflight before either artifact is copied or hashed.
+
+These profile fields come from the sealed invocation principal, never from JSON
+inside the bundle, and the kernel captures them once for validation-context
+evidence. The profile is separate from `program_fingerprint`: changing it moves
+validation-context/report identity and invalidates conformance evidence without
+redefining validator behavior. The issuer capability and fixed profile seal are
+the authority; serialized profile fields alone are not authentication. Code able
+to forge those kernel capabilities is already inside the trusted host boundary.
 
 A future public endpoint may accept an untrusted recipe or task request, but it
 must assemble the validation bundle internally from authenticated sessions,
 trusted registries, policies, and companion receipts. It must never expose
 `raw_validation_bundle_bytes` as a client-controlled authority argument. Tests
-use an explicitly trusted deterministic fixture assembler whose exact identity
-and source fingerprint are recorded. Fixture assembly follows the same bundle
+use one explicitly sealed deterministic fixture assembler profile whose exact
+profile and implementation fingerprints are recorded. Fixture assembly follows
+the same bundle
 schema, companion validation, and authority-resolution path as production; it
 does not bypass semantic checks.
 
@@ -235,18 +267,18 @@ The trusted application composition path supplies `program`; the artifact
 caller controls only `raw_recipe_bytes`. The entrypoint rejects a builder,
 mutable manifest, unsealed contribution, fingerprint-inconsistent program, or
 untrusted/malformed bundle carrier before it examines either artifact. It
-captures the sealed program object, program fingerprint, and assembler identity
+captures the sealed program object, program fingerprint, and assembler profile
 once. No phase may replace them.
 
 The recipe argument and `TrustedValidationBundleInput.raw_bytes` must be exact
 built-in `bytes` values. A caller cannot pass a `Mapping`, custom container,
-parsed JSON graph, phase index, registry, budget, report projection, or
-self-asserted assembler descriptor.
+parsed JSON graph, phase index, registry, budget, report projection, unsealed
+assembler profile, or self-asserted assembler descriptor.
 
 Byte admission has this exact order:
 
 ```text
-1. validate the sealed program and trusted bundle-carrier type/assembler binding
+1. validate the sealed program, sealed assembler profile, and carrier issuer binding
 2. check both underlying artifact values are exact built-in `bytes`
 3. read both byte lengths without scanning content
 4. compare both lengths to the sealed budget manifest
@@ -319,11 +351,35 @@ Accounting for kernel-controlled work is normative:
 - object and array width are measured before construction;
 - decoded-string bytes are the UTF-8 length of every decoded key and string
   value before schema-directed normalization, counted at every occurrence;
+- `schema_nodes` is the parsed-node count of the complete immutable schema
+  document selected for an evaluation, including its root, all reachable and
+  unreachable `$defs`, annotations, and every other admitted keyword value;
+  object member names are not nodes, matching the general parsed-node rule;
+- `instance_nodes` is the parsed-node count of the exact immutable instance root
+  passed to the evaluator. Whole-artifact evaluation counts the complete
+  artifact. Subtree evaluation counts that complete selected subtree and records
+  the immutable source binding plus its exact RFC 6901 pointer; the empty pointer
+  is allowed here only to identify the whole evaluation root and does not change
+  the nonempty semantic-reference rule;
 - a semantic reference is charged when a runner asks the kernel to record one
   discriminated reference in an invocation-owned resolution index;
-- before each schema evaluation, the engine reserves
-  `schema_nodes * instance_nodes` from the aggregate schema-shape counter and
-  never refunds that reservation;
+- before each schema evaluation, the engine computes
+  `schema_nodes * instance_nodes` with checked nonnegative integer arithmetic.
+  When `schema_nodes > 0`, it first tests `instance_nodes` against both
+  `floor(per_evaluation_limit / schema_nodes)` and
+  `floor(aggregate_remaining / schema_nodes)`. An over-limit or host-integer-
+  overflow condition becomes `validation_budget_exceeded` before the evaluator
+  is called; multiplication occurs only after both guards pass. A valid schema
+  document always has at least its root node;
+- the checked product is reserved in full from both the applicable
+  per-evaluation limit and the invocation-wide schema-shape counter and is never
+  refunded. Repeating an evaluation reserves the full product again, even for
+  identical schema/instance fingerprints. Schema compilation, `$ref` resolution,
+  evaluator memoization, or other caching cannot reduce evidence units;
+- each evaluation meter row records a contiguous zero-based `evaluation_index`,
+  schema ID/fingerprint, immutable instance binding and pointer, instance
+  fingerprint, `schema_nodes`, `instance_nodes`, checked shape-unit product,
+  applicable per-evaluation limit, and aggregate total after reservation;
 - each issue is charged before insertion, including an issue later rejected as
   duplicate or unauthorized;
 - tokenizer/parser work charges one unit per started 64-byte raw-input block,
@@ -625,29 +681,186 @@ schema/instance combination must fit the aggregate invocation cap. Aggregate
 budget rejection is a valid bounded outcome. It does require positive evidence
 that the exact sealed program and its required conformance campaign are usable.
 
-A sealed program is deployable only when a deterministic release gate passes
-against that exact `program_fingerprint`. The gate records, for every case:
+A required campaign is one closed content-addressed artifact:
 
 ```yaml
+schema: rook.validation_conformance_campaign:v1
+campaign_id: ...
+campaign_version: ...
+
+program_id: ...
 program_fingerprint: sha256:...
-case_id: ...
-case_kind: core_schema_positive | semantic_fixture
-schema_id: ... | null
-schema_fingerprint: sha256:... | null
-instance_or_fixture_fingerprint: sha256:...
-trusted_assembler_fingerprint: sha256:... | null
-observed_schema_evaluation_shape_units: 0
-aggregate_schema_evaluation_shape_units: 0
-within_per_evaluation_limit: true
-within_invocation_limit: true
+
+required_gate:
+  gate_profile_id: rook.validation_conformance_gate:lm9a_v1
+  gate_profile_version: v1
+  gate_implementation_fingerprint: sha256:...
+  budget_profile: rook.validation_budget:lm9a_v1
+  limits_fingerprint: sha256:...
+  gate_profile_fingerprint: sha256:...
+
+required_cases:
+  - case_id: ...
+    case_kind: core_schema_positive
+    schema_case:
+      schema_id: ...
+      schema_fingerprint: sha256:...
+      instance_fingerprint: sha256:...
+      instance_content_ref: artifact:...
+    fixture_case: null
+    case_fingerprint: sha256:...
+
+  - case_id: ...
+    case_kind: semantic_fixture
+    schema_case: null
+    fixture_case:
+      fixture_fingerprint: sha256:...
+      fixture_content_ref: artifact:...
+      recipe_input_payload_sha256: sha256:...
+      validation_bundle_input_payload_sha256: sha256:...
+      assembler_profile_fingerprint: sha256:...
+    case_fingerprint: sha256:...
+
+required_case_set_fingerprint: sha256:...
+campaign_fingerprint: sha256:...
 ```
 
-This is build/release conformance evidence, not a validation input, semantic
-authority artifact, or field in the program fingerprint. It is keyed to the
-program and exact case fingerprints, so changing a registered schema, fixture,
-or trusted fixture assembler invalidates the prior evidence and reruns the gate.
-The kernel meter authors the observed counts and derives both booleans; a fixture
-or semantic contribution cannot submit those values as claims.
+`required_cases` is a set-like collection sorted by exact `case_id`; duplicate
+IDs or fingerprints are invalid. Each variant is closed and rejects fields from
+the other variant. A case fingerprint is `rook.canonical_json:v1` over its
+complete normalized case descriptor excluding only `case_fingerprint`.
+`gate_profile_fingerprint` similarly covers the complete normalized
+`required_gate` object excluding itself. `required_case_set_fingerprint` covers
+the normalized sorted array of exact `{case_id, case_fingerprint}` pairs.
+`campaign_fingerprint` covers the complete normalized campaign excluding only
+that field, so it includes the required-case-set fingerprint.
+
+The campaign schema and every nested object are closed with
+`additionalProperties: false`. `null`, absent, and empty collections remain
+distinct. Trusted release composition supplies the campaign as an immutable
+input distinct from the eventual report and captures the expected
+`campaign_id`, `campaign_version`, `campaign_fingerprint`, and
+`required_case_set_fingerprint` before the gate runs. Neither a result row nor
+the aggregate report may nominate or replace that authority. A reviewed change
+to the mandatory case set therefore changes both campaign fingerprints and the
+release input that pins them.
+
+Every `content_ref` resolves through the trusted immutable artifact store and
+must match its bound fingerprint. A semantic fixture manifest resolves the full
+raw recipe bytes, full raw validation-bundle bytes, expected terminal/status
+claims, and the exact sealed assembler-profile fingerprint. A core-schema case
+resolves the complete positive instance. Fingerprints without resolvable content
+do not make a campaign executable.
+
+The trusted gate emits one aggregate content-addressed report:
+
+```yaml
+schema: rook.validation_conformance_report:v1
+
+program_id: ...
+program_fingerprint: sha256:...
+campaign_id: ...
+campaign_fingerprint: sha256:...
+required_case_set_fingerprint: sha256:...
+
+gate:
+  gate_profile_id: rook.validation_conformance_gate:lm9a_v1
+  gate_profile_version: v1
+  gate_implementation_fingerprint: sha256:...
+  budget_profile: rook.validation_budget:lm9a_v1
+  limits_fingerprint: sha256:...
+  gate_profile_fingerprint: sha256:...
+
+result_rows:
+  - result_index: 0
+    case_id: ...
+    case_kind: core_schema_positive | semantic_fixture
+    case_fingerprint: sha256:...
+    outcome: passed | failed
+
+    schema_evaluations:
+      - evaluation_index: 0
+        schema_id: ...
+        schema_fingerprint: sha256:...
+        instance_binding:
+          artifact_id: ...
+          artifact_fingerprint: sha256:...
+        instance_pointer: ""
+        instance_fingerprint: sha256:...
+        schema_nodes: 0
+        instance_nodes: 0
+        shape_units: 0
+        per_evaluation_limit: 0
+        aggregate_after_reservation: 0
+
+    aggregate_schema_evaluation_shape_units: 0
+    invocation_shape_limit: 16000000
+    within_every_per_evaluation_limit: true
+    within_invocation_limit: true
+    failure_code: null
+
+completeness:
+  required_case_count: 0
+  result_row_count: 0
+  missing_case_ids: []
+  extra_case_ids: []
+  duplicate_case_ids: []
+  case_kind_mismatch_ids: []
+  case_fingerprint_mismatch_ids: []
+  program_binding_matches: true
+  campaign_binding_matches: true
+  gate_binding_matches: true
+  complete: true
+
+all_case_outcomes_passed: true
+decision: passed | failed
+report_fingerprint: sha256:...
+```
+
+The v1 gate visits campaign cases sequentially in the campaign's sorted
+`case_id` order, schedules each required case once, records its terminal outcome,
+and continues after an ordinary case failure. It never creates a replacement
+attempt. `result_rows` is an ordered execution ledger with contiguous zero-based
+`result_index`, not a set. There must be exactly one row for each required case
+and no other row. Retaining every row lets a conforming failed report receipt
+duplicate execution instead of becoming structurally invalid.
+Each row's `schema_evaluations` is likewise an ordered, contiguous zero-based
+sequence in actual invocation order; it is never sorted by schema identity after
+execution. Missing, extra, duplicate, case-kind-mismatched, or fingerprint-
+mismatched cases remain visible in the derived completeness object and force
+`complete=false`.
+
+The gate copies the exact program, campaign, gate-profile, budget, case, and
+assembler-profile fingerprints from resolved immutable artifacts. The kernel
+meter authors all node/unit counts and the gate derives all booleans,
+completeness lists, `outcome`, and `decision`; cases cannot submit those values
+as claims. `decision=passed` exactly when `complete=true`, every row outcome is
+`passed`, every per-evaluation bound passed, and every case invocation remained
+within the aggregate bound. Otherwise it is `failed`.
+
+The campaign and report schemas and every nested object are closed with
+`additionalProperties: false`. `failure_code` is exactly `null` for a passing
+row; a failed row uses one of `case_content_unavailable`,
+`case_fingerprint_mismatch`, `case_execution_failed`,
+`schema_evaluation_failed`, `validation_budget_exceeded`, or
+`gate_integrity_failure`. `instance_binding` identifies the exact immutable
+artifact root from which the evaluated instance was selected; its fingerprint
+must resolve, and `instance_pointer` selects the exact root or subtree under the
+Section 4 counting rule.
+
+Completeness ID lists contain unique IDs and sort by RFC 8785 UTF-16 code-unit
+order. The report's
+`required_case_set_fingerprint` must equal the independently selected campaign
+value. The report fingerprint is `rook.canonical_json:v1` over the complete
+normalized report excluding only `report_fingerprint`. The final canonical
+campaign and report bytes are retained under their fingerprints.
+
+Trusted release composition invokes the gate implementation bound by
+`gate_implementation_fingerprint` and receives a kernel-owned immutable
+`TrustedConformanceGateResult`. That carrier contains the final canonical report
+bytes and an opaque issuer capability bound to the exact gate implementation.
+As with the validation-bundle carrier, matching serialized fields or a matching
+report fingerprint do not forge the issuer capability.
 
 The gate requires:
 
@@ -659,8 +872,19 @@ The gate requires:
 
 A registered core schema with no fitting positive instance, or a required
 fixture that exceeds either bound, fails release. The semantic contribution
-names its required campaign cases; the kernel provides the meter and verifies
-that every recorded schema/fixture/program fingerprint is exact.
+names its required campaign cases in the campaign artifact; prose or discovered
+test files cannot add or remove cases at execution time. The campaign remains
+separate from `program_fingerprint`, but its exact case set is content-addressed.
+
+Deployment requires one `rook.validation_conformance_report:v1` from the trusted
+build/release gate whose report fingerprint recomputes, whose program fingerprint
+matches the artifact being deployed, whose campaign and required-case-set
+fingerprints match the independently supplied release input, whose gate
+profile and implementation fingerprints match the required gate, and whose
+decision is `passed`. The release path accepts the report only from the trusted
+gate result capability, not from caller-supplied report JSON. A missing aggregate
+report is a failed gate. A set of individually passing case rows is never a
+substitute.
 
 ## 8. Report-Constructability Preflight
 
@@ -672,7 +896,7 @@ inside present shells remains reportable companion evidence.
 Preflight establishes:
 
 - sealed program identity and exact runtime bindings;
-- trusted validation-bundle assembler identity captured from the host-issued
+- sealed validation-bundle assembler profile captured from the host-issued
   carrier rather than parsed bundle content;
 - raw hashes for both admitted inputs;
 - the complete immutable bundle and canonical fingerprint;
@@ -682,7 +906,7 @@ Preflight establishes:
 - trusted validation time and session projection.
 
 Only this immutable `ValidationInvocation` enters the phase engine. It retains
-the sealed program, trusted assembler identity, and owned artifact values, with
+the sealed program, sealed assembler profile, and owned artifact values, with
 no caller-owned value.
 
 ## 9. Typed Phase Program And Exact Dataflow
@@ -908,8 +1132,11 @@ The kernel proof suite includes:
 - replacing a builder, registry, or plugin map after seal cannot alter the
   callable binding selected for an invocation;
 - the Planner recipe remains the only untrusted artifact argument, while a
-  trusted host or explicit deterministic fixture assembler creates the bundle
-  carrier and its captured identity cannot be supplied from bundle JSON;
+  trusted host or explicit deterministic fixture assembler profile issues the
+  bundle carrier; plain profile JSON and bundle content cannot forge the issuer
+  capability;
+- profile sealing, permitted-program checks, and permitted-clock checks reject
+  an unsealed, mismatched, or wrong-kind assembler before semantic validation;
 - a public endpoint cannot forward client-selected validation-bundle bytes into
   the trusted carrier path;
 - input byte limit checks occur before copying or hashing, exact-limit inputs are
@@ -924,9 +1151,16 @@ The kernel proof suite includes:
   dynamic reference, cycle, and complexity-limit excess before evaluation;
 - schema evaluator package, metaschema, profile, and core schema changes move
   the program fingerprint;
+- schema-shape units count the complete schema document and exact evaluated
+  instance root, use checked multiplication, charge repeated evaluations in
+  full, and remain invariant under evaluator/reference caching;
 - every registered core schema has a fitting positive instance, every required
-  semantic fixture fits the aggregate schema-shape cap, and release-gate records
-  bind observed units to the exact program/schema/fixture/assembler fingerprints;
+  semantic fixture fits the aggregate schema-shape cap, and the content-addressed
+  campaign binds every exact program/schema/fixture/assembler-profile fingerprint;
+- the aggregate conformance report contains every required campaign case exactly
+  once, preserves duplicate execution as indexed evidence, rejects
+  extra/duplicate/mismatched rows, recomputes completeness, and is mandatory for
+  deployment;
 - changing a schema or required fixture so that it no longer fits fails the
   release gate rather than weakening a budget;
 - malformed bundle bytes produce no semantic report;
