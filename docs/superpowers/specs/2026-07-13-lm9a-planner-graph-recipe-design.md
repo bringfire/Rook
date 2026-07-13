@@ -39,7 +39,9 @@ mechanical ingress
 ```
 
 Only the first three stages through deterministic recipe validation are LM9A
-implementation scope.
+scope. Implementation is deliberately split into the generic kernel defined by
+`2026-07-13-lm9a-validation-kernel-design.md` and the semantic extension defined
+by this document.
 
 ## 2. Course Correction And Architectural Grounding
 
@@ -78,12 +80,11 @@ no worker at all, so it does not extend or inherit the worker-specific
 
 ### 3.1 Implemented By LM9A
 
-LM9A implements or specifies for deterministic implementation:
+LM9A-Semantics implements or specifies for deterministic implementation:
 
 - `rook.planner_graph_recipe:v1`;
 - `rook.planner_graph_recipe_validation_report:v1`;
-- validation-invocation preflight and a typed non-artifact invocation-failure result;
-- deterministic canonicalization and fingerprinting;
+- semantic registration against the LM9A validation kernel;
 - authority and provenance validation;
 - deterministic derived-fact validation;
 - assumption authorization and confirmation binding validation;
@@ -94,6 +95,11 @@ LM9A implements or specifies for deterministic implementation:
 - a paired ready/unresolved proof fixture;
 - one structurally different orthogonal control fixture;
 - negative and anti-overfitting proof targets.
+
+LM9A-Kernel separately owns raw byte ingress, the fixed validation budget,
+owned immutable JSON values, typed phase execution, issue-registry mechanics,
+canonical JSON primitives, and deterministic report construction. This spec may
+constrain their semantic use but must not reimplement them.
 
 ### 3.2 Future Architecture Constrained But Not Implemented
 
@@ -129,6 +135,23 @@ LM9A has:
 - no expansion of `PlannerWorkerContractRequest:v1`;
 - no expansion of `RookWorkflowContract` or `TaskSpec`;
 - no live run in the spec or implementation PR.
+
+### 3.4 Implementation Sequence
+
+The former combined LM9A implementation plan is withdrawn. The implementation
+sequence is:
+
+```text
+review LM9A-Kernel design
+-> write and execute a kernel-only implementation plan
+-> merge the generic kernel
+-> write and execute an LM9A-Semantics implementation plan
+-> run the offline semantic fixtures
+```
+
+LM9A-Semantics may register recipe schemas, semantic phases, immutable export
+types, and report projections. It may not implement its own JSON parser, budget
+ledger, phase scheduler, issue registry, canonicalizer, or report engine.
 
 The managed-readiness migration for future `gh_edit` execution remains a later
 prerequisite and does not block LM9A.
@@ -167,13 +190,20 @@ The boot skill or task-envelope hook remains the mandatory mechanical ingress
 gate. LM9A consumes a deterministic task envelope; boot routing is outside this
 slice.
 
-### 4.1 Closed Validation Input
+### 4.1 Closed Validation Bundle
 
-Validation is invoked with exact raw recipe bytes plus one closed companion
-object:
+Validation is invoked with exact raw recipe bytes plus exact raw bytes for one
+closed companion bundle:
+
+```text
+validate_planner_graph_recipe(
+  raw_recipe_bytes: bytes,
+  raw_validation_bundle_bytes: bytes,
+)
+```
 
 ```yaml
-schema: rook.planner_graph_recipe_validation_input:v1
+schema: rook.planner_graph_recipe_validation_bundle:v1
 
 task_envelope: {}
 authority_artifacts: []
@@ -196,31 +226,21 @@ validation_context:
     semantic_value_schemas: {}
 ```
 
-The raw recipe bytes are a separate required invocation argument so their hash
-is not changed by embedding them in another JSON artifact. The validation-input
-object and every companion payload are supplied in full, not by excerpt.
+Both arguments are raw `bytes`; no caller-owned `Mapping` or parsed Python
+object is accepted. The LM9A validation kernel hashes and bounded-parses both
+inputs into owned transitively immutable values under
+`rook.validation_budget:lm9a_v1`. The complete bundle and every companion
+payload are supplied in full, not by excerpt.
 
-The caller's validation-input object is never retained as evidence. Invocation
-preflight iteratively freezes it twice into private immutable JSON snapshots
-before recipe parsing or phase evaluation. Each freeze accepts only JSON-domain
-containers and scalars, rejects repeated/cyclic container identity, enforces the
-v1 depth and JCS numeric domain, and severs every reference to caller-owned
-containers. The two independently frozen values and fingerprints must match
-exactly. A mapping that raises, changes enumeration, or yields different values
-between the two passes fails as `validation_input_snapshot_unstable_mapping`.
-The accepted second snapshot is the sole validation input after preflight.
-Every later phase, descriptor, and fingerprint reads only that snapshot, never
-the original mapping. A phase that needs mutable containers receives its own
-thawed copy; phase mutation cannot affect another phase or the snapshot.
+The report binds both the exact raw bundle hash and its canonical owned-value
+fingerprint:
 
-The snapshot is bound as
-`validation_input_snapshot_fingerprint: sha256:...` under
-`rook.canonical_json:v1`. Mutating the caller's original mapping after preflight
-cannot move that fingerprint or change any validation result. Snapshot creation
-failure is a pre-report invocation failure because no stable validation input
-exists to describe in a report.
+```text
+validation_bundle_input_payload_sha256
+validation_bundle_fingerprint
+```
 
-Before a report may be attempted, the snapshot must contain this minimal
+Before a report may be attempted, the owned bundle must contain this minimal
 report-constructability envelope:
 
 ```text
@@ -1505,23 +1525,22 @@ value declared as unresolved may be valid but blocks compile when required.
 
 ### 8.0 Validation Invocation Preflight
 
-The ordinary validation report can exist only after a mechanical invocation
-preflight establishes the evidence needed to construct it truthfully. The
-preflight runs before recipe parsing, phase evaluation, or report assembly and
-checks, in this exact precedence order:
+The ordinary validation report can exist only after the LM9A validation kernel
+establishes the evidence needed to construct it truthfully. The preflight runs
+before semantic phase evaluation or report assembly and checks, in this exact
+precedence order:
 
-1. the validator implementation, ruleset, canonicalization identity, and exact
-   runtime dependency versions can be resolved;
-2. `raw_recipe_bytes` is an actual `bytes` value, so exact-byte hashing is
-   available;
-3. `validation_input` is a mapping;
-4. two independent bounded freezes of the complete validation input produce
-   the same immutable JSON-domain value and fingerprint within the v1 depth and
-   host-value boundaries;
-5. every mandatory report-constructability shell from Section 4.1 exists with
+1. validator implementation, ruleset, canonicalization, phase-registry, and
+   runtime dependency identities resolve;
+2. both invocation arguments are actual raw `bytes` values and their exact
+   SHA-256 hashes are available;
+3. the validation bundle parses into one owned immutable value, while recipe
+   parsing yields either an owned immutable value or one bounded schema-phase
+   failure under the same `rook.validation_budget:lm9a_v1` ledger;
+4. every mandatory report-constructability shell from Section 4.1 exists with
    the required container type;
-6. `validation_input.validation_context` contains valid trusted
-   `evaluated_at`, `trusted_clock_source`, `task_session_id`, nullable
+5. the owned bundle contains valid trusted `evaluated_at`,
+   `trusted_clock_source`, `task_session_id`, nullable
    `environment_session_id`, and `capability_registry_session_id` values.
 
 `evaluated_at` uses the closed UTC RFC 3339 timestamp schema already used by
@@ -1529,7 +1548,7 @@ LM9A companions. `trusted_clock_source` is exactly `deterministic_fixture` in
 tests or `trusted_system_clock` in production. Session values use the LM9A
 machine-identifier grammar; only `environment_session_id` may be `null`.
 
-Unknown or extra validation-input fields do not fail preflight when the
+Unknown or extra validation-bundle fields do not fail preflight when the
 constructability envelope and trusted context projection above are intact. They
 remain reportable `companion_artifacts` structural errors. Malformed content
 inside a present mandatory shell likewise remains reportable. A missing or
@@ -1541,53 +1560,40 @@ The public invocation boundary has this closed non-artifact control result:
 ```yaml
 kind: invocation_failure
 failure_stage: preflight | validation
-code: validator_identity_unavailable |
-      raw_recipe_bytes_unavailable |
-      validation_input_unavailable |
-      validation_input_snapshot_depth_exceeded |
-      validation_input_snapshot_repeated_container |
-      validation_input_snapshot_unstable_mapping |
-      validation_input_snapshot_non_string_key |
-      validation_input_snapshot_unicode_invalid |
-      validation_input_snapshot_nonfinite_number |
-      validation_input_snapshot_integer_out_of_jcs_domain |
-      validation_input_snapshot_non_json_host_type |
-      report_constructability_envelope_missing |
-      report_constructability_envelope_invalid |
-      trusted_validation_context_missing |
-      trusted_validation_context_invalid |
+code: validation_input_invalid |
+      validation_budget_exceeded |
+      validation_constructability_failed |
+      validator_identity_unavailable |
       validator_integrity_failure |
       validator_internal_failure
-input_payload_sha256: sha256:... | null
-validation_input_snapshot_fingerprint: sha256:... | null
+artifact_role: recipe | validation_bundle | combined | phase_engine
+recipe_input_payload_sha256: sha256:... | null
+validation_bundle_input_payload_sha256: sha256:... | null
+validation_bundle_fingerprint: sha256:... | null
 subject_path: /json/pointer | null
+metadata: {}
 message: bounded text
 ```
 
 The message is at most 512 Unicode code points and contains no unbounded input
-or exception text. `input_payload_sha256` is non-null if and only if exact
-recipe bytes were available, regardless of which invocation check selected the
-failure code. Computing that hash does not change the error-precedence order.
-`validation_input_snapshot_fingerprint` is non-null exactly when snapshot
-creation completed. `subject_path` identifies the first deterministic failing
-snapshot or constructability path and is otherwise `null`.
+or exception text. Each raw-input hash is non-null exactly when those exact
+bytes were available, regardless of which invocation check selected the failure
+code. `validation_bundle_fingerprint` is non-null only after bounded parsing
+completed. `subject_path` identifies the first deterministic failing path and
+is otherwise `null`. Budget failures use the exact bounded metadata fields from
+the kernel spec rather than adding one public code per budget dimension.
 This result has no Rook schema, artifact fingerprint,
 phase rows, `valid`, `compile_ready`, trusted time, or session claim. It is not
 a partial validation report and cannot enter compilation. A future mechanical
 ingress may wrap it in its own authenticated operation receipt; LM9A does not
 invent that receipt.
 
-Every code except the final two uses `failure_stage: preflight`;
 `validator_integrity_failure` and `validator_internal_failure` always use
-`failure_stage: validation`. An absent or non-mapping `validation_context` is a
-report-constructability shell failure. Within a present mapping,
-`trusted_validation_context_missing` means one of the five trusted context
-fields is absent; a present but invalid field value produces
-`trusted_validation_context_invalid`. `raw_recipe_bytes_unavailable` and
-`validation_input_unavailable` include wrong host types as well as absence.
-Snapshot codes are mutually exclusive and select the first failure under
-depth-first RFC 6901 path order. Constructability `missing` means a required path
-is absent; `invalid` means it exists with the wrong container type.
+`failure_stage: validation`. Byte-type, parse, constructability, trusted-context,
+and pre-phase budget failures use `failure_stage: preflight`. Budget exhaustion
+during phase evaluation or report assembly uses `failure_stage: validation`.
+The stable external code and closed metadata identify the boundary without
+promoting every parser or schema branch into a permanent public code.
 
 The public validator returns either a conforming
 `rook.planner_graph_recipe_validation_report:v1` or this typed invocation
@@ -1610,11 +1616,11 @@ The complete earliest-honest-result matrix is:
 | Failure location | Public result |
 |---|---|
 | validator identity cannot be established | preflight invocation failure |
-| raw recipe bytes, validation input, or trusted context unavailable | preflight invocation failure |
-| validation input cannot become one immutable JSON/JCS-domain snapshot | preflight invocation failure |
+| either raw byte input is unavailable or malformed validation-bundle bytes cannot be parsed | preflight invocation failure |
+| fixed validation budget is exceeded before report completion | preflight or validation invocation failure, according to exhaustion stage |
 | mandatory report descriptor shell is missing or has the wrong container type | preflight invocation failure |
 | ruleset integrity assertion or validator implementation fault before report completion | validation invocation failure |
-| recipe size, depth, number, UTF-8, JSON, Unicode, or recipe-schema failure after preflight | conforming report with `schema=failed` |
+| recipe size, depth, number, UTF-8, JSON, Unicode, or recipe-schema failure with a constructable bundle | conforming report with `schema=failed` |
 | malformed content inside present companion shells, or companion identity, freshness, schema, or fingerprint failure | conforming report with `companion_artifacts=failed` |
 | deterministic semantic invalidity or readiness blocker | conforming report with exact phase diagnostic/blocker |
 
@@ -1631,8 +1637,9 @@ Is it presently authorized and sufficiently resolved to enter compilation?
 ```yaml
 schema: rook.planner_graph_recipe_validation_report:v1
 
-input_payload_sha256: sha256:...
-validation_input_snapshot_fingerprint: sha256:...
+recipe_input_payload_sha256: sha256:...
+validation_bundle_input_payload_sha256: sha256:...
+validation_bundle_fingerprint: sha256:...
 claimed_recipe_fingerprint: sha256:...
 computed_recipe_fingerprint: sha256:...
 
@@ -1640,6 +1647,11 @@ validator:
   implementation_version: lm9a.recipe_validator:v1
   ruleset_fingerprint: sha256:...
   canonicalization_version: rook.canonical_json:v1
+
+validation_budget:
+  budget_profile: rook.validation_budget:lm9a_v1
+  limits_fingerprint: sha256:...
+  observed: {}
 
 validation_context:
   evaluated_at: ...
@@ -1755,69 +1767,34 @@ The report and every nested report object are closed with
 
 ### 8.1 Raw Input And Validator Identity
 
-`input_payload_sha256` is the hash of exact bytes received before parsing. The
-validation ingress must retain those bytes. A conforming LM9A validation report
-cannot be issued when ingress cannot supply the raw bytes.
+`recipe_input_payload_sha256` and
+`validation_bundle_input_payload_sha256` are hashes of the exact bytes received
+before parsing. A conforming LM9A validation report cannot be issued when the
+bundle bytes are unavailable or cannot be bounded-parsed into the descriptor
+source required to construct that report.
 
 Recipe input bytes must decode as strict UTF-8 and must not begin with a UTF-8
 BOM. Invalid UTF-8 or a BOM still permits hashing the received bytes, but the
 `schema` phase fails and `computed_recipe_fingerprint` is `null`.
 
-LM9A v1 applies these exact inclusive resource boundaries:
+All byte, depth, width, node, decoded-string, number-token, reference, issue,
+and work limits come from the fixed `rook.validation_budget:lm9a_v1` profile in
+the kernel spec. The bounded tokenizer and iterative parser charge limits before
+allocating or appending values. LM9A does not accept a parsed mapping and does
+not use `json.loads` followed by an unbounded post-parse walk.
 
-```text
-maximum recipe input bytes:       1,048,576
-maximum JSON container depth:     64
-maximum JSON number-token chars:  1,024
-maximum validation-input depth:   64
-```
-
-Container depth counts containing arrays/objects along one path: a top-level
-scalar is depth `0`, a top-level array/object is depth `1`, depth `64` is
-accepted, and depth `65` is rejected. Number-token length counts the complete
-JSON numeric token, including sign, decimal point, exponent marker/sign, and
-digits. The exact byte and token limits are accepted; the first value above a
-limit is rejected. Acceptance by a resource gate does not override an
-independent syntax, finite-number, product-number, or schema failure.
-
-The recipe parser supplies bounded `parse_int` and `parse_float` handlers rather
-than trusting host defaults. Tokens longer than 1,024 characters produce
-`schema / json_number_token_too_long`. Integer conversion failures produce
-`schema / invalid_json_number`. A float token that converts to a non-finite
-host value, including `1e10000`, produces
-`schema / nonfinite_json_number`. Literal `NaN` and `Infinity` remain rejected
-under the same non-finite code. Host decoder recursion and post-parse depth
-failure both normalize to `schema / recipe_json_depth_exceeded`; an oversized
-recipe normalizes to `schema / recipe_input_bytes_exceeded`.
-
-An integer token that passes the 1,024-character gate is converted without
-depending on CPython's process-wide decimal-string digit setting, for example
-by fixed-size decimal chunks. Product validation remains independently
-responsible for rejecting integers outside the interoperable range.
-
-All reportable recipe-ingress failures retain `input_payload_sha256`, set
-`computed_recipe_fingerprint` to `null`, fail `schema`, and make dependent
-phases `not_evaluated`. The post-parse tree walk is iterative and checks
-surrogate strings, container depth, and finite floats before schema validation.
-
-Before trusted context extraction, the complete validation-input mapping is
-frozen twice iteratively. Mapping keys traverse in RFC 8785 UTF-16 order and
-array items in index order, which also defines the first failure path. Depth
-`65`, repeated/cyclic container identity, a non-string key, an unpaired
-surrogate, a non-finite float, an integer whose IEEE-754 binary64 conversion
-overflows, an exception-raising mapping, two unequal freeze results, or a
-non-JSON host value such as `Decimal`, `bytes`, or a tuple produces its exact
-`validation_input_snapshot_*` invocation failure. Equality compares the full
-frozen value and canonical fingerprint; the second freeze becomes the accepted
-snapshot. Mutation after that freeze cannot affect the accepted value.
-These failures occur before JSON Schema traversal or any companion fingerprint
-work because no complete JCS-domain snapshot exists to bind into a report.
+Recipe parse and recipe-only budget failures retain the exact recipe byte hash,
+set `computed_recipe_fingerprint` to `null`, fail `schema`, and make semantic
+dependents `not_evaluated` when the validation bundle is constructable.
+Validation-bundle parse or budget failure cannot produce a semantic report.
+Phase-engine or report-construction budget failure produces a validation-stage
+kernel control result, never a partial report.
 
 An integer outside the product safe range but still inside the finite binary64
 domain remains legal inside an embedded schema document, as established by
 Section 9. Product payloads still reject such integers where their own schema or
-product-number policy requires it. The snapshot gate rejects only values that
-cannot enter the finite JCS number domain at all.
+product-number policy requires it. Bounded parsing rejects values that cannot
+enter the finite JCS number domain at all.
 
 Malformed input may still have an input hash while
 `computed_recipe_fingerprint` is `null`; `claimed_recipe_fingerprint` may also
@@ -1991,7 +1968,7 @@ that are missing, extra, duplicated, kind-mismatched, or fingerprint-mismatched
 remain `companion_artifacts` errors. A supplied variable-list item whose stable
 identity cannot be recovered produces a path-addressed diagnostic and no
 descriptor row; the complete item remains bound by
-`validation_input_snapshot_fingerprint`.
+`validation_bundle_fingerprint`.
 
 ### 8.3 Validation-Context Fingerprint
 
@@ -2006,7 +1983,12 @@ validator:
   ruleset_fingerprint: sha256:...
   canonicalization_version: rook.canonical_json:v1
 
-validation_input_snapshot_fingerprint: sha256:...
+validation_budget:
+  budget_profile: rook.validation_budget:lm9a_v1
+  limits_fingerprint: sha256:...
+
+validation_bundle_input_payload_sha256: sha256:...
+validation_bundle_fingerprint: sha256:...
 
 evaluated_at: ...
 trusted_clock_source: ...
@@ -2064,8 +2046,10 @@ Validation-context artifact projections contain their discriminator and omit
 `registry_id`, `registry_kind`, `schema`, both companion/computed fingerprints,
 and `registry_session_id`. Vocabulary projections contain `descriptor_kind`,
 `schema`, `vocabulary_version`, `recipe_binding_paths`, and all three applicable
-fingerprints. The validator identity and validation-input snapshot fingerprint
-are copied exactly from the report header.
+fingerprints. The validator identity, budget profile/limits identity, raw
+validation-bundle hash, and canonical bundle fingerprint are copied exactly
+from the report header. Observed budget consumption is report evidence but not
+part of the validation-context projection.
 
 The projection excludes derived descriptor fields `session_status`,
 `freshness_status`, `validation_status`, and `entry_count`. It excludes the raw
@@ -2111,14 +2095,20 @@ Examples:
 
 ### 8.5 Phase Model
 
-Required phases and their exact dependencies are:
+Required phases are registered once through the kernel's closed `PhaseSpec`
+registry. That registry is the sole authority for dependencies, required inputs,
+runner identity, permitted issue codes, and immutable export types. The engine,
+ruleset fingerprint, report rows, and dependency tests derive from it; no second
+dependency dictionary or function-signature convention may drift from it.
+
+LM9A-Semantics registers these exact dependencies:
 
 | Phase | Dependencies |
 |---|---|
 | `schema` | none; this phase includes JSON parsing and schema validation |
 | `fingerprint` | `schema` |
-| `companion_artifacts` | none; it evaluates the immutable validation-input snapshot independently of recipe validity |
-| `provenance` | `companion_artifacts` |
+| `companion_artifacts` | none; it evaluates the immutable validation bundle independently of recipe validity |
+| `provenance` | `schema`, `companion_artifacts` |
 | `clause_graph` | `schema`, `companion_artifacts` |
 | `derived_facts` | `companion_artifacts`, `provenance`, `clause_graph` |
 | `assumptions` | `companion_artifacts`, `provenance`, `clause_graph` |
@@ -2132,7 +2122,8 @@ A fingerprint mismatch does not suppress independent structural diagnostics in
 other branches of the graph. It does prevent `readiness` from passing.
 Likewise, recipe parse/schema failure does not suppress `companion_artifacts`.
 Both phases may fail in one report; semantic phases that require both remain
-`not_evaluated`.
+`not_evaluated`. In particular, `provenance` cannot run without a schema-valid
+recipe and an accepted companion index.
 
 Each phase has one mechanically derived status:
 
@@ -2152,6 +2143,11 @@ A missing task envelope or malformed authority artifact fails
 `companion_artifacts`; dependent phases become `not_evaluated` according to the
 table. A report with `valid=false` does not invent speculative blockers from
 unevaluated phases.
+
+All phase inputs, results, and exports are transitively immutable kernel values.
+`CompanionIndex` and `RecipeSemanticIndex` may contain only immutable identities,
+paths, tuples, and references to immutable owned JSON values. A frozen dataclass
+containing a mutable mapping does not satisfy this contract.
 
 Diagnostics use this closed shape:
 
@@ -2256,7 +2252,7 @@ implicit.
 
 | Collection | Canonical sort key |
 |---|---|
-| recipe and validation-input `authority_artifacts` | `artifact_id` |
+| recipe and validation-bundle `authority_artifacts` | `artifact_id` |
 | validation-context `environment_snapshots` and `policy_registries` | `artifact_id` |
 | task/environment `value_bindings` | `binding_id` |
 | payload-schema registry `entries` | `schema_id` |
@@ -2702,15 +2698,19 @@ LM9A must prove:
   `related_paths` using deterministic lexicographic and shorter-prefix-first
   ordering across runtimes;
 - raw input and normalized payload hashes remain distinct;
-- recipe inputs at exactly 1,048,576 bytes and exactly 64 container levels are
-  accepted by ingress, and validation input at exactly 64 levels produces an
-  immutable snapshot and reaches constructability validation;
-- mutating the caller-owned validation input after preflight cannot change the
-  snapshot fingerprint, descriptors, diagnostics, or report fingerprint;
-- a custom mapping that changes between the two bounded freeze passes is
-  rejected as `validation_input_snapshot_unstable_mapping` before any report;
+- both public inputs are raw bytes and no mutable caller object graph can enter
+  semantic validation;
+- every exact and limit-plus-one kernel budget boundary is proven by the kernel
+  suite before LM9A semantic tests run;
+- all phase inputs, semantic indexes, phase outputs, and report inputs are
+  transitively immutable;
+- attempted mutation through both `CompanionIndex` and `RecipeSemanticIndex`
+  cannot alter the value observed by a later phase;
+- identical validation-bundle object members in a different source order move
+  only the raw bundle hash, not the canonical bundle fingerprint;
 - malformed recipe bytes with otherwise valid companion shells still evaluate
   `companion_artifacts`, including the combined recipe/companion failure case;
+- a schema-failed recipe leaves `provenance=not_evaluated`;
 - every report companion descriptor records its closed stable identity plus
   claimed and independently computed fingerprints;
 - the validation-context fingerprint recomputes from the exact Section 8.3
@@ -2747,14 +2747,14 @@ Focused negative fixtures cover at least:
 
 - unknown top-level and nested properties;
 - invalid UTF-8 recipe bytes and UTF-8 BOM input;
-- exact/over-limit recipe byte, container-depth, validation-input-depth, and
-  number-token boundaries;
+- exact/over-limit recipe and validation-bundle byte, container-depth, width,
+  node, decoded-string, reference, issue, work, and number-token boundaries;
 - numeric tokens that overflow to non-finite host floats and integer tokens
   that would exceed host conversion limits;
-- validation-input non-finite floats, integers outside the finite JCS domain,
-  non-string keys, repeated/cyclic containers, and non-JSON host values such as
-  `Decimal`, `bytes`, and tuple;
-- a custom mapping that changes its keys or values between snapshot passes;
+- validation-bundle non-finite numbers and integers outside the finite JCS
+  domain;
+- wide shallow, deep narrow, and aggregate string/reference/work amplification
+  inputs;
 - a missing or wrong-container mandatory report shell producing a preflight
   invocation failure, including when recipe bytes are independently malformed;
 - missing or malformed trusted validation context producing a typed invocation
@@ -2777,7 +2777,7 @@ Focused negative fixtures cover at least:
 - mismatch among recipe-claimed, companion-claimed, and computed companion
   fingerprints, including a registry or vocabulary mismatch;
 - validation-context fingerprint mismatch and context-fingerprint movement when
-  the validation-input snapshot, trusted validation time, session identity,
+  the validation-bundle fingerprint, trusted validation time, session identity,
   registry identity, registry
   content, vocabulary content, validator ruleset, canonicalization version, or
   companion fingerprint evidence changes;
