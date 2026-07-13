@@ -681,6 +681,90 @@ schema/instance combination must fit the aggregate invocation cap. Aggregate
 budget rejection is a valid bounded outcome. It does require positive evidence
 that the exact sealed program and its required conformance campaign are usable.
 
+#### Release-Owned Gate Authority
+
+Trusted release composition supplies one independently sealed gate profile:
+
+```yaml
+schema: rook.validation_conformance_gate_profile:v1
+gate_profile_id: rook.validation_conformance_gate:lm9a_v1
+gate_profile_version: v1
+gate_implementation_fingerprint: sha256:...
+budget_profile: rook.validation_budget:lm9a_v1
+limits_fingerprint: sha256:...
+gate_profile_fingerprint: sha256:...
+```
+
+The fixed release host seals this closed profile together with the exact gate
+callable binding and returns a `SealedConformanceGateProfile`. Its fingerprint
+is `rook.canonical_json:v1` over the normalized profile excluding only
+`gate_profile_fingerprint`. The sealed runtime binding must match
+`gate_implementation_fingerprint`; no registry or campaign lookup occurs after
+seal. The release invocation captures this sealed object before it reads the
+campaign.
+
+The campaign may bind `required_gate_profile_fingerprint`, but that field is a
+compatibility requirement, not a selector. It cannot name an implementation,
+construct a gate profile, or cause release composition to choose a different
+gate. A mismatch is evaluated by the already selected sealed gate and fails
+closed.
+
+#### Earliest Honest Gate Result
+
+Some failures occur before a content-addressed conformance report can truthfully
+exist. The kernel therefore has one typed, non-artifact runtime result:
+
+```yaml
+type_name: ConformanceGateInvocationFailure
+stage: gate_authority | program_authority | campaign_admission | campaign_parse | campaign_schema | campaign_identity
+code: ...
+gate_profile_fingerprint: sha256:... | null
+program_fingerprint: sha256:... | null
+campaign_input_size: 0
+campaign_input_sha256: sha256:... | null
+bounded_detail_sha256: sha256:...
+report_emitted: false
+trusted_gate_result_issued: false
+```
+
+This value is bounded process evidence, not a schema-governed artifact, is not
+stored as a conformance report, has no artifact fingerprint, and cannot satisfy
+a deployment gate. `campaign_input_size` is the observed length when available.
+The input hash is `null` when content is unavailable or rejected by the byte cap;
+after bounded admission it is the exact raw-byte hash even if parsing or schema
+validation fails. `bounded_detail_sha256` covers a fixed-size internal detail
+record and never exposes raw campaign content. Its closed codes are:
+
+```text
+gate_profile_not_sealed
+gate_profile_runtime_binding_invalid
+program_not_sealed
+program_runtime_binding_invalid
+campaign_content_unavailable
+campaign_admission_failed
+campaign_parse_failed
+campaign_schema_failed
+campaign_fingerprint_mismatch
+campaign_case_set_fingerprint_mismatch
+```
+
+The earliest-honest-result matrix is normative:
+
+| Earliest established boundary | Result | Report | Trusted gate-result capability |
+|---|---|---|---|
+| sealed gate profile or sealed program authority is absent/invalid | `ConformanceGateInvocationFailure` | none | none |
+| campaign bytes are unavailable, over limit, malformed, schema-invalid, duplicate-keyed, or fingerprint-inconsistent | `ConformanceGateInvocationFailure` | none | none |
+| campaign is constructable, but its program/profile binding or core-schema coverage is wrong | failed aggregate report with `campaign_integrity.passed=false` and zero case rows | yes | yes |
+| campaign integrity passes, but case content is unavailable or fingerprint-mismatched | failed case row with zero schema-attempt rows | yes | yes |
+| schema reservation is rejected before evaluator invocation | failed case row with one `reservation_rejected` attempt row | yes | yes |
+| reservation succeeds | completed or evaluator-failed attempt row with exact reservation evidence | yes | yes |
+
+Report authority begins only after the independently supplied sealed gate
+profile, sealed program, and one schema-valid, fingerprint-consistent campaign
+identity all exist. A constructable campaign-wide failure does not need a false
+`case_id`; it is represented by `campaign_integrity`. No invocation failure is
+silently promoted into a report.
+
 A required campaign is one closed content-addressed artifact:
 
 ```yaml
@@ -690,14 +774,7 @@ campaign_version: ...
 
 program_id: ...
 program_fingerprint: sha256:...
-
-required_gate:
-  gate_profile_id: rook.validation_conformance_gate:lm9a_v1
-  gate_profile_version: v1
-  gate_implementation_fingerprint: sha256:...
-  budget_profile: rook.validation_budget:lm9a_v1
-  limits_fingerprint: sha256:...
-  gate_profile_fingerprint: sha256:...
+required_gate_profile_fingerprint: sha256:...
 
 required_cases:
   - case_id: ...
@@ -729,11 +806,11 @@ campaign_fingerprint: sha256:...
 IDs or fingerprints are invalid. Each variant is closed and rejects fields from
 the other variant. A case fingerprint is `rook.canonical_json:v1` over its
 complete normalized case descriptor excluding only `case_fingerprint`.
-`gate_profile_fingerprint` similarly covers the complete normalized
-`required_gate` object excluding itself. `required_case_set_fingerprint` covers
-the normalized sorted array of exact `{case_id, case_fingerprint}` pairs.
+`required_case_set_fingerprint` covers the normalized sorted array of exact
+`{case_id, case_fingerprint}` pairs.
 `campaign_fingerprint` covers the complete normalized campaign excluding only
-that field, so it includes the required-case-set fingerprint.
+that field, so it includes the required-case-set and required-gate-profile
+fingerprints.
 
 The campaign schema and every nested object are closed with
 `additionalProperties: false`. `null`, absent, and empty collections remain
@@ -771,12 +848,21 @@ gate:
   limits_fingerprint: sha256:...
   gate_profile_fingerprint: sha256:...
 
+campaign_integrity:
+  program_binding_matches: true
+  gate_profile_binding_matches: true
+  core_schema_coverage_matches_program: true
+  missing_core_schema_case_ids: []
+  extra_core_schema_case_ids: []
+  failure_codes: []
+  passed: true
+
 result_rows:
   - result_index: 0
     case_id: ...
-    case_kind: core_schema_positive | semantic_fixture
+    case_kind: core_schema_positive
     case_fingerprint: sha256:...
-    outcome: passed | failed
+    outcome: passed
 
     schema_evaluations:
       - evaluation_index: 0
@@ -787,66 +873,123 @@ result_rows:
           artifact_fingerprint: sha256:...
         instance_pointer: ""
         instance_fingerprint: sha256:...
-        schema_nodes: 0
-        instance_nodes: 0
-        shape_units: 0
-        per_evaluation_limit: 0
-        aggregate_after_reservation: 0
+        attempt_status: evaluation_completed
+        schema_nodes: 1
+        instance_nodes: 1
+        attempted_shape_units: 1
+        per_evaluation_limit: 2000000
+        aggregate_before_reservation: 0
+        aggregate_after_reservation: 1
+        evaluator_invoked: true
+        evaluation_passed: true
+        failure_code: null
 
-    aggregate_schema_evaluation_shape_units: 0
+    aggregate_schema_evaluation_shape_units: 1
     invocation_shape_limit: 16000000
     within_every_per_evaluation_limit: true
     within_invocation_limit: true
     failure_code: null
 
 completeness:
-  required_case_count: 0
-  result_row_count: 0
+  required_case_count: 1
+  result_row_count: 1
   missing_case_ids: []
   extra_case_ids: []
   duplicate_case_ids: []
   case_kind_mismatch_ids: []
   case_fingerprint_mismatch_ids: []
-  program_binding_matches: true
-  campaign_binding_matches: true
-  gate_binding_matches: true
   complete: true
 
 all_case_outcomes_passed: true
-decision: passed | failed
+decision: passed
 report_fingerprint: sha256:...
 ```
 
-The v1 gate visits campaign cases sequentially in the campaign's sorted
-`case_id` order, schedules each required case once, records its terminal outcome,
-and continues after an ordinary case failure. It never creates a replacement
-attempt. `result_rows` is an ordered execution ledger with contiguous zero-based
-`result_index`, not a set. There must be exactly one row for each required case
-and no other row. Retaining every row lets a conforming failed report receipt
-duplicate execution instead of becoming structurally invalid.
+Before scheduling cases, the independently selected gate derives
+`campaign_integrity` against the sealed program and gate profile. Its closed
+failure codes are `campaign_program_binding_mismatch`,
+`campaign_gate_profile_binding_mismatch`,
+`campaign_core_schema_coverage_missing`, and
+`campaign_core_schema_coverage_extra`. The ID lists are unique and sorted. If
+any integrity check fails, `passed=false`, `result_rows=[]`, and the report is a
+constructable failed gate result; no case is executed.
+
+When campaign integrity passes, the v1 gate visits campaign cases sequentially
+in the campaign's sorted `case_id` order, intends to schedule each required case
+once, records its terminal outcome, and continues after an ordinary case
+failure. It never creates a replacement attempt. The report schema nevertheless
+permits zero or more indexed execution rows, including duplicate case IDs, so a
+gate defect remains receiptable. `result_rows` is an ordered execution ledger
+with contiguous zero-based `result_index`, not a set. Retaining every row lets a
+conforming failed report receipt duplicate execution instead of becoming
+structurally invalid.
 Each row's `schema_evaluations` is likewise an ordered, contiguous zero-based
 sequence in actual invocation order; it is never sorted by schema identity after
 execution. Missing, extra, duplicate, case-kind-mismatched, or fingerprint-
 mismatched cases remain visible in the derived completeness object and force
-`complete=false`.
+`complete=false`. `complete=true` requires exactly one matching row for every
+required case and no missing, extra, duplicate, kind-mismatched, or fingerprint-
+mismatched row. Exact-once is therefore a passing completeness condition, not a
+schema restriction on failed reports.
 
 The gate copies the exact program, campaign, gate-profile, budget, case, and
 assembler-profile fingerprints from resolved immutable artifacts. The kernel
 meter authors all node/unit counts and the gate derives all booleans,
 completeness lists, `outcome`, and `decision`; cases cannot submit those values
-as claims. `decision=passed` exactly when `complete=true`, every row outcome is
-`passed`, every per-evaluation bound passed, and every case invocation remained
-within the aggregate bound. Otherwise it is `failed`.
+as claims. `all_case_outcomes_passed=true` exactly when `complete=true` and every
+row outcome is `passed`; it is false for a campaign-integrity failure or
+incomplete execution. `decision=passed` exactly when
+`campaign_integrity.passed=true`, `all_case_outcomes_passed=true`, every per-
+evaluation bound passed, and every case invocation remained within the aggregate
+bound. Otherwise it is `failed`.
 
 The campaign and report schemas and every nested object are closed with
-`additionalProperties: false`. `failure_code` is exactly `null` for a passing
-row; a failed row uses one of `case_content_unavailable`,
+`additionalProperties: false`. The case-level `failure_code` is exactly `null`
+for a passing row; a failed row uses one of `case_content_unavailable`,
 `case_fingerprint_mismatch`, `case_execution_failed`,
-`schema_evaluation_failed`, `validation_budget_exceeded`, or
-`gate_integrity_failure`. `instance_binding` identifies the exact immutable
+`schema_evaluation_failed`, or `validation_budget_exceeded`. Gate-wide failures
+belong to `campaign_integrity` or `ConformanceGateInvocationFailure`, never a
+synthetic case row. `instance_binding` identifies the exact immutable
 artifact root from which the evaluated instance was selected; its fingerprint
 must resolve, and `instance_pointer` selects the exact root or subtree under the
 Section 4 counting rule.
+
+`schema_evaluations` contains an attempt row only after the case reaches the
+schema-evaluation boundary. Content-unavailable and content-fingerprint failures
+have zero rows. Every attempt row records the aggregate counter before
+reservation. The three attempt statuses have exact field rules:
+
+- `reservation_rejected`: `evaluator_invoked=false`,
+  `attempted_shape_units=null`, `aggregate_after_reservation=null`,
+  `evaluation_passed=null`, and `failure_code` is exactly one of
+  `per_evaluation_limit_exceeded`, `invocation_shape_limit_exceeded`, or
+  `shape_product_overflow`; the aggregate counter remains unchanged;
+- `evaluation_completed`: checked multiplication and reservation succeeded,
+  `attempted_shape_units` is the nonnegative checked product,
+  `aggregate_after_reservation` equals `aggregate_before_reservation` plus that
+  product, `evaluator_invoked=true`, and `evaluation_passed` is boolean;
+  `failure_code` is `null` when true and `instance_schema_failed` when false;
+- `evaluator_failed`: reservation succeeded with the same nonnull product and
+  aggregate equation, `evaluator_invoked=true`, `evaluation_passed=null`, and
+  `failure_code=schema_evaluator_failed`.
+
+Reservations are never refunded. The case-level
+`aggregate_schema_evaluation_shape_units` equals the last successful
+`aggregate_after_reservation`, or zero when no reservation succeeded. A rejected
+reservation makes the applicable limit boolean false without pretending that a
+reservation completed.
+
+For `per_evaluation_limit_exceeded`, only
+`within_every_per_evaluation_limit=false` is forced by that attempt. For
+`invocation_shape_limit_exceeded`, only `within_invocation_limit=false` is
+forced. `shape_product_overflow` makes both booleans false because neither bound
+can be certified. Other attempt rows contribute normally to the aggregate case
+booleans.
+
+A `reservation_rejected` attempt maps the case-level failure to
+`validation_budget_exceeded`. A completed schema rejection or evaluator failure
+maps it to `schema_evaluation_failed`. Earlier case failures retain zero or any
+already completed attempt rows; no summary erases work that actually occurred.
 
 Completeness ID lists contain unique IDs and sort by RFC 8785 UTF-16 code-unit
 order. The report's
@@ -855,12 +998,14 @@ value. The report fingerprint is `rook.canonical_json:v1` over the complete
 normalized report excluding only `report_fingerprint`. The final canonical
 campaign and report bytes are retained under their fingerprints.
 
-Trusted release composition invokes the gate implementation bound by
-`gate_implementation_fingerprint` and receives a kernel-owned immutable
-`TrustedConformanceGateResult`. That carrier contains the final canonical report
-bytes and an opaque issuer capability bound to the exact gate implementation.
-As with the validation-bundle carrier, matching serialized fields or a matching
-report fingerprint do not forge the issuer capability.
+Trusted release composition invokes the callable already bound inside the
+independently supplied `SealedConformanceGateProfile` and receives a kernel-owned
+immutable `TrustedConformanceGateResult`. That carrier contains the final
+canonical report bytes and an opaque issuer capability bound to the exact sealed
+profile and implementation. The report's `gate` object is copied from that
+profile, not from the campaign. As with the validation-bundle carrier, matching
+serialized fields or a matching report fingerprint do not forge the issuer
+capability.
 
 The gate requires:
 
@@ -879,12 +1024,12 @@ separate from `program_fingerprint`, but its exact case set is content-addressed
 Deployment requires one `rook.validation_conformance_report:v1` from the trusted
 build/release gate whose report fingerprint recomputes, whose program fingerprint
 matches the artifact being deployed, whose campaign and required-case-set
-fingerprints match the independently supplied release input, whose gate
-profile and implementation fingerprints match the required gate, and whose
-decision is `passed`. The release path accepts the report only from the trusted
-gate result capability, not from caller-supplied report JSON. A missing aggregate
-report is a failed gate. A set of individually passing case rows is never a
-substitute.
+fingerprints match the independently supplied campaign, whose gate profile and
+implementation fingerprints match the independently supplied sealed gate
+profile, and whose decision is `passed`. The release path accepts the report
+only from the trusted gate result capability, not from caller-supplied report
+JSON. A missing aggregate report or any `ConformanceGateInvocationFailure` is a
+failed gate. A set of individually passing case rows is never a substitute.
 
 ## 8. Report-Constructability Preflight
 
@@ -1154,13 +1299,23 @@ The kernel proof suite includes:
 - schema-shape units count the complete schema document and exact evaluated
   instance root, use checked multiplication, charge repeated evaluations in
   full, and remain invariant under evaluator/reference caching;
+- the release-owned sealed gate profile is supplied before campaign inspection,
+  and changing a campaign's required profile fingerprint cannot select or alter
+  the bound gate implementation;
+- every gate-wide terminal path follows the earliest-honest-result matrix:
+  pre-authority/constructability failures return only
+  `ConformanceGateInvocationFailure`, while constructable campaign-integrity
+  failures produce a failed aggregate report with zero case rows;
+- content-resolution failures produce zero schema-attempt rows, rejected
+  reservations preserve `aggregate_before_reservation` with null attempted/after
+  fields, and successful reservations preserve exact nonrefunded accounting;
 - every registered core schema has a fitting positive instance, every required
   semantic fixture fits the aggregate schema-shape cap, and the content-addressed
   campaign binds every exact program/schema/fixture/assembler-profile fingerprint;
-- the aggregate conformance report contains every required campaign case exactly
-  once, preserves duplicate execution as indexed evidence, rejects
-  extra/duplicate/mismatched rows, recomputes completeness, and is mandatory for
-  deployment;
+- a passing aggregate conformance report contains exactly one matching row per
+  required campaign case, while a failed report can preserve duplicate indexed
+  execution evidence; extra/duplicate/mismatched rows fail completeness, and the
+  aggregate report is mandatory for deployment;
 - changing a schema or required fixture so that it no longer fits fails the
   release gate rather than weakening a budget;
 - malformed bundle bytes produce no semantic report;

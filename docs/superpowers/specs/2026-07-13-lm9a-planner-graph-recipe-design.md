@@ -2873,7 +2873,8 @@ reports use the same fixed context.
 ### 11.5 Focused Positive Conformance Fixtures
 
 Two additional model-free fixtures prevent rejection-only validator coverage.
-They are focused contract tests, not new campaign scenarios.
+They are focused contract fixtures and mandatory conformance-campaign cases, but
+not additional user-domain scenarios.
 
 The worker-slot conformance fixture declares one inert
 `author_formula_realization` slot, its exact matching
@@ -2900,8 +2901,11 @@ compiler, or runtime behavior to LM9A.
 LM9A-Semantics publishes one
 `rook.validation_conformance_campaign:v1` under the kernel contract. Its
 `campaign_id` is `lm9a.planner_graph_recipe:conformance_v1`, and it binds one
-exact sealed semantic `program_fingerprint`, one exact conformance-gate profile,
-and one expanded content-addressed required-case set.
+exact sealed semantic `program_fingerprint`, one required release-owned gate-
+profile fingerprint, and one expanded content-addressed required-case set. The
+campaign cannot name or select a gate implementation. Trusted release
+composition independently supplies the `SealedConformanceGateProfile`; the
+campaign binding is checked by that already selected gate.
 
 The required set contains exactly:
 
@@ -2930,11 +2934,10 @@ The exact case count is therefore `sealed_core_schema_count + 5`. The campaign's
 `required_case_set_fingerprint` covers the sorted exact case-ID/fingerprint
 pairs, and trusted release composition supplies that immutable campaign input
 independently of the eventual report. Omitting a core schema, omitting any named
-fixture,
-discovering an extra test file, or
-executing a case twice cannot silently redefine the campaign. It either changes
-the campaign fingerprint before execution or appears as missing, extra,
-duplicate, or mismatched evidence in
+fixture, discovering an extra test file, or executing a case twice cannot
+silently redefine the campaign. It either changes the campaign fingerprint
+before execution or appears as missing, extra, duplicate, or mismatched evidence
+in
 `rook.validation_conformance_report:v1`.
 
 The trusted conformance gate records every schema evaluation row defined by the
@@ -2953,10 +2956,12 @@ not justify silently increasing the profile.
 LM9A deployment requires one aggregate
 `rook.validation_conformance_report:v1` that resolves this exact campaign and
 program, recomputes the campaign and required-case-set fingerprints, matches the
-independently supplied campaign input, contains every required case exactly
-once, contains no extra or duplicate rows, and derives `decision=passed`.
-Individually passing rows, caller-supplied report JSON, or an incomplete report
-are not deployment evidence.
+independently supplied campaign input, binds the independently supplied sealed
+gate profile, satisfies `campaign_integrity`, contains exactly one matching row
+per required case with no extras, and derives `decision=passed`. The schema may
+retain duplicate indexed rows in a failed report; exact-once is a passing
+completeness condition. Individually passing rows, caller-supplied report JSON,
+an invocation failure, or an incomplete report are not deployment evidence.
 
 ## 12. Deterministic Proof Targets
 
@@ -3004,9 +3009,17 @@ LM9A must prove:
   fixture cases record schema-shape units against the exact
   program/case/assembler-profile fingerprints and pass the sealed-program
   release gate;
+- the release-owned sealed gate profile is supplied independently, and the
+  campaign's required-profile binding cannot select its own certifier;
 - the content-addressed campaign binds the complete mandatory case set, and one
-  aggregate report proves exact-once execution, no extras or duplicates, matching
-  gate/program/campaign identities, and `decision=passed`;
+  passing aggregate report proves one matching row per case, no extras or
+  duplicates, matching gate/program/campaign identities, and `decision=passed`;
+- malformed or identity-inconsistent campaigns produce only the bounded gate
+  invocation failure, while constructable program/profile/coverage mismatches
+  produce failed aggregate reports with zero case rows;
+- unavailable case content produces zero schema-attempt rows, reservation
+  rejection records before/null-after accounting without invoking the evaluator,
+  and completed reservations record exact nonrefunded totals;
 - report sealing reserves one fixed fingerprinted allowance, runners cannot
   author work counts, and repeated sealing does not change the frozen budget
   receipt;
@@ -3116,6 +3129,12 @@ Focused negative fixtures cover at least:
   mismatched row, a mismatched required-case-set fingerprint, a wrong gate
   profile/implementation binding, a caller-supplied aggregate report, or a
   non-passing aggregate decision;
+- a campaign attempting to nominate a gate implementation, an unsealed or
+  runtime-mismatched gate profile, every pre-report invocation-failure code, and
+  any invocation failure that incorrectly emits a report/result capability;
+- case content/fingerprint failures that emit schema-attempt rows, reservation
+  rejection that claims evaluator invocation or completed reservation, and
+  completed/evaluator-failed attempts with inconsistent aggregate equations;
 - source coverage borrowed from siblings, goal, or arbitrary graph reachability;
 - invalid goal projections;
 - orphan requirements;
