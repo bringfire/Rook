@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement an offline, model-free `rook.planner_graph_recipe:v1` validator that produces deterministic `rook.planner_graph_recipe_validation_report:v1` artifacts and proves the generic contract with radial, non-radial, worker-slot, and confirmation fixtures.
+**Goal:** Implement an offline, model-free `rook.planner_graph_recipe:v1` validator with an explicit invocation preflight, deterministic `rook.planner_graph_recipe_validation_report:v1` artifacts after successful preflight, and generic radial, non-radial, worker-slot, and confirmation proofs.
 
-**Architecture:** Add a new LM9A-only validation stack beside the existing Planner/worker and workflow-contract code. Raw bytes enter through a strict parser, closed JSON Schemas establish structure, exact RFC 8785 canonicalization establishes identity, phase-specific validators establish authority and readiness, and one orchestrator emits the closed report. The implementation must not compile, schedule, execute, call tools, or mutate the existing Planner/worker protocols.
+**Architecture:** Add a new LM9A-only validation stack beside the existing Planner/worker and workflow-contract code. A mechanical invocation preflight first establishes validator identity, exact recipe bytes, and the trusted report-construction context. After it succeeds, raw bytes enter through a strict parser, closed JSON Schemas establish structure, exact RFC 8785 canonicalization establishes identity, phase-specific validators establish authority and readiness, and one orchestrator emits the closed report. Preflight, validator-integrity, or implementation failure before complete report publication returns a typed non-artifact control result rather than a partial report. The implementation must not compile, schedule, execute, call tools, or mutate the existing Planner/worker protocols.
 
 **Tech Stack:** Python 3.10+, stdlib `json`/`hashlib`/`decimal`/`unicodedata`, `jsonschema` Draft 2020-12 validation with its `referencing` registry and `jsonschema-specifications` metaschema dependencies (the already-locked `4.26.0`, `0.37.0`, and `2025.9.1` packages promoted to direct dependencies), `pytest`.
 
@@ -13,11 +13,11 @@
 - Implement exactly the LM9A scope in `docs/superpowers/specs/2026-07-13-lm9a-planner-graph-recipe-design.md`.
 - Keep `PlannerWorkerContractRequest:v1`, `RookWorkflowContract`, `TaskSpec`, `workflow_validate`, and their public behavior unchanged.
 - No Planner model, worker model, provider routing, prompt rendering, tool call, `gh_edit`, Rhino/Grasshopper process, compiler, semantic-review gateway, executor, or live run.
-- The validator emits one validation report only. It never emits compiler requests, worker requests, compiled IR, executable artifacts, or runtime receipts.
+- The validator returns either one validation report after successful preflight or one typed `ValidationInvocationFailure` control result. The failure is not a Rook artifact or partial report. The validator never emits compiler requests, worker requests, compiled IR, executable artifacts, or runtime receipts.
 - Python support remains `>=3.10`.
 - `jsonschema==4.26.0`, `referencing==0.37.0`, and `jsonschema-specifications==2025.9.1` are already present in `mcp_server/uv.lock`; promote those exact resolved packages to direct dependencies without adding another package or changing any resolved version.
 - `rook.canonical_json:v1` is a new exact RFC 8785 regime. Do not import, call, wrap, copy, or imitate `_fingerprint_normalized_contract` or any other legacy canonical JSON helper.
-- Recipe input is exact raw UTF-8 bytes without BOM, capped at 1,048,576 bytes and 64 array/object container levels. Duplicate object members, unpaired surrogates, invalid UTF-8, decoder recursion, and nonconforming product numbers fail closed into a schema-phase report.
+- Recipe input is exact raw UTF-8 bytes without BOM, capped inclusively at 1,048,576 bytes, 64 array/object container levels, and 1,024 characters per JSON number token. Duplicate object members, unpaired surrogates, invalid UTF-8, decoder recursion, oversized numeric tokens, non-finite numeric conversion, and nonconforming product numbers fail closed into a schema-phase report after preflight succeeds.
 - Exact JCS serialization accepts the complete finite RFC 8785 number domain. Product-number policy, including the interoperable integer range, is enforced only by schema/product validation; embedded JSON Schema documents are exempt from that product-number policy.
 - Hashes are lowercase `sha256:<hex>` strings.
 - All production LM9A modules are domain-neutral. Radial, box-array, grid-spacing, height-falloff, and layer-control scenario terms belong only in test fixture modules and documentation.
@@ -63,6 +63,7 @@ Existing dependency metadata:
 | Spec area | Implemented/proved by |
 |---|---|
 | Artifact boundary and closed validation input (Sections 4.1-4.7) | Tasks 2 and 4 |
+| Validation invocation preflight (Section 8.0) | Task 8 |
 | Materiality, honest validation limits, IDs, references, and clause support (Section 5) | Tasks 2, 4, and 5 |
 | Full recipe grammar (Sections 6.1-6.11) | Tasks 2 and 5-7 |
 | Authority/conflict matrix (Section 7) | Tasks 4 and 6 |
@@ -87,7 +88,7 @@ Existing dependency metadata:
 - Produces:
   - `RawJsonResult(payload: Any | None, input_payload_sha256: str, error_code: str | None, error_message: str | None)`
   - `parse_raw_json(raw: bytes) -> RawJsonResult`
-  - `validate_json_tree(value: Any, *, depth_error_code: str = "json_container_depth_exceeded") -> None`
+- `validate_json_tree(value: Any, *, depth_error_code: str = "json_container_depth_exceeded", nonfinite_error_code: str = "nonfinite_json_number") -> None`
   - `utf16_sort_key(value: str) -> bytes`
   - `canonical_json_bytes(value: Any) -> bytes`
   - `canonical_sha256(value: Any) -> str`
@@ -99,6 +100,7 @@ Existing dependency metadata:
   - `MAX_EVIDENCE_MESSAGE_CHARS = 512`
   - `MAX_RECIPE_INPUT_BYTES = 1_048_576`
   - `MAX_JSON_CONTAINER_DEPTH = 64`
+  - `MAX_JSON_NUMBER_TOKEN_CHARS = 1_024`
 
 - [ ] **Step 1: Write strict-ingress and Unicode-ordering tests**
 
@@ -114,6 +116,7 @@ import pytest
 from rook.agent.planner_graph_recipe_canonical import (
     CanonicalJsonError,
     MAX_JSON_CONTAINER_DEPTH,
+    MAX_JSON_NUMBER_TOKEN_CHARS,
     MAX_RECIPE_INPUT_BYTES,
     canonical_json_bytes,
     compare_compound,
@@ -172,6 +175,26 @@ def test_decoder_recursion_is_receipted_as_depth_failure():
     parsed = parse_raw_json(deeper_than_python_decoder)
     assert parsed.payload is None
     assert parsed.error_code == "recipe_json_depth_exceeded"
+
+
+def test_float_overflow_token_is_rejected_before_nonfinite_value_enters_tree():
+    parsed = parse_raw_json(b'{"value":1e10000}')
+    assert parsed.payload is None
+    assert parsed.error_code == "nonfinite_json_number"
+
+
+def test_integer_token_is_bounded_before_host_integer_conversion():
+    token = b"9" * 5_000
+    parsed = parse_raw_json(b'{"value":' + token + b"}")
+    assert parsed.payload is None
+    assert parsed.error_code == "json_number_token_too_long"
+
+
+def test_number_token_limit_is_inclusive():
+    token = b"1" + (b"0" * (MAX_JSON_NUMBER_TOKEN_CHARS - 1))
+    parsed = parse_raw_json(b'{"value":' + token + b"}")
+    assert parsed.error_code != "json_number_token_too_long"
+    assert isinstance(parsed.payload["value"], int)
 
 
 def test_object_keys_use_utf16_code_unit_order():
@@ -298,6 +321,7 @@ SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 MAX_EVIDENCE_MESSAGE_CHARS = 512
 MAX_RECIPE_INPUT_BYTES = 1_048_576
 MAX_JSON_CONTAINER_DEPTH = 64
+MAX_JSON_NUMBER_TOKEN_CHARS = 1_024
 
 
 class CanonicalJsonError(ValueError):
@@ -351,6 +375,7 @@ def validate_json_tree(
     value: Any,
     *,
     depth_error_code: str = "json_container_depth_exceeded",
+    nonfinite_error_code: str = "nonfinite_json_number",
 ) -> None:
     stack: list[tuple[Any, int]] = [(value, 0)]
     while stack:
@@ -358,6 +383,11 @@ def validate_json_tree(
         if isinstance(node, str):
             _reject_surrogate_string(node)
             continue
+        if isinstance(node, float) and not math.isfinite(node):
+            raise CanonicalJsonError(
+                nonfinite_error_code,
+                "JSON trees may contain only finite numbers.",
+            )
         if isinstance(node, list):
             container_depth = parent_container_depth + 1
             if container_depth > MAX_JSON_CONTAINER_DEPTH:
@@ -384,6 +414,55 @@ def validate_json_tree(
                 stack.append((item, container_depth))
 
 
+def _check_number_token(token: str) -> None:
+    if len(token) > MAX_JSON_NUMBER_TOKEN_CHARS:
+        raise CanonicalJsonError(
+            "json_number_token_too_long",
+            "JSON number token exceeds 1024 characters.",
+        )
+
+
+def _parse_json_int(token: str) -> int:
+    _check_number_token(token)
+    try:
+        sign = -1 if token.startswith("-") else 1
+        digits = token[1:] if sign < 0 else token
+        value = 0
+        for offset in range(0, len(digits), 18):
+            chunk = digits[offset : offset + 18]
+            value = (value * (10 ** len(chunk))) + int(chunk)
+        return sign * value
+    except (ValueError, OverflowError) as exc:
+        raise CanonicalJsonError(
+            "invalid_json_number",
+            "JSON integer conversion failed.",
+        ) from exc
+
+
+def _parse_json_float(token: str) -> float:
+    _check_number_token(token)
+    try:
+        value = float(token)
+    except (ValueError, OverflowError) as exc:
+        raise CanonicalJsonError(
+            "invalid_json_number",
+            "JSON number conversion failed.",
+        ) from exc
+    if not math.isfinite(value):
+        raise CanonicalJsonError(
+            "nonfinite_json_number",
+            "JSON number is outside the finite IEEE 754 domain.",
+        )
+    return value
+
+
+def _reject_json_constant(_token: str) -> None:
+    raise CanonicalJsonError(
+        "nonfinite_json_number",
+        "Non-finite JSON constants are forbidden.",
+    )
+
+
 def parse_raw_json(raw: bytes) -> RawJsonResult:
     digest = sha256_prefixed(raw)
     if len(raw) > MAX_RECIPE_INPUT_BYTES:
@@ -408,9 +487,9 @@ def parse_raw_json(raw: bytes) -> RawJsonResult:
         payload = json.loads(
             text,
             object_pairs_hook=_pairs_without_duplicates,
-            parse_constant=lambda token: (_ for _ in ()).throw(
-                CanonicalJsonError("nonfinite_json_number", token)
-            ),
+            parse_int=_parse_json_int,
+            parse_float=_parse_json_float,
+            parse_constant=_reject_json_constant,
         )
         validate_json_tree(payload, depth_error_code="recipe_json_depth_exceeded")
     except RecursionError:
@@ -426,6 +505,15 @@ def parse_raw_json(raw: bytes) -> RawJsonResult:
             "Recipe JSON is malformed.", str(exc)
         )
         return RawJsonResult(None, digest, code, message)
+    except ValueError:
+        # Defensive host-runtime fence for decoder conversion failures not
+        # normalized by the bounded callbacks above.
+        return RawJsonResult(
+            None,
+            digest,
+            "invalid_json_number",
+            "JSON numeric conversion failed.",
+        )
     return RawJsonResult(payload, digest, None, None)
 
 
@@ -452,6 +540,15 @@ top-level scalar has depth `0`, a top-level array/object has depth `1`, and the
 64th nested container is accepted while the 65th is rejected. The byte limit
 applies to the exact received recipe bytes before BOM detection or decoding,
 but the exact-byte SHA-256 is still recorded for an over-limit input.
+The number-token limit counts the complete token supplied by `json.loads`,
+including sign, decimal point, exponent marker/sign, and digits. Both integer
+and float callbacks enforce it before host conversion; the exact limit is
+accepted and the first character above it is rejected.
+Integer conversion is deliberately chunked into at most 18-digit calls to
+`int()`, so CPython's process-wide decimal-string digit limit cannot reject an
+LM9A token that passed the 1,024-character gate. Product validation still
+rejects the resulting unsafe integer; parser acceptance grants no semantic
+validity.
 
 Implement `_serialize_number`, `_serialize_string`, and `_serialize_value` in the same module. `_serialize_number` must pass every committed Appendix B vector; do not delegate whole-value serialization to `json.dumps`. `_serialize_string` may use `json.dumps(value, ensure_ascii=False, allow_nan=False)` only for JSON string escaping after `_reject_surrogate_string`. `_serialize_value` must sort object keys with `utf16_sort_key`, handle `bool` before `int`, serialize finite `float` through `_serialize_number`, and reject unsupported Python types.
 
@@ -1152,7 +1249,9 @@ git commit -m "feat(lm9a): add deterministic validation reporting"
 - Modify: `mcp_server/tests/lm9a_contract_factory.py`
 
 **Interfaces:**
-- Consumes: a recipe whose raw/schema phase passed, an untrusted parsed validation-input mapping, and trusted validation time/session values carried by that mapping.
+- Consumes: a recipe whose raw/schema phase passed, the complete untrusted
+  validation-input mapping, and the minimal trusted time/session projection
+  already extracted by invocation preflight.
 - Produces:
   - `CompanionIndex`
   - `CompanionValidationResult(index, source_task_descriptor, authority_descriptors, context_descriptors, vocabulary_descriptors, diagnostics)`
@@ -1161,6 +1260,7 @@ git commit -m "feat(lm9a): add deterministic validation reporting"
   - `resolve_semantic_reference(reference, index) -> ResolvedReference`
   - `resolve_json_pointer(document, pointer) -> Any`
   - `exact_decimal(value: str) -> Decimal`
+  - test-only `validation_input_with_total_container_depth(validation_input, depth)`
 
 - [ ] **Step 1: Write companion and reference tests**
 
@@ -1186,9 +1286,9 @@ def test_duplicate_binding_pointer_is_invalid_even_with_distinct_ids():
     assert "duplicate_value_binding_pointer" in diagnostic_codes(result)
 
 
-def test_missing_validation_input_field_is_an_envelope_error():
+def test_unknown_validation_input_field_is_an_envelope_error():
     recipe, validation_input = minimal_valid_contract()
-    del validation_input["validation_context"]
+    validation_input["unknown"] = True
     result = validate_companions(recipe, validation_input)
     assert diagnostic_codes(result) == {"validation_input_schema_failed"}
 
@@ -1200,11 +1300,23 @@ def test_unknown_nested_task_field_is_a_companion_schema_error():
     assert diagnostic_codes(result) == {"companion_schema_validation_failed"}
 
 
-def test_validation_input_depth_is_checked_before_json_schema_recursion():
+def test_validation_input_depth_limit_is_inclusive_before_json_schema_recursion():
     recipe, validation_input = minimal_valid_contract()
-    validation_input["task_envelope"]["payload"] = nested_arrays(65)
+    at_limit = validation_input_with_total_container_depth(validation_input, 64)
+    accepted = validate_companions(recipe, at_limit)
+    assert "validation_input_depth_limit_exceeded" not in diagnostic_codes(accepted)
+
+    over_limit = validation_input_with_total_container_depth(validation_input, 65)
+    rejected = validate_companions(recipe, over_limit)
+    assert diagnostic_codes(rejected) == {"validation_input_depth_limit_exceeded"}
+
+
+def test_validation_input_rejects_nonfinite_number_inside_embedded_schema():
+    recipe, validation_input = minimal_valid_contract()
+    registry = validation_input["validation_context"]["payload_schema_registry"]
+    registry["entries"][0]["schema_document"]["maximum"] = float("inf")
     result = validate_companions(recipe, validation_input)
-    assert diagnostic_codes(result) == {"validation_input_depth_limit_exceeded"}
+    assert diagnostic_codes(result) == {"validation_input_nonfinite_number"}
 
 
 @pytest.mark.parametrize(
@@ -1253,10 +1365,12 @@ Expected: import failure for `planner_graph_recipe_authority`.
 
 - [ ] **Step 3: Implement staged validation-input ownership, RFC 6901 resolution, and companion indexing**
 
-`validate_companions` begins by calling iterative `validate_json_tree` on the
-supplied mapping with `depth_error_code="validation_input_depth_limit_exceeded"`.
-The depth code is preserved; any other tree-shape error, including a surrogate
-string or non-string mapping key, normalizes to
+`validate_companions` consumes only an invocation-preflighted mapping. It begins
+by calling iterative `validate_json_tree` on the complete mapping with
+`depth_error_code="validation_input_depth_limit_exceeded"` and
+`nonfinite_error_code="validation_input_nonfinite_number"`. Those two exact
+codes are preserved; any other tree-shape error, including a surrogate string
+or non-string mapping key, normalizes to
 `validation_input_schema_failed`. It then validates
 `VALIDATION_INPUT_ENVELOPE_SCHEMA`; envelope failures are bounded and
 normalized to `validation_input_schema_failed`. Only after that
@@ -1637,15 +1751,21 @@ Expected: all focused tests pass.
 - Modify: `mcp_server/tests/lm9a_contract_factory.py`
 
 **Interfaces:**
-- Consumes: exact recipe bytes and one closed validation-input mapping.
+- Consumes: candidate recipe bytes and candidate validation input at the public
+  boundary; phase validation consumes only the exact bytes, validator identity,
+  and trusted context established by invocation preflight.
 - Produces:
   - `RULESET_MANIFEST`
   - `RULESET_MODULES`
   - `ruleset_projection(manifest, source_bytes_by_module) -> Mapping[str, Any]`
   - `compute_ruleset_fingerprint(manifest=RULESET_MANIFEST, source_bytes_by_module=None) -> str`
   - `assert_registered_issue(phase: str, code: str, issue_kind: str, severity: str | None = None) -> None`
+  - `ValidationInvocationContext(raw_recipe_bytes, input_payload_sha256, validation_input, trusted_validation_context, validator_identity)`
+  - `ValidationInvocationFailure(kind, failure_stage, code, input_payload_sha256, message)`
+  - `resolve_validator_identity() -> Mapping[str, str]`
+  - `preflight_validation_invocation(raw_recipe_bytes: object, validation_input: object) -> ValidationInvocationContext | ValidationInvocationFailure`
   - `PHASE_RUNNERS`
-  - `validate_planner_graph_recipe(raw_recipe_bytes: bytes, validation_input: Mapping[str, Any]) -> Mapping[str, Any]`
+  - `validate_planner_graph_recipe(raw_recipe_bytes: object, validation_input: object) -> Mapping[str, Any] | ValidationInvocationFailure`
   - no other artifacts or side effects.
 
 Extend `mcp_server/tests/lm9a_contract_factory.py` with:
@@ -1766,9 +1886,12 @@ canonicalization version, exact product-schema fingerprints, the fixed phase
 graph, the exhaustive set-order table fingerprint, required vocabulary
 fingerprints, exact runtime dependency versions for `jsonschema`,
 `jsonschema-specifications`, and `referencing`, and one phase row for every
-`PHASE_ORDER` entry. At module load, assert those manifest versions equal
-`importlib.metadata.version(...)`; a runtime mismatch fails ruleset identity
-rather than emitting a report under a false fingerprint. The manifest contains
+`PHASE_ORDER` entry. `resolve_validator_identity()` checks those versions against
+`importlib.metadata.version(...)` and computes the complete ruleset fingerprint
+during invocation preflight, before any report is attempted. A dependency,
+source, or ruleset-identity mismatch returns
+`validator_identity_unavailable`; it must not escape during module import or
+emit a report under a false fingerprint. The manifest contains
 this exact exhaustive v1 phase/code registry; no other report issue code is
 permitted:
 
@@ -1781,6 +1904,8 @@ RULESET_PHASE_CODES = {
             "invalid_json",
             "duplicate_object_member",
             "nonfinite_json_number",
+            "json_number_token_too_long",
+            "invalid_json_number",
             "unpaired_unicode_surrogate",
             "recipe_input_bytes_exceeded",
             "recipe_json_depth_exceeded",
@@ -1799,6 +1924,7 @@ RULESET_PHASE_CODES = {
         "diagnostic_codes": (
             "validation_input_schema_failed",
             "validation_input_depth_limit_exceeded",
+            "validation_input_nonfinite_number",
             "companion_schema_validation_failed",
             "companion_artifact_id_duplicate",
             "recipe_authority_companion_missing",
@@ -2062,6 +2188,55 @@ def test_malformed_raw_input_retains_raw_hash_and_null_computed_fingerprint():
 
 
 @pytest.mark.parametrize(
+    ("raw_recipe_bytes", "input_mutation", "expected_code", "has_hash"),
+    [
+        (None, None, "raw_recipe_bytes_unavailable", False),
+        (b"{}", "remove_input", "validation_input_unavailable", True),
+        (b"{}", "remove_context", "trusted_validation_context_missing", True),
+        (b"{}", "invalidate_context", "trusted_validation_context_invalid", True),
+    ],
+)
+def test_pre_report_invocation_failures_do_not_masquerade_as_reports(
+    raw_recipe_bytes,
+    input_mutation,
+    expected_code,
+    has_hash,
+):
+    _, validation_input = minimal_valid_contract()
+    if input_mutation == "remove_input":
+        validation_input = None
+    elif input_mutation == "remove_context":
+        del validation_input["validation_context"]
+    elif input_mutation == "invalidate_context":
+        validation_input["validation_context"]["evaluated_at"] = "not-a-timestamp"
+
+    result = validate_planner_graph_recipe(raw_recipe_bytes, validation_input)
+    assert isinstance(result, ValidationInvocationFailure)
+    assert result.kind == "invocation_failure"
+    assert result.failure_stage == "preflight"
+    assert result.code == expected_code
+    assert (result.input_payload_sha256 is not None) is has_hash
+    assert len(result.message) <= MAX_EVIDENCE_MESSAGE_CHARS
+    assert not hasattr(result, "valid")
+
+
+def test_ruleset_identity_failure_is_a_pre_report_invocation_failure(monkeypatch):
+    recipe, validation_input = minimal_valid_contract()
+    monkeypatch.setattr(
+        validate_module,
+        "resolve_validator_identity",
+        lambda: (_ for _ in ()).throw(
+            RulesetIdentityError("ruleset_source_unavailable")
+        ),
+    )
+    result = validate_planner_graph_recipe(raw_recipe_bytes(recipe), validation_input)
+    assert isinstance(result, ValidationInvocationFailure)
+    assert result.failure_stage == "preflight"
+    assert result.code == "validator_identity_unavailable"
+    assert result.input_payload_sha256.startswith("sha256:")
+
+
+@pytest.mark.parametrize(
     ("raw", "expected_code"),
     [
         (
@@ -2076,6 +2251,11 @@ def test_malformed_raw_input_retains_raw_hash_and_null_computed_fingerprint():
             (b"[" * 2_000) + b"0" + (b"]" * 2_000),
             "recipe_json_depth_exceeded",
         ),
+        (b'{"value":1e10000}', "nonfinite_json_number"),
+        (
+            b'{"value":' + (b"9" * 5_000) + b"}",
+            "json_number_token_too_long",
+        ),
     ],
 )
 def test_raw_resource_limits_always_emit_schema_phase_report(raw, expected_code):
@@ -2087,9 +2267,9 @@ def test_raw_resource_limits_always_emit_schema_phase_report(raw, expected_code)
     assert diagnostic_codes(report) == {expected_code}
 
 
-def test_validation_input_envelope_failure_belongs_to_companion_phase():
+def test_validation_input_envelope_failure_with_trusted_context_is_reportable():
     recipe, validation_input = minimal_valid_contract()
-    del validation_input["validation_context"]
+    validation_input["unknown"] = True
     report = validate_planner_graph_recipe(raw_recipe_bytes(recipe), validation_input)
     assert phase(report, "schema") == "passed"
     assert phase(report, "companion_artifacts") == "failed"
@@ -2105,7 +2285,17 @@ def test_nested_companion_schema_failure_belongs_to_companion_phase():
     assert diagnostic_codes(report) == {"companion_schema_validation_failed"}
 
 
-def test_orchestrator_rejects_unregistered_phase_issue_before_ledger_insert(monkeypatch):
+def test_nonfinite_embedded_schema_number_belongs_to_companion_phase():
+    recipe, validation_input = minimal_valid_contract()
+    registry = validation_input["validation_context"]["payload_schema_registry"]
+    registry["entries"][0]["schema_document"]["maximum"] = float("inf")
+    report = validate_planner_graph_recipe(raw_recipe_bytes(recipe), validation_input)
+    assert phase(report, "schema") == "passed"
+    assert phase(report, "companion_artifacts") == "failed"
+    assert diagnostic_codes(report) == {"validation_input_nonfinite_number"}
+
+
+def test_orchestrator_receipts_unregistered_phase_issue_before_ledger_insert(monkeypatch):
     recipe, validation_input = minimal_valid_contract()
     monkeypatch.setitem(
         PHASE_RUNNERS,
@@ -2114,14 +2304,13 @@ def test_orchestrator_rejects_unregistered_phase_issue_before_ledger_insert(monk
             diagnostics=(diagnostic("assumptions", "invented_code"),)
         ),
     )
-    with pytest.raises(
-        RulesetIdentityError,
-        match="ruleset_issue_code_unregistered",
-    ):
-        validate_planner_graph_recipe(raw_recipe_bytes(recipe), validation_input)
+    result = validate_planner_graph_recipe(raw_recipe_bytes(recipe), validation_input)
+    assert isinstance(result, ValidationInvocationFailure)
+    assert result.failure_stage == "validation"
+    assert result.code == "validator_integrity_failure"
 
 
-def test_orchestrator_rejects_wrong_severity_before_ledger_insert(monkeypatch):
+def test_orchestrator_receipts_wrong_severity_before_ledger_insert(monkeypatch):
     recipe, validation_input = minimal_valid_contract()
     monkeypatch.setitem(
         PHASE_RUNNERS,
@@ -2136,14 +2325,13 @@ def test_orchestrator_rejects_wrong_severity_before_ledger_insert(monkeypatch):
             )
         ),
     )
-    with pytest.raises(
-        RulesetIdentityError,
-        match="ruleset_issue_severity_mismatch",
-    ):
-        validate_planner_graph_recipe(raw_recipe_bytes(recipe), validation_input)
+    result = validate_planner_graph_recipe(raw_recipe_bytes(recipe), validation_input)
+    assert isinstance(result, ValidationInvocationFailure)
+    assert result.failure_stage == "validation"
+    assert result.code == "validator_integrity_failure"
 
 
-def test_orchestrator_rejects_wrong_issue_classification_before_ledger_insert(
+def test_orchestrator_receipts_wrong_issue_classification_before_ledger_insert(
     monkeypatch,
 ):
     recipe, validation_input = minimal_valid_contract()
@@ -2154,14 +2342,34 @@ def test_orchestrator_rejects_wrong_issue_classification_before_ledger_insert(
             blockers=(blocker("assumptions", "material_value_authority_missing"),)
         ),
     )
-    with pytest.raises(
-        RulesetIdentityError,
-        match="ruleset_issue_classification_mismatch",
-    ):
-        validate_planner_graph_recipe(raw_recipe_bytes(recipe), validation_input)
+    result = validate_planner_graph_recipe(raw_recipe_bytes(recipe), validation_input)
+    assert isinstance(result, ValidationInvocationFailure)
+    assert result.failure_stage == "validation"
+    assert result.code == "validator_integrity_failure"
+
+
+def test_orchestrator_receipts_unexpected_implementation_failure(monkeypatch):
+    recipe, validation_input = minimal_valid_contract()
+    monkeypatch.setitem(
+        PHASE_RUNNERS,
+        "assumptions",
+        lambda **_: (_ for _ in ()).throw(RuntimeError("secret detail")),
+    )
+    result = validate_planner_graph_recipe(raw_recipe_bytes(recipe), validation_input)
+    assert isinstance(result, ValidationInvocationFailure)
+    assert result.failure_stage == "validation"
+    assert result.code == "validator_internal_failure"
+    assert "secret detail" not in result.message
 
 
 ```
+
+Parameterize the invalid-context branch above over a non-mapping context, each
+missing required context field, a malformed/non-UTC `evaluated_at`, an unknown
+clock source, malformed task/capability session IDs, and a malformed non-null
+environment session ID. Every case returns
+`preflight / trusted_validation_context_invalid`; only absence of the
+`validation_context` key returns `trusted_validation_context_missing`.
 
 Add these explicit report assertions:
 
@@ -2171,8 +2379,13 @@ Add these explicit report assertions:
 | malformed task envelope | `companion_artifacts=failed / companion_schema_validation_failed`; provenance and dependent phases `not_evaluated` |
 | confirmation blocker plus otherwise evaluable unresolved phase | `assumptions=blocked`; `unresolved_intent` evaluated |
 | every public v1 report | no warning/information diagnostics; Task 3 ledger tests separately prove their status semantics |
-| attempt to add identical issue as blocker and diagnostic | ledger raises `issue_classification_conflict` before report emission |
+| attempt to add identical issue as blocker and diagnostic | internal ledger raises `issue_classification_conflict`; public boundary returns `validation / validator_integrity_failure` before report emission |
 | every valid/blocked report | top-level keys contain no compiler, worker request/output, executable, tool, or runtime receipt field |
+
+Separately, unavailable validator identity, missing recipe bytes, missing
+validation input, missing/malformed trusted validation context, validator
+integrity assertions, and implementation exceptions before report completion
+return a `ValidationInvocationFailure`, not any row in this report table.
 
 - [ ] **Step 5: Run validator tests to establish the red state**
 
@@ -2185,6 +2398,31 @@ Expected: import failure for `planner_graph_recipe_validate`.
 
 - [ ] **Step 6: Implement fixed phase orchestration**
 
+Implement invocation preflight before parsing or phase construction. Its checks
+run in this exact order:
+
+```text
+1. resolve exact validator/ruleset/canonicalization/runtime identity
+2. require raw_recipe_bytes to be bytes and compute its exact SHA-256
+3. require validation_input to be a mapping
+4. extract and validate the minimal trusted validation_context projection
+```
+
+Error-code selection follows that order. Independently, set
+`input_payload_sha256` if and only if the candidate recipe value is actual
+`bytes`, even when an earlier identity check selected the failure; hashing does
+not alter error precedence.
+
+The trusted projection contains valid `evaluated_at`, `trusted_clock_source`,
+`task_session_id`, nullable `environment_session_id`, and
+`capability_registry_session_id`. It ignores extra fields so the closed
+validation-input schema can report them later. Missing or malformed trusted
+context returns the exact typed `ValidationInvocationFailure`; no ledger, phase
+row, report fingerprint, `valid`, or `compile_ready` value is constructed. The
+failure has `failure_stage="preflight"`; its message is fixed/bounded and
+contains no raw exception text. Only a successful `ValidationInvocationContext`
+may enter the phase pipeline.
+
 The phase boundary is exact:
 
 ```text
@@ -2196,7 +2434,8 @@ companion_artifacts:
   identity, fingerprint, freshness, session, registry, and vocabulary check
 ```
 
-`parse_raw_json` resource-limit, decoder-recursion, and syntax outcomes are
+`parse_raw_json` resource-limit, bounded-number conversion, decoder-recursion,
+and syntax outcomes are
 converted immediately to registered `schema` diagnostics and a conforming
 report. They never escape as Python exceptions. A failed recipe schema phase
 makes `fingerprint`, `companion_artifacts`, and their dependents
@@ -2261,7 +2500,13 @@ raises `ruleset_issue_code_unregistered` when the phase/code pair is absent and
 `ruleset_issue_classification_mismatch` when the code exists for that phase
 under the other issue class. A v1 diagnostic severity other than `error` raises
 `ruleset_issue_severity_mismatch`. These are validator-integrity exceptions,
-not report diagnostics, and no report is emitted under an incomplete ruleset.
+not report diagnostics. Unit helpers raise them for exact testing; the public
+validator catches them before report publication and returns
+`ValidationInvocationFailure(failure_stage="validation",
+code="validator_integrity_failure")`. Any other ordinary `Exception` before a
+complete report is published returns `validation / validator_internal_failure`
+with a fixed bounded message and no exception text. Do not catch process-control
+`BaseException` subclasses. Neither path emits a partial report.
 
 Set:
 
@@ -2288,17 +2533,19 @@ invoke the recomputation helper separately after report emission.
 
 Report fingerprint: normalize the complete closed report, remove only `report_fingerprint`, then hash. Keep claimed and computed recipe/companion fingerprints in distinct fields at every stage.
 
-The validator identity is fixed:
+The validator identity values are fixed but are resolved during preflight:
 
 ```python
-VALIDATOR_IDENTITY = {
-    "implementation_version": "lm9a.recipe_validator:v1",
-    "ruleset_fingerprint": RULESET_FINGERPRINT,
-    "canonicalization_version": "rook.canonical_json:v1",
-}
+def resolve_validator_identity() -> Mapping[str, str]:
+    verify_runtime_dependency_versions()
+    return {
+        "implementation_version": "lm9a.recipe_validator:v1",
+        "ruleset_fingerprint": compute_ruleset_fingerprint(),
+        "canonicalization_version": "rook.canonical_json:v1",
+    }
 ```
 
-Compute `RULESET_FINGERPRINT` only through
+Compute the `ruleset_fingerprint` value only through
 `compute_ruleset_fingerprint()`. The versioned manifest binds schemas, phase
 graph, ordering, vocabularies, every phase algorithm version and stable issue
 code; the normalized source projection binds the actual production modules that
@@ -2456,6 +2703,7 @@ Parameterize mutations of a known valid fixture for every spec Section 12.2 clas
 
 ```text
 oversized/deep recipe input; unknown fields; malformed IDs; duplicate IDs; dangling/mismatched refs;
+numeric-token overflow, host numeric conversion failure, and non-finite companion values;
 URI-fragment and malformed pointers; duplicate members; bad payload schemas;
 descriptor and fingerprint mismatches; context-fingerprint movement;
 orphan requirements; unsupported derivations; policy no-match/overlap/prohibit;
@@ -2655,6 +2903,9 @@ git commit -m "test(lm9a): lock recipe validator boundaries"
 - [ ] Every future-only item in spec Section 3.2 remains absent from production code.
 - [ ] Exact RFC 8785 vectors, UTF-16 ordering, raw-byte parsing, decimal identity, and confirmation projection have focused tests.
 - [ ] Raw recipe ingress emits reports at the exact 1 MiB/64-container bounds, including decoder-recursion inputs.
+- [ ] Numeric ingress uses bounded integer/float callbacks, rejects overflow and oversized tokens deterministically, and the iterative companion walk rejects non-finite values even inside schema documents.
+- [ ] Invocation preflight proves every pre-report failure path without constructing a partial report; envelope errors remain reportable only when trusted context survives.
+- [ ] Post-preflight integrity assertions and implementation exceptions return typed validation-stage invocation failures rather than partial reports or leaked exceptions.
 - [ ] Recipe schema failures belong only to `schema`; validation-input and companion structural failures belong only to `companion_artifacts`.
 - [ ] The recipe, report, validation input, companions, descriptors, and vocabularies are all closed schemas.
 - [ ] `valid` and `compile_ready` derive mechanically and remain semantically distinct.

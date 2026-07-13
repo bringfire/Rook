@@ -82,6 +82,7 @@ LM9A implements or specifies for deterministic implementation:
 
 - `rook.planner_graph_recipe:v1`;
 - `rook.planner_graph_recipe_validation_report:v1`;
+- validation-invocation preflight and a typed non-artifact invocation-failure result;
 - deterministic canonicalization and fingerprinting;
 - authority and provenance validation;
 - deterministic derived-fact validation;
@@ -149,9 +150,14 @@ deterministic task envelope
 + declared authority companions
 + validation-context companions
 + raw recipe bytes
--> recipe validator
+-> validation invocation preflight
+-> recipe validator, only when preflight succeeds
 -> validation report
 ```
+
+A preflight failure does not enter the artifact flow above. It returns a typed
+in-process control result to the mechanical caller and no
+`rook.planner_graph_recipe_validation_report:v1` exists for that invocation.
 
 When later compilation exists, its output receives a separate fingerprint that
 links to the recipe fingerprint. A compiled fingerprint never replaces or
@@ -1450,6 +1456,98 @@ value declared as unresolved may be valid but blocks compile when required.
 
 ## 8. Validation Report Contract
 
+### 8.0 Validation Invocation Preflight
+
+The ordinary validation report can exist only after a mechanical invocation
+preflight establishes the evidence needed to construct it truthfully. The
+preflight runs before recipe parsing, phase evaluation, or report assembly and
+checks, in this exact precedence order:
+
+1. the validator implementation, ruleset, canonicalization identity, and exact
+   runtime dependency versions can be resolved;
+2. `raw_recipe_bytes` is an actual `bytes` value, so exact-byte hashing is
+   available;
+3. `validation_input` is a mapping;
+4. `validation_input.validation_context` is a mapping containing valid trusted
+   `evaluated_at`, `trusted_clock_source`, `task_session_id`, nullable
+   `environment_session_id`, and `capability_registry_session_id` values.
+
+`evaluated_at` uses the closed UTC RFC 3339 timestamp schema already used by
+LM9A companions. `trusted_clock_source` is exactly `deterministic_fixture` in
+tests or `trusted_system_clock` in production. Session values use the LM9A
+machine-identifier grammar; only `environment_session_id` may be `null`.
+
+Unknown or extra validation-input fields do not fail preflight when the trusted
+context projection above is intact. They remain reportable
+`companion_artifacts` structural errors. Missing or malformed task, authority,
+registry, policy, vocabulary, and other companion content likewise remains
+reportable because the trusted context needed to describe those failures still
+exists.
+
+The public invocation boundary has this closed non-artifact control result:
+
+```yaml
+kind: invocation_failure
+failure_stage: preflight | validation
+code: validator_identity_unavailable |
+      raw_recipe_bytes_unavailable |
+      validation_input_unavailable |
+      trusted_validation_context_missing |
+      trusted_validation_context_invalid |
+      validator_integrity_failure |
+      validator_internal_failure
+input_payload_sha256: sha256:... | null
+message: bounded text
+```
+
+The message is at most 512 Unicode code points and contains no unbounded input
+or exception text. `input_payload_sha256` is non-null if and only if exact
+recipe bytes were available, regardless of which invocation check selected the
+failure code. Computing that hash does not change the error-precedence order.
+This result has no Rook schema, artifact fingerprint,
+phase rows, `valid`, `compile_ready`, trusted time, or session claim. It is not
+a partial validation report and cannot enter compilation. A future mechanical
+ingress may wrap it in its own authenticated operation receipt; LM9A does not
+invent that receipt.
+
+The first five codes above always use `failure_stage: preflight`;
+`validator_integrity_failure` and `validator_internal_failure` always use
+`failure_stage: validation`. `trusted_validation_context_missing` means the
+`validation_context` key itself is absent. A present non-mapping context, a
+missing required context field, or an invalid field value produces
+`trusted_validation_context_invalid`. `raw_recipe_bytes_unavailable` and
+`validation_input_unavailable` include wrong host types as well as absence.
+
+The public validator returns either a conforming
+`rook.planner_graph_recipe_validation_report:v1` or this typed invocation
+failure. Missing/invalid trusted validation context and unavailable validator
+identity are always invocation failures. Recipe byte size, nesting, token,
+syntax, Unicode, and product-schema failures remain ordinary schema-phase
+report outcomes once preflight has succeeded.
+
+After preflight, a ruleset/code/classification integrity assertion prevents
+report issuance and becomes `validation / validator_integrity_failure` at the
+public boundary. Any other caught validator implementation exception likewise
+becomes `validation / validator_internal_failure`; the control result contains
+only a stable bounded message, never exception text. Unit-level integrity
+helpers may raise their typed exceptions so tests can prove the exact fault,
+but those exceptions cannot escape the public invocation boundary or be
+mistaken for semantic validation outcomes.
+
+The complete earliest-honest-result matrix is:
+
+| Failure location | Public result |
+|---|---|
+| validator identity cannot be established | preflight invocation failure |
+| raw recipe bytes, validation input, or trusted context unavailable | preflight invocation failure |
+| ruleset integrity assertion or validator implementation fault before report completion | validation invocation failure |
+| recipe size, depth, number, UTF-8, JSON, Unicode, or recipe-schema failure after preflight | conforming report with `schema=failed` |
+| validation-input or companion structure, depth, numeric, identity, freshness, or fingerprint failure | conforming report with `companion_artifacts=failed` |
+| deterministic semantic invalidity or readiness blocker | conforming report with exact phase diagnostic/blocker |
+
+No terminal path may emit a partial report or require a report to validate the
+trusted inputs needed to construct that same report.
+
 The deterministic report answers two separate questions:
 
 ```text
@@ -1590,6 +1688,52 @@ cannot be issued when ingress cannot supply the raw bytes.
 Recipe input bytes must decode as strict UTF-8 and must not begin with a UTF-8
 BOM. Invalid UTF-8 or a BOM still permits hashing the received bytes, but the
 `schema` phase fails and `computed_recipe_fingerprint` is `null`.
+
+LM9A v1 applies these exact inclusive resource boundaries:
+
+```text
+maximum recipe input bytes:       1,048,576
+maximum JSON container depth:     64
+maximum JSON number-token chars:  1,024
+maximum validation-input depth:   64
+```
+
+Container depth counts containing arrays/objects along one path: a top-level
+scalar is depth `0`, a top-level array/object is depth `1`, depth `64` is
+accepted, and depth `65` is rejected. Number-token length counts the complete
+JSON numeric token, including sign, decimal point, exponent marker/sign, and
+digits. The exact byte and token limits are accepted; the first value above a
+limit is rejected. Acceptance by a resource gate does not override an
+independent syntax, finite-number, product-number, or schema failure.
+
+The recipe parser supplies bounded `parse_int` and `parse_float` handlers rather
+than trusting host defaults. Tokens longer than 1,024 characters produce
+`schema / json_number_token_too_long`. Integer conversion failures produce
+`schema / invalid_json_number`. A float token that converts to a non-finite
+host value, including `1e10000`, produces
+`schema / nonfinite_json_number`. Literal `NaN` and `Infinity` remain rejected
+under the same non-finite code. Host decoder recursion and post-parse depth
+failure both normalize to `schema / recipe_json_depth_exceeded`; an oversized
+recipe normalizes to `schema / recipe_input_bytes_exceeded`.
+
+An integer token that passes the 1,024-character gate is converted without
+depending on CPython's process-wide decimal-string digit setting, for example
+by fixed-size decimal chunks. Product validation remains independently
+responsible for rejecting integers outside the interoperable range.
+
+All reportable recipe-ingress failures retain `input_payload_sha256`, set
+`computed_recipe_fingerprint` to `null`, fail `schema`, and make dependent
+phases `not_evaluated`. The post-parse tree walk is iterative and checks
+surrogate strings, container depth, and finite floats before schema validation.
+
+After invocation preflight extracts the trusted context, the complete
+validation-input mapping receives the same iterative 64-container check before
+JSON Schema traversal. Depth `65` produces
+`companion_artifacts / validation_input_depth_limit_exceeded`; a non-finite
+float anywhere in that mapping, including inside an embedded schema document,
+produces `companion_artifacts / validation_input_nonfinite_number`. These are
+ordinary report outcomes because trusted report-construction context is already
+available.
 
 Malformed input may still have an input hash while
 `computed_recipe_fingerprint` is `null`; `claimed_recipe_fingerprint` may also
@@ -2462,6 +2606,9 @@ LM9A must prove:
   `related_paths` using deterministic lexicographic and shorter-prefix-first
   ordering across runtimes;
 - raw input and normalized payload hashes remain distinct;
+- recipe inputs at exactly 1,048,576 bytes and exactly 64 container levels are
+  accepted by ingress, and validation input at exactly 64 levels reaches schema
+  evaluation;
 - every report companion descriptor records its closed stable identity plus
   claimed and independently computed fingerprints;
 - the validation-context fingerprint recomputes from the exact Section 8.3
@@ -2498,6 +2645,12 @@ Focused negative fixtures cover at least:
 
 - unknown top-level and nested properties;
 - invalid UTF-8 recipe bytes and UTF-8 BOM input;
+- exact/over-limit recipe byte, container-depth, validation-input-depth, and
+  number-token boundaries;
+- numeric tokens that overflow to non-finite host floats and integer tokens
+  that would exceed host conversion limits;
+- missing or malformed trusted validation context producing a typed invocation
+  failure rather than a partial validation report;
 - non-ASCII, uppercase, whitespace-bearing, or malformed machine identities,
   codes, and semantic keys;
 - duplicate stable IDs before sorting;
