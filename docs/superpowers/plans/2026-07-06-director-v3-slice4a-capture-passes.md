@@ -1,5 +1,16 @@
 # Director v3 Slice 4A: Worker Capture + Display-Mode Passes — Implementation Plan
 
+> **PARTIALLY SUPERSEDED — Director MCP retirement (2026-07-13):** The general
+> non-Director architecture and dated evidence in this document remain available.
+> All `rhino_director_*`, `/director`, VisionDirector, and Director-domain examples,
+> allowlist entries, count assumptions, acceptance criteria, and positive dispatch
+> tests are superseded as of 2026-07-13. Replace those examples with
+> non-Director fixtures when maintaining or replaying this work. This document must
+> not be used to restore a Director MCP tool. See the
+> [Director MCP Surface Retirement Design][director-mcp-retirement].
+
+[director-mcp-retirement]: ../specs/2026-07-13-director-mcp-surface-retirement-design.md
+
 > **For agentic workers:** This plan is written for an external implementer (Codex) executing task-by-task with a review checkpoint after every task. Steps use checkbox (`- [ ]`) syntax. **STOP at the end of each task and wait for review sign-off before starting the next task.**
 
 **Goal:** Extend the proven `/director/worker-play` loop with per-frame ViewCapture + camera application, orchestrate multi-display-mode passes from Python with per-pass reset and assembly-compatible run roots, and prove the first v3 video end-to-end.

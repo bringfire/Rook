@@ -859,7 +859,7 @@ git commit -m "test: preserve Director implementation below MCP"
 - Modify: `docs/AGENT_ARCHITECTURE.md`
 - Modify: `docs/rook_docs/work-queue.md`
 - Modify: `docs/rook_docs/2026-04-15-typed-route-gap-analysis.md`
-- Modify: every tracked `docs/**/*.md` selected by `DIRECTOR_DOC_PATTERN`, except the two files in `CURRENT_DIRECTOR_RETIREMENT_DOCS`; the exact selection and classification are enforced by the test in Step 1.
+- Modify/classify: every tracked `docs/**/*.md` selected by `DIRECTOR_DOC_PATTERN`. The measured taxonomy is two current-guidance architecture documents, two current retirement documents, four historical-evidence documents, and 55 actionable historical documents with partial-supersession notices. `CURRENT_GUIDANCE` is exempt only from the historical-classification loop and remains covered by its dedicated stricter test.
 - Modify: `docs/superpowers/specs/2026-05-20-rookvisiondirector-camera-video-roadmap.md`, `docs/superpowers/specs/2026-07-06-director-v3-snapshot-boundary-design.md`, and `docs/superpowers/plans/2026-07-07-director-build-actor-set-from-source-occurrence.md` are named load-bearing examples of that repository-wide selection, not its limit.
 
 **Interfaces:**
@@ -942,7 +942,10 @@ def test_every_route_aware_director_document_is_classified():
     assert HISTORICAL_DIRECTOR_EVIDENCE_DOCS <= set(documents)
     design_name = "2026-07-13-director-mcp-surface-retirement-design.md"
     for relative, text in documents.items():
-        if relative in CURRENT_DIRECTOR_RETIREMENT_DOCS:
+        if (
+            relative in CURRENT_DIRECTOR_RETIREMENT_DOCS
+            or relative in CURRENT_GUIDANCE
+        ):
             continue
         expected_marker = (
             HISTORICAL_EVIDENCE_MARKER
@@ -998,7 +1001,9 @@ Enumerate the complete route-aware document set from the repository root:
 rg -l --pcre2 'rhino_director_|(?<![A-Za-z0-9_])/director(?:/|\b)|\b(?:Rook)?VisionDirector\b' docs --glob '*.md' | Sort-Object
 ```
 
-For every result except the two paths in `CURRENT_DIRECTOR_RETIREMENT_DOCS` and the four paths in `HISTORICAL_DIRECTOR_EVIDENCE_DOCS`, add this notice immediately below the title/status preamble:
+Classify the 63 measured results into four disjoint groups: two current-guidance architecture documents (`docs/CURRENT_ARCHITECTURE.md` and `docs/AGENT_ARCHITECTURE.md`), two paths in `CURRENT_DIRECTOR_RETIREMENT_DOCS`, four paths in `HISTORICAL_DIRECTOR_EVIDENCE_DOCS`, and 55 actionable historical documents. The two current-guidance documents are exempt only from the historical-classification loop: do not add a supersession notice to them, and keep all four `CURRENT_GUIDANCE` paths under `test_current_guidance_has_no_actionable_director_instruction`.
+
+For each of the 55 actionable historical results, add this notice immediately below the title/status preamble:
 
 ```markdown
 > **PARTIALLY SUPERSEDED — Director MCP retirement (2026-07-13):** The general

@@ -1,5 +1,12 @@
 # RookVisionDirector Native Replay — Live-Gate Post-Mortem (2026-06-24)
 
+> **DIRECTOR HISTORICAL EVIDENCE — classified 2026-07-13:** Director routes,
+> tool names, and workflows below are retained only as dated evidence. They are not
+> current instructions and must not be used to restore a Director MCP tool. See the
+> [Director MCP Surface Retirement Design][director-mcp-retirement].
+
+[director-mcp-retirement]: specs/2026-07-13-director-mcp-surface-retirement-design.md
+
 > ## ✅ RESOLVED — Task 6 live gate is GREEN. The "garbage `req`" diagnosis below was a GHOST.
 >
 > **Final outcome (2026-06-24, later same day):** `test_director_replay_live.py` passes **6/6**

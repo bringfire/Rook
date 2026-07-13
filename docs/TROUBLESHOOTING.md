@@ -1,5 +1,12 @@
 # Rook Troubleshooting Guide
 
+> **DIRECTOR HISTORICAL EVIDENCE — classified 2026-07-13:** Director routes,
+> tool names, and workflows below are retained only as dated evidence. They are not
+> current instructions and must not be used to restore a Director MCP tool. See the
+> [Director MCP Surface Retirement Design][director-mcp-retirement].
+
+[director-mcp-retirement]: superpowers/specs/2026-07-13-director-mcp-surface-retirement-design.md
+
 Solutions for common installation and runtime issues.
 
 ---

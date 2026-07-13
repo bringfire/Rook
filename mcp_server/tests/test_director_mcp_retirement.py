@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import re
+import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -12,6 +15,47 @@ from rook.mcp_tool_profiles import (
     PUBLIC_READONLY_TOOL_NAMES,
     Profile,
 )
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+CURRENT_GUIDANCE = (
+    "AGENTS.md",
+    "README.md",
+    "docs/CURRENT_ARCHITECTURE.md",
+    "docs/AGENT_ARCHITECTURE.md",
+)
+DIRECTOR_DOC_PATTERN = re.compile(
+    r"rhino_director_|"
+    r"(?<![A-Za-z0-9_])/director(?:/|\b)|"
+    r"\b(?:Rook)?VisionDirector\b",
+    re.IGNORECASE,
+)
+CURRENT_DIRECTOR_RETIREMENT_DOCS = {
+    "docs/superpowers/specs/2026-07-13-director-mcp-surface-retirement-design.md",
+    "docs/superpowers/plans/2026-07-13-director-mcp-surface-retirement.md",
+}
+HISTORICAL_DIRECTOR_EVIDENCE_DOCS = {
+    "docs/TROUBLESHOOTING.md",
+    "docs/superpowers/2026-06-24-replay-live-gate-postmortem.md",
+    "docs/superpowers/plans/2026-05-19-rookvisiondirector-slice1-phase0-inventory.md",
+    "docs/superpowers/plans/2026-06-23-hunyuan-3d-pro-image-to-3d.md",
+}
+PARTIAL_SUPERSESSION_MARKER = (
+    "PARTIALLY SUPERSEDED — Director MCP retirement (2026-07-13)"
+)
+HISTORICAL_EVIDENCE_MARKER = (
+    "DIRECTOR HISTORICAL EVIDENCE — classified 2026-07-13"
+)
+TRACKED_GUIDANCE_ROOTS = (
+    ".agents",
+    ".claude/skills",
+    ".claude-plugin",
+    "hooks",
+    "installer",
+)
+TRACKED_GUIDANCE_SUFFIXES = {
+    ".iss", ".json", ".md", ".ps1", ".py", ".toml", ".txt", ".yaml", ".yml"
+}
 
 
 RETIRED_DIRECTOR_TOOLS = (
@@ -338,3 +382,69 @@ async def test_scanner_failure_cannot_gate_normal_direct_dispatch(monkeypatch):
     result = await server.call_tool("rhino_objects", {})
     assert json.loads(result[0].text) == {"name": "rhino_objects"}
     assert called == ["rhino_objects"]
+
+
+def _route_aware_director_documents() -> dict[str, str]:
+    matches = {}
+    for path in (REPO_ROOT / "docs").rglob("*.md"):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if DIRECTOR_DOC_PATTERN.search(text):
+            relative = path.relative_to(REPO_ROOT).as_posix()
+            matches[relative] = text
+    return matches
+
+
+def test_current_guidance_has_no_actionable_director_instruction():
+    forbidden = ("rhino_director_", "visiondirector", "director-based")
+    for relative in CURRENT_GUIDANCE:
+        text = (REPO_ROOT / relative).read_text(encoding="utf-8").lower()
+        assert all(token not in text for token in forbidden), relative
+        if "/director" in text:
+            assert "not a public or agent-callable capability" in text, relative
+
+
+def test_every_route_aware_director_document_is_classified():
+    documents = _route_aware_director_documents()
+    assert CURRENT_DIRECTOR_RETIREMENT_DOCS <= set(documents)
+    assert HISTORICAL_DIRECTOR_EVIDENCE_DOCS <= set(documents)
+    design_name = "2026-07-13-director-mcp-surface-retirement-design.md"
+    for relative, text in documents.items():
+        if (
+            relative in CURRENT_DIRECTOR_RETIREMENT_DOCS
+            or relative in CURRENT_GUIDANCE
+        ):
+            continue
+        expected_marker = (
+            HISTORICAL_EVIDENCE_MARKER
+            if relative in HISTORICAL_DIRECTOR_EVIDENCE_DOCS
+            else PARTIAL_SUPERSESSION_MARKER
+        )
+        assert expected_marker in text, relative
+        assert design_name in text, relative
+
+
+def test_installed_agent_assets_do_not_teach_director_mcp():
+    result = subprocess.run(
+        ["git", "ls-files", "-z", "--", *TRACKED_GUIDANCE_ROOTS],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+    )
+    tracked = [
+        REPO_ROOT / relative
+        for relative in result.stdout.decode("utf-8").split("\0")
+        if relative
+    ]
+    assert tracked
+    for path in tracked:
+        if path.suffix.lower() not in TRACKED_GUIDANCE_SUFFIXES:
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        assert DIRECTOR_DOC_PATTERN.search(text) is None, path
+
+
+def test_director_artifact_preservation_guard_remains():
+    guard = (
+        REPO_ROOT / "scripts/tests/release-installer-guards.tests.ps1"
+    ).read_text(encoding="utf-8")
+    assert "RookVisionDirector" in guard

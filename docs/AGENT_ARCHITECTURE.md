@@ -127,6 +127,10 @@ Task execution runners. Three entry points:
 
 With 428 MCP tools advertised by `list_tools()` (431 static defs minus 3 deprecated-interactive tools gated by default), showing everything to an agent wastes context and confuses the LLM. The system uses three tiers:
 
+The `lean` profile advertises 22 tools and the `readonly` profile advertises 148 tools.
+
+- Director is retired from MCP discovery, profiles, meta-tools, targeting, and internal-agent dispatch. Native `/director/*` routes and implementation modules remain temporarily preserved for disposition review; they are not a public or agent-callable capability.
+
 ### Tier 0: Always Active (~12 tools, ~1,800 tokens)
 
 ```

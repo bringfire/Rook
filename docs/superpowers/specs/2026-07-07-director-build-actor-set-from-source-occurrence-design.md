@@ -1,5 +1,16 @@
 # Director Actor-Set Builder — Design Spec
 
+> **PARTIALLY SUPERSEDED — Director MCP retirement (2026-07-13):** The general
+> non-Director architecture and dated evidence in this document remain available.
+> All `rhino_director_*`, `/director`, VisionDirector, and Director-domain examples,
+> allowlist entries, count assumptions, acceptance criteria, and positive dispatch
+> tests are superseded as of 2026-07-13. Replace those examples with
+> non-Director fixtures when maintaining or replaying this work. This document must
+> not be used to restore a Director MCP tool. See the
+> [Director MCP Surface Retirement Design][director-mcp-retirement].
+
+[director-mcp-retirement]: 2026-07-13-director-mcp-surface-retirement-design.md
+
 **Tool:** `rhino_director_build_actor_set_from_source_occurrence_v2`
 **Status:** spec for reviewer (Codex) sign-off, design-review amendments folded in.
 **Date:** 2026-07-07

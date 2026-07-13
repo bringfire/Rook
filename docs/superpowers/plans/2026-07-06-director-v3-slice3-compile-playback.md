@@ -1,5 +1,16 @@
 # Director v3 Slice 3: File-Backed Compile + Delta Worker Playback — Implementation Plan
 
+> **PARTIALLY SUPERSEDED — Director MCP retirement (2026-07-13):** The general
+> non-Director architecture and dated evidence in this document remain available.
+> All `rhino_director_*`, `/director`, VisionDirector, and Director-domain examples,
+> allowlist entries, count assumptions, acceptance criteria, and positive dispatch
+> tests are superseded as of 2026-07-13. Replace those examples with
+> non-Director fixtures when maintaining or replaying this work. This document must
+> not be used to restore a Director MCP tool. See the
+> [Director MCP Surface Retirement Design][director-mcp-retirement].
+
+[director-mcp-retirement]: ../specs/2026-07-13-director-mcp-surface-retirement-design.md
+
 > **For agentic workers:** This plan is written for an external implementer (Codex) executing task-by-task with a review checkpoint after every task. Steps use checkbox (`- [ ]`) syntax. **STOP at the end of each task and wait for review sign-off before starting the next task.**
 
 **Goal:** Compile a prepared take into `track.json` (file-backed, cap-free, tight-bbox evidence) and play it in the worker document via a new capture-less native route with in-loop delta math, pristine gates, and drift detection.

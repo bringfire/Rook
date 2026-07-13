@@ -1,5 +1,16 @@
 # Director v3 Per-Member Simulation Export — Implementation Plan
 
+> **PARTIALLY SUPERSEDED — Director MCP retirement (2026-07-13):** The general
+> non-Director architecture and dated evidence in this document remain available.
+> All `rhino_director_*`, `/director`, VisionDirector, and Director-domain examples,
+> allowlist entries, count assumptions, acceptance criteria, and positive dispatch
+> tests are superseded as of 2026-07-13. Replace those examples with
+> non-Director fixtures when maintaining or replaying this work. This document must
+> not be used to restore a Director MCP tool. See the
+> [Director MCP Surface Retirement Design][director-mcp-retirement].
+
+[director-mcp-retirement]: ../specs/2026-07-13-director-mcp-surface-retirement-design.md
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Tasks 1–3 and 5 are Python (Codex-implementable, TDD). Tasks 4 and 6 are **live** Rhino/Grasshopper operations performed by the controller (Claude has the live connection); their "tests" are live-gate assertions, not pytest.
 
 **Goal:** Render the CanvasDirector band-peel wave's per-member motion as a Director v3 take by harvesting per-member offsets + camera from the live canvas and feeding them through the existing package/prepare/compile/capture pipeline as ordinary per-member `motion.json` tracks.

@@ -1,5 +1,16 @@
 # Director v3 Slice 3: File-Backed Compile + Delta Worker Playback — Design
 
+> **PARTIALLY SUPERSEDED — Director MCP retirement (2026-07-13):** The general
+> non-Director architecture and dated evidence in this document remain available.
+> All `rhino_director_*`, `/director`, VisionDirector, and Director-domain examples,
+> allowlist entries, count assumptions, acceptance criteria, and positive dispatch
+> tests are superseded as of 2026-07-13. Replace those examples with
+> non-Director fixtures when maintaining or replaying this work. This document must
+> not be used to restore a Director MCP tool. See the
+> [Director MCP Surface Retirement Design][director-mcp-retirement].
+
+[director-mcp-retirement]: 2026-07-13-director-mcp-surface-retirement-design.md
+
 **Status:** approved design, pre-implementation
 **Parent spec:** `docs/superpowers/specs/2026-07-06-director-v3-snapshot-boundary-design.md` (Decision 2 items 3–4, "Worker playback math" section)
 **Predecessors:** Slice 1 take packages (`d5ecea0e`, PR #429), Slice 2 worker prepare (`e231600d`, PR #430)

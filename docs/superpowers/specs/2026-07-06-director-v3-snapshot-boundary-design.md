@@ -1,5 +1,16 @@
 # Director v3: Snapshot Boundary + Disposable-Copy Render Worker
 
+> **PARTIALLY SUPERSEDED — Director MCP retirement (2026-07-13):** The general
+> non-Director architecture and dated evidence in this document remain available.
+> All `rhino_director_*`, `/director`, VisionDirector, and Director-domain examples,
+> allowlist entries, count assumptions, acceptance criteria, and positive dispatch
+> tests are superseded as of 2026-07-13. Replace those examples with
+> non-Director fixtures when maintaining or replaying this work. This document must
+> not be used to restore a Director MCP tool. See the
+> [Director MCP Surface Retirement Design][director-mcp-retirement].
+
+[director-mcp-retirement]: 2026-07-13-director-mcp-surface-retirement-design.md
+
 Status: implementation-plan ready; validated by live spikes, amended through Codex review rounds 1-3
 Date: 2026-07-06
 Supersedes (in part): `docs/director/2026-07-06-dynamic-canvas-export-materialization-spec.md` (worktree `director-canvas-export-spec`)
