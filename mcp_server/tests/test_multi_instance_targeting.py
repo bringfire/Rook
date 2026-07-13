@@ -66,59 +66,13 @@ def test_background_worker_launch_tools_are_rhino_dependent_mutating():
         assert policy.risk == "mutate"
 
 
-def test_director_curve_samples_policy_is_rhino_read():
-    policy = targeting.policy_for_tool("rhino_director_curve_samples")
-    assert policy == targeting.RhinoToolPolicy(True, "read")
-
-
-def test_director_run_policy_is_explicit_rhino_mutate():
-    policy = targeting.policy_for_tool("rhino_director_run")
-    assert policy == targeting.RhinoToolPolicy(True, "mutate")
-
-
-def test_director_video_tools_are_explicit_rhino_mutate():
-    for name in {"rhino_director_assemble_video", "rhino_director_publish_video"}:
-        policy = targeting.policy_for_tool(name)
-        assert policy == targeting.RhinoToolPolicy(True, "mutate")
-
-
-def test_director_motion_tools_have_routed_policies():
-    assert targeting.policy_for_tool(
-        "rhino_director_compile_motion"
-    ) == targeting.RhinoToolPolicy(True, "read")
-    for name in {
-        "rhino_director_preview_motion",
-        "rhino_director_replay",
-        "rhino_director_replay_cancel",
-    }:
-        assert targeting.policy_for_tool(name) == targeting.RhinoToolPolicy(
-            True, "mutate"
-        )
-
-
-def test_director_actor_metadata_v2_tool_policies():
-    assert targeting.policy_for_tool(
-        "rhino_director_capture_source_occurrence_v2"
-    ) == targeting.RhinoToolPolicy(True, "mutate")
-    assert (
-        "rhino_director_build_actor_set_from_source_occurrence_v2"
-        in targeting._ALL_KNOWN_TOOLS
+def test_director_tools_have_no_callable_targeting_metadata():
+    assert not any(
+        name.startswith("rhino_director_") for name in targeting._ALL_KNOWN_TOOLS
     )
-    assert targeting.policy_for_tool(
-        "rhino_director_build_actor_set_from_source_occurrence_v2"
-    ) == targeting.RhinoToolPolicy(True, "mutate")
-    assert targeting.policy_for_tool(
-        "rhino_director_write_actor_metadata_v2"
-    ) == targeting.RhinoToolPolicy(True, "mutate")
-    assert targeting.policy_for_tool(
-        "rhino_director_read_actor_metadata_v2"
-    ) == targeting.RhinoToolPolicy(True, "read")
-
-
-def test_director_actor_metadata_migration_has_no_targeting_policy():
-    migration_tool = "rhino_director_migrate_actor_metadata_v2"
-    assert migration_tool not in targeting._ALL_KNOWN_TOOLS
-    assert migration_tool not in targeting.TOOL_POLICIES
+    assert not any(
+        name.startswith("rhino_director_") for name in targeting.TOOL_POLICIES
+    )
 
 
 def test_gh_update_script_policy_is_explicit_rhino_mutate():

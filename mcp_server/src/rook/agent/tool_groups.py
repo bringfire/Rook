@@ -101,7 +101,6 @@ READONLY_ALLOWED_GROUPS: Set[str] = {
     "gh_canvas_readonly",
     "sessions",
     "scene_graph",
-    "director_readonly",
     "rookbim_readonly",
     "reconstruction_readonly",
 }
@@ -208,35 +207,6 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "rhino_viewport", "rhino_views", "rhino_views_restore",
         "rhino_display_modes",
         "rhino_document",
-    ],
-
-    # --- RookVisionDirector ---
-    # Python-orchestrated director run. Native owns only per-frame
-    # transaction primitives, so rhino_director_run is MCP-only until the
-    # internal agent dispatcher can host Python-local tools directly.
-    "director": [
-        "rhino_director_run",
-        "rhino_director_curve_samples",
-        "rhino_director_replay",
-        "rhino_director_replay_cancel",
-        "rhino_director_compile_motion",
-        "rhino_director_preview_motion",
-        "rhino_director_capture_source_occurrence_v2",
-        "rhino_director_build_actor_set_from_source_occurrence_v2",
-        "rhino_director_write_actor_metadata_v2",
-        "rhino_director_read_actor_metadata_v2",
-        "rhino_director_assemble_video",
-        "rhino_director_publish_video",
-        "rhino_director_canvas_extract",
-        "rhino_director_package_take",
-        "rhino_director_prepare_take",
-        "rhino_director_compile_take",
-        "rhino_director_worker_play",
-        "rhino_director_capture_take",
-    ],
-    "director_readonly": [
-        "rhino_objects", "rhino_views", "rhino_display_modes", "rhino_document",
-        "rhino_director_curve_samples",
     ],
 
     # --- Vision (PR-6): Gemini generation + artifact management ---
@@ -542,7 +512,6 @@ MCP_ONLY_GROUPS: Set[str] = {
     # both entries below.
     "vision",
     "vision_readonly",
-    "director",
     # NOTE: "sessions" is intentionally excluded here — all four tools
     # (session_current/history/list/export) are in BRIDGE_ROUTES and work
     # through the C++ HTTP server, so agents can request them normally.

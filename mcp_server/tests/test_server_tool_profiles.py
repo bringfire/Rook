@@ -13,7 +13,7 @@ _GATED = {"rhino_command_experiment", "rhino_learn_next", "rhino_prepare_geometr
 
 
 def _list_names(monkeypatch, profile_value):
-    # Default flag-off state so the live surface is the canonical 446.
+    # Default flag-off state so the live surface is the canonical 428.
     monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
     monkeypatch.delenv("ROOK_MCP_TARGET_MODE", raising=False)
     if profile_value is None:
@@ -24,17 +24,9 @@ def _list_names(monkeypatch, profile_value):
     return {t.name for t in tools}
 
 
-def test_full_surface_is_446_and_gates_deprecated(monkeypatch):
+def test_full_surface_is_428_and_gates_deprecated(monkeypatch):
     full = _list_names(monkeypatch, None)  # absent => full
-    # 431 pre-meta base (427 #382 + mesh2splat #384 + openrouter #385
-    # + Director v2 actor metadata tools + source occurrence capture) + 4
-    # rook_tools_* meta-tools + rhino_director_canvas_extract (#post-436) +
-    # rhino_director_package_take (Slice 1) + rhino_director_prepare_take
-    # (Slice 2) + rhino_director_compile_take and rhino_director_worker_play
-    # (Slice 3) + rhino_director_capture_take (Slice 4A)
-    # + rhino_director_build_actor_set_from_source_occurrence_v2 = 443,
-    # + pre-existing gh_connect, + LM8K readiness status/wait = 446.
-    assert len(full) == 446
+    assert len(full) == 428
     assert {"gh_solve_readiness", "gh_wait_for_solve_readiness"} <= full
     assert _GATED.isdisjoint(full)
     assert PUBLIC_LEAN_TOOL_NAMES <= full
@@ -42,12 +34,12 @@ def test_full_surface_is_446_and_gates_deprecated(monkeypatch):
     assert SENTINEL_TOOL_NAMES <= full
 
 
-def test_all_live_tools_is_unprofiled_446(monkeypatch):
+def test_all_live_tools_is_unprofiled_428(monkeypatch):
     monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
-    # Even with a restrictive profile set, the unprofiled source is the full 446.
+    # Even with a restrictive profile set, the unprofiled source is the full 428.
     monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "lean")
     names = {t.name for t in asyncio.run(server._all_live_tools())}
-    assert len(names) == 446
+    assert len(names) == 428
     assert _GATED.isdisjoint(names)
 
 
@@ -61,10 +53,10 @@ def test_lean_surface_is_exactly_22(monkeypatch):
     assert len(lean) == 22
 
 
-def test_readonly_surface_is_exactly_149(monkeypatch):
+def test_readonly_surface_is_exactly_148(monkeypatch):
     ro = _list_names(monkeypatch, "readonly")
     assert ro == set(PUBLIC_READONLY_TOOL_NAMES)
-    assert len(ro) == 149
+    assert len(ro) == 148
 
 
 def test_meta_tools_present_in_all_profiles(monkeypatch):
@@ -77,23 +69,11 @@ def test_readonly_partition_over_live_surface(monkeypatch):
     full = _list_names(monkeypatch, None)
     ro = set(PUBLIC_READONLY_TOOL_NAMES)
     assert ro <= full
-    assert {
-        "rhino_director_compile_take",
-        "rhino_director_worker_play",
-        "rhino_director_capture_take",
-        "rhino_director_build_actor_set_from_source_occurrence_v2",
-    } <= full
-    assert {
-        "rhino_director_compile_take",
-        "rhino_director_worker_play",
-        "rhino_director_capture_take",
-        "rhino_director_build_actor_set_from_source_occurrence_v2",
-    }.isdisjoint(ro)
     assert ro.isdisjoint(SENTINEL_TOOL_NAMES)
     excluded = full - ro
     assert ro | excluded == full
     assert ro.isdisjoint(excluded)
-    assert len(ro) + len(excluded) == len(full) == 446
+    assert len(ro) + len(excluded) == len(full) == 428
 
 
 def _call_text(name, args=None):

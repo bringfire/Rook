@@ -15,12 +15,13 @@ def test_dispatchable_names_include_or_case_arms():
 
 
 def test_capability_index_covers_full_unprofiled_surface(monkeypatch):
-    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "lean")  # profile must NOT shrink the index
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "lean")
     server._reset_capability_index_cache()
     idx = asyncio.run(server._get_capability_index())
     live = {t.name for t in asyncio.run(server._all_live_tools())}
     assert {r.name for r in idx.records} == live
-    assert idx.by_name["rhino_director_preview_motion"].mcp_dispatchable is True
+    assert idx.by_name["rhino_objects"].mcp_dispatchable is True
+    assert "rhino_director_preview_motion" not in idx.by_name
 
 
 def test_index_survives_lm2a_failure(monkeypatch):
@@ -60,25 +61,26 @@ def _stub_dispatch(monkeypatch):
     monkeypatch.setattr(server, "_call_tool_dispatch", ok)
 
 
-def test_lean_reach_search_read_call(monkeypatch):
+def test_lean_reaches_hidden_tool_via_search_read_call(monkeypatch):
     monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "lean")
     _stub_dispatch(monkeypatch)
-    found = json.loads(_text("rook_tools_search", {"query": "director preview"}))
-    assert any(e["name"] == "rhino_director_preview_motion" for e in found)
-    schema = json.loads(_text("rook_tools_read", {"name": "rhino_director_preview_motion"}))
+    found = json.loads(_text("rook_tools_search", {"query": "gh_status"}))
+    assert any(entry["name"] == "gh_status" for entry in found)
+    schema = json.loads(_text("rook_tools_read", {"name": "gh_status"}))
     assert "input_schema" in schema
-    called = json.loads(_text("rook_tools_call",
-                              {"name": "rhino_director_preview_motion",
-                               "arguments": {"timeline": {}, "motion": []}}))  # satisfies required timeline+motion
-    assert called["dispatched"] == "rhino_director_preview_motion" and called["origin"] == "meta"
+    called = json.loads(
+        _text("rook_tools_call", {"name": "gh_status", "arguments": {}})
+    )
+    assert called == {"dispatched": "gh_status", "origin": "meta"}
 
 
 def test_readonly_block_wall_before_validation(monkeypatch):
     monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "readonly")
     _stub_dispatch(monkeypatch)
-    # invalid args, but the blocked target must still return tool_profile_blocked (wall first):
-    text = _text("rook_tools_call",
-                 {"name": "rhino_director_preview_motion", "arguments": {"bogus": 1}})
+    text = _text(
+        "rook_tools_call",
+        {"name": "rhino_create", "arguments": {"bogus": 1}},
+    )
     assert "tool_profile_blocked" in text
 
 
