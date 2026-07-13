@@ -6,7 +6,7 @@
 
 **Architecture:** Add a new LM9A-only validation stack beside the existing Planner/worker and workflow-contract code. Raw bytes enter through a strict parser, closed JSON Schemas establish structure, exact RFC 8785 canonicalization establishes identity, phase-specific validators establish authority and readiness, and one orchestrator emits the closed report. The implementation must not compile, schedule, execute, call tools, or mutate the existing Planner/worker protocols.
 
-**Tech Stack:** Python 3.10+, stdlib `json`/`hashlib`/`decimal`/`unicodedata`, `jsonschema` Draft 2020-12 validation and its `referencing` registry boundary (the already-locked `4.26.0` and `0.37.0` packages promoted to direct dependencies), `pytest`.
+**Tech Stack:** Python 3.10+, stdlib `json`/`hashlib`/`decimal`/`unicodedata`, `jsonschema` Draft 2020-12 validation with its `referencing` registry and `jsonschema-specifications` metaschema dependencies (the already-locked `4.26.0`, `0.37.0`, and `2025.9.1` packages promoted to direct dependencies), `pytest`.
 
 ## Global Constraints
 
@@ -15,7 +15,7 @@
 - No Planner model, worker model, provider routing, prompt rendering, tool call, `gh_edit`, Rhino/Grasshopper process, compiler, semantic-review gateway, executor, or live run.
 - The validator emits one validation report only. It never emits compiler requests, worker requests, compiled IR, executable artifacts, or runtime receipts.
 - Python support remains `>=3.10`.
-- `jsonschema==4.26.0` and `referencing==0.37.0` are already present in `mcp_server/uv.lock`; promote those exact resolved packages to direct dependencies without adding another package or changing either resolved version.
+- `jsonschema==4.26.0`, `referencing==0.37.0`, and `jsonschema-specifications==2025.9.1` are already present in `mcp_server/uv.lock`; promote those exact resolved packages to direct dependencies without adding another package or changing any resolved version.
 - `rook.canonical_json:v1` is a new exact RFC 8785 regime. Do not import, call, wrap, copy, or imitate `_fingerprint_normalized_contract` or any other legacy canonical JSON helper.
 - Recipe input is exact raw UTF-8 bytes without BOM. Duplicate object members, unpaired surrogates, invalid UTF-8, and nonconforming product numbers fail closed.
 - Exact JCS serialization accepts the complete finite RFC 8785 number domain. Product-number policy, including the interoperable integer range, is enforced only by schema/product validation; embedded JSON Schema documents are exempt from that product-number policy.
@@ -480,6 +480,7 @@ Add this dependency to `mcp_server/pyproject.toml`:
 
 ```toml
     "jsonschema==4.26.0",
+    "jsonschema-specifications==2025.9.1",
     "referencing==0.37.0",
 ```
 
@@ -488,11 +489,13 @@ Then run:
 ```powershell
 uv lock --project mcp_server
 uv tree --project mcp_server --invert --package jsonschema
+uv tree --project mcp_server --invert --package jsonschema-specifications
 uv tree --project mcp_server --invert --package referencing
 ```
 
-Expected: `jsonschema v4.26.0` and `referencing v0.37.0` remain the resolved
-packages and `rook-mcp` now owns direct edges to both. Inspect
+Expected: `jsonschema v4.26.0`, `jsonschema-specifications v2025.9.1`, and
+`referencing v0.37.0` remain the resolved packages and `rook-mcp` now owns
+direct edges to all three. Inspect
 `mcp_server/uv.lock`; no second JSON Schema implementation or JCS package may
 appear.
 
@@ -1083,10 +1086,19 @@ def test_duplicate_binding_pointer_is_invalid_even_with_distinct_ids():
 )
 def test_semantic_pointer_forms_fail_closed(pointer, expected_code):
     recipe, validation_input = minimal_valid_contract()
-    recipe["maintains"][0]["source_refs"][0]["json_pointer"] = pointer
     result = validate_companions(recipe, validation_input)
-    assert expected_code in diagnostic_codes(result)
+    reference = {
+        **recipe["maintains"][0]["source_refs"][0],
+        "json_pointer": pointer,
+    }
+    with pytest.raises(SemanticReferenceError, match=expected_code):
+        resolve_semantic_reference(reference, result.index)
 ```
+
+Task 5 repeats these mutations through the public validator and asserts
+`provenance / <expected_code>`. Task 4 proves the authority helper's exact error
+surface only; companion validation does not scan recipe clauses or assign
+semantic-reference errors to `companion_artifacts`.
 
 Add the remaining cases as explicit mutation/expected-result rows:
 
@@ -1203,6 +1215,9 @@ Use one valid neutral contract and assert these exact mutations:
 | goal projects only to an invariant | `clause_graph / goal_projection_outcome_missing` |
 | requirement supports no maintains/invariant | `clause_graph / orphan_requirement` |
 | requirement cites the output it is meant to create as current evidence | `provenance / circular_requirement` |
+| semantic artifact-value pointer is empty | `provenance / semantic_pointer_empty` |
+| semantic artifact-value pointer uses URI-fragment form | `provenance / json_pointer_uri_fragment_forbidden` |
+| semantic artifact-value pointer contains invalid `~2` escape | `provenance / json_pointer_escape_invalid` |
 | maintained clause removes direct support and relies on a sibling | `provenance / material_clause_support_missing` |
 | postcondition inherits from a non-parent maintains ID | `provenance / invalid_parent_support_inheritance` |
 | canonicalization cites source support outside its parent’s declared support | `provenance / canonicalization_support_exceeds_parent` |
@@ -1482,7 +1497,8 @@ Expected: all focused tests pass.
   - `RULESET_MODULES`
   - `ruleset_projection(manifest, source_bytes_by_module) -> Mapping[str, Any]`
   - `compute_ruleset_fingerprint(manifest=RULESET_MANIFEST, source_bytes_by_module=None) -> str`
-  - `assert_registered_issue(phase: str, code: str, issue_kind: str) -> None`
+  - `assert_registered_issue(phase: str, code: str, issue_kind: str, severity: str | None = None) -> None`
+  - `PHASE_RUNNERS`
   - `validate_planner_graph_recipe(raw_recipe_bytes: bytes, validation_input: Mapping[str, Any]) -> Mapping[str, Any]`
   - no other artifacts or side effects.
 
@@ -1498,11 +1514,18 @@ Extend `mcp_server/tests/lm9a_contract_factory.py` with:
 def test_ruleset_manifest_covers_every_phase_and_stable_issue_code():
     assert RULESET_MANIFEST["runtime_dependencies"] == {
         "jsonschema": "4.26.0",
+        "jsonschema-specifications": "2025.9.1",
         "referencing": "0.37.0",
     }
     assert tuple(entry["phase"] for entry in RULESET_MANIFEST["phases"]) == PHASE_ORDER
     for entry in RULESET_MANIFEST["phases"]:
         assert entry["algorithm_version"].startswith("lm9a.")
+        assert tuple(entry["diagnostic_codes"]) == (
+            RULESET_PHASE_CODES[entry["phase"]]["diagnostic_codes"]
+        )
+        assert tuple(entry["blocker_codes"]) == (
+            RULESET_PHASE_CODES[entry["phase"]]["blocker_codes"]
+        )
         assert set(entry) == {
             "phase",
             "algorithm_version",
@@ -1512,10 +1535,24 @@ def test_ruleset_manifest_covers_every_phase_and_stable_issue_code():
         }
 
 
+def test_ruleset_runtime_dependency_versions_match_installed_distributions():
+    for distribution, expected in RULESET_MANIFEST["runtime_dependencies"].items():
+        assert importlib.metadata.version(distribution) == expected
+
+
 def test_ruleset_fingerprint_moves_with_manifest_rule_change():
     sources = fixed_ruleset_sources()
     changed = copy.deepcopy(RULESET_MANIFEST)
     changed["phases"][0]["algorithm_version"] = "lm9a.schema:v2"
+    assert compute_ruleset_fingerprint(source_bytes_by_module=sources) != (
+        compute_ruleset_fingerprint(changed, sources)
+    )
+
+
+def test_ruleset_fingerprint_moves_with_metaschema_dependency_change():
+    sources = fixed_ruleset_sources()
+    changed = copy.deepcopy(RULESET_MANIFEST)
+    changed["runtime_dependencies"]["jsonschema-specifications"] = "2025.9.2"
     assert compute_ruleset_fingerprint(source_bytes_by_module=sources) != (
         compute_ruleset_fingerprint(changed, sources)
     )
@@ -1541,6 +1578,28 @@ def test_source_hash_normalizes_crlf_to_lf():
 def test_unregistered_issue_code_is_rejected_before_report_emission():
     with pytest.raises(RulesetIdentityError, match="ruleset_issue_code_unregistered"):
         assert_registered_issue("assumptions", "invented_code", "diagnostic")
+
+
+def test_registered_code_under_wrong_classification_is_rejected():
+    with pytest.raises(
+        RulesetIdentityError,
+        match="ruleset_issue_classification_mismatch",
+    ):
+        assert_registered_issue(
+            "assumptions",
+            "material_value_authority_missing",
+            "blocker",
+        )
+
+
+def test_registered_diagnostic_with_wrong_severity_is_rejected():
+    with pytest.raises(RulesetIdentityError, match="ruleset_issue_severity_mismatch"):
+        assert_registered_issue(
+            "assumptions",
+            "material_value_authority_missing",
+            "diagnostic",
+            severity="warning",
+        )
 ```
 
 - [ ] **Step 2: Run ruleset tests to establish the red state**
@@ -1558,26 +1617,225 @@ Expected: import failure for `planner_graph_recipe_rules`.
 `rook.planner_graph_recipe_validator_ruleset:v1`, implementation version,
 canonicalization version, exact product-schema fingerprints, the fixed phase
 graph, the exhaustive set-order table fingerprint, required vocabulary
-fingerprints, exact runtime dependency versions for `jsonschema` and
-`referencing`, and one phase row for every `PHASE_ORDER` entry. At module load,
-assert those manifest versions equal `importlib.metadata.version(...)`; a
-runtime mismatch fails ruleset identity rather than emitting a report under a
-false fingerprint. Every phase row contains:
+fingerprints, exact runtime dependency versions for `jsonschema`,
+`jsonschema-specifications`, and `referencing`, and one phase row for every
+`PHASE_ORDER` entry. At module load, assert those manifest versions equal
+`importlib.metadata.version(...)`; a runtime mismatch fails ruleset identity
+rather than emitting a report under a false fingerprint. The manifest contains
+this exact exhaustive v1 phase/code registry; no other report issue code is
+permitted:
 
-```yaml
-phase: assumptions
-algorithm_version: lm9a.assumptions:v1
-implementation_modules:
-  - rook.agent.planner_graph_recipe_authority
-  - rook.agent.planner_graph_recipe_semantics
-diagnostic_codes: []
-blocker_codes: []
+```python
+RULESET_PHASE_CODES = {
+    "schema": {
+        "diagnostic_codes": (
+            "utf8_bom_forbidden",
+            "invalid_utf8",
+            "invalid_json",
+            "duplicate_object_member",
+            "nonfinite_json_number",
+            "unpaired_unicode_surrogate",
+            "schema_validation_failed",
+            "non_integer_product_number",
+            "unsafe_json_integer",
+            "semantic_prose_outer_whitespace",
+        ),
+        "blocker_codes": (),
+    },
+    "fingerprint": {
+        "diagnostic_codes": ("recipe_fingerprint_mismatch",),
+        "blocker_codes": (),
+    },
+    "companion_artifacts": {
+        "diagnostic_codes": (
+            "companion_artifact_id_duplicate",
+            "recipe_authority_companion_missing",
+            "recipe_authority_companion_extra",
+            "companion_kind_mismatch",
+            "companion_schema_mismatch",
+            "companion_fingerprint_mismatch",
+            "companion_fingerprint_uncomputable",
+            "recipe_companion_fingerprint_mismatch",
+            "environment_snapshot_expired",
+            "environment_session_mismatch",
+            "planning_policy_expired",
+            "capability_registry_expired",
+            "capability_registry_session_mismatch",
+            "payload_schema_registry_entry_missing",
+            "payload_schema_registry_entry_duplicate",
+            "payload_schema_fingerprint_mismatch",
+            "payload_schema_dialect_mismatch",
+            "payload_schema_invalid",
+            "payload_schema_remote_ref",
+            "payload_schema_dynamic_ref_forbidden",
+            "payload_schema_recursive_ref_forbidden",
+            "payload_schema_identifier_forbidden",
+            "payload_schema_anchor_forbidden",
+            "payload_schema_dynamic_anchor_forbidden",
+            "payload_schema_reference_unresolvable",
+            "payload_validation_failed",
+            "value_binding_id_duplicate",
+            "duplicate_value_binding_pointer",
+            "value_binding_pointer_invalid",
+            "value_binding_pointer_unresolved",
+            "semantic_value_schema_unknown",
+            "bound_value_schema_invalid",
+            "typed_value_fingerprint_mismatch",
+            "policy_rule_key_mismatch",
+            "policy_rule_overlap",
+            "capability_registry_entry_duplicate",
+            "available_capability_implementation_missing",
+            "unavailable_capability_implementation_present",
+            "vocabulary_missing",
+            "vocabulary_duplicate",
+            "vocabulary_version_mismatch",
+            "vocabulary_required_entry_missing",
+            "vocabulary_unknown_entry",
+            "vocabulary_fingerprint_mismatch",
+            "deferred_receipt_kind",
+        ),
+        "blocker_codes": (),
+    },
+    "provenance": {
+        "diagnostic_codes": (
+            "semantic_pointer_empty",
+            "json_pointer_uri_fragment_forbidden",
+            "json_pointer_escape_invalid",
+            "json_pointer_index_invalid",
+            "semantic_reference_artifact_unknown",
+            "semantic_reference_binding_missing",
+            "source_reference_dangling",
+            "assumption_reference_dangling",
+            "derived_fact_reference_dangling",
+            "requirement_support_reference_dangling",
+            "material_clause_support_missing",
+            "planner_synthesis_missing",
+            "invalid_parent_support_inheritance",
+            "canonicalization_support_exceeds_parent",
+            "circular_requirement",
+        ),
+        "blocker_codes": (),
+    },
+    "clause_graph": {
+        "diagnostic_codes": (
+            "duplicate_clause_id",
+            "goal_projection_missing",
+            "goal_projection_outcome_missing",
+            "goal_projection_reference_dangling",
+            "orphan_requirement",
+        ),
+        "blocker_codes": (),
+    },
+    "derived_facts": {
+        "diagnostic_codes": (
+            "duplicate_derived_fact_id",
+            "unsupported_derivation_operator",
+            "derived_input_count_invalid",
+            "derived_input_reference_invalid",
+            "derived_input_type_invalid",
+            "derived_value_unsafe_integer",
+            "derived_value_mismatch",
+            "derived_typed_value_fingerprint_mismatch",
+        ),
+        "blocker_codes": (),
+    },
+    "assumptions": {
+        "diagnostic_codes": (
+            "duplicate_assumption_id",
+            "material_value_authority_missing",
+            "assumption_authority_value_conflict",
+            "statement_typed_value_mismatch",
+            "assumption_basis_reference_invalid",
+            "assumption_policy_reference_invalid",
+            "confirmation_receipt_missing",
+            "confirmation_receipt_duplicate",
+            "confirmation_assumption_mismatch",
+            "confirmation_receipt_shared",
+            "confirmation_receipt_expired",
+            "confirmation_task_session_mismatch",
+            "confirmation_not_confirmed",
+            "confirmation_task_fingerprint_mismatch",
+            "confirmation_subject_fingerprint_mismatch",
+            "confirmation_typed_value_fingerprint_mismatch",
+            "confirmation_receipt_reference_mismatch",
+            "gratuitous_confirmation_ref",
+        ),
+        "blocker_codes": (
+            "confirmation_required",
+            "trusted_selection_required",
+            "privileged_authorization_required",
+            "policy_prohibited",
+            "policy_ambiguous",
+        ),
+    },
+    "unresolved_intent": {
+        "diagnostic_codes": (
+            "duplicate_unresolved_intent_id",
+            "duplicate_unresolved_semantic_key",
+            "stale_unresolved_intent",
+            "unresolved_assumption_conflict",
+            "unresolved_affected_clause_invalid",
+            "unresolved_goal_projection_unreachable",
+            "unresolved_value_schema_unknown",
+            "unresolved_unit_context_invalid",
+        ),
+        "blocker_codes": ("unresolved_intent",),
+    },
+    "shape": {
+        "diagnostic_codes": (
+            "duplicate_shape_id",
+            "retained_delegated_overlap",
+            "delegated_prohibited_overlap",
+            "unknown_authority_code",
+            "invalid_delegate_kind",
+            "shape_section_not_allowed",
+            "shape_statement_code_conflict",
+        ),
+        "blocker_codes": (),
+    },
+    "capabilities": {
+        "diagnostic_codes": (
+            "duplicate_capability_id",
+            "unknown_capability_code",
+            "capability_clause_kind_invalid",
+            "capability_support_missing",
+            "capability_support_reference_invalid",
+            "capability_registry_entry_missing",
+        ),
+        "blocker_codes": ("capability_unavailable",),
+    },
+    "worker_slots": {
+        "diagnostic_codes": (
+            "duplicate_worker_slot_id",
+            "unknown_worker_slot_code",
+            "worker_slot_link_mismatch",
+            "worker_slot_delegate_duplicate",
+            "worker_slot_schema_not_allowed",
+            "worker_slot_input_kind_not_allowed",
+            "worker_slot_input_reference_invalid",
+            "worker_slot_support_missing",
+            "worker_slot_support_reference_invalid",
+        ),
+        "blocker_codes": (),
+    },
+    "readiness": {
+        "diagnostic_codes": (),
+        "blocker_codes": (),
+    },
+}
 ```
 
-Populate the code lists with every stable diagnostic/blocker code that the
-phase can emit. All production issue construction calls
-`assert_registered_issue` before adding an issue to the ledger, so a code absent
-from the manifest cannot enter a report.
+All v1 diagnostics above have severity `error`; LM9A v1 emits no production
+warning or information code. Internal `jsonschema` validator keyword names are
+not public report codes: recipe/validation-input schema failures normalize to
+`schema_validation_failed`, while registered payload-schema boundary failures
+normalize to their exact `companion_artifacts` codes above.
+
+`RULESET_MANIFEST["phases"]` copies these exact tuples into phase rows alongside
+the phase algorithm version and implementation modules. Manifest self-validation
+rejects a missing phase, an extra phase, duplicate codes, a code listed
+under both classifications for one phase, or any drift from
+`RULESET_PHASE_CODES`.
 
 `RULESET_MODULES` contains exactly these production modules:
 
@@ -1636,6 +1894,40 @@ def test_malformed_raw_input_retains_raw_hash_and_null_computed_fingerprint():
     assert phase(report, "schema") == "failed"
 
 
+def test_orchestrator_rejects_unregistered_phase_issue_before_ledger_insert(monkeypatch):
+    recipe, validation_input = minimal_valid_contract()
+    monkeypatch.setitem(
+        PHASE_RUNNERS,
+        "assumptions",
+        lambda **_: PhaseIssues(
+            diagnostics=(diagnostic("assumptions", "invented_code"),)
+        ),
+    )
+    with pytest.raises(
+        RulesetIdentityError,
+        match="ruleset_issue_code_unregistered",
+    ):
+        validate_planner_graph_recipe(raw_recipe_bytes(recipe), validation_input)
+
+
+def test_orchestrator_rejects_wrong_issue_classification_before_ledger_insert(
+    monkeypatch,
+):
+    recipe, validation_input = minimal_valid_contract()
+    monkeypatch.setitem(
+        PHASE_RUNNERS,
+        "assumptions",
+        lambda **_: PhaseIssues(
+            blockers=(blocker("assumptions", "material_value_authority_missing"),)
+        ),
+    )
+    with pytest.raises(
+        RulesetIdentityError,
+        match="ruleset_issue_classification_mismatch",
+    ):
+        validate_planner_graph_recipe(raw_recipe_bytes(recipe), validation_input)
+
+
 ```
 
 Add these explicit report assertions:
@@ -1645,7 +1937,7 @@ Add these explicit report assertions:
 | wrong claimed recipe fingerprint plus dangling goal projection | `fingerprint` and `clause_graph` both fail |
 | malformed task envelope | `companion_artifacts=failed`; provenance and dependent phases `not_evaluated` |
 | confirmation blocker plus otherwise evaluable unresolved phase | `assumptions=blocked`; `unresolved_intent` evaluated |
-| injected warning only | `valid` and `compile_ready` unchanged |
+| every public v1 report | no warning/information diagnostics; Task 3 ledger tests separately prove their status semantics |
 | attempt to add identical issue as blocker and diagnostic | ledger raises `issue_classification_conflict` before report emission |
 | every valid/blocked report | top-level keys contain no compiler, worker request/output, executable, tool, or runtime receipt field |
 
@@ -1683,6 +1975,42 @@ dependencies are `passed` or `blocked`, and record `not_evaluated` for a phase
 with any failed/not-evaluated dependency without inventing speculative issues.
 The orchestrator retains the assumption-authorization tuple for unresolved and
 readiness phases and the semantic index for all semantic phases.
+
+`planner_graph_recipe_validate.py` is the only production insertion point for
+phase issues. Helpers return `PhaseIssues`; they never receive a
+`ValidationLedger`. Immediately before each ledger insertion, the orchestrator
+must validate the exact phase/code/classification tuple:
+
+```python
+def _insert_phase_issues(
+    ledger: ValidationLedger,
+    expected_phase: str,
+    issues: PhaseIssues,
+) -> None:
+    for issue in issues.diagnostics:
+        if issue.phase != expected_phase:
+            raise RulesetIdentityError("ruleset_issue_phase_mismatch")
+        assert_registered_issue(
+            expected_phase,
+            issue.code,
+            "diagnostic",
+            severity=issue.severity,
+        )
+        ledger.add_diagnostic(issue)
+    for issue in issues.blockers:
+        if issue.phase != expected_phase:
+            raise RulesetIdentityError("ruleset_issue_phase_mismatch")
+        assert_registered_issue(expected_phase, issue.code, "blocker")
+        ledger.add_blocker(issue)
+```
+
+Raw/schema, fingerprint, and companion phases use the same insertion function;
+there is no privileged path around the registry. `assert_registered_issue`
+raises `ruleset_issue_code_unregistered` when the phase/code pair is absent and
+`ruleset_issue_classification_mismatch` when the code exists for that phase
+under the other issue class. A v1 diagnostic severity other than `error` raises
+`ruleset_issue_severity_mismatch`. These are validator-integrity exceptions,
+not report diagnostics, and no report is emitted under an incomplete ruleset.
 
 Set:
 
@@ -1880,6 +2208,13 @@ phase not_evaluated propagation; issue-classification collision.
 
 Every parameter must assert exact `phase`, exact diagnostic or blocker `code`, `valid`, and `compile_ready`; do not assert only that validation failed.
 
+LM9A v1 has no separate revocation-registry companion. Trusted revocation is
+represented by withdrawing the receipt from the trusted companion channel while
+the recipe still cites it; the exact result is
+`assumptions / confirmation_receipt_missing`. Do not invent a
+`confirmation_receipt_revoked` report code or a new revocation artifact in this
+slice.
+
 - [ ] **Step 2: Add AST/source isolation guards**
 
 ```python
@@ -1959,6 +2294,16 @@ def test_lm9a_source_has_no_model_tool_or_compiler_emission():
         "subprocess.run",
     }
     assert called_names(PRODUCTION_MODULES).isdisjoint(forbidden_calls)
+
+
+def test_only_public_validator_inserts_production_phase_issues_into_ledger():
+    ledger_writes = {"ledger.add_diagnostic", "ledger.add_blocker"}
+    writers = {
+        path.name
+        for path in PRODUCTION_MODULES
+        if called_names((path,)) & ledger_writes
+    }
+    assert writers == {"planner_graph_recipe_validate.py"}
 ```
 
 Use AST visitors for imports and calls; use raw strings only for the fixture-ontology guard. Do not forbid words that appear legitimately in closed policy data or diagnostics.
