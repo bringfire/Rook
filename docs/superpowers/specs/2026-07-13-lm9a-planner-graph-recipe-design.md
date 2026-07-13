@@ -182,10 +182,10 @@ The recipe is Planner output and compiler input. The report is deterministic
 validator output. Neither artifact contains compiled operations.
 
 ```text
-deterministic task envelope
-+ declared authority companions
-+ validation-context companions
-+ raw recipe bytes
+untrusted Planner-authored raw recipe bytes
++ trusted host/ingress-assembled task envelope
++ trusted host/ingress-assembled authority companions
++ trusted host/ingress-assembled validation-context companions
 + sealed LM9A validation program
 -> validation invocation preflight
 -> recipe validator, only when preflight succeeds
@@ -206,13 +206,14 @@ slice.
 
 ### 4.1 Closed Validation Bundle
 
-Validation is invoked with exact raw recipe bytes plus exact raw bytes for one
-closed companion bundle:
+Validation is invoked internally with exact untrusted raw recipe bytes plus one
+trusted-host-issued carrier containing exact raw bytes for a closed companion
+bundle:
 
 ```text
 validate_planner_graph_recipe(
   raw_recipe_bytes: bytes,
-  raw_validation_bundle_bytes: bytes,
+  trusted_validation_bundle: TrustedValidationBundleInput,
 )
 ```
 
@@ -240,14 +241,40 @@ validation_context:
     semantic_value_schemas: {}
 ```
 
-Both artifact arguments are exact built-in `bytes`; no caller-owned `Mapping`
-or parsed Python object is accepted. The trusted application supplies the
-already sealed LM9A program as a separate invocation authority. Before scanning,
-copying, or hashing either byte argument, the kernel checks both lengths against
-`rook.validation_budget:lm9a_v1`. If either is over limit, invocation stops and
-neither raw hash is claimed. Admitted inputs are copied, hashed, and bounded-
-parsed into owned transitively immutable values. The complete bundle and every
-companion payload are supplied in full, not by excerpt.
+The recipe bytes and `TrustedValidationBundleInput.raw_bytes` are exact built-in
+`bytes`; no caller-owned `Mapping` or parsed Python object is accepted. The
+carrier is a transitively immutable kernel type issued only by trusted ingress
+or deterministic fixture assembly and records this invocation-only identity:
+
+```yaml
+assembler_kind: trusted_host_ingress | deterministic_fixture
+assembler_id: ...
+assembler_version: ...
+assembler_fingerprint: sha256:...
+```
+
+These fields are not parsed from the bundle and cannot be self-asserted by the
+Planner or a future endpoint client. The trusted application supplies the
+already sealed LM9A program as a separate invocation authority. A future public
+endpoint accepts an untrusted task/recipe request and builds the validation
+bundle internally from authenticated sessions, trusted registries, policy, and
+receipts; it never forwards client-selected bundle bytes into this carrier.
+
+Both underlying byte artifacts still receive identical hostile-input defenses.
+Before scanning, copying, or hashing either, the kernel checks both lengths
+against `rook.validation_budget:lm9a_v1`. If either is over limit, invocation
+stops and neither raw hash is claimed. Admitted inputs are copied, hashed, and
+bounded-parsed into owned transitively immutable values. Trust in the assembler
+authorizes the bundle's role as authority context; it does not assert that its
+contents are well formed, fresh, mutually consistent, or schema valid. The
+complete bundle and every companion payload are supplied in full, not by
+excerpt.
+
+LM9A tests use an explicitly trusted `deterministic_fixture` assembler whose
+identity and source fingerprint are fixed. It emits the same closed bundle
+schema and passes companions through the same production authority-resolution
+and validation path. It has no shortcut for manufacturing a valid companion,
+confirmation, policy match, or session result.
 
 The report binds both the exact raw bundle hash and its canonical owned-value
 fingerprint:
@@ -1562,22 +1589,32 @@ before semantic phase evaluation or report assembly and checks, in this exact
 precedence order:
 
 1. one `SealedValidationProgram` resolves with exact manifest/runtime bindings;
-2. both artifact arguments are exact built-in `bytes` values;
-3. both byte lengths are at or below the sealed inclusive limits;
-4. both admitted inputs are copied and their exact SHA-256 hashes are computed;
-5. the validation bundle parses into one owned immutable value;
-6. every mandatory report-constructability shell from Section 4.1 exists with
+2. the recipe is exact built-in `bytes` and the bundle is a valid trusted-host-
+   issued `TrustedValidationBundleInput` whose `raw_bytes` is exact built-in
+   `bytes`;
+3. the assembler kind, ID, version, and source fingerprint are captured from the
+   carrier and match a trusted ingress or deterministic fixture profile;
+4. both byte lengths are at or below the sealed inclusive limits;
+5. both admitted inputs are copied and their exact SHA-256 hashes are computed;
+6. the validation bundle parses into one owned immutable value;
+7. every mandatory report-constructability shell from Section 4.1 exists with
    the required container type;
-7. the owned bundle contains valid trusted `evaluated_at`,
+8. the owned bundle contains valid trusted `evaluated_at`,
    `trusted_clock_source`, `task_session_id`, nullable
    `environment_session_id`, and `capability_registry_session_id` values; and
-8. recipe parsing yields either an owned immutable value or one bounded schema-
+9. recipe parsing yields either an owned immutable value or one bounded schema-
    phase failure under the same `rook.validation_budget:lm9a_v1` ledger.
 
 `evaluated_at` uses the closed UTC RFC 3339 timestamp schema already used by
 LM9A companions. `trusted_clock_source` is exactly `deterministic_fixture` in
 tests or `trusted_system_clock` in production. Session values use the LM9A
 machine-identifier grammar; only `environment_session_id` may be `null`.
+`deterministic_fixture` requires an assembler of the same kind;
+`trusted_system_clock` requires `trusted_host_ingress`. The assembler ID and
+version use the machine-identifier grammar, and its fingerprint uses the exact
+lowercase `sha256:<hex>` form. ID and version are each limited to 128 ASCII
+characters. None of these values may be replaced by parsed bundle content after
+capture.
 
 Unknown or extra validation-bundle fields do not fail preflight when the
 constructability envelope and trusted context projection above are intact. They
@@ -1586,7 +1623,7 @@ inside a present mandatory shell likewise remains reportable. A missing or
 wrong-container mandatory shell does not: the validator could not populate the
 closed report shape truthfully, so invocation stops before report construction.
 
-The public invocation boundary has this closed non-artifact control result:
+The kernel invocation boundary has this closed non-artifact control result:
 
 ```yaml
 kind: invocation_failure
@@ -1632,13 +1669,17 @@ during phase evaluation or report assembly uses `failure_stage: validation`.
 The stable external code and closed metadata identify the boundary without
 promoting every parser or schema branch into a permanent public code.
 
-The public validator returns either a conforming
+The internal validator returns either a conforming
 `rook.planner_graph_recipe_validation_report:v1` or this typed invocation
 failure. Missing/invalid trusted validation context and unavailable validator
 identity are always invocation failures. Raw byte-cap failure occurs before
 hashing and is always an invocation failure. After byte admission and bundle
 constructability, recipe syntax, UTF-8, Unicode, local depth/width/token/number,
 and product-schema failures may remain ordinary schema-phase report outcomes.
+Invocation-wide parsed-node, decoded-string, or tokenizer/parser-work exhaustion
+is always a `preflight` failure with `artifact_role: combined`, including when
+the crossing occurs while parsing the recipe after a constructable bundle. It
+cannot be recast as a recipe-local schema diagnostic.
 
 After preflight, a ruleset/code/classification integrity assertion prevents
 report issuance and becomes `validation / validator_integrity_failure` at the
@@ -1646,7 +1687,7 @@ public boundary. Any other caught validator implementation exception likewise
 becomes `validation / validator_internal_failure`; the control result contains
 only a stable bounded message, never exception text. Unit-level integrity
 helpers may raise their typed exceptions so tests can prove the exact fault,
-but those exceptions cannot escape the public invocation boundary or be
+but those exceptions cannot escape the kernel invocation boundary or be
 mistaken for semantic validation outcomes.
 
 The complete earliest-honest-result matrix is:
@@ -1654,9 +1695,10 @@ The complete earliest-honest-result matrix is:
 | Failure location | Public result |
 |---|---|
 | sealed program identity or runtime bindings cannot be established | preflight invocation failure |
-| either raw input is not exact bytes | preflight invocation failure with no raw hashes |
+| recipe is not exact bytes, or bundle carrier/assembler binding is untrusted or malformed | preflight invocation failure with no raw hashes |
 | either raw input exceeds its byte cap | preflight invocation failure with bounded length evidence and no raw hashes |
 | admitted validation-bundle bytes cannot be parsed | preflight invocation failure |
+| invocation-wide parsed-node, decoded-string, or parser-work budget is exhausted at either parse stage | combined preflight invocation failure |
 | fixed validation budget is exceeded before report completion | preflight or validation invocation failure, according to exhaustion stage |
 | mandatory report descriptor shell is missing or has the wrong container type | preflight invocation failure |
 | ruleset integrity assertion or validator implementation fault before report completion | validation invocation failure |
@@ -1696,6 +1738,11 @@ validation_budget:
   observed: {}
 
 validation_context:
+  bundle_assembler:
+    assembler_kind: trusted_host_ingress | deterministic_fixture
+    assembler_id: ...
+    assembler_version: ...
+    assembler_fingerprint: sha256:...
   evaluated_at: ...
   trusted_clock_source: ...
   task_session_id: ...
@@ -2049,6 +2096,12 @@ validation_budget:
 validation_bundle_input_payload_sha256: sha256:...
 validation_bundle_fingerprint: sha256:...
 
+bundle_assembler:
+  assembler_kind: trusted_host_ingress | deterministic_fixture
+  assembler_id: ...
+  assembler_version: ...
+  assembler_fingerprint: sha256:...
+
 evaluated_at: ...
 trusted_clock_source: ...
 task_session_id: ...
@@ -2106,9 +2159,12 @@ Validation-context artifact projections contain their discriminator and omit
 and `registry_session_id`. Vocabulary projections contain `descriptor_kind`,
 `schema`, `vocabulary_version`, `recipe_binding_paths`, and all three applicable
 fingerprints. The validator identity, budget profile/limits identity, raw
-validation-bundle hash, and canonical bundle fingerprint are copied exactly
-from the report header. Observed budget consumption is report evidence but not
-part of the validation-context projection.
+validation-bundle hash, canonical bundle fingerprint, and trusted invocation
+assembler identity are copied exactly from the report's sealed identity and
+invocation-context fields. The assembler
+identity comes from the host-issued carrier, never the parsed bundle. Observed
+budget consumption is report evidence but not part of the validation-context
+projection.
 
 The projection excludes derived descriptor fields `session_status`,
 `freshness_status`, `validation_status`, and `entry_count`. It excludes the raw
@@ -2123,6 +2179,11 @@ ordering in Section 9 and is canonicalized with
 input remains an explicit `null`, so invalid contexts still receive stable
 context identities when a conforming report can otherwise be issued.
 
+Identical bundle bytes admitted through a different trusted assembler preserve
+the raw bundle hash and canonical bundle fingerprint but move the validation-
+context and report fingerprints. Principal identity is therefore auditable
+without pretending it changes the bundle payload itself.
+
 ### 8.4 Valid And Compile-Ready
 
 Both statuses are derived:
@@ -2133,11 +2194,36 @@ valid = no error diagnostics
 compile_ready =
   valid
   and no compile blockers
+  and every phase in report_projection.required_for_compile_phases
+      has status == passed
 ```
 
 Diagnostics have closed severity values `error`, `warning`, and `information`.
 Warnings and informational diagnostics do not affect `valid`. Each issue is
 either a diagnostic or a compile blocker, never both.
+
+For `lm9a.planner_graph_recipe:v1`, the sealed report projection owns this exact
+set-like allowlist:
+
+```text
+schema
+fingerprint
+companion_artifacts
+provenance
+clause_graph
+derived_facts
+assumptions
+unresolved_intent
+shape
+capabilities
+worker_slots
+```
+
+The program seal validates these names against the phase manifest and
+fingerprints the normalized allowlist as report-projection material. No phase
+runner may alter it. A future phase is optional for compilation only when a
+reviewed projection deliberately omits it; mere absence of a diagnostic or
+blocker cannot make an unevaluated required phase compile-ready.
 
 `compile_ready=true` means the validated contract may enter bounded intelligent
 compile. It does not guarantee that compilation, semantic review, authorization,
@@ -2175,9 +2261,9 @@ on any other status is forbidden.
 | `provenance` | `companion_artifacts` | `schema.parsed_recipe`; `companion_artifacts.companion_index` | `recipe_semantic_index` `[passed, blocked]` |
 | `clause_graph` | `provenance` | `schema.parsed_recipe`; `companion_artifacts.companion_index` | `clause_index` `[passed, blocked]` |
 | `derived_facts` | `clause_graph` | `companion_artifacts.companion_index`; `provenance.recipe_semantic_index`; `clause_graph.clause_index` | `derived_fact_resolution` `[passed, blocked]` |
-| `assumptions` | `derived_facts` | `companion_artifacts.companion_index`; `provenance.recipe_semantic_index`; `clause_graph.clause_index`; `derived_facts.derived_fact_resolution` | `assumption_resolution` `[passed, blocked]` |
+| `assumptions` | `derived_facts` | `schema.parsed_recipe`; `companion_artifacts.companion_index`; `provenance.recipe_semantic_index`; `clause_graph.clause_index`; `derived_facts.derived_fact_resolution` | `assumption_resolution` `[passed, blocked]` |
 | `unresolved_intent` | `assumptions` | `companion_artifacts.companion_index`; `provenance.recipe_semantic_index`; `clause_graph.clause_index`; `assumptions.assumption_resolution` | `unresolved_intent_resolution` `[passed, blocked]` |
-| `shape` | `unresolved_intent` | `provenance.recipe_semantic_index`; `clause_graph.clause_index` | `shape_resolution` `[passed, blocked]` |
+| `shape` | `unresolved_intent` | `companion_artifacts.companion_index`; `provenance.recipe_semantic_index`; `clause_graph.clause_index` | `shape_resolution` `[passed, blocked]` |
 | `capabilities` | `shape` | `companion_artifacts.companion_index`; `provenance.recipe_semantic_index`; `clause_graph.clause_index`; `shape.shape_resolution` | `capability_resolution` `[passed, blocked]` |
 | `worker_slots` | `capabilities` | `companion_artifacts.companion_index`; `provenance.recipe_semantic_index`; `clause_graph.clause_index`; `shape.shape_resolution` | `worker_slot_resolution` `[passed, blocked]` |
 
@@ -2199,6 +2285,13 @@ diagnostics. Recipe parse/schema failure likewise does not suppress
 `companion_artifacts`. Both can fail in one report; phases requiring unavailable
 indexes become `not_evaluated`. `provenance` cannot run without both a schema-
 valid recipe and an accepted companion index.
+
+`assumptions` binds `schema.parsed_recipe` directly because confirmation-subject
+projection covers the complete canonical recipe; it cannot recover that input
+through `RecipeSemanticIndex`. `shape` binds
+`companion_artifacts.companion_index` directly because authority-vocabulary
+identity, fingerprint, and entries are companion evidence; it cannot infer them
+from prose or an index built for another phase.
 
 There is deliberately no semantic `readiness` runner. `valid` and
 `compile_ready` are deterministic report projections over accepted phase issues
@@ -2733,6 +2826,12 @@ logic.
 Tests inject trusted validation time:
 
 ```yaml
+bundle_assembler:
+  assembler_kind: deterministic_fixture
+  assembler_id: lm9a.fixture_assembler
+  assembler_version: v1
+  assembler_fingerprint: sha256:...
+
 validation_context:
   evaluated_at: 2026-07-12T12:00:00Z
   trusted_clock_source: deterministic_fixture
@@ -2770,6 +2869,31 @@ Both fixtures use the deterministic validation clock and closed generic
 vocabularies. Neither fixture adds a model, worker execution, confirmation UI,
 compiler, or runtime behavior to LM9A.
 
+### 11.6 Sealed-Program Budget Feasibility Campaign
+
+LM9A release conformance runs against one exact sealed semantic-program
+fingerprint. It records schema-evaluation shape units for:
+
+- at least one valid positive instance of every registered core schema;
+- radial ready;
+- radial unresolved;
+- non-radial layer control;
+- confirmed assumption; and
+- valid declared-but-uninstantiated worker slot.
+
+Every record binds the exact program fingerprint, schema and instance or fixture
+fingerprints, deterministic fixture-assembler fingerprint, observed per-
+evaluation units, and aggregate invocation units. Every core-schema instance
+must fit its applicable per-evaluation bound, and every named fixture invocation
+must fit the shared 16,000,000-unit schema-shape cap.
+
+This requirement does not promise that every maximum-size syntactically
+admissible input succeeds; aggregate budget rejection remains valid. It proves
+that the actual LM9A program and mandatory conformance campaign are usable.
+Changing a core schema, fixture, or fixture assembler invalidates prior release
+evidence. A changed case that exceeds either cap fails the release gate; it does
+not justify silently increasing the profile.
+
 ## 12. Deterministic Proof Targets
 
 ### 12.1 Positive Proofs
@@ -2794,13 +2918,24 @@ LM9A must prove:
 - an unsealed builder, mutable registry, or missing/extra runtime binding cannot
   enter validation, and replacing a registry after seal cannot change the
   callable already selected for an invocation;
-- both public inputs are raw bytes and no mutable caller object graph can enter
-  semantic validation;
+- both underlying artifacts enter as raw bytes and no mutable caller object
+  graph can enter semantic validation;
+- the recipe bytes are untrusted Planner output, while only trusted host ingress
+  or the explicit deterministic fixture assembler may create the validation-
+  bundle carrier; assembler identity cannot be supplied by bundle JSON;
+- a simulated public endpoint cannot promote client-selected bundle bytes or a
+  self-asserted assembler descriptor into authority context;
 - byte caps are checked before copying or hashing either input; exact-cap inputs
   are hashed, while any over-cap admission failure reports bounded lengths and
   `null` raw hashes;
 - every exact and limit-plus-one kernel budget boundary is proven by the kernel
   suite before LM9A semantic tests run;
+- local admitted-recipe depth/width/token/number failures produce schema
+  evidence, while shared node/string/parser-work exhaustion produces a combined
+  preflight invocation failure even when the recipe crosses the limit;
+- each registered core schema positive instance and all five named semantic
+  fixture cases record schema-shape units against the exact
+  program/case/assembler fingerprints and pass the sealed-program release gate;
 - report sealing reserves one fixed fingerprinted allowance, runners cannot
   author work counts, and repeated sealing does not change the frozen budget
   receipt;
@@ -2818,6 +2953,8 @@ LM9A must prove:
 - a schema-failed recipe leaves `provenance=not_evaluated`;
 - the exact named phase bindings derive the execution DAG with no second
   dependency map;
+- `assumptions` directly binds `schema.parsed_recipe`, and `shape` directly binds
+  `companion_artifacts.companion_index`;
 - a passed or blocked provider supplies every output required for that status;
   omission, extra output, wrong cardinality, wrong type, or mutable output
   produces `validator_integrity_failure`, never ordinary downstream
@@ -2847,6 +2984,8 @@ LM9A must prove:
   worker request;
 - the focused confirmation fixture recomputes the subject fingerprint, validates
   the trusted receipt, derives `confirmed`, and reaches `compile_ready=true`;
+- every phase in the report projection's exact required-for-compile set is
+  `passed` for each compile-ready fixture;
 - adding an eligible confirmation reference and its exact receipt descriptor
   changes the recipe fingerprint but leaves the confirmation-subject fingerprint
   unchanged, while changing semantic or cited-policy material moves both;
@@ -2898,8 +3037,8 @@ Focused negative fixtures cover at least:
 - mismatch among recipe-claimed, companion-claimed, and computed companion
   fingerprints, including a registry or vocabulary mismatch;
 - validation-context fingerprint mismatch and context-fingerprint movement when
-  the validation-bundle fingerprint, trusted validation time, session identity,
-  registry identity, registry
+  the validation-bundle fingerprint, trusted bundle-assembler identity, trusted
+  validation time, session identity, registry identity, registry
   content, vocabulary content, validator ruleset, canonicalization version, or
   companion fingerprint evidence changes;
 - source coverage borrowed from siblings, goal, or arbitrary graph reachability;
@@ -2930,6 +3069,9 @@ Focused negative fixtures cover at least:
 - recipe fingerprint mismatch;
 - malformed input with `computed_recipe_fingerprint: null`;
 - deterministic phase `not_evaluated` propagation;
+- a required-for-compile phase that is `not_evaluated` with no issue still
+  forcing `compile_ready=false`, while an explicitly optional synthetic phase
+  does not affect the result;
 - the same issue appearing in both diagnostics and blockers;
 - value `2` produces `confirmation_required`, `valid=true`, and
   `compile_ready=false` when no applicable allow rule or prohibition remains;

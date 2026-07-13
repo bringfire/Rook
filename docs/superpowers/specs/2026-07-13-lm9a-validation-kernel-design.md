@@ -33,11 +33,12 @@ program. No registry remains open during an invocation.
 
 The controlled kernel claim is:
 
-> Two bounded raw JSON artifacts can be parsed into owned transitively
-> immutable values, evaluated by one sealed declarative validation program
-> under fixed kernel-controlled limits and trusted fingerprinted rule code, and
-> reduced to a deterministic report without retaining mutable caller state or
-> duplicating phase authority.
+> One untrusted bounded raw recipe artifact and one trusted-host-assembled
+> bounded validation bundle can be parsed into owned transitively immutable
+> values, evaluated by one sealed declarative validation program under fixed
+> kernel-controlled limits and trusted fingerprinted rule code, and reduced to
+> a deterministic report without retaining mutable caller state or duplicating
+> phase authority.
 
 ## 2. Sealed Validation Program
 
@@ -79,7 +80,9 @@ phases: []
 runners: []
 issue_vocabulary: []
 export_types: []
-report_projection: {}
+report_projection:
+  projection_id: ...
+  required_for_compile_phases: []
 
 implementation_sources: []
 runtime_dependencies: []
@@ -88,11 +91,14 @@ program_fingerprint: sha256:...
 
 `report_projection` is itself closed and names one projection ID, implementation
 fingerprint, output schema ID/fingerprint, report-fingerprint field and
-exclusion rule, and the exact immutable input envelope it consumes. That input
-envelope is limited to captured program identity, admitted invocation evidence,
-the frozen budget receipt, ordered phase specifications, and accepted immutable
-phase results. A projection cannot request an ambient registry or arbitrary
-callable.
+exclusion rule, the exact immutable input envelope it consumes, and the exact
+set-like `required_for_compile_phases` allowlist. That input envelope is limited
+to captured program identity, admitted invocation evidence, the frozen budget
+receipt, ordered phase specifications, and accepted immutable phase results. A
+projection cannot request an ambient registry or arbitrary callable. Program
+sealing rejects an unknown or duplicate required phase name. The allowlist is
+normalized by exact `phase_name` under RFC 8785 UTF-16 code-unit ordering before
+program fingerprinting.
 
 Program sealing has a deliberately smaller trust bootstrap. The fixed kernel
 composition code owns `rook.validation_program_seal:v1`, the manifest schema,
@@ -156,7 +162,7 @@ dataflow, binding, and fingerprint checks pass. The mutable builder and sealed
 program are different runtime types; `seal()` consumes the builder state, and
 the builder exposes no method that can reopen or mutate the returned program.
 
-The public validator accepts a `SealedValidationProgram` created by the trusted
+The kernel validator accepts a `SealedValidationProgram` created by the trusted
 composition path. It rejects an unsealed builder, a mutable registry, or a
 program whose manifest/runtime binding check fails. The program reference and
 fingerprint are captured once in the immutable invocation and used through
@@ -168,37 +174,87 @@ interpreter remains outside the trusted in-process boundary stated in Section
 
 ## 3. Invocation Trust Boundary
 
-The formal validation entrypoint is:
+The formal internal validation entrypoint is:
 
 ```text
 validate_artifacts(
   program: SealedValidationProgram,
   raw_recipe_bytes: bytes,
-  raw_validation_bundle_bytes: bytes,
+  trusted_validation_bundle: TrustedValidationBundleInput,
 )
 ```
 
-The trusted application composition path supplies `program`; an artifact caller
-controls only the two byte strings. The entrypoint rejects a builder, mutable
-manifest, unsealed contribution, or fingerprint-inconsistent program before it
-examines either artifact. It captures the sealed program object and fingerprint
+The two artifact principals are intentionally different:
+
+```text
+raw_recipe_bytes
+  untrusted Planner-authored artifact
+
+trusted_validation_bundle.raw_bytes
+  authority context assembled by a trusted host/ingress principal
+```
+
+`TrustedValidationBundleInput` is a kernel-owned, transitively immutable carrier
+containing exact built-in `bytes` plus a trusted assembler identity:
+
+```yaml
+assembler_kind: trusted_host_ingress | deterministic_fixture
+assembler_id: ...
+assembler_version: ...
+assembler_fingerprint: sha256:...
+```
+
+The carrier constructor is available only to trusted application composition
+and deterministic fixture assembly code. These fields come from the invocation
+principal, never from JSON inside the bundle, and the kernel captures them once
+for validation-context evidence. This is an in-process trust boundary, not a
+claim that a Python class authenticates its creator. Code able to forge trusted
+kernel carriers is already inside the trusted host boundary.
+
+`assembler_id` and `assembler_version` are ASCII machine identifiers of at most
+128 characters each. `assembler_kind` is the closed enum above and
+`assembler_fingerprint` is exactly `sha256:` plus 64 lowercase hexadecimal
+characters. Invalid carrier metadata fails preflight before either artifact is
+copied or hashed.
+
+A future public endpoint may accept an untrusted recipe or task request, but it
+must assemble the validation bundle internally from authenticated sessions,
+trusted registries, policies, and companion receipts. It must never expose
+`raw_validation_bundle_bytes` as a client-controlled authority argument. Tests
+use an explicitly trusted deterministic fixture assembler whose exact identity
+and source fingerprint are recorded. Fixture assembly follows the same bundle
+schema, companion validation, and authority-resolution path as production; it
+does not bypass semantic checks.
+
+Both underlying byte strings receive identical hostile-input parsing defenses.
+Trust in bundle assembly establishes which principal selected the authority
+context; it does not assert that the bytes are well formed, internally
+consistent, fresh, or schema valid.
+
+The trusted application composition path supplies `program`; the artifact
+caller controls only `raw_recipe_bytes`. The entrypoint rejects a builder,
+mutable manifest, unsealed contribution, fingerprint-inconsistent program, or
+untrusted/malformed bundle carrier before it examines either artifact. It
+captures the sealed program object, program fingerprint, and assembler identity
 once. No phase may replace them.
 
-The byte arguments must be exact built-in `bytes` values. A caller cannot pass a
-`Mapping`, custom container, parsed JSON graph, phase index, registry, budget, or
-report projection.
+The recipe argument and `TrustedValidationBundleInput.raw_bytes` must be exact
+built-in `bytes` values. A caller cannot pass a `Mapping`, custom container,
+parsed JSON graph, phase index, registry, budget, report projection, or
+self-asserted assembler descriptor.
 
 Byte admission has this exact order:
 
 ```text
-1. check both argument types
-2. read both byte lengths without scanning content
-3. compare both lengths to the sealed budget manifest
-4. if either is over limit, stop without copying or hashing either input
-5. otherwise copy and hash both admitted byte strings exactly once
-6. parse the validation bundle
-7. establish report constructability and trusted context
-8. parse the recipe
+1. validate the sealed program and trusted bundle-carrier type/assembler binding
+2. check both underlying artifact values are exact built-in `bytes`
+3. read both byte lengths without scanning content
+4. compare both lengths to the sealed budget manifest
+5. if either is over limit, stop without copying or hashing either input
+6. otherwise copy and hash both admitted byte strings exactly once
+7. parse the validation bundle
+8. establish report constructability and trusted context
+9. parse the recipe
 ```
 
 An over-limit control result records each observed byte length, the applicable
@@ -242,6 +298,7 @@ orders have different raw-byte hashes but the same canonical value fingerprint.
 | members in one object | 16,384 |
 | items in one array | 16,384 |
 | aggregate decoded UTF-8 string bytes across keys and values | 2,097,152 |
+| aggregate tokenizer/parser work units across both artifacts | 500,000 |
 | registered semantic references | 25,000 |
 | aggregate schema-evaluation shape units | 16,000,000 |
 | diagnostics | 1,024 |
@@ -269,8 +326,9 @@ Accounting for kernel-controlled work is normative:
   never refunds that reservation;
 - each issue is charged before insertion, including an issue later rejected as
   duplicate or unauthorized;
-- lexical work charges one unit per token;
-- parse work charges one unit per node and per member/item attachment;
+- tokenizer/parser work charges one unit per started 64-byte raw-input block,
+  one unit per token, one unit per node, and one unit per member/item attachment;
+  this invocation-wide counter spans the bundle and recipe and is never refunded;
 - graph and identity helpers charge one unit per node, edge, insertion, or
   lookup they expose;
 - sorting `n` set-like items reserves
@@ -359,6 +417,7 @@ observed:
   maximum_object_members: 0
   maximum_array_items: 0
   decoded_string_bytes: 0
+  parser_work_units: 0
   semantic_references: 0
   schema_evaluation_shape_units: 0
   diagnostics: 0
@@ -392,7 +451,8 @@ recipe_input_payload_sha256: sha256:... | null
 validation_bundle_input_payload_sha256: sha256:... | null
 budget_dimension: input_bytes | container_depth | number_token_chars |
                   parsed_nodes | object_members | array_items |
-                  decoded_string_bytes | semantic_references |
+                  decoded_string_bytes | parser_work_units |
+                  semantic_references |
                   schema_evaluation_shape_units |
                   diagnostics | compile_blockers | kernel_phase_work_units |
                   report_canonical_bytes | report_projection_fields |
@@ -405,10 +465,18 @@ message: bounded text
 
 `observed_lower_bound` is the first value known to exceed the limit; validation
 does not continue to compute a larger total. Oversized raw bytes fail during
-admission with no raw hash. A bounded recipe parse failure may become schema
-evidence when the already parsed bundle is constructable. A validation-bundle,
-phase-engine, or report-seal exhaustion produces an invocation failure because
-the complete semantic report cannot be constructed. No path publishes a
+admission with no raw hash. After admission, a recipe-local depth, object-width,
+array-width, number-token, numeric-domain, UTF-8, Unicode, or JSON-syntax failure
+may become schema evidence when the already parsed bundle is constructable.
+There is no second recipe-local byte limit after admission.
+
+The `parsed_nodes`, `decoded_string_bytes`, and `parser_work_units` limits are
+invocation-wide across both artifacts. Exhausting any of them at either parse
+stage is therefore a `preflight / validation_budget_exceeded` invocation failure
+with `artifact_role: combined`, even when the first artifact had already become
+constructable. It never becomes recipe-local schema evidence. Validation-bundle,
+phase-engine, or report-seal exhaustion likewise produces an invocation failure
+because the complete semantic report cannot be constructed. No path publishes a
 partial report.
 
 Every inclusive and limit-plus-one boundary has a deterministic proof.
@@ -547,9 +615,52 @@ program fingerprint.
 The applicable per-evaluation bounds and the invocation-wide 16,000,000-unit
 schema-shape counter are reserved before evaluation. They bound accepted problem
 shape; they are not misrepresented as instruction counters for the schema
-library. These profiles are sufficient for LM9A schemas and fixture payloads. A
-need for richer behavior requires a reviewed profile version, not an ad hoc
-keyword exception.
+library. A need for richer behavior requires a reviewed profile version, not an
+ad hoc keyword exception.
+
+### 7.1 Sealed-Program Feasibility Release Gate
+
+The kernel does not claim that every syntactically admissible maximum-size
+schema/instance combination must fit the aggregate invocation cap. Aggregate
+budget rejection is a valid bounded outcome. It does require positive evidence
+that the exact sealed program and its required conformance campaign are usable.
+
+A sealed program is deployable only when a deterministic release gate passes
+against that exact `program_fingerprint`. The gate records, for every case:
+
+```yaml
+program_fingerprint: sha256:...
+case_id: ...
+case_kind: core_schema_positive | semantic_fixture
+schema_id: ... | null
+schema_fingerprint: sha256:... | null
+instance_or_fixture_fingerprint: sha256:...
+trusted_assembler_fingerprint: sha256:... | null
+observed_schema_evaluation_shape_units: 0
+aggregate_schema_evaluation_shape_units: 0
+within_per_evaluation_limit: true
+within_invocation_limit: true
+```
+
+This is build/release conformance evidence, not a validation input, semantic
+authority artifact, or field in the program fingerprint. It is keyed to the
+program and exact case fingerprints, so changing a registered schema, fixture,
+or trusted fixture assembler invalidates the prior evidence and reruns the gate.
+The kernel meter authors the observed counts and derives both booleans; a fixture
+or semantic contribution cannot submit those values as claims.
+
+The gate requires:
+
+- at least one valid positive conformance instance for every registered core
+  schema within that schema evaluation's exact limit;
+- every required semantic campaign fixture to complete under the invocation-wide
+  schema-shape cap using the exact sealed program; and
+- observed per-evaluation and aggregate shape units for every case.
+
+A registered core schema with no fitting positive instance, or a required
+fixture that exceeds either bound, fails release. The semantic contribution
+names its required campaign cases; the kernel provides the meter and verifies
+that every recorded schema/fixture/program fingerprint is exact.
 
 ## 8. Report-Constructability Preflight
 
@@ -561,6 +672,8 @@ inside present shells remains reportable companion evidence.
 Preflight establishes:
 
 - sealed program identity and exact runtime bindings;
+- trusted validation-bundle assembler identity captured from the host-issued
+  carrier rather than parsed bundle content;
 - raw hashes for both admitted inputs;
 - the complete immutable bundle and canonical fingerprint;
 - either an immutable recipe or bounded recipe parse evidence for `schema`;
@@ -569,7 +682,8 @@ Preflight establishes:
 - trusted validation time and session projection.
 
 Only this immutable `ValidationInvocation` enters the phase engine. It retains
-the sealed program and no caller-owned value.
+the sealed program, trusted assembler identity, and owned artifact values, with
+no caller-owned value.
 
 ## 9. Typed Phase Program And Exact Dataflow
 
@@ -749,6 +863,13 @@ validation-context identity, and report fingerprint. It never calls a runner,
 rereads bytes, performs registry discovery, or reconstructs authority from
 prose.
 
+`compile_ready` is true only when `valid` is true, no compile blocker exists,
+and every phase named by the projection's sealed
+`required_for_compile_phases` set has status `passed`. Phase completeness is
+therefore explicit program identity, not an accidental consequence of the
+current DAG. A future optional phase affects readiness only when the sealed
+projection deliberately includes it.
+
 The report includes `program_id`, `program_fingerprint`, and the exact component
 identities required by the semantic report schema. Component fingerprints are
 diagnostic provenance; the sealed program fingerprint is the executable
@@ -786,15 +907,28 @@ The kernel proof suite includes:
   ordering edge, or report projection changes;
 - replacing a builder, registry, or plugin map after seal cannot alter the
   callable binding selected for an invocation;
+- the Planner recipe remains the only untrusted artifact argument, while a
+  trusted host or explicit deterministic fixture assembler creates the bundle
+  carrier and its captured identity cannot be supplied from bundle JSON;
+- a public endpoint cannot forward client-selected validation-bundle bytes into
+  the trusted carrier path;
 - input byte limit checks occur before copying or hashing, exact-limit inputs are
   accepted, and over-limit failures contain no raw-input hash;
 - exact and limit-plus-one cases cover every kernel-controlled dimension;
+- recipe-local parse failures become schema evidence only for local dimensions,
+  while aggregate node, decoded-string, or parser-work exhaustion returns one
+  combined preflight invocation failure even when it occurs during recipe parse;
 - wide-shallow, deep-narrow, aggregate node/string/reference, and report-size
   amplification are bounded;
 - the restricted schema profile rejects every forbidden keyword, remote or
   dynamic reference, cycle, and complexity-limit excess before evaluation;
 - schema evaluator package, metaschema, profile, and core schema changes move
   the program fingerprint;
+- every registered core schema has a fitting positive instance, every required
+  semantic fixture fits the aggregate schema-shape cap, and release-gate records
+  bind observed units to the exact program/schema/fixture/assembler fingerprints;
+- changing a schema or required fixture so that it no longer fits fails the
+  release gate rather than weakening a budget;
 - malformed bundle bytes produce no semantic report;
 - malformed admitted recipe plus constructable bundle produces schema evidence;
 - malformed recipe plus malformed companion content receipts both independent
@@ -814,6 +948,9 @@ The kernel proof suite includes:
 - program sealing proves the fixed allowance can cover the budget profile's
   maximum report projection and two maximum-size canonical traversals;
 - report seal work/size overflow publishes no report;
+- `compile_ready` remains false when any projection-owned required phase is not
+  `passed`, even if no diagnostic or blocker was emitted; an explicitly optional
+  synthetic phase does not affect it;
 - repeated runs over identical admitted bytes, sealed program, and trusted
   context produce identical reports.
 
