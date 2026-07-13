@@ -6,7 +6,7 @@
 
 **Architecture:** Add a new LM9A-only validation stack beside the existing Planner/worker and workflow-contract code. Raw bytes enter through a strict parser, closed JSON Schemas establish structure, exact RFC 8785 canonicalization establishes identity, phase-specific validators establish authority and readiness, and one orchestrator emits the closed report. The implementation must not compile, schedule, execute, call tools, or mutate the existing Planner/worker protocols.
 
-**Tech Stack:** Python 3.10+, stdlib `json`/`hashlib`/`decimal`/`unicodedata`, `jsonschema` Draft 2020-12 validation (the already-locked `4.26.0` package promoted to a direct dependency), `pytest`.
+**Tech Stack:** Python 3.10+, stdlib `json`/`hashlib`/`decimal`/`unicodedata`, `jsonschema` Draft 2020-12 validation and its `referencing` registry boundary (the already-locked `4.26.0` and `0.37.0` packages promoted to direct dependencies), `pytest`.
 
 ## Global Constraints
 
@@ -15,9 +15,10 @@
 - No Planner model, worker model, provider routing, prompt rendering, tool call, `gh_edit`, Rhino/Grasshopper process, compiler, semantic-review gateway, executor, or live run.
 - The validator emits one validation report only. It never emits compiler requests, worker requests, compiled IR, executable artifacts, or runtime receipts.
 - Python support remains `>=3.10`.
-- `jsonschema==4.26.0` is already present in `mcp_server/uv.lock` through `mcp` and `litellm`; promote that exact resolved package to a direct dependency without adding another package or changing its resolved version.
+- `jsonschema==4.26.0` and `referencing==0.37.0` are already present in `mcp_server/uv.lock`; promote those exact resolved packages to direct dependencies without adding another package or changing either resolved version.
 - `rook.canonical_json:v1` is a new exact RFC 8785 regime. Do not import, call, wrap, copy, or imitate `_fingerprint_normalized_contract` or any other legacy canonical JSON helper.
 - Recipe input is exact raw UTF-8 bytes without BOM. Duplicate object members, unpaired surrogates, invalid UTF-8, and nonconforming product numbers fail closed.
+- Exact JCS serialization accepts the complete finite RFC 8785 number domain. Product-number policy, including the interoperable integer range, is enforced only by schema/product validation; embedded JSON Schema documents are exempt from that product-number policy.
 - Hashes are lowercase `sha256:<hex>` strings.
 - All production LM9A modules are domain-neutral. Radial, box-array, grid-spacing, height-falloff, and layer-control scenario terms belong only in test fixture modules and documentation.
 - Preserve unrelated local knowledge, draft, and telemetry changes. Stage only files named by the current task.
@@ -34,6 +35,7 @@ Production modules:
 - `mcp_server/src/rook/agent/planner_graph_recipe_report.py`: diagnostic/blocker records, phase derivation, deterministic issue ordering, descriptor shapes, and report assembly helpers.
 - `mcp_server/src/rook/agent/planner_graph_recipe_authority.py`: companion indexing, trusted fingerprint/session/freshness checks, RFC 6901 resolution, value bindings, vocabularies, capability registry, and policy registry validation.
 - `mcp_server/src/rook/agent/planner_graph_recipe_semantics.py`: clause graph, source coverage, derived facts, assumptions, confirmations, unresolved intent, shape, capabilities, worker slots, and readiness validation.
+- `mcp_server/src/rook/agent/planner_graph_recipe_rules.py`: versioned rule manifest, stable phase/code registry, normalized production-module source projection, and ruleset fingerprint.
 - `mcp_server/src/rook/agent/planner_graph_recipe_validate.py`: public raw-bytes validation entry point and fixed phase orchestration.
 
 Test support and tests:
@@ -46,6 +48,7 @@ Test support and tests:
 - `mcp_server/tests/test_planner_graph_recipe_report.py`
 - `mcp_server/tests/test_planner_graph_recipe_authority.py`
 - `mcp_server/tests/test_planner_graph_recipe_semantics.py`
+- `mcp_server/tests/test_planner_graph_recipe_rules.py`
 - `mcp_server/tests/test_planner_graph_recipe_validate.py`
 - `mcp_server/tests/test_lm9a_planner_graph_recipe_fixtures.py`
 - `mcp_server/tests/test_lm9a_planner_graph_recipe_boundaries.py`
@@ -91,6 +94,8 @@ Existing dependency metadata:
   - `normalize_semantic_prose(value: str) -> str`
   - `normalize_lf(value: str) -> str`
   - `compare_compound(left: tuple[Any, ...], right: tuple[Any, ...]) -> int`
+  - `bounded_message(base: str, detail: str | None = None) -> str`
+  - `MAX_EVIDENCE_MESSAGE_CHARS = 512`
 
 - [ ] **Step 1: Write strict-ingress and Unicode-ordering tests**
 
@@ -150,6 +155,16 @@ def test_strings_preserve_non_ascii_and_escape_json_controls_exactly():
 def test_compound_lists_compare_lexicographically_shorter_prefix_first():
     assert compare_compound(("x", ["/a"]), ("x", ["/a", "/b"])) < 0
     assert compare_compound(("x", ["/b"]), ("x", ["/a", "/z"])) > 0
+
+
+def test_oversized_duplicate_member_does_not_enter_error_message():
+    hostile = "x" * 100_000
+    raw = ('{"' + hostile + '":1,"' + hostile + '":2}').encode("utf-8")
+    parsed = parse_raw_json(raw)
+    assert parsed.error_code == "duplicate_object_member"
+    assert len(parsed.error_message or "") <= 512
+    assert hostile not in (parsed.error_message or "")
+    assert "detail_sha256=sha256:" in (parsed.error_message or "")
 ```
 
 - [ ] **Step 2: Add the exact RFC number vector fixture and tests**
@@ -201,10 +216,16 @@ def test_nonfinite_numbers_are_rejected(value):
         canonical_json_bytes(value)
 
 
-@pytest.mark.parametrize("value", [-(2**53), 2**53])
-def test_integer_values_outside_interoperable_range_are_rejected(value):
-    with pytest.raises(CanonicalJsonError, match="unsafe_json_integer"):
-        canonical_json_bytes(value)
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (9007199254740992, "9007199254740992"),
+        (9007199254740993, "9007199254740992"),
+        (10**23, "1e+23"),
+    ],
+)
+def test_integer_form_numbers_use_the_same_ieee754_jcs_domain(value, expected):
+    assert canonical_json_bytes(value).decode("utf-8") == expected
 ```
 
 - [ ] **Step 3: Run the focused tests to establish the red state**
@@ -237,8 +258,7 @@ from typing import Any, Mapping
 
 
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
-SAFE_INTEGER_MIN = -9007199254740991
-SAFE_INTEGER_MAX = 9007199254740991
+MAX_EVIDENCE_MESSAGE_CHARS = 512
 
 
 class CanonicalJsonError(ValueError):
@@ -260,11 +280,22 @@ def sha256_prefixed(raw: bytes) -> str:
     return "sha256:" + hashlib.sha256(raw).hexdigest()
 
 
+def bounded_message(base: str, detail: str | None = None) -> str:
+    if detail is None:
+        return base[:MAX_EVIDENCE_MESSAGE_CHARS]
+    detail_hash = sha256_prefixed(detail.encode("utf-8", errors="surrogatepass"))
+    suffix = f" detail_sha256={detail_hash}"
+    return base[: MAX_EVIDENCE_MESSAGE_CHARS - len(suffix)] + suffix
+
+
 def _pairs_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
         if key in result:
-            raise CanonicalJsonError("duplicate_object_member", key)
+            raise CanonicalJsonError(
+                "duplicate_object_member",
+                bounded_message("Duplicate JSON object member rejected.", key),
+            )
         result[key] = value
     return result
 
@@ -291,8 +322,13 @@ def parse_raw_json(raw: bytes) -> RawJsonResult:
         return RawJsonResult(None, digest, "utf8_bom_forbidden", "UTF-8 BOM is forbidden.")
     try:
         text = raw.decode("utf-8", errors="strict")
-    except UnicodeDecodeError as exc:
-        return RawJsonResult(None, digest, "invalid_utf8", str(exc))
+    except UnicodeDecodeError:
+        return RawJsonResult(
+            None,
+            digest,
+            "invalid_utf8",
+            "Recipe bytes are not valid UTF-8.",
+        )
     try:
         payload = json.loads(
             text,
@@ -304,7 +340,10 @@ def parse_raw_json(raw: bytes) -> RawJsonResult:
         _reject_surrogates(payload)
     except (json.JSONDecodeError, CanonicalJsonError) as exc:
         code = exc.code if isinstance(exc, CanonicalJsonError) else "invalid_json"
-        return RawJsonResult(None, digest, code, str(exc))
+        message = exc.message if isinstance(exc, CanonicalJsonError) else bounded_message(
+            "Recipe JSON is malformed.", str(exc)
+        )
+        return RawJsonResult(None, digest, code, message)
     return RawJsonResult(payload, digest, None, None)
 
 
@@ -336,9 +375,12 @@ def _serialize_number(value: int | float) -> str:
     if isinstance(value, bool):
         raise CanonicalJsonError("invalid_json_number", "Boolean is not a number here.")
     if isinstance(value, int):
-        if not SAFE_INTEGER_MIN <= value <= SAFE_INTEGER_MAX:
-            raise CanonicalJsonError("unsafe_json_integer", str(value))
-        return str(value)
+        if -9007199254740991 <= value <= 9007199254740991:
+            return str(value)
+        try:
+            value = float(value)
+        except OverflowError as exc:
+            raise CanonicalJsonError("nonfinite_json_number", "Integer exceeds IEEE 754 range.") from exc
     if not math.isfinite(value):
         raise CanonicalJsonError("nonfinite_json_number", repr(value))
     if value == 0.0:
@@ -409,7 +451,7 @@ git commit -m "feat(lm9a): add exact canonical json boundary"
 
 ---
 
-### Task 2: Closed Schema Catalog And Direct JSON Schema Dependency
+### Task 2: Closed Schema Catalog And Direct Schema Runtime Dependencies
 
 **Files:**
 - Modify: `mcp_server/pyproject.toml`
@@ -432,12 +474,13 @@ git commit -m "feat(lm9a): add exact canonical json boundary"
   - `semantic_reference_sort_key(reference: Mapping[str, Any]) -> tuple[Any, ...]`
   - `SET_SORT_RULES`
 
-- [ ] **Step 1: Promote the already-resolved JSON Schema package to direct ownership**
+- [ ] **Step 1: Promote the already-resolved schema runtime packages to direct ownership**
 
 Add this dependency to `mcp_server/pyproject.toml`:
 
 ```toml
     "jsonschema==4.26.0",
+    "referencing==0.37.0",
 ```
 
 Then run:
@@ -445,9 +488,13 @@ Then run:
 ```powershell
 uv lock --project mcp_server
 uv tree --project mcp_server --invert --package jsonschema
+uv tree --project mcp_server --invert --package referencing
 ```
 
-Expected: `jsonschema v4.26.0` remains the resolved package and `rook-mcp` now owns a direct edge. Inspect `mcp_server/uv.lock`; no second JSON Schema implementation or JCS package may appear.
+Expected: `jsonschema v4.26.0` and `referencing v0.37.0` remain the resolved
+packages and `rook-mcp` now owns direct edges to both. Inspect
+`mcp_server/uv.lock`; no second JSON Schema implementation or JCS package may
+appear.
 
 - [ ] **Step 2: Write schema-catalog and closed-object tests**
 
@@ -497,6 +544,34 @@ def test_unknown_properties_fail_at_top_level_and_nested_level():
     assert issue_codes(recipe, RECIPE_SCHEMA) == {"additionalProperties"}
 
 
+def test_schema_messages_are_bounded_and_hash_hostile_detail():
+    recipe, _ = minimal_valid_contract()
+    hostile = "x" * 100_000
+    recipe[hostile] = True
+    issues = validate_closed_payload(recipe, recipe["schema"])
+    assert issues
+    assert all(len(issue.message) <= 512 for issue in issues)
+    assert all(hostile not in issue.message for issue in issues)
+
+
+@pytest.mark.parametrize(
+    ("keyword", "value", "expected_code"),
+    [
+        ("$ref", "https://example.test/schema", "payload_schema_remote_ref"),
+        ("$dynamicRef", "#/$defs/local", "payload_schema_dynamic_ref_forbidden"),
+        ("$recursiveRef", "#", "payload_schema_recursive_ref_forbidden"),
+        ("$id", "https://example.test/base", "payload_schema_identifier_forbidden"),
+        ("$anchor", "local", "payload_schema_anchor_forbidden"),
+        ("$dynamicAnchor", "local", "payload_schema_dynamic_anchor_forbidden"),
+    ],
+)
+def test_registered_schema_reference_surface_is_closed(keyword, value, expected_code):
+    schema = {"$schema": SCHEMA_DIALECT, "type": "object", keyword: value}
+    assert {issue.code for issue in validate_registered_schema_document(schema)} == {
+        expected_code
+    }
+
+
 def test_set_order_normalization_is_deterministic_but_ordered_arrays_remain_material():
     left, _ = minimal_valid_contract()
     right = copy.deepcopy(left)
@@ -529,7 +604,11 @@ def test_embedded_schema_document_is_the_only_float_exception():
     _, validation_input = minimal_valid_contract()
     document = validation_input["validation_context"]["payload_schema_registry"]
     document["entries"][0]["schema_document"]["multipleOf"] = 0.5
+    document["entries"][0]["schema_document"]["maximum"] = 9007199254740992
     assert validate_product_number_tree(document, document["schema"]) == ()
+    first = canonical_sha256(document)
+    second = canonical_sha256(copy.deepcopy(document))
+    assert first == second
 ```
 
 - [ ] **Step 3: Run the schema tests to establish the red state**
@@ -554,6 +633,9 @@ from typing import Any, Mapping
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
+from referencing import Registry
+
+from rook.agent.planner_graph_recipe_canonical import bounded_message
 
 
 SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
@@ -586,6 +668,12 @@ def closed_object(
 
 Define reusable `$defs` for machine IDs, hashes, timestamps, exact RFC 6901 pointers, semantic prose, typed values, the ten-variant semantic-reference union, common clauses, assumptions, derived facts, unresolved intent, shape entries, capability entries, worker-slot entries, all four report descriptors, diagnostics, blockers, and phase rows.
 
+Set `maxLength: 512` on diagnostic and compile-blocker `message` fields and on
+any raw-ingress error message copied into a report. Constructors in
+`planner_graph_recipe_report.py` reject over-limit messages rather than
+truncating a second time; all variable-detail messages are constructed with
+`bounded_message` at their originating boundary.
+
 The catalog must encode these exact top-level shapes:
 
 | Schema | Required top-level fields |
@@ -609,17 +697,38 @@ def validate_closed_payload(payload: Any, schema_id: str) -> tuple[SchemaIssue, 
             "/" + str(part).replace("~", "~0").replace("/", "~1")
             for part in error.absolute_path
         )
-        issues.append(SchemaIssue(error.validator or "schema", pointer, error.message))
+        issues.append(
+            SchemaIssue(
+                error.validator or "schema",
+                pointer,
+                bounded_message("Schema validation failed.", error.message),
+            )
+        )
     return tuple(sorted(issues, key=lambda issue: (issue.path, issue.code, issue.message)))
 ```
 
-For registered payload schemas, require exact Draft 2020-12, run `Draft202012Validator.check_schema`, reject `$ref` values that are not same-document `#...` references, and instantiate the validator without a remote registry.
+For registered payload schemas, require exact Draft 2020-12 and run
+`Draft202012Validator.check_schema`. The v1 reference surface is closed:
+
+- `$ref` is the only allowed reference-bearing keyword and must be `#` or a
+  same-document RFC 6901 fragment beginning `#/`;
+- `$dynamicRef` and `$recursiveRef` are forbidden;
+- `$id`, `$anchor`, and `$dynamicAnchor` are forbidden so a schema cannot alter
+  base or anchor resolution;
+- `$schema` must equal the exact Draft 2020-12 dialect;
+- validation instantiates `Draft202012Validator(schema, registry=Registry())`,
+  whose registry has no retrieval callback or preloaded remote resources.
+
+Catch `referencing.exceptions.Unresolvable` and convert it to the deterministic
+`payload_schema_reference_unresolvable` diagnostic through `bounded_message`.
+Never expose the raw URI or library exception text in the report.
 
 `validate_product_number_tree` walks every product artifact after parsing. It
 rejects non-integer Python `float` values and integers outside the interoperable
 safe range at every path except values nested under a payload-schema registry
-entry’s `schema_document`. The exception permits finite JCS numbers in embedded
-schema documents only; nonfinite numbers were already rejected by raw ingress.
+entry’s `schema_document`. That exception permits the complete finite RFC 8785
+number domain, including integer-form values outside the product safe range;
+nonfinite numbers were already rejected by raw ingress.
 
 - [ ] **Step 5: Implement schema-directed normalization and the exhaustive set table**
 
@@ -774,6 +883,11 @@ def test_same_issue_cannot_be_diagnostic_and_blocker():
     ledger.add_diagnostic(diagnostic("assumptions", "policy_prohibited"))
     with pytest.raises(ValueError, match="issue_classification_conflict"):
         ledger.add_blocker(blocker("assumptions", "policy_prohibited"))
+
+
+def test_report_issue_records_reject_unbounded_messages():
+    with pytest.raises(ValueError, match="evidence_message_too_long"):
+        diagnostic("schema", "invalid_schema", message="x" * 513)
 ```
 
 - [ ] **Step 2: Run the report tests to establish the red state**
@@ -798,6 +912,10 @@ class Diagnostic:
     related_paths: tuple[str, ...]
     message: str
 
+    def __post_init__(self) -> None:
+        if len(self.message) > MAX_EVIDENCE_MESSAGE_CHARS:
+            raise ValueError("evidence_message_too_long")
+
 
 @dataclass(frozen=True)
 class CompileBlocker:
@@ -807,6 +925,10 @@ class CompileBlocker:
     path: str
     related_paths: tuple[str, ...]
     message: str
+
+    def __post_init__(self) -> None:
+        if len(self.message) > MAX_EVIDENCE_MESSAGE_CHARS:
+            raise ValueError("evidence_message_too_long")
 
 
 @dataclass(frozen=True)
@@ -1347,13 +1469,20 @@ Expected: all focused tests pass.
 ### Task 8: Public Validator Orchestration And Closed Report Fingerprints
 
 **Files:**
+- Create: `mcp_server/src/rook/agent/planner_graph_recipe_rules.py`
 - Create: `mcp_server/src/rook/agent/planner_graph_recipe_validate.py`
+- Create: `mcp_server/tests/test_planner_graph_recipe_rules.py`
 - Create: `mcp_server/tests/test_planner_graph_recipe_validate.py`
 - Modify: `mcp_server/tests/lm9a_contract_factory.py`
 
 **Interfaces:**
 - Consumes: exact recipe bytes and one closed validation-input mapping.
 - Produces:
+  - `RULESET_MANIFEST`
+  - `RULESET_MODULES`
+  - `ruleset_projection(manifest, source_bytes_by_module) -> Mapping[str, Any]`
+  - `compute_ruleset_fingerprint(manifest=RULESET_MANIFEST, source_bytes_by_module=None) -> str`
+  - `assert_registered_issue(phase: str, code: str, issue_kind: str) -> None`
   - `validate_planner_graph_recipe(raw_recipe_bytes: bytes, validation_input: Mapping[str, Any]) -> Mapping[str, Any]`
   - no other artifacts or side effects.
 
@@ -1363,7 +1492,127 @@ Extend `mcp_server/tests/lm9a_contract_factory.py` with:
 - `phase(report: Mapping[str, Any], phase_name: str) -> str`
 - `blocker_codes(report: Mapping[str, Any]) -> set[str]`
 
-- [ ] **Step 1: Write end-to-end report tests**
+- [ ] **Step 1: Write ruleset-manifest identity tests**
+
+```python
+def test_ruleset_manifest_covers_every_phase_and_stable_issue_code():
+    assert RULESET_MANIFEST["runtime_dependencies"] == {
+        "jsonschema": "4.26.0",
+        "referencing": "0.37.0",
+    }
+    assert tuple(entry["phase"] for entry in RULESET_MANIFEST["phases"]) == PHASE_ORDER
+    for entry in RULESET_MANIFEST["phases"]:
+        assert entry["algorithm_version"].startswith("lm9a.")
+        assert set(entry) == {
+            "phase",
+            "algorithm_version",
+            "implementation_modules",
+            "diagnostic_codes",
+            "blocker_codes",
+        }
+
+
+def test_ruleset_fingerprint_moves_with_manifest_rule_change():
+    sources = fixed_ruleset_sources()
+    changed = copy.deepcopy(RULESET_MANIFEST)
+    changed["phases"][0]["algorithm_version"] = "lm9a.schema:v2"
+    assert compute_ruleset_fingerprint(source_bytes_by_module=sources) != (
+        compute_ruleset_fingerprint(changed, sources)
+    )
+
+
+def test_ruleset_fingerprint_moves_with_production_rule_source_change():
+    sources = fixed_ruleset_sources()
+    changed = dict(sources)
+    changed["rook.agent.planner_graph_recipe_semantics"] += b"\n# behavior revision\n"
+    assert compute_ruleset_fingerprint(source_bytes_by_module=sources) != (
+        compute_ruleset_fingerprint(source_bytes_by_module=changed)
+    )
+
+
+def test_source_hash_normalizes_crlf_to_lf():
+    lf = fixed_ruleset_sources()
+    crlf = {name: raw.replace(b"\n", b"\r\n") for name, raw in lf.items()}
+    assert compute_ruleset_fingerprint(source_bytes_by_module=lf) == (
+        compute_ruleset_fingerprint(source_bytes_by_module=crlf)
+    )
+
+
+def test_unregistered_issue_code_is_rejected_before_report_emission():
+    with pytest.raises(RulesetIdentityError, match="ruleset_issue_code_unregistered"):
+        assert_registered_issue("assumptions", "invented_code", "diagnostic")
+```
+
+- [ ] **Step 2: Run ruleset tests to establish the red state**
+
+```powershell
+.\mcp_server\.venv\Scripts\python.exe -m pytest `
+  mcp_server/tests/test_planner_graph_recipe_rules.py -q
+```
+
+Expected: import failure for `planner_graph_recipe_rules`.
+
+- [ ] **Step 3: Implement the versioned ruleset manifest and source projection**
+
+`RULESET_MANIFEST` is a closed object with schema
+`rook.planner_graph_recipe_validator_ruleset:v1`, implementation version,
+canonicalization version, exact product-schema fingerprints, the fixed phase
+graph, the exhaustive set-order table fingerprint, required vocabulary
+fingerprints, exact runtime dependency versions for `jsonschema` and
+`referencing`, and one phase row for every `PHASE_ORDER` entry. At module load,
+assert those manifest versions equal `importlib.metadata.version(...)`; a
+runtime mismatch fails ruleset identity rather than emitting a report under a
+false fingerprint. Every phase row contains:
+
+```yaml
+phase: assumptions
+algorithm_version: lm9a.assumptions:v1
+implementation_modules:
+  - rook.agent.planner_graph_recipe_authority
+  - rook.agent.planner_graph_recipe_semantics
+diagnostic_codes: []
+blocker_codes: []
+```
+
+Populate the code lists with every stable diagnostic/blocker code that the
+phase can emit. All production issue construction calls
+`assert_registered_issue` before adding an issue to the ledger, so a code absent
+from the manifest cannot enter a report.
+
+`RULESET_MODULES` contains exactly these production modules:
+
+```python
+RULESET_MODULES = (
+    "rook.agent.planner_graph_recipe_canonical",
+    "rook.agent.planner_graph_recipe_schemas",
+    "rook.agent.planner_graph_recipe_report",
+    "rook.agent.planner_graph_recipe_authority",
+    "rook.agent.planner_graph_recipe_semantics",
+    "rook.agent.planner_graph_recipe_rules",
+    "rook.agent.planner_graph_recipe_validate",
+)
+```
+
+For each module, resolve and read its UTF-8 source without importing it, reject
+a BOM or unavailable/non-`.py` source, normalize CRLF/CR to LF, and record:
+
+```yaml
+module: rook.agent.planner_graph_recipe_semantics
+source_sha256: sha256:...
+```
+
+Resolve each source path with `importlib.util.find_spec(module_name).origin` and
+read the `.py` file directly. Do not import the modules merely to discover
+their source paths; ruleset identity computation must not execute production
+module top-level code or create a `rules -> validate -> rules` import cycle.
+
+The canonical ruleset projection contains the complete normalized manifest and
+the source rows sorted by module name. `compute_ruleset_fingerprint` returns
+`canonical_sha256(projection)`. If any source cannot be bound, raise
+`RulesetIdentityError("ruleset_source_unavailable")`; do not emit a conforming
+validation report with a partial ruleset identity.
+
+- [ ] **Step 4: Write end-to-end report tests**
 
 ```python
 def test_valid_report_recomputes_recipe_context_and_report_fingerprints():
@@ -1400,7 +1649,7 @@ Add these explicit report assertions:
 | attempt to add identical issue as blocker and diagnostic | ledger raises `issue_classification_conflict` before report emission |
 | every valid/blocked report | top-level keys contain no compiler, worker request/output, executable, tool, or runtime receipt field |
 
-- [ ] **Step 2: Run validator tests to establish the red state**
+- [ ] **Step 5: Run validator tests to establish the red state**
 
 ```powershell
 .\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -1409,7 +1658,7 @@ Add these explicit report assertions:
 
 Expected: import failure for `planner_graph_recipe_validate`.
 
-- [ ] **Step 3: Implement fixed phase orchestration**
+- [ ] **Step 6: Implement fixed phase orchestration**
 
 The public function must use this exact runner order after raw parsing, schema,
 fingerprint, and companion validation:
@@ -1444,7 +1693,7 @@ compile_ready = valid and no compile blockers
 
 If `valid` is false, do not speculate blockers from unevaluated phases.
 
-- [ ] **Step 4: Implement recipe and report fingerprint projections**
+- [ ] **Step 7: Implement recipe, validation-context, ruleset, and report fingerprint projections**
 
 Recipe fingerprint: schema-normalize the complete recipe, remove only `recipe_fingerprint`, apply every set-order rule from spec Section 9, then `canonical_sha256`.
 
@@ -1462,9 +1711,14 @@ VALIDATOR_IDENTITY = {
 }
 ```
 
-Compute `RULESET_FINGERPRINT` from the normalized closed product schemas, fixed phase graph, set-order table, and minimum vocabulary rows. Do not hard-code an unexplained digest.
+Compute `RULESET_FINGERPRINT` only through
+`compute_ruleset_fingerprint()`. The versioned manifest binds schemas, phase
+graph, ordering, vocabularies, every phase algorithm version and stable issue
+code; the normalized source projection binds the actual production modules that
+implement policy matching, provenance traversal, confirmation, readiness, and
+the other semantic rules. A schema-only or phase-graph-only digest is forbidden.
 
-- [ ] **Step 5: Run the complete unit-level LM9A gate**
+- [ ] **Step 8: Run the complete unit-level LM9A gate**
 
 ```powershell
 .\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -1473,18 +1727,21 @@ Compute `RULESET_FINGERPRINT` from the normalized closed product schemas, fixed 
   mcp_server/tests/test_planner_graph_recipe_report.py `
   mcp_server/tests/test_planner_graph_recipe_authority.py `
   mcp_server/tests/test_planner_graph_recipe_semantics.py `
+  mcp_server/tests/test_planner_graph_recipe_rules.py `
   mcp_server/tests/test_planner_graph_recipe_validate.py -q
 ```
 
 Expected: all tests pass.
 
-- [ ] **Step 6: Commit the validator entry point**
+- [ ] **Step 9: Commit the ruleset identity and validator entry point**
 
 ```powershell
-git add mcp_server/src/rook/agent/planner_graph_recipe_validate.py `
+git add mcp_server/src/rook/agent/planner_graph_recipe_rules.py `
+  mcp_server/src/rook/agent/planner_graph_recipe_validate.py `
   mcp_server/tests/lm9a_contract_factory.py `
+  mcp_server/tests/test_planner_graph_recipe_rules.py `
   mcp_server/tests/test_planner_graph_recipe_validate.py
-git commit -m "feat(lm9a): orchestrate recipe validation"
+git commit -m "feat(lm9a): bind ruleset identity and validation"
 ```
 
 ---
@@ -1727,6 +1984,7 @@ Prove:
   mcp_server/tests/test_planner_graph_recipe_report.py `
   mcp_server/tests/test_planner_graph_recipe_authority.py `
   mcp_server/tests/test_planner_graph_recipe_semantics.py `
+  mcp_server/tests/test_planner_graph_recipe_rules.py `
   mcp_server/tests/test_planner_graph_recipe_validate.py `
   mcp_server/tests/test_lm9a_planner_graph_recipe_fixtures.py `
   mcp_server/tests/test_lm9a_planner_graph_recipe_boundaries.py -q
@@ -1751,6 +2009,7 @@ Expected: all LM9A tests pass.
   mcp_server/src/rook/agent/planner_graph_recipe_report.py `
   mcp_server/src/rook/agent/planner_graph_recipe_authority.py `
   mcp_server/src/rook/agent/planner_graph_recipe_semantics.py `
+  mcp_server/src/rook/agent/planner_graph_recipe_rules.py `
   mcp_server/src/rook/agent/planner_graph_recipe_validate.py
 
 git diff --check origin/main...HEAD
@@ -1776,6 +2035,7 @@ git add mcp_server/tests/test_lm9a_planner_graph_recipe_boundaries.py `
   mcp_server/tests/test_planner_graph_recipe_report.py `
   mcp_server/tests/test_planner_graph_recipe_authority.py `
   mcp_server/tests/test_planner_graph_recipe_semantics.py `
+  mcp_server/tests/test_planner_graph_recipe_rules.py `
   mcp_server/tests/test_planner_graph_recipe_validate.py `
   mcp_server/tests/test_lm9a_planner_graph_recipe_fixtures.py
 git commit -m "test(lm9a): lock recipe validator boundaries"
