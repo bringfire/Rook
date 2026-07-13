@@ -84,7 +84,7 @@ LM9A-Semantics implements or specifies for deterministic implementation:
 
 - `rook.planner_graph_recipe:v1`;
 - `rook.planner_graph_recipe_validation_report:v1`;
-- semantic registration against the LM9A validation kernel;
+- one fixed LM9A semantic contribution sealed into the validation program;
 - authority and provenance validation;
 - deterministic derived-fact validation;
 - assumption authorization and confirmation binding validation;
@@ -96,10 +96,11 @@ LM9A-Semantics implements or specifies for deterministic implementation:
 - one structurally different orthogonal control fixture;
 - negative and anti-overfitting proof targets.
 
-LM9A-Kernel separately owns raw byte ingress, the fixed validation budget,
-owned immutable JSON values, typed phase execution, issue-registry mechanics,
-canonical JSON primitives, and deterministic report construction. This spec may
-constrain their semantic use but must not reimplement them.
+LM9A-Kernel separately owns raw byte ingress, the fixed kernel budget, owned
+immutable JSON values, sealed-program composition, the restricted schema
+evaluator, typed phase execution, issue authorization, canonical JSON
+primitives, and the non-circular report seal. This spec may constrain their
+semantic use but must not reimplement them.
 
 ### 3.2 Future Architecture Constrained But Not Implemented
 
@@ -136,10 +137,9 @@ LM9A has:
 - no expansion of `RookWorkflowContract` or `TaskSpec`;
 - no live run in the spec or implementation PR.
 
-### 3.4 Implementation Sequence
+### 3.4 Implementation Sequence And Program Composition
 
-The former combined LM9A implementation plan is withdrawn. The implementation
-sequence is:
+There is no executable combined LM9A plan. The implementation sequence is:
 
 ```text
 review LM9A-Kernel design
@@ -149,9 +149,22 @@ review LM9A-Kernel design
 -> run the offline semantic fixtures
 ```
 
-LM9A-Semantics may register recipe schemas, semantic phases, immutable export
-types, and report projections. It may not implement its own JSON parser, budget
-ledger, phase scheduler, issue registry, canonicalizer, or report engine.
+LM9A-Semantics contributes recipe schemas, exact phase specifications, trusted
+runner bindings, immutable export validators, issue codes, and one report
+projection to the trusted composition builder. The builder combines that
+contribution with the kernel and returns one
+`SealedValidationProgram`. The contribution cannot validate artifacts, remain
+open after sealing, or mutate a running program.
+
+The sealed program manifest fingerprints the budget, parser and canonicalizer,
+schema-evaluator profile, every schema and phase, exact named dataflow, runner
+source identities, issue vocabulary, export types, report projection, and
+runtime dependencies. Validation accepts that sealed program only. No mutable
+registry, plugin lookup, or monkeypatch is a second source of validation
+authority.
+
+LM9A-Semantics may not implement its own parser, budget ledger, scheduler,
+canonicalizer, schema evaluator, issue engine, or report seal.
 
 The managed-readiness migration for future `gh_edit` execution remains a later
 prerequisite and does not block LM9A.
@@ -173,6 +186,7 @@ deterministic task envelope
 + declared authority companions
 + validation-context companions
 + raw recipe bytes
++ sealed LM9A validation program
 -> validation invocation preflight
 -> recipe validator, only when preflight succeeds
 -> validation report
@@ -226,11 +240,14 @@ validation_context:
     semantic_value_schemas: {}
 ```
 
-Both arguments are raw `bytes`; no caller-owned `Mapping` or parsed Python
-object is accepted. The LM9A validation kernel hashes and bounded-parses both
-inputs into owned transitively immutable values under
-`rook.validation_budget:lm9a_v1`. The complete bundle and every companion
-payload are supplied in full, not by excerpt.
+Both artifact arguments are exact built-in `bytes`; no caller-owned `Mapping`
+or parsed Python object is accepted. The trusted application supplies the
+already sealed LM9A program as a separate invocation authority. Before scanning,
+copying, or hashing either byte argument, the kernel checks both lengths against
+`rook.validation_budget:lm9a_v1`. If either is over limit, invocation stops and
+neither raw hash is claimed. Admitted inputs are copied, hashed, and bounded-
+parsed into owned transitively immutable values. The complete bundle and every
+companion payload are supplied in full, not by excerpt.
 
 The report binds both the exact raw bundle hash and its canonical owned-value
 fingerprint:
@@ -372,6 +389,7 @@ schema: rook.payload_schema_registry:v1
 registry_id: payload_schema_registry
 registry_version: lm9a.payload_schemas:v1
 json_schema_dialect: https://json-schema.org/draft/2020-12/schema
+schema_evaluator_profile: rook.json_schema_profile:lm9a_payload_v1
 
 entries:
   - schema_id: rook.fixture_or_product_task_payload:v1
@@ -386,12 +404,25 @@ environment companion's `payload_schema` and `payload_schema_fingerprint` must
 match exactly one entry. The validator verifies the schema-document fingerprint
 before validating the payload.
 
-Schema documents are supplied in full and validated against the exact declared
-JSON Schema dialect. Remote references, network resolution, custom executable
-keywords, and schemas absent from the registry are forbidden. Local `$ref`
-targets must remain within the same schema document. The registry lets fixture
-and future product payload schemas remain domain-specific data without
-hardcoding them into the LM9A validator.
+Schema documents are supplied in full and validated against the exact dialect
+and the sealed evaluator profile in Section 7 of the kernel spec. The profile is
+a deliberately restricted Draft 2020-12 subset, not permission to execute an
+arbitrary Draft 2020-12 schema. It permits closed structural, collection,
+string-length, numeric-bound, enum/const, and local acyclic `$defs`/`$ref`
+validation. It forbids remote or dynamic references, retrieval, regex and format
+callbacks, conditionals, combinators, unevaluated/dependent/contains semantics,
+content keywords, and custom executable keywords.
+
+Each embedded schema is limited to 4,096 nodes, 256 local references, local
+reference depth 16, and a conservative
+`schema_nodes * payload_nodes <= 2,000,000` evaluation shape. Unknown keywords
+fail profile validation rather than being ignored. The exact evaluator package,
+metaschema, keyword allowlist, reference rules, limits, type checker, and trusted
+core schemas are fingerprinted into the sealed validation program. A richer
+payload schema requires a new reviewed profile version.
+
+The registry lets fixture and future product payload schemas remain domain-
+specific data without hardcoding those domains into LM9A semantic runners.
 
 The registry fingerprint is validation context and appears in the validation
 report. The exact payload-schema fingerprint is also bound into its task or
@@ -1530,18 +1561,18 @@ establishes the evidence needed to construct it truthfully. The preflight runs
 before semantic phase evaluation or report assembly and checks, in this exact
 precedence order:
 
-1. validator implementation, ruleset, canonicalization, phase-registry, and
-   runtime dependency identities resolve;
-2. both invocation arguments are actual raw `bytes` values and their exact
-   SHA-256 hashes are available;
-3. the validation bundle parses into one owned immutable value, while recipe
-   parsing yields either an owned immutable value or one bounded schema-phase
-   failure under the same `rook.validation_budget:lm9a_v1` ledger;
-4. every mandatory report-constructability shell from Section 4.1 exists with
+1. one `SealedValidationProgram` resolves with exact manifest/runtime bindings;
+2. both artifact arguments are exact built-in `bytes` values;
+3. both byte lengths are at or below the sealed inclusive limits;
+4. both admitted inputs are copied and their exact SHA-256 hashes are computed;
+5. the validation bundle parses into one owned immutable value;
+6. every mandatory report-constructability shell from Section 4.1 exists with
    the required container type;
-5. the owned bundle contains valid trusted `evaluated_at`,
+7. the owned bundle contains valid trusted `evaluated_at`,
    `trusted_clock_source`, `task_session_id`, nullable
-   `environment_session_id`, and `capability_registry_session_id` values.
+   `environment_session_id`, and `capability_registry_session_id` values; and
+8. recipe parsing yields either an owned immutable value or one bounded schema-
+   phase failure under the same `rook.validation_budget:lm9a_v1` ledger.
 
 `evaluated_at` uses the closed UTC RFC 3339 timestamp schema already used by
 LM9A companions. `trusted_clock_source` is exactly `deterministic_fixture` in
@@ -1566,7 +1597,10 @@ code: validation_input_invalid |
       validator_identity_unavailable |
       validator_integrity_failure |
       validator_internal_failure
-artifact_role: recipe | validation_bundle | combined | phase_engine
+artifact_role: validation_program | recipe | validation_bundle | combined |
+               phase_engine | report_seal
+program_id: lm9a.planner_graph_recipe:v1 | null
+program_fingerprint: sha256:... | null
 recipe_input_payload_sha256: sha256:... | null
 validation_bundle_input_payload_sha256: sha256:... | null
 validation_bundle_fingerprint: sha256:... | null
@@ -1576,12 +1610,15 @@ message: bounded text
 ```
 
 The message is at most 512 Unicode code points and contains no unbounded input
-or exception text. Each raw-input hash is non-null exactly when those exact
-bytes were available, regardless of which invocation check selected the failure
-code. `validation_bundle_fingerprint` is non-null only after bounded parsing
-completed. `subject_path` identifies the first deterministic failing path and
-is otherwise `null`. Budget failures use the exact bounded metadata fields from
-the kernel spec rather than adding one public code per budget dimension.
+or exception text. `program_id` and `program_fingerprint` are non-null only after
+the sealed program passes its manifest/runtime check. The two raw-input hashes
+are non-null only after both inputs pass type and byte-cap admission. If either
+argument is over limit, neither is copied or hashed; bounded metadata records
+both observed lengths and the exceeded limit. `validation_bundle_fingerprint`
+is non-null only after bounded parsing completes. `subject_path` identifies the
+first deterministic failing path and is otherwise `null`. Budget failures use
+the exact bounded metadata fields from the kernel spec rather than adding one
+public code per budget dimension.
 This result has no Rook schema, artifact fingerprint,
 phase rows, `valid`, `compile_ready`, trusted time, or session claim. It is not
 a partial validation report and cannot enter compilation. A future mechanical
@@ -1598,9 +1635,10 @@ promoting every parser or schema branch into a permanent public code.
 The public validator returns either a conforming
 `rook.planner_graph_recipe_validation_report:v1` or this typed invocation
 failure. Missing/invalid trusted validation context and unavailable validator
-identity are always invocation failures. Recipe byte size, nesting, token,
-syntax, Unicode, and product-schema failures remain ordinary schema-phase
-report outcomes once preflight has succeeded.
+identity are always invocation failures. Raw byte-cap failure occurs before
+hashing and is always an invocation failure. After byte admission and bundle
+constructability, recipe syntax, UTF-8, Unicode, local depth/width/token/number,
+and product-schema failures may remain ordinary schema-phase report outcomes.
 
 After preflight, a ruleset/code/classification integrity assertion prevents
 report issuance and becomes `validation / validator_integrity_failure` at the
@@ -1615,12 +1653,14 @@ The complete earliest-honest-result matrix is:
 
 | Failure location | Public result |
 |---|---|
-| validator identity cannot be established | preflight invocation failure |
-| either raw byte input is unavailable or malformed validation-bundle bytes cannot be parsed | preflight invocation failure |
+| sealed program identity or runtime bindings cannot be established | preflight invocation failure |
+| either raw input is not exact bytes | preflight invocation failure with no raw hashes |
+| either raw input exceeds its byte cap | preflight invocation failure with bounded length evidence and no raw hashes |
+| admitted validation-bundle bytes cannot be parsed | preflight invocation failure |
 | fixed validation budget is exceeded before report completion | preflight or validation invocation failure, according to exhaustion stage |
 | mandatory report descriptor shell is missing or has the wrong container type | preflight invocation failure |
 | ruleset integrity assertion or validator implementation fault before report completion | validation invocation failure |
-| recipe size, depth, number, UTF-8, JSON, Unicode, or recipe-schema failure with a constructable bundle | conforming report with `schema=failed` |
+| admitted recipe depth, width, number, UTF-8, JSON, Unicode, or recipe-schema failure with a constructable bundle | conforming report with `schema=failed` |
 | malformed content inside present companion shells, or companion identity, freshness, schema, or fingerprint failure | conforming report with `companion_artifacts=failed` |
 | deterministic semantic invalidity or readiness blocker | conforming report with exact phase diagnostic/blocker |
 
@@ -1640,10 +1680,12 @@ schema: rook.planner_graph_recipe_validation_report:v1
 recipe_input_payload_sha256: sha256:...
 validation_bundle_input_payload_sha256: sha256:...
 validation_bundle_fingerprint: sha256:...
-claimed_recipe_fingerprint: sha256:...
-computed_recipe_fingerprint: sha256:...
+claimed_recipe_fingerprint: sha256:... | null
+computed_recipe_fingerprint: sha256:... | null
 
 validator:
+  program_id: lm9a.planner_graph_recipe:v1
+  program_fingerprint: sha256:...
   implementation_version: lm9a.recipe_validator:v1
   ruleset_fingerprint: sha256:...
   canonicalization_version: rook.canonical_json:v1
@@ -1768,10 +1810,12 @@ The report and every nested report object are closed with
 ### 8.1 Raw Input And Validator Identity
 
 `recipe_input_payload_sha256` and
-`validation_bundle_input_payload_sha256` are hashes of the exact bytes received
-before parsing. A conforming LM9A validation report cannot be issued when the
-bundle bytes are unavailable or cannot be bounded-parsed into the descriptor
-source required to construct that report.
+`validation_bundle_input_payload_sha256` are hashes of the exact admitted bytes
+before parsing. Admission first checks both byte lengths without scanning. If
+either exceeds its limit, neither input is copied or hashed and no conforming
+LM9A report can be issued. A report likewise cannot be issued when bundle bytes
+are unavailable or cannot be bounded-parsed into the descriptor source needed
+to construct it.
 
 Recipe input bytes must decode as strict UTF-8 and must not begin with a UTF-8
 BOM. Invalid UTF-8 or a BOM still permits hashing the received bytes, but the
@@ -1783,11 +1827,12 @@ the kernel spec. The bounded tokenizer and iterative parser charge limits before
 allocating or appending values. LM9A does not accept a parsed mapping and does
 not use `json.loads` followed by an unbounded post-parse walk.
 
-Recipe parse and recipe-only budget failures retain the exact recipe byte hash,
-set `computed_recipe_fingerprint` to `null`, fail `schema`, and make semantic
-dependents `not_evaluated` when the validation bundle is constructable.
-Validation-bundle parse or budget failure cannot produce a semantic report.
-Phase-engine or report-construction budget failure produces a validation-stage
+An admitted recipe parse or local parser-limit failure retains the exact recipe
+byte hash, sets `computed_recipe_fingerprint` to `null`, fails `schema`, and
+makes semantic dependents `not_evaluated` when the validation bundle is
+constructable. A raw byte-cap failure is earlier and has no input hash or report.
+Validation-bundle parse/budget failure cannot produce a semantic report.
+Phase-engine or one-shot report-seal budget failure produces a validation-stage
 kernel control result, never a partial report.
 
 An integer outside the product safe range but still inside the finite binary64
@@ -1801,9 +1846,21 @@ Malformed input may still have an input hash while
 be `null` when parsing cannot recover it. Claimed and independently computed
 fingerprints remain separate.
 
-Validator rules, canonicalization, and every vocabulary are identified by
-fingerprint as well as version. Exact input payloads without exact validation
-rules are not replayable evidence.
+The report's `validator.program_fingerprint` is the authority for the complete
+sealed validation machine: budget, parser/canonicalizer, schema profile,
+schemas, exact phase dataflow, runners, issue vocabulary, export types, report
+projection, and runtime dependencies. Component versions and fingerprints,
+including `ruleset_fingerprint`, remain audit provenance but cannot substitute
+for the sealed program identity. Exact inputs without that program identity are
+not replayable evidence.
+
+`ruleset_fingerprint` is computed by the trusted program seal over the closed
+LM9A-Semantics submanifest: semantic schemas, full `PhaseSpec` entries, runner
+and transitive rule-helper source fingerprints, issue vocabulary, semantic
+export validators, and semantic report projection. It excludes only its own
+field. It is not authored by a runner or recomputed from whatever modules happen
+to be imported at invocation time. A semantic rule change therefore moves both
+the ruleset and whole-program fingerprints.
 
 ### 8.2 Companion Evidence Descriptors
 
@@ -1979,6 +2036,8 @@ projection:
 schema: rook.planner_graph_recipe_validation_context_projection:v1
 
 validator:
+  program_id: lm9a.planner_graph_recipe:v1
+  program_fingerprint: sha256:...
   implementation_version: lm9a.recipe_validator:v1
   ruleset_fingerprint: sha256:...
   canonicalization_version: rook.canonical_json:v1
@@ -2057,7 +2116,9 @@ recipe, recipe fingerprint, diagnostics, blockers, phase status, report
 fingerprint, and `validation_context_fingerprint` itself. Companion content is
 represented by claimed and computed content hashes rather than embedded again.
 
-The projection uses the set ordering in Section 9 and is canonicalized with
+The projection copies the sealed program identity and all component validator
+identity fields exactly from the report header. The projection uses the set
+ordering in Section 9 and is canonicalized with
 `rook.canonical_json:v1`. A `null` computed fingerprint caused by malformed
 input remains an explicit `null`, so invalid contexts still receive stable
 context identities when a conforming report can otherwise be issued.
@@ -2095,59 +2156,87 @@ Examples:
 
 ### 8.5 Phase Model
 
-Required phases are registered once through the kernel's closed `PhaseSpec`
-registry. That registry is the sole authority for dependencies, required inputs,
-runner identity, permitted issue codes, and immutable export types. The engine,
-ruleset fingerprint, report rows, and dependency tests derive from it; no second
-dependency dictionary or function-signature convention may drift from it.
+LM9A phases are immutable `PhaseSpec` entries inside the sealed validation
+program. A spec names exact inputs, producers, output names, export types,
+cardinalities, status-dependent output requirements, runner identity, and issue
+permissions. There is no separately authored dependency table. The kernel
+derives the DAG and report order from exact input bindings.
 
-LM9A-Semantics registers these exact dependencies:
+This table is the normative human-readable projection of the v1 phase manifest.
+All named inputs and outputs have cardinality `exactly_one`. Bracketed statuses
+are both the permitted and mandatory statuses for that output in v1; an output
+on any other status is forbidden.
 
-| Phase | Dependencies |
-|---|---|
-| `schema` | none; this phase includes JSON parsing and schema validation |
-| `fingerprint` | `schema` |
-| `companion_artifacts` | none; it evaluates the immutable validation bundle independently of recipe validity |
-| `provenance` | `schema`, `companion_artifacts` |
-| `clause_graph` | `schema`, `companion_artifacts` |
-| `derived_facts` | `companion_artifacts`, `provenance`, `clause_graph` |
-| `assumptions` | `companion_artifacts`, `provenance`, `clause_graph` |
-| `unresolved_intent` | `companion_artifacts`, `provenance`, `clause_graph`, `assumptions` |
-| `shape` | `companion_artifacts`, `clause_graph` |
-| `capabilities` | `companion_artifacts`, `clause_graph`, `shape` |
-| `worker_slots` | `companion_artifacts`, `clause_graph`, `shape` |
-| `readiness` | every preceding phase |
+| Phase | `ordering_after` | Exact named inputs | Exact provided outputs |
+|---|---|---|---|
+| `schema` | none | `invocation.recipe_parse_evidence`; `program.recipe_schema` | `schema_evidence` `[passed, failed]`; `parsed_recipe` `[passed]` |
+| `fingerprint` | `schema` | `schema.parsed_recipe`; `program.recipe_fingerprint_projection` | `fingerprint_evidence` `[passed, failed]` |
+| `companion_artifacts` | `fingerprint` | `invocation.validation_bundle`; `program.companion_schemas`; `program.schema_evaluator_profiles` | `companion_evidence` `[passed, blocked, failed]`; `companion_index` `[passed, blocked]` |
+| `provenance` | `companion_artifacts` | `schema.parsed_recipe`; `companion_artifacts.companion_index` | `recipe_semantic_index` `[passed, blocked]` |
+| `clause_graph` | `provenance` | `schema.parsed_recipe`; `companion_artifacts.companion_index` | `clause_index` `[passed, blocked]` |
+| `derived_facts` | `clause_graph` | `companion_artifacts.companion_index`; `provenance.recipe_semantic_index`; `clause_graph.clause_index` | `derived_fact_resolution` `[passed, blocked]` |
+| `assumptions` | `derived_facts` | `companion_artifacts.companion_index`; `provenance.recipe_semantic_index`; `clause_graph.clause_index`; `derived_facts.derived_fact_resolution` | `assumption_resolution` `[passed, blocked]` |
+| `unresolved_intent` | `assumptions` | `companion_artifacts.companion_index`; `provenance.recipe_semantic_index`; `clause_graph.clause_index`; `assumptions.assumption_resolution` | `unresolved_intent_resolution` `[passed, blocked]` |
+| `shape` | `unresolved_intent` | `provenance.recipe_semantic_index`; `clause_graph.clause_index` | `shape_resolution` `[passed, blocked]` |
+| `capabilities` | `shape` | `companion_artifacts.companion_index`; `provenance.recipe_semantic_index`; `clause_graph.clause_index`; `shape.shape_resolution` | `capability_resolution` `[passed, blocked]` |
+| `worker_slots` | `capabilities` | `companion_artifacts.companion_index`; `provenance.recipe_semantic_index`; `clause_graph.clause_index`; `shape.shape_resolution` | `worker_slot_resolution` `[passed, blocked]` |
 
-A fingerprint mismatch does not suppress independent structural diagnostics in
-other branches of the graph. It does prevent `readiness` from passing.
-Likewise, recipe parse/schema failure does not suppress `companion_artifacts`.
-Both phases may fail in one report; semantic phases that require both remain
-`not_evaluated`. In particular, `provenance` cannot run without a schema-valid
-recipe and an accepted companion index.
+The manifest holds these as full `input_bindings` and `provided_outputs`, not as
+strings parsed from this table. `schema` consumes kernel parse evidence because
+bounded parsing occurs before semantic phases. `companion_artifacts` remains
+independent of recipe schema validity. `fingerprint` and
+`companion_artifacts` retain bounded evidence even when they diagnose a mismatch
+and fail; semantic indexes are exposed only when their provider passed or
+blocked.
 
-Each phase has one mechanically derived status:
+The `ordering_after` chain fixes budget and evidence order but does not create
+data authority or failure suppression. For example, a failed or not-evaluated
+`fingerprint` reaches a terminal status and `companion_artifacts` still runs,
+because the latter binds no fingerprint output.
+
+A fingerprint mismatch therefore does not suppress independent companion
+diagnostics. Recipe parse/schema failure likewise does not suppress
+`companion_artifacts`. Both can fail in one report; phases requiring unavailable
+indexes become `not_evaluated`. `provenance` cannot run without both a schema-
+valid recipe and an accepted companion index.
+
+There is deliberately no semantic `readiness` runner. `valid` and
+`compile_ready` are deterministic report projections over accepted phase issues
+under Section 8.4. Keeping that derivation in the report seal avoids a redundant
+phase whose status would restate the same blocker ledger.
+
+Each declared phase has one mechanically derived status:
 
 ```text
-not_evaluated  at least one dependency is failed or not_evaluated
+not_evaluated  at least one exact bound input is legitimately unavailable
 failed         evaluated and an error diagnostic exists
 blocked        evaluated without error, but a blocker exists
 passed         evaluated with no errors or blockers
 ```
 
-`blocked` dependencies do not suppress downstream evaluation. Only `failed` and
-`not_evaluated` dependencies do. Within an evaluated phase, `failed` takes
-precedence over `blocked`. The `readiness` phase is `blocked` when any compile
-blocker exists anywhere in the report; it does not duplicate that blocker.
+An output explicitly required on `blocked` remains available downstream. An
+output absent because its provider failed or was not evaluated makes its
+consumer `not_evaluated`. A passed or blocked provider that omits an output
+required for that status is validator corruption and terminates with
+`validator_integrity_failure`; it must never be normalized into downstream
+`not_evaluated`. Within an evaluated phase, `failed` takes precedence over
+`blocked`.
 
 A missing task envelope or malformed authority artifact fails
-`companion_artifacts`; dependent phases become `not_evaluated` according to the
-table. A report with `valid=false` does not invent speculative blockers from
-unevaluated phases.
+`companion_artifacts`; phases bound to `companion_index` become
+`not_evaluated`. A report with `valid=false` does not invent speculative
+blockers from unevaluated phases.
 
-All phase inputs, results, and exports are transitively immutable kernel values.
+All phase inputs, results, and outputs are transitively immutable values accepted
+by export validators sealed into the program.
 `CompanionIndex` and `RecipeSemanticIndex` may contain only immutable identities,
 paths, tuples, and references to immutable owned JSON values. A frozen dataclass
 containing a mutable mapping does not satisfy this contract.
+
+Runners return only diagnostics, blockers, and named output values. They cannot
+author phase status, dependencies, work counts, output types, or report fields.
+The engine validates issue permissions, output names, cardinality, deep
+immutability, and required-on-status rules before retaining a result.
 
 Diagnostics use this closed shape:
 
@@ -2698,10 +2787,26 @@ LM9A must prove:
   `related_paths` using deterministic lexicographic and shorter-prefix-first
   ordering across runtimes;
 - raw input and normalized payload hashes remain distinct;
+- one sealed program manifest and its exact immutable runtime bindings produce
+  one program fingerprint; changing any schema, profile, phase binding, runner,
+  issue vocabulary, export validator, report projection, budget, input binding,
+  or ordering edge moves that fingerprint;
+- an unsealed builder, mutable registry, or missing/extra runtime binding cannot
+  enter validation, and replacing a registry after seal cannot change the
+  callable already selected for an invocation;
 - both public inputs are raw bytes and no mutable caller object graph can enter
   semantic validation;
+- byte caps are checked before copying or hashing either input; exact-cap inputs
+  are hashed, while any over-cap admission failure reports bounded lengths and
+  `null` raw hashes;
 - every exact and limit-plus-one kernel budget boundary is proven by the kernel
   suite before LM9A semantic tests run;
+- report sealing reserves one fixed fingerprinted allowance, runners cannot
+  author work counts, and repeated sealing does not change the frozen budget
+  receipt;
+- the closed payload schema profile accepts the required structural fixtures and
+  rejects forbidden keywords, remote/dynamic references, cycles, and every
+  static complexity-limit excess before evaluation;
 - all phase inputs, semantic indexes, phase outputs, and report inputs are
   transitively immutable;
 - attempted mutation through both `CompanionIndex` and `RecipeSemanticIndex`
@@ -2711,6 +2816,12 @@ LM9A must prove:
 - malformed recipe bytes with otherwise valid companion shells still evaluate
   `companion_artifacts`, including the combined recipe/companion failure case;
 - a schema-failed recipe leaves `provenance=not_evaluated`;
+- the exact named phase bindings derive the execution DAG with no second
+  dependency map;
+- a passed or blocked provider supplies every output required for that status;
+  omission, extra output, wrong cardinality, wrong type, or mutable output
+  produces `validator_integrity_failure`, never ordinary downstream
+  `not_evaluated`;
 - every report companion descriptor records its closed stable identity plus
   claimed and independently computed fingerprints;
 - the validation-context fingerprint recomputes from the exact Section 8.3
@@ -2749,6 +2860,8 @@ Focused negative fixtures cover at least:
 - invalid UTF-8 recipe bytes and UTF-8 BOM input;
 - exact/over-limit recipe and validation-bundle byte, container-depth, width,
   node, decoded-string, reference, issue, work, and number-token boundaries;
+- an over-cap raw byte argument producing a preflight invocation failure without
+  scanning, copying, or hashing either input;
 - numeric tokens that overflow to non-finite host floats and integer tokens
   that would exceed host conversion limits;
 - validation-bundle non-finite numbers and integers outside the finite JCS
@@ -2772,6 +2885,14 @@ Focused negative fixtures cover at least:
 - duplicate JSON object member names and escaped unpaired Unicode surrogates;
 - missing, duplicate, fingerprint-mismatched, remote-reference, or wrong-dialect
   payload-schema registry entries;
+- embedded payload schemas using dynamic references, retrieval identifiers,
+  regex/format callbacks, combinators, custom keywords, cyclic/deep local
+  references, or excessive schema/payload complexity;
+- unsealed validation programs, manifest/runtime binding mismatch, duplicate
+  phase input/output names, dataflow cycles, and producer/consumer type or
+  cardinality mismatch;
+- phase runners returning undeclared, duplicate, missing-required, mutable,
+  wrong-typed, or wrong-cardinality outputs;
 - missing or extra recipe-declared variable descriptors, duplicate report
   descriptor identities, and descriptor/companion kind disagreement;
 - mismatch among recipe-claimed, companion-claimed, and computed companion
