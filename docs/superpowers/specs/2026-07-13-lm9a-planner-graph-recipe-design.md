@@ -200,6 +200,53 @@ The raw recipe bytes are a separate required invocation argument so their hash
 is not changed by embedding them in another JSON artifact. The validation-input
 object and every companion payload are supplied in full, not by excerpt.
 
+The caller's validation-input object is never retained as evidence. Invocation
+preflight iteratively freezes it twice into private immutable JSON snapshots
+before recipe parsing or phase evaluation. Each freeze accepts only JSON-domain
+containers and scalars, rejects repeated/cyclic container identity, enforces the
+v1 depth and JCS numeric domain, and severs every reference to caller-owned
+containers. The two independently frozen values and fingerprints must match
+exactly. A mapping that raises, changes enumeration, or yields different values
+between the two passes fails as `validation_input_snapshot_unstable_mapping`.
+The accepted second snapshot is the sole validation input after preflight.
+Every later phase, descriptor, and fingerprint reads only that snapshot, never
+the original mapping. A phase that needs mutable containers receives its own
+thawed copy; phase mutation cannot affect another phase or the snapshot.
+
+The snapshot is bound as
+`validation_input_snapshot_fingerprint: sha256:...` under
+`rook.canonical_json:v1`. Mutating the caller's original mapping after preflight
+cannot move that fingerprint or change any validation result. Snapshot creation
+failure is a pre-report invocation failure because no stable validation input
+exists to describe in a report.
+
+Before a report may be attempted, the snapshot must contain this minimal
+report-constructability envelope:
+
+```text
+/task_envelope                                      object
+/authority_artifacts                                array
+/validation_context                                 object
+/validation_context/environment_snapshots           array
+/validation_context/policy_registries                array
+/validation_context/payload_schema_registry          object
+/validation_context/capability_registry              object
+/validation_context/vocabularies                     object
+/validation_context/vocabularies/semantic_authority_codes     object
+/validation_context/vocabularies/semantic_capability_codes    object
+/validation_context/vocabularies/worker_slot_codes             object
+/validation_context/vocabularies/semantic_materiality_codes    object
+/validation_context/vocabularies/semantic_value_schemas        object
+```
+
+These are descriptor shells, not claims that their contents are valid. Their
+fixed positions provide enough stable discriminator information to construct
+`source_task`, both singleton registry descriptors, and all required vocabulary
+descriptors with nullable evidence and failed/not-evaluated statuses. Missing
+or wrong-container shells are invocation failures. Missing fields, unknown
+fields, bad fingerprints, malformed payloads, and other defects inside present
+shells remain `companion_artifacts` evidence.
+
 Every recipe-declared authority artifact matches exactly one full companion by
 `artifact_id`, schema, and fingerprint. Missing, duplicate, undeclared, or
 fingerprint-mismatched recipe-bound companions invalidate validation context.
@@ -1468,7 +1515,12 @@ checks, in this exact precedence order:
 2. `raw_recipe_bytes` is an actual `bytes` value, so exact-byte hashing is
    available;
 3. `validation_input` is a mapping;
-4. `validation_input.validation_context` is a mapping containing valid trusted
+4. two independent bounded freezes of the complete validation input produce
+   the same immutable JSON-domain value and fingerprint within the v1 depth and
+   host-value boundaries;
+5. every mandatory report-constructability shell from Section 4.1 exists with
+   the required container type;
+6. `validation_input.validation_context` contains valid trusted
    `evaluated_at`, `trusted_clock_source`, `task_session_id`, nullable
    `environment_session_id`, and `capability_registry_session_id` values.
 
@@ -1477,12 +1529,12 @@ LM9A companions. `trusted_clock_source` is exactly `deterministic_fixture` in
 tests or `trusted_system_clock` in production. Session values use the LM9A
 machine-identifier grammar; only `environment_session_id` may be `null`.
 
-Unknown or extra validation-input fields do not fail preflight when the trusted
-context projection above is intact. They remain reportable
-`companion_artifacts` structural errors. Missing or malformed task, authority,
-registry, policy, vocabulary, and other companion content likewise remains
-reportable because the trusted context needed to describe those failures still
-exists.
+Unknown or extra validation-input fields do not fail preflight when the
+constructability envelope and trusted context projection above are intact. They
+remain reportable `companion_artifacts` structural errors. Malformed content
+inside a present mandatory shell likewise remains reportable. A missing or
+wrong-container mandatory shell does not: the validator could not populate the
+closed report shape truthfully, so invocation stops before report construction.
 
 The public invocation boundary has this closed non-artifact control result:
 
@@ -1492,11 +1544,23 @@ failure_stage: preflight | validation
 code: validator_identity_unavailable |
       raw_recipe_bytes_unavailable |
       validation_input_unavailable |
+      validation_input_snapshot_depth_exceeded |
+      validation_input_snapshot_repeated_container |
+      validation_input_snapshot_unstable_mapping |
+      validation_input_snapshot_non_string_key |
+      validation_input_snapshot_unicode_invalid |
+      validation_input_snapshot_nonfinite_number |
+      validation_input_snapshot_integer_out_of_jcs_domain |
+      validation_input_snapshot_non_json_host_type |
+      report_constructability_envelope_missing |
+      report_constructability_envelope_invalid |
       trusted_validation_context_missing |
       trusted_validation_context_invalid |
       validator_integrity_failure |
       validator_internal_failure
 input_payload_sha256: sha256:... | null
+validation_input_snapshot_fingerprint: sha256:... | null
+subject_path: /json/pointer | null
 message: bounded text
 ```
 
@@ -1504,19 +1568,26 @@ The message is at most 512 Unicode code points and contains no unbounded input
 or exception text. `input_payload_sha256` is non-null if and only if exact
 recipe bytes were available, regardless of which invocation check selected the
 failure code. Computing that hash does not change the error-precedence order.
+`validation_input_snapshot_fingerprint` is non-null exactly when snapshot
+creation completed. `subject_path` identifies the first deterministic failing
+snapshot or constructability path and is otherwise `null`.
 This result has no Rook schema, artifact fingerprint,
 phase rows, `valid`, `compile_ready`, trusted time, or session claim. It is not
 a partial validation report and cannot enter compilation. A future mechanical
 ingress may wrap it in its own authenticated operation receipt; LM9A does not
 invent that receipt.
 
-The first five codes above always use `failure_stage: preflight`;
+Every code except the final two uses `failure_stage: preflight`;
 `validator_integrity_failure` and `validator_internal_failure` always use
-`failure_stage: validation`. `trusted_validation_context_missing` means the
-`validation_context` key itself is absent. A present non-mapping context, a
-missing required context field, or an invalid field value produces
+`failure_stage: validation`. An absent or non-mapping `validation_context` is a
+report-constructability shell failure. Within a present mapping,
+`trusted_validation_context_missing` means one of the five trusted context
+fields is absent; a present but invalid field value produces
 `trusted_validation_context_invalid`. `raw_recipe_bytes_unavailable` and
 `validation_input_unavailable` include wrong host types as well as absence.
+Snapshot codes are mutually exclusive and select the first failure under
+depth-first RFC 6901 path order. Constructability `missing` means a required path
+is absent; `invalid` means it exists with the wrong container type.
 
 The public validator returns either a conforming
 `rook.planner_graph_recipe_validation_report:v1` or this typed invocation
@@ -1540,9 +1611,11 @@ The complete earliest-honest-result matrix is:
 |---|---|
 | validator identity cannot be established | preflight invocation failure |
 | raw recipe bytes, validation input, or trusted context unavailable | preflight invocation failure |
+| validation input cannot become one immutable JSON/JCS-domain snapshot | preflight invocation failure |
+| mandatory report descriptor shell is missing or has the wrong container type | preflight invocation failure |
 | ruleset integrity assertion or validator implementation fault before report completion | validation invocation failure |
 | recipe size, depth, number, UTF-8, JSON, Unicode, or recipe-schema failure after preflight | conforming report with `schema=failed` |
-| validation-input or companion structure, depth, numeric, identity, freshness, or fingerprint failure | conforming report with `companion_artifacts=failed` |
+| malformed content inside present companion shells, or companion identity, freshness, schema, or fingerprint failure | conforming report with `companion_artifacts=failed` |
 | deterministic semantic invalidity or readiness blocker | conforming report with exact phase diagnostic/blocker |
 
 No terminal path may emit a partial report or require a report to validate the
@@ -1559,6 +1632,7 @@ Is it presently authorized and sufficiently resolved to enter compilation?
 schema: rook.planner_graph_recipe_validation_report:v1
 
 input_payload_sha256: sha256:...
+validation_input_snapshot_fingerprint: sha256:...
 claimed_recipe_fingerprint: sha256:...
 computed_recipe_fingerprint: sha256:...
 
@@ -1726,14 +1800,24 @@ All reportable recipe-ingress failures retain `input_payload_sha256`, set
 phases `not_evaluated`. The post-parse tree walk is iterative and checks
 surrogate strings, container depth, and finite floats before schema validation.
 
-After invocation preflight extracts the trusted context, the complete
-validation-input mapping receives the same iterative 64-container check before
-JSON Schema traversal. Depth `65` produces
-`companion_artifacts / validation_input_depth_limit_exceeded`; a non-finite
-float anywhere in that mapping, including inside an embedded schema document,
-produces `companion_artifacts / validation_input_nonfinite_number`. These are
-ordinary report outcomes because trusted report-construction context is already
-available.
+Before trusted context extraction, the complete validation-input mapping is
+frozen twice iteratively. Mapping keys traverse in RFC 8785 UTF-16 order and
+array items in index order, which also defines the first failure path. Depth
+`65`, repeated/cyclic container identity, a non-string key, an unpaired
+surrogate, a non-finite float, an integer whose IEEE-754 binary64 conversion
+overflows, an exception-raising mapping, two unequal freeze results, or a
+non-JSON host value such as `Decimal`, `bytes`, or a tuple produces its exact
+`validation_input_snapshot_*` invocation failure. Equality compares the full
+frozen value and canonical fingerprint; the second freeze becomes the accepted
+snapshot. Mutation after that freeze cannot affect the accepted value.
+These failures occur before JSON Schema traversal or any companion fingerprint
+work because no complete JCS-domain snapshot exists to bind into a report.
+
+An integer outside the product safe range but still inside the finite binary64
+domain remains legal inside an embedded schema document, as established by
+Section 9. Product payloads still reject such integers where their own schema or
+product-number policy requires it. The snapshot gate rejects only values that
+cannot enter the finite JCS number domain at all.
 
 Malformed input may still have an input hash while
 `computed_recipe_fingerprint` is `null`; `claimed_recipe_fingerprint` may also
@@ -1899,9 +1983,15 @@ vocabularies
   exactly one descriptor for each required v1 vocabulary
 ```
 
-Missing required descriptors, extra descriptors, duplicate stable identities,
-descriptor/companion kind disagreement, or a claimed/computed fingerprint
-mismatch is a `companion_artifacts` error.
+Preflight guarantees the fixed `source_task`, singleton registry, and required
+vocabulary descriptor shells. If their contents are malformed, constructors use
+the fixed slot discriminator/identity, explicit nullable evidence fields, and a
+failed or not-evaluated status. Recipe-declared variable authority companions
+that are missing, extra, duplicated, kind-mismatched, or fingerprint-mismatched
+remain `companion_artifacts` errors. A supplied variable-list item whose stable
+identity cannot be recovered produces a path-addressed diagnostic and no
+descriptor row; the complete item remains bound by
+`validation_input_snapshot_fingerprint`.
 
 ### 8.3 Validation-Context Fingerprint
 
@@ -1915,6 +2005,8 @@ validator:
   implementation_version: lm9a.recipe_validator:v1
   ruleset_fingerprint: sha256:...
   canonicalization_version: rook.canonical_json:v1
+
+validation_input_snapshot_fingerprint: sha256:...
 
 evaluated_at: ...
 trusted_clock_source: ...
@@ -1972,7 +2064,8 @@ Validation-context artifact projections contain their discriminator and omit
 `registry_id`, `registry_kind`, `schema`, both companion/computed fingerprints,
 and `registry_session_id`. Vocabulary projections contain `descriptor_kind`,
 `schema`, `vocabulary_version`, `recipe_binding_paths`, and all three applicable
-fingerprints. The validator identity is copied exactly from the report header.
+fingerprints. The validator identity and validation-input snapshot fingerprint
+are copied exactly from the report header.
 
 The projection excludes derived descriptor fields `session_status`,
 `freshness_status`, `validation_status`, and `entry_count`. It excludes the raw
@@ -2024,7 +2117,7 @@ Required phases and their exact dependencies are:
 |---|---|
 | `schema` | none; this phase includes JSON parsing and schema validation |
 | `fingerprint` | `schema` |
-| `companion_artifacts` | `schema` |
+| `companion_artifacts` | none; it evaluates the immutable validation-input snapshot independently of recipe validity |
 | `provenance` | `companion_artifacts` |
 | `clause_graph` | `schema`, `companion_artifacts` |
 | `derived_facts` | `companion_artifacts`, `provenance`, `clause_graph` |
@@ -2037,6 +2130,9 @@ Required phases and their exact dependencies are:
 
 A fingerprint mismatch does not suppress independent structural diagnostics in
 other branches of the graph. It does prevent `readiness` from passing.
+Likewise, recipe parse/schema failure does not suppress `companion_artifacts`.
+Both phases may fail in one report; semantic phases that require both remain
+`not_evaluated`.
 
 Each phase has one mechanically derived status:
 
@@ -2607,8 +2703,14 @@ LM9A must prove:
   ordering across runtimes;
 - raw input and normalized payload hashes remain distinct;
 - recipe inputs at exactly 1,048,576 bytes and exactly 64 container levels are
-  accepted by ingress, and validation input at exactly 64 levels reaches schema
-  evaluation;
+  accepted by ingress, and validation input at exactly 64 levels produces an
+  immutable snapshot and reaches constructability validation;
+- mutating the caller-owned validation input after preflight cannot change the
+  snapshot fingerprint, descriptors, diagnostics, or report fingerprint;
+- a custom mapping that changes between the two bounded freeze passes is
+  rejected as `validation_input_snapshot_unstable_mapping` before any report;
+- malformed recipe bytes with otherwise valid companion shells still evaluate
+  `companion_artifacts`, including the combined recipe/companion failure case;
 - every report companion descriptor records its closed stable identity plus
   claimed and independently computed fingerprints;
 - the validation-context fingerprint recomputes from the exact Section 8.3
@@ -2649,6 +2751,12 @@ Focused negative fixtures cover at least:
   number-token boundaries;
 - numeric tokens that overflow to non-finite host floats and integer tokens
   that would exceed host conversion limits;
+- validation-input non-finite floats, integers outside the finite JCS domain,
+  non-string keys, repeated/cyclic containers, and non-JSON host values such as
+  `Decimal`, `bytes`, and tuple;
+- a custom mapping that changes its keys or values between snapshot passes;
+- a missing or wrong-container mandatory report shell producing a preflight
+  invocation failure, including when recipe bytes are independently malformed;
 - missing or malformed trusted validation context producing a typed invocation
   failure rather than a partial validation report;
 - non-ASCII, uppercase, whitespace-bearing, or malformed machine identities,
@@ -2664,12 +2772,13 @@ Focused negative fixtures cover at least:
 - duplicate JSON object member names and escaped unpaired Unicode surrogates;
 - missing, duplicate, fingerprint-mismatched, remote-reference, or wrong-dialect
   payload-schema registry entries;
-- missing or extra required report descriptors, duplicate report descriptor
-  identities, and descriptor/companion kind disagreement;
+- missing or extra recipe-declared variable descriptors, duplicate report
+  descriptor identities, and descriptor/companion kind disagreement;
 - mismatch among recipe-claimed, companion-claimed, and computed companion
   fingerprints, including a registry or vocabulary mismatch;
 - validation-context fingerprint mismatch and context-fingerprint movement when
-  trusted validation time, session identity, registry identity, registry
+  the validation-input snapshot, trusted validation time, session identity,
+  registry identity, registry
   content, vocabulary content, validator ruleset, canonicalization version, or
   companion fingerprint evidence changes;
 - source coverage borrowed from siblings, goal, or arbitrary graph reachability;

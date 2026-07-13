@@ -4,7 +4,7 @@
 
 **Goal:** Implement an offline, model-free `rook.planner_graph_recipe:v1` validator with an explicit invocation preflight, deterministic `rook.planner_graph_recipe_validation_report:v1` artifacts after successful preflight, and generic radial, non-radial, worker-slot, and confirmation proofs.
 
-**Architecture:** Add a new LM9A-only validation stack beside the existing Planner/worker and workflow-contract code. A mechanical invocation preflight first establishes validator identity, exact recipe bytes, and the trusted report-construction context. After it succeeds, raw bytes enter through a strict parser, closed JSON Schemas establish structure, exact RFC 8785 canonicalization establishes identity, phase-specific validators establish authority and readiness, and one orchestrator emits the closed report. Preflight, validator-integrity, or implementation failure before complete report publication returns a typed non-artifact control result rather than a partial report. The implementation must not compile, schedule, execute, call tools, or mutate the existing Planner/worker protocols.
+**Architecture:** Add a new LM9A-only validation stack beside the existing Planner/worker and workflow-contract code. A mechanical invocation preflight first establishes validator identity and exact recipe bytes, copies caller-owned validation input into one immutable JSON/JCS-domain snapshot, and proves that every mandatory report descriptor shell exists. After it succeeds, raw recipe bytes and independent thawed snapshot views enter closed validation phases, exact RFC 8785 canonicalization establishes identity, and one orchestrator emits the closed report. Recipe schema and companion phases are independent, so one report may receipt both failures. Preflight, validator-integrity, or implementation failure before complete report publication returns a typed non-artifact control result rather than a partial report. The implementation must not compile, schedule, execute, call tools, or mutate the existing Planner/worker protocols.
 
 **Tech Stack:** Python 3.10+, stdlib `json`/`hashlib`/`decimal`/`unicodedata`, `jsonschema` Draft 2020-12 validation with its `referencing` registry and `jsonschema-specifications` metaschema dependencies (the already-locked `4.26.0`, `0.37.0`, and `2025.9.1` packages promoted to direct dependencies), `pytest`.
 
@@ -18,6 +18,7 @@
 - `jsonschema==4.26.0`, `referencing==0.37.0`, and `jsonschema-specifications==2025.9.1` are already present in `mcp_server/uv.lock`; promote those exact resolved packages to direct dependencies without adding another package or changing any resolved version.
 - `rook.canonical_json:v1` is a new exact RFC 8785 regime. Do not import, call, wrap, copy, or imitate `_fingerprint_normalized_contract` or any other legacy canonical JSON helper.
 - Recipe input is exact raw UTF-8 bytes without BOM, capped inclusively at 1,048,576 bytes, 64 array/object container levels, and 1,024 characters per JSON number token. Duplicate object members, unpaired surrogates, invalid UTF-8, decoder recursion, oversized numeric tokens, non-finite numeric conversion, and nonconforming product numbers fail closed into a schema-phase report after preflight succeeds.
+- Validation input is copied once during preflight into an immutable tagged JSON snapshot. The snapshot rejects depth over 64, repeated/cyclic containers, non-string keys, unpaired surrogates, non-finite floats, integers outside the finite JCS domain, and non-JSON host values. Later phases never retain or read caller-owned containers.
 - Exact JCS serialization accepts the complete finite RFC 8785 number domain. Product-number policy, including the interoperable integer range, is enforced only by schema/product validation; embedded JSON Schema documents are exempt from that product-number policy.
 - Hashes are lowercase `sha256:<hex>` strings.
 - All production LM9A modules are domain-neutral. Radial, box-array, grid-spacing, height-falloff, and layer-control scenario terms belong only in test fixture modules and documentation.
@@ -88,7 +89,12 @@ Existing dependency metadata:
 - Produces:
   - `RawJsonResult(payload: Any | None, input_payload_sha256: str, error_code: str | None, error_message: str | None)`
   - `parse_raw_json(raw: bytes) -> RawJsonResult`
-- `validate_json_tree(value: Any, *, depth_error_code: str = "json_container_depth_exceeded", nonfinite_error_code: str = "nonfinite_json_number") -> None`
+  - `validate_json_tree(value: Any, *, depth_error_code: str = "json_container_depth_exceeded", nonfinite_error_code: str = "nonfinite_json_number") -> None`
+  - `JsonSnapshotError(code: str, path: str, message: str)`
+  - `FrozenJsonObject(items: tuple[tuple[str, FrozenJsonValue], ...])`
+  - `FrozenJsonArray(items: tuple[FrozenJsonValue, ...])`
+  - `JsonSnapshot(value: FrozenJsonValue, fingerprint: str)` with `thaw() -> Any`
+  - `snapshot_json_tree(value: Mapping[str, Any], *, max_depth: int = 64) -> JsonSnapshot`
   - `utf16_sort_key(value: str) -> bytes`
   - `canonical_json_bytes(value: Any) -> bytes`
   - `canonical_sha256(value: Any) -> str`
@@ -110,17 +116,22 @@ from __future__ import annotations
 import json
 import pathlib
 import struct
+from collections import UserDict
+from decimal import Decimal
 
 import pytest
 
 from rook.agent.planner_graph_recipe_canonical import (
     CanonicalJsonError,
+    JsonSnapshotError,
     MAX_JSON_CONTAINER_DEPTH,
     MAX_JSON_NUMBER_TOKEN_CHARS,
     MAX_RECIPE_INPUT_BYTES,
     canonical_json_bytes,
+    canonical_sha256,
     compare_compound,
     parse_raw_json,
+    snapshot_json_tree,
     utf16_sort_key,
 )
 
@@ -191,10 +202,71 @@ def test_integer_token_is_bounded_before_host_integer_conversion():
 
 
 def test_number_token_limit_is_inclusive():
-    token = b"1" + (b"0" * (MAX_JSON_NUMBER_TOKEN_CHARS - 1))
+    token = b"1." + (b"0" * (MAX_JSON_NUMBER_TOKEN_CHARS - 2))
+    assert len(token) == MAX_JSON_NUMBER_TOKEN_CHARS
     parsed = parse_raw_json(b'{"value":' + token + b"}")
-    assert parsed.error_code != "json_number_token_too_long"
-    assert isinstance(parsed.payload["value"], int)
+    assert parsed.error_code is None
+    assert parsed.payload["value"] == 1.0
+
+
+@pytest.mark.parametrize(
+    ("mutate", "code"),
+    [
+        (lambda root: root.update(value=float("inf")), "validation_input_snapshot_nonfinite_number"),
+        (lambda root: root.update(value=10**400), "validation_input_snapshot_integer_out_of_jcs_domain"),
+        (lambda root: root.update(value=Decimal("1")), "validation_input_snapshot_non_json_host_type"),
+        (lambda root: root.update(value=b"x"), "validation_input_snapshot_non_json_host_type"),
+        (lambda root: root.update(value=(1, 2)), "validation_input_snapshot_non_json_host_type"),
+    ],
+)
+def test_validation_input_snapshot_rejects_values_outside_json_jcs_domain(
+    mutate,
+    code,
+):
+    candidate = {"value": 1}
+    mutate(candidate)
+    with pytest.raises(JsonSnapshotError, match=code):
+        snapshot_json_tree(candidate)
+
+
+def test_validation_input_snapshot_is_detached_from_original_mapping():
+    original = UserDict({"nested": {"value": 1}})
+    snapshot = snapshot_json_tree(original)
+    original["nested"]["value"] = 99
+    assert snapshot.thaw() == {"nested": {"value": 1}}
+    assert snapshot.fingerprint == canonical_sha256({"nested": {"value": 1}})
+
+
+def test_validation_input_snapshot_rejects_mapping_that_changes_between_passes():
+    class FlippingMapping(UserDict):
+        calls = 0
+
+        def items(self):
+            self.calls += 1
+            return (("value", self.calls),)
+
+    with pytest.raises(JsonSnapshotError, match="unstable_mapping"):
+        snapshot_json_tree(FlippingMapping())
+
+
+def test_validation_input_snapshot_rejects_repeated_or_cyclic_containers():
+    shared = []
+    with pytest.raises(JsonSnapshotError, match="repeated_container"):
+        snapshot_json_tree({"left": shared, "right": shared})
+    cycle = []
+    cycle.append(cycle)
+    with pytest.raises(JsonSnapshotError, match="repeated_container"):
+        snapshot_json_tree({"cycle": cycle})
+
+
+def test_validation_input_snapshot_depth_limit_is_inclusive():
+    value = 0
+    for _ in range(63):
+        value = [value]
+    assert snapshot_json_tree({"value": value}).fingerprint.startswith("sha256:")
+
+    with pytest.raises(JsonSnapshotError, match="snapshot_depth_exceeded"):
+        snapshot_json_tree({"value": [value]})
 
 
 def test_object_keys_use_utf16_code_unit_order():
@@ -550,6 +622,31 @@ LM9A token that passed the 1,024-character gate. Product validation still
 rejects the resulting unsafe integer; parser acceptance grants no semantic
 validity.
 
+Implement `snapshot_json_tree` as two independent iterative, non-recursive
+freezes of the caller value. Each freeze copies a mapping through one bounded
+`tuple(mapping.items())`; mapping exceptions, duplicate/non-string keys, or
+unsupported host values return the exact snapshot error rather than retaining
+the mapping. Object keys traverse in `utf16_sort_key` order and arrays in index
+order. Record every source container identity within each pass and reject any
+repeat, including cycles. Arrays must be `list`; tuple is not a JSON array.
+Accepted scalars are exactly `None`, `bool`, `str`, `int`, and finite `float`,
+with `bool` handled before `int`. Reject surrogate strings, and reject an
+integer when `float(value)` raises `OverflowError` or is not finite. Finite
+integers outside the product-safe range remain legal here so embedded JSON
+Schemas preserve the Section 9 exception.
+
+Compare the two complete frozen values and their canonical fingerprints. Any
+difference is `validation_input_snapshot_unstable_mapping`; accept only the
+second result. This catches custom mappings or concurrent caller mutation that
+produce different observations during preflight. Mutation after the second
+freeze is harmless because no caller-owned container is retained.
+
+The result contains only immutable tagged object/array tuples and scalars. Its
+fingerprint is `canonical_sha256` of that frozen value's exact thawed JSON tree.
+`thaw()` builds a new plain `dict`/`list` tree iteratively on every call. The
+snapshot never exposes internal mutable storage, and no validator phase receives
+the caller's mapping or another phase's thawed tree.
+
 Implement `_serialize_number`, `_serialize_string`, and `_serialize_value` in the same module. `_serialize_number` must pass every committed Appendix B vector; do not delegate whole-value serialization to `json.dumps`. `_serialize_string` may use `json.dumps(value, ensure_ascii=False, allow_nan=False)` only for JSON string escaping after `_reject_surrogate_string`. `_serialize_value` must sort object keys with `utf16_sort_key`, handle `bool` before `int`, serialize finite `float` through `_serialize_number`, and reject unsupported Python types.
 
 Use this number-formatting algorithm, whose committed vector gate is the
@@ -871,7 +968,7 @@ The catalog must encode these exact top-level shapes:
 | validation input | `schema`, `task_envelope`, `authority_artifacts`, `validation_context` |
 | task envelope | `schema`, `artifact_id`, `task_session_id`, `payload_schema`, `payload_schema_fingerprint`, `payload`, `value_bindings`, `issued_at`, `artifact_fingerprint` |
 | environment snapshot | `schema`, `artifact_id`, `environment_session_id`, `payload_schema`, `payload_schema_fingerprint`, `payload`, `value_bindings`, `observed_at`, `expires_at`, `issuer`, `artifact_fingerprint` |
-| validation report | every field in spec Section 8, including explicit companion descriptors, `phases`, `diagnostics`, `compile_blockers`, `valid`, `compile_ready`, and `report_fingerprint` |
+| validation report | every field in spec Section 8, including `validation_input_snapshot_fingerprint`, explicit companion descriptors, `phases`, `diagnostics`, `compile_blockers`, `valid`, `compile_ready`, and `report_fingerprint` |
 
 Encode the full closed companion/vocabulary shapes from spec Sections 4.2 through 4.7 and the full recipe shapes from Sections 6.1 through 6.11. Use local `$defs` only. Do not permit remote `$ref`, URI-fragment semantic pointers, unknown receipt kinds, or non-integer product JSON numbers.
 
@@ -1087,6 +1184,16 @@ def test_failed_dependency_marks_downstream_not_evaluated():
     assert rows["readiness"]["status"] == "not_evaluated"
 
 
+def test_companion_phase_remains_independent_when_recipe_schema_fails():
+    ledger = ValidationLedger()
+    ledger.add_diagnostic(diagnostic("schema", "schema_validation_failed"))
+    rows = {row["phase"]: row for row in derive_phase_rows(ledger)}
+    assert rows["schema"]["status"] == "failed"
+    assert rows["companion_artifacts"]["status"] == "passed"
+    assert rows["fingerprint"]["status"] == "not_evaluated"
+    assert rows["clause_graph"]["status"] == "not_evaluated"
+
+
 def test_same_issue_cannot_be_diagnostic_and_blocker():
     ledger = ValidationLedger()
     ledger.add_diagnostic(diagnostic("assumptions", "policy_prohibited"))
@@ -1164,7 +1271,7 @@ PHASE_ORDER = (
 PHASE_DEPENDENCIES = {
     "schema": (),
     "fingerprint": ("schema",),
-    "companion_artifacts": ("schema",),
+    "companion_artifacts": (),
     "provenance": ("companion_artifacts",),
     "clause_graph": ("schema", "companion_artifacts"),
     "derived_facts": ("companion_artifacts", "provenance", "clause_graph"),
@@ -1220,7 +1327,18 @@ Implement constructors whose returned key sets exactly match spec Sections 8.2 a
   count, and validation status.
 - `validation_context_projection(report: Mapping[str, Any]) -> dict[str, Any]`.
 
-The projection must omit derived status fields and preserve explicit `null` computed fingerprints. Add tests that changing `session_status` does not move the context projection while changing a trusted session ID or computed companion fingerprint does.
+Fixed-position task, registry, and vocabulary constructors must be able to emit
+a conforming failed/not-evaluated descriptor from a present but malformed shell:
+use the slot's fixed discriminator, stable identity, and expected schema; use
+explicit `null` for unrecoverable evidence fields. Variable-list items without a
+recoverable stable identity produce no descriptor row and remain bound through
+the snapshot fingerprint plus their path-addressed diagnostic.
+
+The projection must include `validation_input_snapshot_fingerprint`, omit
+derived status fields, and preserve explicit `null` computed fingerprints. Add
+tests that changing `session_status` does not move the context projection while
+changing the snapshot fingerprint, a trusted session ID, or a computed
+companion fingerprint does.
 
 - [ ] **Step 5: Run focused tests**
 
@@ -1249,18 +1367,17 @@ git commit -m "feat(lm9a): add deterministic validation reporting"
 - Modify: `mcp_server/tests/lm9a_contract_factory.py`
 
 **Interfaces:**
-- Consumes: a recipe whose raw/schema phase passed, the complete untrusted
-  validation-input mapping, and the minimal trusted time/session projection
-  already extracted by invocation preflight.
+- Consumes: the immutable validation-input snapshot, its trusted time/session
+  projection, and an optional schema-valid recipe payload. Companion validation
+  does not depend on recipe schema success.
 - Produces:
   - `CompanionIndex`
   - `CompanionValidationResult(index, source_task_descriptor, authority_descriptors, context_descriptors, vocabulary_descriptors, diagnostics)`
-  - `validate_companions(recipe, validation_input) -> CompanionValidationResult`
+  - `validate_companions(recipe_or_none, validation_input_snapshot) -> CompanionValidationResult`
   - `validate_validation_input_structure(validation_input) -> PhaseIssues`
   - `resolve_semantic_reference(reference, index) -> ResolvedReference`
   - `resolve_json_pointer(document, pointer) -> Any`
   - `exact_decimal(value: str) -> Decimal`
-  - test-only `validation_input_with_total_container_depth(validation_input, depth)`
 
 - [ ] **Step 1: Write companion and reference tests**
 
@@ -1269,7 +1386,7 @@ Cover exact positive and negative boundaries:
 ```python
 def test_artifact_value_resolves_payload_relative_through_one_binding():
     recipe, validation_input = minimal_valid_contract()
-    result = validate_companions(recipe, validation_input)
+    result = validate_companions(recipe, snapshot_json_tree(validation_input))
     resolved = resolve_semantic_reference(
         {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/name"},
         result.index,
@@ -1282,41 +1399,22 @@ def test_duplicate_binding_pointer_is_invalid_even_with_distinct_ids():
     recipe, validation_input = minimal_valid_contract()
     bindings = validation_input["task_envelope"]["value_bindings"]
     bindings.append({**bindings[0], "binding_id": "task-value.duplicate"})
-    result = validate_companions(recipe, validation_input)
+    result = validate_companions(recipe, snapshot_json_tree(validation_input))
     assert "duplicate_value_binding_pointer" in diagnostic_codes(result)
 
 
 def test_unknown_validation_input_field_is_an_envelope_error():
     recipe, validation_input = minimal_valid_contract()
     validation_input["unknown"] = True
-    result = validate_companions(recipe, validation_input)
+    result = validate_companions(recipe, snapshot_json_tree(validation_input))
     assert diagnostic_codes(result) == {"validation_input_schema_failed"}
 
 
 def test_unknown_nested_task_field_is_a_companion_schema_error():
     recipe, validation_input = minimal_valid_contract()
     validation_input["task_envelope"]["unknown"] = True
-    result = validate_companions(recipe, validation_input)
+    result = validate_companions(recipe, snapshot_json_tree(validation_input))
     assert diagnostic_codes(result) == {"companion_schema_validation_failed"}
-
-
-def test_validation_input_depth_limit_is_inclusive_before_json_schema_recursion():
-    recipe, validation_input = minimal_valid_contract()
-    at_limit = validation_input_with_total_container_depth(validation_input, 64)
-    accepted = validate_companions(recipe, at_limit)
-    assert "validation_input_depth_limit_exceeded" not in diagnostic_codes(accepted)
-
-    over_limit = validation_input_with_total_container_depth(validation_input, 65)
-    rejected = validate_companions(recipe, over_limit)
-    assert diagnostic_codes(rejected) == {"validation_input_depth_limit_exceeded"}
-
-
-def test_validation_input_rejects_nonfinite_number_inside_embedded_schema():
-    recipe, validation_input = minimal_valid_contract()
-    registry = validation_input["validation_context"]["payload_schema_registry"]
-    registry["entries"][0]["schema_document"]["maximum"] = float("inf")
-    result = validate_companions(recipe, validation_input)
-    assert diagnostic_codes(result) == {"validation_input_nonfinite_number"}
 
 
 @pytest.mark.parametrize(
@@ -1329,13 +1427,44 @@ def test_validation_input_rejects_nonfinite_number_inside_embedded_schema():
 )
 def test_semantic_pointer_forms_fail_closed(pointer, expected_code):
     recipe, validation_input = minimal_valid_contract()
-    result = validate_companions(recipe, validation_input)
+    result = validate_companions(recipe, snapshot_json_tree(validation_input))
     reference = {
         **recipe["maintains"][0]["source_refs"][0],
         "json_pointer": pointer,
     }
     with pytest.raises(SemanticReferenceError, match=expected_code):
         resolve_semantic_reference(reference, result.index)
+
+
+def test_present_but_malformed_task_shell_still_yields_closed_source_descriptor():
+    recipe, validation_input = minimal_valid_contract()
+    validation_input["task_envelope"] = {}
+    result = validate_companions(recipe, snapshot_json_tree(validation_input))
+    assert diagnostic_codes(result) == {"companion_schema_validation_failed"}
+    assert result.source_task_descriptor == {
+        "descriptor_kind": "recipe_authority",
+        "artifact_id": "task_envelope",
+        "artifact_kind": "task_envelope",
+        "schema": "rook.planner_task_envelope:v1",
+        "recipe_claimed_fingerprint": recipe["source_task"]["fingerprint"],
+        "companion_claimed_fingerprint": None,
+        "computed_fingerprint": None,
+        "task_session_id": None,
+        "environment_session_id": None,
+        "session_status": "not_evaluated",
+        "freshness_status": "not_evaluated",
+        "validation_status": "failed",
+    }
+
+
+def test_unclassifiable_variable_companion_is_diagnosed_without_fake_descriptor():
+    recipe, validation_input = minimal_valid_contract()
+    validation_input["authority_artifacts"].append({"unknown": True})
+    snapshot = snapshot_json_tree(validation_input)
+    result = validate_companions(recipe, snapshot)
+    assert "companion_schema_validation_failed" in diagnostic_codes(result)
+    assert len(result.authority_descriptors) == 0
+    assert snapshot.fingerprint.startswith("sha256:")
 ```
 
 Task 5 repeats these mutations through the public validator and asserts
@@ -1365,13 +1494,10 @@ Expected: import failure for `planner_graph_recipe_authority`.
 
 - [ ] **Step 3: Implement staged validation-input ownership, RFC 6901 resolution, and companion indexing**
 
-`validate_companions` consumes only an invocation-preflighted mapping. It begins
-by calling iterative `validate_json_tree` on the complete mapping with
-`depth_error_code="validation_input_depth_limit_exceeded"` and
-`nonfinite_error_code="validation_input_nonfinite_number"`. Those two exact
-codes are preserved; any other tree-shape error, including a surrogate string
-or non-string mapping key, normalizes to
-`validation_input_schema_failed`. It then validates
+`validate_companions` calls `validation_input_snapshot.thaw()` once for its own
+private tree; it never receives the caller mapping or another phase's tree. The
+snapshot has already fenced depth, container identity, Unicode, host types, and
+the finite JCS numeric domain. Companion validation begins with
 `VALIDATION_INPUT_ENVELOPE_SCHEMA`; envelope failures are bounded and
 normalized to `validation_input_schema_failed`. Only after that
 passes does it validate each contained companion under its exact product
@@ -1753,17 +1879,20 @@ Expected: all focused tests pass.
 **Interfaces:**
 - Consumes: candidate recipe bytes and candidate validation input at the public
   boundary; phase validation consumes only the exact bytes, validator identity,
-  and trusted context established by invocation preflight.
+  trusted context, and immutable validation-input snapshot established by
+  invocation preflight.
 - Produces:
   - `RULESET_MANIFEST`
   - `RULESET_MODULES`
   - `ruleset_projection(manifest, source_bytes_by_module) -> Mapping[str, Any]`
   - `compute_ruleset_fingerprint(manifest=RULESET_MANIFEST, source_bytes_by_module=None) -> str`
   - `assert_registered_issue(phase: str, code: str, issue_kind: str, severity: str | None = None) -> None`
-  - `ValidationInvocationContext(raw_recipe_bytes, input_payload_sha256, validation_input, trusted_validation_context, validator_identity)`
-  - `ValidationInvocationFailure(kind, failure_stage, code, input_payload_sha256, message)`
+  - `REPORT_CONSTRUCTABILITY_SHELLS`
+  - `ValidationInvocationContext(raw_recipe_bytes, input_payload_sha256, validation_input_snapshot, trusted_validation_context, validator_identity)`
+  - `ValidationInvocationFailure(kind, failure_stage, code, input_payload_sha256, validation_input_snapshot_fingerprint, subject_path, message)`
   - `resolve_validator_identity() -> Mapping[str, str]`
   - `preflight_validation_invocation(raw_recipe_bytes: object, validation_input: object) -> ValidationInvocationContext | ValidationInvocationFailure`
+  - `validate_preflighted(context: ValidationInvocationContext) -> Mapping[str, Any] | ValidationInvocationFailure`
   - `PHASE_RUNNERS`
   - `validate_planner_graph_recipe(raw_recipe_bytes: object, validation_input: object) -> Mapping[str, Any] | ValidationInvocationFailure`
   - no other artifacts or side effects.
@@ -1923,8 +2052,6 @@ RULESET_PHASE_CODES = {
     "companion_artifacts": {
         "diagnostic_codes": (
             "validation_input_schema_failed",
-            "validation_input_depth_limit_exceeded",
-            "validation_input_nonfinite_number",
             "companion_schema_validation_failed",
             "companion_artifact_id_duplicate",
             "recipe_authority_companion_missing",
@@ -2109,6 +2236,12 @@ not public report codes: recipe/validation-input schema failures normalize to
 `schema_validation_failed`, while registered payload-schema boundary failures
 normalize to their exact `companion_artifacts` codes above.
 
+The `validation_input_snapshot_*`, `report_constructability_*`, and trusted
+context codes are pre-report `ValidationInvocationFailure` codes, not phase
+diagnostics. They therefore do not appear in `RULESET_PHASE_CODES` or the
+145-row report issue registry. Their behavior remains bound by the closed spec,
+the validator source projection, and public preflight tests.
+
 `RULESET_MANIFEST["phases"]` copies these exact tuples into phase rows alongside
 the phase algorithm version and implementation modules. Manifest self-validation
 rejects a missing phase, an extra phase, duplicate codes, a code listed
@@ -2156,6 +2289,9 @@ def test_valid_report_recomputes_recipe_context_and_report_fingerprints():
     report = validate_planner_graph_recipe(raw_recipe_bytes(recipe), validation_input)
     assert report["valid"] is True
     assert report["compile_ready"] is True
+    assert report["validation_input_snapshot_fingerprint"] == (
+        snapshot_json_tree(validation_input).fingerprint
+    )
     assert report["claimed_recipe_fingerprint"] == report["computed_recipe_fingerprint"]
     assert report["validation_context"]["validation_context_fingerprint"] == (
         recompute_validation_context_fingerprint(report)
@@ -2192,7 +2328,8 @@ def test_malformed_raw_input_retains_raw_hash_and_null_computed_fingerprint():
     [
         (None, None, "raw_recipe_bytes_unavailable", False),
         (b"{}", "remove_input", "validation_input_unavailable", True),
-        (b"{}", "remove_context", "trusted_validation_context_missing", True),
+        (b"{}", "remove_context", "report_constructability_envelope_missing", True),
+        (b"{}", "remove_trusted_field", "trusted_validation_context_missing", True),
         (b"{}", "invalidate_context", "trusted_validation_context_invalid", True),
     ],
 )
@@ -2207,6 +2344,8 @@ def test_pre_report_invocation_failures_do_not_masquerade_as_reports(
         validation_input = None
     elif input_mutation == "remove_context":
         del validation_input["validation_context"]
+    elif input_mutation == "remove_trusted_field":
+        del validation_input["validation_context"]["evaluated_at"]
     elif input_mutation == "invalidate_context":
         validation_input["validation_context"]["evaluated_at"] = "not-a-timestamp"
 
@@ -2218,6 +2357,117 @@ def test_pre_report_invocation_failures_do_not_masquerade_as_reports(
     assert (result.input_payload_sha256 is not None) is has_hash
     assert len(result.message) <= MAX_EVIDENCE_MESSAGE_CHARS
     assert not hasattr(result, "valid")
+
+
+def mutate_pointer(document, pointer, *, delete=False, value=None):
+    parts = pointer.lstrip("/").split("/")
+    parent = document
+    for part in parts[:-1]:
+        parent = parent[part]
+    if delete:
+        del parent[parts[-1]]
+    else:
+        parent[parts[-1]] = value
+
+
+@pytest.mark.parametrize(
+    ("path", "wrong_type", "expected_code"),
+    [
+        ("/task_envelope", None, "report_constructability_envelope_missing"),
+        ("/authority_artifacts", {}, "report_constructability_envelope_invalid"),
+        (
+            "/validation_context/payload_schema_registry",
+            None,
+            "report_constructability_envelope_missing",
+        ),
+        (
+            "/validation_context/vocabularies/worker_slot_codes",
+            [],
+            "report_constructability_envelope_invalid",
+        ),
+    ],
+)
+def test_report_constructability_shells_fail_before_report(
+    path,
+    wrong_type,
+    expected_code,
+):
+    _, validation_input = minimal_valid_contract()
+    mutate_pointer(validation_input, path, delete=wrong_type is None, value=wrong_type)
+    result = validate_planner_graph_recipe(b'{"schema":', validation_input)
+    assert isinstance(result, ValidationInvocationFailure)
+    assert result.code == expected_code
+    assert result.subject_path == path
+    assert result.validation_input_snapshot_fingerprint.startswith("sha256:")
+
+
+@pytest.mark.parametrize(
+    ("value", "expected_code"),
+    [
+        (float("inf"), "validation_input_snapshot_nonfinite_number"),
+        (10**400, "validation_input_snapshot_integer_out_of_jcs_domain"),
+        (Decimal("1"), "validation_input_snapshot_non_json_host_type"),
+        (b"x", "validation_input_snapshot_non_json_host_type"),
+        ((1, 2), "validation_input_snapshot_non_json_host_type"),
+    ],
+)
+def test_snapshot_host_value_failures_are_pre_report(value, expected_code):
+    _, validation_input = minimal_valid_contract()
+    validation_input["validation_context"]["payload_schema_registry"]["hostile"] = value
+    result = validate_planner_graph_recipe(b"{}", validation_input)
+    assert isinstance(result, ValidationInvocationFailure)
+    assert result.code == expected_code
+    assert result.validation_input_snapshot_fingerprint is None
+
+
+def test_snapshot_depth_and_cycle_fail_at_public_preflight():
+    _, too_deep = minimal_valid_contract()
+    value = 0
+    for _ in range(64):
+        value = [value]
+    too_deep["validation_context"]["payload_schema_registry"]["hostile"] = value
+    result = validate_planner_graph_recipe(b"{}", too_deep)
+    assert result.code == "validation_input_snapshot_depth_exceeded"
+
+    _, cyclic = minimal_valid_contract()
+    cycle = []
+    cycle.append(cycle)
+    cyclic["validation_context"]["payload_schema_registry"]["hostile"] = cycle
+    result = validate_planner_graph_recipe(b"{}", cyclic)
+    assert result.code == "validation_input_snapshot_repeated_container"
+
+
+def test_original_mapping_mutation_after_preflight_cannot_change_report():
+    recipe, original = minimal_valid_contract()
+    context = preflight_validation_invocation(raw_recipe_bytes(recipe), original)
+    assert isinstance(context, ValidationInvocationContext)
+    frozen_fingerprint = context.validation_input_snapshot.fingerprint
+
+    original["task_envelope"]["task_session_id"] = "session.mutated"
+    original["validation_context"]["evaluated_at"] = "2099-01-01T00:00:00Z"
+
+    report = validate_preflighted(context)
+    assert report["validation_input_snapshot_fingerprint"] == frozen_fingerprint
+    assert report["source_task"]["task_session_id"] != "session.mutated"
+    assert report["validation_context"]["evaluated_at"] != "2099-01-01T00:00:00Z"
+
+
+def test_each_phase_receives_a_fresh_thaw_of_the_snapshot(monkeypatch):
+    recipe, validation_input = minimal_valid_contract()
+    seen = []
+
+    def mutating_runner(*, validation_input, **_):
+        validation_input["task_envelope"]["artifact_id"] = "mutated"
+        return PhaseIssues()
+
+    def observing_runner(*, validation_input, **_):
+        seen.append(validation_input["task_envelope"]["artifact_id"])
+        return PhaseIssues()
+
+    monkeypatch.setitem(PHASE_RUNNERS, "provenance", mutating_runner)
+    monkeypatch.setitem(PHASE_RUNNERS, "clause_graph", observing_runner)
+    validate_planner_graph_recipe(raw_recipe_bytes(recipe), validation_input)
+    assert seen == ["task_envelope"]
 
 
 def test_ruleset_identity_failure_is_a_pre_report_invocation_failure(monkeypatch):
@@ -2285,14 +2535,26 @@ def test_nested_companion_schema_failure_belongs_to_companion_phase():
     assert diagnostic_codes(report) == {"companion_schema_validation_failed"}
 
 
-def test_nonfinite_embedded_schema_number_belongs_to_companion_phase():
-    recipe, validation_input = minimal_valid_contract()
-    registry = validation_input["validation_context"]["payload_schema_registry"]
-    registry["entries"][0]["schema_document"]["maximum"] = float("inf")
-    report = validate_planner_graph_recipe(raw_recipe_bytes(recipe), validation_input)
-    assert phase(report, "schema") == "passed"
+def test_malformed_recipe_still_evaluates_valid_companion_snapshot():
+    _, validation_input = minimal_valid_contract()
+    report = validate_planner_graph_recipe(b'{"schema":', validation_input)
+    assert phase(report, "schema") == "failed"
+    assert phase(report, "companion_artifacts") == "passed"
+    assert phase(report, "clause_graph") == "not_evaluated"
+
+
+def test_malformed_recipe_and_malformed_companion_are_both_receipted():
+    _, validation_input = minimal_valid_contract()
+    validation_input["task_envelope"]["unknown"] = True
+    report = validate_planner_graph_recipe(b'{"schema":', validation_input)
+    assert phase(report, "schema") == "failed"
     assert phase(report, "companion_artifacts") == "failed"
-    assert diagnostic_codes(report) == {"validation_input_nonfinite_number"}
+    assert diagnostic_codes(report) == {
+        "invalid_json",
+        "companion_schema_validation_failed",
+    }
+    assert report["source_task"]["validation_status"] == "failed"
+    assert report["validation_input_snapshot_fingerprint"].startswith("sha256:")
 
 
 def test_orchestrator_receipts_unregistered_phase_issue_before_ledger_insert(monkeypatch):
@@ -2364,12 +2626,15 @@ def test_orchestrator_receipts_unexpected_implementation_failure(monkeypatch):
 
 ```
 
-Parameterize the invalid-context branch above over a non-mapping context, each
-missing required context field, a malformed/non-UTC `evaluated_at`, an unknown
-clock source, malformed task/capability session IDs, and a malformed non-null
-environment session ID. Every case returns
-`preflight / trusted_validation_context_invalid`; only absence of the
-`validation_context` key returns `trusted_validation_context_missing`.
+Parameterize the context branches above over a missing trusted field, a
+malformed/non-UTC `evaluated_at`, an unknown clock source, malformed
+task/capability session IDs, and a malformed non-null environment session ID.
+A missing trusted field returns
+`preflight / trusted_validation_context_missing`; a malformed field returns
+`preflight / trusted_validation_context_invalid`. Absence or non-mapping type of
+the `validation_context` shell is instead the earlier
+`report_constructability_envelope_missing` or
+`report_constructability_envelope_invalid` failure.
 
 Add these explicit report assertions:
 
@@ -2377,6 +2642,9 @@ Add these explicit report assertions:
 |---|---|
 | wrong claimed recipe fingerprint plus dangling goal projection | `fingerprint` and `clause_graph` both fail |
 | malformed task envelope | `companion_artifacts=failed / companion_schema_validation_failed`; provenance and dependent phases `not_evaluated` |
+| malformed recipe plus valid companion shells | `schema=failed`; `companion_artifacts=passed`; semantic phases requiring schema are `not_evaluated` |
+| malformed recipe plus malformed task contents inside a present shell | `schema=failed` and `companion_artifacts=failed` in one conforming report |
+| malformed recipe plus missing mandatory shell | preflight invocation failure; no report |
 | confirmation blocker plus otherwise evaluable unresolved phase | `assumptions=blocked`; `unresolved_intent` evaluated |
 | every public v1 report | no warning/information diagnostics; Task 3 ledger tests separately prove their status semantics |
 | attempt to add identical issue as blocker and diagnostic | internal ledger raises `issue_classification_conflict`; public boundary returns `validation / validator_integrity_failure` before report emission |
@@ -2405,7 +2673,9 @@ run in this exact order:
 1. resolve exact validator/ruleset/canonicalization/runtime identity
 2. require raw_recipe_bytes to be bytes and compute its exact SHA-256
 3. require validation_input to be a mapping
-4. extract and validate the minimal trusted validation_context projection
+4. freeze validation_input twice; require equal bounded immutable JSON/JCS snapshots
+5. require every REPORT_CONSTRUCTABILITY_SHELLS path with its exact container type
+6. extract and validate the trusted validation_context projection from the snapshot
 ```
 
 Error-code selection follows that order. Independently, set
@@ -2413,12 +2683,40 @@ Error-code selection follows that order. Independently, set
 `bytes`, even when an earlier identity check selected the failure; hashing does
 not alter error precedence.
 
+The snapshot operation performs the Task 1 two-pass stability check and stores
+only the accepted second `JsonSnapshot` in `ValidationInvocationContext`; it
+never stores the caller's mapping. `REPORT_CONSTRUCTABILITY_SHELLS` is the exact
+Section 4.1 path/type table:
+
+```python
+REPORT_CONSTRUCTABILITY_SHELLS = (
+    ("/task_envelope", "object"),
+    ("/authority_artifacts", "array"),
+    ("/validation_context", "object"),
+    ("/validation_context/environment_snapshots", "array"),
+    ("/validation_context/policy_registries", "array"),
+    ("/validation_context/payload_schema_registry", "object"),
+    ("/validation_context/capability_registry", "object"),
+    ("/validation_context/vocabularies", "object"),
+    ("/validation_context/vocabularies/semantic_authority_codes", "object"),
+    ("/validation_context/vocabularies/semantic_capability_codes", "object"),
+    ("/validation_context/vocabularies/worker_slot_codes", "object"),
+    ("/validation_context/vocabularies/semantic_materiality_codes", "object"),
+    ("/validation_context/vocabularies/semantic_value_schemas", "object"),
+)
+```
+
+Missing and wrong-type shells return the exact
+constructability failures with the snapshot fingerprint and failing path.
+
 The trusted projection contains valid `evaluated_at`, `trusted_clock_source`,
 `task_session_id`, nullable `environment_session_id`, and
-`capability_registry_session_id`. It ignores extra fields so the closed
-validation-input schema can report them later. Missing or malformed trusted
-context returns the exact typed `ValidationInvocationFailure`; no ledger, phase
-row, report fingerprint, `valid`, or `compile_ready` value is constructed. The
+`capability_registry_session_id`. It is extracted only from a fresh thaw of the
+accepted snapshot and ignores extra fields so the closed validation-input schema
+can report them later. A missing trusted field returns
+`trusted_validation_context_missing`; a malformed field returns
+`trusted_validation_context_invalid`. No ledger, phase row, report fingerprint,
+`valid`, or `compile_ready` value is constructed for any preflight failure. The
 failure has `failure_stage="preflight"`; its message is fixed/bounded and
 contains no raw exception text. Only a successful `ValidationInvocationContext`
 may enter the phase pipeline.
@@ -2435,12 +2733,19 @@ companion_artifacts:
 ```
 
 `parse_raw_json` resource-limit, bounded-number conversion, decoder-recursion,
-and syntax outcomes are
-converted immediately to registered `schema` diagnostics and a conforming
-report. They never escape as Python exceptions. A failed recipe schema phase
-makes `fingerprint`, `companion_artifacts`, and their dependents
-`not_evaluated`; the validator does not inspect an otherwise valid companion
-input to speculate issues after recipe ingress failed.
+and syntax outcomes are converted immediately to registered `schema`
+diagnostics and a conforming report. They never escape as Python exceptions.
+The `companion_artifacts` phase always evaluates its own thaw of the immutable
+snapshot, even when recipe parsing or schema validation fails. A failed recipe
+schema makes only `fingerprint` and semantic phases that depend on `schema`
+`not_evaluated`. This permits one honest report to receipt independent recipe
+and companion failures without speculating beyond either evaluated boundary.
+
+Every phase runner receives a newly thawed tree from
+`context.validation_input_snapshot`. No runner receives the original mapping,
+the frozen internal tuples, or another runner's mutable tree. Report descriptors
+and the validation-context fingerprint are derived from the snapshot and the
+phase results, never by rereading caller state.
 
 The public function must use this exact runner order after raw parsing, recipe
 schema, fingerprint, and companion validation:
@@ -2702,8 +3007,11 @@ git commit -m "test(lm9a): prove generic recipe fixtures"
 Parameterize mutations of a known valid fixture for every spec Section 12.2 class not already asserted beside its unit. At minimum include:
 
 ```text
-oversized/deep recipe input; unknown fields; malformed IDs; duplicate IDs; dangling/mismatched refs;
-numeric-token overflow, host numeric conversion failure, and non-finite companion values;
+oversized/deep recipe input; missing/wrong report-constructability shells;
+validation-input depth, repeated containers, unstable mappings, unsupported host values,
+non-finite floats, and integers outside the finite JCS domain;
+unknown fields; malformed IDs; duplicate IDs; dangling/mismatched refs;
+numeric-token overflow and host numeric conversion failure;
 URI-fragment and malformed pointers; duplicate members; bad payload schemas;
 descriptor and fingerprint mismatches; context-fingerprint movement;
 orphan requirements; unsupported derivations; policy no-match/overlap/prohibit;
@@ -2713,7 +3021,30 @@ one-way worker-slot links; deferred receipt kinds; recipe-fingerprint mismatch;
 phase not_evaluated propagation; issue-classification collision.
 ```
 
-Every parameter must assert exact `phase`, exact diagnostic or blocker `code`, `valid`, and `compile_ready`; do not assert only that validation failed.
+Every report-producing parameter must assert exact `phase`, exact diagnostic or
+blocker `code`, `valid`, and `compile_ready`; do not assert only that validation
+failed. Every pre-report parameter must instead assert the exact
+`ValidationInvocationFailure` stage, code, subject path, and fingerprint
+presence rules, and must prove that no report fields exist.
+
+Include vertical combined-failure cases, not only isolated mutations:
+
+```text
+malformed recipe + missing mandatory shell
+  -> preflight constructability failure; no report
+
+malformed recipe + present but malformed task companion
+  -> one report with schema failed and companion_artifacts failed
+
+malformed recipe + valid companions
+  -> one report with schema failed and companion_artifacts passed
+
+caller mapping changed after preflight
+  -> report remains bound to the accepted immutable snapshot
+
+one phase mutates its thawed tree
+  -> later phases observe an independent thaw of the original snapshot
+```
 
 LM9A v1 has no separate revocation-registry companion. Trusted revocation is
 represented by withdrawing the receipt from the trusted companion channel while
