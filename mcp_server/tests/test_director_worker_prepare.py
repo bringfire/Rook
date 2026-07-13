@@ -612,27 +612,3 @@ async def test_group_name_shadowing_canonical_id_rejected(tmp_path):
     # Collision detected during derivation — no partial artifacts.
     assert not (root / "member_map.json").exists()
     assert not (root / "resolved_motion.json").exists()
-
-
-async def test_mcp_dispatch_prepare_take():
-    """Mirrors the call_tool + AsyncMock pattern of test_director_take_package.py.
-
-    NOTE: the wire success shape is the `data` payload directly (see
-    server._format_tool_result docstring) -- NOT a {success, data} envelope.
-    """
-    from unittest.mock import AsyncMock, patch
-
-    from rook import server, targeting
-
-    with patch.object(targeting, "discover_instances", lambda: [
-        {"host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native"},
-    ]):
-        with patch.object(server.director_worker_prepare, "prepare_take",
-                          new_callable=AsyncMock) as mock_prepare:
-            mock_prepare.return_value = {"phase": "prepared", "take_id": "take1"}
-            result = await server.call_tool(
-                "rhino_director_prepare_take", {"package_root": "C:/takes/take1"})
-        mock_prepare.assert_awaited_once()
-    payload = json.loads(result[0].text)
-    assert payload["phase"] == "prepared"
-    assert payload["take_id"] == "take1"

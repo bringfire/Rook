@@ -12,7 +12,7 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from rook import director, server
+from rook import director, director_publish, director_video, server
 from .conftest import _block_create, _block_insert, _create_brep
 
 
@@ -1164,20 +1164,18 @@ async def test_director_publish_video_live_smoke(fresh_document):
     status = json.loads(status_path.read_text(encoding="utf-8"))
     assert status["state"] == "complete"
 
-    assemble_result = await server.call_tool(
-        "rhino_director_assemble_video",
+    assemble_payload = await director_video.assemble_director_video(
         {"run_root": str(run_root)},
+        port=_director_port(),
     )
-    assemble_text = assemble_result[0].text
-    if assemble_text.startswith("Error:"):
-        error_payload = json.loads(assemble_text.removeprefix("Error: "))
-        if error_payload.get("code") == "backend_unavailable":
+    if assemble_payload.get("state") == "failed":
+        error = assemble_payload.get("error") or {}
+        if error.get("code") == "backend_unavailable":
             pytest.skip(
-                f"Media Foundation backend unavailable on this machine: {error_payload}"
+                f"Media Foundation backend unavailable on this machine: {error}"
             )
-        pytest.fail(f"Video assembly failed before publish smoke: {error_payload!r}")
+        pytest.fail(f"Video assembly failed before publish smoke: {error!r}")
 
-    assemble_payload = json.loads(assemble_text)
     assert assemble_payload["state"] == "complete"
     video_manifest_path = run_root / "video_manifest.json"
     video_path = run_root / "videos" / "preview.mp4"
@@ -1197,11 +1195,10 @@ async def test_director_publish_video_live_smoke(fresh_document):
     assert video_manifest["fps"] == manifest["timeline"]["fps"] == 24
     assert video_manifest["frame_count"] == manifest["frame_count"]
 
-    result = await server.call_tool(
-        "rhino_director_publish_video",
+    payload = await director_publish.publish_director_video(
         {"run_root": str(run_root)},
+        port=_director_port(),
     )
-    payload = json.loads(result[0].text)
     assert payload["state"] == "complete"
     assert payload["profile"] == "director_publish_standard_v1"
     artifact_id = payload["artifact_id"]

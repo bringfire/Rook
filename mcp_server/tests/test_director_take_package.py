@@ -264,23 +264,3 @@ async def test_legacy_save_copy_evidence_fails_invariant_check(tmp_path):
         await dtp.package_take(_args(tmp_path), call_native=fake)
     assert exc.value.code == "save_copy_invariant_violation"
     assert "title" in str(exc.value)
-
-
-async def test_mcp_tool_is_registered_and_dispatches():
-    """Mirrors the call_tool + AsyncMock pattern of test_director_mcp_tools.py."""
-    from unittest.mock import AsyncMock, patch
-
-    from rook import server, targeting
-
-    with patch.object(targeting, "discover_instances", lambda: [
-        {"host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native"},
-    ]):
-        request = {"take_id": "t", "output_root": "C:/x", "actor_sets": [],
-                   "motion": {}, "display_modes": ["Arctic"]}
-        with patch.object(server.director_take_package, "package_take",
-                          new_callable=AsyncMock) as mock:
-            mock.return_value = {"package_root": "C:/x/t", "package_id": "t-abc",
-                                 "take_id": "t"}
-            result = await server.call_tool("rhino_director_package_take", request)
-        mock.assert_awaited_once()
-        assert "t-abc" in result[0].text
