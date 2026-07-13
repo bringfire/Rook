@@ -34,6 +34,14 @@ def test_full_surface_is_428_and_gates_deprecated(monkeypatch):
     assert SENTINEL_TOOL_NAMES <= full
 
 
+def test_deprecated_interactive_gate_adds_exactly_three_tools(monkeypatch):
+    default = _list_names(monkeypatch, None)
+    monkeypatch.setenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", "1")
+    enabled = {t.name for t in asyncio.run(server.list_tools())}
+    assert len(enabled) == 431
+    assert enabled - default == _GATED
+
+
 def test_all_live_tools_is_unprofiled_428(monkeypatch):
     monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
     # Even with a restrictive profile set, the unprofiled source is the full 428.

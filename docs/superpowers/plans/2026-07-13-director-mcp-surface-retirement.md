@@ -30,10 +30,12 @@
 Before Task 1, keep the worktree-local virtual environment unchanged and run this full non-live gate from the repository root:
 
 ```powershell
-.\mcp_server\.venv\Scripts\python.exe -m pytest mcp_server/tests -m "not requires_rhino" -q
+$baselineCapture = ".superpowers/sdd/director-mcp-retirement-baseline-pytest.txt"
+.\mcp_server\.venv\Scripts\python.exe -m pytest mcp_server/tests -m "not requires_rhino" -q 2>&1 | Tee-Object -FilePath $baselineCapture
+$baselineExitCode = $LASTEXITCODE
 ```
 
-Record the exact failed/error node IDs and pass/fail/error/skip totals. Pre-existing failures do not authorize repairs to `main` and do not block this retirement. All new and retirement-focused tests must pass. At final verification, rerun the same command in the same environment: it may retain the recorded pre-existing failed/error node IDs, but it must introduce no new failed/error node IDs. Live-Rhino tests remain a separate, explicitly enabled gate.
+Capture and retain complete output from this first invocation in ignored SDD scratch or outside the worktree; do not rely on the potentially truncated console view. From that capture, record the exact failed/error node IDs, the exact failed/error set, the pass/fail/error/skip totals, and `$baselineExitCode`. Do not rerun merely to recover evidence when the first capture is complete. Pre-existing failures do not authorize repairs to `main` and do not block this retirement. All new and retirement-focused tests must pass. At final verification, rerun the same pytest selection in the same environment: it may retain the recorded pre-existing failed/error node IDs, but it must introduce no new failed/error node IDs. Live-Rhino tests remain a separate, explicitly enabled gate.
 
 ---
 
@@ -1236,10 +1238,12 @@ Expected: PASS, with live-Rhino tests skipped unless explicitly enabled.
 Run from the repository root using the unchanged worktree environment:
 
 ```powershell
-.\mcp_server\.venv\Scripts\python.exe -m pytest mcp_server/tests -m "not requires_rhino" -q
+$finalCapture = ".superpowers/sdd/director-mcp-retirement-final-pytest.txt"
+.\mcp_server\.venv\Scripts\python.exe -m pytest mcp_server/tests -m "not requires_rhino" -q 2>&1 | Tee-Object -FilePath $finalCapture
+$finalExitCode = $LASTEXITCODE
 ```
 
-Expected: every new and retirement-focused test passes, and the failed/error node-ID set introduces no entries beyond the pre-Task-1 differential baseline. Pre-existing failed/error node IDs may remain. Record the exact final totals and node-ID comparison in the branch handoff; do not copy a historical total into the claim.
+Capture and retain complete output from this first invocation in ignored SDD scratch or outside the worktree; do not rely on the potentially truncated console view, and do not rerun merely to recover evidence when the first capture is complete. Expected: every new and retirement-focused test passes, and the failed/error node-ID set introduces no entries beyond the pre-Task-1 differential baseline. Pre-existing failed/error node IDs may remain. From the retained capture, record `$finalExitCode`, the exact final totals, the exact final failed/error node-ID set, and its set comparison with the baseline in the branch handoff; do not copy a historical total into the claim.
 
 - [ ] **Step 4: Run repository and artifact checks**
 
