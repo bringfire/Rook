@@ -868,7 +868,7 @@ git commit -m "test: preserve Director implementation below MCP"
 
 - [ ] **Step 1: Add failing documentation and preservation tests**
 
-Append to `test_director_mcp_retirement.py`:
+Append to `test_director_mcp_retirement.py`. The executable test must explicitly enumerate the exact 55-path `ACTIONABLE_DIRECTOR_DOCS` frozenset (no glob-derived expected set), define the exact full partial/historical notice strings, and define every directory-correct reference string. The condensed sample below shows the required tracked-only enumeration and assertions; the executable constants carry the complete literal snapshot from Steps 3–4.
 
 ```python
 import re
@@ -883,6 +883,18 @@ CURRENT_GUIDANCE = (
     "docs/CURRENT_ARCHITECTURE.md",
     "docs/AGENT_ARCHITECTURE.md",
 )
+APPROVED_DIRECTOR_BOUNDARY = (
+    "- Director is retired from MCP discovery, profiles, meta-tools, targeting, "
+    "and internal-agent dispatch. Native `/director/*` routes and implementation "
+    "modules remain temporarily preserved for disposition review; they are not a "
+    "public or agent-callable capability."
+)
+CURRENT_DIRECTOR_GUIDANCE_DOCS = frozenset(
+    {"docs/CURRENT_ARCHITECTURE.md", "docs/AGENT_ARCHITECTURE.md"}
+)
+BOUNDARY_GUIDANCE = frozenset(
+    {"AGENTS.md", *CURRENT_DIRECTOR_GUIDANCE_DOCS}
+)
 DIRECTOR_DOC_PATTERN = re.compile(
     r"rhino_director_|"
     r"(?<![A-Za-z0-9_])/director(?:/|\b)|"
@@ -893,18 +905,18 @@ CURRENT_DIRECTOR_RETIREMENT_DOCS = {
     "docs/superpowers/specs/2026-07-13-director-mcp-surface-retirement-design.md",
     "docs/superpowers/plans/2026-07-13-director-mcp-surface-retirement.md",
 }
-HISTORICAL_DIRECTOR_EVIDENCE_DOCS = {
+HISTORICAL_DIRECTOR_EVIDENCE_DOCS = frozenset({
     "docs/TROUBLESHOOTING.md",
     "docs/superpowers/2026-06-24-replay-live-gate-postmortem.md",
     "docs/superpowers/plans/2026-05-19-rookvisiondirector-slice1-phase0-inventory.md",
     "docs/superpowers/plans/2026-06-23-hunyuan-3d-pro-image-to-3d.md",
-}
-PARTIAL_SUPERSESSION_MARKER = (
-    "PARTIALLY SUPERSEDED — Director MCP retirement (2026-07-13)"
-)
-HISTORICAL_EVIDENCE_MARKER = (
-    "DIRECTOR HISTORICAL EVIDENCE — classified 2026-07-13"
-)
+})
+# ACTIONABLE_DIRECTOR_DOCS is an explicit frozenset of the exact 55 tracked paths.
+# PARTIAL_SUPERSESSION_NOTICE and HISTORICAL_EVIDENCE_NOTICE are the exact full
+# multiline blocks from Steps 3 and 4, not marker substrings.
+# PARTIAL_REFERENCE_BY_DIRECTORY maps specs/, plans/, and rook_docs/ to the exact
+# reference definitions in Step 3. HISTORICAL_REFERENCE_BY_DOCUMENT maps all four
+# evidence documents to the exact reference definitions in Step 4.
 TRACKED_GUIDANCE_ROOTS = (
     ".agents",
     ".claude/skills",
@@ -917,56 +929,101 @@ TRACKED_GUIDANCE_SUFFIXES = {
 }
 
 
+def _git_tracked_relative_paths(*roots: str) -> list[str]:
+    result = subprocess.run(
+        ["git", "ls-files", "-z", "--", *roots],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+    )
+    return [
+        relative
+        for relative in result.stdout.decode("utf-8").split("\0")
+        if relative
+    ]
+
+
 def _route_aware_director_documents() -> dict[str, str]:
     matches = {}
-    for path in (REPO_ROOT / "docs").rglob("*.md"):
+    for relative in _git_tracked_relative_paths("docs"):
+        if not relative.startswith("docs/") or not relative.endswith(".md"):
+            continue
+        path = REPO_ROOT / relative
         text = path.read_text(encoding="utf-8", errors="replace")
         if DIRECTOR_DOC_PATTERN.search(text):
-            relative = path.relative_to(REPO_ROOT).as_posix()
             matches[relative] = text
     return matches
 
 
 def test_current_guidance_has_no_actionable_director_instruction():
-    forbidden = ("rhino_director_", "visiondirector", "director-based")
     for relative in CURRENT_GUIDANCE:
-        text = (REPO_ROOT / relative).read_text(encoding="utf-8").lower()
-        assert all(token not in text for token in forbidden), relative
-        if "/director" in text:
-            assert "not a public or agent-callable capability" in text, relative
+        text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+        expected_boundary_count = 1 if relative in BOUNDARY_GUIDANCE else 0
+        assert text.count(APPROVED_DIRECTOR_BOUNDARY) == expected_boundary_count
+        remaining = text.replace(APPROVED_DIRECTOR_BOUNDARY, "")
+        assert DIRECTOR_DOC_PATTERN.search(remaining) is None, relative
+        assert "director-based" not in remaining.lower(), relative
+
+
+def _assert_exact_notice_block(text, notice, reference, relative):
+    block = f"{notice}\n\n{reference}"
+    assert text.count(block) == 1, relative
+    assert text.count(notice) == 1, relative
+    references = re.findall(
+        r"(?m)^\[director-mcp-retirement\]: .+$", text
+    )
+    assert references == [reference], relative
+
+
+def _partial_reference_for(relative):
+    matches = [
+        reference
+        for directory, reference in PARTIAL_REFERENCE_BY_DIRECTORY.items()
+        if relative.startswith(directory)
+    ]
+    assert len(matches) == 1, relative
+    return matches[0]
 
 
 def test_every_route_aware_director_document_is_classified():
     documents = _route_aware_director_documents()
-    assert CURRENT_DIRECTOR_RETIREMENT_DOCS <= set(documents)
-    assert HISTORICAL_DIRECTOR_EVIDENCE_DOCS <= set(documents)
-    design_name = "2026-07-13-director-mcp-surface-retirement-design.md"
-    for relative, text in documents.items():
-        if (
-            relative in CURRENT_DIRECTOR_RETIREMENT_DOCS
-            or relative in CURRENT_GUIDANCE
-        ):
-            continue
-        expected_marker = (
-            HISTORICAL_EVIDENCE_MARKER
-            if relative in HISTORICAL_DIRECTOR_EVIDENCE_DOCS
-            else PARTIAL_SUPERSESSION_MARKER
+    groups = (
+        CURRENT_DIRECTOR_GUIDANCE_DOCS,
+        CURRENT_DIRECTOR_RETIREMENT_DOCS,
+        HISTORICAL_DIRECTOR_EVIDENCE_DOCS,
+        ACTIONABLE_DIRECTOR_DOCS,
+    )
+    assert [len(group) for group in groups] == [2, 2, 4, 55]
+    for index, group in enumerate(groups):
+        for other in groups[index + 1:]:
+            assert group.isdisjoint(other)
+    expected_documents = frozenset().union(*groups)
+    assert len(expected_documents) == 63
+    assert set(documents) == expected_documents
+    assert set(HISTORICAL_REFERENCE_BY_DOCUMENT) == (
+        HISTORICAL_DIRECTOR_EVIDENCE_DOCS
+    )
+
+    for relative in sorted(ACTIONABLE_DIRECTOR_DOCS):
+        _assert_exact_notice_block(
+            documents[relative],
+            PARTIAL_SUPERSESSION_NOTICE,
+            _partial_reference_for(relative),
+            relative,
         )
-        assert expected_marker in text, relative
-        assert design_name in text, relative
+    for relative in sorted(HISTORICAL_DIRECTOR_EVIDENCE_DOCS):
+        _assert_exact_notice_block(
+            documents[relative],
+            HISTORICAL_EVIDENCE_NOTICE,
+            HISTORICAL_REFERENCE_BY_DOCUMENT[relative],
+            relative,
+        )
 
 
 def test_installed_agent_assets_do_not_teach_director_mcp():
-    result = subprocess.run(
-        ["git", "ls-files", "-z", "--", *TRACKED_GUIDANCE_ROOTS],
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-    )
     tracked = [
         REPO_ROOT / relative
-        for relative in result.stdout.decode("utf-8").split("\0")
-        if relative
+        for relative in _git_tracked_relative_paths(*TRACKED_GUIDANCE_ROOTS)
     ]
     assert tracked
     for path in tracked:
@@ -995,15 +1052,15 @@ Expected: FAIL on current README copy and on every route-aware Director document
 
 - [ ] **Step 3: Add partial-supersession notices to every actionable match**
 
-Enumerate the complete route-aware document set from the repository root:
+Enumerate the complete tracked route-aware document set from the repository root. This tracked-only audit mirrors the NUL-safe `git ls-files -z` enumeration in the test; filesystem `rglob()`/`rg` results are not the contract because ignored or untracked scratch Markdown must not affect it:
 
 ```powershell
-rg -l --pcre2 'rhino_director_|(?<![A-Za-z0-9_])/director(?:/|\b)|\b(?:Rook)?VisionDirector\b' docs --glob '*.md' | Sort-Object
+git grep -Il --perl-regexp 'rhino_director_|(?<![A-Za-z0-9_])/director(?:/|\b)|\b(?:Rook)?VisionDirector\b' -- 'docs/*.md' 'docs/**/*.md' | Sort-Object
 ```
 
-Classify the 63 measured results into four disjoint groups: two current-guidance architecture documents (`docs/CURRENT_ARCHITECTURE.md` and `docs/AGENT_ARCHITECTURE.md`), two paths in `CURRENT_DIRECTOR_RETIREMENT_DOCS`, four paths in `HISTORICAL_DIRECTOR_EVIDENCE_DOCS`, and 55 actionable historical documents. The two current-guidance documents are exempt only from the historical-classification loop: do not add a supersession notice to them, and keep all four `CURRENT_GUIDANCE` paths under `test_current_guidance_has_no_actionable_director_instruction`.
+Classify the 63 measured results into four exact, pairwise-disjoint sets: two current-guidance architecture documents (`docs/CURRENT_ARCHITECTURE.md` and `docs/AGENT_ARCHITECTURE.md`), two paths in `CURRENT_DIRECTOR_RETIREMENT_DOCS`, four paths in `HISTORICAL_DIRECTOR_EVIDENCE_DOCS`, and the explicitly enumerated 55-path `ACTIONABLE_DIRECTOR_DOCS` snapshot. Assert the union equals the complete tracked route-aware set exactly. The two current-guidance documents are exempt only from historical notice classification: do not add a supersession notice to them, and keep all four `CURRENT_GUIDANCE` paths under `test_current_guidance_has_no_actionable_director_instruction`, which allows the exact approved boundary once in the three boundary documents, zero times in README, removes that exact text, and rejects every remaining `DIRECTOR_DOC_PATTERN` match.
 
-For each of the 55 actionable historical results, add this notice immediately below the title/status preamble:
+For each of the 55 actionable historical results, add this notice immediately below the title/status preamble. The contract asserts the complete notice plus its directory-correct reference definition as one exact block, exactly once; marker substrings or a design filename elsewhere do not satisfy it:
 
 ```markdown
 > **PARTIALLY SUPERSEDED — Director MCP retirement (2026-07-13):** The general
@@ -1037,7 +1094,7 @@ docs/superpowers/plans/2026-05-19-rookvisiondirector-slice1-phase0-inventory.md
 docs/superpowers/plans/2026-06-23-hunyuan-3d-pro-image-to-3d.md
 ```
 
-Add this notice directly below each title/status preamble:
+Add this notice directly below each title/status preamble. The contract asserts this complete notice plus the exact document-specific reference definition as one block, exactly once:
 
 ```markdown
 > **DIRECTOR HISTORICAL EVIDENCE — classified 2026-07-13:** Director routes,
@@ -1054,7 +1111,7 @@ Use these exact reference definitions:
 | `docs/superpowers/2026-06-24-replay-live-gate-postmortem.md` | `[director-mcp-retirement]: specs/2026-07-13-director-mcp-surface-retirement-design.md` |
 | Either historical file under `docs/superpowers/plans/` | `[director-mcp-retirement]: ../specs/2026-07-13-director-mcp-surface-retirement-design.md` |
 
-Preserve all dated evidence below these notices unchanged.
+Preserve all dated evidence below these notices unchanged. Assert the four-path historical reference map equals `HISTORICAL_DIRECTOR_EVIDENCE_DOCS` exactly, so no evidence document can silently fall back to an actionable marker or an incorrect relative link.
 
 - [ ] **Step 5: Update current product copy and measured counts**
 

@@ -24,28 +24,155 @@ CURRENT_GUIDANCE = (
     "docs/CURRENT_ARCHITECTURE.md",
     "docs/AGENT_ARCHITECTURE.md",
 )
+APPROVED_DIRECTOR_BOUNDARY = (
+    "- Director is retired from MCP discovery, profiles, meta-tools, targeting, "
+    "and internal-agent dispatch. Native `/director/*` routes and implementation "
+    "modules remain temporarily preserved for disposition review; they are not a "
+    "public or agent-callable capability."
+)
+CURRENT_DIRECTOR_GUIDANCE_DOCS = frozenset(
+    {
+        "docs/CURRENT_ARCHITECTURE.md",
+        "docs/AGENT_ARCHITECTURE.md",
+    }
+)
+BOUNDARY_GUIDANCE = frozenset(
+    {
+        "AGENTS.md",
+        *CURRENT_DIRECTOR_GUIDANCE_DOCS,
+    }
+)
 DIRECTOR_DOC_PATTERN = re.compile(
     r"rhino_director_|"
     r"(?<![A-Za-z0-9_])/director(?:/|\b)|"
     r"\b(?:Rook)?VisionDirector\b",
     re.IGNORECASE,
 )
-CURRENT_DIRECTOR_RETIREMENT_DOCS = {
-    "docs/superpowers/specs/2026-07-13-director-mcp-surface-retirement-design.md",
-    "docs/superpowers/plans/2026-07-13-director-mcp-surface-retirement.md",
-}
-HISTORICAL_DIRECTOR_EVIDENCE_DOCS = {
-    "docs/TROUBLESHOOTING.md",
-    "docs/superpowers/2026-06-24-replay-live-gate-postmortem.md",
-    "docs/superpowers/plans/2026-05-19-rookvisiondirector-slice1-phase0-inventory.md",
-    "docs/superpowers/plans/2026-06-23-hunyuan-3d-pro-image-to-3d.md",
-}
-PARTIAL_SUPERSESSION_MARKER = (
-    "PARTIALLY SUPERSEDED — Director MCP retirement (2026-07-13)"
+CURRENT_DIRECTOR_RETIREMENT_DOCS = frozenset(
+    {
+        "docs/superpowers/specs/2026-07-13-director-mcp-surface-retirement-design.md",
+        "docs/superpowers/plans/2026-07-13-director-mcp-surface-retirement.md",
+    }
 )
-HISTORICAL_EVIDENCE_MARKER = (
-    "DIRECTOR HISTORICAL EVIDENCE — classified 2026-07-13"
+HISTORICAL_DIRECTOR_EVIDENCE_DOCS = frozenset(
+    {
+        "docs/TROUBLESHOOTING.md",
+        "docs/superpowers/2026-06-24-replay-live-gate-postmortem.md",
+        "docs/superpowers/plans/2026-05-19-rookvisiondirector-slice1-phase0-inventory.md",
+        "docs/superpowers/plans/2026-06-23-hunyuan-3d-pro-image-to-3d.md",
+    }
 )
+ACTIONABLE_DIRECTOR_DOCS = frozenset(
+    {
+        "docs/rook_docs/2026-04-15-typed-route-gap-analysis.md",
+        "docs/rook_docs/work-queue.md",
+        "docs/superpowers/plans/2026-05-19-rookvisiondirector-slice1-implementation.md",
+        "docs/superpowers/plans/2026-05-20-rookvisiondirector-camera-planning-contract-extraction.md",
+        "docs/superpowers/plans/2026-05-20-rookvisiondirector-curve-samples.md",
+        "docs/superpowers/plans/2026-05-20-rookvisiondirector-timeline-contract.md",
+        "docs/superpowers/plans/2026-05-21-rookvisiondirector-curve-follow-target.md",
+        "docs/superpowers/plans/2026-05-21-rookvisiondirector-native-video-assembly.md",
+        "docs/superpowers/plans/2026-05-21-rookvisiondirector-video-publish.md",
+        "docs/superpowers/plans/2026-06-24-rookvisiondirector-animation-compiler.md",
+        "docs/superpowers/plans/2026-06-24-rookvisiondirector-replay-decomposition.md",
+        "docs/superpowers/plans/2026-06-24-rookvisiondirector-replay-native.md",
+        "docs/superpowers/plans/2026-06-24-rookvisiondirector-replay-pumpspike.md",
+        "docs/superpowers/plans/2026-06-25-rookvisiondirector-preview-loop.md",
+        "docs/superpowers/plans/2026-06-29-mcp-tool-exposure-profile.md",
+        "docs/superpowers/plans/2026-06-30-capability-index-progressive-disclosure.md",
+        "docs/superpowers/plans/2026-07-02-director-v2-relative-actor-metadata.md",
+        "docs/superpowers/plans/2026-07-03-director-instance-restore-semantics.md",
+        "docs/superpowers/plans/2026-07-03-director-pose-bbox.md",
+        "docs/superpowers/plans/2026-07-03-director-restore-hardening.md",
+        "docs/superpowers/plans/2026-07-03-rookvision-canvas-director.md",
+        "docs/superpowers/plans/2026-07-04-canvas-director-template-promotion.md",
+        "docs/superpowers/plans/2026-07-06-director-short-ref-storage-cutover.md",
+        "docs/superpowers/plans/2026-07-06-director-v3-slice1-take-package.md",
+        "docs/superpowers/plans/2026-07-06-director-v3-slice2-worker-prepare.md",
+        "docs/superpowers/plans/2026-07-06-director-v3-slice3-compile-playback.md",
+        "docs/superpowers/plans/2026-07-06-director-v3-slice4a-capture-passes.md",
+        "docs/superpowers/plans/2026-07-07-director-build-actor-set-from-source-occurrence.md",
+        "docs/superpowers/plans/2026-07-07-director-v3-simulation-export.md",
+        "docs/superpowers/specs/2026-05-19-rookvisiondirector-slice1-design.md",
+        "docs/superpowers/specs/2026-05-20-mcp-schema-array-hardening-design.md",
+        "docs/superpowers/specs/2026-05-20-rookvisiondirector-camera-video-roadmap.md",
+        "docs/superpowers/specs/2026-05-21-rookvisiondirector-curve-follow-target-design.md",
+        "docs/superpowers/specs/2026-05-21-rookvisiondirector-native-video-assembly-design.md",
+        "docs/superpowers/specs/2026-05-21-rookvisiondirector-video-publish-design.md",
+        "docs/superpowers/specs/2026-05-31-rook-ecosystem-architecture-roadmap.md",
+        "docs/superpowers/specs/2026-06-24-rookvisiondirector-animation-authoring-roadmap.md",
+        "docs/superpowers/specs/2026-06-24-rookvisiondirector-animation-compiler-design.md",
+        "docs/superpowers/specs/2026-06-24-rookvisiondirector-replay-decomposition-design.md",
+        "docs/superpowers/specs/2026-06-24-rookvisiondirector-replay-native-design.md",
+        "docs/superpowers/specs/2026-06-24-rookvisiondirector-replay-pumpspike-design.md",
+        "docs/superpowers/specs/2026-06-25-rookvisiondirector-preview-loop-design.md",
+        "docs/superpowers/specs/2026-06-29-mcp-tool-exposure-profile-design.md",
+        "docs/superpowers/specs/2026-06-30-capability-index-progressive-disclosure-design.md",
+        "docs/superpowers/specs/2026-07-02-director-v2-relative-actor-metadata-design.md",
+        "docs/superpowers/specs/2026-07-03-director-instance-restore-semantics-design.md",
+        "docs/superpowers/specs/2026-07-03-director-pose-bbox-design.md",
+        "docs/superpowers/specs/2026-07-03-director-restore-hardening-design.md",
+        "docs/superpowers/specs/2026-07-03-rookvision-canvas-director-design.md",
+        "docs/superpowers/specs/2026-07-04-canvas-director-template-promotion-design.md",
+        "docs/superpowers/specs/2026-07-06-director-v3-slice3-compile-playback-design.md",
+        "docs/superpowers/specs/2026-07-06-director-v3-slice4a-capture-passes-design.md",
+        "docs/superpowers/specs/2026-07-06-director-v3-snapshot-boundary-design.md",
+        "docs/superpowers/specs/2026-07-07-director-build-actor-set-from-source-occurrence-design.md",
+        "docs/superpowers/specs/2026-07-07-director-v3-simulation-export-design.md",
+    }
+)
+PARTIAL_SUPERSESSION_NOTICE = "\n".join(
+    (
+        "> **PARTIALLY SUPERSEDED — Director MCP retirement (2026-07-13):** The general",
+        "> non-Director architecture and dated evidence in this document remain available.",
+        "> All `rhino_director_*`, `/director`, VisionDirector, and Director-domain examples,",
+        "> allowlist entries, count assumptions, acceptance criteria, and positive dispatch",
+        "> tests are superseded as of 2026-07-13. Replace those examples with",
+        "> non-Director fixtures when maintaining or replaying this work. This document must",
+        "> not be used to restore a Director MCP tool. See the",
+        "> [Director MCP Surface Retirement Design][director-mcp-retirement].",
+    )
+)
+HISTORICAL_EVIDENCE_NOTICE = "\n".join(
+    (
+        "> **DIRECTOR HISTORICAL EVIDENCE — classified 2026-07-13:** Director routes,",
+        "> tool names, and workflows below are retained only as dated evidence. They are not",
+        "> current instructions and must not be used to restore a Director MCP tool. See the",
+        "> [Director MCP Surface Retirement Design][director-mcp-retirement].",
+    )
+)
+PARTIAL_REFERENCE_BY_DIRECTORY = {
+    "docs/superpowers/specs/": (
+        "[director-mcp-retirement]: "
+        "2026-07-13-director-mcp-surface-retirement-design.md"
+    ),
+    "docs/superpowers/plans/": (
+        "[director-mcp-retirement]: "
+        "../specs/2026-07-13-director-mcp-surface-retirement-design.md"
+    ),
+    "docs/rook_docs/": (
+        "[director-mcp-retirement]: "
+        "../superpowers/specs/2026-07-13-director-mcp-surface-retirement-design.md"
+    ),
+}
+HISTORICAL_REFERENCE_BY_DOCUMENT = {
+    "docs/TROUBLESHOOTING.md": (
+        "[director-mcp-retirement]: "
+        "superpowers/specs/2026-07-13-director-mcp-surface-retirement-design.md"
+    ),
+    "docs/superpowers/2026-06-24-replay-live-gate-postmortem.md": (
+        "[director-mcp-retirement]: "
+        "specs/2026-07-13-director-mcp-surface-retirement-design.md"
+    ),
+    "docs/superpowers/plans/2026-05-19-rookvisiondirector-slice1-phase0-inventory.md": (
+        "[director-mcp-retirement]: "
+        "../specs/2026-07-13-director-mcp-surface-retirement-design.md"
+    ),
+    "docs/superpowers/plans/2026-06-23-hunyuan-3d-pro-image-to-3d.md": (
+        "[director-mcp-retirement]: "
+        "../specs/2026-07-13-director-mcp-surface-retirement-design.md"
+    ),
+}
 TRACKED_GUIDANCE_ROOTS = (
     ".agents",
     ".claude/skills",
@@ -384,56 +511,109 @@ async def test_scanner_failure_cannot_gate_normal_direct_dispatch(monkeypatch):
     assert called == ["rhino_objects"]
 
 
+def _git_tracked_relative_paths(*roots: str) -> list[str]:
+    result = subprocess.run(
+        ["git", "ls-files", "-z", "--", *roots],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+    )
+    return [
+        relative
+        for relative in result.stdout.decode("utf-8").split("\0")
+        if relative
+    ]
+
+
 def _route_aware_director_documents() -> dict[str, str]:
     matches = {}
-    for path in (REPO_ROOT / "docs").rglob("*.md"):
+    for relative in _git_tracked_relative_paths("docs"):
+        if not relative.startswith("docs/") or not relative.endswith(".md"):
+            continue
+        path = REPO_ROOT / relative
         text = path.read_text(encoding="utf-8", errors="replace")
         if DIRECTOR_DOC_PATTERN.search(text):
-            relative = path.relative_to(REPO_ROOT).as_posix()
             matches[relative] = text
     return matches
 
 
 def test_current_guidance_has_no_actionable_director_instruction():
-    forbidden = ("rhino_director_", "visiondirector", "director-based")
     for relative in CURRENT_GUIDANCE:
-        text = (REPO_ROOT / relative).read_text(encoding="utf-8").lower()
-        assert all(token not in text for token in forbidden), relative
-        if "/director" in text:
-            assert "not a public or agent-callable capability" in text, relative
+        text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+        expected_boundary_count = 1 if relative in BOUNDARY_GUIDANCE else 0
+        assert text.count(APPROVED_DIRECTOR_BOUNDARY) == expected_boundary_count, (
+            relative
+        )
+        remaining = text.replace(APPROVED_DIRECTOR_BOUNDARY, "")
+        assert DIRECTOR_DOC_PATTERN.search(remaining) is None, relative
+        assert "director-based" not in remaining.lower(), relative
+
+
+def _partial_reference_for(relative: str) -> str:
+    matches = [
+        reference
+        for directory, reference in PARTIAL_REFERENCE_BY_DIRECTORY.items()
+        if relative.startswith(directory)
+    ]
+    assert len(matches) == 1, relative
+    return matches[0]
+
+
+def _assert_exact_notice_block(
+    text: str,
+    notice: str,
+    reference: str,
+    relative: str,
+) -> None:
+    block = f"{notice}\n\n{reference}"
+    assert text.count(block) == 1, relative
+    assert text.count(notice) == 1, relative
+    references = re.findall(
+        r"(?m)^\[director-mcp-retirement\]: .+$",
+        text,
+    )
+    assert references == [reference], relative
 
 
 def test_every_route_aware_director_document_is_classified():
     documents = _route_aware_director_documents()
-    assert CURRENT_DIRECTOR_RETIREMENT_DOCS <= set(documents)
-    assert HISTORICAL_DIRECTOR_EVIDENCE_DOCS <= set(documents)
-    design_name = "2026-07-13-director-mcp-surface-retirement-design.md"
-    for relative, text in documents.items():
-        if (
-            relative in CURRENT_DIRECTOR_RETIREMENT_DOCS
-            or relative in CURRENT_GUIDANCE
-        ):
-            continue
-        expected_marker = (
-            HISTORICAL_EVIDENCE_MARKER
-            if relative in HISTORICAL_DIRECTOR_EVIDENCE_DOCS
-            else PARTIAL_SUPERSESSION_MARKER
+    groups = (
+        CURRENT_DIRECTOR_GUIDANCE_DOCS,
+        CURRENT_DIRECTOR_RETIREMENT_DOCS,
+        HISTORICAL_DIRECTOR_EVIDENCE_DOCS,
+        ACTIONABLE_DIRECTOR_DOCS,
+    )
+    assert [len(group) for group in groups] == [2, 2, 4, 55]
+    for index, group in enumerate(groups):
+        for other in groups[index + 1 :]:
+            assert group.isdisjoint(other)
+    expected_documents = frozenset().union(*groups)
+    assert len(expected_documents) == 63
+    assert set(documents) == expected_documents
+    assert set(HISTORICAL_REFERENCE_BY_DOCUMENT) == (
+        HISTORICAL_DIRECTOR_EVIDENCE_DOCS
+    )
+
+    for relative in sorted(ACTIONABLE_DIRECTOR_DOCS):
+        _assert_exact_notice_block(
+            documents[relative],
+            PARTIAL_SUPERSESSION_NOTICE,
+            _partial_reference_for(relative),
+            relative,
         )
-        assert expected_marker in text, relative
-        assert design_name in text, relative
+    for relative in sorted(HISTORICAL_DIRECTOR_EVIDENCE_DOCS):
+        _assert_exact_notice_block(
+            documents[relative],
+            HISTORICAL_EVIDENCE_NOTICE,
+            HISTORICAL_REFERENCE_BY_DOCUMENT[relative],
+            relative,
+        )
 
 
 def test_installed_agent_assets_do_not_teach_director_mcp():
-    result = subprocess.run(
-        ["git", "ls-files", "-z", "--", *TRACKED_GUIDANCE_ROOTS],
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-    )
     tracked = [
         REPO_ROOT / relative
-        for relative in result.stdout.decode("utf-8").split("\0")
-        if relative
+        for relative in _git_tracked_relative_paths(*TRACKED_GUIDANCE_ROOTS)
     ]
     assert tracked
     for path in tracked:
