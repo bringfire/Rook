@@ -23,6 +23,7 @@ from rook.validation_kernel.schema_profile import InstanceBinding, SchemaEvaluat
 from tests._validation_kernel_fakes import (
     HugeTypeMetadataError,
     KERNEL_STRING_EXPORT_CALLS,
+    SYNTHETIC_WIDE_PHASE_INDEX,
     SyntheticPhaseIndex,
     make_assembler_profile_candidate,
     make_phase_engine_contribution,
@@ -391,6 +392,80 @@ def test_phase_result_validation_meters_ten_thousand_output_values() -> None:
     beta_values = _phase(result, "beta").outputs[0].values
     assert len(beta_values) == 10_000
     assert context.ledger.snapshot().kernel_phase_work_units > before
+
+
+def test_wide_index_budget_failure_precedes_fields_and_set_materialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _context(_program(alpha_scenario="wide_index"))
+    context.ledger.charge(
+        BudgetDimension.KERNEL_PHASE_WORK_UNITS,
+        998_000,
+        artifact_role=ArtifactRole.PHASE_ENGINE,
+        subject_path="/reviewer-probe",
+    )
+    phase_engine = importlib.import_module("rook.validation_kernel.phase_engine")
+    calls = {"fields": 0, "set": 0}
+    real_fields = phase_engine.fields
+    real_set = set
+
+    def fields_spy(value: object) -> object:
+        calls["fields"] += 1
+        return real_fields(value)
+
+    def set_spy(*args: object) -> set[object]:
+        calls["set"] += 1
+        return real_set(*args)
+
+    monkeypatch.setattr(phase_engine, "fields", fields_spy)
+    monkeypatch.setattr(phase_engine, "set", set_spy, raising=False)
+
+    execution = phase_engine._execute_phase_program_with_audit(context)
+
+    assert isinstance(execution, ValidationControlFailure)
+    assert execution.code == "validation_budget_exceeded"
+    assert execution.budget_dimension == "kernel_phase_work_units"
+    assert calls == {"fields": 0, "set": 0}
+
+
+def test_wide_index_exact_remaining_budget_materializes_layout_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _context(_program())
+    phase_engine = importlib.import_module("rook.validation_kernel.phase_engine")
+    charger = phase_engine._phase_work_charger(context, "alpha")
+    expected_delta = 16_016
+    context.ledger.charge(
+        BudgetDimension.KERNEL_PHASE_WORK_UNITS,
+        1_000_000 - expected_delta,
+        artifact_role=ArtifactRole.PHASE_ENGINE,
+        subject_path="/reviewer-probe",
+    )
+    calls = {"fields": 0, "set": 0}
+    real_fields = phase_engine.fields
+    real_set = set
+
+    def fields_spy(value: object) -> object:
+        calls["fields"] += 1
+        return real_fields(value)
+
+    def set_spy(*args: object) -> set[object]:
+        calls["set"] += 1
+        return real_set(*args)
+
+    monkeypatch.setattr(phase_engine, "fields", fields_spy)
+    monkeypatch.setattr(phase_engine, "set", set_spy, raising=False)
+    before = context.ledger.snapshot().kernel_phase_work_units
+
+    accepted = phase_engine._is_transitively_immutable(
+        SYNTHETIC_WIDE_PHASE_INDEX, charger
+    )
+
+    after = context.ledger.snapshot().kernel_phase_work_units
+    assert accepted is True
+    assert after - before == expected_delta
+    assert after == 1_000_000
+    assert calls == {"fields": 1, "set": 2}
 
 
 def test_phase_validation_budget_exhaustion_publishes_no_results_or_audit() -> None:

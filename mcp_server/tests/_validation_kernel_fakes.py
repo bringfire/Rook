@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, make_dataclass, replace
 from typing import Any
 
 from rook.validation_kernel import (
@@ -100,6 +100,15 @@ class SyntheticMutablePhaseIndex:
     mutable_payload: dict[str, object]
 
 
+SyntheticWidePhaseIndex = make_dataclass(
+    "SyntheticWidePhaseIndex",
+    ((f"field_{index}", int) for index in range(2_000)),
+    frozen=True,
+    slots=True,
+)
+SYNTHETIC_WIDE_PHASE_INDEX = SyntheticWidePhaseIndex(*range(2_000))
+
+
 @dataclass(frozen=True, slots=True)
 class AuthoredRunnerResult:
     diagnostics: tuple[KernelIssue, ...]
@@ -147,7 +156,11 @@ class HostileExceptionArgument:
 
 
 def phase_index_export_validator(value: object) -> bool:
-    return type(value) in (SyntheticPhaseIndex, SyntheticMutablePhaseIndex)
+    return type(value) in (
+        SyntheticPhaseIndex,
+        SyntheticMutablePhaseIndex,
+        SyntheticWidePhaseIndex,
+    )
 
 
 def phase_text_export_validator(value: object) -> bool:
@@ -227,7 +240,11 @@ def phase_engine_runner_dispatch(
             raise AssertionError("beta received undeclared inputs")
         alpha_values = inputs["alpha_value"]  # type: ignore[index]
         alpha_index = alpha_values[0]
-        if type(alpha_index) is not SyntheticPhaseIndex:
+        if type(alpha_index) is SyntheticWidePhaseIndex:
+            alpha_identity = "wide-index"
+        elif type(alpha_index) is SyntheticPhaseIndex:
+            alpha_identity = alpha_index.identity
+        else:
             raise AssertionError("beta received the wrong exact named output")
         if scenario == "immutability_probe":
             try:
@@ -260,7 +277,7 @@ def phase_engine_runner_dispatch(
         return RunnerResult(
             diagnostics=(),
             compile_blockers=(),
-            outputs=(NamedOutput("beta_value", (JsonString(alpha_index.identity),)),),
+            outputs=(NamedOutput("beta_value", (JsonString(alpha_identity),)),),
         )
 
     if tuple(inputs) != ("recipe",):  # type: ignore[arg-type]
@@ -276,6 +293,12 @@ def phase_engine_runner_dispatch(
 
     if scenario == "passed":
         return RunnerResult(diagnostics=(), compile_blockers=(), outputs=(output,))
+    if scenario == "wide_index":
+        return RunnerResult(
+            diagnostics=(),
+            compile_blockers=(),
+            outputs=(NamedOutput("alpha_value", (SYNTHETIC_WIDE_PHASE_INDEX,)),),
+        )
     if scenario == "blocked":
         return RunnerResult(diagnostics=(), compile_blockers=(_blocker(),), outputs=(output,))
     if scenario == "failed":
@@ -1133,6 +1156,7 @@ __all__ = (
     "MutableCallable",
     "MutableService",
     "RUNTIME_REGISTRY",
+    "SYNTHETIC_WIDE_PHASE_INDEX",
     "StaticService",
     "UnboundService",
     "alternate_beta_runner",
@@ -1152,4 +1176,5 @@ __all__ = (
     "replace_runtime_component",
     "SyntheticMutablePhaseIndex",
     "SyntheticPhaseIndex",
+    "SyntheticWidePhaseIndex",
 )

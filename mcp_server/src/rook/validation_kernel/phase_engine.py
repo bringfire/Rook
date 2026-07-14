@@ -6,10 +6,10 @@ import hashlib
 import re
 import struct
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass, fields, is_dataclass, replace
+from dataclasses import Field, dataclass, fields, replace
 from typing import Literal, cast
 
-from .budget import BudgetExceeded
+from .budget import MAX_CHECKED_BUDGET_INTEGER, BudgetExceeded
 from .canonical_json import utf16_sort_key
 from .control import (
     ArtifactRole,
@@ -77,6 +77,13 @@ _BUILTIN_TYPE_IDS: dict[str, tuple[type[object], ...]] = {
     "kernel.json_array:v1": (JsonArray,),
     "kernel.json_object:v1": (JsonObject,),
 }
+_DATACLASS_METADATA_INSPECTION_WORK = 3
+# ``fields()`` visits and attaches each admitted field. The remaining units
+# cover the field-name index plus value lookup and traversal-stack attachment.
+_DATACLASS_FIELD_WORK_PER_ENTRY = 5
+_DATACLASS_FIELD_FIXED_WORK = 2
+_DATACLASS_SLOT_WORK_PER_ENTRY = 2
+_DATACLASS_SLOT_FIXED_WORK = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,6 +281,27 @@ def _phase_work_charger(
         )
 
     return charge_work_units
+
+
+def _checked_bulk_work_units(
+    item_count: int, per_item: int, *, fixed: int = 0
+) -> int:
+    if fixed > MAX_CHECKED_BUDGET_INTEGER:
+        return MAX_CHECKED_BUDGET_INTEGER
+    if per_item and item_count > (
+        MAX_CHECKED_BUDGET_INTEGER - fixed
+    ) // per_item:
+        return MAX_CHECKED_BUDGET_INTEGER
+    return fixed + (item_count * per_item)
+
+
+def _checked_work_sum(*amounts: int) -> int:
+    total = 0
+    for amount in amounts:
+        if amount > MAX_CHECKED_BUDGET_INTEGER - total:
+            return MAX_CHECKED_BUDGET_INTEGER
+        total += amount
+    return total
 
 
 def _integrity_failure(
@@ -549,27 +577,45 @@ def _make_execution_audit(
 
 
 def _has_only_dataclass_slots(
-    value: object, charge_work_units: _WorkCharger
+    value_type: type[object],
+    field_definitions: tuple[Field[object], ...],
+    charge_work_units: _WorkCharger,
 ) -> bool:
-    value_type = type(value)
-    if hasattr(value, "__dict__"):
-        return False
     dataclass_names: set[str] = set()
-    for field in fields(value):
-        charge_work_units(1)
-        dataclass_names.add(field.name)
-    slot_names: set[str] = set()
-    for base in value_type.__mro__:
-        charge_work_units(1)
-        slots = base.__dict__.get("__slots__", ())
+    for field_definition in field_definitions:
+        dataclass_names.add(field_definition.name)
+
+    mro = type.__getattribute__(value_type, "__mro__")
+    charge_work_units(len(mro))
+    slot_count = 0
+    for base in mro:
+        slots = type.__getattribute__(base, "__dict__").get("__slots__", ())
         if type(slots) is str:
-            charge_work_units(1)
+            count = 1
+        elif type(slots) is tuple:
+            count = len(slots)
+        else:
+            return False
+        if count > MAX_CHECKED_BUDGET_INTEGER - slot_count:
+            slot_count = MAX_CHECKED_BUDGET_INTEGER
+            break
+        slot_count += count
+
+    charge_work_units(
+        _checked_bulk_work_units(
+            slot_count,
+            _DATACLASS_SLOT_WORK_PER_ENTRY,
+            fixed=_DATACLASS_SLOT_FIXED_WORK,
+        )
+    )
+    slot_names: set[str] = set()
+    for base in mro:
+        slots = type.__getattribute__(base, "__dict__").get("__slots__", ())
+        if type(slots) is str:
             slot_names.add(slots)
         else:
             for slot in cast(tuple[str, ...], slots):
-                charge_work_units(1)
                 slot_names.add(slot)
-    charge_work_units(1)
     slot_names.discard("__weakref__")
     return slot_names == dataclass_names
 
@@ -577,9 +623,9 @@ def _has_only_dataclass_slots(
 def _is_transitively_immutable(
     root: object, charge_work_units: _WorkCharger
 ) -> bool:
-    charge_work_units(1)
+    charge_work_units(3)
     stack = [root]
-    seen: set[int] = set()
+    seen: dict[int, None] = {}
     while stack:
         charge_work_units(1)
         value = stack.pop()
@@ -590,10 +636,12 @@ def _is_transitively_immutable(
             if identity in seen:
                 continue
             charge_work_units(1)
-            seen.add(identity)
-            for child in reversed(value.items):
+            seen[identity] = None
+            index = len(value.items)
+            while index:
+                index -= 1
                 charge_work_units(2)
-                stack.append(child)
+                stack.append(value.items[index])
             continue
         if value_type is JsonObject:
             charge_work_units(1)
@@ -601,10 +649,12 @@ def _is_transitively_immutable(
             if identity in seen:
                 continue
             charge_work_units(1)
-            seen.add(identity)
-            for _, child in reversed(value.members):
+            seen[identity] = None
+            index = len(value.members)
+            while index:
+                index -= 1
                 charge_work_units(2)
-                stack.append(child)
+                stack.append(value.members[index][1])
             continue
         if value_type in _OWNED_VALUE_TYPES or value_type in _SCALAR_IMMUTABLE_TYPES:
             continue
@@ -613,22 +663,58 @@ def _is_transitively_immutable(
         if identity in seen:
             continue
         charge_work_units(1)
-        seen.add(identity)
+        seen[identity] = None
         if value_type is tuple:
-            for child in reversed(value):
+            index = len(value)
+            while index:
+                index -= 1
                 charge_work_units(2)
-                stack.append(child)
+                stack.append(value[index])
             continue
-        if not is_dataclass(value) or isinstance(value, type):
+        if isinstance(value, type):
             return False
-        parameters = getattr(value_type, "__dataclass_params__", None)
-        if parameters is None or parameters.frozen is not True:
+        charge_work_units(_DATACLASS_METADATA_INSPECTION_WORK)
+        try:
+            field_metadata = type.__getattribute__(
+                value_type, "__dataclass_fields__"
+            )
+            parameters = type.__getattribute__(
+                value_type, "__dataclass_params__"
+            )
+        except AttributeError:
             return False
-        if not _has_only_dataclass_slots(value, charge_work_units):
+        try:
+            object.__getattribute__(value, "__dict__")
+        except AttributeError:
+            has_instance_dict = False
+        else:
+            has_instance_dict = True
+        if (
+            type(field_metadata) is not dict
+            or parameters.frozen is not True
+            or has_instance_dict
+        ):
             return False
-        for field in reversed(fields(value)):
-            charge_work_units(2)
-            stack.append(getattr(value, field.name))
+        admitted_field_count = len(field_metadata)
+        charge_work_units(
+            _checked_bulk_work_units(
+                admitted_field_count,
+                _DATACLASS_FIELD_WORK_PER_ENTRY,
+                fixed=_DATACLASS_FIELD_FIXED_WORK,
+            )
+        )
+        field_definitions = fields(value_type)
+        if len(field_definitions) > admitted_field_count:
+            return False
+        if not _has_only_dataclass_slots(
+            value_type, field_definitions, charge_work_units
+        ):
+            return False
+        index = len(field_definitions)
+        while index:
+            index -= 1
+            field_definition = field_definitions[index]
+            stack.append(object.__getattribute__(value, field_definition.name))
     return True
 
 
@@ -640,11 +726,19 @@ def _cardinality_is_valid(cardinality: Cardinality, count: int) -> bool:
     return cardinality == "many"
 
 
-def _owned_source_values(value: JsonValue, cardinality: Cardinality) -> tuple[object, ...]:
+def _owned_source_values(
+    value: JsonValue,
+    cardinality: Cardinality,
+    charge_work_units: _WorkCharger,
+) -> tuple[object, ...]:
     if cardinality == "exactly_one":
+        charge_work_units(2)
         return (value,)
     if cardinality == "zero_or_one":
-        return () if type(value) is JsonNull else (value,)
+        if type(value) is JsonNull:
+            return ()
+        charge_work_units(2)
+        return (value,)
     if cardinality == "many":
         if type(value) is not JsonArray:
             raise _IntegrityError("many-valued owned input is not an owned array")
@@ -708,7 +802,9 @@ def _resolve_binding(
             source = context.invocation.invocation_inputs[source_name]
         except KeyError as exception:
             raise _IntegrityError("captured invocation input is missing") from exception
-        values = _owned_source_values(source, binding.cardinality)
+        values = _owned_source_values(
+            source, binding.cardinality, charge_work_units
+        )
     elif binding.source_kind == "program_constant":
         source_name = cast(str, binding.source_constant)
         try:
@@ -716,7 +812,9 @@ def _resolve_binding(
             source = program.resolve_program_constant(source_name)
         except KeyError as exception:
             raise _IntegrityError("sealed program constant is missing") from exception
-        values = _owned_source_values(source, binding.cardinality)
+        values = _owned_source_values(
+            source, binding.cardinality, charge_work_units
+        )
     elif binding.source_kind == "phase_output":
         source_phase_name = cast(str, binding.source_phase)
         source_output_name = cast(str, binding.source_output)
@@ -854,8 +952,9 @@ def _validate_issues(
     if type(result.compile_blockers) is not tuple:
         raise _IntegrityError("compile blocker collection is not an exact tuple")
     subject_path = _issue_subject_path(phase.phase_name)
+    charge_work_units(2)
     diagnostics: list[KernelIssue] = []
-    seen_diagnostics: set[KernelIssue] = set()
+    seen_diagnostics: dict[KernelIssue, None] = {}
     for issue in result.diagnostics:
         context.ledger.charge(
             BudgetDimension.DIAGNOSTICS,
@@ -873,11 +972,12 @@ def _validate_issues(
         if validated in seen_diagnostics:
             raise _IntegrityError("runner returned a duplicate diagnostic")
         charge_work_units(1)
-        seen_diagnostics.add(validated)
+        seen_diagnostics[validated] = None
         charge_work_units(1)
         diagnostics.append(validated)
+    charge_work_units(2)
     blockers: list[KernelIssue] = []
-    seen_blockers: set[KernelIssue] = set()
+    seen_blockers: dict[KernelIssue, None] = {}
     for issue in result.compile_blockers:
         context.ledger.charge(
             BudgetDimension.COMPILE_BLOCKERS,
@@ -895,10 +995,10 @@ def _validate_issues(
         if validated in seen_blockers:
             raise _IntegrityError("runner returned a duplicate compile blocker")
         charge_work_units(1)
-        seen_blockers.add(validated)
+        seen_blockers[validated] = None
         charge_work_units(1)
         blockers.append(validated)
-    charge_work_units(len(diagnostics) + len(blockers))
+    charge_work_units(len(diagnostics) + len(blockers) + 2)
     return tuple(diagnostics), tuple(blockers)
 
 
@@ -926,10 +1026,15 @@ def _validate_outputs(
 ) -> tuple[NamedOutput, ...]:
     if type(raw_outputs) is not tuple:
         raise _IntegrityError("runner outputs are not an exact tuple")
+    charge_work_units(
+        _checked_bulk_work_units(
+            len(phase.provided_outputs), 2, fixed=1
+        )
+    )
     declarations: dict[str, ProvidedOutput] = {}
     for output in phase.provided_outputs:
-        charge_work_units(1)
         declarations[output.output_name] = output
+    charge_work_units(1)
     accepted: dict[str, NamedOutput] = {}
     for raw_output in raw_outputs:
         charge_work_units(1)
@@ -972,16 +1077,26 @@ def _validate_outputs(
         charge_work_units(1)
         if output_name not in accepted and status in output.required_on_statuses:
             raise _IntegrityError("runner omitted an output required by derived status")
-    charge_work_units(len(accepted))
+    charge_work_units(len(accepted) + 1)
     output_names = tuple(accepted)
+    sort_units = 0
     if output_names:
-        sort_units = len(output_names) * (max(2, len(output_names)) - 1).bit_length()
-        charge_work_units(sort_units)
+        sort_units = _checked_bulk_work_units(
+            len(output_names),
+            (max(2, len(output_names)) - 1).bit_length(),
+        )
+    charge_work_units(
+        _checked_work_sum(
+            sort_units,
+            _checked_bulk_work_units(len(output_names), 1, fixed=2),
+        )
+    )
+    sorted_names = sorted(output_names, key=utf16_sort_key)
     ordered: list[NamedOutput] = []
-    for name in sorted(output_names, key=utf16_sort_key):
+    for name in sorted_names:
         charge_work_units(2)
         ordered.append(accepted[name])
-    charge_work_units(len(ordered))
+    charge_work_units(len(ordered) + 1)
     return tuple(ordered)
 
 
@@ -992,9 +1107,11 @@ def _helper_facade(
     charge_work_units: _WorkCharger,
 ) -> _PhaseHelperFacade:
     program = context.invocation.program
+    charge_work_units(
+        _checked_bulk_work_units(len(program.schemas), 2, fixed=1)
+    )
     schema_by_id = {}
     for schema in program.schemas:
-        charge_work_units(1)
         schema_by_id[schema.schema_id] = schema
 
     def evaluate_bound_schema(
@@ -1076,20 +1193,34 @@ def _execute_phase_program_with_audit(
     if type(program) is not SealedValidationProgram:
         return _integrity_failure(None, None, "execution program is not sealed")
     engine_charge_work_units = _phase_work_charger(context, None)
-    phase_by_name: dict[str, PhaseSpec] = {}
+    phase_count = len(program.phases)
+    execution_count = len(program.execution_order)
     try:
-        for phase in program.phases:
-            engine_charge_work_units(1)
-            phase_by_name[phase.phase_name] = phase
+        engine_charge_work_units(
+            _checked_work_sum(
+                _checked_bulk_work_units(phase_count, 2, fixed=1),
+                _checked_bulk_work_units(execution_count, 2, fixed=1),
+                _checked_bulk_work_units(phase_count, 2, fixed=1),
+            )
+        )
     except BudgetExceeded as exception:
         return _budget_failure(exception, program)
+    phase_by_name = {
+        phase.phase_name: phase for phase in program.phases
+    }
+    execution_names = frozenset(program.execution_order)
+    declared_names = frozenset(phase_by_name)
     if (
-        len(phase_by_name) != len(program.phases)
-        or len(program.execution_order) != len(program.phases)
-        or frozenset(program.execution_order) != frozenset(phase_by_name)
+        len(phase_by_name) != phase_count
+        or execution_count != phase_count
+        or execution_names != declared_names
     ):
         return _integrity_failure(program, None, "sealed execution order is inconsistent")
 
+    try:
+        engine_charge_work_units(3)
+    except BudgetExceeded as exception:
+        return _budget_failure(exception, program)
     results: list[PhaseResult] = []
     results_by_name: dict[str, PhaseResult] = {}
     audit_receipts: list[SchemaEvaluationReceipt] = []
@@ -1098,6 +1229,7 @@ def _execute_phase_program_with_audit(
         try:
             charge_work_units(1)
             phase = phase_by_name[phase_name]
+            charge_work_units(1)
             bound_members: list[tuple[str, tuple[object, ...]]] = []
             unavailable = False
             for binding in phase.input_bindings:
@@ -1112,7 +1244,7 @@ def _execute_phase_program_with_audit(
                 if resolved is _UNAVAILABLE:
                     unavailable = True
                 else:
-                    charge_work_units(1)
+                    charge_work_units(4)
                     bound_members.append(
                         (binding.input_name, cast(tuple[object, ...], resolved))
                     )
@@ -1126,12 +1258,15 @@ def _execute_phase_program_with_audit(
                 continue
 
             if bound_members:
-                sort_units = len(bound_members) * (
-                    max(2, len(bound_members)) - 1
-                ).bit_length()
+                sort_units = _checked_bulk_work_units(
+                    len(bound_members),
+                    (max(2, len(bound_members)) - 1).bit_length(),
+                )
                 charge_work_units(sort_units)
             bound_members.sort(key=lambda item: utf16_sort_key(item[0]))
-            charge_work_units(len(bound_members) + 2)
+            charge_work_units(
+                _checked_bulk_work_units(len(bound_members), 1, fixed=2)
+            )
             inputs = _PhaseInputs(tuple(bound_members))
             helpers = _helper_facade(
                 context, phase, audit_receipts, charge_work_units
@@ -1192,12 +1327,22 @@ def _execute_phase_program_with_audit(
             return _internal_failure(program, phase_name, exception)
 
     try:
-        engine_charge_work_units(len(results) + len(audit_receipts) + 6)
+        engine_charge_work_units(
+            _checked_work_sum(
+                _checked_bulk_work_units(len(results), 1, fixed=1),
+                _checked_bulk_work_units(
+                    len(audit_receipts), 1, fixed=1
+                ),
+                7,
+            )
+        )
         frozen_results = tuple(results)
-        audit = _make_execution_audit(program, tuple(audit_receipts))
+        frozen_receipts = tuple(audit_receipts)
+        audit = _make_execution_audit(program, frozen_receipts)
+        execution = (frozen_results, audit)
     except BudgetExceeded as exception:
         return _budget_failure(exception, program)
-    return frozen_results, audit
+    return execution
 
 
 def execute_phase_program(
