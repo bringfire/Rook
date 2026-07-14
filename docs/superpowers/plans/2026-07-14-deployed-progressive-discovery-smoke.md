@@ -47,12 +47,13 @@
 
 - [ ] **Step 1: Write failing tests for the pinned sets and validation contracts**
 
-Add imports for `asyncio`, `json`, and `os`, then add tests that pin the exact products rather than scorer-friendly substitutes:
+Add imports for `asyncio`, `json`, `os`, and `pytest`, then add tests that pin the exact products rather than scorer-friendly substitutes:
 
 ```python
 import asyncio
 import json
 import os
+import pytest
 ```
 
 Replace the existing `test_progressive_search_validation_requires_exact_records` and `test_progressive_read_validation_requires_gh_object_schemas` tests with the record-oriented tests below; the old string-only helper contracts are intentionally retired.
@@ -100,6 +101,14 @@ def test_progressive_intent_findings_report_rank_or_null():
         "max_rank": 10,
         "observed_rank": None,
     }
+
+
+def test_progressive_intent_findings_ignore_non_mapping_candidates():
+    results = {
+        row["query"]: [None, "noise", 7, {"name": row["expected_tool"]}]
+        for row in SMOKE.PROGRESSIVE_INTENT_MATRIX
+    }
+    assert SMOKE.progressive_intent_findings(results) == []
 
 
 def test_progressive_read_findings_require_exact_dispatchable_object_schema():
@@ -187,10 +196,13 @@ def progressive_finding(code: str, **details: Any) -> dict[str, Any]:
     return {"record": "progressive_finding", "code": code, **details}
 
 
-def progressive_intent_findings(search_results: dict[str, list[dict]]) -> list[dict[str, Any]]:
+def progressive_intent_findings(search_results: dict[str, list[Any]]) -> list[dict[str, Any]]:
     findings = []
     for row in PROGRESSIVE_INTENT_MATRIX:
-        candidates = search_results.get(row["query"], [])
+        candidates = [
+            candidate for candidate in search_results.get(row["query"], [])
+            if isinstance(candidate, dict)
+        ]
         rank = next(
             (index for index, candidate in enumerate(candidates, start=1)
              if candidate.get("name") == row["expected_tool"]),
@@ -308,6 +320,8 @@ Expected: all `test_lm_surface_smoke.py` tests pass.
 
 **Interfaces:**
 - Consumes: all constants and evidence helpers from Task 1.
+- Produces: `progressive_catalog_evidence(catalog: dict) -> tuple[list[dict], list[dict]]`.
+- Produces: `progressive_post_origin_failure(stage: str, error: Exception, *, catalog: dict | None = None) -> tuple[list[dict], list[dict]]`.
 - Produces: `collect_progressive_evidence(catalog, call_tool_fn) -> tuple[list[dict], list[dict]]`.
 - Produces: `run_progressive() -> int` that stops on origin failure and otherwise always emits the deterministic summary.
 
@@ -394,19 +408,113 @@ def test_missing_search_gateway_blocks_only_search_dependent_checks():
     assert by_name["intent_discovery"]["status"] == "BLOCKED"
     assert all(name == "rook_tools_read" for name, _ in calls)
     assert any(finding["code"] == "gateway_presence_failed" for finding in findings)
+
+
+def test_collect_progressive_evidence_tolerates_malformed_search_entries_and_emits_summary(capsys):
+    async def fake_call(name, arguments):
+        if name == "rook_tools_search":
+            query = arguments["query"]
+            if query in SMOKE.DG009_GH_TOOL_NAMES:
+                return _wire([None, "noise", 7, {"name": query}])
+            if query == "check running agent status":
+                return _wire([None, "noise", {"name": "agent_status"}])
+            return _wire([None, "noise", 7])
+        if name == "rook_tools_read":
+            target = arguments["name"]
+            return _wire({"name": target, "mcp_dispatchable": True, "input_schema": {"type": "object"}})
+        if name == "rook_tools_call":
+            return _wire({"count": 0, "agents": []})
+        raise AssertionError((name, arguments))
+
+    checks, findings = asyncio.run(
+        SMOKE.collect_progressive_evidence(_progressive_catalog(), fake_call)
+    )
+    rc = SMOKE.emit_progressive_evidence(checks, findings)
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert rc == 1
+    assert [finding["code"] for finding in findings] == ["intent_discovery_rank_failed"] * 5
+    assert records[-1]["record"] == "progressive_summary"
+    assert records[-1]["finding_histogram"] == {"intent_discovery_rank_failed": 5}
+
+
+@pytest.mark.parametrize(
+    ("failure_stage", "expected_gateway", "expected_hidden", "expected_code"),
+    (
+        ("list_tools", "FAIL", "BLOCKED", "progressive_acquisition_failed"),
+        ("catalog", "FAIL", "BLOCKED", "progressive_acquisition_failed"),
+        ("collector", "PASS", "PASS", "progressive_collection_failed"),
+    ),
+)
+def test_run_progressive_converts_post_origin_exceptions_to_summary(
+    monkeypatch, capsys, failure_stage, expected_gateway, expected_hidden, expected_code,
+):
+    import sys
+    from types import ModuleType
+
+    fake_server = ModuleType("rook.server")
+
+    async def fake_list_tools():
+        assert os.environ["ROOK_MCP_TOOL_PROFILE"] == "lean"
+        if failure_stage == "list_tools":
+            raise RuntimeError("list boom")
+        return []
+
+    async def unused_call_tool(_name, _arguments):
+        raise AssertionError("collector is replaced")
+
+    fake_server.list_tools = fake_list_tools
+    fake_server.call_tool = unused_call_tool
+    fake_registry = ModuleType("rook.agent.tool_registry")
+
+    def fake_build_catalog(_tools):
+        if failure_stage == "catalog":
+            raise RuntimeError("catalog boom")
+        return _progressive_catalog()
+
+    fake_registry.build_catalog_from_mcp_tools = fake_build_catalog
+    monkeypatch.setitem(sys.modules, "rook.server", fake_server)
+    monkeypatch.setitem(sys.modules, "rook.agent.tool_registry", fake_registry)
+    monkeypatch.setattr(SMOKE, "_check_origins", lambda: 0)
+
+    async def fake_collect(_catalog, _call_tool):
+        raise RuntimeError("collector boom")
+
+    monkeypatch.setattr(SMOKE, "collect_progressive_evidence", fake_collect)
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "readonly")
+    rc = SMOKE.run_progressive()
+    records = [
+        json.loads(line) for line in capsys.readouterr().out.splitlines()
+        if line.startswith("{")
+    ]
+    checks = [record for record in records if record["record"] == "progressive_check"]
+    findings = [record for record in records if record["record"] == "progressive_finding"]
+    by_name = {record["check"]: record for record in checks}
+    assert rc == 1
+    assert len(checks) == 6
+    assert by_name["gateway_presence"]["status"] == expected_gateway
+    assert by_name["lean_hiddenness"]["status"] == expected_hidden
+    assert all(by_name[name]["status"] == "BLOCKED" for name in (
+        "exact_name_resolution", "schema_reads", "agent_status_call", "intent_discovery",
+    ))
+    assert findings[-1]["code"] == expected_code
+    assert findings[-1]["stage"] == failure_stage
+    assert records[-1]["record"] == "progressive_summary"
+    assert records[-1]["finding_histogram"] == {expected_code: 1}
+    assert os.environ["ROOK_MCP_TOOL_PROFILE"] == "readonly"
 ```
 
-- [ ] **Step 3: Run both collector tests and verify they fail**
+- [ ] **Step 3: Run the collector and post-origin failure tests and verify they fail**
 
 Run:
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src').Path
 & 'C:/Users/aryan/source/repos/Rook/mcp_server/.venv/Scripts/python.exe' -m pytest `
-  mcp_server/tests/test_lm_surface_smoke.py -k 'collect_progressive or missing_search_gateway' -v
+  mcp_server/tests/test_lm_surface_smoke.py `
+  -k 'collect_progressive or missing_search_gateway or post_origin_exceptions' -v
 ```
 
-Expected: FAIL because `collect_progressive_evidence` is not defined.
+Expected: FAIL because `collect_progressive_evidence` and the post-origin failure conversion are not defined, and the current runner lets acquisition exceptions escape without a summary.
 
 - [ ] **Step 4: Implement wire decoding and the dependency-aware collector**
 
@@ -432,13 +540,12 @@ async def _meta_json(call_tool_fn, name: str, arguments: dict) -> tuple[Any | No
         return None, f"{type(exc).__name__}:{exc}"
 ```
 
-Implement the collector without early returns. This complete flow preserves independent reads when search is unavailable and blocks only dependent checks:
+Extract catalog-only evidence so the runner can preserve those two checks if later collection fails:
 
 ```python
-async def collect_progressive_evidence(catalog: dict, call_tool_fn) -> tuple[list[dict], list[dict]]:
+def progressive_catalog_evidence(catalog: dict) -> tuple[list[dict], list[dict]]:
     findings: list[dict[str, Any]] = []
     names = set(catalog)
-
     missing_gateways = [name for name in PROGRESSIVE_GATEWAY_NAMES if name not in names]
     for name in missing_gateways:
         findings.append(progressive_finding("gateway_presence_failed", gateway=name))
@@ -458,6 +565,45 @@ async def collect_progressive_evidence(catalog: dict, call_tool_fn) -> tuple[lis
         len(PROGRESSIVE_HIDDEN_TARGETS) - len(leaked),
         PROGRESSIVE_CHECK_EXPECTED["lean_hiddenness"], leaked=leaked,
     )
+    return [gateway_check, hidden_check], findings
+
+
+def progressive_post_origin_failure(
+    stage: str, error: Exception, *, catalog: dict | None = None,
+) -> tuple[list[dict], list[dict]]:
+    error_text = f"{type(error).__name__}: {error}"
+    if catalog is None:
+        checks = [
+            progressive_check(
+                "gateway_presence", "FAIL", 0,
+                PROGRESSIVE_CHECK_EXPECTED["gateway_presence"],
+                failure_stage=stage, error=error_text,
+            ),
+            progressive_check(
+                "lean_hiddenness", "BLOCKED", 0,
+                PROGRESSIVE_CHECK_EXPECTED["lean_hiddenness"],
+                blocked_by=[stage],
+            ),
+        ]
+        findings: list[dict[str, Any]] = []
+        code = "progressive_acquisition_failed"
+    else:
+        checks, findings = progressive_catalog_evidence(catalog)
+        code = "progressive_collection_failed"
+
+    for name in PROGRESSIVE_CHECK_ORDER[len(checks):]:
+        checks.append(progressive_check(
+            name, "BLOCKED", 0, PROGRESSIVE_CHECK_EXPECTED[name],
+            blocked_by=[stage],
+        ))
+    findings.append(progressive_finding(code, stage=stage, error=error_text))
+    return checks, findings
+
+
+async def collect_progressive_evidence(catalog: dict, call_tool_fn) -> tuple[list[dict], list[dict]]:
+    catalog_checks, findings = progressive_catalog_evidence(catalog)
+    gateway_check, hidden_check = catalog_checks
+    names = set(catalog)
 
     intent_findings: list[dict[str, Any]] = []
     agent_intent_ok = False
@@ -468,7 +614,9 @@ async def collect_progressive_evidence(catalog: dict, call_tool_fn) -> tuple[lis
             value, error = await _meta_json(
                 call_tool_fn, "rook_tools_search", {"query": target, "limit": 10}
             )
-            found = isinstance(value, list) and any(item.get("name") == target for item in value)
+            found = isinstance(value, list) and any(
+                isinstance(item, dict) and item.get("name") == target for item in value
+            )
             if found:
                 exact_passes += 1
             else:
@@ -591,9 +739,9 @@ _DEPLOYED_ORIGIN_MODULES = (
 
 Keep the existing real-path containment check. An import or containment failure returns 1 before any progressive tool call.
 
-- [ ] **Step 6: Replace early-return progressive execution with final evidence emission**
+- [ ] **Step 6: Convert every post-origin runner failure into final evidence**
 
-Use the existing lean save/restore block, but after origins pass run the collector and always call `emit_progressive_evidence`:
+Use the existing lean save/restore block. Origin failure still stops immediately, but every later import, listing, catalog, or collection exception is converted through `progressive_post_origin_failure` and then emitted:
 
 ```python
 def run_progressive() -> int:
@@ -606,13 +754,25 @@ def run_progressive() -> int:
             _p("FAIL", "origin guard failed; refusing progressive disclosure smoke")
             return rc
 
-        import asyncio
-        from rook.server import call_tool, list_tools
-        from rook.agent.tool_registry import build_catalog_from_mcp_tools
+        catalog = None
+        stage = "runtime_import"
+        try:
+            import asyncio
+            from rook.server import call_tool, list_tools
+            from rook.agent.tool_registry import build_catalog_from_mcp_tools
 
-        tools = asyncio.run(list_tools())
-        catalog = build_catalog_from_mcp_tools(tools)
-        checks, findings = asyncio.run(collect_progressive_evidence(catalog, call_tool))
+            stage = "list_tools"
+            tools = asyncio.run(list_tools())
+            stage = "catalog"
+            catalog = build_catalog_from_mcp_tools(tools)
+            if not isinstance(catalog, dict):
+                raise TypeError(f"catalog must be a dict, got {type(catalog).__name__}")
+            stage = "collector"
+            checks, findings = asyncio.run(collect_progressive_evidence(catalog, call_tool))
+        except Exception as exc:
+            checks, findings = progressive_post_origin_failure(
+                stage, exc, catalog=catalog if stage == "collector" else None,
+            )
         return emit_progressive_evidence(checks, findings)
     finally:
         if previous_profile is None:
@@ -633,6 +793,7 @@ def test_run_progressive_expected_red_emits_summary_last_and_restores_profile(mo
     fake_server = ModuleType("rook.server")
 
     async def fake_list_tools():
+        assert os.environ["ROOK_MCP_TOOL_PROFILE"] == "lean"
         return []
 
     async def fake_call_tool(_name, _arguments):
@@ -710,6 +871,9 @@ async def _async_value(value):
 
 
 async def _successful_direct_dispatch(name: str, _args: dict):
+    # rhino_ping is the first lazy rook.server import. Every direct call must
+    # therefore already observe lean, not only the later progressive helper.
+    assert os.environ["ROOK_MCP_TOOL_PROFILE"] == "lean"
     if name == "rhino_ping":
         return {"success": True, "data": {"processId": 42, "port": 9001}}
     if name == "gh_status":
@@ -1402,7 +1566,8 @@ Expected: no whitespace errors; only approved validation/test files and this pla
 
 - Spec coverage: every pinned gateway/target/query/origin/read/call contract maps to Tasks 1-3; both live paths map to Tasks 3-4; release ordering and failure label map to Task 5; expected-red and future-live acceptance map to Task 6.
 - Requested plan coverage: record ordering, `BLOCKED` propagation, histogram accuracy, and summary emission on nonzero exit all have named unit tests in Tasks 1-2.
-- Live evidence integrity: Task 3 asserts lean during owned success and failure calls and restores full, readonly, and absent inherited states; Task 4 emits its only success JSON after undo and statically pins all six evidence fields.
+- Live evidence integrity: Task 3 asserts lean on the first direct dispatch and during owned success and failure helpers, then restores full, readonly, and absent inherited states; Task 4 emits its only success JSON after undo and statically pins all six evidence fields.
+- Failure completeness: Task 2 type-guards malformed search candidates and parameterizes list, catalog, and collector failures to require six deterministic records plus the final nonzero summary after origins pass.
 - Acceptance evidence: Task 6 loads structured owned evidence, follows the progressive gate's `stdout_path`, parses JSONL, executes every expected-red assertion, and reruns both named `BLOCKED`-propagation tests.
 - Type consistency: all evidence helpers return JSON-serializable dictionaries; public MCP calls decode success data rather than internal `{success, data}` envelopes; live owned evidence uses `progressive_discovery` consistently from runner to artifact.
 - Scope control: no search, schema, profile membership, dispatch, targeting, native, or managed behavior change is included.
