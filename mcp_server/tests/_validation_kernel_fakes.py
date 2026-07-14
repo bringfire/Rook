@@ -371,6 +371,50 @@ def phase_engine_runner_dispatch(
         (SyntheticPhaseIndex("alpha-index", recipe, ("/recipe",)),),
     )
 
+    if scenario == "boundary_matrix":
+        case_value = recipe["case_id"]
+        if type(case_value) is not JsonString:
+            raise AssertionError("boundary case ID must be a string")
+        case_id = case_value.value
+        if case_id.startswith("boundary.success"):
+            attempt_count = 1
+            terminal = "passed"
+        elif case_id.startswith("boundary.blocked"):
+            attempt_count = 2
+            terminal = "blocked"
+        elif case_id.startswith("boundary.failed"):
+            attempt_count = 3
+            terminal = "failed"
+        else:
+            attempt_count = 1
+            terminal = "passed"
+        binding = InstanceBinding(
+            artifact_id=f"artifact:{case_id}",
+            artifact_fingerprint=canonical_fingerprint(recipe),
+            instance_pointer="",
+        )
+        for _ in range(attempt_count):
+            helpers.evaluate_schema(  # type: ignore[attr-defined]
+                "synthetic.core_positive:v1",
+                recipe,
+                instance_binding=binding,
+            )
+        if terminal == "blocked":
+            return RunnerResult(
+                diagnostics=(),
+                compile_blockers=(_blocker(),),
+                outputs=(output,),
+            )
+        if terminal == "failed":
+            return RunnerResult(
+                diagnostics=(_diagnostic("error"),),
+                compile_blockers=(),
+                outputs=(),
+            )
+        return RunnerResult(
+            diagnostics=(), compile_blockers=(), outputs=(output,)
+        )
+
     if scenario == "passed":
         return RunnerResult(diagnostics=(), compile_blockers=(), outputs=(output,))
     if scenario == "wide_index":
@@ -838,6 +882,7 @@ def make_assembler_profile_candidate(
     program_id: str = "synthetic.validation_program:v1",
     assembler_kind: str = "deterministic_fixture",
     permitted_clock_sources: tuple[str, ...] | None = None,
+    implementation_fingerprint: str = "sha256:" + "1" * 64,
 ) -> JsonObject:
     if permitted_clock_sources is None:
         permitted_clock_sources = (
@@ -851,7 +896,7 @@ def make_assembler_profile_candidate(
         "assembler_kind": assembler_kind,
         "assembler_id": f"synthetic.{assembler_kind}:v1",
         "assembler_version": "v1",
-        "implementation_fingerprint": "sha256:" + "1" * 64,
+        "implementation_fingerprint": implementation_fingerprint,
         "permitted_program_ids": [program_id],
         "permitted_clock_sources": list(permitted_clock_sources),
     }
@@ -1474,12 +1519,14 @@ def make_phase_engine_contribution(
     required_for_compile_phases: tuple[str, ...] = ("alpha", "beta"),
     report_projection_scenario: str = "normal",
     report_schema_probe: str | None = None,
+    artifact_identity: bool = False,
 ) -> ValidationProgramContribution:
     contribution = make_program_contribution(
         invocation_shells=True,
         required_for_compile_phases=required_for_compile_phases,
         report_projection_scenario=report_projection_scenario,
         report_schema_probe=report_schema_probe,
+        artifact_identity=artifact_identity,
     )
 
     def runner_record(phase_name: str, scenario: str) -> ImmutableCallableRecord:
@@ -1759,6 +1806,224 @@ class ImmutableArtifactStore:
         return self._artifacts.get(content_ref)
 
 
+@dataclass(frozen=True, slots=True)
+class BoundaryCampaignFixture:
+    program: object
+    assembler_profile: object
+    gate_profile: object
+    recipe_bytes: bytes
+    bundle_bytes: bytes
+    trusted_bundle: object
+    campaign_bytes: bytes
+    campaign_fingerprint: str
+    fixture_context: object
+
+
+def _boundary_fingerprinted(
+    value: dict[str, object], fingerprint_field: str
+) -> dict[str, object]:
+    unsigned = {
+        key: item for key, item in value.items() if key != fingerprint_field
+    }
+    return {
+        **unsigned,
+        fingerprint_field: canonical_fingerprint(own_trusted_json(unsigned)),
+    }
+
+
+def _boundary_case_set_fingerprint(
+    cases: list[dict[str, object]],
+) -> str:
+    pairs = [
+        {
+            "case_id": case["case_id"],
+            "case_fingerprint": case["case_fingerprint"],
+        }
+        for case in sorted(cases, key=lambda item: str(item["case_id"]))
+    ]
+    return canonical_fingerprint(own_trusted_json(pairs))
+
+
+def make_boundary_campaign_fixture(
+    *,
+    recipe_bytes: bytes = b'{"case_id":"boundary.success","value":"ok"}',
+    bundle_bytes: bytes | None = None,
+    alpha_scenario: str = "boundary_matrix",
+    core_bytes: bytes = b'{"value":"ok"}',
+    assembler_implementation_fingerprint: str = "sha256:" + "1" * 64,
+    gate_callable: object | None = None,
+    wide_core_schema: bool = False,
+) -> BoundaryCampaignFixture:
+    """Build the exact sealed validation/conformance boundary fixture."""
+
+    import rook.validation_kernel.conformance as conformance_module
+    from rook.validation_kernel import (
+        PublishedValidationReport,
+        compose_and_seal_program,
+        issue_trusted_validation_bundle,
+        seal_conformance_gate_profile,
+        seal_trusted_bundle_assembler_profile,
+        validate_artifacts,
+    )
+    from rook.validation_kernel.canonical_json import sha256_prefixed
+
+    if bundle_bytes is None:
+        bundle_bytes = make_validation_bundle_bytes()
+    program = compose_and_seal_program(
+        make_conformance_program_contribution(
+            alpha_scenario=alpha_scenario,
+            artifact_identity=True,
+            wide_core_schema=wide_core_schema,
+        )
+    )
+    assembler_profile = seal_trusted_bundle_assembler_profile(
+        make_assembler_profile_candidate(
+            implementation_fingerprint=assembler_implementation_fingerprint
+        )
+    )
+    if gate_callable is None:
+        gate_callable = conformance_module._execute_conformance_gate
+    gate_profile = seal_conformance_gate_profile(
+        make_conformance_gate_profile_candidate(gate_callable),
+        gate_callable,  # type: ignore[arg-type]
+    )
+    trusted_bundle = issue_trusted_validation_bundle(
+        assembler_profile,
+        bundle_bytes,
+    )
+    expected = validate_artifacts(program, recipe_bytes, trusted_bundle)
+    if isinstance(expected, PublishedValidationReport):
+        expected_result = {
+            "result_kind": "published_report",
+            "report_schema_id": expected.schema_id,
+            "report_fingerprint": expected.report_fingerprint,
+            "control_failure_stage": None,
+            "control_failure_code": None,
+            "control_failure_artifact_role": None,
+        }
+        fixture_id = "fixture.boundary_report"
+    else:
+        expected_result = {
+            "result_kind": "control_failure",
+            "report_schema_id": None,
+            "report_fingerprint": None,
+            "control_failure_stage": expected.failure_stage,
+            "control_failure_code": expected.code,
+            "control_failure_artifact_role": expected.artifact_role,
+        }
+        fixture_id = "fixture.boundary_control_failure"
+
+    core_ref = "artifact:boundary-core-positive"
+    fixture_ref = "artifact:boundary-fixture"
+    recipe_ref = "artifact:boundary-recipe"
+    bundle_ref = "artifact:boundary-bundle"
+    fixture_manifest = _boundary_fingerprinted(
+        {
+            "schema": "rook.validation_conformance_fixture:v1",
+            "fixture_id": fixture_id,
+            "recipe_input": {
+                "content_ref": recipe_ref,
+                "input_payload_sha256": sha256_prefixed(recipe_bytes),
+            },
+            "validation_bundle_input": {
+                "content_ref": bundle_ref,
+                "input_payload_sha256": sha256_prefixed(bundle_bytes),
+            },
+            "assembler_profile_fingerprint": (
+                assembler_profile.profile_fingerprint
+            ),
+            "expected_result": expected_result,
+        },
+        "fixture_fingerprint",
+    )
+    fixture_bytes = canonical_json_bytes(own_trusted_json(fixture_manifest))
+
+    core_schema = next(
+        schema
+        for schema in program.schemas
+        if schema.profile_id == CORE_PROFILE.profile_id
+    )
+    core_value = json.loads(core_bytes)
+    core_case = _boundary_fingerprinted(
+        {
+            "case_id": "core.boundary_positive",
+            "case_kind": "core_schema_positive",
+            "schema_case": {
+                "schema_id": core_schema.schema_id,
+                "schema_fingerprint": core_schema.schema_fingerprint,
+                "instance_fingerprint": canonical_fingerprint(
+                    own_trusted_json(core_value)
+                ),
+                "instance_content_ref": core_ref,
+            },
+            "fixture_case": None,
+        },
+        "case_fingerprint",
+    )
+    fixture_case = _boundary_fingerprinted(
+        {
+            "case_id": fixture_id,
+            "case_kind": "semantic_fixture",
+            "schema_case": None,
+            "fixture_case": {
+                "fixture_fingerprint": fixture_manifest[
+                    "fixture_fingerprint"
+                ],
+                "fixture_content_ref": fixture_ref,
+                "recipe_input_payload_sha256": sha256_prefixed(recipe_bytes),
+                "validation_bundle_input_payload_sha256": sha256_prefixed(
+                    bundle_bytes
+                ),
+                "assembler_profile_fingerprint": (
+                    assembler_profile.profile_fingerprint
+                ),
+            },
+        },
+        "case_fingerprint",
+    )
+    cases = [core_case, fixture_case]
+    campaign: dict[str, object] = {
+        "schema": "rook.validation_conformance_campaign:v1",
+        "campaign_id": "synthetic.boundary_campaign:v1",
+        "campaign_version": "v1",
+        "program_id": program.program_id,
+        "program_fingerprint": program.program_fingerprint,
+        "required_gate_profile_fingerprint": (
+            gate_profile.gate_profile_fingerprint
+        ),
+        "required_cases": sorted(cases, key=lambda item: str(item["case_id"])),
+        "required_case_set_fingerprint": _boundary_case_set_fingerprint(
+            cases
+        ),
+    }
+    campaign = _boundary_fingerprinted(campaign, "campaign_fingerprint")
+    campaign_bytes = canonical_json_bytes(own_trusted_json(campaign))
+
+    store = ImmutableArtifactStore(
+        {
+            core_ref: core_bytes,
+            fixture_ref: fixture_bytes,
+            recipe_ref: recipe_bytes,
+            bundle_ref: bundle_bytes,
+        }
+    )
+    fixture_context = conformance_module._issue_trusted_conformance_fixture_context(
+        store,
+        (assembler_profile,),
+    )
+    return BoundaryCampaignFixture(
+        program=program,
+        assembler_profile=assembler_profile,
+        gate_profile=gate_profile,
+        recipe_bytes=recipe_bytes,
+        bundle_bytes=bundle_bytes,
+        trusted_bundle=trusted_bundle,
+        campaign_bytes=campaign_bytes,
+        campaign_fingerprint=str(campaign["campaign_fingerprint"]),
+        fixture_context=fixture_context,
+    )
+
+
 def make_conformance_gate_profile_candidate(gate_callable: object) -> JsonObject:
     candidate: dict[str, object] = {
         "schema": "rook.validation_conformance_gate_profile:v1",
@@ -1781,14 +2046,36 @@ def make_conformance_gate_profile_candidate(gate_callable: object) -> JsonObject
     return owned
 
 
+def alternate_conformance_gate(
+    profile: object,
+    program: object,
+    raw_campaign_bytes: bytes,
+    captured_context: object,
+) -> object:
+    """Independent sealed test binding with unchanged gate semantics."""
+
+    import rook.validation_kernel.conformance as conformance_module
+
+    return conformance_module._execute_conformance_gate(
+        profile,
+        program,
+        raw_campaign_bytes,
+        captured_context,
+    )
+
+
 def make_conformance_program_contribution(
     *,
     alpha_scenario: str = "passed",
     wide_core_schema: bool = False,
+    artifact_identity: bool = False,
 ) -> ValidationProgramContribution:
     """Add one unused, domain-neutral core schema to the synthetic program."""
 
-    contribution = make_phase_engine_contribution(alpha_scenario=alpha_scenario)
+    contribution = make_phase_engine_contribution(
+        alpha_scenario=alpha_scenario,
+        artifact_identity=artifact_identity,
+    )
     core_schema_host: dict[str, object] = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -1834,6 +2121,8 @@ def make_conformance_program_contribution(
 
 
 __all__ = (
+    "alternate_conformance_gate",
+    "BoundaryCampaignFixture",
     "ImmutableArtifactStore",
     "INVOCATION_MANDATORY_SHELLS",
     "HugeTypeMetadataError",
@@ -1852,6 +2141,7 @@ __all__ = (
     "immutable_record_dispatch",
     "make_closure",
     "make_assembler_profile_candidate",
+    "make_boundary_campaign_fixture",
     "make_conformance_gate_profile_candidate",
     "make_conformance_program_contribution",
     "make_phase_engine_contribution",
