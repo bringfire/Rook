@@ -103,12 +103,21 @@ def test_progressive_intent_findings_report_rank_or_null():
     }
 
 
-def test_progressive_intent_findings_ignore_non_mapping_candidates():
+def test_progressive_intent_findings_type_guard_without_renumbering_positions():
     results = {
         row["query"]: [None, "noise", 7, {"name": row["expected_tool"]}]
         for row in SMOKE.PROGRESSIVE_INTENT_MATRIX
     }
-    assert SMOKE.progressive_intent_findings(results) == []
+    findings = SMOKE.progressive_intent_findings(results)
+    assert findings == [{
+        "record": "progressive_finding",
+        "code": "intent_discovery_rank_failed",
+        "query": "check running agent status",
+        "expected_tool": "agent_status",
+        "limit": 10,
+        "max_rank": 1,
+        "observed_rank": 4,
+    }]
 
 
 def test_progressive_read_findings_require_exact_dispatchable_object_schema():
@@ -199,13 +208,11 @@ def progressive_finding(code: str, **details: Any) -> dict[str, Any]:
 def progressive_intent_findings(search_results: dict[str, list[Any]]) -> list[dict[str, Any]]:
     findings = []
     for row in PROGRESSIVE_INTENT_MATRIX:
-        candidates = [
-            candidate for candidate in search_results.get(row["query"], [])
-            if isinstance(candidate, dict)
-        ]
+        candidates = search_results.get(row["query"], [])
         rank = next(
             (index for index, candidate in enumerate(candidates, start=1)
-             if candidate.get("name") == row["expected_tool"]),
+             if isinstance(candidate, dict)
+             and candidate.get("name") == row["expected_tool"]),
             None,
         )
         if rank is None or rank > row["max_rank"]:
@@ -417,7 +424,7 @@ def test_collect_progressive_evidence_tolerates_malformed_search_entries_and_emi
             if query in SMOKE.DG009_GH_TOOL_NAMES:
                 return _wire([None, "noise", 7, {"name": query}])
             if query == "check running agent status":
-                return _wire([None, "noise", {"name": "agent_status"}])
+                return _wire([{"name": "agent_status"}, None, "noise", 7])
             return _wire([None, "noise", 7])
         if name == "rook_tools_read":
             target = arguments["name"]
@@ -440,8 +447,9 @@ def test_collect_progressive_evidence_tolerates_malformed_search_entries_and_emi
 @pytest.mark.parametrize(
     ("failure_stage", "expected_gateway", "expected_hidden", "expected_code"),
     (
-        ("list_tools", "FAIL", "BLOCKED", "progressive_acquisition_failed"),
-        ("catalog", "FAIL", "BLOCKED", "progressive_acquisition_failed"),
+        ("runtime_import", "BLOCKED", "BLOCKED", "progressive_acquisition_failed"),
+        ("list_tools", "BLOCKED", "BLOCKED", "progressive_acquisition_failed"),
+        ("catalog", "BLOCKED", "BLOCKED", "progressive_acquisition_failed"),
         ("collector", "PASS", "PASS", "progressive_collection_failed"),
     ),
 )
@@ -462,8 +470,9 @@ def test_run_progressive_converts_post_origin_exceptions_to_summary(
     async def unused_call_tool(_name, _arguments):
         raise AssertionError("collector is replaced")
 
-    fake_server.list_tools = fake_list_tools
-    fake_server.call_tool = unused_call_tool
+    if failure_stage != "runtime_import":
+        fake_server.list_tools = fake_list_tools
+        fake_server.call_tool = unused_call_tool
     fake_registry = ModuleType("rook.agent.tool_registry")
 
     def fake_build_catalog(_tools):
@@ -573,18 +582,7 @@ def progressive_post_origin_failure(
 ) -> tuple[list[dict], list[dict]]:
     error_text = f"{type(error).__name__}: {error}"
     if catalog is None:
-        checks = [
-            progressive_check(
-                "gateway_presence", "FAIL", 0,
-                PROGRESSIVE_CHECK_EXPECTED["gateway_presence"],
-                failure_stage=stage, error=error_text,
-            ),
-            progressive_check(
-                "lean_hiddenness", "BLOCKED", 0,
-                PROGRESSIVE_CHECK_EXPECTED["lean_hiddenness"],
-                blocked_by=[stage],
-            ),
-        ]
+        checks: list[dict[str, Any]] = []
         findings: list[dict[str, Any]] = []
         code = "progressive_acquisition_failed"
     else:
@@ -1567,7 +1565,7 @@ Expected: no whitespace errors; only approved validation/test files and this pla
 - Spec coverage: every pinned gateway/target/query/origin/read/call contract maps to Tasks 1-3; both live paths map to Tasks 3-4; release ordering and failure label map to Task 5; expected-red and future-live acceptance map to Task 6.
 - Requested plan coverage: record ordering, `BLOCKED` propagation, histogram accuracy, and summary emission on nonzero exit all have named unit tests in Tasks 1-2.
 - Live evidence integrity: Task 3 asserts lean on the first direct dispatch and during owned success and failure helpers, then restores full, readonly, and absent inherited states; Task 4 emits its only success JSON after undo and statically pins all six evidence fields.
-- Failure completeness: Task 2 type-guards malformed search candidates and parameterizes list, catalog, and collector failures to require six deterministic records plus the final nonzero summary after origins pass.
+- Failure completeness: Task 2 type-guards malformed search candidates without renumbering their returned positions, blocks all six checks when runtime import/list/catalog acquisition prevents observation, and preserves catalog-derived checks only for collector failure; all four stages require a final nonzero summary.
 - Acceptance evidence: Task 6 loads structured owned evidence, follows the progressive gate's `stdout_path`, parses JSONL, executes every expected-red assertion, and reruns both named `BLOCKED`-propagation tests.
 - Type consistency: all evidence helpers return JSON-serializable dictionaries; public MCP calls decode success data rather than internal `{success, data}` envelopes; live owned evidence uses `progressive_discovery` consistently from runner to artifact.
 - Scope control: no search, schema, profile membership, dispatch, targeting, native, or managed behavior change is included.
