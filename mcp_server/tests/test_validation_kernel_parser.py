@@ -38,30 +38,6 @@ MUTATED_DOCUMENT_COUNT = 15_000
 MAX_GENERATED_DEPTH = 8
 MAX_GENERATED_WIDTH = 8
 
-_DIRECTED_VALID_DOCUMENTS = {
-    "null": b"null",
-    "true": b"true",
-    "false": b"false",
-    "zero_integer": b"0",
-    "negative_integer": b"-123",
-    "fraction": b"-12.50",
-    "exponent_lower": b"1e-10",
-    "exponent_upper_signed": b"1E+10",
-    "empty_string": b'""',
-    "simple_escapes": b'"\\\"\\\\\\/\\b\\f\\n\\r\\t"',
-    "unicode_escape": b'"\\u20ac"',
-    "surrogate_pair": b'"\\uD83D\\uDE00"',
-    "raw_unicode": '"euro=\u20ac emoji=\U0001f600"'.encode("utf-8"),
-    "whitespace": b" \t\r\n[ true , false , null ] \n",
-    "empty_array": b"[]",
-    "empty_object": b"{}",
-    "all_structural_tokens": b'{"a":[null,true,false,0,"x"],"b":{}}',
-    "depth_eight": b"[" * 8 + b"null" + b"]" * 8,
-    "array_width_eight": b"[0,1,2,3,4,5,6,7]",
-    "object_width_eight": b'{"a":0,"b":1,"c":2,"d":3,"e":4,"f":5,"g":6,"h":7}',
-}
-_REQUIRED_VALID_PRODUCTIONS = frozenset(_DIRECTED_VALID_DOCUMENTS)
-
 _MUTATION_FAMILIES = (
     "delimiter_deletion",
     "truncation",
@@ -72,6 +48,53 @@ _MUTATION_FAMILIES = (
     "malformed_exponent_or_leading_zero",
     "extra_root_token",
     "invalid_or_truncated_utf8",
+)
+_MAXIMUM_FINITE = float.fromhex("0x1.fffffffffffffp+1023")
+_MINIMUM_NORMAL = float.fromhex("0x1.0000000000000p-1022")
+_MINIMUM_SUBNORMAL = float.fromhex("0x0.0000000000001p-1022")
+_MAXIMUM_FINITE_INTEGER_TOKEN = str(int(_MAXIMUM_FINITE)).encode("ascii")
+_ACCEPTED_BINARY64_BOUNDARIES = (
+    (b"1.7976931348623157e308", _MAXIMUM_FINITE),
+    (_MAXIMUM_FINITE_INTEGER_TOKEN, _MAXIMUM_FINITE),
+    (b"2.2250738585072014e-308", _MINIMUM_NORMAL),
+    (b"4.9406564584124654e-324", _MINIMUM_SUBNORMAL),
+    (b"2e-324", 0.0),
+    (b"9007199254740991", float(2**53 - 1)),
+    (b"9007199254740992", float(2**53)),
+    (b"9007199254740993", float(2**53)),
+    (b"1.0000000000000001", 1.0),
+    (b"1.0000000000000002", math.nextafter(1.0, math.inf)),
+)
+_BASIC_GENERATED_NUMBER_TOKENS = (
+    b"0",
+    b"-0",
+    b"1",
+    b"-1",
+    b"1.5",
+    b"1e10",
+    b"1E+10",
+    b"1e-10",
+)
+_GENERATED_NUMBER_BOUNDARY_CHOICES = _BASIC_GENERATED_NUMBER_TOKENS + tuple(
+    raw for raw, _ in _ACCEPTED_BINARY64_BOUNDARIES
+)
+_REQUIRED_GENERATED_NUMBER_TOKENS = frozenset(
+    _BASIC_GENERATED_NUMBER_TOKENS + _GENERATED_NUMBER_BOUNDARY_CHOICES
+)
+_REQUIRED_GENERATED_STRING_FORMS = (
+    b"\\\"",
+    b"\\\\",
+    b"\\/",
+    b"\\b",
+    b"\\f",
+    b"\\n",
+    b"\\r",
+    b"\\t",
+    b"\\u0000",
+    b"\\u20ac",
+    b"\\uD83D\\uDE00",
+    "\u00e9".encode("utf-8"),
+    "\U0001f642".encode("utf-8"),
 )
 
 
@@ -512,6 +535,13 @@ def _strict_oracle(raw: bytes) -> tuple[bool, object | None]:
             parent, slot, current = stack.pop()
             if type(current) is float and not math.isfinite(current):
                 raise _OracleRejected("nonfinite conversion")
+            if type(current) is int:
+                try:
+                    binary64 = float(current)
+                except OverflowError:
+                    raise _OracleRejected("integer outside binary64 domain") from None
+                if not math.isfinite(binary64):
+                    raise _OracleRejected("integer outside binary64 domain")
             if type(current) is str:
                 normalized = _normalize_oracle_string(current)
                 if parent is None:
@@ -556,6 +586,36 @@ def _oracle_shape(root: object) -> tuple[int, int]:
     return maximum_depth, maximum_width
 
 
+@pytest.mark.parametrize(("raw", "expected"), _ACCEPTED_BINARY64_BOUNDARIES)
+def test_parser_and_oracle_accept_exact_binary64_boundaries(
+    raw: bytes,
+    expected: float,
+) -> None:
+    assert len(raw) <= _limit(BudgetDimension.NUMBER_TOKEN_CHARS)
+    oracle_accepted, oracle_value = _strict_oracle(raw)
+
+    assert oracle_accepted
+    parsed = _parse(raw)
+    assert isinstance(parsed.value, JsonNumber)
+    assert parsed.value.value == expected
+    oracle_owned = own_trusted_json(oracle_value)
+    assert canonical_json_bytes(parsed.value) == canonical_json_bytes(oracle_owned)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [b"1.7976931348623159e308", b"9" * 309],
+    ids=("exponent_overflow", "integer_overflow"),
+)
+def test_parser_and_oracle_reject_binary64_overflow_within_token_cap(raw: bytes) -> None:
+    assert len(raw) <= _limit(BudgetDimension.NUMBER_TOKEN_CHARS)
+
+    oracle_accepted, _ = _strict_oracle(raw)
+
+    assert not oracle_accepted
+    assert _parse_rejection(raw).evidence.category == "nonfinite_number"
+
+
 def _random_string_token(rng: random.Random) -> bytes:
     pieces = (
         b"ascii",
@@ -578,17 +638,29 @@ def _random_string_token(rng: random.Random) -> bytes:
 
 
 def _random_number_token(rng: random.Random) -> bytes:
-    production = rng.randrange(3)
+    production = rng.randrange(5)
     sign = b"-" if rng.randrange(2) else b""
-    integer = str(rng.randrange(0, 1_000_000)).encode("ascii")
     if production == 0:
-        return sign + integer
+        return rng.choice(_GENERATED_NUMBER_BOUNDARY_CHOICES)
     if production == 1:
-        return sign + integer + b"." + str(rng.randrange(0, 1_000_000)).zfill(6).encode("ascii")
+        digit_count = rng.choice((1, 2, 16, 17, 53, 100, 200, 308))
+        first = str(rng.randrange(1, 10))
+        remaining = "".join(
+            str(rng.randrange(10)) for _ in range(digit_count - 1)
+        )
+        return sign + (first + remaining).encode("ascii")
+    if production == 2:
+        integer = str(rng.randrange(0, 1_000_000)).encode("ascii")
+        fraction = str(rng.randrange(0, 10**16)).zfill(16).encode("ascii")
+        return sign + integer + b"." + fraction
+
+    coefficient = (
+        f"{rng.randrange(1, 10)}.{rng.randrange(0, 10**16):016d}"
+    ).encode("ascii")
     exponent_marker = b"e" if rng.randrange(2) else b"E"
-    exponent_sign = rng.choice((b"", b"+", b"-"))
-    exponent = str(rng.randrange(0, 21)).encode("ascii")
-    return sign + integer + exponent_marker + exponent_sign + exponent
+    exponent = rng.randrange(-400, 308)
+    exponent_text = f"{exponent:+d}".encode("ascii")
+    return sign + coefficient + exponent_marker + exponent_text
 
 
 def _random_scalar(rng: random.Random) -> bytes:
@@ -604,71 +676,267 @@ def _random_scalar(rng: random.Random) -> bytes:
     return _random_string_token(rng)
 
 
-def _random_value(rng: random.Random, depth: int) -> bytes:
-    if depth >= MAX_GENERATED_DEPTH or rng.randrange(4) != 0:
-        return _random_scalar(rng)
+def _random_key_token(rng: random.Random, index: int) -> bytes:
+    generated_key = _random_string_token(rng)
+    return b'"k' + str(index).encode("ascii") + b":" + generated_key[1:]
 
-    width = rng.randrange(0, 4)
+
+def _pad_generated_value(rng: random.Random, value: bytes) -> bytes:
+    whitespace = (b"", b" ", b"\t", b"\r", b"\n", b" \t\r\n")
+    return rng.choice(whitespace) + value + rng.choice(whitespace)
+
+
+def _render_container(
+    rng: random.Random,
+    values: list[bytes],
+) -> bytes:
     if rng.randrange(2) == 0:
-        return b"[" + b",".join(_random_value(rng, depth + 1) for _ in range(width)) + b"]"
-
-    members: list[bytes] = []
-    for index in range(width):
-        generated_key = _random_string_token(rng)
-        unique_key = b'"k' + str(index).encode("ascii") + b":" + generated_key[1:]
-        members.append(unique_key + b":" + _random_value(rng, depth + 1))
+        return b"[" + b",".join(values) + b"]"
+    members = [
+        _random_key_token(rng, index) + b":" + value
+        for index, value in enumerate(values)
+    ]
     return b"{" + b",".join(members) + b"}"
 
 
-def _valid_documents() -> tuple[list[bytes], frozenset[str]]:
+def _random_value(rng: random.Random, parent_depth: int) -> bytes:
+    if parent_depth >= MAX_GENERATED_DEPTH or rng.randrange(4) != 0:
+        value = _random_scalar(rng)
+    else:
+        width = rng.randrange(0, 4)
+        values = [_random_value(rng, parent_depth + 1) for _ in range(width)]
+        value = _render_container(rng, values)
+    return _pad_generated_value(rng, value)
+
+
+def _random_spine_container(
+    rng: random.Random,
+    depth: int,
+    target_depth: int,
+) -> bytes:
+    if not 2 <= depth <= target_depth <= MAX_GENERATED_DEPTH:
+        raise AssertionError("invalid generated depth spine")
+    width = rng.randrange(1, 4) if depth < target_depth else rng.randrange(0, 4)
+    spine_index = rng.randrange(width) if depth < target_depth else None
+    values: list[bytes] = []
+    for index in range(width):
+        if index == spine_index:
+            nested = _random_spine_container(rng, depth + 1, target_depth)
+            values.append(_pad_generated_value(rng, nested))
+        else:
+            values.append(_random_value(rng, depth))
+    return _render_container(rng, values)
+
+
+def _random_document(rng: random.Random) -> bytes:
+    target_depth = rng.randrange(1, MAX_GENERATED_DEPTH + 1)
+    width = rng.randrange(1, MAX_GENERATED_WIDTH + 1)
+    spine_index = rng.randrange(width) if target_depth > 1 else None
+    values: list[bytes] = []
+    for index in range(width):
+        if index == spine_index:
+            nested = _random_spine_container(rng, 2, target_depth)
+            values.append(_pad_generated_value(rng, nested))
+        else:
+            values.append(_random_value(rng, 1))
+    members = [
+        _random_key_token(rng, index) + b":" + value
+        for index, value in enumerate(values)
+    ]
+    return b"{" + b",".join(members) + b"}"
+
+
+def _generate_valid_documents() -> list[bytes]:
     rng = random.Random(RNG_SEED)
-    documents = list(_DIRECTED_VALID_DOCUMENTS.values())
-    while len(documents) < VALID_DOCUMENT_COUNT:
-        documents.append(_random_value(rng, 0))
-    return documents, frozenset(_DIRECTED_VALID_DOCUMENTS)
+    return [_random_document(rng) for _ in range(VALID_DOCUMENT_COUNT)]
+
+
+def _first_root_key_token(raw: bytes) -> bytes:
+    if not raw.startswith(b'{"'):
+        raise AssertionError("generated mutation root must be a nonempty object")
+    index = 2
+    while index < len(raw):
+        if raw[index] == 0x5C:
+            index += 2
+            continue
+        if raw[index] == 0x22:
+            return raw[1 : index + 1]
+        index += 1
+    raise AssertionError("generated root key is unterminated")
+
+
+def _first_structural_colon(raw: bytes) -> int:
+    in_string = False
+    index = 0
+    while index < len(raw):
+        byte = raw[index]
+        if in_string:
+            if byte == 0x5C:
+                index += 2
+                continue
+            if byte == 0x22:
+                in_string = False
+        elif byte == 0x22:
+            in_string = True
+        elif byte == 0x3A:
+            return index
+        index += 1
+    raise AssertionError("generated root object has no structural colon")
 
 
 def _mutate(family: str, base: bytes, index: int) -> bytes:
+    if not base.endswith(b"}"):
+        raise AssertionError("generated mutation base must be a root object")
     if family == "delimiter_deletion":
-        return b"[" + base
+        return base[:-1]
     if family == "truncation":
-        return base[: max(0, len(base) // 2)]
+        return base[: max(1, len(base) // 2)]
     if family == "trailing_comma":
-        return b"[" + base + b",]"
+        return base[:-1] + b",}"
     if family == "colon_comma_substitution":
-        return b'{"x",' + base + b"}"
+        colon = _first_structural_colon(base)
+        return base[:colon] + b"," + base[colon + 1 :]
     if family == "duplicate_key_insertion":
-        return b'{"duplicate":' + base + b',"duplicate":null}'
+        key = _first_root_key_token(base)
+        return base[:-1] + b"," + key + b":null}"
     if family == "invalid_escape":
-        return b'["\\x",' + base + b"]"
+        return base[:2] + b"\\x" + base[2:]
     if family == "malformed_exponent_or_leading_zero":
         malformed = b"01" if index % 2 else b"1e+"
-        return b"[" + malformed + b"," + base + b"]"
+        return base[:-1] + b',"mutation":' + malformed + b"}"
     if family == "extra_root_token":
         return base + b" null"
     if family == "invalid_or_truncated_utf8":
         invalid = b"\xff" if index % 2 else b"\xe2\x82"
-        return b'["' + invalid + b'",' + base + b"]"
+        return base[:2] + invalid + base[2:]
     raise AssertionError(f"unknown mutation family: {family}")
 
 
-def test_fixed_seed_grammar_differential_matches_strict_duplicate_aware_oracle() -> None:
-    valid_documents, covered_productions = _valid_documents()
+def _mutations_for_document(
+    base: bytes,
+    document_index: int,
+) -> tuple[tuple[str, bytes], ...]:
+    first_family = (document_index * 3) % len(_MUTATION_FAMILIES)
+    families = tuple(
+        _MUTATION_FAMILIES[(first_family + offset) % len(_MUTATION_FAMILIES)]
+        for offset in range(3)
+    )
+    return tuple(
+        (family, _mutate(family, base, document_index))
+        for family in families
+    )
 
+
+def test_valid_corpus_is_exactly_five_thousand_seeded_grammar_documents() -> None:
+    expected_rng = random.Random(RNG_SEED)
+    expected = [
+        _random_document(expected_rng)
+        for _ in range(VALID_DOCUMENT_COUNT)
+    ]
+
+    actual = _generate_valid_documents()
+
+    assert len(actual) == VALID_DOCUMENT_COUNT
+    assert actual == expected
+
+
+def test_every_valid_document_has_exactly_three_actual_named_mutations() -> None:
+    documents = _generate_valid_documents()
+    mutation_counts: Counter[str] = Counter()
+    total = 0
+
+    for document_index, base in enumerate(documents):
+        mutations = _mutations_for_document(base, document_index)
+        assert len(mutations) == 3
+        assert len({name for name, _ in mutations}) == 3
+        for name, candidate in mutations:
+            total += 1
+            mutation_counts[name] += 1
+            assert candidate != base
+            oracle_accepted, _ = _strict_oracle(candidate)
+            assert not oracle_accepted, (document_index, name, candidate[:256])
+            if name == "delimiter_deletion":
+                assert base.endswith(b"}")
+                assert candidate == base[:-1]
+            elif name == "truncation":
+                assert len(candidate) < len(base)
+                assert base.startswith(candidate)
+            elif name == "trailing_comma":
+                assert candidate == base[:-1] + b",}"
+            elif name == "colon_comma_substitution":
+                differences = [
+                    index
+                    for index, pair in enumerate(zip(base, candidate, strict=True))
+                    if pair[0] != pair[1]
+                ]
+                assert len(differences) == 1
+                difference = differences[0]
+                assert base[difference] == ord(":")
+                assert candidate[difference] == ord(",")
+            elif name == "duplicate_key_insertion":
+                assert candidate.startswith(base[:-1] + b",")
+                assert candidate.endswith(b":null}")
+            elif name == "invalid_escape":
+                assert b"\\x" in candidate
+                assert b"\\x" not in base
+            elif name == "malformed_exponent_or_leading_zero":
+                assert b':1e+}' in candidate or b':01}' in candidate
+            elif name == "extra_root_token":
+                assert candidate == base + b" null"
+            elif name == "invalid_or_truncated_utf8":
+                with pytest.raises(UnicodeDecodeError):
+                    candidate.decode("utf-8", errors="strict")
+            else:
+                raise AssertionError(f"unknown mutation family: {name}")
+
+    assert total == MUTATED_DOCUMENT_COUNT
+    assert set(mutation_counts) == set(_MUTATION_FAMILIES)
+    assert all(mutation_counts[name] > 0 for name in _MUTATION_FAMILIES)
+
+
+def _json_number_tokens(raw: bytes) -> tuple[bytes, ...]:
+    number_bytes = frozenset(b"0123456789+-.eE")
+    tokens: list[bytes] = []
+    in_string = False
+    index = 0
+    while index < len(raw):
+        byte = raw[index]
+        if in_string:
+            if byte == 0x5C:
+                index += 2
+                continue
+            if byte == 0x22:
+                in_string = False
+            index += 1
+            continue
+        if byte == 0x22:
+            in_string = True
+            index += 1
+            continue
+        if byte == 0x2D or 0x30 <= byte <= 0x39:
+            end = index + 1
+            while end < len(raw) and raw[end] in number_bytes:
+                end += 1
+            tokens.append(raw[index:end])
+            index = end
+            continue
+        index += 1
+    return tuple(tokens)
+
+
+def test_fixed_seed_grammar_differential_matches_strict_duplicate_aware_oracle() -> None:
+    valid_documents = _generate_valid_documents()
     assert len(valid_documents) == VALID_DOCUMENT_COUNT
-    assert covered_productions == _REQUIRED_VALID_PRODUCTIONS
-    for name, raw in _DIRECTED_VALID_DOCUMENTS.items():
-        oracle_accepted, _ = _strict_oracle(raw)
-        assert oracle_accepted, name
 
     mutation_counts: Counter[str] = Counter()
     oracle_rejections: Counter[str] = Counter()
     mutated_documents: list[tuple[str, bytes]] = []
-    for index in range(MUTATED_DOCUMENT_COUNT):
-        family = _MUTATION_FAMILIES[index % len(_MUTATION_FAMILIES)]
-        candidate = _mutate(family, valid_documents[index % len(valid_documents)], index)
-        mutation_counts[family] += 1
-        mutated_documents.append((family, candidate))
+    for document_index, raw in enumerate(valid_documents):
+        mutations = _mutations_for_document(raw, document_index)
+        assert len(mutations) == 3
+        for family, candidate in mutations:
+            mutation_counts[family] += 1
+            mutated_documents.append((family, candidate))
 
     assert len(mutated_documents) == MUTATED_DOCUMENT_COUNT
     assert set(mutation_counts) == set(_MUTATION_FAMILIES)
@@ -678,6 +946,15 @@ def test_fixed_seed_grammar_differential_matches_strict_duplicate_aware_oracle()
     assert len(cases) == VALID_DOCUMENT_COUNT + MUTATED_DOCUMENT_COUNT
     observed_valid_depth = 0
     observed_valid_width = 0
+    observed_scalar_kinds: set[str] = set()
+    observed_container_kinds: set[str] = set()
+    observed_empty_containers: set[str] = set()
+    observed_booleans: set[bool] = set()
+    observed_empty_string = False
+    observed_number_tokens: set[bytes] = set()
+    observed_string_forms: set[bytes] = set()
+    observed_whitespace: set[int] = set()
+    maximum_valid_input_bytes = 0
     for case_index, (family, raw) in enumerate(cases):
         oracle_accepted, oracle_value = _strict_oracle(raw)
         if family == "valid":
@@ -685,6 +962,37 @@ def test_fixed_seed_grammar_differential_matches_strict_duplicate_aware_oracle()
             depth, width = _oracle_shape(oracle_value)
             observed_valid_depth = max(observed_valid_depth, depth)
             observed_valid_width = max(observed_valid_width, width)
+            maximum_valid_input_bytes = max(maximum_valid_input_bytes, len(raw))
+            observed_number_tokens.update(_json_number_tokens(raw))
+            observed_string_forms.update(
+                form for form in _REQUIRED_GENERATED_STRING_FORMS if form in raw
+            )
+            observed_whitespace.update(byte for byte in raw if byte in b" \t\r\n")
+            pending = [oracle_value]
+            while pending:
+                current = pending.pop()
+                if current is None:
+                    observed_scalar_kinds.add("null")
+                elif type(current) is bool:
+                    observed_scalar_kinds.add("boolean")
+                    observed_booleans.add(current)
+                elif type(current) is str:
+                    observed_scalar_kinds.add("string")
+                    observed_empty_string = observed_empty_string or current == ""
+                elif type(current) in (int, float):
+                    observed_scalar_kinds.add("number")
+                elif type(current) is list:
+                    observed_container_kinds.add("array")
+                    if not current:
+                        observed_empty_containers.add("array")
+                    pending.extend(current)
+                elif type(current) is dict:
+                    observed_container_kinds.add("object")
+                    if not current:
+                        observed_empty_containers.add("object")
+                    pending.extend(current.values())
+                else:
+                    raise AssertionError("oracle produced a non-JSON host value")
         if family != "valid" and not oracle_accepted:
             oracle_rejections[family] += 1
 
@@ -709,6 +1017,18 @@ def test_fixed_seed_grammar_differential_matches_strict_duplicate_aware_oracle()
 
     assert observed_valid_depth == MAX_GENERATED_DEPTH
     assert observed_valid_width == MAX_GENERATED_WIDTH
+    assert observed_scalar_kinds == {"null", "boolean", "string", "number"}
+    assert observed_booleans == {False, True}
+    assert observed_empty_string
+    assert observed_container_kinds == {"array", "object"}
+    assert observed_empty_containers == {"array", "object"}
+    assert observed_string_forms == set(_REQUIRED_GENERATED_STRING_FORMS)
+    assert observed_whitespace == set(b" \t\r\n")
+    assert _REQUIRED_GENERATED_NUMBER_TOKENS.issubset(observed_number_tokens)
+    assert max(map(len, observed_number_tokens)) <= _limit(
+        BudgetDimension.NUMBER_TOKEN_CHARS
+    )
+    assert maximum_valid_input_bytes <= _limit(BudgetDimension.RECIPE_INPUT_BYTES)
     assert set(oracle_rejections) == set(_MUTATION_FAMILIES)
     assert all(oracle_rejections[family] >= 1 for family in _MUTATION_FAMILIES)
 
@@ -725,3 +1045,5 @@ def test_production_parser_does_not_delegate_to_host_json_decoder() -> None:
     assert "rapidjson" not in lowered
     assert "_strict_oracle" not in source
     assert "_valid_documents" not in source
+    assert "_generate_valid_documents" not in source
+    assert "_random_document" not in source
