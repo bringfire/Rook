@@ -726,6 +726,7 @@ async def _successful_direct_dispatch(name: str, _args: dict):
 @pytest.fixture
 def passing_live_progressive(monkeypatch):
     async def fake_progressive(_args):
+        assert os.environ["ROOK_MCP_TOOL_PROFILE"] == "lean"
         return {
             "profile": "lean", "gateways": [
                 "rook_tools_ls", "rook_tools_search", "rook_tools_read", "rook_tools_call"
@@ -773,6 +774,7 @@ async def test_run_live_smoke_restores_profile_after_progressive_failure(monkeyp
     monkeypatch.setattr(proof, "_call_tool_dispatch", _successful_direct_dispatch)
 
     async def fail_progressive(_args):
+        assert os.environ["ROOK_MCP_TOOL_PROFILE"] == "lean"
         raise proof.ProofFailure("progressive_discovery_failed", "missing gh_status")
 
     monkeypatch.setattr(proof, "_run_live_progressive_gh_status", fail_progressive)
@@ -788,6 +790,15 @@ async def test_run_live_smoke_restores_profile_after_success(monkeypatch, passin
     result = await proof.run_live_smoke(port=9001, process_id=42)
     assert os.environ["ROOK_MCP_TOOL_PROFILE"] == "full"
     assert result["progressive_discovery"]["target"] == "gh_status"
+
+
+@pytest.mark.asyncio
+async def test_run_live_smoke_restores_profile_to_unset_state(monkeypatch, passing_live_progressive):
+    monkeypatch.delenv("ROOK_MCP_TOOL_PROFILE", raising=False)
+    monkeypatch.setattr(proof, "_call_tool_dispatch", _successful_direct_dispatch)
+    result = await proof.run_live_smoke(port=9001, process_id=42)
+    assert "ROOK_MCP_TOOL_PROFILE" not in os.environ
+    assert result["progressive_discovery"]["profile"] == "lean"
 ```
 
 Add the `passing_live_progressive` parameter to every existing `test_live_smoke_*` test that reaches or can reach Chirp mutation. Tests that fail during direct readiness do not need it. This keeps existing tests focused on Chirp and readiness behavior while the new tests exercise the real progressive helper.
@@ -802,7 +813,7 @@ $env:PYTHONPATH = (Resolve-Path 'mcp_server/src').Path
   mcp_server/tests/test_local_testing_proof.py -k 'live_progressive or restores_profile' -v
 ```
 
-Expected: FAIL because the public live helper does not exist and `run_live_smoke` does not scope the profile.
+Expected: FAIL because the public live helper does not exist and `run_live_smoke` does not force lean for the in-flight calls or restore all three inherited states (`readonly`, `full`, and absent).
 
 - [ ] **Step 3: Implement public-wire decoding and the exact live chain**
 
@@ -976,7 +987,15 @@ $directStatus = $content.IndexOf('status = await _call_tool_dispatch("gh_status"
 $progressiveSearch = $content.IndexOf('await public_call("rook_tools_search"')
 $chirpCreate = $content.IndexOf('chirp = await _call_tool_dispatch("chirp_create"')
 Assert-True -Condition ($directStatus -ge 0 -and $directStatus -lt $progressiveSearch -and $progressiveSearch -lt $chirpCreate) -Message 'Direct controls must precede the progressive chain, which must precede Chirp mutation.'
-Assert-Contains -Text $content -Expected '"progressive_discovery"' -Message 'Live smoke output must retain progressive evidence.'
+$undoFailure = $content.IndexOf('raise SystemExit(f"gh_undo cleanup failed: {undo}")')
+$evidenceStart = $content.IndexOf('live_evidence = {')
+$finalPrint = $content.IndexOf('print(json.dumps(live_evidence, default=str, sort_keys=True))')
+Assert-True -Condition ($undoFailure -ge 0 -and $undoFailure -lt $evidenceStart -and $evidenceStart -lt $finalPrint) -Message 'Final evidence must be built and printed only after successful undo validation.'
+$evidenceBlock = $content.Substring($evidenceStart, $finalPrint - $evidenceStart)
+foreach ($field in @('"rhino_ping"', '"gh_status"', '"progressive_discovery"', '"chirp_create"', '"gh_errors"', '"gh_undo"')) {
+    Assert-Contains -Text $evidenceBlock -Expected $field -Message "Final live evidence must include $field."
+}
+Assert-NotContains -Text $content -Unexpected 'print(json.dumps({"rhino_ping": ping, "gh_status": status, "chirp_create": chirp}, default=str))' -Message 'The pre-validation partial evidence print must be removed.'
 ```
 
 - [ ] **Step 2: Run the deploy guards and verify failure**
@@ -1027,7 +1046,21 @@ progressive_discovery = {
 }
 ```
 
-Include `progressive_discovery` in the final printed JSON object.
+Remove the existing partial `print(json.dumps(...))` immediately after `chirp_create`. After `gh_undo` has returned success, build and print the complete evidence object exactly once:
+
+```python
+live_evidence = {
+    "rhino_ping": ping,
+    "gh_status": status,
+    "progressive_discovery": progressive_discovery,
+    "chirp_create": chirp,
+    "gh_errors": errors,
+    "gh_undo": undo,
+}
+print(json.dumps(live_evidence, default=str, sort_keys=True))
+```
+
+No success-shaped JSON is emitted before Chirp validation, error inspection, and undo cleanup complete. A failure before that point exits nonzero with its existing diagnostic instead of leaving a misleading partial evidence object.
 
 - [ ] **Step 4: Force and restore lean in the PowerShell parent**
 
@@ -1238,16 +1271,114 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-local-testi
 $ReleaseExit = $LASTEXITCODE
 $LatestArtifact = Get-ChildItem artifacts/local-testing -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 $Manifest = Get-Content (Join-Path $LatestArtifact.FullName 'manifest.json') -Raw | ConvertFrom-Json
+
+if ($ReleaseExit -eq 0) {
+    throw 'Release readiness unexpectedly passed the expected-red progressive gate.'
+}
+if ($Manifest.failure_label -ne 'progressive_discovery_failed') {
+    throw "Wrong top-level failure label: $($Manifest.failure_label)"
+}
+if ($Manifest.gates[-1].gate -ne 'progressive_discovery') {
+    throw "Progressive discovery was not last: $($Manifest.gates[-1].gate)"
+}
+
+$OwnedPath = Join-Path $LatestArtifact.FullName 'owned-release-readiness.json'
+if (-not (Test-Path -LiteralPath $OwnedPath)) {
+    throw "Missing owned artifact: $OwnedPath"
+}
+$Owned = Get-Content -LiteralPath $OwnedPath -Raw | ConvertFrom-Json
+$OwnedEvidence = $Owned.details.progressive_discovery
+if ($null -eq $OwnedEvidence) {
+    throw 'Owned artifact did not promote structured progressive_discovery evidence.'
+}
+if ($OwnedEvidence.target -ne 'gh_status' -or $OwnedEvidence.target_hidden -ne $true) {
+    throw "Invalid owned target evidence: $($OwnedEvidence | ConvertTo-Json -Depth 8 -Compress)"
+}
+
+$ProgressivePath = Join-Path $LatestArtifact.FullName 'progressive_discovery.json'
+if (-not (Test-Path -LiteralPath $ProgressivePath)) {
+    throw "Missing progressive gate artifact: $ProgressivePath"
+}
+$ProgressiveGate = Get-Content -LiteralPath $ProgressivePath -Raw | ConvertFrom-Json
+if ($ProgressiveGate.success -ne $false -or $ProgressiveGate.failure_label -ne 'progressive_discovery_failed') {
+    throw "Unexpected progressive gate envelope: $($ProgressiveGate | ConvertTo-Json -Depth 8 -Compress)"
+}
+if (-not (Test-Path -LiteralPath $ProgressiveGate.stdout_path)) {
+    throw "Progressive stdout artifact missing: $($ProgressiveGate.stdout_path)"
+}
+
+$Records = @()
+foreach ($line in Get-Content -LiteralPath $ProgressiveGate.stdout_path) {
+    if (-not $line.TrimStart().StartsWith('{')) {
+        continue
+    }
+    try {
+        $record = $line | ConvertFrom-Json
+    } catch {
+        throw "Invalid JSONL record in progressive stdout: $line"
+    }
+    if ($record.record) {
+        $Records += $record
+    }
+}
+
+$Checks = @($Records | Where-Object { $_.record -eq 'progressive_check' })
+$Findings = @($Records | Where-Object { $_.record -eq 'progressive_finding' })
+$Summaries = @($Records | Where-Object { $_.record -eq 'progressive_summary' })
+$ExpectedOrder = @(
+    'gateway_presence', 'lean_hiddenness', 'exact_name_resolution',
+    'schema_reads', 'agent_status_call', 'intent_discovery'
+)
+if ($Checks.Count -ne 6 -or (($Checks.check -join ',') -ne ($ExpectedOrder -join ','))) {
+    throw "Wrong progressive check order: $($Checks.check -join ',')"
+}
+
+$ExpectedStatuses = [ordered]@{
+    gateway_presence = 'PASS'
+    lean_hiddenness = 'PASS'
+    exact_name_resolution = 'PASS'
+    schema_reads = 'PASS'
+    agent_status_call = 'PASS'
+    intent_discovery = 'FAIL'
+}
+foreach ($name in $ExpectedStatuses.Keys) {
+    $check = @($Checks | Where-Object { $_.check -eq $name })[0]
+    if ($null -eq $check -or $check.status -ne $ExpectedStatuses[$name]) {
+        throw "Wrong status for $name: $($check.status)"
+    }
+}
+$IntentCheck = @($Checks | Where-Object { $_.check -eq 'intent_discovery' })[0]
+if ($IntentCheck.observed -ne 1 -or $IntentCheck.expected -ne 6) {
+    throw "Wrong intent counts: $($IntentCheck.observed)/$($IntentCheck.expected)"
+}
+$BlockedChecks = @($Checks | Where-Object { $_.status -eq 'BLOCKED' })
+if ($BlockedChecks.Count -ne 0) {
+    throw "Expected-red baseline contains unexpected BLOCKED checks: $($BlockedChecks.check -join ',')"
+}
+
+$RankFindings = @($Findings | Where-Object { $_.code -eq 'intent_discovery_rank_failed' })
+if ($Findings.Count -ne 5 -or $RankFindings.Count -ne 5) {
+    throw "Wrong ranking findings: total=$($Findings.Count), rank=$($RankFindings.Count)"
+}
+if ($Summaries.Count -ne 1 -or $Records[-1].record -ne 'progressive_summary') {
+    throw 'Progressive summary was not the single final JSONL record.'
+}
+$Summary = $Summaries[0]
+if ($Summary.status -ne 'FAIL' -or $Summary.finding_histogram.intent_discovery_rank_failed -ne 5) {
+    throw "Wrong progressive summary: $($Summary | ConvertTo-Json -Depth 8 -Compress)"
+}
+
+$env:PYTHONPATH = (Resolve-Path 'mcp_server/src').Path
+$TestPython = 'C:/Users/aryan/source/repos/Rook/mcp_server/.venv/Scripts/python.exe'
+& $TestPython -m pytest `
+  mcp_server/tests/test_lm_surface_smoke.py::test_missing_search_gateway_blocks_only_search_dependent_checks `
+  mcp_server/tests/test_lm_surface_smoke.py::test_progressive_summary_turns_missing_checks_into_blocked_records -q
+if ($LASTEXITCODE -ne 0) {
+    throw 'Executable BLOCKED-propagation acceptance tests failed.'
+}
 ```
 
-Expected:
-
-- Owned Rhino launch and exact-name live smoke pass before the realistic gate.
-- `owned-release-readiness.json` contains `details.progressive_discovery.target == "gh_status"` and `target_hidden == true` as structured JSON, not only stdout text.
-- `$ReleaseExit` is nonzero.
-- `$Manifest.failure_label -eq 'progressive_discovery_failed'`.
-- `$Manifest.gates[-1].gate -eq 'progressive_discovery'`.
-- The last gate artifact has the same six records, five ranking findings, and final summary as Step 4.
+Expected: every assertion completes without throwing. The deployed artifact proves the healthy expected-red path has five non-intent checks passing, no unexpected `BLOCKED` records, five ranking findings, and a final failing summary. The two named synthetic tests prove missing prerequisites propagate `BLOCKED` deterministically rather than disappearing from the record set.
 
 - [ ] **Step 7: Verify repository hygiene and final diff**
 
@@ -1271,5 +1402,7 @@ Expected: no whitespace errors; only approved validation/test files and this pla
 
 - Spec coverage: every pinned gateway/target/query/origin/read/call contract maps to Tasks 1-3; both live paths map to Tasks 3-4; release ordering and failure label map to Task 5; expected-red and future-live acceptance map to Task 6.
 - Requested plan coverage: record ordering, `BLOCKED` propagation, histogram accuracy, and summary emission on nonzero exit all have named unit tests in Tasks 1-2.
+- Live evidence integrity: Task 3 asserts lean during owned success and failure calls and restores full, readonly, and absent inherited states; Task 4 emits its only success JSON after undo and statically pins all six evidence fields.
+- Acceptance evidence: Task 6 loads structured owned evidence, follows the progressive gate's `stdout_path`, parses JSONL, executes every expected-red assertion, and reruns both named `BLOCKED`-propagation tests.
 - Type consistency: all evidence helpers return JSON-serializable dictionaries; public MCP calls decode success data rather than internal `{success, data}` envelopes; live owned evidence uses `progressive_discovery` consistently from runner to artifact.
 - Scope control: no search, schema, profile membership, dispatch, targeting, native, or managed behavior change is included.
