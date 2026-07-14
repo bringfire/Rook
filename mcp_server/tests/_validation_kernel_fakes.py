@@ -36,6 +36,7 @@ from rook.validation_kernel.canonical_json import canonical_fingerprint, canonic
 from rook.validation_kernel.owned_json import (
     JsonArray,
     JsonBoolean,
+    JsonNull,
     JsonObject,
     JsonString,
     own_trusted_json,
@@ -220,6 +221,77 @@ def _blocker() -> KernelIssue:
         related_paths=(),
         bounded_message="Synthetic compile blocker.",
         detail_sha256=None,
+    )
+
+
+def _api_diagnostic(code: str, path: str) -> KernelIssue:
+    return KernelIssue(
+        classification="diagnostic",
+        code=code,
+        severity="error",
+        subject_id="synthetic.subject",
+        path=path,
+        related_paths=(),
+        bounded_message="Synthetic validation evidence.",
+        detail_sha256=None,
+    )
+
+
+def validation_api_runner_dispatch(
+    state: JsonObject, inputs: object, helpers: object
+) -> object:
+    phase_name = _runner_state_text(state, "phase_name")
+    scenario = _runner_state_text(state, "scenario")
+
+    if scenario == "integrity_failure":
+        return object()
+    if phase_name == "companion_artifacts":
+        if tuple(inputs) != ("validation_bundle",):  # type: ignore[arg-type]
+            raise AssertionError("companion phase received undeclared inputs")
+        bundle = inputs["validation_bundle"][0]  # type: ignore[index]
+        if type(bundle) is not JsonObject:
+            raise AssertionError("companion phase received a non-object bundle")
+        context = bundle["validation_context"]
+        if type(context) is not JsonObject:
+            raise AssertionError("companion phase received no validation context")
+        snapshots = context["environment_snapshots"]
+        if type(snapshots) is not JsonArray:
+            raise AssertionError("companion phase received malformed snapshots")
+        diagnostics = (
+            (
+                _api_diagnostic(
+                    "synthetic_companion_invalid",
+                    "/validation_context/environment_snapshots",
+                ),
+            )
+            if snapshots
+            else ()
+        )
+        return RunnerResult(
+            diagnostics=diagnostics,
+            compile_blockers=(),
+            outputs=(),
+        )
+
+    if phase_name != "schema":
+        raise AssertionError(f"unknown synthetic API phase: {phase_name}")
+    if tuple(inputs) != ("recipe", "recipe_parse_evidence"):  # type: ignore[arg-type]
+        raise AssertionError("schema phase received undeclared inputs")
+    recipe = inputs["recipe"][0]  # type: ignore[index]
+    parse_evidence = inputs["recipe_parse_evidence"][0]  # type: ignore[index]
+    malformed = type(recipe) is JsonNull and type(parse_evidence) is JsonObject
+    if not malformed and (
+        type(recipe) is not JsonObject or type(parse_evidence) is not JsonNull
+    ):
+        raise AssertionError("schema phase received inconsistent recipe evidence")
+    return RunnerResult(
+        diagnostics=(
+            (_api_diagnostic("synthetic_recipe_invalid", "/recipe"),)
+            if malformed
+            else ()
+        ),
+        compile_blockers=(),
+        outputs=(),
     )
 
 
@@ -444,6 +516,31 @@ def phase_engine_runner_dispatch(
         if hasattr(first, "reservation") or hasattr(second, "reservation"):
             raise AssertionError("runner received an accounting receipt")
         return RunnerResult(diagnostics=(), compile_blockers=(), outputs=(output,))
+    if scenario == "schema_audit_order":
+        nested = recipe["nested"]
+        if type(nested) is not JsonObject:
+            raise AssertionError("schema audit order requires a nested object")
+        first = helpers.evaluate_schema(  # type: ignore[attr-defined]
+            "synthetic.report:v1",
+            nested,
+            instance_binding=InstanceBinding(
+                artifact_id="synthetic.recipe.nested",
+                artifact_fingerprint=canonical_fingerprint(nested),
+                instance_pointer="",
+            ),
+        )
+        second = helpers.evaluate_schema(  # type: ignore[attr-defined]
+            "synthetic.report:v1",
+            recipe,
+            instance_binding=InstanceBinding(
+                artifact_id="synthetic.recipe",
+                artifact_fingerprint=canonical_fingerprint(recipe),
+                instance_pointer="",
+            ),
+        )
+        if hasattr(first, "reservation") or hasattr(second, "reservation"):
+            raise AssertionError("runner received an accounting receipt")
+        return RunnerResult(diagnostics=(), compile_blockers=(), outputs=(output,))
     if scenario == "immutability_probe":
         if hasattr(helpers, "ledger") or hasattr(helpers, "context"):
             raise AssertionError("runner received private engine authority")
@@ -508,10 +605,12 @@ def report_projection(
     scenario_value = state["scenario"]
     shells_value = state["invocation_shells"]
     schema_probe_value = state["schema_probe"]
+    artifact_identity_value = state["artifact_identity"]
     if (
         type(scenario_value) is not JsonString
         or type(shells_value) is not JsonBoolean
         or type(schema_probe_value) is not JsonString
+        or type(artifact_identity_value) is not JsonBoolean
     ):
         raise AssertionError("synthetic projection scenario is malformed")
     scenario = scenario_value.value
@@ -554,6 +653,21 @@ def report_projection(
     if schema_probe:
         body["probe"] = _report_schema_probe_instance(schema_probe)
     builder.put("/body", own_trusted_json(body))
+    if artifact_identity_value.value:
+        builder.put(
+            "/artifact_identity",
+            JsonObject(
+                tuple(
+                    (JsonString(field_name), evidence[field_name])
+                    for field_name in (
+                        "recipe_input_payload_sha256",
+                        "validation_bundle_input_payload_sha256",
+                        "recipe_value_fingerprint",
+                        "validation_bundle_fingerprint",
+                    )
+                )
+            ),
+        )
     builder.put("/phases", JsonArray(()))
     for result in envelope.phase_results:
         builder.append("/phases", JsonString(f"{result.phase_name}:{result.status}"))
@@ -795,7 +909,10 @@ def _report_schema_probe_instance(probe: str) -> object:
 
 
 def _output_schema(
-    *, invocation_shells: bool, report_schema_probe: str | None
+    *,
+    invocation_shells: bool,
+    report_schema_probe: str | None,
+    artifact_identity: bool,
 ) -> object:
     observed_fields = (
         "recipe_input_bytes",
@@ -878,6 +995,24 @@ def _output_schema(
         "compile_ready",
         "report_fingerprint",
     ]
+    if artifact_identity:
+        root_properties["artifact_identity"] = {
+            "type": "object",
+            "properties": {
+                "recipe_input_payload_sha256": {"type": "string"},
+                "validation_bundle_input_payload_sha256": {"type": "string"},
+                "recipe_value_fingerprint": {"type": ["string", "null"]},
+                "validation_bundle_fingerprint": {"type": "string"},
+            },
+            "required": [
+                "recipe_input_payload_sha256",
+                "validation_bundle_input_payload_sha256",
+                "recipe_value_fingerprint",
+                "validation_bundle_fingerprint",
+            ],
+            "additionalProperties": False,
+        }
+        required.append("artifact_identity")
     if invocation_shells:
         validation_context_schema["properties"] = {
             "evaluated_at": {"type": "string"},
@@ -977,6 +1112,7 @@ def make_program_contribution(
     required_for_compile_phases: tuple[str, ...] = ("alpha", "beta"),
     report_projection_scenario: str = "normal",
     report_schema_probe: str | None = None,
+    artifact_identity: bool = False,
 ) -> ValidationProgramContribution:
     tokenizer = _component("synthetic.tokenizer:v1", "synthetic.tokenizer_impl:v1", fake_tokenizer)
     parser = _component("synthetic.parser:v1", "synthetic.parser_impl:v1", fake_parser)
@@ -1011,6 +1147,7 @@ def make_program_contribution(
             "required_for_compile_phases": list(required_for_compile_phases),
             "scenario": report_projection_scenario,
             "schema_probe": report_schema_probe or "",
+            "artifact_identity": artifact_identity,
         }
     )
     if type(projection_state) is not JsonObject:
@@ -1027,6 +1164,7 @@ def make_program_contribution(
     output_schema = _output_schema(
         invocation_shells=invocation_shells,
         report_schema_probe=report_schema_probe,
+        artifact_identity=artifact_identity,
     )
 
     phases = (
@@ -1126,6 +1264,8 @@ def make_program_contribution(
         "/valid",
         "/validation_context",
     )
+    if artifact_identity:
+        writable_body_paths += ("/artifact_identity",)
     mandatory_shells = (("/validation_context", "object"),)
     if invocation_shells:
         writable_body_paths += ("/task_envelope", "/authority_artifacts")
@@ -1371,6 +1511,140 @@ def make_phase_engine_contribution(
     )
 
 
+def make_validation_api_contribution(
+    *,
+    companion_scenario: str = "normal",
+    schema_scenario: str = "normal",
+    report_projection_scenario: str = "normal",
+) -> ValidationProgramContribution:
+    contribution = make_program_contribution(
+        invocation_shells=True,
+        required_for_compile_phases=("companion_artifacts", "schema"),
+        report_projection_scenario=report_projection_scenario,
+        artifact_identity=True,
+    )
+
+    def runner_record(phase_name: str, scenario: str) -> ImmutableCallableRecord:
+        state = own_trusted_json(
+            {"phase_name": phase_name, "scenario": scenario}
+        )
+        assert type(state) is JsonObject
+        return ImmutableCallableRecord(
+            function=validation_api_runner_dispatch,
+            state=state,
+        )
+
+    companion_target = runner_record("companion_artifacts", companion_scenario)
+    schema_target = runner_record("schema", schema_scenario)
+    companion = _component(
+        "companion_artifacts",
+        "synthetic.api.companion_artifacts:v1",
+        companion_target,
+    )
+    schema = _component("schema", "synthetic.api.schema:v1", schema_target)
+    phases = (
+        PhaseSpec(
+            phase_name="companion_artifacts",
+            ordering_after=(),
+            input_bindings=(
+                InputBinding(
+                    input_name="validation_bundle",
+                    source_kind="invocation_input",
+                    source_input="validation_bundle",
+                    source_constant=None,
+                    source_phase=None,
+                    source_output=None,
+                    expected_type="kernel.json_object:v1",
+                    cardinality="exactly_one",
+                ),
+            ),
+            provided_outputs=(),
+            runner_id="companion_artifacts",
+            permitted_diagnostic_codes=("synthetic_companion_invalid",),
+            permitted_blocker_codes=(),
+        ),
+        PhaseSpec(
+            phase_name="schema",
+            ordering_after=(),
+            input_bindings=(
+                InputBinding(
+                    input_name="recipe",
+                    source_kind="invocation_input",
+                    source_input="recipe",
+                    source_constant=None,
+                    source_phase=None,
+                    source_output=None,
+                    expected_type="kernel.json_value:v1",
+                    cardinality="exactly_one",
+                ),
+                InputBinding(
+                    input_name="recipe_parse_evidence",
+                    source_kind="invocation_input",
+                    source_input="recipe_parse_evidence",
+                    source_constant=None,
+                    source_phase=None,
+                    source_output=None,
+                    expected_type="kernel.json_value:v1",
+                    cardinality="exactly_one",
+                ),
+            ),
+            provided_outputs=(),
+            runner_id="schema",
+            permitted_diagnostic_codes=("synthetic_recipe_invalid",),
+            permitted_blocker_codes=(),
+        ),
+    )
+    retained_bindings = tuple(
+        binding
+        for binding in contribution.runtime_bindings
+        if binding.binding_kind != "runner"
+    )
+    runtime_bindings = retained_bindings + (
+        _binding("runner", companion, companion_target),
+        _binding("runner", schema, schema_target),
+    )
+    RUNTIME_REGISTRY.clear()
+    RUNTIME_REGISTRY.update(
+        {
+            (binding.binding_kind, binding.binding_id): binding.target
+            for binding in runtime_bindings
+        }
+    )
+    return replace(
+        contribution,
+        invocation_inputs=(
+            InvocationInputSpec(
+                input_name="recipe",
+                value_type="kernel.json_value:v1",
+                cardinality="exactly_one",
+            ),
+            InvocationInputSpec(
+                input_name="recipe_parse_evidence",
+                value_type="kernel.json_value:v1",
+                cardinality="exactly_one",
+            ),
+            InvocationInputSpec(
+                input_name="validation_bundle",
+                value_type="kernel.json_object:v1",
+                cardinality="exactly_one",
+            ),
+        ),
+        phases=phases,
+        runners=(companion, schema),
+        issue_vocabulary=(
+            IssueSpec(
+                code="synthetic_companion_invalid",
+                classification="diagnostic",
+            ),
+            IssueSpec(
+                code="synthetic_recipe_invalid",
+                classification="diagnostic",
+            ),
+        ),
+        runtime_bindings=runtime_bindings,
+    )
+
+
 def replace_runtime_component(
     contribution: ValidationProgramContribution,
     *,
@@ -1426,6 +1700,7 @@ __all__ = (
     "make_assembler_profile_candidate",
     "make_phase_engine_contribution",
     "make_program_contribution",
+    "make_validation_api_contribution",
     "make_validation_bundle_bytes",
     "non_boolean_kernel_string_export_validator",
     "raising_kernel_string_export_validator",

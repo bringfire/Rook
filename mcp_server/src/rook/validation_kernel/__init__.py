@@ -1,5 +1,6 @@
 """Model-free validation kernel primitives."""
 
+from .api import ValidationResult, validate_artifacts
 from .budget import (
     LM9A_BUDGET_MANIFEST,
     LM9A_BUDGET_PROFILE_ID,
@@ -160,6 +161,7 @@ __all__ = (
     "ValidationControlFailure",
     "ValidationInvocation",
     "ValidationProgramContribution",
+    "ValidationResult",
     "TrustedValidationBundleInput",
     "admit_schema",
     "compose_and_seal_program",
@@ -176,4 +178,5 @@ __all__ = (
     "reserve_schema_evaluation",
     "seal_validation_report",
     "seal_trusted_bundle_assembler_profile",
+    "validate_artifacts",
 )
