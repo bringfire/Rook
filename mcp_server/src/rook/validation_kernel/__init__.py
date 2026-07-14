@@ -88,11 +88,14 @@ from .schema_profile import (
     InstanceBinding,
     SchemaAdmissionError,
     SchemaEvaluationInputError,
+    SchemaEvaluationReservation,
     SchemaEvaluationReceipt,
     SchemaIssue,
     SchemaProfile,
     admit_schema,
     evaluate_schema,
+    evaluate_schema_with_reservation,
+    reserve_schema_evaluation,
 )
 
 __all__ = (
@@ -144,6 +147,7 @@ __all__ = (
     "RunnerResult",
     "SchemaAdmissionError",
     "SchemaEvaluationInputError",
+    "SchemaEvaluationReservation",
     "SchemaEvaluationReceipt",
     "SchemaEvaluatorSpec",
     "SchemaIssue",
@@ -160,6 +164,7 @@ __all__ = (
     "admit_schema",
     "compose_and_seal_program",
     "evaluate_schema",
+    "evaluate_schema_with_reservation",
     "execute_phase_program",
     "implementation_source_closure_for_modules",
     "implementation_source_for_module",
@@ -168,6 +173,7 @@ __all__ = (
     "runtime_dependency_closure_for_modules",
     "runtime_dependency_spec",
     "runtime_implementation_fingerprint",
+    "reserve_schema_evaluation",
     "seal_validation_report",
     "seal_trusted_bundle_assembler_profile",
 )

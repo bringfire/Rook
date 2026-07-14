@@ -33,11 +33,14 @@ from rook.validation_kernel.schema_profile import (
     InstanceBinding,
     SchemaAdmissionError,
     SchemaEvaluationInputError,
+    SchemaEvaluationReservation,
     SchemaEvaluationReceipt,
     SchemaIssue,
     SchemaProfile,
     admit_schema,
     evaluate_schema,
+    evaluate_schema_with_reservation,
+    reserve_schema_evaluation,
 )
 
 
@@ -877,6 +880,179 @@ def test_selected_instance_root_alone_determines_reserved_instance_nodes() -> No
     assert receipt.reservation.attempted_shape_units == expected
     assert expected < whole_artifact_product
     assert ledger.snapshot().schema_evaluation_shape_units == expected
+
+
+def test_reserved_evaluation_runs_after_freeze_without_mutating_frozen_ledger() -> None:
+    schema = admit({"type": "object", "required": ["value"]})
+    instance = own_trusted_json({"value": 1})
+    ledger = BudgetLedger(LM9A_BUDGET_MANIFEST)
+    reservation = reserve_schema_evaluation(
+        schema,
+        instance_nodes=count_json_nodes(instance),
+        ledger=ledger,
+    )
+    frozen_receipt = ledger.reserve_report_seal_and_freeze()
+
+    result = evaluate_schema_with_reservation(
+        schema,
+        instance,
+        instance_binding=binding(),
+        reservation=reservation,
+    )
+
+    assert type(reservation) is SchemaEvaluationReservation
+    assert reservation.per_evaluation_limit == PAYLOAD_PROFILE.per_evaluation_shape_limit
+    with pytest.raises(AttributeError):
+        reservation._instance_nodes = 99  # type: ignore[attr-defined]
+    assert result.reservation is reservation.shape_reservation
+    assert result.evaluator_invoked is True
+    assert result.evaluation_passed is True
+    assert ledger.snapshot() == frozen_receipt.observed
+
+
+@pytest.mark.parametrize(
+    ("schema_host", "instance_host", "profile"),
+    (
+        ({"const": "expected"}, "actual", PAYLOAD_PROFILE),
+        ({"enum": ["expected", "other"]}, "actual", PAYLOAD_PROFILE),
+        (
+            {"type": "object", "minProperties": 2},
+            {"only": 1},
+            PAYLOAD_PROFILE,
+        ),
+        (
+            {"type": "object", "maxProperties": 1},
+            {"first": 1, "second": 2},
+            PAYLOAD_PROFILE,
+        ),
+        ({"type": "number", "exclusiveMinimum": 1}, 1, PAYLOAD_PROFILE),
+        ({"type": "number", "exclusiveMaximum": 1}, 1, PAYLOAD_PROFILE),
+        ({"type": "number", "multipleOf": 2}, 3, PAYLOAD_PROFILE),
+        (
+            {"allOf": [{"type": "string"}, {"const": "expected"}]},
+            "actual",
+            CORE_PROFILE,
+        ),
+        (
+            {"anyOf": [{"const": "expected"}, {"const": "other"}]},
+            "actual",
+            CORE_PROFILE,
+        ),
+        (
+            {"oneOf": [{"type": "number"}, {"type": "integer"}]},
+            1,
+            CORE_PROFILE,
+        ),
+    ),
+    ids=(
+        "const",
+        "enum",
+        "minProperties",
+        "maxProperties",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "multipleOf",
+        "allOf",
+        "anyOf",
+        "oneOf",
+    ),
+)
+def test_reserved_evaluator_is_differentially_exact_for_reviewer_schema_probes(
+    schema_host: dict[str, object],
+    instance_host: object,
+    profile: SchemaProfile,
+) -> None:
+    schema = admit(schema_host, profile)
+    instance = own_trusted_json(instance_host)
+    direct = evaluate_schema(
+        schema,
+        instance,
+        instance_binding=binding(),
+        ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
+    )
+    reserved_ledger = BudgetLedger(LM9A_BUDGET_MANIFEST)
+    reservation = reserve_schema_evaluation(
+        schema,
+        instance_nodes=count_json_nodes(instance),
+        ledger=reserved_ledger,
+    )
+    reserved_ledger.reserve_report_seal_and_freeze()
+
+    delayed = evaluate_schema_with_reservation(
+        schema,
+        instance,
+        instance_binding=binding(),
+        reservation=reservation,
+    )
+
+    assert delayed == direct
+    assert delayed.evaluation_passed is False
+    assert delayed.failure_code == "instance_schema_failed"
+
+
+def test_reserved_evaluation_rejects_wrong_schema_and_consumes_capability() -> None:
+    schema = admit({"type": "null"})
+    equivalent = admit({"type": "null"})
+    instance = own_trusted_json(None)
+    reservation = reserve_schema_evaluation(
+        schema,
+        instance_nodes=count_json_nodes(instance),
+        ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
+    )
+
+    with pytest.raises(SchemaEvaluationInputError, match="schema identity"):
+        evaluate_schema_with_reservation(
+            equivalent,
+            instance,
+            instance_binding=binding(),
+            reservation=reservation,
+        )
+    with pytest.raises(SchemaEvaluationInputError, match="already consumed"):
+        evaluate_schema_with_reservation(
+            schema,
+            instance,
+            instance_binding=binding(),
+            reservation=reservation,
+        )
+
+
+def test_reserved_evaluation_rejects_wrong_instance_shape_and_reuse() -> None:
+    schema = admit({"type": "array"})
+    reservation = reserve_schema_evaluation(
+        schema,
+        instance_nodes=1,
+        ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
+    )
+
+    with pytest.raises(SchemaEvaluationInputError, match="instance node count"):
+        evaluate_schema_with_reservation(
+            schema,
+            own_trusted_json([None]),
+            instance_binding=binding(),
+            reservation=reservation,
+        )
+    with pytest.raises(SchemaEvaluationInputError, match="already consumed"):
+        evaluate_schema_with_reservation(
+            schema,
+            own_trusted_json(None),
+            instance_binding=binding(),
+            reservation=reservation,
+        )
+
+
+def test_reserved_evaluation_requires_exact_kernel_reservation() -> None:
+    schema = admit({"type": "null"})
+    instance = own_trusted_json(None)
+
+    with pytest.raises(SchemaEvaluationInputError, match="evaluation reservation"):
+        evaluate_schema_with_reservation(
+            schema,
+            instance,
+            instance_binding=binding(),
+            reservation=object(),  # type: ignore[arg-type]
+        )
+    with pytest.raises(TypeError):
+        SchemaEvaluationReservation()
 
 
 def test_repeated_evaluation_charges_again_even_for_identical_cached_ref_shape() -> None:

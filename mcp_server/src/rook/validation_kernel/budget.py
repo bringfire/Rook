@@ -217,7 +217,14 @@ def _failure_stage(artifact_role: ArtifactRole | str) -> FailureStage:
 class BudgetLedger:
     """The single mutable accounting authority for one validation invocation."""
 
-    __slots__ = ("_manifest", "_observed", "_frozen", "_receipt", "_lock")
+    __slots__ = (
+        "_manifest",
+        "_observed",
+        "_frozen",
+        "_receipt",
+        "_report_seal_claimed",
+        "_lock",
+    )
 
     def __init__(self, manifest: BudgetManifest) -> None:
         if type(manifest) is not BudgetManifest:
@@ -233,6 +240,7 @@ class BudgetLedger:
         self._observed["report_seal_reserved_work_units"] = 0
         self._frozen = False
         self._receipt: BudgetReceipt | None = None
+        self._report_seal_claimed = False
         self._lock = threading.Lock()
 
     def _ensure_mutable(self) -> None:
@@ -374,6 +382,16 @@ class BudgetLedger:
 
         with self._lock:
             return self._snapshot_unlocked()
+
+    def claim_report_seal(self) -> bool:
+        """Claim this invocation's sole report attempt without charging work."""
+
+        with self._lock:
+            if self._report_seal_claimed:
+                return False
+            self._ensure_mutable()
+            self._report_seal_claimed = True
+            return True
 
     def reserve_report_seal_and_freeze(self) -> BudgetReceipt:
         """Atomically record the fixed allowance and freeze every counter."""

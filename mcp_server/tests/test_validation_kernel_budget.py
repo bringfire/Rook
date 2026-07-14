@@ -149,6 +149,45 @@ def _frozen_receipt() -> tuple[BudgetLedger, BudgetReceipt]:
     return ledger, ledger.reserve_report_seal_and_freeze()
 
 
+def test_report_seal_claim_is_atomic_one_shot_and_has_no_budget_cost() -> None:
+    ledger = BudgetLedger(LM9A_BUDGET_MANIFEST)
+    before = ledger.snapshot()
+    ready = threading.Barrier(3)
+    outcomes: list[bool] = []
+
+    def claim() -> None:
+        ready.wait()
+        outcomes.append(ledger.claim_report_seal())
+
+    threads = (threading.Thread(target=claim), threading.Thread(target=claim))
+    for thread in threads:
+        thread.start()
+    ready.wait()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert sorted(outcomes) == [False, True]
+    assert ledger.snapshot() == before
+
+
+def test_report_seal_claim_does_not_change_freeze_or_charge_contracts() -> None:
+    ledger = BudgetLedger(LM9A_BUDGET_MANIFEST)
+
+    assert ledger.claim_report_seal() is True
+    ledger.charge(
+        BudgetDimension.REPORT_PROJECTION_FIELDS,
+        1,
+        artifact_role=ArtifactRole.REPORT_SEAL,
+        subject_path="/body",
+    )
+    receipt = ledger.reserve_report_seal_and_freeze()
+
+    assert receipt.observed.report_projection_fields == 1
+    assert receipt.observed.report_seal_reserved_work_units == 262_144
+    assert ledger.claim_report_seal() is False
+
+
 def test_fixed_manifest_has_exact_profile_limits_and_fingerprint() -> None:
     assert LM9A_BUDGET_MANIFEST.profile_id == LM9A_BUDGET_PROFILE_ID
     assert LM9A_BUDGET_MANIFEST.profile_id == "rook.validation_budget:lm9a_v1"

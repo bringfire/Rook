@@ -6,6 +6,7 @@ import hashlib
 import importlib.metadata
 import re
 import struct
+import threading
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import islice
@@ -343,6 +344,163 @@ class SchemaEvaluationReceipt:
                 raise SchemaEvaluationInputError(
                     "schema issue evidence exceeds byte limit"
                 )
+
+
+def _shape_reservation_signature(
+    value: SchemaShapeReservation,
+) -> tuple[bool, int | None, int, int | None, str | None]:
+    return (
+        value.accepted,
+        value.attempted_shape_units,
+        value.aggregate_before,
+        value.aggregate_after,
+        value.rejection_reason,
+    )
+
+
+class SchemaEvaluationReservation:
+    """One-use authority for an exact schema and reserved instance shape."""
+
+    __slots__ = (
+        "_schema",
+        "_schema_id",
+        "_schema_fingerprint",
+        "_schema_nodes",
+        "_instance_nodes",
+        "_per_evaluation_limit",
+        "_shape_reservation",
+        "_shape_signature",
+        "_consumed",
+        "_lock",
+    )
+
+    def __init__(self) -> None:
+        raise TypeError(
+            "SchemaEvaluationReservation values are created only by "
+            "reserve_schema_evaluation"
+        )
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError("schema evaluation reservations are immutable")
+
+    @classmethod
+    def _create(
+        cls,
+        *,
+        schema: AdmittedSchema,
+        instance_nodes: int,
+        per_evaluation_limit: int,
+        shape_reservation: SchemaShapeReservation,
+    ) -> "SchemaEvaluationReservation":
+        value = object.__new__(cls)
+        object.__setattr__(value, "_schema", schema)
+        object.__setattr__(value, "_schema_id", schema.schema_id)
+        object.__setattr__(
+            value, "_schema_fingerprint", schema.schema_fingerprint
+        )
+        object.__setattr__(value, "_schema_nodes", schema.schema_nodes)
+        object.__setattr__(value, "_instance_nodes", instance_nodes)
+        object.__setattr__(
+            value, "_per_evaluation_limit", per_evaluation_limit
+        )
+        object.__setattr__(value, "_shape_reservation", shape_reservation)
+        object.__setattr__(
+            value,
+            "_shape_signature",
+            _shape_reservation_signature(shape_reservation),
+        )
+        object.__setattr__(value, "_consumed", False)
+        object.__setattr__(value, "_lock", threading.Lock())
+        return value
+
+    @property
+    def schema_id(self) -> str:
+        return self._schema_id
+
+    @property
+    def schema_fingerprint(self) -> str:
+        return self._schema_fingerprint
+
+    @property
+    def schema_nodes(self) -> int:
+        return self._schema_nodes
+
+    @property
+    def instance_nodes(self) -> int:
+        return self._instance_nodes
+
+    @property
+    def per_evaluation_limit(self) -> int:
+        return self._per_evaluation_limit
+
+    @property
+    def shape_reservation(self) -> SchemaShapeReservation:
+        return self._shape_reservation
+
+    def _claim(self, schema: AdmittedSchema, instance_nodes: int) -> None:
+        with self._lock:
+            if self._consumed:
+                raise SchemaEvaluationInputError(
+                    "schema evaluation reservation is already consumed"
+                )
+            object.__setattr__(self, "_consumed", True)
+        if schema is not self._schema:
+            raise SchemaEvaluationInputError(
+                "schema evaluation reservation has the wrong schema identity"
+            )
+        if (
+            schema.schema_id != self._schema_id
+            or schema.schema_fingerprint != self._schema_fingerprint
+            or schema.schema_nodes != self._schema_nodes
+        ):
+            raise SchemaEvaluationInputError(
+                "schema evaluation reservation identity is inconsistent"
+            )
+        if instance_nodes != self._instance_nodes:
+            raise SchemaEvaluationInputError(
+                "schema evaluation reservation has the wrong instance node count"
+            )
+        if (
+            type(self._shape_reservation) is not SchemaShapeReservation
+            or _shape_reservation_signature(self._shape_reservation)
+            != self._shape_signature
+        ):
+            raise SchemaEvaluationInputError(
+                "schema evaluation shape reservation is inconsistent"
+            )
+        shape = self._shape_reservation
+        if shape.accepted:
+            expected_shape = self._schema_nodes * self._instance_nodes
+            if (
+                shape.attempted_shape_units != expected_shape
+                or shape.aggregate_after != shape.aggregate_before + expected_shape
+                or shape.rejection_reason is not None
+            ):
+                raise SchemaEvaluationInputError(
+                    "schema evaluation shape reservation does not match its nodes"
+                )
+        elif (
+            shape.attempted_shape_units is not None
+            or shape.aggregate_after is not None
+            or shape.rejection_reason
+            not in (
+                "shape_product_overflow",
+                "per_evaluation_limit_exceeded",
+                "invocation_shape_limit_exceeded",
+            )
+        ):
+            raise SchemaEvaluationInputError(
+                "schema evaluation rejection reservation is inconsistent"
+            )
+
+    def __copy__(self) -> object:
+        raise TypeError("schema evaluation reservations cannot be copied")
+
+    def __deepcopy__(self, memo: object) -> object:
+        raise TypeError("schema evaluation reservations cannot be copied")
+
+    def __reduce__(self) -> object:
+        raise TypeError("schema evaluation reservations cannot be serialized")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1243,47 +1401,86 @@ def _bounded_validation_issues(errors: object) -> tuple[SchemaIssue, ...]:
     return tuple(bounded)
 
 
-def evaluate_schema(
-    schema: AdmittedSchema,
-    instance: JsonValue,
-    *,
-    instance_binding: InstanceBinding,
-    ledger: BudgetLedger,
-) -> SchemaEvaluationReceipt:
-    """Reserve exact shape units, then evaluate once with no retrieval or formats."""
-
+def _require_evaluation_schema(schema: object) -> tuple[AdmittedSchema, SchemaProfile]:
     if type(schema) is not AdmittedSchema:
         raise SchemaEvaluationInputError("evaluation requires an admitted schema")
-    if type(instance) not in _OWNED_VALUE_TYPES:
-        raise SchemaEvaluationInputError("evaluation requires an owned instance")
-    if type(instance_binding) is not InstanceBinding:
-        raise SchemaEvaluationInputError("evaluation requires an instance binding")
-    if type(ledger) is not BudgetLedger:
-        raise SchemaEvaluationInputError("evaluation requires the invocation ledger")
     profile = _profile_for_admitted(schema)
     if (
         schema.schema_nodes != count_json_nodes(schema.value)
         or schema.schema_fingerprint != canonical_fingerprint(schema.value)
     ):
         raise SchemaEvaluationInputError("admitted schema identity is inconsistent")
+    return schema, profile
 
-    reservation = ledger.reserve_schema_shape(
-        schema_nodes=schema.schema_nodes,
-        instance_nodes=count_json_nodes(instance),
+
+def _require_evaluation_instance(
+    instance: object, instance_binding: object
+) -> JsonValue:
+    if type(instance) not in _OWNED_VALUE_TYPES:
+        raise SchemaEvaluationInputError("evaluation requires an owned instance")
+    if type(instance_binding) is not InstanceBinding:
+        raise SchemaEvaluationInputError("evaluation requires an instance binding")
+    return instance
+
+
+def reserve_schema_evaluation(
+    schema: AdmittedSchema,
+    *,
+    instance_nodes: int,
+    ledger: BudgetLedger,
+) -> SchemaEvaluationReservation:
+    """Reserve exact shape units now for one later canonical evaluation."""
+
+    accepted_schema, profile = _require_evaluation_schema(schema)
+    if type(instance_nodes) is not int or instance_nodes < 0:
+        raise SchemaEvaluationInputError(
+            "schema evaluation instance node count must be nonnegative"
+        )
+    if type(ledger) is not BudgetLedger:
+        raise SchemaEvaluationInputError("evaluation requires the invocation ledger")
+    shape_reservation = ledger.reserve_schema_shape(
+        schema_nodes=accepted_schema.schema_nodes,
+        instance_nodes=instance_nodes,
         per_evaluation_limit=profile.per_evaluation_shape_limit,
     )
-    if not reservation.accepted:
+    return SchemaEvaluationReservation._create(
+        schema=accepted_schema,
+        instance_nodes=instance_nodes,
+        per_evaluation_limit=profile.per_evaluation_shape_limit,
+        shape_reservation=shape_reservation,
+    )
+
+
+def evaluate_schema_with_reservation(
+    schema: AdmittedSchema,
+    instance: JsonValue,
+    *,
+    instance_binding: InstanceBinding,
+    reservation: SchemaEvaluationReservation,
+) -> SchemaEvaluationReceipt:
+    """Consume one exact reservation without reading or mutating its ledger."""
+
+    accepted_schema, _ = _require_evaluation_schema(schema)
+    accepted_instance = _require_evaluation_instance(instance, instance_binding)
+    if type(reservation) is not SchemaEvaluationReservation:
+        raise SchemaEvaluationInputError(
+            "evaluation requires an exact schema evaluation reservation"
+        )
+    instance_nodes = count_json_nodes(accepted_instance)
+    reservation._claim(accepted_schema, instance_nodes)
+    shape_reservation = reservation.shape_reservation
+    if not shape_reservation.accepted:
         return SchemaEvaluationReceipt(
-            reservation=reservation,
+            reservation=shape_reservation,
             evaluator_invoked=False,
             evaluation_passed=None,
             bounded_errors=(),
-            failure_code=reservation.rejection_reason,
+            failure_code=shape_reservation.rejection_reason,
         )
 
     try:
-        validator = _validator_for(schema)
-        instance_view = _adapt_owned(instance, translate_refs=False)
+        validator = _validator_for(accepted_schema)
+        instance_view = _adapt_owned(accepted_instance, translate_refs=False)
         errors = _bounded_validation_issues(
             validator.iter_errors(instance_view)
         )
@@ -1292,7 +1489,7 @@ def evaluate_schema(
             instance_binding.instance_pointer
         )
         return SchemaEvaluationReceipt(
-            reservation=reservation,
+            reservation=shape_reservation,
             evaluator_invoked=True,
             evaluation_passed=None,
             bounded_errors=(
@@ -1310,11 +1507,37 @@ def evaluate_schema(
 
     passed = not errors
     return SchemaEvaluationReceipt(
-        reservation=reservation,
+        reservation=shape_reservation,
         evaluator_invoked=True,
         evaluation_passed=passed,
         bounded_errors=errors,
         failure_code=None if passed else "instance_schema_failed",
+    )
+
+
+def evaluate_schema(
+    schema: AdmittedSchema,
+    instance: JsonValue,
+    *,
+    instance_binding: InstanceBinding,
+    ledger: BudgetLedger,
+) -> SchemaEvaluationReceipt:
+    """Reserve exact shape units, then evaluate once with no retrieval or formats."""
+
+    accepted_schema, _ = _require_evaluation_schema(schema)
+    accepted_instance = _require_evaluation_instance(instance, instance_binding)
+    if type(ledger) is not BudgetLedger:
+        raise SchemaEvaluationInputError("evaluation requires the invocation ledger")
+    reservation = reserve_schema_evaluation(
+        accepted_schema,
+        instance_nodes=count_json_nodes(accepted_instance),
+        ledger=ledger,
+    )
+    return evaluate_schema_with_reservation(
+        accepted_schema,
+        accepted_instance,
+        instance_binding=instance_binding,
+        reservation=reservation,
     )
 
 
@@ -1330,9 +1553,12 @@ __all__ = (
     "PAYLOAD_SCHEMA_PROFILE_ID",
     "SchemaAdmissionError",
     "SchemaEvaluationInputError",
+    "SchemaEvaluationReservation",
     "SchemaEvaluationReceipt",
     "SchemaIssue",
     "SchemaProfile",
     "admit_schema",
     "evaluate_schema",
+    "evaluate_schema_with_reservation",
+    "reserve_schema_evaluation",
 )

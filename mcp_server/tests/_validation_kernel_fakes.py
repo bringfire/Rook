@@ -41,6 +41,7 @@ from rook.validation_kernel.owned_json import (
     own_trusted_json,
 )
 from rook.validation_kernel.schema_profile import (
+    CORE_PROFILE,
     PAYLOAD_PROFILE,
     admit_schema,
     evaluate_schema,
@@ -506,9 +507,15 @@ def report_projection(
 
     scenario_value = state["scenario"]
     shells_value = state["invocation_shells"]
-    if type(scenario_value) is not JsonString or type(shells_value) is not JsonBoolean:
+    schema_probe_value = state["schema_probe"]
+    if (
+        type(scenario_value) is not JsonString
+        or type(shells_value) is not JsonBoolean
+        or type(schema_probe_value) is not JsonString
+    ):
         raise AssertionError("synthetic projection scenario is malformed")
     scenario = scenario_value.value
+    schema_probe = schema_probe_value.value
     if scenario == "return_host_graph":
         return {"forged": True}
     if scenario == "return_owned_graph":
@@ -543,10 +550,10 @@ def report_projection(
         if scenario == "canonical_overflow"
         else envelope.program_id
     )
-    builder.put(
-        "/body",
-        own_trusted_json({"closed": {}, "optional": body_optional}),
-    )
+    body: dict[str, object] = {"closed": {}, "optional": body_optional}
+    if schema_probe:
+        body["probe"] = _report_schema_probe_instance(schema_probe)
+    builder.put("/body", own_trusted_json(body))
     builder.put("/phases", JsonArray(()))
     for result in envelope.phase_results:
         builder.append("/phases", JsonString(f"{result.phase_name}:{result.status}"))
@@ -743,7 +750,53 @@ def _binding(kind: str, component: RuntimeComponentSpec, target: object) -> Runt
     )
 
 
-def _output_schema(*, invocation_shells: bool) -> object:
+def _report_schema_probe_schema(probe: str) -> dict[str, object]:
+    probes: dict[str, dict[str, object]] = {
+        "const": {"type": "string", "const": "expected"},
+        "enum": {"type": "string", "enum": ["expected", "other"]},
+        "minProperties": {"type": "object", "minProperties": 2},
+        "maxProperties": {"type": "object", "maxProperties": 1},
+        "exclusiveMinimum": {"type": "number", "exclusiveMinimum": 1},
+        "exclusiveMaximum": {"type": "number", "exclusiveMaximum": 1},
+        "multipleOf": {"type": "number", "multipleOf": 2},
+        "allOf": {
+            "allOf": [{"type": "string"}, {"const": "expected"}],
+        },
+        "anyOf": {
+            "anyOf": [{"const": "expected"}, {"const": "other"}],
+        },
+        "oneOf": {
+            "oneOf": [{"type": "number"}, {"type": "integer"}],
+        },
+    }
+    try:
+        return probes[probe]
+    except KeyError:
+        raise AssertionError(f"unknown report schema probe: {probe}") from None
+
+
+def _report_schema_probe_instance(probe: str) -> object:
+    instances: dict[str, object] = {
+        "const": "actual",
+        "enum": "actual",
+        "minProperties": {"only": 1},
+        "maxProperties": {"first": 1, "second": 2},
+        "exclusiveMinimum": 1,
+        "exclusiveMaximum": 1,
+        "multipleOf": 3,
+        "allOf": "actual",
+        "anyOf": "actual",
+        "oneOf": 1,
+    }
+    try:
+        return instances[probe]
+    except KeyError:
+        raise AssertionError(f"unknown report schema probe: {probe}") from None
+
+
+def _output_schema(
+    *, invocation_shells: bool, report_schema_probe: str | None
+) -> object:
     observed_fields = (
         "recipe_input_bytes",
         "validation_bundle_input_bytes",
@@ -766,20 +819,27 @@ def _output_schema(*, invocation_shells: bool) -> object:
         "type": "object",
         "additionalProperties": False,
     }
+    body_properties: dict[str, object] = {
+        "closed": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        "optional": {"type": "string"},
+        "\ue000": {"type": "string"},
+        "\U00010000": {"type": "string"},
+    }
+    body_schema: dict[str, object] = {
+        "type": "object",
+        "properties": body_properties,
+        "additionalProperties": False,
+    }
+    if report_schema_probe is not None:
+        body_properties["probe"] = _report_schema_probe_schema(report_schema_probe)
+        body_schema["required"] = ["probe"]
     root_properties: dict[str, object] = {
         "body": {
-            "type": "object",
-            "properties": {
-                "closed": {
-                    "type": "object",
-                    "properties": {},
-                    "additionalProperties": False,
-                },
-                "optional": {"type": "string"},
-                "\ue000": {"type": "string"},
-                "\U00010000": {"type": "string"},
-            },
-            "additionalProperties": False,
+            **body_schema,
         },
         "validation_context": validation_context_schema,
         "phases": {"type": "array", "items": {"type": "string"}},
@@ -907,7 +967,8 @@ def _output_schema(*, invocation_shells: bool) -> object:
             "additionalProperties": False,
         }
     )
-    return admit_schema("synthetic.report:v1", value, PAYLOAD_PROFILE)
+    profile = CORE_PROFILE if report_schema_probe is not None else PAYLOAD_PROFILE
+    return admit_schema("synthetic.report:v1", value, profile)
 
 
 def make_program_contribution(
@@ -915,6 +976,7 @@ def make_program_contribution(
     invocation_shells: bool = False,
     required_for_compile_phases: tuple[str, ...] = ("alpha", "beta"),
     report_projection_scenario: str = "normal",
+    report_schema_probe: str | None = None,
 ) -> ValidationProgramContribution:
     tokenizer = _component("synthetic.tokenizer:v1", "synthetic.tokenizer_impl:v1", fake_tokenizer)
     parser = _component("synthetic.parser:v1", "synthetic.parser_impl:v1", fake_parser)
@@ -924,9 +986,10 @@ def make_program_contribution(
         candidate_canonicalizer,
     )
     ledger = _component("synthetic.ledger:v1", "synthetic.ledger_impl:v1", fake_ledger_factory)
+    schema_profile = CORE_PROFILE if report_schema_probe is not None else PAYLOAD_PROFILE
     evaluator = _component(
-        PAYLOAD_PROFILE.profile_id,
-        PAYLOAD_PROFILE.evaluator_id,
+        schema_profile.profile_id,
+        schema_profile.evaluator_id,
         evaluate_schema,
     )
     alpha = _component("alpha", "synthetic.runner.alpha:v1", alpha_runner)
@@ -947,6 +1010,7 @@ def make_program_contribution(
             "invocation_shells": invocation_shells,
             "required_for_compile_phases": list(required_for_compile_phases),
             "scenario": report_projection_scenario,
+            "schema_probe": report_schema_probe or "",
         }
     )
     if type(projection_state) is not JsonObject:
@@ -960,7 +1024,10 @@ def make_program_contribution(
         "synthetic.report_projection_impl:v1",
         projection_target,
     )
-    output_schema = _output_schema(invocation_shells=invocation_shells)
+    output_schema = _output_schema(
+        invocation_shells=invocation_shells,
+        report_schema_probe=report_schema_probe,
+    )
 
     phases = (
         PhaseSpec(
@@ -1139,14 +1206,14 @@ def make_program_contribution(
 
     dependencies = runtime_dependency_closure_for_modules(
         tuple(modules),
-        tuple(name for name, _ in PAYLOAD_PROFILE.runtime_dependencies),
+        tuple(name for name, _ in schema_profile.runtime_dependencies),
     )
     return ValidationProgramContribution(
         program_id="synthetic.validation_program:v1",
         budget_manifest=LM9A_BUDGET_MANIFEST,
         parser_profile=parser_profile,
         schema_evaluator_profiles=(
-            SchemaEvaluatorSpec(profile=PAYLOAD_PROFILE, evaluator=evaluator),
+            SchemaEvaluatorSpec(profile=schema_profile, evaluator=evaluator),
         ),
         schemas=(output_schema,),
         invocation_inputs=(
@@ -1201,11 +1268,13 @@ def make_phase_engine_contribution(
     beta_output_cardinality: str = "zero_or_one",
     required_for_compile_phases: tuple[str, ...] = ("alpha", "beta"),
     report_projection_scenario: str = "normal",
+    report_schema_probe: str | None = None,
 ) -> ValidationProgramContribution:
     contribution = make_program_contribution(
         invocation_shells=True,
         required_for_compile_phases=required_for_compile_phases,
         report_projection_scenario=report_projection_scenario,
+        report_schema_probe=report_schema_probe,
     )
 
     def runner_record(phase_name: str, scenario: str) -> ImmutableCallableRecord:

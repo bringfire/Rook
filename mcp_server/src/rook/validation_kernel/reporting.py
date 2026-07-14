@@ -43,6 +43,7 @@ from .owned_json import (
     JsonObject,
     JsonString,
     JsonValue,
+    count_json_nodes,
     lookup_json_pointer,
 )
 from .phase_contract import PhaseSpec, ReportProjectionSpec
@@ -52,7 +53,15 @@ from .program import (
     _host_json,
     _resolve_schema_reference,
 )
-from .schema_profile import AdmittedSchema
+from .schema_profile import (
+    AdmittedSchema,
+    InstanceBinding,
+    SchemaEvaluationInputError,
+    SchemaEvaluationReservation,
+    SchemaEvaluationReceipt,
+    evaluate_schema_with_reservation,
+    reserve_schema_evaluation,
+)
 
 
 _FINGERPRINT_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -444,11 +453,6 @@ class ReportBuilder:
         value = _freeze_builder_node(state.root)
         if type(value) is not JsonObject:
             raise _ReportConstructabilityError()
-        _validate_schema_shape(
-            value,
-            state.schema,
-            allowed_missing=frozenset(state.declaration.kernel_owned_paths),
-        )
         for path, kind in state.declaration.mandatory_shells:
             try:
                 shell = lookup_json_pointer(value, path)
@@ -459,60 +463,8 @@ class ReportBuilder:
                 raise _ReportConstructabilityError(path)
         return value
 
-
-def _validate_schema_shape(
-    value: JsonValue,
-    schema: AdmittedSchema,
-    *,
-    allowed_missing: frozenset[str],
-) -> None:
-    stack: list[tuple[str, JsonValue]] = [("", value)]
-    while stack:
-        path, current = stack.pop()
-        try:
-            schema_node = _schema_node_for_path(schema, path)
-        except _ProjectionIntegrityError:
-            raise _ReportConstructabilityError(path or None) from None
-        if not _matches_schema_type(current, schema_node):
-            raise _ReportConstructabilityError(path or None)
-        if type(current) is JsonObject:
-            required = schema_node.get("required", ())
-            if type(required) is list:
-                names = frozenset(key.value for key, _ in current.members)
-                for required_name in required:
-                    if type(required_name) is not str:
-                        raise _ReportConstructabilityError(path or None)
-                    required_path = _child_pointer(path, required_name)
-                    if required_name not in names and required_path not in allowed_missing:
-                        raise _ReportConstructabilityError(required_path)
-            for key, member in current.members:
-                stack.append((_child_pointer(path, key.value), member))
-        elif type(current) is JsonArray:
-            minimum = schema_node.get("minItems")
-            maximum = schema_node.get("maxItems")
-            if type(minimum) is int and len(current.items) < minimum:
-                raise _ReportConstructabilityError(path or None)
-            if type(maximum) is int and len(current.items) > maximum:
-                raise _ReportConstructabilityError(path or None)
-            for index, item in enumerate(current.items):
-                stack.append((_child_pointer(path, str(index)), item))
-        elif type(current) is JsonString:
-            minimum = schema_node.get("minLength")
-            maximum = schema_node.get("maxLength")
-            pattern = schema_node.get("pattern")
-            if type(minimum) is int and len(current.value) < minimum:
-                raise _ReportConstructabilityError(path or None)
-            if type(maximum) is int and len(current.value) > maximum:
-                raise _ReportConstructabilityError(path or None)
-            if type(pattern) is str and re.search(pattern, current.value) is None:
-                raise _ReportConstructabilityError(path or None)
-        elif type(current) is JsonNumber:
-            minimum = schema_node.get("minimum")
-            maximum = schema_node.get("maximum")
-            if type(minimum) in (int, float) and current.value < minimum:
-                raise _ReportConstructabilityError(path or None)
-            if type(maximum) in (int, float) and current.value > maximum:
-                raise _ReportConstructabilityError(path or None)
+    def _close(self) -> None:
+        self.__state.finished = True
 
 
 def _invocation_evidence(invocation: ValidationInvocation) -> JsonObject:
@@ -676,13 +628,34 @@ def _ledger_budget_failure(
     )
 
 
-def _canonical_byte_limit() -> int:
-    value = LM9A_BUDGET_MANIFEST.limits[
-        BudgetDimension.REPORT_CANONICAL_BYTES.value
-    ]
+def _manifest_limit(dimension: BudgetDimension) -> int:
+    value = LM9A_BUDGET_MANIFEST.limits[dimension.value]
     if type(value) is not JsonNumber or not value.value.is_integer():
-        raise AssertionError("fixed report canonical-byte limit is invalid")
+        raise AssertionError("fixed budget limit is invalid")
     return int(value.value)
+
+
+def _schema_reservation_failure(
+    program: SealedValidationProgram,
+    reservation: SchemaEvaluationReservation,
+) -> BudgetExceededFailure:
+    reason = reservation.shape_reservation.rejection_reason
+    limit = (
+        reservation.per_evaluation_limit
+        if reason == "per_evaluation_limit_exceeded"
+        else _manifest_limit(BudgetDimension.SCHEMA_EVALUATION_SHAPE_UNITS)
+    )
+    return _budget_failure(
+        program=program,
+        dimension=BudgetDimension.SCHEMA_EVALUATION_SHAPE_UNITS,
+        limit=limit,
+        observed_lower_bound=limit + 1,
+        subject_path=None,
+    )
+
+
+def _canonical_byte_limit() -> int:
+    return _manifest_limit(BudgetDimension.REPORT_CANONICAL_BYTES)
 
 
 def _validate_phase_results(
@@ -713,7 +686,11 @@ def seal_validation_report(
         )
     invocation = context.invocation
     program = invocation.program
-    if type(invocation) is not ValidationInvocation or type(program) is not SealedValidationProgram:
+    if (
+        type(invocation) is not ValidationInvocation
+        or type(program) is not SealedValidationProgram
+        or type(context.ledger) is not BudgetLedger
+    ):
         return _control_failure(
             program=None,
             code="validator_integrity_failure",
@@ -721,6 +698,8 @@ def seal_validation_report(
             detail=b"report_context_identity",
         )
     try:
+        if not context.ledger.claim_report_seal():
+            raise _ProjectionIntegrityError()
         accepted_results = _validate_phase_results(program, phase_results)
         declaration = program.report_projection
         if type(declaration) is not ReportProjectionSpec:
@@ -749,16 +728,35 @@ def seal_validation_report(
             declaration=declaration,
             ledger=context.ledger,
         )
-        returned = projection(envelope, builder)
-        if returned is not None:
+        try:
+            returned = projection(envelope, builder)
+            if returned is not None:
+                raise _ProjectionIntegrityError()
+            body = builder._finish()
+        finally:
+            builder._close()
+        if (
+            len(_SNAPSHOT_FIELDS) + 3 != BUDGET_RECEIPT_NESTED_FIELD_COUNT
+            or FIXED_REPORT_OUTER_ENVELOPE_FIELD_COUNT
+            != BUDGET_RECEIPT_NESTED_FIELD_COUNT + 2
+        ):
             raise _ProjectionIntegrityError()
-        body = builder._finish()
         context.ledger.charge(
             BudgetDimension.REPORT_PROJECTION_FIELDS,
             FIXED_REPORT_OUTER_ENVELOPE_FIELD_COUNT,
             artifact_role=ArtifactRole.REPORT_SEAL,
             subject_path=None,
         )
+        final_instance_nodes = (
+            count_json_nodes(body) + FIXED_REPORT_OUTER_ENVELOPE_FIELD_COUNT
+        )
+        schema_reservation = reserve_schema_evaluation(
+            schema,
+            instance_nodes=final_instance_nodes,
+            ledger=context.ledger,
+        )
+        if not schema_reservation.shape_reservation.accepted:
+            return _schema_reservation_failure(program, schema_reservation)
         receipt = context.ledger.reserve_report_seal_and_freeze()
     except BudgetExceeded as exception:
         return _ledger_budget_failure(program, exception)
@@ -783,18 +781,28 @@ def seal_validation_report(
             subject_path=None,
             detail=b"report_ledger_already_frozen",
         )
+    except SchemaEvaluationInputError:
+        return _control_failure(
+            program=program,
+            code="validator_integrity_failure",
+            subject_path=None,
+            detail=b"report_schema_reservation",
+        )
     except Exception as exception:
         return _internal_failure(program, exception)
 
     try:
         if (
-            len(_SNAPSHOT_FIELDS) + 3 != BUDGET_RECEIPT_NESTED_FIELD_COUNT
-            or receipt.observed.report_seal_reserved_work_units != 262_144
+            receipt.observed.report_seal_reserved_work_units != 262_144
+            or receipt.observed.schema_evaluation_shape_units
+            != schema_reservation.shape_reservation.aggregate_after
         ):
             raise _ProjectionIntegrityError()
         meter = SealMeter(receipt)
         meter.charge_projection_fields(receipt.observed.report_projection_fields)
         fingerprint_projection = _attach_kernel_fields(body, receipt, None)
+        if count_json_nodes(fingerprint_projection) != final_instance_nodes - 1:
+            raise _ProjectionIntegrityError()
         projection_bytes = canonical_json_bytes(
             fingerprint_projection,
             max_bytes=_canonical_byte_limit(),
@@ -802,7 +810,35 @@ def seal_validation_report(
         meter.charge_canonical_bytes(len(projection_bytes))
         report_fingerprint = sha256_prefixed(projection_bytes)
         final_value = _attach_kernel_fields(body, receipt, report_fingerprint)
-        _validate_schema_shape(final_value, schema, allowed_missing=frozenset())
+        if count_json_nodes(final_value) != final_instance_nodes:
+            raise _ProjectionIntegrityError()
+        schema_evaluation = evaluate_schema_with_reservation(
+            schema,
+            final_value,
+            instance_binding=InstanceBinding(
+                artifact_id=program.program_id,
+                artifact_fingerprint=report_fingerprint,
+                instance_pointer="",
+            ),
+            reservation=schema_reservation,
+        )
+        if (
+            type(schema_evaluation) is not SchemaEvaluationReceipt
+            or schema_evaluation.reservation
+            is not schema_reservation.shape_reservation
+            or schema_evaluation.evaluator_invoked is not True
+            or type(schema_evaluation.evaluation_passed) is not bool
+        ):
+            raise _ProjectionIntegrityError()
+        if not schema_evaluation.evaluation_passed:
+            subject_path = (
+                schema_evaluation.bounded_errors[0].instance_path or None
+                if schema_evaluation.bounded_errors
+                else None
+            )
+            raise _ReportConstructabilityError(subject_path)
+        if schema_evaluation.failure_code is not None or schema_evaluation.bounded_errors:
+            raise _ProjectionIntegrityError()
         final_bytes = canonical_json_bytes(
             final_value,
             max_bytes=_canonical_byte_limit(),
@@ -824,11 +860,22 @@ def seal_validation_report(
             observed_lower_bound=exception.observed_lower_bound,
             subject_path=None,
         )
-    except (_ProjectionIntegrityError, _ReportConstructabilityError) as exception:
+    except _ReportConstructabilityError as exception:
+        return _control_failure(
+            program=program,
+            code="validation_constructability_failed",
+            subject_path=exception.subject_path,
+            detail=b"report_output_schema",
+        )
+    except (_ProjectionIntegrityError, SchemaEvaluationInputError) as exception:
         return _control_failure(
             program=program,
             code="validator_integrity_failure",
-            subject_path=exception.subject_path,
+            subject_path=(
+                exception.subject_path
+                if type(exception) is _ProjectionIntegrityError
+                else None
+            ),
             detail=b"report_final_shape",
         )
     except Exception as exception:

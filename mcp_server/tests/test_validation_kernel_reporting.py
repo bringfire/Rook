@@ -11,6 +11,7 @@ from rook.validation_kernel import (
     PublishedValidationReport,
     ReportBuilder,
     ReportProjectionEnvelope,
+    SchemaEvaluationInputError,
     ValidationControlFailure,
     compose_and_seal_program,
     execute_phase_program,
@@ -28,6 +29,8 @@ from rook.validation_kernel.owned_json import (
     JsonBoolean,
     JsonNumber,
     JsonObject,
+    JsonString,
+    count_json_nodes,
 )
 
 from tests._validation_kernel_fakes import (
@@ -195,8 +198,11 @@ def test_seal_order_is_projection_then_fixed_charge_freeze_and_two_serialization
     reporting = importlib.import_module("rook.validation_kernel.reporting")
     events: list[object] = []
     real_put = ReportBuilder.put
+    real_claim = BudgetLedger.claim_report_seal
     real_charge = BudgetLedger.charge
+    real_schema_reserve = reporting.reserve_schema_evaluation
     real_reserve = BudgetLedger.reserve_report_seal_and_freeze
+    real_schema_evaluate = reporting.evaluate_schema_with_reservation
     real_canonical = reporting.canonical_json_bytes
 
     def put_spy(self: ReportBuilder, path: str, value: object) -> None:
@@ -208,17 +214,36 @@ def test_seal_order_is_projection_then_fixed_charge_freeze_and_two_serialization
             events.append(("field_charge", amount))
         real_charge(self, dimension, amount, **kwargs)  # type: ignore[arg-type]
 
+    def claim_spy(self: BudgetLedger) -> bool:
+        events.append("claim")
+        return real_claim(self)
+
+    def schema_reserve_spy(*args: object, **kwargs: object):
+        events.append("schema_reserve")
+        return real_schema_reserve(*args, **kwargs)
+
     def reserve_spy(self: BudgetLedger):
         events.append("freeze")
         return real_reserve(self)
+
+    def schema_evaluate_spy(*args: object, **kwargs: object):
+        events.append("schema_evaluate")
+        return real_schema_evaluate(*args, **kwargs)
 
     def canonical_spy(value: object, *, max_bytes: int | None = None) -> bytes:
         events.append("canonical")
         return real_canonical(value, max_bytes=max_bytes)
 
     monkeypatch.setattr(ReportBuilder, "put", put_spy)
+    monkeypatch.setattr(BudgetLedger, "claim_report_seal", claim_spy)
     monkeypatch.setattr(BudgetLedger, "charge", charge_spy)
+    monkeypatch.setattr(reporting, "reserve_schema_evaluation", schema_reserve_spy)
     monkeypatch.setattr(BudgetLedger, "reserve_report_seal_and_freeze", reserve_spy)
+    monkeypatch.setattr(
+        reporting,
+        "evaluate_schema_with_reservation",
+        schema_evaluate_spy,
+    )
     monkeypatch.setattr(reporting, "canonical_json_bytes", canonical_spy)
 
     _, _, result = _execute_and_seal(_program())
@@ -231,13 +256,17 @@ def test_seal_order_is_projection_then_fixed_charge_freeze_and_two_serialization
     canonical_indexes = [
         index for index, event in enumerate(events) if event == "canonical"
     ]
+    assert events.index("claim") < events.index(("put", "/body"))
     assert events.index(("put", "/body")) < fixed_charge_index
-    assert fixed_charge_index < freeze_index < canonical_indexes[0] < canonical_indexes[1]
+    assert fixed_charge_index < events.index("schema_reserve") < freeze_index
+    assert freeze_index < canonical_indexes[0] < events.index("schema_evaluate")
+    assert events.index("schema_evaluate") < canonical_indexes[1]
     assert len(canonical_indexes) == 2
 
 
 def test_frozen_receipt_contains_body_and_envelope_charges_but_not_serializer_work() -> None:
-    context, _, result = _execute_and_seal(_program())
+    program = _program()
+    context, _, result = _execute_and_seal(program)
     assert type(result) is PublishedValidationReport
     budget = result.value["validation_budget"]
     assert type(budget) is JsonObject
@@ -255,8 +284,142 @@ def test_frozen_receipt_contains_body_and_envelope_charges_but_not_serializer_wo
     expected_fields = _nested_attachment_count(projection_owned) + 21
     assert _integer(observed["report_projection_fields"]) == expected_fields
     assert _integer(observed["report_seal_reserved_work_units"]) == 262_144
+    output_schema = program.schemas[0]
+    expected_schema_shape = output_schema.schema_nodes * count_json_nodes(result.value)
+    assert _integer(observed["schema_evaluation_shape_units"]) == expected_schema_shape
     assert context.ledger.snapshot().report_projection_fields == expected_fields
     assert context.ledger.snapshot().report_seal_reserved_work_units == 262_144
+    assert (
+        context.ledger.snapshot().schema_evaluation_shape_units
+        == expected_schema_shape
+    )
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    ("normal", "raise", "return_owned_graph", "unknown_path"),
+)
+def test_builder_is_closed_on_every_projection_exit_without_late_charges(
+    scenario: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reporting = importlib.import_module("rook.validation_kernel.reporting")
+    program = _program(report_projection_scenario=scenario)
+    context = _context(program)
+    phase_results = execute_phase_program(context)
+    assert type(phase_results) is tuple
+    retained: list[ReportBuilder] = []
+    real_init = ReportBuilder.__init__
+
+    def init_spy(self: ReportBuilder, *args: object, **kwargs: object) -> None:
+        real_init(self, *args, **kwargs)
+        retained.append(self)
+
+    monkeypatch.setattr(ReportBuilder, "__init__", init_spy)
+
+    seal_validation_report(context, phase_results)
+
+    assert len(retained) == 1
+    before = context.ledger.snapshot()
+    with pytest.raises(reporting._ProjectionIntegrityError):
+        retained[0].put("/valid", JsonBoolean(True))
+    with pytest.raises(reporting._ProjectionIntegrityError):
+        retained[0].append("/phases", JsonString("late"))
+    assert context.ledger.snapshot() == before
+
+
+def test_context_report_seal_is_one_shot_after_prefreeze_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    program = _program(report_projection_scenario="duplicate_field")
+    context = _context(program)
+    phase_results = execute_phase_program(context)
+    assert type(phase_results) is tuple
+    builders: list[ReportBuilder] = []
+    real_init = ReportBuilder.__init__
+
+    def init_spy(self: ReportBuilder, *args: object, **kwargs: object) -> None:
+        real_init(self, *args, **kwargs)
+        builders.append(self)
+
+    monkeypatch.setattr(ReportBuilder, "__init__", init_spy)
+
+    first = seal_validation_report(context, phase_results)
+    after_first = context.ledger.snapshot()
+    second = seal_validation_report(context, phase_results)
+
+    _assert_report_failure(first, "validator_integrity_failure")
+    _assert_report_failure(second, "validator_integrity_failure")
+    assert len(builders) == 1
+    assert context.ledger.snapshot() == after_first
+
+
+def test_reserved_evaluator_input_rejection_maps_to_integrity_without_publication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reporting = importlib.import_module("rook.validation_kernel.reporting")
+
+    def reject(*_: object, **__: object) -> object:
+        raise SchemaEvaluationInputError("synthetic reservation mismatch")
+
+    monkeypatch.setattr(reporting, "evaluate_schema_with_reservation", reject)
+
+    _, _, result = _execute_and_seal(_program())
+
+    _assert_report_failure(result, "validator_integrity_failure")
+
+
+@pytest.mark.parametrize(
+    "probe",
+    (
+        "const",
+        "enum",
+        "minProperties",
+        "maxProperties",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "multipleOf",
+        "allOf",
+        "anyOf",
+        "oneOf",
+    ),
+)
+def test_final_report_uses_exact_admitted_schema_evaluator_and_publishes_nothing_on_failure(
+    probe: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reporting = importlib.import_module("rook.validation_kernel.reporting")
+    canonical_calls = 0
+    evaluation_calls = 0
+    real_canonical = reporting.canonical_json_bytes
+    real_evaluate = reporting.evaluate_schema_with_reservation
+
+    def canonical_spy(value: object, *, max_bytes: int | None = None) -> bytes:
+        nonlocal canonical_calls
+        canonical_calls += 1
+        return real_canonical(value, max_bytes=max_bytes)
+
+    def evaluation_spy(*args: object, **kwargs: object):
+        nonlocal evaluation_calls
+        evaluation_calls += 1
+        return real_evaluate(*args, **kwargs)
+
+    monkeypatch.setattr(reporting, "canonical_json_bytes", canonical_spy)
+    monkeypatch.setattr(
+        reporting,
+        "evaluate_schema_with_reservation",
+        evaluation_spy,
+    )
+    program = _program(report_schema_probe=probe)
+    context = _context(program)
+    phase_results = execute_phase_program(context)
+    assert type(phase_results) is tuple
+
+    result = seal_validation_report(context, phase_results)
+
+    _assert_report_failure(result, "validation_constructability_failed")
+    assert context.ledger.snapshot().report_seal_reserved_work_units == 262_144
+    assert evaluation_calls == 1
+    assert canonical_calls == 1
 
 
 def test_identical_inputs_publish_identical_bytes_and_exact_fingerprint_projection() -> None:
