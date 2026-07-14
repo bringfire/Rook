@@ -12,6 +12,16 @@ PROGRAM_MANIFEST_SCHEMA_ID = "rook.validation_program_manifest:v1"
 TRUSTED_BUNDLE_ASSEMBLER_PROFILE_SCHEMA_ID = (
     "rook.trusted_bundle_assembler_profile:v1"
 )
+CONFORMANCE_GATE_PROFILE_SCHEMA_ID = "rook.validation_conformance_gate_profile:v1"
+CONFORMANCE_CAMPAIGN_SCHEMA_ID = "rook.validation_conformance_campaign:v1"
+CONFORMANCE_FIXTURE_SCHEMA_ID = "rook.validation_conformance_fixture:v1"
+CONFORMANCE_SCHEMA_ATTEMPT_ROW_SCHEMA_ID = (
+    "rook.validation_conformance_schema_attempt:v1"
+)
+CONFORMANCE_COMPLETENESS_SCHEMA_ID = (
+    "rook.validation_conformance_completeness:v1"
+)
+CONFORMANCE_REPORT_SCHEMA_ID = "rook.validation_conformance_report:v1"
 BUDGET_RECEIPT_NESTED_FIELD_COUNT = 19
 KERNEL_REPORT_FIELD_ROLES = (
     ("budget_receipt", "/validation_budget", "object"),
@@ -520,16 +530,470 @@ _TRUSTED_ASSEMBLER_SCHEMA_HOST = {
     ),
 }
 
+_NULLABLE_FINGERPRINT = {
+    "anyOf": [_FINGERPRINT, {"type": "null"}],
+}
+_NULLABLE_MACHINE_ID = {
+    "anyOf": [_MACHINE_ID, {"type": "null"}],
+}
+
+_CONFORMANCE_GATE_PROFILE_SCHEMA_HOST = {
+    "$schema": _DRAFT,
+    "$id": CONFORMANCE_GATE_PROFILE_SCHEMA_ID,
+    **_closed_object(
+        {
+            "schema": {"const": CONFORMANCE_GATE_PROFILE_SCHEMA_ID},
+            "gate_profile_id": _MACHINE_ID,
+            "gate_profile_version": _MACHINE_ID,
+            "gate_implementation_fingerprint": _FINGERPRINT,
+            "budget_profile": _MACHINE_ID,
+            "limits_fingerprint": _FINGERPRINT,
+            "campaign_input_byte_limit": {"const": 4_194_304},
+            "referenced_case_content_byte_limit": {"const": 4_194_304},
+            "gate_profile_fingerprint": _FINGERPRINT,
+        }
+    ),
+}
+
+_CORE_CAMPAIGN_CASE = _closed_object(
+    {
+        "case_id": _MACHINE_ID,
+        "case_kind": {"const": "core_schema_positive"},
+        "schema_case": _closed_object(
+            {
+                "schema_id": _MACHINE_ID,
+                "schema_fingerprint": _FINGERPRINT,
+                "instance_fingerprint": _FINGERPRINT,
+                "instance_content_ref": _MACHINE_ID,
+            }
+        ),
+        "fixture_case": {"type": "null"},
+        "case_fingerprint": _FINGERPRINT,
+    }
+)
+_FIXTURE_CAMPAIGN_CASE = _closed_object(
+    {
+        "case_id": _MACHINE_ID,
+        "case_kind": {"const": "semantic_fixture"},
+        "schema_case": {"type": "null"},
+        "fixture_case": _closed_object(
+            {
+                "fixture_fingerprint": _FINGERPRINT,
+                "fixture_content_ref": _MACHINE_ID,
+                "recipe_input_payload_sha256": _FINGERPRINT,
+                "validation_bundle_input_payload_sha256": _FINGERPRINT,
+                "assembler_profile_fingerprint": _FINGERPRINT,
+            }
+        ),
+        "case_fingerprint": _FINGERPRINT,
+    }
+)
+_CONFORMANCE_CAMPAIGN_SCHEMA_HOST = {
+    "$schema": _DRAFT,
+    "$id": CONFORMANCE_CAMPAIGN_SCHEMA_ID,
+    **_closed_object(
+        {
+            "schema": {"const": CONFORMANCE_CAMPAIGN_SCHEMA_ID},
+            "campaign_id": _MACHINE_ID,
+            "campaign_version": _MACHINE_ID,
+            "program_id": _MACHINE_ID,
+            "program_fingerprint": _FINGERPRINT,
+            "required_gate_profile_fingerprint": _FINGERPRINT,
+            "required_cases": {
+                "type": "array",
+                "items": {
+                    "oneOf": [_CORE_CAMPAIGN_CASE, _FIXTURE_CAMPAIGN_CASE]
+                },
+                "minItems": 1,
+                "maxItems": 16_384,
+            },
+            "required_case_set_fingerprint": _FINGERPRINT,
+            "campaign_fingerprint": _FINGERPRINT,
+        }
+    ),
+}
+
+_PUBLISHED_EXPECTED_RESULT = _closed_object(
+    {
+        "result_kind": {"const": "published_report"},
+        "report_schema_id": _MACHINE_ID,
+        "report_fingerprint": _FINGERPRINT,
+        "control_failure_stage": {"type": "null"},
+        "control_failure_code": {"type": "null"},
+        "control_failure_artifact_role": {"type": "null"},
+    }
+)
+_CONTROL_EXPECTED_RESULT = _closed_object(
+    {
+        "result_kind": {"const": "control_failure"},
+        "report_schema_id": {"type": "null"},
+        "report_fingerprint": {"type": "null"},
+        "control_failure_stage": {"enum": ["preflight", "validation"]},
+        "control_failure_code": _MACHINE_ID,
+        "control_failure_artifact_role": _MACHINE_ID,
+    }
+)
+_CONFORMANCE_FIXTURE_SCHEMA_HOST = {
+    "$schema": _DRAFT,
+    "$id": CONFORMANCE_FIXTURE_SCHEMA_ID,
+    **_closed_object(
+        {
+            "schema": {"const": CONFORMANCE_FIXTURE_SCHEMA_ID},
+            "fixture_id": {
+                "enum": [
+                    "fixture.report_pass",
+                    "fixture.control_failure_expected",
+                ]
+            },
+            "recipe_input": _closed_object(
+                {
+                    "content_ref": _MACHINE_ID,
+                    "input_payload_sha256": _FINGERPRINT,
+                }
+            ),
+            "validation_bundle_input": _closed_object(
+                {
+                    "content_ref": _MACHINE_ID,
+                    "input_payload_sha256": _FINGERPRINT,
+                }
+            ),
+            "assembler_profile_fingerprint": _FINGERPRINT,
+            "expected_result": {
+                "oneOf": [_PUBLISHED_EXPECTED_RESULT, _CONTROL_EXPECTED_RESULT]
+            },
+            "fixture_fingerprint": _FINGERPRINT,
+        }
+    ),
+}
+
+_INSTANCE_BINDING = _closed_object(
+    {
+        "artifact_id": _MACHINE_ID,
+        "artifact_fingerprint": _FINGERPRINT,
+    }
+)
+_ATTEMPT_PROPERTIES = {
+    "evaluation_index": {"type": "integer", "minimum": 0},
+    "schema_id": _MACHINE_ID,
+    "schema_fingerprint": _FINGERPRINT,
+    "instance_binding": _INSTANCE_BINDING,
+    "instance_pointer": {"type": "string"},
+    "instance_fingerprint": _FINGERPRINT,
+    "attempt_status": {
+        "enum": [
+            "reservation_rejected",
+            "evaluation_completed",
+            "evaluator_failed",
+        ]
+    },
+    "schema_nodes": {"type": "integer", "minimum": 0},
+    "instance_nodes": {"type": "integer", "minimum": 0},
+    "attempted_shape_units": {
+        "type": ["integer", "null"],
+        "minimum": 0,
+    },
+    "per_evaluation_limit": {"type": "integer", "minimum": 0},
+    "aggregate_before_reservation": {"type": "integer", "minimum": 0},
+    "aggregate_after_reservation": {
+        "type": ["integer", "null"],
+        "minimum": 0,
+    },
+    "evaluator_invoked": {"type": "boolean"},
+    "evaluation_passed": {"type": ["boolean", "null"]},
+    "failure_code": {
+        "enum": [
+            None,
+            "per_evaluation_limit_exceeded",
+            "invocation_shape_limit_exceeded",
+            "shape_product_overflow",
+            "instance_schema_failed",
+            "schema_evaluator_failed",
+        ]
+    },
+}
+_CONFORMANCE_SCHEMA_ATTEMPT_ROW_SCHEMA_HOST = {
+    "$schema": _DRAFT,
+    "$id": CONFORMANCE_SCHEMA_ATTEMPT_ROW_SCHEMA_ID,
+    **_closed_object(_ATTEMPT_PROPERTIES),
+    "allOf": [
+        {
+            "oneOf": [
+                {
+                    "properties": {
+                        "attempt_status": {"const": "reservation_rejected"},
+                        "attempted_shape_units": {"type": "null"},
+                        "aggregate_after_reservation": {"type": "null"},
+                        "evaluator_invoked": {"const": False},
+                        "evaluation_passed": {"type": "null"},
+                        "failure_code": {
+                            "enum": [
+                                "per_evaluation_limit_exceeded",
+                                "invocation_shape_limit_exceeded",
+                                "shape_product_overflow",
+                            ]
+                        },
+                    }
+                },
+                {
+                    "properties": {
+                        "attempt_status": {"const": "evaluation_completed"},
+                        "attempted_shape_units": {"type": "integer"},
+                        "aggregate_after_reservation": {"type": "integer"},
+                        "evaluator_invoked": {"const": True},
+                        "evaluation_passed": {"type": "boolean"},
+                        "failure_code": {
+                            "enum": [None, "instance_schema_failed"]
+                        },
+                    }
+                },
+                {
+                    "properties": {
+                        "attempt_status": {"const": "evaluator_failed"},
+                        "attempted_shape_units": {"type": "integer"},
+                        "aggregate_after_reservation": {"type": "integer"},
+                        "evaluator_invoked": {"const": True},
+                        "evaluation_passed": {"type": "null"},
+                        "failure_code": {"const": "schema_evaluator_failed"},
+                    }
+                },
+            ]
+        }
+    ],
+}
+
+_CONFORMANCE_COMPLETENESS_SCHEMA_HOST = {
+    "$schema": _DRAFT,
+    "$id": CONFORMANCE_COMPLETENESS_SCHEMA_ID,
+    **_closed_object(
+        {
+            "required_case_count": {"type": "integer", "minimum": 0},
+            "result_row_count": {"type": "integer", "minimum": 0},
+            "missing_case_ids": {
+                "type": "array",
+                "items": _MACHINE_ID,
+            },
+            "extra_case_ids": {
+                "type": "array",
+                "items": _MACHINE_ID,
+            },
+            "duplicate_case_ids": {
+                "type": "array",
+                "items": _MACHINE_ID,
+            },
+            "case_kind_mismatch_ids": {
+                "type": "array",
+                "items": _MACHINE_ID,
+            },
+            "case_fingerprint_mismatch_ids": {
+                "type": "array",
+                "items": _MACHINE_ID,
+            },
+            "complete": {"type": "boolean"},
+        }
+    ),
+}
+
+_FIXTURE_CASE_RESULT = {
+    **_closed_object(
+        {
+            "expected_result_kind": {
+                "enum": ["published_report", "control_failure"]
+            },
+            "expected_report_schema_id": _NULLABLE_MACHINE_ID,
+            "expected_result_fingerprint": _NULLABLE_FINGERPRINT,
+            "expected_control_failure_stage": {
+                "type": ["string", "null"]
+            },
+            "expected_control_failure_code": _NULLABLE_MACHINE_ID,
+            "expected_control_failure_artifact_role": _NULLABLE_MACHINE_ID,
+            "actual_result_kind": {
+                "enum": [
+                    "published_report",
+                    "control_failure",
+                    "unavailable",
+                ]
+            },
+            "actual_report_schema_id": _NULLABLE_MACHINE_ID,
+            "actual_result_fingerprint": _NULLABLE_FINGERPRINT,
+            "actual_control_failure_stage": {"type": ["string", "null"]},
+            "actual_control_failure_code": _NULLABLE_MACHINE_ID,
+            "actual_control_failure_artifact_role": _NULLABLE_MACHINE_ID,
+            "result_identity_matches": {"type": "boolean"},
+        }
+    ),
+}
+_RESULT_ROW_PROPERTIES = {
+    "result_index": {"type": "integer", "minimum": 0},
+    "case_id": _MACHINE_ID,
+    "case_kind": {"enum": ["core_schema_positive", "semantic_fixture"]},
+    "case_fingerprint": _FINGERPRINT,
+    "outcome": {"enum": ["passed", "failed"]},
+    "schema_case_result": {
+        "anyOf": [
+            _closed_object(
+                {"instance_schema_valid": {"type": ["boolean", "null"]}}
+            ),
+            {"type": "null"},
+        ]
+    },
+    "fixture_case_result": {
+        "anyOf": [_FIXTURE_CASE_RESULT, {"type": "null"}]
+    },
+    "schema_evaluations": {
+        "type": "array",
+        "items": {
+            key: value
+            for key, value in _CONFORMANCE_SCHEMA_ATTEMPT_ROW_SCHEMA_HOST.items()
+            if key not in ("$schema", "$id")
+        },
+    },
+    "aggregate_schema_evaluation_shape_units": {
+        "type": "integer",
+        "minimum": 0,
+    },
+    "invocation_shape_limit": {"const": 16_000_000},
+    "within_every_per_evaluation_limit": {"type": "boolean"},
+    "within_invocation_limit": {"type": "boolean"},
+    "failure_code": {
+        "enum": [
+            None,
+            "case_content_unavailable",
+            "case_fingerprint_mismatch",
+            "case_execution_failed",
+            "schema_evaluation_failed",
+            "validation_budget_exceeded",
+        ]
+    },
+}
+_RESULT_ROW = {
+    **_closed_object(_RESULT_ROW_PROPERTIES),
+    "allOf": [
+        {
+            "oneOf": [
+                {
+                    "properties": {
+                        "case_kind": {"const": "core_schema_positive"},
+                        "schema_case_result": {"type": "object"},
+                        "fixture_case_result": {"type": "null"},
+                    }
+                },
+                {
+                    "properties": {
+                        "case_kind": {"const": "semantic_fixture"},
+                        "schema_case_result": {"type": "null"},
+                        "fixture_case_result": _FIXTURE_CASE_RESULT,
+                    }
+                },
+            ]
+        }
+    ],
+}
+_CAMPAIGN_INTEGRITY = _closed_object(
+    {
+        "program_binding_matches": {"type": "boolean"},
+        "gate_profile_binding_matches": {"type": "boolean"},
+        "core_schema_coverage_matches_program": {"type": "boolean"},
+        "missing_core_schema_case_ids": {
+            "type": "array",
+            "items": _MACHINE_ID,
+        },
+        "extra_core_schema_case_ids": {
+            "type": "array",
+            "items": _MACHINE_ID,
+        },
+        "failure_codes": {
+            "type": "array",
+            "items": {
+                "enum": [
+                    "campaign_program_binding_mismatch",
+                    "campaign_gate_profile_binding_mismatch",
+                    "campaign_core_schema_coverage_missing",
+                    "campaign_core_schema_coverage_extra",
+                ]
+            },
+        },
+        "passed": {"type": "boolean"},
+    }
+)
+_REPORT_GATE = _closed_object(
+    {
+        "gate_profile_id": _MACHINE_ID,
+        "gate_profile_version": _MACHINE_ID,
+        "gate_implementation_fingerprint": _FINGERPRINT,
+        "budget_profile": _MACHINE_ID,
+        "limits_fingerprint": _FINGERPRINT,
+        "campaign_input_byte_limit": {"const": 4_194_304},
+        "referenced_case_content_byte_limit": {"const": 4_194_304},
+        "gate_profile_fingerprint": _FINGERPRINT,
+    }
+)
+_CONFORMANCE_REPORT_SCHEMA_HOST = {
+    "$schema": _DRAFT,
+    "$id": CONFORMANCE_REPORT_SCHEMA_ID,
+    **_closed_object(
+        {
+            "schema": {"const": CONFORMANCE_REPORT_SCHEMA_ID},
+            "program_id": _MACHINE_ID,
+            "program_fingerprint": _FINGERPRINT,
+            "campaign_id": _MACHINE_ID,
+            "campaign_fingerprint": _FINGERPRINT,
+            "required_case_set_fingerprint": _FINGERPRINT,
+            "gate": _REPORT_GATE,
+            "campaign_integrity": _CAMPAIGN_INTEGRITY,
+            "result_rows": {
+                "type": "array",
+                "items": _RESULT_ROW,
+            },
+            "completeness": {
+                key: value
+                for key, value in _CONFORMANCE_COMPLETENESS_SCHEMA_HOST.items()
+                if key not in ("$schema", "$id")
+            },
+            "all_case_outcomes_passed": {"type": "boolean"},
+            "decision": {"enum": ["passed", "failed"]},
+            "report_fingerprint": _FINGERPRINT,
+        }
+    ),
+}
+
 PROGRAM_MANIFEST_SCHEMA = own_trusted_json(
     json.loads(json.dumps(_PROGRAM_MANIFEST_SCHEMA_HOST))
 )
 TRUSTED_BUNDLE_ASSEMBLER_PROFILE_SCHEMA = own_trusted_json(
     json.loads(json.dumps(_TRUSTED_ASSEMBLER_SCHEMA_HOST))
 )
+CONFORMANCE_GATE_PROFILE_SCHEMA = own_trusted_json(
+    json.loads(json.dumps(_CONFORMANCE_GATE_PROFILE_SCHEMA_HOST))
+)
+CONFORMANCE_CAMPAIGN_SCHEMA = own_trusted_json(
+    json.loads(json.dumps(_CONFORMANCE_CAMPAIGN_SCHEMA_HOST))
+)
+CONFORMANCE_FIXTURE_SCHEMA = own_trusted_json(
+    json.loads(json.dumps(_CONFORMANCE_FIXTURE_SCHEMA_HOST))
+)
+CONFORMANCE_SCHEMA_ATTEMPT_ROW_SCHEMA = own_trusted_json(
+    json.loads(json.dumps(_CONFORMANCE_SCHEMA_ATTEMPT_ROW_SCHEMA_HOST))
+)
+CONFORMANCE_COMPLETENESS_SCHEMA = own_trusted_json(
+    json.loads(json.dumps(_CONFORMANCE_COMPLETENESS_SCHEMA_HOST))
+)
+CONFORMANCE_REPORT_SCHEMA = own_trusted_json(
+    json.loads(json.dumps(_CONFORMANCE_REPORT_SCHEMA_HOST))
+)
 if type(PROGRAM_MANIFEST_SCHEMA) is not JsonObject:
     raise AssertionError("program manifest schema must be an owned object")
 if type(TRUSTED_BUNDLE_ASSEMBLER_PROFILE_SCHEMA) is not JsonObject:
     raise AssertionError("assembler profile schema must be an owned object")
+for _schema_name, _schema_value in (
+    ("conformance gate profile", CONFORMANCE_GATE_PROFILE_SCHEMA),
+    ("conformance campaign", CONFORMANCE_CAMPAIGN_SCHEMA),
+    ("conformance fixture", CONFORMANCE_FIXTURE_SCHEMA),
+    ("conformance attempt row", CONFORMANCE_SCHEMA_ATTEMPT_ROW_SCHEMA),
+    ("conformance completeness", CONFORMANCE_COMPLETENESS_SCHEMA),
+    ("conformance report", CONFORMANCE_REPORT_SCHEMA),
+):
+    if type(_schema_value) is not JsonObject:
+        raise AssertionError(f"{_schema_name} schema must be an owned object")
 
 PROGRAM_MANIFEST_SCHEMA_FINGERPRINT = canonical_fingerprint(
     PROGRAM_MANIFEST_SCHEMA
@@ -537,10 +1001,46 @@ PROGRAM_MANIFEST_SCHEMA_FINGERPRINT = canonical_fingerprint(
 TRUSTED_BUNDLE_ASSEMBLER_PROFILE_SCHEMA_FINGERPRINT = canonical_fingerprint(
     TRUSTED_BUNDLE_ASSEMBLER_PROFILE_SCHEMA
 )
+CONFORMANCE_GATE_PROFILE_SCHEMA_FINGERPRINT = canonical_fingerprint(
+    CONFORMANCE_GATE_PROFILE_SCHEMA
+)
+CONFORMANCE_CAMPAIGN_SCHEMA_FINGERPRINT = canonical_fingerprint(
+    CONFORMANCE_CAMPAIGN_SCHEMA
+)
+CONFORMANCE_FIXTURE_SCHEMA_FINGERPRINT = canonical_fingerprint(
+    CONFORMANCE_FIXTURE_SCHEMA
+)
+CONFORMANCE_SCHEMA_ATTEMPT_ROW_SCHEMA_FINGERPRINT = canonical_fingerprint(
+    CONFORMANCE_SCHEMA_ATTEMPT_ROW_SCHEMA
+)
+CONFORMANCE_COMPLETENESS_SCHEMA_FINGERPRINT = canonical_fingerprint(
+    CONFORMANCE_COMPLETENESS_SCHEMA
+)
+CONFORMANCE_REPORT_SCHEMA_FINGERPRINT = canonical_fingerprint(
+    CONFORMANCE_REPORT_SCHEMA
+)
 
 
 __all__ = (
     "BUDGET_RECEIPT_NESTED_FIELD_COUNT",
+    "CONFORMANCE_CAMPAIGN_SCHEMA",
+    "CONFORMANCE_CAMPAIGN_SCHEMA_FINGERPRINT",
+    "CONFORMANCE_CAMPAIGN_SCHEMA_ID",
+    "CONFORMANCE_COMPLETENESS_SCHEMA",
+    "CONFORMANCE_COMPLETENESS_SCHEMA_FINGERPRINT",
+    "CONFORMANCE_COMPLETENESS_SCHEMA_ID",
+    "CONFORMANCE_FIXTURE_SCHEMA",
+    "CONFORMANCE_FIXTURE_SCHEMA_FINGERPRINT",
+    "CONFORMANCE_FIXTURE_SCHEMA_ID",
+    "CONFORMANCE_GATE_PROFILE_SCHEMA",
+    "CONFORMANCE_GATE_PROFILE_SCHEMA_FINGERPRINT",
+    "CONFORMANCE_GATE_PROFILE_SCHEMA_ID",
+    "CONFORMANCE_REPORT_SCHEMA",
+    "CONFORMANCE_REPORT_SCHEMA_FINGERPRINT",
+    "CONFORMANCE_REPORT_SCHEMA_ID",
+    "CONFORMANCE_SCHEMA_ATTEMPT_ROW_SCHEMA",
+    "CONFORMANCE_SCHEMA_ATTEMPT_ROW_SCHEMA_FINGERPRINT",
+    "CONFORMANCE_SCHEMA_ATTEMPT_ROW_SCHEMA_ID",
     "FIXED_REPORT_OUTER_ENVELOPE_FIELD_COUNT",
     "KERNEL_OWNED_REPORT_PATHS",
     "KERNEL_REPORT_FIELD_ROLES",

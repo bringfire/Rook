@@ -1,0 +1,975 @@
+from __future__ import annotations
+
+import copy
+import json
+import subprocess
+import sys
+from dataclasses import dataclass
+from types import SimpleNamespace
+
+import pytest
+
+import rook.validation_kernel.conformance as conformance_module
+from rook.validation_kernel import (
+    CONFORMANCE_CAMPAIGN_SCHEMA,
+    CONFORMANCE_COMPLETENESS_SCHEMA,
+    CONFORMANCE_FIXTURE_SCHEMA,
+    CONFORMANCE_GATE_PROFILE_SCHEMA,
+    CONFORMANCE_REPORT_SCHEMA,
+    CONFORMANCE_SCHEMA_ATTEMPT_ROW_SCHEMA,
+    ConformanceGateInvocationFailure,
+    PublishedValidationReport,
+    SealedConformanceGateProfile,
+    TrustedConformanceFixtureContext,
+    TrustedConformanceGateResult,
+    compose_and_seal_program,
+    issue_trusted_validation_bundle,
+    seal_conformance_gate_profile,
+    seal_trusted_bundle_assembler_profile,
+    validate_artifacts,
+)
+from rook.validation_kernel.canonical_json import (
+    canonical_fingerprint,
+    canonical_json_bytes,
+    sha256_prefixed,
+)
+from rook.validation_kernel.owned_json import JsonObject, own_trusted_json
+from rook.validation_kernel.schema_profile import CORE_SCHEMA_PROFILE_ID
+
+from tests._validation_kernel_fakes import (
+    ImmutableArtifactStore,
+    make_assembler_profile_candidate,
+    make_conformance_gate_profile_candidate,
+    make_conformance_program_contribution,
+    make_validation_bundle_bytes,
+)
+
+
+_CORE_REF = "artifact:core-positive"
+_FIXTURE_REF = "artifact:fixture-report-pass"
+_RECIPE_REF = "artifact:fixture-recipe"
+_BUNDLE_REF = "artifact:fixture-bundle"
+
+
+def _owned_object(value: object) -> JsonObject:
+    owned = own_trusted_json(value)
+    assert type(owned) is JsonObject
+    return owned
+
+
+def _fingerprinted(value: dict[str, object], field: str) -> dict[str, object]:
+    unsigned = {key: item for key, item in value.items() if key != field}
+    return {**unsigned, field: canonical_fingerprint(_owned_object(unsigned))}
+
+
+def _case_set_fingerprint(cases: list[dict[str, object]]) -> str:
+    pairs = [
+        {
+            "case_id": case["case_id"],
+            "case_fingerprint": case["case_fingerprint"],
+        }
+        for case in sorted(cases, key=lambda item: str(item["case_id"]))
+    ]
+    return canonical_fingerprint(own_trusted_json(pairs))
+
+
+def _reseal_campaign(campaign: dict[str, object]) -> bytes:
+    cases = campaign["required_cases"]
+    assert type(cases) is list
+    campaign["required_cases"] = sorted(cases, key=lambda item: item["case_id"])
+    campaign["required_case_set_fingerprint"] = _case_set_fingerprint(cases)
+    campaign.pop("campaign_fingerprint", None)
+    campaign["campaign_fingerprint"] = canonical_fingerprint(
+        _owned_object(campaign)
+    )
+    return canonical_json_bytes(_owned_object(campaign))
+
+
+@dataclass(frozen=True)
+class CampaignFixture:
+    campaign: dict[str, object]
+    campaign_bytes: bytes
+    artifacts: dict[str, object]
+    fixture_context: TrustedConformanceFixtureContext
+
+
+def _campaign_fixture(
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    assembler_profile: object,
+    *,
+    recipe_bytes: bytes = b'{"nested":{"value":1}}',
+) -> CampaignFixture:
+    bundle_bytes = make_validation_bundle_bytes()
+    trusted_bundle = issue_trusted_validation_bundle(
+        assembler_profile, bundle_bytes  # type: ignore[arg-type]
+    )
+    expected = validate_artifacts(
+        program, recipe_bytes, trusted_bundle  # type: ignore[arg-type]
+    )
+    if isinstance(expected, PublishedValidationReport):
+        expected_result = {
+            "result_kind": "published_report",
+            "report_schema_id": expected.schema_id,
+            "report_fingerprint": expected.report_fingerprint,
+            "control_failure_stage": None,
+            "control_failure_code": None,
+            "control_failure_artifact_role": None,
+        }
+    else:
+        expected_result = {
+            "result_kind": "control_failure",
+            "report_schema_id": None,
+            "report_fingerprint": None,
+            "control_failure_stage": expected.failure_stage,
+            "control_failure_code": expected.code,
+            "control_failure_artifact_role": expected.artifact_role,
+        }
+
+    fixture_manifest = _fingerprinted(
+        {
+            "schema": "rook.validation_conformance_fixture:v1",
+            "fixture_id": (
+                "fixture.report_pass"
+                if expected_result["result_kind"] == "published_report"
+                else "fixture.control_failure_expected"
+            ),
+            "recipe_input": {
+                "content_ref": _RECIPE_REF,
+                "input_payload_sha256": sha256_prefixed(recipe_bytes),
+            },
+            "validation_bundle_input": {
+                "content_ref": _BUNDLE_REF,
+                "input_payload_sha256": sha256_prefixed(bundle_bytes),
+            },
+            "assembler_profile_fingerprint": assembler_profile.profile_fingerprint,  # type: ignore[attr-defined]
+            "expected_result": expected_result,
+        },
+        "fixture_fingerprint",
+    )
+    fixture_bytes = canonical_json_bytes(_owned_object(fixture_manifest))
+
+    core_schema = next(
+        schema
+        for schema in program.schemas  # type: ignore[attr-defined]
+        if schema.profile_id == CORE_SCHEMA_PROFILE_ID
+    )
+    core_bytes = b'{"value":"ok"}'
+    core_value = own_trusted_json({"value": "ok"})
+    core_case = _fingerprinted(
+        {
+            "case_id": "core.synthetic_positive",
+            "case_kind": "core_schema_positive",
+            "schema_case": {
+                "schema_id": core_schema.schema_id,
+                "schema_fingerprint": core_schema.schema_fingerprint,
+                "instance_fingerprint": canonical_fingerprint(core_value),
+                "instance_content_ref": _CORE_REF,
+            },
+            "fixture_case": None,
+        },
+        "case_fingerprint",
+    )
+    fixture_case = _fingerprinted(
+        {
+            "case_id": str(fixture_manifest["fixture_id"]),
+            "case_kind": "semantic_fixture",
+            "schema_case": None,
+            "fixture_case": {
+                "fixture_fingerprint": fixture_manifest["fixture_fingerprint"],
+                "fixture_content_ref": _FIXTURE_REF,
+                "recipe_input_payload_sha256": sha256_prefixed(recipe_bytes),
+                "validation_bundle_input_payload_sha256": sha256_prefixed(
+                    bundle_bytes
+                ),
+                "assembler_profile_fingerprint": assembler_profile.profile_fingerprint,  # type: ignore[attr-defined]
+            },
+        },
+        "case_fingerprint",
+    )
+    cases = [core_case, fixture_case]
+    campaign = {
+        "schema": "rook.validation_conformance_campaign:v1",
+        "campaign_id": "synthetic.kernel_conformance:v1",
+        "campaign_version": "v1",
+        "program_id": program.program_id,  # type: ignore[attr-defined]
+        "program_fingerprint": program.program_fingerprint,  # type: ignore[attr-defined]
+        "required_gate_profile_fingerprint": gate_profile.gate_profile_fingerprint,
+        "required_cases": cases,
+        "required_case_set_fingerprint": _case_set_fingerprint(cases),
+    }
+    campaign_bytes = _reseal_campaign(campaign)
+    artifacts: dict[str, object] = {
+        _CORE_REF: core_bytes,
+        _FIXTURE_REF: fixture_bytes,
+        _RECIPE_REF: recipe_bytes,
+        _BUNDLE_REF: bundle_bytes,
+    }
+    store = ImmutableArtifactStore(artifacts)
+    context = conformance_module._issue_trusted_conformance_fixture_context(
+        store,
+        (assembler_profile,),
+    )
+    return CampaignFixture(campaign, campaign_bytes, artifacts, context)
+
+
+@pytest.fixture(scope="module")
+def program() -> object:
+    return compose_and_seal_program(make_conformance_program_contribution())
+
+
+@pytest.fixture(scope="module")
+def assembler_profile() -> object:
+    return seal_trusted_bundle_assembler_profile(
+        make_assembler_profile_candidate()
+    )
+
+
+@pytest.fixture(scope="module")
+def gate_profile() -> SealedConformanceGateProfile:
+    return seal_conformance_gate_profile(
+        make_conformance_gate_profile_candidate(
+            conformance_module._execute_conformance_gate
+        ),
+        conformance_module._execute_conformance_gate,
+    )
+
+
+@pytest.fixture()
+def campaign(
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    assembler_profile: object,
+) -> CampaignFixture:
+    return _campaign_fixture(program, gate_profile, assembler_profile)
+
+
+def _report(result: object) -> dict[str, object]:
+    assert type(result) is TrustedConformanceGateResult
+    report = json.loads(result.report_bytes)
+    assert type(report) is dict
+    return report
+
+
+def _rows_by_id(report: dict[str, object]) -> dict[str, dict[str, object]]:
+    rows = report["result_rows"]
+    assert type(rows) is list
+    return {str(row["case_id"]): row for row in rows}
+
+
+def test_release_authority_is_sealed_opaque_and_nonforgeable(
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    campaign: CampaignFixture,
+) -> None:
+    assert type(gate_profile) is SealedConformanceGateProfile
+    with pytest.raises(TypeError):
+        SealedConformanceGateProfile()
+    with pytest.raises(TypeError):
+        TrustedConformanceFixtureContext()
+    with pytest.raises(TypeError):
+        TrustedConformanceGateResult()
+
+    serialized_profile = json.loads(gate_profile.profile_bytes)
+    failure = conformance_module.run_conformance_gate(
+        serialized_profile,  # type: ignore[arg-type]
+        program,  # type: ignore[arg-type]
+        campaign.campaign_bytes,
+        campaign.fixture_context,
+    )
+    assert type(failure) is ConformanceGateInvocationFailure
+    assert failure.stage == "gate_authority"
+    assert failure.code == "gate_profile_not_sealed"
+    assert failure.report_emitted is False
+    assert failure.trusted_gate_result_issued is False
+
+    selected = copy.deepcopy(campaign.campaign)
+    selected["gate_callable"] = "campaign.selected.callable"
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        _reseal_campaign(selected),
+        campaign.fixture_context,
+    )
+    assert type(result) is ConformanceGateInvocationFailure
+    assert result.code == "campaign_schema_failed"
+
+
+def test_campaign_admission_is_exact_bounded_and_hashes_only_admitted_bytes(
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    campaign: CampaignFixture,
+) -> None:
+    exact_limit = b" " * 4_194_304
+    admitted = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        exact_limit,
+        campaign.fixture_context,
+    )
+    assert type(admitted) is ConformanceGateInvocationFailure
+    assert admitted.campaign_input_size == 4_194_304
+    assert admitted.campaign_input_sha256 == sha256_prefixed(exact_limit)
+
+    rejected = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        exact_limit + b"x",
+        campaign.fixture_context,
+    )
+    assert type(rejected) is ConformanceGateInvocationFailure
+    assert rejected.stage == "campaign_admission"
+    assert rejected.code == "campaign_admission_failed"
+    assert rejected.campaign_input_size == 4_194_305
+    assert rejected.campaign_input_sha256 is None
+
+
+def test_invalid_program_and_unavailable_campaign_fail_before_identity(
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    campaign: CampaignFixture,
+) -> None:
+    invalid_program = conformance_module.run_conformance_gate(
+        gate_profile,
+        object(),  # type: ignore[arg-type]
+        campaign.campaign_bytes,
+        campaign.fixture_context,
+    )
+    assert type(invalid_program) is ConformanceGateInvocationFailure
+    assert invalid_program.stage == "program_authority"
+    assert invalid_program.code == "program_not_sealed"
+    assert invalid_program.program_fingerprint is None
+
+    unavailable_campaign = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        bytearray(campaign.campaign_bytes),  # type: ignore[arg-type]
+        campaign.fixture_context,
+    )
+    assert type(unavailable_campaign) is ConformanceGateInvocationFailure
+    assert unavailable_campaign.stage == "campaign_admission"
+    assert unavailable_campaign.code == "campaign_content_unavailable"
+    assert unavailable_campaign.campaign_input_size == 0
+    assert unavailable_campaign.campaign_input_sha256 is None
+
+
+@pytest.mark.parametrize(
+    ("raw", "code"),
+    (
+        (b'{"schema":', "campaign_parse_failed"),
+        (b'{"schema":1,"schema":2}', "campaign_parse_failed"),
+        (b"{}", "campaign_schema_failed"),
+    ),
+)
+def test_unconstructable_campaigns_never_emit_reports(
+    raw: bytes,
+    code: str,
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    campaign: CampaignFixture,
+) -> None:
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        raw,
+        campaign.fixture_context,
+    )
+    assert type(result) is ConformanceGateInvocationFailure
+    assert result.code == code
+    assert result.report_emitted is False
+    assert result.trusted_gate_result_issued is False
+
+
+def test_campaign_identity_mismatch_is_an_invocation_failure(
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    campaign: CampaignFixture,
+) -> None:
+    host = copy.deepcopy(campaign.campaign)
+    host["campaign_fingerprint"] = "sha256:" + "0" * 64
+    raw = canonical_json_bytes(_owned_object(host))
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        raw,
+        campaign.fixture_context,
+    )
+    assert type(result) is ConformanceGateInvocationFailure
+    assert result.stage == "campaign_identity"
+    assert result.code == "campaign_fingerprint_mismatch"
+
+
+def test_case_set_fingerprint_mismatch_prevents_report_authority(
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    campaign: CampaignFixture,
+) -> None:
+    host = copy.deepcopy(campaign.campaign)
+    host["required_case_set_fingerprint"] = "sha256:" + "8" * 64
+    host.pop("campaign_fingerprint")
+    host["campaign_fingerprint"] = canonical_fingerprint(_owned_object(host))
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        canonical_json_bytes(_owned_object(host)),
+        campaign.fixture_context,
+    )
+    assert type(result) is ConformanceGateInvocationFailure
+    assert result.stage == "campaign_identity"
+    assert result.code == "campaign_case_set_fingerprint_mismatch"
+
+
+@pytest.mark.parametrize(
+    "mismatch",
+    ("program", "gate", "coverage"),
+)
+def test_constructable_campaign_integrity_mismatch_is_a_failed_empty_report(
+    mismatch: str,
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    campaign: CampaignFixture,
+) -> None:
+    host = copy.deepcopy(campaign.campaign)
+    if mismatch == "program":
+        host["program_fingerprint"] = "sha256:" + "0" * 64
+    elif mismatch == "gate":
+        host["required_gate_profile_fingerprint"] = "sha256:" + "1" * 64
+    else:
+        host["required_cases"] = [
+            case
+            for case in host["required_cases"]
+            if case["case_kind"] != "core_schema_positive"
+        ]
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        _reseal_campaign(host),
+        campaign.fixture_context,
+    )
+    report = _report(result)
+    assert report["decision"] == "failed"
+    assert report["result_rows"] == []
+    assert report["campaign_integrity"]["passed"] is False
+
+
+@pytest.mark.parametrize("content", (None, b'{"value":"changed"}'))
+def test_missing_or_mismatched_core_content_has_no_schema_attempt(
+    content: object,
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    assembler_profile: object,
+    campaign: CampaignFixture,
+) -> None:
+    artifacts = dict(campaign.artifacts)
+    artifacts[_CORE_REF] = content
+    context = conformance_module._issue_trusted_conformance_fixture_context(
+        ImmutableArtifactStore(artifacts),
+        (assembler_profile,),
+    )
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        campaign.campaign_bytes,
+        context,
+    )
+    row = _rows_by_id(_report(result))["core.synthetic_positive"]
+    assert row["outcome"] == "failed"
+    assert row["schema_evaluations"] == []
+    assert row["schema_case_result"] == {"instance_schema_valid": None}
+    assert row["fixture_case_result"] is None
+
+
+def test_referenced_content_cap_is_inclusive_and_checked_before_parsing(
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    assembler_profile: object,
+    campaign: CampaignFixture,
+) -> None:
+    failures: list[str] = []
+    for content in (b" " * 4_194_304, b" " * 4_194_305):
+        artifacts = dict(campaign.artifacts)
+        artifacts[_CORE_REF] = content
+        context = conformance_module._issue_trusted_conformance_fixture_context(
+            ImmutableArtifactStore(artifacts),
+            (assembler_profile,),
+        )
+        result = conformance_module.run_conformance_gate(
+            gate_profile,
+            program,  # type: ignore[arg-type]
+            campaign.campaign_bytes,
+            context,
+        )
+        row = _rows_by_id(_report(result))["core.synthetic_positive"]
+        failures.append(row["failure_code"])
+        assert row["schema_evaluations"] == []
+    assert failures == ["case_execution_failed", "case_content_unavailable"]
+
+
+def test_successful_campaign_seals_exact_identity_and_attempt_rows(
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    campaign: CampaignFixture,
+) -> None:
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        campaign.campaign_bytes,
+        campaign.fixture_context,
+    )
+    report = _report(result)
+    assert report["decision"] == "passed"
+    assert report["program_fingerprint"] == program.program_fingerprint  # type: ignore[attr-defined]
+    assert report["campaign_fingerprint"] == campaign.campaign["campaign_fingerprint"]
+    assert report["gate"]["gate_profile_fingerprint"] == gate_profile.gate_profile_fingerprint
+    assert [row["result_index"] for row in report["result_rows"]] == [0, 1]
+    assert [row["case_id"] for row in report["result_rows"]] == sorted(
+        row["case_id"] for row in report["result_rows"]
+    )
+    core = _rows_by_id(report)["core.synthetic_positive"]
+    attempt = core["schema_evaluations"][0]
+    assert attempt["attempt_status"] == "evaluation_completed"
+    assert attempt["aggregate_after_reservation"] == (
+        attempt["aggregate_before_reservation"]
+        + attempt["attempted_shape_units"]
+    )
+    assert attempt["evaluator_invoked"] is True
+    assert attempt["evaluation_passed"] is True
+    assert core["schema_case_result"]["instance_schema_valid"] is True
+    fixture = _rows_by_id(report)["fixture.report_pass"]
+    assert fixture["schema_case_result"] is None
+    assert fixture["fixture_case_result"]["result_identity_matches"] is True
+
+    unsigned = dict(report)
+    asserted = unsigned.pop("report_fingerprint")
+    assert canonical_fingerprint(_owned_object(unsigned)) == asserted
+
+
+def test_repeated_core_evaluations_reserve_full_products_without_refunds(
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    campaign: CampaignFixture,
+) -> None:
+    host = copy.deepcopy(campaign.campaign)
+    first = next(
+        case
+        for case in host["required_cases"]
+        if case["case_kind"] == "core_schema_positive"
+    )
+    second = copy.deepcopy(first)
+    second["case_id"] = "core.synthetic_positive.second"
+    second.update(_fingerprinted(second, "case_fingerprint"))
+    host["required_cases"].append(second)
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        _reseal_campaign(host),
+        campaign.fixture_context,
+    )
+    report = _report(result)
+    assert report["decision"] == "passed"
+    core_attempts = [
+        row["schema_evaluations"][0]
+        for row in report["result_rows"]
+        if row["case_kind"] == "core_schema_positive"
+    ]
+    assert len(core_attempts) == 2
+    assert core_attempts[1]["aggregate_before_reservation"] == core_attempts[0][
+        "aggregate_after_reservation"
+    ]
+    assert core_attempts[1]["attempted_shape_units"] == core_attempts[0][
+        "attempted_shape_units"
+    ]
+
+
+def test_real_reservation_rejection_records_exact_nullable_fields(
+    assembler_profile: object,
+) -> None:
+    program = compose_and_seal_program(
+        make_conformance_program_contribution(wide_core_schema=True)
+    )
+    gate_profile = seal_conformance_gate_profile(
+        make_conformance_gate_profile_candidate(
+            conformance_module._execute_conformance_gate
+        ),
+        conformance_module._execute_conformance_gate,
+    )
+    fixture = _campaign_fixture(program, gate_profile, assembler_profile)
+    host = copy.deepcopy(fixture.campaign)
+    large_instance = {"value": "ok"}
+    large_instance.update({f"field_{index:04d}": index for index in range(4_000)})
+    large_value = own_trusted_json(large_instance)
+    large_bytes = canonical_json_bytes(large_value)
+    core_case = next(
+        case
+        for case in host["required_cases"]
+        if case["case_kind"] == "core_schema_positive"
+    )
+    core_case["schema_case"]["instance_fingerprint"] = canonical_fingerprint(
+        large_value
+    )
+    core_case.update(_fingerprinted(core_case, "case_fingerprint"))
+    artifacts = dict(fixture.artifacts)
+    artifacts[_CORE_REF] = large_bytes
+    context = conformance_module._issue_trusted_conformance_fixture_context(
+        ImmutableArtifactStore(artifacts),
+        (assembler_profile,),
+    )
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,
+        _reseal_campaign(host),
+        context,
+    )
+    row = _rows_by_id(_report(result))["core.synthetic_positive"]
+    attempt = row["schema_evaluations"][0]
+    assert attempt["attempt_status"] == "reservation_rejected"
+    assert attempt["aggregate_after_reservation"] is None
+    assert attempt["attempted_shape_units"] is None
+    assert attempt["evaluator_invoked"] is False
+    assert attempt["evaluation_passed"] is None
+    assert row["aggregate_schema_evaluation_shape_units"] == attempt[
+        "aggregate_before_reservation"
+    ]
+    assert row["failure_code"] == "validation_budget_exceeded"
+
+
+def test_raw_recipe_uses_stricter_validation_cap_after_gate_resolution(
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    assembler_profile: object,
+) -> None:
+    recipe = b'{"padding":"' + (b"x" * 1_048_576) + b'"}'
+    assert 1_048_576 < len(recipe) < 4_194_304
+    fixture = _campaign_fixture(
+        program,
+        gate_profile,
+        assembler_profile,
+        recipe_bytes=recipe,
+    )
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        fixture.campaign_bytes,
+        fixture.fixture_context,
+    )
+    report = _report(result)
+    assert report["decision"] == "passed"
+    identity = _rows_by_id(report)["fixture.control_failure_expected"][
+        "fixture_case_result"
+    ]
+    assert identity["actual_control_failure_code"] == "validation_budget_exceeded"
+    assert identity["result_identity_matches"] is True
+
+
+def test_control_failure_fixture_matches_complete_runtime_identity(
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    assembler_profile: object,
+) -> None:
+    fixture = _campaign_fixture(
+        program,
+        gate_profile,
+        assembler_profile,
+        recipe_bytes=b"{",
+    )
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        fixture.campaign_bytes,
+        fixture.fixture_context,
+    )
+    report = _report(result)
+    assert report["decision"] == "passed"
+    row = _rows_by_id(report)["fixture.control_failure_expected"]
+    identity = row["fixture_case_result"]
+    assert identity["expected_result_kind"] == "control_failure"
+    assert identity["actual_result_kind"] == "control_failure"
+    assert identity["expected_report_schema_id"] is None
+    assert identity["actual_report_schema_id"] is None
+    assert identity["result_identity_matches"] is True
+
+
+def test_fixture_result_field_mismatch_fails_even_when_result_kind_matches(
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    assembler_profile: object,
+    campaign: CampaignFixture,
+) -> None:
+    manifest = json.loads(campaign.artifacts[_FIXTURE_REF])
+    manifest["expected_result"]["report_fingerprint"] = "sha256:" + "9" * 64
+    manifest = _fingerprinted(manifest, "fixture_fingerprint")
+    host = copy.deepcopy(campaign.campaign)
+    fixture_case = next(
+        case for case in host["required_cases"] if case["case_kind"] == "semantic_fixture"
+    )
+    fixture_case["fixture_case"]["fixture_fingerprint"] = manifest["fixture_fingerprint"]
+    fixture_case.update(_fingerprinted(fixture_case, "case_fingerprint"))
+    artifacts = dict(campaign.artifacts)
+    artifacts[_FIXTURE_REF] = canonical_json_bytes(_owned_object(manifest))
+    context = conformance_module._issue_trusted_conformance_fixture_context(
+        ImmutableArtifactStore(artifacts),
+        (assembler_profile,),
+    )
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        _reseal_campaign(host),
+        context,
+    )
+    row = _rows_by_id(_report(result))["fixture.report_pass"]
+    assert row["outcome"] == "failed"
+    assert row["fixture_case_result"]["actual_result_kind"] == "published_report"
+    assert row["fixture_case_result"]["result_identity_matches"] is False
+
+
+def test_private_audit_lookalike_or_program_mismatch_aborts_the_gate(
+    monkeypatch: pytest.MonkeyPatch,
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    campaign: CampaignFixture,
+) -> None:
+    real = conformance_module._validate_artifacts_with_audit
+
+    def forged(*args: object, **kwargs: object) -> object:
+        outcome = real(*args, **kwargs)
+        return SimpleNamespace(
+            public_result=outcome.public_result,
+            audit=SimpleNamespace(
+                program_id=program.program_id,  # type: ignore[attr-defined]
+                program_fingerprint=program.program_fingerprint,  # type: ignore[attr-defined]
+                schema_evaluation_receipts=outcome.audit.schema_evaluation_receipts,
+            ),
+        )
+
+    monkeypatch.setattr(conformance_module, "_validate_artifacts_with_audit", forged)
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        campaign.campaign_bytes,
+        campaign.fixture_context,
+    )
+    assert type(result) is ConformanceGateInvocationFailure
+    assert result.stage == "gate_execution"
+    assert result.code == "gate_execution_failed"
+    assert result.campaign_input_sha256 == sha256_prefixed(campaign.campaign_bytes)
+
+
+def test_missing_or_differently_bound_exact_audit_aborts_the_gate(
+    monkeypatch: pytest.MonkeyPatch,
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    campaign: CampaignFixture,
+) -> None:
+    real = conformance_module._validate_artifacts_with_audit
+    calls = 0
+
+    def missing_then_mismatched(*args: object, **kwargs: object) -> object:
+        nonlocal calls
+        calls += 1
+        outcome = real(*args, **kwargs)
+        if calls == 1:
+            return SimpleNamespace(public_result=outcome.public_result)
+        object.__setattr__(outcome.audit, "program_fingerprint", "sha256:" + "7" * 64)
+        return outcome
+
+    monkeypatch.setattr(
+        conformance_module,
+        "_validate_artifacts_with_audit",
+        missing_then_mismatched,
+    )
+    for _ in range(2):
+        result = conformance_module.run_conformance_gate(
+            gate_profile,
+            program,  # type: ignore[arg-type]
+            campaign.campaign_bytes,
+            campaign.fixture_context,
+        )
+        assert type(result) is ConformanceGateInvocationFailure
+        assert result.code == "gate_execution_failed"
+        assert result.trusted_gate_result_issued is False
+
+
+def test_reordered_kernel_issued_audit_aborts_before_report_publication(
+    monkeypatch: pytest.MonkeyPatch,
+    assembler_profile: object,
+) -> None:
+    program = compose_and_seal_program(
+        make_conformance_program_contribution(alpha_scenario="schema_audit_order")
+    )
+    gate_profile = seal_conformance_gate_profile(
+        make_conformance_gate_profile_candidate(
+            conformance_module._execute_conformance_gate
+        ),
+        conformance_module._execute_conformance_gate,
+    )
+    fixture = _campaign_fixture(program, gate_profile, assembler_profile)
+    real = conformance_module._validate_artifacts_with_audit
+
+    def reordered(*args: object, **kwargs: object) -> object:
+        outcome = real(*args, **kwargs)
+        receipts = outcome.audit.schema_evaluation_receipts
+        object.__setattr__(
+            outcome.audit,
+            "schema_evaluation_receipts",
+            tuple(reversed(receipts)),
+        )
+        return outcome
+
+    monkeypatch.setattr(
+        conformance_module,
+        "_validate_artifacts_with_audit",
+        reordered,
+    )
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,
+        fixture.campaign_bytes,
+        fixture.fixture_context,
+    )
+    assert type(result) is ConformanceGateInvocationFailure
+    assert result.code == "gate_execution_failed"
+    assert result.report_emitted is False
+
+
+@pytest.mark.parametrize(
+    ("exception_type", "code"),
+    (
+        (conformance_module._GateIntegrityFailure, "gate_execution_failed"),
+        (conformance_module._GateBudgetFailure, "gate_budget_exceeded"),
+    ),
+)
+def test_caught_gate_failures_after_campaign_identity_emit_no_partial_report(
+    exception_type: type[Exception],
+    code: str,
+    monkeypatch: pytest.MonkeyPatch,
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    campaign: CampaignFixture,
+) -> None:
+    def fail(*args: object, **kwargs: object) -> object:
+        raise exception_type("forced")
+
+    monkeypatch.setattr(conformance_module, "_execute_campaign_cases", fail)
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        campaign.campaign_bytes,
+        campaign.fixture_context,
+    )
+    assert type(result) is ConformanceGateInvocationFailure
+    assert result.code == code
+    assert result.gate_profile_fingerprint == gate_profile.gate_profile_fingerprint
+    assert result.program_fingerprint == program.program_fingerprint  # type: ignore[attr-defined]
+    assert result.report_emitted is False
+    assert result.trusted_gate_result_issued is False
+
+
+@pytest.mark.parametrize("failure_call", (0, 1, 2))
+def test_projection_and_both_report_serializations_fail_atomically(
+    failure_call: int,
+    monkeypatch: pytest.MonkeyPatch,
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    campaign: CampaignFixture,
+) -> None:
+    if failure_call == 0:
+        def fail_projection(*args: object, **kwargs: object) -> object:
+            raise conformance_module._GateReportSealFailure("projection")
+
+        monkeypatch.setattr(
+            conformance_module, "_project_aggregate_report", fail_projection
+        )
+    else:
+        real = conformance_module._canonicalize_aggregate_report
+        calls = 0
+
+        def fail_serialization(*args: object, **kwargs: object) -> bytes:
+            nonlocal calls
+            calls += 1
+            if calls == failure_call:
+                raise conformance_module._GateReportSealFailure("serialization")
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(
+            conformance_module,
+            "_canonicalize_aggregate_report",
+            fail_serialization,
+        )
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        campaign.campaign_bytes,
+        campaign.fixture_context,
+    )
+    assert type(result) is ConformanceGateInvocationFailure
+    assert result.stage == "report_seal"
+    assert result.code == "gate_report_seal_failed"
+    assert result.report_emitted is False
+    assert result.trusted_gate_result_issued is False
+
+
+def test_completeness_is_case_id_based_and_receipts_duplicate_evidence() -> None:
+    required = (
+        {"case_id": "a", "case_kind": "core_schema_positive", "case_fingerprint": "fa"},
+        {"case_id": "b", "case_kind": "semantic_fixture", "case_fingerprint": "fb"},
+    )
+    exact = (
+        {"result_index": 0, **required[1]},
+        {"result_index": 1, **required[0]},
+    )
+    assert conformance_module._derive_campaign_completeness(required, exact)["complete"] is True
+
+    duplicate = (*exact, {"result_index": 2, **required[0]})
+    evidence = conformance_module._derive_campaign_completeness(required, duplicate)
+    assert evidence["duplicate_case_ids"] == ["a"]
+    assert evidence["result_row_count"] == 3
+    assert evidence["complete"] is False
+
+    mismatched = (
+        exact[0],
+        {**exact[1], "case_kind": "semantic_fixture", "case_fingerprint": "wrong"},
+        {"result_index": 2, "case_id": "extra", "case_kind": "semantic_fixture", "case_fingerprint": "fx"},
+    )
+    evidence = conformance_module._derive_campaign_completeness(required, mismatched)
+    assert evidence["extra_case_ids"] == ["extra"]
+    assert evidence["case_kind_mismatch_ids"] == ["a"]
+    assert evidence["case_fingerprint_mismatch_ids"] == ["a"]
+    assert evidence["complete"] is False
+
+
+def test_all_conformance_schemas_are_valid_and_recursively_closed() -> None:
+    schemas = (
+        CONFORMANCE_GATE_PROFILE_SCHEMA,
+        CONFORMANCE_CAMPAIGN_SCHEMA,
+        CONFORMANCE_FIXTURE_SCHEMA,
+        CONFORMANCE_SCHEMA_ATTEMPT_ROW_SCHEMA,
+        CONFORMANCE_COMPLETENESS_SCHEMA,
+        CONFORMANCE_REPORT_SCHEMA,
+    )
+    schema_hosts = [json.loads(canonical_json_bytes(schema)) for schema in schemas]
+    clean_check = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import json,sys; "
+                "from jsonschema import Draft202012Validator as V; "
+                "[V.check_schema(value) for value in json.load(sys.stdin)]"
+            ),
+        ],
+        input=json.dumps(schema_hosts),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert clean_check.returncode == 0, clean_check.stderr
+    for host in schema_hosts:
+        pending = [host]
+        while pending:
+            value = pending.pop()
+            if type(value) is dict:
+                if value.get("type") == "object" and "properties" in value:
+                    assert value.get("additionalProperties") is False
+                pending.extend(value.values())
+            elif type(value) is list:
+                pending.extend(value)

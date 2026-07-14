@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, make_dataclass, replace
+from types import MappingProxyType
 from typing import Any
 
 from rook.validation_kernel import (
@@ -1702,7 +1703,96 @@ def replace_runtime_component(
     raise AssertionError(f"unsupported synthetic replacement kind: {kind}")
 
 
+class ImmutableArtifactStore:
+    """Exact-object artifact store used by release-conformance tests."""
+
+    __slots__ = ("_artifacts", "resolved_refs")
+
+    def __init__(self, artifacts: dict[str, object]) -> None:
+        self._artifacts = MappingProxyType(dict(artifacts))
+        self.resolved_refs: list[str] = []
+
+    def resolve_exact_bytes(self, content_ref: str) -> object:
+        self.resolved_refs.append(content_ref)
+        return self._artifacts.get(content_ref)
+
+
+def make_conformance_gate_profile_candidate(gate_callable: object) -> JsonObject:
+    candidate: dict[str, object] = {
+        "schema": "rook.validation_conformance_gate_profile:v1",
+        "gate_profile_id": "rook.validation_conformance_gate:lm9a_v1",
+        "gate_profile_version": "v1",
+        "gate_implementation_fingerprint": runtime_implementation_fingerprint(
+            gate_callable
+        ),
+        "budget_profile": LM9A_BUDGET_MANIFEST.profile_id,
+        "limits_fingerprint": LM9A_BUDGET_MANIFEST.limits_fingerprint,
+        "campaign_input_byte_limit": 4_194_304,
+        "referenced_case_content_byte_limit": 4_194_304,
+    }
+    candidate["gate_profile_fingerprint"] = canonical_fingerprint(
+        own_trusted_json(candidate)
+    )
+    owned = own_trusted_json(candidate)
+    if type(owned) is not JsonObject:
+        raise AssertionError("synthetic conformance gate profile must be an object")
+    return owned
+
+
+def make_conformance_program_contribution(
+    *,
+    alpha_scenario: str = "passed",
+    wide_core_schema: bool = False,
+) -> ValidationProgramContribution:
+    """Add one unused, domain-neutral core schema to the synthetic program."""
+
+    contribution = make_phase_engine_contribution(alpha_scenario=alpha_scenario)
+    core_schema_host: dict[str, object] = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "required": ["value"],
+        "additionalProperties": True,
+    }
+    if wide_core_schema:
+        core_schema_host["$defs"] = {
+            f"unused_{index:04d}": {} for index in range(2_100)
+        }
+    core_schema_value = own_trusted_json(core_schema_host)
+    if type(core_schema_value) is not JsonObject:
+        raise AssertionError("synthetic core schema must be an object")
+    core_schema = admit_schema(
+        "synthetic.core_positive:v1",
+        core_schema_value,
+        CORE_PROFILE,
+    )
+    core_evaluator = _component(
+        CORE_PROFILE.profile_id,
+        CORE_PROFILE.evaluator_id,
+        evaluate_schema,
+    )
+    return replace(
+        contribution,
+        schema_evaluator_profiles=(
+            *contribution.schema_evaluator_profiles,
+            SchemaEvaluatorSpec(profile=CORE_PROFILE, evaluator=core_evaluator),
+        ),
+        schemas=(*contribution.schemas, core_schema),
+        runtime_bindings=(
+            *contribution.runtime_bindings,
+            _binding("schema_evaluator", core_evaluator, evaluate_schema),
+            RuntimeBinding(
+                binding_kind="schema",
+                binding_id=core_schema.schema_id,
+                implementation_fingerprint=core_schema.schema_fingerprint,
+                target=core_schema,
+            ),
+        ),
+    )
+
+
 __all__ = (
+    "ImmutableArtifactStore",
     "INVOCATION_MANDATORY_SHELLS",
     "HugeTypeMetadataError",
     "KERNEL_STRING_EXPORT_CALLS",
@@ -1720,6 +1810,8 @@ __all__ = (
     "immutable_record_dispatch",
     "make_closure",
     "make_assembler_profile_candidate",
+    "make_conformance_gate_profile_candidate",
+    "make_conformance_program_contribution",
     "make_phase_engine_contribution",
     "make_program_contribution",
     "make_validation_api_contribution",
