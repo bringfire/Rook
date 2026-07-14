@@ -93,9 +93,12 @@ program_fingerprint: sha256:...
 fingerprint, output schema ID/fingerprint, report-fingerprint field and
 exclusion rule, the exact immutable input envelope it consumes, and the exact
 set-like `required_for_compile_phases` allowlist. That input envelope is limited
-to captured program identity, admitted invocation evidence, the frozen budget
-receipt, ordered phase specifications, and accepted immutable phase results. A
-projection cannot request an ambient registry or arbitrary callable. Program
+to captured program identity, admitted invocation evidence, ordered phase
+specifications, and accepted immutable phase results. The projection emits an
+owned report body through a kernel-metered builder before budget freeze; it does
+not receive or author the budget receipt, outer report fingerprint, or other
+kernel-owned seal fields. A projection cannot request an ambient registry or
+arbitrary callable. Program
 sealing rejects an unknown or duplicate required phase name. The allowlist is
 normalized by exact `phase_name` under RFC 8785 UTF-16 code-unit ordering before
 program fingerprinting.
@@ -441,23 +444,38 @@ kernel API usage, not elapsed time or total Python instructions.
 After all immutable phase results are accepted, report sealing proceeds once:
 
 ```text
-1. reserve the full fixed 262,144-unit report-seal allowance
-2. freeze the budget receipt, including that fixed reservation
-3. build the normalized report with `report_fingerprint` omitted
-4. canonicalize that projection and compute its SHA-256 under a separate
+1. invoke the sealed projection once into a kernel-owned report-body builder;
+   charge every body field before attachment
+2. validate the owned body and charge the fixed outer-envelope and budget-
+   receipt field shape
+3. reserve the full fixed 262,144-unit report-seal allowance
+4. freeze the budget receipt, including body/envelope field counts and that
+   fixed reservation
+5. attach the frozen receipt and kernel-owned envelope without changing the
+   already charged shape; leave `report_fingerprint` omitted
+6. canonicalize that projection and compute its SHA-256 under a separate
    SealMeter
-5. attach the resulting fingerprint and canonicalize the final artifact
-6. publish only if both serializations together stay within the work allowance
+7. attach the resulting fingerprint and canonicalize the final artifact
+8. publish only if both serializations together stay within the work allowance
    and each serialization stays within the canonical-byte limit
 ```
 
-`report_fingerprint` is defined over step 4 only, excluding itself. `SealMeter`
+`report_fingerprint` is defined over step 6 only, excluding itself. `SealMeter`
 can stop construction but cannot mutate the frozen receipt. Actual seal work is
 intentionally not written back into the artifact; the fingerprinted receipt
 records the fixed reservation. This removes the cycle in which hashing a report
 would change a count embedded in that report. Exceeding either seal limit in
 either serialization produces a validation-stage invocation failure and no
 partial report.
+
+The sealed output schema and projection declaration identify the exact object
+path occupied by the kernel-owned budget receipt. The body builder rejects that
+path and every other kernel-owned field. Kernel attachment replaces no body
+value and adds exactly the precharged fixed shape. That fixed count includes the
+eventual `report_fingerprint` field even though its value is omitted from the
+first canonical projection. A projection exception,
+duplicate field, over-budget insertion, wrong body type, or attempt to author a
+kernel field produces no report.
 
 A completed report contains:
 
@@ -479,6 +497,7 @@ observed:
   diagnostics: 0
   compile_blockers: 0
   kernel_phase_work_units: 0
+  report_projection_fields: 0
   report_seal_reserved_work_units: 262144
 ```
 
@@ -518,6 +537,13 @@ observed_lower_bound: 100001
 subject_path: /bounded/path | null
 message: bounded text
 ```
+
+Every kernel control-failure `message` is NFC-normalized, contains at most 512
+Unicode code points, and contains no raw input, raw exception text, or secret
+capability value. Variable detail is represented only by a lowercase prefixed
+SHA-256 field in the applicable closed failure envelope. Truncation is by
+Unicode code point before canonical serialization, so all implementations
+produce the same bounded text.
 
 `observed_lower_bound` is the first value known to exceed the limit; validation
 does not continue to compute a larger total. Oversized raw bytes fail during
@@ -692,6 +718,8 @@ gate_profile_version: v1
 gate_implementation_fingerprint: sha256:...
 budget_profile: rook.validation_budget:lm9a_v1
 limits_fingerprint: sha256:...
+campaign_input_byte_limit: 4194304
+referenced_case_content_byte_limit: 4194304
 gate_profile_fingerprint: sha256:...
 ```
 
@@ -702,6 +730,34 @@ is `rook.canonical_json:v1` over the normalized profile excluding only
 `gate_implementation_fingerprint`; no registry or campaign lookup occurs after
 seal. The release invocation captures this sealed object before it reads the
 campaign.
+
+`campaign_input_byte_limit` is an exact inclusive gate-admission limit owned by
+the independently selected profile. LM9A v1 fixes it at 4,194,304 bytes. The
+gate checks the exact built-in byte length before copying or hashing campaign
+content. A limit-plus-one campaign returns
+`campaign_admission_failed` with a null campaign hash. The field participates
+in `gate_profile_fingerprint`; the campaign cannot override it. It is separate
+from the validation invocation's recipe/bundle counters even though v1 uses the
+same numeric cap as the validation-bundle input.
+
+`referenced_case_content_byte_limit` is a separate exact inclusive cap for each
+artifact-store object resolved by a campaign case, including a core positive
+instance, fixture manifest, raw fixture recipe, and raw fixture validation
+bundle. The gate obtains the exact built-in `bytes` object and checks `len()`
+before copying or hashing it. An over-cap case object fails that row as
+`case_content_unavailable` with no schema-attempt row and no content hash. Raw
+fixture recipe/bundle bytes remain subject to their stricter validation-
+invocation caps after this gate-level admission. V1 fixes the case-content cap
+at 4,194,304 bytes and fingerprints it in the gate profile.
+
+Campaign JSON, fixture-manifest JSON, and each core positive instance use the
+same bounded owned parser and the parser/depth/width/node/string limits from the
+profile's exact `budget_profile`. The campaign has one fresh gate-admission
+ledger; each referenced JSON object has its own fresh gate-admission ledger.
+Those control-plane parser counters are not merged into a fixture validation
+report's invocation budget and cannot reduce or enlarge its limits. Raw fixture
+recipe and validation-bundle bytes are not parsed by the gate; after bounded
+content resolution they enter `validate_artifacts` and are metered there.
 
 The campaign may bind `required_gate_profile_fingerprint`, but that field is a
 compatibility requirement, not a selector. It cannot name an implementation,
@@ -716,7 +772,7 @@ exist. The kernel therefore has one typed, non-artifact runtime result:
 
 ```yaml
 type_name: ConformanceGateInvocationFailure
-stage: gate_authority | program_authority | campaign_admission | campaign_parse | campaign_schema | campaign_identity
+stage: gate_authority | program_authority | campaign_admission | campaign_parse | campaign_schema | campaign_identity | gate_execution | report_seal
 code: ...
 gate_profile_fingerprint: sha256:... | null
 program_fingerprint: sha256:... | null
@@ -746,6 +802,9 @@ campaign_parse_failed
 campaign_schema_failed
 campaign_fingerprint_mismatch
 campaign_case_set_fingerprint_mismatch
+gate_execution_failed
+gate_budget_exceeded
+gate_report_seal_failed
 ```
 
 The earliest-honest-result matrix is normative:
@@ -758,12 +817,22 @@ The earliest-honest-result matrix is normative:
 | campaign integrity passes, but case content is unavailable or fingerprint-mismatched | failed case row with zero schema-attempt rows | yes | yes |
 | schema reservation is rejected before evaluator invocation | failed case row with one `reservation_rejected` attempt row | yes | yes |
 | reservation succeeds | completed or evaluator-failed attempt row with exact reservation evidence | yes | yes |
+| a caught gate-integrity/budget failure or aggregate report-seal failure prevents a complete report after campaign identity exists | `ConformanceGateInvocationFailure` | none | none |
 
 Report authority begins only after the independently supplied sealed gate
 profile, sealed program, and one schema-valid, fingerprint-consistent campaign
 identity all exist. A constructable campaign-wide failure does not need a false
 `case_id`; it is represented by `campaign_integrity`. No invocation failure is
 silently promoted into a report.
+
+`gate_execution_failed` is reserved for caught trusted-gate integrity failures
+that prevent a structurally complete aggregate report; ordinary case failures
+remain result rows. `gate_budget_exceeded` covers gate-controlled parser,
+collection, or report-projection limits after campaign identity exists.
+`gate_report_seal_failed` covers either canonical serialization exceeding the
+profile-bound report byte/work limit. These failures retain the already captured
+program/profile/campaign hashes when available, expose no partial row ledger or
+report bytes, and cannot issue `TrustedConformanceGateResult`.
 
 A required campaign is one closed content-addressed artifact:
 
@@ -829,6 +898,54 @@ claims, and the exact sealed assembler-profile fingerprint. A core-schema case
 resolves the complete positive instance. Fingerprints without resolvable content
 do not make a campaign executable.
 
+The semantic fixture manifest is one closed generic kernel artifact:
+
+```yaml
+schema: rook.validation_conformance_fixture:v1
+fixture_id: ...
+
+recipe_input:
+  content_ref: artifact:...
+  input_payload_sha256: sha256:...
+
+validation_bundle_input:
+  content_ref: artifact:...
+  input_payload_sha256: sha256:...
+
+assembler_profile_fingerprint: sha256:...
+
+expected_result:
+  result_kind: published_report
+  report_schema_id: ...
+  report_fingerprint: sha256:...
+  control_failure_stage: null
+  control_failure_code: null
+  control_failure_artifact_role: null
+
+fixture_fingerprint: sha256:...
+```
+
+`expected_result.result_kind` is exactly `published_report` or
+`control_failure`. For `published_report`, `report_schema_id` and
+`report_fingerprint` are nonnull and all three control-failure fields are null.
+For `control_failure`, the report fields are null and the three closed control-
+failure fields are nonnull. The gate compares the complete result identity; it
+does not trust fixture-authored `valid`, `compile_ready`, phase-status, or
+outcome booleans. Scenario-specific expected semantic fields are already bound
+by the expected report fingerprint. `fixture_fingerprint` covers the normalized
+manifest excluding only itself.
+
+Trusted release composition also supplies one immutable
+`TrustedConformanceFixtureContext` before campaign inspection. It contains one
+issuer-capability-bound immutable artifact store and an immutable set of exact
+`SealedTrustedBundleAssemblerProfile` objects keyed by profile fingerprint. The
+campaign and fixture may require one of those fingerprints but cannot construct,
+register, or replace a profile or store. The gate resolves content and assembler
+authority only from this captured context. A missing content object is
+`case_content_unavailable`; a missing or mismatched sealed assembler profile is
+`case_execution_failed`. Both produce a failed fixture row with zero schema-
+attempt rows when no schema evaluation was reached.
+
 The trusted gate emits one aggregate content-addressed report:
 
 ```yaml
@@ -846,6 +963,8 @@ gate:
   gate_implementation_fingerprint: sha256:...
   budget_profile: rook.validation_budget:lm9a_v1
   limits_fingerprint: sha256:...
+  campaign_input_byte_limit: 4194304
+  referenced_case_content_byte_limit: 4194304
   gate_profile_fingerprint: sha256:...
 
 campaign_integrity:
@@ -863,6 +982,11 @@ result_rows:
     case_kind: core_schema_positive
     case_fingerprint: sha256:...
     outcome: passed
+
+    schema_case_result:
+      instance_schema_valid: true
+
+    fixture_case_result: null
 
     schema_evaluations:
       - evaluation_index: 0
@@ -905,6 +1029,43 @@ decision: passed
 report_fingerprint: sha256:...
 ```
 
+For a `semantic_fixture` row, `schema_case_result` is null and the closed
+`fixture_case_result` is:
+
+```yaml
+expected_result_kind: published_report | control_failure
+expected_report_schema_id: ... | null
+expected_result_fingerprint: sha256:... | null
+expected_control_failure_stage: ... | null
+expected_control_failure_code: ... | null
+expected_control_failure_artifact_role: ... | null
+
+actual_result_kind: published_report | control_failure | unavailable
+actual_report_schema_id: ... | null
+actual_result_fingerprint: sha256:... | null
+actual_control_failure_stage: ... | null
+actual_control_failure_code: ... | null
+actual_control_failure_artifact_role: ... | null
+
+result_identity_matches: true
+```
+
+The same variant/null rules used by the fixture manifest apply to expected and
+actual fields. `unavailable` requires every actual detail field to be null and
+`result_identity_matches=false`. The gate derives every actual field and the
+match boolean from the trusted runtime result. A fixture row passes only when
+its content/profile bindings resolve, the exact expected result identity
+matches, and every reached schema evaluation remains within its applicable
+bounds.
+
+For a `core_schema_positive` row, `schema_case_result` is always the closed
+object shown above and `fixture_case_result` is null.
+`instance_schema_valid` is `true` or `false` only after one
+`evaluation_completed` attempt and equals that attempt's
+`evaluation_passed`; it is null when content/admission/reservation/evaluator
+failure prevented a completed boolean result. A passing core row requires it to
+be `true`.
+
 Before scheduling cases, the independently selected gate derives
 `campaign_integrity` against the sealed program and gate profile. Its closed
 failure codes are `campaign_program_binding_mismatch`,
@@ -942,6 +1103,16 @@ incomplete execution. `decision=passed` exactly when
 `campaign_integrity.passed=true`, `all_case_outcomes_passed=true`, every per-
 evaluation bound passed, and every case invocation remained within the aggregate
 bound. Otherwise it is `failed`.
+
+For semantic fixtures, the gate invokes a package-private audited form of the
+same fixed kernel validation entrypoint. The kernel returns one immutable,
+non-serializable execution-audit capability alongside the ordinary public
+report/control result. That audit contains the exact ordered schema-evaluation
+receipts authored by the adapter and ledger, including rejected reservations.
+The public `validate_artifacts` surface does not accept or expose a caller-
+constructable audit argument, and the gate never reconstructs attempts from a
+semantic report or fixture claim. A missing, forged, or program-mismatched audit
+is `gate_execution_failed` and prevents an aggregate report.
 
 The campaign and report schemas and every nested object are closed with
 `additionalProperties: false`. The case-level `failure_code` is exactly `null`
@@ -1224,13 +1395,13 @@ the smallest reviewed external code set before composition.
 The sealed report projection consumes only:
 
 - immutable invocation and program identity;
-- the frozen budget receipt;
 - immutable declared phase specifications and accepted results.
 
-It derives phase status, `valid`, `compile_ready`, issue ordering,
-validation-context identity, and report fingerprint. It never calls a runner,
-rereads bytes, performs registry discovery, or reconstructs authority from
-prose.
+It derives the program-owned report body, including phase status, `valid`,
+`compile_ready`, issue ordering, and validation-context identity. The kernel
+owns budget-receipt attachment and report fingerprinting. The projection never
+calls a runner, rereads bytes, performs registry discovery, or reconstructs
+authority from prose.
 
 `compile_ready` is true only when `valid` is true, no compile blocker exists,
 and every phase named by the projection's sealed
@@ -1302,16 +1473,32 @@ The kernel proof suite includes:
 - the release-owned sealed gate profile is supplied before campaign inspection,
   and changing a campaign's required profile fingerprint cannot select or alter
   the bound gate implementation;
+- the gate-owned campaign byte cap accepts exactly 4,194,304 bytes, rejects
+  4,194,305 before copying or hashing, and moves gate identity when changed;
+- the gate-owned referenced-case-content cap applies independently to every
+  resolved object, rejects its limit-plus-one before copying or hashing, and
+  does not weaken the recipe/bundle caps used by fixture validation;
 - every gate-wide terminal path follows the earliest-honest-result matrix:
   pre-authority/constructability failures return only
   `ConformanceGateInvocationFailure`, while constructable campaign-integrity
   failures produce a failed aggregate report with zero case rows;
+- a caught post-admission gate-integrity, budget, or report-seal failure returns
+  the exact typed gate invocation failure with no partial aggregate report or
+  trusted result capability;
 - content-resolution failures produce zero schema-attempt rows, rejected
   reservations preserve `aggregate_before_reservation` with null attempted/after
   fields, and successful reservations preserve exact nonrefunded accounting;
+- semantic-fixture attempt rows come only from the kernel-issued execution-audit
+  capability; report JSON, fixture claims, and lookalike audit objects cannot
+  author or replace them;
 - every registered core schema has a fitting positive instance, every required
   semantic fixture fits the aggregate schema-shape cap, and the content-addressed
   campaign binds every exact program/schema/fixture/assembler-profile fingerprint;
+- conformance fixtures resolve bytes and sealed assembler authority only from
+  the release-supplied `TrustedConformanceFixtureContext`; serialized profile
+  lookalikes cannot issue trusted bundle carriers;
+- every semantic fixture row records the exact expected and actual result
+  identities, and a passing row requires their complete variant-correct match;
 - a passing aggregate conformance report contains exactly one matching row per
   required campaign case, while a failed report can preserve duplicate indexed
   execution evidence; extra/duplicate/mismatched rows fail completeness, and the
@@ -1332,6 +1519,9 @@ The kernel proof suite includes:
 - missing, duplicate, extra, wrong-typed, and wrong-cardinality outputs each fail
   program or result integrity deterministically;
 - runners cannot author work counts; the engine derives phase deltas;
+- the report projection runs once before freeze through the metered body builder,
+  cannot author kernel-owned fields, and all body/envelope field counts are
+  charged before the budget receipt is frozen;
 - fixed report-seal reservation makes repeated report fingerprints independent
   of mutable counting during serialization;
 - program sealing proves the fixed allowance can cover the budget profile's

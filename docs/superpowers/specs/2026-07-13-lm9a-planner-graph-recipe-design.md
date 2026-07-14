@@ -2927,7 +2927,10 @@ complete positive instance and immutable content reference. Every semantic case
 binds one immutable fixture manifest containing the exact raw recipe hash, raw
 validation-bundle hash, expected result/status claims, content references, and
 the exact `lm9a.fixture_assembler:v1` sealed profile fingerprint from Section
-11.4. Each case and the aggregate campaign receive their own canonical
+11.4. Each uses the kernel's closed
+`rook.validation_conformance_fixture:v1` shape. All five required LM9A semantic
+fixtures expect `result_kind: published_report`; a control failure cannot satisfy
+their release cases. Each case and the aggregate campaign receive their own canonical
 fingerprints under the kernel schema.
 
 The exact case count is therefore `sealed_core_schema_count + 5`. The campaign's
