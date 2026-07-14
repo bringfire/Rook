@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 from dataclasses import dataclass, replace
 
 from .canonical_json import canonical_fingerprint
@@ -89,8 +90,13 @@ class BudgetExceeded(RuntimeError):
         super().__init__(failure.message)
 
 
-class SealMeterExceeded(RuntimeError):
-    """An isolated report-seal operation exceeded a fixed inclusive limit."""
+class _SealMeterExceeded(RuntimeError):
+    """Package-private signal for Task 8 to catch and map.
+
+    Task 8 must emit ``validation_budget_exceeded`` with
+    ``artifact_role=report_seal`` after adding sealed program/report context.
+    Task 2 cannot construct that complete public envelope.
+    """
 
     def __init__(self, dimension: BudgetDimension, limit: int, observed_lower_bound: int) -> None:
         self.dimension = dimension.value
@@ -211,7 +217,7 @@ def _failure_stage(artifact_role: ArtifactRole | str) -> FailureStage:
 class BudgetLedger:
     """The single mutable accounting authority for one validation invocation."""
 
-    __slots__ = ("_manifest", "_observed", "_frozen", "_receipt")
+    __slots__ = ("_manifest", "_observed", "_frozen", "_receipt", "_lock")
 
     def __init__(self, manifest: BudgetManifest) -> None:
         if type(manifest) is not BudgetManifest:
@@ -227,6 +233,7 @@ class BudgetLedger:
         self._observed["report_seal_reserved_work_units"] = 0
         self._frozen = False
         self._receipt: BudgetReceipt | None = None
+        self._lock = threading.Lock()
 
     def _ensure_mutable(self) -> None:
         if self._frozen:
@@ -269,24 +276,29 @@ class BudgetLedger:
     ) -> None:
         """Charge one closed dimension before the caller mutates owned state."""
 
-        self._ensure_mutable()
         dimension = _require_dimension(dimension)
         amount = _require_nonnegative_integer(amount, "budget amount")
         if dimension not in _LEDGER_ONLY_DIMENSIONS:
             raise BudgetInputError("budget dimension is reserved for report sealing")
-        field_name = _SNAPSHOT_FIELDS[dimension]
-        current = self._observed[field_name]
-        proposed = max(current, amount) if dimension in _MAXIMUM_DIMENSIONS else current + amount
-        limit = self._limit_for(dimension)
-        if proposed > limit:
-            self._raise_exceeded(
-                dimension,
-                limit,
-                proposed,
-                artifact_role=artifact_role,
-                subject_path=subject_path,
+        with self._lock:
+            self._ensure_mutable()
+            field_name = _SNAPSHOT_FIELDS[dimension]
+            current = self._observed[field_name]
+            proposed = (
+                max(current, amount)
+                if dimension in _MAXIMUM_DIMENSIONS
+                else current + amount
             )
-        self._observed[field_name] = proposed
+            limit = self._limit_for(dimension)
+            if proposed > limit:
+                self._raise_exceeded(
+                    dimension,
+                    limit,
+                    proposed,
+                    artifact_role=artifact_role,
+                    subject_path=subject_path,
+                )
+            self._observed[field_name] = proposed
 
     def reserve_schema_shape(
         self,
@@ -297,92 +309,106 @@ class BudgetLedger:
     ) -> SchemaShapeReservation:
         """Reserve a checked schema-node by instance-node product once."""
 
-        self._ensure_mutable()
         schema_nodes = _require_nonnegative_integer(schema_nodes, "schema node count")
         instance_nodes = _require_nonnegative_integer(instance_nodes, "instance node count")
         per_evaluation_limit = _require_nonnegative_integer(
             per_evaluation_limit, "per-evaluation limit"
         )
-        aggregate_before = self._observed["schema_evaluation_shape_units"]
-        aggregate_limit = self._limit_for(BudgetDimension.SCHEMA_EVALUATION_SHAPE_UNITS)
-        aggregate_remaining = aggregate_limit - aggregate_before
+        with self._lock:
+            self._ensure_mutable()
+            aggregate_before = self._observed["schema_evaluation_shape_units"]
+            aggregate_limit = self._limit_for(
+                BudgetDimension.SCHEMA_EVALUATION_SHAPE_UNITS
+            )
+            aggregate_remaining = aggregate_limit - aggregate_before
 
-        if (
-            schema_nodes > MAX_CHECKED_BUDGET_INTEGER
-            or instance_nodes > MAX_CHECKED_BUDGET_INTEGER
-            or per_evaluation_limit > MAX_CHECKED_BUDGET_INTEGER
-        ):
+            if (
+                schema_nodes > MAX_CHECKED_BUDGET_INTEGER
+                or instance_nodes > MAX_CHECKED_BUDGET_INTEGER
+                or per_evaluation_limit > MAX_CHECKED_BUDGET_INTEGER
+            ):
+                return SchemaShapeReservation(
+                    accepted=False,
+                    attempted_shape_units=None,
+                    aggregate_before=aggregate_before,
+                    aggregate_after=None,
+                    rejection_reason="shape_product_overflow",
+                )
+
+            if schema_nodes:
+                per_evaluation_instances = per_evaluation_limit // schema_nodes
+                aggregate_remaining_instances = aggregate_remaining // schema_nodes
+                if instance_nodes > per_evaluation_instances:
+                    return SchemaShapeReservation(
+                        accepted=False,
+                        attempted_shape_units=None,
+                        aggregate_before=aggregate_before,
+                        aggregate_after=None,
+                        rejection_reason="per_evaluation_limit_exceeded",
+                    )
+                if instance_nodes > aggregate_remaining_instances:
+                    return SchemaShapeReservation(
+                        accepted=False,
+                        attempted_shape_units=None,
+                        aggregate_before=aggregate_before,
+                        aggregate_after=None,
+                        rejection_reason="invocation_shape_limit_exceeded",
+                    )
+
+            attempted = schema_nodes * instance_nodes
+            aggregate_after = aggregate_before + attempted
+            self._observed["schema_evaluation_shape_units"] = aggregate_after
             return SchemaShapeReservation(
-                accepted=False,
-                attempted_shape_units=None,
+                accepted=True,
+                attempted_shape_units=attempted,
                 aggregate_before=aggregate_before,
-                aggregate_after=None,
-                rejection_reason="shape_product_overflow",
+                aggregate_after=aggregate_after,
+                rejection_reason=None,
             )
 
-        if schema_nodes:
-            per_evaluation_instances = per_evaluation_limit // schema_nodes
-            aggregate_remaining_instances = aggregate_remaining // schema_nodes
-            if instance_nodes > per_evaluation_instances:
-                return SchemaShapeReservation(
-                    accepted=False,
-                    attempted_shape_units=None,
-                    aggregate_before=aggregate_before,
-                    aggregate_after=None,
-                    rejection_reason="per_evaluation_limit_exceeded",
-                )
-            if instance_nodes > aggregate_remaining_instances:
-                return SchemaShapeReservation(
-                    accepted=False,
-                    attempted_shape_units=None,
-                    aggregate_before=aggregate_before,
-                    aggregate_after=None,
-                    rejection_reason="invocation_shape_limit_exceeded",
-                )
-
-        attempted = schema_nodes * instance_nodes
-        aggregate_after = aggregate_before + attempted
-        self._observed["schema_evaluation_shape_units"] = aggregate_after
-        return SchemaShapeReservation(
-            accepted=True,
-            attempted_shape_units=attempted,
-            aggregate_before=aggregate_before,
-            aggregate_after=aggregate_after,
-            rejection_reason=None,
-        )
+    def _snapshot_unlocked(self) -> BudgetSnapshot:
+        return BudgetSnapshot(**self._observed)
 
     def snapshot(self) -> BudgetSnapshot:
         """Return a value snapshot with no mutable reference to this ledger."""
 
-        return BudgetSnapshot(**self._observed)
+        with self._lock:
+            return self._snapshot_unlocked()
 
     def reserve_report_seal_and_freeze(self) -> BudgetReceipt:
         """Atomically record the fixed allowance and freeze every counter."""
 
-        self._ensure_mutable()
-        reservation = self._limit_for(BudgetDimension.REPORT_SEAL_WORK_UNITS)
-        self._observed["report_seal_reserved_work_units"] = reservation
-        receipt = BudgetReceipt(
-            budget_profile=self._manifest.profile_id,
-            limits_fingerprint=self._manifest.limits_fingerprint,
-            observed=self.snapshot(),
-        )
-        self._receipt = receipt
-        self._frozen = True
-        return receipt
+        with self._lock:
+            self._ensure_mutable()
+            reservation = self._limit_for(BudgetDimension.REPORT_SEAL_WORK_UNITS)
+            frozen_observed = dict(self._observed)
+            frozen_observed["report_seal_reserved_work_units"] = reservation
+            receipt = BudgetReceipt(
+                budget_profile=self._manifest.profile_id,
+                limits_fingerprint=self._manifest.limits_fingerprint,
+                observed=BudgetSnapshot(**frozen_observed),
+            )
+            self._observed["report_seal_reserved_work_units"] = reservation
+            self._receipt = receipt
+            self._frozen = True
+            return receipt
 
 
 class SealMeter:
     """Post-freeze report-seal accounting with no reference to any ledger."""
 
-    __slots__ = ("_manifest", "_canonical_bytes", "_projection_fields", "_work_units")
+    __slots__ = ("_canonical_bytes", "_projection_fields", "_work_units")
 
-    def __init__(self, manifest: BudgetManifest) -> None:
-        if type(manifest) is not BudgetManifest:
-            raise BudgetInputError("seal meter requires an exact BudgetManifest")
-        if manifest is not LM9A_BUDGET_MANIFEST:
-            raise BudgetInputError("seal meter requires the fixed LM9A manifest")
-        self._manifest = manifest
+    def __init__(self, receipt: BudgetReceipt) -> None:
+        if type(receipt) is not BudgetReceipt:
+            raise BudgetInputError("seal meter requires an exact frozen BudgetReceipt")
+        if (
+            receipt.budget_profile != LM9A_BUDGET_PROFILE_ID
+            or receipt.limits_fingerprint != LM9A_BUDGET_MANIFEST.limits_fingerprint
+            or receipt.observed.report_seal_reserved_work_units
+            != _LIMIT_VALUES[BudgetDimension.REPORT_SEAL_WORK_UNITS]
+        ):
+            raise BudgetInputError("seal meter requires a valid fixed-profile receipt")
         self._canonical_bytes = 0
         self._projection_fields = 0
         self._work_units = 0
@@ -403,7 +429,7 @@ class SealMeter:
         limit = _LIMIT_VALUES[BudgetDimension.REPORT_SEAL_WORK_UNITS]
         observed = self._work_units + amount
         if observed > limit:
-            raise SealMeterExceeded(
+            raise _SealMeterExceeded(
                 BudgetDimension.REPORT_SEAL_WORK_UNITS, limit, observed
             )
         self._work_units = observed
@@ -414,7 +440,7 @@ class SealMeter:
         byte_count = _require_nonnegative_integer(byte_count, "canonical byte count")
         byte_limit = _LIMIT_VALUES[BudgetDimension.REPORT_CANONICAL_BYTES]
         if byte_count > byte_limit:
-            raise SealMeterExceeded(
+            raise _SealMeterExceeded(
                 BudgetDimension.REPORT_CANONICAL_BYTES, byte_limit, byte_count
             )
         work_units = (byte_count + 63) // 64
@@ -428,7 +454,7 @@ class SealMeter:
         field_limit = _LIMIT_VALUES[BudgetDimension.REPORT_PROJECTION_FIELDS]
         observed = self._projection_fields + field_count
         if observed > field_limit:
-            raise SealMeterExceeded(
+            raise _SealMeterExceeded(
                 BudgetDimension.REPORT_PROJECTION_FIELDS, field_limit, observed
             )
         self._charge_work(field_count)
@@ -449,5 +475,4 @@ __all__ = (
     "MAX_CHECKED_BUDGET_INTEGER",
     "SchemaShapeReservation",
     "SealMeter",
-    "SealMeterExceeded",
 )

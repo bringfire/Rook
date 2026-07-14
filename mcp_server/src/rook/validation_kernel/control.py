@@ -92,10 +92,10 @@ def _optional_exact_string(value: object, field_name: str) -> str | None:
     return value
 
 
-def _normalize_message(message: object) -> str:
+def _normalize_caller_message(message: object) -> str:
     if type(message) is not str:
         raise ControlFailureInputError("control failure message must be an exact str")
-    normalized = unicodedata.normalize("NFC", message)[:_MAX_CONTROL_MESSAGE_CODE_POINTS]
+    normalized = unicodedata.normalize("NFC", message)
     try:
         normalized.encode("utf-8", errors="strict")
     except UnicodeEncodeError:
@@ -113,6 +113,26 @@ def _optional_detail_hash(value: object) -> str | None:
 
 def _sha256_prefixed(detail: bytes) -> str:
     return f"sha256:{hashlib.sha256(detail).hexdigest()}"
+
+
+def _close_message_and_detail(
+    *, code: str, message: object, detail_sha256: object
+) -> tuple[str, str | None]:
+    caller_message = _normalize_caller_message(message)
+    closed_message = _DEFAULT_MESSAGES[code]
+    if (
+        unicodedata.normalize("NFC", closed_message) != closed_message
+        or len(closed_message) > _MAX_CONTROL_MESSAGE_CODE_POINTS
+    ):
+        raise AssertionError("closed control message table is invalid")
+    closed_detail = _optional_detail_hash(detail_sha256)
+    if caller_message == closed_message:
+        return closed_message, closed_detail
+
+    detail_record = b"caller_message\0" + caller_message.encode("utf-8")
+    if closed_detail is not None:
+        detail_record += b"\0detail_sha256\0" + closed_detail.encode("ascii")
+    return closed_message, _sha256_prefixed(detail_record)
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,8 +169,13 @@ class ValidationControlFailure:
         object.__setattr__(self, "program_id", program_id)
         object.__setattr__(self, "program_fingerprint", program_fingerprint)
         object.__setattr__(self, "subject_path", subject_path)
-        object.__setattr__(self, "message", _normalize_message(self.message))
-        object.__setattr__(self, "detail_sha256", _optional_detail_hash(self.detail_sha256))
+        closed_message, closed_detail = _close_message_and_detail(
+            code=self.code,
+            message=self.message,
+            detail_sha256=self.detail_sha256,
+        )
+        object.__setattr__(self, "message", closed_message)
+        object.__setattr__(self, "detail_sha256", closed_detail)
 
 
 @dataclass(frozen=True, slots=True)
