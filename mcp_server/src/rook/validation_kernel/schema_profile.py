@@ -5,10 +5,11 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import re
+import struct
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import islice
-from typing import Protocol, overload
+from typing import overload
 from urllib.parse import quote
 
 from jsonschema import Draft202012Validator, ValidationError, validators
@@ -36,6 +37,15 @@ CORE_SCHEMA_PROFILE_ID = "rook.json_schema_profile:lm9a_core_v1"
 MAX_SCHEMA_ISSUES = 1_024
 MAX_SCHEMA_ISSUE_PATH_BYTES = 512
 MAX_SCHEMA_ISSUE_EVIDENCE_BYTES = 65_536
+_MAX_EVALUATOR_VALUE_REPR_BYTES = 8
+_EXCEPTION_PROJECTION_MAX_BYTES = 4_096
+_EXCEPTION_PROJECTION_MAX_ITEMS = 128
+_EXCEPTION_PROJECTION_MAX_DEPTH = 16
+_EXCEPTION_PROJECTION_EDGE_UNITS = 32
+_EXCEPTION_PROJECTION_INT_BITS = 256
+_EXCEPTION_PROJECTION_INT_MASK = (1 << _EXCEPTION_PROJECTION_INT_BITS) - 1
+_TYPE_MODULE_DESCRIPTOR = type.__dict__["__module__"]
+_TYPE_QUALNAME_DESCRIPTOR = type.__dict__["__qualname__"]
 
 _DRAFT_2020_12_METASCHEMA_ID = "https://json-schema.org/draft/2020-12/schema"
 _EVALUATOR_ID = "rook.json_schema_evaluator:jsonschema_draft202012_owned_v1"
@@ -330,16 +340,56 @@ class SchemaEvaluationReceipt:
                 )
 
 
-class _HashUpdater(Protocol):
-    def update(self, data: bytes) -> object: ...
-
-
 @dataclass(frozen=True, slots=True)
 class _BoundedPathEvidence:
     prefix: str
     full_byte_count: int
     full_sha256: bytes
     truncated: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _ExceptionDetailProjection:
+    digest: bytes
+    projected_bytes: int
+    projected_items: int
+    maximum_depth: int
+    truncated: bool
+
+
+class _ExceptionProjectionWriter:
+    __slots__ = ("_digest", "projected_bytes", "truncated")
+
+    def __init__(self) -> None:
+        self._digest = hashlib.sha256(
+            b"rook.schema_evaluator_exception_projection:v2\0"
+        )
+        self.projected_bytes = 0
+        self.truncated = False
+
+    @property
+    def exhausted(self) -> bool:
+        return self.projected_bytes == _EXCEPTION_PROJECTION_MAX_BYTES
+
+    def mark_truncated(self) -> None:
+        self.truncated = True
+
+    def write(self, data: bytes) -> None:
+        remaining = _EXCEPTION_PROJECTION_MAX_BYTES - self.projected_bytes
+        if len(data) > remaining:
+            self._digest.update(data[:remaining])
+            self.projected_bytes += remaining
+            self.truncated = True
+            return
+        self._digest.update(data)
+        self.projected_bytes += len(data)
+
+    def finish(self, *, projected_items: int, maximum_depth: int) -> bytes:
+        self._digest.update(b"\x01" if self.truncated else b"\x00")
+        self._digest.update(self.projected_bytes.to_bytes(8, "big"))
+        self._digest.update(projected_items.to_bytes(8, "big"))
+        self._digest.update(maximum_depth.to_bytes(8, "big"))
+        return self._digest.digest()
 
 
 class _BoundedUtf8Builder:
@@ -370,26 +420,55 @@ class _BoundedUtf8Builder:
         )
 
 
+class _OwnedStringView(str):
+    """An exact immutable string whose diagnostic representation is constant."""
+
+    __slots__ = ()
+
+    def __new__(cls, value: str) -> "_OwnedStringView":
+        if type(value) is not str:
+            raise TypeError("owned string views require an exact string")
+        return str.__new__(cls, value)
+
+    def __repr__(self) -> str:
+        return "<string>"
+
+
 class _OwnedMappingView(Mapping[str, object]):
     """Lazy read-only mapping over one owned object."""
 
-    __slots__ = ("_owned", "_translate_refs")
+    __slots__ = ("_keys", "_owned", "_translate_refs")
 
     def __init__(self, owned: JsonObject, *, translate_refs: bool) -> None:
         self._owned = owned
         self._translate_refs = translate_refs
+        self._keys = (
+            None
+            if translate_refs
+            else tuple(_OwnedStringView(key) for key in owned)
+        )
 
     def __getitem__(self, key: str) -> object:
-        child = self._owned[key]
-        if self._translate_refs and key == "$ref" and type(child) is JsonString:
-            return "#" + quote(child.value, safe="/~")
+        lookup_key = str.__str__(key) if type(key) is _OwnedStringView else key
+        child = self._owned[lookup_key]
+        if (
+            self._translate_refs
+            and lookup_key == "$ref"
+            and type(child) is JsonString
+        ):
+            return _OwnedStringView("#" + quote(child.value, safe="/~"))
         return _adapt_owned(child, translate_refs=self._translate_refs)
 
     def __iter__(self) -> Iterator[str]:
-        return iter(self._owned)
+        if self._keys is None:
+            return iter(self._owned)
+        return iter(self._keys)
 
     def __len__(self) -> int:
         return len(self._owned)
+
+    def __repr__(self) -> str:
+        return "<object>"
 
 
 class _OwnedSequenceView(Sequence[object]):
@@ -420,6 +499,9 @@ class _OwnedSequenceView(Sequence[object]):
     def __len__(self) -> int:
         return len(self._owned)
 
+    def __repr__(self) -> str:
+        return "<array>"
+
 
 def _adapt_owned(value: JsonValue, *, translate_refs: bool) -> object:
     value_type = type(value)
@@ -428,7 +510,7 @@ def _adapt_owned(value: JsonValue, *, translate_refs: bool) -> object:
     if value_type is JsonBoolean:
         return value.value
     if value_type is JsonString:
-        return value.value
+        return _OwnedStringView(value.value)
     if value_type is JsonNumber:
         return value.value
     if value_type is JsonArray:
@@ -463,7 +545,7 @@ def _is_owned_object(_: object, instance: object) -> bool:
 
 
 def _is_owned_string(_: object, instance: object) -> bool:
-    return type(instance) is str
+    return type(instance) is _OwnedStringView
 
 
 _OWNED_TYPE_CHECKER = Draft202012Validator.TYPE_CHECKER.redefine_many(
@@ -534,6 +616,12 @@ def _make_profile(
                 "bounded_issue_evidence_utf8_bytes": (
                     MAX_SCHEMA_ISSUE_EVIDENCE_BYTES
                 ),
+                "bounded_evaluator_value_repr_utf8_bytes": (
+                    _MAX_EVALUATOR_VALUE_REPR_BYTES
+                ),
+                "exception_projection_bytes": _EXCEPTION_PROJECTION_MAX_BYTES,
+                "exception_projection_items": _EXCEPTION_PROJECTION_MAX_ITEMS,
+                "exception_projection_depth": _EXCEPTION_PROJECTION_MAX_DEPTH,
             },
             "evaluator": {
                 "evaluator_id": _EVALUATOR_ID,
@@ -823,15 +911,6 @@ def _validator_for(schema: AdmittedSchema) -> object:
     )
 
 
-def _update_digest_with_text(digest: _HashUpdater, value: str) -> int:
-    byte_count = 0
-    for character in value:
-        encoded = character.encode("utf-8")
-        digest.update(encoded)
-        byte_count += len(encoded)
-    return byte_count
-
-
 def _write_pointer_token(builder: _BoundedUtf8Builder, token: str) -> None:
     for character in token:
         if character == "~":
@@ -846,7 +925,7 @@ def _bounded_path_pointer(path: Sequence[object]) -> _BoundedPathEvidence:
     builder = _BoundedUtf8Builder()
     for component in path:
         builder.write(b"/")
-        if type(component) is str:
+        if type(component) in (str, _OwnedStringView):
             _write_pointer_token(builder, component)
         elif type(component) is int:
             _write_pointer_token(builder, str(component))
@@ -897,30 +976,181 @@ def _issue_from_validation_error(error: ValidationError) -> SchemaIssue:
     )
 
 
-def _exception_detail_digest(exception: BaseException) -> bytes:
-    exception_type = f"{type(exception).__module__}.{type(exception).__qualname__}"
-    digest = hashlib.sha256(b"rook.schema_evaluator_exception:v1\0")
-    _update_digest_with_text(digest, exception_type)
-    digest.update(len(exception.args).to_bytes(8, "big"))
-    for argument in exception.args:
-        argument_digest = hashlib.sha256()
-        if type(argument) is str:
-            marker = b"str"
-            byte_count = _update_digest_with_text(argument_digest, argument)
-        elif type(argument) is bytes:
-            marker = b"bytes"
-            argument_digest.update(argument)
-            byte_count = len(argument)
+def _projection_uint(value: int) -> bytes:
+    if value >= 1 << 128:
+        return b"\xff" * 16
+    return value.to_bytes(16, "big")
+
+
+def _project_exception_string(
+    writer: _ExceptionProjectionWriter, value: str
+) -> None:
+    length = len(value)
+    if length <= _EXCEPTION_PROJECTION_EDGE_UNITS * 2:
+        prefix_count = length
+        suffix_count = 0
+        locally_truncated = False
+    else:
+        prefix_count = _EXCEPTION_PROJECTION_EDGE_UNITS
+        suffix_count = _EXCEPTION_PROJECTION_EDGE_UNITS
+        locally_truncated = True
+        writer.mark_truncated()
+    writer.write(b"S")
+    writer.write(_projection_uint(length))
+    writer.write(prefix_count.to_bytes(2, "big"))
+    writer.write(suffix_count.to_bytes(2, "big"))
+    writer.write(b"\x01" if locally_truncated else b"\x00")
+    for index in range(prefix_count):
+        writer.write(ord(value[index]).to_bytes(4, "big"))
+    for index in range(length - suffix_count, length):
+        writer.write(ord(value[index]).to_bytes(4, "big"))
+
+
+def _project_exception_bytes(
+    writer: _ExceptionProjectionWriter, value: bytes
+) -> None:
+    length = len(value)
+    if length <= _EXCEPTION_PROJECTION_EDGE_UNITS * 2:
+        prefix_count = length
+        suffix_count = 0
+        locally_truncated = False
+    else:
+        prefix_count = _EXCEPTION_PROJECTION_EDGE_UNITS
+        suffix_count = _EXCEPTION_PROJECTION_EDGE_UNITS
+        locally_truncated = True
+        writer.mark_truncated()
+    writer.write(b"Y")
+    writer.write(_projection_uint(length))
+    writer.write(prefix_count.to_bytes(2, "big"))
+    writer.write(suffix_count.to_bytes(2, "big"))
+    writer.write(b"\x01" if locally_truncated else b"\x00")
+    writer.write(value[:prefix_count])
+    if suffix_count:
+        writer.write(value[length - suffix_count :])
+
+
+def _project_type_identity(
+    writer: _ExceptionProjectionWriter, value_type: type[object]
+) -> None:
+    for marker, descriptor in (
+        (b"M", _TYPE_MODULE_DESCRIPTOR),
+        (b"Q", _TYPE_QUALNAME_DESCRIPTOR),
+    ):
+        writer.write(marker)
+        try:
+            component = descriptor.__get__(value_type, type)
+        except Exception:
+            component = None
+        if type(component) is str:
+            _project_exception_string(writer, component)
         else:
-            marker = b"type"
-            argument_type = (
-                f"{type(argument).__module__}.{type(argument).__qualname__}"
+            writer.write(b"?")
+
+
+def _project_exception_integer(
+    writer: _ExceptionProjectionWriter, value: int
+) -> None:
+    bit_length = value.bit_length()
+    shift = max(bit_length - _EXCEPTION_PROJECTION_INT_BITS, 0)
+    low_bits = value & _EXCEPTION_PROJECTION_INT_MASK
+    high_bits = (value >> shift) & _EXCEPTION_PROJECTION_INT_MASK
+    writer.write(b"I")
+    writer.write(b"\x01" if value < 0 else b"\x00")
+    writer.write(_projection_uint(bit_length))
+    writer.write(low_bits.to_bytes(_EXCEPTION_PROJECTION_INT_BITS // 8, "big"))
+    writer.write(high_bits.to_bytes(_EXCEPTION_PROJECTION_INT_BITS // 8, "big"))
+
+
+def _project_exception_scalar(
+    writer: _ExceptionProjectionWriter, value: object
+) -> None:
+    value_type = type(value)
+    if value is None:
+        writer.write(b"N")
+    elif value_type is bool:
+        writer.write(b"B\x01" if value else b"B\x00")
+    elif value_type is int:
+        _project_exception_integer(writer, value)
+    elif value_type is float:
+        writer.write(b"F")
+        writer.write(struct.pack(">d", value))
+    elif value_type is str:
+        _project_exception_string(writer, value)
+    elif value_type is bytes:
+        _project_exception_bytes(writer, value)
+    else:
+        writer.write(b"U")
+        _project_type_identity(writer, value_type)
+
+
+def _exception_detail_projection(
+    exception: BaseException,
+) -> _ExceptionDetailProjection:
+    writer = _ExceptionProjectionWriter()
+    writer.write(b"E")
+    _project_type_identity(writer, type(exception))
+    writer.write(b"A")
+    try:
+        arguments = BaseException.args.__get__(exception, BaseException)
+    except Exception:
+        arguments = ()
+        writer.mark_truncated()
+
+    stack: list[tuple[object, int]] = [(arguments, 0)]
+    projected_items = 0
+    maximum_depth = 0
+    while stack and not writer.exhausted:
+        if projected_items == _EXCEPTION_PROJECTION_MAX_ITEMS:
+            writer.mark_truncated()
+            break
+        value, depth = stack.pop()
+        projected_items += 1
+        maximum_depth = max(maximum_depth, depth)
+
+        if type(value) is not tuple:
+            _project_exception_scalar(writer, value)
+            continue
+
+        length = len(value)
+        if depth >= _EXCEPTION_PROJECTION_MAX_DEPTH:
+            child_count = 0
+            depth_limited = bool(length)
+        else:
+            available_items = (
+                _EXCEPTION_PROJECTION_MAX_ITEMS
+                - projected_items
+                - len(stack)
             )
-            byte_count = _update_digest_with_text(argument_digest, argument_type)
-        digest.update(marker)
-        digest.update(byte_count.to_bytes(16, "big"))
-        digest.update(argument_digest.digest())
-    return digest.digest()
+            child_count = min(length, max(available_items, 0))
+            depth_limited = False
+        children_truncated = child_count < length
+        if children_truncated:
+            writer.mark_truncated()
+        writer.write(b"T")
+        writer.write(_projection_uint(length))
+        writer.write(child_count.to_bytes(2, "big"))
+        writer.write(b"\x01" if depth_limited else b"\x00")
+        writer.write(b"\x01" if children_truncated else b"\x00")
+        for index in range(child_count - 1, -1, -1):
+            stack.append((value[index], depth + 1))
+
+    if stack:
+        writer.mark_truncated()
+    digest = writer.finish(
+        projected_items=projected_items,
+        maximum_depth=maximum_depth,
+    )
+    return _ExceptionDetailProjection(
+        digest=digest,
+        projected_bytes=writer.projected_bytes,
+        projected_items=projected_items,
+        maximum_depth=maximum_depth,
+        truncated=writer.truncated,
+    )
+
+
+def _exception_detail_digest(exception: BaseException) -> bytes:
+    return _exception_detail_projection(exception).digest
 
 
 def _exception_detail_fingerprint(

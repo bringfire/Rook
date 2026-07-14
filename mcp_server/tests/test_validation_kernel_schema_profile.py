@@ -42,6 +42,10 @@ from rook.validation_kernel.schema_profile import (
 DRAFT_2020_12_METASCHEMA_ID = "https://json-schema.org/draft/2020-12/schema"
 EXPECTED_SCHEMA_ISSUE_PATH_BYTES = 512
 EXPECTED_SCHEMA_ISSUE_EVIDENCE_BYTES = 65_536
+EXPECTED_EVALUATOR_VALUE_REPR_BYTES = 8
+EXPECTED_EXCEPTION_PROJECTION_BYTES = 4_096
+EXPECTED_EXCEPTION_PROJECTION_ITEMS = 128
+EXPECTED_EXCEPTION_PROJECTION_DEPTH = 16
 PAYLOAD_ALLOWED_CASES = {
     "$schema": {"$schema": DRAFT_2020_12_METASCHEMA_ID},
     "$defs": {"$defs": {"leaf": {"type": "null"}}},
@@ -132,8 +136,51 @@ def schema_issue_evidence_bytes(issue: SchemaIssue) -> int:
     return sum(len(field.encode("utf-8")) for field in fields)
 
 
+def evaluator_failure_receipt(
+    monkeypatch: pytest.MonkeyPatch, exception: Exception
+) -> SchemaEvaluationReceipt:
+    class BrokenValidator:
+        def iter_errors(self, _: object) -> tuple[()]:
+            raise exception
+
+    monkeypatch.setattr(
+        schema_profile_module,
+        "_validator_for",
+        lambda _: BrokenValidator(),
+    )
+    return evaluate_schema(
+        admit({"type": "null"}),
+        own_trusted_json(None),
+        instance_binding=binding(),
+        ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
+    )
+
+
 def admit(host: dict[str, object], profile: SchemaProfile = PAYLOAD_PROFILE) -> AdmittedSchema:
     return admit_schema("schema.test", owned_schema(host), profile)
+
+
+def nested_alternative_schema(
+    keyword: str, depth: int, alternatives: int
+) -> dict[str, object]:
+    if depth == 0:
+        return {"type": "number"}
+    return {
+        keyword: [
+            nested_alternative_schema(keyword, depth - 1, alternatives)
+            for _ in range(alternatives)
+        ]
+    }
+
+
+def validation_error_tree(errors: object) -> tuple[object, ...]:
+    flattened: list[object] = []
+    pending = list(errors)
+    while pending:
+        error = pending.pop()
+        flattened.append(error)
+        pending.extend(error.context)
+    return tuple(flattened)
 
 
 @pytest.mark.parametrize(
@@ -551,6 +598,10 @@ def test_profile_identity_binds_exact_dependencies_and_draft_metaschema() -> Non
         assert profile.metaschema_id == DRAFT_2020_12_METASCHEMA_ID
         assert profile.metaschema_fingerprint == expected_metaschema_fingerprint
         assert profile.metaschema_fingerprint.encode("ascii") in identity_bytes
+        assert b'"bounded_evaluator_value_repr_utf8_bytes":8' in identity_bytes
+        assert b'"exception_projection_bytes":4096' in identity_bytes
+        assert b'"exception_projection_items":128' in identity_bytes
+        assert b'"exception_projection_depth":16' in identity_bytes
         assert canonical_fingerprint(profile.identity) == profile.profile_fingerprint
 
 
@@ -589,6 +640,86 @@ def test_evaluator_uses_exact_owned_value_type_checking(
     assert accepted_receipt.failure_code is None
     assert rejected_receipt.evaluation_passed is False
     assert rejected_receipt.failure_code == "instance_schema_failed"
+
+
+def assert_nested_alternative_error_evidence_is_bounded(
+    *, keyword: str, depth: int, alternatives: int, text: str, expected_errors: int
+) -> None:
+    schema = admit(
+        nested_alternative_schema(keyword, depth, alternatives), CORE_PROFILE
+    )
+    instance_view = schema_profile_module._adapt_owned(
+        own_trusted_json(text), translate_refs=False
+    )
+
+    assert isinstance(instance_view, str)
+    assert schema_profile_module._MAX_EVALUATOR_VALUE_REPR_BYTES == (
+        EXPECTED_EVALUATOR_VALUE_REPR_BYTES
+    )
+    assert len(instance_view) == len(text)
+    assert instance_view.startswith(text[:16])
+    assert instance_view.endswith(text[-16:])
+    assert re.fullmatch(r"[A-Z-]+z+", instance_view)
+    assert schema_profile_module._OWNED_TYPE_CHECKER.is_type(instance_view, "string")
+
+    roots = tuple(schema_profile_module._validator_for(schema).iter_errors(instance_view))
+    errors = validation_error_tree(roots)
+    representations = tuple(repr(error.instance) for error in errors)
+    messages = tuple(error.message for error in errors)
+
+    assert len(roots) == 1
+    assert len(errors) == expected_errors
+    assert max(len(value.encode("utf-8")) for value in representations) <= (
+        EXPECTED_EVALUATOR_VALUE_REPR_BYTES
+    )
+    assert sum(len(value.encode("utf-8")) for value in representations) <= (
+        EXPECTED_SCHEMA_ISSUE_EVIDENCE_BYTES
+    )
+    assert max(len(message.encode("utf-8")) for message in messages) <= 128
+    assert text[:16] not in "".join(messages)
+
+
+@pytest.mark.parametrize("keyword", ["anyOf", "oneOf"])
+def test_nested_alternative_internal_errors_use_constant_bounded_instance_repr(
+    keyword: str,
+) -> None:
+    assert_nested_alternative_error_evidence_is_bounded(
+        keyword=keyword,
+        depth=2,
+        alternatives=4,
+        text="INTERNAL-SECRET-" + "z" * 32_768,
+        expected_errors=21,
+    )
+
+
+def test_reviewer_scale_nested_any_of_error_tree_cannot_amplify_instance_text() -> None:
+    schema = nested_alternative_schema("anyOf", depth=3, alternatives=16)
+    assert count_json_nodes(owned_schema(schema)) == 8_738
+
+    assert_nested_alternative_error_evidence_is_bounded(
+        keyword="anyOf",
+        depth=3,
+        alternatives=16,
+        text="REVIEWER-PROBE-SECRET-" + "z" * 1_000_000,
+        expected_errors=4_369,
+    )
+
+
+def test_internal_additional_properties_error_bounds_long_owned_key_repr() -> None:
+    secret = "LONG-KEY-SECRET-" + "k" * 32_768
+    schema = admit({"additionalProperties": False})
+    instance_view = schema_profile_module._adapt_owned(
+        own_trusted_json({secret: None}), translate_refs=False
+    )
+
+    errors = tuple(schema_profile_module._validator_for(schema).iter_errors(instance_view))
+
+    assert len(errors) == 1
+    assert secret not in errors[0].message
+    assert len(errors[0].message.encode("utf-8")) <= 128
+    assert len(repr(errors[0].instance).encode("utf-8")) <= (
+        EXPECTED_EVALUATOR_VALUE_REPR_BYTES
+    )
 
 
 def test_local_pointer_ref_evaluates_without_retrieval() -> None:
@@ -909,6 +1040,116 @@ def test_evaluator_exception_does_not_stringify_detail_and_bounds_binding_path(
     assert issue.instance_path.startswith("/" + "p" * 32)
     assert re.fullmatch(r"sha256:[0-9a-f]{64}", issue.detail_sha256 or "")
     assert schema_issue_evidence_bytes(issue) <= EXPECTED_SCHEMA_ISSUE_EVIDENCE_BYTES
+
+
+def test_evaluator_exception_hash_is_total_for_lone_surrogate_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    receipt = evaluator_failure_receipt(monkeypatch, RuntimeError("\ud800"))
+
+    assert receipt.evaluator_invoked is True
+    assert receipt.evaluation_passed is None
+    assert receipt.failure_code == "schema_evaluator_failed"
+    assert len(receipt.bounded_errors) == 1
+    assert re.fullmatch(
+        r"sha256:[0-9a-f]{64}", receipt.bounded_errors[0].detail_sha256 or ""
+    )
+
+
+def test_evaluator_exception_hash_binds_exact_builtin_structure() -> None:
+    digest = schema_profile_module._exception_detail_digest
+
+    assert digest(RuntimeError(1)) != digest(RuntimeError(2))
+    assert digest(RuntimeError(True)) != digest(RuntimeError(1))
+    assert digest(RuntimeError(b"one")) != digest(RuntimeError(b"two"))
+    assert digest(
+        RuntimeError((None, True, 7, -0.0, "text", b"bytes", ("nested", 1)))
+    ) != digest(
+        RuntimeError((None, True, 7, -0.0, "text", b"bytes", ("nested", 2)))
+    )
+
+
+def test_evaluator_exception_hash_never_calls_unknown_object_text_hooks() -> None:
+    class HostileDetail:
+        str_calls = 0
+        repr_calls = 0
+
+        def __str__(self) -> str:
+            type(self).str_calls += 1
+            raise AssertionError("exception hashing called hostile __str__")
+
+        def __repr__(self) -> str:
+            type(self).repr_calls += 1
+            raise AssertionError("exception hashing called hostile __repr__")
+
+    first = schema_profile_module._exception_detail_digest(
+        RuntimeError(HostileDetail())
+    )
+    second = schema_profile_module._exception_detail_digest(
+        RuntimeError(HostileDetail())
+    )
+
+    assert first == second
+    assert HostileDetail.str_calls == 0
+    assert HostileDetail.repr_calls == 0
+
+
+def test_evaluator_exception_hash_bypasses_hostile_type_metadata_descriptors() -> None:
+    class HostileMetadata(type):
+        module_calls = 0
+
+        @property
+        def __module__(cls) -> str:
+            type(cls).module_calls += 1
+            raise AssertionError("exception hashing invoked metaclass descriptor")
+
+    class HostileDetail(metaclass=HostileMetadata):
+        pass
+
+    first = schema_profile_module._exception_detail_digest(
+        RuntimeError(HostileDetail())
+    )
+    second = schema_profile_module._exception_detail_digest(
+        RuntimeError(HostileDetail())
+    )
+
+    assert first == second
+    assert HostileMetadata.module_calls == 0
+
+
+def test_evaluator_exception_projection_is_iterative_and_mechanically_bounded() -> None:
+    deep: object = 1
+    for _ in range(10_000):
+        deep = (deep,)
+    cycle: list[object] = []
+    cycle.append(cycle)
+
+    depth_projection = schema_profile_module._exception_detail_projection(
+        RuntimeError((deep, cycle))
+    )
+    item_projection = schema_profile_module._exception_detail_projection(
+        RuntimeError(tuple(range(10_000)))
+    )
+    byte_projection = schema_profile_module._exception_detail_projection(
+        RuntimeError("\ud800" + "x" * 100_000)
+    )
+
+    for projection in (depth_projection, item_projection, byte_projection):
+        assert type(projection.digest) is bytes
+        assert len(projection.digest) == 32
+        assert projection.projected_bytes <= EXPECTED_EXCEPTION_PROJECTION_BYTES
+        assert projection.projected_items <= EXPECTED_EXCEPTION_PROJECTION_ITEMS
+        assert projection.maximum_depth <= EXPECTED_EXCEPTION_PROJECTION_DEPTH
+        assert projection.truncated is True
+    assert schema_profile_module._EXCEPTION_PROJECTION_MAX_BYTES == (
+        EXPECTED_EXCEPTION_PROJECTION_BYTES
+    )
+    assert schema_profile_module._EXCEPTION_PROJECTION_MAX_ITEMS == (
+        EXPECTED_EXCEPTION_PROJECTION_ITEMS
+    )
+    assert schema_profile_module._EXCEPTION_PROJECTION_MAX_DEPTH == (
+        EXPECTED_EXCEPTION_PROJECTION_DEPTH
+    )
 
 
 def test_evaluator_exception_returns_hash_only_and_keeps_reservation(
