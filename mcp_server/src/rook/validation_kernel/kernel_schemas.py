@@ -639,12 +639,7 @@ _CONFORMANCE_FIXTURE_SCHEMA_HOST = {
     **_closed_object(
         {
             "schema": {"const": CONFORMANCE_FIXTURE_SCHEMA_ID},
-            "fixture_id": {
-                "enum": [
-                    "fixture.report_pass",
-                    "fixture.control_failure_expected",
-                ]
-            },
+            "fixture_id": _MACHINE_ID,
             "recipe_input": _closed_object(
                 {
                     "content_ref": _MACHINE_ID,
@@ -744,7 +739,23 @@ _CONFORMANCE_SCHEMA_ATTEMPT_ROW_SCHEMA_HOST = {
                         "failure_code": {
                             "enum": [None, "instance_schema_failed"]
                         },
-                    }
+                    },
+                    "oneOf": [
+                        {
+                            "properties": {
+                                "evaluation_passed": {"const": True},
+                                "failure_code": {"type": "null"},
+                            }
+                        },
+                        {
+                            "properties": {
+                                "evaluation_passed": {"const": False},
+                                "failure_code": {
+                                    "const": "instance_schema_failed"
+                                },
+                            }
+                        },
+                    ],
                 },
                 {
                     "properties": {
@@ -793,6 +804,61 @@ _CONFORMANCE_COMPLETENESS_SCHEMA_HOST = {
     ),
 }
 
+_EXPECTED_PUBLISHED_IDENTITY = {
+    "properties": {
+        "expected_result_kind": {"const": "published_report"},
+        "expected_report_schema_id": _MACHINE_ID,
+        "expected_result_fingerprint": _FINGERPRINT,
+        "expected_control_failure_stage": {"type": "null"},
+        "expected_control_failure_code": {"type": "null"},
+        "expected_control_failure_artifact_role": {"type": "null"},
+    }
+}
+_EXPECTED_CONTROL_IDENTITY = {
+    "properties": {
+        "expected_result_kind": {"const": "control_failure"},
+        "expected_report_schema_id": {"type": "null"},
+        "expected_result_fingerprint": {"type": "null"},
+        "expected_control_failure_stage": {
+            "enum": ["preflight", "validation"]
+        },
+        "expected_control_failure_code": _MACHINE_ID,
+        "expected_control_failure_artifact_role": _MACHINE_ID,
+    }
+}
+_ACTUAL_PUBLISHED_IDENTITY = {
+    "properties": {
+        "actual_result_kind": {"const": "published_report"},
+        "actual_report_schema_id": _MACHINE_ID,
+        "actual_result_fingerprint": _FINGERPRINT,
+        "actual_control_failure_stage": {"type": "null"},
+        "actual_control_failure_code": {"type": "null"},
+        "actual_control_failure_artifact_role": {"type": "null"},
+    }
+}
+_ACTUAL_CONTROL_IDENTITY = {
+    "properties": {
+        "actual_result_kind": {"const": "control_failure"},
+        "actual_report_schema_id": {"type": "null"},
+        "actual_result_fingerprint": {"type": "null"},
+        "actual_control_failure_stage": {
+            "enum": ["preflight", "validation"]
+        },
+        "actual_control_failure_code": _MACHINE_ID,
+        "actual_control_failure_artifact_role": _MACHINE_ID,
+    }
+}
+_ACTUAL_UNAVAILABLE_IDENTITY = {
+    "properties": {
+        "actual_result_kind": {"const": "unavailable"},
+        "actual_report_schema_id": {"type": "null"},
+        "actual_result_fingerprint": {"type": "null"},
+        "actual_control_failure_stage": {"type": "null"},
+        "actual_control_failure_code": {"type": "null"},
+        "actual_control_failure_artifact_role": {"type": "null"},
+    }
+}
+
 _FIXTURE_CASE_RESULT = {
     **_closed_object(
         {
@@ -821,6 +887,65 @@ _FIXTURE_CASE_RESULT = {
             "result_identity_matches": {"type": "boolean"},
         }
     ),
+    "allOf": [
+        {
+            "oneOf": [
+                _EXPECTED_PUBLISHED_IDENTITY,
+                _EXPECTED_CONTROL_IDENTITY,
+            ]
+        },
+        {
+            "oneOf": [
+                _ACTUAL_PUBLISHED_IDENTITY,
+                _ACTUAL_CONTROL_IDENTITY,
+                _ACTUAL_UNAVAILABLE_IDENTITY,
+            ]
+        },
+        {
+            "oneOf": [
+                {
+                    "properties": {
+                        "expected_result_kind": {"const": "published_report"},
+                        "actual_result_kind": {"const": "published_report"},
+                    }
+                },
+                {
+                    "properties": {
+                        "expected_result_kind": {"const": "control_failure"},
+                        "actual_result_kind": {"const": "control_failure"},
+                    }
+                },
+                {
+                    "properties": {
+                        "expected_result_kind": {"const": "published_report"},
+                        "actual_result_kind": {"const": "control_failure"},
+                        "result_identity_matches": {"const": False},
+                    }
+                },
+                {
+                    "properties": {
+                        "expected_result_kind": {"const": "published_report"},
+                        "actual_result_kind": {"const": "unavailable"},
+                        "result_identity_matches": {"const": False},
+                    }
+                },
+                {
+                    "properties": {
+                        "expected_result_kind": {"const": "control_failure"},
+                        "actual_result_kind": {"const": "published_report"},
+                        "result_identity_matches": {"const": False},
+                    }
+                },
+                {
+                    "properties": {
+                        "expected_result_kind": {"const": "control_failure"},
+                        "actual_result_kind": {"const": "unavailable"},
+                        "result_identity_matches": {"const": False},
+                    }
+                },
+            ]
+        },
+    ],
 }
 _RESULT_ROW_PROPERTIES = {
     "result_index": {"type": "integer", "minimum": 0},
@@ -881,7 +1006,12 @@ _RESULT_ROW = {
                     "properties": {
                         "case_kind": {"const": "semantic_fixture"},
                         "schema_case_result": {"type": "null"},
-                        "fixture_case_result": _FIXTURE_CASE_RESULT,
+                        "fixture_case_result": {
+                            "anyOf": [
+                                _FIXTURE_CASE_RESULT,
+                                {"type": "null"},
+                            ]
+                        },
                     }
                 },
             ]

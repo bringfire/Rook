@@ -46,7 +46,6 @@ from .kernel_schemas import (
     CONFORMANCE_REPORT_SCHEMA_ID,
 )
 from .owned_json import (
-    JsonArray,
     JsonObject,
     JsonValue,
     count_json_nodes,
@@ -60,6 +59,8 @@ from .schema_profile import (
     AdmittedSchema,
     InstanceBinding,
     SchemaEvaluationReceipt,
+    _SchemaEvaluationAuditEntry,
+    _is_schema_evaluation_audit_entry,
 )
 
 
@@ -677,13 +678,22 @@ def _attempt_row(
 
 
 def _attempt_summary(attempts: list[dict[str, object]]) -> tuple[int, bool, bool]:
-    aggregate = 0
+    aggregate = (
+        cast(int, attempts[0]["aggregate_before_reservation"])
+        if attempts
+        else 0
+    )
     within_per_evaluation = True
     within_invocation = True
     for attempt in attempts:
+        before = attempt["aggregate_before_reservation"]
+        if type(before) is not int or before != aggregate:
+            raise _GateIntegrityFailure("schema attempt aggregate order is inconsistent")
         after = attempt["aggregate_after_reservation"]
         if type(after) is int:
             aggregate = after
+        else:
+            aggregate = before
         failure_code = attempt["failure_code"]
         if failure_code == "per_evaluation_limit_exceeded":
             within_per_evaluation = False
@@ -906,143 +916,105 @@ def _fixture_identity_result(
     }
 
 
-def _pointer_token(value: str) -> str:
-    return value.replace("~", "~0").replace("/", "~1")
-
-
-def _walk_instances(root: JsonValue) -> tuple[tuple[str, JsonValue], ...]:
-    found: list[tuple[str, JsonValue]] = []
-    stack: list[tuple[str, JsonValue]] = [("", root)]
-    while stack:
-        pointer, value = stack.pop()
-        found.append((pointer, value))
-        if type(value) is JsonObject:
-            for key, child in reversed(value.members):
-                stack.append((pointer + "/" + _pointer_token(str(key)), child))
-        elif type(value) is JsonArray:
-            for index in range(len(value.items) - 1, -1, -1):
-                stack.append((pointer + "/" + str(index), value.items[index]))
-    return tuple(found)
-
-
-def _map_internal_audit_receipt(
-    receipt: SchemaEvaluationReceipt,
+def _attempt_row_from_audit_entry(
+    entry: _SchemaEvaluationAuditEntry,
     *,
     evaluation_index: int,
     program: SealedValidationProgram,
-    parsed_roots: tuple[tuple[str, ParsedJsonValue], ...],
 ) -> dict[str, object]:
-    attempted = receipt.reservation.attempted_shape_units
-    if attempted is None:
-        raise _GateIntegrityFailure("rejected semantic receipt lacks bound identity")
-    candidates: list[tuple[AdmittedSchema, str, str, str, JsonValue, object]] = []
-    for schema in program.schemas:
-        evaluator_spec = _profile_for_schema(program, schema)
-        for artifact_id, parsed in parsed_roots:
-            for pointer, instance in _walk_instances(parsed.value):
-                if schema.schema_nodes * count_json_nodes(instance) == attempted:
-                    candidates.append(
-                        (
-                            schema,
-                            artifact_id,
-                            parsed.value_fingerprint,
-                            pointer,
-                            instance,
-                            evaluator_spec,
-                        )
-                    )
-    if len(candidates) != 1:
-        raise _GateIntegrityFailure("semantic audit identity is not uniquely recoverable")
-    schema, artifact_id, artifact_fingerprint, pointer, instance, evaluator_spec = (
-        candidates[0]
+    if not _is_schema_evaluation_audit_entry(entry):
+        raise _GateIntegrityFailure("semantic schema attempt is not authentic")
+    schema = next(
+        (
+            candidate
+            for candidate in program.schemas
+            if candidate.schema_id == entry.schema_id
+            and candidate.schema_fingerprint == entry.schema_fingerprint
+            and candidate.schema_nodes == entry.schema_nodes
+        ),
+        None,
     )
-    binding = InstanceBinding(
-        artifact_id=artifact_id,
-        artifact_fingerprint=artifact_fingerprint,
-        instance_pointer=pointer,
-    )
-    return _attempt_row(
-        evaluation_index=evaluation_index,
-        schema=schema,
-        instance_binding=binding,
-        instance=instance,
-        receipt=receipt,
-        per_evaluation_limit=evaluator_spec.profile.per_evaluation_shape_limit,
-    )
+    if schema is None:
+        raise _GateIntegrityFailure("semantic schema attempt is not program-bound")
+    evaluator_spec = _profile_for_schema(program, schema)
+    if (
+        evaluator_spec.profile.per_evaluation_shape_limit
+        != entry.per_evaluation_limit
+    ):
+        raise _GateIntegrityFailure("semantic schema attempt profile is mismatched")
+    candidate = entry.pre_evaluation_candidate
+    if (
+        entry.instance_fingerprint is not None
+        and type(entry.instance_nodes) is int
+        and candidate is None
+    ):
+        instance_fingerprint = entry.instance_fingerprint
+        instance_nodes = entry.instance_nodes
+    elif (
+        entry.instance_fingerprint is None
+        and entry.instance_nodes is None
+        and candidate is not None
+        and not entry.receipt.reservation.accepted
+    ):
+        instance_fingerprint = candidate.candidate_fingerprint
+        instance_nodes = candidate.projected_instance_nodes
+    else:
+        raise _GateIntegrityFailure("semantic attempt identity variant is invalid")
+    receipt = entry.receipt
+    reservation = receipt.reservation
+    if not reservation.accepted:
+        status = "reservation_rejected"
+        attempted = None
+        aggregate_after = None
+    elif receipt.evaluator_invoked and type(receipt.evaluation_passed) is bool:
+        status = "evaluation_completed"
+        attempted = reservation.attempted_shape_units
+        aggregate_after = reservation.aggregate_after
+    elif receipt.evaluator_invoked and receipt.evaluation_passed is None:
+        status = "evaluator_failed"
+        attempted = reservation.attempted_shape_units
+        aggregate_after = reservation.aggregate_after
+    else:
+        raise _GateIntegrityFailure("semantic schema receipt status is invalid")
+    binding = entry.instance_binding
+    return {
+        "evaluation_index": evaluation_index,
+        "schema_id": entry.schema_id,
+        "schema_fingerprint": entry.schema_fingerprint,
+        "instance_binding": {
+            "artifact_id": binding.artifact_id,
+            "artifact_fingerprint": binding.artifact_fingerprint,
+        },
+        "instance_pointer": binding.instance_pointer,
+        "instance_fingerprint": instance_fingerprint,
+        "attempt_status": status,
+        "schema_nodes": entry.schema_nodes,
+        "instance_nodes": instance_nodes,
+        "attempted_shape_units": attempted,
+        "per_evaluation_limit": entry.per_evaluation_limit,
+        "aggregate_before_reservation": reservation.aggregate_before,
+        "aggregate_after_reservation": aggregate_after,
+        "evaluator_invoked": receipt.evaluator_invoked,
+        "evaluation_passed": receipt.evaluation_passed,
+        "failure_code": receipt.failure_code,
+    }
 
 
 def _semantic_attempt_rows(
     outcome: _AuditedValidationOutcome,
     *,
     program: SealedValidationProgram,
-    recipe_ref: str,
-    recipe_bytes: bytes,
-    bundle_ref: str,
-    bundle_bytes: bytes,
 ) -> list[dict[str, object]]:
     if not _is_validation_execution_audit(outcome.audit, program):
         raise _GateIntegrityFailure("semantic validation audit is not authentic")
-    receipts = outcome.audit.schema_evaluation_receipts
-    attempts: list[dict[str, object]] = []
-    report_receipt: SchemaEvaluationReceipt | None = None
-    internal_receipts = receipts
-    if type(outcome.public_result) is PublishedValidationReport:
-        if not receipts:
-            raise _GateIntegrityFailure("published report audit is missing")
-        report_receipt = receipts[-1]
-        internal_receipts = receipts[:-1]
-    parsed_roots: list[tuple[str, ParsedJsonValue]] = []
-    for artifact_id, raw, role in (
-        (recipe_ref, recipe_bytes, "conformance_fixture_recipe_identity"),
-        (bundle_ref, bundle_bytes, "conformance_fixture_bundle_identity"),
-    ):
-        try:
-            parsed_roots.append((artifact_id, _parse_gate_json(raw, role)))
-        except (BudgetExceeded, JsonParseError):
-            continue
-    for index, receipt in enumerate(internal_receipts):
-        attempts.append(
-            _map_internal_audit_receipt(
-                receipt,
-                evaluation_index=index,
-                program=program,
-                parsed_roots=tuple(parsed_roots),
-            )
+    return [
+        _attempt_row_from_audit_entry(
+            entry,
+            evaluation_index=index,
+            program=program,
         )
-    if report_receipt is not None:
-        report = cast(PublishedValidationReport, outcome.public_result)
-        schema = next(
-            (
-                candidate
-                for candidate in program.schemas
-                if candidate.schema_id == report.schema_id
-                and candidate.schema_fingerprint
-                == program.report_projection.output_schema_fingerprint
-            ),
-            None,
-        )
-        if schema is None:
-            raise _GateIntegrityFailure("published report schema is unavailable")
-        expected_units = schema.schema_nodes * count_json_nodes(report.value)
-        if report_receipt.reservation.attempted_shape_units != expected_units:
-            raise _GateIntegrityFailure("published report audit is reordered or mismatched")
-        evaluator_spec = _profile_for_schema(program, schema)
-        binding = InstanceBinding(
-            artifact_id="artifact:validation-report",
-            artifact_fingerprint=report.report_fingerprint,
-            instance_pointer="",
-        )
-        attempts.append(
-            _attempt_row(
-                evaluation_index=len(attempts),
-                schema=schema,
-                instance_binding=binding,
-                instance=report.value,
-                receipt=report_receipt,
-                per_evaluation_limit=evaluator_spec.profile.per_evaluation_shape_limit,
-            )
-        )
-    return attempts
+        for index, entry in enumerate(outcome.audit.schema_evaluation_attempts)
+    ]
 
 
 def _execute_fixture_case(
@@ -1054,23 +1026,12 @@ def _execute_fixture_case(
     fixture_case = cast(dict[str, object], case["fixture_case"])
     fixture_ref = cast(str, fixture_case["fixture_content_ref"])
     fixture_raw = _resolve_case_bytes(store, fixture_ref)
-    unavailable_identity = _fixture_identity_result(
-        {
-            "result_kind": "control_failure",
-            "report_schema_id": None,
-            "report_fingerprint": None,
-            "control_failure_stage": "preflight",
-            "control_failure_code": "validation_input_invalid",
-            "control_failure_artifact_role": "combined",
-        },
-        object(),
-    )
     if fixture_raw is None:
         return _failed_row(
             case,
             failure_code="case_content_unavailable",
             schema_case_result=None,
-            fixture_case_result=unavailable_identity,
+            fixture_case_result=None,
         )
     try:
         parsed_fixture = _parse_gate_json(
@@ -1081,7 +1042,7 @@ def _execute_fixture_case(
             case,
             failure_code="case_execution_failed",
             schema_case_result=None,
-            fixture_case_result=unavailable_identity,
+            fixture_case_result=None,
         )
     if (
         type(parsed_fixture.value) is not JsonObject
@@ -1091,7 +1052,7 @@ def _execute_fixture_case(
             case,
             failure_code="case_execution_failed",
             schema_case_result=None,
-            fixture_case_result=unavailable_identity,
+            fixture_case_result=None,
         )
     fixture = cast(dict[str, object], _host_value(parsed_fixture.value))
     asserted_fixture = cast(str, fixture["fixture_fingerprint"])
@@ -1107,8 +1068,10 @@ def _execute_fixture_case(
             case,
             failure_code="case_fingerprint_mismatch",
             schema_case_result=None,
-            fixture_case_result=unavailable_identity,
+            fixture_case_result=None,
         )
+    expected = cast(dict[str, object], fixture["expected_result"])
+    unavailable_identity = _fixture_identity_result(expected, object())
     recipe_descriptor = cast(dict[str, object], fixture["recipe_input"])
     bundle_descriptor = cast(
         dict[str, object], fixture["validation_bundle_input"]
@@ -1170,12 +1133,7 @@ def _execute_fixture_case(
     attempts = _semantic_attempt_rows(
         outcome,
         program=program,
-        recipe_ref=recipe_ref,
-        recipe_bytes=recipe_raw,
-        bundle_ref=bundle_ref,
-        bundle_bytes=bundle_raw,
     )
-    expected = cast(dict[str, object], fixture["expected_result"])
     identity = _fixture_identity_result(expected, outcome.public_result)
     aggregate, within_per, within_invocation = _attempt_summary(attempts)
     passed = bool(identity["result_identity_matches"] and within_per and within_invocation)

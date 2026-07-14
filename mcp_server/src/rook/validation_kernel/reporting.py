@@ -18,6 +18,7 @@ from .budget import (
 )
 from .canonical_json import (
     CanonicalJsonSizeError,
+    canonical_fingerprint,
     canonical_json_bytes,
     sha256_prefixed,
 )
@@ -59,6 +60,11 @@ from .schema_profile import (
     SchemaEvaluationInputError,
     SchemaEvaluationReservation,
     SchemaEvaluationReceipt,
+    _SchemaEvaluationAuditEntry,
+    _is_schema_evaluation_audit_entry,
+    _issue_pre_evaluation_candidate_identity,
+    _issue_rejected_candidate_audit_entry,
+    _issue_schema_evaluation_audit_entry,
     _rejected_schema_evaluation_receipt,
     evaluate_schema_with_reservation,
     reserve_schema_evaluation,
@@ -159,6 +165,7 @@ class PublishedValidationReport:
 @dataclass(frozen=True, slots=True, init=False, eq=False)
 class _AuditedReportSeal:
     public_result: PublishedValidationReport | ValidationControlFailure
+    schema_evaluation_attempts: tuple[_SchemaEvaluationAuditEntry, ...]
     schema_evaluation_receipts: tuple[SchemaEvaluationReceipt, ...]
 
     def __init__(self) -> None:
@@ -167,10 +174,16 @@ class _AuditedReportSeal:
 
 def _audited_report_seal(
     public_result: PublishedValidationReport | ValidationControlFailure,
-    receipts: tuple[SchemaEvaluationReceipt, ...],
+    attempts: tuple[_SchemaEvaluationAuditEntry, ...],
 ) -> _AuditedReportSeal:
+    if type(attempts) is not tuple or any(
+        not _is_schema_evaluation_audit_entry(attempt) for attempt in attempts
+    ):
+        raise TypeError("audited report seal requires exact audit entries")
+    receipts = tuple(attempt.receipt for attempt in attempts)
     outcome = object.__new__(_AuditedReportSeal)
     object.__setattr__(outcome, "public_result", public_result)
+    object.__setattr__(outcome, "schema_evaluation_attempts", attempts)
     object.__setattr__(outcome, "schema_evaluation_receipts", receipts)
     return outcome
 
@@ -691,13 +704,55 @@ def _validate_phase_results(
     return cast(tuple[PhaseResult, ...], phase_results)
 
 
+def _report_schema_candidate_fingerprint(
+    *,
+    program: SealedValidationProgram,
+    schema: AdmittedSchema,
+    declaration: ReportProjectionSpec,
+    body: JsonObject,
+    projected_instance_nodes: int,
+) -> str:
+    descriptor = JsonObject(
+        (
+            (
+                JsonString("candidate_kind"),
+                JsonString("report_schema_instance_projection"),
+            ),
+            (JsonString("program_id"), JsonString(program.program_id)),
+            (
+                JsonString("program_fingerprint"),
+                JsonString(program.program_fingerprint),
+            ),
+            (JsonString("schema_id"), JsonString(schema.schema_id)),
+            (
+                JsonString("schema_fingerprint"),
+                JsonString(schema.schema_fingerprint),
+            ),
+            (
+                JsonString("projection_id"),
+                JsonString(declaration.projection_id),
+            ),
+            (
+                JsonString("projection_implementation_fingerprint"),
+                JsonString(declaration.implementation_fingerprint),
+            ),
+            (JsonString("report_body"), body),
+            (
+                JsonString("projected_instance_nodes"),
+                JsonNumber(float(projected_instance_nodes), "integer"),
+            ),
+        )
+    )
+    return canonical_fingerprint(descriptor)
+
+
 def _seal_validation_report_with_audit(
     context: _ValidationExecutionContext,
     phase_results: tuple[PhaseResult, ...],
 ) -> _AuditedReportSeal:
     """Seal one report while retaining exact final schema evidence privately."""
 
-    audit_receipts: list[SchemaEvaluationReceipt] = []
+    audit_attempts: list[_SchemaEvaluationAuditEntry] = []
     if type(context) is not _ValidationExecutionContext:
         return _audited_report_seal(
             _control_failure(
@@ -783,17 +838,43 @@ def _seal_validation_report_with_audit(
             ledger=context.ledger,
         )
         if not schema_reservation.shape_reservation.accepted:
-            audit_receipts.append(
-                _rejected_schema_evaluation_receipt(schema, schema_reservation)
+            candidate_fingerprint = _report_schema_candidate_fingerprint(
+                program=program,
+                schema=schema,
+                declaration=declaration,
+                body=body,
+                projected_instance_nodes=final_instance_nodes,
+            )
+            candidate = _issue_pre_evaluation_candidate_identity(
+                candidate_kind="report_schema_instance_projection",
+                candidate_fingerprint=candidate_fingerprint,
+                projected_instance_nodes=final_instance_nodes,
+            )
+            candidate_binding = InstanceBinding(
+                artifact_id="artifact:validation-report-candidate",
+                artifact_fingerprint=candidate_fingerprint,
+                instance_pointer="",
+            )
+            rejected_receipt = _rejected_schema_evaluation_receipt(
+                schema, schema_reservation
+            )
+            audit_attempts.append(
+                _issue_rejected_candidate_audit_entry(
+                    schema=schema,
+                    instance_binding=candidate_binding,
+                    candidate=candidate,
+                    receipt=rejected_receipt,
+                    per_evaluation_limit=schema_reservation.per_evaluation_limit,
+                )
             )
             return _audited_report_seal(
                 _schema_reservation_failure(program, schema_reservation),
-                tuple(audit_receipts),
+                tuple(audit_attempts),
             )
         receipt = context.ledger.reserve_report_seal_and_freeze()
     except BudgetExceeded as exception:
         return _audited_report_seal(
-            _ledger_budget_failure(program, exception), tuple(audit_receipts)
+            _ledger_budget_failure(program, exception), tuple(audit_attempts)
         )
     except _ReportConstructabilityError as exception:
         return _audited_report_seal(
@@ -803,7 +884,7 @@ def _seal_validation_report_with_audit(
                 subject_path=exception.subject_path,
                 detail=b"report_schema_shape",
             ),
-            tuple(audit_receipts),
+            tuple(audit_attempts),
         )
     except _ProjectionIntegrityError as exception:
         return _audited_report_seal(
@@ -813,7 +894,7 @@ def _seal_validation_report_with_audit(
                 subject_path=exception.subject_path,
                 detail=b"report_projection_contract",
             ),
-            tuple(audit_receipts),
+            tuple(audit_attempts),
         )
     except BudgetLedgerFrozen:
         return _audited_report_seal(
@@ -823,7 +904,7 @@ def _seal_validation_report_with_audit(
                 subject_path=None,
                 detail=b"report_ledger_already_frozen",
             ),
-            tuple(audit_receipts),
+            tuple(audit_attempts),
         )
     except SchemaEvaluationInputError:
         return _audited_report_seal(
@@ -833,11 +914,11 @@ def _seal_validation_report_with_audit(
                 subject_path=None,
                 detail=b"report_schema_reservation",
             ),
-            tuple(audit_receipts),
+            tuple(audit_attempts),
         )
     except Exception as exception:
         return _audited_report_seal(
-            _internal_failure(program, exception), tuple(audit_receipts)
+            _internal_failure(program, exception), tuple(audit_attempts)
         )
 
     try:
@@ -861,18 +942,27 @@ def _seal_validation_report_with_audit(
         final_value = _attach_kernel_fields(body, receipt, report_fingerprint)
         if count_json_nodes(final_value) != final_instance_nodes:
             raise _ProjectionIntegrityError()
+        final_binding = InstanceBinding(
+            artifact_id=program.program_id,
+            artifact_fingerprint=report_fingerprint,
+            instance_pointer="",
+        )
         schema_evaluation = evaluate_schema_with_reservation(
             schema,
             final_value,
-            instance_binding=InstanceBinding(
-                artifact_id=program.program_id,
-                artifact_fingerprint=report_fingerprint,
-                instance_pointer="",
-            ),
+            instance_binding=final_binding,
             reservation=schema_reservation,
         )
         if type(schema_evaluation) is SchemaEvaluationReceipt:
-            audit_receipts.append(schema_evaluation)
+            audit_attempts.append(
+                _issue_schema_evaluation_audit_entry(
+                    schema=schema,
+                    instance=final_value,
+                    instance_binding=final_binding,
+                    receipt=schema_evaluation,
+                    per_evaluation_limit=schema_reservation.per_evaluation_limit,
+                )
+            )
         if (
             type(schema_evaluation) is not SchemaEvaluationReceipt
             or schema_evaluation.reservation
@@ -904,7 +994,7 @@ def _seal_validation_report_with_audit(
                 observed_lower_bound=exception.observed_lower_bound,
                 subject_path=None,
             ),
-            tuple(audit_receipts),
+            tuple(audit_attempts),
         )
     except _SealMeterExceeded as exception:
         return _audited_report_seal(
@@ -915,7 +1005,7 @@ def _seal_validation_report_with_audit(
                 observed_lower_bound=exception.observed_lower_bound,
                 subject_path=None,
             ),
-            tuple(audit_receipts),
+            tuple(audit_attempts),
         )
     except _ReportConstructabilityError as exception:
         return _audited_report_seal(
@@ -925,7 +1015,7 @@ def _seal_validation_report_with_audit(
                 subject_path=exception.subject_path,
                 detail=b"report_output_schema",
             ),
-            tuple(audit_receipts),
+            tuple(audit_attempts),
         )
     except (_ProjectionIntegrityError, SchemaEvaluationInputError) as exception:
         return _audited_report_seal(
@@ -939,11 +1029,11 @@ def _seal_validation_report_with_audit(
                 ),
                 detail=b"report_final_shape",
             ),
-            tuple(audit_receipts),
+            tuple(audit_attempts),
         )
     except Exception as exception:
         return _audited_report_seal(
-            _internal_failure(program, exception), tuple(audit_receipts)
+            _internal_failure(program, exception), tuple(audit_attempts)
         )
 
     return _audited_report_seal(
@@ -953,7 +1043,7 @@ def _seal_validation_report_with_audit(
             canonical_bytes=final_bytes,
             value=final_value,
         ),
-        tuple(audit_receipts),
+        tuple(audit_attempts),
     )
 
 

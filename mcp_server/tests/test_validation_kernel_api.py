@@ -446,12 +446,21 @@ def test_private_audit_is_ordered_immutable_nonserializable_and_nonforgeable(
     assert type(audit) is api_module._ValidationExecutionAudit
     assert audit.program_id == program.program_id
     assert audit.program_fingerprint == program.program_fingerprint
+    assert len(audit.schema_evaluation_attempts) == 3
     assert len(audit.schema_evaluation_receipts) == 3
     assert all(
         type(receipt) is SchemaEvaluationReceipt
         for receipt in audit.schema_evaluation_receipts
     )
     first, second, report = audit.schema_evaluation_receipts
+    assert all(
+        attempt.receipt is receipt
+        for attempt, receipt in zip(
+            audit.schema_evaluation_attempts,
+            audit.schema_evaluation_receipts,
+            strict=True,
+        )
+    )
     assert first.reservation.attempted_shape_units is not None
     assert second.reservation.attempted_shape_units is not None
     assert (
@@ -501,6 +510,39 @@ def test_private_audit_is_ordered_immutable_nonserializable_and_nonforgeable(
         assert api_module._is_validation_execution_audit(forged, program) is False
 
 
+@pytest.mark.parametrize("mutation", ("receipts", "attempts", "both"))
+def test_private_audit_rejects_swapped_authentic_evidence(
+    assembler_profile: object,
+    mutation: str,
+) -> None:
+    program = compose_and_seal_program(
+        make_phase_engine_contribution(alpha_scenario="schema_audit_order")
+    )
+    outcome = api_module._validate_artifacts_with_audit(
+        program,
+        b'{"nested":{"value":1},"larger":[1,2,3]}',
+        _carrier(assembler_profile),
+    )
+    audit = outcome.audit
+    attempts = audit.schema_evaluation_attempts
+    receipts = audit.schema_evaluation_receipts
+    assert len(attempts) == len(receipts) == 3
+    if mutation in ("attempts", "both"):
+        object.__setattr__(
+            audit,
+            "schema_evaluation_attempts",
+            tuple(reversed(attempts)),
+        )
+    if mutation in ("receipts", "both"):
+        object.__setattr__(
+            audit,
+            "schema_evaluation_receipts",
+            tuple(reversed(receipts)),
+        )
+
+    assert api_module._is_validation_execution_audit(audit, program) is False
+
+
 def test_private_audit_records_rejected_final_report_reservation(
     assembler_profile: object,
     monkeypatch: pytest.MonkeyPatch,
@@ -532,8 +574,17 @@ def test_private_audit_records_rejected_final_report_reservation(
 
     assert isinstance(outcome.public_result, BudgetExceededFailure)
     assert outcome.public_result.artifact_role == "report_seal"
+    assert len(outcome.audit.schema_evaluation_attempts) == 1
     assert len(outcome.audit.schema_evaluation_receipts) == 1
+    attempt = outcome.audit.schema_evaluation_attempts[0]
     receipt = outcome.audit.schema_evaluation_receipts[0]
+    assert attempt.receipt is receipt
+    assert attempt.instance_fingerprint is None
+    assert attempt.instance_nodes is None
+    assert attempt.pre_evaluation_candidate is not None
+    assert attempt.pre_evaluation_candidate.candidate_kind == (
+        "report_schema_instance_projection"
+    )
     assert receipt.reservation.accepted is False
     assert receipt.reservation.aggregate_before == 16_000_000
     assert receipt.reservation.aggregate_after is None
@@ -632,8 +683,13 @@ def test_private_audit_retains_phase_receipts_on_later_control_failure(
 
     assert isinstance(outcome.public_result, ValidationControlFailure)
     assert outcome.public_result.code == expected_code
+    assert len(outcome.audit.schema_evaluation_attempts) == 1
     assert len(outcome.audit.schema_evaluation_receipts) == 1
+    attempt = outcome.audit.schema_evaluation_attempts[0]
     receipt = outcome.audit.schema_evaluation_receipts[0]
+    assert attempt.receipt is receipt
+    assert attempt.instance_fingerprint is not None
+    assert attempt.instance_nodes is not None
     assert receipt.reservation.accepted is True
     assert receipt.evaluator_invoked is True
     assert receipt.evaluation_passed is False

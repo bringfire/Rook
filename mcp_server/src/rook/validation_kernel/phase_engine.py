@@ -32,8 +32,12 @@ from .phase_contract import Cardinality, InputBinding, PhaseSpec, ProvidedOutput
 from .program import SealedValidationProgram
 from .schema_profile import (
     InstanceBinding,
+    SchemaEvaluationInputError,
     SchemaEvaluationReceipt,
     SchemaIssue,
+    _SchemaEvaluationAuditEntry,
+    _is_schema_evaluation_audit_entry,
+    _issue_schema_evaluation_audit_entry,
 )
 
 
@@ -185,6 +189,7 @@ class _PhaseHelperFacade:
 @dataclass(frozen=True, slots=True, init=False, eq=False)
 class _AuditedPhaseExecution:
     public_result: tuple[PhaseResult, ...] | ValidationControlFailure
+    schema_evaluation_attempts: tuple[_SchemaEvaluationAuditEntry, ...]
     schema_evaluation_receipts: tuple[SchemaEvaluationReceipt, ...]
 
     def __init__(self) -> None:
@@ -554,10 +559,16 @@ def _budget_failure(
 
 def _audited_phase_execution(
     public_result: tuple[PhaseResult, ...] | ValidationControlFailure,
-    receipts: tuple[SchemaEvaluationReceipt, ...],
+    attempts: tuple[_SchemaEvaluationAuditEntry, ...],
 ) -> _AuditedPhaseExecution:
+    if type(attempts) is not tuple or any(
+        not _is_schema_evaluation_audit_entry(attempt) for attempt in attempts
+    ):
+        raise TypeError("audited phase execution requires exact audit entries")
+    receipts = tuple(attempt.receipt for attempt in attempts)
     outcome = object.__new__(_AuditedPhaseExecution)
     object.__setattr__(outcome, "public_result", public_result)
+    object.__setattr__(outcome, "schema_evaluation_attempts", attempts)
     object.__setattr__(outcome, "schema_evaluation_receipts", receipts)
     return outcome
 
@@ -1089,7 +1100,7 @@ def _validate_outputs(
 def _helper_facade(
     context: _ValidationExecutionContext,
     phase: PhaseSpec,
-    audit_receipts: list[SchemaEvaluationReceipt],
+    audit_attempts: list[_SchemaEvaluationAuditEntry],
     charge_work_units: _WorkCharger,
 ) -> _PhaseHelperFacade:
     program = context.invocation.program
@@ -1099,6 +1110,10 @@ def _helper_facade(
     schema_by_id = {}
     for schema in program.schemas:
         schema_by_id[schema.schema_id] = schema
+    profile_by_id = {
+        evaluator_spec.profile.profile_id: evaluator_spec.profile
+        for evaluator_spec in program.schema_evaluator_profiles
+    }
 
     def evaluate_bound_schema(
         schema_id: str,
@@ -1111,6 +1126,9 @@ def _helper_facade(
         schema = schema_by_id.get(schema_id)
         if schema is None:
             raise _IntegrityError("schema helper requested an unsealed schema")
+        profile = profile_by_id.get(schema.profile_id)
+        if profile is None:
+            raise _IntegrityError("schema helper profile is not sealed")
         try:
             charge_work_units(1)
             evaluator = program.resolve_runtime_binding(
@@ -1131,7 +1149,20 @@ def _helper_facade(
             raise _RuntimeComponentError(exception) from exception
         if type(receipt) is not SchemaEvaluationReceipt:
             raise _IntegrityError("schema evaluator returned a non-receipt")
-        audit_receipts.append(receipt)
+        try:
+            audit_attempts.append(
+                _issue_schema_evaluation_audit_entry(
+                    schema=schema,
+                    instance=instance,
+                    instance_binding=instance_binding,
+                    receipt=receipt,
+                    per_evaluation_limit=profile.per_evaluation_shape_limit,
+                )
+            )
+        except SchemaEvaluationInputError as exception:
+            raise _IntegrityError(
+                "schema evaluator returned mismatched audit evidence"
+            ) from exception
         return _SchemaEvaluationView(
             evaluation_passed=receipt.evaluation_passed,
             bounded_errors=receipt.bounded_errors,
@@ -1217,7 +1248,7 @@ def _execute_phase_program_with_audit(
         return _audited_phase_execution(_budget_failure(exception, program), ())
     results: list[PhaseResult] = []
     results_by_name: dict[str, PhaseResult] = {}
-    audit_receipts: list[SchemaEvaluationReceipt] = []
+    audit_attempts: list[_SchemaEvaluationAuditEntry] = []
     for phase_name in program.execution_order:
         charge_work_units = _phase_work_charger(context, phase_name)
         try:
@@ -1263,7 +1294,7 @@ def _execute_phase_program_with_audit(
             )
             inputs = _PhaseInputs(tuple(bound_members))
             helpers = _helper_facade(
-                context, phase, audit_receipts, charge_work_units
+                context, phase, audit_attempts, charge_work_units
             )
             charge_work_units(1)
             runner = program.resolve_runtime_binding("runner", phase.runner_id)
@@ -1313,22 +1344,22 @@ def _execute_phase_program_with_audit(
             results_by_name[phase_name] = phase_result
         except BudgetExceeded as exception:
             return _audited_phase_execution(
-                _budget_failure(exception, program), tuple(audit_receipts)
+                _budget_failure(exception, program), tuple(audit_attempts)
             )
         except _IntegrityError as exception:
             return _audited_phase_execution(
                 _integrity_failure(program, phase_name, exception.evidence),
-                tuple(audit_receipts),
+                tuple(audit_attempts),
             )
         except _RuntimeComponentError as exception:
             return _audited_phase_execution(
                 _internal_failure(program, phase_name, exception.exception),
-                tuple(audit_receipts),
+                tuple(audit_attempts),
             )
         except Exception as exception:
             return _audited_phase_execution(
                 _internal_failure(program, phase_name, exception),
-                tuple(audit_receipts),
+                tuple(audit_attempts),
             )
 
     try:
@@ -1336,17 +1367,17 @@ def _execute_phase_program_with_audit(
             _checked_work_sum(
                 _checked_bulk_work_units(len(results), 1, fixed=1),
                 _checked_bulk_work_units(
-                    len(audit_receipts), 1, fixed=1
+                    len(audit_attempts), 1, fixed=1
                 ),
                 7,
             )
         )
         frozen_results = tuple(results)
-        frozen_receipts = tuple(audit_receipts)
-        execution = _audited_phase_execution(frozen_results, frozen_receipts)
+        frozen_attempts = tuple(audit_attempts)
+        execution = _audited_phase_execution(frozen_results, frozen_attempts)
     except BudgetExceeded as exception:
         return _audited_phase_execution(
-            _budget_failure(exception, program), tuple(audit_receipts)
+            _budget_failure(exception, program), tuple(audit_attempts)
         )
     return execution
 

@@ -542,6 +542,48 @@ def phase_engine_runner_dispatch(
         if hasattr(first, "reservation") or hasattr(second, "reservation"):
             raise AssertionError("runner received an accounting receipt")
         return RunnerResult(diagnostics=(), compile_blockers=(), outputs=(output,))
+    if scenario == "schema_audit_equal_shape":
+        left = recipe["left"]
+        right = recipe["right"]
+        if type(left) is not JsonObject or type(right) is not JsonObject:
+            raise AssertionError("equal-shape audit requires two object subtrees")
+        root_fingerprint = canonical_fingerprint(recipe)
+        views = (
+            helpers.evaluate_schema(  # type: ignore[attr-defined]
+                "synthetic.report:v1",
+                left,
+                instance_binding=InstanceBinding(
+                    artifact_id="artifact:fixture-recipe",
+                    artifact_fingerprint=root_fingerprint,
+                    instance_pointer="/left",
+                ),
+            ),
+            helpers.evaluate_schema(  # type: ignore[attr-defined]
+                "synthetic.report:v1",
+                right,
+                instance_binding=InstanceBinding(
+                    artifact_id="artifact:fixture-recipe",
+                    artifact_fingerprint=root_fingerprint,
+                    instance_pointer="/right",
+                ),
+            ),
+        )
+        if any(hasattr(view, "reservation") for view in views):
+            raise AssertionError("runner received an accounting receipt")
+        return RunnerResult(diagnostics=(), compile_blockers=(), outputs=(output,))
+    if scenario == "schema_fill_report_rejection":
+        binding = InstanceBinding(
+            artifact_id="artifact:fixture-recipe",
+            artifact_fingerprint=canonical_fingerprint(recipe),
+            instance_pointer="",
+        )
+        for _ in range(8):
+            view = helpers.evaluate_schema(  # type: ignore[attr-defined]
+                "synthetic.report:v1", recipe, instance_binding=binding
+            )
+            if hasattr(view, "reservation"):
+                raise AssertionError("runner received an accounting receipt")
+        return RunnerResult(diagnostics=(), compile_blockers=(), outputs=(output,))
     if scenario in (
         "schema_then_budget_failure",
         "schema_then_integrity_failure",

@@ -26,7 +26,11 @@ from .reporting import (
     _AuditedReportSeal,
     _seal_validation_report_with_audit,
 )
-from .schema_profile import SchemaEvaluationReceipt
+from .schema_profile import (
+    SchemaEvaluationReceipt,
+    _SchemaEvaluationAuditEntry,
+    _is_schema_evaluation_audit_entry,
+)
 
 
 ValidationResult = Union[
@@ -43,12 +47,17 @@ class _ValidationExecutionAudit:
     __slots__ = (
         "program_id",
         "program_fingerprint",
+        "schema_evaluation_attempts",
         "schema_evaluation_receipts",
         "__issuer_capability",
+        "__issued_program_binding",
+        "__issued_attempts",
+        "__issued_receipts",
     )
 
     program_id: str | None
     program_fingerprint: str | None
+    schema_evaluation_attempts: tuple[_SchemaEvaluationAuditEntry, ...]
     schema_evaluation_receipts: tuple[SchemaEvaluationReceipt, ...]
 
     def __init__(self) -> None:
@@ -105,24 +114,41 @@ def _issue_validation_execution_audit(
     *,
     program_id: str | None,
     program_fingerprint: str | None,
-    receipts: tuple[SchemaEvaluationReceipt, ...],
+    attempts: tuple[_SchemaEvaluationAuditEntry, ...],
 ) -> _ValidationExecutionAudit:
     if program_id is not None and type(program_id) is not str:
         raise TypeError("audit program ID must be an exact string")
     if program_fingerprint is not None and type(program_fingerprint) is not str:
         raise TypeError("audit program fingerprint must be an exact string")
-    if type(receipts) is not tuple or any(
-        type(receipt) is not SchemaEvaluationReceipt for receipt in receipts
+    if type(attempts) is not tuple or any(
+        not _is_schema_evaluation_audit_entry(attempt) for attempt in attempts
     ):
-        raise TypeError("audit receipts must be an exact immutable receipt tuple")
+        raise TypeError("audit attempts must be exact kernel-issued entries")
+    receipts = tuple(attempt.receipt for attempt in attempts)
     audit = object.__new__(_ValidationExecutionAudit)
     object.__setattr__(audit, "program_id", program_id)
     object.__setattr__(audit, "program_fingerprint", program_fingerprint)
+    object.__setattr__(audit, "schema_evaluation_attempts", attempts)
     object.__setattr__(audit, "schema_evaluation_receipts", receipts)
     object.__setattr__(
         audit,
         "_ValidationExecutionAudit__issuer_capability",
         _AUDIT_ISSUER_CAPABILITY,
+    )
+    object.__setattr__(
+        audit,
+        "_ValidationExecutionAudit__issued_program_binding",
+        (program_id, program_fingerprint),
+    )
+    object.__setattr__(
+        audit,
+        "_ValidationExecutionAudit__issued_attempts",
+        attempts,
+    )
+    object.__setattr__(
+        audit,
+        "_ValidationExecutionAudit__issued_receipts",
+        receipts,
     )
     return audit
 
@@ -139,13 +165,29 @@ def _is_validation_execution_audit(
     ):
         return False
     audit = value
+    try:
+        issued_binding = object.__getattribute__(
+            audit,
+            "_ValidationExecutionAudit__issued_program_binding",
+        )
+        issued_attempts = object.__getattribute__(
+            audit,
+            "_ValidationExecutionAudit__issued_attempts",
+        )
+        issued_receipts = object.__getattribute__(
+            audit,
+            "_ValidationExecutionAudit__issued_receipts",
+        )
+    except AttributeError:
+        return False
     return (
-        audit.program_id == program.program_id
-        and audit.program_fingerprint == program.program_fingerprint
-        and type(audit.schema_evaluation_receipts) is tuple
-        and all(
-            type(receipt) is SchemaEvaluationReceipt
-            for receipt in audit.schema_evaluation_receipts
+        issued_binding == (program.program_id, program.program_fingerprint)
+        and (audit.program_id, audit.program_fingerprint) == issued_binding
+        and audit.schema_evaluation_attempts is issued_attempts
+        and audit.schema_evaluation_receipts is issued_receipts
+        and _has_exact_attempts(issued_attempts)
+        and _has_consistent_attempts_and_receipts(
+            issued_attempts, issued_receipts
         )
     )
 
@@ -158,7 +200,7 @@ def _outcome_without_phase_audit(
         audit=_issue_validation_execution_audit(
             program_id=result.program_id,
             program_fingerprint=result.program_fingerprint,
-            receipts=(),
+            attempts=(),
         ),
     )
 
@@ -166,14 +208,14 @@ def _outcome_without_phase_audit(
 def _outcome_for_program(
     result: ValidationResult,
     program: SealedValidationProgram,
-    receipts: tuple[SchemaEvaluationReceipt, ...],
+    attempts: tuple[_SchemaEvaluationAuditEntry, ...],
 ) -> _AuditedValidationOutcome:
     return _AuditedValidationOutcome(
         public_result=result,
         audit=_issue_validation_execution_audit(
             program_id=program.program_id,
             program_fingerprint=program.program_fingerprint,
-            receipts=receipts,
+            attempts=attempts,
         ),
     )
 
@@ -181,6 +223,31 @@ def _outcome_for_program(
 def _has_exact_receipts(value: object) -> bool:
     return type(value) is tuple and all(
         type(receipt) is SchemaEvaluationReceipt for receipt in value
+    )
+
+
+def _has_exact_attempts(value: object) -> bool:
+    return type(value) is tuple and all(
+        _is_schema_evaluation_audit_entry(attempt) for attempt in value
+    )
+
+
+def _has_consistent_attempts_and_receipts(
+    attempts: object,
+    receipts: object,
+) -> bool:
+    return (
+        _has_exact_attempts(attempts)
+        and _has_exact_receipts(receipts)
+        and len(attempts) == len(receipts)  # type: ignore[arg-type]
+        and all(
+            attempt.receipt is receipt
+            for attempt, receipt in zip(  # type: ignore[arg-type]
+                attempts,
+                receipts,
+                strict=True,
+            )
+        )
     )
 
 
@@ -234,17 +301,18 @@ def _validate_artifacts_with_audit(
     phase_execution = _execute_phase_program_with_audit(context)
     if (
         type(phase_execution) is not _AuditedPhaseExecution
-        or not _has_exact_receipts(
-            phase_execution.schema_evaluation_receipts
+        or not _has_consistent_attempts_and_receipts(
+            phase_execution.schema_evaluation_attempts,
+            phase_execution.schema_evaluation_receipts,
         )
     ):
         return _outcome_without_phase_audit(
             _phase_audit_integrity_failure(context)
         )
     phase_result = phase_execution.public_result
-    phase_receipts = phase_execution.schema_evaluation_receipts
+    phase_attempts = phase_execution.schema_evaluation_attempts
     if isinstance(phase_result, ValidationControlFailure):
-        return _outcome_for_program(phase_result, program, phase_receipts)
+        return _outcome_for_program(phase_result, program, phase_attempts)
     if type(phase_result) is not tuple:
         return _outcome_for_program(
             _phase_audit_integrity_failure(context), program, ()
@@ -253,7 +321,10 @@ def _validate_artifacts_with_audit(
     report_seal = _seal_validation_report_with_audit(context, phase_result)
     if (
         type(report_seal) is not _AuditedReportSeal
-        or not _has_exact_receipts(report_seal.schema_evaluation_receipts)
+        or not _has_consistent_attempts_and_receipts(
+            report_seal.schema_evaluation_attempts,
+            report_seal.schema_evaluation_receipts,
+        )
         or not isinstance(
             report_seal.public_result,
             (PublishedValidationReport, ValidationControlFailure),
@@ -262,13 +333,13 @@ def _validate_artifacts_with_audit(
         return _outcome_for_program(
             _report_audit_integrity_failure(context),
             program,
-            phase_receipts,
+            phase_attempts,
         )
-    receipts = phase_receipts + report_seal.schema_evaluation_receipts
+    attempts = phase_attempts + report_seal.schema_evaluation_attempts
     return _outcome_for_program(
         report_seal.public_result,
         program,
-        receipts,
+        attempts,
     )
 
 

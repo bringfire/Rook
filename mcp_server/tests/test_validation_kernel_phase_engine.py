@@ -16,8 +16,9 @@ from rook.validation_kernel import (
     execute_phase_program,
 )
 from rook.validation_kernel.budget import BudgetExceeded, BudgetLedger
+from rook.validation_kernel.canonical_json import canonical_fingerprint
 from rook.validation_kernel.control import ArtifactRole, BudgetDimension
-from rook.validation_kernel.owned_json import JsonObject, JsonString
+from rook.validation_kernel.owned_json import JsonObject, JsonString, count_json_nodes
 from rook.validation_kernel.schema_profile import InstanceBinding, SchemaEvaluationReceipt
 
 from tests._validation_kernel_fakes import (
@@ -598,6 +599,70 @@ def test_schema_helper_records_exact_receipts_in_private_order_before_returning_
         == second.reservation.aggregate_after
     )
     assert "_PhaseExecutionAudit" not in validation_kernel.__all__
+
+
+def test_schema_helper_authors_exact_entries_for_equal_shaped_subtrees() -> None:
+    context = _context(
+        _program(alpha_scenario="schema_audit_equal_shape"),
+        recipe=b'{"left":{"value":1},"right":{"value":2}}',
+    )
+    phase_engine = importlib.import_module("rook.validation_kernel.phase_engine")
+
+    outcome = phase_engine._execute_phase_program_with_audit(context)
+
+    assert type(outcome.public_result) is tuple
+    assert len(outcome.schema_evaluation_attempts) == 2
+    first, second = outcome.schema_evaluation_attempts
+    assert first.receipt is outcome.schema_evaluation_receipts[0]
+    assert second.receipt is outcome.schema_evaluation_receipts[1]
+    assert first.schema_id == second.schema_id == "synthetic.report:v1"
+    assert first.schema_fingerprint == second.schema_fingerprint
+    assert first.schema_nodes == second.schema_nodes
+    assert first.per_evaluation_limit == second.per_evaluation_limit == 2_000_000
+    assert first.instance_nodes == second.instance_nodes
+    assert first.receipt.reservation.attempted_shape_units == (
+        second.receipt.reservation.attempted_shape_units
+    )
+    assert first.instance_binding.artifact_id == "artifact:fixture-recipe"
+    assert second.instance_binding.artifact_id == "artifact:fixture-recipe"
+    assert first.instance_binding.instance_pointer == "/left"
+    assert second.instance_binding.instance_pointer == "/right"
+    recipe = context.invocation.invocation_inputs["recipe"]
+    assert first.instance_binding.artifact_fingerprint == canonical_fingerprint(recipe)
+    assert second.instance_binding.artifact_fingerprint == canonical_fingerprint(recipe)
+    assert first.instance_fingerprint == canonical_fingerprint(recipe["left"])
+    assert second.instance_fingerprint == canonical_fingerprint(recipe["right"])
+    assert first.instance_nodes == count_json_nodes(recipe["left"])
+    assert second.instance_nodes == count_json_nodes(recipe["right"])
+    assert first.pre_evaluation_candidate is None
+    assert second.pre_evaluation_candidate is None
+
+
+def test_internal_rejected_reservation_has_exact_entry_and_survives_later_failure() -> None:
+    context = _context(_program(alpha_scenario="schema_then_integrity_failure"))
+    for _ in range(4):
+        reservation = context.ledger.reserve_schema_shape(
+            schema_nodes=1,
+            instance_nodes=4_000_000,
+            per_evaluation_limit=4_000_000,
+        )
+        assert reservation.accepted is True
+    phase_engine = importlib.import_module("rook.validation_kernel.phase_engine")
+
+    outcome = phase_engine._execute_phase_program_with_audit(context)
+
+    assert isinstance(outcome.public_result, ValidationControlFailure)
+    assert outcome.public_result.code == "validator_integrity_failure"
+    assert len(outcome.schema_evaluation_attempts) == 1
+    attempt = outcome.schema_evaluation_attempts[0]
+    assert attempt.receipt is outcome.schema_evaluation_receipts[0]
+    assert attempt.receipt.reservation.accepted is False
+    assert attempt.receipt.failure_code == "invocation_shape_limit_exceeded"
+    assert attempt.instance_binding.artifact_id == "synthetic.recipe"
+    recipe = context.invocation.invocation_inputs["recipe"]
+    assert attempt.instance_fingerprint == canonical_fingerprint(recipe)
+    assert attempt.instance_nodes == count_json_nodes(recipe)
+    assert attempt.pre_evaluation_candidate is None
 
 
 @pytest.mark.parametrize(

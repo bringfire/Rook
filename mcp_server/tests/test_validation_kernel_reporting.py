@@ -385,8 +385,23 @@ def test_private_report_seal_records_accepted_final_schema_receipt() -> None:
     context, _, outcome = _execute_and_seal_with_audit(_program())
 
     assert type(outcome.public_result) is PublishedValidationReport
+    assert len(outcome.schema_evaluation_attempts) == 1
     assert len(outcome.schema_evaluation_receipts) == 1
+    attempt = outcome.schema_evaluation_attempts[0]
     receipt = outcome.schema_evaluation_receipts[0]
+    assert attempt.receipt is receipt
+    assert attempt.schema_id == outcome.public_result.schema_id
+    assert attempt.instance_binding.artifact_id == context.invocation.program.program_id
+    assert (
+        attempt.instance_binding.artifact_fingerprint
+        == outcome.public_result.report_fingerprint
+    )
+    assert attempt.instance_binding.instance_pointer == ""
+    assert attempt.instance_fingerprint == canonical_fingerprint(
+        outcome.public_result.value
+    )
+    assert attempt.instance_nodes == count_json_nodes(outcome.public_result.value)
+    assert attempt.pre_evaluation_candidate is None
     assert type(receipt) is SchemaEvaluationReceipt
     assert receipt.reservation.accepted is True
     assert receipt.evaluator_invoked is True
@@ -420,8 +435,27 @@ def test_private_report_seal_records_rejected_final_schema_reservation() -> None
         outcome.public_result, "validation_budget_exceeded"
     )
     assert result.budget_dimension == "schema_evaluation_shape_units"
+    assert len(outcome.schema_evaluation_attempts) == 1
     assert len(outcome.schema_evaluation_receipts) == 1
+    attempt = outcome.schema_evaluation_attempts[0]
     receipt = outcome.schema_evaluation_receipts[0]
+    assert attempt.receipt is receipt
+    assert attempt.instance_fingerprint is None
+    assert attempt.instance_nodes is None
+    candidate = attempt.pre_evaluation_candidate
+    assert candidate is not None
+    assert candidate.candidate_kind == "report_schema_instance_projection"
+    assert candidate.projected_instance_nodes > 0
+    assert candidate.candidate_fingerprint.startswith("sha256:")
+    assert len(candidate.candidate_fingerprint) == 71
+    assert attempt.instance_binding.artifact_id == (
+        "artifact:validation-report-candidate"
+    )
+    assert (
+        attempt.instance_binding.artifact_fingerprint
+        == candidate.candidate_fingerprint
+    )
+    assert attempt.instance_binding.instance_pointer == ""
     assert type(receipt) is SchemaEvaluationReceipt
     assert receipt.reservation.accepted is False
     assert receipt.reservation.aggregate_before == 16_000_000

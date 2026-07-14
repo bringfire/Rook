@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pytest
+from jsonschema import Draft202012Validator
 
 import rook.validation_kernel.conformance as conformance_module
 from rook.validation_kernel import (
@@ -99,6 +100,7 @@ def _campaign_fixture(
     assembler_profile: object,
     *,
     recipe_bytes: bytes = b'{"nested":{"value":1}}',
+    fixture_id: str | None = None,
 ) -> CampaignFixture:
     bundle_bytes = make_validation_bundle_bytes()
     trusted_bundle = issue_trusted_validation_bundle(
@@ -130,9 +132,13 @@ def _campaign_fixture(
         {
             "schema": "rook.validation_conformance_fixture:v1",
             "fixture_id": (
-                "fixture.report_pass"
-                if expected_result["result_kind"] == "published_report"
-                else "fixture.control_failure_expected"
+                fixture_id
+                if fixture_id is not None
+                else (
+                    "fixture.report_pass"
+                    if expected_result["result_kind"] == "published_report"
+                    else "fixture.control_failure_expected"
+                )
             ),
             "recipe_input": {
                 "content_ref": _RECIPE_REF,
@@ -544,6 +550,111 @@ def test_successful_campaign_seals_exact_identity_and_attempt_rows(
     assert canonical_fingerprint(_owned_object(unsigned)) == asserted
 
 
+def test_fixture_machine_id_accepts_worker_slot_confirmation_like_vocabulary(
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    assembler_profile: object,
+) -> None:
+    fixture_id = "fixture.worker-slot.confirmation-like"
+    fixture = _campaign_fixture(
+        program,
+        gate_profile,
+        assembler_profile,
+        fixture_id=fixture_id,
+    )
+
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        fixture.campaign_bytes,
+        fixture.fixture_context,
+    )
+
+    report = _report(result)
+    assert report["decision"] == "passed"
+    assert _rows_by_id(report)[fixture_id]["outcome"] == "passed"
+
+
+def test_semantic_attempt_rows_use_authenticated_entries_without_reparsing(
+    monkeypatch: pytest.MonkeyPatch,
+    program: object,
+    assembler_profile: object,
+    campaign: CampaignFixture,
+) -> None:
+    recipe_bytes = campaign.artifacts[_RECIPE_REF]
+    bundle_bytes = campaign.artifacts[_BUNDLE_REF]
+    assert type(recipe_bytes) is bytes
+    assert type(bundle_bytes) is bytes
+    trusted_bundle = issue_trusted_validation_bundle(
+        assembler_profile, bundle_bytes  # type: ignore[arg-type]
+    )
+    outcome = conformance_module._validate_artifacts_with_audit(
+        program,
+        recipe_bytes,
+        trusted_bundle,
+    )
+
+    def forbidden_reparse(*_: object, **__: object) -> object:
+        raise AssertionError("semantic audit consumption reparsed fixture inputs")
+
+    monkeypatch.setattr(conformance_module, "_parse_gate_json", forbidden_reparse)
+
+    attempts = conformance_module._semantic_attempt_rows(
+        outcome,
+        program=program,
+    )
+
+    assert len(attempts) == 1
+    attempt = attempts[0]
+    assert attempt["schema_id"] == outcome.public_result.schema_id
+    assert attempt["instance_binding"]["artifact_id"] == program.program_id  # type: ignore[index,union-attr]
+
+
+def test_equal_shaped_semantic_subtrees_keep_exact_ordered_identity(
+    assembler_profile: object,
+) -> None:
+    program = compose_and_seal_program(
+        make_conformance_program_contribution(
+            alpha_scenario="schema_audit_equal_shape"
+        )
+    )
+    gate_profile = seal_conformance_gate_profile(
+        make_conformance_gate_profile_candidate(
+            conformance_module._execute_conformance_gate
+        ),
+        conformance_module._execute_conformance_gate,
+    )
+    recipe_bytes = b'{"left":{"value":1},"right":{"value":2}}'
+    fixture = _campaign_fixture(
+        program,
+        gate_profile,
+        assembler_profile,
+        recipe_bytes=recipe_bytes,
+    )
+
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,
+        fixture.campaign_bytes,
+        fixture.fixture_context,
+    )
+
+    report = _report(result)
+    row = _rows_by_id(report)["fixture.report_pass"]
+    first, second, _ = row["schema_evaluations"]
+    parsed = own_trusted_json(json.loads(recipe_bytes))
+    assert first["attempted_shape_units"] == second["attempted_shape_units"]
+    assert first["instance_binding"] == {
+        "artifact_id": _RECIPE_REF,
+        "artifact_fingerprint": canonical_fingerprint(parsed),
+    }
+    assert second["instance_binding"] == first["instance_binding"]
+    assert first["instance_pointer"] == "/left"
+    assert second["instance_pointer"] == "/right"
+    assert first["instance_fingerprint"] == canonical_fingerprint(parsed["left"])
+    assert second["instance_fingerprint"] == canonical_fingerprint(parsed["right"])
+
+
 def test_repeated_core_evaluations_reserve_full_products_without_refunds(
     program: object,
     gate_profile: SealedConformanceGateProfile,
@@ -633,6 +744,64 @@ def test_real_reservation_rejection_records_exact_nullable_fields(
     assert row["failure_code"] == "validation_budget_exceeded"
 
 
+def test_later_rejected_core_attempt_preserves_nonzero_campaign_aggregate(
+    assembler_profile: object,
+) -> None:
+    program = compose_and_seal_program(
+        make_conformance_program_contribution(wide_core_schema=True)
+    )
+    gate_profile = seal_conformance_gate_profile(
+        make_conformance_gate_profile_candidate(
+            conformance_module._execute_conformance_gate
+        ),
+        conformance_module._execute_conformance_gate,
+    )
+    fixture = _campaign_fixture(program, gate_profile, assembler_profile)
+    host = copy.deepcopy(fixture.campaign)
+    first = next(
+        case
+        for case in host["required_cases"]
+        if case["case_kind"] == "core_schema_positive"
+    )
+    large_instance = {"value": "ok"}
+    large_instance.update({f"field_{index:04d}": index for index in range(4_000)})
+    large_value = own_trusted_json(large_instance)
+    second = copy.deepcopy(first)
+    second["case_id"] = "core.synthetic_positive.rejected"
+    second["schema_case"]["instance_content_ref"] = "artifact:core-positive-large"
+    second["schema_case"]["instance_fingerprint"] = canonical_fingerprint(
+        large_value
+    )
+    second.update(_fingerprinted(second, "case_fingerprint"))
+    host["required_cases"].append(second)
+    artifacts = dict(fixture.artifacts)
+    artifacts["artifact:core-positive-large"] = canonical_json_bytes(large_value)
+    context = conformance_module._issue_trusted_conformance_fixture_context(
+        ImmutableArtifactStore(artifacts),
+        (assembler_profile,),
+    )
+
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,
+        _reseal_campaign(host),
+        context,
+    )
+
+    rows = _rows_by_id(_report(result))
+    first_attempt = rows["core.synthetic_positive"]["schema_evaluations"][0]
+    rejected_row = rows["core.synthetic_positive.rejected"]
+    rejected_attempt = rejected_row["schema_evaluations"][0]
+    assert rejected_attempt["attempt_status"] == "reservation_rejected"
+    assert rejected_attempt["aggregate_before_reservation"] == first_attempt[
+        "aggregate_after_reservation"
+    ]
+    assert rejected_attempt["aggregate_before_reservation"] > 0
+    assert rejected_row["aggregate_schema_evaluation_shape_units"] == (
+        rejected_attempt["aggregate_before_reservation"]
+    )
+
+
 def test_raw_recipe_uses_stricter_validation_cap_after_gate_resolution(
     program: object,
     gate_profile: SealedConformanceGateProfile,
@@ -689,6 +858,77 @@ def test_control_failure_fixture_matches_complete_runtime_identity(
     assert identity["result_identity_matches"] is True
 
 
+def test_missing_manifest_uses_honest_unknown_fixture_identity(
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    assembler_profile: object,
+    campaign: CampaignFixture,
+) -> None:
+    artifacts = dict(campaign.artifacts)
+    artifacts[_FIXTURE_REF] = None
+    context = conformance_module._issue_trusted_conformance_fixture_context(
+        ImmutableArtifactStore(artifacts),
+        (assembler_profile,),
+    )
+
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        campaign.campaign_bytes,
+        context,
+    )
+
+    row = _rows_by_id(_report(result))["fixture.report_pass"]
+    assert row["failure_code"] == "case_content_unavailable"
+    assert row["fixture_case_result"] is None
+
+
+@pytest.mark.parametrize("failure", ("missing_recipe", "changed_recipe", "profile"))
+def test_post_manifest_failures_preserve_expected_identity_and_actual_unavailable(
+    failure: str,
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    assembler_profile: object,
+    campaign: CampaignFixture,
+) -> None:
+    artifacts = dict(campaign.artifacts)
+    profiles: tuple[object, ...] = (assembler_profile,)
+    if failure == "missing_recipe":
+        artifacts[_RECIPE_REF] = None
+    elif failure == "changed_recipe":
+        artifacts[_RECIPE_REF] = b'{"changed":true}'
+    else:
+        profiles = ()
+    fixture_manifest = json.loads(campaign.artifacts[_FIXTURE_REF])
+    expected = fixture_manifest["expected_result"]
+    context = conformance_module._issue_trusted_conformance_fixture_context(
+        ImmutableArtifactStore(artifacts),
+        profiles,  # type: ignore[arg-type]
+    )
+
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        campaign.campaign_bytes,
+        context,
+    )
+
+    row = _rows_by_id(_report(result))["fixture.report_pass"]
+    identity = row["fixture_case_result"]
+    assert identity["expected_result_kind"] == expected["result_kind"]
+    assert identity["expected_report_schema_id"] == expected["report_schema_id"]
+    assert identity["expected_result_fingerprint"] == expected[
+        "report_fingerprint"
+    ]
+    assert identity["actual_result_kind"] == "unavailable"
+    assert identity["actual_report_schema_id"] is None
+    assert identity["actual_result_fingerprint"] is None
+    assert identity["actual_control_failure_stage"] is None
+    assert identity["actual_control_failure_code"] is None
+    assert identity["actual_control_failure_artifact_role"] is None
+    assert identity["result_identity_matches"] is False
+
+
 def test_fixture_result_field_mismatch_fails_even_when_result_kind_matches(
     program: object,
     gate_profile: SealedConformanceGateProfile,
@@ -720,6 +960,95 @@ def test_fixture_result_field_mismatch_fails_even_when_result_kind_matches(
     assert row["outcome"] == "failed"
     assert row["fixture_case_result"]["actual_result_kind"] == "published_report"
     assert row["fixture_case_result"]["result_identity_matches"] is False
+
+
+def test_semantic_internal_rejected_reservation_is_reported_from_exact_entry(
+    assembler_profile: object,
+) -> None:
+    program = compose_and_seal_program(
+        make_conformance_program_contribution(
+            alpha_scenario="schema_then_integrity_failure"
+        )
+    )
+    gate_profile = seal_conformance_gate_profile(
+        make_conformance_gate_profile_candidate(
+            conformance_module._execute_conformance_gate
+        ),
+        conformance_module._execute_conformance_gate,
+    )
+    recipe_bytes = b'{"items":[' + b",".join([b"0"] * 10_600) + b"]}"
+    fixture = _campaign_fixture(
+        program,
+        gate_profile,
+        assembler_profile,
+        recipe_bytes=recipe_bytes,
+    )
+
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,
+        fixture.campaign_bytes,
+        fixture.fixture_context,
+    )
+
+    report = _report(result)
+    row = _rows_by_id(report)["fixture.control_failure_expected"]
+    assert len(row["schema_evaluations"]) == 1
+    attempt = row["schema_evaluations"][0]
+    assert attempt["attempt_status"] == "reservation_rejected"
+    assert attempt["failure_code"] == "per_evaluation_limit_exceeded"
+    assert attempt["instance_binding"]["artifact_id"] == "synthetic.recipe"
+    assert attempt["instance_pointer"] == ""
+    assert attempt["instance_fingerprint"] == canonical_fingerprint(
+        own_trusted_json(json.loads(recipe_bytes))
+    )
+
+
+def test_final_report_rejected_reservation_uses_content_addressed_candidate(
+    assembler_profile: object,
+) -> None:
+    program = compose_and_seal_program(
+        make_conformance_program_contribution(
+            alpha_scenario="schema_fill_report_rejection"
+        )
+    )
+    gate_profile = seal_conformance_gate_profile(
+        make_conformance_gate_profile_candidate(
+            conformance_module._execute_conformance_gate
+        ),
+        conformance_module._execute_conformance_gate,
+    )
+    recipe_bytes = b'{"items":[' + b",".join([b"0"] * 10_520) + b"]}"
+    fixture = _campaign_fixture(
+        program,
+        gate_profile,
+        assembler_profile,
+        recipe_bytes=recipe_bytes,
+    )
+
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,
+        fixture.campaign_bytes,
+        fixture.fixture_context,
+    )
+
+    report = _report(result)
+    row = _rows_by_id(report)["fixture.control_failure_expected"]
+    assert len(row["schema_evaluations"]) == 9
+    final_attempt = row["schema_evaluations"][-1]
+    assert final_attempt["attempt_status"] == "reservation_rejected"
+    assert final_attempt["failure_code"] == "invocation_shape_limit_exceeded"
+    assert final_attempt["instance_binding"]["artifact_id"] == (
+        "artifact:validation-report-candidate"
+    )
+    assert final_attempt["instance_binding"]["artifact_fingerprint"] == (
+        final_attempt["instance_fingerprint"]
+    )
+    assert final_attempt["aggregate_before_reservation"] > 0
+    assert row["aggregate_schema_evaluation_shape_units"] == final_attempt[
+        "aggregate_before_reservation"
+    ]
 
 
 def test_private_audit_lookalike_or_program_mismatch_aborts_the_gate(
@@ -789,9 +1118,11 @@ def test_missing_or_differently_bound_exact_audit_aborts_the_gate(
         assert result.trusted_gate_result_issued is False
 
 
+@pytest.mark.parametrize("mutation", ("receipts", "attempts", "both"))
 def test_reordered_kernel_issued_audit_aborts_before_report_publication(
     monkeypatch: pytest.MonkeyPatch,
     assembler_profile: object,
+    mutation: str,
 ) -> None:
     program = compose_and_seal_program(
         make_conformance_program_contribution(alpha_scenario="schema_audit_order")
@@ -808,11 +1139,19 @@ def test_reordered_kernel_issued_audit_aborts_before_report_publication(
     def reordered(*args: object, **kwargs: object) -> object:
         outcome = real(*args, **kwargs)
         receipts = outcome.audit.schema_evaluation_receipts
-        object.__setattr__(
-            outcome.audit,
-            "schema_evaluation_receipts",
-            tuple(reversed(receipts)),
-        )
+        attempts = outcome.audit.schema_evaluation_attempts
+        if mutation in ("receipts", "both"):
+            object.__setattr__(
+                outcome.audit,
+                "schema_evaluation_receipts",
+                tuple(reversed(receipts)),
+            )
+        if mutation in ("attempts", "both"):
+            object.__setattr__(
+                outcome.audit,
+                "schema_evaluation_attempts",
+                tuple(reversed(attempts)),
+            )
         return outcome
 
     monkeypatch.setattr(
@@ -973,3 +1312,144 @@ def test_all_conformance_schemas_are_valid_and_recursively_closed() -> None:
                 pending.extend(value.values())
             elif type(value) is list:
                 pending.extend(value)
+
+
+def test_attempt_schema_mechanically_closes_status_field_relationships() -> None:
+    schema = json.loads(canonical_json_bytes(CONFORMANCE_SCHEMA_ATTEMPT_ROW_SCHEMA))
+    validator = Draft202012Validator(schema)
+    fingerprint = "sha256:" + "1" * 64
+    completed = {
+        "evaluation_index": 0,
+        "schema_id": "schema.synthetic:v1",
+        "schema_fingerprint": fingerprint,
+        "instance_binding": {
+            "artifact_id": "artifact:synthetic",
+            "artifact_fingerprint": fingerprint,
+        },
+        "instance_pointer": "",
+        "instance_fingerprint": fingerprint,
+        "attempt_status": "evaluation_completed",
+        "schema_nodes": 1,
+        "instance_nodes": 1,
+        "attempted_shape_units": 1,
+        "per_evaluation_limit": 2_000_000,
+        "aggregate_before_reservation": 0,
+        "aggregate_after_reservation": 1,
+        "evaluator_invoked": True,
+        "evaluation_passed": True,
+        "failure_code": None,
+    }
+    assert validator.is_valid(completed)
+    rejected = {
+        **completed,
+        "attempt_status": "reservation_rejected",
+        "attempted_shape_units": None,
+        "aggregate_after_reservation": None,
+        "evaluator_invoked": False,
+        "evaluation_passed": None,
+        "failure_code": "per_evaluation_limit_exceeded",
+    }
+    evaluator_failed = {
+        **completed,
+        "attempt_status": "evaluator_failed",
+        "evaluation_passed": None,
+        "failure_code": "schema_evaluator_failed",
+    }
+    assert validator.is_valid(rejected)
+    assert validator.is_valid(evaluator_failed)
+
+    adversarial = []
+    value = copy.deepcopy(completed)
+    value["failure_code"] = "instance_schema_failed"
+    adversarial.append(value)
+    value = copy.deepcopy(completed)
+    value["evaluation_passed"] = False
+    adversarial.append(value)
+    value = copy.deepcopy(rejected)
+    value["failure_code"] = None
+    adversarial.append(value)
+    value = copy.deepcopy(rejected)
+    value["evaluator_invoked"] = True
+    adversarial.append(value)
+    value = copy.deepcopy(evaluator_failed)
+    value["evaluation_passed"] = False
+    adversarial.append(value)
+    value = copy.deepcopy(evaluator_failed)
+    value["failure_code"] = None
+    adversarial.append(value)
+
+    for invalid in adversarial:
+        assert not validator.is_valid(invalid), invalid
+
+
+def test_fixture_identity_schema_closes_expected_actual_and_match_variants(
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    campaign: CampaignFixture,
+) -> None:
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        campaign.campaign_bytes,
+        campaign.fixture_context,
+    )
+    report = _report(result)
+    validator = Draft202012Validator(
+        json.loads(canonical_json_bytes(CONFORMANCE_REPORT_SCHEMA))
+    )
+    assert validator.is_valid(report)
+    row_index = next(
+        index
+        for index, row in enumerate(report["result_rows"])
+        if row["case_kind"] == "semantic_fixture"
+    )
+
+    def changed(**fields: object) -> dict[str, object]:
+        candidate = copy.deepcopy(report)
+        identity = candidate["result_rows"][row_index]["fixture_case_result"]
+        identity.update(fields)
+        return candidate
+
+    invalid_reports = (
+        changed(expected_report_schema_id=None),
+        changed(expected_control_failure_code="unexpected"),
+        changed(actual_report_schema_id=None),
+        changed(actual_control_failure_stage="validation"),
+        changed(
+            actual_result_kind="unavailable",
+            actual_report_schema_id="synthetic.report:v1",
+            actual_result_fingerprint=None,
+            actual_control_failure_stage=None,
+            actual_control_failure_code=None,
+            actual_control_failure_artifact_role=None,
+            result_identity_matches=False,
+        ),
+        changed(
+            actual_result_kind="unavailable",
+            actual_report_schema_id=None,
+            actual_result_fingerprint=None,
+            actual_control_failure_stage=None,
+            actual_control_failure_code=None,
+            actual_control_failure_artifact_role=None,
+            result_identity_matches=True,
+        ),
+        changed(
+            actual_result_kind="control_failure",
+            actual_report_schema_id=None,
+            actual_result_fingerprint=None,
+            actual_control_failure_stage="validation",
+            actual_control_failure_code="validator_integrity_failure",
+            actual_control_failure_artifact_role="phase_engine",
+            result_identity_matches=True,
+        ),
+        changed(
+            expected_result_kind="control_failure",
+            expected_report_schema_id="synthetic.report:v1",
+            expected_result_fingerprint="sha256:" + "2" * 64,
+            expected_control_failure_stage="validation",
+            expected_control_failure_code="validator_integrity_failure",
+            expected_control_failure_artifact_role="phase_engine",
+        ),
+    )
+    for invalid in invalid_reports:
+        assert not validator.is_valid(invalid)
