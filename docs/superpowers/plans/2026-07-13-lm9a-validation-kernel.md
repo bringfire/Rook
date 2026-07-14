@@ -144,6 +144,10 @@ Contains bounded accepted/rejected raw JSON cases with expected canonical finger
 
 Contains module-level, no-closure synthetic runners, export validators, report projections, immutable artifact-store fakes, and composition helpers. It contains no LM9A domain terms.
 
+**Create: `mcp_server/tests/_validation_kernel_replay_driver.py`**
+
+Builds the exact synthetic sealed program used by the boundary campaign and emits one canonical single-line replay bundle containing the exact program-manifest, validation-report, campaign-report, and fingerprint evidence. It is a subprocess-test driver only and contains no clock, process ID, temporary path, or other ambient process data.
+
 **Create tests:**
 
 - `mcp_server/tests/test_validation_kernel_owned_json.py`
@@ -203,6 +207,7 @@ JsonValue = Union[
 ]
 
 def own_trusted_json(value: object) -> JsonValue: ...
+def _seal_object_members(members: tuple[tuple[JsonString, JsonValue], ...]) -> JsonObject: ...
 def lookup_json_pointer(root: JsonValue, pointer: str) -> JsonValue: ...
 def count_json_nodes(root: JsonValue) -> int: ...
 
@@ -219,7 +224,7 @@ def normalized_source_fingerprint(source_bytes: bytes) -> str: ...
 
 - [ ] **Step 1: Write failing owned-value tests**
 
-Cover exact built-in input types, duplicate keys in trusted construction, immutable tuples, read-only mapping/sequence access, no mutable storage reachable through public attributes, iterative node count, valid RFC 6901 lookup, invalid escapes, and pointer-not-found behavior.
+Cover exact built-in input types, immutable tuples, read-only mapping/sequence access, no mutable storage reachable through public attributes, iterative node count, valid RFC 6901 lookup, invalid escapes, and pointer-not-found behavior. An exact built-in `dict` cannot represent duplicate keys after construction, so `own_trusted_json` has no pretend duplicate-key test. Test duplicate member rejection through the private pair-oriented `_seal_object_members(...)` boundary used by the parser; Task 3 separately proves duplicate rejection from raw JSON bytes.
 
 ```python
 def test_owned_tree_is_transitively_immutable():
@@ -270,7 +275,23 @@ The checked-in vector table must include at least:
 
 Also test RFC 8785 UTF-16 object-key ordering with BMP and supplementary-plane keys, JSON control escaping, UTF-8 output without BOM, lowercase `sha256:` fingerprints, and rejection of `NaN`/infinities. Assert that NFC normalization is not silently performed by the canonicalizer.
 
-Generate and check in 20,000 deterministic finite binary64 cases from exact 64-bit patterns, including signed zero, subnormals, normal exponent boundaries, maximum finite values, and a fixed-seed pseudorandom sample. Each row stores the hexadecimal bit pattern and exact `JSON.stringify` spelling. Pytest consumes the checked-in corpus without invoking Node. The generator must reproduce the file byte-for-byte under the installed Node runtime:
+Generate and check in 20,000 deterministic finite binary64 cases from exact 64-bit patterns, including signed zero, subnormals, normal exponent boundaries, maximum finite values, and a fixed-seed pseudorandom sample. Each row stores the hexadecimal bit pattern and exact `JSON.stringify` spelling. Pytest consumes the checked-in corpus without invoking Node.
+
+The corpus must also contain named directed groups, not merely values that happen to occur in the pseudorandom sample. For each finite threshold value, include its exact binary64 representation and the adjacent finite values from `nextDown` and `nextUp` where they exist:
+
+```text
+decimal fixed/exponent transition: 1e-6
+large fixed/exponent transition: 1e21
+integer precision transition: 2^53
+minimum subnormal and its next value
+maximum subnormal, minimum normal, and both sides of that boundary
+maximum finite value and its previous value
+shortest-round-trip halfway/tie cases from the RFC 8785 number corpus
+```
+
+The generator assigns a stable `group` and `case_id` to every directed vector. Pytest asserts every required group and neighbor relation is present before checking spellings, so a generator regression cannot silently leave only the random corpus.
+
+The generator must reproduce the file byte-for-byte under the installed Node runtime:
 
 ```powershell
 node mcp_server/tests/fixtures/validation_kernel/generate_jcs_number_vectors.mjs --check
@@ -470,7 +491,18 @@ Cover:
 - escaped strings, surrogate pairs, and all JSON structural tokens;
 - object source-order independence of canonical identity.
 
-Use a corpus test that compares accepted standard JSON cases against a strict `json.loads` oracle configured with rejecting `parse_constant`; the production parser must not call that oracle.
+Keep the checked-in hand-curated corpus for named regressions, and add a deterministic grammar differential in the test module. Use `random.Random(0x4C4D3941)` to generate exactly 5,000 valid documents with maximum depth 8 and width 8 across every scalar, container, escape, Unicode, and finite-number production. Derive exactly 15,000 additional candidates through named mutation families: delimiter deletion, truncation, trailing comma, colon/comma substitution, duplicate-key insertion, invalid escape, malformed exponent/leading zero, extra root token, and invalid/truncated UTF-8. Assert every mutation family contributes cases and at least one oracle rejection.
+
+The strict oracle is test-only and must:
+
+```text
+decode UTF-8 strictly and reject BOM
+call json.loads with parse_constant rejection
+use object_pairs_hook to reject duplicate names before dict construction
+walk the result iteratively to reject non-finite values and unpaired surrogates
+```
+
+For every generated byte string, require the kernel and oracle to agree on accept/reject. For accepted values, convert the oracle's closed built-in tree through `own_trusted_json` and require byte-identical canonical JSON and equal node counts. The generated cases stay below kernel resource limits so this test measures grammar/semantic agreement; the separate boundary tests own budget rejection. Production parser source must not import or call the oracle, `json.loads`, or the grammar generator.
 
 - [ ] **Step 2: Run and observe failure**
 
@@ -1273,6 +1305,7 @@ git commit -m "feat: add validation conformance release gate"
 
 **Files:**
 - Create: `mcp_server/tests/test_validation_kernel_boundaries.py`
+- Create: `mcp_server/tests/_validation_kernel_replay_driver.py`
 - Modify as needed for defects only: `mcp_server/src/rook/validation_kernel/*.py`
 - Modify as needed for defects only: `mcp_server/tests/test_validation_kernel_*.py`
 
@@ -1319,7 +1352,26 @@ Build one synthetic sealed program with:
 
 Run the exact same raw inputs twice and prove byte-identical program manifest, validation report, campaign report, and every fingerprint. Then change each behavior-bearing category individually and prove the expected identity moves.
 
-- [ ] **Step 4: Add fixed-profile feasibility proofs**
+Prove invocation isolation separately from ordinary replay. First produce a serial oracle for each distinct case. Then reuse one `SealedValidationProgram` across eight simultaneous validations launched with `ThreadPoolExecutor(max_workers=8)`; have the eight test workers wait on one harness-owned `threading.Barrier(8)` immediately before entering the public validation call. Mix successful, blocked, report-producing failure, local parse failure, and invocation-budget failure inputs, and repeat the synchronized campaign for ten rounds.
+
+Every concurrent result must equal its corresponding serial oracle for raw-input hashes, terminal variant, budget receipt and counters, schema-attempt audit rows, phase rows, and the exact presence or absence of report evidence. When a report exists, its bytes and fingerprint must match exactly. Assert that case-specific subjects, paths, failure codes, counters, and fingerprints never appear in another case's result. The barrier and executor belong only to the test harness; no synchronization object or test-only mutable state may enter a runner, runtime binding, or sealed program.
+
+- [ ] **Step 4: Prove cross-process determinism under hash randomization**
+
+Implement `_validation_kernel_replay_driver.py` as a narrow executable test helper. It constructs the exact synthetic sealed program and trusted inputs from `_validation_kernel_fakes.py`, runs the fixed validation and conformance campaign, and writes one canonical UTF-8 JSON line to standard output. The line contains base64 encodings of the exact canonical bytes and their fingerprints for:
+
+```text
+sealed program manifest
+validation report
+conformance campaign manifest
+conformance campaign report
+```
+
+It also records the exact terminal variant and budget/audit fingerprints needed to catch process-initialized state. The driver must write no nondeterministic timestamp, path, process ID, object representation, or unordered diagnostic data; standard error remains empty on success.
+
+From `test_validation_kernel_boundaries.py`, invoke the driver through `sys.executable` in fresh processes with `PYTHONHASHSEED` values `0`, `1`, `42`, and `4294967295`. Give each process the same explicit working directory and minimal deterministic environment required for imports, and prohibit network or ambient-clock inputs. Compare standard-output bytes directly, rather than parsing and reserializing the line. Require zero exit status, empty standard error, and byte-identical output across all seeds. Repeat seed `42` in a second fresh process and require the same bytes, catching process-initialized drift even when hash seeding is fixed.
+
+- [ ] **Step 5: Add fixed-profile feasibility proofs**
 
 Under the exact sealed synthetic program, prove:
 
@@ -1329,7 +1381,7 @@ Under the exact sealed synthetic program, prove:
 - adding an over-budget schema/fixture makes the aggregate release decision fail;
 - fixed report-seal allowance covers the maximum schema-permitted projection and two maximum-size canonical traversals.
 
-- [ ] **Step 5: Run the full kernel gate**
+- [ ] **Step 6: Run the full kernel gate**
 
 ```powershell
 $kernelTests = Get-ChildItem -LiteralPath mcp_server/tests -Filter "test_validation_kernel_*.py" | Sort-Object FullName | Select-Object -ExpandProperty FullName
@@ -1339,7 +1391,7 @@ node mcp_server/tests/fixtures/validation_kernel/generate_jcs_number_vectors.mjs
 
 Expected: PASS.
 
-- [ ] **Step 6: Run adjacent regression tests**
+- [ ] **Step 7: Run adjacent regression tests**
 
 ```powershell
 .\mcp_server\.venv\Scripts\python.exe -m pytest mcp_server/tests/test_plan_graph_workflow_contract_fingerprint.py mcp_server/tests/test_plan_graph_workflow_contract.py mcp_server/tests/test_workflow_validate.py mcp_server/tests/test_planner_worker_contract_request.py -q
@@ -1347,7 +1399,7 @@ Expected: PASS.
 
 Expected: PASS. The legacy fingerprint path remains behaviorally unchanged and separate.
 
-- [ ] **Step 7: Compile and inspect the final diff**
+- [ ] **Step 8: Compile and inspect the final diff**
 
 ```powershell
 .\mcp_server\.venv\Scripts\python.exe -m compileall -q mcp_server/src/rook/validation_kernel
@@ -1362,13 +1414,14 @@ mcp_server/pyproject.toml
 mcp_server/uv.lock
 mcp_server/src/rook/validation_kernel/
 mcp_server/tests/_validation_kernel_fakes.py
+mcp_server/tests/_validation_kernel_replay_driver.py
 mcp_server/tests/fixtures/validation_kernel/
 mcp_server/tests/test_validation_kernel_*.py
 ```
 
 The existing LM9A specs/plan may also appear because this branch currently carries the reviewed design history. No knowledge-store, probe-run, live artifact, server, Planner, or unrelated docs may be staged.
 
-- [ ] **Step 8: Run the incomplete-marker and semantic-leak scan**
+- [ ] **Step 9: Run the incomplete-marker and semantic-leak scan**
 
 ```powershell
 rg -n "TO[D]O|FI[X]ME|T[B]D|pass$|Not[I]mplementedError" mcp_server/src/rook/validation_kernel mcp_server/tests -g "test_validation_kernel_*.py"
@@ -1377,7 +1430,7 @@ rg -n -i "radial|box array|grid spacing|grasshopper|rhino|ollama|worker model|gh
 
 Expected: no matches. Test names may describe synthetic worker-slot/confirmation-shaped structural cases, but production kernel code remains domain-neutral.
 
-- [ ] **Step 9: Request final code review**
+- [ ] **Step 10: Request final code review**
 
 Review explicitly against:
 
@@ -1389,9 +1442,10 @@ Review explicitly against:
 - non-circular report seal;
 - earliest-honest conformance result matrix;
 - exact attempt/completeness accounting;
+- concurrent invocation isolation and fresh-process replay;
 - absence of LM9A semantic implementation.
 
-- [ ] **Step 10: Commit final review fixes only after rerunning the affected gates**
+- [ ] **Step 11: Commit final review fixes only after rerunning the affected gates**
 
 Use a narrow commit message describing the actual correction. Do not squash evidence-producing test commits merely to shorten history.
 
