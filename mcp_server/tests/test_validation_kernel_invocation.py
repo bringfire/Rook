@@ -73,6 +73,27 @@ def _bundle_host() -> dict[str, object]:
     return value
 
 
+def test_invocation_resolves_the_sealed_fixed_ledger_and_parser_bindings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    program = _invocation_program()
+    profile = _sealed_profile()
+    binding_lookups: list[tuple[str, str]] = []
+    real_resolve = type(program).resolve_runtime_binding
+
+    def resolve_spy(self: object, kind: str, component_id: str) -> object:
+        binding_lookups.append((kind, component_id))
+        return real_resolve(self, kind, component_id)
+
+    monkeypatch.setattr(type(program), "resolve_runtime_binding", resolve_spy)
+
+    result = _build(program, b"{}", _carrier(profile))
+
+    assert not isinstance(result, ValidationControlFailure)
+    assert ("ledger", program.parser_profile.ledger.component_id) in binding_lookups
+    assert ("parser", program.parser_profile.parser.component_id) in binding_lookups
+
+
 def _bundle_bytes(value: dict[str, object]) -> bytes:
     return json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode(
         "utf-8"

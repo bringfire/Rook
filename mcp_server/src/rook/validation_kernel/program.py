@@ -19,9 +19,14 @@ from typing import cast
 from packaging.markers import default_environment
 from packaging.requirements import InvalidRequirement, Requirement
 
-from .budget import BudgetManifest
+from .budget import (
+    BudgetManifest,
+    LM9A_BUDGET_MANIFEST,
+    create_budget_ledger,
+)
 from .canonical_json import (
     canonical_fingerprint as _reference_canonical_fingerprint,
+    canonical_fingerprint_metered,
     canonical_json_bytes as _reference_canonical_json_bytes,
     normalized_source_fingerprint,
     sha256_prefixed,
@@ -45,6 +50,7 @@ from .owned_json import (
     JsonString,
     JsonValue,
     count_json_nodes,
+    lookup_json_pointer,
     own_trusted_json,
 )
 from .phase_contract import (
@@ -66,7 +72,16 @@ from .phase_contract import (
     SchemaEvaluatorSpec,
     ValidationProgramContribution,
 )
-from .schema_profile import AdmittedSchema, SchemaProfile
+from .parser import parse_owned_json
+from .schema_profile import (
+    CORE_PROFILE,
+    PAYLOAD_PROFILE,
+    AdmittedSchema,
+    SchemaAdmissionError,
+    SchemaProfile,
+    _is_admitted_schema,
+    admit_schema,
+)
 
 
 KERNEL_ABI_VERSION = "rook.validation_kernel:v1"
@@ -354,6 +369,48 @@ def runtime_implementation_fingerprint(target: object) -> str:
     )
 
 
+def _fixed_parser_profile_spec() -> ParserProfileSpec:
+    def component(
+        component_id: str,
+        implementation_id: str,
+        target: object,
+    ) -> RuntimeComponentSpec:
+        return RuntimeComponentSpec(
+            component_id=component_id,
+            implementation_id=implementation_id,
+            implementation_fingerprint=runtime_implementation_fingerprint(target),
+            source_module=_target_source_module(target),
+        )
+
+    return ParserProfileSpec(
+        profile_id="rook.json_parser_profile:lm9a_v1",
+        tokenizer=component(
+            "rook.json_tokenizer:lm9a_v1",
+            "rook.bounded_json_tokenizer:v1",
+            parse_owned_json,
+        ),
+        parser=component(
+            "rook.json_parser:lm9a_v1",
+            "rook.bounded_json_parser:v1",
+            parse_owned_json,
+        ),
+        canonicalizer=component(
+            "rook.canonical_json:lm9a_v1",
+            "rook.canonical_json:v1",
+            canonical_fingerprint_metered,
+        ),
+        ledger=component(
+            "rook.budget_ledger:lm9a_v1",
+            "rook.budget_ledger:v1",
+            create_budget_ledger,
+        ),
+        tokenizer_version="rook.bounded_json_tokenizer:v1",
+        parser_version="rook.bounded_json_parser:v1",
+        owned_value_abi="rook.owned_json:v1",
+        canonicalization_version="rook.canonical_json:v1",
+    )
+
+
 def _stable_distribution_path(value: object) -> str | None:
     text = str(value).replace("\\", "/")
     path = PurePosixPath(text)
@@ -545,6 +602,8 @@ def _validate_component(component: object, context: str) -> RuntimeComponentSpec
 def _validate_budget(budget: object) -> tuple[BudgetManifest, dict[str, object]]:
     if type(budget) is not BudgetManifest:
         _fail("budget manifest must be an exact BudgetManifest")
+    if budget is not LM9A_BUDGET_MANIFEST:
+        _fail("budget manifest must be the fixed LM9A budget manifest")
     _require_machine_id(budget.profile_id, "budget profile ID")
     if type(budget.limits) is not JsonObject:
         _fail("budget limits must be an owned JSON object")
@@ -586,6 +645,8 @@ def _validate_parser_profile(
 ) -> tuple[ParserProfileSpec, tuple[tuple[str, RuntimeComponentSpec], ...]]:
     if type(profile) is not ParserProfileSpec:
         _fail("parser profile must be an exact ParserProfileSpec")
+    if profile != _fixed_parser_profile_spec():
+        _fail("parser profile must be the fixed parser profile")
     _require_machine_id(profile.profile_id, "parser profile ID")
     fields_and_kinds = (
         ("tokenizer", profile.tokenizer),
@@ -681,6 +742,12 @@ def _validate_schema_profiles(
             _fail("schema evaluator profile entries must be exact SchemaEvaluatorSpec values")
         if type(candidate.profile) is not SchemaProfile:
             _fail("schema evaluator profile must contain an exact SchemaProfile")
+        profile_manifest = _schema_profile_manifest(candidate)
+        if (
+            candidate.profile is not PAYLOAD_PROFILE
+            and candidate.profile is not CORE_PROFILE
+        ):
+            _fail("schema evaluator profile must use an exact fixed schema profile")
         profile_id = _require_machine_id(
             candidate.profile.profile_id, "schema profile ID"
         )
@@ -695,7 +762,7 @@ def _validate_schema_profiles(
         ):
             _fail(f"schema evaluator component mismatch: {profile_id}")
         by_id[profile_id] = candidate
-        manifests[profile_id] = _schema_profile_manifest(candidate)
+        manifests[profile_id] = profile_manifest
         components.append(("schema_evaluator", component))
     ordered_ids = sorted(by_id, key=utf16_sort_key)
     return (
@@ -713,18 +780,37 @@ def _validate_schemas(
     by_id: dict[str, AdmittedSchema] = {}
     manifests: dict[str, dict[str, object]] = {}
     for candidate in raw:
-        if type(candidate) is not AdmittedSchema:
-            _fail("schema entries must be exact AdmittedSchema values")
+        if not _is_admitted_schema(candidate):
+            _fail("schema admission authority is invalid")
         schema_id = _require_machine_id(candidate.schema_id, "schema ID")
         if schema_id in by_id:
             _fail(f"duplicate schema identity: {schema_id}")
         if candidate.profile_id not in profile_ids:
             _fail(f"schema references an unknown schema profile: {schema_id}")
-        actual_fingerprint = _reference_canonical_fingerprint(candidate.value)
-        if candidate.schema_fingerprint != actual_fingerprint:
-            _fail(f"schema fingerprint mismatch: {schema_id}")
-        if candidate.schema_nodes != count_json_nodes(candidate.value):
-            _fail(f"schema node identity mismatch: {schema_id}")
+        fixed_profile = (
+            PAYLOAD_PROFILE
+            if candidate.profile_id == PAYLOAD_PROFILE.profile_id
+            else CORE_PROFILE
+            if candidate.profile_id == CORE_PROFILE.profile_id
+            else None
+        )
+        if fixed_profile is None:
+            _fail(f"schema admission authority is invalid: {schema_id}")
+        try:
+            re_admitted = admit_schema(schema_id, candidate.value, fixed_profile)
+        except SchemaAdmissionError:
+            _fail(f"schema admission authority is invalid: {schema_id}")
+        if (
+            re_admitted.schema_fingerprint != candidate.schema_fingerprint
+            or re_admitted.profile_id != candidate.profile_id
+            or re_admitted.schema_nodes != candidate.schema_nodes
+            or re_admitted.local_reference_count
+            != candidate.local_reference_count
+            or re_admitted.maximum_reference_depth
+            != candidate.maximum_reference_depth
+            or re_admitted.value is not candidate.value
+        ):
+            _fail(f"schema admission authority is inconsistent: {schema_id}")
         by_id[schema_id] = candidate
         manifests[schema_id] = {
             "schema_id": schema_id,
@@ -1154,18 +1240,6 @@ def _decode_pointer_token(token: str) -> str:
     return token.replace("~1", "/").replace("~0", "~")
 
 
-def _host_pointer(root: object, pointer: str) -> object | None:
-    current = root
-    if pointer == "":
-        return current
-    for raw_token in pointer.split("/")[1:]:
-        token = _decode_pointer_token(raw_token)
-        if type(current) is not dict or token not in current:
-            return None
-        current = current[token]
-    return current
-
-
 _AMBIGUOUS_SCHEMA_BRANCH_KEYWORDS = frozenset(
     ("allOf", "anyOf", "oneOf", "if", "then", "else", "not")
 )
@@ -1184,6 +1258,7 @@ _OBJECT_SCHEMA_KEYWORDS = frozenset(
 _REFERENCE_ANNOTATION_KEYWORDS = frozenset(
     (
         "$comment",
+        "$defs",
         "$id",
         "$ref",
         "$schema",
@@ -1199,7 +1274,7 @@ _REFERENCE_ANNOTATION_KEYWORDS = frozenset(
 
 
 def _resolve_schema_reference(
-    root: object,
+    root: JsonObject,
     current: object,
     seen_references: set[str],
 ) -> tuple[object | None, str | None]:
@@ -1210,11 +1285,12 @@ def _resolve_schema_reference(
         ):
             return None, "ambiguous"
         reference = cast(str, current["$ref"])
-        if not reference.startswith("#") or reference in seen_references:
+        if reference in seen_references:
             return None, "ambiguous"
         seen_references.add(reference)
-        current = _host_pointer(root, reference[1:])
-        if current is None:
+        try:
+            current = _host_json(lookup_json_pointer(root, reference))
+        except (KeyError, ValueError):
             return None, "missing"
     if type(current) is not dict:
         return None, "closed_or_scalar"
@@ -1246,8 +1322,8 @@ def _resolve_schema_instance_path(
     schema: AdmittedSchema,
     path: str,
 ) -> tuple[dict[str, object] | None, str | None]:
-    root = _host_json(schema.value)
-    current: object = root
+    root = schema.value
+    current: object = _host_json(root)
     seen_references: set[str] = set()
     for raw_token in path.split("/")[1:]:
         current, error = _resolve_schema_reference(

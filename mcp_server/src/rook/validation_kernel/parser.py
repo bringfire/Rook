@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass, field
 
 from .budget import BudgetLedger
-from .canonical_json import canonical_fingerprint, sha256_prefixed
+from .canonical_json import canonical_fingerprint_metered, sha256_prefixed
 from .control import ArtifactRole, BudgetDimension
 from .owned_json import (
     JsonArray,
@@ -668,7 +668,15 @@ def parse_owned_json(
     value = _Parser(raw, artifact_role, ledger).parse()
     return ParsedJsonValue(
         value=value,
-        value_fingerprint=canonical_fingerprint(value),
+        value_fingerprint=canonical_fingerprint_metered(
+            value,
+            lambda blocks: ledger.charge(
+                BudgetDimension.PARSER_WORK_UNITS,
+                blocks,
+                artifact_role=ArtifactRole.COMBINED,
+                subject_path=None,
+            ),
+        ),
     )
 
 

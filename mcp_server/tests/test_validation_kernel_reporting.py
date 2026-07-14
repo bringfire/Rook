@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import importlib
-from dataclasses import FrozenInstanceError
+import json
+from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 
 import pytest
@@ -9,13 +10,9 @@ import pytest
 import rook.validation_kernel as validation_kernel
 from rook.validation_kernel import (
     PublishedValidationReport,
-    ReportBuilder,
-    ReportProjectionEnvelope,
     SchemaEvaluationInputError,
     ValidationControlFailure,
     compose_and_seal_program,
-    execute_phase_program,
-    seal_validation_report,
 )
 from rook.validation_kernel.budget import BudgetLedger
 from rook.validation_kernel.canonical_json import (
@@ -31,8 +28,18 @@ from rook.validation_kernel.owned_json import (
     JsonObject,
     JsonString,
     count_json_nodes,
+    own_trusted_json,
 )
-from rook.validation_kernel.schema_profile import SchemaEvaluationReceipt
+from rook.validation_kernel.phase_engine import execute_phase_program
+from rook.validation_kernel.reporting import (
+    ReportBuilder,
+    ReportProjectionEnvelope,
+    seal_validation_report,
+)
+from rook.validation_kernel.schema_profile import (
+    SchemaEvaluationReceipt,
+    admit_schema,
+)
 
 from tests._validation_kernel_fakes import (
     make_assembler_profile_candidate,
@@ -43,6 +50,48 @@ from tests._validation_kernel_fakes import (
 
 def _program(**changes: object):
     return compose_and_seal_program(make_phase_engine_contribution(**changes))
+
+
+def _program_with_raw_pointer_report_schema():
+    contribution = make_phase_engine_contribution()
+    source = contribution.schemas[0]
+    profile = next(
+        spec.profile
+        for spec in contribution.schema_evaluator_profiles
+        if spec.profile.profile_id == source.profile_id
+    )
+    body = json.loads(canonical_json_bytes(source.value))
+    wrapped = own_trusted_json(
+        {
+            "$schema": profile.metaschema_id,
+            "$defs": {"body": body},
+            "$ref": "/$defs/body",
+        }
+    )
+    assert type(wrapped) is JsonObject
+    admitted = admit_schema(source.schema_id, wrapped, profile)
+    bindings = tuple(
+        replace(
+            binding,
+            implementation_fingerprint=admitted.schema_fingerprint,
+            target=admitted,
+        )
+        if (binding.binding_kind, binding.binding_id)
+        == ("schema", source.schema_id)
+        else binding
+        for binding in contribution.runtime_bindings
+    )
+    return compose_and_seal_program(
+        replace(
+            contribution,
+            schemas=(admitted,),
+            report_projection=replace(
+                contribution.report_projection,
+                output_schema_fingerprint=admitted.schema_fingerprint,
+            ),
+            runtime_bindings=bindings,
+        )
+    )
 
 
 def _context(program: object, recipe: bytes = b'{"nested":{"value":1}}'):
@@ -574,7 +623,7 @@ def test_final_report_uses_exact_admitted_schema_evaluator_and_publishes_nothing
     _assert_report_failure(result, "validation_constructability_failed")
     assert context.ledger.snapshot().report_seal_reserved_work_units == 262_144
     assert evaluation_calls == 1
-    assert canonical_calls == 1
+    assert canonical_calls == 2
 
 
 def test_identical_inputs_publish_identical_bytes_and_exact_fingerprint_projection() -> None:
@@ -592,6 +641,16 @@ def test_identical_inputs_publish_identical_bytes_and_exact_fingerprint_projecti
     assert canonical_fingerprint(fingerprint_projection) == first.report_fingerprint
     fingerprint_value = first.value["report_fingerprint"]
     assert fingerprint_value.value == first.report_fingerprint  # type: ignore[union-attr]
+
+
+def test_raw_rfc6901_report_schema_reference_composes_and_publishes() -> None:
+    program = _program_with_raw_pointer_report_schema()
+
+    _, _, result = _execute_and_seal(program)
+
+    assert type(result) is PublishedValidationReport
+    assert result.schema_id == "synthetic.report:v1"
+    assert canonical_fingerprint(_without_fingerprint(result.value)) == result.report_fingerprint
 
 
 @pytest.mark.parametrize(
@@ -688,10 +747,7 @@ def test_reporting_kernel_contains_no_planner_specific_semantics() -> None:
     source = Path(reporting.__file__).read_text(encoding="utf-8")
 
     assert "planner" not in source.casefold()
-    for name in (
-        "PublishedValidationReport",
-        "ReportBuilder",
-        "ReportProjectionEnvelope",
-        "seal_validation_report",
-    ):
-        assert name in validation_kernel.__all__
+    assert "PublishedValidationReport" in validation_kernel.__all__
+    for name in ("ReportBuilder", "ReportProjectionEnvelope", "seal_validation_report"):
+        assert name not in validation_kernel.__all__
+        assert not hasattr(validation_kernel, name)

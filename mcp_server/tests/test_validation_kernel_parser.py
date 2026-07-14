@@ -320,7 +320,7 @@ def test_shared_parser_work_budget_counts_blocks_tokens_nodes_and_attachments() 
     exact_ledger = _new_ledger()
     exact_ledger.charge(
         BudgetDimension.PARSER_WORK_UNITS,
-        limit - 3,
+        limit - 4,
         artifact_role=ArtifactRole.COMBINED,
         subject_path=None,
     )
@@ -332,7 +332,7 @@ def test_shared_parser_work_budget_counts_blocks_tokens_nodes_and_attachments() 
     over_ledger = _new_ledger()
     over_ledger.charge(
         BudgetDimension.PARSER_WORK_UNITS,
-        limit - 2,
+        limit - 3,
         artifact_role=ArtifactRole.COMBINED,
         subject_path=None,
     )
@@ -342,7 +342,7 @@ def test_shared_parser_work_budget_counts_blocks_tokens_nodes_and_attachments() 
     assert raised.value.failure.budget_dimension == "parser_work_units"
     assert raised.value.failure.artifact_role == ArtifactRole.COMBINED.value
     assert raised.value.failure.observed_lower_bound == limit + 1
-    assert over_ledger.snapshot().parsed_nodes == 0
+    assert over_ledger.snapshot().parsed_nodes == 1
 
 
 @pytest.mark.parametrize(
@@ -377,16 +377,34 @@ def test_literal_node_budget_is_charged_before_scalar_construction(
 
 def test_parser_work_counts_started_raw_blocks_and_structural_attachments_exactly() -> None:
     cases = (
-        (b"null" + b" " * 60, 3),
-        (b"null" + b" " * 61, 4),
-        (b"[null]", 7),
-        (b'{"a":null}', 9),
+        (b"null" + b" " * 60, 4),
+        (b"null" + b" " * 61, 5),
+        (b"[null]", 8),
+        (b'{"a":null}', 10),
     )
 
     for raw, expected_work in cases:
         ledger = _new_ledger()
         _parse(raw, ledger=ledger)
         assert ledger.snapshot().parser_work_units == expected_work
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected_work"),
+    (
+        (b'"' + b"a" * 62 + b'"', 4),
+        (b'"' + b"a" * 63 + b'"', 6),
+    ),
+)
+def test_parser_fingerprint_charges_each_started_canonical_output_block(
+    raw: bytes,
+    expected_work: int,
+) -> None:
+    ledger = _new_ledger()
+
+    _parse(raw, ledger=ledger)
+
+    assert ledger.snapshot().parser_work_units == expected_work
 
 
 def test_number_token_character_limit_is_inclusive() -> None:

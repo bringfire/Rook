@@ -591,6 +591,21 @@ def test_schema_admission_is_immutable_and_retains_the_exact_owned_value() -> No
         admitted.schema_nodes = 0
 
 
+def test_admitted_schema_private_factory_requires_issuer_capability() -> None:
+    schema = owned_schema({"type": "object"})
+
+    with pytest.raises(TypeError, match="issuer"):
+        AdmittedSchema._create(
+            schema_id="schema.forged",
+            schema_fingerprint=canonical_fingerprint(schema),
+            profile_id=PAYLOAD_PROFILE.profile_id,
+            schema_nodes=count_json_nodes(schema),
+            local_reference_count=0,
+            maximum_reference_depth=0,
+            value=schema,
+        )
+
+
 def test_schema_fingerprint_accepts_finite_integer_outside_product_safe_range() -> None:
     schema = owned_schema({"type": "integer", "maximum": 9_007_199_254_740_992})
 

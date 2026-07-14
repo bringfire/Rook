@@ -32,8 +32,8 @@ from .owned_json import (
     lookup_json_pointer,
     own_trusted_json,
 )
-from .parser import JsonParseError, JsonParseEvidence, parse_owned_json
-from .program import SealedValidationProgram
+from .parser import JsonParseError, JsonParseEvidence
+from .program import SealedValidationProgram, _fixed_parser_profile_spec
 
 
 _MACHINE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
@@ -509,6 +509,7 @@ def _program_is_valid(program: object) -> bool:
             and program.resolve_manifest_bytes(program.program_fingerprint)
             == program.manifest_bytes
             and program.budget_manifest is LM9A_BUDGET_MANIFEST
+            and program.parser_profile == _fixed_parser_profile_spec()
         )
         if not identity_fields_are_valid:
             return False
@@ -763,7 +764,19 @@ def _build_validation_execution_context(
     owned_bundle_bytes = _copy_exact_bytes(raw_bundle_bytes)
     recipe_sha256 = sha256_prefixed(owned_recipe_bytes)
     bundle_sha256 = sha256_prefixed(owned_bundle_bytes)
-    ledger = BudgetLedger(program.budget_manifest)
+    ledger_factory = program.resolve_runtime_binding(
+        "ledger", program.parser_profile.ledger.component_id
+    )
+    parser = program.resolve_runtime_binding(
+        "parser", program.parser_profile.parser.component_id
+    )
+    ledger = ledger_factory(program.budget_manifest)  # type: ignore[operator]
+    if type(ledger) is not BudgetLedger:
+        return _control_failure(
+            code="validator_identity_unavailable",
+            artifact_role=ArtifactRole.VALIDATION_PROGRAM,
+            program=None,
+        )
     ledger.charge(
         BudgetDimension.RECIPE_INPUT_BYTES,
         recipe_length,
@@ -777,7 +790,7 @@ def _build_validation_execution_context(
         subject_path=None,
     )
     try:
-        parsed_bundle = parse_owned_json(
+        parsed_bundle = parser(  # type: ignore[operator]
             owned_bundle_bytes,
             artifact_role=ArtifactRole.VALIDATION_BUNDLE.value,
             ledger=ledger,
@@ -861,7 +874,7 @@ def _build_validation_execution_context(
     recipe_value: JsonValue | None
     recipe_parse_evidence: JsonParseEvidence | None
     try:
-        parsed_recipe = parse_owned_json(
+        parsed_recipe = parser(  # type: ignore[operator]
             owned_recipe_bytes,
             artifact_role=ArtifactRole.RECIPE.value,
             ledger=ledger,

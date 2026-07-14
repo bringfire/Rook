@@ -38,6 +38,7 @@ from .schema_profile import (
     _SchemaEvaluationAuditEntry,
     _is_schema_evaluation_audit_entry,
     _issue_schema_evaluation_audit_entry,
+    _resolve_instance_binding,
 )
 
 
@@ -1129,6 +1130,38 @@ def _helper_facade(
         profile = profile_by_id.get(schema.profile_id)
         if profile is None:
             raise _IntegrityError("schema helper profile is not sealed")
+        charge_work_units(2)
+        invocation = context.invocation
+        sources = (
+            (invocation.recipe_value, invocation.recipe_value_fingerprint),
+            (
+                invocation.validation_bundle,
+                invocation.validation_bundle_fingerprint,
+            ),
+        )
+        resolved_instance = None
+        for source_root, source_fingerprint in sources:
+            if (
+                source_root is None
+                or source_fingerprint
+                != instance_binding.artifact_fingerprint
+            ):
+                continue
+            try:
+                resolved_instance = _resolve_instance_binding(
+                    instance_root=source_root,
+                    instance_root_fingerprint=source_fingerprint,
+                    instance=instance,
+                    instance_binding=instance_binding,
+                    charge_work_units=charge_work_units,
+                )
+            except SchemaEvaluationInputError:
+                continue
+            break
+        if resolved_instance is None:
+            raise _IntegrityError(
+                "schema helper instance binding does not select a captured source"
+            )
         try:
             charge_work_units(1)
             evaluator = program.resolve_runtime_binding(
@@ -1154,7 +1187,7 @@ def _helper_facade(
                 _issue_schema_evaluation_audit_entry(
                     schema=schema,
                     instance=instance,
-                    instance_binding=instance_binding,
+                    resolved_instance_binding=resolved_instance,
                     receipt=receipt,
                     per_evaluation_limit=profile.per_evaluation_shape_limit,
                 )

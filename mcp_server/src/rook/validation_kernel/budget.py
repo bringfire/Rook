@@ -412,6 +412,12 @@ class BudgetLedger:
             return receipt
 
 
+def create_budget_ledger(manifest: BudgetManifest) -> BudgetLedger:
+    """Create the invocation-private ledger bound by the fixed program."""
+
+    return BudgetLedger(manifest)
+
+
 class SealMeter:
     """Post-freeze report-seal accounting with no reference to any ledger."""
 
@@ -488,6 +494,7 @@ __all__ = (
     "BudgetManifest",
     "BudgetReceipt",
     "BudgetSnapshot",
+    "create_budget_ledger",
     "LM9A_BUDGET_MANIFEST",
     "LM9A_BUDGET_PROFILE_ID",
     "MAX_CHECKED_BUDGET_INTEGER",

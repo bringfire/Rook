@@ -64,7 +64,6 @@ from .parser import (
     JsonParseError,
     JsonParseEvidence,
     ParsedJsonValue,
-    parse_owned_json,
 )
 from .phase_contract import (
     ExportTypeSpec,
@@ -90,7 +89,6 @@ from .phase_engine import (
     NamedOutput,
     PhaseResult,
     RunnerResult,
-    execute_phase_program,
 )
 from .program import (
     SealedValidationProgram,
@@ -101,12 +99,7 @@ from .program import (
     runtime_dependency_spec,
     runtime_implementation_fingerprint,
 )
-from .reporting import (
-    PublishedValidationReport,
-    ReportBuilder,
-    ReportProjectionEnvelope,
-    seal_validation_report,
-)
+from .reporting import PublishedValidationReport
 from .schema_profile import (
     CORE_PROFILE,
     CORE_SCHEMA_PROFILE_ID,
@@ -183,8 +176,6 @@ __all__ = (
     "ProgramConstantSpec",
     "ProvidedOutput",
     "PublishedValidationReport",
-    "ReportBuilder",
-    "ReportProjectionEnvelope",
     "ReportProjectionSpec",
     "REPORT_BUDGET_RECEIPT_PATH",
     "REPORT_FINGERPRINT_PATH",
@@ -217,17 +208,14 @@ __all__ = (
     "compose_and_seal_program",
     "evaluate_schema",
     "evaluate_schema_with_reservation",
-    "execute_phase_program",
     "implementation_source_closure_for_modules",
     "implementation_source_for_module",
     "issue_trusted_validation_bundle",
-    "parse_owned_json",
     "runtime_dependency_closure_for_modules",
     "runtime_dependency_spec",
     "runtime_implementation_fingerprint",
     "run_conformance_gate",
     "reserve_schema_evaluation",
-    "seal_validation_report",
     "seal_trusted_bundle_assembler_profile",
     "seal_conformance_gate_profile",
     "validate_artifacts",

@@ -728,15 +728,22 @@ def test_orchestration_parses_each_artifact_once_without_fallback(
     assembler_profile: object,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    invocation_module = importlib.import_module("rook.validation_kernel.invocation")
-    real_parse = invocation_module.parse_owned_json
+    program_type = type(api_program)
+    real_resolve = program_type.resolve_runtime_binding
+    parser_id = api_program.parser_profile.parser.component_id
+    real_parse = real_resolve(api_program, "parser", parser_id)
     parsed_roles: list[str] = []
 
     def parse_spy(*args: object, **kwargs: object) -> object:
         parsed_roles.append(kwargs["artifact_role"])
         return real_parse(*args, **kwargs)
 
-    monkeypatch.setattr(invocation_module, "parse_owned_json", parse_spy)
+    def resolve_spy(self: object, kind: str, component_id: str) -> object:
+        if self is api_program and (kind, component_id) == ("parser", parser_id):
+            return parse_spy
+        return real_resolve(self, kind, component_id)
+
+    monkeypatch.setattr(program_type, "resolve_runtime_binding", resolve_spy)
 
     result = validate_artifacts(
         api_program,

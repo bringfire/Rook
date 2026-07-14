@@ -7,8 +7,8 @@ import importlib.metadata
 import re
 import struct
 import threading
-from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field
 from itertools import islice
 from typing import overload
 from urllib.parse import quote
@@ -18,7 +18,7 @@ from jsonschema.exceptions import SchemaError
 from referencing import Registry
 
 from .budget import BudgetLedger, SchemaShapeReservation
-from .canonical_json import canonical_fingerprint
+from .canonical_json import canonical_fingerprint, canonical_fingerprint_metered
 from .owned_json import (
     JsonArray,
     JsonBoolean,
@@ -222,6 +222,9 @@ class SchemaProfile:
     profile_fingerprint: str
 
 
+_ADMITTED_SCHEMA_ISSUER_CAPABILITY = object()
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class AdmittedSchema:
     """An immutable schema admitted by one exact release-owned profile."""
@@ -233,6 +236,7 @@ class AdmittedSchema:
     local_reference_count: int
     maximum_reference_depth: int
     value: JsonObject
+    __issuer_capability: object = field(repr=False, compare=False)
 
     def __init__(self) -> None:
         raise TypeError("AdmittedSchema values are created only by admit_schema")
@@ -240,6 +244,7 @@ class AdmittedSchema:
     @classmethod
     def _create(
         cls,
+        token: object = None,
         *,
         schema_id: str,
         schema_fingerprint: str,
@@ -249,6 +254,8 @@ class AdmittedSchema:
         maximum_reference_depth: int,
         value: JsonObject,
     ) -> "AdmittedSchema":
+        if token is not _ADMITTED_SCHEMA_ISSUER_CAPABILITY:
+            raise TypeError("invalid admitted-schema issuer")
         admitted = object.__new__(cls)
         object.__setattr__(admitted, "schema_id", schema_id)
         object.__setattr__(admitted, "schema_fingerprint", schema_fingerprint)
@@ -261,7 +268,26 @@ class AdmittedSchema:
             admitted, "maximum_reference_depth", maximum_reference_depth
         )
         object.__setattr__(admitted, "value", value)
+        object.__setattr__(
+            admitted,
+            "_AdmittedSchema__issuer_capability",
+            _ADMITTED_SCHEMA_ISSUER_CAPABILITY,
+        )
         return admitted
+
+
+def _is_admitted_schema(value: object) -> bool:
+    if type(value) is not AdmittedSchema:
+        return False
+    try:
+        return (
+            object.__getattribute__(
+                value, "_AdmittedSchema__issuer_capability"
+            )
+            is _ADMITTED_SCHEMA_ISSUER_CAPABILITY
+        )
+    except AttributeError:
+        return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,6 +310,142 @@ class InstanceBinding:
             raise SchemaEvaluationInputError("invalid instance artifact fingerprint")
         if not _is_rfc6901_pointer(self.instance_pointer):
             raise SchemaEvaluationInputError("invalid selected instance pointer")
+
+
+_RESOLVED_INSTANCE_BINDING_ISSUER = object()
+
+
+class _ResolvedInstanceBinding:
+    """Kernel-issued proof that one binding selects one exact owned instance."""
+
+    __slots__ = (
+        "instance",
+        "instance_binding",
+        "instance_fingerprint",
+        "instance_nodes",
+        "__issuer_capability",
+        "__issued_signature",
+    )
+
+    instance: JsonValue
+    instance_binding: InstanceBinding
+    instance_fingerprint: str
+    instance_nodes: int
+
+    def __init__(self) -> None:
+        raise TypeError("resolved instance bindings are kernel-issued")
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError("resolved instance bindings are immutable")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError("resolved instance bindings are immutable")
+
+
+def _resolved_instance_binding_signature(
+    value: _ResolvedInstanceBinding,
+) -> tuple[object, ...]:
+    binding = value.instance_binding
+    return (
+        id(value.instance),
+        id(binding),
+        binding.artifact_id,
+        binding.artifact_fingerprint,
+        binding.instance_pointer,
+        value.instance_fingerprint,
+        value.instance_nodes,
+    )
+
+
+def _is_resolved_instance_binding(value: object) -> bool:
+    if type(value) is not _ResolvedInstanceBinding:
+        return False
+    try:
+        capability = object.__getattribute__(
+            value,
+            "_ResolvedInstanceBinding__issuer_capability",
+        )
+        signature = object.__getattribute__(
+            value,
+            "_ResolvedInstanceBinding__issued_signature",
+        )
+        return (
+            capability is _RESOLVED_INSTANCE_BINDING_ISSUER
+            and signature == _resolved_instance_binding_signature(value)
+        )
+    except (AttributeError, TypeError):
+        return False
+
+
+def _resolve_instance_binding(
+    *,
+    instance_root: JsonValue,
+    instance_root_fingerprint: str,
+    instance: JsonValue,
+    instance_binding: InstanceBinding,
+    charge_work_units: Callable[[int], None],
+    precomputed_instance_fingerprint: str | None = None,
+) -> _ResolvedInstanceBinding:
+    if type(instance_root) not in _OWNED_VALUE_TYPES:
+        raise SchemaEvaluationInputError("instance binding requires an owned root")
+    if type(instance) not in _OWNED_VALUE_TYPES:
+        raise SchemaEvaluationInputError("instance binding requires an owned instance")
+    if type(instance_binding) is not InstanceBinding:
+        raise SchemaEvaluationInputError("instance binding is not exact")
+    if not callable(charge_work_units):
+        raise SchemaEvaluationInputError("instance binding requires a work charger")
+    if (
+        type(instance_root_fingerprint) is not str
+        or not _FINGERPRINT_RE.fullmatch(instance_root_fingerprint)
+        or instance_binding.artifact_fingerprint != instance_root_fingerprint
+    ):
+        raise SchemaEvaluationInputError("instance binding root fingerprint mismatch")
+
+    pointer = instance_binding.instance_pointer
+    pointer_tokens = 0 if pointer == "" else len(pointer[1:].split("/"))
+    charge_work_units(1 + pointer_tokens)
+    try:
+        selected = lookup_json_pointer(instance_root, pointer)
+    except (KeyError, ValueError):
+        raise SchemaEvaluationInputError(
+            "instance binding pointer does not resolve"
+        ) from None
+    if selected is not instance:
+        raise SchemaEvaluationInputError(
+            "instance binding pointer selects a different instance"
+        )
+
+    if precomputed_instance_fingerprint is None:
+        instance_fingerprint = canonical_fingerprint_metered(
+            instance,
+            charge_work_units,
+        )
+    elif (
+        type(precomputed_instance_fingerprint) is str
+        and _FINGERPRINT_RE.fullmatch(precomputed_instance_fingerprint)
+    ):
+        instance_fingerprint = precomputed_instance_fingerprint
+    else:
+        raise SchemaEvaluationInputError(
+            "instance binding has an invalid precomputed fingerprint"
+        )
+
+    resolved = object.__new__(_ResolvedInstanceBinding)
+    object.__setattr__(resolved, "instance", instance)
+    object.__setattr__(resolved, "instance_binding", instance_binding)
+    object.__setattr__(resolved, "instance_fingerprint", instance_fingerprint)
+    object.__setattr__(resolved, "instance_nodes", count_json_nodes(instance))
+    object.__setattr__(
+        resolved,
+        "_ResolvedInstanceBinding__issuer_capability",
+        _RESOLVED_INSTANCE_BINDING_ISSUER,
+    )
+    object.__setattr__(
+        resolved,
+        "_ResolvedInstanceBinding__issued_signature",
+        _resolved_instance_binding_signature(resolved),
+    )
+    return resolved
 
 
 @dataclass(frozen=True, slots=True)
@@ -598,15 +760,22 @@ def _issue_schema_evaluation_audit_entry(
     *,
     schema: AdmittedSchema,
     instance: JsonValue,
-    instance_binding: InstanceBinding,
+    resolved_instance_binding: _ResolvedInstanceBinding,
     receipt: SchemaEvaluationReceipt,
     per_evaluation_limit: int,
 ) -> _SchemaEvaluationAuditEntry:
     accepted_schema, profile = _require_evaluation_schema(schema)
+    if not _is_resolved_instance_binding(resolved_instance_binding):
+        raise SchemaEvaluationInputError(
+            "audit entry requires a resolved instance binding"
+        )
+    instance_binding = resolved_instance_binding.instance_binding
     accepted_instance = _require_evaluation_instance(instance, instance_binding)
+    if resolved_instance_binding.instance is not accepted_instance:
+        raise SchemaEvaluationInputError("audit instance binding is inconsistent")
     if per_evaluation_limit != profile.per_evaluation_shape_limit:
         raise SchemaEvaluationInputError("audit profile limit is inconsistent")
-    instance_nodes = count_json_nodes(accepted_instance)
+    instance_nodes = resolved_instance_binding.instance_nodes
     accepted_receipt = _validate_audit_receipt(
         receipt,
         schema_nodes=accepted_schema.schema_nodes,
@@ -617,7 +786,7 @@ def _issue_schema_evaluation_audit_entry(
         schema=accepted_schema,
         per_evaluation_limit=per_evaluation_limit,
         instance_binding=instance_binding,
-        instance_fingerprint=canonical_fingerprint(accepted_instance),
+        instance_fingerprint=resolved_instance_binding.instance_fingerprint,
         instance_nodes=instance_nodes,
         pre_evaluation_candidate=None,
         receipt=accepted_receipt,
@@ -1439,6 +1608,7 @@ def admit_schema(
         raise SchemaAdmissionError("schema_library_failed") from None
 
     return AdmittedSchema._create(
+        _ADMITTED_SCHEMA_ISSUER_CAPABILITY,
         schema_id=schema_id,
         schema_fingerprint=canonical_fingerprint(value),
         profile_id=profile.profile_id,
@@ -1777,7 +1947,7 @@ def _bounded_validation_issues(errors: object) -> tuple[SchemaIssue, ...]:
 
 
 def _require_evaluation_schema(schema: object) -> tuple[AdmittedSchema, SchemaProfile]:
-    if type(schema) is not AdmittedSchema:
+    if not _is_admitted_schema(schema):
         raise SchemaEvaluationInputError("evaluation requires an admitted schema")
     profile = _profile_for_admitted(schema)
     if (

@@ -34,8 +34,13 @@ from rook.validation_kernel.canonical_json import (
     canonical_json_bytes,
     sha256_prefixed,
 )
+from rook.validation_kernel.budget import BudgetLedger, LM9A_BUDGET_MANIFEST
 from rook.validation_kernel.owned_json import JsonObject, own_trusted_json
-from rook.validation_kernel.schema_profile import CORE_SCHEMA_PROFILE_ID
+from rook.validation_kernel.schema_profile import (
+    CORE_SCHEMA_PROFILE_ID,
+    InstanceBinding,
+    evaluate_schema,
+)
 
 from tests._validation_kernel_fakes import (
     ImmutableArtifactStore,
@@ -261,6 +266,92 @@ def _rows_by_id(report: dict[str, object]) -> dict[str, dict[str, object]]:
     rows = report["result_rows"]
     assert type(rows) is list
     return {str(row["case_id"]): row for row in rows}
+
+
+def test_conformance_attempt_row_resolves_exact_root_pointer_and_instance(
+    program: object,
+) -> None:
+    schema = next(
+        candidate
+        for candidate in program.schemas  # type: ignore[attr-defined]
+        if candidate.profile_id == CORE_SCHEMA_PROFILE_ID
+    )
+    root = _owned_object(
+        {
+            "left": {"value": "ok"},
+            "right": {"value": "ok"},
+        }
+    )
+    instance = root["right"]
+    assert type(instance) is JsonObject
+    root_fingerprint = canonical_fingerprint(root)
+    correct = InstanceBinding(
+        artifact_id="artifact:core-positive",
+        artifact_fingerprint=root_fingerprint,
+        instance_pointer="/right",
+    )
+    receipt = evaluate_schema(
+        schema,
+        instance,
+        instance_binding=correct,
+        ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
+    )
+
+    row = conformance_module._attempt_row(
+        evaluation_index=0,
+        schema=schema,
+        instance_binding=correct,
+        instance_root=root,
+        instance_root_fingerprint=root_fingerprint,
+        instance=instance,
+        receipt=receipt,
+        per_evaluation_limit=8_000_000,
+    )
+
+    assert row["instance_fingerprint"] == canonical_fingerprint(instance)
+    detached = JsonObject(tuple(instance.members))
+    invalid = (
+        (
+            InstanceBinding(
+                artifact_id=correct.artifact_id,
+                artifact_fingerprint="sha256:" + ("0" * 64),
+                instance_pointer="/right",
+            ),
+            instance,
+        ),
+        (
+            InstanceBinding(
+                artifact_id=correct.artifact_id,
+                artifact_fingerprint=root_fingerprint,
+                instance_pointer="/missing",
+            ),
+            instance,
+        ),
+        (
+            InstanceBinding(
+                artifact_id=correct.artifact_id,
+                artifact_fingerprint=root_fingerprint,
+                instance_pointer="/left",
+            ),
+            instance,
+        ),
+        (correct, detached),
+    )
+    for candidate_binding, candidate_instance in invalid:
+        with pytest.raises(
+            conformance_module._GateIntegrityFailure,
+            match="instance binding",
+        ):
+            conformance_module._attempt_row(
+                evaluation_index=0,
+                schema=schema,
+                instance_binding=candidate_binding,
+                instance_root=root,
+                instance_root_fingerprint=root_fingerprint,
+                instance=candidate_instance,
+                receipt=receipt,
+                per_evaluation_limit=8_000_000,
+            )
 
 
 def test_release_authority_is_sealed_opaque_and_nonforgeable(

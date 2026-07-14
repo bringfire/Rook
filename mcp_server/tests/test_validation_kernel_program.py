@@ -12,6 +12,9 @@ from typing import Callable
 import pytest
 from jsonschema import Draft202012Validator, ValidationError, validators
 
+import rook.validation_kernel.budget as budget_module
+import rook.validation_kernel.canonical_json as canonical_json_module
+import rook.validation_kernel.parser as parser_module
 import rook.validation_kernel.program as program_module
 from rook.validation_kernel import (
     CORE_PROFILE,
@@ -36,18 +39,24 @@ from rook.validation_kernel import (
     runtime_dependency_spec,
     runtime_implementation_fingerprint,
 )
-from rook.validation_kernel.budget import BudgetManifest
+from rook.validation_kernel.budget import BudgetManifest, LM9A_BUDGET_MANIFEST
 from rook.validation_kernel.canonical_json import (
     canonical_fingerprint,
     canonical_json_bytes,
     normalized_source_fingerprint,
 )
-from rook.validation_kernel.owned_json import JsonObject, own_trusted_json
+from rook.validation_kernel.owned_json import (
+    JsonObject,
+    count_json_nodes,
+    own_trusted_json,
+)
 from rook.validation_kernel.schema_profile import (
+    AdmittedSchema,
     SchemaAdmissionError,
     admit_schema,
     evaluate_schema,
 )
+from rook.validation_kernel.invocation import _program_is_valid
 
 from tests._validation_kernel_fakes import (
     MutableCallable,
@@ -249,6 +258,103 @@ def _replace_report_schema(
             output_schema_fingerprint=schema.schema_fingerprint,
         ),
         runtime_bindings=bindings,
+    )
+
+
+def _forge_admitted_schema(
+    source: AdmittedSchema,
+    *,
+    value: JsonObject | None = None,
+    local_reference_count: int | None = None,
+    maximum_reference_depth: int | None = None,
+) -> AdmittedSchema:
+    forged_value = source.value if value is None else value
+    forged = object.__new__(AdmittedSchema)
+    for field_name, field_value in (
+        ("schema_id", source.schema_id),
+        ("schema_fingerprint", canonical_fingerprint(forged_value)),
+        ("profile_id", source.profile_id),
+        ("schema_nodes", count_json_nodes(forged_value)),
+        (
+            "local_reference_count",
+            source.local_reference_count
+            if local_reference_count is None
+            else local_reference_count,
+        ),
+        (
+            "maximum_reference_depth",
+            source.maximum_reference_depth
+            if maximum_reference_depth is None
+            else maximum_reference_depth,
+        ),
+        ("value", forged_value),
+    ):
+        object.__setattr__(forged, field_name, field_value)
+    return forged
+
+
+def _replace_admitted_report_schema(
+    contribution: ValidationProgramContribution,
+    schema: AdmittedSchema,
+) -> ValidationProgramContribution:
+    bindings = tuple(
+        replace(
+            binding,
+            implementation_fingerprint=schema.schema_fingerprint,
+            target=schema,
+        )
+        if (binding.binding_kind, binding.binding_id)
+        == ("schema", contribution.report_projection.output_schema_id)
+        else binding
+        for binding in contribution.runtime_bindings
+    )
+    return replace(
+        contribution,
+        schemas=(schema,),
+        report_projection=replace(
+            contribution.report_projection,
+            output_schema_fingerprint=schema.schema_fingerprint,
+        ),
+        runtime_bindings=bindings,
+    )
+
+
+def test_program_seal_rejects_forged_schema_that_bypassed_profile_admission() -> None:
+    contribution = make_program_contribution()
+    source = contribution.schemas[0]
+    host = _host_json(source.value)
+    assert isinstance(host, dict)
+    host["pattern"] = "forbidden"
+    forged_value = own_trusted_json(host)
+    assert type(forged_value) is JsonObject
+    forged = _forge_admitted_schema(source, value=forged_value)
+
+    _assert_rejected(
+        _replace_admitted_report_schema(contribution, forged),
+        "schema admission authority",
+    )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "field_value"),
+    (
+        ("local_reference_count", 1),
+        ("maximum_reference_depth", 1),
+    ),
+)
+def test_program_seal_rederives_all_schema_reference_metadata(
+    field_name: str,
+    field_value: int,
+) -> None:
+    contribution = make_program_contribution()
+    forged = _forge_admitted_schema(
+        contribution.schemas[0],
+        **{field_name: field_value},
+    )
+
+    _assert_rejected(
+        _replace_admitted_report_schema(contribution, forged),
+        "schema admission authority",
     )
 
 
@@ -745,7 +851,48 @@ def test_program_seal_rejects_an_insufficient_fixed_allowance() -> None:
     contribution = make_program_contribution()
     _assert_rejected(
         replace(contribution, budget_manifest=_insufficient_seal_budget()),
-        "seal allowance",
+        "fixed LM9A budget manifest",
+    )
+
+
+def test_program_seal_requires_the_exact_fixed_lm9a_budget_manifest() -> None:
+    contribution = make_program_contribution()
+    for candidate in (
+        _custom_budget("synthetic.budget:v2"),
+        replace(LM9A_BUDGET_MANIFEST),
+    ):
+        _assert_rejected(
+            replace(contribution, budget_manifest=candidate),
+            "fixed LM9A budget manifest",
+        )
+
+    assert _program_is_valid(compose_and_seal_program(contribution)) is True
+
+
+def test_kernel_owned_runtime_profile_is_fixed_to_invoked_implementations() -> None:
+    contribution = make_program_contribution()
+    profile = contribution.parser_profile
+    bindings = {
+        (binding.binding_kind, binding.binding_id): binding.target
+        for binding in contribution.runtime_bindings
+    }
+
+    assert bindings[("tokenizer", profile.tokenizer.component_id)] is parser_module.parse_owned_json
+    assert bindings[("parser", profile.parser.component_id)] is parser_module.parse_owned_json
+    assert (
+        bindings[("canonicalizer", profile.canonicalizer.component_id)]
+        is canonical_json_module.canonical_fingerprint_metered
+    )
+    assert bindings[("ledger", profile.ledger.component_id)] is getattr(
+        budget_module, "create_budget_ledger", None
+    )
+
+    _assert_rejected(
+        replace(
+            contribution,
+            parser_profile=replace(profile, owned_value_abi="rook.owned_json:v2"),
+        ),
+        "fixed parser profile",
     )
 
 
@@ -756,11 +903,6 @@ def test_every_manifest_authority_category_moves_program_identity(
     baseline = compose_and_seal_program(base).program_fingerprint
 
     changed: dict[str, ValidationProgramContribution] = {}
-    changed["budget"] = replace(base, budget_manifest=_custom_budget("synthetic.budget:v2"))
-    changed["parser"] = replace(
-        base,
-        parser_profile=replace(base.parser_profile, owned_value_abi="rook.owned_json:v2"),
-    )
     core_evaluator = RuntimeComponentSpec(
         component_id=CORE_PROFILE.profile_id,
         implementation_id=CORE_PROFILE.evaluator_id,

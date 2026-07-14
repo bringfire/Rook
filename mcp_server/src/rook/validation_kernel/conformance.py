@@ -58,9 +58,11 @@ from .schema_profile import (
     CORE_SCHEMA_PROFILE_ID,
     AdmittedSchema,
     InstanceBinding,
+    SchemaEvaluationInputError,
     SchemaEvaluationReceipt,
     _SchemaEvaluationAuditEntry,
     _is_schema_evaluation_audit_entry,
+    _resolve_instance_binding,
 )
 
 
@@ -635,10 +637,27 @@ def _attempt_row(
     evaluation_index: int,
     schema: AdmittedSchema,
     instance_binding: InstanceBinding,
+    instance_root: JsonValue,
+    instance_root_fingerprint: str,
     instance: JsonValue,
     receipt: SchemaEvaluationReceipt,
     per_evaluation_limit: int,
 ) -> dict[str, object]:
+    try:
+        resolved_instance = _resolve_instance_binding(
+            instance_root=instance_root,
+            instance_root_fingerprint=instance_root_fingerprint,
+            instance=instance,
+            instance_binding=instance_binding,
+            charge_work_units=lambda _amount: None,
+            precomputed_instance_fingerprint=(
+                instance_root_fingerprint
+                if instance is instance_root
+                else None
+            ),
+        )
+    except SchemaEvaluationInputError as error:
+        raise _GateIntegrityFailure("instance binding is not source-bound") from error
     reservation = receipt.reservation
     if not reservation.accepted:
         status = "reservation_rejected"
@@ -663,10 +682,10 @@ def _attempt_row(
             "artifact_fingerprint": instance_binding.artifact_fingerprint,
         },
         "instance_pointer": instance_binding.instance_pointer,
-        "instance_fingerprint": canonical_fingerprint(instance),
+        "instance_fingerprint": resolved_instance.instance_fingerprint,
         "attempt_status": status,
         "schema_nodes": schema.schema_nodes,
-        "instance_nodes": count_json_nodes(instance),
+        "instance_nodes": resolved_instance.instance_nodes,
         "attempted_shape_units": attempted,
         "per_evaluation_limit": per_evaluation_limit,
         "aggregate_before_reservation": reservation.aggregate_before,
@@ -807,6 +826,8 @@ def _execute_core_case(
         evaluation_index=0,
         schema=schema,
         instance_binding=binding,
+        instance_root=parsed.value,
+        instance_root_fingerprint=parsed.value_fingerprint,
         instance=parsed.value,
         receipt=receipt,
         per_evaluation_limit=evaluator_spec.profile.per_evaluation_shape_limit,

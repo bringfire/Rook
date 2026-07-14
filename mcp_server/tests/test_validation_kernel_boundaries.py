@@ -114,8 +114,6 @@ _REVIEWED_PUBLIC_SURFACE = frozenset(
         "PublishedValidationReport",
         "REPORT_BUDGET_RECEIPT_PATH",
         "REPORT_FINGERPRINT_PATH",
-        "ReportBuilder",
-        "ReportProjectionEnvelope",
         "ReportProjectionSpec",
         "RunnerResult",
         "RuntimeBinding",
@@ -146,11 +144,9 @@ _REVIEWED_PUBLIC_SURFACE = frozenset(
         "compose_and_seal_program",
         "evaluate_schema",
         "evaluate_schema_with_reservation",
-        "execute_phase_program",
         "implementation_source_closure_for_modules",
         "implementation_source_for_module",
         "issue_trusted_validation_bundle",
-        "parse_owned_json",
         "reserve_schema_evaluation",
         "run_conformance_gate",
         "runtime_dependency_closure_for_modules",
@@ -158,7 +154,6 @@ _REVIEWED_PUBLIC_SURFACE = frozenset(
         "runtime_implementation_fingerprint",
         "seal_conformance_gate_profile",
         "seal_trusted_bundle_assembler_profile",
-        "seal_validation_report",
         "validate_artifacts",
     }
 )
@@ -261,8 +256,9 @@ def test_parser_and_canonicalizer_keep_their_independent_boundaries() -> None:
     assert canonical_imports == (
         (3, "__future__"),
         (5, "hashlib"),
-        (6, "typing"),
-        (8, ".owned_json"),
+        (6, "collections.abc"),
+        (7, "typing"),
+        (9, ".owned_json"),
     )
 
 
@@ -289,8 +285,13 @@ def test_public_surface_cannot_retrieve_private_kernel_authority() -> None:
         "_ValidationExecutionAudit",
         "_ValidationProgramBuilder",
         "BudgetLedger",
+        "ReportBuilder",
+        "ReportProjectionEnvelope",
         "RUNTIME_REGISTRY",
         "SealMeter",
+        "execute_phase_program",
+        "parse_owned_json",
+        "seal_validation_report",
         "_runtime_bindings",
     }
     assert forbidden.isdisjoint(validation_kernel.__all__)
@@ -307,10 +308,6 @@ def test_public_surface_cannot_retrieve_private_kernel_authority() -> None:
             validation_kernel.SchemaEvaluationReservation,
             "SchemaEvaluationReservation values are created only by "
             "reserve_schema_evaluation",
-        ),
-        (
-            validation_kernel.ReportBuilder,
-            "ReportBuilder values are issued only by the report seal",
         ),
         (
             validation_kernel.SealedValidationProgram,

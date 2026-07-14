@@ -13,12 +13,12 @@ from rook.validation_kernel import (
     RunnerResult,
     ValidationControlFailure,
     compose_and_seal_program,
-    execute_phase_program,
 )
 from rook.validation_kernel.budget import BudgetExceeded, BudgetLedger
 from rook.validation_kernel.canonical_json import canonical_fingerprint
 from rook.validation_kernel.control import ArtifactRole, BudgetDimension
 from rook.validation_kernel.owned_json import JsonObject, JsonString, count_json_nodes
+from rook.validation_kernel.phase_engine import execute_phase_program
 from rook.validation_kernel.schema_profile import InstanceBinding, SchemaEvaluationReceipt
 
 from tests._validation_kernel_fakes import (
@@ -534,7 +534,7 @@ def test_schema_helper_precharge_failure_prevents_evaluation_and_receipt(
     recipe = context.invocation.invocation_inputs["recipe"]
     binding = InstanceBinding(
         artifact_id="synthetic.recipe",
-        artifact_fingerprint="sha256:" + ("0" * 64),
+        artifact_fingerprint=canonical_fingerprint(recipe),
         instance_pointer="",
     )
     shape_before = context.ledger.snapshot().schema_evaluation_shape_units
@@ -549,7 +549,7 @@ def test_schema_helper_precharge_failure_prevents_evaluation_and_receipt(
     assert receipts == []
 
 
-def test_schema_helper_success_preserves_exact_seven_unit_accounting() -> None:
+def test_schema_helper_success_charges_exact_source_and_canonical_work() -> None:
     context = _context(_program())
     phase_engine = importlib.import_module("rook.validation_kernel.phase_engine")
     alpha = next(
@@ -561,7 +561,7 @@ def test_schema_helper_success_preserves_exact_seven_unit_accounting() -> None:
     recipe = context.invocation.invocation_inputs["recipe"]
     binding = InstanceBinding(
         artifact_id="synthetic.recipe",
-        artifact_fingerprint="sha256:" + ("0" * 64),
+        artifact_fingerprint=canonical_fingerprint(recipe),
         instance_pointer="",
     )
     work_before = context.ledger.snapshot().kernel_phase_work_units
@@ -571,9 +571,103 @@ def test_schema_helper_success_preserves_exact_seven_unit_accounting() -> None:
     )
 
     assert (
-        context.ledger.snapshot().kernel_phase_work_units - work_before == 7
+        context.ledger.snapshot().kernel_phase_work_units - work_before == 11
     )
     assert len(receipts) == 1
+
+
+def test_schema_helper_repeated_evaluation_charges_canonical_work_again() -> None:
+    context = _context(_program())
+    phase_engine = importlib.import_module("rook.validation_kernel.phase_engine")
+    alpha = next(
+        phase for phase in context.invocation.program.phases if phase.phase_name == "alpha"
+    )
+    receipts: list[SchemaEvaluationReceipt] = []
+    helper = phase_engine._helper_facade(
+        context,
+        alpha,
+        receipts,
+        phase_engine._phase_work_charger(context, "alpha"),
+    )
+    recipe = context.invocation.invocation_inputs["recipe"]
+    binding = InstanceBinding(
+        artifact_id="synthetic.recipe",
+        artifact_fingerprint=canonical_fingerprint(recipe),
+        instance_pointer="",
+    )
+    work_before = context.ledger.snapshot().kernel_phase_work_units
+
+    helper.evaluate_schema("synthetic.report:v1", recipe, instance_binding=binding)
+    helper.evaluate_schema("synthetic.report:v1", recipe, instance_binding=binding)
+
+    assert context.ledger.snapshot().kernel_phase_work_units - work_before == 22
+    assert len(receipts) == 2
+
+
+@pytest.mark.parametrize(
+    ("recipe_bytes", "expected_work"),
+    (
+        (b'"' + b"a" * 62 + b'"', 11),
+        (b'"' + b"a" * 63 + b'"', 12),
+    ),
+)
+def test_schema_helper_canonical_work_has_an_inclusive_64_byte_boundary(
+    recipe_bytes: bytes,
+    expected_work: int,
+) -> None:
+    context = _context(_program(), recipe_bytes)
+    phase_engine = importlib.import_module("rook.validation_kernel.phase_engine")
+    alpha = next(
+        phase for phase in context.invocation.program.phases if phase.phase_name == "alpha"
+    )
+    receipts: list[SchemaEvaluationReceipt] = []
+    helper = phase_engine._helper_facade(
+        context,
+        alpha,
+        receipts,
+        phase_engine._phase_work_charger(context, "alpha"),
+    )
+    recipe = context.invocation.invocation_inputs["recipe"]
+    binding = InstanceBinding(
+        artifact_id="synthetic.recipe",
+        artifact_fingerprint=canonical_fingerprint(recipe),
+        instance_pointer="",
+    )
+    work_before = context.ledger.snapshot().kernel_phase_work_units
+
+    helper.evaluate_schema("synthetic.report:v1", recipe, instance_binding=binding)
+
+    assert (
+        context.ledger.snapshot().kernel_phase_work_units - work_before
+        == expected_work
+    )
+    assert len(receipts) == 1
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    (
+        "schema_binding_wrong_artifact",
+        "schema_binding_missing_pointer",
+        "schema_binding_wrong_subtree",
+        "schema_binding_detached_instance",
+    ),
+)
+def test_schema_helper_rejects_unresolved_or_mismatched_instance_binding(
+    scenario: str,
+) -> None:
+    context = _context(
+        _program(alpha_scenario=scenario),
+        b'{"left":{"value":1},"right":{"value":1}}',
+    )
+    phase_engine = importlib.import_module("rook.validation_kernel.phase_engine")
+
+    outcome = phase_engine._execute_phase_program_with_audit(context)
+
+    assert isinstance(outcome.public_result, ValidationControlFailure)
+    assert outcome.public_result.code == "validator_integrity_failure"
+    assert outcome.schema_evaluation_attempts == ()
+    assert outcome.schema_evaluation_receipts == ()
 
 
 def test_schema_helper_records_exact_receipts_in_private_order_before_returning_view() -> None:
@@ -735,13 +829,20 @@ def test_public_phase_values_are_frozen_and_have_no_authored_authority_fields() 
 
 
 def test_phase_engine_public_exports_are_exact() -> None:
-    expected = {
+    module_exports = {
         "KernelIssue",
         "NamedOutput",
         "PhaseResult",
         "RunnerResult",
         "execute_phase_program",
     }
-    assert expected.issubset(validation_kernel.__all__)
+    phase_engine = importlib.import_module("rook.validation_kernel.phase_engine")
+
+    assert set(phase_engine.__all__) == module_exports
+    assert module_exports - {"execute_phase_program"} <= set(
+        validation_kernel.__all__
+    )
+    assert "execute_phase_program" not in validation_kernel.__all__
+    assert not hasattr(validation_kernel, "execute_phase_program")
     assert "PhaseHelperFacade" not in validation_kernel.__all__
     assert "_ValidationExecutionContext" not in validation_kernel.__all__

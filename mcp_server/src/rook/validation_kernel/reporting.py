@@ -66,6 +66,7 @@ from .schema_profile import (
     _issue_rejected_candidate_audit_entry,
     _issue_schema_evaluation_audit_entry,
     _rejected_schema_evaluation_receipt,
+    _resolve_instance_binding,
     evaluate_schema_with_reservation,
     reserve_schema_evaluation,
 )
@@ -325,8 +326,8 @@ def _matches_schema_type(value: JsonValue, schema_node: dict[str, object]) -> bo
 
 
 def _schema_node_for_path(schema: AdmittedSchema, path: str) -> dict[str, object]:
-    root = _host_json(schema.value)
-    current: object = root
+    root = schema.value
+    current: object = _host_json(root)
     seen_references: set[str] = set()
     raw_tokens = () if path == "" else tuple(path.split("/")[1:])
     for raw_token in raw_tokens:
@@ -953,23 +954,38 @@ def _seal_validation_report_with_audit(
             instance_binding=final_binding,
             reservation=schema_reservation,
         )
-        if type(schema_evaluation) is SchemaEvaluationReceipt:
-            audit_attempts.append(
-                _issue_schema_evaluation_audit_entry(
-                    schema=schema,
-                    instance=final_value,
-                    instance_binding=final_binding,
-                    receipt=schema_evaluation,
-                    per_evaluation_limit=schema_reservation.per_evaluation_limit,
-                )
-            )
         if (
             type(schema_evaluation) is not SchemaEvaluationReceipt
             or schema_evaluation.reservation
             is not schema_reservation.shape_reservation
             or schema_evaluation.evaluator_invoked is not True
-            or type(schema_evaluation.evaluation_passed) is not bool
+            or schema_evaluation.evaluation_passed is not None
+            and type(schema_evaluation.evaluation_passed) is not bool
         ):
+            raise _ProjectionIntegrityError()
+        final_bytes = canonical_json_bytes(
+            final_value,
+            max_bytes=_canonical_byte_limit(),
+        )
+        meter.charge_canonical_bytes(len(final_bytes))
+        resolved_final_binding = _resolve_instance_binding(
+            instance_root=final_value,
+            instance_root_fingerprint=report_fingerprint,
+            instance=final_value,
+            instance_binding=final_binding,
+            charge_work_units=lambda _amount: None,
+            precomputed_instance_fingerprint=sha256_prefixed(final_bytes),
+        )
+        audit_attempts.append(
+            _issue_schema_evaluation_audit_entry(
+                schema=schema,
+                instance=final_value,
+                resolved_instance_binding=resolved_final_binding,
+                receipt=schema_evaluation,
+                per_evaluation_limit=schema_reservation.per_evaluation_limit,
+            )
+        )
+        if type(schema_evaluation.evaluation_passed) is not bool:
             raise _ProjectionIntegrityError()
         if not schema_evaluation.evaluation_passed:
             subject_path = (
@@ -980,11 +996,6 @@ def _seal_validation_report_with_audit(
             raise _ReportConstructabilityError(subject_path)
         if schema_evaluation.failure_code is not None or schema_evaluation.bounded_errors:
             raise _ProjectionIntegrityError()
-        final_bytes = canonical_json_bytes(
-            final_value,
-            max_bytes=_canonical_byte_limit(),
-        )
-        meter.charge_canonical_bytes(len(final_bytes))
     except CanonicalJsonSizeError as exception:
         return _audited_report_seal(
             _budget_failure(

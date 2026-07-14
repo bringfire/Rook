@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from typing import Protocol
 
 from .owned_json import (
@@ -72,12 +73,27 @@ class _BoundedBufferSink:
 
 
 class _HashSink:
-    __slots__ = ("_hash",)
+    __slots__ = ("_blocks", "_bytes", "_hash", "_reserve_output_blocks")
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        reserve_output_blocks: Callable[[int], None] | None = None,
+    ) -> None:
         self._hash = hashlib.sha256()
+        self._bytes = 0
+        self._blocks = 0
+        self._reserve_output_blocks = reserve_output_blocks
 
     def write(self, chunk: bytes) -> None:
+        observed = self._bytes + len(chunk)
+        required_blocks = (observed + 63) // 64
+        if (
+            self._reserve_output_blocks is not None
+            and required_blocks > self._blocks
+        ):
+            self._reserve_output_blocks(required_blocks - self._blocks)
+        self._blocks = required_blocks
+        self._bytes = observed
         self._hash.update(chunk)
 
     def fingerprint(self) -> str:
@@ -237,6 +253,19 @@ def canonical_fingerprint(value: JsonValue) -> str:
     return sink.fingerprint()
 
 
+def canonical_fingerprint_metered(
+    value: JsonValue,
+    reserve_output_blocks: Callable[[int], None],
+) -> str:
+    """Hash canonical JSON while reserving each started 64-byte block."""
+
+    if not callable(reserve_output_blocks):
+        raise CanonicalJsonTypeError("canonical block reserver must be callable")
+    sink = _HashSink(reserve_output_blocks)
+    write_canonical_json(value, sink)
+    return sink.fingerprint()
+
+
 def sha256_prefixed(data: bytes) -> str:
     """Return a lowercase, algorithm-prefixed SHA-256 digest."""
 
@@ -261,6 +290,7 @@ __all__ = (
     "CanonicalJsonSizeError",
     "CanonicalJsonTypeError",
     "canonical_fingerprint",
+    "canonical_fingerprint_metered",
     "canonical_json_bytes",
     "normalized_source_fingerprint",
     "sha256_prefixed",

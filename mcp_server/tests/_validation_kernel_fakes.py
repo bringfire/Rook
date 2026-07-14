@@ -32,8 +32,15 @@ from rook.validation_kernel import (
     runtime_dependency_closure_for_modules,
     runtime_implementation_fingerprint,
 )
-from rook.validation_kernel.budget import LM9A_BUDGET_MANIFEST
-from rook.validation_kernel.canonical_json import canonical_fingerprint, canonical_json_bytes
+from rook.validation_kernel.budget import (
+    LM9A_BUDGET_MANIFEST,
+    create_budget_ledger,
+)
+from rook.validation_kernel.canonical_json import (
+    canonical_fingerprint,
+    canonical_fingerprint_metered,
+    canonical_json_bytes,
+)
 from rook.validation_kernel.owned_json import (
     JsonArray,
     JsonBoolean,
@@ -48,6 +55,8 @@ from rook.validation_kernel.schema_profile import (
     admit_schema,
     evaluate_schema,
 )
+from rook.validation_kernel.parser import parse_owned_json
+from rook.validation_kernel.program import _fixed_parser_profile_spec
 
 
 def fake_tokenizer(*args: object, **kwargs: object) -> tuple[object, ...]:
@@ -561,6 +570,35 @@ def phase_engine_runner_dispatch(
         if hasattr(first, "reservation") or hasattr(second, "reservation"):
             raise AssertionError("runner received an accounting receipt")
         return RunnerResult(diagnostics=(), compile_blockers=(), outputs=(output,))
+    if scenario.startswith("schema_binding_"):
+        left = recipe["left"]
+        right = recipe["right"]
+        if type(left) is not JsonObject or type(right) is not JsonObject:
+            raise AssertionError("binding probes require two object subtrees")
+        root_fingerprint = canonical_fingerprint(recipe)
+        instance = right
+        pointer = "/right"
+        artifact_fingerprint = root_fingerprint
+        if scenario == "schema_binding_wrong_artifact":
+            artifact_fingerprint = "sha256:" + ("0" * 64)
+        elif scenario == "schema_binding_missing_pointer":
+            pointer = "/missing"
+        elif scenario == "schema_binding_wrong_subtree":
+            pointer = "/left"
+        elif scenario == "schema_binding_detached_instance":
+            instance = JsonObject(tuple(right.members))
+        else:
+            raise AssertionError("unknown schema binding probe")
+        helpers.evaluate_schema(  # type: ignore[attr-defined]
+            "synthetic.report:v1",
+            instance,
+            instance_binding=InstanceBinding(
+                artifact_id="artifact:fixture-recipe",
+                artifact_fingerprint=artifact_fingerprint,
+                instance_pointer=pointer,
+            ),
+        )
+        return RunnerResult(diagnostics=(), compile_blockers=(), outputs=(output,))
     if scenario == "schema_audit_order":
         nested = recipe["nested"]
         if type(nested) is not JsonObject:
@@ -569,9 +607,9 @@ def phase_engine_runner_dispatch(
             "synthetic.report:v1",
             nested,
             instance_binding=InstanceBinding(
-                artifact_id="synthetic.recipe.nested",
-                artifact_fingerprint=canonical_fingerprint(nested),
-                instance_pointer="",
+                artifact_id="synthetic.recipe",
+                artifact_fingerprint=canonical_fingerprint(recipe),
+                instance_pointer="/nested",
             ),
         )
         second = helpers.evaluate_schema(  # type: ignore[attr-defined]
@@ -1224,14 +1262,11 @@ def make_program_contribution(
     report_schema_probe: str | None = None,
     artifact_identity: bool = False,
 ) -> ValidationProgramContribution:
-    tokenizer = _component("synthetic.tokenizer:v1", "synthetic.tokenizer_impl:v1", fake_tokenizer)
-    parser = _component("synthetic.parser:v1", "synthetic.parser_impl:v1", fake_parser)
-    canonicalizer = _component(
-        "synthetic.canonicalizer:v1",
-        "synthetic.canonicalizer_impl:v1",
-        candidate_canonicalizer,
-    )
-    ledger = _component("synthetic.ledger:v1", "synthetic.ledger_impl:v1", fake_ledger_factory)
+    parser_profile = _fixed_parser_profile_spec()
+    tokenizer = parser_profile.tokenizer
+    parser = parser_profile.parser
+    canonicalizer = parser_profile.canonicalizer
+    ledger = parser_profile.ledger
     schema_profile = CORE_PROFILE if report_schema_probe is not None else PAYLOAD_PROFILE
     evaluator = _component(
         schema_profile.profile_id,
@@ -1356,17 +1391,6 @@ def make_program_contribution(
         ),
     )
 
-    parser_profile = ParserProfileSpec(
-        profile_id="synthetic.parser_profile:v1",
-        tokenizer=tokenizer,
-        parser=parser,
-        canonicalizer=canonicalizer,
-        ledger=ledger,
-        tokenizer_version="synthetic-tokenizer-v1",
-        parser_version="synthetic-parser-v1",
-        owned_value_abi="rook.owned_json:v1",
-        canonicalization_version="rook.canonical_json:v1",
-    )
     writable_body_paths = (
         "/body",
         "/compile_ready",
@@ -1404,10 +1428,10 @@ def make_program_contribution(
     )
 
     runtime_pairs = (
-        ("tokenizer", tokenizer, fake_tokenizer),
-        ("parser", parser, fake_parser),
-        ("canonicalizer", canonicalizer, candidate_canonicalizer),
-        ("ledger", ledger, fake_ledger_factory),
+        ("tokenizer", tokenizer, parse_owned_json),
+        ("parser", parser, parse_owned_json),
+        ("canonicalizer", canonicalizer, canonical_fingerprint_metered),
+        ("ledger", ledger, create_budget_ledger),
         ("schema_evaluator", evaluator, evaluate_schema),
         ("runner", alpha, alpha_runner),
         ("runner", audit, audit_runner),
