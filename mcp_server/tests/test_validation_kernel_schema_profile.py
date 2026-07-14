@@ -42,7 +42,7 @@ from rook.validation_kernel.schema_profile import (
 DRAFT_2020_12_METASCHEMA_ID = "https://json-schema.org/draft/2020-12/schema"
 EXPECTED_SCHEMA_ISSUE_PATH_BYTES = 512
 EXPECTED_SCHEMA_ISSUE_EVIDENCE_BYTES = 65_536
-EXPECTED_EVALUATOR_VALUE_REPR_BYTES = 8
+EXPECTED_WRAPPED_VALUE_REPR_BYTES = 8
 EXPECTED_EXCEPTION_PROJECTION_BYTES = 4_096
 EXPECTED_EXCEPTION_PROJECTION_ITEMS = 128
 EXPECTED_EXCEPTION_PROJECTION_DEPTH = 16
@@ -124,6 +124,20 @@ def binding(pointer: str = "") -> InstanceBinding:
         artifact_fingerprint="sha256:" + "a" * 64,
         instance_pointer=pointer,
     )
+
+
+def test_instance_binding_accepts_escaped_rfc6901_unicode_scalar_pointer() -> None:
+    pointer = "/caf\u00e9/~0tilde~1slash/\U0001f642"
+
+    result = binding(pointer)
+
+    assert result.instance_pointer == pointer
+
+
+@pytest.mark.parametrize("surrogate", ["\ud800", "\udfff"], ids=["high", "low"])
+def test_instance_binding_rejects_lone_surrogate_pointer(surrogate: str) -> None:
+    with pytest.raises(SchemaEvaluationInputError, match="invalid selected instance"):
+        binding("/" + surrogate)
 
 
 def schema_issue_evidence_bytes(issue: SchemaIssue) -> int:
@@ -598,11 +612,44 @@ def test_profile_identity_binds_exact_dependencies_and_draft_metaschema() -> Non
         assert profile.metaschema_id == DRAFT_2020_12_METASCHEMA_ID
         assert profile.metaschema_fingerprint == expected_metaschema_fingerprint
         assert profile.metaschema_fingerprint.encode("ascii") in identity_bytes
-        assert b'"bounded_evaluator_value_repr_utf8_bytes":8' in identity_bytes
+        assert b'"bounded_evaluator_value_repr_utf8_bytes"' not in identity_bytes
+        assert (
+            b'"bounded_wrapped_value_repr_kinds":["array","object","string"]'
+            in identity_bytes
+        )
+        assert b'"bounded_wrapped_value_repr_utf8_bytes":8' in identity_bytes
         assert b'"exception_projection_bytes":4096' in identity_bytes
         assert b'"exception_projection_items":128' in identity_bytes
         assert b'"exception_projection_depth":16' in identity_bytes
         assert canonical_fingerprint(profile.identity) == profile.profile_fingerprint
+
+
+def test_profile_repr_bound_matches_only_wrapped_runtime_kinds() -> None:
+    wrapped_values = {
+        "array": schema_profile_module._adapt_owned(
+            own_trusted_json([]), translate_refs=False
+        ),
+        "object": schema_profile_module._adapt_owned(
+            own_trusted_json({}), translate_refs=False
+        ),
+        "string": schema_profile_module._adapt_owned(
+            own_trusted_json("full semantics remain available"),
+            translate_refs=False,
+        ),
+    }
+    native_float = schema_profile_module._adapt_owned(
+        own_trusted_json(-1.7976931348623157e308), translate_refs=False
+    )
+
+    assert tuple(wrapped_values) == ("array", "object", "string")
+    assert max(
+        len(repr(value).encode("utf-8")) for value in wrapped_values.values()
+    ) == EXPECTED_WRAPPED_VALUE_REPR_BYTES
+    assert type(native_float) is float
+    assert len(repr(native_float).encode("utf-8")) == 24
+    assert schema_profile_module._MAX_WRAPPED_VALUE_REPR_BYTES == (
+        EXPECTED_WRAPPED_VALUE_REPR_BYTES
+    )
 
 
 @pytest.mark.parametrize(
@@ -653,8 +700,8 @@ def assert_nested_alternative_error_evidence_is_bounded(
     )
 
     assert isinstance(instance_view, str)
-    assert schema_profile_module._MAX_EVALUATOR_VALUE_REPR_BYTES == (
-        EXPECTED_EVALUATOR_VALUE_REPR_BYTES
+    assert schema_profile_module._MAX_WRAPPED_VALUE_REPR_BYTES == (
+        EXPECTED_WRAPPED_VALUE_REPR_BYTES
     )
     assert len(instance_view) == len(text)
     assert instance_view.startswith(text[:16])
@@ -670,7 +717,7 @@ def assert_nested_alternative_error_evidence_is_bounded(
     assert len(roots) == 1
     assert len(errors) == expected_errors
     assert max(len(value.encode("utf-8")) for value in representations) <= (
-        EXPECTED_EVALUATOR_VALUE_REPR_BYTES
+        EXPECTED_WRAPPED_VALUE_REPR_BYTES
     )
     assert sum(len(value.encode("utf-8")) for value in representations) <= (
         EXPECTED_SCHEMA_ISSUE_EVIDENCE_BYTES
@@ -718,7 +765,7 @@ def test_internal_additional_properties_error_bounds_long_owned_key_repr() -> No
     assert secret not in errors[0].message
     assert len(errors[0].message.encode("utf-8")) <= 128
     assert len(repr(errors[0].instance).encode("utf-8")) <= (
-        EXPECTED_EVALUATOR_VALUE_REPR_BYTES
+        EXPECTED_WRAPPED_VALUE_REPR_BYTES
     )
 
 
@@ -1067,6 +1114,52 @@ def test_evaluator_exception_hash_binds_exact_builtin_structure() -> None:
     ) != digest(
         RuntimeError((None, True, 7, -0.0, "text", b"bytes", ("nested", 2)))
     )
+
+
+def test_evaluator_exception_integer_projection_keeps_complete_middle_bytes() -> None:
+    first_value = (1 << 1_023) | 1
+    second_value = first_value | (1 << 500)
+
+    first = schema_profile_module._exception_detail_projection(
+        RuntimeError(first_value)
+    )
+    second = schema_profile_module._exception_detail_projection(
+        RuntimeError(second_value)
+    )
+    zero = schema_profile_module._exception_detail_projection(RuntimeError(0))
+
+    assert first.truncated is False
+    assert second.truncated is False
+    assert first.projected_bytes == zero.projected_bytes + 127
+    assert first.digest != second.digest
+
+
+def test_evaluator_exception_integer_projection_full_to_truncated_boundary() -> None:
+    zero = schema_profile_module._exception_detail_projection(RuntimeError(0))
+    complete_magnitude_bytes = (
+        EXPECTED_EXCEPTION_PROJECTION_BYTES - zero.projected_bytes + 1
+    )
+    complete_value = (1 << ((complete_magnitude_bytes - 1) * 8)) | 1
+    oversized_value = (1 << (complete_magnitude_bytes * 8)) | 1
+    oversized_middle_changed = oversized_value | (
+        1 << (complete_magnitude_bytes * 4)
+    )
+
+    complete = schema_profile_module._exception_detail_projection(
+        RuntimeError(complete_value)
+    )
+    oversized = schema_profile_module._exception_detail_projection(
+        RuntimeError(oversized_value)
+    )
+    changed = schema_profile_module._exception_detail_projection(
+        RuntimeError(oversized_middle_changed)
+    )
+
+    assert complete.projected_bytes == EXPECTED_EXCEPTION_PROJECTION_BYTES
+    assert complete.truncated is False
+    assert oversized.truncated is True
+    assert changed.truncated is True
+    assert oversized.digest != changed.digest
 
 
 def test_evaluator_exception_hash_never_calls_unknown_object_text_hooks() -> None:

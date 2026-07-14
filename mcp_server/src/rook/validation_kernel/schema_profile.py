@@ -37,13 +37,12 @@ CORE_SCHEMA_PROFILE_ID = "rook.json_schema_profile:lm9a_core_v1"
 MAX_SCHEMA_ISSUES = 1_024
 MAX_SCHEMA_ISSUE_PATH_BYTES = 512
 MAX_SCHEMA_ISSUE_EVIDENCE_BYTES = 65_536
-_MAX_EVALUATOR_VALUE_REPR_BYTES = 8
+_MAX_WRAPPED_VALUE_REPR_BYTES = 8
 _EXCEPTION_PROJECTION_MAX_BYTES = 4_096
 _EXCEPTION_PROJECTION_MAX_ITEMS = 128
 _EXCEPTION_PROJECTION_MAX_DEPTH = 16
 _EXCEPTION_PROJECTION_EDGE_UNITS = 32
-_EXCEPTION_PROJECTION_INT_BITS = 256
-_EXCEPTION_PROJECTION_INT_MASK = (1 << _EXCEPTION_PROJECTION_INT_BITS) - 1
+_EXCEPTION_PROJECTION_INTEGER_EDGE_BYTES = 32
 _TYPE_MODULE_DESCRIPTOR = type.__dict__["__module__"]
 _TYPE_QUALNAME_DESCRIPTOR = type.__dict__["__qualname__"]
 
@@ -371,6 +370,10 @@ class _ExceptionProjectionWriter:
     def exhausted(self) -> bool:
         return self.projected_bytes == _EXCEPTION_PROJECTION_MAX_BYTES
 
+    @property
+    def remaining(self) -> int:
+        return _EXCEPTION_PROJECTION_MAX_BYTES - self.projected_bytes
+
     def mark_truncated(self) -> None:
         self.truncated = True
 
@@ -616,8 +619,13 @@ def _make_profile(
                 "bounded_issue_evidence_utf8_bytes": (
                     MAX_SCHEMA_ISSUE_EVIDENCE_BYTES
                 ),
-                "bounded_evaluator_value_repr_utf8_bytes": (
-                    _MAX_EVALUATOR_VALUE_REPR_BYTES
+                "bounded_wrapped_value_repr_kinds": (
+                    "array",
+                    "object",
+                    "string",
+                ),
+                "bounded_wrapped_value_repr_utf8_bytes": (
+                    _MAX_WRAPPED_VALUE_REPR_BYTES
                 ),
                 "exception_projection_bytes": _EXCEPTION_PROJECTION_MAX_BYTES,
                 "exception_projection_items": _EXCEPTION_PROJECTION_MAX_ITEMS,
@@ -687,6 +695,8 @@ CORE_PROFILE = _make_profile(
 
 def _is_rfc6901_pointer(pointer: object) -> bool:
     if type(pointer) is not str:
+        return False
+    if any(0xD800 <= ord(character) <= 0xDFFF for character in pointer):
         return False
     if pointer == "":
         return True
@@ -1050,15 +1060,39 @@ def _project_type_identity(
 def _project_exception_integer(
     writer: _ExceptionProjectionWriter, value: int
 ) -> None:
-    bit_length = value.bit_length()
-    shift = max(bit_length - _EXCEPTION_PROJECTION_INT_BITS, 0)
-    low_bits = value & _EXCEPTION_PROJECTION_INT_MASK
-    high_bits = (value >> shift) & _EXCEPTION_PROJECTION_INT_MASK
-    writer.write(b"I")
-    writer.write(b"\x01" if value < 0 else b"\x00")
-    writer.write(_projection_uint(bit_length))
-    writer.write(low_bits.to_bytes(_EXCEPTION_PROJECTION_INT_BITS // 8, "big"))
-    writer.write(high_bits.to_bytes(_EXCEPTION_PROJECTION_INT_BITS // 8, "big"))
+    sign = b"\x01" if value < 0 else b"\x00"
+    magnitude = -value if value < 0 else value
+    magnitude_length = max(1, (magnitude.bit_length() + 7) // 8)
+    length_record = _projection_uint(magnitude_length)
+    full_header = b"I" + sign + b"F" + length_record
+    magnitude_bytes = magnitude.to_bytes(magnitude_length, "big")
+    if len(full_header) + magnitude_length <= writer.remaining:
+        writer.write(full_header)
+        writer.write(magnitude_bytes)
+        return
+
+    writer.mark_truncated()
+    detail_digest = hashlib.sha256(
+        b"rook.schema_evaluator_exception_integer:v1\0"
+    )
+    detail_digest.update(sign)
+    detail_digest.update(length_record)
+    detail_digest.update(magnitude_bytes)
+    full_digest = detail_digest.digest()
+    prefix_count = min(
+        magnitude_length, _EXCEPTION_PROJECTION_INTEGER_EDGE_BYTES
+    )
+    suffix_count = min(
+        magnitude_length - prefix_count,
+        _EXCEPTION_PROJECTION_INTEGER_EDGE_BYTES,
+    )
+    writer.write(b"I" + sign + b"T" + length_record)
+    writer.write(full_digest)
+    writer.write(prefix_count.to_bytes(2, "big"))
+    writer.write(suffix_count.to_bytes(2, "big"))
+    writer.write(magnitude_bytes[:prefix_count])
+    if suffix_count:
+        writer.write(magnitude_bytes[-suffix_count:])
 
 
 def _project_exception_scalar(
