@@ -342,9 +342,6 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "rhino_is_closed":          ("/analysis/is-closed", "POST"),
     "rhino_is_valid":           ("/analysis/is-valid", "POST"),
 
-    # --- RookVisionDirector read-only primitives ---
-    "rhino_director_curve_samples": ("/director/curve-samples", "POST"),
-
     # --- UV Mapping ---
     "rhino_apply_uv_box_mapping":      ("/material/uv-box", "POST"),
     "rhino_apply_uv_planar_mapping":   ("/material/uv-planar", "POST"),

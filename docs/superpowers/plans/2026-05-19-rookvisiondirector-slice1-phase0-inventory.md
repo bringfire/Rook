@@ -1,5 +1,12 @@
 # RookVisionDirector Slice 1 Phase 0 Inventory
 
+> **DIRECTOR HISTORICAL EVIDENCE — classified 2026-07-13:** Director routes,
+> tool names, and workflows below are retained only as dated evidence. They are not
+> current instructions and must not be used to restore a Director MCP tool. See the
+> [Director MCP Surface Retirement Design][director-mcp-retirement].
+
+[director-mcp-retirement]: ../specs/2026-07-13-director-mcp-surface-retirement-design.md
+
 Date: 2026-05-19
 
 ## Existing Patterns To Reuse

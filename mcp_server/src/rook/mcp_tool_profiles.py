@@ -182,7 +182,6 @@ PUBLIC_READONLY_TOOL_NAMES = frozenset({
     "rhino_curve_point_at",
     "rhino_curve_tangent",
     "rhino_declared_targets",
-    "rhino_director_curve_samples",
     "rhino_display_modes",
     "rhino_document",
     "rhino_draft_angle",

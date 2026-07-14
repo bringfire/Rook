@@ -80,10 +80,15 @@ Managed companion domain evidence is internal. The companion writes it to its ex
 
 | Fact | Value |
 |------|-------|
-| MCP tools | 392 registered in `server.py` |
+| MCP tools | 431 static definitions; 428 advertised by default (`full`) |
+| Other MCP profiles | 22 advertised by `lean`; 148 advertised by `readonly`; 3 deprecated-interactive definitions gated by default |
 | Entry point | `python -m rook` (stdio transport) |
 | HTTP bridge | `bridge.py` — discovers native plugin via `%LOCALAPPDATA%\Rook\discovery` by default and legacy `%TEMP%\rook` compatibility files |
 | Key subsystems | Intent runtime, Knowledge stores, Agent system, Chat service, DSPy consolidation, Chirp manager |
+
+- Director is retired from MCP discovery, profiles, meta-tools, targeting, and internal-agent dispatch. Native `/director/*` routes and implementation modules remain temporarily preserved for disposition review; they are not a public or agent-callable capability.
+
+Future scene preview, timeline, rendering, and finalized-video export belongs in RookStudio. `rook2` remains a narrow Rhino connector/broker and is unchanged by this retirement.
 
 ### Agent System (`agent/`)
 

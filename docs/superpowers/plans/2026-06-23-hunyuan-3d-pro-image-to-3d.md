@@ -1,5 +1,12 @@
 # Hunyuan 3D Pro (multi-view image-to-3D) Implementation Plan
 
+> **DIRECTOR HISTORICAL EVIDENCE — classified 2026-07-13:** Director routes,
+> tool names, and workflows below are retained only as dated evidence. They are not
+> current instructions and must not be used to restore a Director MCP tool. See the
+> [Director MCP Surface Retirement Design][director-mcp-retirement].
+
+[director-mcp-retirement]: ../specs/2026-07-13-director-mcp-surface-retirement-design.md
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add full support for Fal's Hunyuan 3D Pro image-to-3D model (`fal-ai/hunyuan-3d/v3.1/pro/image-to-3d`) — labeled multi-view submit, catalog-driven options (Generate Type / Enable PBR / Face Count), generate-type-driven texture expectation, and UI in both I3D and MV3D modes.

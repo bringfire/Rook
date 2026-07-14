@@ -466,29 +466,3 @@ async def test_oracle_envelope_prediction_matches_expected_numbers():
         [11.778698714755, -3.707407282861, 1.25], abs=1e-9)
     assert bbox_max == pytest.approx(
         [15.0, -1.723542864692, 6.5], abs=1e-9)
-
-
-async def test_mcp_dispatch_worker_play():
-    """Mirrors the module-attribute AsyncMock dispatch pattern."""
-    from unittest.mock import AsyncMock, patch
-
-    from rook import server, targeting
-
-    with patch.object(targeting, "discover_instances", lambda: [
-        {"host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native"},
-    ]):
-        with patch.object(server.director_worker_play, "play_take",
-                          new_callable=AsyncMock) as mock_play:
-            mock_play.return_value = {
-                "played_from": 0,
-                "played_to": 5,
-                "run_index": 0,
-            }
-            result = await server.call_tool(
-                "rhino_director_worker_play",
-                {"package_root": "C:/takes/take1", "probe_frames": [5]})
-        mock_play.assert_awaited_once()
-    payload = json.loads(result[0].text)
-    assert payload["played_from"] == 0
-    assert payload["played_to"] == 5
-    assert payload["run_index"] == 0

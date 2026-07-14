@@ -1,5 +1,16 @@
 # Director v3 Slice 2: Worker Prepare + Member Map + Resolved Motion — Implementation Plan
 
+> **PARTIALLY SUPERSEDED — Director MCP retirement (2026-07-13):** The general
+> non-Director architecture and dated evidence in this document remain available.
+> All `rhino_director_*`, `/director`, VisionDirector, and Director-domain examples,
+> allowlist entries, count assumptions, acceptance criteria, and positive dispatch
+> tests are superseded as of 2026-07-13. Replace those examples with
+> non-Director fixtures when maintaining or replaying this work. This document must
+> not be used to restore a Director MCP tool. See the
+> [Director MCP Surface Retirement Design][director-mcp-retirement].
+
+[director-mcp-retirement]: ../specs/2026-07-13-director-mcp-surface-retirement-design.md
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Open a Director take package's `scene.3dm` as the active document, destructively explode the declared actor-source block instances with provenance recorded at creation time, prove 100% coverage of claimed actor members, verify manifest evidence, and write `member_map.json` + `resolved_motion.json` into the package.

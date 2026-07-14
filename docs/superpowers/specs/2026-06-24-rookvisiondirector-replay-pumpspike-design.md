@@ -1,5 +1,16 @@
 # RookVisionDirector Replay — Dispatch-Drain Pump Spike
 
+> **PARTIALLY SUPERSEDED — Director MCP retirement (2026-07-13):** The general
+> non-Director architecture and dated evidence in this document remain available.
+> All `rhino_director_*`, `/director`, VisionDirector, and Director-domain examples,
+> allowlist entries, count assumptions, acceptance criteria, and positive dispatch
+> tests are superseded as of 2026-07-13. Replace those examples with
+> non-Director fixtures when maintaining or replaying this work. This document must
+> not be used to restore a Director MCP tool. See the
+> [Director MCP Surface Retirement Design][director-mcp-retirement].
+
+[director-mcp-retirement]: 2026-07-13-director-mcp-surface-retirement-design.md
+
 - **Status:** Spike executed (2026-06-24) — S2 safe; PR2 = synchronous replay. See Findings.
 - **Date:** 2026-06-24
 - **Feature:** RookVisionDirector arbitrary-motion replay (PR2, first slice)

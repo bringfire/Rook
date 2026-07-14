@@ -51,8 +51,11 @@ from rook.mcp_tool_profiles import (
 
 def test_set_sizes_are_pinned():
     assert len(PUBLIC_LEAN_TOOL_NAMES) == 22
-    assert len(PUBLIC_READONLY_TOOL_NAMES) == 149
+    assert len(PUBLIC_READONLY_TOOL_NAMES) == 148
     assert len(SENTINEL_TOOL_NAMES) == 26
+    assert not any(
+        name.startswith("rhino_director_") for name in PUBLIC_READONLY_TOOL_NAMES
+    )
 
 
 def test_readonly_is_disjoint_from_sentinels():
@@ -80,12 +83,6 @@ def test_named_sentinels_present():
     for name in ("rhino_select", "rhino_layer_visibility", "gh_edit", "rhino_create"):
         assert name in SENTINEL_TOOL_NAMES
         assert name not in PUBLIC_READONLY_TOOL_NAMES
-
-
-def test_actor_set_builder_stays_out_of_readonly_and_lean_profiles():
-    tool = "rhino_director_build_actor_set_from_source_occurrence_v2"
-    assert tool not in PUBLIC_READONLY_TOOL_NAMES
-    assert tool not in PUBLIC_LEAN_TOOL_NAMES
 
 
 from rook.mcp_tool_profiles import (

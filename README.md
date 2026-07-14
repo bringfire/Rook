@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  390+ MCP tools &bull; Intent-based execution &bull; Self-improving knowledge graph &bull; Model-agnostic
+  428 MCP tools &bull; Intent-based execution &bull; Self-improving knowledge graph &bull; Model-agnostic
 </p>
 
 <p align="center">
@@ -65,7 +65,7 @@ Rhino 3D / Grasshopper
 |-------|------|
 | **RookNative (C++)** | The sole Rhino plugin and sole HTTP server. 263 routes across 42 handlers covering geometry, documents, scene graph, gumball, export, blocks, analysis, curves, meshes, SubD, annotations, materials, vision/media, BIM, and more. OS-assigned port discovered via `%LOCALAPPDATA%/Rook/discovery` JSON files, with legacy `%TEMP%/rook` compatibility reads. |
 | **Managed Companion (C#)** | Loaded by RookNative. Grasshopper routes pass through a P/Invoke callback bridge — no separate HTTP server. Also hosts the embedded chat panel. |
-| **MCP Server (Python)** | Translates 392 MCP tool calls into HTTP requests. Houses the knowledge graph, DSPy-based intent runtime (plan → route → execute → reflect), session recording, and the multi-agent system. Works with any MCP client. |
+| **MCP Server (Python)** | Defines 431 static tools in `server.py` (428 advertised by default) and translates advertised MCP tool calls into HTTP requests. Houses the knowledge graph, DSPy-based intent runtime (plan → route → execute → reflect), session recording, and the multi-agent system. Works with any MCP client. |
 | **Knowledge Graph** | Self-improving store of 197 Rhino commands (543 observations) and 945 Grasshopper component notes (942 GUIDs, 1,533 intents) within ~1,230 total GH notes. Powers intent-based execution and correction detection. |
 | **Scene Graph** | Real-time spatial intelligence — shadow graph of all Rhino objects with shape classification, bounding-box metrics, and 8 spatial relationship types. Background thread with lock-free immutable snapshots. |
 
@@ -150,7 +150,7 @@ Rook can both *see* and *generate* visual content:
 
 - **Viewport capture** — Render any named view or display mode to an image the AI can reason over
 - **RookVision artifacts** — Generated and captured images stored in an artifact store with roles, approval workflow, and a gallery
-- **Video** — Render viewport/turntable video, Director-based camera animation along curves, job queue with status/estimate/cancel
+- **Video** — Render viewport/turntable video, manage generation jobs, and inspect status/estimate/cancel results
 - **Model-agnostic generation** — A provider framework routes image/video generation across backends rather than hard-coding a single model
 
 ### Multi-Agent System
@@ -303,7 +303,7 @@ Rook/
 │   └── UI/Chat/                 # Embedded chat panel (Eto)
 │
 ├── mcp_server/src/rook/         # Python MCP server
-│   ├── server.py                # 392 MCP tool definitions
+│   ├── server.py                # 431 static tool definitions (428 advertised by default)
 │   ├── agent/                   # Multi-agent system (Planner/Worker/Guardian)
 │   └── learning/                # Knowledge stores + DSPy evolution
 │

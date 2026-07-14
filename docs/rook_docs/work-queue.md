@@ -1,5 +1,16 @@
 # Work Queue
 
+> **PARTIALLY SUPERSEDED — Director MCP retirement (2026-07-13):** The general
+> non-Director architecture and dated evidence in this document remain available.
+> All `rhino_director_*`, `/director`, VisionDirector, and Director-domain examples,
+> allowlist entries, count assumptions, acceptance criteria, and positive dispatch
+> tests are superseded as of 2026-07-13. Replace those examples with
+> non-Director fixtures when maintaining or replaying this work. This document must
+> not be used to restore a Director MCP tool. See the
+> [Director MCP Surface Retirement Design][director-mcp-retirement].
+
+[director-mcp-retirement]: ../superpowers/specs/2026-07-13-director-mcp-surface-retirement-design.md
+
 **Last triaged:** 2026-05-24 (**Rook v1.5.8 shipped and post-release follow-ups filed.** Release `v1.5.8` is published from `584b151` with the validated installer hash `841583BBB61258DFE8A5128EA143C42878FF3F1EF7459DE7C601010428379AFC`. The release included the runtime-path bootstrap repair, command-knowledge layering hardening, Rhino.Inside Revit discovery repair, release artifact validation, and refreshed FFmpeg compliance assets. Laptop smoke covered the real same-version repair path (`1.5.7` -> broken `1.5.8` candidate -> rebuilt `1.5.8`), installed-runtime proof, standalone Rhino autoload/discovery/chat, and Rhino.Inside Revit discovery/MCP targeting/chat health. **Promoted to Now:** #187, stale long-lived MCP sessions after install/update/repair. It is the highest-leverage upgrade UX gap because a user can return to an already-open Codex/Claude session and see `no_rhino_instance` even though a fresh MCP process works. **Promoted to Next:** #188, `_ShowRookChat` through generic `/command` returns a false-negative failure shape even when the panel opens and chat works. **Tracked follow-up:** #189, Rhino.Inside Revit release smoke needs a better managed companion evidence source than `Get-Process.Modules`. Release guidance currently mitigates #187 by telling users to restart Codex/Claude after installing or updating Rook; turn that guidance into either MCP stale-session recovery or a precise diagnostic before the next release.)
 
 **Last triaged:** 2026-05-21 (**RookVisionDirector roadmap realigned after Phase 3.** `main` is at `a36be9a` / PR #172 with native Director MP4 assembly merged. Director state is now: slice-1 frame spine and live validation (#162), camera-planning extraction (#164), timeline authoring (#168), schema-array hardening follow-up (#169), curve-sampling primitive (#170), and platform-native Windows MP4 assembly (#172) are complete. The roadmap now marks Phases 1, 1.5, 2, and 3 complete and promotes **Phase 4: `curve_follow_target` camera strategy** as the next Director slice. Phase 3's implementation plan is retained as historical scaffolding with a completion note instead of open task tracking; the new Phase 4 implementation plan is `docs/superpowers/plans/2026-05-21-rookvisiondirector-curve-follow-target.md`. **Current Director lane:** implement Phase 4 as a Python camera-planning slice over the existing native `/director/curve-samples` route, preserving frame capture, video assembly, artifact publishing, and UI/gallery boundaries. **Next Director lane:** artifact/RookVision publishing only after curve-follow playback is proven through local MP4 previews.)

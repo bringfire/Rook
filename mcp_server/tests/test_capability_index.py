@@ -75,12 +75,12 @@ def _agent_rec(name, dispatch_path="bridge_route", mcp_only=False):
 
 
 def test_build_index_covers_all_tools_and_links_agent_records():
-    tools = [_tool("rhino_director_preview_motion"), _tool("rhino_objects")]
+    tools = [_tool("rhino_video_models"), _tool("rhino_objects")]
     agent = {"rhino_objects": _agent_rec("rhino_objects")}
-    idx = build_index(tools, agent, frozenset({"rhino_director_preview_motion", "rhino_objects"}))
-    assert {r.name for r in idx.records} == {"rhino_director_preview_motion", "rhino_objects"}
+    idx = build_index(tools, agent, frozenset({"rhino_video_models", "rhino_objects"}))
+    assert {r.name for r in idx.records} == {"rhino_video_models", "rhino_objects"}
     assert idx.by_name["rhino_objects"].agent_record.name == "rhino_objects"   # linked by name
-    assert idx.by_name["rhino_director_preview_motion"].agent_record is None    # absent -> None
+    assert idx.by_name["rhino_video_models"].agent_record is None    # absent -> None
 
 
 def test_readonly_safe_matches_audited_allowlist():
@@ -114,21 +114,29 @@ from rook.capability_index import validate_arguments
 
 
 def _idx():
-    tools = [_tool("rhino_director_preview_motion", "Preview a camera move."),
+    tools = [_tool("rhino_video_models", "List available video models."),
              _tool("rhino_create", "Create geometry."),
              _tool("rhino_objects", "List objects.")]
-    # NOTE: rhino_objects is readonly-safe on the real PUBLIC_READONLY_TOOL_NAMES allowlist;
-    # rhino_create and rhino_director_preview_motion are not.
     return build_index(tools, {}, frozenset({t.name for t in tools}))
 
 
-def test_search_finds_director_and_respects_readonly_scope():
-    idx = _idx()
-    assert any(r["name"] == "rhino_director_preview_motion"
-               for r in idx.search("director preview", scope_readonly=False))
-    # readonly scope hides non-readonly_safe tools:
-    ro_names = {r["name"] for r in idx.search("director preview", scope_readonly=True)}
-    assert "rhino_director_preview_motion" not in ro_names
+def test_search_finds_video_and_respects_readonly_scope():
+    tools = [
+        _tool("rhino_video_models", "List available video models."),
+        _tool("rhino_create", "Create geometry."),
+    ]
+    index = build_index(
+        tools,
+        {},
+        frozenset({"rhino_video_models", "rhino_create"}),
+    )
+    assert any(record["name"] == "rhino_video_models" for record in index.search("video"))
+    readonly_results = index.search(
+        "video create", scope_readonly=True, limit=20
+    )
+    readonly_names = {record["name"] for record in readonly_results}
+    assert "rhino_video_models" in readonly_names
+    assert "rhino_create" not in readonly_names
 
 
 def test_ls_returns_compact_entries_without_schema():
