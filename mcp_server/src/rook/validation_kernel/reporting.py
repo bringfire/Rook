@@ -59,6 +59,7 @@ from .schema_profile import (
     SchemaEvaluationInputError,
     SchemaEvaluationReservation,
     SchemaEvaluationReceipt,
+    _rejected_schema_evaluation_receipt,
     evaluate_schema_with_reservation,
     reserve_schema_evaluation,
 )
@@ -153,6 +154,25 @@ class PublishedValidationReport:
             raise TypeError("published report requires exact canonical bytes")
         if type(self.value) is not JsonObject:
             raise TypeError("published report requires an exact owned object")
+
+
+@dataclass(frozen=True, slots=True, init=False, eq=False)
+class _AuditedReportSeal:
+    public_result: PublishedValidationReport | ValidationControlFailure
+    schema_evaluation_receipts: tuple[SchemaEvaluationReceipt, ...]
+
+    def __init__(self) -> None:
+        raise TypeError("audited report seals are kernel-issued")
+
+
+def _audited_report_seal(
+    public_result: PublishedValidationReport | ValidationControlFailure,
+    receipts: tuple[SchemaEvaluationReceipt, ...],
+) -> _AuditedReportSeal:
+    outcome = object.__new__(_AuditedReportSeal)
+    object.__setattr__(outcome, "public_result", public_result)
+    object.__setattr__(outcome, "schema_evaluation_receipts", receipts)
+    return outcome
 
 
 @dataclass(slots=True)
@@ -671,18 +691,22 @@ def _validate_phase_results(
     return cast(tuple[PhaseResult, ...], phase_results)
 
 
-def seal_validation_report(
+def _seal_validation_report_with_audit(
     context: _ValidationExecutionContext,
     phase_results: tuple[PhaseResult, ...],
-) -> PublishedValidationReport | ValidationControlFailure:
-    """Project once, freeze one receipt, and publish only a complete sealed report."""
+) -> _AuditedReportSeal:
+    """Seal one report while retaining exact final schema evidence privately."""
 
+    audit_receipts: list[SchemaEvaluationReceipt] = []
     if type(context) is not _ValidationExecutionContext:
-        return _control_failure(
-            program=None,
-            code="validator_integrity_failure",
-            subject_path=None,
-            detail=b"report_context_type",
+        return _audited_report_seal(
+            _control_failure(
+                program=None,
+                code="validator_integrity_failure",
+                subject_path=None,
+                detail=b"report_context_type",
+            ),
+            (),
         )
     invocation = context.invocation
     program = invocation.program
@@ -691,11 +715,14 @@ def seal_validation_report(
         or type(program) is not SealedValidationProgram
         or type(context.ledger) is not BudgetLedger
     ):
-        return _control_failure(
-            program=None,
-            code="validator_integrity_failure",
-            subject_path=None,
-            detail=b"report_context_identity",
+        return _audited_report_seal(
+            _control_failure(
+                program=None,
+                code="validator_integrity_failure",
+                subject_path=None,
+                detail=b"report_context_identity",
+            ),
+            (),
         )
     try:
         if not context.ledger.claim_report_seal():
@@ -756,40 +783,62 @@ def seal_validation_report(
             ledger=context.ledger,
         )
         if not schema_reservation.shape_reservation.accepted:
-            return _schema_reservation_failure(program, schema_reservation)
+            audit_receipts.append(
+                _rejected_schema_evaluation_receipt(schema, schema_reservation)
+            )
+            return _audited_report_seal(
+                _schema_reservation_failure(program, schema_reservation),
+                tuple(audit_receipts),
+            )
         receipt = context.ledger.reserve_report_seal_and_freeze()
     except BudgetExceeded as exception:
-        return _ledger_budget_failure(program, exception)
+        return _audited_report_seal(
+            _ledger_budget_failure(program, exception), tuple(audit_receipts)
+        )
     except _ReportConstructabilityError as exception:
-        return _control_failure(
-            program=program,
-            code="validation_constructability_failed",
-            subject_path=exception.subject_path,
-            detail=b"report_schema_shape",
+        return _audited_report_seal(
+            _control_failure(
+                program=program,
+                code="validation_constructability_failed",
+                subject_path=exception.subject_path,
+                detail=b"report_schema_shape",
+            ),
+            tuple(audit_receipts),
         )
     except _ProjectionIntegrityError as exception:
-        return _control_failure(
-            program=program,
-            code="validator_integrity_failure",
-            subject_path=exception.subject_path,
-            detail=b"report_projection_contract",
+        return _audited_report_seal(
+            _control_failure(
+                program=program,
+                code="validator_integrity_failure",
+                subject_path=exception.subject_path,
+                detail=b"report_projection_contract",
+            ),
+            tuple(audit_receipts),
         )
     except BudgetLedgerFrozen:
-        return _control_failure(
-            program=program,
-            code="validator_integrity_failure",
-            subject_path=None,
-            detail=b"report_ledger_already_frozen",
+        return _audited_report_seal(
+            _control_failure(
+                program=program,
+                code="validator_integrity_failure",
+                subject_path=None,
+                detail=b"report_ledger_already_frozen",
+            ),
+            tuple(audit_receipts),
         )
     except SchemaEvaluationInputError:
-        return _control_failure(
-            program=program,
-            code="validator_integrity_failure",
-            subject_path=None,
-            detail=b"report_schema_reservation",
+        return _audited_report_seal(
+            _control_failure(
+                program=program,
+                code="validator_integrity_failure",
+                subject_path=None,
+                detail=b"report_schema_reservation",
+            ),
+            tuple(audit_receipts),
         )
     except Exception as exception:
-        return _internal_failure(program, exception)
+        return _audited_report_seal(
+            _internal_failure(program, exception), tuple(audit_receipts)
+        )
 
     try:
         if (
@@ -822,6 +871,8 @@ def seal_validation_report(
             ),
             reservation=schema_reservation,
         )
+        if type(schema_evaluation) is SchemaEvaluationReceipt:
+            audit_receipts.append(schema_evaluation)
         if (
             type(schema_evaluation) is not SchemaEvaluationReceipt
             or schema_evaluation.reservation
@@ -845,48 +896,74 @@ def seal_validation_report(
         )
         meter.charge_canonical_bytes(len(final_bytes))
     except CanonicalJsonSizeError as exception:
-        return _budget_failure(
-            program=program,
-            dimension=BudgetDimension.REPORT_CANONICAL_BYTES,
-            limit=exception.limit,
-            observed_lower_bound=exception.observed_lower_bound,
-            subject_path=None,
+        return _audited_report_seal(
+            _budget_failure(
+                program=program,
+                dimension=BudgetDimension.REPORT_CANONICAL_BYTES,
+                limit=exception.limit,
+                observed_lower_bound=exception.observed_lower_bound,
+                subject_path=None,
+            ),
+            tuple(audit_receipts),
         )
     except _SealMeterExceeded as exception:
-        return _budget_failure(
-            program=program,
-            dimension=exception.dimension,
-            limit=exception.limit,
-            observed_lower_bound=exception.observed_lower_bound,
-            subject_path=None,
+        return _audited_report_seal(
+            _budget_failure(
+                program=program,
+                dimension=exception.dimension,
+                limit=exception.limit,
+                observed_lower_bound=exception.observed_lower_bound,
+                subject_path=None,
+            ),
+            tuple(audit_receipts),
         )
     except _ReportConstructabilityError as exception:
-        return _control_failure(
-            program=program,
-            code="validation_constructability_failed",
-            subject_path=exception.subject_path,
-            detail=b"report_output_schema",
+        return _audited_report_seal(
+            _control_failure(
+                program=program,
+                code="validation_constructability_failed",
+                subject_path=exception.subject_path,
+                detail=b"report_output_schema",
+            ),
+            tuple(audit_receipts),
         )
     except (_ProjectionIntegrityError, SchemaEvaluationInputError) as exception:
-        return _control_failure(
-            program=program,
-            code="validator_integrity_failure",
-            subject_path=(
-                exception.subject_path
-                if type(exception) is _ProjectionIntegrityError
-                else None
+        return _audited_report_seal(
+            _control_failure(
+                program=program,
+                code="validator_integrity_failure",
+                subject_path=(
+                    exception.subject_path
+                    if type(exception) is _ProjectionIntegrityError
+                    else None
+                ),
+                detail=b"report_final_shape",
             ),
-            detail=b"report_final_shape",
+            tuple(audit_receipts),
         )
     except Exception as exception:
-        return _internal_failure(program, exception)
+        return _audited_report_seal(
+            _internal_failure(program, exception), tuple(audit_receipts)
+        )
 
-    return PublishedValidationReport(
-        schema_id=declaration.output_schema_id,
-        report_fingerprint=report_fingerprint,
-        canonical_bytes=final_bytes,
-        value=final_value,
+    return _audited_report_seal(
+        PublishedValidationReport(
+            schema_id=declaration.output_schema_id,
+            report_fingerprint=report_fingerprint,
+            canonical_bytes=final_bytes,
+            value=final_value,
+        ),
+        tuple(audit_receipts),
     )
+
+
+def seal_validation_report(
+    context: _ValidationExecutionContext,
+    phase_results: tuple[PhaseResult, ...],
+) -> PublishedValidationReport | ValidationControlFailure:
+    """Project once, freeze one receipt, and publish only a complete sealed report."""
+
+    return _seal_validation_report_with_audit(context, phase_results).public_result
 
 
 __all__ = (

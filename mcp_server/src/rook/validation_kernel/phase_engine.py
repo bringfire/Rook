@@ -183,25 +183,12 @@ class _PhaseHelperFacade:
 
 
 @dataclass(frozen=True, slots=True, init=False, eq=False)
-class _PhaseExecutionAudit:
-    program_id: str
-    program_fingerprint: str
+class _AuditedPhaseExecution:
+    public_result: tuple[PhaseResult, ...] | ValidationControlFailure
     schema_evaluation_receipts: tuple[SchemaEvaluationReceipt, ...]
 
     def __init__(self) -> None:
-        raise TypeError("phase execution audits are kernel-issued")
-
-    def __copy__(self) -> object:
-        raise TypeError("phase execution audits cannot be copied")
-
-    def __deepcopy__(self, memo: object) -> object:
-        raise TypeError("phase execution audits cannot be copied")
-
-    def __reduce__(self) -> object:
-        raise TypeError("phase execution audits cannot be serialized")
-
-    def __reduce_ex__(self, protocol: int) -> object:
-        raise TypeError("phase execution audits cannot be serialized")
+        raise TypeError("audited phase executions are kernel-issued")
 
 
 @dataclass(frozen=True, slots=True)
@@ -565,15 +552,14 @@ def _budget_failure(
     )
 
 
-def _make_execution_audit(
-    program: SealedValidationProgram,
+def _audited_phase_execution(
+    public_result: tuple[PhaseResult, ...] | ValidationControlFailure,
     receipts: tuple[SchemaEvaluationReceipt, ...],
-) -> _PhaseExecutionAudit:
-    audit = object.__new__(_PhaseExecutionAudit)
-    object.__setattr__(audit, "program_id", program.program_id)
-    object.__setattr__(audit, "program_fingerprint", program.program_fingerprint)
-    object.__setattr__(audit, "schema_evaluation_receipts", receipts)
-    return audit
+) -> _AuditedPhaseExecution:
+    outcome = object.__new__(_AuditedPhaseExecution)
+    object.__setattr__(outcome, "public_result", public_result)
+    object.__setattr__(outcome, "schema_evaluation_receipts", receipts)
+    return outcome
 
 
 def _has_only_dataclass_slots(
@@ -1181,17 +1167,20 @@ def _not_evaluated_result(
 
 def _execute_phase_program_with_audit(
     context: _ValidationExecutionContext,
-) -> (
-    tuple[tuple[PhaseResult, ...], _PhaseExecutionAudit]
-    | ValidationControlFailure
-):
+) -> _AuditedPhaseExecution:
     """Execute one context and retain exact adapter receipts on a private path."""
 
     if type(context) is not _ValidationExecutionContext:
-        return _integrity_failure(None, None, "execution context is not kernel-issued")
+        return _audited_phase_execution(
+            _integrity_failure(None, None, "execution context is not kernel-issued"),
+            (),
+        )
     program = context.invocation.program
     if type(program) is not SealedValidationProgram:
-        return _integrity_failure(None, None, "execution program is not sealed")
+        return _audited_phase_execution(
+            _integrity_failure(None, None, "execution program is not sealed"),
+            (),
+        )
     engine_charge_work_units = _phase_work_charger(context, None)
     phase_count = len(program.phases)
     execution_count = len(program.execution_order)
@@ -1204,7 +1193,7 @@ def _execute_phase_program_with_audit(
             )
         )
     except BudgetExceeded as exception:
-        return _budget_failure(exception, program)
+        return _audited_phase_execution(_budget_failure(exception, program), ())
     phase_by_name = {
         phase.phase_name: phase for phase in program.phases
     }
@@ -1215,12 +1204,17 @@ def _execute_phase_program_with_audit(
         or execution_count != phase_count
         or execution_names != declared_names
     ):
-        return _integrity_failure(program, None, "sealed execution order is inconsistent")
+        return _audited_phase_execution(
+            _integrity_failure(
+                program, None, "sealed execution order is inconsistent"
+            ),
+            (),
+        )
 
     try:
         engine_charge_work_units(3)
     except BudgetExceeded as exception:
-        return _budget_failure(exception, program)
+        return _audited_phase_execution(_budget_failure(exception, program), ())
     results: list[PhaseResult] = []
     results_by_name: dict[str, PhaseResult] = {}
     audit_receipts: list[SchemaEvaluationReceipt] = []
@@ -1318,13 +1312,24 @@ def _execute_phase_program_with_audit(
             results.append(phase_result)
             results_by_name[phase_name] = phase_result
         except BudgetExceeded as exception:
-            return _budget_failure(exception, program)
+            return _audited_phase_execution(
+                _budget_failure(exception, program), tuple(audit_receipts)
+            )
         except _IntegrityError as exception:
-            return _integrity_failure(program, phase_name, exception.evidence)
+            return _audited_phase_execution(
+                _integrity_failure(program, phase_name, exception.evidence),
+                tuple(audit_receipts),
+            )
         except _RuntimeComponentError as exception:
-            return _internal_failure(program, phase_name, exception.exception)
+            return _audited_phase_execution(
+                _internal_failure(program, phase_name, exception.exception),
+                tuple(audit_receipts),
+            )
         except Exception as exception:
-            return _internal_failure(program, phase_name, exception)
+            return _audited_phase_execution(
+                _internal_failure(program, phase_name, exception),
+                tuple(audit_receipts),
+            )
 
     try:
         engine_charge_work_units(
@@ -1338,10 +1343,11 @@ def _execute_phase_program_with_audit(
         )
         frozen_results = tuple(results)
         frozen_receipts = tuple(audit_receipts)
-        audit = _make_execution_audit(program, frozen_receipts)
-        execution = (frozen_results, audit)
+        execution = _audited_phase_execution(frozen_results, frozen_receipts)
     except BudgetExceeded as exception:
-        return _budget_failure(exception, program)
+        return _audited_phase_execution(
+            _budget_failure(exception, program), tuple(audit_receipts)
+        )
     return execution
 
 
@@ -1350,10 +1356,7 @@ def execute_phase_program(
 ) -> tuple[PhaseResult, ...] | ValidationControlFailure:
     """Execute the sealed phase DAG or return one pre-publication control failure."""
 
-    execution = _execute_phase_program_with_audit(context)
-    if isinstance(execution, ValidationControlFailure):
-        return execution
-    return execution[0]
+    return _execute_phase_program_with_audit(context).public_result
 
 
 __all__ = (

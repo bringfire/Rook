@@ -541,6 +541,28 @@ def phase_engine_runner_dispatch(
         if hasattr(first, "reservation") or hasattr(second, "reservation"):
             raise AssertionError("runner received an accounting receipt")
         return RunnerResult(diagnostics=(), compile_blockers=(), outputs=(output,))
+    if scenario in (
+        "schema_then_budget_failure",
+        "schema_then_integrity_failure",
+        "schema_then_internal_failure",
+    ):
+        view = helpers.evaluate_schema(  # type: ignore[attr-defined]
+            "synthetic.report:v1",
+            recipe,
+            instance_binding=InstanceBinding(
+                artifact_id="synthetic.recipe",
+                artifact_fingerprint=canonical_fingerprint(recipe),
+                instance_pointer="",
+            ),
+        )
+        if hasattr(view, "reservation"):
+            raise AssertionError("runner received an accounting receipt")
+        if scenario == "schema_then_integrity_failure":
+            return object()
+        if scenario == "schema_then_internal_failure":
+            raise RuntimeError("synthetic failure after schema evaluation")
+        helpers.charge_work_units(1_000_000)  # type: ignore[attr-defined]
+        raise AssertionError("synthetic budget failure did not terminate")
     if scenario == "immutability_probe":
         if hasattr(helpers, "ledger") or hasattr(helpers, "context"):
             raise AssertionError("runner received private engine authority")

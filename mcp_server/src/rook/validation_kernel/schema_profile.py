@@ -1451,6 +1451,38 @@ def reserve_schema_evaluation(
     )
 
 
+def _receipt_from_rejected_shape(
+    shape_reservation: SchemaShapeReservation,
+) -> SchemaEvaluationReceipt:
+    return SchemaEvaluationReceipt(
+        reservation=shape_reservation,
+        evaluator_invoked=False,
+        evaluation_passed=None,
+        bounded_errors=(),
+        failure_code=shape_reservation.rejection_reason,
+    )
+
+
+def _rejected_schema_evaluation_receipt(
+    schema: AdmittedSchema,
+    reservation: SchemaEvaluationReservation,
+) -> SchemaEvaluationReceipt:
+    """Consume one exact rejected reservation without inventing an instance."""
+
+    accepted_schema, _ = _require_evaluation_schema(schema)
+    if type(reservation) is not SchemaEvaluationReservation:
+        raise SchemaEvaluationInputError(
+            "evaluation requires an exact schema evaluation reservation"
+        )
+    reservation._claim(accepted_schema, reservation.instance_nodes)
+    shape_reservation = reservation.shape_reservation
+    if shape_reservation.accepted:
+        raise SchemaEvaluationInputError(
+            "rejected evaluation requires a rejected shape reservation"
+        )
+    return _receipt_from_rejected_shape(shape_reservation)
+
+
 def evaluate_schema_with_reservation(
     schema: AdmittedSchema,
     instance: JsonValue,
@@ -1470,13 +1502,7 @@ def evaluate_schema_with_reservation(
     reservation._claim(accepted_schema, instance_nodes)
     shape_reservation = reservation.shape_reservation
     if not shape_reservation.accepted:
-        return SchemaEvaluationReceipt(
-            reservation=shape_reservation,
-            evaluator_invoked=False,
-            evaluation_passed=None,
-            bounded_errors=(),
-            failure_code=shape_reservation.rejection_reason,
-        )
+        return _receipt_from_rejected_shape(shape_reservation)
 
     try:
         validator = _validator_for(accepted_schema)

@@ -420,11 +420,13 @@ def test_wide_index_budget_failure_precedes_fields_and_set_materialization(
     monkeypatch.setattr(phase_engine, "fields", fields_spy)
     monkeypatch.setattr(phase_engine, "set", set_spy, raising=False)
 
-    execution = phase_engine._execute_phase_program_with_audit(context)
+    outcome = phase_engine._execute_phase_program_with_audit(context)
 
+    execution = outcome.public_result
     assert isinstance(execution, ValidationControlFailure)
     assert execution.code == "validation_budget_exceeded"
     assert execution.budget_dimension == "kernel_phase_work_units"
+    assert outcome.schema_evaluation_receipts == ()
     assert calls == {"fields": 0, "set": 0}
 
 
@@ -468,7 +470,7 @@ def test_wide_index_exact_remaining_budget_materializes_layout_once(
     assert calls == {"fields": 1, "set": 2}
 
 
-def test_phase_validation_budget_exhaustion_publishes_no_results_or_audit() -> None:
+def test_phase_validation_budget_exhaustion_before_schema_attempt_has_empty_audit() -> None:
     context = _context(
         _program(beta_scenario="many_10000", beta_output_cardinality="many")
     )
@@ -480,13 +482,15 @@ def test_phase_validation_budget_exhaustion_publishes_no_results_or_audit() -> N
     )
     phase_engine = importlib.import_module("rook.validation_kernel.phase_engine")
 
-    execution = phase_engine._execute_phase_program_with_audit(context)
+    outcome = phase_engine._execute_phase_program_with_audit(context)
 
+    execution = outcome.public_result
     assert isinstance(execution, ValidationControlFailure)
     assert execution.code == "validation_budget_exceeded"
     assert execution.failure_stage == "validation"
     assert execution.artifact_role == "phase_engine"
     assert execution.budget_dimension == "kernel_phase_work_units"
+    assert outcome.schema_evaluation_receipts == ()
 
 
 def test_schema_helper_budget_exhaustion_attaches_no_partial_audit_receipt() -> None:
@@ -524,18 +528,17 @@ def test_schema_helper_records_exact_receipts_in_private_order_before_returning_
     context = _context(_program(alpha_scenario="schema_audit"))
     phase_engine = importlib.import_module("rook.validation_kernel.phase_engine")
 
-    execution = phase_engine._execute_phase_program_with_audit(context)
+    outcome = phase_engine._execute_phase_program_with_audit(context)
 
-    assert type(execution) is tuple
-    results, audit = execution
+    results = outcome.public_result
     assert type(results) is tuple
     assert _phase(results, "alpha").status == "passed"
-    assert len(audit.schema_evaluation_receipts) == 2
+    assert len(outcome.schema_evaluation_receipts) == 2
     assert all(
         type(receipt) is SchemaEvaluationReceipt
-        for receipt in audit.schema_evaluation_receipts
+        for receipt in outcome.schema_evaluation_receipts
     )
-    first, second = audit.schema_evaluation_receipts
+    first, second = outcome.schema_evaluation_receipts
     assert first.reservation.accepted is True
     assert second.reservation.accepted is True
     assert first.reservation.aggregate_after == second.reservation.aggregate_before
@@ -544,6 +547,44 @@ def test_schema_helper_records_exact_receipts_in_private_order_before_returning_
         == second.reservation.aggregate_after
     )
     assert "_PhaseExecutionAudit" not in validation_kernel.__all__
+
+
+@pytest.mark.parametrize(
+    ("scenario", "expected_code"),
+    (
+        ("schema_then_integrity_failure", "validator_integrity_failure"),
+        ("schema_then_budget_failure", "validation_budget_exceeded"),
+        ("schema_then_internal_failure", "validator_internal_failure"),
+    ),
+)
+def test_control_failure_after_schema_attempt_preserves_exact_private_receipts(
+    scenario: str, expected_code: str
+) -> None:
+    context = _context(_program(alpha_scenario=scenario))
+    phase_engine = importlib.import_module("rook.validation_kernel.phase_engine")
+
+    outcome = phase_engine._execute_phase_program_with_audit(context)
+
+    result = outcome.public_result
+    assert isinstance(result, ValidationControlFailure)
+    assert result.code == expected_code
+    assert len(outcome.schema_evaluation_receipts) == 1
+    receipt = outcome.schema_evaluation_receipts[0]
+    assert type(receipt) is SchemaEvaluationReceipt
+    assert receipt.reservation.accepted is True
+    assert receipt.evaluator_invoked is True
+    assert receipt.evaluation_passed is False
+    assert receipt.failure_code == "instance_schema_failed"
+
+
+def test_public_phase_control_failure_exposes_no_private_audit_evidence() -> None:
+    result = execute_phase_program(
+        _context(_program(alpha_scenario="schema_then_integrity_failure"))
+    )
+
+    assert isinstance(result, ValidationControlFailure)
+    assert result.code == "validator_integrity_failure"
+    assert not hasattr(result, "schema_evaluation_receipts")
 
 
 def test_public_phase_values_are_frozen_and_have_no_authored_authority_fields() -> None:

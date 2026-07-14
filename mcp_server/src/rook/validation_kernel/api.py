@@ -17,11 +17,15 @@ from .invocation import (
     _build_validation_execution_context,
 )
 from .phase_engine import (
-    _PhaseExecutionAudit,
+    _AuditedPhaseExecution,
     _execute_phase_program_with_audit,
 )
 from .program import SealedValidationProgram
-from .reporting import PublishedValidationReport, seal_validation_report
+from .reporting import (
+    PublishedValidationReport,
+    _AuditedReportSeal,
+    _seal_validation_report_with_audit,
+)
 from .schema_profile import SchemaEvaluationReceipt
 
 
@@ -159,6 +163,27 @@ def _outcome_without_phase_audit(
     )
 
 
+def _outcome_for_program(
+    result: ValidationResult,
+    program: SealedValidationProgram,
+    receipts: tuple[SchemaEvaluationReceipt, ...],
+) -> _AuditedValidationOutcome:
+    return _AuditedValidationOutcome(
+        public_result=result,
+        audit=_issue_validation_execution_audit(
+            program_id=program.program_id,
+            program_fingerprint=program.program_fingerprint,
+            receipts=receipts,
+        ),
+    )
+
+
+def _has_exact_receipts(value: object) -> bool:
+    return type(value) is tuple and all(
+        type(receipt) is SchemaEvaluationReceipt for receipt in value
+    )
+
+
 def _phase_audit_integrity_failure(
     context: _ValidationExecutionContext,
 ) -> ValidationControlFailure:
@@ -172,6 +197,22 @@ def _phase_audit_integrity_failure(
         subject_path=None,
         message="Validator integrity check failed.",
         detail=b"phase_execution_audit_contract",
+    )
+
+
+def _report_audit_integrity_failure(
+    context: _ValidationExecutionContext,
+) -> ValidationControlFailure:
+    program = context.invocation.program
+    return make_control_failure(
+        failure_stage=FailureStage.VALIDATION,
+        code="validator_integrity_failure",
+        artifact_role=ArtifactRole.REPORT_SEAL,
+        program_id=program.program_id,
+        program_fingerprint=program.program_fingerprint,
+        subject_path=None,
+        message="Validator integrity check failed.",
+        detail=b"report_seal_audit_contract",
     )
 
 
@@ -190,31 +231,45 @@ def _validate_artifacts_with_audit(
     if isinstance(context, ValidationControlFailure):
         return _outcome_without_phase_audit(context)
 
-    execution = _execute_phase_program_with_audit(context)
-    if isinstance(execution, ValidationControlFailure):
-        return _outcome_without_phase_audit(execution)
-    phase_results, phase_audit = execution
+    phase_execution = _execute_phase_program_with_audit(context)
     if (
-        type(phase_audit) is not _PhaseExecutionAudit
-        or phase_audit.program_id != program.program_id
-        or phase_audit.program_fingerprint != program.program_fingerprint
-        or type(phase_audit.schema_evaluation_receipts) is not tuple
-        or any(
-            type(receipt) is not SchemaEvaluationReceipt
-            for receipt in phase_audit.schema_evaluation_receipts
+        type(phase_execution) is not _AuditedPhaseExecution
+        or not _has_exact_receipts(
+            phase_execution.schema_evaluation_receipts
         )
     ):
         return _outcome_without_phase_audit(
             _phase_audit_integrity_failure(context)
         )
+    phase_result = phase_execution.public_result
+    phase_receipts = phase_execution.schema_evaluation_receipts
+    if isinstance(phase_result, ValidationControlFailure):
+        return _outcome_for_program(phase_result, program, phase_receipts)
+    if type(phase_result) is not tuple:
+        return _outcome_for_program(
+            _phase_audit_integrity_failure(context), program, ()
+        )
 
-    audit = _issue_validation_execution_audit(
-        program_id=phase_audit.program_id,
-        program_fingerprint=phase_audit.program_fingerprint,
-        receipts=phase_audit.schema_evaluation_receipts,
+    report_seal = _seal_validation_report_with_audit(context, phase_result)
+    if (
+        type(report_seal) is not _AuditedReportSeal
+        or not _has_exact_receipts(report_seal.schema_evaluation_receipts)
+        or not isinstance(
+            report_seal.public_result,
+            (PublishedValidationReport, ValidationControlFailure),
+        )
+    ):
+        return _outcome_for_program(
+            _report_audit_integrity_failure(context),
+            program,
+            phase_receipts,
+        )
+    receipts = phase_receipts + report_seal.schema_evaluation_receipts
+    return _outcome_for_program(
+        report_seal.public_result,
+        program,
+        receipts,
     )
-    result = seal_validation_report(context, phase_results)
-    return _AuditedValidationOutcome(public_result=result, audit=audit)
 
 
 def validate_artifacts(

@@ -32,6 +32,7 @@ from rook.validation_kernel.owned_json import (
     JsonString,
     count_json_nodes,
 )
+from rook.validation_kernel.schema_profile import SchemaEvaluationReceipt
 
 from tests._validation_kernel_fakes import (
     make_assembler_profile_candidate,
@@ -65,6 +66,18 @@ def _execute_and_seal(program: object):
     phase_results = execute_phase_program(context)
     assert type(phase_results) is tuple
     return context, phase_results, seal_validation_report(context, phase_results)
+
+
+def _execute_and_seal_with_audit(program: object):
+    context = _context(program)
+    phase_results = execute_phase_program(context)
+    assert type(phase_results) is tuple
+    reporting = importlib.import_module("rook.validation_kernel.reporting")
+    return (
+        context,
+        phase_results,
+        reporting._seal_validation_report_with_audit(context, phase_results),
+    )
 
 
 def _bool(report: PublishedValidationReport, field_name: str) -> bool:
@@ -366,6 +379,114 @@ def test_reserved_evaluator_input_rejection_maps_to_integrity_without_publicatio
     _, _, result = _execute_and_seal(_program())
 
     _assert_report_failure(result, "validator_integrity_failure")
+
+
+def test_private_report_seal_records_accepted_final_schema_receipt() -> None:
+    context, _, outcome = _execute_and_seal_with_audit(_program())
+
+    assert type(outcome.public_result) is PublishedValidationReport
+    assert len(outcome.schema_evaluation_receipts) == 1
+    receipt = outcome.schema_evaluation_receipts[0]
+    assert type(receipt) is SchemaEvaluationReceipt
+    assert receipt.reservation.accepted is True
+    assert receipt.evaluator_invoked is True
+    assert receipt.evaluation_passed is True
+    assert receipt.failure_code is None
+    assert (
+        context.ledger.snapshot().schema_evaluation_shape_units
+        == receipt.reservation.aggregate_after
+    )
+
+
+def test_private_report_seal_records_rejected_final_schema_reservation() -> None:
+    program = _program()
+    context = _context(program)
+    phase_results = execute_phase_program(context)
+    assert type(phase_results) is tuple
+    for _ in range(4):
+        reservation = context.ledger.reserve_schema_shape(
+            schema_nodes=1,
+            instance_nodes=4_000_000,
+            per_evaluation_limit=4_000_000,
+        )
+        assert reservation.accepted is True
+    reporting = importlib.import_module("rook.validation_kernel.reporting")
+
+    outcome = reporting._seal_validation_report_with_audit(
+        context, phase_results
+    )
+
+    result = _assert_report_failure(
+        outcome.public_result, "validation_budget_exceeded"
+    )
+    assert result.budget_dimension == "schema_evaluation_shape_units"
+    assert len(outcome.schema_evaluation_receipts) == 1
+    receipt = outcome.schema_evaluation_receipts[0]
+    assert type(receipt) is SchemaEvaluationReceipt
+    assert receipt.reservation.accepted is False
+    assert receipt.reservation.aggregate_before == 16_000_000
+    assert receipt.reservation.aggregate_after is None
+    assert receipt.reservation.rejection_reason == "invocation_shape_limit_exceeded"
+    assert receipt.evaluator_invoked is False
+    assert receipt.evaluation_passed is None
+    assert receipt.bounded_errors == ()
+    assert receipt.failure_code == "invocation_shape_limit_exceeded"
+
+
+def test_private_report_schema_failure_retains_exact_final_receipt() -> None:
+    _, _, outcome = _execute_and_seal_with_audit(
+        _program(report_schema_probe="const")
+    )
+
+    _assert_report_failure(
+        outcome.public_result, "validation_constructability_failed"
+    )
+    assert len(outcome.schema_evaluation_receipts) == 1
+    receipt = outcome.schema_evaluation_receipts[0]
+    assert type(receipt) is SchemaEvaluationReceipt
+    assert receipt.reservation.accepted is True
+    assert receipt.evaluator_invoked is True
+    assert receipt.evaluation_passed is False
+    assert receipt.failure_code == "instance_schema_failed"
+
+
+def test_private_report_evaluator_failure_retains_exact_final_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    program = _program()
+    context = _context(program)
+    phase_results = execute_phase_program(context)
+    assert type(phase_results) is tuple
+    schema_profile = importlib.import_module("rook.validation_kernel.schema_profile")
+    reporting = importlib.import_module("rook.validation_kernel.reporting")
+
+    class BrokenValidator:
+        def iter_errors(self, _: object) -> object:
+            raise RuntimeError("synthetic final evaluator failure")
+
+    monkeypatch.setattr(schema_profile, "_validator_for", lambda _: BrokenValidator())
+
+    outcome = reporting._seal_validation_report_with_audit(
+        context, phase_results
+    )
+
+    _assert_report_failure(outcome.public_result, "validator_integrity_failure")
+    assert len(outcome.schema_evaluation_receipts) == 1
+    receipt = outcome.schema_evaluation_receipts[0]
+    assert type(receipt) is SchemaEvaluationReceipt
+    assert receipt.reservation.accepted is True
+    assert receipt.evaluator_invoked is True
+    assert receipt.evaluation_passed is None
+    assert receipt.failure_code == "schema_evaluator_failed"
+
+
+def test_private_report_pre_attempt_failure_has_empty_audit() -> None:
+    reporting = importlib.import_module("rook.validation_kernel.reporting")
+
+    outcome = reporting._seal_validation_report_with_audit(object(), ())
+
+    _assert_report_failure(outcome.public_result, "validator_integrity_failure")
+    assert outcome.schema_evaluation_receipts == ()
 
 
 @pytest.mark.parametrize(

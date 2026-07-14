@@ -241,14 +241,14 @@ def test_phase_integrity_failure_stops_before_report_seal(
         make_validation_api_contribution(schema_scenario="integrity_failure")
     )
     calls = 0
-    real_seal = api_module.seal_validation_report
+    real_seal = api_module._seal_validation_report_with_audit
 
     def seal_spy(*args: object, **kwargs: object) -> object:
         nonlocal calls
         calls += 1
         return real_seal(*args, **kwargs)
 
-    monkeypatch.setattr(api_module, "seal_validation_report", seal_spy)
+    monkeypatch.setattr(api_module, "_seal_validation_report_with_audit", seal_spy)
 
     result = validate_artifacts(
         program,
@@ -424,6 +424,8 @@ def test_public_wrapper_returns_the_private_outcomes_exact_public_object(
 
     assert result is outcome.public_result
     assert calls == 1
+    assert not hasattr(result, "schema_evaluation_receipts")
+    assert not hasattr(result, "audit")
 
 
 def test_private_audit_is_ordered_immutable_nonserializable_and_nonforgeable(
@@ -444,12 +446,12 @@ def test_private_audit_is_ordered_immutable_nonserializable_and_nonforgeable(
     assert type(audit) is api_module._ValidationExecutionAudit
     assert audit.program_id == program.program_id
     assert audit.program_fingerprint == program.program_fingerprint
-    assert len(audit.schema_evaluation_receipts) == 2
+    assert len(audit.schema_evaluation_receipts) == 3
     assert all(
         type(receipt) is SchemaEvaluationReceipt
         for receipt in audit.schema_evaluation_receipts
     )
-    first, second = audit.schema_evaluation_receipts
+    first, second, report = audit.schema_evaluation_receipts
     assert first.reservation.attempted_shape_units is not None
     assert second.reservation.attempted_shape_units is not None
     assert (
@@ -457,6 +459,11 @@ def test_private_audit_is_ordered_immutable_nonserializable_and_nonforgeable(
         < second.reservation.attempted_shape_units
     )
     assert first.reservation.aggregate_after == second.reservation.aggregate_before
+    assert second.reservation.aggregate_after == report.reservation.aggregate_before
+    assert report.reservation.accepted is True
+    assert report.evaluator_invoked is True
+    assert report.evaluation_passed is True
+    assert report.failure_code is None
     assert api_module._is_validation_execution_audit(audit, program) is True
 
     with pytest.raises(AttributeError):
@@ -492,6 +499,172 @@ def test_private_audit_is_ordered_immutable_nonserializable_and_nonforgeable(
         AuditLookalike(),
     ):
         assert api_module._is_validation_execution_audit(forged, program) is False
+
+
+def test_private_audit_records_rejected_final_report_reservation(
+    assembler_profile: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    program = compose_and_seal_program(make_phase_engine_contribution())
+    real_seal = api_module._seal_validation_report_with_audit
+
+    def exhaust_schema_budget(context: object, phase_results: object) -> object:
+        for _ in range(4):
+            reservation = context.ledger.reserve_schema_shape(  # type: ignore[attr-defined]
+                schema_nodes=1,
+                instance_nodes=4_000_000,
+                per_evaluation_limit=4_000_000,
+            )
+            assert reservation.accepted is True
+        return real_seal(context, phase_results)
+
+    monkeypatch.setattr(
+        api_module,
+        "_seal_validation_report_with_audit",
+        exhaust_schema_budget,
+    )
+
+    outcome = api_module._validate_artifacts_with_audit(
+        program,
+        b'{"nested":{"value":1}}',
+        _carrier(assembler_profile),
+    )
+
+    assert isinstance(outcome.public_result, BudgetExceededFailure)
+    assert outcome.public_result.artifact_role == "report_seal"
+    assert len(outcome.audit.schema_evaluation_receipts) == 1
+    receipt = outcome.audit.schema_evaluation_receipts[0]
+    assert receipt.reservation.accepted is False
+    assert receipt.reservation.aggregate_before == 16_000_000
+    assert receipt.reservation.aggregate_after is None
+    assert receipt.evaluator_invoked is False
+    assert receipt.evaluation_passed is None
+    assert receipt.failure_code == "invocation_shape_limit_exceeded"
+
+
+def test_private_audit_records_final_report_schema_failure(
+    assembler_profile: object,
+) -> None:
+    program = compose_and_seal_program(
+        make_phase_engine_contribution(report_schema_probe="const")
+    )
+
+    outcome = api_module._validate_artifacts_with_audit(
+        program,
+        b'{"nested":{"value":1}}',
+        _carrier(assembler_profile),
+    )
+
+    assert isinstance(outcome.public_result, ValidationControlFailure)
+    assert outcome.public_result.code == "validation_constructability_failed"
+    assert len(outcome.audit.schema_evaluation_receipts) == 1
+    receipt = outcome.audit.schema_evaluation_receipts[0]
+    assert receipt.reservation.accepted is True
+    assert receipt.evaluator_invoked is True
+    assert receipt.evaluation_passed is False
+    assert receipt.failure_code == "instance_schema_failed"
+
+
+def test_private_audit_records_final_report_evaluator_failure(
+    assembler_profile: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    program = compose_and_seal_program(make_phase_engine_contribution())
+    schema_profile = importlib.import_module("rook.validation_kernel.schema_profile")
+    real_seal = api_module._seal_validation_report_with_audit
+
+    class BrokenValidator:
+        def iter_errors(self, _: object) -> object:
+            raise RuntimeError("synthetic final evaluator failure")
+
+    def break_final_evaluator(context: object, phase_results: object) -> object:
+        monkeypatch.setattr(
+            schema_profile,
+            "_validator_for",
+            lambda _: BrokenValidator(),
+        )
+        return real_seal(context, phase_results)
+
+    monkeypatch.setattr(
+        api_module,
+        "_seal_validation_report_with_audit",
+        break_final_evaluator,
+    )
+
+    outcome = api_module._validate_artifacts_with_audit(
+        program,
+        b'{"nested":{"value":1}}',
+        _carrier(assembler_profile),
+    )
+
+    assert isinstance(outcome.public_result, ValidationControlFailure)
+    assert outcome.public_result.code == "validator_integrity_failure"
+    assert len(outcome.audit.schema_evaluation_receipts) == 1
+    receipt = outcome.audit.schema_evaluation_receipts[0]
+    assert receipt.reservation.accepted is True
+    assert receipt.evaluator_invoked is True
+    assert receipt.evaluation_passed is None
+    assert receipt.failure_code == "schema_evaluator_failed"
+
+
+@pytest.mark.parametrize(
+    ("scenario", "expected_code"),
+    (
+        ("schema_then_integrity_failure", "validator_integrity_failure"),
+        ("schema_then_budget_failure", "validation_budget_exceeded"),
+        ("schema_then_internal_failure", "validator_internal_failure"),
+    ),
+)
+def test_private_audit_retains_phase_receipts_on_later_control_failure(
+    assembler_profile: object,
+    scenario: str,
+    expected_code: str,
+) -> None:
+    program = compose_and_seal_program(
+        make_phase_engine_contribution(alpha_scenario=scenario)
+    )
+
+    outcome = api_module._validate_artifacts_with_audit(
+        program,
+        b'{"nested":{"value":1}}',
+        _carrier(assembler_profile),
+    )
+
+    assert isinstance(outcome.public_result, ValidationControlFailure)
+    assert outcome.public_result.code == expected_code
+    assert len(outcome.audit.schema_evaluation_receipts) == 1
+    receipt = outcome.audit.schema_evaluation_receipts[0]
+    assert receipt.reservation.accepted is True
+    assert receipt.evaluator_invoked is True
+    assert receipt.evaluation_passed is False
+    assert receipt.failure_code == "instance_schema_failed"
+
+
+def test_private_pre_attempt_failure_has_empty_audit_and_public_path_has_none(
+    assembler_profile: object,
+) -> None:
+    outcome = api_module._validate_artifacts_with_audit(
+        object(),  # type: ignore[arg-type]
+        b"unread",
+        object(),  # type: ignore[arg-type]
+    )
+    program = compose_and_seal_program(
+        make_phase_engine_contribution(
+            alpha_scenario="schema_then_integrity_failure"
+        )
+    )
+
+    public_result = validate_artifacts(
+        program,
+        b'{"nested":{"value":1}}',
+        _carrier(assembler_profile),
+    )
+
+    assert isinstance(outcome.public_result, ValidationControlFailure)
+    assert outcome.audit.schema_evaluation_receipts == ()
+    assert isinstance(public_result, ValidationControlFailure)
+    assert not hasattr(public_result, "schema_evaluation_receipts")
+    assert not hasattr(public_result, "audit")
 
 
 def test_orchestration_parses_each_artifact_once_without_fallback(

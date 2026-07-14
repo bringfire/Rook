@@ -1107,6 +1107,39 @@ def test_per_evaluation_rejection_happens_before_evaluator_construction(
     assert ledger.snapshot().schema_evaluation_shape_units == 0
 
 
+def test_private_rejected_reservation_receipt_consumes_exact_capability_without_instance() -> None:
+    schema = admit({"type": "null"})
+    ledger = BudgetLedger(LM9A_BUDGET_MANIFEST)
+    for _ in range(4):
+        shape = ledger.reserve_schema_shape(
+            schema_nodes=1,
+            instance_nodes=4_000_000,
+            per_evaluation_limit=4_000_000,
+        )
+        assert shape.accepted is True
+    reservation = reserve_schema_evaluation(
+        schema,
+        instance_nodes=1,
+        ledger=ledger,
+    )
+    assert reservation.shape_reservation.accepted is False
+
+    receipt = schema_profile_module._rejected_schema_evaluation_receipt(
+        schema, reservation
+    )
+
+    assert receipt.reservation is reservation.shape_reservation
+    assert receipt.reservation.rejection_reason == "invocation_shape_limit_exceeded"
+    assert receipt.evaluator_invoked is False
+    assert receipt.evaluation_passed is None
+    assert receipt.bounded_errors == ()
+    assert receipt.failure_code == "invocation_shape_limit_exceeded"
+    with pytest.raises(SchemaEvaluationInputError, match="already consumed"):
+        schema_profile_module._rejected_schema_evaluation_receipt(
+            schema, reservation
+        )
+
+
 def test_schema_rejection_has_deterministic_bounded_keyword_and_paths() -> None:
     schema = admit(
         {
