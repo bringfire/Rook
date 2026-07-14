@@ -118,6 +118,7 @@ _FIXED_KERNEL_MODULES = (
     "rook.validation_kernel.kernel_schemas",
     "rook.validation_kernel.program",
 )
+_KERNEL_SOURCE_PACKAGE = __name__.rpartition(".")[0]
 _UNSTABLE_DISTRIBUTION_FILES = frozenset(
     ("direct_url.json", "installer", "record", "requested")
 )
@@ -1489,45 +1490,6 @@ def _validate_runtime_bindings(
     return captured
 
 
-def _analysis_nodes(
-    tree: ast.Module,
-    *,
-    module_scope_only: bool,
-) -> tuple[ast.AST, ...]:
-    if not module_scope_only:
-        return tuple(ast.walk(tree))
-
-    nodes: list[ast.AST] = []
-
-    class ModuleScopeVisitor(ast.NodeVisitor):
-        def generic_visit(self, node: ast.AST) -> None:
-            nodes.append(node)
-            super().generic_visit(node)
-
-        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-            nodes.append(node)
-            for decorator in node.decorator_list:
-                self.visit(decorator)
-            self.visit(node.args)
-            if node.returns is not None:
-                self.visit(node.returns)
-
-        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-            nodes.append(node)
-            for decorator in node.decorator_list:
-                self.visit(decorator)
-            self.visit(node.args)
-            if node.returns is not None:
-                self.visit(node.returns)
-
-        def visit_Lambda(self, node: ast.Lambda) -> None:
-            nodes.append(node)
-            self.visit(node.args)
-
-    ModuleScopeVisitor().visit(tree)
-    return tuple(nodes)
-
-
 def _assignment_names(target: ast.expr) -> tuple[str, ...]:
     if isinstance(target, ast.Name):
         return (target.id,)
@@ -1818,42 +1780,22 @@ def _reject_dynamic_import_calls(
 def _absolute_imports(
     module_name: str,
     source: str,
-    *,
-    module_scope_only: bool = False,
-) -> tuple[tuple[str, ...], tuple[str, ...]]:
+) -> tuple[str, ...]:
     try:
         tree = ast.parse(source, filename=module_name)
     except SyntaxError as error:
         raise ProgramCompositionError(
             f"implementation source cannot be parsed: {module_name}"
         ) from error
-    nodes = _analysis_nodes(tree, module_scope_only=module_scope_only)
+    nodes = tuple(ast.walk(tree))
     origin = _module_origin(module_name)
-    guard_nodes = (
-        tuple(ast.walk(tree))
-        if origin is not None and origin.name.lower() == "__init__.py"
-        else nodes
-    )
-    _reject_dynamic_import_calls(module_name, guard_nodes)
+    _reject_dynamic_import_calls(module_name, nodes)
     imports: set[str] = set()
-    package_aliases: dict[str, str] = {}
-    referenced_packages: set[str] = set()
-
-    def is_package(candidate: str) -> bool:
-        candidate_origin = _module_origin(candidate)
-        return (
-            candidate_origin is not None
-            and candidate_origin.name.lower() == "__init__.py"
-        )
 
     for node in nodes:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 imports.add(alias.name)
-                local_name = alias.asname or alias.name.split(".", 1)[0]
-                imported_name = alias.name if alias.asname else local_name
-                if is_package(imported_name):
-                    package_aliases[local_name] = imported_name
         elif isinstance(node, ast.ImportFrom):
             if node.level:
                 package = (
@@ -1877,23 +1819,10 @@ def _absolute_imports(
             for alias in node.names:
                 if alias.name == "*":
                     continue
-                if is_package(base):
-                    referenced_packages.add(base)
                 candidate = f"{base}.{alias.name}" if base else alias.name
                 if _module_origin(candidate) is not None:
                     imports.add(candidate)
-                if is_package(candidate):
-                    package_aliases[alias.asname or alias.name] = candidate
-    for node in nodes:
-        if not isinstance(node, ast.Attribute) or not isinstance(node.value, ast.Name):
-            continue
-        package_name = package_aliases.get(node.value.id)
-        if package_name is not None:
-            referenced_packages.add(package_name)
-    return (
-        tuple(sorted(imports, key=utf16_sort_key)),
-        tuple(sorted(referenced_packages, key=utf16_sort_key)),
-    )
+    return tuple(sorted(imports, key=utf16_sort_key))
 
 
 def _module_origin(module_name: str) -> Path | None:
@@ -1907,18 +1836,23 @@ def _module_origin(module_name: str) -> Path | None:
     return Path(origin).resolve()
 
 
-def _module_import_root(module_name: str, source_path: Path) -> Path:
-    levels = len(module_name.split("."))
-    if source_path.name.lower() != "__init__.py":
-        levels -= 1
-    root = source_path.parent
-    for _ in range(levels):
-        root = root.parent
-    return root
-
-
 def _path_is_under(path: Path, roots: frozenset[Path]) -> bool:
     return any(path == root or root in path.parents for root in roots)
+
+
+def _behavior_source_root(module_name: str, source_path: Path) -> Path:
+    if (
+        module_name == _KERNEL_SOURCE_PACKAGE
+        or module_name.startswith(_KERNEL_SOURCE_PACKAGE + ".")
+    ):
+        return Path(__file__).resolve().parent
+    package_depth = len(module_name.split("."))
+    if source_path.name.lower() != "__init__.py":
+        package_depth -= 1
+    root = source_path.parent
+    for _ in range(max(package_depth - 1, 0)):
+        root = root.parent
+    return root
 
 
 def _derive_product_source_closure(
@@ -1934,11 +1868,11 @@ def _derive_product_source_closure(
     for module_name in entry_modules:
         _require_module_name(module_name, "behavior source entry module")
         _, _, source_path = _read_module_source(module_name)
-        source_roots.add(_module_import_root(module_name, source_path))
+        source_roots.add(_behavior_source_root(module_name, source_path))
     frozen_roots = frozenset(source_roots)
 
-    pending: dict[str, bool] = {}
-    processed: dict[str, bool] = {}
+    pending: set[str] = set()
+    processed: set[str] = set()
     normalized_sources: dict[str, str] = {}
     fingerprints: dict[str, str] = {}
     imports_by_module: dict[str, set[str]] = {}
@@ -1951,13 +1885,10 @@ def _derive_product_source_closure(
             and _path_is_under(origin, frozen_roots)
         )
 
-    def enqueue(module_name: str, *, full_behavior: bool) -> None:
-        if not is_product_source(module_name):
+    def enqueue(module_name: str) -> None:
+        if module_name in processed or not is_product_source(module_name):
             return
-        previous = processed.get(module_name)
-        if previous is True or (previous is False and not full_behavior):
-            return
-        pending[module_name] = pending.get(module_name, False) or full_behavior
+        pending.add(module_name)
 
     def enqueue_package_initializers(module_name: str) -> None:
         parts = module_name.split(".")
@@ -1969,35 +1900,27 @@ def _derive_product_source_closure(
                 and origin.name.lower() == "__init__.py"
                 and _path_is_under(origin, frozen_roots)
             ):
-                enqueue(package_name, full_behavior=False)
+                enqueue(package_name)
 
     for module_name in entry_modules:
-        enqueue(module_name, full_behavior=True)
+        enqueue(module_name)
         enqueue_package_initializers(module_name)
 
     while pending:
         module_name = min(pending, key=utf16_sort_key)
-        full_behavior = pending.pop(module_name)
-        previous = processed.get(module_name)
-        if previous is True or (previous is False and not full_behavior):
+        pending.remove(module_name)
+        if module_name in processed:
             continue
         raw, normalized, _ = _read_module_source(module_name)
         normalized_sources[module_name] = normalized
         fingerprints[module_name] = normalized_source_fingerprint(raw)
-        imports, referenced_packages = _absolute_imports(
-            module_name,
-            normalized,
-            module_scope_only=not full_behavior,
-        )
+        imports = _absolute_imports(module_name, normalized)
         imports_by_module.setdefault(module_name, set()).update(imports)
-        processed[module_name] = bool(previous) or full_behavior
+        processed.add(module_name)
         for imported in imports:
             if is_product_source(imported):
-                enqueue(imported, full_behavior=True)
+                enqueue(imported)
                 enqueue_package_initializers(imported)
-        for package_name in referenced_packages:
-            enqueue(package_name, full_behavior=True)
-            enqueue_package_initializers(package_name)
 
     names = sorted(normalized_sources, key=utf16_sort_key)
     sources = tuple(

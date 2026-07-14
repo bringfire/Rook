@@ -1082,6 +1082,160 @@ def test_package_initializers_are_full_behavior_sources(tmp_path: Path) -> None:
     )
 
 
+def test_all_lexical_imports_close_direct_and_aliased_package_helpers(
+    tmp_path: Path,
+) -> None:
+    relative_closures: dict[str, set[str]] = {}
+    alias_entry: object | None = None
+    alias_contribution: ValidationProgramContribution | None = None
+    alias_fingerprint: str | None = None
+    alias_package_name = ""
+
+    for mode, runner_body in (
+        ("direct", "    return {package}.helper()\n"),
+        (
+            "alias",
+            "    package_alias = {package}\n"
+            "    return package_alias.helper()\n",
+        ),
+    ):
+        package_name = f"synthetic_lexical_{mode}"
+        entry = _load_temp_package(
+            tmp_path,
+            package_name,
+            {
+                "__init__.py": (
+                    "def helper():\n"
+                    "    from .secret import VALUE\n"
+                    "    return VALUE\n"
+                ),
+                "entry.py": (
+                    f"import {package_name}.submodule\n"
+                    "def runner(*args):\n"
+                    + runner_body.format(package=package_name)
+                ),
+                "secret.py": "VALUE = ('sealed-secret',)\n",
+                "submodule.py": "MARKER = 'reachable'\n",
+                "unrelated.py": "VALUE = 'not behavior'\n",
+            },
+            "entry",
+        )
+        contribution = _with_derived_source_and_dependency_authority(
+            _replace_beta_from_module(make_program_contribution(), entry)
+        )
+        expected = {
+            package_name,
+            f"{package_name}.entry",
+            f"{package_name}.secret",
+            f"{package_name}.submodule",
+        }
+        declared = {
+            source.module_name
+            for source in contribution.implementation_sources
+            if source.module_name == package_name
+            or source.module_name.startswith(package_name + ".")
+        }
+        assert declared == expected
+        relative_closures[mode] = {
+            module_name.removeprefix(package_name) for module_name in declared
+        }
+
+        sealed = compose_and_seal_program(contribution)
+        manifested = {
+            item["module_name"]
+            for item in json.loads(sealed.manifest_bytes)["implementation_sources"]
+            if item["module_name"] == package_name
+            or item["module_name"].startswith(package_name + ".")
+        }
+        assert manifested == expected
+
+        if mode == "alias":
+            alias_entry = entry
+            alias_contribution = contribution
+            alias_fingerprint = sealed.program_fingerprint
+            alias_package_name = package_name
+
+    assert relative_closures["direct"] == relative_closures["alias"]
+    assert relative_closures["alias"] == {
+        "",
+        ".entry",
+        ".secret",
+        ".submodule",
+    }
+    assert alias_entry is not None
+    assert alias_contribution is not None
+    assert alias_fingerprint is not None
+
+    _assert_rejected(
+        replace(
+            alias_contribution,
+            implementation_sources=tuple(
+                source
+                for source in alias_contribution.implementation_sources
+                if source.module_name != f"{alias_package_name}.secret"
+            ),
+        ),
+        "missing implementation source",
+    )
+
+    secret_path = tmp_path / alias_package_name / "secret.py"
+    secret_path.write_text(
+        "VALUE = ('changed-secret',)\n",
+        encoding="utf-8",
+        newline="",
+    )
+    changed = compose_and_seal_program(
+        _with_derived_source_and_dependency_authority(
+            _replace_beta_from_module(make_program_contribution(), alias_entry)
+        )
+    )
+    assert changed.program_fingerprint != alias_fingerprint
+
+
+def test_all_lexical_imports_include_every_nested_package_initializer(
+    tmp_path: Path,
+) -> None:
+    package_name = "synthetic_nested_lexical_closure"
+    entry = _load_temp_package(
+        tmp_path,
+        package_name,
+        {
+            "__init__.py": (
+                "def helper():\n"
+                "    from .secret import VALUE\n"
+                "    return VALUE\n"
+            ),
+            "nested/__init__.py": "NESTED_MARKER = 'reachable'\n",
+            "nested/entry.py": (
+                f"import {package_name}.nested.submodule\n"
+                "def runner(*args):\n"
+                f"    package_alias = {package_name}\n"
+                "    return package_alias.helper()\n"
+            ),
+            "nested/submodule.py": "SUBMODULE_MARKER = 'reachable'\n",
+            "secret.py": "VALUE = ('nested-secret',)\n",
+        },
+        "nested.entry",
+    )
+    contribution = _with_derived_source_and_dependency_authority(
+        _replace_beta_from_module(make_program_contribution(), entry)
+    )
+    expected = {
+        package_name,
+        f"{package_name}.nested",
+        f"{package_name}.nested.entry",
+        f"{package_name}.nested.submodule",
+        f"{package_name}.secret",
+    }
+    declared = {
+        source.module_name
+        for source in contribution.implementation_sources
+        if source.module_name == package_name
+        or source.module_name.startswith(package_name + ".")
+    }
+    assert declared == expected
+
+
 @pytest.mark.parametrize(
     "source",
     (
