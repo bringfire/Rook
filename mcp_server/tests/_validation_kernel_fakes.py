@@ -33,7 +33,13 @@ from rook.validation_kernel import (
 )
 from rook.validation_kernel.budget import LM9A_BUDGET_MANIFEST
 from rook.validation_kernel.canonical_json import canonical_fingerprint, canonical_json_bytes
-from rook.validation_kernel.owned_json import JsonObject, JsonString, own_trusted_json
+from rook.validation_kernel.owned_json import (
+    JsonArray,
+    JsonBoolean,
+    JsonObject,
+    JsonString,
+    own_trusted_json,
+)
 from rook.validation_kernel.schema_profile import (
     PAYLOAD_PROFILE,
     admit_schema,
@@ -456,7 +462,121 @@ def phase_engine_runner_dispatch(
     raise AssertionError(f"unknown synthetic phase-engine scenario: {scenario}")
 
 
-def report_projection(_: object, __: object) -> None:
+def _projection_state_strings(state: JsonObject, field_name: str) -> tuple[str, ...]:
+    value = state[field_name]
+    if type(value) is not JsonArray or any(type(item) is not JsonString for item in value):
+        raise AssertionError("synthetic projection state is malformed")
+    return tuple(item.value for item in value)
+
+
+def report_projection(
+    state: JsonObject, envelope: object, builder: object
+) -> object:
+    from rook.validation_kernel.reporting import (
+        ReportBuilder,
+        ReportProjectionEnvelope,
+    )
+
+    if type(state) is not JsonObject:
+        raise AssertionError("projection state must be exact owned JSON")
+    if type(envelope) is not ReportProjectionEnvelope:
+        raise AssertionError("projection received an inexact envelope")
+    if type(builder) is not ReportBuilder:
+        raise AssertionError("projection received an inexact builder")
+    for forbidden in (
+        "ledger",
+        "program",
+        "runners",
+        "runtime_bindings",
+        "clock",
+        "files",
+        "providers",
+        "raw_recipe_bytes",
+        "raw_validation_bundle_bytes",
+        "context",
+    ):
+        if hasattr(envelope, forbidden) or hasattr(builder, forbidden):
+            raise AssertionError(f"projection received forbidden authority: {forbidden}")
+    try:
+        envelope.program_id = "changed"  # type: ignore[misc]
+    except (AttributeError, TypeError):
+        pass
+    else:
+        raise AssertionError("projection envelope is mutable")
+
+    scenario_value = state["scenario"]
+    shells_value = state["invocation_shells"]
+    if type(scenario_value) is not JsonString or type(shells_value) is not JsonBoolean:
+        raise AssertionError("synthetic projection scenario is malformed")
+    scenario = scenario_value.value
+    if scenario == "return_host_graph":
+        return {"forged": True}
+    if scenario == "return_owned_graph":
+        return own_trusted_json({"forged": True})
+    if scenario == "raise":
+        raise RuntimeError("synthetic projection failure")
+    if scenario == "unknown_path":
+        builder.put("/body/unknown", JsonString("forged"))
+        return None
+    if scenario == "kernel_path":
+        builder.put("/validation_budget", own_trusted_json({}))
+        return None
+    if scenario == "wrong_shape":
+        builder.put("/phases", JsonString("not-an-array"))
+        return None
+    if scenario == "projection_overflow":
+        builder.put(
+            "/phases",
+            JsonArray(tuple(JsonString("overflow") for _ in range(131_073))),
+        )
+        return None
+
+    evidence = envelope.invocation_evidence
+    if type(evidence) is not JsonObject:
+        raise AssertionError("invocation evidence must be an exact owned object")
+    validation_bundle = evidence["validation_bundle"]
+    if type(validation_bundle) is not JsonObject:
+        raise AssertionError("validation bundle evidence must be an exact owned object")
+
+    body_optional = (
+        "x" * 2_097_152
+        if scenario == "canonical_overflow"
+        else envelope.program_id
+    )
+    builder.put(
+        "/body",
+        own_trusted_json({"closed": {}, "optional": body_optional}),
+    )
+    builder.put("/phases", JsonArray(()))
+    for result in envelope.phase_results:
+        builder.append("/phases", JsonString(f"{result.phase_name}:{result.status}"))
+
+    required = frozenset(_projection_state_strings(state, "required_for_compile_phases"))
+    status_by_phase = {result.phase_name: result.status for result in envelope.phase_results}
+    valid = not any(
+        issue.severity == "error"
+        for result in envelope.phase_results
+        for issue in result.diagnostics
+    )
+    has_blockers = any(result.compile_blockers for result in envelope.phase_results)
+    compile_ready = (
+        valid
+        and not has_blockers
+        and all(status_by_phase.get(phase_name) == "passed" for phase_name in required)
+    )
+    builder.put("/valid", JsonBoolean(valid))
+    if scenario != "missing_field":
+        builder.put("/compile_ready", JsonBoolean(compile_ready))
+
+    if shells_value.value:
+        builder.put("/task_envelope", validation_bundle["task_envelope"])
+        builder.put("/authority_artifacts", validation_bundle["authority_artifacts"])
+        builder.put("/validation_context", validation_bundle["validation_context"])
+    else:
+        builder.put("/validation_context", own_trusted_json({}))
+
+    if scenario == "duplicate_field":
+        builder.put("/valid", JsonBoolean(valid))
     return None
 
 
@@ -624,6 +744,24 @@ def _binding(kind: str, component: RuntimeComponentSpec, target: object) -> Runt
 
 
 def _output_schema(*, invocation_shells: bool) -> object:
+    observed_fields = (
+        "recipe_input_bytes",
+        "validation_bundle_input_bytes",
+        "maximum_container_depth",
+        "maximum_number_token_chars",
+        "parsed_nodes",
+        "maximum_object_members",
+        "maximum_array_items",
+        "decoded_string_bytes",
+        "parser_work_units",
+        "semantic_references",
+        "schema_evaluation_shape_units",
+        "diagnostics",
+        "compile_blockers",
+        "kernel_phase_work_units",
+        "report_projection_fields",
+        "report_seal_reserved_work_units",
+    )
     validation_context_schema: dict[str, object] = {
         "type": "object",
         "additionalProperties": False,
@@ -647,15 +785,37 @@ def _output_schema(*, invocation_shells: bool) -> object:
         "phases": {"type": "array", "items": {"type": "string"}},
         "validation_budget": {
             "type": "object",
+            "properties": {
+                "budget_profile": {"type": "string"},
+                "limits_fingerprint": {
+                    "type": "string",
+                },
+                "observed": {
+                    "type": "object",
+                    "properties": {
+                        field_name: {"type": "integer", "minimum": 0}
+                        for field_name in observed_fields
+                    },
+                    "required": list(observed_fields),
+                    "additionalProperties": False,
+                },
+            },
+            "required": ["budget_profile", "limits_fingerprint", "observed"],
             "additionalProperties": False,
         },
-        "report_fingerprint": {"type": "string"},
+        "valid": {"type": "boolean"},
+        "compile_ready": {"type": "boolean"},
+        "report_fingerprint": {
+            "type": "string",
+        },
     }
     required = [
         "body",
         "validation_context",
         "phases",
         "validation_budget",
+        "valid",
+        "compile_ready",
         "report_fingerprint",
     ]
     if invocation_shells:
@@ -751,7 +911,10 @@ def _output_schema(*, invocation_shells: bool) -> object:
 
 
 def make_program_contribution(
-    *, invocation_shells: bool = False
+    *,
+    invocation_shells: bool = False,
+    required_for_compile_phases: tuple[str, ...] = ("alpha", "beta"),
+    report_projection_scenario: str = "normal",
 ) -> ValidationProgramContribution:
     tokenizer = _component("synthetic.tokenizer:v1", "synthetic.tokenizer_impl:v1", fake_tokenizer)
     parser = _component("synthetic.parser:v1", "synthetic.parser_impl:v1", fake_parser)
@@ -779,10 +942,23 @@ def make_program_contribution(
         "synthetic.export.beta:v1",
         beta_export_validator,
     )
+    projection_state = own_trusted_json(
+        {
+            "invocation_shells": invocation_shells,
+            "required_for_compile_phases": list(required_for_compile_phases),
+            "scenario": report_projection_scenario,
+        }
+    )
+    if type(projection_state) is not JsonObject:
+        raise AssertionError("synthetic projection state must be an object")
+    projection_target = ImmutableCallableRecord(
+        function=report_projection,
+        state=projection_state,
+    )
     projection_component = _component(
         "synthetic.report_projection:v1",
         "synthetic.report_projection_impl:v1",
-        report_projection,
+        projection_target,
     )
     output_schema = _output_schema(invocation_shells=invocation_shells)
 
@@ -876,7 +1052,13 @@ def make_program_contribution(
         owned_value_abi="rook.owned_json:v1",
         canonicalization_version="rook.canonical_json:v1",
     )
-    writable_body_paths = ("/body", "/phases", "/validation_context")
+    writable_body_paths = (
+        "/body",
+        "/compile_ready",
+        "/phases",
+        "/valid",
+        "/validation_context",
+    )
     mandatory_shells = (("/validation_context", "object"),)
     if invocation_shells:
         writable_body_paths += ("/task_envelope", "/authority_artifacts")
@@ -896,7 +1078,7 @@ def make_program_contribution(
             "phase_specs",
             "phase_results",
         ),
-        required_for_compile_phases=("alpha", "beta"),
+        required_for_compile_phases=required_for_compile_phases,
         kernel_owned_paths=("/report_fingerprint", "/validation_budget"),
         budget_receipt_path="/validation_budget",
         writable_body_paths=writable_body_paths,
@@ -915,7 +1097,7 @@ def make_program_contribution(
         ("runner", beta, beta_runner),
         ("export_type", alpha_export, alpha_export_validator),
         ("export_type", beta_export, beta_export_validator),
-        ("report_projection", projection_component, report_projection),
+        ("report_projection", projection_component, projection_target),
     )
     runtime_bindings = tuple(
         _binding(kind, component, target)
@@ -1017,8 +1199,14 @@ def make_phase_engine_contribution(
     beta_output_type: str = "synthetic.beta:v1",
     beta_export_validator: object = phase_text_export_validator,
     beta_output_cardinality: str = "zero_or_one",
+    required_for_compile_phases: tuple[str, ...] = ("alpha", "beta"),
+    report_projection_scenario: str = "normal",
 ) -> ValidationProgramContribution:
-    contribution = make_program_contribution(invocation_shells=True)
+    contribution = make_program_contribution(
+        invocation_shells=True,
+        required_for_compile_phases=required_for_compile_phases,
+        report_projection_scenario=report_projection_scenario,
+    )
 
     def runner_record(phase_name: str, scenario: str) -> ImmutableCallableRecord:
         state = own_trusted_json(

@@ -73,6 +73,12 @@ from .program import (
     runtime_dependency_spec,
     runtime_implementation_fingerprint,
 )
+from .reporting import (
+    PublishedValidationReport,
+    ReportBuilder,
+    ReportProjectionEnvelope,
+    seal_validation_report,
+)
 from .schema_profile import (
     CORE_PROFILE,
     CORE_SCHEMA_PROFILE_ID,
@@ -126,6 +132,9 @@ __all__ = (
     "ProgramCompositionError",
     "ProgramConstantSpec",
     "ProvidedOutput",
+    "PublishedValidationReport",
+    "ReportBuilder",
+    "ReportProjectionEnvelope",
     "ReportProjectionSpec",
     "REPORT_BUDGET_RECEIPT_PATH",
     "REPORT_FINGERPRINT_PATH",
@@ -159,5 +168,6 @@ __all__ = (
     "runtime_dependency_closure_for_modules",
     "runtime_dependency_spec",
     "runtime_implementation_fingerprint",
+    "seal_validation_report",
     "seal_trusted_bundle_assembler_profile",
 )
