@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import struct
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, fields, is_dataclass, replace
 from typing import Literal, cast
@@ -38,12 +39,25 @@ from .schema_profile import (
 
 PhaseStatus = Literal["passed", "blocked", "failed", "not_evaluated"]
 IssueSeverity = Literal["error", "warning", "information"]
+_WorkCharger = Callable[[int], None]
 
 _ISSUE_SEVERITIES = frozenset(("error", "warning", "information"))
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _MAX_ISSUE_MESSAGE_CODE_POINTS = 512
 _MAX_ISSUE_PATH_CODE_POINTS = 2_048
-_MAX_EXCEPTION_PREFIX_CODE_POINTS = 2_048
+_EXCEPTION_PROJECTION_MAX_BYTES = 4_096
+_EXCEPTION_PROJECTION_MAX_ITEMS = 128
+_EXCEPTION_PROJECTION_MAX_DEPTH = 16
+_EXCEPTION_PROJECTION_EDGE_UNITS = 32
+_EXCEPTION_PROJECTION_INTEGER_SAMPLE_BITS = 256
+_EXCEPTION_PROJECTION_INTEGER_SAMPLE_MASK = (
+    1 << _EXCEPTION_PROJECTION_INTEGER_SAMPLE_BITS
+) - 1
+_TYPE_MODULE_DESCRIPTOR = type.__dict__["__module__"]
+_TYPE_QUALNAME_DESCRIPTOR = type.__dict__["__qualname__"]
+_EXCEPTION_PROJECTION_FALLBACK_DIGEST = hashlib.sha256(
+    b"rook.phase_exception_evidence:v2\0fallback"
+).digest()
 _UNAVAILABLE = object()
 _OWNED_VALUE_TYPES = (
     JsonNull,
@@ -183,6 +197,52 @@ class _PhaseExecutionAudit:
         raise TypeError("phase execution audits cannot be serialized")
 
 
+@dataclass(frozen=True, slots=True)
+class _ExceptionDetailProjection:
+    digest: bytes
+    projected_bytes: int
+    projected_items: int
+    maximum_depth: int
+    truncated: bool
+
+
+class _ExceptionProjectionWriter:
+    __slots__ = ("_digest", "projected_bytes", "truncated")
+
+    def __init__(self) -> None:
+        self._digest = hashlib.sha256(b"rook.phase_exception_evidence:v2\0")
+        self.projected_bytes = 0
+        self.truncated = False
+
+    @property
+    def exhausted(self) -> bool:
+        return self.projected_bytes == _EXCEPTION_PROJECTION_MAX_BYTES
+
+    @property
+    def remaining(self) -> int:
+        return _EXCEPTION_PROJECTION_MAX_BYTES - self.projected_bytes
+
+    def mark_truncated(self) -> None:
+        self.truncated = True
+
+    def write(self, data: bytes) -> None:
+        remaining = _EXCEPTION_PROJECTION_MAX_BYTES - self.projected_bytes
+        if len(data) > remaining:
+            self._digest.update(data[:remaining])
+            self.projected_bytes += remaining
+            self.truncated = True
+            return
+        self._digest.update(data)
+        self.projected_bytes += len(data)
+
+    def finish(self, *, projected_items: int, maximum_depth: int) -> bytes:
+        self._digest.update(b"\x01" if self.truncated else b"\x00")
+        self._digest.update(self.projected_bytes.to_bytes(8, "big"))
+        self._digest.update(projected_items.to_bytes(8, "big"))
+        self._digest.update(maximum_depth.to_bytes(8, "big"))
+        return self._digest.digest()
+
+
 class _IntegrityError(RuntimeError):
     def __init__(self, evidence: str) -> None:
         self.evidence = evidence
@@ -198,6 +258,22 @@ class _RuntimeComponentError(RuntimeError):
 def _issue_subject_path(phase_name: str) -> str:
     token = phase_name.replace("~", "~0").replace("/", "~1")
     return f"/phases/{token}"
+
+
+def _phase_work_charger(
+    context: _ValidationExecutionContext, phase_name: str | None
+) -> _WorkCharger:
+    subject_path = None if phase_name is None else _issue_subject_path(phase_name)
+
+    def charge_work_units(amount: int) -> None:
+        context.ledger.charge(
+            BudgetDimension.KERNEL_PHASE_WORK_UNITS,
+            amount,
+            artifact_role=ArtifactRole.PHASE_ENGINE,
+            subject_path=subject_path,
+        )
+
+    return charge_work_units
 
 
 def _integrity_failure(
@@ -221,45 +297,217 @@ def _integrity_failure(
     )
 
 
-def _bounded_exception_evidence(exception: Exception) -> bytes:
-    digest = hashlib.sha256(b"rook.phase_exception_evidence:v1\0")
-    type_name = f"{type(exception).__module__}.{type(exception).__qualname__}"
-    digest.update(type_name.encode("utf-8", "backslashreplace"))
-    args = exception.args
-    digest.update(len(args).to_bytes(8, "big"))
-    for argument in args[:4]:
-        digest.update(b"\0")
-        if type(argument) is str:
-            digest.update(b"str\0")
-            digest.update(len(argument).to_bytes(16, "big"))
-            prefix = argument[:_MAX_EXCEPTION_PREFIX_CODE_POINTS]
-            digest.update(prefix.encode("utf-8", "backslashreplace"))
-        elif type(argument) is bytes:
-            digest.update(b"bytes\0")
-            digest.update(len(argument).to_bytes(16, "big"))
-            digest.update(argument[:4_096])
-        elif argument is None:
-            digest.update(b"none")
-        elif type(argument) is bool:
-            digest.update(b"bool\1" if argument else b"bool\0")
-        elif type(argument) is int:
-            magnitude = abs(argument)
-            bit_length = magnitude.bit_length()
-            digest.update(b"int\0")
-            digest.update(b"-" if argument < 0 else b"+")
-            digest.update(bit_length.to_bytes(16, "big"))
-            low = magnitude & ((1 << 256) - 1)
-            high = magnitude >> max(0, bit_length - 256)
-            digest.update(high.to_bytes(32, "big"))
-            digest.update(low.to_bytes(32, "big"))
-        elif type(argument) is float:
-            digest.update(b"float\0")
-            digest.update(argument.hex().encode("ascii"))
+def _projection_uint(value: int) -> bytes:
+    if value >= 1 << 128:
+        return b"\xff" * 16
+    return value.to_bytes(16, "big")
+
+
+def _project_exception_string(
+    writer: _ExceptionProjectionWriter, value: str
+) -> None:
+    length = len(value)
+    if length <= _EXCEPTION_PROJECTION_EDGE_UNITS * 2:
+        prefix_count = length
+        suffix_count = 0
+        locally_truncated = False
+    else:
+        prefix_count = _EXCEPTION_PROJECTION_EDGE_UNITS
+        suffix_count = _EXCEPTION_PROJECTION_EDGE_UNITS
+        locally_truncated = True
+        writer.mark_truncated()
+    writer.write(b"S")
+    writer.write(_projection_uint(length))
+    writer.write(prefix_count.to_bytes(2, "big"))
+    writer.write(suffix_count.to_bytes(2, "big"))
+    writer.write(b"\x01" if locally_truncated else b"\x00")
+    for index in range(prefix_count):
+        writer.write(ord(value[index]).to_bytes(4, "big"))
+    for index in range(length - suffix_count, length):
+        writer.write(ord(value[index]).to_bytes(4, "big"))
+
+
+def _project_exception_bytes(
+    writer: _ExceptionProjectionWriter, value: bytes
+) -> None:
+    length = len(value)
+    if length <= _EXCEPTION_PROJECTION_EDGE_UNITS * 2:
+        prefix_count = length
+        suffix_count = 0
+        locally_truncated = False
+    else:
+        prefix_count = _EXCEPTION_PROJECTION_EDGE_UNITS
+        suffix_count = _EXCEPTION_PROJECTION_EDGE_UNITS
+        locally_truncated = True
+        writer.mark_truncated()
+    writer.write(b"Y")
+    writer.write(_projection_uint(length))
+    writer.write(prefix_count.to_bytes(2, "big"))
+    writer.write(suffix_count.to_bytes(2, "big"))
+    writer.write(b"\x01" if locally_truncated else b"\x00")
+    writer.write(value[:prefix_count])
+    if suffix_count:
+        writer.write(value[length - suffix_count :])
+
+
+def _project_type_identity(
+    writer: _ExceptionProjectionWriter, value_type: type[object]
+) -> None:
+    for marker, descriptor in (
+        (b"M", _TYPE_MODULE_DESCRIPTOR),
+        (b"Q", _TYPE_QUALNAME_DESCRIPTOR),
+    ):
+        writer.write(marker)
+        try:
+            component = descriptor.__get__(value_type, type)
+        except BaseException:
+            component = None
+        if type(component) is str:
+            _project_exception_string(writer, component)
         else:
-            argument_type = f"{type(argument).__module__}.{type(argument).__qualname__}"
-            digest.update(b"typed\0")
-            digest.update(argument_type.encode("utf-8", "backslashreplace"))
-    return digest.digest()
+            writer.write(b"?")
+
+
+def _project_exception_integer(
+    writer: _ExceptionProjectionWriter, value: int
+) -> None:
+    negative = value < 0
+    sign = b"\x01" if negative else b"\x00"
+    bit_length = value.bit_length()
+    magnitude_length = max(1, (bit_length + 7) // 8)
+    length_record = _projection_uint(magnitude_length)
+    full_header = b"I" + sign + b"F" + length_record
+    if len(full_header) + magnitude_length <= writer.remaining:
+        magnitude = -value if negative else value
+        writer.write(full_header)
+        writer.write(magnitude.to_bytes(magnitude_length, "big"))
+        return
+
+    writer.mark_truncated()
+    if negative:
+        high_window = _EXCEPTION_PROJECTION_INTEGER_SAMPLE_MASK
+        low_window = _EXCEPTION_PROJECTION_INTEGER_SAMPLE_MASK
+    else:
+        high_shift = max(
+            bit_length - _EXCEPTION_PROJECTION_INTEGER_SAMPLE_BITS,
+            0,
+        )
+        high_window = (
+            value >> high_shift
+        ) & _EXCEPTION_PROJECTION_INTEGER_SAMPLE_MASK
+        low_window = value & _EXCEPTION_PROJECTION_INTEGER_SAMPLE_MASK
+    sample_bytes = _EXCEPTION_PROJECTION_INTEGER_SAMPLE_BITS // 8
+    writer.write(b"I" + sign + b"T")
+    writer.write(_projection_uint(bit_length))
+    writer.write(length_record)
+    writer.write(_EXCEPTION_PROJECTION_INTEGER_SAMPLE_BITS.to_bytes(2, "big"))
+    writer.write(high_window.to_bytes(sample_bytes, "big"))
+    writer.write(low_window.to_bytes(sample_bytes, "big"))
+
+
+def _project_exception_scalar(
+    writer: _ExceptionProjectionWriter, value: object
+) -> None:
+    value_type = type(value)
+    if value is None:
+        writer.write(b"N")
+    elif value_type is bool:
+        writer.write(b"B\x01" if value else b"B\x00")
+    elif value_type is int:
+        _project_exception_integer(writer, value)
+    elif value_type is float:
+        writer.write(b"F")
+        writer.write(struct.pack(">d", value))
+    elif value_type is str:
+        _project_exception_string(writer, value)
+    elif value_type is bytes:
+        _project_exception_bytes(writer, value)
+    else:
+        writer.write(b"U")
+        _project_type_identity(writer, value_type)
+
+
+def _build_exception_detail_projection(
+    exception: BaseException,
+) -> _ExceptionDetailProjection:
+    writer = _ExceptionProjectionWriter()
+    writer.write(b"E")
+    _project_type_identity(writer, type(exception))
+    writer.write(b"A")
+    try:
+        arguments = BaseException.args.__get__(exception, BaseException)
+    except BaseException:
+        arguments = ()
+        writer.mark_truncated()
+
+    stack: list[tuple[object, int]] = [(arguments, 0)]
+    projected_items = 0
+    maximum_depth = 0
+    while stack and not writer.exhausted:
+        if projected_items == _EXCEPTION_PROJECTION_MAX_ITEMS:
+            writer.mark_truncated()
+            break
+        value, depth = stack.pop()
+        projected_items += 1
+        maximum_depth = max(maximum_depth, depth)
+
+        if type(value) is not tuple:
+            _project_exception_scalar(writer, value)
+            continue
+
+        length = len(value)
+        if depth >= _EXCEPTION_PROJECTION_MAX_DEPTH:
+            child_count = 0
+            depth_limited = bool(length)
+        else:
+            available_items = (
+                _EXCEPTION_PROJECTION_MAX_ITEMS - projected_items - len(stack)
+            )
+            child_count = min(length, max(available_items, 0))
+            depth_limited = False
+        children_truncated = child_count < length
+        if children_truncated:
+            writer.mark_truncated()
+        writer.write(b"T")
+        writer.write(_projection_uint(length))
+        writer.write(child_count.to_bytes(2, "big"))
+        writer.write(b"\x01" if depth_limited else b"\x00")
+        writer.write(b"\x01" if children_truncated else b"\x00")
+        for index in range(child_count - 1, -1, -1):
+            stack.append((value[index], depth + 1))
+
+    if stack:
+        writer.mark_truncated()
+    digest = writer.finish(
+        projected_items=projected_items,
+        maximum_depth=maximum_depth,
+    )
+    return _ExceptionDetailProjection(
+        digest=digest,
+        projected_bytes=writer.projected_bytes,
+        projected_items=projected_items,
+        maximum_depth=maximum_depth,
+        truncated=writer.truncated,
+    )
+
+
+def _exception_detail_projection(
+    exception: BaseException,
+) -> _ExceptionDetailProjection:
+    try:
+        return _build_exception_detail_projection(exception)
+    except BaseException:
+        return _ExceptionDetailProjection(
+            digest=_EXCEPTION_PROJECTION_FALLBACK_DIGEST,
+            projected_bytes=0,
+            projected_items=0,
+            maximum_depth=0,
+            truncated=True,
+        )
+
+
+def _bounded_exception_evidence(exception: BaseException) -> bytes:
+    return _exception_detail_projection(exception).digest
 
 
 def _internal_failure(
@@ -300,45 +548,87 @@ def _make_execution_audit(
     return audit
 
 
-def _has_only_dataclass_slots(value: object) -> bool:
+def _has_only_dataclass_slots(
+    value: object, charge_work_units: _WorkCharger
+) -> bool:
     value_type = type(value)
     if hasattr(value, "__dict__"):
         return False
-    dataclass_names = {field.name for field in fields(value)}
+    dataclass_names: set[str] = set()
+    for field in fields(value):
+        charge_work_units(1)
+        dataclass_names.add(field.name)
     slot_names: set[str] = set()
     for base in value_type.__mro__:
+        charge_work_units(1)
         slots = base.__dict__.get("__slots__", ())
         if type(slots) is str:
+            charge_work_units(1)
             slot_names.add(slots)
         else:
-            slot_names.update(cast(tuple[str, ...], slots))
+            for slot in cast(tuple[str, ...], slots):
+                charge_work_units(1)
+                slot_names.add(slot)
+    charge_work_units(1)
     slot_names.discard("__weakref__")
     return slot_names == dataclass_names
 
 
-def _is_transitively_immutable(root: object) -> bool:
+def _is_transitively_immutable(
+    root: object, charge_work_units: _WorkCharger
+) -> bool:
+    charge_work_units(1)
     stack = [root]
     seen: set[int] = set()
     while stack:
+        charge_work_units(1)
         value = stack.pop()
         value_type = type(value)
+        if value_type is JsonArray:
+            charge_work_units(1)
+            identity = id(value)
+            if identity in seen:
+                continue
+            charge_work_units(1)
+            seen.add(identity)
+            for child in reversed(value.items):
+                charge_work_units(2)
+                stack.append(child)
+            continue
+        if value_type is JsonObject:
+            charge_work_units(1)
+            identity = id(value)
+            if identity in seen:
+                continue
+            charge_work_units(1)
+            seen.add(identity)
+            for _, child in reversed(value.members):
+                charge_work_units(2)
+                stack.append(child)
+            continue
         if value_type in _OWNED_VALUE_TYPES or value_type in _SCALAR_IMMUTABLE_TYPES:
             continue
         identity = id(value)
+        charge_work_units(1)
         if identity in seen:
             continue
+        charge_work_units(1)
         seen.add(identity)
         if value_type is tuple:
-            stack.extend(value)
+            for child in reversed(value):
+                charge_work_units(2)
+                stack.append(child)
             continue
         if not is_dataclass(value) or isinstance(value, type):
             return False
         parameters = getattr(value_type, "__dataclass_params__", None)
         if parameters is None or parameters.frozen is not True:
             return False
-        if not _has_only_dataclass_slots(value):
+        if not _has_only_dataclass_slots(value, charge_work_units):
             return False
-        stack.extend(getattr(value, field.name) for field in fields(value))
+        for field in reversed(fields(value)):
+            charge_work_units(2)
+            stack.append(getattr(value, field.name))
     return True
 
 
@@ -363,17 +653,30 @@ def _owned_source_values(value: JsonValue, cardinality: Cardinality) -> tuple[ob
 
 
 def _value_matches_type(
-    program: SealedValidationProgram, expected_type: str, value: object
+    program: SealedValidationProgram,
+    expected_type: str,
+    value: object,
+    *,
+    require_export_validator: bool = False,
+    charge_work_units: _WorkCharger,
 ) -> bool:
+    charge_work_units(1)
     builtin_types = _BUILTIN_TYPE_IDS.get(expected_type)
-    if builtin_types is not None:
-        return type(value) in builtin_types
+    if builtin_types is not None and type(value) not in builtin_types:
+        return False
+    if builtin_types is not None and not require_export_validator:
+        return True
+    charge_work_units(1)
     if ("export_type", expected_type) not in program.runtime_binding_keys:
         raise _IntegrityError("bound input type has no sealed validator")
+    charge_work_units(1)
     validator = program.resolve_runtime_binding("export_type", expected_type)
     try:
+        charge_work_units(1)
         accepted = validator(value)  # type: ignore[operator]
     except Exception as exception:
+        if require_export_validator:
+            raise _IntegrityError("sealed export validator raised") from None
         raise _RuntimeComponentError(exception) from exception
     if type(accepted) is not bool:
         raise _IntegrityError("export validator returned a non-boolean result")
@@ -381,9 +684,10 @@ def _value_matches_type(
 
 
 def _provided_output(
-    phase: PhaseSpec, output_name: str
+    phase: PhaseSpec, output_name: str, charge_work_units: _WorkCharger
 ) -> ProvidedOutput | None:
     for output in phase.provided_outputs:
+        charge_work_units(1)
         if output.output_name == output_name:
             return output
     return None
@@ -394,11 +698,13 @@ def _resolve_binding(
     phase_by_name: Mapping[str, PhaseSpec],
     results_by_name: Mapping[str, PhaseResult],
     binding: InputBinding,
+    charge_work_units: _WorkCharger,
 ) -> tuple[object, ...] | object:
     program = context.invocation.program
     if binding.source_kind == "invocation_input":
         source_name = cast(str, binding.source_input)
         try:
+            charge_work_units(1)
             source = context.invocation.invocation_inputs[source_name]
         except KeyError as exception:
             raise _IntegrityError("captured invocation input is missing") from exception
@@ -406,6 +712,7 @@ def _resolve_binding(
     elif binding.source_kind == "program_constant":
         source_name = cast(str, binding.source_constant)
         try:
+            charge_work_units(1)
             source = program.resolve_program_constant(source_name)
         except KeyError as exception:
             raise _IntegrityError("sealed program constant is missing") from exception
@@ -413,23 +720,25 @@ def _resolve_binding(
     elif binding.source_kind == "phase_output":
         source_phase_name = cast(str, binding.source_phase)
         source_output_name = cast(str, binding.source_output)
+        charge_work_units(1)
         source_phase = phase_by_name.get(source_phase_name)
+        charge_work_units(1)
         provider = results_by_name.get(source_phase_name)
         if source_phase is None or provider is None:
             raise _IntegrityError("bound producer has no prior result")
         if provider.status in ("failed", "not_evaluated"):
             return _UNAVAILABLE
-        output_spec = _provided_output(source_phase, source_output_name)
+        output_spec = _provided_output(
+            source_phase, source_output_name, charge_work_units
+        )
         if output_spec is None:
             raise _IntegrityError("bound producer output declaration is missing")
-        named = next(
-            (
-                output
-                for output in provider.outputs
-                if output.output_name == source_output_name
-            ),
-            None,
-        )
+        named = None
+        for output in provider.outputs:
+            charge_work_units(1)
+            if output.output_name == source_output_name:
+                named = output
+                break
         if named is None:
             if provider.status in output_spec.required_on_statuses:
                 raise _IntegrityError("provider omitted a promised required output")
@@ -443,9 +752,16 @@ def _resolve_binding(
     if binding.cardinality == "zero_or_one" and not values:
         return _UNAVAILABLE
     for value in values:
-        if not _is_transitively_immutable(value):
+        if binding.cardinality == "many":
+            charge_work_units(1)
+        if not _is_transitively_immutable(value, charge_work_units):
             raise _IntegrityError("bound input is not transitively immutable")
-        if not _value_matches_type(program, binding.expected_type, value):
+        if not _value_matches_type(
+            program,
+            binding.expected_type,
+            value,
+            charge_work_units=charge_work_units,
+        ):
             raise _IntegrityError("bound input has the wrong sealed type")
     return values
 
@@ -481,13 +797,16 @@ def _validate_issue(
     *,
     classification: Literal["diagnostic", "compile_blocker"],
     permitted_codes: tuple[str, ...],
+    charge_work_units: _WorkCharger,
 ) -> KernelIssue:
+    charge_work_units(1)
     if type(issue) is not KernelIssue:
         raise _IntegrityError("runner issue is not an exact KernelIssue")
     if type(issue.classification) is not str or type(issue.code) is not str:
         raise _IntegrityError("runner issue identity fields are not exact strings")
     if issue.classification != classification:
         raise _IntegrityError("runner issue classification is wrong")
+    charge_work_units(1)
     if issue.code not in permitted_codes:
         raise _IntegrityError("runner issue code is not registered for the phase")
     if classification == "diagnostic":
@@ -506,12 +825,12 @@ def _validate_issue(
         raise _IntegrityError("issue path is invalid")
     if type(issue.related_paths) is not tuple:
         raise _IntegrityError("issue related paths are not an exact tuple")
-    if any(
-        not _bounded_scalar_string(path, _MAX_ISSUE_PATH_CODE_POINTS)
-        or not _valid_pointer(path)
-        for path in issue.related_paths
-    ):
-        raise _IntegrityError("issue related path is invalid")
+    for path in issue.related_paths:
+        charge_work_units(1)
+        if not _bounded_scalar_string(path, _MAX_ISSUE_PATH_CODE_POINTS) or not _valid_pointer(
+            path
+        ):
+            raise _IntegrityError("issue related path is invalid")
     if not _bounded_scalar_string(
         issue.bounded_message, _MAX_ISSUE_MESSAGE_CODE_POINTS
     ):
@@ -528,6 +847,7 @@ def _validate_issues(
     context: _ValidationExecutionContext,
     phase: PhaseSpec,
     result: RunnerResult,
+    charge_work_units: _WorkCharger,
 ) -> tuple[tuple[KernelIssue, ...], tuple[KernelIssue, ...]]:
     if type(result.diagnostics) is not tuple:
         raise _IntegrityError("diagnostics collection is not an exact tuple")
@@ -535,6 +855,7 @@ def _validate_issues(
         raise _IntegrityError("compile blocker collection is not an exact tuple")
     subject_path = _issue_subject_path(phase.phase_name)
     diagnostics: list[KernelIssue] = []
+    seen_diagnostics: set[KernelIssue] = set()
     for issue in result.diagnostics:
         context.ledger.charge(
             BudgetDimension.DIAGNOSTICS,
@@ -542,14 +863,21 @@ def _validate_issues(
             artifact_role=ArtifactRole.PHASE_ENGINE,
             subject_path=subject_path,
         )
-        diagnostics.append(
-            _validate_issue(
-                issue,
-                classification="diagnostic",
-                permitted_codes=phase.permitted_diagnostic_codes,
-            )
+        validated = _validate_issue(
+            issue,
+            classification="diagnostic",
+            permitted_codes=phase.permitted_diagnostic_codes,
+            charge_work_units=charge_work_units,
         )
+        charge_work_units(1)
+        if validated in seen_diagnostics:
+            raise _IntegrityError("runner returned a duplicate diagnostic")
+        charge_work_units(1)
+        seen_diagnostics.add(validated)
+        charge_work_units(1)
+        diagnostics.append(validated)
     blockers: list[KernelIssue] = []
+    seen_blockers: set[KernelIssue] = set()
     for issue in result.compile_blockers:
         context.ledger.charge(
             BudgetDimension.COMPILE_BLOCKERS,
@@ -557,22 +885,33 @@ def _validate_issues(
             artifact_role=ArtifactRole.PHASE_ENGINE,
             subject_path=subject_path,
         )
-        blockers.append(
-            _validate_issue(
-                issue,
-                classification="compile_blocker",
-                permitted_codes=phase.permitted_blocker_codes,
-            )
+        validated = _validate_issue(
+            issue,
+            classification="compile_blocker",
+            permitted_codes=phase.permitted_blocker_codes,
+            charge_work_units=charge_work_units,
         )
+        charge_work_units(1)
+        if validated in seen_blockers:
+            raise _IntegrityError("runner returned a duplicate compile blocker")
+        charge_work_units(1)
+        seen_blockers.add(validated)
+        charge_work_units(1)
+        blockers.append(validated)
+    charge_work_units(len(diagnostics) + len(blockers))
     return tuple(diagnostics), tuple(blockers)
 
 
 def _derive_status(
     diagnostics: tuple[KernelIssue, ...],
     blockers: tuple[KernelIssue, ...],
+    charge_work_units: _WorkCharger,
 ) -> Literal["passed", "blocked", "failed"]:
-    if any(issue.severity == "error" for issue in diagnostics):
-        return "failed"
+    for issue in diagnostics:
+        charge_work_units(1)
+        if issue.severity == "error":
+            return "failed"
+    charge_work_units(1)
     if blockers:
         return "blocked"
     return "passed"
@@ -583,20 +922,25 @@ def _validate_outputs(
     phase: PhaseSpec,
     raw_outputs: object,
     status: Literal["passed", "blocked", "failed"],
+    charge_work_units: _WorkCharger,
 ) -> tuple[NamedOutput, ...]:
     if type(raw_outputs) is not tuple:
         raise _IntegrityError("runner outputs are not an exact tuple")
-    declarations = {
-        output.output_name: output for output in phase.provided_outputs
-    }
+    declarations: dict[str, ProvidedOutput] = {}
+    for output in phase.provided_outputs:
+        charge_work_units(1)
+        declarations[output.output_name] = output
     accepted: dict[str, NamedOutput] = {}
     for raw_output in raw_outputs:
+        charge_work_units(1)
         if type(raw_output) is not NamedOutput:
             raise _IntegrityError("runner output is not an exact NamedOutput")
         if type(raw_output.output_name) is not str:
             raise _IntegrityError("runner output name is not an exact string")
+        charge_work_units(1)
         if raw_output.output_name in accepted:
             raise _IntegrityError("runner returned a duplicate output")
+        charge_work_units(1)
         declaration = declarations.get(raw_output.output_name)
         if declaration is None:
             raise _IntegrityError("runner returned an undeclared output")
@@ -605,36 +949,53 @@ def _validate_outputs(
         if not _cardinality_is_valid(declaration.cardinality, len(raw_output.values)):
             raise _IntegrityError("runner output cardinality is wrong")
         for value in raw_output.values:
-            if not _is_transitively_immutable(value):
+            if declaration.cardinality == "many":
+                charge_work_units(1)
+            if not _is_transitively_immutable(value, charge_work_units):
                 raise _IntegrityError("runner output is not transitively immutable")
-            if not _value_matches_type(program, declaration.output_type, value):
+            if not _value_matches_type(
+                program,
+                declaration.output_type,
+                value,
+                require_export_validator=True,
+                charge_work_units=charge_work_units,
+            ):
                 raise _IntegrityError("runner output has the wrong sealed type")
+        charge_work_units(1)
         accepted[raw_output.output_name] = raw_output
 
     for output_name, output in declarations.items():
+        charge_work_units(1)
+        charge_work_units(1)
         if output_name in accepted and status not in output.permitted_on_statuses:
             raise _IntegrityError("runner output is forbidden on derived status")
+        charge_work_units(1)
         if output_name not in accepted and status in output.required_on_statuses:
             raise _IntegrityError("runner omitted an output required by derived status")
-    return tuple(accepted[name] for name in sorted(accepted, key=utf16_sort_key))
+    charge_work_units(len(accepted))
+    output_names = tuple(accepted)
+    if output_names:
+        sort_units = len(output_names) * (max(2, len(output_names)) - 1).bit_length()
+        charge_work_units(sort_units)
+    ordered: list[NamedOutput] = []
+    for name in sorted(output_names, key=utf16_sort_key):
+        charge_work_units(2)
+        ordered.append(accepted[name])
+    charge_work_units(len(ordered))
+    return tuple(ordered)
 
 
 def _helper_facade(
     context: _ValidationExecutionContext,
     phase: PhaseSpec,
     audit_receipts: list[SchemaEvaluationReceipt],
+    charge_work_units: _WorkCharger,
 ) -> _PhaseHelperFacade:
     program = context.invocation.program
-    schema_by_id = {schema.schema_id: schema for schema in program.schemas}
-    subject_path = _issue_subject_path(phase.phase_name)
-
-    def charge_work_units(amount: int) -> None:
-        context.ledger.charge(
-            BudgetDimension.KERNEL_PHASE_WORK_UNITS,
-            amount,
-            artifact_role=ArtifactRole.PHASE_ENGINE,
-            subject_path=subject_path,
-        )
+    schema_by_id = {}
+    for schema in program.schemas:
+        charge_work_units(1)
+        schema_by_id[schema.schema_id] = schema
 
     def evaluate_bound_schema(
         schema_id: str,
@@ -643,10 +1004,12 @@ def _helper_facade(
     ) -> _SchemaEvaluationView:
         if type(schema_id) is not str:
             raise _IntegrityError("schema helper requires an exact schema identity")
+        charge_work_units(1)
         schema = schema_by_id.get(schema_id)
         if schema is None:
             raise _IntegrityError("schema helper requested an unsealed schema")
         try:
+            charge_work_units(1)
             evaluator = program.resolve_runtime_binding(
                 "schema_evaluator", schema.profile_id
             )
@@ -664,6 +1027,7 @@ def _helper_facade(
             raise _RuntimeComponentError(exception) from exception
         if type(receipt) is not SchemaEvaluationReceipt:
             raise _IntegrityError("schema evaluator returned a non-receipt")
+        charge_work_units(5)
         audit_receipts.append(receipt)
         return _SchemaEvaluationView(
             evaluation_passed=receipt.evaluation_passed,
@@ -671,16 +1035,23 @@ def _helper_facade(
             failure_code=receipt.failure_code,
         )
 
+    charge_work_units(3)
     return _PhaseHelperFacade(charge_work_units, evaluate_bound_schema)
 
 
-def _validate_runner_result(result: object) -> RunnerResult:
+def _validate_runner_result(
+    result: object, charge_work_units: _WorkCharger
+) -> RunnerResult:
+    charge_work_units(1)
     if type(result) is not RunnerResult:
         raise _IntegrityError("runner returned an unauthorized result shape")
     return result
 
 
-def _not_evaluated_result(phase_name: str) -> PhaseResult:
+def _not_evaluated_result(
+    phase_name: str, charge_work_units: _WorkCharger
+) -> PhaseResult:
+    charge_work_units(7)
     return PhaseResult(
         phase_name=phase_name,
         status="not_evaluated",
@@ -704,7 +1075,14 @@ def _execute_phase_program_with_audit(
     program = context.invocation.program
     if type(program) is not SealedValidationProgram:
         return _integrity_failure(None, None, "execution program is not sealed")
-    phase_by_name = {phase.phase_name: phase for phase in program.phases}
+    engine_charge_work_units = _phase_work_charger(context, None)
+    phase_by_name: dict[str, PhaseSpec] = {}
+    try:
+        for phase in program.phases:
+            engine_charge_work_units(1)
+            phase_by_name[phase.phase_name] = phase
+    except BudgetExceeded as exception:
+        return _budget_failure(exception, program)
     if (
         len(phase_by_name) != len(program.phases)
         or len(program.execution_order) != len(program.phases)
@@ -716,29 +1094,49 @@ def _execute_phase_program_with_audit(
     results_by_name: dict[str, PhaseResult] = {}
     audit_receipts: list[SchemaEvaluationReceipt] = []
     for phase_name in program.execution_order:
-        phase = phase_by_name[phase_name]
+        charge_work_units = _phase_work_charger(context, phase_name)
         try:
+            charge_work_units(1)
+            phase = phase_by_name[phase_name]
             bound_members: list[tuple[str, tuple[object, ...]]] = []
             unavailable = False
             for binding in phase.input_bindings:
+                charge_work_units(1)
                 resolved = _resolve_binding(
-                    context, phase_by_name, results_by_name, binding
+                    context,
+                    phase_by_name,
+                    results_by_name,
+                    binding,
+                    charge_work_units,
                 )
                 if resolved is _UNAVAILABLE:
                     unavailable = True
                 else:
+                    charge_work_units(1)
                     bound_members.append(
                         (binding.input_name, cast(tuple[object, ...], resolved))
                     )
             if unavailable:
-                phase_result = _not_evaluated_result(phase_name)
+                phase_result = _not_evaluated_result(
+                    phase_name, charge_work_units
+                )
+                charge_work_units(2)
                 results.append(phase_result)
                 results_by_name[phase_name] = phase_result
                 continue
 
+            if bound_members:
+                sort_units = len(bound_members) * (
+                    max(2, len(bound_members)) - 1
+                ).bit_length()
+                charge_work_units(sort_units)
             bound_members.sort(key=lambda item: utf16_sort_key(item[0]))
+            charge_work_units(len(bound_members) + 2)
             inputs = _PhaseInputs(tuple(bound_members))
-            helpers = _helper_facade(context, phase, audit_receipts)
+            helpers = _helper_facade(
+                context, phase, audit_receipts, charge_work_units
+            )
+            charge_work_units(1)
             runner = program.resolve_runtime_binding("runner", phase.runner_id)
             before = context.ledger.snapshot()
             try:
@@ -758,14 +1156,21 @@ def _execute_phase_program_with_audit(
             if work_delta < 0:
                 raise _IntegrityError("phase work accounting moved backwards")
 
-            runner_result = _validate_runner_result(raw_result)
+            runner_result = _validate_runner_result(raw_result, charge_work_units)
             diagnostics, blockers = _validate_issues(
-                context, phase, runner_result
+                context, phase, runner_result, charge_work_units
             )
-            status = _derive_status(diagnostics, blockers)
+            status = _derive_status(
+                diagnostics, blockers, charge_work_units
+            )
             outputs = _validate_outputs(
-                program, phase, runner_result.outputs, status
+                program,
+                phase,
+                runner_result.outputs,
+                status,
+                charge_work_units,
             )
+            charge_work_units(7)
             phase_result = PhaseResult(
                 phase_name=phase_name,
                 status=status,
@@ -774,6 +1179,7 @@ def _execute_phase_program_with_audit(
                 outputs=outputs,
                 kernel_work_units_delta=work_delta,
             )
+            charge_work_units(2)
             results.append(phase_result)
             results_by_name[phase_name] = phase_result
         except BudgetExceeded as exception:
@@ -785,8 +1191,12 @@ def _execute_phase_program_with_audit(
         except Exception as exception:
             return _internal_failure(program, phase_name, exception)
 
-    frozen_results = tuple(results)
-    audit = _make_execution_audit(program, tuple(audit_receipts))
+    try:
+        engine_charge_work_units(len(results) + len(audit_receipts) + 6)
+        frozen_results = tuple(results)
+        audit = _make_execution_audit(program, tuple(audit_receipts))
+    except BudgetExceeded as exception:
+        return _budget_failure(exception, program)
     return frozen_results, audit
 
 

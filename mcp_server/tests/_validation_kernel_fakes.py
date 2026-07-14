@@ -113,12 +113,61 @@ class SyntheticString(str):
     pass
 
 
+class HostileArgsError(Exception):
+    @property
+    def args(self) -> tuple[object, ...]:
+        raise RuntimeError("hostile args property executed")
+
+
+class _HostileTypeMetadata(type):
+    def __getattribute__(cls, name: str) -> object:
+        if name in ("__module__", "__qualname__"):
+            raise RuntimeError("hostile type metadata executed")
+        return super().__getattribute__(name)
+
+
+class HostileTypeMetadataError(Exception, metaclass=_HostileTypeMetadata):
+    pass
+
+
+class HugeTypeMetadataError(Exception):
+    pass
+
+
+HugeTypeMetadataError.__module__ = "m" * 100_000
+HugeTypeMetadataError.__qualname__ = "q" * 100_000
+
+
+class HostileExceptionArgument:
+    def __str__(self) -> str:
+        raise RuntimeError("hostile exception argument stringified")
+
+    def __repr__(self) -> str:
+        raise RuntimeError("hostile exception argument represented")
+
+
 def phase_index_export_validator(value: object) -> bool:
     return type(value) in (SyntheticPhaseIndex, SyntheticMutablePhaseIndex)
 
 
 def phase_text_export_validator(value: object) -> bool:
     return type(value) is JsonString
+
+
+KERNEL_STRING_EXPORT_CALLS: list[object] = []
+
+
+def rejecting_kernel_string_export_validator(value: object) -> bool:
+    KERNEL_STRING_EXPORT_CALLS.append(value)
+    return False
+
+
+def raising_kernel_string_export_validator(value: object) -> bool:
+    raise RuntimeError("sealed export validator failed")
+
+
+def non_boolean_kernel_string_export_validator(value: object) -> object:
+    return JsonString("not-a-boolean")
 
 
 def _runner_state_text(state: JsonObject, name: str) -> str:
@@ -197,6 +246,17 @@ def phase_engine_runner_dispatch(
                 alpha_values += (alpha_index,)
             except (AttributeError, TypeError):
                 pass
+        if scenario == "many_10000":
+            return RunnerResult(
+                diagnostics=(),
+                compile_blockers=(),
+                outputs=(
+                    NamedOutput(
+                        "beta_value",
+                        tuple(JsonString(str(index)) for index in range(10_000)),
+                    ),
+                ),
+            )
         return RunnerResult(
             diagnostics=(),
             compile_blockers=(),
@@ -231,6 +291,21 @@ def phase_engine_runner_dispatch(
             diagnostics=(_diagnostic("warning"), _diagnostic("information")),
             compile_blockers=(),
             outputs=(output,),
+        )
+    if scenario == "duplicate_diagnostic":
+        issue = _diagnostic("error")
+        return RunnerResult(
+            diagnostics=(issue, issue), compile_blockers=(), outputs=()
+        )
+    if scenario == "duplicate_blocker":
+        issue = _blocker()
+        return RunnerResult(
+            diagnostics=(), compile_blockers=(issue, issue), outputs=(output,)
+        )
+    if scenario == "cross_list_issue":
+        issue = _diagnostic("error")
+        return RunnerResult(
+            diagnostics=(issue,), compile_blockers=(issue,), outputs=()
         )
     if scenario == "unregistered_issue":
         return RunnerResult(
@@ -308,6 +383,19 @@ def phase_engine_runner_dispatch(
         raise RuntimeError(scenario + ":" + ("x" * 20_000))
     if scenario == "oversized_integer_exception":
         raise RuntimeError(10**20_000)
+    if scenario == "hostile_args_exception":
+        raise HostileArgsError("private hostile argument")
+    if scenario == "hostile_type_metadata_exception":
+        raise HostileTypeMetadataError("private hostile metadata")
+    if scenario == "huge_type_metadata_exception":
+        raise HugeTypeMetadataError("bounded metadata")
+    if scenario == "nested_cyclic_custom_exception":
+        cycle: list[object] = []
+        cycle.append(cycle)
+        nested: object = (cycle, HostileExceptionArgument())
+        for _ in range(64):
+            nested = (nested,)
+        raise RuntimeError(nested)
     if scenario == "work_accounting":
         helpers.charge_work_units(7)  # type: ignore[attr-defined]
         return RunnerResult(diagnostics=(), compile_blockers=(), outputs=(output,))
@@ -903,6 +991,9 @@ def make_phase_engine_contribution(
     alpha_required_statuses: tuple[str, ...] = ("passed", "blocked"),
     audit_ordering_after: tuple[str, ...] = ("alpha",),
     invocation_cardinality: str = "exactly_one",
+    beta_output_type: str = "synthetic.beta:v1",
+    beta_export_validator: object = phase_text_export_validator,
+    beta_output_cardinality: str = "zero_or_one",
 ) -> ValidationProgramContribution:
     contribution = make_program_contribution(invocation_shells=True)
 
@@ -925,9 +1016,9 @@ def make_phase_engine_contribution(
         phase_index_export_validator,
     )
     beta_export = _component(
-        "synthetic.beta:v1",
+        beta_output_type,
         "synthetic.engine_export.beta:v1",
-        phase_text_export_validator,
+        beta_export_validator,
     )
 
     phase_by_name = {phase.phase_name: phase for phase in contribution.phases}
@@ -947,7 +1038,16 @@ def make_phase_engine_contribution(
             provided_outputs=(alpha_output,),
         ),
         replace(phase_by_name["audit"], ordering_after=audit_ordering_after),
-        phase_by_name["beta"],
+        replace(
+            phase_by_name["beta"],
+            provided_outputs=(
+                replace(
+                    phase_by_name["beta"].provided_outputs[0],
+                    output_type=beta_output_type,
+                    cardinality=beta_output_cardinality,
+                ),
+            ),
+        ),
     )
 
     retained_bindings = tuple(
@@ -960,7 +1060,7 @@ def make_phase_engine_contribution(
         _binding("runner", audit, audit_target),
         _binding("runner", beta, beta_target),
         _binding("export_type", alpha_export, phase_index_export_validator),
-        _binding("export_type", beta_export, phase_text_export_validator),
+        _binding("export_type", beta_export, beta_export_validator),
     )
     RUNTIME_REGISTRY.clear()
     RUNTIME_REGISTRY.update(
@@ -984,7 +1084,7 @@ def make_phase_engine_contribution(
                 export_type="synthetic.alpha:v1", validator=alpha_export
             ),
             ExportTypeSpec(
-                export_type="synthetic.beta:v1", validator=beta_export
+                export_type=beta_output_type, validator=beta_export
             ),
         ),
         runtime_bindings=runtime_bindings,
@@ -1028,6 +1128,8 @@ def replace_runtime_component(
 
 __all__ = (
     "INVOCATION_MANDATORY_SHELLS",
+    "HugeTypeMetadataError",
+    "KERNEL_STRING_EXPORT_CALLS",
     "MutableCallable",
     "MutableService",
     "RUNTIME_REGISTRY",
@@ -1044,6 +1146,9 @@ __all__ = (
     "make_phase_engine_contribution",
     "make_program_contribution",
     "make_validation_bundle_bytes",
+    "non_boolean_kernel_string_export_validator",
+    "raising_kernel_string_export_validator",
+    "rejecting_kernel_string_export_validator",
     "replace_runtime_component",
     "SyntheticMutablePhaseIndex",
     "SyntheticPhaseIndex",

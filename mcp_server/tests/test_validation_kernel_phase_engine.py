@@ -15,15 +15,21 @@ from rook.validation_kernel import (
     compose_and_seal_program,
     execute_phase_program,
 )
-from rook.validation_kernel.budget import BudgetLedger
+from rook.validation_kernel.budget import BudgetExceeded, BudgetLedger
+from rook.validation_kernel.control import ArtifactRole, BudgetDimension
 from rook.validation_kernel.owned_json import JsonObject, JsonString
-from rook.validation_kernel.schema_profile import SchemaEvaluationReceipt
+from rook.validation_kernel.schema_profile import InstanceBinding, SchemaEvaluationReceipt
 
 from tests._validation_kernel_fakes import (
+    HugeTypeMetadataError,
+    KERNEL_STRING_EXPORT_CALLS,
     SyntheticPhaseIndex,
     make_assembler_profile_candidate,
     make_phase_engine_contribution,
     make_validation_bundle_bytes,
+    non_boolean_kernel_string_export_validator,
+    raising_kernel_string_export_validator,
+    rejecting_kernel_string_export_validator,
 )
 
 
@@ -153,6 +159,27 @@ def test_warning_and_information_diagnostics_are_public_and_do_not_fail_phase() 
     assert context.ledger.snapshot().diagnostics == 2
 
 
+@pytest.mark.parametrize(
+    ("scenario", "diagnostics", "compile_blockers"),
+    (
+        ("duplicate_diagnostic", 2, 0),
+        ("duplicate_blocker", 0, 2),
+        ("cross_list_issue", 1, 1),
+    ),
+)
+def test_duplicate_issue_domains_charge_before_integrity_rejection(
+    scenario: str, diagnostics: int, compile_blockers: int
+) -> None:
+    context = _context(_program(alpha_scenario=scenario))
+
+    result = execute_phase_program(context)
+
+    _assert_integrity_failure(result)
+    snapshot = context.ledger.snapshot()
+    assert snapshot.diagnostics == diagnostics
+    assert snapshot.compile_blockers == compile_blockers
+
+
 def test_error_status_has_precedence_over_compile_blockers() -> None:
     context = _context(_program(alpha_scenario="error_precedence"))
 
@@ -205,6 +232,43 @@ def test_passed_and_blocked_promised_output_omissions_are_integrity_failures() -
     _assert_integrity_failure(blocked)
 
 
+def test_kernel_primitive_output_still_uses_exact_sealed_export_validator() -> None:
+    KERNEL_STRING_EXPORT_CALLS.clear()
+    program = _program(
+        beta_output_type="kernel.string:v1",
+        beta_export_validator=rejecting_kernel_string_export_validator,
+    )
+    assert (
+        program.resolve_runtime_binding("export_type", "kernel.string:v1")
+        is rejecting_kernel_string_export_validator
+    )
+
+    result = execute_phase_program(_context(program))
+
+    _assert_integrity_failure(result)
+    assert KERNEL_STRING_EXPORT_CALLS == [JsonString("alpha-index")]
+
+
+@pytest.mark.parametrize(
+    "validator",
+    (
+        raising_kernel_string_export_validator,
+        non_boolean_kernel_string_export_validator,
+    ),
+)
+def test_sealed_export_validator_faults_are_integrity_failures(
+    validator: object,
+) -> None:
+    program = _program(
+        beta_output_type="kernel.string:v1",
+        beta_export_validator=validator,
+    )
+
+    result = execute_phase_program(_context(program))
+
+    _assert_integrity_failure(result)
+
+
 def test_runner_exception_uses_generic_bounded_message_and_stable_hashed_evidence() -> None:
     first = execute_phase_program(
         _context(_program(alpha_scenario="oversized_exception"))
@@ -233,6 +297,43 @@ def test_runner_exception_evidence_never_decimalizes_an_oversized_integer() -> N
     assert result.code == "validator_internal_failure"
     assert result.message == "Validator internal failure."
     assert result.detail_sha256 is not None
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    (
+        "hostile_args_exception",
+        "hostile_type_metadata_exception",
+        "huge_type_metadata_exception",
+        "nested_cyclic_custom_exception",
+    ),
+)
+def test_hostile_exception_shapes_always_return_bounded_internal_failure(
+    scenario: str,
+) -> None:
+    result = execute_phase_program(_context(_program(alpha_scenario=scenario)))
+
+    assert isinstance(result, ValidationControlFailure)
+    assert result.code == "validator_internal_failure"
+    assert result.message == "Validator internal failure."
+    assert result.detail_sha256 is not None
+    assert len(result.detail_sha256) == 71
+
+
+def test_exception_projection_enforces_exact_byte_item_and_depth_caps() -> None:
+    phase_engine = importlib.import_module("rook.validation_kernel.phase_engine")
+    nested: object = HugeTypeMetadataError("bounded")
+    for _ in range(64):
+        nested = (nested,)
+    exception = RuntimeError(nested)
+
+    projection = phase_engine._exception_detail_projection(exception)
+
+    assert projection.projected_bytes <= 4_096
+    assert projection.projected_items <= 128
+    assert projection.maximum_depth <= 16
+    assert projection.truncated is True
+    assert len(projection.digest) == 32
 
 
 def test_runner_receives_only_transitively_immutable_inputs_and_restricted_helpers() -> None:
@@ -270,12 +371,78 @@ def test_engine_snapshots_ledger_and_derives_runner_work_delta() -> None:
     assert _phase(result, "alpha").kernel_work_units_delta == 7
     assert _phase(result, "audit").kernel_work_units_delta == 0
     assert _phase(result, "beta").kernel_work_units_delta == 0
-    assert context.ledger.snapshot().kernel_phase_work_units - before == 7
+    assert context.ledger.snapshot().kernel_phase_work_units - before > 7
     assert tuple(field.name for field in dataclass_fields(RunnerResult)) == (
         "diagnostics",
         "compile_blockers",
         "outputs",
     )
+
+
+def test_phase_result_validation_meters_ten_thousand_output_values() -> None:
+    context = _context(
+        _program(beta_scenario="many_10000", beta_output_cardinality="many")
+    )
+    before = context.ledger.snapshot().kernel_phase_work_units
+
+    result = execute_phase_program(context)
+
+    assert type(result) is tuple
+    beta_values = _phase(result, "beta").outputs[0].values
+    assert len(beta_values) == 10_000
+    assert context.ledger.snapshot().kernel_phase_work_units > before
+
+
+def test_phase_validation_budget_exhaustion_publishes_no_results_or_audit() -> None:
+    context = _context(
+        _program(beta_scenario="many_10000", beta_output_cardinality="many")
+    )
+    context.ledger.charge(
+        BudgetDimension.KERNEL_PHASE_WORK_UNITS,
+        999_000,
+        artifact_role=ArtifactRole.PHASE_ENGINE,
+        subject_path="/reviewer-probe",
+    )
+    phase_engine = importlib.import_module("rook.validation_kernel.phase_engine")
+
+    execution = phase_engine._execute_phase_program_with_audit(context)
+
+    assert isinstance(execution, ValidationControlFailure)
+    assert execution.code == "validation_budget_exceeded"
+    assert execution.failure_stage == "validation"
+    assert execution.artifact_role == "phase_engine"
+    assert execution.budget_dimension == "kernel_phase_work_units"
+
+
+def test_schema_helper_budget_exhaustion_attaches_no_partial_audit_receipt() -> None:
+    context = _context(_program())
+    phase_engine = importlib.import_module("rook.validation_kernel.phase_engine")
+    alpha = next(
+        phase for phase in context.invocation.program.phases if phase.phase_name == "alpha"
+    )
+    receipts: list[SchemaEvaluationReceipt] = []
+    charger = phase_engine._phase_work_charger(context, "alpha")
+    helper = phase_engine._helper_facade(context, alpha, receipts, charger)
+    current = context.ledger.snapshot().kernel_phase_work_units
+    context.ledger.charge(
+        BudgetDimension.KERNEL_PHASE_WORK_UNITS,
+        1_000_000 - current - 2,
+        artifact_role=ArtifactRole.PHASE_ENGINE,
+        subject_path="/reviewer-probe",
+    )
+    recipe = context.invocation.invocation_inputs["recipe"]
+    binding = InstanceBinding(
+        artifact_id="synthetic.recipe",
+        artifact_fingerprint="sha256:" + ("0" * 64),
+        instance_pointer="",
+    )
+
+    with pytest.raises(BudgetExceeded):
+        helper.evaluate_schema(
+            "synthetic.report:v1", recipe, instance_binding=binding
+        )
+
+    assert receipts == []
 
 
 def test_schema_helper_records_exact_receipts_in_private_order_before_returning_view() -> None:
