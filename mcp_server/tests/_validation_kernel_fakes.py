@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from typing import Any
 
@@ -26,8 +27,8 @@ from rook.validation_kernel import (
     runtime_implementation_fingerprint,
 )
 from rook.validation_kernel.budget import LM9A_BUDGET_MANIFEST
-from rook.validation_kernel.canonical_json import canonical_json_bytes
-from rook.validation_kernel.owned_json import JsonString, own_trusted_json
+from rook.validation_kernel.canonical_json import canonical_fingerprint, canonical_json_bytes
+from rook.validation_kernel.owned_json import JsonObject, JsonString, own_trusted_json
 from rook.validation_kernel.schema_profile import (
     PAYLOAD_PROFILE,
     admit_schema,
@@ -135,6 +136,92 @@ disguised_class_function.__qualname__ = disguised_class_function.__name__
 
 RUNTIME_REGISTRY: dict[tuple[str, str], object] = {}
 
+INVOCATION_MANDATORY_SHELLS = (
+    ("/task_envelope", "object"),
+    ("/authority_artifacts", "array"),
+    ("/validation_context", "object"),
+    ("/validation_context/environment_snapshots", "array"),
+    ("/validation_context/policy_registries", "array"),
+    ("/validation_context/payload_schema_registry", "object"),
+    ("/validation_context/capability_registry", "object"),
+    ("/validation_context/vocabularies", "object"),
+    ("/validation_context/vocabularies/semantic_authority_codes", "object"),
+    ("/validation_context/vocabularies/semantic_capability_codes", "object"),
+    ("/validation_context/vocabularies/worker_slot_codes", "object"),
+    ("/validation_context/vocabularies/semantic_materiality_codes", "object"),
+    ("/validation_context/vocabularies/semantic_value_schemas", "object"),
+)
+
+
+def make_assembler_profile_candidate(
+    *,
+    program_id: str = "synthetic.validation_program:v1",
+    assembler_kind: str = "deterministic_fixture",
+    permitted_clock_sources: tuple[str, ...] | None = None,
+) -> JsonObject:
+    if permitted_clock_sources is None:
+        permitted_clock_sources = (
+            ("deterministic_fixture",)
+            if assembler_kind == "deterministic_fixture"
+            else ("trusted_system_clock",)
+        )
+    candidate: dict[str, object] = {
+        "schema": "rook.trusted_bundle_assembler_profile:v1",
+        "profile_id": f"synthetic.{assembler_kind}:v1",
+        "assembler_kind": assembler_kind,
+        "assembler_id": f"synthetic.{assembler_kind}:v1",
+        "assembler_version": "v1",
+        "implementation_fingerprint": "sha256:" + "1" * 64,
+        "permitted_program_ids": [program_id],
+        "permitted_clock_sources": list(permitted_clock_sources),
+    }
+    unsigned = own_trusted_json(candidate)
+    candidate["profile_fingerprint"] = canonical_fingerprint(unsigned)
+    owned = own_trusted_json(candidate)
+    if type(owned) is not JsonObject:
+        raise AssertionError("synthetic assembler profile must be an object")
+    return owned
+
+
+def make_validation_bundle_bytes(
+    *,
+    trusted_clock_source: str = "deterministic_fixture",
+    task_session_id: object = "synthetic.task_session:v1",
+    environment_session_id: object = None,
+    capability_registry_session_id: object = "synthetic.capability_session:v1",
+    validation_context_updates: dict[str, object] | None = None,
+    bundle_updates: dict[str, object] | None = None,
+) -> bytes:
+    validation_context: dict[str, object] = {
+        "evaluated_at": "2026-07-12T12:00:00Z",
+        "trusted_clock_source": trusted_clock_source,
+        "task_session_id": task_session_id,
+        "environment_session_id": environment_session_id,
+        "capability_registry_session_id": capability_registry_session_id,
+        "environment_snapshots": [],
+        "policy_registries": [],
+        "payload_schema_registry": {},
+        "capability_registry": {},
+        "vocabularies": {
+            "semantic_authority_codes": {},
+            "semantic_capability_codes": {},
+            "worker_slot_codes": {},
+            "semantic_materiality_codes": {},
+            "semantic_value_schemas": {},
+        },
+    }
+    if validation_context_updates is not None:
+        validation_context.update(validation_context_updates)
+    bundle: dict[str, object] = {
+        "schema": "rook.planner_graph_recipe_validation_bundle:v1",
+        "task_envelope": {},
+        "authority_artifacts": [],
+        "validation_context": validation_context,
+    }
+    if bundle_updates is not None:
+        bundle.update(bundle_updates)
+    return json.dumps(bundle, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
 
 def _component(component_id: str, implementation_id: str, target: object) -> RuntimeComponentSpec:
     function = getattr(target, "function", None)
@@ -162,51 +249,136 @@ def _binding(kind: str, component: RuntimeComponentSpec, target: object) -> Runt
     )
 
 
-def _output_schema() -> object:
+def _output_schema(*, invocation_shells: bool) -> object:
+    validation_context_schema: dict[str, object] = {
+        "type": "object",
+        "additionalProperties": False,
+    }
+    root_properties: dict[str, object] = {
+        "body": {
+            "type": "object",
+            "properties": {
+                "closed": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False,
+                },
+                "optional": {"type": "string"},
+                "\ue000": {"type": "string"},
+                "\U00010000": {"type": "string"},
+            },
+            "additionalProperties": False,
+        },
+        "validation_context": validation_context_schema,
+        "phases": {"type": "array", "items": {"type": "string"}},
+        "validation_budget": {
+            "type": "object",
+            "additionalProperties": False,
+        },
+        "report_fingerprint": {"type": "string"},
+    }
+    required = [
+        "body",
+        "validation_context",
+        "phases",
+        "validation_budget",
+        "report_fingerprint",
+    ]
+    if invocation_shells:
+        validation_context_schema["properties"] = {
+            "evaluated_at": {"type": "string"},
+            "trusted_clock_source": {"type": "string"},
+            "task_session_id": {"type": "string"},
+            "environment_session_id": {"type": ["string", "null"]},
+            "capability_registry_session_id": {"type": "string"},
+            "environment_snapshots": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False,
+                },
+            },
+            "policy_registries": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False,
+                },
+            },
+            "payload_schema_registry": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+            "capability_registry": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+            "vocabularies": {
+                "type": "object",
+                "properties": {
+                    "semantic_authority_codes": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": False,
+                    },
+                    "semantic_capability_codes": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": False,
+                    },
+                    "worker_slot_codes": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": False,
+                    },
+                    "semantic_materiality_codes": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": False,
+                    },
+                    "semantic_value_schemas": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": False,
+                    },
+                },
+                "additionalProperties": False,
+            },
+        }
+        root_properties["task_envelope"] = {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        }
+        root_properties["authority_artifacts"] = {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        }
+        required.extend(("task_envelope", "authority_artifacts"))
+
     value = own_trusted_json(
         {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
-            "properties": {
-                "body": {
-                    "type": "object",
-                    "properties": {
-                        "closed": {
-                            "type": "object",
-                            "properties": {},
-                            "additionalProperties": False,
-                        },
-                        "optional": {"type": "string"},
-                        "\ue000": {"type": "string"},
-                        "\U00010000": {"type": "string"},
-                    },
-                    "additionalProperties": False,
-                },
-                "validation_context": {
-                    "type": "object",
-                    "additionalProperties": False,
-                },
-                "phases": {"type": "array", "items": {"type": "string"}},
-                "validation_budget": {
-                    "type": "object",
-                    "additionalProperties": False,
-                },
-                "report_fingerprint": {"type": "string"},
-            },
-            "required": [
-                "body",
-                "validation_context",
-                "phases",
-                "validation_budget",
-                "report_fingerprint",
-            ],
+            "properties": root_properties,
+            "required": required,
             "additionalProperties": False,
         }
     )
     return admit_schema("synthetic.report:v1", value, PAYLOAD_PROFILE)
 
 
-def make_program_contribution() -> ValidationProgramContribution:
+def make_program_contribution(
+    *, invocation_shells: bool = False
+) -> ValidationProgramContribution:
     tokenizer = _component("synthetic.tokenizer:v1", "synthetic.tokenizer_impl:v1", fake_tokenizer)
     parser = _component("synthetic.parser:v1", "synthetic.parser_impl:v1", fake_parser)
     canonicalizer = _component(
@@ -238,7 +410,7 @@ def make_program_contribution() -> ValidationProgramContribution:
         "synthetic.report_projection_impl:v1",
         report_projection,
     )
-    output_schema = _output_schema()
+    output_schema = _output_schema(invocation_shells=invocation_shells)
 
     phases = (
         PhaseSpec(
@@ -330,6 +502,11 @@ def make_program_contribution() -> ValidationProgramContribution:
         owned_value_abi="rook.owned_json:v1",
         canonicalization_version="rook.canonical_json:v1",
     )
+    writable_body_paths = ("/body", "/phases", "/validation_context")
+    mandatory_shells = (("/validation_context", "object"),)
+    if invocation_shells:
+        writable_body_paths += ("/task_envelope", "/authority_artifacts")
+        mandatory_shells = INVOCATION_MANDATORY_SHELLS
     projection = ReportProjectionSpec(
         projection_id=projection_component.component_id,
         implementation_id=projection_component.implementation_id,
@@ -348,8 +525,8 @@ def make_program_contribution() -> ValidationProgramContribution:
         required_for_compile_phases=("alpha", "beta"),
         kernel_owned_paths=("/report_fingerprint", "/validation_budget"),
         budget_receipt_path="/validation_budget",
-        writable_body_paths=("/body", "/phases", "/validation_context"),
-        mandatory_shells=(("/validation_context", "object"),),
+        writable_body_paths=writable_body_paths,
+        mandatory_shells=mandatory_shells,
         outer_envelope_field_count=21,
     )
 
@@ -490,6 +667,7 @@ def replace_runtime_component(
 
 
 __all__ = (
+    "INVOCATION_MANDATORY_SHELLS",
     "MutableCallable",
     "MutableService",
     "RUNTIME_REGISTRY",
@@ -502,6 +680,8 @@ __all__ = (
     "extra_export_validator",
     "immutable_record_dispatch",
     "make_closure",
+    "make_assembler_profile_candidate",
     "make_program_contribution",
+    "make_validation_bundle_bytes",
     "replace_runtime_component",
 )

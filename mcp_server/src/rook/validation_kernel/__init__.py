@@ -25,6 +25,13 @@ from .kernel_schemas import (
     TRUSTED_BUNDLE_ASSEMBLER_PROFILE_SCHEMA_FINGERPRINT,
     TRUSTED_BUNDLE_ASSEMBLER_PROFILE_SCHEMA_ID,
 )
+from .invocation import (
+    SealedTrustedBundleAssemblerProfile,
+    TrustedValidationBundleInput,
+    ValidationInvocation,
+    issue_trusted_validation_bundle,
+    seal_trusted_bundle_assembler_profile,
+)
 from .parser import (
     JsonParseError,
     JsonParseEvidence,
@@ -121,19 +128,24 @@ __all__ = (
     "SchemaEvaluatorSpec",
     "SchemaIssue",
     "SchemaProfile",
+    "SealedTrustedBundleAssemblerProfile",
     "SealedValidationProgram",
     "TRUSTED_BUNDLE_ASSEMBLER_PROFILE_SCHEMA",
     "TRUSTED_BUNDLE_ASSEMBLER_PROFILE_SCHEMA_FINGERPRINT",
     "TRUSTED_BUNDLE_ASSEMBLER_PROFILE_SCHEMA_ID",
     "ValidationControlFailure",
+    "ValidationInvocation",
     "ValidationProgramContribution",
+    "TrustedValidationBundleInput",
     "admit_schema",
     "compose_and_seal_program",
     "evaluate_schema",
     "implementation_source_closure_for_modules",
     "implementation_source_for_module",
+    "issue_trusted_validation_bundle",
     "parse_owned_json",
     "runtime_dependency_closure_for_modules",
     "runtime_dependency_spec",
     "runtime_implementation_fingerprint",
+    "seal_trusted_bundle_assembler_profile",
 )
