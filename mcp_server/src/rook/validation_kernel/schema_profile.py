@@ -42,7 +42,13 @@ _EXCEPTION_PROJECTION_MAX_BYTES = 4_096
 _EXCEPTION_PROJECTION_MAX_ITEMS = 128
 _EXCEPTION_PROJECTION_MAX_DEPTH = 16
 _EXCEPTION_PROJECTION_EDGE_UNITS = 32
-_EXCEPTION_PROJECTION_INTEGER_EDGE_BYTES = 32
+_EXCEPTION_PROJECTION_INTEGER_SAMPLE_BITS = 256
+_EXCEPTION_PROJECTION_INTEGER_SAMPLE_MASK = (
+    1 << _EXCEPTION_PROJECTION_INTEGER_SAMPLE_BITS
+) - 1
+_EXCEPTION_PROJECTION_NEGATIVE_SAMPLE_POLICY = (
+    "twos_complement_sign_extension_only"
+)
 _TYPE_MODULE_DESCRIPTOR = type.__dict__["__module__"]
 _TYPE_QUALNAME_DESCRIPTOR = type.__dict__["__qualname__"]
 
@@ -630,6 +636,12 @@ def _make_profile(
                 "exception_projection_bytes": _EXCEPTION_PROJECTION_MAX_BYTES,
                 "exception_projection_items": _EXCEPTION_PROJECTION_MAX_ITEMS,
                 "exception_projection_depth": _EXCEPTION_PROJECTION_MAX_DEPTH,
+                "exception_integer_sample_bits": (
+                    _EXCEPTION_PROJECTION_INTEGER_SAMPLE_BITS
+                ),
+                "exception_negative_integer_sample_policy": (
+                    _EXCEPTION_PROJECTION_NEGATIVE_SAMPLE_POLICY
+                ),
             },
             "evaluator": {
                 "evaluator_id": _EVALUATOR_ID,
@@ -1060,39 +1072,41 @@ def _project_type_identity(
 def _project_exception_integer(
     writer: _ExceptionProjectionWriter, value: int
 ) -> None:
-    sign = b"\x01" if value < 0 else b"\x00"
-    magnitude = -value if value < 0 else value
-    magnitude_length = max(1, (magnitude.bit_length() + 7) // 8)
+    negative = value < 0
+    sign = b"\x01" if negative else b"\x00"
+    bit_length = value.bit_length()
+    magnitude_length = max(1, (bit_length + 7) // 8)
     length_record = _projection_uint(magnitude_length)
     full_header = b"I" + sign + b"F" + length_record
-    magnitude_bytes = magnitude.to_bytes(magnitude_length, "big")
     if len(full_header) + magnitude_length <= writer.remaining:
+        magnitude = -value if negative else value
         writer.write(full_header)
-        writer.write(magnitude_bytes)
+        writer.write(magnitude.to_bytes(magnitude_length, "big"))
         return
 
     writer.mark_truncated()
-    detail_digest = hashlib.sha256(
-        b"rook.schema_evaluator_exception_integer:v1\0"
-    )
-    detail_digest.update(sign)
-    detail_digest.update(length_record)
-    detail_digest.update(magnitude_bytes)
-    full_digest = detail_digest.digest()
-    prefix_count = min(
-        magnitude_length, _EXCEPTION_PROJECTION_INTEGER_EDGE_BYTES
-    )
-    suffix_count = min(
-        magnitude_length - prefix_count,
-        _EXCEPTION_PROJECTION_INTEGER_EDGE_BYTES,
-    )
-    writer.write(b"I" + sign + b"T" + length_record)
-    writer.write(full_digest)
-    writer.write(prefix_count.to_bytes(2, "big"))
-    writer.write(suffix_count.to_bytes(2, "big"))
-    writer.write(magnitude_bytes[:prefix_count])
-    if suffix_count:
-        writer.write(magnitude_bytes[-suffix_count:])
+    if negative:
+        # Python has no bounded public operation for finite limbs of a negative
+        # bigint. Its infinite two's-complement sign extension is all ones;
+        # finite payload windows are intentionally omitted under truncation.
+        high_window = _EXCEPTION_PROJECTION_INTEGER_SAMPLE_MASK
+        low_window = _EXCEPTION_PROJECTION_INTEGER_SAMPLE_MASK
+    else:
+        high_shift = max(
+            bit_length - _EXCEPTION_PROJECTION_INTEGER_SAMPLE_BITS,
+            0,
+        )
+        high_window = (
+            value >> high_shift
+        ) & _EXCEPTION_PROJECTION_INTEGER_SAMPLE_MASK
+        low_window = value & _EXCEPTION_PROJECTION_INTEGER_SAMPLE_MASK
+    sample_bytes = _EXCEPTION_PROJECTION_INTEGER_SAMPLE_BITS // 8
+    writer.write(b"I" + sign + b"T")
+    writer.write(_projection_uint(bit_length))
+    writer.write(length_record)
+    writer.write(_EXCEPTION_PROJECTION_INTEGER_SAMPLE_BITS.to_bytes(2, "big"))
+    writer.write(high_window.to_bytes(sample_bytes, "big"))
+    writer.write(low_window.to_bytes(sample_bytes, "big"))
 
 
 def _project_exception_scalar(

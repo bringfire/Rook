@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.metadata
 import re
+import time
+import tracemalloc
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, replace
 
@@ -46,6 +48,8 @@ EXPECTED_WRAPPED_VALUE_REPR_BYTES = 8
 EXPECTED_EXCEPTION_PROJECTION_BYTES = 4_096
 EXPECTED_EXCEPTION_PROJECTION_ITEMS = 128
 EXPECTED_EXCEPTION_PROJECTION_DEPTH = 16
+EXPECTED_EXCEPTION_INTEGER_SAMPLE_BITS = 256
+EXPECTED_EXCEPTION_NEGATIVE_SAMPLE_POLICY = "twos_complement_sign_extension_only"
 PAYLOAD_ALLOWED_CASES = {
     "$schema": {"$schema": DRAFT_2020_12_METASCHEMA_ID},
     "$defs": {"$defs": {"leaf": {"type": "null"}}},
@@ -621,6 +625,11 @@ def test_profile_identity_binds_exact_dependencies_and_draft_metaschema() -> Non
         assert b'"exception_projection_bytes":4096' in identity_bytes
         assert b'"exception_projection_items":128' in identity_bytes
         assert b'"exception_projection_depth":16' in identity_bytes
+        assert b'"exception_integer_sample_bits":256' in identity_bytes
+        assert (
+            b'"exception_negative_integer_sample_policy":'
+            b'"twos_complement_sign_extension_only"' in identity_bytes
+        )
         assert canonical_fingerprint(profile.identity) == profile.profile_fingerprint
 
 
@@ -1134,32 +1143,112 @@ def test_evaluator_exception_integer_projection_keeps_complete_middle_bytes() ->
     assert first.digest != second.digest
 
 
-def test_evaluator_exception_integer_projection_full_to_truncated_boundary() -> None:
+@pytest.mark.parametrize("negative", [False, True], ids=["positive", "negative"])
+def test_evaluator_exception_integer_projection_full_to_truncated_boundary(
+    negative: bool,
+) -> None:
     zero = schema_profile_module._exception_detail_projection(RuntimeError(0))
     complete_magnitude_bytes = (
         EXPECTED_EXCEPTION_PROJECTION_BYTES - zero.projected_bytes + 1
     )
-    complete_value = (1 << ((complete_magnitude_bytes - 1) * 8)) | 1
-    oversized_value = (1 << (complete_magnitude_bytes * 8)) | 1
-    oversized_middle_changed = oversized_value | (
+    complete_magnitude = (1 << ((complete_magnitude_bytes - 1) * 8)) | 1
+    oversized_magnitude = (1 << (complete_magnitude_bytes * 8)) | 1
+    oversized_middle_changed = oversized_magnitude | (
         1 << (complete_magnitude_bytes * 4)
     )
+    oversized_high_changed = oversized_magnitude | (
+        1 << (complete_magnitude_bytes * 8 - 64)
+    )
+    oversized_low_changed = oversized_magnitude | (1 << 64)
+
+    def signed(magnitude: int) -> int:
+        return -magnitude if negative else magnitude
 
     complete = schema_profile_module._exception_detail_projection(
-        RuntimeError(complete_value)
+        RuntimeError(signed(complete_magnitude))
     )
     oversized = schema_profile_module._exception_detail_projection(
-        RuntimeError(oversized_value)
+        RuntimeError(signed(oversized_magnitude))
     )
     changed = schema_profile_module._exception_detail_projection(
-        RuntimeError(oversized_middle_changed)
+        RuntimeError(signed(oversized_middle_changed))
+    )
+    high_changed = schema_profile_module._exception_detail_projection(
+        RuntimeError(signed(oversized_high_changed))
+    )
+    low_changed = schema_profile_module._exception_detail_projection(
+        RuntimeError(signed(oversized_low_changed))
     )
 
     assert complete.projected_bytes == EXPECTED_EXCEPTION_PROJECTION_BYTES
     assert complete.truncated is False
     assert oversized.truncated is True
     assert changed.truncated is True
-    assert oversized.digest != changed.digest
+    assert oversized.digest == changed.digest
+    if negative:
+        assert oversized.digest == high_changed.digest
+        assert oversized.digest == low_changed.digest
+    else:
+        assert oversized.digest != high_changed.digest
+        assert oversized.digest != low_changed.digest
+
+
+@pytest.mark.parametrize(
+    "magnitude_bytes",
+    [1_048_576, 4_194_304],
+    ids=["one-mib", "four-mib"],
+)
+@pytest.mark.parametrize("negative", [False, True], ids=["positive", "negative"])
+def test_oversized_exception_integer_projection_has_constant_transient_memory(
+    magnitude_bytes: int, negative: bool
+) -> None:
+    value = (1 << (magnitude_bytes * 8 - 1)) | 1
+    if negative:
+        value = -value
+
+    tracemalloc.start()
+    try:
+        tracemalloc.reset_peak()
+        projection = schema_profile_module._exception_detail_projection(
+            RuntimeError(value)
+        )
+        _, peak_bytes = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert projection.truncated is True
+    assert projection.projected_bytes < 1_024
+    assert peak_bytes < 262_144
+    assert schema_profile_module._EXCEPTION_PROJECTION_INTEGER_SAMPLE_BITS == (
+        EXPECTED_EXCEPTION_INTEGER_SAMPLE_BITS
+    )
+    assert (
+        schema_profile_module._EXCEPTION_PROJECTION_NEGATIVE_SAMPLE_POLICY
+        == EXPECTED_EXCEPTION_NEGATIVE_SAMPLE_POLICY
+    )
+
+
+def test_oversized_negative_exception_integer_projection_has_constant_work() -> None:
+    iterations = 128
+    small = -((1 << (1_048_576 * 8 - 1)) | 1)
+    large = -((1 << (4_194_304 * 8 - 1)) | 1)
+
+    def best_elapsed(value: int) -> float:
+        samples = []
+        for _ in range(3):
+            started = time.perf_counter()
+            for _ in range(iterations):
+                projection = schema_profile_module._exception_detail_projection(
+                    RuntimeError(value)
+                )
+                assert projection.truncated is True
+            samples.append(time.perf_counter() - started)
+        return min(samples)
+
+    small_elapsed = best_elapsed(small)
+    large_elapsed = best_elapsed(large)
+
+    assert large_elapsed < small_elapsed * 2 + 0.003
 
 
 def test_evaluator_exception_hash_never_calls_unknown_object_text_hooks() -> None:
