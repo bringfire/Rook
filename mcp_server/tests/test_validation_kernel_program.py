@@ -43,7 +43,11 @@ from rook.validation_kernel.canonical_json import (
     normalized_source_fingerprint,
 )
 from rook.validation_kernel.owned_json import JsonObject, own_trusted_json
-from rook.validation_kernel.schema_profile import admit_schema, evaluate_schema
+from rook.validation_kernel.schema_profile import (
+    SchemaAdmissionError,
+    admit_schema,
+    evaluate_schema,
+)
 
 from tests._validation_kernel_fakes import (
     MutableCallable,
@@ -580,6 +584,42 @@ def test_projection_writable_paths_resolve_exact_closed_schema_shapes() -> None:
     )
     compose_and_seal_program(valid)
 
+    open_host = _host_json(contribution.schemas[0].value)
+    assert isinstance(open_host, dict)
+    open_body = open_host["properties"]["body"]
+    assert isinstance(open_body, dict)
+    del open_body["additionalProperties"]
+    _assert_rejected(
+        _replace_report_schema(contribution, open_host),
+        "explicitly closed",
+    )
+
+    untyped_host = _host_json(contribution.schemas[0].value)
+    assert isinstance(untyped_host, dict)
+    untyped_body = untyped_host["properties"]["body"]
+    assert isinstance(untyped_body, dict)
+    del untyped_body["type"]
+    _assert_rejected(
+        _replace_report_schema(contribution, untyped_host),
+        "ambiguous schema branch",
+    )
+
+    for keyword, value in (
+        ("patternProperties", {"^extra$": {"type": "string"}}),
+        ("unevaluatedProperties", False),
+    ):
+        ambiguous_object_host = _host_json(contribution.schemas[0].value)
+        assert isinstance(ambiguous_object_host, dict)
+        ambiguous_object_body = ambiguous_object_host["properties"]["body"]
+        assert isinstance(ambiguous_object_body, dict)
+        ambiguous_object_body[keyword] = value
+        with pytest.raises(SchemaAdmissionError, match="forbidden keyword"):
+            _replace_report_schema(
+                contribution,
+                ambiguous_object_host,
+                use_core_profile=True,
+            )
+
     for path, message in (
         ("/body/missing", "does not exist"),
         ("/body/optional/child", "closed or scalar"),
@@ -975,6 +1015,73 @@ def test_product_source_declarations_equal_the_exact_transitive_reachable_set(
     )
 
 
+def test_package_initializers_are_full_behavior_sources(tmp_path: Path) -> None:
+    package_name = "synthetic_initializer_closure"
+    entry = _load_temp_package(
+        tmp_path,
+        package_name,
+        {
+            "__init__.py": (
+                "def helper():\n"
+                "    from .secret import VALUE\n"
+                "    return VALUE\n"
+            ),
+            "entry.py": (
+                f"import {package_name}.submodule\n"
+                "def runner(*args):\n"
+                f"    return {package_name}.helper()\n"
+            ),
+            "submodule.py": "MARKER = 'reachable'\n",
+            "secret.py": "VALUE = ('sealed-secret',)\n",
+            "unrelated.py": "VALUE = 'not behavior'\n",
+        },
+        "entry",
+    )
+    contribution = _with_derived_source_and_dependency_authority(
+        _replace_beta_from_module(make_program_contribution(), entry)
+    )
+    expected = {
+        package_name,
+        f"{package_name}.entry",
+        f"{package_name}.secret",
+        f"{package_name}.submodule",
+    }
+    derived = {
+        source.module_name
+        for source in contribution.implementation_sources
+        if source.module_name == package_name
+        or source.module_name.startswith(package_name + ".")
+    }
+    assert derived == expected
+
+    sealed = compose_and_seal_program(contribution)
+    manifested = {
+        item["module_name"]
+        for item in json.loads(sealed.manifest_bytes)["implementation_sources"]
+        if item["module_name"] == package_name
+        or item["module_name"].startswith(package_name + ".")
+    }
+    assert manifested == expected
+
+    missing_secret = tuple(
+        source
+        for source in contribution.implementation_sources
+        if source.module_name != f"{package_name}.secret"
+    )
+    _assert_rejected(
+        replace(contribution, implementation_sources=missing_secret),
+        "missing implementation source",
+    )
+    _assert_rejected(
+        replace(
+            contribution,
+            implementation_sources=contribution.implementation_sources
+            + (implementation_source_for_module(f"{package_name}.unrelated"),),
+        ),
+        "extra implementation source",
+    )
+
+
 @pytest.mark.parametrize(
     "source",
     (
@@ -1029,6 +1136,42 @@ def test_product_source_declarations_equal_the_exact_transitive_reachable_set(
             "def runner(*args):\n"
             "    return __builtins__['__import__']('math')\n"
         ),
+        (
+            "import importlib\n"
+            "def runner(*args):\n"
+            "    return importlib.__dict__.get('import_module')('math')\n"
+        ),
+        (
+            "import importlib.metadata as metadata_api\n"
+            "def runner(*args):\n"
+            "    return metadata_api.import_module('math')\n"
+        ),
+        (
+            "import importlib.metadata as metadata_api\n"
+            "def runner(*args):\n"
+            "    return metadata_api.__dict__['import_module']('math')\n"
+        ),
+        (
+            "import importlib.metadata as metadata_api\n"
+            "def runner(*args):\n"
+            "    return metadata_api.__dict__.get('import_module')('math')\n"
+        ),
+        (
+            "import importlib.metadata as metadata_api\n"
+            "def runner(*args):\n"
+            "    return getattr(metadata_api, 'import_module')('math')\n"
+        ),
+        (
+            "import importlib.metadata as metadata_api\n"
+            "loader = metadata_api.import_module\n"
+            "def runner(*args):\n"
+            "    return loader('math')\n"
+        ),
+        (
+            "from importlib.metadata import import_module as loader\n"
+            "def runner(*args):\n"
+            "    return loader('math')\n"
+        ),
     ),
 )
 def test_dynamic_import_alias_forms_are_rejected(
@@ -1040,6 +1183,27 @@ def test_dynamic_import_alias_forms_are_rejected(
     _assert_rejected(
         _replace_beta_from_module(make_program_contribution(), module),
         "dynamic import",
+    )
+
+
+def test_static_imports_and_safe_importlib_submodules_are_allowed(
+    tmp_path: Path,
+) -> None:
+    module = _load_temp_module(
+        tmp_path,
+        "synthetic_safe_static_imports",
+        (
+            "import math\n"
+            "import importlib.metadata as metadata_api\n"
+            "from importlib import util as importlib_util\n"
+            "def runner(*args):\n"
+            "    return math.pi, metadata_api.version, importlib_util.resolve_name\n"
+        ),
+    )
+    compose_and_seal_program(
+        _with_derived_source_and_dependency_authority(
+            _replace_beta_from_module(make_program_contribution(), module)
+        )
     )
 
 

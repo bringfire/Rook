@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import ast
-import importlib
-import importlib.metadata
-import importlib.util
 import inspect
 import json
 import re
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from importlib import metadata as importlib_metadata
+from importlib import util as importlib_util
 from importlib.machinery import ModuleSpec, PathFinder
 from pathlib import Path, PurePosixPath
 from types import FunctionType, MappingProxyType
@@ -122,6 +121,22 @@ _FIXED_KERNEL_MODULES = (
 _UNSTABLE_DISTRIBUTION_FILES = frozenset(
     ("direct_url.json", "installer", "record", "requested")
 )
+_SAFE_IMPORTLIB_SUBMODULE_MEMBERS = MappingProxyType(
+    {
+        "importlib.machinery": frozenset(("ModuleSpec", "PathFinder")),
+        "importlib.metadata": frozenset(
+            (
+                "Distribution",
+                "PackageNotFoundError",
+                "distribution",
+                "packages_distributions",
+                "version",
+            )
+        ),
+        "importlib.util": frozenset(("resolve_name",)),
+    }
+)
+_SAFE_IMPORTLIB_SUBMODULES = frozenset(_SAFE_IMPORTLIB_SUBMODULE_MEMBERS)
 _BUDGET_LIMIT_KEYS = frozenset(
     (
         "recipe_input_bytes",
@@ -357,7 +372,7 @@ def _stable_distribution_path(value: object) -> str | None:
 
 
 def _active_runtime_requirements(
-    distribution: importlib.metadata.Distribution,
+    distribution: importlib_metadata.Distribution,
     activated_extras: frozenset[str],
 ) -> list[dict[str, object]]:
     environment = default_environment()
@@ -415,8 +430,8 @@ def _installed_dependency_projection(
         _fail("runtime dependency name must be a nonempty exact string")
     normalized_name = _normalized_distribution_name(distribution_name)
     try:
-        distribution = importlib.metadata.distribution(distribution_name)
-    except importlib.metadata.PackageNotFoundError as error:
+        distribution = importlib_metadata.distribution(distribution_name)
+    except importlib_metadata.PackageNotFoundError as error:
         raise ProgramCompositionError(
             f"runtime dependency is not installed: {distribution_name}"
         ) from error
@@ -1153,6 +1168,18 @@ def _host_pointer(root: object, pointer: str) -> object | None:
 _AMBIGUOUS_SCHEMA_BRANCH_KEYWORDS = frozenset(
     ("allOf", "anyOf", "oneOf", "if", "then", "else", "not")
 )
+_AMBIGUOUS_OBJECT_SCHEMA_KEYWORDS = frozenset(
+    ("patternProperties", "unevaluatedProperties")
+)
+_OBJECT_SCHEMA_KEYWORDS = frozenset(
+    (
+        "additionalProperties",
+        "maxProperties",
+        "minProperties",
+        "properties",
+        "required",
+    )
+) | _AMBIGUOUS_OBJECT_SCHEMA_KEYWORDS
 _REFERENCE_ANNOTATION_KEYWORDS = frozenset(
     (
         "$comment",
@@ -1195,6 +1222,25 @@ def _resolve_schema_reference(
     return current, None
 
 
+def _object_schema_closure_error(schema: dict[str, object]) -> str | None:
+    declared_type = schema.get("type")
+    if type(declared_type) is list:
+        if len(declared_type) != 1:
+            return "ambiguous"
+        declared_type = declared_type[0]
+    if declared_type is None and any(
+        keyword in schema for keyword in _OBJECT_SCHEMA_KEYWORDS
+    ):
+        return "ambiguous"
+    if declared_type != "object":
+        return None
+    if any(keyword in schema for keyword in _AMBIGUOUS_OBJECT_SCHEMA_KEYWORDS):
+        return "ambiguous"
+    if schema.get("additionalProperties") is not False:
+        return "open_object"
+    return None
+
+
 def _resolve_schema_instance_path(
     schema: AdmittedSchema,
     path: str,
@@ -1210,6 +1256,9 @@ def _resolve_schema_instance_path(
         )
         if error is not None or type(current) is not dict:
             return None, error
+        closure_error = _object_schema_closure_error(current)
+        if closure_error is not None:
+            return None, closure_error
         token = _decode_pointer_token(raw_token)
         declared_type = current.get("type")
         if type(declared_type) is list:
@@ -1245,6 +1294,9 @@ def _resolve_schema_instance_path(
     current, error = _resolve_schema_reference(root, current, seen_references)
     if error is not None or type(current) is not dict:
         return None, error
+    closure_error = _object_schema_closure_error(current)
+    if closure_error is not None:
+        return None, closure_error
     return cast(dict[str, object], current), None
 
 
@@ -1330,6 +1382,8 @@ def _validate_report_projection(
             _fail("projection-writable path has an ambiguous schema branch")
         if path_error == "closed_or_scalar":
             _fail("projection-writable path traverses a closed or scalar schema branch")
+        if path_error == "open_object":
+            _fail("projection-writable path is not explicitly closed")
         if path_error is not None:
             _fail("projection-writable path does not exist in the output schema")
     shells_raw = _require_exact_tuple(candidate.mandatory_shells, "mandatory shells")
@@ -1530,26 +1584,122 @@ def _reject_dynamic_import_calls(
     builtins_modules: set[str] = {"__builtins__"}
     dynamic_functions: set[str] = {"__import__"}
     getattr_functions: set[str] = {"getattr"}
+    safe_importlib_bindings: dict[str, str] = {}
+    safe_importlib_root_children: dict[str, dict[str, str]] = {}
 
     for node in nodes:
         if isinstance(node, ast.Import):
             for alias in node.names:
-                local_name = alias.asname or alias.name.split(".", 1)[0]
-                if alias.name == "importlib" or alias.name.startswith("importlib."):
-                    importlib_modules.add(local_name)
+                if alias.name == "importlib":
+                    _fail(
+                        f"dynamic import root is forbidden in sealed source: {module_name}"
+                    )
+                if alias.name.startswith("importlib.") and (
+                    alias.name not in _SAFE_IMPORTLIB_SUBMODULES
+                ):
+                    _fail(
+                        f"dynamic import capability is forbidden in sealed source: {module_name}"
+                    )
+                if alias.name in _SAFE_IMPORTLIB_SUBMODULES:
+                    if alias.asname is None:
+                        root_name, child_name = alias.name.split(".", 1)
+                        safe_importlib_root_children.setdefault(root_name, {})[
+                            child_name
+                        ] = alias.name
+                    else:
+                        safe_importlib_bindings[alias.asname] = alias.name
                 if alias.name == "builtins":
-                    builtins_modules.add(local_name)
+                    _fail(
+                        f"dynamic import builtins root is forbidden in sealed source: {module_name}"
+                    )
         elif isinstance(node, ast.ImportFrom):
             if node.level == 0 and node.module == "importlib":
                 for alias in node.names:
-                    if alias.name == "import_module":
-                        dynamic_functions.add(alias.asname or alias.name)
+                    qualified_name = f"importlib.{alias.name}"
+                    if qualified_name not in _SAFE_IMPORTLIB_SUBMODULES:
+                        _fail(
+                            f"dynamic import capability is forbidden in sealed source: {module_name}"
+                        )
+                    safe_importlib_bindings[
+                        alias.asname or alias.name
+                    ] = qualified_name
+            if (
+                node.level == 0
+                and node.module is not None
+                and node.module.startswith("importlib.")
+                and node.module not in _SAFE_IMPORTLIB_SUBMODULES
+            ):
+                _fail(
+                    f"dynamic import capability is forbidden in sealed source: {module_name}"
+                )
+            if node.level == 0 and node.module in _SAFE_IMPORTLIB_SUBMODULES:
+                allowed_members = _SAFE_IMPORTLIB_SUBMODULE_MEMBERS[node.module]
+                if any(alias.name not in allowed_members for alias in node.names):
+                    _fail(
+                        f"dynamic import capability is forbidden in sealed source: {module_name}"
+                    )
             if node.level == 0 and node.module == "builtins":
                 for alias in node.names:
                     if alias.name == "__import__":
                         dynamic_functions.add(alias.asname or alias.name)
                     if alias.name == "getattr":
                         getattr_functions.add(alias.asname or alias.name)
+
+    if any(
+        isinstance(node, ast.Name) and node.id == "__builtins__"
+        for node in nodes
+    ):
+        _fail(f"dynamic import builtins authority is forbidden in sealed source: {module_name}")
+
+    parents = {
+        id(child): parent
+        for parent in nodes
+        for child in ast.iter_child_nodes(parent)
+    }
+    for node in nodes:
+        if not isinstance(node, ast.Name):
+            continue
+        child_modules = safe_importlib_root_children.get(node.id)
+        if child_modules is None:
+            continue
+        parent = parents.get(id(node))
+        if not (
+            isinstance(parent, ast.Attribute)
+            and parent.value is node
+            and parent.attr in child_modules
+        ):
+            _fail(
+                f"dynamic import root use is forbidden in sealed source: {module_name}"
+            )
+
+    def safe_importlib_module(expression: ast.expr) -> str | None:
+        if isinstance(expression, ast.Name):
+            return safe_importlib_bindings.get(expression.id)
+        if isinstance(expression, ast.Attribute) and isinstance(
+            expression.value,
+            ast.Name,
+        ):
+            return safe_importlib_root_children.get(
+                expression.value.id,
+                {},
+            ).get(expression.attr)
+        return None
+
+    for node in nodes:
+        if not isinstance(node, ast.expr):
+            continue
+        safe_module = safe_importlib_module(node)
+        if safe_module is None:
+            continue
+        parent = parents.get(id(node))
+        if not (
+            isinstance(parent, ast.Attribute)
+            and parent.value is node
+            and parent.attr in _SAFE_IMPORTLIB_SUBMODULE_MEMBERS[safe_module]
+        ):
+            _fail(
+                f"dynamic import capability is forbidden in sealed source: {module_name}"
+            )
 
     def expression_role(expression: ast.expr) -> str | None:
         if isinstance(expression, ast.Name):
@@ -1670,7 +1820,7 @@ def _absolute_imports(
     source: str,
     *,
     module_scope_only: bool = False,
-) -> tuple[str, ...]:
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
     try:
         tree = ast.parse(source, filename=module_name)
     except SyntaxError as error:
@@ -1678,15 +1828,34 @@ def _absolute_imports(
             f"implementation source cannot be parsed: {module_name}"
         ) from error
     nodes = _analysis_nodes(tree, module_scope_only=module_scope_only)
-    _reject_dynamic_import_calls(module_name, nodes)
+    origin = _module_origin(module_name)
+    guard_nodes = (
+        tuple(ast.walk(tree))
+        if origin is not None and origin.name.lower() == "__init__.py"
+        else nodes
+    )
+    _reject_dynamic_import_calls(module_name, guard_nodes)
     imports: set[str] = set()
+    package_aliases: dict[str, str] = {}
+    referenced_packages: set[str] = set()
+
+    def is_package(candidate: str) -> bool:
+        candidate_origin = _module_origin(candidate)
+        return (
+            candidate_origin is not None
+            and candidate_origin.name.lower() == "__init__.py"
+        )
+
     for node in nodes:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 imports.add(alias.name)
+                local_name = alias.asname or alias.name.split(".", 1)[0]
+                imported_name = alias.name if alias.asname else local_name
+                if is_package(imported_name):
+                    package_aliases[local_name] = imported_name
         elif isinstance(node, ast.ImportFrom):
             if node.level:
-                origin = _module_origin(module_name)
                 package = (
                     module_name
                     if origin is not None and origin.name.lower() == "__init__.py"
@@ -1696,7 +1865,7 @@ def _absolute_imports(
                     _fail(f"relative import has no package: {module_name}")
                 relative = "." * node.level + (node.module or "")
                 try:
-                    base = importlib.util.resolve_name(relative, package)
+                    base = importlib_util.resolve_name(relative, package)
                 except (ImportError, ValueError) as error:
                     raise ProgramCompositionError(
                         f"relative import cannot be resolved: {module_name}"
@@ -1708,10 +1877,23 @@ def _absolute_imports(
             for alias in node.names:
                 if alias.name == "*":
                     continue
+                if is_package(base):
+                    referenced_packages.add(base)
                 candidate = f"{base}.{alias.name}" if base else alias.name
                 if _module_origin(candidate) is not None:
                     imports.add(candidate)
-    return tuple(sorted(imports, key=utf16_sort_key))
+                if is_package(candidate):
+                    package_aliases[alias.asname or alias.name] = candidate
+    for node in nodes:
+        if not isinstance(node, ast.Attribute) or not isinstance(node.value, ast.Name):
+            continue
+        package_name = package_aliases.get(node.value.id)
+        if package_name is not None:
+            referenced_packages.add(package_name)
+    return (
+        tuple(sorted(imports, key=utf16_sort_key)),
+        tuple(sorted(referenced_packages, key=utf16_sort_key)),
+    )
 
 
 def _module_origin(module_name: str) -> Path | None:
@@ -1802,7 +1984,7 @@ def _derive_product_source_closure(
         raw, normalized, _ = _read_module_source(module_name)
         normalized_sources[module_name] = normalized
         fingerprints[module_name] = normalized_source_fingerprint(raw)
-        imports = _absolute_imports(
+        imports, referenced_packages = _absolute_imports(
             module_name,
             normalized,
             module_scope_only=not full_behavior,
@@ -1813,6 +1995,9 @@ def _derive_product_source_closure(
             if is_product_source(imported):
                 enqueue(imported, full_behavior=True)
                 enqueue_package_initializers(imported)
+        for package_name in referenced_packages:
+            enqueue(package_name, full_behavior=True)
+            enqueue_package_initializers(package_name)
 
     names = sorted(normalized_sources, key=utf16_sort_key)
     sources = tuple(
@@ -1899,7 +2084,7 @@ def _package_distribution_map() -> dict[str, tuple[str, ...]]:
                 key=utf16_sort_key,
             )
         )
-        for package, distributions in importlib.metadata.packages_distributions().items()
+        for package, distributions in importlib_metadata.packages_distributions().items()
     }
 
 
@@ -1988,8 +2173,8 @@ def _derive_runtime_dependency_projections(
             specifier = cast(str, requirement["specifier"])
             if specifier:
                 try:
-                    installed_version = importlib.metadata.version(dependency_name)
-                except importlib.metadata.PackageNotFoundError as error:
+                    installed_version = importlib_metadata.version(dependency_name)
+                except importlib_metadata.PackageNotFoundError as error:
                     raise ProgramCompositionError(
                         f"transitive runtime dependency is not installed: {dependency_name}"
                     ) from error
