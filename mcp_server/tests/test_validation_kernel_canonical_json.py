@@ -84,9 +84,17 @@ REQUIRED_DIRECTED_RELATIONS = {
         "min_normal_next_up",
     },
     "maximum_finite": {"next_down", "center"},
-    "rfc8785_halfway": {"appendix_b"},
+    "rfc8785_halfway": {"next_down", "center", "next_up"},
     "rfc8785_appendix_b": {"appendix_b"},
 }
+RFC8785_HALFWAY_CENTERS = (
+    "41b3de4355555553",
+    "41b3de4355555554",
+    "41b3de4355555555",
+    "41b3de4355555556",
+    "41b3de4355555557",
+    "43143ff3c1cb0959",
+)
 
 
 def _float_from_bits(bits: str) -> float:
@@ -139,6 +147,28 @@ def test_number_corpus_has_required_directed_groups_and_exact_spellings() -> Non
         assert math.isfinite(value), row
         actual = canonical_json_bytes(own_trusted_json(value)).decode("ascii")
         assert actual == row["canonical"], row
+
+
+def test_rfc8785_halfway_centers_have_exact_adjacent_neighbors() -> None:
+    rows = {
+        row["case_id"]: row
+        for row in (
+            json.loads(line)
+            for line in (FIXTURES / "jcs_number_vectors.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        )
+    }
+
+    for center_bits in RFC8785_HALFWAY_CENTERS:
+        center = int(center_bits, 16)
+        for relation, offset in (("next_down", -1), ("center", 0), ("next_up", 1)):
+            case_id = f"rfc8785_{center_bits}_{relation}"
+            assert case_id in rows, case_id
+            row = rows[case_id]
+            assert row["group"] == "rfc8785_halfway", row
+            assert row["relation"] == relation, row
+            assert int(row["bits"], 16) == center + offset, row
 
 
 def test_utf16_object_key_order_matches_rfc_8785_example() -> None:

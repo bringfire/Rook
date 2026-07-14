@@ -141,11 +141,11 @@ for (const bits of [
   "41b3de4355555557",
   "43143ff3c1cb0959",
 ]) {
-  addRow(
-    `rfc8785_${bits}`,
+  addPositiveNeighborhood(
     "rfc8785_halfway",
-    "appendix_b",
+    `rfc8785_${bits}`,
     bits,
+    true,
   );
 }
 
