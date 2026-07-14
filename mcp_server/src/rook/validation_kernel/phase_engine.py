@@ -1116,6 +1116,7 @@ def _helper_facade(
             evaluator = program.resolve_runtime_binding(
                 "schema_evaluator", schema.profile_id
             )
+            charge_work_units(5)
             receipt = evaluator(  # type: ignore[operator]
                 schema,
                 instance,
@@ -1130,7 +1131,6 @@ def _helper_facade(
             raise _RuntimeComponentError(exception) from exception
         if type(receipt) is not SchemaEvaluationReceipt:
             raise _IntegrityError("schema evaluator returned a non-receipt")
-        charge_work_units(5)
         audit_receipts.append(receipt)
         return _SchemaEvaluationView(
             evaluation_passed=receipt.evaluation_passed,

@@ -493,15 +493,36 @@ def test_phase_validation_budget_exhaustion_before_schema_attempt_has_empty_audi
     assert outcome.schema_evaluation_receipts == ()
 
 
-def test_schema_helper_budget_exhaustion_attaches_no_partial_audit_receipt() -> None:
+def test_schema_helper_precharge_failure_prevents_evaluation_and_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     context = _context(_program())
     phase_engine = importlib.import_module("rook.validation_kernel.phase_engine")
+    program = context.invocation.program
     alpha = next(
-        phase for phase in context.invocation.program.phases if phase.phase_name == "alpha"
+        phase for phase in program.phases if phase.phase_name == "alpha"
     )
     receipts: list[SchemaEvaluationReceipt] = []
     charger = phase_engine._phase_work_charger(context, "alpha")
     helper = phase_engine._helper_facade(context, alpha, receipts, charger)
+    evaluator_calls = 0
+    real_resolve = type(program).resolve_runtime_binding
+
+    def resolve_spy(
+        self: object, binding_kind: str, binding_id: str
+    ) -> object:
+        target = real_resolve(self, binding_kind, binding_id)
+        if binding_kind != "schema_evaluator":
+            return target
+
+        def evaluator_spy(*args: object, **kwargs: object) -> object:
+            nonlocal evaluator_calls
+            evaluator_calls += 1
+            return target(*args, **kwargs)  # type: ignore[operator]
+
+        return evaluator_spy
+
+    monkeypatch.setattr(type(program), "resolve_runtime_binding", resolve_spy)
     current = context.ledger.snapshot().kernel_phase_work_units
     context.ledger.charge(
         BudgetDimension.KERNEL_PHASE_WORK_UNITS,
@@ -515,13 +536,43 @@ def test_schema_helper_budget_exhaustion_attaches_no_partial_audit_receipt() -> 
         artifact_fingerprint="sha256:" + ("0" * 64),
         instance_pointer="",
     )
+    shape_before = context.ledger.snapshot().schema_evaluation_shape_units
 
     with pytest.raises(BudgetExceeded):
         helper.evaluate_schema(
             "synthetic.report:v1", recipe, instance_binding=binding
         )
 
+    assert evaluator_calls == 0
+    assert context.ledger.snapshot().schema_evaluation_shape_units == shape_before
     assert receipts == []
+
+
+def test_schema_helper_success_preserves_exact_seven_unit_accounting() -> None:
+    context = _context(_program())
+    phase_engine = importlib.import_module("rook.validation_kernel.phase_engine")
+    alpha = next(
+        phase for phase in context.invocation.program.phases if phase.phase_name == "alpha"
+    )
+    receipts: list[SchemaEvaluationReceipt] = []
+    charger = phase_engine._phase_work_charger(context, "alpha")
+    helper = phase_engine._helper_facade(context, alpha, receipts, charger)
+    recipe = context.invocation.invocation_inputs["recipe"]
+    binding = InstanceBinding(
+        artifact_id="synthetic.recipe",
+        artifact_fingerprint="sha256:" + ("0" * 64),
+        instance_pointer="",
+    )
+    work_before = context.ledger.snapshot().kernel_phase_work_units
+
+    helper.evaluate_schema(
+        "synthetic.report:v1", recipe, instance_binding=binding
+    )
+
+    assert (
+        context.ledger.snapshot().kernel_phase_work_units - work_before == 7
+    )
+    assert len(receipts) == 1
 
 
 def test_schema_helper_records_exact_receipts_in_private_order_before_returning_view() -> None:
@@ -575,6 +626,10 @@ def test_control_failure_after_schema_attempt_preserves_exact_private_receipts(
     assert receipt.evaluator_invoked is True
     assert receipt.evaluation_passed is False
     assert receipt.failure_code == "instance_schema_failed"
+    assert (
+        context.ledger.snapshot().schema_evaluation_shape_units
+        == receipt.reservation.aggregate_after
+    )
 
 
 def test_public_phase_control_failure_exposes_no_private_audit_evidence() -> None:
