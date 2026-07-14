@@ -428,6 +428,83 @@ def test_public_wrapper_returns_the_private_outcomes_exact_public_object(
     assert not hasattr(result, "audit")
 
 
+@pytest.mark.parametrize(
+    ("failure_point", "dimension"),
+    (
+        ("second_canonical", "report_canonical_bytes"),
+        ("second_meter_charge", "report_seal_work_units"),
+    ),
+)
+def test_private_api_audit_matches_second_pass_report_seal_reachability(
+    failure_point: str,
+    dimension: str,
+    api_program: object,
+    assembler_profile: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reporting = importlib.import_module("rook.validation_kernel.reporting")
+    state = {"failure_calls": 0, "evaluation_calls": 0}
+    real_evaluate = reporting.evaluate_schema_with_reservation
+
+    def evaluation_spy(*args: object, **kwargs: object) -> object:
+        state["evaluation_calls"] += 1
+        return real_evaluate(*args, **kwargs)
+
+    monkeypatch.setattr(
+        reporting, "evaluate_schema_with_reservation", evaluation_spy
+    )
+    if failure_point == "second_canonical":
+        real_canonical = reporting.canonical_json_bytes
+
+        def fail_second_canonical(
+            value: object, *, max_bytes: int | None = None
+        ) -> bytes:
+            state["failure_calls"] += 1
+            if state["failure_calls"] == 2:
+                raise reporting.CanonicalJsonSizeError(2_097_152, 2_097_153)
+            return real_canonical(value, max_bytes=max_bytes)
+
+        monkeypatch.setattr(
+            reporting, "canonical_json_bytes", fail_second_canonical
+        )
+    else:
+        real_charge = reporting.SealMeter.charge_canonical_bytes
+
+        def fail_second_meter_charge(meter: object, byte_count: int) -> None:
+            state["failure_calls"] += 1
+            if state["failure_calls"] == 2:
+                raise reporting._SealMeterExceeded(
+                    reporting.BudgetDimension.REPORT_SEAL_WORK_UNITS,
+                    262_144,
+                    262_145,
+                )
+            real_charge(meter, byte_count)
+
+        monkeypatch.setattr(
+            reporting.SealMeter,
+            "charge_canonical_bytes",
+            fail_second_meter_charge,
+        )
+
+    outcome = api_module._validate_artifacts_with_audit(
+        api_program,
+        b'{"nested":{"value":1}}',
+        _carrier(assembler_profile),
+    )
+
+    result = outcome.public_result
+    assert type(result) is BudgetExceededFailure
+    assert result.code == "validation_budget_exceeded"
+    assert result.artifact_role == "report_seal"
+    assert result.budget_dimension == dimension
+    assert state == {"failure_calls": 2, "evaluation_calls": 0}
+    assert outcome.audit.schema_evaluation_attempts == ()
+    assert outcome.audit.schema_evaluation_receipts == ()
+    assert api_module._is_validation_execution_audit(
+        outcome.audit, api_program
+    ) is True
+
+
 def test_private_audit_is_ordered_immutable_nonserializable_and_nonforgeable(
     assembler_profile: object,
 ) -> None:

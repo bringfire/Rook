@@ -11,6 +11,7 @@ import pytest
 from jsonschema import Draft202012Validator
 
 import rook.validation_kernel.conformance as conformance_module
+import rook.validation_kernel.reporting as reporting_module
 from rook.validation_kernel import (
     CONFORMANCE_CAMPAIGN_SCHEMA,
     CONFORMANCE_COMPLETENESS_SCHEMA,
@@ -699,6 +700,106 @@ def test_semantic_attempt_rows_use_authenticated_entries_without_reparsing(
     attempt = attempts[0]
     assert attempt["schema_id"] == outcome.public_result.schema_id
     assert attempt["instance_binding"]["artifact_id"] == program.program_id  # type: ignore[index,union-attr]
+
+
+@pytest.mark.parametrize(
+    ("failure_point", "dimension"),
+    (
+        ("second_canonical", "report_canonical_bytes"),
+        ("second_meter_charge", "report_seal_work_units"),
+    ),
+)
+def test_semantic_case_records_no_report_attempt_when_second_pass_seal_fails(
+    failure_point: str,
+    dimension: str,
+    monkeypatch: pytest.MonkeyPatch,
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    campaign: CampaignFixture,
+) -> None:
+    state = {"failure_calls": 0, "evaluation_calls": 0}
+    observed_dimensions: list[str] = []
+    real_evaluate = reporting_module.evaluate_schema_with_reservation
+    real_validate = conformance_module._validate_artifacts_with_audit
+
+    def evaluation_spy(*args: object, **kwargs: object) -> object:
+        state["evaluation_calls"] += 1
+        return real_evaluate(*args, **kwargs)
+
+    monkeypatch.setattr(
+        reporting_module, "evaluate_schema_with_reservation", evaluation_spy
+    )
+    if failure_point == "second_canonical":
+        real_canonical = reporting_module.canonical_json_bytes
+
+        def fail_second_canonical(
+            value: object, *, max_bytes: int | None = None
+        ) -> bytes:
+            state["failure_calls"] += 1
+            if state["failure_calls"] == 2:
+                raise reporting_module.CanonicalJsonSizeError(
+                    2_097_152, 2_097_153
+                )
+            return real_canonical(value, max_bytes=max_bytes)
+
+        monkeypatch.setattr(
+            reporting_module,
+            "canonical_json_bytes",
+            fail_second_canonical,
+        )
+    else:
+        real_meter = reporting_module.SealMeter
+
+        class FailingReportSealMeter(real_meter):
+            def charge_canonical_bytes(self, byte_count: int) -> None:
+                state["failure_calls"] += 1
+                if state["failure_calls"] == 2:
+                    raise reporting_module._SealMeterExceeded(
+                        reporting_module.BudgetDimension.REPORT_SEAL_WORK_UNITS,
+                        262_144,
+                        262_145,
+                    )
+                super().charge_canonical_bytes(byte_count)
+
+        monkeypatch.setattr(
+            reporting_module,
+            "SealMeter",
+            FailingReportSealMeter,
+        )
+
+    def audited_validation_spy(*args: object, **kwargs: object) -> object:
+        outcome = real_validate(*args, **kwargs)
+        observed_dimensions.append(outcome.public_result.budget_dimension)
+        return outcome
+
+    monkeypatch.setattr(
+        conformance_module,
+        "_validate_artifacts_with_audit",
+        audited_validation_spy,
+    )
+
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        campaign.campaign_bytes,
+        campaign.fixture_context,
+    )
+
+    report = _report(result)
+    row = _rows_by_id(report)["fixture.report_pass"]
+    identity = row["fixture_case_result"]
+    assert report["decision"] == "failed"
+    assert row["outcome"] == "failed"
+    assert identity["actual_result_kind"] == "control_failure"
+    assert identity["actual_control_failure_code"] == (
+        "validation_budget_exceeded"
+    )
+    assert identity["actual_control_failure_artifact_role"] == "report_seal"
+    assert row["failure_code"] == "case_execution_failed"
+    assert row["schema_evaluations"] == []
+    assert row["aggregate_schema_evaluation_shape_units"] == 0
+    assert state == {"failure_calls": 2, "evaluation_calls": 0}
+    assert observed_dimensions == [dimension]
 
 
 def test_equal_shaped_semantic_subtrees_keep_exact_ordered_identity(

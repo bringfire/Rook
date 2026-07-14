@@ -948,21 +948,6 @@ def _seal_validation_report_with_audit(
             artifact_fingerprint=report_fingerprint,
             instance_pointer="",
         )
-        schema_evaluation = evaluate_schema_with_reservation(
-            schema,
-            final_value,
-            instance_binding=final_binding,
-            reservation=schema_reservation,
-        )
-        if (
-            type(schema_evaluation) is not SchemaEvaluationReceipt
-            or schema_evaluation.reservation
-            is not schema_reservation.shape_reservation
-            or schema_evaluation.evaluator_invoked is not True
-            or schema_evaluation.evaluation_passed is not None
-            and type(schema_evaluation.evaluation_passed) is not bool
-        ):
-            raise _ProjectionIntegrityError()
         final_bytes = canonical_json_bytes(
             final_value,
             max_bytes=_canonical_byte_limit(),
@@ -976,6 +961,12 @@ def _seal_validation_report_with_audit(
             charge_work_units=lambda _amount: None,
             precomputed_instance_fingerprint=sha256_prefixed(final_bytes),
         )
+        schema_evaluation = evaluate_schema_with_reservation(
+            schema,
+            final_value,
+            instance_binding=final_binding,
+            reservation=schema_reservation,
+        )
         audit_attempts.append(
             _issue_schema_evaluation_audit_entry(
                 schema=schema,
@@ -985,6 +976,15 @@ def _seal_validation_report_with_audit(
                 per_evaluation_limit=schema_reservation.per_evaluation_limit,
             )
         )
+        if (
+            type(schema_evaluation) is not SchemaEvaluationReceipt
+            or schema_evaluation.reservation
+            is not schema_reservation.shape_reservation
+            or schema_evaluation.evaluator_invoked is not True
+            or schema_evaluation.evaluation_passed is not None
+            and type(schema_evaluation.evaluation_passed) is not bool
+        ):
+            raise _ProjectionIntegrityError()
         if type(schema_evaluation.evaluation_passed) is not bool:
             raise _ProjectionIntegrityError()
         if not schema_evaluation.evaluation_passed:

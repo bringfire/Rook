@@ -290,6 +290,13 @@ def _forge_admitted_schema(
         ("value", forged_value),
     ):
         object.__setattr__(forged, field_name, field_value)
+    object.__setattr__(
+        forged,
+        "_AdmittedSchema__issuer_capability",
+        object.__getattribute__(
+            source, "_AdmittedSchema__issuer_capability"
+        ),
+    )
     return forged
 
 
@@ -328,10 +335,20 @@ def test_program_seal_rejects_forged_schema_that_bypassed_profile_admission() ->
     forged_value = own_trusted_json(host)
     assert type(forged_value) is JsonObject
     forged = _forge_admitted_schema(source, value=forged_value)
+    assert program_module._is_admitted_schema(forged) is True
+    drifted = _replace_admitted_report_schema(contribution, forged)
+    binding = next(
+        binding
+        for binding in drifted.runtime_bindings
+        if (binding.binding_kind, binding.binding_id)
+        == ("schema", forged.schema_id)
+    )
+    assert binding.target is forged
+    assert binding.implementation_fingerprint == forged.schema_fingerprint
 
     _assert_rejected(
-        _replace_admitted_report_schema(contribution, forged),
-        "schema admission authority",
+        drifted,
+        "schema admission authority is invalid:",
     )
 
 
@@ -351,10 +368,20 @@ def test_program_seal_rederives_all_schema_reference_metadata(
         contribution.schemas[0],
         **{field_name: field_value},
     )
+    assert program_module._is_admitted_schema(forged) is True
+    drifted = _replace_admitted_report_schema(contribution, forged)
+    binding = next(
+        binding
+        for binding in drifted.runtime_bindings
+        if (binding.binding_kind, binding.binding_id)
+        == ("schema", forged.schema_id)
+    )
+    assert binding.target is forged
+    assert binding.implementation_fingerprint == forged.schema_fingerprint
 
     _assert_rejected(
-        _replace_admitted_report_schema(contribution, forged),
-        "schema admission authority",
+        drifted,
+        "schema admission authority is inconsistent:",
     )
 
 

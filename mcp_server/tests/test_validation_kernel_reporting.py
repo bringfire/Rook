@@ -321,8 +321,8 @@ def test_seal_order_is_projection_then_fixed_charge_freeze_and_two_serialization
     assert events.index("claim") < events.index(("put", "/body"))
     assert events.index(("put", "/body")) < fixed_charge_index
     assert fixed_charge_index < events.index("schema_reserve") < freeze_index
-    assert freeze_index < canonical_indexes[0] < events.index("schema_evaluate")
-    assert events.index("schema_evaluate") < canonical_indexes[1]
+    assert freeze_index < canonical_indexes[0] < canonical_indexes[1]
+    assert canonical_indexes[1] < events.index("schema_evaluate")
     assert len(canonical_indexes) == 2
 
 
@@ -675,27 +675,71 @@ def test_projection_and_first_canonical_overflow_return_typed_failure_without_pa
     assert result.budget_dimension == dimension
 
 
-def test_second_canonical_overflow_is_independent_and_publishes_no_partial_artifact(
+@pytest.mark.parametrize(
+    ("failure_point", "dimension"),
+    (
+        ("second_canonical", "report_canonical_bytes"),
+        ("second_meter_charge", "report_seal_work_units"),
+    ),
+)
+def test_second_pass_seal_failure_stops_before_evaluation_and_has_empty_audit(
+    failure_point: str,
+    dimension: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     reporting = importlib.import_module("rook.validation_kernel.reporting")
-    real_canonical = reporting.canonical_json_bytes
-    calls = 0
+    state = {"failure_calls": 0, "evaluation_calls": 0}
+    real_evaluate = reporting.evaluate_schema_with_reservation
 
-    def fail_second(value: object, *, max_bytes: int | None = None) -> bytes:
-        nonlocal calls
-        calls += 1
-        if calls == 2:
-            raise CanonicalJsonSizeError(2_097_152, 2_097_153)
-        return real_canonical(value, max_bytes=max_bytes)
+    def evaluation_spy(*args: object, **kwargs: object) -> object:
+        state["evaluation_calls"] += 1
+        return real_evaluate(*args, **kwargs)
 
-    monkeypatch.setattr(reporting, "canonical_json_bytes", fail_second)
-    _, _, result = _execute_and_seal(_program())
+    monkeypatch.setattr(
+        reporting, "evaluate_schema_with_reservation", evaluation_spy
+    )
+    if failure_point == "second_canonical":
+        real_canonical = reporting.canonical_json_bytes
 
-    assert calls == 2
+        def fail_second_canonical(
+            value: object, *, max_bytes: int | None = None
+        ) -> bytes:
+            state["failure_calls"] += 1
+            if state["failure_calls"] == 2:
+                raise CanonicalJsonSizeError(2_097_152, 2_097_153)
+            return real_canonical(value, max_bytes=max_bytes)
+
+        monkeypatch.setattr(
+            reporting, "canonical_json_bytes", fail_second_canonical
+        )
+    else:
+        real_charge = reporting.SealMeter.charge_canonical_bytes
+
+        def fail_second_meter_charge(meter: object, byte_count: int) -> None:
+            state["failure_calls"] += 1
+            if state["failure_calls"] == 2:
+                raise reporting._SealMeterExceeded(
+                    reporting.BudgetDimension.REPORT_SEAL_WORK_UNITS,
+                    262_144,
+                    262_145,
+                )
+            real_charge(meter, byte_count)
+
+        monkeypatch.setattr(
+            reporting.SealMeter,
+            "charge_canonical_bytes",
+            fail_second_meter_charge,
+        )
+    _, _, outcome = _execute_and_seal_with_audit(_program())
+
+    result = outcome.public_result
+    assert state["failure_calls"] == 2
+    assert state["evaluation_calls"] == 0
     assert type(result) is BudgetExceededFailure
     _assert_report_failure(result, "validation_budget_exceeded")
-    assert result.budget_dimension == "report_canonical_bytes"
+    assert result.budget_dimension == dimension
+    assert outcome.schema_evaluation_attempts == ()
+    assert outcome.schema_evaluation_receipts == ()
 
 
 def test_optional_not_evaluated_phase_does_not_block_compile_readiness() -> None:

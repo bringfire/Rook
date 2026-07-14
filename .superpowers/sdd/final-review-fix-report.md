@@ -391,3 +391,213 @@ Report:
 
 None. All findings are corrected without a frozen-contract conflict, all
 required gates pass, and the final change set remains within the allowed scope.
+
+---
+
+## Final-Fix Re-review - 2026-07-14
+
+This section records the correction wave applied on top of commit
+`0264316007e37be80e0c4c2f1b93bd369f2497dc`.
+
+### Re-review finding 1 - CONFIRMED
+
+`reporting.py` invoked the final report-schema evaluator after the first
+canonical pass but before the second canonical pass and its `SealMeter` charge.
+A failure in either second-pass operation therefore returned
+`validation_budget_exceeded` after one evaluator invocation while the private
+report audit still contained zero attempts and zero receipts.
+
+The frozen one-shot seal requires both canonical passes before publication, but
+does not require schema evaluation between them. The correction therefore uses
+the review's preferred architecture:
+
+1. build the final value and binding;
+2. perform and meter the second canonical serialization;
+3. resolve the authenticated final instance identity using those canonical
+   bytes;
+4. invoke the final schema evaluator; and
+5. issue and append its authenticated audit entry immediately, before receipt
+   integrity and evaluation-outcome checks.
+
+This keeps the two-pass non-circular seal intact. Second-pass failures now occur
+before evaluation and honestly retain zero report attempts. Existing report
+schema rejection and evaluator-exception tests continue to prove that a reached
+evaluation retains its exact receipt on later failure.
+
+### Re-review finding 2 - CONFIRMED
+
+The independent re-admission tests constructed a fresh `AdmittedSchema` without
+the source schema's private issuer capability. Composition consequently stopped
+at `_is_admitted_schema(...)` instead of exercising independent re-admission.
+
+The test forge helper now starts from a legitimately admitted schema and copies
+only that schema's private issuer token while mutating either forbidden schema
+content or reference metadata. Each test proves the drifted value still passes
+the private capability check, updates the runtime binding to the drifted schema
+and fingerprint, and then observes the deeper rejection:
+
+- forbidden content fails independent `admit_schema(...)` with
+  `schema admission authority is invalid`;
+- forged reference metadata is independently rederived and fails the exact
+  metadata comparison with `schema admission authority is inconsistent`.
+
+No production capability check was weakened.
+
+### Frozen-contract check
+
+No conflict was found. Section 4.3 still executes projection, fixed charge and
+freeze, first canonical fingerprint projection, fingerprint attachment, and
+final canonical serialization in that order. Moving final schema evaluation
+after the second canonical pass changes no fingerprint, receipt, publication,
+or public/private boundary.
+
+## Re-review RED Evidence
+
+Initial cross-layer regression selection:
+
+```powershell
+$env:PYTHONPATH='mcp_server/src;mcp_server/tests'
+& 'C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe' -m pytest -q `
+  mcp_server/tests/test_validation_kernel_reporting.py `
+  mcp_server/tests/test_validation_kernel_api.py `
+  mcp_server/tests/test_validation_kernel_conformance.py `
+  mcp_server/tests/test_validation_kernel_program.py `
+  -k 'second_pass_seal_failure or private_api_audit_matches_second_pass or semantic_case_records_no_report_attempt or forged_schema_that_bypassed or rederives_all_schema_reference_metadata'
+```
+
+Result before production changes: exit 1, `9 failed, 165 deselected in 8.90s`.
+The reporting and private-API cases observed `evaluation_calls=1` where zero was
+required, and all three program cases proved the old helper failed the authentic
+capability assertion. The first conformance run also corrected its expected
+case-level mismatch classification from `validation_budget_exceeded` to the
+schema-defined `case_execution_failed` while retaining the actual control
+failure identity.
+
+After correcting only that conformance expectation and isolating the injected
+report meter from the gate's own meter, the conformance RED was rerun:
+
+```powershell
+$env:PYTHONPATH='mcp_server/src;mcp_server/tests'
+& 'C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe' -m pytest -q `
+  mcp_server/tests/test_validation_kernel_conformance.py `
+  -k 'semantic_case_records_no_report_attempt'
+```
+
+Result before production changes: exit 1, `2 failed, 46 deselected in 1.69s`.
+Both cases failed only because the observed final evaluator call count was one
+instead of zero.
+
+## Re-review GREEN Evidence
+
+The complete new regression selection after the production reorder and test
+capability correction returned exit 0: `9 passed, 165 deselected in 9.10s`.
+
+The existing seal-order test then exposed its superseded requirement that the
+evaluator run between canonical passes. The first complete focused run returned
+`173 passed, 1 failed in 196.15s`; the sole failure was that stale assertion.
+The test was updated to enforce the frozen and reviewed order of both canonical
+passes before evaluation.
+
+Order target plus every new regression:
+
+```powershell
+$env:PYTHONPATH='mcp_server/src;mcp_server/tests'
+& 'C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe' -m pytest -q `
+  mcp_server/tests/test_validation_kernel_reporting.py::test_seal_order_is_projection_then_fixed_charge_freeze_and_two_serializations `
+  mcp_server/tests/test_validation_kernel_reporting.py::test_second_pass_seal_failure_stops_before_evaluation_and_has_empty_audit `
+  mcp_server/tests/test_validation_kernel_api.py::test_private_api_audit_matches_second_pass_report_seal_reachability `
+  mcp_server/tests/test_validation_kernel_conformance.py::test_semantic_case_records_no_report_attempt_when_second_pass_seal_fails `
+  mcp_server/tests/test_validation_kernel_program.py::test_program_seal_rejects_forged_schema_that_bypassed_profile_admission `
+  mcp_server/tests/test_validation_kernel_program.py::test_program_seal_rederives_all_schema_reference_metadata
+```
+
+Result: exit 0, `10 passed in 9.76s`.
+
+### Final focused modules
+
+```powershell
+$env:PYTHONPATH='mcp_server/src;mcp_server/tests'
+& 'C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe' -m pytest -q `
+  mcp_server/tests/test_validation_kernel_reporting.py `
+  mcp_server/tests/test_validation_kernel_api.py `
+  mcp_server/tests/test_validation_kernel_conformance.py `
+  mcp_server/tests/test_validation_kernel_program.py
+```
+
+Result: exit 0, `174 passed in 195.78s`.
+
+### Every validation-kernel test
+
+```powershell
+$env:PYTHONPATH='mcp_server/src;mcp_server/tests'
+$tests = @(Get-ChildItem 'mcp_server/tests' -Filter 'test_validation_kernel_*.py' |
+  Sort-Object Name | Select-Object -ExpandProperty FullName)
+& 'C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe' -m pytest -q $tests
+```
+
+Result: exit 0, `618 passed in 356.01s`.
+
+### Boundary after final code and test edits
+
+```powershell
+$env:PYTHONPATH='mcp_server/src;mcp_server/tests'
+& 'C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe' -m pytest -q `
+  mcp_server/tests/test_validation_kernel_boundaries.py
+```
+
+Result: exit 0, `19 passed in 46.86s`.
+
+### Adjacent Task 11 regressions
+
+```powershell
+$env:PYTHONPATH='mcp_server/src;mcp_server/tests'
+& 'C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe' -m pytest -q `
+  mcp_server/tests/test_plan_graph_workflow_contract_fingerprint.py `
+  mcp_server/tests/test_plan_graph_workflow_contract.py `
+  mcp_server/tests/test_workflow_validate.py `
+  mcp_server/tests/test_planner_worker_contract_request.py
+```
+
+Result: exit 0, `148 passed in 0.41s`.
+
+### JCS and static gates
+
+```powershell
+node mcp_server/tests/fixtures/validation_kernel/generate_jcs_number_vectors.mjs --check
+& 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe' -m compileall -q mcp_server/src/rook/validation_kernel
+git diff --check
+rg -n 'TO[D]O|FI[X]ME|T[B]D|pass$|Not[I]mplementedError' mcp_server/src/rook/validation_kernel mcp_server/tests -g 'test_validation_kernel_*.py'
+rg -n -i 'radial|box array|grid spacing|grasshopper|rhino|ollama|worker model|gh_edit' mcp_server/src/rook/validation_kernel
+```
+
+Results:
+
+- JCS vector check: exit 0, no output and no generated drift;
+- compileall: exit 0;
+- `git diff --check`: exit 0;
+- allowed-scope check: exit 0, only the five production/test files below and
+  this report;
+- incomplete-marker scan: `rg` exit 1, meaning no matches;
+- semantic-leak scan: `rg` exit 1, meaning no matches.
+
+## Re-review Changed Files
+
+Production:
+
+- `mcp_server/src/rook/validation_kernel/reporting.py`
+
+Tests:
+
+- `mcp_server/tests/test_validation_kernel_reporting.py`
+- `mcp_server/tests/test_validation_kernel_api.py`
+- `mcp_server/tests/test_validation_kernel_conformance.py`
+- `mcp_server/tests/test_validation_kernel_program.py`
+
+Report:
+
+- `.superpowers/sdd/final-review-fix-report.md`
+
+## Re-review Concerns
+
+None. Both findings are corrected without changing frozen specifications,
+dependencies, kernel semantics, public exports, or conformance production code.
