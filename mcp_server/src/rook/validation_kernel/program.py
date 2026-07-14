@@ -12,10 +12,13 @@ import re
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from functools import lru_cache
+from importlib.machinery import ModuleSpec, PathFinder
 from pathlib import Path, PurePosixPath
 from types import FunctionType, MappingProxyType
 from typing import cast
+
+from packaging.markers import default_environment
+from packaging.requirements import InvalidRequirement, Requirement
 
 from .budget import BudgetManifest
 from .canonical_json import (
@@ -26,9 +29,13 @@ from .canonical_json import (
     utf16_sort_key,
 )
 from .kernel_schemas import (
-    BUDGET_RECEIPT_NESTED_FIELD_COUNT,
+    FIXED_REPORT_OUTER_ENVELOPE_FIELD_COUNT,
+    KERNEL_OWNED_REPORT_PATHS,
+    KERNEL_REPORT_FIELD_ROLES,
     PROGRAM_MANIFEST_SCHEMA_FINGERPRINT,
     PROGRAM_MANIFEST_SCHEMA_ID,
+    REPORT_BUDGET_RECEIPT_PATH,
+    REPORT_FINGERPRINT_PATH,
 )
 from .owned_json import (
     JsonArray,
@@ -76,6 +83,7 @@ REPORT_PROJECTION_INPUT_ENVELOPE = (
 _MACHINE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
 _MODULE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.]{0,255}\Z")
 _FINGERPRINT_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
+_DISTRIBUTION_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\Z")
 _CARDINALITIES = frozenset(("exactly_one", "zero_or_one", "many"))
 _OUTPUT_STATUSES = frozenset(("passed", "blocked", "failed"))
 _ISSUE_CLASSIFICATIONS = frozenset(("diagnostic", "compile_blocker"))
@@ -217,15 +225,36 @@ def _fingerprinted_object(value: dict[str, object], field_name: str) -> dict[str
     return {**value, field_name: fingerprint}
 
 
+def _module_spec_without_import(module_name: str) -> ModuleSpec | None:
+    search_path: list[str] | None = None
+    parts = module_name.split(".")
+    spec: ModuleSpec | None = None
+    for index in range(1, len(parts) + 1):
+        qualified_name = ".".join(parts[:index])
+        loaded = sys.modules.get(qualified_name)
+        loaded_spec = getattr(loaded, "__spec__", None)
+        spec = (
+            loaded_spec
+            if isinstance(loaded_spec, ModuleSpec)
+            else PathFinder.find_spec(qualified_name, search_path)
+        )
+        if spec is None:
+            return None
+        if index != len(parts):
+            locations = spec.submodule_search_locations
+            if locations is None:
+                return None
+            search_path = list(locations)
+    return spec
+
+
 def _read_module_source(module_name: str) -> tuple[bytes, str, Path]:
     _require_module_name(module_name, "source module")
-    try:
-        module = importlib.import_module(module_name)
-    except Exception as error:
-        raise ProgramCompositionError(
-            f"implementation source module cannot be imported: {module_name}"
-        ) from error
-    source_path = getattr(module, "__file__", None)
+    module = sys.modules.get(module_name)
+    source_path = getattr(module, "__file__", None) if module is not None else None
+    if type(source_path) is not str:
+        spec = _module_spec_without_import(module_name)
+        source_path = spec.origin if spec is not None else None
     if type(source_path) is not str:
         _fail(f"implementation source has no Python file: {module_name}")
     path = Path(source_path)
@@ -261,7 +290,11 @@ def _validate_module_function(function: object) -> FunctionType:
         _fail("runtime binding target must be callable")
     if function.__closure__ is not None:
         _fail("closures cannot be runtime bindings")
-    if "<locals>" in function.__qualname__ or function.__name__ == "<lambda>":
+    if (
+        function.__qualname__ != function.__name__
+        or function.__code__.co_qualname != function.__name__
+        or function.__name__ == "<lambda>"
+    ):
         _fail("runtime bindings must be named module-level functions")
     _require_module_name(function.__module__, "runtime callable module")
     return function
@@ -308,7 +341,12 @@ def runtime_implementation_fingerprint(target: object) -> str:
 def _stable_distribution_path(value: object) -> str | None:
     text = str(value).replace("\\", "/")
     path = PurePosixPath(text)
-    if path.is_absolute() or ".." in path.parts:
+    if (
+        path.is_absolute()
+        or re.match(r"^[A-Za-z]:", text) is not None
+        or text.startswith("//")
+        or ".." in path.parts
+    ):
         return None
     lowered_parts = tuple(part.lower() for part in path.parts)
     if "__pycache__" in lowered_parts or path.suffix.lower() in (".pyc", ".pyo"):
@@ -318,15 +356,76 @@ def _stable_distribution_path(value: object) -> str | None:
     return path.as_posix()
 
 
-def _installed_dependency_projection(distribution_name: str) -> dict[str, object]:
+def _active_runtime_requirements(
+    distribution: importlib.metadata.Distribution,
+    activated_extras: frozenset[str],
+) -> list[dict[str, object]]:
+    environment = default_environment()
+    contexts = tuple(sorted({"", *activated_extras}, key=utf16_sort_key))
+    records: list[dict[str, object]] = []
+    for raw_requirement in distribution.requires or ():
+        try:
+            requirement = Requirement(raw_requirement)
+            active = requirement.marker is None or any(
+                requirement.marker.evaluate({**environment, "extra": extra})
+                for extra in contexts
+            )
+        except (InvalidRequirement, KeyError, ValueError) as error:
+            raise ProgramCompositionError(
+                "runtime dependency requirement metadata cannot be normalized"
+            ) from error
+        if not active:
+            continue
+        records.append(
+            {
+                "distribution_name": _normalized_distribution_name(
+                    requirement.name
+                ),
+                "extras": sorted(
+                    (_normalized_distribution_name(extra) for extra in requirement.extras),
+                    key=utf16_sort_key,
+                ),
+                "specifier": str(requirement.specifier),
+                "url": requirement.url,
+                "marker": (
+                    str(requirement.marker)
+                    if requirement.marker is not None
+                    else None
+                ),
+            }
+        )
+    records.sort(
+        key=lambda record: (
+            utf16_sort_key(cast(str, record["distribution_name"])),
+            utf16_sort_key(cast(str, record["specifier"])),
+            utf16_sort_key(cast(str | None, record["marker"]) or ""),
+            utf16_sort_key(",".join(cast(list[str], record["extras"]))),
+            utf16_sort_key(cast(str | None, record["url"]) or ""),
+        )
+    )
+    return records
+
+
+def _installed_dependency_projection(
+    distribution_name: str,
+    *,
+    activated_extras: frozenset[str] = frozenset(),
+) -> dict[str, object]:
     if type(distribution_name) is not str or not distribution_name:
         _fail("runtime dependency name must be a nonempty exact string")
+    normalized_name = _normalized_distribution_name(distribution_name)
     try:
         distribution = importlib.metadata.distribution(distribution_name)
     except importlib.metadata.PackageNotFoundError as error:
         raise ProgramCompositionError(
             f"runtime dependency is not installed: {distribution_name}"
         ) from error
+    metadata_name = distribution.metadata.get("Name")
+    if type(metadata_name) is not str:
+        _fail(f"runtime dependency metadata has no canonical name: {distribution_name}")
+    canonical_name = _normalized_distribution_name(metadata_name)
+    if canonical_name != normalized_name:
+        _fail(f"runtime dependency canonical name mismatch: {distribution_name}")
     version = distribution.version
     records: list[dict[str, object]] = []
     files = distribution.files or ()
@@ -356,13 +455,19 @@ def _installed_dependency_projection(distribution_name: str) -> dict[str, object
     behavior_files = [
         {"path": record["path"], "sha256": record["sha256"]}
         for record in records
-        if cast(str, record["path"]).endswith(".py")
+        if PurePosixPath(cast(str, record["path"])).suffix.lower()
+        in (".dll", ".pyd", ".py", ".pyw", ".so")
     ]
     if not behavior_files:
-        _fail(f"runtime dependency has no behavior-bearing Python files: {distribution_name}")
+        _fail(f"runtime dependency has no behavior-bearing files: {distribution_name}")
     identity = {
-        "distribution_name": distribution_name,
+        "distribution_name": canonical_name,
         "version": version,
+        "activated_extras": sorted(activated_extras, key=utf16_sort_key),
+        "active_runtime_requirements": _active_runtime_requirements(
+            distribution,
+            activated_extras,
+        ),
         "file_records": records,
         "behavior_files": behavior_files,
     }
@@ -374,7 +479,7 @@ def runtime_dependency_spec(distribution_name: str) -> RuntimeDependencySpec:
 
     projection = _installed_dependency_projection(distribution_name)
     return RuntimeDependencySpec(
-        distribution_name=distribution_name,
+        distribution_name=cast(str, projection["distribution_name"]),
         expected_version=cast(str, projection["version"]),
         behavior_files=tuple(
             cast(str, item["path"])
@@ -1045,28 +1150,102 @@ def _host_pointer(root: object, pointer: str) -> object | None:
     return current
 
 
-def _schema_at_instance_path(schema: AdmittedSchema, path: str) -> object | None:
-    root = _host_json(schema.value)
-    current = root
-    for raw_token in path.split("/")[1:]:
-        while type(current) is dict and type(current.get("$ref")) is str:
-            reference = cast(str, current["$ref"])
-            if not reference.startswith("#"):
-                return None
-            current = _host_pointer(root, reference[1:])
-        if type(current) is not dict:
-            return None
-        properties = current.get("properties")
-        token = _decode_pointer_token(raw_token)
-        if type(properties) is not dict or token not in properties:
-            return None
-        current = properties[token]
+_AMBIGUOUS_SCHEMA_BRANCH_KEYWORDS = frozenset(
+    ("allOf", "anyOf", "oneOf", "if", "then", "else", "not")
+)
+_REFERENCE_ANNOTATION_KEYWORDS = frozenset(
+    (
+        "$comment",
+        "$id",
+        "$ref",
+        "$schema",
+        "default",
+        "deprecated",
+        "description",
+        "examples",
+        "readOnly",
+        "title",
+        "writeOnly",
+    )
+)
+
+
+def _resolve_schema_reference(
+    root: object,
+    current: object,
+    seen_references: set[str],
+) -> tuple[object | None, str | None]:
     while type(current) is dict and type(current.get("$ref")) is str:
+        if any(
+            key not in _REFERENCE_ANNOTATION_KEYWORDS
+            for key in current
+        ):
+            return None, "ambiguous"
         reference = cast(str, current["$ref"])
-        if not reference.startswith("#"):
-            return None
+        if not reference.startswith("#") or reference in seen_references:
+            return None, "ambiguous"
+        seen_references.add(reference)
         current = _host_pointer(root, reference[1:])
-    return current
+        if current is None:
+            return None, "missing"
+    if type(current) is not dict:
+        return None, "closed_or_scalar"
+    if any(keyword in current for keyword in _AMBIGUOUS_SCHEMA_BRANCH_KEYWORDS):
+        return None, "ambiguous"
+    return current, None
+
+
+def _resolve_schema_instance_path(
+    schema: AdmittedSchema,
+    path: str,
+) -> tuple[dict[str, object] | None, str | None]:
+    root = _host_json(schema.value)
+    current: object = root
+    seen_references: set[str] = set()
+    for raw_token in path.split("/")[1:]:
+        current, error = _resolve_schema_reference(
+            root,
+            current,
+            seen_references,
+        )
+        if error is not None or type(current) is not dict:
+            return None, error
+        token = _decode_pointer_token(raw_token)
+        declared_type = current.get("type")
+        if type(declared_type) is list:
+            if len(declared_type) != 1:
+                return None, "ambiguous"
+            declared_type = declared_type[0]
+        properties = current.get("properties")
+        if declared_type == "object":
+            if type(properties) is not dict or token not in properties:
+                return None, "missing"
+            current = properties[token]
+            continue
+        if declared_type == "array":
+            if re.fullmatch(r"0|[1-9][0-9]*", token) is None:
+                return None, "missing"
+            index = int(token)
+            prefix_items = current.get("prefixItems")
+            if type(prefix_items) is list and index < len(prefix_items):
+                current = prefix_items[index]
+                continue
+            items = current.get("items")
+            if type(items) is not dict:
+                return None, "missing"
+            current = items
+            continue
+        if declared_type is None and (
+            type(properties) is dict
+            or "items" in current
+            or "prefixItems" in current
+        ):
+            return None, "ambiguous"
+        return None, "closed_or_scalar"
+    current, error = _resolve_schema_reference(root, current, seen_references)
+    if error is not None or type(current) is not dict:
+        return None, error
+    return cast(dict[str, object], current), None
 
 
 def _validate_report_projection(
@@ -1095,6 +1274,10 @@ def _validate_report_projection(
         _fail("report fingerprint path is invalid")
     if not _is_json_pointer(candidate.budget_receipt_path):
         _fail("budget receipt path is invalid")
+    if candidate.report_fingerprint_path != REPORT_FINGERPRINT_PATH:
+        _fail("report fingerprint path does not match the fixed role")
+    if candidate.budget_receipt_path != REPORT_BUDGET_RECEIPT_PATH:
+        _fail("fixed budget receipt path does not match the candidate")
     excluded = _sorted_strings(
         candidate.fingerprint_excluded_paths,
         "report fingerprint exclusion",
@@ -1115,30 +1298,24 @@ def _validate_report_projection(
     )
     if any(not _is_json_pointer(path) for path in kernel_paths):
         _fail("kernel-owned report path is invalid")
-    if candidate.budget_receipt_path not in kernel_paths:
-        _fail("budget receipt path must be kernel-owned")
-    if candidate.report_fingerprint_path not in kernel_paths:
-        _fail("report fingerprint path must be kernel-owned")
-    budget_schema = _schema_at_instance_path(schema, candidate.budget_receipt_path)
-    fingerprint_schema = _schema_at_instance_path(
-        schema, candidate.report_fingerprint_path
-    )
-    if type(budget_schema) is not dict or budget_schema.get("type") != "object":
-        _fail("budget receipt path does not match the output schema")
-    if (
-        type(fingerprint_schema) is not dict
-        or fingerprint_schema.get("type") != "string"
-    ):
-        _fail("report fingerprint path does not match the output schema")
-    for kernel_path in kernel_paths:
-        if _schema_at_instance_path(schema, kernel_path) is None:
-            _fail("kernel-owned path does not match the output schema")
-    expected_outer_count = len(kernel_paths) + BUDGET_RECEIPT_NESTED_FIELD_COUNT
+    if kernel_paths != KERNEL_OWNED_REPORT_PATHS:
+        _fail("candidate does not match the fixed kernel-owned report paths")
+    for role_name, path, expected_type in KERNEL_REPORT_FIELD_ROLES:
+        role_schema, role_error = _resolve_schema_instance_path(schema, path)
+        if (
+            role_error is not None
+            or type(role_schema) is not dict
+            or role_schema.get("type") != expected_type
+        ):
+            _fail(
+                f"{role_name.replace('_', ' ')} path does not match the output schema"
+            )
     if (
         type(candidate.outer_envelope_field_count) is not int
-        or candidate.outer_envelope_field_count != expected_outer_count
+        or candidate.outer_envelope_field_count
+        != FIXED_REPORT_OUTER_ENVELOPE_FIELD_COUNT
     ):
-        _fail("fixed outer envelope field count is inconsistent")
+        _fail("fixed outer envelope field count does not match the bootstrap role")
     writable = _sorted_strings(
         candidate.writable_body_paths,
         "projection-writable body path",
@@ -1148,6 +1325,13 @@ def _validate_report_projection(
     for writable_path in writable:
         if any(_paths_overlap(writable_path, kernel_path) for kernel_path in kernel_paths):
             _fail("projection-writable body path overlaps a kernel-owned path")
+        _, path_error = _resolve_schema_instance_path(schema, writable_path)
+        if path_error == "ambiguous":
+            _fail("projection-writable path has an ambiguous schema branch")
+        if path_error == "closed_or_scalar":
+            _fail("projection-writable path traverses a closed or scalar schema branch")
+        if path_error is not None:
+            _fail("projection-writable path does not exist in the output schema")
     shells_raw = _require_exact_tuple(candidate.mandatory_shells, "mandatory shells")
     shells: dict[str, tuple[str, str]] = {}
     for shell in shells_raw:
@@ -1167,6 +1351,13 @@ def _validate_report_projection(
             for writable_path in writable
         ):
             _fail("mandatory shell is outside projection-writable body paths")
+        shell_schema, shell_error = _resolve_schema_instance_path(schema, path)
+        if (
+            shell_error is not None
+            or type(shell_schema) is not dict
+            or shell_schema.get("type") != shell[1]
+        ):
+            _fail("mandatory shell does not match the output schema container")
         shells[path] = cast(tuple[str, str], shell)
     return replace(
         candidate,
@@ -1244,25 +1435,263 @@ def _validate_runtime_bindings(
     return captured
 
 
-def _absolute_imports(module_name: str, source: str) -> tuple[str, ...]:
+def _analysis_nodes(
+    tree: ast.Module,
+    *,
+    module_scope_only: bool,
+) -> tuple[ast.AST, ...]:
+    if not module_scope_only:
+        return tuple(ast.walk(tree))
+
+    nodes: list[ast.AST] = []
+
+    class ModuleScopeVisitor(ast.NodeVisitor):
+        def generic_visit(self, node: ast.AST) -> None:
+            nodes.append(node)
+            super().generic_visit(node)
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            nodes.append(node)
+            for decorator in node.decorator_list:
+                self.visit(decorator)
+            self.visit(node.args)
+            if node.returns is not None:
+                self.visit(node.returns)
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            nodes.append(node)
+            for decorator in node.decorator_list:
+                self.visit(decorator)
+            self.visit(node.args)
+            if node.returns is not None:
+                self.visit(node.returns)
+
+        def visit_Lambda(self, node: ast.Lambda) -> None:
+            nodes.append(node)
+            self.visit(node.args)
+
+    ModuleScopeVisitor().visit(tree)
+    return tuple(nodes)
+
+
+def _assignment_names(target: ast.expr) -> tuple[str, ...]:
+    if isinstance(target, ast.Name):
+        return (target.id,)
+    if isinstance(target, ast.Starred):
+        return _assignment_names(target.value)
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return tuple(
+            name
+            for element in target.elts
+            for name in _assignment_names(element)
+        )
+    return ()
+
+
+def _has_indirect_assignment_target(target: ast.expr) -> bool:
+    if isinstance(target, ast.Name):
+        return False
+    if isinstance(target, ast.Starred):
+        return _has_indirect_assignment_target(target.value)
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return any(_has_indirect_assignment_target(element) for element in target.elts)
+    return True
+
+
+def _default_parameter_bindings(
+    node: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda,
+) -> tuple[tuple[str, ast.expr], ...]:
+    positional = (*node.args.posonlyargs, *node.args.args)
+    positional_bindings = tuple(
+        (argument.arg, default)
+        for argument, default in zip(
+            positional[-len(node.args.defaults) :],
+            node.args.defaults,
+            strict=True,
+        )
+    ) if node.args.defaults else ()
+    keyword_bindings = tuple(
+        (argument.arg, default)
+        for argument, default in zip(
+            node.args.kwonlyargs,
+            node.args.kw_defaults,
+            strict=True,
+        )
+        if default is not None
+    )
+    return positional_bindings + keyword_bindings
+
+
+def _reject_dynamic_import_calls(
+    module_name: str,
+    nodes: tuple[ast.AST, ...],
+) -> None:
+    importlib_modules: set[str] = set()
+    builtins_modules: set[str] = {"__builtins__"}
+    dynamic_functions: set[str] = {"__import__"}
+    getattr_functions: set[str] = {"getattr"}
+
+    for node in nodes:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                local_name = alias.asname or alias.name.split(".", 1)[0]
+                if alias.name == "importlib" or alias.name.startswith("importlib."):
+                    importlib_modules.add(local_name)
+                if alias.name == "builtins":
+                    builtins_modules.add(local_name)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0 and node.module == "importlib":
+                for alias in node.names:
+                    if alias.name == "import_module":
+                        dynamic_functions.add(alias.asname or alias.name)
+            if node.level == 0 and node.module == "builtins":
+                for alias in node.names:
+                    if alias.name == "__import__":
+                        dynamic_functions.add(alias.asname or alias.name)
+                    if alias.name == "getattr":
+                        getattr_functions.add(alias.asname or alias.name)
+
+    def expression_role(expression: ast.expr) -> str | None:
+        if isinstance(expression, ast.Name):
+            if expression.id in dynamic_functions:
+                return "dynamic_function"
+            if expression.id in importlib_modules:
+                return "importlib_module"
+            if expression.id in builtins_modules:
+                return "builtins_module"
+            if expression.id in getattr_functions:
+                return "getattr_function"
+            return None
+        if isinstance(expression, ast.Attribute):
+            owner_role = expression_role(expression.value)
+            if owner_role == "importlib_module" and expression.attr == "import_module":
+                return "dynamic_function"
+            if owner_role == "builtins_module" and expression.attr == "__import__":
+                return "dynamic_function"
+            if owner_role == "builtins_module" and expression.attr == "getattr":
+                return "getattr_function"
+            return None
+        if isinstance(expression, ast.Subscript):
+            if (
+                not isinstance(expression.slice, ast.Constant)
+                or type(expression.slice.value) is not str
+            ):
+                return None
+            owner = expression.value
+            if isinstance(owner, ast.Attribute) and owner.attr == "__dict__":
+                owner = owner.value
+            owner_role = expression_role(owner)
+            attribute = cast(str, expression.slice.value)
+            if owner_role == "importlib_module" and attribute == "import_module":
+                return "dynamic_function"
+            if owner_role == "builtins_module" and attribute == "__import__":
+                return "dynamic_function"
+            return None
+        if isinstance(expression, ast.Call):
+            if expression_role(expression.func) != "getattr_function":
+                return None
+            if (
+                len(expression.args) < 2
+                or not isinstance(expression.args[1], ast.Constant)
+                or type(expression.args[1].value) is not str
+            ):
+                return None
+            owner_role = expression_role(expression.args[0])
+            attribute = cast(str, expression.args[1].value)
+            if owner_role == "importlib_module" and attribute == "import_module":
+                return "dynamic_function"
+            if owner_role == "builtins_module" and attribute == "__import__":
+                return "dynamic_function"
+        return None
+
+    changed = True
+    while changed:
+        changed = False
+        for node in nodes:
+            if isinstance(
+                node,
+                (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda),
+            ):
+                for name, default in _default_parameter_bindings(node):
+                    role = expression_role(default)
+                    if role is None:
+                        continue
+                    destination = {
+                        "dynamic_function": dynamic_functions,
+                        "importlib_module": importlib_modules,
+                        "builtins_module": builtins_modules,
+                        "getattr_function": getattr_functions,
+                    }[role]
+                    if name not in destination:
+                        destination.add(name)
+                        changed = True
+            value: ast.expr | None = None
+            targets: tuple[ast.expr, ...] = ()
+            if isinstance(node, ast.Assign):
+                value = node.value
+                targets = tuple(node.targets)
+            elif isinstance(node, ast.AnnAssign) and node.value is not None:
+                value = node.value
+                targets = (node.target,)
+            elif isinstance(node, ast.NamedExpr):
+                value = node.value
+                targets = (node.target,)
+            if value is None:
+                continue
+            role = expression_role(value)
+            if role is None:
+                continue
+            for target in targets:
+                if _has_indirect_assignment_target(target):
+                    _fail(
+                        f"dynamic import alias is forbidden in sealed source: {module_name}"
+                    )
+                for name in _assignment_names(target):
+                    destination = {
+                        "dynamic_function": dynamic_functions,
+                        "importlib_module": importlib_modules,
+                        "builtins_module": builtins_modules,
+                        "getattr_function": getattr_functions,
+                    }[role]
+                    if name not in destination:
+                        destination.add(name)
+                        changed = True
+
+    if any(
+        isinstance(node, ast.expr)
+        and expression_role(node) == "dynamic_function"
+        for node in nodes
+    ):
+        _fail(f"dynamic import is forbidden in sealed source: {module_name}")
+
+
+def _absolute_imports(
+    module_name: str,
+    source: str,
+    *,
+    module_scope_only: bool = False,
+) -> tuple[str, ...]:
     try:
         tree = ast.parse(source, filename=module_name)
     except SyntaxError as error:
         raise ProgramCompositionError(
             f"implementation source cannot be parsed: {module_name}"
         ) from error
-    importlib_aliases = {"importlib"}
-    import_module_aliases: set[str] = set()
+    nodes = _analysis_nodes(tree, module_scope_only=module_scope_only)
+    _reject_dynamic_import_calls(module_name, nodes)
     imports: set[str] = set()
-    for node in ast.walk(tree):
+    for node in nodes:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 imports.add(alias.name)
-                if alias.name == "importlib":
-                    importlib_aliases.add(alias.asname or alias.name)
         elif isinstance(node, ast.ImportFrom):
             if node.level:
-                package = module_name.rpartition(".")[0]
+                origin = _module_origin(module_name)
+                package = (
+                    module_name
+                    if origin is not None and origin.name.lower() == "__init__.py"
+                    else module_name.rpartition(".")[0]
+                )
                 if not package:
                     _fail(f"relative import has no package: {module_name}")
                 relative = "." * node.level + (node.module or "")
@@ -1277,27 +1706,11 @@ def _absolute_imports(module_name: str, source: str) -> tuple[str, ...]:
             if base:
                 imports.add(base)
             for alias in node.names:
-                if base == "importlib" and alias.name == "import_module":
-                    import_module_aliases.add(alias.asname or alias.name)
+                if alias.name == "*":
+                    continue
                 candidate = f"{base}.{alias.name}" if base else alias.name
-                try:
-                    if importlib.util.find_spec(candidate) is not None:
-                        imports.add(candidate)
-                except (ImportError, AttributeError, ValueError):
-                    pass
-        elif isinstance(node, ast.Call):
-            function = node.func
-            dynamic = isinstance(function, ast.Name) and (
-                function.id == "__import__" or function.id in import_module_aliases
-            )
-            dynamic = dynamic or (
-                isinstance(function, ast.Attribute)
-                and function.attr == "import_module"
-                and isinstance(function.value, ast.Name)
-                and function.value.id in importlib_aliases
-            )
-            if dynamic:
-                _fail(f"dynamic import is forbidden in sealed source: {module_name}")
+                if _module_origin(candidate) is not None:
+                    imports.add(candidate)
     return tuple(sorted(imports, key=utf16_sort_key))
 
 
@@ -1305,24 +1718,142 @@ def _module_origin(module_name: str) -> Path | None:
     module = sys.modules.get(module_name)
     origin = getattr(module, "__file__", None) if module is not None else None
     if type(origin) is not str:
-        try:
-            spec = importlib.util.find_spec(module_name)
-        except (ImportError, AttributeError, ValueError):
-            return None
+        spec = _module_spec_without_import(module_name)
         origin = spec.origin if spec is not None else None
     if type(origin) is not str or origin in ("built-in", "frozen"):
         return None
     return Path(origin).resolve()
 
 
+def _module_import_root(module_name: str, source_path: Path) -> Path:
+    levels = len(module_name.split("."))
+    if source_path.name.lower() != "__init__.py":
+        levels -= 1
+    root = source_path.parent
+    for _ in range(levels):
+        root = root.parent
+    return root
+
+
+def _path_is_under(path: Path, roots: frozenset[Path]) -> bool:
+    return any(path == root or root in path.parents for root in roots)
+
+
+def _derive_product_source_closure(
+    entry_modules: frozenset[str],
+) -> tuple[
+    tuple[ImplementationSource, ...],
+    dict[str, str],
+    dict[str, tuple[str, ...]],
+]:
+    if not entry_modules:
+        _fail("behavior source entry modules cannot be empty")
+    source_roots: set[Path] = set()
+    for module_name in entry_modules:
+        _require_module_name(module_name, "behavior source entry module")
+        _, _, source_path = _read_module_source(module_name)
+        source_roots.add(_module_import_root(module_name, source_path))
+    frozen_roots = frozenset(source_roots)
+
+    pending: dict[str, bool] = {}
+    processed: dict[str, bool] = {}
+    normalized_sources: dict[str, str] = {}
+    fingerprints: dict[str, str] = {}
+    imports_by_module: dict[str, set[str]] = {}
+
+    def is_product_source(module_name: str) -> bool:
+        origin = _module_origin(module_name)
+        return (
+            origin is not None
+            and origin.suffix.lower() in (".py", ".pyw")
+            and _path_is_under(origin, frozen_roots)
+        )
+
+    def enqueue(module_name: str, *, full_behavior: bool) -> None:
+        if not is_product_source(module_name):
+            return
+        previous = processed.get(module_name)
+        if previous is True or (previous is False and not full_behavior):
+            return
+        pending[module_name] = pending.get(module_name, False) or full_behavior
+
+    def enqueue_package_initializers(module_name: str) -> None:
+        parts = module_name.split(".")
+        for index in range(1, len(parts)):
+            package_name = ".".join(parts[:index])
+            origin = _module_origin(package_name)
+            if (
+                origin is not None
+                and origin.name.lower() == "__init__.py"
+                and _path_is_under(origin, frozen_roots)
+            ):
+                enqueue(package_name, full_behavior=False)
+
+    for module_name in entry_modules:
+        enqueue(module_name, full_behavior=True)
+        enqueue_package_initializers(module_name)
+
+    while pending:
+        module_name = min(pending, key=utf16_sort_key)
+        full_behavior = pending.pop(module_name)
+        previous = processed.get(module_name)
+        if previous is True or (previous is False and not full_behavior):
+            continue
+        raw, normalized, _ = _read_module_source(module_name)
+        normalized_sources[module_name] = normalized
+        fingerprints[module_name] = normalized_source_fingerprint(raw)
+        imports = _absolute_imports(
+            module_name,
+            normalized,
+            module_scope_only=not full_behavior,
+        )
+        imports_by_module.setdefault(module_name, set()).update(imports)
+        processed[module_name] = bool(previous) or full_behavior
+        for imported in imports:
+            if is_product_source(imported):
+                enqueue(imported, full_behavior=True)
+                enqueue_package_initializers(imported)
+
+    names = sorted(normalized_sources, key=utf16_sort_key)
+    sources = tuple(
+        ImplementationSource(
+            module_name=name,
+            source_fingerprint=fingerprints[name],
+        )
+        for name in names
+    )
+    return (
+        sources,
+        normalized_sources,
+        {
+            name: tuple(sorted(imports, key=utf16_sort_key))
+            for name, imports in imports_by_module.items()
+        },
+    )
+
+
+def implementation_source_closure_for_modules(
+    module_names: tuple[str, ...],
+) -> tuple[ImplementationSource, ...]:
+    """Derive the exact normalized product-source closure for behavior modules."""
+
+    raw = _require_exact_tuple(module_names, "behavior source entry modules")
+    entries: set[str] = set()
+    for module_name in raw:
+        name = _require_module_name(module_name, "behavior source entry module")
+        if name in entries:
+            _fail(f"duplicate behavior source entry module: {name}")
+        entries.add(name)
+    sources, _, _ = _derive_product_source_closure(frozenset(entries))
+    return sources
+
+
 def _validate_implementation_sources(
     candidates: object,
-    expected_modules: frozenset[str],
-) -> tuple[tuple[ImplementationSource, ...], dict[str, str]]:
+    expected_sources: tuple[ImplementationSource, ...],
+) -> tuple[ImplementationSource, ...]:
     raw = _require_exact_tuple(candidates, "implementation sources")
     by_module: dict[str, ImplementationSource] = {}
-    normalized_sources: dict[str, str] = {}
-    source_paths: dict[str, Path] = {}
     for candidate in raw:
         if type(candidate) is not ImplementationSource:
             _fail("implementation source entries must be exact ImplementationSource values")
@@ -1330,115 +1861,227 @@ def _validate_implementation_sources(
         if module_name in by_module:
             _fail(f"duplicate implementation source identity: {module_name}")
         _require_fingerprint(candidate.source_fingerprint, "implementation source fingerprint")
-        raw_source, normalized, path = _read_module_source(module_name)
+        raw_source, _, _ = _read_module_source(module_name)
         actual = normalized_source_fingerprint(raw_source)
         if candidate.source_fingerprint != actual:
             _fail(f"source fingerprint mismatch: {module_name}")
         by_module[module_name] = candidate
-        normalized_sources[module_name] = normalized
-        source_paths[module_name] = path
-    missing = expected_modules.difference(by_module)
-    extra = set(by_module).difference(expected_modules)
+    expected_by_module = {
+        source.module_name: source for source in expected_sources
+    }
+    missing = set(expected_by_module).difference(by_module)
+    extra = set(by_module).difference(expected_by_module)
     if missing:
         _fail("missing implementation source declaration")
     if extra:
         _fail("extra implementation source declaration")
-
-    declared_paths = {path.parent for path in source_paths.values()}
-    declared_roots = {module_name.split(".", 1)[0] for module_name in by_module}
-    for module_name, source in normalized_sources.items():
-        for imported in _absolute_imports(module_name, source):
-            if imported.startswith("rook.validation_kernel"):
-                continue
-            declared = any(
-                imported == candidate
-                or imported.startswith(candidate + ".")
-                or candidate.startswith(imported + ".")
-                for candidate in by_module
-            )
-            if imported.split(".", 1)[0] in declared_roots and not declared:
-                _fail(
-                    f"undeclared in-package behavior module imported by {module_name}: {imported}"
-                )
-            origin = _module_origin(imported)
-            if origin is None or origin.parent not in declared_paths:
-                continue
-            if not declared:
-                _fail(
-                    f"undeclared in-package behavior module imported by {module_name}: {imported}"
-                )
     names = sorted(by_module, key=utf16_sort_key)
-    return tuple(by_module[name] for name in names), normalized_sources
+    return tuple(by_module[name] for name in names)
 
 
 def _normalized_distribution_name(name: str) -> str:
-    return re.sub(r"[-_.]+", "-", name).lower()
+    if type(name) is not str or not name:
+        _fail("runtime dependency name must be a nonempty exact string")
+    normalized = re.sub(r"[-_.]+", "-", name).lower()
+    if _DISTRIBUTION_NAME_RE.fullmatch(normalized) is None:
+        _fail("runtime dependency name is not a valid PEP 503 identity")
+    return normalized
 
 
-@lru_cache(maxsize=1)
 def _package_distribution_map() -> dict[str, tuple[str, ...]]:
     return {
-        package: tuple(distributions)
+        package.casefold(): tuple(
+            sorted(
+                {
+                    _normalized_distribution_name(distribution)
+                    for distribution in distributions
+                },
+                key=utf16_sort_key,
+            )
+        )
         for package, distributions in importlib.metadata.packages_distributions().items()
     }
 
 
-def _validate_source_runtime_dependencies(
-    normalized_sources: Mapping[str, str],
-    implementation_sources: tuple[ImplementationSource, ...],
-    dependencies: tuple[RuntimeDependencySpec, ...],
-) -> None:
-    declared_modules = {source.module_name for source in implementation_sources}
-    declared_distributions = {
-        _normalized_distribution_name(dependency.distribution_name)
-        for dependency in dependencies
-    }
+def _direct_imported_distributions(
+    imports_by_module: Mapping[str, tuple[str, ...]],
+    product_modules: frozenset[str],
+) -> frozenset[str]:
     package_distributions = _package_distribution_map()
-    for module_name, source in normalized_sources.items():
-        for imported in _absolute_imports(module_name, source):
-            if imported.startswith("rook.validation_kernel"):
-                continue
-            if any(
-                imported == candidate
-                or imported.startswith(candidate + ".")
-                or candidate.startswith(imported + ".")
-                for candidate in declared_modules
-            ):
+    distributions: set[str] = set()
+    for module_name, imports in imports_by_module.items():
+        for imported in imports:
+            if imported in product_modules:
                 continue
             top_level = imported.split(".", 1)[0]
             if top_level in sys.stdlib_module_names:
                 continue
-            distributions = package_distributions.get(top_level, ())
-            if distributions and not any(
-                _normalized_distribution_name(distribution)
-                in declared_distributions
-                for distribution in distributions
-            ):
-                _fail(
-                    f"undeclared runtime dependency imported by {module_name}: {imported}"
-                )
+            owners = package_distributions.get(top_level.casefold(), ())
+            if owners:
+                distributions.update(owners)
+                continue
+            _fail(
+                "import cannot be resolved to product, standard-library, or "
+                f"distribution authority: {module_name}/{imported}"
+            )
+    return frozenset(distributions)
+
+
+def _derive_runtime_dependency_projections(
+    imports_by_module: Mapping[str, tuple[str, ...]],
+    product_modules: frozenset[str],
+    direct_distribution_names: tuple[str, ...],
+) -> dict[str, dict[str, object]]:
+    required_extras: dict[str, set[str]] = {}
+
+    def require(name: str, extras: tuple[str, ...] = ()) -> None:
+        normalized_name = _normalized_distribution_name(name)
+        normalized_extras = {
+            _normalized_distribution_name(extra) for extra in extras
+        }
+        current = required_extras.setdefault(normalized_name, set())
+        current.update(normalized_extras)
+
+    for name in _direct_imported_distributions(
+        imports_by_module,
+        product_modules,
+    ):
+        require(name)
+    seen_direct: set[str] = set()
+    for name in direct_distribution_names:
+        if type(name) is not str or not name:
+            _fail("direct runtime dependency name must be a nonempty exact string")
+        normalized_name = _normalized_distribution_name(name)
+        if normalized_name in seen_direct:
+            _fail(f"duplicate direct runtime dependency identity: {normalized_name}")
+        seen_direct.add(normalized_name)
+        require(normalized_name)
+
+    projections: dict[str, dict[str, object]] = {}
+    processed_extras: dict[str, frozenset[str]] = {}
+    while True:
+        pending = sorted(
+            (
+                name
+                for name, extras in required_extras.items()
+                if processed_extras.get(name) != frozenset(extras)
+            ),
+            key=utf16_sort_key,
+        )
+        if not pending:
+            break
+        name = pending[0]
+        extras = frozenset(required_extras[name])
+        projection = _installed_dependency_projection(
+            name,
+            activated_extras=extras,
+        )
+        projections[name] = projection
+        processed_extras[name] = extras
+        for requirement in cast(
+            list[dict[str, object]],
+            projection["active_runtime_requirements"],
+        ):
+            dependency_name = cast(str, requirement["distribution_name"])
+            dependency_extras = tuple(cast(list[str], requirement["extras"]))
+            require(dependency_name, dependency_extras)
+            specifier = cast(str, requirement["specifier"])
+            if specifier:
+                try:
+                    installed_version = importlib.metadata.version(dependency_name)
+                except importlib.metadata.PackageNotFoundError as error:
+                    raise ProgramCompositionError(
+                        f"transitive runtime dependency is not installed: {dependency_name}"
+                    ) from error
+                parsed = Requirement(f"{dependency_name}{specifier}")
+                if not parsed.specifier.contains(installed_version, prereleases=True):
+                    _fail(
+                        f"transitive runtime dependency version is incompatible: {dependency_name}"
+                    )
+    return projections
+
+
+def _dependency_spec_from_projection(
+    projection: Mapping[str, object],
+) -> RuntimeDependencySpec:
+    return RuntimeDependencySpec(
+        distribution_name=cast(str, projection["distribution_name"]),
+        expected_version=cast(str, projection["version"]),
+        behavior_files=tuple(
+            cast(str, item["path"])
+            for item in cast(
+                list[dict[str, object]],
+                projection["behavior_files"],
+            )
+        ),
+        distribution_fingerprint=cast(
+            str,
+            projection["distribution_fingerprint"],
+        ),
+    )
+
+
+def runtime_dependency_closure_for_modules(
+    module_names: tuple[str, ...],
+    direct_distribution_names: tuple[str, ...],
+) -> tuple[RuntimeDependencySpec, ...]:
+    """Derive active installed distribution closure for exact behavior modules."""
+
+    raw_modules = _require_exact_tuple(module_names, "behavior source entry modules")
+    entries: set[str] = set()
+    for module_name in raw_modules:
+        name = _require_module_name(module_name, "behavior source entry module")
+        if name in entries:
+            _fail(f"duplicate behavior source entry module: {name}")
+        entries.add(name)
+    raw_distributions = _require_exact_tuple(
+        direct_distribution_names,
+        "direct runtime dependencies",
+    )
+    direct_names = tuple(
+        cast(str, name)
+        for name in raw_distributions
+    )
+    sources, _, imports_by_module = _derive_product_source_closure(
+        frozenset(entries)
+    )
+    projections = _derive_runtime_dependency_projections(
+        imports_by_module,
+        frozenset(source.module_name for source in sources),
+        direct_names,
+    )
+    return tuple(
+        _dependency_spec_from_projection(projections[name])
+        for name in sorted(projections, key=utf16_sort_key)
+    )
 
 
 def _validate_runtime_dependencies(
     candidates: object,
     schema_profiles: tuple[SchemaEvaluatorSpec, ...],
+    expected_projections: Mapping[str, dict[str, object]],
 ) -> tuple[tuple[RuntimeDependencySpec, ...], list[dict[str, object]]]:
     raw = _require_exact_tuple(candidates, "runtime dependencies")
     by_name: dict[str, RuntimeDependencySpec] = {}
-    projections: dict[str, dict[str, object]] = {}
     for candidate in raw:
         if type(candidate) is not RuntimeDependencySpec:
             _fail("runtime dependency entries must be exact RuntimeDependencySpec values")
         name = candidate.distribution_name
         if type(name) is not str or not name:
             _fail("runtime dependency name must be a nonempty exact string")
-        if name in by_name:
-            _fail(f"duplicate runtime dependency identity: {name}")
+        normalized_name = _normalized_distribution_name(name)
+        if normalized_name in by_name:
+            _fail(f"duplicate runtime dependency identity: {normalized_name}")
+        if name != normalized_name:
+            _fail(f"runtime dependency name is not PEP 503 normalized: {name}")
         _require_fingerprint(
             candidate.distribution_fingerprint,
             "runtime dependency fingerprint",
         )
-        projection = _installed_dependency_projection(name)
+        projection = expected_projections.get(normalized_name)
+        if projection is None:
+            by_name[normalized_name] = candidate
+            continue
         if candidate.expected_version != projection["version"]:
             _fail(f"runtime dependency version mismatch: {name}")
         actual_behavior_files = tuple(
@@ -1449,17 +2092,28 @@ def _validate_runtime_dependencies(
             _fail(f"runtime dependency behavior-file projection mismatch: {name}")
         if candidate.distribution_fingerprint != projection["distribution_fingerprint"]:
             _fail(f"runtime dependency fingerprint mismatch: {name}")
-        by_name[name] = candidate
-        projections[name] = projection
+        by_name[normalized_name] = candidate
+    missing = set(expected_projections).difference(by_name)
+    extra = set(by_name).difference(expected_projections)
+    if missing:
+        _fail("missing runtime dependency from derived closure")
+    if extra:
+        _fail("extra runtime dependency outside derived closure")
     for profile_spec in schema_profiles:
         for name, version in profile_spec.profile.runtime_dependencies:
-            dependency = by_name.get(name)
+            normalized_name = _normalized_distribution_name(name)
+            if name != normalized_name:
+                _fail("schema profile runtime dependency is not PEP 503 normalized")
+            dependency = by_name.get(normalized_name)
             if dependency is None:
                 _fail(f"missing runtime dependency required by schema profile: {name}")
             if dependency.expected_version != version:
                 _fail(f"schema profile dependency version mismatch: {name}")
     names = sorted(by_name, key=utf16_sort_key)
-    return tuple(by_name[name] for name in names), [projections[name] for name in names]
+    return (
+        tuple(by_name[name] for name in names),
+        [expected_projections[name] for name in names],
+    )
 
 
 def _kernel_bootstrap_identity() -> tuple[str, str, str]:
@@ -1672,20 +2326,40 @@ def _compose_contribution(contribution: ValidationProgramContribution) -> Sealed
         schemas=schemas,
     )
     expected_source_modules = frozenset(
-        component.source_module for _, component in components
+        _target_source_module(target)
+        for (binding_kind, _), target in runtime_bindings.items()
+        if binding_kind != "schema"
     )
-    implementation_sources, normalized_sources = _validate_implementation_sources(
+    (
+        expected_implementation_sources,
+        _,
+        source_imports,
+    ) = _derive_product_source_closure(expected_source_modules)
+    implementation_sources = _validate_implementation_sources(
         contribution.implementation_sources,
-        expected_source_modules,
+        expected_implementation_sources,
+    )
+    direct_profile_dependencies = tuple(
+        sorted(
+            {
+                name
+                for profile_spec in schema_profiles
+                for name, _ in profile_spec.profile.runtime_dependencies
+            },
+            key=utf16_sort_key,
+        )
+    )
+    expected_dependency_projections = _derive_runtime_dependency_projections(
+        source_imports,
+        frozenset(
+            source.module_name for source in expected_implementation_sources
+        ),
+        direct_profile_dependencies,
     )
     runtime_dependencies, dependency_manifests = _validate_runtime_dependencies(
         contribution.runtime_dependencies,
         schema_profiles,
-    )
-    _validate_source_runtime_dependencies(
-        normalized_sources,
-        implementation_sources,
-        runtime_dependencies,
+        expected_dependency_projections,
     )
 
     def component_manifest(kind: str, component: RuntimeComponentSpec) -> dict[str, object]:
@@ -1876,7 +2550,9 @@ __all__ = (
     "REPORT_PROJECTION_INPUT_ENVELOPE",
     "SealedValidationProgram",
     "compose_and_seal_program",
+    "implementation_source_closure_for_modules",
     "implementation_source_for_module",
+    "runtime_dependency_closure_for_modules",
     "runtime_dependency_spec",
     "runtime_implementation_fingerprint",
 )

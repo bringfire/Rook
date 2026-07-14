@@ -13,6 +13,18 @@ TRUSTED_BUNDLE_ASSEMBLER_PROFILE_SCHEMA_ID = (
     "rook.trusted_bundle_assembler_profile:v1"
 )
 BUDGET_RECEIPT_NESTED_FIELD_COUNT = 19
+KERNEL_REPORT_FIELD_ROLES = (
+    ("budget_receipt", "/validation_budget", "object"),
+    ("report_fingerprint", "/report_fingerprint", "string"),
+)
+REPORT_BUDGET_RECEIPT_PATH = KERNEL_REPORT_FIELD_ROLES[0][1]
+REPORT_FINGERPRINT_PATH = KERNEL_REPORT_FIELD_ROLES[1][1]
+KERNEL_OWNED_REPORT_PATHS = tuple(
+    sorted(role[1] for role in KERNEL_REPORT_FIELD_ROLES)
+)
+FIXED_REPORT_OUTER_ENVELOPE_FIELD_COUNT = (
+    BUDGET_RECEIPT_NESTED_FIELD_COUNT + len(KERNEL_OWNED_REPORT_PATHS)
+)
 
 _DRAFT = "https://json-schema.org/draft/2020-12/schema"
 _MACHINE_ID = {"type": "string", "pattern": r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"}
@@ -407,6 +419,27 @@ _PROGRAM_MANIFEST_SCHEMA_HOST = {
                     {
                         "distribution_name": {"type": "string"},
                         "version": {"type": "string"},
+                        "activated_extras": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "uniqueItems": True,
+                        },
+                        "active_runtime_requirements": {
+                            "type": "array",
+                            "items": _closed_object(
+                                {
+                                    "distribution_name": {"type": "string"},
+                                    "extras": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                        "uniqueItems": True,
+                                    },
+                                    "specifier": {"type": "string"},
+                                    "url": {"type": ["string", "null"]},
+                                    "marker": {"type": ["string", "null"]},
+                                }
+                            ),
+                        },
                         "file_records": {
                             "type": "array",
                             "items": _closed_object(
@@ -508,9 +541,14 @@ TRUSTED_BUNDLE_ASSEMBLER_PROFILE_SCHEMA_FINGERPRINT = canonical_fingerprint(
 
 __all__ = (
     "BUDGET_RECEIPT_NESTED_FIELD_COUNT",
+    "FIXED_REPORT_OUTER_ENVELOPE_FIELD_COUNT",
+    "KERNEL_OWNED_REPORT_PATHS",
+    "KERNEL_REPORT_FIELD_ROLES",
     "PROGRAM_MANIFEST_SCHEMA",
     "PROGRAM_MANIFEST_SCHEMA_FINGERPRINT",
     "PROGRAM_MANIFEST_SCHEMA_ID",
+    "REPORT_BUDGET_RECEIPT_PATH",
+    "REPORT_FINGERPRINT_PATH",
     "TRUSTED_BUNDLE_ASSEMBLER_PROFILE_SCHEMA",
     "TRUSTED_BUNDLE_ASSEMBLER_PROFILE_SCHEMA_FINGERPRINT",
     "TRUSTED_BUNDLE_ASSEMBLER_PROFILE_SCHEMA_ID",

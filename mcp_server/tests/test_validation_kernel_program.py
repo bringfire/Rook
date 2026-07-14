@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 from dataclasses import fields, replace
 from pathlib import Path
@@ -29,7 +30,9 @@ from rook.validation_kernel import (
     TRUSTED_BUNDLE_ASSEMBLER_PROFILE_SCHEMA,
     ValidationProgramContribution,
     compose_and_seal_program,
+    implementation_source_closure_for_modules,
     implementation_source_for_module,
+    runtime_dependency_closure_for_modules,
     runtime_dependency_spec,
     runtime_implementation_fingerprint,
 )
@@ -46,8 +49,11 @@ from tests._validation_kernel_fakes import (
     MutableCallable,
     MutableService,
     RUNTIME_REGISTRY,
+    StaticService,
+    UnboundService,
     alternate_beta_runner,
     beta_runner,
+    disguised_class_function,
     extra_export_validator,
     immutable_record_dispatch,
     make_closure,
@@ -98,6 +104,26 @@ def _load_temp_module(tmp_path: Path, module_name: str, source: str) -> object:
     return module
 
 
+def _load_temp_package(
+    tmp_path: Path,
+    package_name: str,
+    sources: dict[str, str],
+    entry_module: str,
+) -> object:
+    package_path = tmp_path / package_name
+    package_path.mkdir()
+    for relative_path, source in sources.items():
+        path = package_path / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source, encoding="utf-8", newline="")
+    sys.path.insert(0, str(tmp_path))
+    importlib.invalidate_caches()
+    try:
+        return importlib.import_module(f"{package_name}.{entry_module}")
+    finally:
+        sys.path.remove(str(tmp_path))
+
+
 def _check_draft_2020_12_schema(schema: object) -> None:
     """Task 4 registers its owned-value checker under this draft URI."""
 
@@ -123,6 +149,103 @@ def _replace_beta_from_module(
         implementation_id="synthetic.runner.beta:v1",
     )
     return updated
+
+
+def _with_derived_source_and_dependency_authority(
+    contribution: ValidationProgramContribution,
+) -> ValidationProgramContribution:
+    components = (
+        contribution.parser_profile.tokenizer,
+        contribution.parser_profile.parser,
+        contribution.parser_profile.canonicalizer,
+        contribution.parser_profile.ledger,
+        *(spec.evaluator for spec in contribution.schema_evaluator_profiles),
+        *contribution.runners,
+        *(export.validator for export in contribution.export_types),
+    )
+    module_names = tuple(
+        sorted(
+            {
+                component.source_module for component in components
+            }
+            | {contribution.report_projection.source_module}
+        )
+    )
+    direct_dependencies = tuple(
+        sorted(
+            {
+                name
+                for spec in contribution.schema_evaluator_profiles
+                for name, _ in spec.profile.runtime_dependencies
+            }
+        )
+    )
+    return replace(
+        contribution,
+        implementation_sources=implementation_source_closure_for_modules(
+            module_names
+        ),
+        runtime_dependencies=runtime_dependency_closure_for_modules(
+            module_names,
+            direct_dependencies,
+        ),
+    )
+
+
+def _replace_report_schema(
+    contribution: ValidationProgramContribution,
+    schema_host: dict[str, object],
+    *,
+    use_core_profile: bool = False,
+) -> ValidationProgramContribution:
+    profile = CORE_PROFILE if use_core_profile else contribution.schema_evaluator_profiles[0].profile
+    schema = admit_schema(
+        contribution.report_projection.output_schema_id,
+        own_trusted_json(schema_host),
+        profile,
+    )
+    bindings = tuple(
+        replace(
+            binding,
+            implementation_fingerprint=schema.schema_fingerprint,
+            target=schema,
+        )
+        if (binding.binding_kind, binding.binding_id)
+        == ("schema", contribution.report_projection.output_schema_id)
+        else binding
+        for binding in contribution.runtime_bindings
+    )
+    profiles = contribution.schema_evaluator_profiles
+    if use_core_profile and all(
+        spec.profile.profile_id != CORE_PROFILE.profile_id for spec in profiles
+    ):
+        evaluator = RuntimeComponentSpec(
+            component_id=CORE_PROFILE.profile_id,
+            implementation_id=CORE_PROFILE.evaluator_id,
+            implementation_fingerprint=runtime_implementation_fingerprint(evaluate_schema),
+            source_module=evaluate_schema.__module__,
+        )
+        profiles = profiles + (
+            SchemaEvaluatorSpec(profile=CORE_PROFILE, evaluator=evaluator),
+        )
+        bindings = bindings + (
+            RuntimeBinding(
+                binding_kind="schema_evaluator",
+                binding_id=CORE_PROFILE.profile_id,
+                implementation_fingerprint=evaluator.implementation_fingerprint,
+                target=evaluate_schema,
+            ),
+        )
+    return replace(
+        contribution,
+        schema_evaluator_profiles=profiles,
+        schemas=(schema,),
+        report_projection=replace(
+            contribution.report_projection,
+            output_schema_fingerprint=schema.schema_fingerprint,
+        ),
+        runtime_bindings=bindings,
+    )
 
 
 def test_static_phase_contract_rejects_duplicate_identities_and_unknown_authority() -> None:
@@ -240,12 +363,18 @@ def test_machine_ids_are_ascii_and_set_like_fields_use_utf16_order() -> None:
     )
     projection = replace(
         contribution.report_projection,
-        writable_body_paths=("/\ue000", "/\U00010000", "/body", "/phases", "/validation_context"),
+        writable_body_paths=(
+            "/body/\ue000",
+            "/body/\U00010000",
+            "/body",
+            "/phases",
+            "/validation_context",
+        ),
     )
     sealed = compose_and_seal_program(replace(contribution, report_projection=projection))
     manifest = json.loads(sealed.manifest_bytes)
     paths = manifest["report_projection"]["writable_body_paths"]
-    assert paths.index("/\U00010000") < paths.index("/\ue000")
+    assert paths.index("/body/\U00010000") < paths.index("/body/\ue000")
 
 
 def test_program_and_assembler_schemas_are_valid_and_recursively_closed() -> None:
@@ -343,18 +472,176 @@ def test_report_projection_declares_exact_kernel_authority_and_no_overlap() -> N
                 budget_receipt_path="/other_receipt",
                 kernel_owned_paths=("/other_receipt", "/report_fingerprint"),
             ),
-            "output schema",
+                "budget receipt",
         ),
         (
             replace(
                 projection,
-                writable_body_paths=projection.writable_body_paths + ("/budget_receipt/observed",),
+                writable_body_paths=projection.writable_body_paths + ("/validation_budget/observed",),
             ),
             "kernel-owned",
         ),
     )
     for candidate, message in mutations:
         _assert_rejected(replace(contribution, report_projection=candidate), message)
+
+
+def test_kernel_report_roles_cannot_be_redefined_by_candidate_schema() -> None:
+    contribution = make_program_contribution()
+    extra_host = _host_json(contribution.schemas[0].value)
+    assert isinstance(extra_host, dict)
+    extra_properties = extra_host["properties"]
+    assert isinstance(extra_properties, dict)
+    extra_properties["kernel_extra"] = {"type": "string"}
+    extra = _replace_report_schema(contribution, extra_host)
+    extra = replace(
+        extra,
+        report_projection=replace(
+            extra.report_projection,
+            kernel_owned_paths=extra.report_projection.kernel_owned_paths
+            + ("/kernel_extra",),
+            outer_envelope_field_count=22,
+        ),
+    )
+    _assert_rejected(extra, "fixed kernel-owned report paths")
+
+    renamed_host = _host_json(contribution.schemas[0].value)
+    assert isinstance(renamed_host, dict)
+    renamed_properties = renamed_host["properties"]
+    assert isinstance(renamed_properties, dict)
+    renamed_properties["renamed_budget"] = renamed_properties.pop(
+        "validation_budget"
+    )
+    required = renamed_host["required"]
+    assert isinstance(required, list)
+    required[required.index("validation_budget")] = "renamed_budget"
+    renamed = _replace_report_schema(contribution, renamed_host)
+    renamed = replace(
+        renamed,
+        report_projection=replace(
+            renamed.report_projection,
+            kernel_owned_paths=("/renamed_budget", "/report_fingerprint"),
+            budget_receipt_path="/renamed_budget",
+        ),
+    )
+    _assert_rejected(renamed, "fixed budget receipt path")
+
+    fingerprint_host = _host_json(contribution.schemas[0].value)
+    assert isinstance(fingerprint_host, dict)
+    fingerprint_properties = fingerprint_host["properties"]
+    assert isinstance(fingerprint_properties, dict)
+    fingerprint_properties["renamed_fingerprint"] = fingerprint_properties.pop(
+        "report_fingerprint"
+    )
+    fingerprint_required = fingerprint_host["required"]
+    assert isinstance(fingerprint_required, list)
+    fingerprint_required[
+        fingerprint_required.index("report_fingerprint")
+    ] = "renamed_fingerprint"
+    renamed_fingerprint = _replace_report_schema(
+        contribution,
+        fingerprint_host,
+    )
+    renamed_fingerprint = replace(
+        renamed_fingerprint,
+        report_projection=replace(
+            renamed_fingerprint.report_projection,
+            report_fingerprint_path="/renamed_fingerprint",
+            fingerprint_excluded_paths=("/renamed_fingerprint",),
+            kernel_owned_paths=(
+                "/renamed_fingerprint",
+                "/validation_budget",
+            ),
+        ),
+    )
+    _assert_rejected(renamed_fingerprint, "fixed role")
+
+    _assert_rejected(
+        replace(
+            contribution,
+            report_projection=replace(
+                contribution.report_projection,
+                kernel_owned_paths=("/validation_budget",),
+            ),
+        ),
+        "fixed kernel-owned report paths",
+    )
+
+
+def test_projection_writable_paths_resolve_exact_closed_schema_shapes() -> None:
+    contribution = make_program_contribution()
+    valid = replace(
+        contribution,
+        report_projection=replace(
+            contribution.report_projection,
+            writable_body_paths=contribution.report_projection.writable_body_paths
+            + ("/body/optional", "/phases/0"),
+        ),
+    )
+    compose_and_seal_program(valid)
+
+    for path, message in (
+        ("/body/missing", "does not exist"),
+        ("/body/optional/child", "closed or scalar"),
+        ("/body/closed/missing", "does not exist"),
+    ):
+        _assert_rejected(
+            replace(
+                contribution,
+                report_projection=replace(
+                    contribution.report_projection,
+                    writable_body_paths=contribution.report_projection.writable_body_paths
+                    + (path,),
+                ),
+            ),
+            message,
+        )
+
+    scalar_host = _host_json(contribution.schemas[0].value)
+    assert isinstance(scalar_host, dict)
+    scalar_body = scalar_host["properties"]["body"]
+    assert isinstance(scalar_body, dict)
+    scalar_properties = scalar_body["properties"]
+    assert isinstance(scalar_properties, dict)
+    scalar_properties["scalar_with_properties"] = {
+        "type": "string",
+        "properties": {"child": {"type": "string"}},
+        "additionalProperties": False,
+    }
+    scalar = _replace_report_schema(contribution, scalar_host)
+    scalar = replace(
+        scalar,
+        report_projection=replace(
+            scalar.report_projection,
+            writable_body_paths=scalar.report_projection.writable_body_paths
+            + ("/body/scalar_with_properties/child",),
+        ),
+    )
+    _assert_rejected(scalar, "closed or scalar")
+
+    ambiguous_host = _host_json(contribution.schemas[0].value)
+    assert isinstance(ambiguous_host, dict)
+    body_schema = ambiguous_host["properties"]["body"]
+    assert isinstance(body_schema, dict)
+    body_properties = body_schema["properties"]
+    assert isinstance(body_properties, dict)
+    body_properties["ambiguous"] = {
+        "anyOf": [{"type": "string"}, {"type": "integer"}]
+    }
+    ambiguous = _replace_report_schema(
+        contribution,
+        ambiguous_host,
+        use_core_profile=True,
+    )
+    ambiguous = replace(
+        ambiguous,
+        report_projection=replace(
+            ambiguous.report_projection,
+            writable_body_paths=ambiguous.report_projection.writable_body_paths
+            + ("/body/ambiguous",),
+        ),
+    )
+    _assert_rejected(ambiguous, "ambiguous schema branch")
 
 
 def test_candidate_canonicalizer_cannot_choose_program_fingerprint() -> None:
@@ -422,7 +709,9 @@ def test_program_seal_rejects_an_insufficient_fixed_allowance() -> None:
     )
 
 
-def test_every_manifest_authority_category_moves_program_identity() -> None:
+def test_every_manifest_authority_category_moves_program_identity(
+    tmp_path: Path,
+) -> None:
     base = make_program_contribution()
     baseline = compose_and_seal_program(base).program_fingerprint
 
@@ -510,9 +799,13 @@ def test_every_manifest_authority_category_moves_program_identity() -> None:
             ),
         ),
     )
-    changed["runtime_dependency"] = replace(
-        base,
-        runtime_dependencies=base.runtime_dependencies + (runtime_dependency_spec("attrs"),),
+    dependency_runner = _load_temp_module(
+        tmp_path,
+        "synthetic_dependency_identity",
+        "import idna\ndef runner(*args):\n    return idna\n",
+    )
+    changed["runtime_dependency"] = _with_derived_source_and_dependency_authority(
+        _replace_beta_from_module(base, dependency_runner)
     )
     changed["projection"] = replace(
         base,
@@ -576,25 +869,177 @@ def test_normalized_source_change_moves_identity_and_import_guards_are_closed(tm
             "synthetic_undeclared_import",
             "import synthetic_hidden_helper\ndef runner(*args):\n    return synthetic_hidden_helper.VALUE\n",
         )
-        _assert_rejected(_replace_beta_from_module(base, undeclared), "undeclared in-package")
+        _assert_rejected(
+            _replace_beta_from_module(base, undeclared),
+            "missing implementation source",
+        )
     finally:
         sys.path.remove(str(tmp_path))
 
     undeclared_dependency = _load_temp_module(
         tmp_path,
         "synthetic_undeclared_dependency",
-        "import attrs\ndef runner(*args):\n    return attrs\n",
+        "import idna\ndef runner(*args):\n    return idna\n",
     )
     dependency_contribution = _replace_beta_from_module(
         base, undeclared_dependency
     )
-    _assert_rejected(dependency_contribution, "undeclared runtime dependency")
+    _assert_rejected(dependency_contribution, "missing runtime dependency")
     compose_and_seal_program(
+        _with_derived_source_and_dependency_authority(dependency_contribution)
+    )
+
+    unresolved_dependency = _load_temp_module(
+        tmp_path,
+        "synthetic_unresolved_dependency",
+        (
+            "def runner(*args):\n"
+            "    import synthetic_distribution_that_does_not_exist\n"
+            "    return synthetic_distribution_that_does_not_exist\n"
+        ),
+    )
+    _assert_rejected(
+        _replace_beta_from_module(base, unresolved_dependency),
+        "cannot be resolved to product, standard-library, or distribution authority",
+    )
+
+
+def test_product_source_declarations_equal_the_exact_transitive_reachable_set(
+    tmp_path: Path,
+) -> None:
+    package_name = "synthetic_product_closure"
+    entry = _load_temp_package(
+        tmp_path,
+        package_name,
+        {
+            "__init__.py": "from .reexported import PACKAGE_MARKER\n",
+            "entry.py": (
+                "from . import helper\n"
+                "def runner(*args):\n"
+                "    return helper.result()\n"
+            ),
+            "helper.py": (
+                "from .deep import VALUE\n"
+                "def result():\n"
+                "    return VALUE\n"
+            ),
+            "deep.py": "VALUE = ('sealed',)\n",
+            "reexported.py": "PACKAGE_MARKER = 'reachable-via-package-init'\n",
+            "unrelated.py": "VALUE = 'not behavior'\n",
+        },
+        "entry",
+    )
+    contribution = _replace_beta_from_module(make_program_contribution(), entry)
+    reachable_names = {
+        package_name,
+        f"{package_name}.entry",
+        f"{package_name}.helper",
+        f"{package_name}.deep",
+        f"{package_name}.reexported",
+    }
+    sources = {
+        source.module_name: source for source in contribution.implementation_sources
+    }
+    sources.update(
+        {
+            module_name: implementation_source_for_module(module_name)
+            for module_name in reachable_names
+        }
+    )
+    exact = replace(contribution, implementation_sources=tuple(sources.values()))
+
+    sealed = compose_and_seal_program(exact)
+    manifested = {
+        item["module_name"]
+        for item in json.loads(sealed.manifest_bytes)["implementation_sources"]
+        if item["module_name"].startswith(package_name)
+    }
+    assert manifested == reachable_names
+
+    missing = tuple(
+        source
+        for source in exact.implementation_sources
+        if source.module_name != f"{package_name}.deep"
+    )
+    _assert_rejected(
+        replace(exact, implementation_sources=missing),
+        "missing implementation source",
+    )
+    _assert_rejected(
         replace(
-            dependency_contribution,
-            runtime_dependencies=dependency_contribution.runtime_dependencies
-            + (runtime_dependency_spec("attrs"),),
-        )
+            exact,
+            implementation_sources=exact.implementation_sources
+            + (implementation_source_for_module(f"{package_name}.unrelated"),),
+        ),
+        "extra implementation source",
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "import builtins as b\ndef runner(*args):\n    return b.__import__('math')\n",
+        "from builtins import __import__ as load\ndef runner(*args):\n    return load('math')\n",
+        "from importlib import import_module as load\ndef runner(*args):\n    return load('math')\n",
+        "import importlib as il\ndef runner(*args):\n    return il.import_module('math')\n",
+        "load = __import__\ndef runner(*args):\n    return load('math')\n",
+        "def runner(*args, load=__import__):\n    return load('math')\n",
+        "import importlib as il\nload = il.import_module\ndef runner(*args):\n    return load('math')\n",
+        "import importlib\nil = importlib\ndef runner(*args):\n    return il.import_module('math')\n",
+        (
+            "import builtins as b\n"
+            "load = getattr(b, '__import__')\n"
+            "def runner(*args):\n"
+            "    return load('math')\n"
+        ),
+        (
+            "import importlib as il\n"
+            "load = getattr(il, 'import_module')\n"
+            "def runner(*args):\n"
+            "    return load('math')\n"
+        ),
+        (
+            "import builtins as b\n"
+            "load = b.__dict__['__import__']\n"
+            "def runner(*args):\n"
+            "    return load('math')\n"
+        ),
+        (
+            "import importlib as il\n"
+            "load = il.__dict__['import_module']\n"
+            "def runner(*args):\n"
+            "    return load('math')\n"
+        ),
+        (
+            "import importlib\n"
+            "class Holder:\n"
+            "    pass\n"
+            "holder = Holder()\n"
+            "holder.load = importlib.import_module\n"
+            "def runner(*args):\n"
+            "    return holder.load('math')\n"
+        ),
+        (
+            "import importlib\n"
+            "loaders = {'module': importlib.import_module}\n"
+            "def runner(*args):\n"
+            "    return loaders['module']('math')\n"
+        ),
+        (
+            "def runner(*args):\n"
+            "    return __builtins__['__import__']('math')\n"
+        ),
+    ),
+)
+def test_dynamic_import_alias_forms_are_rejected(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    module_name = f"synthetic_dynamic_alias_{abs(hash(source))}"
+    module = _load_temp_module(tmp_path, module_name, source)
+    _assert_rejected(
+        _replace_beta_from_module(make_program_contribution(), module),
+        "dynamic import",
     )
 
 
@@ -643,6 +1088,15 @@ def test_runtime_bindings_are_exact_and_reject_unsafe_callable_shapes() -> None:
         bindings = list(contribution.runtime_bindings)
         bindings[beta_index] = replace(bindings[beta_index], target=target)
         _assert_rejected(replace(contribution, runtime_bindings=tuple(bindings)), message)
+
+    for target in (StaticService.run, UnboundService.run, disguised_class_function):
+        with pytest.raises(ProgramCompositionError, match="module-level"):
+            replace_runtime_component(
+                contribution,
+                kind="runner",
+                component_id="beta",
+                target=target,
+            )
 
 
 def test_module_functions_and_immutable_callable_records_pass_and_registry_is_captured() -> None:
@@ -699,6 +1153,12 @@ def test_sealed_program_storage_is_transitively_immutable_and_exact_python_ident
 
 
 def test_third_party_projection_has_stable_relative_hashed_records() -> None:
+    assert program_module._stable_distribution_path(
+        r"C:\Users\candidate\wheel\module.py"
+    ) is None
+    assert program_module._stable_distribution_path(
+        "../candidate-cache/module.py"
+    ) is None
     sealed = compose_and_seal_program(make_program_contribution())
     dependencies = json.loads(sealed.manifest_bytes)["runtime_dependencies"]
     assert dependencies
@@ -720,6 +1180,78 @@ def test_third_party_projection_has_stable_relative_hashed_records() -> None:
     _assert_rejected(
         replace(contribution, runtime_dependencies=(wrong,) + contribution.runtime_dependencies[1:]),
         "dependency version",
+    )
+
+
+def test_runtime_dependency_closure_is_transitive_normalized_and_exact() -> None:
+    contribution = make_program_contribution()
+    sealed = compose_and_seal_program(contribution)
+    dependencies = json.loads(sealed.manifest_bytes)["runtime_dependencies"]
+    names = [dependency["distribution_name"] for dependency in dependencies]
+    expected = {
+        "attrs",
+        "jsonschema",
+        "jsonschema-specifications",
+        "packaging",
+        "referencing",
+        "rpds-py",
+        "typing-extensions",
+    }
+    assert set(names) == expected
+    assert len(names) == len(set(names))
+    assert all(name == re.sub(r"[-_.]+", "-", name).lower() for name in names)
+    for dependency in dependencies:
+        requirements = dependency["active_runtime_requirements"]
+        assert requirements == sorted(
+            requirements,
+            key=lambda requirement: requirement["distribution_name"],
+        )
+        assert all(
+            requirement["distribution_name"] in expected
+            for requirement in requirements
+        )
+
+    missing_attrs = tuple(
+        dependency
+        for dependency in contribution.runtime_dependencies
+        if dependency.distribution_name != "attrs"
+    )
+    _assert_rejected(
+        replace(contribution, runtime_dependencies=missing_attrs),
+        "missing runtime dependency",
+    )
+
+    jsonschema_dependency = next(
+        dependency
+        for dependency in contribution.runtime_dependencies
+        if dependency.distribution_name == "jsonschema"
+    )
+    assert runtime_dependency_spec("JSONSchema") == runtime_dependency_spec(
+        "jsonschema"
+    )
+    for alias, message in (
+        ("JSONSchema", "duplicate runtime dependency identity"),
+        ("json_schema", "PEP 503 normalized"),
+    ):
+        duplicate_alias = replace(
+            jsonschema_dependency,
+            distribution_name=alias,
+        )
+        _assert_rejected(
+            replace(
+                contribution,
+                runtime_dependencies=contribution.runtime_dependencies
+                + (duplicate_alias,),
+            ),
+            message,
+        )
+    _assert_rejected(
+        replace(
+            contribution,
+            runtime_dependencies=contribution.runtime_dependencies
+            + (runtime_dependency_spec("idna"),),
+        ),
+        "extra runtime dependency",
     )
 
 

@@ -20,8 +20,9 @@ from rook.validation_kernel import (
     RuntimeComponentSpec,
     SchemaEvaluatorSpec,
     ValidationProgramContribution,
+    implementation_source_closure_for_modules,
     implementation_source_for_module,
-    runtime_dependency_spec,
+    runtime_dependency_closure_for_modules,
     runtime_implementation_fingerprint,
 )
 from rook.validation_kernel.budget import LM9A_BUDGET_MANIFEST
@@ -111,6 +112,27 @@ class MutableService:
         return None
 
 
+class StaticService:
+    @staticmethod
+    def run(*_: object) -> None:
+        return None
+
+
+class UnboundService:
+    def run(self, *_: object) -> None:
+        return None
+
+
+class DisguisedStaticService:
+    @staticmethod
+    def run(*_: object) -> None:
+        return None
+
+
+disguised_class_function = DisguisedStaticService.run
+disguised_class_function.__qualname__ = disguised_class_function.__name__
+
+
 RUNTIME_REGISTRY: dict[tuple[str, str], object] = {}
 
 
@@ -146,13 +168,26 @@ def _output_schema() -> object:
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
             "properties": {
-                "body": {"type": "object", "additionalProperties": False},
+                "body": {
+                    "type": "object",
+                    "properties": {
+                        "closed": {
+                            "type": "object",
+                            "properties": {},
+                            "additionalProperties": False,
+                        },
+                        "optional": {"type": "string"},
+                        "\ue000": {"type": "string"},
+                        "\U00010000": {"type": "string"},
+                    },
+                    "additionalProperties": False,
+                },
                 "validation_context": {
                     "type": "object",
                     "additionalProperties": False,
                 },
                 "phases": {"type": "array", "items": {"type": "string"}},
-                "budget_receipt": {
+                "validation_budget": {
                     "type": "object",
                     "additionalProperties": False,
                 },
@@ -162,7 +197,7 @@ def _output_schema() -> object:
                 "body",
                 "validation_context",
                 "phases",
-                "budget_receipt",
+                "validation_budget",
                 "report_fingerprint",
             ],
             "additionalProperties": False,
@@ -311,8 +346,8 @@ def make_program_contribution() -> ValidationProgramContribution:
             "phase_results",
         ),
         required_for_compile_phases=("alpha", "beta"),
-        kernel_owned_paths=("/budget_receipt", "/report_fingerprint"),
-        budget_receipt_path="/budget_receipt",
+        kernel_owned_paths=("/report_fingerprint", "/validation_budget"),
+        budget_receipt_path="/validation_budget",
         writable_body_paths=("/body", "/phases", "/validation_context"),
         mandatory_shells=(("/validation_context", "object"),),
         outer_envelope_field_count=21,
@@ -365,13 +400,13 @@ def make_program_contribution() -> ValidationProgramContribution:
             )
         }
     )
-    implementation_sources = tuple(
-        implementation_source_for_module(module_name) for module_name in modules
+    implementation_sources = implementation_source_closure_for_modules(
+        tuple(modules)
     )
 
-    dependencies = tuple(
-        runtime_dependency_spec(name)
-        for name, _ in PAYLOAD_PROFILE.runtime_dependencies
+    dependencies = runtime_dependency_closure_for_modules(
+        tuple(modules),
+        tuple(name for name, _ in PAYLOAD_PROFILE.runtime_dependencies),
     )
     return ValidationProgramContribution(
         program_id="synthetic.validation_program:v1",
@@ -458,9 +493,12 @@ __all__ = (
     "MutableCallable",
     "MutableService",
     "RUNTIME_REGISTRY",
+    "StaticService",
+    "UnboundService",
     "alternate_beta_runner",
     "beta_runner",
     "canonical_json_bytes",
+    "disguised_class_function",
     "extra_export_validator",
     "immutable_record_dispatch",
     "make_closure",
