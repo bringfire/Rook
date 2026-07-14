@@ -247,7 +247,23 @@ def test_report_canonical_byte_limit_is_inclusive_per_serialization() -> None:
     assert meter.canonical_bytes == limit
 
 
-def test_seal_meter_enforces_fixed_allowance_without_mutating_a_receipt() -> None:
+def test_seal_meter_projection_fields_accepts_exact_and_rejects_131073() -> None:
+    _, receipt = _frozen_receipt()
+    meter = SealMeter(receipt)
+    field_limit = _limit_from_manifest(BudgetDimension.REPORT_PROJECTION_FIELDS)
+
+    meter.charge_projection_fields(field_limit)
+
+    assert meter.projection_fields == 131_072
+    with pytest.raises(budget_module._SealMeterExceeded) as raised:
+        meter.charge_projection_fields(1)
+    assert raised.value.dimension == BudgetDimension.REPORT_PROJECTION_FIELDS.value
+    assert raised.value.limit == 131_072
+    assert raised.value.observed_lower_bound == 131_073
+    assert meter.projection_fields == 131_072
+
+
+def test_seal_meter_work_accepts_exact_and_rejects_262145_without_receipt_mutation() -> None:
     ledger = BudgetLedger(LM9A_BUDGET_MANIFEST)
     receipt = ledger.reserve_report_seal_and_freeze()
     meter = SealMeter(receipt)
@@ -261,8 +277,11 @@ def test_seal_meter_enforces_fixed_allowance_without_mutating_a_receipt() -> Non
     assert meter.work_units == 262_144
     assert receipt.observed.report_seal_reserved_work_units == 262_144
     with pytest.raises(budget_module._SealMeterExceeded) as raised:
-        meter.charge_canonical_bytes(report_bytes)
+        meter.charge_canonical_bytes(1)
     assert raised.value.dimension == BudgetDimension.REPORT_SEAL_WORK_UNITS.value
+    assert raised.value.limit == 262_144
+    assert raised.value.observed_lower_bound == 262_145
+    assert meter.work_units == 262_144
     assert receipt == receipt_before_metering
 
 
