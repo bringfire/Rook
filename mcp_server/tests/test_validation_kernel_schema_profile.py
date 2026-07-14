@@ -1495,7 +1495,7 @@ def test_evaluator_exception_hash_bypasses_hostile_type_metadata_descriptors() -
             raise AssertionError("exception hashing invoked metaclass descriptor")
 
     class HostileDetail(metaclass=HostileMetadata):
-        pass
+        """An exception detail whose metaclass metadata must remain unread."""
 
     first = schema_profile_module._exception_detail_digest(
         RuntimeError(HostileDetail())

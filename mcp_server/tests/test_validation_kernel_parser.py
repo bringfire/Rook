@@ -99,7 +99,7 @@ _REQUIRED_GENERATED_STRING_FORMS = (
 
 
 class _OracleRejected(ValueError):
-    pass
+    """The independent parser oracle rejected the candidate input."""
 
 
 def _limit(dimension: BudgetDimension) -> int:
@@ -131,7 +131,7 @@ def _parse_rejection(raw: bytes) -> JsonParseError:
 
 def test_parser_accepts_only_exact_builtin_bytes() -> None:
     class BytesSubclass(bytes):
-        pass
+        """An inexact byte carrier used to probe the public boundary."""
 
     for raw in (
         bytearray(b"null"),
