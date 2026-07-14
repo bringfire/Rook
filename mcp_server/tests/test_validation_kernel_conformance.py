@@ -550,12 +550,12 @@ def test_successful_campaign_seals_exact_identity_and_attempt_rows(
     assert canonical_fingerprint(_owned_object(unsigned)) == asserted
 
 
-def test_fixture_machine_id_accepts_worker_slot_confirmation_like_vocabulary(
+def test_fixture_machine_id_accepts_third_generic_identity(
     program: object,
     gate_profile: SealedConformanceGateProfile,
     assembler_profile: object,
 ) -> None:
-    fixture_id = "fixture.worker-slot.confirmation-like"
+    fixture_id = "fixture.generic_third_case"
     fixture = _campaign_fixture(
         program,
         gate_profile,
@@ -1453,3 +1453,120 @@ def test_fixture_identity_schema_closes_expected_actual_and_match_variants(
     )
     for invalid in invalid_reports:
         assert not validator.is_valid(invalid)
+
+
+def test_core_result_schema_requires_matching_single_attempt_evidence(
+    program: object,
+    gate_profile: SealedConformanceGateProfile,
+    campaign: CampaignFixture,
+) -> None:
+    result = conformance_module.run_conformance_gate(
+        gate_profile,
+        program,  # type: ignore[arg-type]
+        campaign.campaign_bytes,
+        campaign.fixture_context,
+    )
+    report = _report(result)
+    report_schema = json.loads(canonical_json_bytes(CONFORMANCE_REPORT_SCHEMA))
+    row_schema = report_schema["properties"]["result_rows"]["items"]
+    validator = Draft202012Validator(row_schema)
+    core = copy.deepcopy(
+        next(
+            row
+            for row in report["result_rows"]
+            if row["case_kind"] == "core_schema_positive"
+        )
+    )
+    assert validator.is_valid(core)
+    successful_attempt = core["schema_evaluations"][0]
+
+    rejected_attempt = {
+        **successful_attempt,
+        "attempt_status": "reservation_rejected",
+        "attempted_shape_units": None,
+        "aggregate_after_reservation": None,
+        "evaluator_invoked": False,
+        "evaluation_passed": None,
+        "failure_code": "per_evaluation_limit_exceeded",
+    }
+    evaluator_failed_attempt = {
+        **successful_attempt,
+        "attempt_status": "evaluator_failed",
+        "evaluation_passed": None,
+        "failure_code": "schema_evaluator_failed",
+    }
+    completed_invalid_attempt = {
+        **successful_attempt,
+        "evaluation_passed": False,
+        "failure_code": "instance_schema_failed",
+    }
+
+    honest_rejected = {
+        **core,
+        "outcome": "failed",
+        "schema_case_result": {"instance_schema_valid": None},
+        "schema_evaluations": [rejected_attempt],
+        "aggregate_schema_evaluation_shape_units": rejected_attempt[
+            "aggregate_before_reservation"
+        ],
+        "within_every_per_evaluation_limit": False,
+        "failure_code": "validation_budget_exceeded",
+    }
+    honest_evaluator_failed = {
+        **core,
+        "outcome": "failed",
+        "schema_case_result": {"instance_schema_valid": None},
+        "schema_evaluations": [evaluator_failed_attempt],
+        "failure_code": "schema_evaluation_failed",
+    }
+    honest_completed_invalid = {
+        **core,
+        "outcome": "failed",
+        "schema_case_result": {"instance_schema_valid": False},
+        "schema_evaluations": [completed_invalid_attempt],
+        "failure_code": "schema_evaluation_failed",
+    }
+    honest_pre_attempt_failure = {
+        **core,
+        "outcome": "failed",
+        "schema_case_result": {"instance_schema_valid": None},
+        "schema_evaluations": [],
+        "aggregate_schema_evaluation_shape_units": 0,
+        "failure_code": "case_content_unavailable",
+    }
+    for valid in (
+        honest_rejected,
+        honest_evaluator_failed,
+        honest_completed_invalid,
+        honest_pre_attempt_failure,
+    ):
+        assert validator.is_valid(valid), valid
+
+    impossible = (
+        {**core, "schema_evaluations": []},
+        {**core, "schema_evaluations": [rejected_attempt]},
+        {**core, "schema_evaluations": [evaluator_failed_attempt]},
+        {
+            **core,
+            "schema_case_result": {"instance_schema_valid": False},
+        },
+        {
+            **honest_rejected,
+            "failure_code": "schema_evaluation_failed",
+        },
+        {
+            **honest_evaluator_failed,
+            "failure_code": "validation_budget_exceeded",
+        },
+        {
+            **honest_completed_invalid,
+            "outcome": "passed",
+            "failure_code": None,
+        },
+        {
+            **honest_pre_attempt_failure,
+            "failure_code": "validation_budget_exceeded",
+        },
+    )
+    for invalid in impossible:
+        assert not validator.is_valid(invalid), invalid

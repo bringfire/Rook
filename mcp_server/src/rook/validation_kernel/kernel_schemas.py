@@ -990,6 +990,29 @@ _RESULT_ROW_PROPERTIES = {
         ]
     },
 }
+
+
+def _single_core_attempt_evidence(
+    attempt_status: str,
+    evaluation_passed: bool | None,
+) -> dict[str, object]:
+    evaluation_passed_schema = (
+        {"type": "null"}
+        if evaluation_passed is None
+        else {"const": evaluation_passed}
+    )
+    return {
+        "minItems": 1,
+        "maxItems": 1,
+        "contains": {
+            "properties": {
+                "attempt_status": {"const": attempt_status},
+                "evaluation_passed": evaluation_passed_schema,
+            }
+        },
+    }
+
+
 _RESULT_ROW = {
     **_closed_object(_RESULT_ROW_PROPERTIES),
     "allOf": [
@@ -1000,7 +1023,101 @@ _RESULT_ROW = {
                         "case_kind": {"const": "core_schema_positive"},
                         "schema_case_result": {"type": "object"},
                         "fixture_case_result": {"type": "null"},
-                    }
+                    },
+                    "oneOf": [
+                        {
+                            "properties": {
+                                "outcome": {"const": "passed"},
+                                "schema_case_result": {
+                                    "properties": {
+                                        "instance_schema_valid": {"const": True}
+                                    }
+                                },
+                                "schema_evaluations": (
+                                    _single_core_attempt_evidence(
+                                        "evaluation_completed",
+                                        True,
+                                    )
+                                ),
+                                "failure_code": {"type": "null"},
+                            }
+                        },
+                        {
+                            "properties": {
+                                "outcome": {"const": "failed"},
+                                "schema_case_result": {
+                                    "properties": {
+                                        "instance_schema_valid": {"const": False}
+                                    }
+                                },
+                                "schema_evaluations": (
+                                    _single_core_attempt_evidence(
+                                        "evaluation_completed",
+                                        False,
+                                    )
+                                ),
+                                "failure_code": {
+                                    "const": "schema_evaluation_failed"
+                                },
+                            }
+                        },
+                        {
+                            "properties": {
+                                "outcome": {"const": "failed"},
+                                "schema_case_result": {
+                                    "properties": {
+                                        "instance_schema_valid": {"type": "null"}
+                                    }
+                                },
+                                "schema_evaluations": (
+                                    _single_core_attempt_evidence(
+                                        "evaluator_failed",
+                                        None,
+                                    )
+                                ),
+                                "failure_code": {
+                                    "const": "schema_evaluation_failed"
+                                },
+                            }
+                        },
+                        {
+                            "properties": {
+                                "outcome": {"const": "failed"},
+                                "schema_case_result": {
+                                    "properties": {
+                                        "instance_schema_valid": {"type": "null"}
+                                    }
+                                },
+                                "schema_evaluations": (
+                                    _single_core_attempt_evidence(
+                                        "reservation_rejected",
+                                        None,
+                                    )
+                                ),
+                                "failure_code": {
+                                    "const": "validation_budget_exceeded"
+                                },
+                            }
+                        },
+                        {
+                            "properties": {
+                                "outcome": {"const": "failed"},
+                                "schema_case_result": {
+                                    "properties": {
+                                        "instance_schema_valid": {"type": "null"}
+                                    }
+                                },
+                                "schema_evaluations": {"maxItems": 0},
+                                "failure_code": {
+                                    "enum": [
+                                        "case_content_unavailable",
+                                        "case_fingerprint_mismatch",
+                                        "case_execution_failed",
+                                    ]
+                                },
+                            }
+                        },
+                    ],
                 },
                 {
                     "properties": {
