@@ -30,6 +30,7 @@ from rook.validation_kernel.schema_profile import (
     AdmittedSchema,
     InstanceBinding,
     SchemaAdmissionError,
+    SchemaEvaluationInputError,
     SchemaEvaluationReceipt,
     SchemaIssue,
     SchemaProfile,
@@ -39,6 +40,8 @@ from rook.validation_kernel.schema_profile import (
 
 
 DRAFT_2020_12_METASCHEMA_ID = "https://json-schema.org/draft/2020-12/schema"
+EXPECTED_SCHEMA_ISSUE_PATH_BYTES = 512
+EXPECTED_SCHEMA_ISSUE_EVIDENCE_BYTES = 65_536
 PAYLOAD_ALLOWED_CASES = {
     "$schema": {"$schema": DRAFT_2020_12_METASCHEMA_ID},
     "$defs": {"$defs": {"leaf": {"type": "null"}}},
@@ -117,6 +120,16 @@ def binding(pointer: str = "") -> InstanceBinding:
         artifact_fingerprint="sha256:" + "a" * 64,
         instance_pointer=pointer,
     )
+
+
+def schema_issue_evidence_bytes(issue: SchemaIssue) -> int:
+    fields = (
+        issue.code,
+        issue.instance_path,
+        issue.schema_path,
+        issue.detail_sha256 or "",
+    )
+    return sum(len(field.encode("utf-8")) for field in fields)
 
 
 def admit(host: dict[str, object], profile: SchemaProfile = PAYLOAD_PROFILE) -> AdmittedSchema:
@@ -225,6 +238,59 @@ def test_library_metaschema_rejection_is_closed_after_static_admission() -> None
 
 
 @pytest.mark.parametrize("profile", [PAYLOAD_PROFILE, CORE_PROFILE])
+def test_exact_bound_draft_2020_12_schema_uri_is_admitted(
+    profile: SchemaProfile,
+) -> None:
+    admitted = admit({"$schema": DRAFT_2020_12_METASCHEMA_ID}, profile)
+
+    assert admitted.profile_id == profile.profile_id
+
+
+@pytest.mark.parametrize("profile", [PAYLOAD_PROFILE, CORE_PROFILE])
+@pytest.mark.parametrize(
+    "wrong_dialect",
+    [
+        "https://json-schema.org/draft/2019-09/schema",
+        "urn:example:unrelated-dialect",
+        "",
+        None,
+        20_201_212,
+        True,
+        [],
+        {"uri": DRAFT_2020_12_METASCHEMA_ID},
+    ],
+    ids=[
+        "draft-2019-09",
+        "unrelated-urn",
+        "empty",
+        "null",
+        "number",
+        "boolean",
+        "array",
+        "object",
+    ],
+)
+def test_wrong_schema_dialect_is_rejected_during_static_admission(
+    monkeypatch: pytest.MonkeyPatch,
+    profile: SchemaProfile,
+    wrong_dialect: object,
+) -> None:
+    def library_must_not_run(_: object) -> None:
+        raise AssertionError("wrong schema dialect reached library construction")
+
+    monkeypatch.setattr(
+        schema_profile_module,
+        "_check_schema_with_library",
+        library_must_not_run,
+    )
+
+    with pytest.raises(SchemaAdmissionError) as raised:
+        admit({"$schema": wrong_dialect}, profile)
+
+    assert raised.value.code == "schema_dialect_invalid"
+
+
+@pytest.mark.parametrize("profile", [PAYLOAD_PROFILE, CORE_PROFILE])
 @pytest.mark.parametrize(
     "reference",
     [
@@ -274,6 +340,41 @@ def test_local_reference_graph_cycles_are_rejected(schema_host: dict[str, object
     assert raised.value.code == "local_reference_cycle"
 
 
+@pytest.mark.parametrize(
+    ("profile", "schema_host"),
+    [
+        (PAYLOAD_PROFILE, {"properties": {"child": {"$ref": ""}}}),
+        (
+            CORE_PROFILE,
+            {
+                "allOf": [
+                    {"properties": {"child": {"$ref": ""}}},
+                ]
+            },
+        ),
+    ],
+    ids=["properties", "allOf-properties"],
+)
+def test_structural_reference_reachability_rejects_ancestor_recursion_before_library(
+    monkeypatch: pytest.MonkeyPatch,
+    profile: SchemaProfile,
+    schema_host: dict[str, object],
+) -> None:
+    def library_must_not_run(_: object) -> None:
+        raise AssertionError("recursive schema reached library construction")
+
+    monkeypatch.setattr(
+        schema_profile_module,
+        "_check_schema_with_library",
+        library_must_not_run,
+    )
+
+    with pytest.raises(SchemaAdmissionError) as raised:
+        admit(schema_host, profile)
+
+    assert raised.value.code == "local_reference_cycle"
+
+
 def reference_count_schema(reference_count: int) -> dict[str, object]:
     definitions: dict[str, object] = {"target": {"type": "null"}}
     for index in range(reference_count):
@@ -303,6 +404,39 @@ def reference_chain_schema(depth: int) -> dict[str, object]:
         target = "terminal" if index == depth - 1 else f"node-{index + 1}"
         definitions[f"node-{index}"] = {"$ref": f"/$defs/{target}"}
     return {"$defs": definitions}
+
+
+def structurally_nested_reference_chain(depth: int) -> dict[str, object]:
+    definitions: dict[str, object] = {"terminal": {"type": "null"}}
+    for index in reversed(range(depth)):
+        target = "terminal" if index == depth - 1 else f"node-{index + 1}"
+        definitions[f"node-{index}"] = {
+            "properties": {
+                "next": {"$ref": f"/$defs/{target}"},
+            }
+        }
+    return {"$defs": definitions}
+
+
+def test_structural_reference_chain_reports_honest_depth_and_rejects_17_before_library(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admitted = admit(structurally_nested_reference_chain(16))
+
+    assert admitted.local_reference_count == 16
+    assert admitted.maximum_reference_depth == 16
+
+    def library_must_not_run(_: object) -> None:
+        raise AssertionError("over-depth schema reached library construction")
+
+    monkeypatch.setattr(
+        schema_profile_module,
+        "_check_schema_with_library",
+        library_must_not_run,
+    )
+    with pytest.raises(SchemaAdmissionError) as raised:
+        admit(structurally_nested_reference_chain(17))
+    assert raised.value.code == "local_reference_depth_exceeded"
 
 
 @pytest.mark.parametrize(
@@ -661,6 +795,122 @@ def test_schema_issues_are_bounded_and_deterministic() -> None:
     assert all(issue.code == "type" for issue in first.bounded_errors)
 
 
+def test_long_key_issue_amplification_has_per_path_and_aggregate_byte_bounds() -> None:
+    keys = [f"{index:04d}-" + "x" * 2_048 for index in range(MAX_SCHEMA_ISSUES)]
+    schema = admit(
+        {
+            "type": "object",
+            "properties": {key: {"type": "string"} for key in keys},
+        },
+        CORE_PROFILE,
+    )
+    instance = own_trusted_json({key: index for index, key in enumerate(keys)})
+
+    first = evaluate_schema(
+        schema,
+        instance,
+        instance_binding=binding(),
+        ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
+    )
+    second = evaluate_schema(
+        schema,
+        instance,
+        instance_binding=binding(),
+        ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
+    )
+
+    assert first.evaluation_passed is False
+    assert first.failure_code == "instance_schema_failed"
+    assert max(
+        len(path.encode("utf-8"))
+        for issue in first.bounded_errors
+        for path in (issue.instance_path, issue.schema_path)
+    ) <= EXPECTED_SCHEMA_ISSUE_PATH_BYTES
+    assert sum(map(schema_issue_evidence_bytes, first.bounded_errors)) <= (
+        EXPECTED_SCHEMA_ISSUE_EVIDENCE_BYTES
+    )
+    assert 0 < len(first.bounded_errors) < MAX_SCHEMA_ISSUES
+    assert first == second
+    assert all(issue.detail_sha256 is not None for issue in first.bounded_errors)
+    assert schema_profile_module.MAX_SCHEMA_ISSUE_PATH_BYTES == (
+        EXPECTED_SCHEMA_ISSUE_PATH_BYTES
+    )
+    assert schema_profile_module.MAX_SCHEMA_ISSUE_EVIDENCE_BYTES == (
+        EXPECTED_SCHEMA_ISSUE_EVIDENCE_BYTES
+    )
+    identity = canonical_json_bytes(CORE_PROFILE.identity)
+    assert b'"bounded_issue_path_utf8_bytes":512' in identity
+    assert b'"bounded_issue_evidence_utf8_bytes":65536' in identity
+
+
+def test_truncated_path_prefixes_are_useful_and_hash_the_complete_paths() -> None:
+    shared = "x" * (EXPECTED_SCHEMA_ISSUE_PATH_BYTES * 2)
+
+    def one_issue(tail: str) -> SchemaIssue:
+        key = shared + tail
+        receipt = evaluate_schema(
+            admit({"properties": {key: {"type": "string"}}}),
+            own_trusted_json({key: 1}),
+            instance_binding=binding(),
+            ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
+        )
+        assert len(receipt.bounded_errors) == 1
+        return receipt.bounded_errors[0]
+
+    first = one_issue("-first")
+    repeated = one_issue("-first")
+    different = one_issue("-second")
+
+    assert first == repeated
+    assert first.instance_path == different.instance_path
+    assert first.schema_path == different.schema_path
+    assert first.instance_path.startswith("/" + "x" * 32)
+    assert first.schema_path.startswith("/properties/" + "x" * 32)
+    assert len(first.instance_path.encode("utf-8")) <= (
+        EXPECTED_SCHEMA_ISSUE_PATH_BYTES
+    )
+    assert len(first.schema_path.encode("utf-8")) <= EXPECTED_SCHEMA_ISSUE_PATH_BYTES
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", first.detail_sha256 or "")
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", different.detail_sha256 or "")
+    assert first.detail_sha256 != different.detail_sha256
+
+
+def test_evaluator_exception_does_not_stringify_detail_and_bounds_binding_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ExpansiveError(RuntimeError):
+        stringify_calls = 0
+
+        def __str__(self) -> str:
+            type(self).stringify_calls += 1
+            return "must-not-materialize-" + "z" * 100_000
+
+    exception = ExpansiveError("hashed-argument-" + "y" * 100_000)
+
+    class BrokenValidator:
+        def iter_errors(self, _: object) -> tuple[()]:
+            raise exception
+
+    monkeypatch.setattr(
+        schema_profile_module,
+        "_validator_for",
+        lambda _: BrokenValidator(),
+    )
+    receipt = evaluate_schema(
+        admit({"type": "null"}),
+        own_trusted_json(None),
+        instance_binding=binding("/" + "p" * 100_000),
+        ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
+    )
+
+    issue = receipt.bounded_errors[0]
+    assert ExpansiveError.stringify_calls == 0
+    assert len(issue.instance_path.encode("utf-8")) <= EXPECTED_SCHEMA_ISSUE_PATH_BYTES
+    assert issue.instance_path.startswith("/" + "p" * 32)
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", issue.detail_sha256 or "")
+    assert schema_issue_evidence_bytes(issue) <= EXPECTED_SCHEMA_ISSUE_EVIDENCE_BYTES
+
+
 def test_evaluator_exception_returns_hash_only_and_keeps_reservation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -714,6 +964,41 @@ def test_evaluation_receipts_and_issues_are_immutable() -> None:
         receipt.failure_code = None
     with pytest.raises((AttributeError, TypeError)):
         receipt.bounded_errors[0].code = "forged"
+
+
+def test_issue_and_receipt_constructors_enforce_evidence_byte_limits() -> None:
+    with pytest.raises(SchemaEvaluationInputError):
+        SchemaIssue(
+            code="type",
+            instance_path="/" + "x" * EXPECTED_SCHEMA_ISSUE_PATH_BYTES,
+            schema_path="",
+            detail_sha256=None,
+        )
+
+    issue = SchemaIssue(
+        code="x" * 64,
+        instance_path="i" * EXPECTED_SCHEMA_ISSUE_PATH_BYTES,
+        schema_path="s" * EXPECTED_SCHEMA_ISSUE_PATH_BYTES,
+        detail_sha256="sha256:" + "a" * 64,
+    )
+    issue_count = EXPECTED_SCHEMA_ISSUE_EVIDENCE_BYTES // (
+        schema_issue_evidence_bytes(issue) + 4
+    ) + 1
+    valid = evaluate_schema(
+        admit({"type": "null"}),
+        own_trusted_json(None),
+        instance_binding=binding(),
+        ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
+    )
+
+    with pytest.raises(SchemaEvaluationInputError):
+        SchemaEvaluationReceipt(
+            reservation=valid.reservation,
+            evaluator_invoked=True,
+            evaluation_passed=False,
+            bounded_errors=(issue,) * issue_count,
+            failure_code="instance_schema_failed",
+        )
 
 
 def test_schema_profile_api_is_exported_from_the_stable_kernel_surface() -> None:

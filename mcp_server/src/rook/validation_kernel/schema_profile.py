@@ -8,7 +8,7 @@ import re
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import islice
-from typing import overload
+from typing import Protocol, overload
 from urllib.parse import quote
 
 from jsonschema import Draft202012Validator, ValidationError, validators
@@ -34,6 +34,8 @@ from .owned_json import (
 PAYLOAD_SCHEMA_PROFILE_ID = "rook.json_schema_profile:lm9a_payload_v1"
 CORE_SCHEMA_PROFILE_ID = "rook.json_schema_profile:lm9a_core_v1"
 MAX_SCHEMA_ISSUES = 1_024
+MAX_SCHEMA_ISSUE_PATH_BYTES = 512
+MAX_SCHEMA_ISSUE_EVIDENCE_BYTES = 65_536
 
 _DRAFT_2020_12_METASCHEMA_ID = "https://json-schema.org/draft/2020-12/schema"
 _EVALUATOR_ID = "rook.json_schema_evaluator:jsonschema_draft202012_owned_v1"
@@ -104,9 +106,22 @@ _COMMON_FORBIDDEN_KEYWORDS = (
     "contentMediaType",
     "contentSchema",
 )
-_SCHEMA_MAP_KEYWORDS = frozenset({"$defs", "properties"})
+_SCHEMA_MAP_KEYWORDS = frozenset(
+    {"$defs", "properties", "patternProperties", "dependentSchemas"}
+)
 _SCHEMA_SINGLE_KEYWORDS = frozenset(
-    {"additionalProperties", "items", "not", "if", "then", "else"}
+    {
+        "additionalProperties",
+        "items",
+        "not",
+        "if",
+        "then",
+        "else",
+        "propertyNames",
+        "contains",
+        "unevaluatedProperties",
+        "unevaluatedItems",
+    }
 )
 _SCHEMA_ARRAY_KEYWORDS = frozenset(
     {"prefixItems", "allOf", "anyOf", "oneOf"}
@@ -130,6 +145,7 @@ _ADMISSION_MESSAGES = {
     "schema_root_invalid": "Schema root is invalid.",
     "schema_keyword_forbidden": "Schema contains a forbidden keyword.",
     "schema_keyword_unknown": "Schema contains an unknown keyword.",
+    "schema_dialect_invalid": "Schema dialect is invalid.",
     "schema_invalid": "Schema is invalid under the closed metaschema profile.",
     "schema_library_failed": "Schema library admission failed.",
     "schema_node_limit_exceeded": "Schema node limit exceeded.",
@@ -155,6 +171,15 @@ class SchemaAdmissionError(ValueError):
 
 class SchemaEvaluationInputError(ValueError):
     """A trusted caller supplied an invalid evaluation capability."""
+
+
+def _utf8_size_with_limit(value: str, limit: int) -> int | None:
+    size = 0
+    for character in value:
+        size += len(character.encode("utf-8"))
+        if size > limit:
+            return None
+    return size
 
 
 @dataclass(frozen=True, slots=True)
@@ -259,6 +284,17 @@ class SchemaIssue:
             raise SchemaEvaluationInputError("invalid schema issue code")
         if type(self.instance_path) is not str or type(self.schema_path) is not str:
             raise SchemaEvaluationInputError("invalid schema issue path")
+        if (
+            _utf8_size_with_limit(
+                self.instance_path, MAX_SCHEMA_ISSUE_PATH_BYTES
+            )
+            is None
+            or _utf8_size_with_limit(
+                self.schema_path, MAX_SCHEMA_ISSUE_PATH_BYTES
+            )
+            is None
+        ):
+            raise SchemaEvaluationInputError("schema issue path exceeds evidence limit")
         if self.detail_sha256 is not None and (
             type(self.detail_sha256) is not str
             or not _FINGERPRINT_RE.fullmatch(self.detail_sha256)
@@ -275,6 +311,63 @@ class SchemaEvaluationReceipt:
     evaluation_passed: bool | None
     bounded_errors: tuple[SchemaIssue, ...]
     failure_code: str | None
+
+    def __post_init__(self) -> None:
+        if type(self.bounded_errors) is not tuple or any(
+            type(issue) is not SchemaIssue for issue in self.bounded_errors
+        ):
+            raise SchemaEvaluationInputError(
+                "schema evaluation errors must be an exact issue tuple"
+            )
+        if len(self.bounded_errors) > MAX_SCHEMA_ISSUES:
+            raise SchemaEvaluationInputError("schema issue count exceeds limit")
+        evidence_bytes = 0
+        for issue in self.bounded_errors:
+            evidence_bytes += _issue_evidence_bytes(issue)
+            if evidence_bytes > MAX_SCHEMA_ISSUE_EVIDENCE_BYTES:
+                raise SchemaEvaluationInputError(
+                    "schema issue evidence exceeds byte limit"
+                )
+
+
+class _HashUpdater(Protocol):
+    def update(self, data: bytes) -> object: ...
+
+
+@dataclass(frozen=True, slots=True)
+class _BoundedPathEvidence:
+    prefix: str
+    full_byte_count: int
+    full_sha256: bytes
+    truncated: bool
+
+
+class _BoundedUtf8Builder:
+    __slots__ = ("_digest", "_full_byte_count", "_prefix", "_truncated")
+
+    def __init__(self) -> None:
+        self._digest = hashlib.sha256()
+        self._full_byte_count = 0
+        self._prefix = bytearray()
+        self._truncated = False
+
+    def write(self, piece: bytes) -> None:
+        self._digest.update(piece)
+        self._full_byte_count += len(piece)
+        if self._truncated:
+            return
+        if len(self._prefix) + len(piece) > MAX_SCHEMA_ISSUE_PATH_BYTES:
+            self._truncated = True
+            return
+        self._prefix.extend(piece)
+
+    def finish(self) -> _BoundedPathEvidence:
+        return _BoundedPathEvidence(
+            prefix=self._prefix.decode("utf-8", errors="strict"),
+            full_byte_count=self._full_byte_count,
+            full_sha256=self._digest.digest(),
+            truncated=self._truncated,
+        )
 
 
 class _OwnedMappingView(Mapping[str, object]):
@@ -437,6 +530,10 @@ def _make_profile(
                 "combinator_alternatives": combinator_alternative_limit,
                 "combinator_depth": combinator_depth_limit,
                 "bounded_issues": MAX_SCHEMA_ISSUES,
+                "bounded_issue_path_utf8_bytes": MAX_SCHEMA_ISSUE_PATH_BYTES,
+                "bounded_issue_evidence_utf8_bytes": (
+                    MAX_SCHEMA_ISSUE_EVIDENCE_BYTES
+                ),
             },
             "evaluator": {
                 "evaluator_id": _EVALUATOR_ID,
@@ -526,53 +623,66 @@ def _child_pointer(parent: str, token: str) -> str:
 
 def _push_schema_children(
     stack: list[tuple[JsonValue, str, int]],
+    reachability_graph: dict[int, list[tuple[int, int]]],
     *,
+    source: JsonValue,
     keyword: str,
     keyword_value: JsonValue,
     keyword_path: str,
     combinator_depth: int,
 ) -> None:
     child_depth = combinator_depth + (keyword in _COMBINATOR_KEYWORDS)
+
+    def push(child: JsonValue, path: str) -> None:
+        stack.append((child, path, child_depth))
+        reachability_graph.setdefault(id(child), [])
+        if keyword != "$defs":
+            reachability_graph[id(source)].append((id(child), 0))
+
     if keyword in _SCHEMA_MAP_KEYWORDS and type(keyword_value) is JsonObject:
         for name, child in reversed(keyword_value.members):
             if type(child) in (JsonObject, JsonBoolean):
-                stack.append(
-                    (child, _child_pointer(keyword_path, name.value), child_depth)
-                )
+                push(child, _child_pointer(keyword_path, name.value))
         return
     if keyword in _SCHEMA_SINGLE_KEYWORDS and type(keyword_value) in (
         JsonObject,
         JsonBoolean,
     ):
-        stack.append((keyword_value, keyword_path, child_depth))
+        push(keyword_value, keyword_path)
         return
     if keyword in _SCHEMA_ARRAY_KEYWORDS and type(keyword_value) is JsonArray:
         for index in reversed(range(len(keyword_value))):
             child = keyword_value[index]
             if type(child) in (JsonObject, JsonBoolean):
-                stack.append((child, f"{keyword_path}/{index}", child_depth))
+                push(child, f"{keyword_path}/{index}")
 
 
-def _maximum_reference_depth(graph: dict[int, int]) -> int:
-    depths: dict[int, int] = {}
+def _maximum_reference_depth(
+    graph: dict[int, list[tuple[int, int]]],
+) -> int:
+    indegrees = {node: 0 for node in graph}
+    for edges in graph.values():
+        for target, _ in edges:
+            indegrees[target] += 1
+
+    ready = [node for node, indegree in indegrees.items() if indegree == 0]
+    depths = {node: 0 for node in graph}
+    processed = 0
     maximum = 0
-    for start in graph:
-        if start in depths:
-            continue
-        trail: list[int] = []
-        positions: dict[int, int] = {}
-        current = start
-        while current in graph and current not in depths:
-            if current in positions:
-                raise SchemaAdmissionError("local_reference_cycle")
-            positions[current] = len(trail)
-            trail.append(current)
-            current = graph[current]
-        depth = depths.get(current, 0)
-        for node in reversed(trail):
-            depth += 1
-            depths[node] = depth
-            maximum = max(maximum, depth)
+    while ready:
+        source = ready.pop()
+        processed += 1
+        for target, reference_cost in graph[source]:
+            target_depth = depths[source] + reference_cost
+            if target_depth > depths[target]:
+                depths[target] = target_depth
+                maximum = max(maximum, target_depth)
+            indegrees[target] -= 1
+            if indegrees[target] == 0:
+                ready.append(target)
+
+    if processed != len(graph):
+        raise SchemaAdmissionError("local_reference_cycle")
     return maximum
 
 
@@ -588,6 +698,7 @@ def _static_admission(
     schema_node_ids: set[int] = set()
     references: list[tuple[int, str]] = []
     stack: list[tuple[JsonValue, str, int]] = [(value, "", 0)]
+    reachability_graph: dict[int, list[tuple[int, int]]] = {id(value): []}
 
     while stack:
         current, current_path, combinator_depth = stack.pop()
@@ -609,6 +720,11 @@ def _static_admission(
                 )
                 raise SchemaAdmissionError(code)
             keyword_path = _child_pointer(current_path, keyword)
+            if keyword == "$schema" and (
+                type(keyword_value) is not JsonString
+                or keyword_value.value != profile.metaschema_id
+            ):
+                raise SchemaAdmissionError("schema_dialect_invalid")
             if keyword == "$ref":
                 if type(keyword_value) is not JsonString or not _is_rfc6901_pointer(
                     keyword_value.value
@@ -627,13 +743,14 @@ def _static_admission(
                 )
             _push_schema_children(
                 stack,
+                reachability_graph,
+                source=current,
                 keyword=keyword,
                 keyword_value=keyword_value,
                 keyword_path=keyword_path,
                 combinator_depth=combinator_depth,
             )
 
-    reference_graph: dict[int, int] = {}
     for source, pointer in references:
         try:
             target = lookup_json_pointer(value, pointer)
@@ -643,9 +760,9 @@ def _static_admission(
             raise SchemaAdmissionError("local_reference_target_invalid") from None
         if id(target) not in schema_node_ids:
             raise SchemaAdmissionError("local_reference_target_invalid")
-        reference_graph[source] = id(target)
+        reachability_graph[source].append((id(target), 1))
 
-    maximum_reference_depth = _maximum_reference_depth(reference_graph)
+    maximum_reference_depth = _maximum_reference_depth(reachability_graph)
     if maximum_reference_depth > profile.reference_depth_limit:
         raise SchemaAdmissionError("local_reference_depth_exceeded")
     return schema_nodes, len(references), maximum_reference_depth
@@ -706,12 +823,63 @@ def _validator_for(schema: AdmittedSchema) -> object:
     )
 
 
-def _path_pointer(path: Sequence[object]) -> str:
-    pointer = ""
+def _update_digest_with_text(digest: _HashUpdater, value: str) -> int:
+    byte_count = 0
+    for character in value:
+        encoded = character.encode("utf-8")
+        digest.update(encoded)
+        byte_count += len(encoded)
+    return byte_count
+
+
+def _write_pointer_token(builder: _BoundedUtf8Builder, token: str) -> None:
+    for character in token:
+        if character == "~":
+            builder.write(b"~0")
+        elif character == "/":
+            builder.write(b"~1")
+        else:
+            builder.write(character.encode("utf-8"))
+
+
+def _bounded_path_pointer(path: Sequence[object]) -> _BoundedPathEvidence:
+    builder = _BoundedUtf8Builder()
     for component in path:
-        token = str(component)
-        pointer = _child_pointer(pointer, token)
-    return pointer
+        builder.write(b"/")
+        if type(component) is str:
+            _write_pointer_token(builder, component)
+        elif type(component) is int:
+            _write_pointer_token(builder, str(component))
+        else:
+            builder.write(b"?")
+    return builder.finish()
+
+
+def _bounded_existing_pointer(pointer: str) -> _BoundedPathEvidence:
+    builder = _BoundedUtf8Builder()
+    index = 0
+    while index < len(pointer):
+        character = pointer[index]
+        if character == "~" and index + 1 < len(pointer):
+            builder.write(pointer[index : index + 2].encode("ascii"))
+            index += 2
+            continue
+        builder.write(character.encode("utf-8"))
+        index += 1
+    return builder.finish()
+
+
+def _path_detail_fingerprint(
+    instance_path: _BoundedPathEvidence,
+    schema_path: _BoundedPathEvidence,
+) -> str | None:
+    if not instance_path.truncated and not schema_path.truncated:
+        return None
+    digest = hashlib.sha256(b"rook.schema_issue_paths:v1\0")
+    for evidence in (instance_path, schema_path):
+        digest.update(evidence.full_byte_count.to_bytes(16, "big"))
+        digest.update(evidence.full_sha256)
+    return f"sha256:{digest.hexdigest()}"
 
 
 def _issue_from_validation_error(error: ValidationError) -> SchemaIssue:
@@ -719,25 +887,82 @@ def _issue_from_validation_error(error: ValidationError) -> SchemaIssue:
     code = validator if type(validator) is str and validator else "schema_validation"
     if len(code) > 64:
         code = "schema_validation"
+    instance_path = _bounded_path_pointer(tuple(error.absolute_path))
+    schema_path = _bounded_path_pointer(tuple(error.absolute_schema_path))
     return SchemaIssue(
         code=code,
-        instance_path=_path_pointer(tuple(error.absolute_path)),
-        schema_path=_path_pointer(tuple(error.absolute_schema_path)),
-        detail_sha256=None,
+        instance_path=instance_path.prefix,
+        schema_path=schema_path.prefix,
+        detail_sha256=_path_detail_fingerprint(instance_path, schema_path),
     )
 
 
-def _exception_detail_fingerprint(exception: BaseException) -> str:
+def _exception_detail_digest(exception: BaseException) -> bytes:
     exception_type = f"{type(exception).__module__}.{type(exception).__qualname__}"
-    try:
-        detail = str(exception)
-    except Exception:
-        detail = "<unprintable>"
-    digest = hashlib.sha256()
-    digest.update(exception_type.encode("utf-8"))
-    digest.update(b"\0")
-    digest.update(detail.encode("utf-8", errors="backslashreplace"))
+    digest = hashlib.sha256(b"rook.schema_evaluator_exception:v1\0")
+    _update_digest_with_text(digest, exception_type)
+    digest.update(len(exception.args).to_bytes(8, "big"))
+    for argument in exception.args:
+        argument_digest = hashlib.sha256()
+        if type(argument) is str:
+            marker = b"str"
+            byte_count = _update_digest_with_text(argument_digest, argument)
+        elif type(argument) is bytes:
+            marker = b"bytes"
+            argument_digest.update(argument)
+            byte_count = len(argument)
+        else:
+            marker = b"type"
+            argument_type = (
+                f"{type(argument).__module__}.{type(argument).__qualname__}"
+            )
+            byte_count = _update_digest_with_text(argument_digest, argument_type)
+        digest.update(marker)
+        digest.update(byte_count.to_bytes(16, "big"))
+        digest.update(argument_digest.digest())
+    return digest.digest()
+
+
+def _exception_detail_fingerprint(
+    exception: BaseException,
+    instance_path: _BoundedPathEvidence,
+) -> str:
+    digest = hashlib.sha256(b"rook.schema_evaluator_failure_evidence:v1\0")
+    digest.update(_exception_detail_digest(exception))
+    digest.update(instance_path.full_byte_count.to_bytes(16, "big"))
+    digest.update(instance_path.full_sha256)
     return f"sha256:{digest.hexdigest()}"
+
+
+def _issue_evidence_bytes(issue: SchemaIssue) -> int:
+    fields = (
+        issue.code,
+        issue.instance_path,
+        issue.schema_path,
+        issue.detail_sha256 or "",
+    )
+    return 4 + sum(len(field.encode("utf-8")) for field in fields)
+
+
+def _bounded_validation_issues(errors: object) -> tuple[SchemaIssue, ...]:
+    bounded: list[SchemaIssue] = []
+    evidence_bytes = 0
+    for error in islice(iter(errors), MAX_SCHEMA_ISSUES):
+        issue = _issue_from_validation_error(error)
+        issue_bytes = _issue_evidence_bytes(issue)
+        if evidence_bytes + issue_bytes > MAX_SCHEMA_ISSUE_EVIDENCE_BYTES:
+            break
+        evidence_bytes += issue_bytes
+        bounded.append(issue)
+    bounded.sort(
+        key=lambda issue: (
+            issue.instance_path,
+            issue.schema_path,
+            issue.code,
+            issue.detail_sha256 or "",
+        )
+    )
+    return tuple(bounded)
 
 
 def evaluate_schema(
@@ -781,22 +1006,13 @@ def evaluate_schema(
     try:
         validator = _validator_for(schema)
         instance_view = _adapt_owned(instance, translate_refs=False)
-        errors = tuple(
-            sorted(
-                (
-                    _issue_from_validation_error(error)
-                    for error in islice(
-                        validator.iter_errors(instance_view), MAX_SCHEMA_ISSUES
-                    )
-                ),
-                key=lambda issue: (
-                    issue.instance_path,
-                    issue.schema_path,
-                    issue.code,
-                ),
-            )
+        errors = _bounded_validation_issues(
+            validator.iter_errors(instance_view)
         )
     except Exception as exception:
+        instance_path = _bounded_existing_pointer(
+            instance_binding.instance_pointer
+        )
         return SchemaEvaluationReceipt(
             reservation=reservation,
             evaluator_invoked=True,
@@ -804,9 +1020,11 @@ def evaluate_schema(
             bounded_errors=(
                 SchemaIssue(
                     code="schema_evaluator_exception",
-                    instance_path=instance_binding.instance_pointer,
+                    instance_path=instance_path.prefix,
                     schema_path="",
-                    detail_sha256=_exception_detail_fingerprint(exception),
+                    detail_sha256=_exception_detail_fingerprint(
+                        exception, instance_path
+                    ),
                 ),
             ),
             failure_code="schema_evaluator_failed",
@@ -827,6 +1045,8 @@ __all__ = (
     "CORE_PROFILE",
     "CORE_SCHEMA_PROFILE_ID",
     "InstanceBinding",
+    "MAX_SCHEMA_ISSUE_EVIDENCE_BYTES",
+    "MAX_SCHEMA_ISSUE_PATH_BYTES",
     "MAX_SCHEMA_ISSUES",
     "PAYLOAD_PROFILE",
     "PAYLOAD_SCHEMA_PROFILE_ID",
