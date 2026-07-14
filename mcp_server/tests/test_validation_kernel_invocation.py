@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import copy
 import importlib
 import json
+import pickle
+from dataclasses import fields as dataclass_fields
+from dataclasses import replace as dataclass_replace
 from types import SimpleNamespace
 
 import pytest
@@ -97,15 +101,72 @@ def test_sealed_profiles_and_bundle_carriers_cannot_be_constructed_or_copied() -
     raw = make_validation_bundle_bytes()
     carrier = _issue(profile, raw)
     assert carrier.raw_bytes is raw
+    assert not hasattr(profile, "_seal_capability")
+    assert not hasattr(profile, "_issuer_capability")
+    assert not hasattr(carrier, "_issuer_capability")
     for field_name, replacement in (
         ("_raw_bytes", b"{}"),
         ("_profile", object()),
-        ("_issuer_capability", object()),
     ):
         with pytest.raises(AttributeError):
             setattr(carrier, field_name, replacement)
     with pytest.raises(AttributeError):
         del carrier._raw_bytes
+
+
+def test_profile_documented_copy_and_serialization_paths_are_closed() -> None:
+    profile = _sealed_profile()
+    profile_type = validation_kernel.SealedTrustedBundleAssemblerProfile
+
+    for operation in (
+        lambda: copy.copy(profile),
+        lambda: copy.deepcopy(profile),
+        lambda: pickle.loads(pickle.dumps(profile)),
+        profile.__reduce__,
+        lambda: profile.__reduce_ex__(pickle.HIGHEST_PROTOCOL),
+    ):
+        with pytest.raises(TypeError, match="cannot be copied or serialized"):
+            operation()
+    with pytest.raises(TypeError):
+        dataclass_replace(profile)
+
+    copied_fields = {
+        field.name: getattr(profile, field.name)
+        for field in dataclass_fields(profile)
+    }
+    with pytest.raises(TypeError):
+        profile_type(**copied_fields)
+    assert "_create" not in profile_type.__dict__
+
+    field_lookalike = SimpleNamespace(**copied_fields)
+    serialized_fields = json.loads(profile.profile_bytes)
+    serialized_lookalike = SimpleNamespace(**serialized_fields)
+    assert serialized_lookalike.profile_fingerprint == profile.profile_fingerprint
+    for lookalike in (copied_fields, field_lookalike, serialized_lookalike):
+        with pytest.raises(TypeError, match="valid sealed profile"):
+            _issue(lookalike, b"{}")
+
+
+def test_carrier_documented_copy_and_serialization_paths_are_closed() -> None:
+    profile = _sealed_profile()
+    raw = make_validation_bundle_bytes()
+    carrier = _carrier(profile, raw)
+    carrier_type = validation_kernel.TrustedValidationBundleInput
+
+    for operation in (
+        lambda: copy.copy(carrier),
+        lambda: copy.deepcopy(carrier),
+        lambda: pickle.loads(pickle.dumps(carrier)),
+        carrier.__reduce__,
+        lambda: carrier.__reduce_ex__(pickle.HIGHEST_PROTOCOL),
+    ):
+        with pytest.raises(TypeError, match="cannot be copied or serialized"):
+            operation()
+    with pytest.raises(TypeError):
+        dataclass_replace(carrier)
+    with pytest.raises(TypeError):
+        carrier_type(profile=profile, raw_bytes=raw)
+    assert "_create" not in carrier_type.__dict__
 
 
 def test_unsealed_and_lookalike_carriers_fail_without_reading_artifacts() -> None:
@@ -523,16 +584,13 @@ def test_source_replacement_after_issuance_cannot_change_captured_bytes() -> Non
         _issue(profile, bytearray(expected_bundle))  # type: ignore[arg-type]
 
 
-def test_carrier_authority_is_bound_to_profile_object_identity() -> None:
+def test_carrier_retains_exact_profile_object_authority_for_invocation() -> None:
     program = _invocation_program()
-    first_profile = _sealed_profile()
-    copied_profile = _sealed_profile()
-    carrier = _carrier(first_profile)
-    object.__setattr__(carrier, "_profile", copied_profile)
+    profile = _sealed_profile()
+    carrier = _carrier(profile)
 
     result = _build(program, b"{}", carrier)
 
-    assert isinstance(result, ValidationControlFailure)
-    assert result.code == "validation_input_invalid"
-    assert result.recipe_input_payload_sha256 is None
-    assert result.validation_bundle_input_payload_sha256 is None
+    assert not isinstance(result, ValidationControlFailure)
+    assert carrier._profile is profile
+    assert result.invocation.assembler_profile is profile

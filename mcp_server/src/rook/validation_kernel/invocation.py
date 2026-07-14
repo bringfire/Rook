@@ -59,7 +59,8 @@ _PROFILE_FIELDS = frozenset(
         "profile_fingerprint",
     )
 )
-_PROFILE_SEAL_CAPABILITY = object()
+_PROFILE_CONSTRUCTION_SENTINEL = object()
+_BUNDLE_CONSTRUCTION_SENTINEL = object()
 
 
 @dataclass(frozen=True, slots=True, init=False, eq=False)
@@ -76,56 +77,59 @@ class SealedTrustedBundleAssemblerProfile:
     permitted_clock_sources: tuple[str, ...]
     profile_fingerprint: str
     profile_bytes: bytes
-    _seal_capability: object = field(repr=False)
-    _issuer_capability: object = field(repr=False)
 
     def __init__(self) -> None:
         raise TypeError(
             "SealedTrustedBundleAssemblerProfile values are created only by the fixed seal"
         )
 
-    @classmethod
-    def _create(
-        cls,
-        token: object,
-        *,
-        schema: str,
-        profile_id: str,
-        assembler_kind: str,
-        assembler_id: str,
-        assembler_version: str,
-        implementation_fingerprint: str,
-        permitted_program_ids: tuple[str, ...],
-        permitted_clock_sources: tuple[str, ...],
-        profile_fingerprint: str,
-        profile_bytes: bytes,
-    ) -> "SealedTrustedBundleAssemblerProfile":
-        if token is not _PROFILE_SEAL_CAPABILITY:
-            raise TypeError("invalid assembler-profile issuer")
-        sealed = object.__new__(cls)
-        object.__setattr__(sealed, "schema", schema)
-        object.__setattr__(sealed, "profile_id", profile_id)
-        object.__setattr__(sealed, "assembler_kind", assembler_kind)
-        object.__setattr__(sealed, "assembler_id", assembler_id)
-        object.__setattr__(sealed, "assembler_version", assembler_version)
-        object.__setattr__(
-            sealed, "implementation_fingerprint", implementation_fingerprint
-        )
-        object.__setattr__(sealed, "permitted_program_ids", permitted_program_ids)
-        object.__setattr__(
-            sealed, "permitted_clock_sources", permitted_clock_sources
-        )
-        object.__setattr__(sealed, "profile_fingerprint", profile_fingerprint)
-        object.__setattr__(sealed, "profile_bytes", profile_bytes)
-        object.__setattr__(sealed, "_seal_capability", _PROFILE_SEAL_CAPABILITY)
-        object.__setattr__(sealed, "_issuer_capability", object())
-        return sealed
+    def __copy__(self) -> object:
+        raise TypeError("sealed assembler profiles cannot be copied or serialized")
+
+    def __deepcopy__(self, memo: object) -> object:
+        raise TypeError("sealed assembler profiles cannot be copied or serialized")
+
+    def __reduce__(self) -> object:
+        raise TypeError("sealed assembler profiles cannot be copied or serialized")
+
+    def __reduce_ex__(self, protocol: int) -> object:
+        raise TypeError("sealed assembler profiles cannot be copied or serialized")
+
+
+def _construct_sealed_assembler_profile(
+    sentinel: object,
+    *,
+    schema: str,
+    profile_id: str,
+    assembler_kind: str,
+    assembler_id: str,
+    assembler_version: str,
+    implementation_fingerprint: str,
+    permitted_program_ids: tuple[str, ...],
+    permitted_clock_sources: tuple[str, ...],
+    profile_fingerprint: str,
+    profile_bytes: bytes,
+) -> SealedTrustedBundleAssemblerProfile:
+    if sentinel is not _PROFILE_CONSTRUCTION_SENTINEL:
+        raise TypeError("invalid assembler-profile construction authority")
+    sealed = object.__new__(SealedTrustedBundleAssemblerProfile)
+    object.__setattr__(sealed, "schema", schema)
+    object.__setattr__(sealed, "profile_id", profile_id)
+    object.__setattr__(sealed, "assembler_kind", assembler_kind)
+    object.__setattr__(sealed, "assembler_id", assembler_id)
+    object.__setattr__(sealed, "assembler_version", assembler_version)
+    object.__setattr__(sealed, "implementation_fingerprint", implementation_fingerprint)
+    object.__setattr__(sealed, "permitted_program_ids", permitted_program_ids)
+    object.__setattr__(sealed, "permitted_clock_sources", permitted_clock_sources)
+    object.__setattr__(sealed, "profile_fingerprint", profile_fingerprint)
+    object.__setattr__(sealed, "profile_bytes", profile_bytes)
+    return sealed
 
 
 class TrustedValidationBundleInput:
     """Opaque carrier binding exact bytes to one sealed assembler profile."""
 
-    __slots__ = ("_raw_bytes", "_profile", "_issuer_capability")
+    __slots__ = ("_raw_bytes", "_profile")
 
     def __init__(self) -> None:
         raise TypeError(
@@ -138,25 +142,43 @@ class TrustedValidationBundleInput:
     def __delattr__(self, name: str) -> None:
         raise AttributeError("trusted validation bundle carriers are immutable")
 
-    @classmethod
-    def _create(
-        cls,
-        token: object,
-        *,
-        profile: SealedTrustedBundleAssemblerProfile,
-        raw_bytes: bytes,
-    ) -> "TrustedValidationBundleInput":
-        if token is not profile._issuer_capability:
-            raise TypeError("invalid trusted-bundle issuer")
-        carrier = object.__new__(cls)
-        object.__setattr__(carrier, "_raw_bytes", raw_bytes)
-        object.__setattr__(carrier, "_profile", profile)
-        object.__setattr__(carrier, "_issuer_capability", token)
-        return carrier
+    def __copy__(self) -> object:
+        raise TypeError(
+            "trusted validation bundle carriers cannot be copied or serialized"
+        )
+
+    def __deepcopy__(self, memo: object) -> object:
+        raise TypeError(
+            "trusted validation bundle carriers cannot be copied or serialized"
+        )
+
+    def __reduce__(self) -> object:
+        raise TypeError(
+            "trusted validation bundle carriers cannot be copied or serialized"
+        )
+
+    def __reduce_ex__(self, protocol: int) -> object:
+        raise TypeError(
+            "trusted validation bundle carriers cannot be copied or serialized"
+        )
 
     @property
     def raw_bytes(self) -> bytes:
         return self._raw_bytes
+
+
+def _construct_trusted_validation_bundle(
+    sentinel: object,
+    *,
+    profile: SealedTrustedBundleAssemblerProfile,
+    raw_bytes: bytes,
+) -> TrustedValidationBundleInput:
+    if sentinel is not _BUNDLE_CONSTRUCTION_SENTINEL:
+        raise TypeError("invalid trusted-bundle construction authority")
+    carrier = object.__new__(TrustedValidationBundleInput)
+    object.__setattr__(carrier, "_raw_bytes", raw_bytes)
+    object.__setattr__(carrier, "_profile", profile)
+    return carrier
 
 
 @dataclass(frozen=True, slots=True)
@@ -353,8 +375,8 @@ def seal_trusted_bundle_assembler_profile(
         permitted_clock_sources=permitted_clock_sources,
         profile_fingerprint=computed_fingerprint,
     )
-    return SealedTrustedBundleAssemblerProfile._create(
-        _PROFILE_SEAL_CAPABILITY,
+    return _construct_sealed_assembler_profile(
+        _PROFILE_CONSTRUCTION_SENTINEL,
         schema=schema,
         profile_id=profile_id,
         assembler_kind=assembler_kind,
@@ -372,7 +394,11 @@ def _profile_is_valid(profile: object) -> bool:
     if type(profile) is not SealedTrustedBundleAssemblerProfile:
         return False
     try:
-        if profile._seal_capability is not _PROFILE_SEAL_CAPABILITY:
+        if (
+            type(profile.permitted_program_ids) is not tuple
+            or type(profile.permitted_clock_sources) is not tuple
+            or type(profile.profile_bytes) is not bytes
+        ):
             return False
         unsigned = _normalized_profile_value(
             schema=profile.schema,
@@ -413,8 +439,8 @@ def issue_trusted_validation_bundle(
         raise TypeError("trusted bundle issuance requires a valid sealed profile")
     if type(raw_bytes) is not bytes:
         raise TypeError("trusted bundle issuance requires exact built-in bytes")
-    return TrustedValidationBundleInput._create(
-        profile._issuer_capability,
+    return _construct_trusted_validation_bundle(
+        _BUNDLE_CONSTRUCTION_SENTINEL,
         profile=profile,
         raw_bytes=raw_bytes,
     )
@@ -657,18 +683,13 @@ def _build_validation_execution_context(
     try:
         profile = trusted_bundle._profile
         raw_bundle_bytes = trusted_bundle._raw_bytes
-        issuer_capability = trusted_bundle._issuer_capability
     except AttributeError:
         return _control_failure(
             code="validation_input_invalid",
             artifact_role=ArtifactRole.VALIDATION_BUNDLE,
             program=program,
         )
-    if (
-        not _profile_is_valid(profile)
-        or trusted_bundle._profile is not profile
-        or issuer_capability is not profile._issuer_capability
-    ):
+    if not _profile_is_valid(profile):
         return _control_failure(
             code="validation_input_invalid",
             artifact_role=ArtifactRole.VALIDATION_BUNDLE,
