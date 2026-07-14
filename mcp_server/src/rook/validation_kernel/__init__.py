@@ -57,6 +57,13 @@ from .phase_contract import (
     SchemaEvaluatorSpec,
     ValidationProgramContribution,
 )
+from .phase_engine import (
+    KernelIssue,
+    NamedOutput,
+    PhaseResult,
+    RunnerResult,
+    execute_phase_program,
+)
 from .program import (
     SealedValidationProgram,
     compose_and_seal_program,
@@ -101,6 +108,7 @@ __all__ = (
     "KERNEL_CONTROL_CODES",
     "KERNEL_OWNED_REPORT_PATHS",
     "KERNEL_REPORT_FIELD_ROLES",
+    "KernelIssue",
     "LM9A_BUDGET_MANIFEST",
     "LM9A_BUDGET_PROFILE_ID",
     "JsonParseError",
@@ -112,6 +120,8 @@ __all__ = (
     "PROGRAM_MANIFEST_SCHEMA_ID",
     "ParserProfileSpec",
     "ParsedJsonValue",
+    "NamedOutput",
+    "PhaseResult",
     "PhaseSpec",
     "ProgramCompositionError",
     "ProgramConstantSpec",
@@ -122,6 +132,7 @@ __all__ = (
     "RuntimeBinding",
     "RuntimeComponentSpec",
     "RuntimeDependencySpec",
+    "RunnerResult",
     "SchemaAdmissionError",
     "SchemaEvaluationInputError",
     "SchemaEvaluationReceipt",
@@ -140,6 +151,7 @@ __all__ = (
     "admit_schema",
     "compose_and_seal_program",
     "evaluate_schema",
+    "execute_phase_program",
     "implementation_source_closure_for_modules",
     "implementation_source_for_module",
     "issue_trusted_validation_bundle",

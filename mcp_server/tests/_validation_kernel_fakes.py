@@ -3,20 +3,25 @@
 from __future__ import annotations
 
 import json
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any
 
 from rook.validation_kernel import (
     ExportTypeSpec,
+    ImmutableCallableRecord,
     ImplementationSource,
     InputBinding,
+    InstanceBinding,
+    KernelIssue,
     InvocationInputSpec,
     IssueSpec,
+    NamedOutput,
     ParserProfileSpec,
     PhaseSpec,
     ProgramConstantSpec,
     ProvidedOutput,
     ReportProjectionSpec,
+    RunnerResult,
     RuntimeBinding,
     RuntimeComponentSpec,
     SchemaEvaluatorSpec,
@@ -80,6 +85,264 @@ def beta_export_validator(_: object) -> bool:
 
 def extra_export_validator(_: object) -> bool:
     return True
+
+
+@dataclass(frozen=True, slots=True)
+class SyntheticPhaseIndex:
+    identity: str
+    source: JsonObject
+    paths: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SyntheticMutablePhaseIndex:
+    identity: str
+    mutable_payload: dict[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class AuthoredRunnerResult:
+    diagnostics: tuple[KernelIssue, ...]
+    compile_blockers: tuple[KernelIssue, ...]
+    outputs: tuple[NamedOutput, ...]
+    status: str
+    kernel_work_units_delta: int
+
+
+class SyntheticString(str):
+    pass
+
+
+def phase_index_export_validator(value: object) -> bool:
+    return type(value) in (SyntheticPhaseIndex, SyntheticMutablePhaseIndex)
+
+
+def phase_text_export_validator(value: object) -> bool:
+    return type(value) is JsonString
+
+
+def _runner_state_text(state: JsonObject, name: str) -> str:
+    value = state[name]
+    if type(value) is not JsonString:
+        raise TypeError("synthetic runner state must contain strings")
+    return value.value
+
+
+def _diagnostic(severity: str, *, code: str = "synthetic_error") -> KernelIssue:
+    return KernelIssue(
+        classification="diagnostic",
+        code=code,
+        severity=severity,
+        subject_id="synthetic.subject",
+        path="/recipe",
+        related_paths=("/validation_context",),
+        bounded_message=f"Synthetic {severity} diagnostic.",
+        detail_sha256=None,
+    )
+
+
+def _blocker() -> KernelIssue:
+    return KernelIssue(
+        classification="compile_blocker",
+        code="synthetic_blocker",
+        severity=None,
+        subject_id="synthetic.subject",
+        path="/recipe",
+        related_paths=(),
+        bounded_message="Synthetic compile blocker.",
+        detail_sha256=None,
+    )
+
+
+def phase_engine_runner_dispatch(
+    state: JsonObject, inputs: object, helpers: object
+) -> object:
+    phase_name = _runner_state_text(state, "phase_name")
+    scenario = _runner_state_text(state, "scenario")
+
+    if phase_name == "audit":
+        if tuple(inputs) != ("policy",):  # type: ignore[arg-type]
+            raise AssertionError("audit received undeclared inputs")
+        if scenario == "immutability_probe":
+            policy_values = inputs["policy"]  # type: ignore[index]
+            try:
+                policy_values[0] = JsonString("changed")
+            except TypeError:
+                pass
+            else:
+                raise AssertionError("bound input values are mutable")
+        return RunnerResult(diagnostics=(), compile_blockers=(), outputs=())
+
+    if phase_name == "beta":
+        if tuple(inputs) != ("alpha_value",):  # type: ignore[arg-type]
+            raise AssertionError("beta received undeclared inputs")
+        alpha_values = inputs["alpha_value"]  # type: ignore[index]
+        alpha_index = alpha_values[0]
+        if type(alpha_index) is not SyntheticPhaseIndex:
+            raise AssertionError("beta received the wrong exact named output")
+        if scenario == "immutability_probe":
+            try:
+                alpha_index.identity = "changed"  # type: ignore[misc]
+            except (AttributeError, TypeError):
+                pass
+            else:
+                raise AssertionError("semantic index is mutable")
+            try:
+                alpha_index.source["nested"] = JsonString("changed")  # type: ignore[index]
+            except TypeError:
+                pass
+            else:
+                raise AssertionError("owned nested mapping is mutable")
+            try:
+                alpha_values += (alpha_index,)
+            except (AttributeError, TypeError):
+                pass
+        return RunnerResult(
+            diagnostics=(),
+            compile_blockers=(),
+            outputs=(NamedOutput("beta_value", (JsonString(alpha_index.identity),)),),
+        )
+
+    if tuple(inputs) != ("recipe",):  # type: ignore[arg-type]
+        raise AssertionError("alpha received undeclared inputs")
+    recipe_values = inputs["recipe"]  # type: ignore[index]
+    recipe = recipe_values[0]
+    if type(recipe) is not JsonObject:
+        raise AssertionError("alpha received a non-object recipe")
+    output = NamedOutput(
+        "alpha_value",
+        (SyntheticPhaseIndex("alpha-index", recipe, ("/recipe",)),),
+    )
+
+    if scenario == "passed":
+        return RunnerResult(diagnostics=(), compile_blockers=(), outputs=(output,))
+    if scenario == "blocked":
+        return RunnerResult(diagnostics=(), compile_blockers=(_blocker(),), outputs=(output,))
+    if scenario == "failed":
+        return RunnerResult(diagnostics=(_diagnostic("error"),), compile_blockers=(), outputs=())
+    if scenario == "error_precedence":
+        return RunnerResult(
+            diagnostics=(_diagnostic("error"),),
+            compile_blockers=(_blocker(),),
+            outputs=(),
+        )
+    if scenario == "warning_information":
+        return RunnerResult(
+            diagnostics=(_diagnostic("warning"), _diagnostic("information")),
+            compile_blockers=(),
+            outputs=(output,),
+        )
+    if scenario == "unregistered_issue":
+        return RunnerResult(
+            diagnostics=(_diagnostic("error", code="synthetic_unregistered"),),
+            compile_blockers=(),
+            outputs=(),
+        )
+    if scenario == "wrong_classification":
+        issue = KernelIssue(
+            classification="compile_blocker",
+            code="synthetic_error",
+            severity=None,
+            subject_id=None,
+            path=None,
+            related_paths=(),
+            bounded_message="Wrong classification.",
+            detail_sha256=None,
+        )
+        return RunnerResult(diagnostics=(issue,), compile_blockers=(), outputs=())
+    if scenario == "non_exact_issue_fields":
+        issue = KernelIssue(
+            classification=SyntheticString("diagnostic"),  # type: ignore[arg-type]
+            code=SyntheticString("synthetic_error"),
+            severity=SyntheticString("error"),  # type: ignore[arg-type]
+            subject_id=None,
+            path=None,
+            related_paths=(),
+            bounded_message="Non-exact issue fields.",
+            detail_sha256=None,
+        )
+        return RunnerResult(diagnostics=(issue,), compile_blockers=(), outputs=())
+    if scenario == "duplicate_output":
+        return RunnerResult(diagnostics=(), compile_blockers=(), outputs=(output, output))
+    if scenario == "extra_output":
+        return RunnerResult(
+            diagnostics=(),
+            compile_blockers=(),
+            outputs=(output, NamedOutput("extra", (JsonString("extra"),))),
+        )
+    if scenario == "missing_output":
+        return RunnerResult(diagnostics=(), compile_blockers=(), outputs=())
+    if scenario == "blocked_missing_output":
+        return RunnerResult(diagnostics=(), compile_blockers=(_blocker(),), outputs=())
+    if scenario == "wrong_type":
+        return RunnerResult(
+            diagnostics=(),
+            compile_blockers=(),
+            outputs=(NamedOutput("alpha_value", (JsonString("wrong"),)),),
+        )
+    if scenario == "mutable_output":
+        return RunnerResult(
+            diagnostics=(),
+            compile_blockers=(),
+            outputs=(
+                NamedOutput(
+                    "alpha_value",
+                    (SyntheticMutablePhaseIndex("mutable", {"items": []}),),
+                ),
+            ),
+        )
+    if scenario == "wrong_cardinality":
+        value = SyntheticPhaseIndex("second-index", recipe, ("/second",))
+        return RunnerResult(
+            diagnostics=(),
+            compile_blockers=(),
+            outputs=(NamedOutput("alpha_value", (output.values[0], value)),),
+        )
+    if scenario == "output_on_failed":
+        return RunnerResult(
+            diagnostics=(_diagnostic("error"),), compile_blockers=(), outputs=(output,)
+        )
+    if scenario == "authored_fields":
+        return AuthoredRunnerResult((), (), (output,), "passed", 999)
+    if scenario in ("oversized_exception", "oversized_exception_alt"):
+        raise RuntimeError(scenario + ":" + ("x" * 20_000))
+    if scenario == "oversized_integer_exception":
+        raise RuntimeError(10**20_000)
+    if scenario == "work_accounting":
+        helpers.charge_work_units(7)  # type: ignore[attr-defined]
+        return RunnerResult(diagnostics=(), compile_blockers=(), outputs=(output,))
+    if scenario == "schema_audit":
+        binding = InstanceBinding(
+            artifact_id="synthetic.recipe",
+            artifact_fingerprint=canonical_fingerprint(recipe),
+            instance_pointer="",
+        )
+        first = helpers.evaluate_schema(  # type: ignore[attr-defined]
+            "synthetic.report:v1", recipe, instance_binding=binding
+        )
+        second = helpers.evaluate_schema(  # type: ignore[attr-defined]
+            "synthetic.report:v1", recipe, instance_binding=binding
+        )
+        if hasattr(first, "reservation") or hasattr(second, "reservation"):
+            raise AssertionError("runner received an accounting receipt")
+        return RunnerResult(diagnostics=(), compile_blockers=(), outputs=(output,))
+    if scenario == "immutability_probe":
+        if hasattr(helpers, "ledger") or hasattr(helpers, "context"):
+            raise AssertionError("runner received private engine authority")
+        try:
+            inputs["recipe"] = ()  # type: ignore[index]
+        except TypeError:
+            pass
+        else:
+            raise AssertionError("bound input mapping is mutable")
+        try:
+            recipe["nested"] = JsonString("changed")  # type: ignore[index]
+        except TypeError:
+            pass
+        else:
+            raise AssertionError("invocation input is mutable")
+        return RunnerResult(diagnostics=(), compile_blockers=(), outputs=(output,))
+    raise AssertionError(f"unknown synthetic phase-engine scenario: {scenario}")
 
 
 def report_projection(_: object, __: object) -> None:
@@ -631,6 +894,103 @@ def make_program_contribution(
     )
 
 
+def make_phase_engine_contribution(
+    *,
+    alpha_scenario: str = "passed",
+    audit_scenario: str = "passed",
+    beta_scenario: str = "passed",
+    alpha_permitted_statuses: tuple[str, ...] = ("passed", "blocked"),
+    alpha_required_statuses: tuple[str, ...] = ("passed", "blocked"),
+    audit_ordering_after: tuple[str, ...] = ("alpha",),
+    invocation_cardinality: str = "exactly_one",
+) -> ValidationProgramContribution:
+    contribution = make_program_contribution(invocation_shells=True)
+
+    def runner_record(phase_name: str, scenario: str) -> ImmutableCallableRecord:
+        state = own_trusted_json(
+            {"phase_name": phase_name, "scenario": scenario}
+        )
+        assert type(state) is JsonObject
+        return ImmutableCallableRecord(function=phase_engine_runner_dispatch, state=state)
+
+    alpha_target = runner_record("alpha", alpha_scenario)
+    audit_target = runner_record("audit", audit_scenario)
+    beta_target = runner_record("beta", beta_scenario)
+    alpha = _component("alpha", "synthetic.engine.alpha:v1", alpha_target)
+    audit = _component("audit", "synthetic.engine.audit:v1", audit_target)
+    beta = _component("beta", "synthetic.engine.beta:v1", beta_target)
+    alpha_export = _component(
+        "synthetic.alpha:v1",
+        "synthetic.engine_export.alpha:v1",
+        phase_index_export_validator,
+    )
+    beta_export = _component(
+        "synthetic.beta:v1",
+        "synthetic.engine_export.beta:v1",
+        phase_text_export_validator,
+    )
+
+    phase_by_name = {phase.phase_name: phase for phase in contribution.phases}
+    alpha_phase = phase_by_name["alpha"]
+    alpha_binding = replace(
+        alpha_phase.input_bindings[0], cardinality=invocation_cardinality
+    )
+    alpha_output = replace(
+        alpha_phase.provided_outputs[0],
+        permitted_on_statuses=alpha_permitted_statuses,
+        required_on_statuses=alpha_required_statuses,
+    )
+    phases = (
+        replace(
+            alpha_phase,
+            input_bindings=(alpha_binding,),
+            provided_outputs=(alpha_output,),
+        ),
+        replace(phase_by_name["audit"], ordering_after=audit_ordering_after),
+        phase_by_name["beta"],
+    )
+
+    retained_bindings = tuple(
+        binding
+        for binding in contribution.runtime_bindings
+        if binding.binding_kind not in ("runner", "export_type")
+    )
+    runtime_bindings = retained_bindings + (
+        _binding("runner", alpha, alpha_target),
+        _binding("runner", audit, audit_target),
+        _binding("runner", beta, beta_target),
+        _binding("export_type", alpha_export, phase_index_export_validator),
+        _binding("export_type", beta_export, phase_text_export_validator),
+    )
+    RUNTIME_REGISTRY.clear()
+    RUNTIME_REGISTRY.update(
+        {
+            (binding.binding_kind, binding.binding_id): binding.target
+            for binding in runtime_bindings
+        }
+    )
+    invocation_inputs = (
+        replace(
+            contribution.invocation_inputs[0], cardinality=invocation_cardinality
+        ),
+    )
+    return replace(
+        contribution,
+        phases=phases,
+        runners=(alpha, audit, beta),
+        invocation_inputs=invocation_inputs,
+        export_types=(
+            ExportTypeSpec(
+                export_type="synthetic.alpha:v1", validator=alpha_export
+            ),
+            ExportTypeSpec(
+                export_type="synthetic.beta:v1", validator=beta_export
+            ),
+        ),
+        runtime_bindings=runtime_bindings,
+    )
+
+
 def replace_runtime_component(
     contribution: ValidationProgramContribution,
     *,
@@ -681,7 +1041,10 @@ __all__ = (
     "immutable_record_dispatch",
     "make_closure",
     "make_assembler_profile_candidate",
+    "make_phase_engine_contribution",
     "make_program_contribution",
     "make_validation_bundle_bytes",
     "replace_runtime_component",
+    "SyntheticMutablePhaseIndex",
+    "SyntheticPhaseIndex",
 )
