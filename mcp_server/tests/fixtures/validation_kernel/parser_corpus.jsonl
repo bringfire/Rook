@@ -1,0 +1,14 @@
+{"name":"null","raw_hex":"6e756c6c","accepted":true,"expected_fingerprint":"sha256:74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"}
+{"name":"escaped_string_and_surrogate_pair","raw_hex":"226c696e655c6e5c75443833445c754445303022","accepted":true,"expected_fingerprint":"sha256:4cd7c53bbe597a2aac346a9911dd036d3f3ffa4cc119aa73819ad9ec629c1a8a"}
+{"name":"all_structural_tokens","raw_hex":"7b227a223a2274657874222c2261223a5b747275652c66616c73652c6e756c6c2c312e35305d7d","accepted":true,"expected_fingerprint":"sha256:f3c3eb791d77618807ff955ec1417335a387e0538456b0efd87b13ca5bb54b6e"}
+{"name":"object_order_b_then_a","raw_hex":"7b2262223a322c2261223a317d","accepted":true,"expected_fingerprint":"sha256:43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777"}
+{"name":"object_order_a_then_b","raw_hex":"7b2261223a312c2262223a327d","accepted":true,"expected_fingerprint":"sha256:43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777"}
+{"name":"utf8_bom","raw_hex":"efbbbf6e756c6c","accepted":false,"category":"bom_not_allowed"}
+{"name":"duplicate_member","raw_hex":"7b2278223a312c2278223a327d","accepted":false,"category":"duplicate_member"}
+{"name":"invalid_utf8","raw_hex":"22ff22","accepted":false,"category":"invalid_utf8"}
+{"name":"unpaired_high_surrogate","raw_hex":"225c754438303022","accepted":false,"category":"invalid_surrogate"}
+{"name":"unpaired_low_surrogate","raw_hex":"225c754445303022","accepted":false,"category":"invalid_surrogate"}
+{"name":"incorrect_surrogate_pair","raw_hex":"225c75443830305c753030343122","accepted":false,"category":"invalid_surrogate"}
+{"name":"overflow_number","raw_hex":"31653130303030","accepted":false,"category":"nonfinite_number"}
+{"name":"literal_nan","raw_hex":"4e614e","accepted":false,"category":"invalid_syntax"}
+{"name":"trailing_comma","raw_hex":"5b312c5d","accepted":false,"category":"invalid_syntax"}
