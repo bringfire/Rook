@@ -22,6 +22,38 @@ function Assert-NotContains {
     Assert-True -Condition (-not $Text.Contains($Unexpected)) -Message $Message
 }
 
+function Import-StackFunctionsForBehaviorTest {
+    $tokens = $null
+    $parseErrors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+        $StackScript,
+        [ref]$tokens,
+        [ref]$parseErrors
+    )
+    Assert-True -Condition ($parseErrors.Count -eq 0) -Message 'Stack validator must parse before behavioral tests run.'
+
+    $required = @(
+        'New-GateEnvelope',
+        'Save-GateEnvelope',
+        'ConvertTo-CommandParts',
+        'Invoke-ExternalChecked',
+        'Invoke-GateCommand'
+    )
+    $definitions = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $required -contains $node.Name
+    }, $true))
+    Assert-True -Condition ($definitions.Count -eq $required.Count) -Message 'Could not load every required production stack-validator function.'
+    return @($definitions | ForEach-Object { $_.Extent.Text })
+}
+
+foreach ($definition in (Import-StackFunctionsForBehaviorTest)) {
+    Invoke-Expression $definition
+}
+
+$GateResults = New-Object System.Collections.Generic.List[object]
+
 function Test-ValidateLocalTestingStackScriptContract {
     Assert-True -Condition (Test-Path $StackScript) -Message "Missing validate-local-testing-stack.ps1"
     $content = Get-Content -LiteralPath $StackScript -Raw
@@ -74,7 +106,79 @@ function Test-ProofModuleDoesNotInjectRepoSource {
     Assert-Contains -Text $content -Expected 'GateResult' -Message 'Proof module must emit machine-verifiable gate envelopes.'
 }
 
+function Test-ExternalRunnerCapturesNativeStderrAndRestoresProcessState {
+    Assert-True -Condition ($PSVersionTable.PSEdition -eq 'Desktop' -and $PSVersionTable.PSVersion.Major -eq 5) -Message 'Behavioral external-runner coverage must execute under Windows PowerShell 5.1.'
+
+    $artifactDir = Join-Path ([System.IO.Path]::GetTempPath()) ("rook-stack-runner-{0}" -f [guid]::NewGuid().ToString('N'))
+    $scopeName = 'ROOK_STACK_RUNNER_BEHAVIOR_SCOPE'
+    $initialScopeValue = [Environment]::GetEnvironmentVariable($scopeName, 'Process')
+    $initialErrorActionPreference = $ErrorActionPreference
+    $powershellExe = (Get-Command powershell.exe -ErrorAction Stop).Source
+    New-Item -ItemType Directory -Path $artifactDir | Out-Null
+
+    try {
+        $ErrorActionPreference = 'Stop'
+        [Environment]::SetEnvironmentVariable($scopeName, 'before-success', 'Process')
+        $successScript = Join-Path $artifactDir 'native-stderr-success.ps1'
+        @'
+[Console]::Out.WriteLine("stdout-success:" + $env:ROOK_STACK_RUNNER_BEHAVIOR_SCOPE)
+[Console]::Error.WriteLine("stderr-success")
+exit 0
+'@ | Set-Content -LiteralPath $successScript -Encoding UTF8
+        Invoke-GateCommand `
+            -Gate 'native_stderr_success' `
+            -FailureLabel 'native_stderr_success_failed' `
+            -ArtifactDir $artifactDir `
+            -ScopedEnvironment @{ ROOK_STACK_RUNNER_BEHAVIOR_SCOPE = 'during-success' } `
+            -Commands @(,@($powershellExe, '-NoProfile', '-File', $successScript))
+
+        Assert-True -Condition ($ErrorActionPreference -eq 'Stop') -Message 'ErrorActionPreference must be restored after a successful native command.'
+        Assert-True -Condition ([Environment]::GetEnvironmentVariable($scopeName, 'Process') -eq 'before-success') -Message 'Scoped environment must be restored after success.'
+        $successEnvelope = Get-Content -LiteralPath (Join-Path $artifactDir 'native_stderr_success.json') -Raw | ConvertFrom-Json
+        Assert-True -Condition ($successEnvelope.success -eq $true) -Message 'Exit 0 with native stderr must remain successful.'
+        Assert-True -Condition ($successEnvelope.details.scoped_env.ROOK_STACK_RUNNER_BEHAVIOR_SCOPE -eq 'during-success') -Message 'Successful gate details must persist the scoped environment.'
+        Assert-Contains -Text (Get-Content -LiteralPath $successEnvelope.stdout_path -Raw) -Expected 'stdout-success:during-success' -Message 'Successful native stdout must be persisted.'
+        Assert-Contains -Text (Get-Content -LiteralPath $successEnvelope.stderr_path -Raw) -Expected 'stderr-success' -Message 'Successful native stderr must be persisted.'
+
+        [Environment]::SetEnvironmentVariable($scopeName, $null, 'Process')
+        $failureScript = Join-Path $artifactDir 'native-stderr-failure.ps1'
+        @'
+[Console]::Out.WriteLine("stdout-failure:" + $env:ROOK_STACK_RUNNER_BEHAVIOR_SCOPE)
+[Console]::Error.WriteLine("stderr-failure")
+exit 7
+'@ | Set-Content -LiteralPath $failureScript -Encoding UTF8
+        $failureMessage = $null
+        try {
+            Invoke-GateCommand `
+                -Gate 'native_stderr_failure' `
+                -FailureLabel 'native_stderr_failure_failed' `
+                -ArtifactDir $artifactDir `
+                -ScopedEnvironment @{ ROOK_STACK_RUNNER_BEHAVIOR_SCOPE = 'during-failure' } `
+                -Commands @(,@($powershellExe, '-NoProfile', '-File', $failureScript))
+        } catch {
+            $failureMessage = $_.Exception.Message
+        }
+
+        Assert-Contains -Text $failureMessage -Expected 'native_stderr_failure_failed:' -Message 'Nonzero native exit must keep the stable gate failure label.'
+        Assert-Contains -Text $failureMessage -Expected 'exited with code 7' -Message 'Nonzero native exit must report the captured exit code.'
+        Assert-True -Condition ($ErrorActionPreference -eq 'Stop') -Message 'ErrorActionPreference must be restored after a failing native command.'
+        Assert-True -Condition ($null -eq [Environment]::GetEnvironmentVariable($scopeName, 'Process')) -Message 'Scoped environment must be restored after failure.'
+        $failureEnvelope = Get-Content -LiteralPath (Join-Path $artifactDir 'native_stderr_failure.json') -Raw | ConvertFrom-Json
+        Assert-True -Condition ($failureEnvelope.success -eq $false) -Message 'Nonzero native exit must persist a failed gate envelope.'
+        Assert-True -Condition ($failureEnvelope.failure_label -eq 'native_stderr_failure_failed') -Message 'Failed gate envelope must persist the stable failure label.'
+        Assert-Contains -Text $failureEnvelope.details.error -Expected 'exited with code 7' -Message 'Failed gate details must persist the native exit code.'
+        Assert-True -Condition ($failureEnvelope.details.scoped_env.ROOK_STACK_RUNNER_BEHAVIOR_SCOPE -eq 'during-failure') -Message 'Failed gate details must persist the scoped environment.'
+        Assert-Contains -Text (Get-Content -LiteralPath $failureEnvelope.stdout_path -Raw) -Expected 'stdout-failure:during-failure' -Message 'Failing native stdout must be persisted.'
+        Assert-Contains -Text (Get-Content -LiteralPath $failureEnvelope.stderr_path -Raw) -Expected 'stderr-failure' -Message 'Failing native stderr must be persisted.'
+    } finally {
+        $ErrorActionPreference = $initialErrorActionPreference
+        [Environment]::SetEnvironmentVariable($scopeName, $initialScopeValue, 'Process')
+        Remove-Item -LiteralPath $artifactDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 Test-ValidateLocalTestingStackScriptContract
 Test-ProofModuleDoesNotInjectRepoSource
+Test-ExternalRunnerCapturesNativeStderrAndRestoresProcessState
 
 Write-Host 'Local testing stack guard tests passed.'

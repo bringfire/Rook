@@ -122,9 +122,17 @@ function Invoke-ExternalChecked {
     if ($Command.Count -gt 1) {
         $args = @($Command[1..($Command.Count - 1)])
     }
-    & $exe @args 1>> $StdoutPath 2>> $StderrPath
-    if ($LASTEXITCODE -ne 0) {
-        throw "$($Command -join ' ') exited with code $LASTEXITCODE"
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & $exe @args 1>> $StdoutPath 2>> $StderrPath
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($exitCode -ne 0) {
+        throw "$($Command -join ' ') exited with code $exitCode"
     }
 }
 
