@@ -24,6 +24,9 @@ from .runtime_harness import CleanupStatus, run_rhino_runtime_harness
 from .runtime_paths import resolve_runtime_paths
 
 
+_CHIRP_CLEANUP_MAX_UNDO_ATTEMPTS = 8
+
+
 class ProofFailure(RuntimeError):
     def __init__(
         self,
@@ -1005,6 +1008,143 @@ async def _ensure_grasshopper_ready(args: dict[str, int]) -> dict[str, Any]:
     )
 
 
+def _chirp_cleanup_evidence(
+    *,
+    attempts: list[dict[str, Any]],
+    component_guid: str,
+    component_removed: bool,
+    baseline_object_count: int,
+    final_object_count: int | None,
+    final_snapshot: dict[str, Any] | None,
+) -> dict[str, Any]:
+    return {
+        "attempts": attempts,
+        "attempt_count": len(attempts),
+        "component_guid": component_guid,
+        "component_removed": component_removed,
+        "baseline_object_count": baseline_object_count,
+        "final_object_count": final_object_count,
+        "final_snapshot": final_snapshot,
+    }
+
+
+async def _undo_chirp_to_baseline(
+    args: dict[str, int],
+    *,
+    component_guid: str,
+    baseline_object_count: int,
+) -> dict[str, Any]:
+    attempts: list[dict[str, Any]] = []
+    final_snapshot: dict[str, Any] | None = None
+    final_object_count: int | None = None
+    component_removed = False
+    normalized_guid = component_guid.casefold()
+
+    for _attempt in range(1, _CHIRP_CLEANUP_MAX_UNDO_ATTEMPTS + 1):
+        undo = await _call_tool_dispatch("gh_undo", dict(args))
+        if not isinstance(undo, dict):
+            raise ProofFailure(
+                "cleanup_failed",
+                "gh_undo cleanup returned a malformed response",
+                {
+                    "gh_undo": _chirp_cleanup_evidence(
+                        attempts=attempts,
+                        component_guid=component_guid,
+                        component_removed=False,
+                        baseline_object_count=baseline_object_count,
+                        final_object_count=None,
+                        final_snapshot=None,
+                    )
+                },
+            )
+        attempts.append(undo)
+        evidence = _chirp_cleanup_evidence(
+            attempts=attempts,
+            component_guid=component_guid,
+            component_removed=component_removed,
+            baseline_object_count=baseline_object_count,
+            final_object_count=final_object_count,
+            final_snapshot=final_snapshot,
+        )
+        if undo.get("success") is not True:
+            raise ProofFailure(
+                "cleanup_failed",
+                "gh_undo cleanup failed",
+                {"gh_undo": evidence},
+            )
+
+        data = undo.get("data")
+        snapshot = data.get("snapshot") if isinstance(data, dict) else None
+        components = snapshot.get("components") if isinstance(snapshot, dict) else None
+        diagnostics = (
+            snapshot.get("diagnostics") if isinstance(snapshot, dict) else None
+        )
+        total = diagnostics.get("total") if isinstance(diagnostics, dict) else None
+        snapshot_valid = (
+            isinstance(snapshot, dict)
+            and isinstance(components, list)
+            and all(isinstance(item, dict) for item in components)
+            and isinstance(total, int)
+            and not isinstance(total, bool)
+            and total >= 0
+            and total == len(components)
+        )
+        if not snapshot_valid:
+            raise ProofFailure(
+                "cleanup_failed",
+                "gh_undo cleanup snapshot was malformed",
+                {
+                    "gh_undo": _chirp_cleanup_evidence(
+                        attempts=attempts,
+                        component_guid=component_guid,
+                        component_removed=False,
+                        baseline_object_count=baseline_object_count,
+                        final_object_count=None,
+                        final_snapshot=snapshot if isinstance(snapshot, dict) else None,
+                    )
+                },
+            )
+
+        final_snapshot = snapshot
+        final_object_count = total
+        component_removed = not any(
+            isinstance(item.get("componentGuid"), str)
+            and item["componentGuid"].casefold() == normalized_guid
+            for item in components
+        )
+        evidence = _chirp_cleanup_evidence(
+            attempts=attempts,
+            component_guid=component_guid,
+            component_removed=component_removed,
+            baseline_object_count=baseline_object_count,
+            final_object_count=final_object_count,
+            final_snapshot=final_snapshot,
+        )
+        if component_removed and final_object_count == baseline_object_count:
+            return evidence
+        if final_object_count < baseline_object_count:
+            raise ProofFailure(
+                "cleanup_failed",
+                "gh_undo cleanup passed below the pre-create object-count baseline",
+                {"gh_undo": evidence},
+            )
+
+    raise ProofFailure(
+        "cleanup_failed",
+        "gh_undo cleanup could not prove component removal and baseline restoration",
+        {
+            "gh_undo": _chirp_cleanup_evidence(
+                attempts=attempts,
+                component_guid=component_guid,
+                component_removed=component_removed,
+                baseline_object_count=baseline_object_count,
+                final_object_count=final_object_count,
+                final_snapshot=final_snapshot,
+            )
+        },
+    )
+
+
 async def run_live_smoke(
     *,
     port: int | None = None,
@@ -1031,6 +1171,22 @@ async def run_live_smoke(
 
             gh_ready = await _ensure_grasshopper_ready(args)
             status = gh_ready["status"]
+            status_data = status.get("data") if isinstance(status, dict) else None
+            baseline_object_count = (
+                status_data.get("object_count")
+                if isinstance(status_data, dict)
+                else None
+            )
+            if (
+                not isinstance(baseline_object_count, int)
+                or isinstance(baseline_object_count, bool)
+                or baseline_object_count < 0
+            ):
+                raise ProofFailure(
+                    "cleanup_failed",
+                    "gh_status did not provide a valid pre-create object_count",
+                    {"gh_status": status},
+                )
 
             progressive_discovery = await _run_live_progressive_gh_status(args)
 
@@ -1072,7 +1228,7 @@ async def run_live_smoke(
                 )
 
             component_guid = chirp_data.get("component_guid")
-            if not component_guid:
+            if not isinstance(component_guid, str) or not component_guid.strip():
                 raise ProofFailure(
                     "chirp_create_failed",
                     "chirp_create did not return component_guid",
@@ -1094,11 +1250,11 @@ async def run_live_smoke(
                         {"gh_errors": errors},
                     )
 
-            undo = await _call_tool_dispatch("gh_undo", dict(args))
-            if not undo.get("success"):
-                raise ProofFailure(
-                    "cleanup_failed", "gh_undo failed", {"gh_undo": undo}
-                )
+            undo = await _undo_chirp_to_baseline(
+                args,
+                component_guid=component_guid,
+                baseline_object_count=baseline_object_count,
+            )
 
         return {
             "rhino_ping": ping,

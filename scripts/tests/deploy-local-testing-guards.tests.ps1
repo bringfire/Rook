@@ -361,6 +361,13 @@ function Test-DeployScriptLiveSmokeIsExplicit {
     Assert-Contains -Text $content -Expected 'compilation_errors' -Message 'Live smoke must fail if chirp_create returns component compilation errors.'
     Assert-Contains -Text $content -Expected 'created Chirp component has Grasshopper errors' -Message 'Live smoke must check gh_errors for the created component.'
     Assert-Contains -Text $content -Expected 'gh_undo cleanup failed' -Message 'Live smoke must fail if cleanup undo fails.'
+    Assert-Contains -Text $content -Expected 'baseline_object_count = status_data.get("object_count")' -Message 'Live smoke must capture the pre-create Grasshopper object-count baseline.'
+    Assert-Contains -Text $content -Expected 'MAX_CHIRP_CLEANUP_UNDO_ATTEMPTS = 8' -Message 'Live smoke cleanup must use a fixed undo bound.'
+    Assert-Contains -Text $content -Expected 'for attempt in range(1, MAX_CHIRP_CLEANUP_UNDO_ATTEMPTS + 1):' -Message 'Live smoke cleanup must retry undo only within the fixed bound.'
+    Assert-Contains -Text $content -Expected 'item.get("componentGuid")' -Message 'Live smoke cleanup must prove the created component GUID is absent from the undo snapshot.'
+    Assert-Contains -Text $content -Expected 'final_object_count == baseline_object_count' -Message 'Live smoke cleanup must prove the canvas object count returned to baseline.'
+    Assert-Contains -Text $content -Expected '"component_removed": component_removed' -Message 'Live smoke cleanup evidence must state whether the created component was removed.'
+    Assert-Contains -Text $content -Expected 'gh_undo cleanup could not prove component removal and baseline restoration' -Message 'Live smoke must fail clearly when bounded cleanup cannot prove restoration.'
     Assert-Contains -Text $content -Expected "'ROOK_MCP_TOOL_PROFILE'" -Message 'Live smoke must save and restore the MCP profile.'
     Assert-Contains -Text $content -Expected "[Environment]::SetEnvironmentVariable('ROOK_MCP_TOOL_PROFILE', 'lean', 'Process')" -Message 'Live smoke must force lean.'
     foreach ($gateway in @('rook_tools_ls', 'rook_tools_search', 'rook_tools_read', 'rook_tools_call')) {
@@ -370,7 +377,7 @@ function Test-DeployScriptLiveSmokeIsExplicit {
     $progressiveSearch = $content.IndexOf('await public_call("rook_tools_search"')
     $chirpCreate = $content.IndexOf('chirp = await _call_tool_dispatch("chirp_create"')
     Assert-True -Condition ($directStatus -ge 0 -and $directStatus -lt $progressiveSearch -and $progressiveSearch -lt $chirpCreate) -Message 'Direct controls must precede the progressive chain, which must precede Chirp mutation.'
-    $undoFailure = $content.IndexOf('raise SystemExit(f"gh_undo cleanup failed: {undo}")')
+    $undoFailure = $content.IndexOf('gh_undo cleanup could not prove component removal and baseline restoration')
     $evidenceStart = $content.IndexOf('live_evidence = {')
     $finalPrint = $content.IndexOf('print(json.dumps(live_evidence, default=str, sort_keys=True))')
     Assert-True -Condition ($undoFailure -ge 0 -and $undoFailure -lt $evidenceStart -and $evidenceStart -lt $finalPrint) -Message 'Final evidence must be built and printed only after successful undo validation.'

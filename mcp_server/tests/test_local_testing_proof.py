@@ -641,6 +641,22 @@ async def _async_value(value):
     return value
 
 
+def _gh_undo_success(*component_guids: str) -> dict:
+    components = [
+        {"componentGuid": component_guid} for component_guid in component_guids
+    ]
+    return {
+        "success": True,
+        "data": {
+            "message": "Undo successful",
+            "snapshot": {
+                "components": components,
+                "diagnostics": {"total": len(components)},
+            },
+        },
+    }
+
+
 async def _successful_direct_dispatch(name: str, _args: dict):
     # rhino_ping is the first lazy rook.server import. Every direct call must
     # therefore already observe lean, not only the later progressive helper.
@@ -648,7 +664,7 @@ async def _successful_direct_dispatch(name: str, _args: dict):
     if name == "rhino_ping":
         return {"success": True, "data": {"processId": 42, "port": 9001}}
     if name == "gh_status":
-        return {"success": True, "data": {"ready": True}}
+        return {"success": True, "data": {"ready": True, "object_count": 1}}
     if name == "chirp_create":
         return {
             "success": True,
@@ -657,7 +673,7 @@ async def _successful_direct_dispatch(name: str, _args: dict):
     if name == "gh_errors":
         return {"success": True, "data": {"errors": []}}
     if name == "gh_undo":
-        return {"success": True, "data": {"undone": True}}
+        return _gh_undo_success("baseline")
     raise AssertionError(name)
 
 
@@ -808,7 +824,7 @@ async def test_live_smoke_rejects_chirp_warning(monkeypatch, passing_live_progre
         if name == "rhino_ping":
             return {"success": True, "data": {"processId": 42, "port": 9001}}
         if name == "gh_status":
-            return {"success": True, "data": {"ready": True}}
+            return {"success": True, "data": {"ready": True, "object_count": 1}}
         if name == "chirp_create":
             return {
                 "success": True,
@@ -835,7 +851,7 @@ async def test_live_smoke_requires_undo_success(monkeypatch, passing_live_progre
         if name == "rhino_ping":
             return {"success": True, "data": {"processId": 42, "port": 9001}}
         if name == "gh_status":
-            return {"success": True, "data": {"ready": True}}
+            return {"success": True, "data": {"ready": True, "object_count": 1}}
         if name == "chirp_create":
             return {"success": True, "data": {"component_guid": "abc", "compilation_errors": []}}
         if name == "gh_errors":
@@ -853,12 +869,133 @@ async def test_live_smoke_requires_undo_success(monkeypatch, passing_live_progre
 
 
 @pytest.mark.asyncio
+async def test_live_smoke_repeats_undo_until_component_removed_and_baseline_restored(
+    monkeypatch, passing_live_progressive
+):
+    undo_responses = [
+        _gh_undo_success("baseline", "ABC"),
+        _gh_undo_success("baseline"),
+    ]
+    undo_calls = 0
+
+    async def fake_dispatch(name: str, args: dict):
+        nonlocal undo_calls
+        if name == "rhino_ping":
+            return {"success": True, "data": {"processId": 42, "port": 9001}}
+        if name == "gh_status":
+            return {"success": True, "data": {"ready": True, "object_count": 1}}
+        if name == "chirp_create":
+            return {
+                "success": True,
+                "data": {"component_guid": "abc", "compilation_errors": []},
+            }
+        if name == "gh_errors":
+            return {"success": True, "data": {"errors": []}}
+        if name == "gh_undo":
+            response = undo_responses[undo_calls]
+            undo_calls += 1
+            return response
+        raise AssertionError(name)
+
+    monkeypatch.setattr(proof, "_call_tool_dispatch", fake_dispatch)
+
+    result = await proof.run_live_smoke(port=9001, process_id=42)
+
+    assert undo_calls == 2
+    assert result["gh_undo"] == {
+        "attempts": undo_responses,
+        "attempt_count": 2,
+        "component_guid": "abc",
+        "component_removed": True,
+        "baseline_object_count": 1,
+        "final_object_count": 1,
+        "final_snapshot": undo_responses[-1]["data"]["snapshot"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_live_smoke_fails_when_cleanup_bound_is_exhausted(
+    monkeypatch, passing_live_progressive
+):
+    undo_calls = 0
+
+    async def fake_dispatch(name: str, args: dict):
+        nonlocal undo_calls
+        if name == "rhino_ping":
+            return {"success": True, "data": {"processId": 42, "port": 9001}}
+        if name == "gh_status":
+            return {"success": True, "data": {"ready": True, "object_count": 1}}
+        if name == "chirp_create":
+            return {
+                "success": True,
+                "data": {"component_guid": "abc", "compilation_errors": []},
+            }
+        if name == "gh_errors":
+            return {"success": True, "data": {"errors": []}}
+        if name == "gh_undo":
+            undo_calls += 1
+            return _gh_undo_success("baseline", "abc")
+        raise AssertionError(name)
+
+    monkeypatch.setattr(proof, "_call_tool_dispatch", fake_dispatch)
+    monkeypatch.setattr(
+        proof, "_CHIRP_CLEANUP_MAX_UNDO_ATTEMPTS", 2, raising=False
+    )
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        await proof.run_live_smoke(port=9001, process_id=42)
+
+    assert undo_calls == 2
+    assert exc.value.failure_label == "cleanup_failed"
+    assert exc.value.details["gh_undo"]["attempt_count"] == 2
+    assert exc.value.details["gh_undo"]["component_removed"] is False
+
+
+@pytest.mark.asyncio
+async def test_live_smoke_fails_on_malformed_cleanup_snapshot(
+    monkeypatch, passing_live_progressive
+):
+    async def fake_dispatch(name: str, args: dict):
+        if name == "rhino_ping":
+            return {"success": True, "data": {"processId": 42, "port": 9001}}
+        if name == "gh_status":
+            return {"success": True, "data": {"ready": True, "object_count": 1}}
+        if name == "chirp_create":
+            return {
+                "success": True,
+                "data": {"component_guid": "abc", "compilation_errors": []},
+            }
+        if name == "gh_errors":
+            return {"success": True, "data": {"errors": []}}
+        if name == "gh_undo":
+            return {
+                "success": True,
+                "data": {
+                    "snapshot": {
+                        "components": "not-a-list",
+                        "diagnostics": {"total": 1},
+                    }
+                },
+            }
+        raise AssertionError(name)
+
+    monkeypatch.setattr(proof, "_call_tool_dispatch", fake_dispatch)
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        await proof.run_live_smoke(port=9001, process_id=42)
+
+    assert exc.value.failure_label == "cleanup_failed"
+    assert exc.value.details["gh_undo"]["attempt_count"] == 1
+    assert "snapshot" in str(exc.value)
+
+
+@pytest.mark.asyncio
 async def test_live_smoke_requires_component_guid(monkeypatch, passing_live_progressive):
     async def fake_dispatch(name: str, args: dict):
         if name == "rhino_ping":
             return {"success": True, "data": {"processId": 42, "port": 9001}}
         if name == "gh_status":
-            return {"success": True, "data": {"ready": True}}
+            return {"success": True, "data": {"ready": True, "object_count": 1}}
         if name == "chirp_create":
             return {"success": True, "data": {"compilation_errors": []}}
         raise AssertionError(name)
@@ -883,8 +1020,18 @@ async def test_live_smoke_launches_grasshopper_when_not_ready(
             return {"success": True, "data": {"processId": 42, "port": 9001}}
         if name == "gh_status":
             if any(call[0] == "gh_document_new" for call in calls):
-                return {"success": True, "data": {"ready_for_edit": True}}
-            return {"success": True, "data": {"available": False, "ready_for_edit": False}}
+                return {
+                    "success": True,
+                    "data": {"ready_for_edit": True, "object_count": 1},
+                }
+            return {
+                "success": True,
+                "data": {
+                    "available": False,
+                    "ready_for_edit": False,
+                    "object_count": 0,
+                },
+            }
         if name == "rhino_command":
             return {"success": True, "data": {"command": args["command"]}}
         if name == "gh_document_new":
@@ -894,7 +1041,7 @@ async def test_live_smoke_launches_grasshopper_when_not_ready(
         if name == "gh_errors":
             return {"success": True, "data": {"errors": []}}
         if name == "gh_undo":
-            return {"success": True, "data": {"undone": True}}
+            return _gh_undo_success("baseline")
         raise AssertionError(name)
 
     monkeypatch.setattr(proof, "_call_tool_dispatch", fake_dispatch)
@@ -920,8 +1067,18 @@ async def test_live_smoke_polls_after_grasshopper_command_timeout(
             return {"success": True, "data": {"processId": 42, "port": 9001}}
         if name == "gh_status":
             if any(call[0] == "gh_document_new" for call in calls):
-                return {"success": True, "data": {"ready_for_edit": True}}
-            return {"success": True, "data": {"available": False, "ready_for_edit": False}}
+                return {
+                    "success": True,
+                    "data": {"ready_for_edit": True, "object_count": 1},
+                }
+            return {
+                "success": True,
+                "data": {
+                    "available": False,
+                    "ready_for_edit": False,
+                    "object_count": 0,
+                },
+            }
         if name == "rhino_command":
             return {
                 "success": False,
@@ -938,7 +1095,7 @@ async def test_live_smoke_polls_after_grasshopper_command_timeout(
         if name == "gh_errors":
             return {"success": True, "data": {"errors": []}}
         if name == "gh_undo":
-            return {"success": True, "data": {"undone": True}}
+            return _gh_undo_success("baseline")
         raise AssertionError(name)
 
     monkeypatch.setattr(proof, "_call_tool_dispatch", fake_dispatch)
