@@ -33,7 +33,11 @@ from .owned_json import (
     own_trusted_json,
 )
 from .parser import JsonParseError, JsonParseEvidence
-from .program import SealedValidationProgram, _fixed_parser_profile_spec
+from .program import (
+    SealedValidationProgram,
+    _fixed_parser_profile_spec,
+    _has_valid_runtime_binding_witness,
+)
 
 
 _MACHINE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
@@ -61,6 +65,8 @@ _PROFILE_FIELDS = frozenset(
 )
 _PROFILE_CONSTRUCTION_SENTINEL = object()
 _BUNDLE_CONSTRUCTION_SENTINEL = object()
+_PROFILE_ISSUER_CAPABILITY = object()
+_BUNDLE_ISSUER_CAPABILITY = object()
 
 
 @dataclass(frozen=True, slots=True, init=False, eq=False)
@@ -77,6 +83,12 @@ class SealedTrustedBundleAssemblerProfile:
     permitted_clock_sources: tuple[str, ...]
     profile_fingerprint: str
     profile_bytes: bytes
+    __issuer_capability: object = field(init=False, repr=False, compare=False)
+    __issued_signature: tuple[object, ...] = field(
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     def __init__(self) -> None:
         raise TypeError(
@@ -94,6 +106,24 @@ class SealedTrustedBundleAssemblerProfile:
 
     def __reduce_ex__(self, protocol: int) -> object:
         raise TypeError("sealed assembler profiles cannot be copied or serialized")
+
+
+def _profile_issued_signature(
+    profile: SealedTrustedBundleAssemblerProfile,
+) -> tuple[object, ...]:
+    return (
+        profile,
+        profile.schema,
+        profile.profile_id,
+        profile.assembler_kind,
+        profile.assembler_id,
+        profile.assembler_version,
+        profile.implementation_fingerprint,
+        profile.permitted_program_ids,
+        profile.permitted_clock_sources,
+        profile.profile_fingerprint,
+        profile.profile_bytes,
+    )
 
 
 def _construct_sealed_assembler_profile(
@@ -123,13 +153,28 @@ def _construct_sealed_assembler_profile(
     object.__setattr__(sealed, "permitted_clock_sources", permitted_clock_sources)
     object.__setattr__(sealed, "profile_fingerprint", profile_fingerprint)
     object.__setattr__(sealed, "profile_bytes", profile_bytes)
+    object.__setattr__(
+        sealed,
+        "_SealedTrustedBundleAssemblerProfile__issuer_capability",
+        _PROFILE_ISSUER_CAPABILITY,
+    )
+    object.__setattr__(
+        sealed,
+        "_SealedTrustedBundleAssemblerProfile__issued_signature",
+        _profile_issued_signature(sealed),
+    )
     return sealed
 
 
 class TrustedValidationBundleInput:
     """Opaque carrier binding exact bytes to one sealed assembler profile."""
 
-    __slots__ = ("_raw_bytes", "_profile")
+    __slots__ = (
+        "_raw_bytes",
+        "_profile",
+        "_TrustedValidationBundleInput__issuer_capability",
+        "_TrustedValidationBundleInput__issued_signature",
+    )
 
     def __init__(self) -> None:
         raise TypeError(
@@ -178,6 +223,16 @@ def _construct_trusted_validation_bundle(
     carrier = object.__new__(TrustedValidationBundleInput)
     object.__setattr__(carrier, "_raw_bytes", raw_bytes)
     object.__setattr__(carrier, "_profile", profile)
+    object.__setattr__(
+        carrier,
+        "_TrustedValidationBundleInput__issuer_capability",
+        _BUNDLE_ISSUER_CAPABILITY,
+    )
+    object.__setattr__(
+        carrier,
+        "_TrustedValidationBundleInput__issued_signature",
+        (carrier, profile, raw_bytes),
+    )
     return carrier
 
 
@@ -394,10 +449,37 @@ def _profile_is_valid(profile: object) -> bool:
     if type(profile) is not SealedTrustedBundleAssemblerProfile:
         return False
     try:
+        issuer = object.__getattribute__(
+            profile,
+            "_SealedTrustedBundleAssemblerProfile__issuer_capability",
+        )
+        issued_signature = object.__getattribute__(
+            profile,
+            "_SealedTrustedBundleAssemblerProfile__issued_signature",
+        )
+        if issuer is not _PROFILE_ISSUER_CAPABILITY:
+            return False
         if (
-            type(profile.permitted_program_ids) is not tuple
+            type(profile.schema) is not str
+            or type(profile.profile_id) is not str
+            or type(profile.assembler_kind) is not str
+            or type(profile.assembler_id) is not str
+            or type(profile.assembler_version) is not str
+            or type(profile.implementation_fingerprint) is not str
+            or type(profile.permitted_program_ids) is not tuple
             or type(profile.permitted_clock_sources) is not tuple
+            or type(profile.profile_fingerprint) is not str
             or type(profile.profile_bytes) is not bytes
+            or type(issued_signature) is not tuple
+            or len(issued_signature) != 11
+            or not all(
+                issued is current
+                for issued, current in zip(
+                    issued_signature,
+                    _profile_issued_signature(profile),
+                    strict=True,
+                )
+            )
         ):
             return False
         unsigned = _normalized_profile_value(
@@ -425,6 +507,37 @@ def _profile_is_valid(profile: object) -> bool:
             profile_fingerprint=profile.profile_fingerprint,
         )
         return canonical_json_bytes(final_value) == profile.profile_bytes
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def _trusted_bundle_is_valid(value: object) -> bool:
+    if type(value) is not TrustedValidationBundleInput:
+        return False
+    try:
+        issuer = object.__getattribute__(
+            value,
+            "_TrustedValidationBundleInput__issuer_capability",
+        )
+        issued_signature = object.__getattribute__(
+            value,
+            "_TrustedValidationBundleInput__issued_signature",
+        )
+        if (
+            issuer is not _BUNDLE_ISSUER_CAPABILITY
+            or type(issued_signature) is not tuple
+            or len(issued_signature) != 3
+        ):
+            return False
+        profile = object.__getattribute__(value, "_profile")
+        raw_bytes = object.__getattribute__(value, "_raw_bytes")
+        return (
+            type(raw_bytes) is bytes
+            and _profile_is_valid(profile)
+            and issued_signature[0] is value
+            and issued_signature[1] is profile
+            and issued_signature[2] is raw_bytes
+        )
     except (AttributeError, TypeError, ValueError):
         return False
 
@@ -497,7 +610,10 @@ def _control_failure(
 
 
 def _program_is_valid(program: object) -> bool:
-    if type(program) is not SealedValidationProgram:
+    if (
+        type(program) is not SealedValidationProgram
+        or not _has_valid_runtime_binding_witness(program)
+    ):
         return False
     try:
         identity_fields_are_valid = (
@@ -675,27 +791,14 @@ def _build_validation_execution_context(
             artifact_role=ArtifactRole.VALIDATION_PROGRAM,
             program=None,
         )
-    if type(trusted_bundle) is not TrustedValidationBundleInput:
+    if not _trusted_bundle_is_valid(trusted_bundle):
         return _control_failure(
             code="validation_input_invalid",
             artifact_role=ArtifactRole.VALIDATION_BUNDLE,
             program=program,
         )
-    try:
-        profile = trusted_bundle._profile
-        raw_bundle_bytes = trusted_bundle._raw_bytes
-    except AttributeError:
-        return _control_failure(
-            code="validation_input_invalid",
-            artifact_role=ArtifactRole.VALIDATION_BUNDLE,
-            program=program,
-        )
-    if not _profile_is_valid(profile):
-        return _control_failure(
-            code="validation_input_invalid",
-            artifact_role=ArtifactRole.VALIDATION_BUNDLE,
-            program=program,
-        )
+    profile = object.__getattribute__(trusted_bundle, "_profile")
+    raw_bundle_bytes = object.__getattribute__(trusted_bundle, "_raw_bytes")
     if program.program_id not in profile.permitted_program_ids:
         return _control_failure(
             code="validator_identity_unavailable",

@@ -20,6 +20,7 @@ KERNEL_CONTROL_CODES = (
 
 _SHA256_PATTERN = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _MAX_CONTROL_MESSAGE_CODE_POINTS = 512
+_OPAQUE_EXCEPTION_MARKER = b"rook.validation_kernel.caught_exception:v1"
 
 
 class ControlFailureInputError(ValueError):
@@ -246,10 +247,11 @@ def control_failure_from_exception(
     if type(code) is not str or code not in KERNEL_CONTROL_CODES:
         raise ControlFailureInputError("invalid control failure code")
 
-    exception_type = f"{type(exception).__module__}.{type(exception).__qualname__}".encode(
-        "utf-8"
+    detail = (
+        _OPAQUE_EXCEPTION_MARKER
+        if raw_input is None
+        else _OPAQUE_EXCEPTION_MARKER + b"\0" + raw_input
     )
-    detail = exception_type if raw_input is None else exception_type + b"\0" + raw_input
     return make_control_failure(
         failure_stage=failure_stage,
         code=code,

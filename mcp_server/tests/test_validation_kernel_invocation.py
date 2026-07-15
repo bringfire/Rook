@@ -6,7 +6,7 @@ import json
 import pickle
 from dataclasses import fields as dataclass_fields
 from dataclasses import replace as dataclass_replace
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 
 import pytest
 
@@ -168,6 +168,20 @@ def test_profile_documented_copy_and_serialization_paths_are_closed() -> None:
             _issue(lookalike, b"{}")
 
 
+def test_exact_profile_reconstruction_cannot_issue_a_trusted_carrier() -> None:
+    profile = _sealed_profile()
+    reconstructed = object.__new__(type(profile))
+    for field in dataclass_fields(profile):
+        object.__setattr__(
+            reconstructed,
+            field.name,
+            object.__getattribute__(profile, field.name),
+        )
+
+    with pytest.raises(TypeError, match="valid sealed profile"):
+        _issue(reconstructed, make_validation_bundle_bytes())
+
+
 def test_carrier_documented_copy_and_serialization_paths_are_closed() -> None:
     profile = _sealed_profile()
     raw = make_validation_bundle_bytes()
@@ -188,6 +202,37 @@ def test_carrier_documented_copy_and_serialization_paths_are_closed() -> None:
     with pytest.raises(TypeError):
         carrier_type(profile=profile, raw_bytes=raw)
     assert "_create" not in carrier_type.__dict__
+
+
+def test_exact_carrier_reconstruction_fails_before_artifact_bytes_are_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    program = _invocation_program()
+    authentic = _carrier(_sealed_profile())
+    reconstructed = object.__new__(type(authentic))
+    for slot_name in type(authentic).__slots__:
+        object.__setattr__(
+            reconstructed,
+            slot_name,
+            object.__getattribute__(authentic, slot_name),
+        )
+    invocation_module = importlib.import_module("rook.validation_kernel.invocation")
+    copied_artifacts = 0
+    real_copy = invocation_module._copy_exact_bytes
+
+    def copy_spy(value: bytes) -> bytes:
+        nonlocal copied_artifacts
+        copied_artifacts += 1
+        return real_copy(value)
+
+    monkeypatch.setattr(invocation_module, "_copy_exact_bytes", copy_spy)
+
+    result = _build(program, b"{}", reconstructed)
+
+    assert isinstance(result, ValidationControlFailure)
+    assert result.code == "validation_input_invalid"
+    assert result.artifact_role == "validation_bundle"
+    assert copied_artifacts == 0
 
 
 def test_unsealed_and_lookalike_carriers_fail_without_reading_artifacts() -> None:
@@ -243,6 +288,49 @@ def test_program_fingerprint_must_still_match_its_sealed_manifest() -> None:
     assert result.code == "validator_identity_unavailable"
     assert result.program_id is None
     assert carrier.reads == 0
+
+
+@pytest.mark.parametrize("tamper", ("copied_map", "rogue_parser"))
+def test_rebound_runtime_map_fails_before_artifact_read_or_dispatch(
+    tamper: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    program = _invocation_program()
+    profile = _sealed_profile()
+    invocation_module = importlib.import_module("rook.validation_kernel.invocation")
+    original_map = object.__getattribute__(program, "_runtime_bindings")
+    rebound = dict(original_map)
+    parser_key = ("parser", program.parser_profile.parser.component_id)
+    real_parser = rebound[parser_key]
+    parser_dispatches = 0
+
+    if tamper == "rogue_parser":
+
+        def rogue_parser(*args: object, **kwargs: object) -> object:
+            nonlocal parser_dispatches
+            parser_dispatches += 1
+            return real_parser(*args, **kwargs)
+
+        rebound[parser_key] = rogue_parser
+
+    object.__setattr__(program, "_runtime_bindings", MappingProxyType(rebound))
+    copied_artifacts = 0
+    real_copy = invocation_module._copy_exact_bytes
+
+    def copy_spy(value: bytes) -> bytes:
+        nonlocal copied_artifacts
+        copied_artifacts += 1
+        return real_copy(value)
+
+    monkeypatch.setattr(invocation_module, "_copy_exact_bytes", copy_spy)
+
+    result = _build(program, b"{}", _carrier(profile))
+
+    assert isinstance(result, ValidationControlFailure)
+    assert result.code == "validator_identity_unavailable"
+    assert result.artifact_role == "validation_program"
+    assert copied_artifacts == 0
+    assert parser_dispatches == 0
 
 
 @pytest.mark.parametrize(

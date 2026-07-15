@@ -315,7 +315,7 @@ def _validate_artifacts_with_audit(
         return _outcome_for_program(phase_result, program, phase_attempts)
     if type(phase_result) is not tuple:
         return _outcome_for_program(
-            _phase_audit_integrity_failure(context), program, ()
+            _phase_audit_integrity_failure(context), program, phase_attempts
         )
 
     report_seal = _seal_validation_report_with_audit(context, phase_result)

@@ -16,6 +16,7 @@ import rook.validation_kernel.budget as budget_module
 import rook.validation_kernel.canonical_json as canonical_json_module
 import rook.validation_kernel.parser as parser_module
 import rook.validation_kernel.program as program_module
+import rook.validation_kernel.schema_profile as schema_profile_module
 from rook.validation_kernel import (
     CORE_PROFILE,
     ExportTypeSpec,
@@ -287,6 +288,7 @@ def _forge_admitted_schema(
             if maximum_reference_depth is None
             else maximum_reference_depth,
         ),
+        ("evaluation_expansion_units", source.evaluation_expansion_units),
         ("value", forged_value),
     ):
         object.__setattr__(forged, field_name, field_value)
@@ -296,6 +298,11 @@ def _forge_admitted_schema(
         object.__getattribute__(
             source, "_AdmittedSchema__issuer_capability"
         ),
+    )
+    object.__setattr__(
+        forged,
+        "_AdmittedSchema__issued_signature",
+        schema_profile_module._admitted_schema_signature(forged),
     )
     return forged
 
@@ -1584,6 +1591,63 @@ def test_runtime_bindings_are_exact_and_reject_unsafe_callable_shapes() -> None:
                 component_id="beta",
                 target=target,
             )
+
+
+def test_runtime_binding_rejects_writable_function_metadata_spoof() -> None:
+    contribution = make_program_contribution()
+    namespace: dict[str, object] = {}
+    exec(
+        compile(
+            "def beta_runner(*args, **kwargs):\n    return None\n",
+            "<runtime-binding-spoof>",
+            "exec",
+        ),
+        namespace,
+    )
+    spoof = namespace["beta_runner"]
+    assert callable(spoof)
+    spoof.__module__ = beta_runner.__module__  # type: ignore[attr-defined]
+    spoof.__name__ = beta_runner.__name__  # type: ignore[attr-defined]
+    spoof.__qualname__ = beta_runner.__qualname__  # type: ignore[attr-defined]
+    beta_index = next(
+        index
+        for index, binding in enumerate(contribution.runtime_bindings)
+        if (binding.binding_kind, binding.binding_id) == ("runner", "beta")
+    )
+    bindings = list(contribution.runtime_bindings)
+    bindings[beta_index] = replace(bindings[beta_index], target=spoof)
+
+    _assert_rejected(
+        replace(contribution, runtime_bindings=tuple(bindings)),
+        "exact named export",
+    )
+
+    state = own_trusted_json({"mode": "immutable"})
+    assert type(state) is JsonObject
+    record = ImmutableCallableRecord(function=spoof, state=state)  # type: ignore[arg-type]
+    with pytest.raises(ProgramCompositionError, match="exact named export"):
+        runtime_implementation_fingerprint(record)
+
+
+def test_runtime_binding_rejects_module_export_with_foreign_code_origin(
+    tmp_path: Path,
+) -> None:
+    source_module = _load_temp_module(
+        tmp_path,
+        "synthetic_callable_source_origin",
+        "def runner(*args, **kwargs):\n    return None\n",
+    )
+    claiming_module = _load_temp_module(
+        tmp_path,
+        "synthetic_callable_claimed_origin",
+        "def placeholder():\n    return None\n",
+    )
+    foreign_runner = getattr(source_module, "runner")
+    foreign_runner.__module__ = claiming_module.__name__
+    setattr(claiming_module, "runner", foreign_runner)
+
+    with pytest.raises(ProgramCompositionError, match="source/code origin"):
+        runtime_implementation_fingerprint(foreign_runner)
 
 
 def test_module_functions_and_immutable_callable_records_pass_and_registry_is_captured() -> None:

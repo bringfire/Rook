@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 from dataclasses import FrozenInstanceError, replace
@@ -242,6 +243,57 @@ def test_arbitrary_returns_and_unauthorized_builder_operations_publish_no_report
     failure = _assert_report_failure(result, code)
     assert failure.program_id == program.program_id
     assert failure.program_fingerprint == program.program_fingerprint
+
+
+def test_hostile_projection_exception_metadata_stays_a_typed_terminal_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class HostileExceptionMeta(type):
+        def __getattribute__(cls, name: str) -> object:
+            if name in ("__module__", "__qualname__") and type.__getattribute__(
+                cls, "metadata_is_hostile"
+            ):
+                raise RuntimeError("exception type metadata escaped")
+            return type.__getattribute__(cls, name)
+
+    class HostileProjectionError(Exception, metaclass=HostileExceptionMeta):
+        metadata_is_hostile = False
+
+    program = _program()
+    context = _context(program)
+    phase_results = execute_phase_program(context)
+    assert type(phase_results) is tuple
+    real_resolve = type(program).resolve_runtime_binding
+    exception = HostileProjectionError("attacker-controlled text")
+
+    def hostile_projection(*args: object, **kwargs: object) -> object:
+        raise exception
+
+    def resolve_with_hostile_projection(
+        self: object,
+        binding_kind: str,
+        binding_id: str,
+    ) -> object:
+        if self is program and binding_kind == "report_projection":
+            return hostile_projection
+        return real_resolve(self, binding_kind, binding_id)
+
+    monkeypatch.setattr(
+        type(program),
+        "resolve_runtime_binding",
+        resolve_with_hostile_projection,
+    )
+    type.__setattr__(HostileProjectionError, "metadata_is_hostile", True)
+    try:
+        result = seal_validation_report(context, phase_results)
+    finally:
+        type.__setattr__(HostileProjectionError, "metadata_is_hostile", False)
+
+    marker = b"rook.validation_kernel.caught_exception:v1"
+    assert type(result) is ValidationControlFailure
+    assert result.code == "validator_internal_failure"
+    assert result.artifact_role == "report_seal"
+    assert result.detail_sha256 == f"sha256:{hashlib.sha256(marker).hexdigest()}"
 
 
 def test_unsealed_context_and_inexact_phase_results_fail_before_projection() -> None:

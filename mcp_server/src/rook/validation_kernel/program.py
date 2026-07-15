@@ -13,7 +13,7 @@ from importlib import metadata as importlib_metadata
 from importlib import util as importlib_util
 from importlib.machinery import ModuleSpec, PathFinder
 from pathlib import Path, PurePosixPath
-from types import FunctionType, MappingProxyType
+from types import FunctionType, MappingProxyType, ModuleType
 from typing import cast
 
 from packaging.markers import default_environment
@@ -175,6 +175,7 @@ _BUDGET_LIMIT_KEYS = frozenset(
     )
 )
 _SEALED_PROGRAM_TOKEN = object()
+_RUNTIME_BINDING_WITNESS_ISSUER = object()
 
 
 def _fail(message: str) -> None:
@@ -321,13 +322,21 @@ def _validate_module_function(function: object) -> FunctionType:
         _fail("runtime binding target must be callable")
     if function.__closure__ is not None:
         _fail("closures cannot be runtime bindings")
+    function_name = function.__name__
     if (
-        function.__qualname__ != function.__name__
-        or function.__code__.co_qualname != function.__name__
-        or function.__name__ == "<lambda>"
+        function.__qualname__ != function_name
+        or function.__code__.co_name != function_name
+        or function.__code__.co_qualname != function_name
+        or function_name == "<lambda>"
     ):
         _fail("runtime bindings must be named module-level functions")
-    _require_module_name(function.__module__, "runtime callable module")
+    module_name = _require_module_name(function.__module__, "runtime callable module")
+    loaded_module = sys.modules.get(module_name)
+    if type(loaded_module) is not ModuleType:
+        _fail("runtime function module is not currently loaded")
+    module_namespace = object.__getattribute__(loaded_module, "__dict__")
+    if module_namespace.get(function_name) is not function:
+        _fail("runtime function must be the exact named export of its loaded module")
     return function
 
 
@@ -348,7 +357,18 @@ def runtime_implementation_fingerprint(target: object) -> str:
     """Fingerprint an allowed callable from source and any sealed record state."""
 
     function = _validate_runtime_callable(target)
-    raw, _, _ = _read_module_source(function.__module__)
+    raw, _, source_path = _read_module_source(function.__module__)
+    code_filename = function.__code__.co_filename
+    if type(code_filename) is not str or not code_filename:
+        _fail("runtime function code origin is unavailable")
+    try:
+        code_path = Path(code_filename).resolve()
+    except OSError as error:
+        raise ProgramCompositionError(
+            "runtime function source/code origin is unavailable"
+        ) from error
+    if code_path != source_path:
+        _fail("runtime function source/code origin mismatch")
     source_fingerprint = normalized_source_fingerprint(raw)
     identity: dict[str, object] = {
         "callable_kind": (
@@ -358,6 +378,7 @@ def runtime_implementation_fingerprint(target: object) -> str:
         ),
         "function_module": function.__module__,
         "function_qualname": function.__qualname__,
+        "function_code_firstlineno": function.__code__.co_firstlineno,
         "source_fingerprint": source_fingerprint,
     }
     if type(target) is ImmutableCallableRecord:
@@ -1507,7 +1528,10 @@ def _validate_runtime_bindings(
     *,
     components: tuple[tuple[str, RuntimeComponentSpec], ...],
     schemas: tuple[AdmittedSchema, ...],
-) -> dict[tuple[str, str], object]:
+) -> tuple[
+    dict[tuple[str, str], object],
+    dict[tuple[str, str], str],
+]:
     expected: dict[tuple[str, str], RuntimeComponentSpec | AdmittedSchema] = {}
     for kind, component in components:
         key = (kind, component.component_id)
@@ -1544,6 +1568,7 @@ def _validate_runtime_bindings(
         _fail("extra runtime binding")
 
     captured: dict[tuple[str, str], object] = {}
+    expected_fingerprints: dict[tuple[str, str], str] = {}
     for key in sorted(expected, key=lambda item: (utf16_sort_key(item[0]), utf16_sort_key(item[1]))):
         declaration = expected[key]
         binding = supplied[key]
@@ -1553,6 +1578,7 @@ def _validate_runtime_bindings(
                 or binding.target is not declaration
             ):
                 _fail("runtime schema binding fingerprint or payload mismatch")
+            expected_fingerprints[key] = declaration.schema_fingerprint
         else:
             target_function = _validate_runtime_callable(binding.target)
             if target_function.__module__ != declaration.source_module:
@@ -1562,8 +1588,9 @@ def _validate_runtime_bindings(
             actual_fingerprint = runtime_implementation_fingerprint(binding.target)
             if actual_fingerprint != declaration.implementation_fingerprint:
                 _fail("runtime component fingerprint mismatch")
+            expected_fingerprints[key] = declaration.implementation_fingerprint
         captured[key] = binding.target
-    return captured
+    return captured, expected_fingerprints
 
 
 def _assignment_names(target: ast.expr) -> tuple[str, ...]:
@@ -2334,6 +2361,77 @@ def _python_runtime_manifest() -> dict[str, object]:
     return _fingerprinted_object(identity, "runtime_fingerprint")
 
 
+class _RuntimeBindingWitness:
+    """Private issuance evidence for one program's exact runtime map."""
+
+    __slots__ = (
+        "__issuer_capability",
+        "__issued_program",
+        "__issued_manifest_identity",
+        "__issued_binding_map",
+        "__issued_binding_keys",
+        "__issued_binding_entries",
+    )
+
+    def __init__(self) -> None:
+        raise TypeError("runtime binding witnesses are issued only by the program seal")
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError("runtime binding witnesses are immutable")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError("runtime binding witnesses are immutable")
+
+
+def _issue_runtime_binding_witness(
+    *,
+    program: object,
+    manifest_identity: tuple[str, str, bytes],
+    binding_map: Mapping[tuple[str, str], object],
+    binding_keys: tuple[tuple[str, str], ...],
+    binding_fingerprints: Mapping[tuple[str, str], str],
+) -> _RuntimeBindingWitness:
+    if type(binding_map) is not MappingProxyType:
+        raise TypeError("runtime binding witness requires an immutable binding map")
+    if tuple(binding_fingerprints) != tuple(binding_map):
+        raise TypeError("runtime binding witness fingerprints are not exact")
+    entries = tuple(
+        (key, binding_map[key], binding_fingerprints[key]) for key in binding_keys
+    )
+    witness = object.__new__(_RuntimeBindingWitness)
+    object.__setattr__(
+        witness,
+        "_RuntimeBindingWitness__issuer_capability",
+        _RUNTIME_BINDING_WITNESS_ISSUER,
+    )
+    object.__setattr__(
+        witness,
+        "_RuntimeBindingWitness__issued_program",
+        program,
+    )
+    object.__setattr__(
+        witness,
+        "_RuntimeBindingWitness__issued_manifest_identity",
+        manifest_identity,
+    )
+    object.__setattr__(
+        witness,
+        "_RuntimeBindingWitness__issued_binding_map",
+        binding_map,
+    )
+    object.__setattr__(
+        witness,
+        "_RuntimeBindingWitness__issued_binding_keys",
+        binding_keys,
+    )
+    object.__setattr__(
+        witness,
+        "_RuntimeBindingWitness__issued_binding_entries",
+        entries,
+    )
+    return witness
+
+
 @dataclass(frozen=True, slots=True, init=False, eq=False)
 class SealedValidationProgram:
     """A non-deserializable immutable capability for one exact program."""
@@ -2354,6 +2452,7 @@ class SealedValidationProgram:
     program_constants: tuple[ProgramConstantSpec, ...]
     report_projection: ReportProjectionSpec
     _runtime_bindings: Mapping[tuple[str, str], object]
+    _runtime_binding_witness: _RuntimeBindingWitness
     _constant_bindings: Mapping[str, JsonValue]
 
     def __init__(self) -> None:
@@ -2372,6 +2471,7 @@ class SealedValidationProgram:
         scheduling_dependencies: dict[str, tuple[str, ...]],
         execution_order: tuple[str, ...],
         runtime_bindings: dict[tuple[str, str], object],
+        runtime_binding_fingerprints: dict[tuple[str, str], str],
         budget_manifest: BudgetManifest,
         parser_profile: ParserProfileSpec,
         schema_evaluator_profiles: tuple[SchemaEvaluatorSpec, ...],
@@ -2383,9 +2483,10 @@ class SealedValidationProgram:
         if token is not _SEALED_PROGRAM_TOKEN:
             raise TypeError("invalid sealed-program issuer")
         sealed = object.__new__(cls)
+        sealed_manifest_bytes = bytes(manifest_bytes)
         object.__setattr__(sealed, "program_id", program_id)
         object.__setattr__(sealed, "program_fingerprint", program_fingerprint)
-        object.__setattr__(sealed, "manifest_bytes", bytes(manifest_bytes))
+        object.__setattr__(sealed, "manifest_bytes", sealed_manifest_bytes)
         object.__setattr__(sealed, "phases", tuple(phases))
         object.__setattr__(
             sealed,
@@ -2399,22 +2500,21 @@ class SealedValidationProgram:
         )
         object.__setattr__(sealed, "execution_order", tuple(execution_order))
         captured_bindings = dict(runtime_bindings)
-        object.__setattr__(
-            sealed,
-            "runtime_binding_keys",
-            tuple(
-                sorted(
-                    captured_bindings,
-                    key=lambda item: (
-                        utf16_sort_key(item[0]),
-                        utf16_sort_key(item[1]),
-                    ),
-                )
-            ),
+        binding_keys = tuple(
+            sorted(
+                captured_bindings,
+                key=lambda item: (
+                    utf16_sort_key(item[0]),
+                    utf16_sort_key(item[1]),
+                ),
+            )
         )
-        object.__setattr__(
-            sealed, "_runtime_bindings", MappingProxyType(captured_bindings)
-        )
+        immutable_bindings = MappingProxyType(captured_bindings)
+        ordered_fingerprints = {
+            key: runtime_binding_fingerprints[key] for key in binding_keys
+        }
+        object.__setattr__(sealed, "runtime_binding_keys", binding_keys)
+        object.__setattr__(sealed, "_runtime_bindings", immutable_bindings)
         object.__setattr__(sealed, "budget_manifest", budget_manifest)
         object.__setattr__(sealed, "parser_profile", parser_profile)
         object.__setattr__(
@@ -2431,11 +2531,28 @@ class SealedValidationProgram:
                 {constant.constant_name: constant.value for constant in program_constants}
             ),
         )
+        object.__setattr__(
+            sealed,
+            "_runtime_binding_witness",
+            _issue_runtime_binding_witness(
+                program=sealed,
+                manifest_identity=(
+                    program_id,
+                    program_fingerprint,
+                    sealed_manifest_bytes,
+                ),
+                binding_map=immutable_bindings,
+                binding_keys=binding_keys,
+                binding_fingerprints=ordered_fingerprints,
+            ),
+        )
         return sealed
 
     def resolve_runtime_binding(self, binding_kind: str, binding_id: str) -> object:
         """Resolve only from the immutable binding map captured at seal time."""
 
+        if not _has_valid_runtime_binding_witness(self):
+            raise RuntimeError("sealed runtime binding authority is invalid")
         return self._runtime_bindings[(binding_kind, binding_id)]
 
     def resolve_program_constant(self, constant_name: str) -> JsonValue:
@@ -2445,6 +2562,82 @@ class SealedValidationProgram:
         if program_fingerprint != self.program_fingerprint:
             raise KeyError(program_fingerprint)
         return self.manifest_bytes
+
+
+def _has_valid_runtime_binding_witness(program: object) -> bool:
+    """Verify seal-issued map identity without runtime registry discovery."""
+
+    if type(program) is not SealedValidationProgram:
+        return False
+    try:
+        witness = object.__getattribute__(program, "_runtime_binding_witness")
+        if type(witness) is not _RuntimeBindingWitness:
+            return False
+        issuer = object.__getattribute__(
+            witness,
+            "_RuntimeBindingWitness__issuer_capability",
+        )
+        issued_program = object.__getattribute__(
+            witness,
+            "_RuntimeBindingWitness__issued_program",
+        )
+        manifest_identity = object.__getattribute__(
+            witness,
+            "_RuntimeBindingWitness__issued_manifest_identity",
+        )
+        issued_map = object.__getattribute__(
+            witness,
+            "_RuntimeBindingWitness__issued_binding_map",
+        )
+        issued_keys = object.__getattribute__(
+            witness,
+            "_RuntimeBindingWitness__issued_binding_keys",
+        )
+        issued_entries = object.__getattribute__(
+            witness,
+            "_RuntimeBindingWitness__issued_binding_entries",
+        )
+        runtime_map = object.__getattribute__(program, "_runtime_bindings")
+        runtime_keys = object.__getattribute__(program, "runtime_binding_keys")
+        if (
+            issuer is not _RUNTIME_BINDING_WITNESS_ISSUER
+            or issued_program is not program
+            or type(manifest_identity) is not tuple
+            or len(manifest_identity) != 3
+            or program.program_id is not manifest_identity[0]
+            or program.program_fingerprint is not manifest_identity[1]
+            or program.manifest_bytes is not manifest_identity[2]
+            or type(runtime_map) is not MappingProxyType
+            or runtime_map is not issued_map
+            or runtime_keys is not issued_keys
+            or type(issued_entries) is not tuple
+            or len(issued_entries) != len(issued_keys)
+        ):
+            return False
+        actual_keys = tuple(
+            sorted(
+                runtime_map,
+                key=lambda item: (
+                    utf16_sort_key(item[0]),
+                    utf16_sort_key(item[1]),
+                ),
+            )
+        )
+        if actual_keys != issued_keys:
+            return False
+        for entry, key in zip(issued_entries, issued_keys, strict=True):
+            if (
+                type(entry) is not tuple
+                or len(entry) != 3
+                or entry[0] != key
+                or type(entry[2]) is not str
+                or _FINGERPRINT_RE.fullmatch(entry[2]) is None
+                or runtime_map[key] is not entry[1]
+            ):
+                return False
+        return True
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return False
 
 
 def _compose_contribution(contribution: ValidationProgramContribution) -> SealedValidationProgram:
@@ -2504,7 +2697,7 @@ def _compose_contribution(contribution: ValidationProgramContribution) -> Sealed
         + tuple(("export_type", export_type.validator) for export_type in export_types)
         + (("report_projection", projection_component),)
     )
-    runtime_bindings = _validate_runtime_bindings(
+    runtime_bindings, runtime_binding_fingerprints = _validate_runtime_bindings(
         contribution.runtime_bindings,
         components=components,
         schemas=schemas,
@@ -2684,6 +2877,7 @@ def _compose_contribution(contribution: ValidationProgramContribution) -> Sealed
         scheduling_dependencies=scheduling_dependencies,
         execution_order=execution_order,
         runtime_bindings=runtime_bindings,
+        runtime_binding_fingerprints=runtime_binding_fingerprints,
         budget_manifest=budget,
         parser_profile=parser_profile,
         schema_evaluator_profiles=schema_profiles,

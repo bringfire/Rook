@@ -587,6 +587,46 @@ def test_private_audit_is_ordered_immutable_nonserializable_and_nonforgeable(
         assert api_module._is_validation_execution_audit(forged, program) is False
 
 
+def test_malformed_phase_result_preserves_authentic_phase_attempts(
+    assembler_profile: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    program = compose_and_seal_program(
+        make_phase_engine_contribution(alpha_scenario="schema_audit_order")
+    )
+    reference = api_module._validate_artifacts_with_audit(
+        program,
+        b'{"nested":{"value":1},"larger":[1,2,3]}',
+        _carrier(assembler_profile),
+    )
+    assert type(reference.public_result) is PublishedValidationReport
+    phase_attempts = reference.audit.schema_evaluation_attempts[:-1]
+    assert len(phase_attempts) == 2
+    phase_engine = importlib.import_module("rook.validation_kernel.phase_engine")
+    malformed_execution = phase_engine._audited_phase_execution(
+        object(),
+        phase_attempts,
+    )
+    monkeypatch.setattr(
+        api_module,
+        "_execute_phase_program_with_audit",
+        lambda context: malformed_execution,
+    )
+
+    outcome = api_module._validate_artifacts_with_audit(
+        program,
+        b'{"nested":{"value":1},"larger":[1,2,3]}',
+        _carrier(assembler_profile),
+    )
+
+    assert type(outcome.public_result) is ValidationControlFailure
+    assert outcome.public_result.code == "validator_integrity_failure"
+    assert outcome.audit.schema_evaluation_attempts is phase_attempts
+    assert tuple(
+        attempt.receipt for attempt in outcome.audit.schema_evaluation_attempts
+    ) == outcome.audit.schema_evaluation_receipts
+
+
 @pytest.mark.parametrize("mutation", ("receipts", "attempts", "both"))
 def test_private_audit_rejects_swapped_authentic_evidence(
     assembler_profile: object,

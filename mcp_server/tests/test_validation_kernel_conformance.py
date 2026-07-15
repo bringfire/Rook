@@ -393,6 +393,28 @@ def test_release_authority_is_sealed_opaque_and_nonforgeable(
     assert result.code == "campaign_schema_failed"
 
 
+def test_gate_seal_rejects_writable_function_metadata_spoof() -> None:
+    gate_callable = conformance_module._execute_conformance_gate
+    namespace: dict[str, object] = {}
+    exec(
+        compile(
+            "def _execute_conformance_gate(*args, **kwargs):\n    return None\n",
+            "<conformance-gate-spoof>",
+            "exec",
+        ),
+        namespace,
+    )
+    spoof = namespace["_execute_conformance_gate"]
+    assert callable(spoof)
+    spoof.__module__ = gate_callable.__module__  # type: ignore[attr-defined]
+    spoof.__name__ = gate_callable.__name__  # type: ignore[attr-defined]
+    spoof.__qualname__ = gate_callable.__qualname__  # type: ignore[attr-defined]
+    candidate = make_conformance_gate_profile_candidate(gate_callable)
+
+    with pytest.raises(TypeError, match="not a sealable runtime binding"):
+        seal_conformance_gate_profile(candidate, spoof)  # type: ignore[arg-type]
+
+
 def test_campaign_admission_is_exact_bounded_and_hashes_only_admitted_bytes(
     program: object,
     gate_profile: SealedConformanceGateProfile,
