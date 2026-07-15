@@ -1112,9 +1112,9 @@ function Test-LiveSmoke {
     $smoke = @"
 import asyncio
 import json
+from rook.bridge import call_rhino
+from rook.local_testing_proof import ProofFailure, _run_chirp_smoke_mutation
 from rook.server import _call_tool_dispatch, call_tool, list_tools
-
-MAX_CHIRP_CLEANUP_UNDO_ATTEMPTS = 8
 
 async def public_call(name, arguments):
     response = await call_tool(name, arguments)
@@ -1125,66 +1125,6 @@ async def public_call(name, arguments):
         raise SystemExit(f"{name} failed: {text}")
     return json.loads(text)
 
-async def cleanup_chirp(component_guid, baseline_object_count):
-    attempts = []
-    final_snapshot = None
-    final_object_count = None
-    component_removed = False
-    normalized_guid = component_guid.casefold()
-
-    for attempt in range(1, MAX_CHIRP_CLEANUP_UNDO_ATTEMPTS + 1):
-        undo = await _call_tool_dispatch("gh_undo", {})
-        if not isinstance(undo, dict):
-            raise SystemExit(f"gh_undo cleanup returned malformed response at attempt {attempt}: {undo}")
-        attempts.append(undo)
-        if undo.get("success") is not True:
-            raise SystemExit(f"gh_undo cleanup failed at attempt {attempt}: {undo}")
-
-        data = undo.get("data")
-        snapshot = data.get("snapshot") if isinstance(data, dict) else None
-        components = snapshot.get("components") if isinstance(snapshot, dict) else None
-        diagnostics = snapshot.get("diagnostics") if isinstance(snapshot, dict) else None
-        final_object_count = diagnostics.get("total") if isinstance(diagnostics, dict) else None
-        if not (
-            isinstance(snapshot, dict)
-            and isinstance(components, list)
-            and all(isinstance(item, dict) for item in components)
-            and isinstance(final_object_count, int)
-            and not isinstance(final_object_count, bool)
-            and final_object_count >= 0
-            and final_object_count == len(components)
-        ):
-            raise SystemExit(f"gh_undo cleanup snapshot malformed at attempt {attempt}: {undo}")
-
-        final_snapshot = snapshot
-        component_removed = not any(
-            isinstance(item.get("componentGuid"), str)
-            and item["componentGuid"].casefold() == normalized_guid
-            for item in components
-        )
-        if component_removed and final_object_count == baseline_object_count:
-            return {
-                "attempts": attempts,
-                "attempt_count": len(attempts),
-                "component_guid": component_guid,
-                "component_removed": component_removed,
-                "baseline_object_count": baseline_object_count,
-                "final_object_count": final_object_count,
-                "final_snapshot": final_snapshot,
-            }
-        if final_object_count < baseline_object_count:
-            raise SystemExit(
-                "gh_undo cleanup passed below the pre-create object-count baseline: "
-                f"baseline={baseline_object_count} final={final_object_count}"
-            )
-
-    raise SystemExit(
-        "gh_undo cleanup could not prove component removal and baseline restoration: "
-        f"attempts={len(attempts)} component_guid={component_guid} "
-        f"component_removed={component_removed} baseline={baseline_object_count} "
-        f"final={final_object_count} final_snapshot={final_snapshot}"
-    )
-
 async def main():
     ping = await _call_tool_dispatch("rhino_ping", {})
     if not ping.get("success"):
@@ -1193,11 +1133,6 @@ async def main():
     status = await _call_tool_dispatch("gh_status", {})
     if not status.get("success"):
         raise SystemExit(f"gh_status failed: {status}")
-    status_data = status.get("data")
-    baseline_object_count = status_data.get("object_count") if isinstance(status_data, dict) else None
-    if (not isinstance(baseline_object_count, int) or isinstance(baseline_object_count, bool)
-            or baseline_object_count < 0):
-        raise SystemExit(f"gh_status did not provide a valid pre-create object_count: {status}")
 
     tools = await list_tools()
     names = {tool.name for tool in tools}
@@ -1218,42 +1153,28 @@ async def main():
         "target_hidden": True, "search": search, "read": read, "call": called,
     }
 
-    chirp = await _call_tool_dispatch("chirp_create", {
-        "category": "classifier",
-        "name": "Rook Local Deploy Smoke",
-        "pins_in": [{"name": "Input", "type": "string", "optional": True}],
-        "pins_out": [{"name": "Result", "type": "string"}],
-        "signature": "input -> result",
-        "deterministic_code": "Result = Input ?? string.Empty;",
-        "deterministic_only": True,
-        "x": 40,
-        "y": 40,
-    })
-    if not chirp.get("success"):
-        raise SystemExit(f"chirp_create failed: {chirp}")
-    chirp_data = chirp.get("data") or {}
-    if chirp_data.get("compilation_errors") or chirp_data.get("warning"):
-        raise SystemExit(f"chirp_create produced component warnings/errors: {chirp_data}")
-
-    component_guid = chirp_data.get("component_guid")
-    if not isinstance(component_guid, str) or not component_guid.strip():
-        raise SystemExit(f"chirp_create did not return a valid component_guid: {chirp}")
-    errors = await _call_tool_dispatch("gh_errors", {})
-    if not errors.get("success"):
-        raise SystemExit(f"gh_errors failed after chirp_create: {errors}")
-    for item in (errors.get("data") or {}).get("errors", []):
-        if item.get("guid") == component_guid and item.get("errors"):
-            raise SystemExit(f"created Chirp component has Grasshopper errors: {item}")
-
-    undo = await cleanup_chirp(component_guid, baseline_object_count)
+    try:
+        mutation = await _run_chirp_smoke_mutation(
+            {},
+            component_name="Rook Local Deploy Smoke",
+            dispatch_fn=_call_tool_dispatch,
+            call_rhino_fn=call_rhino,
+        )
+    except ProofFailure as exc:
+        failure_payload = {
+            "failure_label": exc.failure_label,
+            "message": str(exc),
+            "details": exc.details,
+        }
+        raise SystemExit(json.dumps(failure_payload, default=str, sort_keys=True))
 
     live_evidence = {
         "rhino_ping": ping,
         "gh_status": status,
         "progressive_discovery": progressive_discovery,
-        "chirp_create": chirp,
-        "gh_errors": errors,
-        "gh_undo": undo,
+        "chirp_create": mutation["chirp_create"],
+        "gh_errors": mutation["gh_errors"],
+        "gh_undo": mutation["gh_undo"],
     }
     print(json.dumps(live_evidence, default=str, sort_keys=True))
 

@@ -356,18 +356,14 @@ function Test-DeployScriptLiveSmokeIsExplicit {
     Assert-Contains -Text $content -Expected 'function Test-LiveSmoke' -Message 'Local deploy must implement a live smoke gate.'
     Assert-Contains -Text $content -Expected '"rhino_ping"' -Message 'Live smoke must verify Rhino connectivity.'
     Assert-Contains -Text $content -Expected '"gh_status"' -Message 'Live smoke must verify Grasshopper connectivity.'
-    Assert-Contains -Text $content -Expected '"chirp_create"' -Message 'Live smoke must exercise the Chirp creation path.'
-    Assert-Contains -Text $content -Expected '"deterministic_only": True' -Message 'Live smoke must exercise Chirp without external LLM/API-key dependency.'
-    Assert-Contains -Text $content -Expected 'compilation_errors' -Message 'Live smoke must fail if chirp_create returns component compilation errors.'
-    Assert-Contains -Text $content -Expected 'created Chirp component has Grasshopper errors' -Message 'Live smoke must check gh_errors for the created component.'
-    Assert-Contains -Text $content -Expected 'gh_undo cleanup failed' -Message 'Live smoke must fail if cleanup undo fails.'
-    Assert-Contains -Text $content -Expected 'baseline_object_count = status_data.get("object_count")' -Message 'Live smoke must capture the pre-create Grasshopper object-count baseline.'
-    Assert-Contains -Text $content -Expected 'MAX_CHIRP_CLEANUP_UNDO_ATTEMPTS = 8' -Message 'Live smoke cleanup must use a fixed undo bound.'
-    Assert-Contains -Text $content -Expected 'for attempt in range(1, MAX_CHIRP_CLEANUP_UNDO_ATTEMPTS + 1):' -Message 'Live smoke cleanup must retry undo only within the fixed bound.'
-    Assert-Contains -Text $content -Expected 'item.get("componentGuid")' -Message 'Live smoke cleanup must prove the created component GUID is absent from the undo snapshot.'
-    Assert-Contains -Text $content -Expected 'final_object_count == baseline_object_count' -Message 'Live smoke cleanup must prove the canvas object count returned to baseline.'
-    Assert-Contains -Text $content -Expected '"component_removed": component_removed' -Message 'Live smoke cleanup evidence must state whether the created component was removed.'
-    Assert-Contains -Text $content -Expected 'gh_undo cleanup could not prove component removal and baseline restoration' -Message 'Live smoke must fail clearly when bounded cleanup cannot prove restoration.'
+    Assert-Contains -Text $content -Expected 'from rook.bridge import call_rhino' -Message 'Embedded live smoke must use the internal bridge for debug inventory probes.'
+    Assert-Contains -Text $content -Expected 'from rook.local_testing_proof import ProofFailure, _run_chirp_smoke_mutation' -Message 'Embedded live smoke must execute the same mutation and cleanup helper as owned release readiness.'
+    Assert-Contains -Text $content -Expected 'mutation = await _run_chirp_smoke_mutation(' -Message 'Embedded live smoke must delegate the entire post-attempt validation and cleanup flow.'
+    Assert-Contains -Text $content -Expected 'call_rhino_fn=call_rhino' -Message 'Embedded live smoke must provide the real internal inventory probe.'
+    Assert-Contains -Text $content -Expected '"failure_label": exc.failure_label' -Message 'Embedded cleanup failures must serialize a stable structured failure label.'
+    Assert-Contains -Text $content -Expected 'raise SystemExit(json.dumps(failure_payload, default=str, sort_keys=True))' -Message 'Embedded cleanup failures must serialize deterministic structured evidence.'
+    Assert-NotContains -Text $content -Unexpected 'item.get("componentGuid")' -Message 'Cleanup must never compare a Chirp instance GUID with snapshot component type GUIDs.'
+    Assert-NotContains -Text $content -Unexpected 'snapshot.get("diagnostics")' -Message 'Cleanup must never use snapshot diagnostics as the GH document object count.'
     Assert-Contains -Text $content -Expected "'ROOK_MCP_TOOL_PROFILE'" -Message 'Live smoke must save and restore the MCP profile.'
     Assert-Contains -Text $content -Expected "[Environment]::SetEnvironmentVariable('ROOK_MCP_TOOL_PROFILE', 'lean', 'Process')" -Message 'Live smoke must force lean.'
     foreach ($gateway in @('rook_tools_ls', 'rook_tools_search', 'rook_tools_read', 'rook_tools_call')) {
@@ -375,12 +371,12 @@ function Test-DeployScriptLiveSmokeIsExplicit {
     }
     $directStatus = $content.IndexOf('status = await _call_tool_dispatch("gh_status", {})')
     $progressiveSearch = $content.IndexOf('await public_call("rook_tools_search"')
-    $chirpCreate = $content.IndexOf('chirp = await _call_tool_dispatch("chirp_create"')
-    Assert-True -Condition ($directStatus -ge 0 -and $directStatus -lt $progressiveSearch -and $progressiveSearch -lt $chirpCreate) -Message 'Direct controls must precede the progressive chain, which must precede Chirp mutation.'
-    $undoFailure = $content.IndexOf('gh_undo cleanup could not prove component removal and baseline restoration')
+    $mutationCall = $content.IndexOf('mutation = await _run_chirp_smoke_mutation(')
+    Assert-True -Condition ($directStatus -ge 0 -and $directStatus -lt $progressiveSearch -and $progressiveSearch -lt $mutationCall) -Message 'Direct controls must precede the progressive chain, which must precede Chirp mutation.'
+    $cleanupCall = $content.IndexOf('mutation = await _run_chirp_smoke_mutation(')
     $evidenceStart = $content.IndexOf('live_evidence = {')
     $finalPrint = $content.IndexOf('print(json.dumps(live_evidence, default=str, sort_keys=True))')
-    Assert-True -Condition ($undoFailure -ge 0 -and $undoFailure -lt $evidenceStart -and $evidenceStart -lt $finalPrint) -Message 'Final evidence must be built and printed only after successful undo validation.'
+    Assert-True -Condition ($cleanupCall -ge 0 -and $cleanupCall -lt $evidenceStart -and $evidenceStart -lt $finalPrint) -Message 'Final evidence must be built and printed only after the shared cleanup helper succeeds.'
     $evidenceBlock = $content.Substring($evidenceStart, $finalPrint - $evidenceStart)
     foreach ($field in @('"rhino_ping"', '"gh_status"', '"progressive_discovery"', '"chirp_create"', '"gh_errors"', '"gh_undo"')) {
         Assert-Contains -Text $evidenceBlock -Expected $field -Message "Final live evidence must include $field."

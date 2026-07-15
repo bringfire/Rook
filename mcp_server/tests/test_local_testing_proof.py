@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sys
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -641,39 +643,165 @@ async def _async_value(value):
     return value
 
 
-def _gh_undo_success(*component_guids: str) -> dict:
-    components = [
-        {"componentGuid": component_guid} for component_guid in component_guids
-    ]
+def _gh_undo_success() -> dict:
     return {
         "success": True,
         "data": {
             "message": "Undo successful",
             "snapshot": {
-                "components": components,
-                "diagnostics": {"total": len(components)},
+                # This is a stable component TYPE GUID, not an instance GUID.
+                # Cleanup must ignore it and use the debug inventory instead.
+                "components": [{"componentGuid": "stable-type-guid"}],
+                "diagnostics": {"total": 1},
             },
         },
     }
 
 
-async def _successful_direct_dispatch(name: str, _args: dict):
-    # rhino_ping is the first lazy rook.server import. Every direct call must
-    # therefore already observe lean, not only the later progressive helper.
+def _gh_status_response(object_count: int) -> dict:
+    return {
+        "success": True,
+        "data": {"ready": True, "ready_for_edit": True, "object_count": object_count},
+    }
+
+
+_TEST_GUID_NAMESPACE = uuid.UUID("8fc4bb29-66b2-41c3-bc42-9f5d94477063")
+_UNSET = object()
+
+
+def _test_guid(label: str) -> str:
+    return str(uuid.uuid5(_TEST_GUID_NAMESPACE, label))
+
+
+def _guid_or_label(value: str) -> str:
+    try:
+        return str(uuid.UUID(value))
+    except ValueError:
+        return _test_guid(value)
+
+
+def _debug_inventory_response(*instance_guids: str) -> dict:
+    normalized = [_guid_or_label(guid) for guid in instance_guids]
+    return {
+        "success": True,
+        "data": {
+            "totalComponents": len(normalized),
+            "debugInfo": [{"guid": guid} for guid in normalized],
+        },
+    }
+
+
+class _LiveSmokeHarness:
+    def __init__(
+        self,
+        *,
+        inventories: list[object],
+        status_responses: list[object] | None = None,
+        chirp_response: object | BaseException = _UNSET,
+        errors_response: object | BaseException = _UNSET,
+        undo_responses: list[object] | None = None,
+    ) -> None:
+        self.inventories = list(inventories)
+        if status_responses is None:
+            counts = [inventory["data"]["totalComponents"] for inventory in inventories]
+            status_responses = [
+                _gh_status_response(counts[0]),
+                *[_gh_status_response(count) for count in counts],
+            ]
+        self.status_responses = list(status_responses)
+        self.chirp_response = (
+            {
+                "success": True,
+                "data": {
+                    "component_guid": _test_guid("abc"),
+                    "compilation_errors": [],
+                },
+            }
+            if chirp_response is _UNSET
+            else chirp_response
+        )
+        self.errors_response = (
+            {"success": True, "data": {"errors": []}}
+            if errors_response is _UNSET
+            else errors_response
+        )
+        self.undo_responses = list(undo_responses or [])
+        self.status_index = 0
+        self.inventory_index = 0
+        self.undo_calls = 0
+        self.chirp_calls = 0
+        self.events: list[str] = []
+
+    async def dispatch(self, name: str, _args: dict) -> object:
+        assert os.environ["ROOK_MCP_TOOL_PROFILE"] == "lean"
+        self.events.append(name)
+        if name == "rhino_ping":
+            return {"success": True, "data": {"processId": 42, "port": 9001}}
+        if name == "gh_status":
+            response = self.status_responses[self.status_index]
+            self.status_index += 1
+            if isinstance(response, BaseException):
+                raise response
+            return response
+        if name == "chirp_create":
+            self.chirp_calls += 1
+            if isinstance(self.chirp_response, BaseException):
+                raise self.chirp_response
+            return self.chirp_response
+        if name == "gh_errors":
+            if isinstance(self.errors_response, BaseException):
+                raise self.errors_response
+            return self.errors_response
+        if name == "gh_undo":
+            response = self.undo_responses[self.undo_calls]
+            self.undo_calls += 1
+            return response
+        raise AssertionError(name)
+
+    async def call_rhino(
+        self,
+        endpoint: str,
+        method: str = "GET",
+        data: dict | None = None,
+        **kwargs,
+    ) -> object:
+        assert endpoint == "/gh/errors"
+        assert method == "GET"
+        assert data == {"debug": True}
+        assert kwargs == {"port": 9001, "process_id": 42}
+        response = self.inventories[self.inventory_index]
+        self.inventory_index += 1
+        if isinstance(response, BaseException):
+            raise response
+        return response
+
+    def install(self, monkeypatch) -> None:
+        monkeypatch.setattr(proof, "_call_tool_dispatch", self.dispatch)
+        monkeypatch.setattr(proof, "call_rhino", self.call_rhino, raising=False)
+
+
+def _successful_live_harness(monkeypatch) -> _LiveSmokeHarness:
+    baseline = ("base", "group-instance", "relay-instance")
+    current = (*baseline, "abc")
+    harness = _LiveSmokeHarness(
+        inventories=[
+            _debug_inventory_response(*baseline),
+            _debug_inventory_response(*current),
+            _debug_inventory_response(*current),
+            _debug_inventory_response(*baseline),
+        ],
+        undo_responses=[_gh_undo_success(), _gh_undo_success()],
+    )
+    harness.install(monkeypatch)
+    return harness
+
+
+async def _ready_only_dispatch(name: str, _args: dict):
     assert os.environ["ROOK_MCP_TOOL_PROFILE"] == "lean"
     if name == "rhino_ping":
         return {"success": True, "data": {"processId": 42, "port": 9001}}
     if name == "gh_status":
-        return {"success": True, "data": {"ready": True, "object_count": 1}}
-    if name == "chirp_create":
-        return {
-            "success": True,
-            "data": {"component_guid": "abc", "compilation_errors": []},
-        }
-    if name == "gh_errors":
-        return {"success": True, "data": {"errors": []}}
-    if name == "gh_undo":
-        return _gh_undo_success("baseline")
+        return _gh_status_response(3)
     raise AssertionError(name)
 
 
@@ -757,7 +885,7 @@ async def test_live_progressive_gh_status_uses_public_search_read_call(monkeypat
 @pytest.mark.asyncio
 async def test_run_live_smoke_restores_profile_after_progressive_failure(monkeypatch):
     monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "readonly")
-    monkeypatch.setattr(proof, "_call_tool_dispatch", _successful_direct_dispatch)
+    monkeypatch.setattr(proof, "_call_tool_dispatch", _ready_only_dispatch)
 
     async def fail_progressive(_args):
         assert os.environ["ROOK_MCP_TOOL_PROFILE"] == "lean"
@@ -776,7 +904,7 @@ async def test_run_live_smoke_restores_profile_after_success(
     monkeypatch, passing_live_progressive
 ):
     monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
-    monkeypatch.setattr(proof, "_call_tool_dispatch", _successful_direct_dispatch)
+    _successful_live_harness(monkeypatch)
     result = await proof.run_live_smoke(port=9001, process_id=42)
     assert os.environ["ROOK_MCP_TOOL_PROFILE"] == "full"
     assert result["progressive_discovery"]["target"] == "gh_status"
@@ -787,7 +915,7 @@ async def test_run_live_smoke_restores_profile_to_unset_state(
     monkeypatch, passing_live_progressive
 ):
     monkeypatch.delenv("ROOK_MCP_TOOL_PROFILE", raising=False)
-    monkeypatch.setattr(proof, "_call_tool_dispatch", _successful_direct_dispatch)
+    _successful_live_harness(monkeypatch)
     result = await proof.run_live_smoke(port=9001, process_id=42)
     assert "ROOK_MCP_TOOL_PROFILE" not in os.environ
     assert result["progressive_discovery"]["profile"] == "lean"
@@ -796,10 +924,11 @@ async def test_run_live_smoke_restores_profile_to_unset_state(
 @pytest.mark.asyncio
 async def test_run_live_smoke_orders_progressive_chain_before_chirp(monkeypatch):
     events = []
+    harness = _successful_live_harness(monkeypatch)
 
     async def fake_direct(name, args):
         events.append(name)
-        return await _successful_direct_dispatch(name, args)
+        return await harness.dispatch(name, args)
 
     async def fake_progressive(_args):
         events.extend(["rook_tools_search", "rook_tools_read", "rook_tools_call"])
@@ -816,196 +945,804 @@ async def test_run_live_smoke_orders_progressive_chain_before_chirp(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_live_smoke_rejects_chirp_warning(monkeypatch, passing_live_progressive):
-    calls = []
-
-    async def fake_dispatch(name: str, args: dict):
-        calls.append((name, args))
-        if name == "rhino_ping":
-            return {"success": True, "data": {"processId": 42, "port": 9001}}
-        if name == "gh_status":
-            return {"success": True, "data": {"ready": True, "object_count": 1}}
-        if name == "chirp_create":
-            return {
-                "success": True,
-                "data": {
-                    "component_guid": "abc",
-                    "warning": "compiled with warning",
-                    "compilation_errors": [],
-                },
-            }
-        raise AssertionError(name)
-
-    monkeypatch.setattr(proof, "_call_tool_dispatch", fake_dispatch)
-
-    with pytest.raises(proof.ProofFailure) as exc:
-        await proof.run_live_smoke(port=9001, process_id=42)
-
-    assert exc.value.failure_label == "chirp_component_warning"
-    assert calls[0] == ("rhino_ping", {"port": 9001, "process_id": 42})
-
-
-@pytest.mark.asyncio
-async def test_live_smoke_requires_undo_success(monkeypatch, passing_live_progressive):
-    async def fake_dispatch(name: str, args: dict):
-        if name == "rhino_ping":
-            return {"success": True, "data": {"processId": 42, "port": 9001}}
-        if name == "gh_status":
-            return {"success": True, "data": {"ready": True, "object_count": 1}}
-        if name == "chirp_create":
-            return {"success": True, "data": {"component_guid": "abc", "compilation_errors": []}}
-        if name == "gh_errors":
-            return {"success": True, "data": {"errors": []}}
-        if name == "gh_undo":
-            return {"success": False, "data": "nothing to undo"}
-        raise AssertionError(name)
-
-    monkeypatch.setattr(proof, "_call_tool_dispatch", fake_dispatch)
-
-    with pytest.raises(proof.ProofFailure) as exc:
-        await proof.run_live_smoke(port=9001, process_id=42)
-
-    assert exc.value.failure_label == "cleanup_failed"
-
-
-@pytest.mark.asyncio
-async def test_live_smoke_repeats_undo_until_component_removed_and_baseline_restored(
+async def test_live_smoke_uses_instance_inventory_for_two_undo_grouped_canvas(
     monkeypatch, passing_live_progressive
 ):
-    undo_responses = [
-        _gh_undo_success("baseline", "ABC"),
-        _gh_undo_success("baseline"),
-    ]
-    undo_calls = 0
-
-    async def fake_dispatch(name: str, args: dict):
-        nonlocal undo_calls
-        if name == "rhino_ping":
-            return {"success": True, "data": {"processId": 42, "port": 9001}}
-        if name == "gh_status":
-            return {"success": True, "data": {"ready": True, "object_count": 1}}
-        if name == "chirp_create":
-            return {
-                "success": True,
-                "data": {"component_guid": "abc", "compilation_errors": []},
-            }
-        if name == "gh_errors":
-            return {"success": True, "data": {"errors": []}}
-        if name == "gh_undo":
-            response = undo_responses[undo_calls]
-            undo_calls += 1
-            return response
-        raise AssertionError(name)
-
-    monkeypatch.setattr(proof, "_call_tool_dispatch", fake_dispatch)
+    harness = _successful_live_harness(monkeypatch)
 
     result = await proof.run_live_smoke(port=9001, process_id=42)
 
-    assert undo_calls == 2
-    assert result["gh_undo"] == {
-        "attempts": undo_responses,
-        "attempt_count": 2,
-        "component_guid": "abc",
-        "component_removed": True,
-        "baseline_object_count": 1,
-        "final_object_count": 1,
-        "final_snapshot": undo_responses[-1]["data"]["snapshot"],
-    }
+    cleanup = result["gh_undo"]
+    assert harness.undo_calls == 2
+    assert harness.inventory_index == 4
+    assert cleanup["attempt_count"] == 2
+    assert cleanup["attempts"] == harness.undo_responses
+    assert cleanup["component_guid"] == _test_guid("abc")
+    assert cleanup["component_removed"] is True
+    assert cleanup["baseline_object_count"] == 3
+    assert cleanup["final_object_count"] == 3
+    assert cleanup["baseline_instance_guids"] == [
+        _test_guid("base"),
+        _test_guid("relay-instance"),
+        _test_guid("group-instance"),
+    ]
+    assert cleanup["final_instance_guids"] == cleanup["baseline_instance_guids"]
 
 
 @pytest.mark.asyncio
-async def test_live_smoke_fails_when_cleanup_bound_is_exhausted(
+async def test_live_smoke_stops_without_undo_when_failed_create_changed_nothing(
     monkeypatch, passing_live_progressive
 ):
-    undo_calls = 0
-
-    async def fake_dispatch(name: str, args: dict):
-        nonlocal undo_calls
-        if name == "rhino_ping":
-            return {"success": True, "data": {"processId": 42, "port": 9001}}
-        if name == "gh_status":
-            return {"success": True, "data": {"ready": True, "object_count": 1}}
-        if name == "chirp_create":
-            return {
-                "success": True,
-                "data": {"component_guid": "abc", "compilation_errors": []},
-            }
-        if name == "gh_errors":
-            return {"success": True, "data": {"errors": []}}
-        if name == "gh_undo":
-            undo_calls += 1
-            return _gh_undo_success("baseline", "abc")
-        raise AssertionError(name)
-
-    monkeypatch.setattr(proof, "_call_tool_dispatch", fake_dispatch)
-    monkeypatch.setattr(
-        proof, "_CHIRP_CLEANUP_MAX_UNDO_ATTEMPTS", 2, raising=False
+    baseline = ("base", "group-instance", "relay-instance")
+    harness = _LiveSmokeHarness(
+        inventories=[
+            _debug_inventory_response(*baseline),
+            _debug_inventory_response(*baseline),
+        ],
+        chirp_response={"success": False, "data": "script injection failed"},
     )
+    harness.install(monkeypatch)
 
     with pytest.raises(proof.ProofFailure) as exc:
         await proof.run_live_smoke(port=9001, process_id=42)
 
-    assert undo_calls == 2
-    assert exc.value.failure_label == "cleanup_failed"
-    assert exc.value.details["gh_undo"]["attempt_count"] == 2
-    assert exc.value.details["gh_undo"]["component_removed"] is False
+    assert exc.value.failure_label == "chirp_create_failed"
+    assert harness.undo_calls == 0
+    assert harness.inventory_index == 2
+    assert exc.value.details["cleanup"]["attempt_count"] == 0
 
 
 @pytest.mark.asyncio
-async def test_live_smoke_fails_on_malformed_cleanup_snapshot(
+async def test_live_smoke_cleans_component_created_by_failed_chirp_response(
     monkeypatch, passing_live_progressive
 ):
-    async def fake_dispatch(name: str, args: dict):
-        if name == "rhino_ping":
-            return {"success": True, "data": {"processId": 42, "port": 9001}}
-        if name == "gh_status":
-            return {"success": True, "data": {"ready": True, "object_count": 1}}
-        if name == "chirp_create":
-            return {
-                "success": True,
-                "data": {"component_guid": "abc", "compilation_errors": []},
-            }
-        if name == "gh_errors":
-            return {"success": True, "data": {"errors": []}}
-        if name == "gh_undo":
-            return {
+    baseline = ("base",)
+    harness = _LiveSmokeHarness(
+        inventories=[
+            _debug_inventory_response(*baseline),
+            _debug_inventory_response(*baseline, "unknown-created"),
+            _debug_inventory_response(*baseline),
+        ],
+        chirp_response={"success": False, "data": "component created but GUID lost"},
+        undo_responses=[_gh_undo_success()],
+    )
+    harness.install(monkeypatch)
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        await proof.run_live_smoke(port=9001, process_id=42)
+
+    assert exc.value.failure_label == "chirp_create_failed"
+    assert harness.undo_calls == 1
+    assert exc.value.details["cleanup"]["final_instance_guids"] == [
+        _test_guid("base")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("chirp_response", "errors_response", "expected_label", "created_guid"),
+    [
+        (
+            {
                 "success": True,
                 "data": {
-                    "snapshot": {
-                        "components": "not-a-list",
-                        "diagnostics": {"total": 1},
-                    }
+                    "component_guid": _test_guid("abc"),
+                    "warning": "compiled with warning",
+                    "compilation_errors": [],
                 },
-            }
-        raise AssertionError(name)
+            },
+            None,
+            "chirp_component_warning",
+            _test_guid("abc"),
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "component_guid": _test_guid("abc"),
+                    "compilation_errors": ["compile failed"],
+                },
+            },
+            None,
+            "chirp_component_compile_error",
+            _test_guid("abc"),
+        ),
+        (
+            {"success": True, "data": {"compilation_errors": []}},
+            None,
+            "chirp_create_failed",
+            "unknown-created",
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "component_guid": _test_guid("abc"),
+                    "compilation_errors": [],
+                },
+            },
+            {"success": False, "data": "diagnostics unavailable"},
+            "gh_component_error",
+            _test_guid("abc"),
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "component_guid": _test_guid("abc"),
+                    "compilation_errors": [],
+                },
+            },
+            {
+                "success": True,
+                "data": {
+                    "errors": [
+                        {
+                            "guid": "{" + _test_guid("abc").upper() + "}",
+                            "errors": ["boom"],
+                        }
+                    ]
+                },
+            },
+            "gh_component_error",
+            _test_guid("abc"),
+        ),
+        (
+            [],
+            None,
+            "chirp_create_failed",
+            _test_guid("unknown-non-dict"),
+        ),
+        (
+            {"success": True, "data": []},
+            None,
+            "chirp_create_failed",
+            _test_guid("unknown-malformed-data"),
+        ),
+        (
+            RuntimeError("chirp transport broke"),
+            None,
+            "chirp_create_failed",
+            _test_guid("unknown-dispatch-exception"),
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "component_guid": _test_guid("abc"),
+                    "compilation_errors": [],
+                },
+            },
+            {"success": True, "data": []},
+            "gh_component_error",
+            _test_guid("abc"),
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "component_guid": _test_guid("abc"),
+                    "compilation_errors": [],
+                },
+            },
+            {"success": True, "data": {"errors": [{"guid": 7, "errors": []}]}},
+            "gh_component_error",
+            _test_guid("abc"),
+        ),
+        (
+            {
+                "success": True,
+                "data": {
+                    "component_guid": _test_guid("abc"),
+                    "compilation_errors": [],
+                },
+            },
+            RuntimeError("gh_errors transport broke"),
+            "gh_component_error",
+            _test_guid("abc"),
+        ),
+    ],
+    ids=[
+        "warning",
+        "compile-error",
+        "missing-guid",
+        "gh-errors-failure",
+        "component-error-alternate-guid-spelling",
+        "non-dict-chirp",
+        "malformed-chirp-data",
+        "chirp-dispatch-exception",
+        "malformed-gh-errors-data",
+        "malformed-gh-errors-entry",
+        "gh-errors-dispatch-exception",
+    ],
+)
+@pytest.mark.asyncio
+async def test_live_smoke_restores_canvas_before_propagating_validation_failure(
+    monkeypatch,
+    passing_live_progressive,
+    chirp_response,
+    errors_response,
+    expected_label,
+    created_guid,
+):
+    baseline = ("base",)
+    harness = _LiveSmokeHarness(
+        inventories=[
+            _debug_inventory_response(*baseline),
+            _debug_inventory_response(*baseline, created_guid),
+            _debug_inventory_response(*baseline),
+        ],
+        chirp_response=chirp_response,
+        errors_response=errors_response,
+        undo_responses=[_gh_undo_success()],
+    )
+    harness.install(monkeypatch)
 
-    monkeypatch.setattr(proof, "_call_tool_dispatch", fake_dispatch)
+    with pytest.raises(proof.ProofFailure) as exc:
+        await proof.run_live_smoke(port=9001, process_id=42)
+
+    assert exc.value.failure_label == expected_label
+    assert harness.undo_calls == 1
+    assert exc.value.details["cleanup"]["attempt_count"] == 1
+    assert exc.value.details["cleanup"]["final_instance_guids"] == [
+        _test_guid("base")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_live_smoke_canonicalizes_alternate_valid_instance_guid_spellings(
+    monkeypatch, passing_live_progressive
+):
+    baseline = ("base",)
+    target = _test_guid("abc")
+    harness = _LiveSmokeHarness(
+        inventories=[
+            _debug_inventory_response(*baseline),
+            _debug_inventory_response(*baseline, target),
+            _debug_inventory_response(*baseline),
+        ],
+        chirp_response={
+            "success": True,
+            "data": {
+                "component_guid": "{" + target.upper() + "}",
+                "compilation_errors": [],
+            },
+        },
+        undo_responses=[_gh_undo_success()],
+    )
+    harness.install(monkeypatch)
+
+    result = await proof.run_live_smoke(port=9001, process_id=42)
+
+    assert result["gh_undo"]["component_guid"] == target
+    assert result["gh_undo"]["component_observed_after_attempt"] is True
+    assert harness.undo_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_live_smoke_rejects_invalid_inventory_guid_without_undo(
+    monkeypatch, passing_live_progressive
+):
+    harness = _LiveSmokeHarness(
+        inventories=[
+            _debug_inventory_response("base"),
+            {
+                "success": True,
+                "data": {
+                    "totalComponents": 2,
+                    "debugInfo": [
+                        {"guid": _test_guid("base")},
+                        {"guid": "not-an-instance-guid"},
+                    ],
+                },
+            },
+        ],
+        status_responses=[
+            _gh_status_response(1),
+            _gh_status_response(1),
+            _gh_status_response(2),
+        ],
+    )
+    harness.install(monkeypatch)
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        await proof.run_live_smoke(port=9001, process_id=42)
+
+    assert exc.value.failure_label == "cleanup_failed"
+    assert "malformed instance GUID" in str(exc.value)
+    assert harness.undo_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_live_smoke_rejects_invalid_created_guid_but_restores_unknown_addition(
+    monkeypatch, passing_live_progressive
+):
+    baseline = ("base",)
+    harness = _LiveSmokeHarness(
+        inventories=[
+            _debug_inventory_response(*baseline),
+            _debug_inventory_response(*baseline, "unknown-created"),
+            _debug_inventory_response(*baseline),
+        ],
+        chirp_response={
+            "success": True,
+            "data": {
+                "component_guid": "not-an-instance-guid",
+                "compilation_errors": [],
+            },
+        },
+        undo_responses=[_gh_undo_success()],
+    )
+    harness.install(monkeypatch)
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        await proof.run_live_smoke(port=9001, process_id=42)
+
+    assert exc.value.failure_label == "chirp_create_failed"
+    assert "valid component_guid" in str(exc.value)
+    assert exc.value.details["cleanup"]["attempt_count"] == 1
+    assert harness.undo_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_live_smoke_rejects_created_target_already_in_baseline_before_undo(
+    monkeypatch, passing_live_progressive
+):
+    target = _test_guid("abc")
+    harness = _LiveSmokeHarness(
+        inventories=[
+            _debug_inventory_response("base", target),
+            _debug_inventory_response("base", target, "other-new"),
+        ],
+        chirp_response={
+            "success": True,
+            "data": {"component_guid": target, "compilation_errors": []},
+        },
+        undo_responses=[_gh_undo_success()],
+    )
+    harness.install(monkeypatch)
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        await proof.run_live_smoke(port=9001, process_id=42)
+
+    assert exc.value.failure_label == "cleanup_failed"
+    assert "already present in baseline" in str(exc.value)
+    assert exc.value.details["original_failure"]["failure_label"] == (
+        "chirp_create_failed"
+    )
+    assert harness.undo_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_live_smoke_fails_successful_create_when_target_was_never_observed(
+    monkeypatch, passing_live_progressive
+):
+    baseline = ("base",)
+    harness = _LiveSmokeHarness(
+        inventories=[
+            _debug_inventory_response(*baseline),
+            _debug_inventory_response(*baseline),
+        ]
+    )
+    harness.install(monkeypatch)
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        await proof.run_live_smoke(port=9001, process_id=42)
+
+    assert exc.value.failure_label == "chirp_create_failed"
+    assert "was not observed" in str(exc.value)
+    assert exc.value.details["cleanup"]["attempt_count"] == 0
+    assert exc.value.details["cleanup"]["component_observed_after_attempt"] is False
+    assert harness.undo_calls == 0
+
+
+@pytest.mark.parametrize(
+    ("inventories", "status_responses", "expected_text"),
+    [
+        (
+            [
+                {
+                    "success": True,
+                    "data": {
+                        "totalComponents": 1,
+                        "debugInfo": [{"guid": 7}],
+                    },
+                }
+            ],
+            [_gh_status_response(1), _gh_status_response(1)],
+            "debug inventory entry",
+        ),
+        (
+            [_debug_inventory_response("base")],
+            [
+                _gh_status_response(1),
+                _gh_status_response(1),
+                {"success": True, "data": {"object_count": "2"}},
+            ],
+            "gh_status",
+        ),
+        (
+            [
+                _debug_inventory_response("base"),
+                {"success": True, "data": {"totalComponents": 2, "debugInfo": "bad"}},
+            ],
+            [_gh_status_response(1), _gh_status_response(1), _gh_status_response(2)],
+            "debug inventory",
+        ),
+    ],
+    ids=["malformed-entry", "malformed-status", "malformed-inventory"],
+)
+@pytest.mark.asyncio
+async def test_live_smoke_fails_closed_on_malformed_cleanup_probe(
+    monkeypatch,
+    passing_live_progressive,
+    inventories,
+    status_responses,
+    expected_text,
+):
+    harness = _LiveSmokeHarness(
+        inventories=inventories,
+        status_responses=status_responses,
+        undo_responses=[_gh_undo_success()],
+    )
+    harness.install(monkeypatch)
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        await proof.run_live_smoke(port=9001, process_id=42)
+
+    assert exc.value.failure_label == "cleanup_failed"
+    assert expected_text in str(exc.value)
+    assert harness.undo_calls == 0
+    if expected_text == "debug inventory entry":
+        assert harness.chirp_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_live_smoke_normalizes_post_attempt_inventory_exception_and_retains_original(
+    monkeypatch, passing_live_progressive
+):
+    baseline = ("base",)
+    harness = _LiveSmokeHarness(
+        inventories=[
+            _debug_inventory_response(*baseline),
+            RuntimeError("debug inventory transport broke"),
+        ],
+        status_responses=[
+            _gh_status_response(1),
+            _gh_status_response(1),
+            _gh_status_response(2),
+        ],
+        chirp_response={
+            "success": True,
+            "data": {
+                "component_guid": _test_guid("abc"),
+                "warning": "compiled with warning",
+                "compilation_errors": [],
+            },
+        },
+    )
+    harness.install(monkeypatch)
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        await proof.run_live_smoke(port=9001, process_id=42)
+
+    assert exc.value.failure_label == "cleanup_failed"
+    assert exc.value.details["original_failure"]["failure_label"] == (
+        "chirp_component_warning"
+    )
+    probe = exc.value.details["probe_failure"]
+    assert probe["details"]["exception_type"] == "RuntimeError"
+    assert "debug inventory transport broke" in probe["details"]["message"]
+    assert harness.undo_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_live_smoke_normalizes_post_undo_status_exception_with_attempt_evidence(
+    monkeypatch, passing_live_progressive
+):
+    baseline = ("base",)
+    harness = _LiveSmokeHarness(
+        inventories=[
+            _debug_inventory_response(*baseline),
+            _debug_inventory_response(*baseline, "abc"),
+        ],
+        status_responses=[
+            _gh_status_response(1),
+            _gh_status_response(1),
+            _gh_status_response(2),
+            RuntimeError("status transport broke"),
+        ],
+        undo_responses=[_gh_undo_success()],
+    )
+    harness.install(monkeypatch)
 
     with pytest.raises(proof.ProofFailure) as exc:
         await proof.run_live_smoke(port=9001, process_id=42)
 
     assert exc.value.failure_label == "cleanup_failed"
     assert exc.value.details["gh_undo"]["attempt_count"] == 1
-    assert "snapshot" in str(exc.value)
+    assert exc.value.details["gh_undo"]["attempts"] == [_gh_undo_success()]
+    probe = exc.value.details["probe_failure"]
+    assert probe["details"]["exception_type"] == "RuntimeError"
+    assert "status transport broke" in probe["details"]["message"]
+    assert harness.undo_calls == 1
 
 
 @pytest.mark.asyncio
-async def test_live_smoke_requires_component_guid(monkeypatch, passing_live_progressive):
-    async def fake_dispatch(name: str, args: dict):
-        if name == "rhino_ping":
-            return {"success": True, "data": {"processId": 42, "port": 9001}}
-        if name == "gh_status":
-            return {"success": True, "data": {"ready": True, "object_count": 1}}
-        if name == "chirp_create":
-            return {"success": True, "data": {"compilation_errors": []}}
-        raise AssertionError(name)
-
-    monkeypatch.setattr(proof, "_call_tool_dispatch", fake_dispatch)
+async def test_live_smoke_records_non_dict_undo_before_failing(
+    monkeypatch, passing_live_progressive
+):
+    baseline = ("base",)
+    harness = _LiveSmokeHarness(
+        inventories=[
+            _debug_inventory_response(*baseline),
+            _debug_inventory_response(*baseline, "abc"),
+        ],
+        undo_responses=["malformed-undo"],
+    )
+    harness.install(monkeypatch)
 
     with pytest.raises(proof.ProofFailure) as exc:
         await proof.run_live_smoke(port=9001, process_id=42)
 
-    assert exc.value.failure_label == "chirp_create_failed"
+    assert exc.value.failure_label == "cleanup_failed"
+    assert harness.undo_calls == 1
+    assert exc.value.details["gh_undo"]["attempts"] == ["malformed-undo"]
+    assert exc.value.details["gh_undo"]["attempt_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_live_smoke_fails_without_undo_when_baseline_guid_is_already_lost(
+    monkeypatch, passing_live_progressive
+):
+    baseline = ("base-a", "base-b")
+    harness = _LiveSmokeHarness(
+        inventories=[
+            _debug_inventory_response(*baseline),
+            _debug_inventory_response("base-a", "abc", "other-new"),
+        ],
+        undo_responses=[_gh_undo_success()],
+    )
+    harness.install(monkeypatch)
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        await proof.run_live_smoke(port=9001, process_id=42)
+
+    assert exc.value.failure_label == "cleanup_failed"
+    assert "baseline instance GUID" in str(exc.value)
+    assert harness.undo_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_live_smoke_does_not_over_undo_at_baseline_count_with_new_guid(
+    monkeypatch, passing_live_progressive
+):
+    baseline = ("base-a", "base-b")
+    harness = _LiveSmokeHarness(
+        inventories=[
+            _debug_inventory_response(*baseline),
+            _debug_inventory_response(*baseline, "abc"),
+            _debug_inventory_response("base-a", "abc"),
+        ],
+        undo_responses=[_gh_undo_success(), _gh_undo_success()],
+    )
+    harness.install(monkeypatch)
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        await proof.run_live_smoke(port=9001, process_id=42)
+
+    assert exc.value.failure_label == "cleanup_failed"
+    assert harness.undo_calls == 1
+    assert exc.value.details["gh_undo"]["final_object_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_live_smoke_stops_when_created_guid_disappears_but_other_new_guid_remains(
+    monkeypatch, passing_live_progressive
+):
+    baseline = ("base",)
+    harness = _LiveSmokeHarness(
+        inventories=[
+            _debug_inventory_response(*baseline),
+            _debug_inventory_response(*baseline, "abc", "other-new"),
+            _debug_inventory_response(*baseline, "other-new"),
+        ],
+        undo_responses=[_gh_undo_success(), _gh_undo_success()],
+    )
+    harness.install(monkeypatch)
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        await proof.run_live_smoke(port=9001, process_id=42)
+
+    assert exc.value.failure_label == "cleanup_failed"
+    assert "other new instance GUID" in str(exc.value)
+    assert harness.undo_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_live_smoke_fails_when_safe_cleanup_bound_is_exhausted(
+    monkeypatch, passing_live_progressive
+):
+    baseline = ("base",)
+    current = (*baseline, "abc")
+    harness = _LiveSmokeHarness(
+        inventories=[
+            _debug_inventory_response(*baseline),
+            _debug_inventory_response(*current),
+            _debug_inventory_response(*current),
+            _debug_inventory_response(*current),
+        ],
+        undo_responses=[_gh_undo_success(), _gh_undo_success()],
+    )
+    harness.install(monkeypatch)
+    monkeypatch.setattr(proof, "_CHIRP_CLEANUP_MAX_UNDO_ATTEMPTS", 2)
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        await proof.run_live_smoke(port=9001, process_id=42)
+
+    assert exc.value.failure_label == "cleanup_failed"
+    assert harness.undo_calls == 2
+    assert exc.value.details["gh_undo"]["attempt_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_live_smoke_cleanup_failure_wins_and_retains_original_failure(
+    monkeypatch, passing_live_progressive
+):
+    baseline = ("base-a", "base-b")
+    harness = _LiveSmokeHarness(
+        inventories=[
+            _debug_inventory_response(*baseline),
+            _debug_inventory_response("base-a", "abc", "other-new"),
+        ],
+        chirp_response={
+            "success": True,
+            "data": {
+                "component_guid": _test_guid("abc"),
+                "warning": "compiled with warning",
+                "compilation_errors": [],
+            },
+        },
+    )
+    harness.install(monkeypatch)
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        await proof.run_live_smoke(port=9001, process_id=42)
+
+    assert exc.value.failure_label == "cleanup_failed"
+    assert exc.value.details["original_failure"]["failure_label"] == (
+        "chirp_component_warning"
+    )
+    assert harness.undo_calls == 0
+
+
+def _embedded_live_smoke_source() -> str:
+    path = Path(__file__).resolve().parents[2] / "scripts" / "deploy-local-testing.ps1"
+    content = path.read_text(encoding="utf-8")
+    start_marker = '$smoke = @"'
+    start = content.index(start_marker) + len(start_marker)
+    end = content.index('"@', start)
+    return content[start:end]
+
+
+def test_deploy_embedded_live_smoke_executes_shared_mutation_helper(
+    monkeypatch, capsys
+):
+    from rook import bridge as bridge_module
+    from rook import server as server_module
+
+    mutation_calls = []
+
+    async def fake_dispatch(name, _arguments):
+        if name == "rhino_ping":
+            return {"success": True, "data": "pong"}
+        if name == "gh_status":
+            return _gh_status_response(1)
+        raise AssertionError(f"embedded smoke bypassed shared mutation helper: {name}")
+
+    async def fake_list_tools():
+        return [
+            SimpleNamespace(name=name)
+            for name in (
+                "rook_tools_ls",
+                "rook_tools_search",
+                "rook_tools_read",
+                "rook_tools_call",
+            )
+        ]
+
+    async def fake_call_tool(name, _arguments):
+        if name == "rook_tools_search":
+            payload = [{"name": "gh_status"}]
+        elif name == "rook_tools_read":
+            payload = {
+                "name": "gh_status",
+                "mcp_dispatchable": True,
+                "input_schema": {"type": "object"},
+            }
+        elif name == "rook_tools_call":
+            payload = {"ready_for_edit": True}
+        else:
+            raise AssertionError(name)
+        return [SimpleNamespace(text=json.dumps(payload))]
+
+    async def fake_mutation(
+        args,
+        *,
+        component_name,
+        dispatch_fn,
+        call_rhino_fn,
+    ):
+        mutation_calls.append(
+            {
+                "args": args,
+                "component_name": component_name,
+                "dispatch_fn": dispatch_fn,
+                "call_rhino_fn": call_rhino_fn,
+            }
+        )
+        return {
+            "chirp_create": {
+                "success": True,
+                "data": {"component_guid": _test_guid("abc")},
+            },
+            "gh_errors": {"success": True, "data": {"errors": []}},
+            "gh_undo": {
+                "attempts": [_gh_undo_success(), _gh_undo_success()],
+                "attempt_count": 2,
+                "component_guid": _test_guid("abc"),
+                "component_removed": True,
+                "baseline_object_count": 1,
+                "final_object_count": 1,
+                "baseline_instance_guids": [_test_guid("base")],
+                "final_instance_guids": [_test_guid("base")],
+            },
+        }
+
+    async def fake_call_rhino(*_args, **_kwargs):
+        raise AssertionError("shared mutation helper was replaced in this test")
+
+    monkeypatch.setattr(server_module, "_call_tool_dispatch", fake_dispatch)
+    monkeypatch.setattr(server_module, "list_tools", fake_list_tools)
+    monkeypatch.setattr(server_module, "call_tool", fake_call_tool)
+    monkeypatch.setattr(bridge_module, "call_rhino", fake_call_rhino)
+    monkeypatch.setattr(
+        proof, "_run_chirp_smoke_mutation", fake_mutation, raising=False
+    )
+
+    source = _embedded_live_smoke_source().rsplit("asyncio.run(main())", 1)[0]
+    namespace = {"__name__": "embedded_live_smoke_test"}
+    exec(compile(source, "<embedded-live-smoke>", "exec"), namespace)
+    asyncio.run(namespace["main"]())
+
+    assert len(mutation_calls) == 1
+    assert mutation_calls[0]["args"] == {}
+    assert mutation_calls[0]["component_name"] == "Rook Local Deploy Smoke"
+    assert mutation_calls[0]["dispatch_fn"] is fake_dispatch
+    assert mutation_calls[0]["call_rhino_fn"] is fake_call_rhino
+    evidence = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert evidence["gh_undo"]["attempt_count"] == 2
+
+    async def fake_failed_mutation(*_args, **_kwargs):
+        raise proof.ProofFailure(
+            "cleanup_failed",
+            "embedded cleanup failed",
+            {
+                "gh_undo": {
+                    "attempts": ["malformed-undo"],
+                    "attempt_count": 1,
+                    "component_removed": False,
+                }
+            },
+        )
+
+    namespace["_run_chirp_smoke_mutation"] = fake_failed_mutation
+    with pytest.raises(SystemExit) as exc:
+        asyncio.run(namespace["main"]())
+
+    failure = json.loads(str(exc.value))
+    assert failure["failure_label"] == "cleanup_failed"
+    assert failure["message"] == "embedded cleanup failed"
+    assert failure["details"]["gh_undo"]["attempt_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -1013,6 +1750,12 @@ async def test_live_smoke_launches_grasshopper_when_not_ready(
     monkeypatch, passing_live_progressive
 ):
     calls = []
+    mutation_state = {"created": False, "undo_count": 0}
+    inventories = [
+        _debug_inventory_response("baseline"),
+        _debug_inventory_response("baseline", "abc"),
+        _debug_inventory_response("baseline"),
+    ]
 
     async def fake_dispatch(name: str, args: dict):
         calls.append((name, args))
@@ -1020,9 +1763,18 @@ async def test_live_smoke_launches_grasshopper_when_not_ready(
             return {"success": True, "data": {"processId": 42, "port": 9001}}
         if name == "gh_status":
             if any(call[0] == "gh_document_new" for call in calls):
+                object_count = (
+                    2
+                    if mutation_state["created"]
+                    and mutation_state["undo_count"] == 0
+                    else 1
+                )
                 return {
                     "success": True,
-                    "data": {"ready_for_edit": True, "object_count": 1},
+                    "data": {
+                        "ready_for_edit": True,
+                        "object_count": object_count,
+                    },
                 }
             return {
                 "success": True,
@@ -1037,14 +1789,27 @@ async def test_live_smoke_launches_grasshopper_when_not_ready(
         if name == "gh_document_new":
             return {"success": True, "data": {"documentName": "Untitled"}}
         if name == "chirp_create":
-            return {"success": True, "data": {"component_guid": "abc", "compilation_errors": []}}
+            mutation_state["created"] = True
+            return {
+                "success": True,
+                "data": {
+                    "component_guid": _test_guid("abc"),
+                    "compilation_errors": [],
+                },
+            }
         if name == "gh_errors":
             return {"success": True, "data": {"errors": []}}
         if name == "gh_undo":
-            return _gh_undo_success("baseline")
+            mutation_state["undo_count"] += 1
+            return _gh_undo_success()
         raise AssertionError(name)
 
     monkeypatch.setattr(proof, "_call_tool_dispatch", fake_dispatch)
+
+    async def fake_call_rhino(_endpoint, _method, _data, **_kwargs):
+        return inventories.pop(0)
+
+    monkeypatch.setattr(proof, "call_rhino", fake_call_rhino)
 
     result = await proof.run_live_smoke(port=9001, process_id=42)
 
@@ -1060,6 +1825,12 @@ async def test_live_smoke_polls_after_grasshopper_command_timeout(
     monkeypatch, passing_live_progressive
 ):
     calls = []
+    mutation_state = {"created": False, "undo_count": 0}
+    inventories = [
+        _debug_inventory_response("baseline"),
+        _debug_inventory_response("baseline", "abc"),
+        _debug_inventory_response("baseline"),
+    ]
 
     async def fake_dispatch(name: str, args: dict):
         calls.append((name, args))
@@ -1067,9 +1838,18 @@ async def test_live_smoke_polls_after_grasshopper_command_timeout(
             return {"success": True, "data": {"processId": 42, "port": 9001}}
         if name == "gh_status":
             if any(call[0] == "gh_document_new" for call in calls):
+                object_count = (
+                    2
+                    if mutation_state["created"]
+                    and mutation_state["undo_count"] == 0
+                    else 1
+                )
                 return {
                     "success": True,
-                    "data": {"ready_for_edit": True, "object_count": 1},
+                    "data": {
+                        "ready_for_edit": True,
+                        "object_count": object_count,
+                    },
                 }
             return {
                 "success": True,
@@ -1091,14 +1871,27 @@ async def test_live_smoke_polls_after_grasshopper_command_timeout(
         if name == "gh_document_new":
             return {"success": True, "data": {"documentName": "Untitled"}}
         if name == "chirp_create":
-            return {"success": True, "data": {"component_guid": "abc", "compilation_errors": []}}
+            mutation_state["created"] = True
+            return {
+                "success": True,
+                "data": {
+                    "component_guid": _test_guid("abc"),
+                    "compilation_errors": [],
+                },
+            }
         if name == "gh_errors":
             return {"success": True, "data": {"errors": []}}
         if name == "gh_undo":
-            return _gh_undo_success("baseline")
+            mutation_state["undo_count"] += 1
+            return _gh_undo_success()
         raise AssertionError(name)
 
     monkeypatch.setattr(proof, "_call_tool_dispatch", fake_dispatch)
+
+    async def fake_call_rhino(_endpoint, _method, _data, **_kwargs):
+        return inventories.pop(0)
+
+    monkeypatch.setattr(proof, "call_rhino", fake_call_rhino)
 
     async def fake_sleep(_seconds: float):
         return None
