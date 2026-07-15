@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.util
+import json
+import os
 from pathlib import Path
+
+import pytest
 
 
 def _load_script():
@@ -90,8 +95,6 @@ def test_build_parser_accepts_two_subcommands():
 
 
 def test_build_parser_rejects_unknown_subcommand():
-    import pytest
-
     parser = SMOKE.build_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(["nonsense"])
@@ -194,40 +197,106 @@ def test_progressive_gateway_metadata_validation_requires_aliases():
     assert "rook_tools_search missing gh_update_script" in SMOKE.progressive_gateway_metadata_failures(bad)
 
 
-def test_progressive_search_validation_requires_exact_records():
-    search_results = {
-        name: [{"name": name, "domain": "gh"}]
-        for name in SMOKE.DG009_GH_TOOL_NAMES
-    }
-    assert SMOKE.progressive_search_failures(search_results) == []
-    bad = dict(search_results)
-    bad["gh_update_script"] = [{"name": "gh_set_script", "domain": "gh"}]
-    assert "rook_tools_search did not return gh_update_script" in SMOKE.progressive_search_failures(bad)
+def test_progressive_contract_pins_gateways_targets_and_realistic_queries():
+    assert SMOKE.PROGRESSIVE_GATEWAY_NAMES == (
+        "rook_tools_ls", "rook_tools_search", "rook_tools_read", "rook_tools_call"
+    )
+    assert SMOKE.PROGRESSIVE_ALIAS_GATEWAY_NAMES == (
+        "rook_tools_search", "rook_tools_read", "rook_tools_call"
+    )
+    assert SMOKE.PROGRESSIVE_DISCOVERY_TARGETS == (
+        "gh_update_script", "gh_set_script_pins", "gh_create_csharp_script",
+        "gh_status", "gh_snapshot", "agent_status",
+    )
+    assert SMOKE.PROGRESSIVE_HIDDEN_TARGETS == (
+        "gh_update_script", "gh_set_script_pins", "gh_create_csharp_script",
+        "gh_status", "agent_status",
+    )
+    assert [(row["query"], row["expected_tool"], row["limit"], row["max_rank"])
+            for row in SMOKE.PROGRESSIVE_INTENT_MATRIX] == [
+        ("edit a Grasshopper script", "gh_update_script", 10, 10),
+        ("change the inputs and outputs of a Grasshopper script", "gh_set_script_pins", 10, 10),
+        ("create a C# script component in Grasshopper", "gh_create_csharp_script", 10, 10),
+        ("check whether Grasshopper is ready", "gh_status", 10, 10),
+        ("take a snapshot of the Grasshopper canvas", "gh_snapshot", 10, 10),
+        ("check running agent status", "agent_status", 10, 1),
+    ]
 
 
-def test_progressive_read_validation_requires_gh_object_schemas():
-    read_records = {
-        name: {
-            "name": name,
-            "domain": "gh",
-            "input_schema": {"type": "object", "properties": {}},
-        }
-        for name in SMOKE.DG009_GH_TOOL_NAMES
+def test_progressive_intent_findings_report_rank_or_null():
+    results = {row["query"]: [] for row in SMOKE.PROGRESSIVE_INTENT_MATRIX}
+    results["check running agent status"] = [{"name": "agent_status"}]
+    findings = SMOKE.progressive_intent_findings(results)
+    assert len(findings) == 5
+    assert {finding["code"] for finding in findings} == {"intent_discovery_rank_failed"}
+    assert all(finding["observed_rank"] is None for finding in findings)
+    assert findings[0] == {
+        "record": "progressive_finding",
+        "code": "intent_discovery_rank_failed",
+        "query": "edit a Grasshopper script",
+        "expected_tool": "gh_update_script",
+        "limit": 10,
+        "max_rank": 10,
+        "observed_rank": None,
     }
-    assert SMOKE.progressive_read_failures(read_records) == []
 
-    bad_name = dict(read_records)
-    bad_name["gh_update_script"] = {
-        "name": "gh_set_script",
-        "domain": "gh",
-        "input_schema": {"type": "object"},
-    }
-    assert "rook_tools_read returned wrong record for gh_update_script" in SMOKE.progressive_read_failures(bad_name)
 
-    bad_schema = dict(read_records)
-    bad_schema["gh_update_script"] = {
-        "name": "gh_update_script",
-        "domain": "gh",
-        "input_schema": {"type": "array"},
+def test_progressive_intent_findings_type_guard_without_renumbering_positions():
+    results = {
+        row["query"]: [None, "noise", 7, {"name": row["expected_tool"]}]
+        for row in SMOKE.PROGRESSIVE_INTENT_MATRIX
     }
-    assert "rook_tools_read returned invalid input_schema for gh_update_script" in SMOKE.progressive_read_failures(bad_schema)
+    findings = SMOKE.progressive_intent_findings(results)
+    assert findings == [{
+        "record": "progressive_finding",
+        "code": "intent_discovery_rank_failed",
+        "query": "check running agent status",
+        "expected_tool": "agent_status",
+        "limit": 10,
+        "max_rank": 1,
+        "observed_rank": 4,
+    }]
+
+
+def test_progressive_read_findings_require_exact_dispatchable_object_schema():
+    records = {
+        name: {"name": name, "mcp_dispatchable": True, "input_schema": {"type": "object"}}
+        for name in SMOKE.PROGRESSIVE_DISCOVERY_TARGETS
+    }
+    assert SMOKE.progressive_read_findings(records) == []
+    records["agent_status"]["mcp_dispatchable"] = False
+    findings = SMOKE.progressive_read_findings(records)
+    assert findings == [{
+        "record": "progressive_finding",
+        "code": "schema_read_failed",
+        "target": "agent_status",
+        "reason": "mcp_dispatchable_not_true",
+    }]
+
+
+def test_progressive_evidence_orders_checks_counts_histogram_and_emits_summary_on_failure(capsys):
+    checks = [
+        SMOKE.progressive_check(name, "PASS", 1, 1)
+        for name in reversed(SMOKE.PROGRESSIVE_CHECK_ORDER)
+    ]
+    findings = [
+        SMOKE.progressive_finding("intent_discovery_rank_failed", query=str(index))
+        for index in range(5)
+    ]
+    rc = SMOKE.emit_progressive_evidence(checks, findings)
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert rc == 1
+    assert [record["check"] for record in records[:6]] == list(SMOKE.PROGRESSIVE_CHECK_ORDER)
+    assert records[-1]["record"] == "progressive_summary"
+    assert records[-1]["status"] == "FAIL"
+    assert records[-1]["finding_histogram"] == {"intent_discovery_rank_failed": 5}
+
+
+def test_progressive_summary_turns_missing_checks_into_blocked_records():
+    checks = [SMOKE.progressive_check("gateway_presence", "FAIL", 3, 4, missing=["rook_tools_search"])]
+    summary, ordered = SMOKE.progressive_summary(checks, [])
+    by_name = {record["check"]: record for record in ordered}
+    assert by_name["gateway_presence"]["status"] == "FAIL"
+    assert by_name["exact_name_resolution"]["status"] == "BLOCKED"
+    assert by_name["intent_discovery"]["status"] == "BLOCKED"
+    assert summary["status"] == "FAIL"

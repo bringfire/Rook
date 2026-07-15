@@ -13,9 +13,11 @@ Run with the DEPLOYED venv interpreter and an empty PYTHONPATH, e.g. (PowerShell
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import json
 import os
 import sys
+from typing import Any
 
 
 def pythonpath_clean(env_value: str) -> bool:
@@ -179,15 +181,89 @@ DG009_GH_TOOL_NAMES = (
 )
 
 PROGRESSIVE_GATEWAY_NAMES = (
+    "rook_tools_ls",
     "rook_tools_search",
     "rook_tools_read",
     "rook_tools_call",
 )
 
+PROGRESSIVE_ALIAS_GATEWAY_NAMES = (
+    "rook_tools_search",
+    "rook_tools_read",
+    "rook_tools_call",
+)
+
+PROGRESSIVE_DISCOVERY_TARGETS = (
+    "gh_update_script",
+    "gh_set_script_pins",
+    "gh_create_csharp_script",
+    "gh_status",
+    "gh_snapshot",
+    "agent_status",
+)
+
+PROGRESSIVE_HIDDEN_TARGETS = (
+    "gh_update_script",
+    "gh_set_script_pins",
+    "gh_create_csharp_script",
+    "gh_status",
+    "agent_status",
+)
+
+PROGRESSIVE_INTENT_MATRIX = (
+    {"query": "edit a Grasshopper script", "expected_tool": "gh_update_script", "limit": 10, "max_rank": 10},
+    {"query": "change the inputs and outputs of a Grasshopper script", "expected_tool": "gh_set_script_pins", "limit": 10, "max_rank": 10},
+    {"query": "create a C# script component in Grasshopper", "expected_tool": "gh_create_csharp_script", "limit": 10, "max_rank": 10},
+    {"query": "check whether Grasshopper is ready", "expected_tool": "gh_status", "limit": 10, "max_rank": 10},
+    {"query": "take a snapshot of the Grasshopper canvas", "expected_tool": "gh_snapshot", "limit": 10, "max_rank": 10},
+    {"query": "check running agent status", "expected_tool": "agent_status", "limit": 10, "max_rank": 1},
+)
+
+PROGRESSIVE_CHECK_ORDER = (
+    "gateway_presence",
+    "lean_hiddenness",
+    "exact_name_resolution",
+    "schema_reads",
+    "agent_status_call",
+    "intent_discovery",
+)
+
+PROGRESSIVE_CHECK_EXPECTED = {
+    "gateway_presence": 4,
+    "lean_hiddenness": 5,
+    "exact_name_resolution": 5,
+    "schema_reads": 6,
+    "agent_status_call": 1,
+    "intent_discovery": 6,
+}
+
+
+def progressive_check(
+    check: str,
+    status: str,
+    observed: int,
+    expected: int,
+    **details: Any,
+) -> dict[str, Any]:
+    if status not in {"PASS", "FAIL", "BLOCKED"}:
+        raise ValueError(f"invalid progressive status: {status}")
+    return {
+        "record": "progressive_check",
+        "check": check,
+        "status": status,
+        "observed": observed,
+        "expected": expected,
+        "details": details,
+    }
+
+
+def progressive_finding(code: str, **details: Any) -> dict[str, Any]:
+    return {"record": "progressive_finding", "code": code, **details}
+
 
 def progressive_gateway_metadata_failures(catalog: dict) -> list[str]:
     failures: list[str] = []
-    for gateway in PROGRESSIVE_GATEWAY_NAMES:
+    for gateway in PROGRESSIVE_ALIAS_GATEWAY_NAMES:
         record = catalog.get(gateway)
         if not isinstance(record, dict):
             failures.append(f"{gateway} missing from lean catalog")
@@ -200,29 +276,105 @@ def progressive_gateway_metadata_failures(catalog: dict) -> list[str]:
     return failures
 
 
-def progressive_search_failures(search_results: dict[str, list[dict]]) -> list[str]:
-    failures: list[str] = []
-    for tool_name in DG009_GH_TOOL_NAMES:
-        entries = search_results.get(tool_name, [])
-        if not any(entry.get("name") == tool_name and entry.get("domain") == "gh" for entry in entries):
-            failures.append(f"rook_tools_search did not return {tool_name}")
-    return failures
+def progressive_intent_findings(
+    search_results: dict[str, list[Any]],
+) -> list[dict[str, Any]]:
+    findings = []
+    for row in PROGRESSIVE_INTENT_MATRIX:
+        candidates = search_results.get(row["query"], [])
+        rank = next(
+            (
+                index
+                for index, candidate in enumerate(candidates, start=1)
+                if isinstance(candidate, dict)
+                and candidate.get("name") == row["expected_tool"]
+            ),
+            None,
+        )
+        if rank is None or rank > row["max_rank"]:
+            findings.append(
+                progressive_finding(
+                    "intent_discovery_rank_failed",
+                    query=row["query"],
+                    expected_tool=row["expected_tool"],
+                    limit=row["limit"],
+                    max_rank=row["max_rank"],
+                    observed_rank=rank,
+                )
+            )
+    return findings
 
 
-def progressive_read_failures(read_records: dict[str, dict]) -> list[str]:
-    failures: list[str] = []
-    for tool_name in DG009_GH_TOOL_NAMES:
-        record = read_records.get(tool_name)
+def progressive_read_findings(
+    read_records: dict[str, dict],
+) -> list[dict[str, Any]]:
+    findings = []
+    for target in PROGRESSIVE_DISCOVERY_TARGETS:
+        record = read_records.get(target)
+        reason = None
         if not isinstance(record, dict):
-            failures.append(f"rook_tools_read did not return {tool_name}")
-            continue
-        if record.get("name") != tool_name or record.get("domain") != "gh":
-            failures.append(f"rook_tools_read returned wrong record for {tool_name}")
-            continue
-        input_schema = record.get("input_schema")
-        if not isinstance(input_schema, dict) or input_schema.get("type") != "object":
-            failures.append(f"rook_tools_read returned invalid input_schema for {tool_name}")
-    return failures
+            reason = "record_missing"
+        elif record.get("name") != target:
+            reason = "wrong_name"
+        elif record.get("mcp_dispatchable") is not True:
+            reason = "mcp_dispatchable_not_true"
+        elif (
+            not isinstance(record.get("input_schema"), dict)
+            or record["input_schema"].get("type") != "object"
+        ):
+            reason = "input_schema_not_object"
+        if reason:
+            findings.append(
+                progressive_finding("schema_read_failed", target=target, reason=reason)
+            )
+    return findings
+
+
+def progressive_summary(
+    checks: list[dict[str, Any]],
+    findings: list[dict[str, Any]],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    by_name = {record["check"]: record for record in checks}
+    ordered = []
+    for name in PROGRESSIVE_CHECK_ORDER:
+        ordered.append(
+            by_name.get(name)
+            or progressive_check(
+                name,
+                "BLOCKED",
+                0,
+                PROGRESSIVE_CHECK_EXPECTED[name],
+                blocked_by=["record_missing"],
+            )
+        )
+    histogram = dict(sorted(Counter(finding["code"] for finding in findings).items()))
+    status = (
+        "PASS"
+        if not findings and all(record["status"] == "PASS" for record in ordered)
+        else "FAIL"
+    )
+    return (
+        {
+            "record": "progressive_summary",
+            "status": status,
+            "checks": {record["check"]: record["status"] for record in ordered},
+            "finding_histogram": histogram,
+        },
+        ordered,
+    )
+
+
+def emit_progressive_evidence(
+    checks: list[dict[str, Any]],
+    findings: list[dict[str, Any]],
+) -> int:
+    summary, ordered = progressive_summary(checks, findings)
+    for record in ordered:
+        print(json.dumps(record, sort_keys=True))
+    for finding in findings:
+        print(json.dumps(finding, sort_keys=True))
+    print(json.dumps(summary, sort_keys=True))
+    return 0 if summary["status"] == "PASS" else 1
 
 _EXTERNAL_FAIL_CODES = frozenset(
     {
