@@ -99,11 +99,15 @@ def _p(prefix: str, msg: str) -> None:
 
 # --- coherence / origin guard (lazy rook import) ---
 
-_LM2_MODULES = (
+_DEPLOYED_ORIGIN_MODULES = (
+    "rook",
+    "rook.server",
+    "rook.capability_index",
     "rook.agent.capability_record",
     "rook.agent.capability_inventory",
     "rook.agent.execution_profile",
     "rook.agent.profile_reconciliation",
+    "rook.agent.tool_registry",
 )
 
 
@@ -112,33 +116,21 @@ def _site_packages_root() -> str:
 
 
 def _check_origins() -> int:
-    """Import rook + LM2 modules and assert their origin is the deployed
-    site-packages. 0 = PASS, 1 = FAIL. Prints rook/server/LM2 origins."""
+    """Import deployed modules and assert their origin is site-packages.
+
+    0 = PASS, 1 = FAIL. Prints every deployed module origin.
+    """
     import importlib
 
     spr = _site_packages_root()
     print(f"  sys.prefix: {sys.prefix}")
     print(f"  site-packages root: {spr}")
-    try:
-        import rook
-        import rook.server
-    except Exception as exc:  # an import failure is a coherence FAIL
-        _p("FAIL", f"could not import rook/rook.server: {exc!r}")
-        return 1
-
-    print(f"  rook.__file__: {rook.__file__}")
-    print(f"  rook.server.__file__: {rook.server.__file__}")
     failed = False
-    for mod_file, name in ((rook.__file__, "rook"), (rook.server.__file__, "rook.server")):
-        if not module_origin_ok(mod_file, spr):
-            _p("FAIL", f"{name} not under deployed site-packages ({mod_file})")
-            failed = True
-
-    for name in _LM2_MODULES:
+    for name in _DEPLOYED_ORIGIN_MODULES:
         try:
             mod = importlib.import_module(name)
         except Exception as exc:
-            _p("FAIL", f"LM2 module {name} did not import: {exc!r}")
+            _p("FAIL", f"deployed module {name} did not import: {exc!r}")
             failed = True
             continue
         mod_file = getattr(mod, "__file__", "")
@@ -376,6 +368,254 @@ def emit_progressive_evidence(
     print(json.dumps(summary, sort_keys=True))
     return 0 if summary["status"] == "PASS" else 1
 
+
+def _decode_public_tool_result(response) -> tuple[Any | None, str | None]:
+    if not response:
+        return None, "empty_response"
+    text = str(response[0].text)
+    if text.startswith("Error:"):
+        return None, text
+    try:
+        return json.loads(text), None
+    except json.JSONDecodeError as exc:
+        return None, f"invalid_json:{exc}"
+
+
+async def _meta_json(
+    call_tool_fn, name: str, arguments: dict
+) -> tuple[Any | None, str | None]:
+    try:
+        return _decode_public_tool_result(await call_tool_fn(name, arguments))
+    except Exception as exc:
+        return None, f"{type(exc).__name__}:{exc}"
+
+
+def progressive_catalog_evidence(
+    catalog: dict,
+) -> tuple[list[dict], list[dict]]:
+    findings: list[dict[str, Any]] = []
+    names = set(catalog)
+    missing_gateways = [
+        name for name in PROGRESSIVE_GATEWAY_NAMES if name not in names
+    ]
+    for name in missing_gateways:
+        findings.append(progressive_finding("gateway_presence_failed", gateway=name))
+    for failure in progressive_gateway_metadata_failures(catalog):
+        findings.append(
+            progressive_finding("gateway_metadata_failed", reason=failure)
+        )
+    gateway_check = progressive_check(
+        "gateway_presence",
+        "PASS" if not missing_gateways else "FAIL",
+        len(PROGRESSIVE_GATEWAY_NAMES) - len(missing_gateways),
+        PROGRESSIVE_CHECK_EXPECTED["gateway_presence"],
+        missing=missing_gateways,
+    )
+
+    leaked = [name for name in PROGRESSIVE_HIDDEN_TARGETS if name in names]
+    for name in leaked:
+        findings.append(progressive_finding("lean_hiddenness_failed", target=name))
+    hidden_check = progressive_check(
+        "lean_hiddenness",
+        "PASS" if not leaked else "FAIL",
+        len(PROGRESSIVE_HIDDEN_TARGETS) - len(leaked),
+        PROGRESSIVE_CHECK_EXPECTED["lean_hiddenness"],
+        leaked=leaked,
+    )
+    return [gateway_check, hidden_check], findings
+
+
+def progressive_post_origin_failure(
+    stage: str,
+    error: Exception,
+    *,
+    catalog: dict | None = None,
+) -> tuple[list[dict], list[dict]]:
+    error_text = f"{type(error).__name__}: {error}"
+    if catalog is None:
+        checks: list[dict[str, Any]] = []
+        findings: list[dict[str, Any]] = []
+        code = "progressive_acquisition_failed"
+    else:
+        checks, findings = progressive_catalog_evidence(catalog)
+        code = "progressive_collection_failed"
+
+    for name in PROGRESSIVE_CHECK_ORDER[len(checks) :]:
+        checks.append(
+            progressive_check(
+                name,
+                "BLOCKED",
+                0,
+                PROGRESSIVE_CHECK_EXPECTED[name],
+                blocked_by=[stage],
+            )
+        )
+    findings.append(progressive_finding(code, stage=stage, error=error_text))
+    return checks, findings
+
+
+async def collect_progressive_evidence(
+    catalog: dict, call_tool_fn
+) -> tuple[list[dict], list[dict]]:
+    catalog_checks, findings = progressive_catalog_evidence(catalog)
+    gateway_check, hidden_check = catalog_checks
+    names = set(catalog)
+
+    intent_findings: list[dict[str, Any]] = []
+    agent_intent_ok = False
+    if "rook_tools_search" in names:
+        exact_passes = 0
+        exact_failures = []
+        for target in DG009_GH_TOOL_NAMES:
+            value, error = await _meta_json(
+                call_tool_fn,
+                "rook_tools_search",
+                {"query": target, "limit": 10},
+            )
+            found = isinstance(value, list) and any(
+                isinstance(item, dict) and item.get("name") == target
+                for item in value
+            )
+            if found:
+                exact_passes += 1
+            else:
+                exact_failures.append(target)
+                findings.append(
+                    progressive_finding(
+                        "exact_name_resolution_failed",
+                        target=target,
+                        error=error,
+                    )
+                )
+        exact_check = progressive_check(
+            "exact_name_resolution",
+            "PASS" if exact_passes == 5 else "FAIL",
+            exact_passes,
+            PROGRESSIVE_CHECK_EXPECTED["exact_name_resolution"],
+            failed=exact_failures,
+        )
+
+        intent_results = {}
+        for row in PROGRESSIVE_INTENT_MATRIX:
+            value, _error = await _meta_json(
+                call_tool_fn,
+                "rook_tools_search",
+                {"query": row["query"], "limit": row["limit"]},
+            )
+            intent_results[row["query"]] = value if isinstance(value, list) else []
+        intent_findings = progressive_intent_findings(intent_results)
+        intent_passes = len(PROGRESSIVE_INTENT_MATRIX) - len(intent_findings)
+        intent_check = progressive_check(
+            "intent_discovery",
+            "PASS" if not intent_findings else "FAIL",
+            intent_passes,
+            PROGRESSIVE_CHECK_EXPECTED["intent_discovery"],
+        )
+        agent_intent_ok = not any(
+            finding.get("expected_tool") == "agent_status"
+            for finding in intent_findings
+        )
+    else:
+        exact_check = progressive_check(
+            "exact_name_resolution",
+            "BLOCKED",
+            0,
+            PROGRESSIVE_CHECK_EXPECTED["exact_name_resolution"],
+            blocked_by=["rook_tools_search"],
+        )
+        intent_check = progressive_check(
+            "intent_discovery",
+            "BLOCKED",
+            0,
+            PROGRESSIVE_CHECK_EXPECTED["intent_discovery"],
+            blocked_by=["rook_tools_search"],
+        )
+
+    read_records: dict[str, dict] = {}
+    read_findings: list[dict[str, Any]] = []
+    if "rook_tools_read" in names:
+        for target in PROGRESSIVE_DISCOVERY_TARGETS:
+            value, _error = await _meta_json(
+                call_tool_fn, "rook_tools_read", {"name": target}
+            )
+            if isinstance(value, dict):
+                read_records[target] = value
+        read_findings = progressive_read_findings(read_records)
+        read_passes = len(PROGRESSIVE_DISCOVERY_TARGETS) - len(read_findings)
+        read_check = progressive_check(
+            "schema_reads",
+            "PASS" if not read_findings else "FAIL",
+            read_passes,
+            PROGRESSIVE_CHECK_EXPECTED["schema_reads"],
+        )
+    else:
+        read_check = progressive_check(
+            "schema_reads",
+            "BLOCKED",
+            0,
+            PROGRESSIVE_CHECK_EXPECTED["schema_reads"],
+            blocked_by=["rook_tools_read"],
+        )
+
+    agent_read_ok = "agent_status" in read_records and not any(
+        finding.get("target") == "agent_status" for finding in read_findings
+    )
+    agent_blocked_by = []
+    if not agent_intent_ok:
+        agent_blocked_by.append("agent_status_intent_search")
+    if not agent_read_ok:
+        agent_blocked_by.append("agent_status_read")
+    if "rook_tools_call" not in names:
+        agent_blocked_by.append("rook_tools_call")
+
+    if agent_blocked_by:
+        agent_check = progressive_check(
+            "agent_status_call",
+            "BLOCKED",
+            0,
+            PROGRESSIVE_CHECK_EXPECTED["agent_status_call"],
+            blocked_by=sorted(agent_blocked_by),
+        )
+    else:
+        agent_call, agent_error = await _meta_json(
+            call_tool_fn,
+            "rook_tools_call",
+            {"name": "agent_status", "arguments": {}},
+        )
+        agent_call_ok = (
+            isinstance(agent_call, dict)
+            and isinstance(agent_call.get("count"), int)
+            and not isinstance(agent_call.get("count"), bool)
+            and isinstance(agent_call.get("agents"), list)
+        )
+        if not agent_call_ok:
+            findings.append(
+                progressive_finding(
+                    "agent_status_call_failed",
+                    target="agent_status",
+                    error=agent_error,
+                    result=agent_call,
+                )
+            )
+        agent_check = progressive_check(
+            "agent_status_call",
+            "PASS" if agent_call_ok else "FAIL",
+            1 if agent_call_ok else 0,
+            PROGRESSIVE_CHECK_EXPECTED["agent_status_call"],
+        )
+
+    findings.extend(read_findings)
+    findings.extend(intent_findings)
+    checks = [
+        gateway_check,
+        hidden_check,
+        exact_check,
+        read_check,
+        agent_check,
+        intent_check,
+    ]
+    return checks, findings
+
 _EXTERNAL_FAIL_CODES = frozenset(
     {
         "advertised_not_dispatchable",
@@ -568,51 +808,33 @@ def run_progressive() -> int:
             _p("FAIL", "origin guard failed; refusing progressive disclosure smoke")
             return rc
 
-        import asyncio
+        catalog = None
+        stage = "runtime_import"
+        try:
+            import asyncio
 
-        from rook.server import call_tool, list_tools
-        from rook.agent.tool_registry import build_catalog_from_mcp_tools
+            from rook.server import call_tool, list_tools
+            from rook.agent.tool_registry import build_catalog_from_mcp_tools
 
-        tools = asyncio.run(list_tools())
-        catalog = build_catalog_from_mcp_tools(tools)
-        names = set(catalog)
-        hidden_mutators = {"gh_update_script", "gh_set_script_pins", "gh_create_csharp_script"}
-        if not set(PROGRESSIVE_GATEWAY_NAMES) <= names:
-            missing = sorted(set(PROGRESSIVE_GATEWAY_NAMES) - names)
-            _p("FAIL", f"lean catalog missing progressive gateways: {missing}")
-            return 1
-        if hidden_mutators & names:
-            _p("FAIL", f"lean catalog directly advertised hidden GH mutators: {sorted(hidden_mutators & names)}")
-            return 1
-
-        metadata_failures = progressive_gateway_metadata_failures(catalog)
-        if metadata_failures:
-            for failure in metadata_failures:
-                _p("FAIL", failure)
-            return 1
-
-        search_results: dict[str, list[dict]] = {}
-        for tool_name in DG009_GH_TOOL_NAMES:
-            response = asyncio.run(call_tool("rook_tools_search", {"query": tool_name, "limit": 10}))
-            search_results[tool_name] = json.loads(response[0].text)
-        search_failures = progressive_search_failures(search_results)
-        if search_failures:
-            for failure in search_failures:
-                _p("FAIL", failure)
-            return 1
-
-        read_records: dict[str, dict] = {}
-        for tool_name in DG009_GH_TOOL_NAMES:
-            response = asyncio.run(call_tool("rook_tools_read", {"name": tool_name}))
-            read_records[tool_name] = json.loads(response[0].text)
-        read_failures = progressive_read_failures(read_records)
-        if read_failures:
-            for failure in read_failures:
-                _p("FAIL", failure)
-            return 1
-
-        _p("PASS", "progressive disclosure smoke passed under lean")
-        return 0
+            stage = "list_tools"
+            tools = asyncio.run(list_tools())
+            stage = "catalog"
+            catalog = build_catalog_from_mcp_tools(tools)
+            if not isinstance(catalog, dict):
+                raise TypeError(
+                    f"catalog must be a dict, got {type(catalog).__name__}"
+                )
+            stage = "collector"
+            checks, findings = asyncio.run(
+                collect_progressive_evidence(catalog, call_tool)
+            )
+        except Exception as exc:
+            checks, findings = progressive_post_origin_failure(
+                stage,
+                exc,
+                catalog=catalog if stage == "collector" else None,
+            )
+        return emit_progressive_evidence(checks, findings)
     finally:
         if previous_profile is None:
             os.environ.pop("ROOK_MCP_TOOL_PROFILE", None)
