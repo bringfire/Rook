@@ -361,6 +361,24 @@ function Test-DeployScriptLiveSmokeIsExplicit {
     Assert-Contains -Text $content -Expected 'compilation_errors' -Message 'Live smoke must fail if chirp_create returns component compilation errors.'
     Assert-Contains -Text $content -Expected 'created Chirp component has Grasshopper errors' -Message 'Live smoke must check gh_errors for the created component.'
     Assert-Contains -Text $content -Expected 'gh_undo cleanup failed' -Message 'Live smoke must fail if cleanup undo fails.'
+    Assert-Contains -Text $content -Expected "'ROOK_MCP_TOOL_PROFILE'" -Message 'Live smoke must save and restore the MCP profile.'
+    Assert-Contains -Text $content -Expected "[Environment]::SetEnvironmentVariable('ROOK_MCP_TOOL_PROFILE', 'lean', 'Process')" -Message 'Live smoke must force lean.'
+    foreach ($gateway in @('rook_tools_ls', 'rook_tools_search', 'rook_tools_read', 'rook_tools_call')) {
+        Assert-Contains -Text $content -Expected $gateway -Message "Live smoke must require gateway $gateway."
+    }
+    $directStatus = $content.IndexOf('status = await _call_tool_dispatch("gh_status", {})')
+    $progressiveSearch = $content.IndexOf('await public_call("rook_tools_search"')
+    $chirpCreate = $content.IndexOf('chirp = await _call_tool_dispatch("chirp_create"')
+    Assert-True -Condition ($directStatus -ge 0 -and $directStatus -lt $progressiveSearch -and $progressiveSearch -lt $chirpCreate) -Message 'Direct controls must precede the progressive chain, which must precede Chirp mutation.'
+    $undoFailure = $content.IndexOf('raise SystemExit(f"gh_undo cleanup failed: {undo}")')
+    $evidenceStart = $content.IndexOf('live_evidence = {')
+    $finalPrint = $content.IndexOf('print(json.dumps(live_evidence, default=str, sort_keys=True))')
+    Assert-True -Condition ($undoFailure -ge 0 -and $undoFailure -lt $evidenceStart -and $evidenceStart -lt $finalPrint) -Message 'Final evidence must be built and printed only after successful undo validation.'
+    $evidenceBlock = $content.Substring($evidenceStart, $finalPrint - $evidenceStart)
+    foreach ($field in @('"rhino_ping"', '"gh_status"', '"progressive_discovery"', '"chirp_create"', '"gh_errors"', '"gh_undo"')) {
+        Assert-Contains -Text $evidenceBlock -Expected $field -Message "Final live evidence must include $field."
+    }
+    Assert-NotContains -Text $content -Unexpected 'print(json.dumps({"rhino_ping": ping, "gh_status": status, "chirp_create": chirp}, default=str))' -Message 'The pre-validation partial evidence print must be removed.'
     Assert-Contains -Text $content -Expected 'Live Rhino/Grasshopper/Chirp smoke not run' -Message 'Default deploy must not claim live functionality when live smoke is skipped.'
 }
 

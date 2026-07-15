@@ -1112,7 +1112,16 @@ function Test-LiveSmoke {
     $smoke = @"
 import asyncio
 import json
-from rook.server import _call_tool_dispatch
+from rook.server import _call_tool_dispatch, call_tool, list_tools
+
+async def public_call(name, arguments):
+    response = await call_tool(name, arguments)
+    if not response:
+        raise SystemExit(f"{name} returned no content")
+    text = str(response[0].text)
+    if text.startswith("Error:"):
+        raise SystemExit(f"{name} failed: {text}")
+    return json.loads(text)
 
 async def main():
     ping = await _call_tool_dispatch("rhino_ping", {})
@@ -1122,6 +1131,25 @@ async def main():
     status = await _call_tool_dispatch("gh_status", {})
     if not status.get("success"):
         raise SystemExit(f"gh_status failed: {status}")
+
+    tools = await list_tools()
+    names = {tool.name for tool in tools}
+    gateways = {"rook_tools_ls", "rook_tools_search", "rook_tools_read", "rook_tools_call"}
+    if not gateways <= names or "gh_status" in names:
+        raise SystemExit(f"lean progressive catalog failed: names={sorted(names)}")
+    search = await public_call("rook_tools_search", {"query": "gh_status", "limit": 10})
+    if not any(item.get("name") == "gh_status" for item in search):
+        raise SystemExit(f"gh_status exact-name search failed: {search}")
+    read = await public_call("rook_tools_read", {"name": "gh_status"})
+    if not (read.get("name") == "gh_status" and read.get("mcp_dispatchable") is True
+            and isinstance(read.get("input_schema"), dict)
+            and read["input_schema"].get("type") == "object"):
+        raise SystemExit(f"gh_status read contract failed: {read}")
+    called = await public_call("rook_tools_call", {"name": "gh_status", "arguments": {}})
+    progressive_discovery = {
+        "profile": "lean", "gateways": sorted(gateways), "target": "gh_status",
+        "target_hidden": True, "search": search, "read": read, "call": called,
+    }
 
     chirp = await _call_tool_dispatch("chirp_create", {
         "category": "classifier",
@@ -1134,7 +1162,6 @@ async def main():
         "x": 40,
         "y": 40,
     })
-    print(json.dumps({"rhino_ping": ping, "gh_status": status, "chirp_create": chirp}, default=str))
     if not chirp.get("success"):
         raise SystemExit(f"chirp_create failed: {chirp}")
     chirp_data = chirp.get("data") or {}
@@ -1153,6 +1180,16 @@ async def main():
     if not undo.get("success"):
         raise SystemExit(f"gh_undo cleanup failed: {undo}")
 
+    live_evidence = {
+        "rhino_ping": ping,
+        "gh_status": status,
+        "progressive_discovery": progressive_discovery,
+        "chirp_create": chirp,
+        "gh_errors": errors,
+        "gh_undo": undo,
+    }
+    print(json.dumps(live_evidence, default=str, sort_keys=True))
+
 asyncio.run(main())
 "@
 
@@ -1163,6 +1200,7 @@ asyncio.run(main())
         'ROOK_DATA_DIR',
         'CHIRP_HOME',
         'ROOK_PROJECT_ROOT',
+        'ROOK_MCP_TOOL_PROFILE',
         'PYTHONPATH'
     )
     $previousEnvironment = @{}
@@ -1181,6 +1219,8 @@ asyncio.run(main())
                 [Environment]::SetEnvironmentVariable($name, $null, 'Process')
             }
         }
+
+        [Environment]::SetEnvironmentVariable('ROOK_MCP_TOOL_PROFILE', 'lean', 'Process')
 
         Push-Location $Contract.WorkingDirectory
         $locationPushed = $true
