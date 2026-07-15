@@ -1037,6 +1037,61 @@ def _failure_context(failure: ProofFailure) -> dict[str, Any]:
     }
 
 
+def _cancellation_failure(
+    stage: str, cancellation: asyncio.CancelledError
+) -> ProofFailure:
+    return ProofFailure(
+        "operation_cancelled",
+        f"{stage} was cancelled",
+        {
+            "stage": stage,
+            "exception_type": type(cancellation).__name__,
+            "message": str(cancellation),
+        },
+    )
+
+
+def _cleanup_failure_details(
+    details: dict[str, Any],
+    *,
+    original_failure: ProofFailure | None,
+    interruptions: list[asyncio.CancelledError],
+    direct_cancellation: tuple[str, asyncio.CancelledError] | None = None,
+) -> dict[str, Any]:
+    result = dict(details)
+    cancellations = [
+        _failure_context(_cancellation_failure("cleanup_wait", interruption))
+        for interruption in interruptions
+    ]
+    if direct_cancellation is not None:
+        stage, cancellation = direct_cancellation
+        cancellations.append(
+            _failure_context(_cancellation_failure(stage, cancellation))
+        )
+
+    if original_failure is not None:
+        result["original_failure"] = _failure_context(original_failure)
+    elif cancellations:
+        result["original_failure"] = cancellations[0]
+    if cancellations:
+        result["cancellation_context"] = cancellations
+    return result
+
+
+async def _await_cleanup_shielded(
+    cleanup_awaitable: Any,
+    interruptions: list[asyncio.CancelledError],
+) -> dict[str, Any]:
+    cleanup_task = asyncio.create_task(cleanup_awaitable)
+    while True:
+        try:
+            return await asyncio.shield(cleanup_task)
+        except asyncio.CancelledError as exc:
+            interruptions.append(exc)
+            if cleanup_task.done():
+                return cleanup_task.result()
+
+
 async def _capture_chirp_cleanup_state(
     args: dict[str, int],
     *,
@@ -1171,6 +1226,7 @@ def _chirp_cleanup_evidence(
     *,
     attempts: list[Any],
     component_guid: str | None,
+    component_observed_after_attempt: bool | None,
     baseline: dict[str, Any],
     final: dict[str, Any] | None,
 ) -> dict[str, Any]:
@@ -1180,9 +1236,12 @@ def _chirp_cleanup_evidence(
         "attempts": attempts,
         "attempt_count": len(attempts),
         "component_guid": component_guid,
+        "component_observed_after_attempt": component_observed_after_attempt,
         "component_removed": (
             final is not None
-            and (normalized_guid is None or normalized_guid not in set(final_guids))
+            and normalized_guid is not None
+            and component_observed_after_attempt is True
+            and normalized_guid not in set(final_guids)
         ),
         "baseline_object_count": baseline["object_count"],
         "final_object_count": final.get("object_count") if final else None,
@@ -1200,12 +1259,14 @@ def _cleanup_failure(
     component_guid: str | None,
     baseline: dict[str, Any],
     final: dict[str, Any] | None,
+    component_observed_after_attempt: bool | None = None,
     extra: dict[str, Any] | None = None,
 ) -> ProofFailure:
     details: dict[str, Any] = {
         "gh_undo": _chirp_cleanup_evidence(
             attempts=attempts,
             component_guid=component_guid,
+            component_observed_after_attempt=component_observed_after_attempt,
             baseline=baseline,
             final=final,
         )
@@ -1222,8 +1283,9 @@ async def _restore_chirp_cleanup_state(
     component_guid: str | None,
     dispatch_fn: Any,
     call_rhino_fn: Any,
+    attempt_log: list[Any] | None = None,
 ) -> dict[str, Any]:
-    attempts: list[Any] = []
+    attempts = attempt_log if attempt_log is not None else []
     try:
         current = await _capture_chirp_cleanup_state(
             args,
@@ -1249,106 +1311,85 @@ async def _restore_chirp_cleanup_state(
         and normalized_guid in set(current["instance_guids"])
     )
 
+    def fail(
+        message: str,
+        *,
+        extra: dict[str, Any] | None = None,
+    ) -> ProofFailure:
+        return _cleanup_failure(
+            message,
+            attempts=attempts,
+            component_guid=component_guid,
+            component_observed_after_attempt=component_observed_after_attempt,
+            baseline=baseline,
+            final=current,
+            extra=extra,
+        )
+
     while True:
         current_guids = set(current["instance_guids"])
         if current_guids == baseline_guids:
             if current["object_count"] != baseline["object_count"]:
-                raise _cleanup_failure(
-                    "cleanup instance inventory matched baseline but object count did not",
-                    attempts=attempts,
-                    component_guid=component_guid,
-                    baseline=baseline,
-                    final=current,
+                raise fail(
+                    "cleanup instance inventory matched baseline but object count did not"
                 )
             evidence = _chirp_cleanup_evidence(
                 attempts=attempts,
                 component_guid=component_guid,
+                component_observed_after_attempt=component_observed_after_attempt,
                 baseline=baseline,
                 final=current,
-            )
-            evidence["component_observed_after_attempt"] = (
-                component_observed_after_attempt
             )
             return evidence
 
         missing_baseline = sorted(baseline_guids - current_guids)
         if missing_baseline:
-            raise _cleanup_failure(
+            raise fail(
                 "cleanup state lost baseline instance GUIDs",
-                attempts=attempts,
-                component_guid=component_guid,
-                baseline=baseline,
-                final=current,
                 extra={"missing_baseline_instance_guids": missing_baseline},
             )
 
         new_guids = sorted(current_guids - baseline_guids)
-        if target_was_in_baseline:
-            raise _cleanup_failure(
-                "created instance GUID was already present in baseline; cleanup cannot "
-                "safely identify post-attempt additions",
-                attempts=attempts,
-                component_guid=component_guid,
-                baseline=baseline,
-                final=current,
+        if normalized_guid is None:
+            raise fail(
+                "cleanup cannot safely undo additions while the created target identity is unknown",
                 extra={"remaining_new_instance_guids": new_guids},
             )
-        if normalized_guid is not None and normalized_guid not in current_guids:
-            raise _cleanup_failure(
-                "created instance GUID disappeared while other new instance GUIDs remain",
-                attempts=attempts,
-                component_guid=component_guid,
-                baseline=baseline,
-                final=current,
+        if target_was_in_baseline:
+            raise fail(
+                "created instance GUID was already present in baseline; cleanup cannot "
+                "safely identify post-attempt additions",
+                extra={"remaining_new_instance_guids": new_guids},
+            )
+        if set(new_guids) != {normalized_guid}:
+            raise fail(
+                "cleanup can undo only the created target; unrelated new instance GUIDs "
+                "make cleanup ambiguous",
                 extra={"remaining_new_instance_guids": new_guids},
             )
         if not new_guids or current["object_count"] <= baseline["object_count"]:
-            raise _cleanup_failure(
+            raise fail(
                 "cleanup reached the baseline count while new instance GUIDs remained",
-                attempts=attempts,
-                component_guid=component_guid,
-                baseline=baseline,
-                final=current,
                 extra={"remaining_new_instance_guids": new_guids},
             )
         if len(attempts) >= _CHIRP_CLEANUP_MAX_UNDO_ATTEMPTS:
-            raise _cleanup_failure(
-                "gh_undo cleanup exhausted its safe attempt bound",
-                attempts=attempts,
-                component_guid=component_guid,
-                baseline=baseline,
-                final=current,
-            )
+            raise fail("gh_undo cleanup exhausted its safe attempt bound")
 
         try:
             undo = await dispatch_fn("gh_undo", dict(args))
+        except asyncio.CancelledError as exc:
+            undo = {"exception_type": type(exc).__name__, "message": str(exc)}
+            attempts.append(undo)
+            raise fail("gh_undo cleanup dispatch was cancelled") from exc
         except Exception as exc:
             undo = {"exception_type": type(exc).__name__, "message": str(exc)}
             attempts.append(undo)
-            raise _cleanup_failure(
-                "gh_undo cleanup dispatch raised an exception",
-                attempts=attempts,
-                component_guid=component_guid,
-                baseline=baseline,
-                final=current,
-            ) from exc
+            raise fail("gh_undo cleanup dispatch raised an exception") from exc
         attempts.append(undo)
         if not isinstance(undo, dict):
-            raise _cleanup_failure(
-                "gh_undo cleanup returned a malformed response",
-                attempts=attempts,
-                component_guid=component_guid,
-                baseline=baseline,
-                final=current,
-            )
+            raise fail("gh_undo cleanup returned a malformed response")
         if undo.get("success") is not True:
-            raise _cleanup_failure(
-                "gh_undo cleanup failed",
-                attempts=attempts,
-                component_guid=component_guid,
-                baseline=baseline,
-                final=current,
-            )
+            raise fail("gh_undo cleanup failed")
 
         try:
             current = await _capture_chirp_cleanup_state(
@@ -1361,6 +1402,7 @@ async def _restore_chirp_cleanup_state(
                 f"cleanup state probe failed after gh_undo: {exc}",
                 attempts=attempts,
                 component_guid=component_guid,
+                component_observed_after_attempt=component_observed_after_attempt,
                 baseline=baseline,
                 final=None,
                 extra={"probe_failure": _failure_context(exc)},
@@ -1491,6 +1533,7 @@ async def _run_chirp_smoke_mutation(
     errors: Any = None
     component_guid: str | None = None
     original_failure: ProofFailure | None = None
+    pending_cancellation: asyncio.CancelledError | None = None
 
     try:
         chirp = await dispatch_fn(
@@ -1508,6 +1551,9 @@ async def _run_chirp_smoke_mutation(
                 "y": 40,
             },
         )
+    except asyncio.CancelledError as exc:
+        pending_cancellation = exc
+        original_failure = _cancellation_failure("chirp_create", exc)
     except Exception as exc:
         original_failure = ProofFailure(
             "chirp_create_failed",
@@ -1530,6 +1576,9 @@ async def _run_chirp_smoke_mutation(
     if original_failure is None and component_guid is not None:
         try:
             errors = await dispatch_fn("gh_errors", dict(args))
+        except asyncio.CancelledError as exc:
+            pending_cancellation = exc
+            original_failure = _cancellation_failure("gh_errors", exc)
         except Exception as exc:
             original_failure = ProofFailure(
                 "gh_component_error",
@@ -1539,24 +1588,33 @@ async def _run_chirp_smoke_mutation(
         else:
             original_failure = _gh_errors_validation_failure(errors, component_guid)
 
+    cleanup_attempts: list[Any] = []
+    cleanup_interruptions: list[asyncio.CancelledError] = []
     try:
-        cleanup = await _restore_chirp_cleanup_state(
-            args,
-            baseline=baseline,
-            component_guid=component_guid,
-            dispatch_fn=dispatch_fn,
-            call_rhino_fn=call_rhino_fn,
+        cleanup = await _await_cleanup_shielded(
+            _restore_chirp_cleanup_state(
+                args,
+                baseline=baseline,
+                component_guid=component_guid,
+                dispatch_fn=dispatch_fn,
+                call_rhino_fn=call_rhino_fn,
+                attempt_log=cleanup_attempts,
+            ),
+            cleanup_interruptions,
         )
     except ProofFailure as cleanup_failure:
-        if original_failure is None:
+        if original_failure is None and not cleanup_interruptions:
             raise
-        details = dict(cleanup_failure.details)
-        details["original_failure"] = _failure_context(original_failure)
+        details = _cleanup_failure_details(
+            cleanup_failure.details,
+            original_failure=original_failure,
+            interruptions=cleanup_interruptions,
+        )
         raise ProofFailure("cleanup_failed", str(cleanup_failure), details) from cleanup_failure
-    except Exception as exc:
+    except asyncio.CancelledError as exc:
         cleanup_failure = _cleanup_failure(
-            "chirp cleanup raised an unexpected exception",
-            attempts=[],
+            "chirp cleanup task was cancelled",
+            attempts=cleanup_attempts,
             component_guid=component_guid,
             baseline=baseline,
             final=None,
@@ -1567,10 +1625,38 @@ async def _run_chirp_smoke_mutation(
                 }
             },
         )
-        details = dict(cleanup_failure.details)
-        if original_failure is not None:
-            details["original_failure"] = _failure_context(original_failure)
+        details = _cleanup_failure_details(
+            cleanup_failure.details,
+            original_failure=original_failure,
+            interruptions=cleanup_interruptions,
+            direct_cancellation=("cleanup", exc),
+        )
         raise ProofFailure("cleanup_failed", str(cleanup_failure), details) from exc
+    except Exception as exc:
+        cleanup_failure = _cleanup_failure(
+            "chirp cleanup raised an unexpected exception",
+            attempts=cleanup_attempts,
+            component_guid=component_guid,
+            baseline=baseline,
+            final=None,
+            extra={
+                "restore_exception": {
+                    "exception_type": type(exc).__name__,
+                    "message": str(exc),
+                }
+            },
+        )
+        details = _cleanup_failure_details(
+            cleanup_failure.details,
+            original_failure=original_failure,
+            interruptions=cleanup_interruptions,
+        )
+        raise ProofFailure("cleanup_failed", str(cleanup_failure), details) from exc
+
+    if pending_cancellation is not None:
+        raise pending_cancellation
+    if cleanup_interruptions:
+        raise cleanup_interruptions[0]
 
     if (
         original_failure is None
