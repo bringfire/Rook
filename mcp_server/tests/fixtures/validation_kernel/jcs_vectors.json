@@ -1,0 +1,9 @@
+[
+  {"name":"negative_zero","input":"-0","canonical":"0"},
+  {"name":"fraction","input":"4.50","canonical":"4.5"},
+  {"name":"small_decimal","input":"2e-3","canonical":"0.002"},
+  {"name":"small_exponent","input":"1e-27","canonical":"1e-27"},
+  {"name":"large_exponent","input":"1E30","canonical":"1e+30"},
+  {"name":"rounded_binary64","input":"333333333.33333329","canonical":"333333333.3333333"},
+  {"name":"schema_integer_above_product_safe_range","input":"9007199254740992","canonical":"9007199254740992"}
+]
