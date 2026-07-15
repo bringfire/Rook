@@ -17,6 +17,7 @@ $DeployScript = Join-Path $RepoRoot 'scripts\deploy-local-testing.ps1'
 $DeployGuards = Join-Path $RepoRoot 'scripts\tests\deploy-local-testing-guards.tests.ps1'
 $ReleaseGuards = Join-Path $RepoRoot 'scripts\tests\release-installer-guards.tests.ps1'
 $StackGuards = Join-Path $RepoRoot 'scripts\tests\local-testing-stack-guards.tests.ps1'
+$ProgressiveSmoke = Join-Path (Join-Path $RepoRoot 'scripts') 'lm_surface_smoke.py'
 $RuntimeRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Rook'
 $InstallRoot = Join-Path $RuntimeRoot 'app'
 $DataRoot = Join-Path $RuntimeRoot 'data'
@@ -132,23 +133,35 @@ function Invoke-GateCommand {
         [Parameter(Mandatory = $true)][string]$Gate,
         [Parameter(Mandatory = $true)][string]$FailureLabel,
         [Parameter(Mandatory = $true)][string]$ArtifactDir,
-        [Parameter(Mandatory = $true)][object[]]$Commands
+        [Parameter(Mandatory = $true)][object[]]$Commands,
+        [hashtable]$ScopedEnvironment = @{}
     )
 
     $stdout = Join-Path $ArtifactDir "$Gate.stdout.log"
     $stderr = Join-Path $ArtifactDir "$Gate.stderr.log"
     $started = Get-Date
+    $previousEnvironment = @{}
+    foreach ($name in $ScopedEnvironment.Keys) {
+        $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+    }
     try {
+        foreach ($name in $ScopedEnvironment.Keys) {
+            [Environment]::SetEnvironmentVariable($name, [string]$ScopedEnvironment[$name], 'Process')
+        }
         foreach ($command in $Commands) {
             Invoke-ExternalChecked -Command (ConvertTo-CommandParts -Command $command) -StdoutPath $stdout -StderrPath $stderr
         }
         $success = $true
         $label = $null
-        $details = @{}
+        $details = @{ scoped_env = $ScopedEnvironment.Clone() }
     } catch {
         $success = $false
         $label = $FailureLabel
-        $details = @{ error = $_.Exception.Message }
+        $details = @{ error = $_.Exception.Message; scoped_env = $ScopedEnvironment.Clone() }
+    } finally {
+        foreach ($name in $previousEnvironment.Keys) {
+            [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], 'Process')
+        }
     }
     $ended = Get-Date
     $commandText = @($Commands | ForEach-Object { (ConvertTo-CommandParts -Command $_) -join ' ' })
@@ -157,6 +170,17 @@ function Invoke-GateCommand {
     if (-not $success) {
         throw "$FailureLabel`: $($details.error)"
     }
+}
+
+function Invoke-ProgressiveDiscoveryGate {
+    param([Parameter(Mandatory = $true)][string]$ArtifactDir)
+
+    Invoke-GateCommand `
+        -Gate 'progressive_discovery' `
+        -FailureLabel 'progressive_discovery_failed' `
+        -ArtifactDir $ArtifactDir `
+        -ScopedEnvironment @{ PYTHONPATH = '' } `
+        -Commands @(,@($VenvPython, $ProgressiveSmoke, 'progressive'))
 }
 
 function Assert-NoRhinoRunningForReleaseReadiness {
@@ -307,6 +331,8 @@ function Invoke-ReleaseReadiness {
             $args += '--keep-rhino-on-failure'
         }
         Invoke-ProofModuleGate -ArtifactDir $artifactDir -Gate 'owned_release_readiness' -FailureLabel 'owned_release_readiness_failed' -Arguments $args -OutPath $ownedJson
+
+        Invoke-ProgressiveDiscoveryGate -ArtifactDir $artifactDir
 
         Write-TopLevelManifest -ArtifactDir $artifactDir -Success $true -FailureLabel $null
         Write-Host 'release-readiness proven'

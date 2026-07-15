@@ -46,6 +46,15 @@ function Test-ValidateLocalTestingStackScriptContract {
     Assert-Contains -Text $content -Expected 'manifest.json' -Message 'Release-readiness must aggregate gate results into manifest.json.'
     Assert-Contains -Text $content -Expected '$VenvPython = Join-Path $RuntimeRoot ''venv\Scripts\python.exe''' -Message 'Installed AppData venv must be the Python authority.'
     Assert-Contains -Text $content -Expected 'artifacts\local-testing' -Message 'Release-readiness must write deterministic artifacts.'
+    Assert-Contains -Text $content -Expected "Gate 'progressive_discovery'" -Message 'Release readiness must record the progressive gate.'
+    Assert-Contains -Text $content -Expected "FailureLabel 'progressive_discovery_failed'" -Message 'Progressive failure label must be stable.'
+    Assert-Contains -Text $content -Expected "'lm_surface_smoke.py'" -Message 'Release readiness must invoke the standalone smoke script.'
+    Assert-Contains -Text $content -Expected "'progressive'" -Message 'Release readiness must select progressive mode.'
+    Assert-Contains -Text $content -Expected "-ScopedEnvironment @{ PYTHONPATH = '' }" -Message 'The deployed gate must explicitly clear PYTHONPATH.'
+    $owned = $content.IndexOf("Invoke-ProofModuleGate -ArtifactDir `$artifactDir -Gate 'owned_release_readiness'")
+    $progressive = $content.IndexOf('Invoke-ProgressiveDiscoveryGate -ArtifactDir $artifactDir')
+    $successManifest = $content.IndexOf('Write-TopLevelManifest -ArtifactDir $artifactDir -Success $true')
+    Assert-True -Condition ($owned -ge 0 -and $owned -lt $progressive -and $progressive -lt $successManifest) -Message 'Progressive discovery must be the final release gate.'
 }
 
 function Test-ProofModuleDoesNotInjectRepoSource {
