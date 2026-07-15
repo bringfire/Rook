@@ -11,7 +11,7 @@ from dataclasses import asdict, replace
 import pytest
 
 import rook.validation_kernel as validation_kernel
-from rook.validation_kernel import budget as budget_module
+import rook.validation_kernel.budget as budget_module
 from rook.validation_kernel.budget import (
     LM9A_BUDGET_MANIFEST,
     LM9A_BUDGET_PROFILE_ID,

@@ -890,6 +890,8 @@ def _validate_program_constants(
             _fail(f"invalid program constant cardinality: {name}")
         if type(candidate.value) not in _OWNED_VALUE_TYPES:
             _fail(f"program constant must be exact owned JSON: {name}")
+        if candidate.cardinality == "many" and type(candidate.value) is not JsonArray:
+            _fail(f"many program constant must be exact JsonArray: {name}")
         value_fingerprint = _reference_canonical_fingerprint(candidate.value)
         by_name[name] = candidate
         manifests[name] = _fingerprinted_object(
@@ -1921,7 +1923,9 @@ def _absolute_imports(
                 imports.add(base)
             for alias in node.names:
                 if alias.name == "*":
-                    continue
+                    _fail(
+                        f"star imports are forbidden in sealed source: {module_name}"
+                    )
                 candidate = f"{base}.{alias.name}" if base else alias.name
                 if _module_origin(candidate) is not None:
                     imports.add(candidate)

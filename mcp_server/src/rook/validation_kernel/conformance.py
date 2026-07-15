@@ -1190,12 +1190,16 @@ def _execute_campaign_cases(
     ],
 ) -> list[dict[str, object]]:
     store, profiles = captured_context
-    schema_ledger = BudgetLedger(LM9A_BUDGET_MANIFEST)
     rows: list[dict[str, object]] = []
     cases = cast(list[dict[str, object]], campaign["required_cases"])
     for result_index, case in enumerate(cases):
         if case["case_kind"] == "core_schema_positive":
-            row = _execute_core_case(case, program, store, schema_ledger)
+            row = _execute_core_case(
+                case,
+                program,
+                store,
+                BudgetLedger(LM9A_BUDGET_MANIFEST),
+            )
         else:
             row = _execute_fixture_case(case, program, store, profiles)
         row["result_index"] = result_index
@@ -1320,7 +1324,7 @@ def _canonicalize_aggregate_report(
         raw = canonical_json_bytes(value, max_bytes=_REPORT_CANONICAL_BYTE_LIMIT)
         meter.charge_canonical_bytes(len(raw))
         return raw
-    except (CanonicalJsonError, _SealMeterExceeded) as error:
+    except CanonicalJsonError as error:
         raise _GateReportSealFailure("aggregate canonical serialization failed") from error
 
 
@@ -1465,7 +1469,17 @@ def _execute_conformance_gate(
             campaign_integrity=campaign_integrity,
             result_rows=result_rows,
         )
-    except (_GateReportSealFailure, _SealMeterExceeded):
+    except _SealMeterExceeded:
+        return _failure(
+            stage="report_seal",
+            code="gate_budget_exceeded",
+            gate_profile_fingerprint=profile_fingerprint,
+            program_fingerprint=program_fingerprint,
+            campaign_input_size=input_size,
+            campaign_input_sha256=campaign_hash,
+            detail="aggregate_report_budget",
+        )
+    except _GateReportSealFailure:
         return _failure(
             stage="report_seal",
             code="gate_report_seal_failed",

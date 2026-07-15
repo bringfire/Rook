@@ -2070,7 +2070,7 @@ def test_issue_and_receipt_constructors_enforce_evidence_byte_limits() -> None:
         )
 
 
-def test_schema_profile_api_is_exported_from_the_stable_kernel_surface() -> None:
+def test_schema_profile_api_is_available_only_from_its_internal_module() -> None:
     expected = {
         "AdmittedSchema",
         "CORE_PROFILE",
@@ -2086,6 +2086,8 @@ def test_schema_profile_api_is_exported_from_the_stable_kernel_surface() -> None
         "evaluate_schema",
     }
 
-    assert expected.issubset(set(validation_kernel.__all__))
+    assert expected.issubset(set(schema_profile_module.__all__))
+    assert expected.isdisjoint(set(validation_kernel.__all__))
     for name in expected:
-        assert getattr(validation_kernel, name) is getattr(schema_profile_module, name)
+        assert not hasattr(validation_kernel, name)
+        assert getattr(schema_profile_module, name) is not None

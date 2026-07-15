@@ -10,11 +10,14 @@ from types import MappingProxyType, SimpleNamespace
 
 import pytest
 
-import rook.validation_kernel as validation_kernel
-from rook.validation_kernel import (
-    ValidationControlFailure,
-    compose_and_seal_program,
+from rook.validation_kernel import ValidationControlFailure
+from rook.validation_kernel.invocation import (
+    SealedTrustedBundleAssemblerProfile,
+    TrustedValidationBundleInput,
+    issue_trusted_validation_bundle,
+    seal_trusted_bundle_assembler_profile,
 )
+from rook.validation_kernel.program import compose_and_seal_program
 from rook.validation_kernel.budget import BudgetLedger
 from rook.validation_kernel.canonical_json import (
     canonical_fingerprint,
@@ -42,13 +45,13 @@ def _invocation_program():
 
 
 def _sealed_profile(*, assembler_kind: str = "deterministic_fixture"):
-    return validation_kernel.seal_trusted_bundle_assembler_profile(
+    return seal_trusted_bundle_assembler_profile(
         make_assembler_profile_candidate(assembler_kind=assembler_kind)
     )
 
 
 def _issue(profile: object, raw_bytes: bytes):
-    return validation_kernel.issue_trusted_validation_bundle(profile, raw_bytes)
+    return issue_trusted_validation_bundle(profile, raw_bytes)
 
 
 def _build(program: object, recipe: object, carrier: object):
@@ -102,12 +105,12 @@ def _bundle_bytes(value: dict[str, object]) -> bytes:
 
 def test_sealed_profiles_and_bundle_carriers_cannot_be_constructed_or_copied() -> None:
     candidate = make_assembler_profile_candidate()
-    profile = validation_kernel.seal_trusted_bundle_assembler_profile(candidate)
+    profile = seal_trusted_bundle_assembler_profile(candidate)
 
     with pytest.raises(TypeError):
-        validation_kernel.SealedTrustedBundleAssemblerProfile()
+        SealedTrustedBundleAssemblerProfile()
     with pytest.raises(TypeError):
-        validation_kernel.TrustedValidationBundleInput()
+        TrustedValidationBundleInput()
     with pytest.raises(TypeError):
         _issue(candidate, b"{}")
     with pytest.raises(TypeError):
@@ -137,7 +140,7 @@ def test_sealed_profiles_and_bundle_carriers_cannot_be_constructed_or_copied() -
 
 def test_profile_documented_copy_and_serialization_paths_are_closed() -> None:
     profile = _sealed_profile()
-    profile_type = validation_kernel.SealedTrustedBundleAssemblerProfile
+    profile_type = SealedTrustedBundleAssemblerProfile
 
     for operation in (
         lambda: copy.copy(profile),
@@ -186,7 +189,7 @@ def test_carrier_documented_copy_and_serialization_paths_are_closed() -> None:
     profile = _sealed_profile()
     raw = make_validation_bundle_bytes()
     carrier = _carrier(profile, raw)
-    carrier_type = validation_kernel.TrustedValidationBundleInput
+    carrier_type = TrustedValidationBundleInput
 
     for operation in (
         lambda: copy.copy(carrier),
@@ -257,7 +260,7 @@ def test_unsealed_and_lookalike_carriers_fail_without_reading_artifacts() -> Non
 
 def test_carrier_profile_must_permit_the_exact_sealed_program() -> None:
     program = _program()
-    profile = validation_kernel.seal_trusted_bundle_assembler_profile(
+    profile = seal_trusted_bundle_assembler_profile(
         make_assembler_profile_candidate(program_id="synthetic.other_program:v1")
     )
     carrier = _issue(profile, make_validation_bundle_bytes())
@@ -375,7 +378,7 @@ def test_profile_seal_rejects_clock_authority_broader_than_assembler_kind(
     )
 
     with pytest.raises(ValueError, match="clock"):
-        validation_kernel.seal_trusted_bundle_assembler_profile(candidate)
+        seal_trusted_bundle_assembler_profile(candidate)
 
 
 @pytest.mark.parametrize(

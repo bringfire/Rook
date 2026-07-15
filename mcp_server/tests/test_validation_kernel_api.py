@@ -15,8 +15,11 @@ from rook.validation_kernel import (
     PublishedValidationReport,
     ValidationControlFailure,
     ValidationResult,
-    compose_and_seal_program,
     validate_artifacts,
+)
+from rook.validation_kernel.invocation import (
+    issue_trusted_validation_bundle,
+    seal_trusted_bundle_assembler_profile,
 )
 from rook.validation_kernel.owned_json import (
     JsonArray,
@@ -26,6 +29,7 @@ from rook.validation_kernel.owned_json import (
     JsonString,
 )
 from rook.validation_kernel.schema_profile import SchemaEvaluationReceipt
+from rook.validation_kernel.program import compose_and_seal_program
 
 from tests._validation_kernel_fakes import (
     make_assembler_profile_candidate,
@@ -45,13 +49,13 @@ def api_program():
 
 @pytest.fixture(scope="module")
 def assembler_profile():
-    return validation_kernel.seal_trusted_bundle_assembler_profile(
+    return seal_trusted_bundle_assembler_profile(
         make_assembler_profile_candidate()
     )
 
 
 def _carrier(profile: object, raw_bytes: bytes | None = None):
-    return validation_kernel.issue_trusted_validation_bundle(
+    return issue_trusted_validation_bundle(
         profile,
         make_validation_bundle_bytes() if raw_bytes is None else raw_bytes,
     )

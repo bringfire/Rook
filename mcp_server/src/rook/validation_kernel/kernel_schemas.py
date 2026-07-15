@@ -605,7 +605,7 @@ _CONFORMANCE_CAMPAIGN_SCHEMA_HOST = {
                     "oneOf": [_CORE_CAMPAIGN_CASE, _FIXTURE_CAMPAIGN_CASE]
                 },
                 "minItems": 1,
-                "maxItems": 16_384,
+                "maxItems": 256,
             },
             "required_case_set_fingerprint": _FINGERPRINT,
             "campaign_fingerprint": _FINGERPRINT,

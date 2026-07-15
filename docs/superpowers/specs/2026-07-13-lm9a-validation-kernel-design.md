@@ -887,6 +887,11 @@ the other variant. A case fingerprint is `rook.canonical_json:v1` over its
 complete normalized case descriptor excluding only `case_fingerprint`.
 `required_case_set_fingerprint` covers the normalized sorted array of exact
 `{case_id, case_fingerprint}` pairs.
+
+The campaign schema sets `required_cases.maxItems` to exactly 256. The sealed
+256-row proof fits the unchanged 4 MiB report-canonicalization allowance and
+131,072-field projection budget; this schema cap does not weaken the separate
+16,384-item parser budget.
 `campaign_fingerprint` covers the complete normalized campaign excluding only
 that field, so it includes the required-case-set and required-gate-profile
 fingerprints.

@@ -6,19 +6,45 @@ import json
 import socket
 import sys
 import time
+from types import MappingProxyType
 
 from rook.validation_kernel import (
     PublishedValidationReport,
     TrustedConformanceGateResult,
     run_conformance_gate,
+    validate_artifacts,
 )
 from rook.validation_kernel.canonical_json import (
     canonical_fingerprint,
     canonical_json_bytes,
 )
 from rook.validation_kernel.owned_json import own_trusted_json
+from rook.validation_kernel.invocation import (
+    issue_trusted_validation_bundle,
+    seal_trusted_bundle_assembler_profile,
+)
+from rook.validation_kernel.program import compose_and_seal_program
 
-from tests._validation_kernel_fakes import make_boundary_campaign_fixture
+from tests._validation_kernel_fakes import (
+    make_assembler_profile_candidate,
+    make_boundary_campaign_fixture,
+    make_phase_engine_contribution,
+    make_validation_bundle_bytes,
+)
+
+
+_BOUNDARY_GOLDEN_EXPECTATIONS = MappingProxyType(
+    {
+        "sha256:56445e9d8db22fd2f19a8b4c373e89b81cad6232e8019a7c823e4da742a72e39": {
+            "result_kind": "published_report",
+            "report_schema_id": "synthetic.report:v1",
+            "report_fingerprint": "sha256:c03fc4b80e6f233600848b4cfabf348ecbc6c04297e1821e137e8bfea0e582bc",
+            "control_failure_stage": None,
+            "control_failure_code": None,
+            "control_failure_artifact_role": None,
+        }
+    }
+)
 
 
 def _prohibited_input(*_: object, **__: object) -> object:
@@ -83,6 +109,25 @@ def _encoded_artifact(raw: bytes, fingerprint: str) -> dict[str, str]:
     }
 
 
+def _public_schema_stress_report() -> tuple[PublishedValidationReport, int]:
+    issue_count = 1_100
+    program = compose_and_seal_program(
+        make_phase_engine_contribution(alpha_scenario="schema_issue_stress")
+    )
+    profile = seal_trusted_bundle_assembler_profile(
+        make_assembler_profile_candidate()
+    )
+    trusted_bundle = issue_trusted_validation_bundle(
+        profile,
+        make_validation_bundle_bytes(),
+    )
+    recipe = b'{"items":[' + b",".join([b"0"] * issue_count) + b"]}"
+    result = validate_artifacts(program, recipe, trusted_bundle)
+    if type(result) is not PublishedValidationReport:
+        raise AssertionError("public schema stress validation did not publish")
+    return result, issue_count
+
+
 def main() -> None:
     socket.socket = _prohibited_input  # type: ignore[assignment]
     socket.create_connection = _prohibited_input  # type: ignore[assignment]
@@ -90,7 +135,9 @@ def main() -> None:
     time.time_ns = _prohibited_input  # type: ignore[assignment]
 
     api_module = importlib.import_module("rook.validation_kernel.api")
-    fixture = make_boundary_campaign_fixture()
+    fixture = make_boundary_campaign_fixture(
+        expected_results=_BOUNDARY_GOLDEN_EXPECTATIONS
+    )
     audited = api_module._validate_artifacts_with_audit(
         fixture.program,
         fixture.recipe_bytes,
@@ -107,6 +154,9 @@ def main() -> None:
         raise AssertionError("fixed replay validation did not publish a report")
     if type(campaign) is not TrustedConformanceGateResult:
         raise AssertionError("fixed replay campaign did not issue a result")
+    stress_report, source_schema_issue_count = _public_schema_stress_report()
+    if source_schema_issue_count <= 1_024:
+        raise AssertionError("schema stress input did not exceed issue bound")
 
     report_host = json.loads(validation.canonical_bytes)
     budget_fingerprint = canonical_fingerprint(
@@ -136,6 +186,10 @@ def main() -> None:
                 validation.canonical_bytes,
                 validation.report_fingerprint,
             ),
+            "public_schema_stress_report": _encoded_artifact(
+                stress_report.canonical_bytes,
+                stress_report.report_fingerprint,
+            ),
             "conformance_campaign_manifest": _encoded_artifact(
                 fixture.campaign_bytes,
                 fixture.campaign_fingerprint,
@@ -145,6 +199,8 @@ def main() -> None:
                 campaign.report_fingerprint,
             ),
             "validation_terminal_variant": type(validation).__name__,
+            "public_schema_stress_terminal_variant": type(stress_report).__name__,
+            "source_schema_issue_count": source_schema_issue_count,
             "conformance_terminal_variant": type(campaign).__name__,
             "budget_fingerprint": budget_fingerprint,
             "audit_fingerprint": canonical_fingerprint(audit_value),

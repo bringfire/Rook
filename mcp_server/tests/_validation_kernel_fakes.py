@@ -3,30 +3,31 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, make_dataclass, replace
 from types import MappingProxyType
 from typing import Any
 
-from rook.validation_kernel import (
+from rook.validation_kernel.phase_contract import (
     ExportTypeSpec,
     ImmutableCallableRecord,
     ImplementationSource,
     InputBinding,
-    InstanceBinding,
-    KernelIssue,
     InvocationInputSpec,
     IssueSpec,
-    NamedOutput,
     ParserProfileSpec,
     PhaseSpec,
     ProgramConstantSpec,
     ProvidedOutput,
     ReportProjectionSpec,
-    RunnerResult,
     RuntimeBinding,
     RuntimeComponentSpec,
     SchemaEvaluatorSpec,
     ValidationProgramContribution,
+)
+from rook.validation_kernel.phase_engine import KernelIssue, NamedOutput, RunnerResult
+from rook.validation_kernel.program import (
+    _fixed_parser_profile_spec,
     implementation_source_closure_for_modules,
     implementation_source_for_module,
     runtime_dependency_closure_for_modules,
@@ -40,6 +41,7 @@ from rook.validation_kernel.canonical_json import (
     canonical_fingerprint,
     canonical_fingerprint_metered,
     canonical_json_bytes,
+    sha256_prefixed,
 )
 from rook.validation_kernel.owned_json import (
     JsonArray,
@@ -51,12 +53,12 @@ from rook.validation_kernel.owned_json import (
 )
 from rook.validation_kernel.schema_profile import (
     CORE_PROFILE,
+    InstanceBinding,
     PAYLOAD_PROFILE,
     admit_schema,
     evaluate_schema,
 )
 from rook.validation_kernel.parser import parse_owned_json
-from rook.validation_kernel.program import _fixed_parser_profile_spec
 
 
 def fake_tokenizer(*args: object, **kwargs: object) -> tuple[object, ...]:
@@ -425,6 +427,19 @@ def phase_engine_runner_dispatch(
         )
 
     if scenario == "passed":
+        return RunnerResult(diagnostics=(), compile_blockers=(), outputs=(output,))
+    if scenario == "schema_issue_stress":
+        view = helpers.evaluate_schema(  # type: ignore[attr-defined]
+            "synthetic.issue_stress:v1",
+            recipe,
+            instance_binding=InstanceBinding(
+                artifact_id="synthetic.recipe",
+                artifact_fingerprint=canonical_fingerprint(recipe),
+                instance_pointer="",
+            ),
+        )
+        if hasattr(view, "reservation"):
+            raise AssertionError("runner received an accounting receipt")
         return RunnerResult(diagnostics=(), compile_blockers=(), outputs=(output,))
     if scenario == "wide_index":
         return RunnerResult(
@@ -1552,6 +1567,41 @@ def make_phase_engine_contribution(
         report_schema_probe=report_schema_probe,
         artifact_identity=artifact_identity,
     )
+    if alpha_scenario == "schema_issue_stress":
+        stress_schema_value = own_trusted_json(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    }
+                },
+                "required": ["items"],
+                "additionalProperties": False,
+            }
+        )
+        if type(stress_schema_value) is not JsonObject:
+            raise AssertionError("stress schema must be an object")
+        stress_schema = admit_schema(
+            "synthetic.issue_stress:v1",
+            stress_schema_value,
+            PAYLOAD_PROFILE,
+        )
+        contribution = replace(
+            contribution,
+            schemas=(*contribution.schemas, stress_schema),
+            runtime_bindings=(
+                *contribution.runtime_bindings,
+                RuntimeBinding(
+                    binding_kind="schema",
+                    binding_id=stress_schema.schema_id,
+                    implementation_fingerprint=stress_schema.schema_fingerprint,
+                    target=stress_schema,
+                ),
+            ),
+        )
 
     def runner_record(phase_name: str, scenario: str) -> ImmutableCallableRecord:
         state = own_trusted_json(
@@ -1840,6 +1890,7 @@ class BoundaryCampaignFixture:
     trusted_bundle: object
     campaign_bytes: bytes
     campaign_fingerprint: str
+    validation_golden_key: str
     fixture_context: object
 
 
@@ -1868,8 +1919,33 @@ def _boundary_case_set_fingerprint(
     return canonical_fingerprint(own_trusted_json(pairs))
 
 
+def validation_golden_key(
+    program: object,
+    recipe_bytes: bytes,
+    bundle_bytes: bytes,
+    assembler_profile: object,
+) -> str:
+    """Address one expected validation envelope by all invocation identities."""
+
+    return canonical_fingerprint(
+        own_trusted_json(
+            {
+                "program_fingerprint": program.program_fingerprint,
+                "recipe_input_payload_sha256": sha256_prefixed(recipe_bytes),
+                "validation_bundle_input_payload_sha256": sha256_prefixed(
+                    bundle_bytes
+                ),
+                "assembler_profile_fingerprint": (
+                    assembler_profile.profile_fingerprint
+                ),
+            }
+        )
+    )
+
+
 def make_boundary_campaign_fixture(
     *,
+    expected_results: Mapping[str, Mapping[str, object]],
     recipe_bytes: bytes = b'{"case_id":"boundary.success","value":"ok"}',
     bundle_bytes: bytes | None = None,
     alpha_scenario: str = "boundary_matrix",
@@ -1881,15 +1957,12 @@ def make_boundary_campaign_fixture(
     """Build the exact sealed validation/conformance boundary fixture."""
 
     import rook.validation_kernel.conformance as conformance_module
-    from rook.validation_kernel import (
-        PublishedValidationReport,
-        compose_and_seal_program,
+    from rook.validation_kernel.conformance import seal_conformance_gate_profile
+    from rook.validation_kernel.invocation import (
         issue_trusted_validation_bundle,
-        seal_conformance_gate_profile,
         seal_trusted_bundle_assembler_profile,
-        validate_artifacts,
     )
-    from rook.validation_kernel.canonical_json import sha256_prefixed
+    from rook.validation_kernel.program import compose_and_seal_program
 
     if bundle_bytes is None:
         bundle_bytes = make_validation_bundle_bytes()
@@ -1915,27 +1988,23 @@ def make_boundary_campaign_fixture(
         assembler_profile,
         bundle_bytes,
     )
-    expected = validate_artifacts(program, recipe_bytes, trusted_bundle)
-    if isinstance(expected, PublishedValidationReport):
-        expected_result = {
-            "result_kind": "published_report",
-            "report_schema_id": expected.schema_id,
-            "report_fingerprint": expected.report_fingerprint,
-            "control_failure_stage": None,
-            "control_failure_code": None,
-            "control_failure_artifact_role": None,
-        }
-        fixture_id = "fixture.boundary_report"
-    else:
-        expected_result = {
-            "result_kind": "control_failure",
-            "report_schema_id": None,
-            "report_fingerprint": None,
-            "control_failure_stage": expected.failure_stage,
-            "control_failure_code": expected.code,
-            "control_failure_artifact_role": expected.artifact_role,
-        }
-        fixture_id = "fixture.boundary_control_failure"
+    golden_key = validation_golden_key(
+        program,
+        recipe_bytes,
+        bundle_bytes,
+        assembler_profile,
+    )
+    try:
+        expected_result = dict(expected_results[golden_key])
+    except KeyError:
+        raise AssertionError(
+            f"no static validation golden for exact key {golden_key}"
+        ) from None
+    fixture_id = (
+        "fixture.boundary_report"
+        if expected_result["result_kind"] == "published_report"
+        else "fixture.boundary_control_failure"
+    )
 
     core_ref = "artifact:boundary-core-positive"
     fixture_ref = "artifact:boundary-fixture"
@@ -2044,6 +2113,7 @@ def make_boundary_campaign_fixture(
         trusted_bundle=trusted_bundle,
         campaign_bytes=campaign_bytes,
         campaign_fingerprint=str(campaign["campaign_fingerprint"]),
+        validation_golden_key=golden_key,
         fixture_context=fixture_context,
     )
 
@@ -2179,4 +2249,5 @@ __all__ = (
     "SyntheticMutablePhaseIndex",
     "SyntheticPhaseIndex",
     "SyntheticWidePhaseIndex",
+    "validation_golden_key",
 )

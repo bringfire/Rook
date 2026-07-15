@@ -4,6 +4,10 @@ import importlib.util
 import json
 import re
 import sys
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10 test support.
+    import tomli as tomllib
 from dataclasses import fields, replace
 from pathlib import Path
 from types import MappingProxyType
@@ -17,22 +21,25 @@ import rook.validation_kernel.canonical_json as canonical_json_module
 import rook.validation_kernel.parser as parser_module
 import rook.validation_kernel.program as program_module
 import rook.validation_kernel.schema_profile as schema_profile_module
-from rook.validation_kernel import (
-    CORE_PROFILE,
+from rook.validation_kernel.kernel_schemas import (
+    PROGRAM_MANIFEST_SCHEMA,
+    PROGRAM_MANIFEST_SCHEMA_FINGERPRINT,
+    TRUSTED_BUNDLE_ASSEMBLER_PROFILE_SCHEMA,
+)
+from rook.validation_kernel.phase_contract import (
     ExportTypeSpec,
     ImmutableCallableRecord,
     ImplementationSource,
     InputBinding,
     IssueSpec,
-    PROGRAM_MANIFEST_SCHEMA,
-    PROGRAM_MANIFEST_SCHEMA_FINGERPRINT,
     ProgramCompositionError,
     RuntimeBinding,
     RuntimeComponentSpec,
     RuntimeDependencySpec,
     SchemaEvaluatorSpec,
-    TRUSTED_BUNDLE_ASSEMBLER_PROFILE_SCHEMA,
     ValidationProgramContribution,
+)
+from rook.validation_kernel.program import (
     compose_and_seal_program,
     implementation_source_closure_for_modules,
     implementation_source_for_module,
@@ -47,11 +54,14 @@ from rook.validation_kernel.canonical_json import (
     normalized_source_fingerprint,
 )
 from rook.validation_kernel.owned_json import (
+    JsonArray,
     JsonObject,
+    JsonString,
     count_json_nodes,
     own_trusted_json,
 )
 from rook.validation_kernel.schema_profile import (
+    CORE_PROFILE,
     AdmittedSchema,
     SchemaAdmissionError,
     admit_schema,
@@ -427,6 +437,40 @@ def test_static_phase_contract_rejects_duplicate_identities_and_unknown_authorit
         ),
         "required-for-compile",
     )
+
+
+def test_many_program_constant_requires_an_exact_json_array() -> None:
+    contribution = make_program_contribution()
+    constant = contribution.program_constants[0]
+    audit = next(
+        phase for phase in contribution.phases if phase.phase_name == "audit"
+    )
+    many_binding = replace(audit.input_bindings[0], cardinality="many")
+    scalar_many = replace(
+        contribution,
+        program_constants=(replace(constant, cardinality="many"),),
+        phases=tuple(
+            replace(phase, input_bindings=(many_binding,))
+            if phase.phase_name == "audit"
+            else phase
+            for phase in contribution.phases
+        ),
+    )
+
+    _assert_rejected(scalar_many, "many program constant must be exact JsonArray")
+
+    array_many = replace(
+        scalar_many,
+        program_constants=(
+            replace(
+                constant,
+                cardinality="many",
+                value=JsonArray((JsonString("synthetic-policy-v1"),)),
+            ),
+        ),
+    )
+    sealed = compose_and_seal_program(array_many)
+    assert type(sealed.program_constants[0].value) is JsonArray
 
 
 def test_bindings_are_exact_and_data_dependencies_do_not_come_from_ordering() -> None:
@@ -1191,6 +1235,35 @@ def test_product_source_declarations_equal_the_exact_transitive_reachable_set(
     )
 
 
+def test_product_source_closure_rejects_star_imports_deterministically(
+    tmp_path: Path,
+) -> None:
+    package_name = "synthetic_star_import_closure"
+    entry = _load_temp_package(
+        tmp_path,
+        package_name,
+        {
+            "__init__.py": "",
+            "entry.py": (
+                "from .helper import *\n"
+                "def runner(*args):\n"
+                "    return VALUE\n"
+            ),
+            "helper.py": "VALUE = ('sealed',)\n",
+        },
+        "entry",
+    )
+
+    with pytest.raises(
+        ProgramCompositionError,
+        match=(
+            "star imports are forbidden in sealed source: "
+            f"{package_name}\\.entry"
+        ),
+    ):
+        implementation_source_closure_for_modules((entry.__name__,))
+
+
 def test_package_initializers_are_full_behavior_sources(tmp_path: Path) -> None:
     package_name = "synthetic_initializer_closure"
     entry = _load_temp_package(
@@ -1701,6 +1774,25 @@ def test_sealed_program_storage_is_transitively_immutable_and_exact_python_ident
         "runtime_fingerprint": runtime["runtime_fingerprint"],
     }
     assert runtime["runtime_fingerprint"].startswith("sha256:")
+
+
+def test_packaging_26_2_is_a_direct_locked_runtime_dependency() -> None:
+    mcp_root = Path(__file__).resolve().parents[1]
+    project = tomllib.loads((mcp_root / "pyproject.toml").read_text(encoding="utf-8"))
+    lock = tomllib.loads((mcp_root / "uv.lock").read_text(encoding="utf-8"))
+
+    assert project["project"]["dependencies"].count("packaging==26.2") == 1
+    packages = lock["package"]
+    packaging_records = [package for package in packages if package["name"] == "packaging"]
+    assert len(packaging_records) == 1
+    assert packaging_records[0]["version"] == "26.2"
+
+    rook_package = next(package for package in packages if package["name"] == "rook-mcp")
+    assert {"name": "packaging"} in rook_package["dependencies"]
+    assert {
+        "name": "packaging",
+        "specifier": "==26.2",
+    } in rook_package["metadata"]["requires-dist"]
 
 
 def test_third_party_projection_has_stable_relative_hashed_records() -> None:

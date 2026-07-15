@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import base64
 import dataclasses
 import importlib
 import json
@@ -11,25 +12,36 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 
 import rook.validation_kernel as validation_kernel
 import pytest
 from rook.validation_kernel import (
-    CORE_SCHEMA_PROFILE_ID,
-    PAYLOAD_SCHEMA_PROFILE_ID,
     PublishedValidationReport,
+    SealedConformanceGateProfile,
+    SealedTrustedBundleAssemblerProfile,
+    SealedValidationProgram,
+    TrustedConformanceFixtureContext,
     TrustedConformanceGateResult,
+    TrustedValidationBundleInput,
+    ValidationControlFailure,
     run_conformance_gate,
     validate_artifacts,
 )
 from rook.validation_kernel.budget import BudgetLedger, SealMeter
 from rook.validation_kernel.canonical_json import canonical_fingerprint
 from rook.validation_kernel.owned_json import own_trusted_json
+from rook.validation_kernel.schema_profile import (
+    CORE_SCHEMA_PROFILE_ID,
+    PAYLOAD_SCHEMA_PROFILE_ID,
+    AdmittedSchema,
+    SchemaEvaluationReservation,
+)
 
 from tests._validation_kernel_fakes import (
     SyntheticPhaseIndex,
     alternate_conformance_gate,
-    make_boundary_campaign_fixture,
+    make_boundary_campaign_fixture as _make_boundary_campaign_fixture,
     make_validation_bundle_bytes,
 )
 
@@ -38,124 +50,206 @@ api_module = importlib.import_module("rook.validation_kernel.api")
 
 
 _KERNEL_SOURCE = Path(validation_kernel.__file__).parent
-_FORBIDDEN_PRODUCTION_TERMS = (
-    "rook.agent",
-    "server.py",
-    "bridge.py",
-    "PlannerWorkerContractRequest",
-    "RookWorkflowContract",
-    "TaskSpec",
-    "gh_edit",
-    "Rhino",
-    "Grasshopper",
-    "Ollama",
-    "worker model",
-    "radial",
-    "box array",
-    "grid spacing",
-)
-_REVIEWED_PUBLIC_SURFACE = frozenset(
-    {
-        "AdmittedSchema",
-        "BudgetExceededFailure",
-        "BudgetManifest",
-        "BudgetReceipt",
-        "BudgetSnapshot",
-        "CONFORMANCE_CAMPAIGN_SCHEMA",
-        "CONFORMANCE_CAMPAIGN_SCHEMA_FINGERPRINT",
-        "CONFORMANCE_CAMPAIGN_SCHEMA_ID",
-        "CONFORMANCE_COMPLETENESS_SCHEMA",
-        "CONFORMANCE_COMPLETENESS_SCHEMA_FINGERPRINT",
-        "CONFORMANCE_COMPLETENESS_SCHEMA_ID",
-        "CONFORMANCE_FIXTURE_SCHEMA",
-        "CONFORMANCE_FIXTURE_SCHEMA_FINGERPRINT",
-        "CONFORMANCE_FIXTURE_SCHEMA_ID",
-        "CONFORMANCE_GATE_PROFILE_SCHEMA",
-        "CONFORMANCE_GATE_PROFILE_SCHEMA_FINGERPRINT",
-        "CONFORMANCE_GATE_PROFILE_SCHEMA_ID",
-        "CONFORMANCE_REPORT_SCHEMA",
-        "CONFORMANCE_REPORT_SCHEMA_FINGERPRINT",
-        "CONFORMANCE_REPORT_SCHEMA_ID",
-        "CONFORMANCE_SCHEMA_ATTEMPT_ROW_SCHEMA",
-        "CONFORMANCE_SCHEMA_ATTEMPT_ROW_SCHEMA_FINGERPRINT",
-        "CONFORMANCE_SCHEMA_ATTEMPT_ROW_SCHEMA_ID",
-        "CORE_PROFILE",
-        "CORE_SCHEMA_PROFILE_ID",
-        "ConformanceGateInvocationFailure",
-        "ExportTypeSpec",
-        "FIXED_REPORT_OUTER_ENVELOPE_FIELD_COUNT",
-        "ImmutableCallableRecord",
-        "ImplementationSource",
-        "InputBinding",
-        "InstanceBinding",
-        "InvocationInputSpec",
-        "IssueSpec",
-        "JsonParseError",
-        "JsonParseEvidence",
-        "KERNEL_CONTROL_CODES",
-        "KERNEL_OWNED_REPORT_PATHS",
-        "KERNEL_REPORT_FIELD_ROLES",
-        "KernelIssue",
-        "LM9A_BUDGET_MANIFEST",
-        "LM9A_BUDGET_PROFILE_ID",
-        "NamedOutput",
-        "PAYLOAD_PROFILE",
-        "PAYLOAD_SCHEMA_PROFILE_ID",
-        "PROGRAM_MANIFEST_SCHEMA",
-        "PROGRAM_MANIFEST_SCHEMA_FINGERPRINT",
-        "PROGRAM_MANIFEST_SCHEMA_ID",
-        "ParsedJsonValue",
-        "ParserProfileSpec",
-        "PhaseResult",
-        "PhaseSpec",
-        "ProgramCompositionError",
-        "ProgramConstantSpec",
-        "ProvidedOutput",
-        "PublishedValidationReport",
-        "REPORT_BUDGET_RECEIPT_PATH",
-        "REPORT_FINGERPRINT_PATH",
-        "ReportProjectionSpec",
-        "RunnerResult",
-        "RuntimeBinding",
-        "RuntimeComponentSpec",
-        "RuntimeDependencySpec",
-        "SchemaAdmissionError",
-        "SchemaEvaluationInputError",
-        "SchemaEvaluationReceipt",
-        "SchemaEvaluationReservation",
-        "SchemaEvaluatorSpec",
-        "SchemaIssue",
-        "SchemaProfile",
-        "SealedConformanceGateProfile",
-        "SealedTrustedBundleAssemblerProfile",
-        "SealedValidationProgram",
-        "TRUSTED_BUNDLE_ASSEMBLER_PROFILE_SCHEMA",
-        "TRUSTED_BUNDLE_ASSEMBLER_PROFILE_SCHEMA_FINGERPRINT",
-        "TRUSTED_BUNDLE_ASSEMBLER_PROFILE_SCHEMA_ID",
-        "TrustedConformanceFixtureContext",
-        "TrustedConformanceGateResult",
-        "TrustedImmutableArtifactStore",
-        "TrustedValidationBundleInput",
-        "ValidationControlFailure",
-        "ValidationInvocation",
-        "ValidationProgramContribution",
-        "ValidationResult",
-        "admit_schema",
-        "compose_and_seal_program",
-        "evaluate_schema",
-        "evaluate_schema_with_reservation",
-        "implementation_source_closure_for_modules",
-        "implementation_source_for_module",
-        "issue_trusted_validation_bundle",
-        "reserve_schema_evaluation",
-        "run_conformance_gate",
-        "runtime_dependency_closure_for_modules",
-        "runtime_dependency_spec",
-        "runtime_implementation_fingerprint",
-        "seal_conformance_gate_profile",
-        "seal_trusted_bundle_assembler_profile",
-        "validate_artifacts",
-    }
+_PRODUCTION_IMPORT_ALLOWLIST = {
+    "__init__.py": (
+        ".api",
+        ".conformance",
+        ".control",
+        ".invocation",
+        ".program",
+        ".reporting",
+    ),
+    "api.py": (
+        ".control",
+        ".invocation",
+        ".phase_engine",
+        ".program",
+        ".reporting",
+        ".schema_profile",
+        "__future__",
+        "dataclasses",
+        "typing",
+    ),
+    "budget.py": (
+        ".canonical_json",
+        ".control",
+        ".owned_json",
+        "__future__",
+        "dataclasses",
+        "sys",
+        "threading",
+    ),
+    "canonical_json.py": (
+        ".owned_json",
+        "__future__",
+        "collections.abc",
+        "hashlib",
+        "typing",
+    ),
+    "conformance.py": (
+        ".api",
+        ".budget",
+        ".canonical_json",
+        ".control",
+        ".invocation",
+        ".kernel_schemas",
+        ".owned_json",
+        ".parser",
+        ".program",
+        ".reporting",
+        ".schema_profile",
+        "__future__",
+        "dataclasses",
+        "json",
+        "jsonschema",
+        "types",
+        "typing",
+    ),
+    "control.py": (
+        "__future__",
+        "dataclasses",
+        "enum",
+        "hashlib",
+        "re",
+        "unicodedata",
+    ),
+    "invocation.py": (
+        ".budget",
+        ".canonical_json",
+        ".control",
+        ".kernel_schemas",
+        ".owned_json",
+        ".parser",
+        ".program",
+        "__future__",
+        "dataclasses",
+        "datetime",
+        "json",
+        "re",
+    ),
+    "kernel_schemas.py": (
+        ".canonical_json",
+        ".owned_json",
+        "__future__",
+        "json",
+    ),
+    "owned_json.py": (
+        "__future__",
+        "bisect",
+        "collections.abc",
+        "dataclasses",
+        "math",
+        "typing",
+    ),
+    "parser.py": (
+        ".budget",
+        ".canonical_json",
+        ".control",
+        ".owned_json",
+        "__future__",
+        "dataclasses",
+        "math",
+        "re",
+    ),
+    "phase_contract.py": (
+        ".budget",
+        ".owned_json",
+        ".schema_profile",
+        "__future__",
+        "dataclasses",
+        "typing",
+    ),
+    "phase_engine.py": (
+        ".budget",
+        ".canonical_json",
+        ".control",
+        ".invocation",
+        ".owned_json",
+        ".phase_contract",
+        ".program",
+        ".schema_profile",
+        "__future__",
+        "collections.abc",
+        "dataclasses",
+        "hashlib",
+        "re",
+        "struct",
+        "typing",
+    ),
+    "program.py": (
+        ".budget",
+        ".canonical_json",
+        ".kernel_schemas",
+        ".owned_json",
+        ".parser",
+        ".phase_contract",
+        ".schema_profile",
+        "__future__",
+        "ast",
+        "collections.abc",
+        "dataclasses",
+        "importlib",
+        "importlib.machinery",
+        "inspect",
+        "json",
+        "packaging.markers",
+        "packaging.requirements",
+        "pathlib",
+        "re",
+        "sys",
+        "types",
+        "typing",
+    ),
+    "reporting.py": (
+        ".budget",
+        ".canonical_json",
+        ".control",
+        ".invocation",
+        ".kernel_schemas",
+        ".owned_json",
+        ".phase_contract",
+        ".phase_engine",
+        ".program",
+        ".schema_profile",
+        "__future__",
+        "dataclasses",
+        "re",
+        "typing",
+    ),
+    "schema_profile.py": (
+        ".budget",
+        ".canonical_json",
+        ".owned_json",
+        "__future__",
+        "collections.abc",
+        "dataclasses",
+        "hashlib",
+        "heapq",
+        "importlib.metadata",
+        "jsonschema",
+        "jsonschema.exceptions",
+        "re",
+        "referencing",
+        "struct",
+        "threading",
+        "typing",
+        "urllib.parse",
+    ),
+}
+_REVIEWED_PUBLIC_SURFACE = (
+    "ValidationResult",
+    "validate_artifacts",
+    "ValidationControlFailure",
+    "BudgetExceededFailure",
+    "PublishedValidationReport",
+    "SealedValidationProgram",
+    "SealedTrustedBundleAssemblerProfile",
+    "TrustedValidationBundleInput",
+    "ConformanceGateInvocationFailure",
+    "SealedConformanceGateProfile",
+    "TrustedConformanceFixtureContext",
+    "TrustedConformanceGateResult",
+    "run_conformance_gate",
 )
 _PRIVATE_AUDIT_MEMBER_NAMES = frozenset(
     {
@@ -165,6 +259,71 @@ _PRIVATE_AUDIT_MEMBER_NAMES = frozenset(
         "schema_evaluation_receipts",
     }
 )
+_BOUNDARY_GOLDEN_EXPECTATIONS = MappingProxyType(
+    {
+        # default / core-content / gate-callable scenarios
+        "sha256:56445e9d8db22fd2f19a8b4c373e89b81cad6232e8019a7c823e4da742a72e39": {
+            "result_kind": "published_report",
+            "report_schema_id": "synthetic.report:v1",
+            "report_fingerprint": "sha256:c03fc4b80e6f233600848b4cfabf348ecbc6c04297e1821e137e8bfea0e582bc",
+            "control_failure_stage": None,
+            "control_failure_code": None,
+            "control_failure_artifact_role": None,
+        },
+        # changed recipe
+        "sha256:ab0db00920ad12398029407eb5fe300d58512998224949df099c1b72f1b2f2db": {
+            "result_kind": "published_report",
+            "report_schema_id": "synthetic.report:v1",
+            "report_fingerprint": "sha256:89c379e15fd35c90b875a56bdac67f3e6c3c396d5832fd682e40800887f65dc5",
+            "control_failure_stage": None,
+            "control_failure_code": None,
+            "control_failure_artifact_role": None,
+        },
+        # changed bundle
+        "sha256:0442ab76608b4f3d2fd6deea737f9cead4565db3d6af34a2811ad80bfce5528d": {
+            "result_kind": "published_report",
+            "report_schema_id": "synthetic.report:v1",
+            "report_fingerprint": "sha256:bb06fcb4a4895e036fcba119cf840a7192be160f6b9e323d58ee2a558b4c99e6",
+            "control_failure_stage": None,
+            "control_failure_code": None,
+            "control_failure_artifact_role": None,
+        },
+        # changed program behavior
+        "sha256:ac684ded7f777315bfbcfc106d38672fa92d6b6adb3faab160f57ebeb77c4057": {
+            "result_kind": "published_report",
+            "report_schema_id": "synthetic.report:v1",
+            "report_fingerprint": "sha256:cb97580db6e5046f1b9b11ed8011dff01362ae64dff73c4e06cbf7a8e166558d",
+            "control_failure_stage": None,
+            "control_failure_code": None,
+            "control_failure_artifact_role": None,
+        },
+        # changed assembler profile
+        "sha256:9962dc842a8f191d9bde20f9b8454848b9ab3fcf3ee80e2ea38b80caca9a5fc6": {
+            "result_kind": "published_report",
+            "report_schema_id": "synthetic.report:v1",
+            "report_fingerprint": "sha256:c03fc4b80e6f233600848b4cfabf348ecbc6c04297e1821e137e8bfea0e582bc",
+            "control_failure_stage": None,
+            "control_failure_code": None,
+            "control_failure_artifact_role": None,
+        },
+        # wide core schema
+        "sha256:02c30294f2ec1777b5c9978e85166e5a16b0a90f7d042b6b3514df5c86c0e7a9": {
+            "result_kind": "published_report",
+            "report_schema_id": "synthetic.report:v1",
+            "report_fingerprint": "sha256:752d330b3f0022dfe2bd0f498d56610b62110470cbc9ea7bad3b960ae1a5bc8b",
+            "control_failure_stage": None,
+            "control_failure_code": None,
+            "control_failure_artifact_role": None,
+        },
+    }
+)
+
+
+def make_boundary_campaign_fixture(**changes: object):
+    return _make_boundary_campaign_fixture(
+        expected_results=_BOUNDARY_GOLDEN_EXPECTATIONS,
+        **changes,
+    )
 
 
 def _python_sources() -> tuple[Path, ...]:
@@ -181,6 +340,27 @@ def _imports(path: Path) -> tuple[tuple[int, str], ...]:
             module = "." * node.level + (node.module or "")
             found.append((node.lineno, module))
     return tuple(found)
+
+
+def _assert_exact_import_allowlist(filename: str, source: str) -> None:
+    tree = ast.parse(source, filename=filename)
+    imported_modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported_modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name == "*":
+                    raise AssertionError(
+                        f"{filename}:{node.lineno}: star imports are prohibited"
+                    )
+            imported_modules.add("." * node.level + (node.module or ""))
+    observed = tuple(sorted(imported_modules))
+    expected = _PRODUCTION_IMPORT_ALLOWLIST[filename]
+    assert observed == expected, (
+        f"{filename} import closure changed: expected {expected!r}, "
+        f"observed {observed!r}"
+    )
 
 
 def _declared_type_members(exported_type: type[object]) -> set[str]:
@@ -205,7 +385,7 @@ def _assert_public_type_has_no_audit_capability(
 def _assert_public_terminal_has_no_audit_capability(value: object) -> None:
     assert isinstance(
         value,
-        (PublishedValidationReport, validation_kernel.ValidationControlFailure),
+        (PublishedValidationReport, ValidationControlFailure),
     )
     members = set(dir(value))
     members.update(field.name for field in dataclasses.fields(value))
@@ -227,20 +407,32 @@ def _assert_report_json_has_no_audit_capability(value: object) -> None:
             pending.extend(current)
 
 
-def test_production_kernel_has_no_host_or_domain_coupling() -> None:
+def test_production_kernel_matches_exact_per_module_ast_import_allowlist() -> None:
     sources = _python_sources()
-    assert sources
+    assert tuple(path.name for path in sources) == tuple(
+        sorted(_PRODUCTION_IMPORT_ALLOWLIST)
+    )
     for path in sources:
-        source = path.read_text(encoding="utf-8")
-        for forbidden in _FORBIDDEN_PRODUCTION_TERMS:
-            assert forbidden not in source, f"{path.name} mentions {forbidden!r}"
+        _assert_exact_import_allowlist(
+            path.name,
+            path.read_text(encoding="utf-8"),
+        )
 
-    imported_modules = {
-        module
-        for path in sources
-        for _, module in _imports(path)
-    }
-    assert all(not module.startswith("rook.agent") for module in imported_modules)
+
+def test_ast_import_guard_rejects_prohibited_and_star_imports() -> None:
+    path = _KERNEL_SOURCE / "api.py"
+    source = path.read_text(encoding="utf-8")
+
+    with pytest.raises(AssertionError, match="api.py import closure changed"):
+        _assert_exact_import_allowlist("api.py", source + "\nimport rook.agent\n")
+    with pytest.raises(
+        AssertionError,
+        match=r"api.py:\d+: star imports are prohibited",
+    ):
+        _assert_exact_import_allowlist(
+            "api.py",
+            source + "\nfrom .program import *\n",
+        )
 
 
 def test_parser_and_canonicalizer_keep_their_independent_boundaries() -> None:
@@ -265,10 +457,35 @@ def test_parser_and_canonicalizer_keep_their_independent_boundaries() -> None:
 def test_package_exports_are_exactly_the_reviewed_public_surface() -> None:
     assert type(validation_kernel.__all__) is tuple
     assert len(validation_kernel.__all__) == len(set(validation_kernel.__all__))
-    assert frozenset(validation_kernel.__all__) == _REVIEWED_PUBLIC_SURFACE
+    assert validation_kernel.__all__ == _REVIEWED_PUBLIC_SURFACE
     for name in validation_kernel.__all__:
         assert not name.startswith("_")
         assert getattr(validation_kernel, name) is not None
+
+
+def test_kernel_tests_import_only_reviewed_names_from_package_root() -> None:
+    test_root = Path(__file__).parent
+    paths = (
+        test_root / "_validation_kernel_fakes.py",
+        test_root / "_validation_kernel_replay_driver.py",
+        *sorted(test_root.glob("test_validation_kernel_*.py")),
+    )
+    reviewed = set(_REVIEWED_PUBLIC_SURFACE)
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.ImportFrom)
+                and node.level == 0
+                and node.module == "rook.validation_kernel"
+            ):
+                continue
+            imported = {alias.name for alias in node.names}
+            assert "*" not in imported, f"{path.name}:{node.lineno}"
+            assert imported <= reviewed, (
+                f"{path.name}:{node.lineno}: internal root imports "
+                f"{sorted(imported - reviewed)!r}"
+            )
 
 
 def test_public_surface_cannot_retrieve_private_kernel_authority() -> None:
@@ -301,38 +518,38 @@ def test_public_surface_cannot_retrieve_private_kernel_authority() -> None:
 
     for capability_type, expected_message in (
         (
-            validation_kernel.AdmittedSchema,
+            AdmittedSchema,
             "AdmittedSchema values are created only by admit_schema",
         ),
         (
-            validation_kernel.SchemaEvaluationReservation,
+            SchemaEvaluationReservation,
             "SchemaEvaluationReservation values are created only by "
             "reserve_schema_evaluation",
         ),
         (
-            validation_kernel.SealedValidationProgram,
+            SealedValidationProgram,
             "SealedValidationProgram values are created only by "
             "compose_and_seal_program",
         ),
         (
-            validation_kernel.SealedTrustedBundleAssemblerProfile,
+            SealedTrustedBundleAssemblerProfile,
             "SealedTrustedBundleAssemblerProfile values are created only by "
             "the fixed seal",
         ),
         (
-            validation_kernel.SealedConformanceGateProfile,
+            SealedConformanceGateProfile,
             "conformance gate profiles are created only by the fixed seal",
         ),
         (
-            validation_kernel.TrustedConformanceFixtureContext,
+            TrustedConformanceFixtureContext,
             "conformance fixture contexts are release-issued",
         ),
         (
-            validation_kernel.TrustedConformanceGateResult,
+            TrustedConformanceGateResult,
             "conformance gate results are gate-issued",
         ),
         (
-            validation_kernel.TrustedValidationBundleInput,
+            TrustedValidationBundleInput,
             "TrustedValidationBundleInput values are created only by trusted "
             "issuance",
         ),
@@ -350,7 +567,7 @@ def test_real_public_terminal_shapes_have_no_audit_capability() -> None:
         canonical_bytes=b"{}",
         value=own_trusted_json({}),
     )
-    failure = validation_kernel.ValidationControlFailure(
+    failure = ValidationControlFailure(
         failure_stage="validation",
         code="validator_integrity_failure",
         artifact_role="phase_engine",
@@ -390,7 +607,7 @@ def test_real_public_terminal_shapes_have_no_audit_capability() -> None:
     )
     assert any(type(outcome) is PublishedValidationReport for outcome in outcomes)
     assert any(
-        isinstance(outcome, validation_kernel.ValidationControlFailure)
+        isinstance(outcome, ValidationControlFailure)
         for outcome in outcomes
     )
     for outcome in outcomes:
@@ -1116,6 +1333,22 @@ def test_fresh_process_replay_is_exact_across_hash_seeds() -> None:
         outputs.append(completed.stdout)
 
     assert outputs[0] == outputs[1] == outputs[2] == outputs[3] == outputs[4]
+    replay = json.loads(outputs[0])
+    assert replay["source_schema_issue_count"] == 1_100
+    assert replay["public_schema_stress_terminal_variant"] == (
+        "PublishedValidationReport"
+    )
+    stress_artifact = replay["public_schema_stress_report"]
+    stress_bytes = base64.b64decode(
+        stress_artifact["canonical_bytes_base64"],
+        validate=True,
+    )
+    stress_value = json.loads(stress_bytes)
+    asserted_fingerprint = stress_value.pop("report_fingerprint")
+    assert asserted_fingerprint == stress_artifact["fingerprint"]
+    assert canonical_fingerprint(own_trusted_json(stress_value)) == (
+        asserted_fingerprint
+    )
 
 
 def test_fixed_profile_positive_cases_fit_and_bind_shape_to_program() -> None:

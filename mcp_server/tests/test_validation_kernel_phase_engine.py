@@ -7,18 +7,24 @@ import pytest
 
 import rook.validation_kernel as validation_kernel
 from rook.validation_kernel import (
-    KernelIssue,
-    NamedOutput,
-    PhaseResult,
-    RunnerResult,
     ValidationControlFailure,
-    compose_and_seal_program,
 )
 from rook.validation_kernel.budget import BudgetExceeded, BudgetLedger
 from rook.validation_kernel.canonical_json import canonical_fingerprint
 from rook.validation_kernel.control import ArtifactRole, BudgetDimension
 from rook.validation_kernel.owned_json import JsonObject, JsonString, count_json_nodes
-from rook.validation_kernel.phase_engine import execute_phase_program
+from rook.validation_kernel.invocation import (
+    issue_trusted_validation_bundle,
+    seal_trusted_bundle_assembler_profile,
+)
+from rook.validation_kernel.phase_engine import (
+    KernelIssue,
+    NamedOutput,
+    PhaseResult,
+    RunnerResult,
+    execute_phase_program,
+)
+from rook.validation_kernel.program import compose_and_seal_program
 from rook.validation_kernel.schema_profile import InstanceBinding, SchemaEvaluationReceipt
 
 from tests._validation_kernel_fakes import (
@@ -40,10 +46,10 @@ def _program(**changes: object):
 
 
 def _context(program: object, recipe: bytes = b'{"nested":{"value":1}}'):
-    profile = validation_kernel.seal_trusted_bundle_assembler_profile(
+    profile = seal_trusted_bundle_assembler_profile(
         make_assembler_profile_candidate()
     )
-    carrier = validation_kernel.issue_trusted_validation_bundle(
+    carrier = issue_trusted_validation_bundle(
         profile, make_validation_bundle_bytes()
     )
     invocation_module = importlib.import_module("rook.validation_kernel.invocation")
@@ -839,10 +845,8 @@ def test_phase_engine_public_exports_are_exact() -> None:
     phase_engine = importlib.import_module("rook.validation_kernel.phase_engine")
 
     assert set(phase_engine.__all__) == module_exports
-    assert module_exports - {"execute_phase_program"} <= set(
-        validation_kernel.__all__
-    )
-    assert "execute_phase_program" not in validation_kernel.__all__
-    assert not hasattr(validation_kernel, "execute_phase_program")
+    assert module_exports.isdisjoint(set(validation_kernel.__all__))
+    for name in module_exports:
+        assert not hasattr(validation_kernel, name)
     assert "PhaseHelperFacade" not in validation_kernel.__all__
     assert "_ValidationExecutionContext" not in validation_kernel.__all__

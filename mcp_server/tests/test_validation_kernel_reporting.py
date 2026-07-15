@@ -11,9 +11,7 @@ import pytest
 import rook.validation_kernel as validation_kernel
 from rook.validation_kernel import (
     PublishedValidationReport,
-    SchemaEvaluationInputError,
     ValidationControlFailure,
-    compose_and_seal_program,
 )
 from rook.validation_kernel.budget import BudgetLedger
 from rook.validation_kernel.canonical_json import (
@@ -32,12 +30,18 @@ from rook.validation_kernel.owned_json import (
     own_trusted_json,
 )
 from rook.validation_kernel.phase_engine import execute_phase_program
+from rook.validation_kernel.invocation import (
+    issue_trusted_validation_bundle,
+    seal_trusted_bundle_assembler_profile,
+)
+from rook.validation_kernel.program import compose_and_seal_program
 from rook.validation_kernel.reporting import (
     ReportBuilder,
     ReportProjectionEnvelope,
     seal_validation_report,
 )
 from rook.validation_kernel.schema_profile import (
+    SchemaEvaluationInputError,
     SchemaEvaluationReceipt,
     admit_schema,
 )
@@ -96,10 +100,10 @@ def _program_with_raw_pointer_report_schema():
 
 
 def _context(program: object, recipe: bytes = b'{"nested":{"value":1}}'):
-    profile = validation_kernel.seal_trusted_bundle_assembler_profile(
+    profile = seal_trusted_bundle_assembler_profile(
         make_assembler_profile_candidate()
     )
-    carrier = validation_kernel.issue_trusted_validation_bundle(
+    carrier = issue_trusted_validation_bundle(
         profile, make_validation_bundle_bytes()
     )
     invocation_module = importlib.import_module("rook.validation_kernel.invocation")

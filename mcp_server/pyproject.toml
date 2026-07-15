@@ -16,6 +16,7 @@ dependencies = [
     "jsonschema==4.26.0",
     "referencing==0.37.0",
     "jsonschema-specifications==2025.9.1",
+    "packaging==26.2",
     # Vision/Image Processing libraries
     "opencv-python>=4.8.0",
     "scikit-image>=0.22.0",
