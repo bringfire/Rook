@@ -6,6 +6,7 @@ import ast
 import inspect
 import json
 import re
+import struct
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
@@ -13,7 +14,7 @@ from importlib import metadata as importlib_metadata
 from importlib import util as importlib_util
 from importlib.machinery import ModuleSpec, PathFinder
 from pathlib import Path, PurePosixPath
-from types import FunctionType, MappingProxyType, ModuleType
+from types import CodeType, FunctionType, MappingProxyType, ModuleType
 from typing import cast
 
 from packaging.markers import default_environment
@@ -94,6 +95,13 @@ REPORT_PROJECTION_INPUT_ENVELOPE = (
     "phase_results",
 )
 
+
+def _program_manifest_canonical_json_bytes(value: JsonValue) -> bytes:
+    """Call the fixed JCS implementation through a no-state runtime binding."""
+
+    return _reference_canonical_json_bytes(value)
+
+
 _MACHINE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
 _MODULE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.]{0,255}\Z")
 _FINGERPRINT_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -132,6 +140,10 @@ _FIXED_KERNEL_MODULES = (
     "rook.validation_kernel.phase_contract",
     "rook.validation_kernel.kernel_schemas",
     "rook.validation_kernel.program",
+    "rook.validation_kernel.invocation",
+    "rook.validation_kernel.phase_engine",
+    "rook.validation_kernel.reporting",
+    "rook.validation_kernel.api",
 )
 _KERNEL_SOURCE_PACKAGE = __name__.rpartition(".")[0]
 _UNSTABLE_DISTRIBUTION_FILES = frozenset(
@@ -303,6 +315,36 @@ def _read_module_source(module_name: str) -> tuple[bytes, str, Path]:
     return raw, normalized, path.resolve()
 
 
+def _loaded_module_source_spellings(
+    module_name: str,
+    resolved_source_path: Path,
+) -> frozenset[str]:
+    loaded_module = sys.modules.get(module_name)
+    if type(loaded_module) is not ModuleType:
+        _fail("runtime function module is not currently loaded")
+    module_namespace = object.__getattribute__(loaded_module, "__dict__")
+    candidates = [module_namespace.get("__file__")]
+    module_spec = module_namespace.get("__spec__")
+    if type(module_spec) is ModuleSpec:
+        candidates.append(module_spec.origin)
+    spellings: set[str] = set()
+    for candidate in candidates:
+        if type(candidate) is not str or Path(candidate).suffix.lower() not in (
+            ".py",
+            ".pyw",
+        ):
+            continue
+        try:
+            candidate_identity = Path(candidate).resolve()
+        except OSError:
+            continue
+        if candidate_identity == resolved_source_path:
+            spellings.add(candidate)
+    if not spellings:
+        _fail("runtime function loader source identity is unavailable")
+    return frozenset(spellings)
+
+
 def implementation_source_for_module(module_name: str) -> ImplementationSource:
     """Capture a claimed source identity for later fixed-seal recomputation."""
 
@@ -326,7 +368,6 @@ def _validate_module_function(function: object) -> FunctionType:
     if (
         function.__qualname__ != function_name
         or function.__code__.co_name != function_name
-        or function.__code__.co_qualname != function_name
         or function_name == "<lambda>"
     ):
         _fail("runtime bindings must be named module-level functions")
@@ -337,6 +378,14 @@ def _validate_module_function(function: object) -> FunctionType:
     module_namespace = object.__getattribute__(loaded_module, "__dict__")
     if module_namespace.get(function_name) is not function:
         _fail("runtime function must be the exact named export of its loaded module")
+    if function.__globals__ is not module_namespace:
+        _fail("runtime function must use the exact module globals")
+    if (
+        function.__defaults__ is not None
+        or function.__kwdefaults__ is not None
+        or function.__dict__
+    ):
+        _fail("runtime binding functions cannot carry unsourced function state")
     return function
 
 
@@ -349,6 +398,105 @@ def _validate_runtime_callable(target: object) -> FunctionType:
     return _validate_module_function(target)
 
 
+_CODE_VALUE_FIELDS = (
+    "co_argcount",
+    "co_posonlyargcount",
+    "co_kwonlyargcount",
+    "co_nlocals",
+    "co_stacksize",
+    "co_flags",
+    "co_code",
+    "co_names",
+    "co_varnames",
+    "co_filename",
+    "co_name",
+    "co_firstlineno",
+    "co_freevars",
+    "co_cellvars",
+    "co_linetable",
+    "co_exceptiontable",
+    "co_qualname",
+)
+_KNOWN_CODE_ATTRIBUTES = frozenset(
+    (
+        *_CODE_VALUE_FIELDS,
+        "co_branches",
+        "co_consts",
+        "co_lines",
+        "co_lnotab",
+        "co_positions",
+    )
+)
+
+
+def _code_constant_matches(runtime: object, source: object) -> bool:
+    if type(runtime) is not type(source):
+        return False
+    if type(runtime) is CodeType:
+        return _code_matches_loaded_source(runtime, source)
+    if type(runtime) is tuple:
+        source_tuple = cast(tuple[object, ...], source)
+        return len(runtime) == len(source_tuple) and all(
+            _code_constant_matches(runtime_value, source_value)
+            for runtime_value, source_value in zip(runtime, source_tuple)
+        )
+    if type(runtime) is frozenset:
+        unmatched = list(cast(frozenset[object], source))
+        for runtime_value in runtime:
+            for index, source_value in enumerate(unmatched):
+                if _code_constant_matches(runtime_value, source_value):
+                    unmatched.pop(index)
+                    break
+            else:
+                return False
+        return not unmatched
+    if type(runtime) is slice:
+        source_slice = cast(slice, source)
+        return (
+            _code_constant_matches(runtime.start, source_slice.start)
+            and _code_constant_matches(runtime.stop, source_slice.stop)
+            and _code_constant_matches(runtime.step, source_slice.step)
+        )
+    if type(runtime) is float:
+        return struct.pack(">d", runtime) == struct.pack(">d", source)
+    if type(runtime) is complex:
+        source_complex = cast(complex, source)
+        return (
+            struct.pack(">d", runtime.real)
+            == struct.pack(">d", source_complex.real)
+            and struct.pack(">d", runtime.imag)
+            == struct.pack(">d", source_complex.imag)
+        )
+    if type(runtime) in (type(None), bool, int, str, bytes, type(Ellipsis)):
+        return runtime == source
+    return False
+
+
+def _code_matches_loaded_source(runtime: CodeType, source: CodeType) -> bool:
+    """Compare every known same-runtime code field and compiler constant."""
+
+    runtime_attributes = frozenset(
+        name for name in dir(runtime) if name.startswith("co_")
+    )
+    source_attributes = frozenset(
+        name for name in dir(source) if name.startswith("co_")
+    )
+    if (
+        runtime_attributes != source_attributes
+        or not runtime_attributes.issubset(_KNOWN_CODE_ATTRIBUTES)
+    ):
+        return False
+    for field_name in _CODE_VALUE_FIELDS:
+        runtime_has_field = hasattr(runtime, field_name)
+        if runtime_has_field != hasattr(source, field_name):
+            return False
+        if runtime_has_field and not _code_constant_matches(
+            getattr(runtime, field_name), getattr(source, field_name)
+        ):
+            return False
+    return _code_constant_matches(runtime.co_consts, source.co_consts)
+
+
 def _target_source_module(target: object) -> str:
     return _validate_runtime_callable(target).__module__
 
@@ -357,7 +505,10 @@ def runtime_implementation_fingerprint(target: object) -> str:
     """Fingerprint an allowed callable from source and any sealed record state."""
 
     function = _validate_runtime_callable(target)
-    raw, _, source_path = _read_module_source(function.__module__)
+    raw, normalized_source, source_path = _read_module_source(function.__module__)
+    source_spellings = _loaded_module_source_spellings(
+        function.__module__, source_path
+    )
     code_filename = function.__code__.co_filename
     if type(code_filename) is not str or not code_filename:
         _fail("runtime function code origin is unavailable")
@@ -367,8 +518,30 @@ def runtime_implementation_fingerprint(target: object) -> str:
         raise ProgramCompositionError(
             "runtime function source/code origin is unavailable"
         ) from error
-    if code_path != source_path:
+    if code_path != source_path or code_filename not in source_spellings:
         _fail("runtime function source/code origin mismatch")
+    try:
+        compiled_module = compile(
+            normalized_source,
+            code_filename,
+            "exec",
+            dont_inherit=True,
+            optimize=sys.flags.optimize,
+        )
+    except (SyntaxError, TypeError, ValueError) as error:
+        raise ProgramCompositionError(
+            "runtime function loaded source cannot be compiled"
+        ) from error
+    source_candidates = tuple(
+        constant
+        for constant in compiled_module.co_consts
+        if type(constant) is CodeType
+        and constant.co_name == function.__name__
+    )
+    if len(source_candidates) != 1 or not _code_matches_loaded_source(
+        function.__code__, source_candidates[0]
+    ):
+        _fail("runtime function code does not match loaded source")
     source_fingerprint = normalized_source_fingerprint(raw)
     identity: dict[str, object] = {
         "callable_kind": (
@@ -2350,7 +2523,7 @@ def _kernel_bootstrap_identity() -> tuple[str, str, str]:
     return (
         build_fingerprint,
         source_fingerprints["rook.validation_kernel.program"],
-        runtime_implementation_fingerprint(_reference_canonical_json_bytes),
+        runtime_implementation_fingerprint(_program_manifest_canonical_json_bytes),
     )
 
 

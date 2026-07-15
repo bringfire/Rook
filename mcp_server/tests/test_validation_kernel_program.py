@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import re
@@ -10,7 +11,7 @@ except ModuleNotFoundError:  # Python 3.10 test support.
     import tomli as tomllib
 from dataclasses import fields, replace
 from pathlib import Path
-from types import MappingProxyType
+from types import FunctionType, MappingProxyType
 from typing import Callable
 
 import pytest
@@ -21,6 +22,7 @@ import rook.validation_kernel.canonical_json as canonical_json_module
 import rook.validation_kernel.parser as parser_module
 import rook.validation_kernel.program as program_module
 import rook.validation_kernel.schema_profile as schema_profile_module
+import tests._validation_kernel_fakes as fakes_module
 from rook.validation_kernel.kernel_schemas import (
     PROGRAM_MANIFEST_SCHEMA,
     PROGRAM_MANIFEST_SCHEMA_FINGERPRINT,
@@ -1583,6 +1585,10 @@ def test_dynamic_import_alias_forms_are_rejected(
 ) -> None:
     module_name = f"synthetic_dynamic_alias_{abs(hash(source))}"
     module = _load_temp_module(tmp_path, module_name, source)
+    if "load=__import__" in source:
+        with pytest.raises(ProgramCompositionError, match="function state"):
+            _replace_beta_from_module(make_program_contribution(), module)
+        return
     _assert_rejected(
         _replace_beta_from_module(make_program_contribution(), module),
         "dynamic import",
@@ -1656,7 +1662,7 @@ def test_runtime_bindings_are_exact_and_reject_unsafe_callable_shapes() -> None:
         bindings[beta_index] = replace(bindings[beta_index], target=target)
         _assert_rejected(replace(contribution, runtime_bindings=tuple(bindings)), message)
 
-    for target in (StaticService.run, UnboundService.run, disguised_class_function):
+    for target in (StaticService.run, UnboundService.run):
         with pytest.raises(ProgramCompositionError, match="module-level"):
             replace_runtime_component(
                 contribution,
@@ -1664,6 +1670,13 @@ def test_runtime_bindings_are_exact_and_reject_unsafe_callable_shapes() -> None:
                 component_id="beta",
                 target=target,
             )
+    with pytest.raises(ProgramCompositionError, match="exact named export"):
+        replace_runtime_component(
+            contribution,
+            kind="runner",
+            component_id="beta",
+            target=disguised_class_function,
+        )
 
 
 def test_runtime_binding_rejects_writable_function_metadata_spoof() -> None:
@@ -1715,12 +1728,268 @@ def test_runtime_binding_rejects_module_export_with_foreign_code_origin(
         "synthetic_callable_claimed_origin",
         "def placeholder():\n    return None\n",
     )
-    foreign_runner = getattr(source_module, "runner")
+    source_runner = getattr(source_module, "runner")
+    foreign_runner = FunctionType(
+        source_runner.__code__,
+        claiming_module.__dict__,
+        source_runner.__name__,
+        source_runner.__defaults__,
+        source_runner.__closure__,
+    )
+    foreign_runner.__qualname__ = source_runner.__qualname__
     foreign_runner.__module__ = claiming_module.__name__
     setattr(claiming_module, "runner", foreign_runner)
 
     with pytest.raises(ProgramCompositionError, match="source/code origin"):
         runtime_implementation_fingerprint(foreign_runner)
+
+
+def test_runtime_binding_rejects_same_filename_generated_module_export() -> None:
+    source_path = Path(fakes_module.__file__).resolve()
+    namespace: dict[str, object] = {"__name__": fakes_module.__name__}
+    exec(
+        compile(
+            "def beta_runner(*args):\n    return ('generated',)\n",
+            str(source_path),
+            "exec",
+        ),
+        namespace,
+    )
+    compiled = namespace["beta_runner"]
+    generated = FunctionType(
+        compiled.__code__,
+        fakes_module.__dict__,
+        compiled.__name__,
+        compiled.__defaults__,
+        compiled.__closure__,
+    )
+    generated.__qualname__ = compiled.__qualname__
+    generated.__module__ = fakes_module.__name__
+    original = fakes_module.beta_runner
+    setattr(fakes_module, "beta_runner", generated)
+    try:
+        with pytest.raises(ProgramCompositionError, match="loaded source"):
+            make_program_contribution()
+    finally:
+        setattr(fakes_module, "beta_runner", original)
+        RUNTIME_REGISTRY[("runner", "beta")] = original
+
+
+def test_runtime_binding_rejects_equivalent_path_code_filename_spoof() -> None:
+    original = fakes_module.beta_runner
+    source_path = Path(fakes_module.__file__).resolve()
+    equivalent_path = source_path.parent / "unused" / ".." / source_path.name
+    assert equivalent_path.resolve() == source_path
+    forged_code = original.__code__.replace(co_filename=str(equivalent_path))
+    forged = FunctionType(
+        forged_code,
+        fakes_module.__dict__,
+        original.__name__,
+        original.__defaults__,
+        original.__closure__,
+    )
+    forged.__qualname__ = original.__qualname__
+    forged.__module__ = original.__module__
+    setattr(fakes_module, "beta_runner", forged)
+    try:
+        with pytest.raises(ProgramCompositionError, match="source/code origin"):
+            runtime_implementation_fingerprint(forged)
+    finally:
+        setattr(fakes_module, "beta_runner", original)
+
+
+def test_runtime_binding_accepts_loader_preserved_source_path_spelling(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "loader_spelling_runner.py"
+    source_path.write_text("def runner():\n    return 'loaded'\n", encoding="utf-8")
+    alias_directory = tmp_path / "alias"
+    alias_directory.mkdir()
+    loader_path = alias_directory / ".." / source_path.name
+    module_name = "synthetic_loader_spelling_runner"
+    spec = importlib.util.spec_from_file_location(module_name, loader_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+        assert module.__file__ == str(loader_path)
+        assert module.runner.__code__.co_filename == str(loader_path)
+        fingerprint = runtime_implementation_fingerprint(module.runner)
+    finally:
+        sys.modules.pop(module_name, None)
+
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", fingerprint)
+
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 11),
+    reason="code-object qualnames were added in Python 3.11",
+)
+def test_runtime_binding_rejects_code_qualname_spoof() -> None:
+    original = fakes_module.beta_runner
+    forged_code = original.__code__.replace(co_qualname="forged.qualname")
+    forged = FunctionType(
+        forged_code,
+        fakes_module.__dict__,
+        original.__name__,
+        original.__defaults__,
+        original.__closure__,
+    )
+    forged.__qualname__ = original.__qualname__
+    forged.__module__ = original.__module__
+    setattr(fakes_module, "beta_runner", forged)
+    try:
+        with pytest.raises(ProgramCompositionError, match="loaded source"):
+            runtime_implementation_fingerprint(forged)
+    finally:
+        setattr(fakes_module, "beta_runner", original)
+
+
+def test_runtime_binding_accepts_source_with_folded_nan_constant(
+    tmp_path: Path,
+) -> None:
+    module = _load_temp_module(
+        tmp_path,
+        "synthetic_folded_nan_runner",
+        "def runner():\n    return 1e1000 - 1e1000\n",
+    )
+
+    fingerprint = runtime_implementation_fingerprint(module.runner)
+
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", fingerprint)
+
+
+def test_runtime_binding_rejects_ambiguous_same_name_source_definition(
+    tmp_path: Path,
+) -> None:
+    source = (
+        "def runner():\n"
+        "    return 'first'\n\n"
+        "def runner():\n"
+        "    return 'second'\n"
+    )
+    module = _load_temp_module(
+        tmp_path,
+        "synthetic_ambiguous_runner",
+        source,
+    )
+    compiled_module = compile(
+        source,
+        str(Path(module.__file__).resolve()),
+        "exec",
+        dont_inherit=True,
+        optimize=sys.flags.optimize,
+    )
+    first_code = next(
+        candidate
+        for candidate in compiled_module.co_consts
+        if type(candidate) is type(module.runner.__code__)
+        and candidate.co_name == "runner"
+    )
+    substituted = FunctionType(
+        first_code,
+        module.__dict__,
+        "runner",
+    )
+    substituted.__qualname__ = "runner"
+    substituted.__module__ = module.__name__
+    setattr(module, "runner", substituted)
+
+    with pytest.raises(ProgramCompositionError, match="loaded source"):
+        runtime_implementation_fingerprint(substituted)
+
+
+def test_runtime_binding_rejects_substituted_module_globals() -> None:
+    original = fakes_module.beta_runner
+    substituted = FunctionType(
+        original.__code__,
+        dict(fakes_module.__dict__),
+        original.__name__,
+        original.__defaults__,
+        original.__closure__,
+    )
+    substituted.__qualname__ = original.__qualname__
+    substituted.__module__ = original.__module__
+    setattr(fakes_module, "beta_runner", substituted)
+    try:
+        with pytest.raises(ProgramCompositionError, match="module globals"):
+            runtime_implementation_fingerprint(substituted)
+    finally:
+        setattr(fakes_module, "beta_runner", original)
+
+
+@pytest.mark.parametrize("state_kind", ("defaults", "kwdefaults", "attributes"))
+def test_runtime_binding_rejects_unsourced_function_state(
+    state_kind: str,
+) -> None:
+    function = fakes_module.beta_runner
+    original_defaults = function.__defaults__
+    original_kwdefaults = function.__kwdefaults__
+    original_attributes = dict(function.__dict__)
+    try:
+        if state_kind == "defaults":
+            function.__defaults__ = ("changed",)
+        elif state_kind == "kwdefaults":
+            function.__kwdefaults__ = {"mode": "changed"}
+        else:
+            function.__dict__["mode"] = "changed"
+        with pytest.raises(ProgramCompositionError, match="function state"):
+            runtime_implementation_fingerprint(function)
+    finally:
+        function.__defaults__ = original_defaults
+        function.__kwdefaults__ = original_kwdefaults
+        function.__dict__.clear()
+        function.__dict__.update(original_attributes)
+
+
+def test_runtime_binding_uses_only_python_310_code_object_attributes() -> None:
+    source_path = Path(program_module.__file__)
+    tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+    accessed_attributes = {
+        node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
+    }
+    assert "co_qualname" not in accessed_attributes
+
+
+def test_runtime_binding_declares_python_314_branch_metadata() -> None:
+    assert "co_branches" in program_module._KNOWN_CODE_ATTRIBUTES
+
+
+def test_code_constant_comparison_supports_python_314_constant_slices() -> None:
+    assert program_module._code_constant_matches(
+        slice(1, 2, None), slice(1, 2, None)
+    )
+    assert not program_module._code_constant_matches(
+        slice(1, 2, None), slice(1, 3, None)
+    )
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    (
+        "rook.validation_kernel.invocation",
+        "rook.validation_kernel.phase_engine",
+        "rook.validation_kernel.reporting",
+        "rook.validation_kernel.api",
+    ),
+)
+def test_kernel_build_identity_covers_validation_execution_modules(
+    module_name: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert module_name in program_module._FIXED_KERNEL_MODULES
+    baseline = program_module._kernel_bootstrap_identity()[0]
+    real_read = program_module._read_module_source
+
+    def drifted_read(candidate: str) -> tuple[bytes, str, Path]:
+        raw, normalized, path = real_read(candidate)
+        if candidate == module_name:
+            return raw + b"\n# identity drift\n", normalized + "\n# identity drift\n", path
+        return raw, normalized, path
+
+    monkeypatch.setattr(program_module, "_read_module_source", drifted_read)
+    assert program_module._kernel_bootstrap_identity()[0] != baseline
 
 
 def test_module_functions_and_immutable_callable_records_pass_and_registry_is_captured() -> None:

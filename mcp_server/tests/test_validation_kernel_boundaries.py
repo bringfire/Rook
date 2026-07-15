@@ -196,6 +196,7 @@ _PRODUCTION_IMPORT_ALLOWLIST = {
         "packaging.requirements",
         "pathlib",
         "re",
+        "struct",
         "sys",
         "types",
         "typing",
@@ -243,10 +244,14 @@ _REVIEWED_PUBLIC_SURFACE = (
     "BudgetExceededFailure",
     "PublishedValidationReport",
     "SealedValidationProgram",
+    "compose_and_seal_program",
     "SealedTrustedBundleAssemblerProfile",
+    "seal_trusted_bundle_assembler_profile",
     "TrustedValidationBundleInput",
+    "issue_trusted_validation_bundle",
     "ConformanceGateInvocationFailure",
     "SealedConformanceGateProfile",
+    "seal_conformance_gate_profile",
     "TrustedConformanceFixtureContext",
     "TrustedConformanceGateResult",
     "run_conformance_gate",
@@ -262,7 +267,7 @@ _PRIVATE_AUDIT_MEMBER_NAMES = frozenset(
 _BOUNDARY_GOLDEN_EXPECTATIONS = MappingProxyType(
     {
         # default / core-content / gate-callable scenarios
-        "sha256:56445e9d8db22fd2f19a8b4c373e89b81cad6232e8019a7c823e4da742a72e39": {
+        "sha256:e5b4c2a28b7d08d8a79ce0070682f43823dc21145b70dfcb1c0820de499774d3": {
             "result_kind": "published_report",
             "report_schema_id": "synthetic.report:v1",
             "report_fingerprint": "sha256:c03fc4b80e6f233600848b4cfabf348ecbc6c04297e1821e137e8bfea0e582bc",
@@ -271,7 +276,7 @@ _BOUNDARY_GOLDEN_EXPECTATIONS = MappingProxyType(
             "control_failure_artifact_role": None,
         },
         # changed recipe
-        "sha256:ab0db00920ad12398029407eb5fe300d58512998224949df099c1b72f1b2f2db": {
+        "sha256:45da14a64da008fecd65a01686d2fc245e4e6a5127e1253b0a524b80f6fba24c": {
             "result_kind": "published_report",
             "report_schema_id": "synthetic.report:v1",
             "report_fingerprint": "sha256:89c379e15fd35c90b875a56bdac67f3e6c3c396d5832fd682e40800887f65dc5",
@@ -280,7 +285,7 @@ _BOUNDARY_GOLDEN_EXPECTATIONS = MappingProxyType(
             "control_failure_artifact_role": None,
         },
         # changed bundle
-        "sha256:0442ab76608b4f3d2fd6deea737f9cead4565db3d6af34a2811ad80bfce5528d": {
+        "sha256:ffb4223110eaf9382509a659be1982c1a7a3e3a6416cb4aad82411b1a4271cad": {
             "result_kind": "published_report",
             "report_schema_id": "synthetic.report:v1",
             "report_fingerprint": "sha256:bb06fcb4a4895e036fcba119cf840a7192be160f6b9e323d58ee2a558b4c99e6",
@@ -289,7 +294,7 @@ _BOUNDARY_GOLDEN_EXPECTATIONS = MappingProxyType(
             "control_failure_artifact_role": None,
         },
         # changed program behavior
-        "sha256:ac684ded7f777315bfbcfc106d38672fa92d6b6adb3faab160f57ebeb77c4057": {
+        "sha256:8140d3d6a91559b6f24d341c1dd84eb42f54745d008b4b3c81ddfa697f9d321a": {
             "result_kind": "published_report",
             "report_schema_id": "synthetic.report:v1",
             "report_fingerprint": "sha256:cb97580db6e5046f1b9b11ed8011dff01362ae64dff73c4e06cbf7a8e166558d",
@@ -298,7 +303,7 @@ _BOUNDARY_GOLDEN_EXPECTATIONS = MappingProxyType(
             "control_failure_artifact_role": None,
         },
         # changed assembler profile
-        "sha256:9962dc842a8f191d9bde20f9b8454848b9ab3fcf3ee80e2ea38b80caca9a5fc6": {
+        "sha256:c00295d0346ac82ce75b5a32b3ddfa6d70a0fbdb0121fff8588fbcbf9ef5811f": {
             "result_kind": "published_report",
             "report_schema_id": "synthetic.report:v1",
             "report_fingerprint": "sha256:c03fc4b80e6f233600848b4cfabf348ecbc6c04297e1821e137e8bfea0e582bc",
@@ -307,7 +312,7 @@ _BOUNDARY_GOLDEN_EXPECTATIONS = MappingProxyType(
             "control_failure_artifact_role": None,
         },
         # wide core schema
-        "sha256:02c30294f2ec1777b5c9978e85166e5a16b0a90f7d042b6b3514df5c86c0e7a9": {
+        "sha256:112b0f25302915c20faa9a281fcd04efe877341260ec1c0b2bee4a9b863d7edc": {
             "result_kind": "published_report",
             "report_schema_id": "synthetic.report:v1",
             "report_fingerprint": "sha256:752d330b3f0022dfe2bd0f498d56610b62110470cbc9ea7bad3b960ae1a5bc8b",

@@ -28,7 +28,7 @@ from .canonical_json import (
     sha256_prefixed,
     utf16_sort_key,
 )
-from .control import ValidationControlFailure
+from .control import BudgetDimension, ValidationControlFailure
 from .invocation import (
     SealedTrustedBundleAssemblerProfile,
     _profile_is_valid,
@@ -1469,15 +1469,26 @@ def _execute_conformance_gate(
             campaign_integrity=campaign_integrity,
             result_rows=result_rows,
         )
-    except _SealMeterExceeded:
+    except _SealMeterExceeded as error:
+        projection_overflow = (
+            error.dimension == BudgetDimension.REPORT_PROJECTION_FIELDS.value
+        )
         return _failure(
             stage="report_seal",
-            code="gate_budget_exceeded",
+            code=(
+                "gate_budget_exceeded"
+                if projection_overflow
+                else "gate_report_seal_failed"
+            ),
             gate_profile_fingerprint=profile_fingerprint,
             program_fingerprint=program_fingerprint,
             campaign_input_size=input_size,
             campaign_input_sha256=campaign_hash,
-            detail="aggregate_report_budget",
+            detail=(
+                "aggregate_report_budget"
+                if projection_overflow
+                else "aggregate_report_seal"
+            ),
         )
     except _GateReportSealFailure:
         return _failure(

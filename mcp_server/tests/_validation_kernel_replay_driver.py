@@ -35,7 +35,7 @@ from tests._validation_kernel_fakes import (
 
 _BOUNDARY_GOLDEN_EXPECTATIONS = MappingProxyType(
     {
-        "sha256:56445e9d8db22fd2f19a8b4c373e89b81cad6232e8019a7c823e4da742a72e39": {
+        "sha256:e5b4c2a28b7d08d8a79ce0070682f43823dc21145b70dfcb1c0820de499774d3": {
             "result_kind": "published_report",
             "report_schema_id": "synthetic.report:v1",
             "report_fingerprint": "sha256:c03fc4b80e6f233600848b4cfabf348ecbc6c04297e1821e137e8bfea0e582bc",

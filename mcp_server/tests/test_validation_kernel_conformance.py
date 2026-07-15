@@ -67,7 +67,7 @@ _BUNDLE_REF = "artifact:fixture-bundle"
 _CONFORMANCE_GOLDEN_EXPECTATIONS = MappingProxyType(
     {
         # default / generic fixture ID
-        "sha256:0472c9ce26a9fd588c5d9c77f4cad9f24f58f5112c6bb31e21a5aea53ac1ec95": {
+        "sha256:c943db0ad9a6118f2bbb6576b187dd69181e3aa6e8e2f5a260150789fb7ce7b6": {
             "result_kind": "published_report",
             "report_schema_id": "synthetic.report:v1",
             "report_fingerprint": "sha256:4fe3191569179f320ba144b7eacf996167fe68585dc396370df61a1f2d1bf183",
@@ -76,7 +76,7 @@ _CONFORMANCE_GOLDEN_EXPECTATIONS = MappingProxyType(
             "control_failure_artifact_role": None,
         },
         # equal-shaped semantic subtrees
-        "sha256:72c5d03bc2440f68cb112cefa292cfa182a6f97c5022ea0b2d6f394a20ad5c0f": {
+        "sha256:7d8b253aeb832d5fa4ef0d406e197b8fc06f7d5b6826b589f05c4dede623dbb3": {
             "result_kind": "published_report",
             "report_schema_id": "synthetic.report:v1",
             "report_fingerprint": "sha256:459b4d1f62de23add6d34f0419691989415d36bb1df2033cee9b55e842fb85dc",
@@ -85,7 +85,7 @@ _CONFORMANCE_GOLDEN_EXPECTATIONS = MappingProxyType(
             "control_failure_artifact_role": None,
         },
         # wide core schema
-        "sha256:d3e50bdb5f94ff5112413bd0ad00f2b8365f6aaa3ba7f0315cab140c9b869a15": {
+        "sha256:a80c4541a3e004f627b212fddf4389b106dd7550bd5aa86ec4c1e673ec60ab58": {
             "result_kind": "published_report",
             "report_schema_id": "synthetic.report:v1",
             "report_fingerprint": "sha256:4fe3191569179f320ba144b7eacf996167fe68585dc396370df61a1f2d1bf183",
@@ -94,7 +94,7 @@ _CONFORMANCE_GOLDEN_EXPECTATIONS = MappingProxyType(
             "control_failure_artifact_role": None,
         },
         # raw recipe byte cap
-        "sha256:552876ab18c2ac270fce2eb327580dc3d2cb67ee6bc8c2301aca68cfb29fc1d9": {
+        "sha256:7d5e9f93aed28dabe707542fea45d3af9b56c919711a63a84b61f87f42edfe98": {
             "result_kind": "control_failure",
             "report_schema_id": None,
             "report_fingerprint": None,
@@ -103,7 +103,7 @@ _CONFORMANCE_GOLDEN_EXPECTATIONS = MappingProxyType(
             "control_failure_artifact_role": "recipe",
         },
         # malformed recipe
-        "sha256:c6eaa605663083aa41d519e787b8590ac36438cd58919bc08ac57b9dc823b200": {
+        "sha256:78ffb6cacde2b2004eccecc06f91117a14c5965070c2a3463ccf64b622cc1604": {
             "result_kind": "control_failure",
             "report_schema_id": None,
             "report_fingerprint": None,
@@ -112,7 +112,7 @@ _CONFORMANCE_GOLDEN_EXPECTATIONS = MappingProxyType(
             "control_failure_artifact_role": "phase_engine",
         },
         # accepted schema evaluation followed by integrity failure
-        "sha256:e4c5e316039c410cf1c445c3deb085734d535c199e90ca8b101b728373b248a1": {
+        "sha256:cf8368ab344f0ff972558dd1718b71ff8edb51c6c65d0d45bdd309f6e73bce9d": {
             "result_kind": "control_failure",
             "report_schema_id": None,
             "report_fingerprint": None,
@@ -121,7 +121,7 @@ _CONFORMANCE_GOLDEN_EXPECTATIONS = MappingProxyType(
             "control_failure_artifact_role": "phase_engine",
         },
         # final report reservation rejection
-        "sha256:8176831d19f27230cea343fddbce213fd2b754e624f39adaa9ece3e544710f29": {
+        "sha256:e20d14176b69be8d9fcaa39f4050c859d9e3d0ba241a837f3aa2f3d8732ac10c": {
             "result_kind": "control_failure",
             "report_schema_id": None,
             "report_fingerprint": None,
@@ -130,7 +130,7 @@ _CONFORMANCE_GOLDEN_EXPECTATIONS = MappingProxyType(
             "control_failure_artifact_role": "report_seal",
         },
         # ordered semantic schema audit
-        "sha256:e2766d38a93813baf7df175259d907104c749b63ba43f1ac0c1d7a34d9671204": {
+        "sha256:3c9cea17ce26dfb55fbcb39f3265241ac0ef94e2781f44906b0973d210ecf2bb": {
             "result_kind": "published_report",
             "report_schema_id": "synthetic.report:v1",
             "report_fingerprint": "sha256:a99cb70a407fe961c3c45632313afcf9dac9f95f6f9abb707d5c157d2ff8cf39",
@@ -1597,24 +1597,33 @@ def test_projection_and_both_report_serializations_fail_atomically(
 
 
 @pytest.mark.parametrize(
-    ("meter_method", "dimension", "limit"),
+    ("meter_method", "dimension", "limit", "expected_code"),
     (
         (
             "charge_projection_fields",
             BudgetDimension.REPORT_PROJECTION_FIELDS,
             131_072,
+            "gate_budget_exceeded",
         ),
         (
             "charge_canonical_bytes",
             BudgetDimension.REPORT_CANONICAL_BYTES,
             2_097_152,
+            "gate_report_seal_failed",
+        ),
+        (
+            "_charge_work",
+            BudgetDimension.REPORT_SEAL_WORK_UNITS,
+            262_144,
+            "gate_report_seal_failed",
         ),
     ),
 )
-def test_aggregate_report_meter_failures_map_to_gate_budget_exceeded(
+def test_aggregate_report_meter_failures_preserve_dimension_classification(
     meter_method: str,
     dimension: BudgetDimension,
     limit: int,
+    expected_code: str,
     monkeypatch: pytest.MonkeyPatch,
     program: object,
     gate_profile: SealedConformanceGateProfile,
@@ -1637,7 +1646,7 @@ def test_aggregate_report_meter_failures_map_to_gate_budget_exceeded(
 
     assert type(result) is ConformanceGateInvocationFailure
     assert result.stage == "report_seal"
-    assert result.code == "gate_budget_exceeded"
+    assert result.code == expected_code
     assert result.report_emitted is False
     assert result.trusted_gate_result_issued is False
 
