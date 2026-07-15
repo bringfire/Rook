@@ -13,6 +13,7 @@ from jsonschema import Draft202012Validator
 import rook.validation_kernel.conformance as conformance_module
 import rook.validation_kernel.api as api_module
 import rook.validation_kernel.reporting as reporting_module
+import rook.validation_kernel.schema_profile as schema_profile_module
 from rook.validation_kernel import (
     ConformanceGateInvocationFailure,
     PublishedValidationReport,
@@ -47,6 +48,7 @@ from rook.validation_kernel.owned_json import JsonObject, own_trusted_json
 from rook.validation_kernel.schema_profile import (
     CORE_SCHEMA_PROFILE_ID,
     InstanceBinding,
+    SchemaEvaluationReceipt,
     evaluate_schema,
 )
 
@@ -67,34 +69,34 @@ _BUNDLE_REF = "artifact:fixture-bundle"
 _CONFORMANCE_GOLDEN_EXPECTATIONS = MappingProxyType(
     {
         # default / generic fixture ID
-        "sha256:c943db0ad9a6118f2bbb6576b187dd69181e3aa6e8e2f5a260150789fb7ce7b6": {
+        "sha256:309bd012622881a74a900993a1924781494cac9f8770dcfddbdeb6e4b7696de8": {
             "result_kind": "published_report",
             "report_schema_id": "synthetic.report:v1",
-            "report_fingerprint": "sha256:4fe3191569179f320ba144b7eacf996167fe68585dc396370df61a1f2d1bf183",
+            "report_fingerprint": "sha256:6454715696b90acd759f44189ee33bfef6185a79dfd2abe9f4c38ea647caebff",
             "control_failure_stage": None,
             "control_failure_code": None,
             "control_failure_artifact_role": None,
         },
         # equal-shaped semantic subtrees
-        "sha256:7d8b253aeb832d5fa4ef0d406e197b8fc06f7d5b6826b589f05c4dede623dbb3": {
+        "sha256:10b0beaf1c5ea48bd143754e5ff5f441cedabcafc9234e5c34247bd65801dc65": {
             "result_kind": "published_report",
             "report_schema_id": "synthetic.report:v1",
-            "report_fingerprint": "sha256:459b4d1f62de23add6d34f0419691989415d36bb1df2033cee9b55e842fb85dc",
+            "report_fingerprint": "sha256:428b0f58e18e9d3e75ed4d15421eedd43029ea31fbedfc933983ef5ca85dca3b",
             "control_failure_stage": None,
             "control_failure_code": None,
             "control_failure_artifact_role": None,
         },
         # wide core schema
-        "sha256:a80c4541a3e004f627b212fddf4389b106dd7550bd5aa86ec4c1e673ec60ab58": {
+        "sha256:2684cb3ff02b885a2e63e90ac8b44dbb2a65d04a2e7cf2e8e5ce7461946f583b": {
             "result_kind": "published_report",
             "report_schema_id": "synthetic.report:v1",
-            "report_fingerprint": "sha256:4fe3191569179f320ba144b7eacf996167fe68585dc396370df61a1f2d1bf183",
+            "report_fingerprint": "sha256:6454715696b90acd759f44189ee33bfef6185a79dfd2abe9f4c38ea647caebff",
             "control_failure_stage": None,
             "control_failure_code": None,
             "control_failure_artifact_role": None,
         },
         # raw recipe byte cap
-        "sha256:7d5e9f93aed28dabe707542fea45d3af9b56c919711a63a84b61f87f42edfe98": {
+        "sha256:c6bcdb0be9b41eb1bc70b4f3c43d7b2a0b6cb49d0918597b4cdfde9af727c5d9": {
             "result_kind": "control_failure",
             "report_schema_id": None,
             "report_fingerprint": None,
@@ -103,7 +105,7 @@ _CONFORMANCE_GOLDEN_EXPECTATIONS = MappingProxyType(
             "control_failure_artifact_role": "recipe",
         },
         # malformed recipe
-        "sha256:78ffb6cacde2b2004eccecc06f91117a14c5965070c2a3463ccf64b622cc1604": {
+        "sha256:c96c940ddf100d7adbd166b3b629f8b7f821cc76ee9cfe3b81897699f6ef3cb5": {
             "result_kind": "control_failure",
             "report_schema_id": None,
             "report_fingerprint": None,
@@ -112,7 +114,7 @@ _CONFORMANCE_GOLDEN_EXPECTATIONS = MappingProxyType(
             "control_failure_artifact_role": "phase_engine",
         },
         # accepted schema evaluation followed by integrity failure
-        "sha256:cf8368ab344f0ff972558dd1718b71ff8edb51c6c65d0d45bdd309f6e73bce9d": {
+        "sha256:db990318f6bcd53f7a532e0a72f26783d5102c0d950918ac55941922b2505824": {
             "result_kind": "control_failure",
             "report_schema_id": None,
             "report_fingerprint": None,
@@ -121,7 +123,7 @@ _CONFORMANCE_GOLDEN_EXPECTATIONS = MappingProxyType(
             "control_failure_artifact_role": "phase_engine",
         },
         # final report reservation rejection
-        "sha256:e20d14176b69be8d9fcaa39f4050c859d9e3d0ba241a837f3aa2f3d8732ac10c": {
+        "sha256:8e3a82d8e8c525dafc397d27266da8663b158481f0db021b1d9d037438b539ce": {
             "result_kind": "control_failure",
             "report_schema_id": None,
             "report_fingerprint": None,
@@ -130,10 +132,10 @@ _CONFORMANCE_GOLDEN_EXPECTATIONS = MappingProxyType(
             "control_failure_artifact_role": "report_seal",
         },
         # ordered semantic schema audit
-        "sha256:3c9cea17ce26dfb55fbcb39f3265241ac0ef94e2781f44906b0973d210ecf2bb": {
+        "sha256:24b35e6ff2da13797d336b464b093b6634ab7baf02eb5f826f3ab5bbd8fe3cc3": {
             "result_kind": "published_report",
             "report_schema_id": "synthetic.report:v1",
-            "report_fingerprint": "sha256:a99cb70a407fe961c3c45632313afcf9dac9f95f6f9abb707d5c157d2ff8cf39",
+            "report_fingerprint": "sha256:fe0c0aa0e99d79e618cfd32cb8398bd2f49bc86ff5e3ec3dbd19d35b5e37e38a",
             "control_failure_stage": None,
             "control_failure_code": None,
             "control_failure_artifact_role": None,
@@ -363,11 +365,12 @@ def test_conformance_attempt_row_resolves_exact_root_pointer_and_instance(
         artifact_fingerprint=root_fingerprint,
         instance_pointer="/right",
     )
+    ledger = BudgetLedger(LM9A_BUDGET_MANIFEST)
     receipt = evaluate_schema(
         schema,
         instance,
         instance_binding=correct,
-        ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
+        ledger=ledger,
     )
 
     row = conformance_module._attempt_row(
@@ -379,6 +382,7 @@ def test_conformance_attempt_row_resolves_exact_root_pointer_and_instance(
         instance=instance,
         receipt=receipt,
         per_evaluation_limit=8_000_000,
+        ledger=ledger,
     )
 
     assert row["instance_fingerprint"] == canonical_fingerprint(instance)
@@ -424,7 +428,414 @@ def test_conformance_attempt_row_resolves_exact_root_pointer_and_instance(
                 instance=candidate_instance,
                 receipt=receipt,
                 per_evaluation_limit=8_000_000,
+                ledger=ledger,
             )
+
+
+def test_conformance_attempt_row_rejects_issued_reservation_for_other_factors(
+    program: object,
+) -> None:
+    schema = next(
+        candidate
+        for candidate in program.schemas  # type: ignore[attr-defined]
+        if candidate.profile_id == CORE_SCHEMA_PROFILE_ID
+    )
+    instance = _owned_object({"value": "ok"})
+    instance_fingerprint = canonical_fingerprint(instance)
+    instance_binding = InstanceBinding(
+        artifact_id="artifact:core-positive",
+        artifact_fingerprint=instance_fingerprint,
+        instance_pointer="",
+    )
+    ledger = BudgetLedger(LM9A_BUDGET_MANIFEST)
+    honest = evaluate_schema(
+        schema,
+        instance,
+        instance_binding=instance_binding,
+        ledger=ledger,
+    )
+    honest_shape = honest.reservation
+    mismatched_expansion = (
+        0
+        if honest_shape.schema_nodes >= honest_shape.evaluation_expansion_units
+        else honest_shape.evaluation_expansion_units
+    )
+    mismatched_schema_nodes = (
+        honest_shape.schema_nodes
+        if honest_shape.schema_nodes >= honest_shape.evaluation_expansion_units
+        else 0
+    )
+    mismatched_shape = ledger.reserve_schema_shape(
+        schema_nodes=mismatched_schema_nodes,
+        evaluation_expansion_units=mismatched_expansion,
+        instance_nodes=honest_shape.instance_nodes,
+        per_evaluation_limit=8_000_000,
+    )
+    assert mismatched_shape.accepted is True
+    assert mismatched_shape.shape_basis_units == honest_shape.shape_basis_units
+    assert (
+        mismatched_shape.schema_nodes,
+        mismatched_shape.evaluation_expansion_units,
+    ) != (schema.schema_nodes, schema.evaluation_expansion_units)
+    mismatched_receipt = schema_profile_module._issue_schema_evaluation_receipt(
+        schema=schema,
+        instance=instance,
+        instance_binding=instance_binding,
+        pre_evaluation_candidate=None,
+        reservation=mismatched_shape,
+        evaluator_invoked=True,
+        evaluation_passed=True,
+        bounded_errors=(),
+        failure_code=None,
+    )
+
+    with pytest.raises(
+        conformance_module._GateIntegrityFailure,
+        match="schema receipt",
+    ):
+        conformance_module._attempt_row(
+            evaluation_index=0,
+            schema=schema,
+            instance_binding=instance_binding,
+            instance_root=instance,
+            instance_root_fingerprint=instance_fingerprint,
+            instance=instance,
+            receipt=mismatched_receipt,
+            per_evaluation_limit=8_000_000,
+            ledger=ledger,
+        )
+
+
+def test_conformance_attempt_row_rejects_same_factor_cross_ledger_replay(
+    program: object,
+) -> None:
+    schema = next(
+        candidate
+        for candidate in program.schemas  # type: ignore[attr-defined]
+        if candidate.profile_id == CORE_SCHEMA_PROFILE_ID
+    )
+    instance = _owned_object({"value": "ok"})
+    instance_fingerprint = canonical_fingerprint(instance)
+    instance_binding = InstanceBinding(
+        artifact_id="artifact:core-positive",
+        artifact_fingerprint=instance_fingerprint,
+        instance_pointer="",
+    )
+    expected_ledger = BudgetLedger(LM9A_BUDGET_MANIFEST)
+    other_ledger_receipt = evaluate_schema(
+        schema,
+        instance,
+        instance_binding=instance_binding,
+        ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
+    )
+
+    with pytest.raises(
+        conformance_module._GateIntegrityFailure,
+        match="schema receipt",
+    ):
+        conformance_module._attempt_row(
+            evaluation_index=0,
+            schema=schema,
+            instance_binding=instance_binding,
+            instance_root=instance,
+            instance_root_fingerprint=instance_fingerprint,
+            instance=instance,
+            receipt=other_ledger_receipt,
+            per_evaluation_limit=8_000_000,
+            ledger=expected_ledger,
+        )
+
+
+def test_conformance_attempt_row_rejects_same_ledger_sibling_subject_replay(
+    program: object,
+) -> None:
+    schema = next(
+        candidate
+        for candidate in program.schemas  # type: ignore[attr-defined]
+        if candidate.profile_id == CORE_SCHEMA_PROFILE_ID
+    )
+    root = _owned_object(
+        {
+            "left": {"value": "ok"},
+            "right": {"value": "ok"},
+        }
+    )
+    root_fingerprint = canonical_fingerprint(root)
+    left = root["left"]
+    right = root["right"]
+    left_binding = InstanceBinding(
+        artifact_id="artifact:core-sibling-replay",
+        artifact_fingerprint=root_fingerprint,
+        instance_pointer="/left",
+    )
+    right_binding = InstanceBinding(
+        artifact_id="artifact:core-sibling-replay",
+        artifact_fingerprint=root_fingerprint,
+        instance_pointer="/right",
+    )
+    ledger = BudgetLedger(LM9A_BUDGET_MANIFEST)
+    left_receipt = evaluate_schema(
+        schema,
+        left,
+        instance_binding=left_binding,
+        ledger=ledger,
+    )
+
+    with pytest.raises(
+        conformance_module._GateIntegrityFailure,
+        match="schema receipt",
+    ):
+        conformance_module._attempt_row(
+            evaluation_index=0,
+            schema=schema,
+            instance_binding=right_binding,
+            instance_root=root,
+            instance_root_fingerprint=root_fingerprint,
+            instance=right,
+            receipt=left_receipt,
+            per_evaluation_limit=8_000_000,
+            ledger=ledger,
+        )
+
+
+def test_conformance_attempt_row_rejects_nonissued_success_receipt(
+    program: object,
+) -> None:
+    schema = next(
+        candidate
+        for candidate in program.schemas  # type: ignore[attr-defined]
+        if candidate.profile_id == CORE_SCHEMA_PROFILE_ID
+    )
+    instance = _owned_object({"value": "ok"})
+    instance_fingerprint = canonical_fingerprint(instance)
+    instance_binding = InstanceBinding(
+        artifact_id="artifact:core-positive",
+        artifact_fingerprint=instance_fingerprint,
+        instance_pointer="",
+    )
+    ledger = BudgetLedger(LM9A_BUDGET_MANIFEST)
+    honest = evaluate_schema(
+        schema,
+        instance,
+        instance_binding=instance_binding,
+        ledger=ledger,
+    )
+    fabricated = object.__new__(SchemaEvaluationReceipt)
+    object.__setattr__(fabricated, "reservation", honest.reservation)
+    object.__setattr__(fabricated, "evaluator_invoked", True)
+    object.__setattr__(fabricated, "evaluation_passed", True)
+    object.__setattr__(fabricated, "bounded_errors", ())
+    object.__setattr__(fabricated, "failure_code", None)
+
+    with pytest.raises(
+        conformance_module._GateIntegrityFailure,
+        match="schema receipt",
+    ):
+        conformance_module._attempt_row(
+            evaluation_index=0,
+            schema=schema,
+            instance_binding=instance_binding,
+            instance_root=instance,
+            instance_root_fingerprint=instance_fingerprint,
+            instance=instance,
+            receipt=fabricated,
+            per_evaluation_limit=8_000_000,
+            ledger=ledger,
+        )
+
+
+@pytest.mark.parametrize(
+    "tamper_kind",
+    (
+        "receipt_issuer",
+        "receipt_signature",
+        "reservation_issuer",
+        "reservation_origin",
+    ),
+)
+def test_conformance_rejects_post_issuance_nested_authority_tamper(
+    tamper_kind: str,
+    program: object,
+) -> None:
+    schema = next(
+        candidate
+        for candidate in program.schemas  # type: ignore[attr-defined]
+        if candidate.profile_id == CORE_SCHEMA_PROFILE_ID
+    )
+    instance = _owned_object({"value": "ok"})
+    instance_fingerprint = canonical_fingerprint(instance)
+    instance_binding = InstanceBinding(
+        artifact_id="artifact:core-post-issuance-tamper",
+        artifact_fingerprint=instance_fingerprint,
+        instance_pointer="",
+    )
+    ledger = BudgetLedger(LM9A_BUDGET_MANIFEST)
+    receipt = evaluate_schema(
+        schema,
+        instance,
+        instance_binding=instance_binding,
+        ledger=ledger,
+    )
+    resolved = schema_profile_module._resolve_instance_binding(
+        instance_root=instance,
+        instance_root_fingerprint=instance_fingerprint,
+        instance=instance,
+        instance_binding=instance_binding,
+        charge_work_units=lambda _amount: None,
+    )
+    entry = schema_profile_module._issue_schema_evaluation_audit_entry(
+        schema=schema,
+        instance=instance,
+        resolved_instance_binding=resolved,
+        receipt=receipt,
+        per_evaluation_limit=8_000_000,
+        ledger=ledger,
+    )
+    assert schema_profile_module._is_issued_schema_evaluation_receipt(receipt)
+    assert schema_profile_module._is_schema_evaluation_audit_entry(entry)
+
+    if tamper_kind == "receipt_issuer":
+        object.__setattr__(
+            receipt,
+            "_SchemaEvaluationReceipt__issuer_capability",
+            object(),
+        )
+    elif tamper_kind == "receipt_signature":
+        object.__setattr__(
+            receipt,
+            "_SchemaEvaluationReceipt__issued_signature",
+            (),
+        )
+    elif tamper_kind == "reservation_issuer":
+        object.__setattr__(receipt.reservation, "_issuer_capability", object())
+    else:
+        object.__setattr__(receipt.reservation, "_ledger_origin", object())
+
+    assert not schema_profile_module._is_issued_schema_evaluation_receipt(receipt)
+    assert not schema_profile_module._is_schema_evaluation_audit_entry(entry)
+    with pytest.raises(
+        conformance_module._GateIntegrityFailure,
+        match="not authentic",
+    ):
+        conformance_module._attempt_row_from_audit_entry(
+            entry,
+            evaluation_index=0,
+            program=program,
+        )
+
+
+def _shape_attempt(
+    *,
+    shape_basis_units: int,
+    instance_nodes: int,
+    per_evaluation_limit: int,
+    aggregate_before: int = 0,
+    accepted: bool = True,
+    failure_code: str | None = None,
+) -> dict[str, object]:
+    attempted = shape_basis_units * instance_nodes if accepted else None
+    return {
+        "attempt_status": (
+            "evaluation_completed" if accepted else "reservation_rejected"
+        ),
+        "shape_metric_id": (
+            "rook.schema_evaluation_shape:"
+            "max_schema_or_expansion_times_instance:v1"
+        ),
+        "schema_nodes": shape_basis_units,
+        "evaluation_expansion_units": 1,
+        "shape_basis_units": shape_basis_units,
+        "instance_nodes": instance_nodes,
+        "attempted_shape_units": attempted,
+        "per_evaluation_limit": per_evaluation_limit,
+        "aggregate_before_reservation": aggregate_before,
+        "aggregate_after_reservation": (
+            None if attempted is None else aggregate_before + attempted
+        ),
+        "failure_code": failure_code,
+    }
+
+
+@pytest.mark.parametrize(
+    "attempt",
+    (
+        _shape_attempt(
+            shape_basis_units=2,
+            instance_nodes=6,
+            per_evaluation_limit=10,
+        ),
+        _shape_attempt(
+            shape_basis_units=1,
+            instance_nodes=16_000_001,
+            per_evaluation_limit=20_000_000,
+        ),
+        _shape_attempt(
+            shape_basis_units=1,
+            instance_nodes=1,
+            per_evaluation_limit=10,
+            accepted=False,
+            failure_code="per_evaluation_limit_exceeded",
+        ),
+        _shape_attempt(
+            shape_basis_units=1,
+            instance_nodes=1,
+            per_evaluation_limit=10,
+            accepted=False,
+            failure_code="invocation_shape_limit_exceeded",
+        ),
+        _shape_attempt(
+            shape_basis_units=1,
+            instance_nodes=1,
+            per_evaluation_limit=10,
+            aggregate_before=1,
+        ),
+    ),
+    ids=(
+        "accepted_over_per_evaluation",
+        "accepted_over_invocation",
+        "unjustified_per_evaluation_rejection",
+        "unjustified_invocation_rejection",
+        "nonzero_initial_aggregate",
+    ),
+)
+def test_conformance_attempt_summary_rejects_false_limit_evidence(
+    attempt: dict[str, object],
+) -> None:
+    with pytest.raises(
+        conformance_module._GateIntegrityFailure,
+        match="schema attempt",
+    ):
+        conformance_module._attempt_summary([attempt])
+
+
+def test_conformance_attempt_summary_derives_exact_rejection_outcomes() -> None:
+    per_evaluation_rejection = _shape_attempt(
+        shape_basis_units=4,
+        instance_nodes=3,
+        per_evaluation_limit=10,
+        accepted=False,
+        failure_code="per_evaluation_limit_exceeded",
+    )
+    assert conformance_module._attempt_summary(
+        [per_evaluation_rejection]
+    ) == (0, False, True)
+
+    accepted = _shape_attempt(
+        shape_basis_units=1,
+        instance_nodes=15_999_999,
+        per_evaluation_limit=16_000_000,
+    )
+    invocation_rejection = _shape_attempt(
+        shape_basis_units=1,
+        instance_nodes=2,
+        per_evaluation_limit=10,
+        aggregate_before=15_999_999,
+        accepted=False,
+        failure_code="invocation_shape_limit_exceeded",
+    )
+    assert conformance_module._attempt_summary(
+        [accepted, invocation_rejection]
+    ) == (15_999_999, True, False)
 
 
 def test_release_authority_is_sealed_opaque_and_nonforgeable(
@@ -720,6 +1131,15 @@ def test_successful_campaign_seals_exact_identity_and_attempt_rows(
     core = _rows_by_id(report)["core.synthetic_positive"]
     attempt = core["schema_evaluations"][0]
     assert attempt["attempt_status"] == "evaluation_completed"
+    assert attempt["shape_metric_id"] == (
+        "rook.schema_evaluation_shape:max_schema_or_expansion_times_instance:v1"
+    )
+    assert attempt["shape_basis_units"] == max(
+        attempt["schema_nodes"], attempt["evaluation_expansion_units"]
+    )
+    assert attempt["attempted_shape_units"] == (
+        attempt["shape_basis_units"] * attempt["instance_nodes"]
+    )
     assert attempt["aggregate_after_reservation"] == (
         attempt["aggregate_before_reservation"]
         + attempt["attempted_shape_units"]
@@ -1814,7 +2234,12 @@ def test_attempt_schema_mechanically_closes_status_field_relationships() -> None
         "instance_pointer": "",
         "instance_fingerprint": fingerprint,
         "attempt_status": "evaluation_completed",
+        "shape_metric_id": (
+            "rook.schema_evaluation_shape:max_schema_or_expansion_times_instance:v1"
+        ),
         "schema_nodes": 1,
+        "evaluation_expansion_units": 1,
+        "shape_basis_units": 1,
         "instance_nodes": 1,
         "attempted_shape_units": 1,
         "per_evaluation_limit": 2_000_000,

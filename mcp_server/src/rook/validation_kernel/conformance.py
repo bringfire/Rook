@@ -16,6 +16,8 @@ from .api import (
 )
 from .budget import (
     LM9A_BUDGET_MANIFEST,
+    MAX_CHECKED_BUDGET_INTEGER,
+    SCHEMA_EVALUATION_SHAPE_METRIC_ID,
     BudgetExceeded,
     BudgetLedger,
     SealMeter,
@@ -60,9 +62,11 @@ from .schema_profile import (
     InstanceBinding,
     SchemaEvaluationInputError,
     SchemaEvaluationReceipt,
+    _RESERVATION_REJECTION_CODES,
     _SchemaEvaluationAuditEntry,
     _is_schema_evaluation_audit_entry,
     _resolve_instance_binding,
+    _validate_audit_receipt,
 )
 
 
@@ -642,6 +646,7 @@ def _attempt_row(
     instance: JsonValue,
     receipt: SchemaEvaluationReceipt,
     per_evaluation_limit: int,
+    ledger: BudgetLedger,
 ) -> dict[str, object]:
     try:
         resolved_instance = _resolve_instance_binding(
@@ -658,6 +663,22 @@ def _attempt_row(
         )
     except SchemaEvaluationInputError as error:
         raise _GateIntegrityFailure("instance binding is not source-bound") from error
+    try:
+        receipt = _validate_audit_receipt(
+            receipt,
+            schema=schema,
+            resolved_instance_binding=resolved_instance,
+            pre_evaluation_candidate=None,
+            schema_nodes=schema.schema_nodes,
+            evaluation_expansion_units=schema.evaluation_expansion_units,
+            identity_nodes=resolved_instance.instance_nodes,
+            require_rejected=False,
+            ledger=ledger,
+        )
+    except SchemaEvaluationInputError as error:
+        raise _GateIntegrityFailure(
+            "schema receipt is not authentic and factor-bound"
+        ) from error
     reservation = receipt.reservation
     if not reservation.accepted:
         status = "reservation_rejected"
@@ -684,7 +705,10 @@ def _attempt_row(
         "instance_pointer": instance_binding.instance_pointer,
         "instance_fingerprint": resolved_instance.instance_fingerprint,
         "attempt_status": status,
+        "shape_metric_id": reservation.shape_metric_id,
         "schema_nodes": schema.schema_nodes,
+        "evaluation_expansion_units": schema.evaluation_expansion_units,
+        "shape_basis_units": reservation.shape_basis_units,
         "instance_nodes": resolved_instance.instance_nodes,
         "attempted_shape_units": attempted,
         "per_evaluation_limit": per_evaluation_limit,
@@ -697,30 +721,106 @@ def _attempt_row(
 
 
 def _attempt_summary(attempts: list[dict[str, object]]) -> tuple[int, bool, bool]:
-    aggregate = (
-        cast(int, attempts[0]["aggregate_before_reservation"])
-        if attempts
-        else 0
-    )
+    aggregate = 0
     within_per_evaluation = True
     within_invocation = True
     for attempt in attempts:
         before = attempt["aggregate_before_reservation"]
         if type(before) is not int or before != aggregate:
             raise _GateIntegrityFailure("schema attempt aggregate order is inconsistent")
+        schema_nodes = attempt["schema_nodes"]
+        expansion_units = attempt["evaluation_expansion_units"]
+        shape_basis_units = attempt["shape_basis_units"]
+        instance_nodes = attempt["instance_nodes"]
+        attempted_units = attempt["attempted_shape_units"]
+        per_evaluation_limit = attempt["per_evaluation_limit"]
+        if (
+            attempt["shape_metric_id"] != SCHEMA_EVALUATION_SHAPE_METRIC_ID
+            or type(schema_nodes) is not int
+            or schema_nodes < 1
+            or type(expansion_units) is not int
+            or expansion_units < 1
+            or type(shape_basis_units) is not int
+            or shape_basis_units != max(schema_nodes, expansion_units)
+            or type(instance_nodes) is not int
+            or instance_nodes < 1
+            or type(per_evaluation_limit) is not int
+            or per_evaluation_limit < 1
+            or before > _INVOCATION_SHAPE_LIMIT
+        ):
+            raise _GateIntegrityFailure("schema attempt shape metric is inconsistent")
+
+        overflow = any(
+            value > MAX_CHECKED_BUDGET_INTEGER
+            for value in (
+                schema_nodes,
+                expansion_units,
+                shape_basis_units,
+                instance_nodes,
+                per_evaluation_limit,
+            )
+        )
+        per_evaluation_exceeded = bool(
+            not overflow
+            and instance_nodes > per_evaluation_limit // shape_basis_units
+        )
+        invocation_remaining = _INVOCATION_SHAPE_LIMIT - before
+        invocation_exceeded = bool(
+            not overflow
+            and instance_nodes > invocation_remaining // shape_basis_units
+        )
         after = attempt["aggregate_after_reservation"]
-        if type(after) is int:
-            aggregate = after
-        else:
-            aggregate = before
         failure_code = attempt["failure_code"]
-        if failure_code == "per_evaluation_limit_exceeded":
-            within_per_evaluation = False
-        elif failure_code == "invocation_shape_limit_exceeded":
-            within_invocation = False
-        elif failure_code == "shape_product_overflow":
-            within_per_evaluation = False
-            within_invocation = False
+        status = attempt["attempt_status"]
+        if status in ("evaluation_completed", "evaluator_failed"):
+            if (
+                overflow
+                or per_evaluation_exceeded
+                or invocation_exceeded
+                or failure_code in _RESERVATION_REJECTION_CODES
+            ):
+                raise _GateIntegrityFailure(
+                    "schema attempt accepted an invalid shape reservation"
+                )
+            expected_units = shape_basis_units * instance_nodes
+            if (
+                type(attempted_units) is not int
+                or attempted_units != expected_units
+                or type(after) is not int
+                or after != before + attempted_units
+                or after > _INVOCATION_SHAPE_LIMIT
+            ):
+                raise _GateIntegrityFailure(
+                    "schema attempt shape reservation is inconsistent"
+                )
+            aggregate = after
+        elif status == "reservation_rejected":
+            if attempted_units is not None or after is not None:
+                raise _GateIntegrityFailure(
+                    "schema attempt rejected reservation is inconsistent"
+                )
+            expected_failure = (
+                "shape_product_overflow"
+                if overflow
+                else "per_evaluation_limit_exceeded"
+                if per_evaluation_exceeded
+                else "invocation_shape_limit_exceeded"
+                if invocation_exceeded
+                else None
+            )
+            if failure_code != expected_failure or expected_failure is None:
+                raise _GateIntegrityFailure(
+                    "schema attempt rejection reason is not justified"
+                )
+            if expected_failure == "per_evaluation_limit_exceeded":
+                within_per_evaluation = False
+            elif expected_failure == "invocation_shape_limit_exceeded":
+                within_invocation = False
+            else:
+                within_per_evaluation = False
+                within_invocation = False
+        else:
+            raise _GateIntegrityFailure("schema attempt status is invalid")
     return aggregate, within_per_evaluation, within_invocation
 
 
@@ -831,6 +931,7 @@ def _execute_core_case(
         instance=parsed.value,
         receipt=receipt,
         per_evaluation_limit=evaluator_spec.profile.per_evaluation_shape_limit,
+        ledger=schema_ledger,
     )
     completed = attempt["attempt_status"] == "evaluation_completed"
     instance_valid = attempt["evaluation_passed"] if completed else None
@@ -952,6 +1053,8 @@ def _attempt_row_from_audit_entry(
             if candidate.schema_id == entry.schema_id
             and candidate.schema_fingerprint == entry.schema_fingerprint
             and candidate.schema_nodes == entry.schema_nodes
+            and candidate.evaluation_expansion_units
+            == entry.evaluation_expansion_units
         ),
         None,
     )
@@ -1009,7 +1112,10 @@ def _attempt_row_from_audit_entry(
         "instance_pointer": binding.instance_pointer,
         "instance_fingerprint": instance_fingerprint,
         "attempt_status": status,
+        "shape_metric_id": reservation.shape_metric_id,
         "schema_nodes": entry.schema_nodes,
+        "evaluation_expansion_units": entry.evaluation_expansion_units,
+        "shape_basis_units": reservation.shape_basis_units,
         "instance_nodes": instance_nodes,
         "attempted_shape_units": attempted,
         "per_evaluation_limit": entry.per_evaluation_limit,

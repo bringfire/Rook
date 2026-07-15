@@ -335,7 +335,7 @@ orders have different raw-byte hashes but the same canonical value fingerprint.
 | aggregate decoded UTF-8 string bytes across keys and values | 2,097,152 |
 | aggregate tokenizer/parser work units across both artifacts | 500,000 |
 | registered semantic references | 25,000 |
-| aggregate schema-evaluation shape units | 16,000,000 |
+| aggregate schema-evaluation conservative work-shape units | 16,000,000 |
 | diagnostics | 1,024 |
 | compile blockers | 1,024 |
 | kernel/cooperative phase work units | 1,000,000 |
@@ -366,23 +366,31 @@ Accounting for kernel-controlled work is normative:
   the nonempty semantic-reference rule;
 - a semantic reference is charged when a runner asks the kernel to record one
   discriminated reference in an invocation-owned resolution index;
-- before each schema evaluation, the engine computes
-  `schema_nodes * instance_nodes` with checked nonnegative integer arithmetic.
-  When `schema_nodes > 0`, it first tests `instance_nodes` against both
-  `floor(per_evaluation_limit / schema_nodes)` and
-  `floor(aggregate_remaining / schema_nodes)`. An over-limit or host-integer-
-  overflow condition becomes `validation_budget_exceeded` before the evaluator
-  is called; multiplication occurs only after both guards pass. A valid schema
-  document always has at least its root node;
+- every admitted schema records `evaluation_expansion_units` from the bounded
+  acyclic reference/combinator graph. Before each schema evaluation, the engine
+  derives `shape_basis_units = max(schema_nodes, evaluation_expansion_units)`
+  and computes `attempted_shape_units = shape_basis_units * instance_nodes`
+  under metric
+  `rook.schema_evaluation_shape:max_schema_or_expansion_times_instance:v1`.
+  With `shape_basis_units > 0`, it first tests `instance_nodes` against both
+  `floor(per_evaluation_limit / shape_basis_units)` and
+  `floor(aggregate_remaining / shape_basis_units)` using checked nonnegative
+  integer arithmetic. An over-limit or host-integer-overflow condition becomes
+  `validation_budget_exceeded` before evaluator construction; multiplication
+  occurs only after both guards pass. A valid schema and its expansion measure
+  each contribute at least one unit;
 - the checked product is reserved in full from both the applicable
   per-evaluation limit and the invocation-wide schema-shape counter and is never
   refunded. Repeating an evaluation reserves the full product again, even for
   identical schema/instance fingerprints. Schema compilation, `$ref` resolution,
   evaluator memoization, or other caching cannot reduce evidence units;
-- each evaluation meter row records a contiguous zero-based `evaluation_index`,
-  schema ID/fingerprint, immutable instance binding and pointer, instance
-  fingerprint, `schema_nodes`, `instance_nodes`, checked shape-unit product,
-  applicable per-evaluation limit, and aggregate total after reservation;
+- each schema-shape reservation and evaluation meter row records the metric ID,
+  `schema_nodes`, `evaluation_expansion_units`, derived `shape_basis_units`,
+  `instance_nodes`, and the checked shape-unit product, in addition to its
+  contiguous zero-based `evaluation_index`, schema ID/fingerprint, immutable
+  instance binding and pointer, instance fingerprint, applicable per-evaluation
+  limit, and aggregate total after reservation. Rejected reservations retain the
+  metric and factors while the uncomputed product remains `null`;
 - each issue is charged before insertion, including an issue later rejected as
   duplicate or unauthorized;
 - tokenizer/parser work charges one unit per started 64-byte raw-input block,
@@ -673,7 +681,7 @@ Static admission limits are sealed into the profile:
 | nodes in one embedded schema | 4,096 |
 | local references in one embedded schema | 256 |
 | local reference depth | 16 |
-| conservative schema-nodes x payload-nodes product | 2,000,000 |
+| conservative max(schema nodes, expansion units) x payload nodes | 2,000,000 |
 | instance JSON Pointer UTF-8 code units (bytes) | 4,096 |
 | schema evaluation expansion units | 32,768 |
 
@@ -691,7 +699,8 @@ and custom keywords. Their sealed limits are 32,768 schema nodes, 1,024 local
 references, local reference depth 32, at most 16 alternatives per combinator,
 combinator nesting depth 8, at most 65,536 schema evaluation expansion units,
 an inclusive 4,096-byte instance JSON Pointer, and
-`schema_nodes * instance_nodes <= 8,000,000`. Identity grammar, duplicate IDs,
+`max(schema_nodes, evaluation_expansion_units) * instance_nodes <= 8,000,000`.
+Identity grammar, duplicate IDs,
 and semantic set uniqueness are checked by linear trusted runners rather than
 potentially expensive schema regex or `uniqueItems` behavior. Changing either
 profile, a core schema, evaluator package, metaschema, or type checker moves the
@@ -702,7 +711,11 @@ contributes one unit, a single structural or reference edge forwards its
 target's units, and branching edges sum with saturation at the profile limit
 plus one. The profile identity binds the limit and each admitted schema records
 its exact observed expansion units. Limit-plus-one rejection precedes schema
-library construction.
+library construction. The profile identity also binds the exact conservative
+shape metric ID and formula. Every sealed-program schema descriptor binds its
+observed expansion units so a different expansion result moves program identity.
+Expansion is not an independent admission-only allowance: it is coupled to the
+exact evaluated instance cardinality through the checked reservation above.
 
 The applicable per-evaluation bounds and the invocation-wide 16,000,000-unit
 schema-shape counter are reserved before evaluation. They bound accepted problem
@@ -1013,7 +1026,10 @@ result_rows:
         instance_pointer: ""
         instance_fingerprint: sha256:...
         attempt_status: evaluation_completed
+        shape_metric_id: rook.schema_evaluation_shape:max_schema_or_expansion_times_instance:v1
         schema_nodes: 1
+        evaluation_expansion_units: 1
+        shape_basis_units: 1
         instance_nodes: 1
         attempted_shape_units: 1
         per_evaluation_limit: 2000000
@@ -1164,6 +1180,55 @@ Reservations are never refunded. The case-level
 `aggregate_after_reservation`, or zero when no reservation succeeded. A rejected
 reservation makes the applicable limit boolean false without pretending that a
 reservation completed.
+
+Every status retains the metric ID and all four factor fields. Deterministic
+validation recomputes `shape_basis_units` and the accepted product rather than
+trusting receipt claims. A missing, mismatched, or unsupported metric identity is
+an integrity failure, not an ordinary over-budget outcome.
+
+Projection also requires the exact ledger-issued reservation capability. Every
+reservation carries a private origin capability for the one invocation ledger
+that issued it. That origin is never serialized, fingerprinted as public
+evidence, or reconstructible from metric factors. Audit projection receives the
+expected invocation ledger and rejects a genuine reservation issued by any
+other ledger, including one with identical factors, limits, and aggregate
+values. The reservation's schema-node, expansion, and instance-node factors
+must also equal the admitted schema and source-bound instance; an otherwise
+equal product or basis cannot substitute for those identities.
+
+Schema evaluation results are likewise kernel-issued immutable receipts. Their
+private issuer capability binds the reservation, evaluator-invocation status,
+bounded issues, result status, failure code, exact admitted-schema identity, and
+exact evaluation-subject identity. An evaluated subject binding includes the
+immutable instance identity and the exact `InstanceBinding` identity and fields.
+A rejected pre-evaluation report candidate instead binds the exact kernel-issued
+candidate identity. Exactly one subject variant is permitted.
+
+Public callers cannot construct an authoritative success or failure receipt by
+reproducing serialized fields. Audit entry construction first verifies the
+receipt issuer, then its reservation against the exact expected ledger, then its
+private schema and subject bindings against the source-bound schema/instance or
+pre-evaluation candidate being projected. A genuine same-ledger receipt cannot
+be reused for a different equal-shaped schema, sibling instance, equivalent but
+different binding object, or equal-valued candidate identity. None of these
+private capabilities enters an attempt row, report, fingerprint, or other
+content-addressed public artifact.
+
+Authentication remains transitive after issuance. Revalidating an audit entry
+must revalidate its embedded receipt, and revalidating that receipt must
+revalidate the reservation's issuer, origin, and signed state. Post-issuance
+mutation or invalidation of any nested issuer, signature, or reservation-origin
+capability invalidates the enclosing receipt and audit entry before projection.
+
+Each case or semantic validation invocation starts its aggregate chain at zero.
+For an accepted reservation, deterministic conformance proves the product is
+within the applicable per-evaluation limit and the resulting aggregate is within
+the invocation limit.
+For a rejected reservation, conformance replays the ledger's fail-closed decision
+order exactly: checked-integer overflow, then per-evaluation excess, then
+invocation-aggregate excess. A rejection code without the corresponding
+mathematical condition, or an accepted row that exceeds either limit, is a gate
+integrity failure.
 
 For `per_evaluation_limit_exceeded`, only
 `within_every_per_evaluation_limit=false` is forced by that attempt. For
@@ -1482,9 +1547,20 @@ The kernel proof suite includes:
   dynamic reference, cycle, and complexity-limit excess before evaluation;
 - schema evaluator package, metaschema, profile, and core schema changes move
   the program fingerprint;
-- schema-shape units count the complete schema document and exact evaluated
-  instance root, use checked multiplication, charge repeated evaluations in
-  full, and remain invariant under evaluator/reference caching;
+- schema-shape units conservatively couple complete schema-node count and
+  admitted reference/combinator expansion to the exact evaluated instance root,
+  use checked multiplication, charge repeated evaluations in full, and remain
+  invariant under evaluator/reference caching;
+- a combined fan-out-plus-collection boundary proves that an individually
+  admissible expansion graph and an individually admissible collection cannot
+  bypass the per-evaluation or invocation reservation when their product exceeds
+  the sealed limit; evaluator construction remains unobserved on rejection;
+- copied reservations, ledger-issued reservations for different schema factors,
+  same-factor reservations replayed from another invocation ledger, genuine
+  same-ledger receipts replayed for another equal-shaped schema, sibling
+  instance, or pre-evaluation candidate, fabricated evaluation receipts,
+  accepted over-limit rows, unjustified rejection reasons, and nonzero initial
+  aggregate claims all fail before conformance publication;
 - the release-owned sealed gate profile is supplied before campaign inspection,
   and changing a campaign's required profile fingerprint cannot select or alter
   the bound gate implementation;
@@ -1506,6 +1582,16 @@ The kernel proof suite includes:
 - semantic-fixture attempt rows come only from the kernel-issued execution-audit
   capability; report JSON, fixture claims, and lookalike audit objects cannot
   author or replace them;
+- semantic phase and report-seal schema helpers reject a schema receipt whose
+  reservation belongs to another invocation ledger, even when every serialized
+  factor and status field matches;
+- semantic phase, report-seal, and conformance projection reject a genuine
+  same-ledger receipt whose private schema or subject binding differs from the
+  exact source-bound schema, immutable instance and binding, or rejected
+  pre-evaluation candidate being projected;
+- post-issuance receipt issuer/signature or reservation issuer/origin tampering
+  invalidates the enclosing receipt and audit entry transitively before any
+  conformance row can be projected;
 - every registered core schema has a fitting positive instance, every required
   semantic fixture fits the aggregate schema-shape cap, and the content-addressed
   campaign binds every exact program/schema/fixture/assembler-profile fingerprint;

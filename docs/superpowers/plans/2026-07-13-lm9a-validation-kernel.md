@@ -373,6 +373,11 @@ class BudgetReceipt: ...
 @dataclass(frozen=True)
 class SchemaShapeReservation:
     accepted: bool
+    shape_metric_id: str
+    schema_nodes: int
+    evaluation_expansion_units: int
+    shape_basis_units: int
+    instance_nodes: int
     attempted_shape_units: int | None
     aggregate_before: int
     aggregate_after: int | None
@@ -380,7 +385,7 @@ class SchemaShapeReservation:
 
 class BudgetLedger:
     def charge(self, dimension: BudgetDimension, amount: int, *, artifact_role: str, subject_path: str | None) -> None: ...
-    def reserve_schema_shape(self, *, schema_nodes: int, instance_nodes: int, per_evaluation_limit: int) -> SchemaShapeReservation: ...
+    def reserve_schema_shape(self, *, schema_nodes: int, evaluation_expansion_units: int, instance_nodes: int, per_evaluation_limit: int) -> SchemaShapeReservation: ...
     def snapshot(self) -> BudgetSnapshot: ...
     def reserve_report_seal_and_freeze(self) -> BudgetReceipt: ...
 
@@ -576,6 +581,7 @@ class AdmittedSchema:
     schema_nodes: int
     local_reference_count: int
     maximum_reference_depth: int
+    evaluation_expansion_units: int
     value: JsonObject
 
 @dataclass(frozen=True)
@@ -623,7 +629,7 @@ def test_schema_fingerprint_accepts_finite_integer_outside_product_safe_range():
 
 - [ ] **Step 3: Write failing evaluator tests**
 
-Cover exact owned-value type checking, no format callbacks, no retrieval callback, full schema-node count including unreachable `$defs` and annotations, exact selected instance-root count, repeated evaluation charging, pre-evaluation reservation rejection, schema rejection, evaluator exception, and cache-independent shape units.
+Cover exact owned-value type checking, no format callbacks, no retrieval callback, full schema-node count including unreachable `$defs` and annotations, admitted reference/combinator expansion, exact selected instance-root count, repeated evaluation charging, pre-evaluation reservation rejection, schema rejection, evaluator exception, and cache-independent shape units. Add a combined boundary where individually admitted fan-out and collection width exceed the per-evaluation limit only after `max(schema_nodes, evaluation_expansion_units) * instance_nodes`; assert rejection before evaluator construction.
 
 Assert the installed versions and the Draft 2020-12 metaschema fingerprint are included in the profile identity.
 
@@ -643,7 +649,13 @@ Implement a custom `jsonschema` type checker for the six owned JSON value types.
 
 - [ ] **Step 6: Implement metered evaluation**
 
-Compute and reserve `schema_nodes * instance_nodes` before invoking the library. Return one immutable receipt for reservation rejection, completed evaluation, or evaluator failure. The adapter records bounded deterministic paths/codes and hashes variable exception detail; it never forwards unbounded `str(exc)`.
+Under metric `rook.schema_evaluation_shape:max_schema_or_expansion_times_instance:v1`, derive `shape_basis_units = max(schema_nodes, evaluation_expansion_units)` and compute/reserve `shape_basis_units * instance_nodes` before invoking the library. Bind the metric ID, both source factors, derived basis, instance count, and product into the immutable reservation and conformance attempt row. Bind metric identity/formula into the profile and observed expansion into every sealed-program schema descriptor.
+
+Each reservation also carries one private, nonserialized origin capability bound to the exact invocation ledger that issued it. Return a private kernel-issued immutable receipt for reservation rejection, completed evaluation, or evaluator failure; public construction of a receipt with matching fields is not authoritative. The receipt's private signed state binds the exact admitted-schema identity and exactly one evaluation subject: the immutable instance plus exact `InstanceBinding`, or the exact kernel-issued pre-evaluation candidate. Audit entry construction receives the expected invocation ledger and requires the kernel-issued receipt, its exact ledger-origin reservation, exact schema/instance factors, and matching private schema/subject bindings. A copied reservation, an equal-basis reservation with different factors, a same-factor reservation replayed from another ledger, a genuine same-ledger receipt replayed for another equal-shaped schema/sibling instance/candidate, or a caller-fabricated receipt fails before audit publication. The adapter records bounded deterministic paths/codes and hashes variable exception detail; it never forwards unbounded `str(exc)`.
+
+Make nested authority validation transitive on every use: audit-entry authentication reauthenticates its receipt, and receipt authentication reauthenticates the reservation issuer/origin/signature. Add post-issuance tamper regressions for receipt issuer/signature and reservation issuer/origin; each must invalidate the receipt and enclosing audit entry and stop conformance projection.
+
+Add regressions at the schema helper and conformance projection boundaries for cross-ledger same-factor replay, same-ledger equal-factor schema/instance replay, pre-evaluation candidate replay, and fabricated success receipts. Assert that private ledger/receipt schema/subject capabilities do not appear in public evidence projections, attempt rows, reports, fingerprints, or conformance artifacts.
 
 - [ ] **Step 7: Run focused tests and dependency checks**
 
@@ -1248,7 +1260,7 @@ assert completed.aggregate_after_reservation == (
 )
 ```
 
-Prove repeated evaluations reserve full products and no attempt is invented before the evaluator boundary.
+Prove repeated evaluations reserve full conservative products, all attempt rows expose and recompute the metric factors, and no attempt is invented before the evaluator boundary. Conformance starts each independent case/invocation chain at zero, proves accepted rows are within both limits, and replays the exact overflow -> per-evaluation -> invocation rejection precedence. Add adversarial rows for forged factors, accepted over-limit products, unjustified rejection codes, and nonzero initial aggregates.
 
 - [ ] **Step 4: Write campaign completeness tests**
 
@@ -1381,7 +1393,7 @@ Under the exact sealed synthetic program, prove:
 
 - every registered core schema has a positive instance within its per-evaluation limit;
 - every mandatory synthetic campaign case fits the 16,000,000-unit invocation cap;
-- observed shape units are bound to the exact program fingerprint;
+- observed shape metric identity, schema/expansion basis, and resulting units are bound to the exact program fingerprint;
 - adding an over-budget schema/fixture makes the aggregate release decision fail;
 - fixed report-seal allowance covers the maximum schema-permitted projection and two maximum-size canonical traversals.
 

@@ -526,6 +526,7 @@ def test_private_report_seal_records_rejected_final_schema_reservation() -> None
     for _ in range(4):
         reservation = context.ledger.reserve_schema_shape(
             schema_nodes=1,
+            evaluation_expansion_units=1,
             instance_nodes=4_000_000,
             per_evaluation_limit=4_000_000,
         )

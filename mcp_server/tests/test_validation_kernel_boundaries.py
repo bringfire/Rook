@@ -267,55 +267,55 @@ _PRIVATE_AUDIT_MEMBER_NAMES = frozenset(
 _BOUNDARY_GOLDEN_EXPECTATIONS = MappingProxyType(
     {
         # default / core-content / gate-callable scenarios
-        "sha256:e5b4c2a28b7d08d8a79ce0070682f43823dc21145b70dfcb1c0820de499774d3": {
+        "sha256:80744d66bc28eab58cc7cdd0b6867628dab8fc64187674a4a1d5f8200b1cd0a7": {
             "result_kind": "published_report",
             "report_schema_id": "synthetic.report:v1",
-            "report_fingerprint": "sha256:c03fc4b80e6f233600848b4cfabf348ecbc6c04297e1821e137e8bfea0e582bc",
+            "report_fingerprint": "sha256:c91afbb0f852978c284d5a38f6bc921aec354ff987626eec2234aec1cce8da6d",
             "control_failure_stage": None,
             "control_failure_code": None,
             "control_failure_artifact_role": None,
         },
         # changed recipe
-        "sha256:45da14a64da008fecd65a01686d2fc245e4e6a5127e1253b0a524b80f6fba24c": {
+        "sha256:63675b70399a79a35f7cfea24da4e6f60a706e5ab807e94b3848848a9ea2dc35": {
             "result_kind": "published_report",
             "report_schema_id": "synthetic.report:v1",
-            "report_fingerprint": "sha256:89c379e15fd35c90b875a56bdac67f3e6c3c396d5832fd682e40800887f65dc5",
+            "report_fingerprint": "sha256:385bc76fd5e149fa698d61df055a37d65136813bcbbaee22c14bb8d531232f4f",
             "control_failure_stage": None,
             "control_failure_code": None,
             "control_failure_artifact_role": None,
         },
         # changed bundle
-        "sha256:ffb4223110eaf9382509a659be1982c1a7a3e3a6416cb4aad82411b1a4271cad": {
+        "sha256:36682e9467f2e6f93d720106059eaef5112d738adc5863d2cdf7a1c96c85305f": {
             "result_kind": "published_report",
             "report_schema_id": "synthetic.report:v1",
-            "report_fingerprint": "sha256:bb06fcb4a4895e036fcba119cf840a7192be160f6b9e323d58ee2a558b4c99e6",
+            "report_fingerprint": "sha256:f542f324aad0eabbf414da6fee5105f77be9327ab0bd86ac65aaeef2d1075cff",
             "control_failure_stage": None,
             "control_failure_code": None,
             "control_failure_artifact_role": None,
         },
         # changed program behavior
-        "sha256:8140d3d6a91559b6f24d341c1dd84eb42f54745d008b4b3c81ddfa697f9d321a": {
+        "sha256:fdc144e5062781615a7133a8ffc8d7dd6338c07cb67ee039d806dd3948e92a17": {
             "result_kind": "published_report",
             "report_schema_id": "synthetic.report:v1",
-            "report_fingerprint": "sha256:cb97580db6e5046f1b9b11ed8011dff01362ae64dff73c4e06cbf7a8e166558d",
+            "report_fingerprint": "sha256:211cda6ad63f56eec45bda397049d48b3d7f81fe4587d555b5a520d9de134bd4",
             "control_failure_stage": None,
             "control_failure_code": None,
             "control_failure_artifact_role": None,
         },
         # changed assembler profile
-        "sha256:c00295d0346ac82ce75b5a32b3ddfa6d70a0fbdb0121fff8588fbcbf9ef5811f": {
+        "sha256:cf83062c25c45fb6ab7e4b4ed4ccc53c10e21050cff3069f1fb58609ada6a9f8": {
             "result_kind": "published_report",
             "report_schema_id": "synthetic.report:v1",
-            "report_fingerprint": "sha256:c03fc4b80e6f233600848b4cfabf348ecbc6c04297e1821e137e8bfea0e582bc",
+            "report_fingerprint": "sha256:c91afbb0f852978c284d5a38f6bc921aec354ff987626eec2234aec1cce8da6d",
             "control_failure_stage": None,
             "control_failure_code": None,
             "control_failure_artifact_role": None,
         },
         # wide core schema
-        "sha256:112b0f25302915c20faa9a281fcd04efe877341260ec1c0b2bee4a9b863d7edc": {
+        "sha256:be8b2a0bcd3814fec740e26277f266b36307fbcb6c8df54d0fb0c3771c11da9c": {
             "result_kind": "published_report",
             "report_schema_id": "synthetic.report:v1",
-            "report_fingerprint": "sha256:752d330b3f0022dfe2bd0f498d56610b62110470cbc9ea7bad3b960ae1a5bc8b",
+            "report_fingerprint": "sha256:b259dbf90cd5a577b55f1196417daed09519458c5720e17e1a6dd3f747d195a6",
             "control_failure_stage": None,
             "control_failure_code": None,
             "control_failure_artifact_role": None,
@@ -1451,7 +1451,9 @@ def test_per_evaluation_admission_rejection_fails_the_aggregate_release_decision
     assert core["outcome"] == "failed"
     assert core["failure_code"] == "validation_budget_exceeded"
     attempt = core["schema_evaluations"][0]
-    calculated_shape_units = attempt["schema_nodes"] * attempt["instance_nodes"]
+    calculated_shape_units = max(
+        attempt["schema_nodes"], attempt["evaluation_expansion_units"]
+    ) * attempt["instance_nodes"]
     assert attempt["schema_nodes"] == 2_110
     assert attempt["instance_nodes"] == 4_002
     assert calculated_shape_units == 8_444_220

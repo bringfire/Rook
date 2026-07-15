@@ -23,6 +23,8 @@ from packaging.requirements import InvalidRequirement, Requirement
 from .budget import (
     BudgetManifest,
     LM9A_BUDGET_MANIFEST,
+    SCHEMA_EVALUATION_SHAPE_FORMULA,
+    SCHEMA_EVALUATION_SHAPE_METRIC_ID,
     create_budget_ledger,
 )
 from .canonical_json import (
@@ -818,7 +820,11 @@ def _validate_budget(budget: object) -> tuple[BudgetManifest, dict[str, object]]
                 "profile_id": budget.profile_id,
                 "limits": limits_host,
                 "admission_order": "bundle_then_recipe_v1",
-                "accounting_rules": "lm9a_kernel_controlled_v1",
+                "accounting_rules": "lm9a_kernel_controlled_v2",
+                "schema_evaluation_shape_metric": {
+                    "metric_id": SCHEMA_EVALUATION_SHAPE_METRIC_ID,
+                    "formula": SCHEMA_EVALUATION_SHAPE_FORMULA,
+                },
                 "seal_algorithm": "fixed_report_seal_v1",
             },
             "budget identity",
@@ -870,6 +876,7 @@ def _schema_profile_manifest(spec: SchemaEvaluatorSpec) -> dict[str, object]:
         _fail(f"schema profile identity is not an object: {profile.profile_id}")
     evaluator_identity = identity.get("evaluator")
     limits_identity = identity.get("limits")
+    shape_metric_identity = identity.get("shape_metric")
     expected_limits = {
         "schema_nodes": profile.schema_node_limit,
         "local_references": profile.local_reference_limit,
@@ -884,6 +891,11 @@ def _schema_profile_manifest(spec: SchemaEvaluatorSpec) -> dict[str, object]:
         or identity.get("forbidden_keywords") != list(profile.forbidden_keywords)
         or type(limits_identity) is not dict
         or any(limits_identity.get(key) != value for key, value in expected_limits.items())
+        or shape_metric_identity
+        != {
+            "metric_id": SCHEMA_EVALUATION_SHAPE_METRIC_ID,
+            "formula": SCHEMA_EVALUATION_SHAPE_FORMULA,
+        }
         or type(evaluator_identity) is not dict
         or evaluator_identity.get("evaluator_id") != profile.evaluator_id
         or evaluator_identity.get("type_checker_id") != profile.type_checker_id
@@ -909,6 +921,10 @@ def _schema_profile_manifest(spec: SchemaEvaluatorSpec) -> dict[str, object]:
             sorted(profile.forbidden_keywords, key=utf16_sort_key)
         ),
         "limits": expected_limits,
+        "shape_metric": {
+            "metric_id": SCHEMA_EVALUATION_SHAPE_METRIC_ID,
+            "formula": SCHEMA_EVALUATION_SHAPE_FORMULA,
+        },
         "runtime_dependencies": expected_dependencies,
         "metaschema_id": profile.metaschema_id,
         "metaschema_fingerprint": profile.metaschema_fingerprint,
@@ -1002,6 +1018,8 @@ def _validate_schemas(
             != candidate.local_reference_count
             or re_admitted.maximum_reference_depth
             != candidate.maximum_reference_depth
+            or re_admitted.evaluation_expansion_units
+            != candidate.evaluation_expansion_units
             or re_admitted.value is not candidate.value
         ):
             _fail(f"schema admission authority is inconsistent: {schema_id}")
@@ -1013,6 +1031,9 @@ def _validate_schemas(
             "schema_nodes": candidate.schema_nodes,
             "local_reference_count": candidate.local_reference_count,
             "maximum_reference_depth": candidate.maximum_reference_depth,
+            "evaluation_expansion_units": (
+                candidate.evaluation_expansion_units
+            ),
         }
     ordered_ids = sorted(by_id, key=utf16_sort_key)
     return tuple(by_id[schema_id] for schema_id in ordered_ids), manifests

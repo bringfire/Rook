@@ -1190,6 +1190,7 @@ def _helper_facade(
                     resolved_instance_binding=resolved_instance,
                     receipt=receipt,
                     per_evaluation_limit=profile.per_evaluation_shape_limit,
+                    ledger=context.ledger,
                 )
             )
         except SchemaEvaluationInputError as exception:

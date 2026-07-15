@@ -857,7 +857,9 @@ def _seal_validation_report_with_audit(
                 instance_pointer="",
             )
             rejected_receipt = _rejected_schema_evaluation_receipt(
-                schema, schema_reservation
+                schema,
+                schema_reservation,
+                pre_evaluation_candidate=candidate,
             )
             audit_attempts.append(
                 _issue_rejected_candidate_audit_entry(
@@ -866,6 +868,7 @@ def _seal_validation_report_with_audit(
                     candidate=candidate,
                     receipt=rejected_receipt,
                     per_evaluation_limit=schema_reservation.per_evaluation_limit,
+                    ledger=context.ledger,
                 )
             )
             return _audited_report_seal(
@@ -974,6 +977,7 @@ def _seal_validation_report_with_audit(
                 resolved_instance_binding=resolved_final_binding,
                 receipt=schema_evaluation,
                 per_evaluation_limit=schema_reservation.per_evaluation_limit,
+                ledger=context.ledger,
             )
         )
         if (

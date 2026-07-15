@@ -675,6 +675,7 @@ def test_private_audit_records_rejected_final_report_reservation(
         for _ in range(4):
             reservation = context.ledger.reserve_schema_shape(  # type: ignore[attr-defined]
                 schema_nodes=1,
+                evaluation_expansion_units=1,
                 instance_nodes=4_000_000,
                 per_evaluation_limit=4_000_000,
             )

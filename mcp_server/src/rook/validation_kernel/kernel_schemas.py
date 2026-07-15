@@ -268,6 +268,22 @@ _PROGRAM_MANIFEST_SCHEMA_HOST = {
                                 "combinator_depth": {"type": "integer", "minimum": 0},
                             }
                         ),
+                        "shape_metric": _closed_object(
+                            {
+                                "metric_id": {
+                                    "const": (
+                                        "rook.schema_evaluation_shape:"
+                                        "max_schema_or_expansion_times_instance:v1"
+                                    )
+                                },
+                                "formula": {
+                                    "const": (
+                                        "max(schema_nodes,"
+                                        "evaluation_expansion_units)*instance_nodes"
+                                    )
+                                },
+                            }
+                        ),
                         "runtime_dependencies": {
                             "type": "array",
                             "items": _closed_object(
@@ -298,6 +314,10 @@ _PROGRAM_MANIFEST_SCHEMA_HOST = {
                         "schema_nodes": {"type": "integer", "minimum": 1},
                         "local_reference_count": {"type": "integer", "minimum": 0},
                         "maximum_reference_depth": {"type": "integer", "minimum": 0},
+                        "evaluation_expansion_units": {
+                            "type": "integer",
+                            "minimum": 1,
+                        },
                     }
                 ),
             },
@@ -681,7 +701,15 @@ _ATTEMPT_PROPERTIES = {
             "evaluator_failed",
         ]
     },
+    "shape_metric_id": {
+        "const": (
+            "rook.schema_evaluation_shape:"
+            "max_schema_or_expansion_times_instance:v1"
+        )
+    },
     "schema_nodes": {"type": "integer", "minimum": 0},
+    "evaluation_expansion_units": {"type": "integer", "minimum": 0},
+    "shape_basis_units": {"type": "integer", "minimum": 0},
     "instance_nodes": {"type": "integer", "minimum": 0},
     "attempted_shape_units": {
         "type": ["integer", "null"],

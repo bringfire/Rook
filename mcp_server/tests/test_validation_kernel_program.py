@@ -280,6 +280,7 @@ def _forge_admitted_schema(
     value: JsonObject | None = None,
     local_reference_count: int | None = None,
     maximum_reference_depth: int | None = None,
+    evaluation_expansion_units: int | None = None,
 ) -> AdmittedSchema:
     forged_value = source.value if value is None else value
     forged = object.__new__(AdmittedSchema)
@@ -300,7 +301,12 @@ def _forge_admitted_schema(
             if maximum_reference_depth is None
             else maximum_reference_depth,
         ),
-        ("evaluation_expansion_units", source.evaluation_expansion_units),
+        (
+            "evaluation_expansion_units",
+            source.evaluation_expansion_units
+            if evaluation_expansion_units is None
+            else evaluation_expansion_units,
+        ),
         ("value", forged_value),
     ):
         object.__setattr__(forged, field_name, field_value)
@@ -376,6 +382,7 @@ def test_program_seal_rejects_forged_schema_that_bypassed_profile_admission() ->
     (
         ("local_reference_count", 1),
         ("maximum_reference_depth", 1),
+        ("evaluation_expansion_units", 2),
     ),
 )
 def test_program_seal_rederives_all_schema_reference_metadata(
@@ -586,6 +593,18 @@ def test_program_and_assembler_schemas_are_valid_and_recursively_closed() -> Non
     manifest = json.loads(sealed.manifest_bytes)
     validator = Draft202012Validator(_host_json(PROGRAM_MANIFEST_SCHEMA))
     validator.validate(manifest)
+    profile = manifest["schema_evaluator_profiles"][0]
+    assert profile["shape_metric"] == {
+        "metric_id": (
+            "rook.schema_evaluation_shape:max_schema_or_expansion_times_instance:v1"
+        ),
+        "formula": "max(schema_nodes,evaluation_expansion_units)*instance_nodes",
+    }
+    schema_row = manifest["schemas"][0]
+    sealed_schema = sealed.schemas[0]
+    assert schema_row["evaluation_expansion_units"] == (
+        sealed_schema.evaluation_expansion_units
+    )
     manifest["phases"][0]["input_bindings"][0]["unknown"] = True
     with pytest.raises(ValidationError):
         validator.validate(manifest)

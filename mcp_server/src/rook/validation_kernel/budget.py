@@ -17,6 +17,12 @@ from .owned_json import JsonObject, own_trusted_json
 
 
 LM9A_BUDGET_PROFILE_ID = "rook.validation_budget:lm9a_v1"
+SCHEMA_EVALUATION_SHAPE_METRIC_ID = (
+    "rook.schema_evaluation_shape:max_schema_or_expansion_times_instance:v1"
+)
+SCHEMA_EVALUATION_SHAPE_FORMULA = (
+    "max(schema_nodes,evaluation_expansion_units)*instance_nodes"
+)
 MAX_CHECKED_BUDGET_INTEGER = sys.maxsize
 
 _LIMIT_VALUES: dict[BudgetDimension, int] = {
@@ -159,15 +165,26 @@ class SchemaShapeReservation:
 
     __slots__ = (
         "accepted",
+        "shape_metric_id",
+        "schema_nodes",
+        "evaluation_expansion_units",
+        "shape_basis_units",
+        "instance_nodes",
         "attempted_shape_units",
         "aggregate_before",
         "aggregate_after",
         "rejection_reason",
+        "_ledger_origin",
         "_issuer_capability",
         "_issued_signature",
     )
 
     accepted: bool
+    shape_metric_id: str
+    schema_nodes: int
+    evaluation_expansion_units: int
+    shape_basis_units: int
+    instance_nodes: int
     attempted_shape_units: int | None
     aggregate_before: int
     aggregate_after: int | None
@@ -179,19 +196,35 @@ class SchemaShapeReservation:
         token: object = None,
         *,
         accepted: bool,
+        shape_metric_id: str,
+        schema_nodes: int,
+        evaluation_expansion_units: int,
+        shape_basis_units: int,
+        instance_nodes: int,
         attempted_shape_units: int | None,
         aggregate_before: int,
         aggregate_after: int | None,
         rejection_reason: str | None,
+        ledger_origin: object,
     ) -> "SchemaShapeReservation":
         if token is not _SCHEMA_SHAPE_RESERVATION_ISSUER:
             raise TypeError("invalid schema-shape reservation issuer")
         value = cls(
             accepted=accepted,
+            shape_metric_id=shape_metric_id,
+            schema_nodes=schema_nodes,
+            evaluation_expansion_units=evaluation_expansion_units,
+            shape_basis_units=shape_basis_units,
+            instance_nodes=instance_nodes,
             attempted_shape_units=attempted_shape_units,
             aggregate_before=aggregate_before,
             aggregate_after=aggregate_after,
             rejection_reason=rejection_reason,
+        )
+        object.__setattr__(
+            value,
+            "_ledger_origin",
+            ledger_origin,
         )
         object.__setattr__(
             value,
@@ -212,10 +245,16 @@ def _schema_shape_reservation_signature(
     return (
         id(value),
         value.accepted,
+        value.shape_metric_id,
+        value.schema_nodes,
+        value.evaluation_expansion_units,
+        value.shape_basis_units,
+        value.instance_nodes,
         value.attempted_shape_units,
         value.aggregate_before,
         value.aggregate_after,
         value.rejection_reason,
+        id(object.__getattribute__(value, "_ledger_origin")),
     )
 
 
@@ -239,6 +278,20 @@ def _is_issued_schema_shape_reservation(value: object) -> bool:
         return False
 
 
+def _is_schema_shape_reservation_for_ledger(
+    value: object,
+    ledger: object,
+) -> bool:
+    if not _is_issued_schema_shape_reservation(value) or type(ledger) is not BudgetLedger:
+        return False
+    try:
+        reservation_origin = object.__getattribute__(value, "_ledger_origin")
+        ledger_origin = object.__getattribute__(ledger, "_schema_shape_origin")
+        return reservation_origin is ledger_origin
+    except (AttributeError, TypeError):
+        return False
+
+
 def _owned_limit_object() -> JsonObject:
     owned = own_trusted_json(
         {dimension.value: limit for dimension, limit in _LIMIT_VALUES.items()}
@@ -254,7 +307,11 @@ def _manifest_fingerprint(limits: JsonObject) -> str:
             "profile_id": LM9A_BUDGET_PROFILE_ID,
             "limits": {dimension.value: limit for dimension, limit in _LIMIT_VALUES.items()},
             "admission_order": "bundle_then_recipe_v1",
-            "accounting_rules": "lm9a_kernel_controlled_v1",
+            "accounting_rules": "lm9a_kernel_controlled_v2",
+            "schema_evaluation_shape_metric": {
+                "metric_id": SCHEMA_EVALUATION_SHAPE_METRIC_ID,
+                "formula": SCHEMA_EVALUATION_SHAPE_FORMULA,
+            },
             "seal_algorithm": "fixed_report_seal_v1",
         }
     )
@@ -301,6 +358,7 @@ class BudgetLedger:
         "_frozen",
         "_receipt",
         "_report_seal_claimed",
+        "_schema_shape_origin",
         "_lock",
     )
 
@@ -319,6 +377,7 @@ class BudgetLedger:
         self._frozen = False
         self._receipt: BudgetReceipt | None = None
         self._report_seal_claimed = False
+        self._schema_shape_origin = object()
         self._lock = threading.Lock()
 
     def _ensure_mutable(self) -> None:
@@ -390,16 +449,22 @@ class BudgetLedger:
         self,
         *,
         schema_nodes: int,
+        evaluation_expansion_units: int,
         instance_nodes: int,
         per_evaluation_limit: int,
     ) -> SchemaShapeReservation:
-        """Reserve a checked schema-node by instance-node product once."""
+        """Reserve the checked conservative schema-work product once."""
 
         schema_nodes = _require_nonnegative_integer(schema_nodes, "schema node count")
+        evaluation_expansion_units = _require_nonnegative_integer(
+            evaluation_expansion_units,
+            "schema evaluation expansion count",
+        )
         instance_nodes = _require_nonnegative_integer(instance_nodes, "instance node count")
         per_evaluation_limit = _require_nonnegative_integer(
             per_evaluation_limit, "per-evaluation limit"
         )
+        shape_basis_units = max(schema_nodes, evaluation_expansion_units)
         with self._lock:
             self._ensure_mutable()
             aggregate_before = self._observed["schema_evaluation_shape_units"]
@@ -410,50 +475,76 @@ class BudgetLedger:
 
             if (
                 schema_nodes > MAX_CHECKED_BUDGET_INTEGER
+                or evaluation_expansion_units > MAX_CHECKED_BUDGET_INTEGER
+                or shape_basis_units > MAX_CHECKED_BUDGET_INTEGER
                 or instance_nodes > MAX_CHECKED_BUDGET_INTEGER
                 or per_evaluation_limit > MAX_CHECKED_BUDGET_INTEGER
             ):
                 return SchemaShapeReservation._issue(
                     _SCHEMA_SHAPE_RESERVATION_ISSUER,
                     accepted=False,
+                    shape_metric_id=SCHEMA_EVALUATION_SHAPE_METRIC_ID,
+                    schema_nodes=schema_nodes,
+                    evaluation_expansion_units=evaluation_expansion_units,
+                    shape_basis_units=shape_basis_units,
+                    instance_nodes=instance_nodes,
                     attempted_shape_units=None,
                     aggregate_before=aggregate_before,
                     aggregate_after=None,
                     rejection_reason="shape_product_overflow",
+                    ledger_origin=self._schema_shape_origin,
                 )
 
-            if schema_nodes:
-                per_evaluation_instances = per_evaluation_limit // schema_nodes
-                aggregate_remaining_instances = aggregate_remaining // schema_nodes
+            if shape_basis_units:
+                per_evaluation_instances = per_evaluation_limit // shape_basis_units
+                aggregate_remaining_instances = aggregate_remaining // shape_basis_units
                 if instance_nodes > per_evaluation_instances:
                     return SchemaShapeReservation._issue(
                         _SCHEMA_SHAPE_RESERVATION_ISSUER,
                         accepted=False,
+                        shape_metric_id=SCHEMA_EVALUATION_SHAPE_METRIC_ID,
+                        schema_nodes=schema_nodes,
+                        evaluation_expansion_units=evaluation_expansion_units,
+                        shape_basis_units=shape_basis_units,
+                        instance_nodes=instance_nodes,
                         attempted_shape_units=None,
                         aggregate_before=aggregate_before,
                         aggregate_after=None,
                         rejection_reason="per_evaluation_limit_exceeded",
+                        ledger_origin=self._schema_shape_origin,
                     )
                 if instance_nodes > aggregate_remaining_instances:
                     return SchemaShapeReservation._issue(
                         _SCHEMA_SHAPE_RESERVATION_ISSUER,
                         accepted=False,
+                        shape_metric_id=SCHEMA_EVALUATION_SHAPE_METRIC_ID,
+                        schema_nodes=schema_nodes,
+                        evaluation_expansion_units=evaluation_expansion_units,
+                        shape_basis_units=shape_basis_units,
+                        instance_nodes=instance_nodes,
                         attempted_shape_units=None,
                         aggregate_before=aggregate_before,
                         aggregate_after=None,
                         rejection_reason="invocation_shape_limit_exceeded",
+                        ledger_origin=self._schema_shape_origin,
                     )
 
-            attempted = schema_nodes * instance_nodes
+            attempted = shape_basis_units * instance_nodes
             aggregate_after = aggregate_before + attempted
             self._observed["schema_evaluation_shape_units"] = aggregate_after
             return SchemaShapeReservation._issue(
                 _SCHEMA_SHAPE_RESERVATION_ISSUER,
                 accepted=True,
+                shape_metric_id=SCHEMA_EVALUATION_SHAPE_METRIC_ID,
+                schema_nodes=schema_nodes,
+                evaluation_expansion_units=evaluation_expansion_units,
+                shape_basis_units=shape_basis_units,
+                instance_nodes=instance_nodes,
                 attempted_shape_units=attempted,
                 aggregate_before=aggregate_before,
                 aggregate_after=aggregate_after,
                 rejection_reason=None,
+                ledger_origin=self._schema_shape_origin,
             )
 
     def _snapshot_unlocked(self) -> BudgetSnapshot:
@@ -580,6 +671,8 @@ __all__ = (
     "LM9A_BUDGET_MANIFEST",
     "LM9A_BUDGET_PROFILE_ID",
     "MAX_CHECKED_BUDGET_INTEGER",
+    "SCHEMA_EVALUATION_SHAPE_FORMULA",
+    "SCHEMA_EVALUATION_SHAPE_METRIC_ID",
     "SchemaShapeReservation",
     "SealMeter",
 )

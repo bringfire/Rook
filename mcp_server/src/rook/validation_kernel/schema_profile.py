@@ -19,8 +19,11 @@ from referencing import Registry
 
 from .budget import (
     BudgetLedger,
+    SCHEMA_EVALUATION_SHAPE_FORMULA,
+    SCHEMA_EVALUATION_SHAPE_METRIC_ID,
     SchemaShapeReservation,
     _is_issued_schema_shape_reservation,
+    _is_schema_shape_reservation_for_ledger,
     _schema_shape_reservation_signature,
 )
 from .canonical_json import canonical_fingerprint, canonical_fingerprint_metered
@@ -542,32 +545,120 @@ class SchemaIssue:
             raise SchemaEvaluationInputError("invalid schema issue detail fingerprint")
 
 
-@dataclass(frozen=True, slots=True)
+_SCHEMA_EVALUATION_RECEIPT_ISSUER = object()
+
+
+@dataclass(frozen=True, slots=True, init=False)
 class SchemaEvaluationReceipt:
-    """The complete immutable result of one charged evaluation attempt."""
+    """A kernel-issued immutable result of one charged evaluation attempt."""
 
     reservation: SchemaShapeReservation
     evaluator_invoked: bool
     evaluation_passed: bool | None
     bounded_errors: tuple[SchemaIssue, ...]
     failure_code: str | None
+    __schema_binding: tuple[object, ...] = field(repr=False, compare=False)
+    __subject_binding: tuple[object, ...] = field(repr=False, compare=False)
+    __issuer_capability: object = field(repr=False, compare=False)
+    __issued_signature: tuple[object, ...] = field(repr=False, compare=False)
 
-    def __post_init__(self) -> None:
-        if type(self.bounded_errors) is not tuple or any(
-            type(issue) is not SchemaIssue for issue in self.bounded_errors
-        ):
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("schema evaluation receipts are kernel-issued")
+
+
+def _issue_schema_evaluation_receipt(
+    *,
+    schema: AdmittedSchema,
+    instance: JsonValue | None,
+    instance_binding: InstanceBinding | None,
+    pre_evaluation_candidate: _PreEvaluationCandidateIdentity | None,
+    reservation: SchemaShapeReservation,
+    evaluator_invoked: bool,
+    evaluation_passed: bool | None,
+    bounded_errors: tuple[SchemaIssue, ...],
+    failure_code: str | None,
+) -> SchemaEvaluationReceipt:
+    if not _is_issued_schema_shape_reservation(reservation):
+        raise SchemaEvaluationInputError(
+            "schema evaluation receipt requires a kernel-issued reservation"
+        )
+    schema_binding = _receipt_schema_binding(schema)
+    subject_binding = _receipt_subject_binding(
+        instance=instance,
+        instance_binding=instance_binding,
+        pre_evaluation_candidate=pre_evaluation_candidate,
+    )
+    if type(evaluator_invoked) is not bool:
+        raise SchemaEvaluationInputError("schema evaluator invocation must be boolean")
+    if evaluation_passed is not None and type(evaluation_passed) is not bool:
+        raise SchemaEvaluationInputError(
+            "schema evaluation outcome must be boolean or null"
+        )
+    if type(bounded_errors) is not tuple or any(
+        type(issue) is not SchemaIssue for issue in bounded_errors
+    ):
+        raise SchemaEvaluationInputError(
+            "schema evaluation errors must be an exact issue tuple"
+        )
+    if len(bounded_errors) > MAX_SCHEMA_ISSUES:
+        raise SchemaEvaluationInputError("schema issue count exceeds limit")
+    evidence_bytes = 0
+    for issue in bounded_errors:
+        evidence_bytes += _issue_evidence_bytes(issue)
+        if evidence_bytes > MAX_SCHEMA_ISSUE_EVIDENCE_BYTES:
             raise SchemaEvaluationInputError(
-                "schema evaluation errors must be an exact issue tuple"
+                "schema issue evidence exceeds byte limit"
             )
-        if len(self.bounded_errors) > MAX_SCHEMA_ISSUES:
-            raise SchemaEvaluationInputError("schema issue count exceeds limit")
-        evidence_bytes = 0
-        for issue in self.bounded_errors:
-            evidence_bytes += _issue_evidence_bytes(issue)
-            if evidence_bytes > MAX_SCHEMA_ISSUE_EVIDENCE_BYTES:
-                raise SchemaEvaluationInputError(
-                    "schema issue evidence exceeds byte limit"
-                )
+    if failure_code is not None and type(failure_code) is not str:
+        raise SchemaEvaluationInputError("schema evaluation failure code is invalid")
+    receipt = object.__new__(SchemaEvaluationReceipt)
+    object.__setattr__(receipt, "reservation", reservation)
+    object.__setattr__(receipt, "evaluator_invoked", evaluator_invoked)
+    object.__setattr__(receipt, "evaluation_passed", evaluation_passed)
+    object.__setattr__(receipt, "bounded_errors", bounded_errors)
+    object.__setattr__(receipt, "failure_code", failure_code)
+    object.__setattr__(
+        receipt,
+        "_SchemaEvaluationReceipt__schema_binding",
+        schema_binding,
+    )
+    object.__setattr__(
+        receipt,
+        "_SchemaEvaluationReceipt__subject_binding",
+        subject_binding,
+    )
+    object.__setattr__(
+        receipt,
+        "_SchemaEvaluationReceipt__issuer_capability",
+        _SCHEMA_EVALUATION_RECEIPT_ISSUER,
+    )
+    object.__setattr__(
+        receipt,
+        "_SchemaEvaluationReceipt__issued_signature",
+        _receipt_audit_signature(receipt),
+    )
+    return receipt
+
+
+def _is_issued_schema_evaluation_receipt(value: object) -> bool:
+    if type(value) is not SchemaEvaluationReceipt:
+        return False
+    try:
+        capability = object.__getattribute__(
+            value,
+            "_SchemaEvaluationReceipt__issuer_capability",
+        )
+        signature = object.__getattribute__(
+            value,
+            "_SchemaEvaluationReceipt__issued_signature",
+        )
+        return (
+            capability is _SCHEMA_EVALUATION_RECEIPT_ISSUER
+            and _is_issued_schema_shape_reservation(value.reservation)
+            and signature == _receipt_audit_signature(value)
+        )
+    except (AttributeError, TypeError):
+        return False
 
 
 _SCHEMA_AUDIT_ISSUER_CAPABILITY = object()
@@ -613,6 +704,7 @@ class _SchemaEvaluationAuditEntry:
         "schema_id",
         "schema_fingerprint",
         "schema_nodes",
+        "evaluation_expansion_units",
         "per_evaluation_limit",
         "instance_binding",
         "instance_fingerprint",
@@ -626,6 +718,7 @@ class _SchemaEvaluationAuditEntry:
     schema_id: str
     schema_fingerprint: str
     schema_nodes: int
+    evaluation_expansion_units: int
     per_evaluation_limit: int
     instance_binding: InstanceBinding
     instance_fingerprint: str | None
@@ -654,14 +747,78 @@ def _candidate_signature(
     )
 
 
+def _receipt_schema_binding(schema: object) -> tuple[object, ...]:
+    if not _is_admitted_schema(schema):
+        raise SchemaEvaluationInputError(
+            "schema evaluation receipt requires an admitted schema"
+        )
+    return _admitted_schema_signature(schema)
+
+
+def _receipt_subject_binding(
+    *,
+    instance: object,
+    instance_binding: object,
+    pre_evaluation_candidate: object,
+) -> tuple[object, ...]:
+    if pre_evaluation_candidate is not None:
+        if instance is not None or instance_binding is not None:
+            raise SchemaEvaluationInputError(
+                "schema evaluation receipt has ambiguous subject authority"
+            )
+        if not _is_pre_evaluation_candidate_identity(pre_evaluation_candidate):
+            raise SchemaEvaluationInputError(
+                "schema evaluation receipt requires a kernel-issued candidate"
+            )
+        return (
+            "pre_evaluation_candidate",
+            _candidate_signature(pre_evaluation_candidate),
+        )
+
+    if instance is None or instance_binding is None:
+        raise SchemaEvaluationInputError(
+            "schema evaluation receipt requires an exact instance subject"
+        )
+    accepted_instance = _require_evaluation_instance(instance, instance_binding)
+    return (
+        "instance",
+        id(accepted_instance),
+        id(instance_binding),
+        instance_binding.artifact_id,
+        instance_binding.artifact_fingerprint,
+        instance_binding.instance_pointer,
+    )
+
+
+def _receipt_private_bindings(
+    receipt: SchemaEvaluationReceipt,
+) -> tuple[tuple[object, ...], tuple[object, ...]]:
+    return (
+        object.__getattribute__(
+            receipt,
+            "_SchemaEvaluationReceipt__schema_binding",
+        ),
+        object.__getattribute__(
+            receipt,
+            "_SchemaEvaluationReceipt__subject_binding",
+        ),
+    )
+
+
 def _receipt_audit_signature(
     value: SchemaEvaluationReceipt,
 ) -> tuple[object, ...]:
     reservation = value.reservation
+    schema_binding, subject_binding = _receipt_private_bindings(value)
     return (
         id(value),
         id(reservation),
         reservation.accepted,
+        reservation.shape_metric_id,
+        reservation.schema_nodes,
+        reservation.evaluation_expansion_units,
+        reservation.shape_basis_units,
+        reservation.instance_nodes,
         reservation.attempted_shape_units,
         reservation.aggregate_before,
         reservation.aggregate_after,
@@ -680,6 +837,8 @@ def _receipt_audit_signature(
             for issue in value.bounded_errors
         ),
         value.failure_code,
+        schema_binding,
+        subject_binding,
     )
 
 
@@ -690,6 +849,7 @@ def _entry_signature(value: _SchemaEvaluationAuditEntry) -> tuple[object, ...]:
         value.schema_id,
         value.schema_fingerprint,
         value.schema_nodes,
+        value.evaluation_expansion_units,
         value.per_evaluation_limit,
         id(binding),
         binding.artifact_id,
@@ -765,19 +925,76 @@ def _is_pre_evaluation_candidate_identity(value: object) -> bool:
 def _validate_audit_receipt(
     receipt: object,
     *,
+    schema: AdmittedSchema,
+    resolved_instance_binding: _ResolvedInstanceBinding | None,
+    pre_evaluation_candidate: _PreEvaluationCandidateIdentity | None,
     schema_nodes: int,
+    evaluation_expansion_units: int,
     identity_nodes: int,
     require_rejected: bool,
+    ledger: BudgetLedger,
 ) -> SchemaEvaluationReceipt:
-    if type(receipt) is not SchemaEvaluationReceipt:
-        raise SchemaEvaluationInputError("audit entry requires an exact receipt")
+    if not _is_issued_schema_evaluation_receipt(receipt):
+        raise SchemaEvaluationInputError(
+            "audit entry requires a kernel-issued receipt"
+        )
+    expected_schema_binding = _receipt_schema_binding(schema)
+    if resolved_instance_binding is not None:
+        if pre_evaluation_candidate is not None or not _is_resolved_instance_binding(
+            resolved_instance_binding
+        ):
+            raise SchemaEvaluationInputError(
+                "audit receipt subject authority is ambiguous"
+            )
+        expected_subject_binding = _receipt_subject_binding(
+            instance=resolved_instance_binding.instance,
+            instance_binding=resolved_instance_binding.instance_binding,
+            pre_evaluation_candidate=None,
+        )
+    else:
+        if not _is_pre_evaluation_candidate_identity(pre_evaluation_candidate):
+            raise SchemaEvaluationInputError(
+                "audit receipt requires an exact subject authority"
+            )
+        expected_subject_binding = _receipt_subject_binding(
+            instance=None,
+            instance_binding=None,
+            pre_evaluation_candidate=pre_evaluation_candidate,
+        )
+    receipt_schema_binding, receipt_subject_binding = _receipt_private_bindings(
+        receipt
+    )
+    if (
+        receipt_schema_binding != expected_schema_binding
+        or receipt_subject_binding != expected_subject_binding
+    ):
+        raise SchemaEvaluationInputError(
+            "audit receipt subject binding is inconsistent"
+        )
     reservation = receipt.reservation
     if type(reservation) is not SchemaShapeReservation:
         raise SchemaEvaluationInputError(
             "audit entry requires an exact shape reservation"
         )
+    if not _is_issued_schema_shape_reservation(reservation):
+        raise SchemaEvaluationInputError(
+            "audit entry requires a kernel-issued shape reservation"
+        )
+    if not _is_schema_shape_reservation_for_ledger(reservation, ledger):
+        raise SchemaEvaluationInputError(
+            "audit entry reservation belongs to another ledger"
+        )
     if type(reservation.aggregate_before) is not int or reservation.aggregate_before < 0:
         raise SchemaEvaluationInputError("invalid audit aggregate before reservation")
+    shape_basis_units = max(schema_nodes, evaluation_expansion_units)
+    if (
+        reservation.shape_metric_id != SCHEMA_EVALUATION_SHAPE_METRIC_ID
+        or reservation.schema_nodes != schema_nodes
+        or reservation.evaluation_expansion_units != evaluation_expansion_units
+        or reservation.shape_basis_units != shape_basis_units
+        or reservation.instance_nodes != identity_nodes
+    ):
+        raise SchemaEvaluationInputError("invalid audit shape metric evidence")
     if not reservation.accepted:
         if (
             reservation.attempted_shape_units is not None
@@ -794,7 +1011,7 @@ def _validate_audit_receipt(
         raise SchemaEvaluationInputError(
             "pre-evaluation candidate requires a rejected reservation"
         )
-    attempted = schema_nodes * identity_nodes
+    attempted = shape_basis_units * identity_nodes
     if (
         reservation.attempted_shape_units != attempted
         or reservation.aggregate_after != reservation.aggregate_before + attempted
@@ -825,6 +1042,7 @@ def _issue_schema_evaluation_audit_entry(
     resolved_instance_binding: _ResolvedInstanceBinding,
     receipt: SchemaEvaluationReceipt,
     per_evaluation_limit: int,
+    ledger: BudgetLedger,
 ) -> _SchemaEvaluationAuditEntry:
     accepted_schema, profile = _require_evaluation_schema(schema)
     if not _is_resolved_instance_binding(resolved_instance_binding):
@@ -840,9 +1058,14 @@ def _issue_schema_evaluation_audit_entry(
     instance_nodes = resolved_instance_binding.instance_nodes
     accepted_receipt = _validate_audit_receipt(
         receipt,
+        schema=accepted_schema,
+        resolved_instance_binding=resolved_instance_binding,
+        pre_evaluation_candidate=None,
         schema_nodes=accepted_schema.schema_nodes,
+        evaluation_expansion_units=accepted_schema.evaluation_expansion_units,
         identity_nodes=instance_nodes,
         require_rejected=False,
+        ledger=ledger,
     )
     return _issue_schema_evaluation_audit_entry_fields(
         schema=accepted_schema,
@@ -862,6 +1085,7 @@ def _issue_rejected_candidate_audit_entry(
     candidate: _PreEvaluationCandidateIdentity,
     receipt: SchemaEvaluationReceipt,
     per_evaluation_limit: int,
+    ledger: BudgetLedger,
 ) -> _SchemaEvaluationAuditEntry:
     accepted_schema, profile = _require_evaluation_schema(schema)
     if type(instance_binding) is not InstanceBinding:
@@ -877,9 +1101,14 @@ def _issue_rejected_candidate_audit_entry(
         raise SchemaEvaluationInputError("candidate audit identity is inconsistent")
     accepted_receipt = _validate_audit_receipt(
         receipt,
+        schema=accepted_schema,
+        resolved_instance_binding=None,
+        pre_evaluation_candidate=candidate,
         schema_nodes=accepted_schema.schema_nodes,
+        evaluation_expansion_units=accepted_schema.evaluation_expansion_units,
         identity_nodes=candidate.projected_instance_nodes,
         require_rejected=True,
+        ledger=ledger,
     )
     return _issue_schema_evaluation_audit_entry_fields(
         schema=accepted_schema,
@@ -906,6 +1135,11 @@ def _issue_schema_evaluation_audit_entry_fields(
     object.__setattr__(entry, "schema_id", schema.schema_id)
     object.__setattr__(entry, "schema_fingerprint", schema.schema_fingerprint)
     object.__setattr__(entry, "schema_nodes", schema.schema_nodes)
+    object.__setattr__(
+        entry,
+        "evaluation_expansion_units",
+        schema.evaluation_expansion_units,
+    )
     object.__setattr__(entry, "per_evaluation_limit", per_evaluation_limit)
     object.__setattr__(entry, "instance_binding", instance_binding)
     object.__setattr__(entry, "instance_fingerprint", instance_fingerprint)
@@ -942,6 +1176,7 @@ def _is_schema_evaluation_audit_entry(value: object) -> bool:
         candidate = value.pre_evaluation_candidate
         return (
             capability is _SCHEMA_AUDIT_ISSUER_CAPABILITY
+            and _is_issued_schema_evaluation_receipt(value.receipt)
             and (
                 candidate is None
                 or _is_pre_evaluation_candidate_identity(candidate)
@@ -1137,8 +1372,23 @@ class SchemaEvaluationReservation:
                 "schema evaluation shape reservation is inconsistent"
             )
         shape = self._shape_reservation
+        expected_basis = max(
+            self._schema_nodes,
+            schema.evaluation_expansion_units,
+        )
+        if (
+            shape.shape_metric_id != SCHEMA_EVALUATION_SHAPE_METRIC_ID
+            or shape.schema_nodes != self._schema_nodes
+            or shape.evaluation_expansion_units
+            != schema.evaluation_expansion_units
+            or shape.shape_basis_units != expected_basis
+            or shape.instance_nodes != self._instance_nodes
+        ):
+            raise SchemaEvaluationInputError(
+                "schema evaluation shape metric evidence is inconsistent"
+            )
         if shape.accepted:
-            expected_shape = self._schema_nodes * self._instance_nodes
+            expected_shape = expected_basis * self._instance_nodes
             if (
                 shape.attempted_shape_units != expected_shape
                 or shape.aggregate_after != shape.aggregate_before + expected_shape
@@ -1473,6 +1723,10 @@ def _make_profile(
                 "exception_negative_integer_sample_policy": (
                     _EXCEPTION_PROJECTION_NEGATIVE_SAMPLE_POLICY
                 ),
+            },
+            "shape_metric": {
+                "metric_id": SCHEMA_EVALUATION_SHAPE_METRIC_ID,
+                "formula": SCHEMA_EVALUATION_SHAPE_FORMULA,
             },
             "evaluator": {
                 "evaluator_id": _EVALUATOR_ID,
@@ -2221,6 +2475,9 @@ def reserve_schema_evaluation(
         raise SchemaEvaluationInputError("evaluation requires the invocation ledger")
     shape_reservation = ledger.reserve_schema_shape(
         schema_nodes=accepted_schema.schema_nodes,
+        evaluation_expansion_units=(
+            accepted_schema.evaluation_expansion_units
+        ),
         instance_nodes=instance_nodes,
         per_evaluation_limit=profile.per_evaluation_shape_limit,
     )
@@ -2235,8 +2492,17 @@ def reserve_schema_evaluation(
 
 def _receipt_from_rejected_shape(
     shape_reservation: SchemaShapeReservation,
+    *,
+    schema: AdmittedSchema,
+    instance: JsonValue | None,
+    instance_binding: InstanceBinding | None,
+    pre_evaluation_candidate: _PreEvaluationCandidateIdentity | None,
 ) -> SchemaEvaluationReceipt:
-    return SchemaEvaluationReceipt(
+    return _issue_schema_evaluation_receipt(
+        schema=schema,
+        instance=instance,
+        instance_binding=instance_binding,
+        pre_evaluation_candidate=pre_evaluation_candidate,
         reservation=shape_reservation,
         evaluator_invoked=False,
         evaluation_passed=None,
@@ -2248,6 +2514,8 @@ def _receipt_from_rejected_shape(
 def _rejected_schema_evaluation_receipt(
     schema: AdmittedSchema,
     reservation: SchemaEvaluationReservation,
+    *,
+    pre_evaluation_candidate: _PreEvaluationCandidateIdentity,
 ) -> SchemaEvaluationReceipt:
     """Consume one exact rejected reservation without inventing an instance."""
 
@@ -2262,7 +2530,13 @@ def _rejected_schema_evaluation_receipt(
         raise SchemaEvaluationInputError(
             "rejected evaluation requires a rejected shape reservation"
         )
-    return _receipt_from_rejected_shape(shape_reservation)
+    return _receipt_from_rejected_shape(
+        shape_reservation,
+        schema=accepted_schema,
+        instance=None,
+        instance_binding=None,
+        pre_evaluation_candidate=pre_evaluation_candidate,
+    )
 
 
 def evaluate_schema_with_reservation(
@@ -2300,7 +2574,13 @@ def _evaluate_schema_with_reservation(
     reservation._claim(schema, instance_nodes)
     shape_reservation = reservation.shape_reservation
     if not shape_reservation.accepted:
-        return _receipt_from_rejected_shape(shape_reservation)
+        return _receipt_from_rejected_shape(
+            shape_reservation,
+            schema=schema,
+            instance=instance,
+            instance_binding=instance_binding,
+            pre_evaluation_candidate=None,
+        )
 
     try:
         validator = _validator_for(schema)
@@ -2312,7 +2592,11 @@ def _evaluate_schema_with_reservation(
         instance_path = _bounded_existing_pointer(
             instance_binding.instance_pointer
         )
-        return SchemaEvaluationReceipt(
+        return _issue_schema_evaluation_receipt(
+            schema=schema,
+            instance=instance,
+            instance_binding=instance_binding,
+            pre_evaluation_candidate=None,
             reservation=shape_reservation,
             evaluator_invoked=True,
             evaluation_passed=None,
@@ -2330,7 +2614,11 @@ def _evaluate_schema_with_reservation(
         )
 
     passed = not errors
-    return SchemaEvaluationReceipt(
+    return _issue_schema_evaluation_receipt(
+        schema=schema,
+        instance=instance,
+        instance_binding=instance_binding,
+        pre_evaluation_candidate=None,
         reservation=shape_reservation,
         evaluator_invoked=True,
         evaluation_passed=passed,

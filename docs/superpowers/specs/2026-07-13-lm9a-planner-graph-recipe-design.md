@@ -457,9 +457,10 @@ content keywords, and custom executable keywords.
 
 Each embedded schema is limited to 4,096 nodes, 256 local references, local
 reference depth 16, and a conservative
-`schema_nodes * instance_nodes <= 2,000,000` evaluation shape. Both node counts,
-the exact evaluated instance root, checked multiplication, repeated-evaluation
-charging, and cache independence use the normative kernel Section 4 rules.
+`max(schema_nodes, evaluation_expansion_units) * instance_nodes <= 2,000,000`
+evaluation shape. Complete schema-node count, admitted expansion units, the exact
+evaluated instance root, checked multiplication, repeated-evaluation charging,
+and cache independence use the normative kernel Section 4 rules.
 Unknown keywords fail profile validation rather than being ignored. The exact
 evaluator package, metaschema, keyword allowlist, reference rules, limits, type
 checker, and trusted core schemas are fingerprinted into the sealed validation
@@ -2944,8 +2945,9 @@ in
 `rook.validation_conformance_report:v1`.
 
 The trusted conformance gate records every schema evaluation row defined by the
-kernel, including complete-schema node count, exact instance-root node count,
-checked product, and aggregate reservation. Every core-schema instance must fit
+kernel, including the sealed metric ID, complete-schema node count, admitted
+expansion units, derived shape basis, exact instance-root node count, checked
+product, and aggregate reservation. Every core-schema instance must fit
 its applicable per-evaluation bound, and every named fixture invocation must fit
 the shared 16,000,000-unit schema-shape cap.
 

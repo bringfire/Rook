@@ -771,6 +771,56 @@ def test_core_expansion_limit_accepts_boundary_and_rejects_exponential_graph(
     assert len(library_checks) == 1
 
 
+def test_combined_reference_fanout_and_instance_cardinality_reserve_before_evaluator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host = exponentially_branching_reference_schema(10)
+    host["type"] = "array"
+    host["items"] = {"$ref": "/$defs/level-9"}
+    schema = admit(host, CORE_PROFILE)
+    shape_basis = max(schema.schema_nodes, schema.evaluation_expansion_units)
+    boundary_instance_nodes = CORE_PROFILE.per_evaluation_shape_limit // shape_basis
+
+    accepted = reserve_schema_evaluation(
+        schema,
+        instance_nodes=boundary_instance_nodes,
+        ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
+    ).shape_reservation
+    assert schema.evaluation_expansion_units == 2_048
+    assert accepted.accepted is True
+    assert accepted.shape_metric_id == (
+        "rook.schema_evaluation_shape:max_schema_or_expansion_times_instance:v1"
+    )
+    assert accepted.schema_nodes == schema.schema_nodes
+    assert accepted.evaluation_expansion_units == schema.evaluation_expansion_units
+    assert accepted.shape_basis_units == shape_basis
+    assert accepted.instance_nodes == boundary_instance_nodes
+    assert accepted.attempted_shape_units == shape_basis * boundary_instance_nodes
+
+    evaluator_constructions: list[AdmittedSchema] = []
+
+    def evaluator_must_not_run(value: AdmittedSchema) -> object:
+        evaluator_constructions.append(value)
+        raise AssertionError("evaluator constructed after combined-shape rejection")
+
+    monkeypatch.setattr(schema_profile_module, "_validator_for", evaluator_must_not_run)
+    rejected_instance_nodes = boundary_instance_nodes + 1
+    receipt = evaluate_schema(
+        schema,
+        own_trusted_json([None] * (rejected_instance_nodes - 1)),
+        instance_binding=binding(),
+        ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
+    )
+
+    assert receipt.reservation.accepted is False
+    assert receipt.reservation.shape_basis_units == shape_basis
+    assert receipt.reservation.instance_nodes == rejected_instance_nodes
+    assert receipt.reservation.attempted_shape_units is None
+    assert receipt.reservation.rejection_reason == "per_evaluation_limit_exceeded"
+    assert receipt.evaluator_invoked is False
+    assert evaluator_constructions == []
+
+
 def test_only_release_owned_exact_profiles_are_admissible() -> None:
     forged = replace(PAYLOAD_PROFILE)
     assert forged == PAYLOAD_PROFILE
@@ -1352,11 +1402,34 @@ def test_copied_or_reconstructed_reservation_is_rejected_before_evaluator(
     issued_shape = issued.shape_reservation
     reconstructed_shape = SchemaShapeReservation(
         accepted=issued_shape.accepted,
+        shape_metric_id=issued_shape.shape_metric_id,
+        schema_nodes=issued_shape.schema_nodes,
+        evaluation_expansion_units=(
+            issued_shape.evaluation_expansion_units
+        ),
+        shape_basis_units=issued_shape.shape_basis_units,
+        instance_nodes=issued_shape.instance_nodes,
         attempted_shape_units=issued_shape.attempted_shape_units,
         aggregate_before=issued_shape.aggregate_before,
         aggregate_after=issued_shape.aggregate_after,
         rejection_reason=issued_shape.rejection_reason,
     )
+
+    with pytest.raises(
+        SchemaEvaluationInputError,
+        match="kernel-issued reservation",
+    ):
+        schema_profile_module._issue_schema_evaluation_receipt(
+            schema=schema,
+            instance=instance,
+            instance_binding=binding(),
+            pre_evaluation_candidate=None,
+            reservation=reconstructed_shape,
+            evaluator_invoked=True,
+            evaluation_passed=True,
+            bounded_errors=(),
+            failure_code=None,
+        )
 
     def copied_reservation(
         shape: SchemaShapeReservation,
@@ -1410,18 +1483,148 @@ def test_copied_or_reconstructed_reservation_is_rejected_before_evaluator(
     assert evaluator_constructions == []
 
 
+@pytest.mark.parametrize(
+    "replay_kind",
+    ("schema_value", "schema_identity", "instance", "binding"),
+)
+def test_audit_entry_rejects_same_ledger_equal_factor_receipt_replay(
+    replay_kind: str,
+) -> None:
+    source_schema = admit({"type": "integer"})
+    if replay_kind == "schema_value":
+        target_schema = admit({"type": "number"})
+    elif replay_kind == "schema_identity":
+        target_schema = admit({"type": "integer"})
+        assert target_schema.schema_fingerprint == source_schema.schema_fingerprint
+        assert target_schema is not source_schema
+    else:
+        target_schema = source_schema
+    root = own_trusted_json({"left": 1, "right": 2})
+    assert type(root) is JsonObject
+    root_fingerprint = canonical_fingerprint(root)
+    left_binding = InstanceBinding(
+        artifact_id="artifact:equal-factor-replay",
+        artifact_fingerprint=root_fingerprint,
+        instance_pointer="/left",
+    )
+    right_binding = InstanceBinding(
+        artifact_id="artifact:equal-factor-replay",
+        artifact_fingerprint=root_fingerprint,
+        instance_pointer="/right",
+    )
+    left = root["left"]
+    right = root["right"]
+    ledger = BudgetLedger(LM9A_BUDGET_MANIFEST)
+    receipt = evaluate_schema(
+        source_schema,
+        left,
+        instance_binding=left_binding,
+        ledger=ledger,
+    )
+    target_instance = right if replay_kind == "instance" else left
+    if replay_kind == "instance":
+        target_binding = right_binding
+    elif replay_kind == "binding":
+        target_binding = InstanceBinding(
+            artifact_id=left_binding.artifact_id,
+            artifact_fingerprint=left_binding.artifact_fingerprint,
+            instance_pointer=left_binding.instance_pointer,
+        )
+        assert target_binding == left_binding
+        assert target_binding is not left_binding
+    else:
+        target_binding = left_binding
+    resolved_target = schema_profile_module._resolve_instance_binding(
+        instance_root=root,
+        instance_root_fingerprint=root_fingerprint,
+        instance=target_instance,
+        instance_binding=target_binding,
+        charge_work_units=lambda _amount: None,
+    )
+
+    with pytest.raises(
+        SchemaEvaluationInputError,
+        match="receipt subject",
+    ):
+        schema_profile_module._issue_schema_evaluation_audit_entry(
+            schema=target_schema,
+            instance=target_instance,
+            resolved_instance_binding=resolved_target,
+            receipt=receipt,
+            per_evaluation_limit=PAYLOAD_PROFILE.per_evaluation_shape_limit,
+            ledger=ledger,
+        )
+
+
+def test_candidate_audit_rejects_same_ledger_equal_factor_receipt_replay() -> None:
+    schema = admit({"type": "null"})
+    ledger = BudgetLedger(LM9A_BUDGET_MANIFEST)
+    for _ in range(4):
+        reservation = ledger.reserve_schema_shape(
+            schema_nodes=1,
+            evaluation_expansion_units=1,
+            instance_nodes=4_000_000,
+            per_evaluation_limit=4_000_000,
+        )
+        assert reservation.accepted is True
+    rejected = reserve_schema_evaluation(
+        schema,
+        instance_nodes=1,
+        ledger=ledger,
+    )
+    candidate_fingerprint = "sha256:" + "b" * 64
+    source_candidate = schema_profile_module._issue_pre_evaluation_candidate_identity(
+        candidate_kind="report_schema_instance_projection",
+        candidate_fingerprint=candidate_fingerprint,
+        projected_instance_nodes=1,
+    )
+    replay_candidate = schema_profile_module._issue_pre_evaluation_candidate_identity(
+        candidate_kind="report_schema_instance_projection",
+        candidate_fingerprint=candidate_fingerprint,
+        projected_instance_nodes=1,
+    )
+    receipt = schema_profile_module._rejected_schema_evaluation_receipt(
+        schema,
+        rejected,
+        pre_evaluation_candidate=source_candidate,
+    )
+    candidate_binding = InstanceBinding(
+        artifact_id="artifact:equal-factor-candidate-replay",
+        artifact_fingerprint=candidate_fingerprint,
+        instance_pointer="",
+    )
+
+    with pytest.raises(SchemaEvaluationInputError, match="receipt subject"):
+        schema_profile_module._issue_rejected_candidate_audit_entry(
+            schema=schema,
+            instance_binding=candidate_binding,
+            candidate=replay_candidate,
+            receipt=receipt,
+            per_evaluation_limit=PAYLOAD_PROFILE.per_evaluation_shape_limit,
+            ledger=ledger,
+        )
+
+
 def test_shape_reservation_authority_stays_out_of_public_dataclass_fields() -> None:
     shape = BudgetLedger(LM9A_BUDGET_MANIFEST).reserve_schema_shape(
         schema_nodes=2,
+        evaluation_expansion_units=5,
         instance_nodes=3,
-        per_evaluation_limit=6,
+        per_evaluation_limit=15,
     )
 
     assert asdict(shape) == {
         "accepted": True,
-        "attempted_shape_units": 6,
+        "shape_metric_id": (
+            "rook.schema_evaluation_shape:max_schema_or_expansion_times_instance:v1"
+        ),
+        "schema_nodes": 2,
+        "evaluation_expansion_units": 5,
+        "shape_basis_units": 5,
+        "instance_nodes": 3,
+        "attempted_shape_units": 15,
         "aggregate_before": 0,
-        "aggregate_after": 6,
+        "aggregate_after": 15,
         "rejection_reason": None,
     }
 
@@ -1484,6 +1687,7 @@ def test_private_rejected_reservation_receipt_consumes_exact_capability_without_
     for _ in range(4):
         shape = ledger.reserve_schema_shape(
             schema_nodes=1,
+            evaluation_expansion_units=1,
             instance_nodes=4_000_000,
             per_evaluation_limit=4_000_000,
         )
@@ -1494,9 +1698,16 @@ def test_private_rejected_reservation_receipt_consumes_exact_capability_without_
         ledger=ledger,
     )
     assert reservation.shape_reservation.accepted is False
+    candidate = schema_profile_module._issue_pre_evaluation_candidate_identity(
+        candidate_kind="report_schema_instance_projection",
+        candidate_fingerprint="sha256:" + "a" * 64,
+        projected_instance_nodes=1,
+    )
 
     receipt = schema_profile_module._rejected_schema_evaluation_receipt(
-        schema, reservation
+        schema,
+        reservation,
+        pre_evaluation_candidate=candidate,
     )
 
     assert receipt.reservation is reservation.shape_reservation
@@ -1507,7 +1718,9 @@ def test_private_rejected_reservation_receipt_consumes_exact_capability_without_
     assert receipt.failure_code == "invocation_shape_limit_exceeded"
     with pytest.raises(SchemaEvaluationInputError, match="already consumed"):
         schema_profile_module._rejected_schema_evaluation_receipt(
-            schema, reservation
+            schema,
+            reservation,
+            pre_evaluation_candidate=candidate,
         )
 
 
@@ -2053,15 +2266,31 @@ def test_issue_and_receipt_constructors_enforce_evidence_byte_limits() -> None:
     issue_count = EXPECTED_SCHEMA_ISSUE_EVIDENCE_BYTES // (
         schema_issue_evidence_bytes(issue) + 4
     ) + 1
+    schema = admit({"type": "null"})
+    instance = own_trusted_json(None)
+    instance_binding = binding()
     valid = evaluate_schema(
-        admit({"type": "null"}),
-        own_trusted_json(None),
-        instance_binding=binding(),
+        schema,
+        instance,
+        instance_binding=instance_binding,
         ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
     )
 
-    with pytest.raises(SchemaEvaluationInputError):
+    with pytest.raises(TypeError, match="kernel-issued"):
         SchemaEvaluationReceipt(
+            reservation=valid.reservation,
+            evaluator_invoked=True,
+            evaluation_passed=True,
+            bounded_errors=(),
+            failure_code=None,
+        )
+
+    with pytest.raises(SchemaEvaluationInputError):
+        schema_profile_module._issue_schema_evaluation_receipt(
+            schema=schema,
+            instance=instance,
+            instance_binding=instance_binding,
+            pre_evaluation_candidate=None,
             reservation=valid.reservation,
             evaluator_invoked=True,
             evaluation_passed=False,

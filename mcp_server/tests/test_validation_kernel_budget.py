@@ -345,6 +345,7 @@ def test_schema_reservation_rejects_without_changing_aggregate() -> None:
 
     result = ledger.reserve_schema_shape(
         schema_nodes=4_001,
+        evaluation_expansion_units=4_001,
         instance_nodes=500,
         per_evaluation_limit=2_000_000,
     )
@@ -369,6 +370,7 @@ def test_schema_reservation_checks_aggregate_before_multiplying_or_mutating() ->
 
     result = ledger.reserve_schema_shape(
         schema_nodes=2,
+        evaluation_expansion_units=2,
         instance_nodes=2,
         per_evaluation_limit=10,
     )
@@ -386,6 +388,7 @@ def test_schema_reservation_classifies_host_integer_overflow_without_mutation() 
 
     result = ledger.reserve_schema_shape(
         schema_nodes=MAX_CHECKED_BUDGET_INTEGER + 1,
+        evaluation_expansion_units=1,
         instance_nodes=1,
         per_evaluation_limit=MAX_CHECKED_BUDGET_INTEGER,
     )
@@ -403,11 +406,13 @@ def test_successful_schema_reservations_charge_each_evaluation_without_refund() 
 
     first = ledger.reserve_schema_shape(
         schema_nodes=4,
+        evaluation_expansion_units=4,
         instance_nodes=5,
         per_evaluation_limit=20,
     )
     second = ledger.reserve_schema_shape(
         schema_nodes=4,
+        evaluation_expansion_units=4,
         instance_nodes=5,
         per_evaluation_limit=20,
     )
@@ -480,6 +485,7 @@ def test_report_seal_reservation_is_atomic_exactly_once_and_freezes_all_mutation
     with pytest.raises(BudgetLedgerFrozen):
         ledger.reserve_schema_shape(
             schema_nodes=1,
+            evaluation_expansion_units=1,
             instance_nodes=1,
             per_evaluation_limit=1,
         )

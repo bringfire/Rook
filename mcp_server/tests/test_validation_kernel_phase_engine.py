@@ -9,7 +9,11 @@ import rook.validation_kernel as validation_kernel
 from rook.validation_kernel import (
     ValidationControlFailure,
 )
-from rook.validation_kernel.budget import BudgetExceeded, BudgetLedger
+from rook.validation_kernel.budget import (
+    LM9A_BUDGET_MANIFEST,
+    BudgetExceeded,
+    BudgetLedger,
+)
 from rook.validation_kernel.canonical_json import canonical_fingerprint
 from rook.validation_kernel.control import ArtifactRole, BudgetDimension
 from rook.validation_kernel.owned_json import JsonObject, JsonString, count_json_nodes
@@ -582,6 +586,59 @@ def test_schema_helper_success_charges_exact_source_and_canonical_work() -> None
     assert len(receipts) == 1
 
 
+def test_schema_helper_rejects_receipt_from_another_invocation_ledger(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _context(_program())
+    phase_engine = importlib.import_module("rook.validation_kernel.phase_engine")
+    program = context.invocation.program
+    alpha = next(
+        phase for phase in program.phases if phase.phase_name == "alpha"
+    )
+    attempts: list[object] = []
+    helper = phase_engine._helper_facade(
+        context,
+        alpha,
+        attempts,
+        phase_engine._phase_work_charger(context, "alpha"),
+    )
+    real_resolve = type(program).resolve_runtime_binding
+
+    def resolve_cross_ledger(
+        self: object, binding_kind: str, binding_id: str
+    ) -> object:
+        target = real_resolve(self, binding_kind, binding_id)
+        if binding_kind != "schema_evaluator":
+            return target
+
+        def evaluator(*args: object, **kwargs: object) -> object:
+            kwargs["ledger"] = BudgetLedger(LM9A_BUDGET_MANIFEST)
+            return target(*args, **kwargs)  # type: ignore[operator]
+
+        return evaluator
+
+    monkeypatch.setattr(
+        type(program),
+        "resolve_runtime_binding",
+        resolve_cross_ledger,
+    )
+    recipe = context.invocation.invocation_inputs["recipe"]
+    binding = InstanceBinding(
+        artifact_id="synthetic.recipe",
+        artifact_fingerprint=canonical_fingerprint(recipe),
+        instance_pointer="",
+    )
+
+    with pytest.raises(phase_engine._IntegrityError):
+        helper.evaluate_schema(
+            "synthetic.report:v1",
+            recipe,
+            instance_binding=binding,
+        )
+
+    assert attempts == []
+
+
 def test_schema_helper_repeated_evaluation_charges_canonical_work_again() -> None:
     context = _context(_program())
     phase_engine = importlib.import_module("rook.validation_kernel.phase_engine")
@@ -743,6 +800,7 @@ def test_internal_rejected_reservation_has_exact_entry_and_survives_later_failur
     for _ in range(4):
         reservation = context.ledger.reserve_schema_shape(
             schema_nodes=1,
+            evaluation_expansion_units=1,
             instance_nodes=4_000_000,
             per_evaluation_limit=4_000_000,
         )
