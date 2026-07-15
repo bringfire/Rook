@@ -839,6 +839,100 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
     return await dispatch(name, arguments)
 
 
+async def _list_public_tools():
+    from .server import list_tools
+
+    return await list_tools()
+
+
+async def _call_public_tool(name: str, arguments: dict[str, Any]) -> Any:
+    from .server import call_tool
+
+    response = await call_tool(name, arguments)
+    if not response:
+        raise ProofFailure(
+            "progressive_discovery_failed", f"{name} returned no content"
+        )
+    text = str(response[0].text)
+    if text.startswith("Error:"):
+        raise ProofFailure(
+            "progressive_discovery_failed",
+            f"{name} failed",
+            {"tool": name, "wire": text},
+        )
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ProofFailure(
+            "progressive_discovery_failed",
+            f"{name} returned invalid JSON",
+            {"tool": name, "wire": text, "error": str(exc)},
+        ) from exc
+
+
+async def _run_live_progressive_gh_status(
+    args: dict[str, int],
+) -> dict[str, Any]:
+    tools = await _list_public_tools()
+    names = {tool.name for tool in tools}
+    gateways = (
+        "rook_tools_ls",
+        "rook_tools_search",
+        "rook_tools_read",
+        "rook_tools_call",
+    )
+    missing = [name for name in gateways if name not in names]
+    if missing or "gh_status" in names:
+        raise ProofFailure(
+            "progressive_discovery_failed",
+            "lean catalog contract failed",
+            {
+                "missing_gateways": missing,
+                "gh_status_directly_advertised": "gh_status" in names,
+            },
+        )
+
+    search = await _call_public_tool(
+        "rook_tools_search", {"query": "gh_status", "limit": 10}
+    )
+    if not isinstance(search, list) or not any(
+        item.get("name") == "gh_status" for item in search
+    ):
+        raise ProofFailure(
+            "progressive_discovery_failed",
+            "gh_status exact-name search failed",
+            {"search": search},
+        )
+
+    read = await _call_public_tool("rook_tools_read", {"name": "gh_status"})
+    read_ok = (
+        isinstance(read, dict)
+        and read.get("name") == "gh_status"
+        and read.get("mcp_dispatchable") is True
+        and isinstance(read.get("input_schema"), dict)
+        and read["input_schema"].get("type") == "object"
+    )
+    if not read_ok:
+        raise ProofFailure(
+            "progressive_discovery_failed",
+            "gh_status read contract failed",
+            {"read": read},
+        )
+
+    called = await _call_public_tool(
+        "rook_tools_call", {"name": "gh_status", "arguments": dict(args)}
+    )
+    return {
+        "profile": "lean",
+        "gateways": list(gateways),
+        "target": "gh_status",
+        "target_hidden": True,
+        "search": search,
+        "read": read,
+        "call": called,
+    }
+
+
 def _gh_ready(status: dict[str, Any]) -> bool:
     if not status.get("success"):
         return False
@@ -922,84 +1016,104 @@ async def run_live_smoke(
     if process_id:
         args["process_id"] = process_id
 
-    with rhino_request_context(port=port, process_id=process_id):
-        ping = await _call_tool_dispatch("rhino_ping", dict(args))
-        if not ping.get("success"):
-            raise ProofFailure("rhino_ping_failed", "rhino_ping failed", {"rhino_ping": ping})
-
-        gh_ready = await _ensure_grasshopper_ready(args)
-        status = gh_ready["status"]
-
-        chirp = await _call_tool_dispatch(
-            "chirp_create",
-            {
-                **args,
-                "category": "classifier",
-                "name": "Rook Release Readiness Smoke",
-                "pins_in": [{"name": "Input", "type": "string", "optional": True}],
-                "pins_out": [{"name": "Result", "type": "string"}],
-                "signature": "input -> result",
-                "deterministic_code": "Result = Input ?? string.Empty;",
-                "deterministic_only": True,
-                "x": 40,
-                "y": 40,
-            },
-        )
-        if not chirp.get("success"):
-            raise ProofFailure(
-                "chirp_create_failed",
-                "chirp_create failed",
-                {"chirp_create": chirp},
-            )
-        chirp_data = chirp.get("data") or {}
-        if chirp_data.get("warning"):
-            raise ProofFailure(
-                "chirp_component_warning",
-                "chirp_create warning",
-                {"chirp_create": chirp},
-            )
-        if chirp_data.get("compilation_errors"):
-            raise ProofFailure(
-                "chirp_component_compile_error",
-                "chirp_create compilation errors",
-                {"chirp_create": chirp},
-            )
-
-        component_guid = chirp_data.get("component_guid")
-        if not component_guid:
-            raise ProofFailure(
-                "chirp_create_failed",
-                "chirp_create did not return component_guid",
-                {"chirp_create": chirp},
-            )
-
-        errors = await _call_tool_dispatch("gh_errors", dict(args))
-        if not errors.get("success"):
-            raise ProofFailure(
-                "gh_component_error",
-                "gh_errors failed",
-                {"gh_errors": errors},
-            )
-        for item in (errors.get("data") or {}).get("errors", []):
-            if item.get("guid") == component_guid and item.get("errors"):
+    profile_was_set = "ROOK_MCP_TOOL_PROFILE" in os.environ
+    inherited_profile = os.environ.get("ROOK_MCP_TOOL_PROFILE")
+    os.environ["ROOK_MCP_TOOL_PROFILE"] = "lean"
+    try:
+        with rhino_request_context(port=port, process_id=process_id):
+            ping = await _call_tool_dispatch("rhino_ping", dict(args))
+            if not ping.get("success"):
                 raise ProofFailure(
-                    "gh_component_error",
-                    "created component has GH errors",
-                    {"gh_errors": errors},
+                    "rhino_ping_failed",
+                    "rhino_ping failed",
+                    {"rhino_ping": ping},
                 )
 
-        undo = await _call_tool_dispatch("gh_undo", dict(args))
-        if not undo.get("success"):
-            raise ProofFailure("cleanup_failed", "gh_undo failed", {"gh_undo": undo})
+            gh_ready = await _ensure_grasshopper_ready(args)
+            status = gh_ready["status"]
 
-    return {
-        "rhino_ping": ping,
-        "grasshopper_ready": gh_ready,
-        "gh_status": status,
-        "chirp_create": chirp,
-        "gh_errors": errors,
-        "gh_undo": undo,
-    }
+            progressive_discovery = await _run_live_progressive_gh_status(args)
+
+            chirp = await _call_tool_dispatch(
+                "chirp_create",
+                {
+                    **args,
+                    "category": "classifier",
+                    "name": "Rook Release Readiness Smoke",
+                    "pins_in": [
+                        {"name": "Input", "type": "string", "optional": True}
+                    ],
+                    "pins_out": [{"name": "Result", "type": "string"}],
+                    "signature": "input -> result",
+                    "deterministic_code": "Result = Input ?? string.Empty;",
+                    "deterministic_only": True,
+                    "x": 40,
+                    "y": 40,
+                },
+            )
+            if not chirp.get("success"):
+                raise ProofFailure(
+                    "chirp_create_failed",
+                    "chirp_create failed",
+                    {"chirp_create": chirp},
+                )
+            chirp_data = chirp.get("data") or {}
+            if chirp_data.get("warning"):
+                raise ProofFailure(
+                    "chirp_component_warning",
+                    "chirp_create warning",
+                    {"chirp_create": chirp},
+                )
+            if chirp_data.get("compilation_errors"):
+                raise ProofFailure(
+                    "chirp_component_compile_error",
+                    "chirp_create compilation errors",
+                    {"chirp_create": chirp},
+                )
+
+            component_guid = chirp_data.get("component_guid")
+            if not component_guid:
+                raise ProofFailure(
+                    "chirp_create_failed",
+                    "chirp_create did not return component_guid",
+                    {"chirp_create": chirp},
+                )
+
+            errors = await _call_tool_dispatch("gh_errors", dict(args))
+            if not errors.get("success"):
+                raise ProofFailure(
+                    "gh_component_error",
+                    "gh_errors failed",
+                    {"gh_errors": errors},
+                )
+            for item in (errors.get("data") or {}).get("errors", []):
+                if item.get("guid") == component_guid and item.get("errors"):
+                    raise ProofFailure(
+                        "gh_component_error",
+                        "created component has GH errors",
+                        {"gh_errors": errors},
+                    )
+
+            undo = await _call_tool_dispatch("gh_undo", dict(args))
+            if not undo.get("success"):
+                raise ProofFailure(
+                    "cleanup_failed", "gh_undo failed", {"gh_undo": undo}
+                )
+
+        return {
+            "rhino_ping": ping,
+            "grasshopper_ready": gh_ready,
+            "gh_status": status,
+            "progressive_discovery": progressive_discovery,
+            "chirp_create": chirp,
+            "gh_errors": errors,
+            "gh_undo": undo,
+        }
+    finally:
+        if profile_was_set:
+            os.environ["ROOK_MCP_TOOL_PROFILE"] = inherited_profile or ""
+        else:
+            os.environ.pop("ROOK_MCP_TOOL_PROFILE", None)
 
 
 def live_smoke_gate(
@@ -1053,6 +1167,17 @@ def _failure_label_from_smoke_output(output: str) -> str | None:
     return None
 
 
+def _live_smoke_envelope(output: str) -> dict[str, Any] | None:
+    for line in reversed(output.splitlines()):
+        try:
+            payload = json.loads(line.strip())
+        except (json.JSONDecodeError, AttributeError):
+            continue
+        if isinstance(payload, dict) and payload.get("gate") == "live_smoke":
+            return payload
+    return None
+
+
 def _harness_failure_label(harness_result: Any) -> str:
     if harness_result.cleanup_status != CleanupStatus.GRACEFUL_EXIT:
         return "cleanup_failed"
@@ -1103,7 +1228,27 @@ def owned_release_readiness_gate(
     )
     cleanup = _cleanup_payload(harness.cleanup_status.value)
     details = harness.to_manifest_dict()
+    smoke = getattr(harness, "smoke", None)
+    envelope = _live_smoke_envelope(getattr(smoke, "stdout", "") or "")
+    envelope_details = envelope.get("details") if isinstance(envelope, dict) else None
+    progressive_discovery = (
+        envelope_details.get("progressive_discovery")
+        if isinstance(envelope_details, dict)
+        else None
+    )
+    if isinstance(progressive_discovery, dict):
+        details["progressive_discovery"] = progressive_discovery
     if harness.success:
+        if not isinstance(progressive_discovery, dict):
+            return GateResult.failure(
+                gate="owned_release_readiness",
+                failure_label="progressive_discovery_failed",
+                command=command,
+                started_at=started,
+                ended_at=time.monotonic(),
+                details=details,
+                cleanup=cleanup,
+            )
         return GateResult.passed(
             gate="owned_release_readiness",
             command=command,

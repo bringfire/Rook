@@ -637,8 +637,170 @@ def test_verify_command_knowledge_runtime_rejects_mutable_only_grasshopper_even_
     assert exc.value.details["grasshopper_source"] == "mutable"
 
 
+async def _async_value(value):
+    return value
+
+
+async def _successful_direct_dispatch(name: str, _args: dict):
+    # rhino_ping is the first lazy rook.server import. Every direct call must
+    # therefore already observe lean, not only the later progressive helper.
+    assert os.environ["ROOK_MCP_TOOL_PROFILE"] == "lean"
+    if name == "rhino_ping":
+        return {"success": True, "data": {"processId": 42, "port": 9001}}
+    if name == "gh_status":
+        return {"success": True, "data": {"ready": True}}
+    if name == "chirp_create":
+        return {
+            "success": True,
+            "data": {"component_guid": "abc", "compilation_errors": []},
+        }
+    if name == "gh_errors":
+        return {"success": True, "data": {"errors": []}}
+    if name == "gh_undo":
+        return {"success": True, "data": {"undone": True}}
+    raise AssertionError(name)
+
+
+@pytest.fixture
+def passing_live_progressive(monkeypatch):
+    async def fake_progressive(_args):
+        assert os.environ["ROOK_MCP_TOOL_PROFILE"] == "lean"
+        return {
+            "profile": "lean",
+            "gateways": [
+                "rook_tools_ls",
+                "rook_tools_search",
+                "rook_tools_read",
+                "rook_tools_call",
+            ],
+            "target": "gh_status",
+            "target_hidden": True,
+            "search": [{"name": "gh_status"}],
+            "read": {
+                "name": "gh_status",
+                "mcp_dispatchable": True,
+                "input_schema": {"type": "object"},
+            },
+            "call": {"ready": True},
+        }
+
+    monkeypatch.setattr(proof, "_run_live_progressive_gh_status", fake_progressive)
+
+
 @pytest.mark.asyncio
-async def test_live_smoke_rejects_chirp_warning(monkeypatch):
+async def test_live_progressive_gh_status_uses_public_search_read_call(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        proof,
+        "_list_public_tools",
+        lambda: _async_value(
+            [
+                SimpleNamespace(name=name)
+                for name in (
+                    "rook_tools_ls",
+                    "rook_tools_search",
+                    "rook_tools_read",
+                    "rook_tools_call",
+                    "rhino_ping",
+                )
+            ]
+        ),
+    )
+
+    async def fake_public(name, arguments):
+        calls.append((name, arguments))
+        if name == "rook_tools_search":
+            return [{"name": "gh_status"}]
+        if name == "rook_tools_read":
+            return {
+                "name": "gh_status",
+                "mcp_dispatchable": True,
+                "input_schema": {"type": "object"},
+            }
+        if name == "rook_tools_call":
+            return {"ready": True}
+        raise AssertionError(name)
+
+    monkeypatch.setattr(proof, "_call_public_tool", fake_public)
+    result = await proof._run_live_progressive_gh_status(
+        {"port": 9001, "process_id": 42}
+    )
+    assert [name for name, _ in calls] == [
+        "rook_tools_search",
+        "rook_tools_read",
+        "rook_tools_call",
+    ]
+    assert calls[-1][1] == {
+        "name": "gh_status",
+        "arguments": {"port": 9001, "process_id": 42},
+    }
+    assert result["target_hidden"] is True
+    assert result["call"] == {"ready": True}
+
+
+@pytest.mark.asyncio
+async def test_run_live_smoke_restores_profile_after_progressive_failure(monkeypatch):
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "readonly")
+    monkeypatch.setattr(proof, "_call_tool_dispatch", _successful_direct_dispatch)
+
+    async def fail_progressive(_args):
+        assert os.environ["ROOK_MCP_TOOL_PROFILE"] == "lean"
+        raise proof.ProofFailure(
+            "progressive_discovery_failed", "missing gh_status"
+        )
+
+    monkeypatch.setattr(proof, "_run_live_progressive_gh_status", fail_progressive)
+    with pytest.raises(proof.ProofFailure):
+        await proof.run_live_smoke(port=9001, process_id=42)
+    assert os.environ["ROOK_MCP_TOOL_PROFILE"] == "readonly"
+
+
+@pytest.mark.asyncio
+async def test_run_live_smoke_restores_profile_after_success(
+    monkeypatch, passing_live_progressive
+):
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    monkeypatch.setattr(proof, "_call_tool_dispatch", _successful_direct_dispatch)
+    result = await proof.run_live_smoke(port=9001, process_id=42)
+    assert os.environ["ROOK_MCP_TOOL_PROFILE"] == "full"
+    assert result["progressive_discovery"]["target"] == "gh_status"
+
+
+@pytest.mark.asyncio
+async def test_run_live_smoke_restores_profile_to_unset_state(
+    monkeypatch, passing_live_progressive
+):
+    monkeypatch.delenv("ROOK_MCP_TOOL_PROFILE", raising=False)
+    monkeypatch.setattr(proof, "_call_tool_dispatch", _successful_direct_dispatch)
+    result = await proof.run_live_smoke(port=9001, process_id=42)
+    assert "ROOK_MCP_TOOL_PROFILE" not in os.environ
+    assert result["progressive_discovery"]["profile"] == "lean"
+
+
+@pytest.mark.asyncio
+async def test_run_live_smoke_orders_progressive_chain_before_chirp(monkeypatch):
+    events = []
+
+    async def fake_direct(name, args):
+        events.append(name)
+        return await _successful_direct_dispatch(name, args)
+
+    async def fake_progressive(_args):
+        events.extend(["rook_tools_search", "rook_tools_read", "rook_tools_call"])
+        return {"target": "gh_status", "target_hidden": True}
+
+    monkeypatch.setattr(proof, "_call_tool_dispatch", fake_direct)
+    monkeypatch.setattr(proof, "_run_live_progressive_gh_status", fake_progressive)
+    await proof.run_live_smoke(port=9001, process_id=42)
+    assert events.index("rhino_ping") < events.index("gh_status")
+    assert events.index("gh_status") < events.index("rook_tools_search")
+    assert events.index("rook_tools_search") < events.index("rook_tools_read")
+    assert events.index("rook_tools_read") < events.index("rook_tools_call")
+    assert events.index("rook_tools_call") < events.index("chirp_create")
+
+
+@pytest.mark.asyncio
+async def test_live_smoke_rejects_chirp_warning(monkeypatch, passing_live_progressive):
     calls = []
 
     async def fake_dispatch(name: str, args: dict):
@@ -668,7 +830,7 @@ async def test_live_smoke_rejects_chirp_warning(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_live_smoke_requires_undo_success(monkeypatch):
+async def test_live_smoke_requires_undo_success(monkeypatch, passing_live_progressive):
     async def fake_dispatch(name: str, args: dict):
         if name == "rhino_ping":
             return {"success": True, "data": {"processId": 42, "port": 9001}}
@@ -691,7 +853,7 @@ async def test_live_smoke_requires_undo_success(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_live_smoke_requires_component_guid(monkeypatch):
+async def test_live_smoke_requires_component_guid(monkeypatch, passing_live_progressive):
     async def fake_dispatch(name: str, args: dict):
         if name == "rhino_ping":
             return {"success": True, "data": {"processId": 42, "port": 9001}}
@@ -710,7 +872,9 @@ async def test_live_smoke_requires_component_guid(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_live_smoke_launches_grasshopper_when_not_ready(monkeypatch):
+async def test_live_smoke_launches_grasshopper_when_not_ready(
+    monkeypatch, passing_live_progressive
+):
     calls = []
 
     async def fake_dispatch(name: str, args: dict):
@@ -745,7 +909,9 @@ async def test_live_smoke_launches_grasshopper_when_not_ready(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_live_smoke_polls_after_grasshopper_command_timeout(monkeypatch):
+async def test_live_smoke_polls_after_grasshopper_command_timeout(
+    monkeypatch, passing_live_progressive
+):
     calls = []
 
     async def fake_dispatch(name: str, args: dict):
@@ -834,6 +1000,17 @@ def test_write_json_writes_gate_envelope(tmp_path: Path):
 
 def test_owned_release_readiness_uses_installed_python_for_smoke(monkeypatch, tmp_path: Path):
     calls = {}
+    live_envelope = {
+        "gate": "live_smoke",
+        "success": True,
+        "failure_label": None,
+        "details": {
+            "progressive_discovery": {
+                "target": "gh_status",
+                "target_hidden": True,
+            }
+        },
+    }
 
     class FakeHarnessResult:
         success = True
@@ -842,9 +1019,19 @@ def test_owned_release_readiness_uses_installed_python_for_smoke(monkeypatch, tm
         pid = 1234
         port = 9876
         warnings = []
+        smoke = SimpleNamespace(
+            returncode=0,
+            stdout=f"harness prelude\n{json.dumps(live_envelope)}\n",
+            stderr="",
+        )
 
         def to_manifest_dict(self):
-            return {"success": True, "pid": self.pid, "port": self.port}
+            return {
+                "success": True,
+                "pid": self.pid,
+                "port": self.port,
+                "smoke": {"stdout": self.smoke.stdout},
+            }
 
     def fake_run_harness(**kwargs):
         calls.update(kwargs)
@@ -865,6 +1052,38 @@ def test_owned_release_readiness_uses_installed_python_for_smoke(monkeypatch, tm
     assert calls["smoke_command"] == [sys.executable, "-m", "rook.local_testing_proof", "live-smoke"]
     assert calls["smoke_kind"] == "installed-live-smoke"
     assert calls["keep_rhino_on_failure"] is False
+    assert (
+        result.details["progressive_discovery"]
+        == live_envelope["details"]["progressive_discovery"]
+    )
+
+
+def test_owned_release_readiness_requires_progressive_evidence_on_success(
+    monkeypatch, tmp_path: Path
+):
+    class FakeHarnessResult:
+        success = True
+        cleanup_status = proof.CleanupStatus.GRACEFUL_EXIT
+        smoke = SimpleNamespace(returncode=0, stdout="harness completed\n", stderr="")
+
+        def to_manifest_dict(self):
+            return {"success": True, "smoke": {"stdout": self.smoke.stdout}}
+
+    monkeypatch.setattr(
+        proof, "run_rhino_runtime_harness", lambda **_: FakeHarnessResult()
+    )
+
+    result = proof.owned_release_readiness_gate(
+        command=["python", "-m", "rook.local_testing_proof", "owned-release-readiness"],
+        rhino_exe=Path("C:/Program Files/Rhino 8/System/Rhino.exe"),
+        artifact_root=tmp_path,
+        keep_rhino_on_failure=False,
+        readiness_timeout_seconds=1.0,
+        cleanup_timeout_seconds=1.0,
+    )
+
+    assert result.success is False
+    assert result.failure_label == "progressive_discovery_failed"
 
 
 def test_owned_release_readiness_preserves_live_smoke_failure_label(monkeypatch, tmp_path: Path):
