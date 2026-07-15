@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.metadata
 import re
+import threading
 import time
 import tracemalloc
 from collections.abc import Mapping, Sequence
@@ -12,7 +14,11 @@ from jsonschema import Draft202012Validator
 
 import rook.validation_kernel as validation_kernel
 import rook.validation_kernel.schema_profile as schema_profile_module
-from rook.validation_kernel.budget import BudgetLedger, LM9A_BUDGET_MANIFEST
+from rook.validation_kernel.budget import (
+    BudgetLedger,
+    LM9A_BUDGET_MANIFEST,
+    SchemaShapeReservation,
+)
 from rook.validation_kernel.canonical_json import (
     canonical_fingerprint,
     canonical_json_bytes,
@@ -47,6 +53,7 @@ from rook.validation_kernel.schema_profile import (
 DRAFT_2020_12_METASCHEMA_ID = "https://json-schema.org/draft/2020-12/schema"
 EXPECTED_SCHEMA_ISSUE_PATH_BYTES = 512
 EXPECTED_SCHEMA_ISSUE_EVIDENCE_BYTES = 65_536
+EXPECTED_INSTANCE_POINTER_UTF8_BYTES = 4_096
 EXPECTED_WRAPPED_VALUE_REPR_BYTES = 8
 EXPECTED_EXCEPTION_PROJECTION_BYTES = 4_096
 EXPECTED_EXCEPTION_PROJECTION_ITEMS = 128
@@ -145,6 +152,159 @@ def test_instance_binding_accepts_escaped_rfc6901_unicode_scalar_pointer() -> No
 def test_instance_binding_rejects_lone_surrogate_pointer(surrogate: str) -> None:
     with pytest.raises(SchemaEvaluationInputError, match="invalid selected instance"):
         binding("/" + surrogate)
+
+
+def test_instance_binding_pointer_utf8_byte_limit_is_inclusive() -> None:
+    exact_pointer = "/" + "\u00e9" * 2_047 + "x"
+    oversized_pointer = "/" + "\u00e9" * 2_048
+
+    assert len(exact_pointer.encode("utf-8")) == EXPECTED_INSTANCE_POINTER_UTF8_BYTES
+    assert len(oversized_pointer.encode("utf-8")) == (
+        EXPECTED_INSTANCE_POINTER_UTF8_BYTES + 1
+    )
+
+    assert binding(exact_pointer).instance_pointer == exact_pointer
+    with pytest.raises(SchemaEvaluationInputError, match="pointer byte limit"):
+        binding(oversized_pointer)
+
+
+def test_public_evaluation_rechecks_instance_pointer_utf8_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    schema = admit({"type": "null"})
+    instance = own_trusted_json(None)
+    exact_pointer = "/" + "x" * (EXPECTED_INSTANCE_POINTER_UTF8_BYTES - 1)
+    oversized = object.__new__(InstanceBinding)
+    object.__setattr__(oversized, "artifact_id", binding().artifact_id)
+    object.__setattr__(
+        oversized,
+        "artifact_fingerprint",
+        binding().artifact_fingerprint,
+    )
+    object.__setattr__(
+        oversized,
+        "instance_pointer",
+        "/" + "x" * EXPECTED_INSTANCE_POINTER_UTF8_BYTES,
+    )
+    evaluator_constructions: list[object] = []
+
+    class PassingValidator:
+        def iter_errors(self, _: object) -> tuple[()]:
+            return ()
+
+    def construct_evaluator(_: object) -> PassingValidator:
+        evaluator_constructions.append(object())
+        return PassingValidator()
+
+    monkeypatch.setattr(
+        schema_profile_module,
+        "_validator_for",
+        construct_evaluator,
+    )
+
+    accepted = evaluate_schema(
+        schema,
+        instance,
+        instance_binding=binding(exact_pointer),
+        ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
+    )
+    assert accepted.evaluation_passed is True
+
+    with pytest.raises(SchemaEvaluationInputError, match="pointer byte limit"):
+        evaluate_schema(
+            schema,
+            instance,
+            instance_binding=oversized,
+            ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
+        )
+
+    reservation = reserve_schema_evaluation(
+        schema,
+        instance_nodes=count_json_nodes(instance),
+        ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
+    )
+    with pytest.raises(SchemaEvaluationInputError, match="pointer byte limit"):
+        evaluate_schema_with_reservation(
+            schema,
+            instance,
+            instance_binding=oversized,
+            reservation=reservation,
+        )
+
+    assert len(evaluator_constructions) == 1
+
+
+def test_instance_pointer_byte_work_is_bounded_and_charged_before_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    key = "x" * (EXPECTED_INSTANCE_POINTER_UTF8_BYTES - 1)
+    pointer = "/" + key
+    root = own_trusted_json({key: None})
+    instance = lookup_json_pointer(root, pointer)
+    events: list[tuple[str, object]] = []
+
+    def charge(amount: int) -> None:
+        events.append(("charge", amount))
+
+    def tracked_lookup(value: object, selected_pointer: str) -> object:
+        events.append(("lookup", selected_pointer))
+        return lookup_json_pointer(value, selected_pointer)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        schema_profile_module,
+        "lookup_json_pointer",
+        tracked_lookup,
+    )
+
+    resolved = schema_profile_module._resolve_instance_binding(
+        instance_root=root,
+        instance_root_fingerprint=binding().artifact_fingerprint,
+        instance=instance,
+        instance_binding=binding(pointer),
+        charge_work_units=charge,
+        precomputed_instance_fingerprint=canonical_fingerprint(instance),
+    )
+
+    assert resolved.instance is instance
+    assert events == [
+        ("charge", EXPECTED_INSTANCE_POINTER_UTF8_BYTES),
+        ("charge", 2),
+        ("lookup", pointer),
+    ]
+
+    events.clear()
+    oversized_pointer = "/" + "x" * EXPECTED_INSTANCE_POINTER_UTF8_BYTES
+    oversized_binding = object.__new__(InstanceBinding)
+    object.__setattr__(
+        oversized_binding,
+        "artifact_id",
+        binding().artifact_id,
+    )
+    object.__setattr__(
+        oversized_binding,
+        "artifact_fingerprint",
+        binding().artifact_fingerprint,
+    )
+    object.__setattr__(
+        oversized_binding,
+        "instance_pointer",
+        oversized_pointer,
+    )
+    with pytest.raises(SchemaEvaluationInputError, match="pointer byte limit"):
+        schema_profile_module._resolve_instance_binding(
+            instance_root=instance,
+            instance_root_fingerprint=binding().artifact_fingerprint,
+            instance=instance,
+            instance_binding=oversized_binding,
+            charge_work_units=charge,
+            precomputed_instance_fingerprint=canonical_fingerprint(instance),
+        )
+    assert events == [
+        ("charge", EXPECTED_INSTANCE_POINTER_UTF8_BYTES + 1),
+    ]
+    for profile in (PAYLOAD_PROFILE, CORE_PROFILE):
+        identity = canonical_json_bytes(profile.identity)
+        assert b'"instance_pointer_utf8_bytes":4096' in identity
 
 
 def schema_issue_evidence_bytes(issue: SchemaIssue) -> int:
@@ -566,6 +726,51 @@ def test_core_combinator_nesting_limit_is_8_inclusive() -> None:
     assert raised.value.code == "combinator_depth_limit_exceeded"
 
 
+def exponentially_branching_reference_schema(depth: int) -> dict[str, object]:
+    definitions: dict[str, object] = {"leaf": {"type": "null"}}
+    for index in range(depth):
+        target = "leaf" if index == 0 else f"level-{index - 1}"
+        definitions[f"level-{index}"] = {
+            "allOf": [
+                {"$ref": f"/$defs/{target}"},
+                {"$ref": f"/$defs/{target}"},
+            ]
+        }
+    return {
+        "$defs": definitions,
+        "$ref": f"/$defs/level-{depth - 1}",
+    }
+
+
+def test_core_expansion_limit_accepts_boundary_and_rejects_exponential_graph(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    library_checks: list[JsonObject] = []
+    real_library_check = schema_profile_module._check_schema_with_library
+
+    def tracked_library_check(value: JsonObject) -> None:
+        library_checks.append(value)
+        real_library_check(value)
+
+    monkeypatch.setattr(
+        schema_profile_module,
+        "_check_schema_with_library",
+        tracked_library_check,
+    )
+
+    boundary = admit(exponentially_branching_reference_schema(16), CORE_PROFILE)
+
+    assert CORE_PROFILE.evaluation_expansion_limit == 65_536
+    assert boundary.evaluation_expansion_units == 65_536
+    assert b'"evaluation_expansion_units":65536' in canonical_json_bytes(
+        CORE_PROFILE.identity
+    )
+    with pytest.raises(SchemaAdmissionError) as raised:
+        admit(exponentially_branching_reference_schema(17), CORE_PROFILE)
+    assert raised.value.code == "schema_expansion_limit_exceeded"
+    assert len(library_checks) == 1
+
+
 def test_only_release_owned_exact_profiles_are_admissible() -> None:
     forged = replace(PAYLOAD_PROFILE)
     assert forged == PAYLOAD_PROFILE
@@ -602,7 +807,30 @@ def test_admitted_schema_private_factory_requires_issuer_capability() -> None:
             schema_nodes=count_json_nodes(schema),
             local_reference_count=0,
             maximum_reference_depth=0,
+            evaluation_expansion_units=1,
             value=schema,
+        )
+
+
+def test_slot_copied_admitted_schema_is_rejected() -> None:
+    admitted = admit({"type": "null"})
+    copied = object.__new__(AdmittedSchema)
+    for slot in AdmittedSchema.__slots__:
+        attribute = (
+            f"_AdmittedSchema{slot}" if slot.startswith("__") else slot
+        )
+        object.__setattr__(
+            copied,
+            attribute,
+            object.__getattribute__(admitted, attribute),
+        )
+
+    with pytest.raises(SchemaEvaluationInputError, match="admitted schema"):
+        evaluate_schema(
+            copied,
+            own_trusted_json(None),
+            instance_binding=binding(),
+            ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
         )
 
 
@@ -897,6 +1125,47 @@ def test_selected_instance_root_alone_determines_reserved_instance_nodes() -> No
     assert ledger.snapshot().schema_evaluation_shape_units == expected
 
 
+def test_direct_evaluation_counts_instance_once_without_rehashing_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    schema = admit({"type": "object", "required": ["value"]})
+    instance = own_trusted_json({"value": 1})
+    real_count_json_nodes = schema_profile_module.count_json_nodes
+    real_canonical_fingerprint = schema_profile_module.canonical_fingerprint
+    counted_values: list[object] = []
+    hashed_values: list[object] = []
+
+    def tracked_count_json_nodes(value: object) -> int:
+        counted_values.append(value)
+        return real_count_json_nodes(value)  # type: ignore[arg-type]
+
+    def tracked_canonical_fingerprint(value: object) -> str:
+        hashed_values.append(value)
+        return real_canonical_fingerprint(value)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        schema_profile_module,
+        "count_json_nodes",
+        tracked_count_json_nodes,
+    )
+    monkeypatch.setattr(
+        schema_profile_module,
+        "canonical_fingerprint",
+        tracked_canonical_fingerprint,
+    )
+
+    receipt = evaluate_schema(
+        schema,
+        instance,
+        instance_binding=binding(),
+        ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
+    )
+
+    assert receipt.evaluation_passed is True
+    assert counted_values == [instance]
+    assert hashed_values == []
+
+
 def test_reserved_evaluation_runs_after_freeze_without_mutating_frozen_ledger() -> None:
     schema = admit({"type": "object", "required": ["value"]})
     instance = own_trusted_json({"value": 1})
@@ -1070,6 +1339,93 @@ def test_reserved_evaluation_requires_exact_kernel_reservation() -> None:
         SchemaEvaluationReservation()
 
 
+def test_copied_or_reconstructed_reservation_is_rejected_before_evaluator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    schema = admit({"type": "null"})
+    instance = own_trusted_json(None)
+    issued = reserve_schema_evaluation(
+        schema,
+        instance_nodes=count_json_nodes(instance),
+        ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
+    )
+    issued_shape = issued.shape_reservation
+    reconstructed_shape = SchemaShapeReservation(
+        accepted=issued_shape.accepted,
+        attempted_shape_units=issued_shape.attempted_shape_units,
+        aggregate_before=issued_shape.aggregate_before,
+        aggregate_after=issued_shape.aggregate_after,
+        rejection_reason=issued_shape.rejection_reason,
+    )
+
+    def copied_reservation(
+        shape: SchemaShapeReservation,
+    ) -> SchemaEvaluationReservation:
+        copied = object.__new__(SchemaEvaluationReservation)
+        for slot in SchemaEvaluationReservation.__slots__:
+            attribute = (
+                f"_SchemaEvaluationReservation{slot}"
+                if slot.startswith("__")
+                else slot
+            )
+            if slot == "_shape_reservation":
+                slot_value = shape
+            elif slot == "_consumed":
+                slot_value = False
+            elif slot == "_lock":
+                slot_value = threading.Lock()
+            else:
+                slot_value = object.__getattribute__(issued, attribute)
+            object.__setattr__(copied, attribute, slot_value)
+        return copied
+
+    evaluator_constructions: list[object] = []
+
+    class PassingValidator:
+        def iter_errors(self, _: object) -> tuple[()]:
+            return ()
+
+    def construct_evaluator(_: object) -> PassingValidator:
+        evaluator_constructions.append(object())
+        return PassingValidator()
+
+    monkeypatch.setattr(
+        schema_profile_module,
+        "_validator_for",
+        construct_evaluator,
+    )
+
+    for forged in (
+        copied_reservation(issued_shape),
+        copied_reservation(reconstructed_shape),
+    ):
+        with pytest.raises(SchemaEvaluationInputError, match="reservation"):
+            evaluate_schema_with_reservation(
+                schema,
+                instance,
+                instance_binding=binding(),
+                reservation=forged,
+            )
+
+    assert evaluator_constructions == []
+
+
+def test_shape_reservation_authority_stays_out_of_public_dataclass_fields() -> None:
+    shape = BudgetLedger(LM9A_BUDGET_MANIFEST).reserve_schema_shape(
+        schema_nodes=2,
+        instance_nodes=3,
+        per_evaluation_limit=6,
+    )
+
+    assert asdict(shape) == {
+        "accepted": True,
+        "attempted_shape_units": 6,
+        "aggregate_before": 0,
+        "aggregate_after": 6,
+        "rejection_reason": None,
+    }
+
+
 def test_repeated_evaluation_charges_again_even_for_identical_cached_ref_shape() -> None:
     schema = admit(
         {"$defs": {"leaf": {"type": "null"}}, "$ref": "/$defs/leaf"}
@@ -1206,6 +1562,70 @@ def test_schema_issues_are_bounded_and_deterministic() -> None:
     assert all(issue.code == "type" for issue in first.bounded_errors)
 
 
+def test_full_receipt_selects_canonical_issues_across_large_error_orders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    schema = admit({"items": {"type": "string"}})
+    instance = own_trusted_json(list(range(MAX_SCHEMA_ISSUES + 257)))
+    validator = schema_profile_module._validator_for(schema)
+    instance_view = schema_profile_module._adapt_owned(
+        instance,
+        translate_refs=False,
+    )
+    errors = tuple(validator.iter_errors(instance_view))
+    assert len(errors) > MAX_SCHEMA_ISSUES
+
+    expected = tuple(
+        sorted(
+            (
+                schema_profile_module._issue_from_validation_error(error)
+                for error in errors
+            ),
+            key=lambda issue: (
+                issue.instance_path,
+                issue.schema_path,
+                issue.code,
+                issue.detail_sha256 or "",
+            ),
+        )[:MAX_SCHEMA_ISSUES]
+    )
+    orders = (
+        errors,
+        tuple(reversed(errors)),
+        tuple(
+            sorted(
+                errors,
+                key=lambda error: hashlib.sha256(
+                    repr(tuple(error.absolute_path)).encode("utf-8")
+                ).digest(),
+            )
+        ),
+    )
+
+    receipts = []
+    for ordered_errors in orders:
+        class OrderedValidator:
+            def iter_errors(self, _: object) -> object:
+                return iter(ordered_errors)
+
+        monkeypatch.setattr(
+            schema_profile_module,
+            "_validator_for",
+            lambda _: OrderedValidator(),
+        )
+        receipts.append(
+            evaluate_schema(
+                schema,
+                instance,
+                instance_binding=binding(),
+                ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
+            )
+        )
+
+    assert all(receipt.bounded_errors == expected for receipt in receipts)
+    assert receipts[0] == receipts[1] == receipts[2]
+
+
 def test_long_key_issue_amplification_has_per_path_and_aggregate_byte_bounds() -> None:
     keys = [f"{index:04d}-" + "x" * 2_048 for index in range(MAX_SCHEMA_ISSUES)]
     schema = admit(
@@ -1310,7 +1730,9 @@ def test_evaluator_exception_does_not_stringify_detail_and_bounds_binding_path(
     receipt = evaluate_schema(
         admit({"type": "null"}),
         own_trusted_json(None),
-        instance_binding=binding("/" + "p" * 100_000),
+        instance_binding=binding(
+            "/" + "p" * (EXPECTED_INSTANCE_POINTER_UTF8_BYTES - 1)
+        ),
         ledger=BudgetLedger(LM9A_BUDGET_MANIFEST),
     )
 

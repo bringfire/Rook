@@ -674,6 +674,8 @@ Static admission limits are sealed into the profile:
 | local references in one embedded schema | 256 |
 | local reference depth | 16 |
 | conservative schema-nodes x payload-nodes product | 2,000,000 |
+| instance JSON Pointer UTF-8 code units (bytes) | 4,096 |
+| schema evaluation expansion units | 32,768 |
 
 The evaluator is configured with no retrieval callback. Unknown keywords fail
 profile validation rather than being ignored. Trusted core schemas may use only
@@ -687,12 +689,20 @@ Core schemas remain acyclic and forbid regex/format callbacks, dynamic or remote
 references, `uniqueItems`, `contains`, unevaluated/dependent-schema behavior,
 and custom keywords. Their sealed limits are 32,768 schema nodes, 1,024 local
 references, local reference depth 32, at most 16 alternatives per combinator,
-combinator nesting depth 8, and
+combinator nesting depth 8, at most 65,536 schema evaluation expansion units,
+an inclusive 4,096-byte instance JSON Pointer, and
 `schema_nodes * instance_nodes <= 8,000,000`. Identity grammar, duplicate IDs,
 and semantic set uniqueness are checked by linear trusted runners rather than
 potentially expensive schema regex or `uniqueItems` behavior. Changing either
 profile, a core schema, evaluator package, metaschema, or type checker moves the
 program fingerprint.
+
+Expansion units are checked at admission over the acyclic schema graph. A leaf
+contributes one unit, a single structural or reference edge forwards its
+target's units, and branching edges sum with saturation at the profile limit
+plus one. The profile identity binds the limit and each admitted schema records
+its exact observed expansion units. Limit-plus-one rejection precedes schema
+library construction.
 
 The applicable per-evaluation bounds and the invocation-wide 16,000,000-unit
 schema-shape counter are reserved before evaluation. They bound accepted problem

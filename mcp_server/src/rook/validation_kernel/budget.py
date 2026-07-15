@@ -150,15 +150,93 @@ class BudgetReceipt:
     observed: BudgetSnapshot
 
 
-@dataclass(frozen=True, slots=True)
+_SCHEMA_SHAPE_RESERVATION_ISSUER = object()
+
+
+@dataclass(frozen=True)
 class SchemaShapeReservation:
     """The checked result of reserving one schema-evaluation product."""
+
+    __slots__ = (
+        "accepted",
+        "attempted_shape_units",
+        "aggregate_before",
+        "aggregate_after",
+        "rejection_reason",
+        "_issuer_capability",
+        "_issued_signature",
+    )
 
     accepted: bool
     attempted_shape_units: int | None
     aggregate_before: int
     aggregate_after: int | None
     rejection_reason: str | None
+
+    @classmethod
+    def _issue(
+        cls,
+        token: object = None,
+        *,
+        accepted: bool,
+        attempted_shape_units: int | None,
+        aggregate_before: int,
+        aggregate_after: int | None,
+        rejection_reason: str | None,
+    ) -> "SchemaShapeReservation":
+        if token is not _SCHEMA_SHAPE_RESERVATION_ISSUER:
+            raise TypeError("invalid schema-shape reservation issuer")
+        value = cls(
+            accepted=accepted,
+            attempted_shape_units=attempted_shape_units,
+            aggregate_before=aggregate_before,
+            aggregate_after=aggregate_after,
+            rejection_reason=rejection_reason,
+        )
+        object.__setattr__(
+            value,
+            "_issuer_capability",
+            _SCHEMA_SHAPE_RESERVATION_ISSUER,
+        )
+        object.__setattr__(
+            value,
+            "_issued_signature",
+            _schema_shape_reservation_signature(value),
+        )
+        return value
+
+
+def _schema_shape_reservation_signature(
+    value: SchemaShapeReservation,
+) -> tuple[object, ...]:
+    return (
+        id(value),
+        value.accepted,
+        value.attempted_shape_units,
+        value.aggregate_before,
+        value.aggregate_after,
+        value.rejection_reason,
+    )
+
+
+def _is_issued_schema_shape_reservation(value: object) -> bool:
+    if type(value) is not SchemaShapeReservation:
+        return False
+    try:
+        capability = object.__getattribute__(
+            value,
+            "_issuer_capability",
+        )
+        signature = object.__getattribute__(
+            value,
+            "_issued_signature",
+        )
+        return (
+            capability is _SCHEMA_SHAPE_RESERVATION_ISSUER
+            and signature == _schema_shape_reservation_signature(value)
+        )
+    except (AttributeError, TypeError):
+        return False
 
 
 def _owned_limit_object() -> JsonObject:
@@ -335,7 +413,8 @@ class BudgetLedger:
                 or instance_nodes > MAX_CHECKED_BUDGET_INTEGER
                 or per_evaluation_limit > MAX_CHECKED_BUDGET_INTEGER
             ):
-                return SchemaShapeReservation(
+                return SchemaShapeReservation._issue(
+                    _SCHEMA_SHAPE_RESERVATION_ISSUER,
                     accepted=False,
                     attempted_shape_units=None,
                     aggregate_before=aggregate_before,
@@ -347,7 +426,8 @@ class BudgetLedger:
                 per_evaluation_instances = per_evaluation_limit // schema_nodes
                 aggregate_remaining_instances = aggregate_remaining // schema_nodes
                 if instance_nodes > per_evaluation_instances:
-                    return SchemaShapeReservation(
+                    return SchemaShapeReservation._issue(
+                        _SCHEMA_SHAPE_RESERVATION_ISSUER,
                         accepted=False,
                         attempted_shape_units=None,
                         aggregate_before=aggregate_before,
@@ -355,7 +435,8 @@ class BudgetLedger:
                         rejection_reason="per_evaluation_limit_exceeded",
                     )
                 if instance_nodes > aggregate_remaining_instances:
-                    return SchemaShapeReservation(
+                    return SchemaShapeReservation._issue(
+                        _SCHEMA_SHAPE_RESERVATION_ISSUER,
                         accepted=False,
                         attempted_shape_units=None,
                         aggregate_before=aggregate_before,
@@ -366,7 +447,8 @@ class BudgetLedger:
             attempted = schema_nodes * instance_nodes
             aggregate_after = aggregate_before + attempted
             self._observed["schema_evaluation_shape_units"] = aggregate_after
-            return SchemaShapeReservation(
+            return SchemaShapeReservation._issue(
+                _SCHEMA_SHAPE_RESERVATION_ISSUER,
                 accepted=True,
                 attempted_shape_units=attempted,
                 aggregate_before=aggregate_before,

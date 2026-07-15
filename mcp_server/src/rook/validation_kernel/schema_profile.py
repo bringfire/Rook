@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import heapq
 import importlib.metadata
 import re
 import struct
 import threading
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from itertools import islice
 from typing import overload
 from urllib.parse import quote
 
@@ -17,7 +17,12 @@ from jsonschema import Draft202012Validator, ValidationError, validators
 from jsonschema.exceptions import SchemaError
 from referencing import Registry
 
-from .budget import BudgetLedger, SchemaShapeReservation
+from .budget import (
+    BudgetLedger,
+    SchemaShapeReservation,
+    _is_issued_schema_shape_reservation,
+    _schema_shape_reservation_signature,
+)
 from .canonical_json import canonical_fingerprint, canonical_fingerprint_metered
 from .owned_json import (
     JsonArray,
@@ -38,6 +43,7 @@ CORE_SCHEMA_PROFILE_ID = "rook.json_schema_profile:lm9a_core_v1"
 MAX_SCHEMA_ISSUES = 1_024
 MAX_SCHEMA_ISSUE_PATH_BYTES = 512
 MAX_SCHEMA_ISSUE_EVIDENCE_BYTES = 65_536
+MAX_INSTANCE_POINTER_UTF8_BYTES = 4_096
 _MAX_WRAPPED_VALUE_REPR_BYTES = 8
 _EXCEPTION_PROJECTION_MAX_BYTES = 4_096
 _EXCEPTION_PROJECTION_MAX_ITEMS = 128
@@ -172,6 +178,7 @@ _ADMISSION_MESSAGES = {
     "local_reference_depth_exceeded": "Local schema reference depth exceeded.",
     "combinator_alternative_limit_exceeded": "Schema combinator alternative limit exceeded.",
     "combinator_depth_limit_exceeded": "Schema combinator depth limit exceeded.",
+    "schema_expansion_limit_exceeded": "Schema evaluation expansion limit exceeded.",
 }
 
 
@@ -209,6 +216,8 @@ class SchemaProfile:
     local_reference_limit: int
     reference_depth_limit: int
     per_evaluation_shape_limit: int
+    instance_pointer_utf8_byte_limit: int
+    evaluation_expansion_limit: int
     combinator_alternative_limit: int
     combinator_depth_limit: int
     runtime_dependencies: tuple[tuple[str, str], ...]
@@ -235,8 +244,10 @@ class AdmittedSchema:
     schema_nodes: int
     local_reference_count: int
     maximum_reference_depth: int
+    evaluation_expansion_units: int
     value: JsonObject
     __issuer_capability: object = field(repr=False, compare=False)
+    __issued_signature: tuple[object, ...] = field(repr=False, compare=False)
 
     def __init__(self) -> None:
         raise TypeError("AdmittedSchema values are created only by admit_schema")
@@ -252,6 +263,7 @@ class AdmittedSchema:
         schema_nodes: int,
         local_reference_count: int,
         maximum_reference_depth: int,
+        evaluation_expansion_units: int,
         value: JsonObject,
     ) -> "AdmittedSchema":
         if token is not _ADMITTED_SCHEMA_ISSUER_CAPABILITY:
@@ -267,26 +279,56 @@ class AdmittedSchema:
         object.__setattr__(
             admitted, "maximum_reference_depth", maximum_reference_depth
         )
+        object.__setattr__(
+            admitted,
+            "evaluation_expansion_units",
+            evaluation_expansion_units,
+        )
         object.__setattr__(admitted, "value", value)
         object.__setattr__(
             admitted,
             "_AdmittedSchema__issuer_capability",
             _ADMITTED_SCHEMA_ISSUER_CAPABILITY,
         )
+        object.__setattr__(
+            admitted,
+            "_AdmittedSchema__issued_signature",
+            _admitted_schema_signature(admitted),
+        )
         return admitted
+
+
+def _admitted_schema_signature(value: AdmittedSchema) -> tuple[object, ...]:
+    return (
+        id(value),
+        value.schema_id,
+        value.schema_fingerprint,
+        value.profile_id,
+        value.schema_nodes,
+        value.local_reference_count,
+        value.maximum_reference_depth,
+        value.evaluation_expansion_units,
+        id(value.value),
+    )
 
 
 def _is_admitted_schema(value: object) -> bool:
     if type(value) is not AdmittedSchema:
         return False
     try:
-        return (
-            object.__getattribute__(
-                value, "_AdmittedSchema__issuer_capability"
-            )
-            is _ADMITTED_SCHEMA_ISSUER_CAPABILITY
+        capability = object.__getattribute__(
+            value,
+            "_AdmittedSchema__issuer_capability",
         )
-    except AttributeError:
+        signature = object.__getattribute__(
+            value,
+            "_AdmittedSchema__issued_signature",
+        )
+        return (
+            capability is _ADMITTED_SCHEMA_ISSUER_CAPABILITY
+            and signature == _admitted_schema_signature(value)
+        )
+    except (AttributeError, TypeError):
         return False
 
 
@@ -308,7 +350,15 @@ class InstanceBinding:
             or not _FINGERPRINT_RE.fullmatch(self.artifact_fingerprint)
         ):
             raise SchemaEvaluationInputError("invalid instance artifact fingerprint")
-        if not _is_rfc6901_pointer(self.instance_pointer):
+        pointer_bytes, pointer_valid = _scan_rfc6901_pointer(
+            self.instance_pointer,
+            utf8_byte_limit=MAX_INSTANCE_POINTER_UTF8_BYTES,
+        )
+        if pointer_bytes > MAX_INSTANCE_POINTER_UTF8_BYTES:
+            raise SchemaEvaluationInputError(
+                "instance binding pointer byte limit exceeded"
+            )
+        if not pointer_valid:
             raise SchemaEvaluationInputError("invalid selected instance pointer")
 
 
@@ -402,6 +452,18 @@ def _resolve_instance_binding(
         raise SchemaEvaluationInputError("instance binding root fingerprint mismatch")
 
     pointer = instance_binding.instance_pointer
+    pointer_bytes, pointer_valid = _scan_rfc6901_pointer(
+        pointer,
+        utf8_byte_limit=MAX_INSTANCE_POINTER_UTF8_BYTES,
+    )
+    if pointer_bytes > MAX_INSTANCE_POINTER_UTF8_BYTES:
+        charge_work_units(pointer_bytes)
+        raise SchemaEvaluationInputError(
+            "instance binding pointer byte limit exceeded"
+        )
+    charge_work_units(pointer_bytes)
+    if not pointer_valid:
+        raise SchemaEvaluationInputError("invalid selected instance pointer")
     pointer_tokens = 0 if pointer == "" else len(pointer[1:].split("/"))
     charge_work_units(1 + pointer_tokens)
     try:
@@ -892,14 +954,55 @@ def _is_schema_evaluation_audit_entry(value: object) -> bool:
 
 def _shape_reservation_signature(
     value: SchemaShapeReservation,
-) -> tuple[bool, int | None, int, int | None, str | None]:
+) -> tuple[object, ...]:
+    return _schema_shape_reservation_signature(value)
+
+
+_SCHEMA_EVALUATION_RESERVATION_ISSUER = object()
+
+
+def _schema_evaluation_reservation_signature(
+    value: "SchemaEvaluationReservation",
+) -> tuple[object, ...]:
+    schema = value._schema
+    shape = value._shape_reservation
     return (
-        value.accepted,
-        value.attempted_shape_units,
-        value.aggregate_before,
-        value.aggregate_after,
-        value.rejection_reason,
+        id(value),
+        id(schema),
+        _admitted_schema_signature(schema),
+        schema.schema_id,
+        schema.schema_fingerprint,
+        schema.profile_id,
+        schema.schema_nodes,
+        schema.local_reference_count,
+        schema.maximum_reference_depth,
+        schema.evaluation_expansion_units,
+        id(schema.value),
+        value._instance_nodes,
+        value._per_evaluation_limit,
+        id(shape),
+        _shape_reservation_signature(shape),
     )
+
+
+def _is_issued_schema_evaluation_reservation(value: object) -> bool:
+    if type(value) is not SchemaEvaluationReservation:
+        return False
+    try:
+        capability = object.__getattribute__(
+            value,
+            "_SchemaEvaluationReservation__issuer_capability",
+        )
+        signature = object.__getattribute__(
+            value,
+            "_SchemaEvaluationReservation__issued_signature",
+        )
+        return (
+            capability is _SCHEMA_EVALUATION_RESERVATION_ISSUER
+            and signature == _schema_evaluation_reservation_signature(value)
+        )
+    except (AttributeError, TypeError):
+        return False
 
 
 class SchemaEvaluationReservation:
@@ -916,6 +1019,8 @@ class SchemaEvaluationReservation:
         "_shape_signature",
         "_consumed",
         "_lock",
+        "__issuer_capability",
+        "__issued_signature",
     )
 
     def __init__(self) -> None:
@@ -930,12 +1035,17 @@ class SchemaEvaluationReservation:
     @classmethod
     def _create(
         cls,
+        token: object = None,
         *,
         schema: AdmittedSchema,
         instance_nodes: int,
         per_evaluation_limit: int,
         shape_reservation: SchemaShapeReservation,
     ) -> "SchemaEvaluationReservation":
+        if token is not _SCHEMA_EVALUATION_RESERVATION_ISSUER:
+            raise TypeError("invalid schema-evaluation reservation issuer")
+        if not _is_issued_schema_shape_reservation(shape_reservation):
+            raise TypeError("shape reservation was not issued by the ledger")
         value = object.__new__(cls)
         object.__setattr__(value, "_schema", schema)
         object.__setattr__(value, "_schema_id", schema.schema_id)
@@ -955,6 +1065,16 @@ class SchemaEvaluationReservation:
         )
         object.__setattr__(value, "_consumed", False)
         object.__setattr__(value, "_lock", threading.Lock())
+        object.__setattr__(
+            value,
+            "_SchemaEvaluationReservation__issuer_capability",
+            _SCHEMA_EVALUATION_RESERVATION_ISSUER,
+        )
+        object.__setattr__(
+            value,
+            "_SchemaEvaluationReservation__issued_signature",
+            _schema_evaluation_reservation_signature(value),
+        )
         return value
 
     @property
@@ -982,6 +1102,10 @@ class SchemaEvaluationReservation:
         return self._shape_reservation
 
     def _claim(self, schema: AdmittedSchema, instance_nodes: int) -> None:
+        if not _is_issued_schema_evaluation_reservation(self):
+            raise SchemaEvaluationInputError(
+                "schema evaluation reservation is not kernel-issued"
+            )
         with self._lock:
             if self._consumed:
                 raise SchemaEvaluationInputError(
@@ -1005,7 +1129,7 @@ class SchemaEvaluationReservation:
                 "schema evaluation reservation has the wrong instance node count"
             )
         if (
-            type(self._shape_reservation) is not SchemaShapeReservation
+            not _is_issued_schema_shape_reservation(self._shape_reservation)
             or _shape_reservation_signature(self._shape_reservation)
             != self._shape_signature
         ):
@@ -1306,6 +1430,7 @@ def _make_profile(
     local_reference_limit: int,
     reference_depth_limit: int,
     per_evaluation_shape_limit: int,
+    evaluation_expansion_limit: int,
     combinator_alternative_limit: int,
     combinator_depth_limit: int,
 ) -> SchemaProfile:
@@ -1320,6 +1445,10 @@ def _make_profile(
                 "local_references": local_reference_limit,
                 "local_reference_depth": reference_depth_limit,
                 "per_evaluation_shape_units": per_evaluation_shape_limit,
+                "instance_pointer_utf8_bytes": (
+                    MAX_INSTANCE_POINTER_UTF8_BYTES
+                ),
+                "evaluation_expansion_units": evaluation_expansion_limit,
                 "combinator_alternatives": combinator_alternative_limit,
                 "combinator_depth": combinator_depth_limit,
                 "bounded_issues": MAX_SCHEMA_ISSUES,
@@ -1369,6 +1498,8 @@ def _make_profile(
         local_reference_limit=local_reference_limit,
         reference_depth_limit=reference_depth_limit,
         per_evaluation_shape_limit=per_evaluation_shape_limit,
+        instance_pointer_utf8_byte_limit=MAX_INSTANCE_POINTER_UTF8_BYTES,
+        evaluation_expansion_limit=evaluation_expansion_limit,
         combinator_alternative_limit=combinator_alternative_limit,
         combinator_depth_limit=combinator_depth_limit,
         runtime_dependencies=_RUNTIME_DEPENDENCIES,
@@ -1391,6 +1522,7 @@ PAYLOAD_PROFILE = _make_profile(
     local_reference_limit=256,
     reference_depth_limit=16,
     per_evaluation_shape_limit=2_000_000,
+    evaluation_expansion_limit=32_768,
     combinator_alternative_limit=0,
     combinator_depth_limit=0,
 )
@@ -1402,30 +1534,54 @@ CORE_PROFILE = _make_profile(
     local_reference_limit=1_024,
     reference_depth_limit=32,
     per_evaluation_shape_limit=8_000_000,
+    evaluation_expansion_limit=65_536,
     combinator_alternative_limit=16,
     combinator_depth_limit=8,
 )
 
 
-def _is_rfc6901_pointer(pointer: object) -> bool:
+def _scan_rfc6901_pointer(
+    pointer: object,
+    *,
+    utf8_byte_limit: int | None = None,
+) -> tuple[int, bool]:
     if type(pointer) is not str:
-        return False
-    if any(0xD800 <= ord(character) <= 0xDFFF for character in pointer):
-        return False
-    if pointer == "":
-        return True
-    if not pointer.startswith("/"):
-        return False
-    for token in pointer[1:].split("/"):
-        index = 0
-        while index < len(token):
-            if token[index] != "~":
-                index += 1
-                continue
-            if index + 1 == len(token) or token[index + 1] not in ("0", "1"):
-                return False
-            index += 2
-    return True
+        return 0, False
+
+    byte_count = 0
+    escape_pending = False
+    for index, character in enumerate(pointer):
+        scalar = ord(character)
+        if 0xD800 <= scalar <= 0xDFFF:
+            return byte_count, False
+        if scalar <= 0x7F:
+            byte_count += 1
+        elif scalar <= 0x7FF:
+            byte_count += 2
+        elif scalar <= 0xFFFF:
+            byte_count += 3
+        else:
+            byte_count += 4
+        if utf8_byte_limit is not None and byte_count > utf8_byte_limit:
+            return byte_count, False
+
+        if index == 0:
+            if character != "/":
+                return byte_count, False
+            continue
+        if escape_pending:
+            if character not in ("0", "1"):
+                return byte_count, False
+            escape_pending = False
+        elif character == "~":
+            escape_pending = True
+
+    return byte_count, (pointer == "" or not escape_pending)
+
+
+def _is_rfc6901_pointer(pointer: object) -> bool:
+    _, valid = _scan_rfc6901_pointer(pointer)
+    return valid
 
 
 def _child_pointer(parent: str, token: str) -> str:
@@ -1498,9 +1654,45 @@ def _maximum_reference_depth(
     return maximum
 
 
+def _evaluation_expansion_units(
+    graph: dict[int, list[tuple[int, int]]],
+    root: int,
+    limit: int,
+) -> int:
+    indegrees = {node: 0 for node in graph}
+    for edges in graph.values():
+        for target, _ in edges:
+            indegrees[target] += 1
+
+    ready = [node for node, indegree in indegrees.items() if indegree == 0]
+    topological_order: list[int] = []
+    while ready:
+        source = ready.pop()
+        topological_order.append(source)
+        for target, _ in graph[source]:
+            indegrees[target] -= 1
+            if indegrees[target] == 0:
+                ready.append(target)
+    if len(topological_order) != len(graph):
+        raise SchemaAdmissionError("local_reference_cycle")
+
+    saturated = limit + 1
+    expansion_by_node: dict[int, int] = {}
+    for source in reversed(topological_order):
+        source_expansion = 0
+        for target, _ in graph[source]:
+            target_expansion = expansion_by_node[target]
+            if source_expansion > limit - target_expansion:
+                source_expansion = saturated
+                break
+            source_expansion += target_expansion
+        expansion_by_node[source] = max(1, source_expansion)
+    return expansion_by_node[root]
+
+
 def _static_admission(
     value: JsonObject, profile: SchemaProfile
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, int]:
     schema_nodes = count_json_nodes(value)
     if schema_nodes > profile.schema_node_limit:
         raise SchemaAdmissionError("schema_node_limit_exceeded")
@@ -1577,7 +1769,19 @@ def _static_admission(
     maximum_reference_depth = _maximum_reference_depth(reachability_graph)
     if maximum_reference_depth > profile.reference_depth_limit:
         raise SchemaAdmissionError("local_reference_depth_exceeded")
-    return schema_nodes, len(references), maximum_reference_depth
+    expansion_units = _evaluation_expansion_units(
+        reachability_graph,
+        id(value),
+        profile.evaluation_expansion_limit,
+    )
+    if expansion_units > profile.evaluation_expansion_limit:
+        raise SchemaAdmissionError("schema_expansion_limit_exceeded")
+    return (
+        schema_nodes,
+        len(references),
+        maximum_reference_depth,
+        expansion_units,
+    )
 
 
 def _check_schema_with_library(value: JsonObject) -> None:
@@ -1597,9 +1801,12 @@ def admit_schema(
     if profile is not PAYLOAD_PROFILE and profile is not CORE_PROFILE:
         raise SchemaAdmissionError("schema_profile_not_sealed")
 
-    schema_nodes, reference_count, reference_depth = _static_admission(
-        value, profile
-    )
+    (
+        schema_nodes,
+        reference_count,
+        reference_depth,
+        expansion_units,
+    ) = _static_admission(value, profile)
     try:
         _check_schema_with_library(value)
     except SchemaError:
@@ -1615,6 +1822,7 @@ def admit_schema(
         schema_nodes=schema_nodes,
         local_reference_count=reference_count,
         maximum_reference_depth=reference_depth,
+        evaluation_expansion_units=expansion_units,
         value=value,
     )
 
@@ -1925,24 +2133,47 @@ def _issue_evidence_bytes(issue: SchemaIssue) -> int:
     return 4 + sum(len(field.encode("utf-8")) for field in fields)
 
 
+def _schema_issue_key(issue: SchemaIssue) -> tuple[str, str, str, str]:
+    return (
+        issue.instance_path,
+        issue.schema_path,
+        issue.code,
+        issue.detail_sha256 or "",
+    )
+
+
+class _ReverseIssueKey:
+    __slots__ = ("issue", "key")
+
+    def __init__(self, issue: SchemaIssue) -> None:
+        self.issue = issue
+        self.key = _schema_issue_key(issue)
+
+    def __lt__(self, other: "_ReverseIssueKey") -> bool:
+        return self.key > other.key
+
+
 def _bounded_validation_issues(errors: object) -> tuple[SchemaIssue, ...]:
+    selected: list[_ReverseIssueKey] = []
+    for error in iter(errors):
+        issue = _issue_from_validation_error(error)
+        candidate = _ReverseIssueKey(issue)
+        if len(selected) < MAX_SCHEMA_ISSUES:
+            heapq.heappush(selected, candidate)
+        elif candidate.key < selected[0].key:
+            heapq.heapreplace(selected, candidate)
+
     bounded: list[SchemaIssue] = []
     evidence_bytes = 0
-    for error in islice(iter(errors), MAX_SCHEMA_ISSUES):
-        issue = _issue_from_validation_error(error)
+    for issue in sorted(
+        (candidate.issue for candidate in selected),
+        key=_schema_issue_key,
+    ):
         issue_bytes = _issue_evidence_bytes(issue)
         if evidence_bytes + issue_bytes > MAX_SCHEMA_ISSUE_EVIDENCE_BYTES:
             break
         evidence_bytes += issue_bytes
         bounded.append(issue)
-    bounded.sort(
-        key=lambda issue: (
-            issue.instance_path,
-            issue.schema_path,
-            issue.code,
-            issue.detail_sha256 or "",
-        )
-    )
     return tuple(bounded)
 
 
@@ -1950,11 +2181,6 @@ def _require_evaluation_schema(schema: object) -> tuple[AdmittedSchema, SchemaPr
     if not _is_admitted_schema(schema):
         raise SchemaEvaluationInputError("evaluation requires an admitted schema")
     profile = _profile_for_admitted(schema)
-    if (
-        schema.schema_nodes != count_json_nodes(schema.value)
-        or schema.schema_fingerprint != canonical_fingerprint(schema.value)
-    ):
-        raise SchemaEvaluationInputError("admitted schema identity is inconsistent")
     return schema, profile
 
 
@@ -1965,6 +2191,16 @@ def _require_evaluation_instance(
         raise SchemaEvaluationInputError("evaluation requires an owned instance")
     if type(instance_binding) is not InstanceBinding:
         raise SchemaEvaluationInputError("evaluation requires an instance binding")
+    pointer_bytes, pointer_valid = _scan_rfc6901_pointer(
+        instance_binding.instance_pointer,
+        utf8_byte_limit=MAX_INSTANCE_POINTER_UTF8_BYTES,
+    )
+    if pointer_bytes > MAX_INSTANCE_POINTER_UTF8_BYTES:
+        raise SchemaEvaluationInputError(
+            "instance binding pointer byte limit exceeded"
+        )
+    if not pointer_valid:
+        raise SchemaEvaluationInputError("invalid selected instance pointer")
     return instance
 
 
@@ -1989,6 +2225,7 @@ def reserve_schema_evaluation(
         per_evaluation_limit=profile.per_evaluation_shape_limit,
     )
     return SchemaEvaluationReservation._create(
+        _SCHEMA_EVALUATION_RESERVATION_ISSUER,
         schema=accepted_schema,
         instance_nodes=instance_nodes,
         per_evaluation_limit=profile.per_evaluation_shape_limit,
@@ -2039,19 +2276,35 @@ def evaluate_schema_with_reservation(
 
     accepted_schema, _ = _require_evaluation_schema(schema)
     accepted_instance = _require_evaluation_instance(instance, instance_binding)
+    return _evaluate_schema_with_reservation(
+        accepted_schema,
+        accepted_instance,
+        instance_binding=instance_binding,
+        reservation=reservation,
+        instance_nodes=count_json_nodes(accepted_instance),
+    )
+
+
+def _evaluate_schema_with_reservation(
+    schema: AdmittedSchema,
+    instance: JsonValue,
+    *,
+    instance_binding: InstanceBinding,
+    reservation: SchemaEvaluationReservation,
+    instance_nodes: int,
+) -> SchemaEvaluationReceipt:
     if type(reservation) is not SchemaEvaluationReservation:
         raise SchemaEvaluationInputError(
             "evaluation requires an exact schema evaluation reservation"
         )
-    instance_nodes = count_json_nodes(accepted_instance)
-    reservation._claim(accepted_schema, instance_nodes)
+    reservation._claim(schema, instance_nodes)
     shape_reservation = reservation.shape_reservation
     if not shape_reservation.accepted:
         return _receipt_from_rejected_shape(shape_reservation)
 
     try:
-        validator = _validator_for(accepted_schema)
-        instance_view = _adapt_owned(accepted_instance, translate_refs=False)
+        validator = _validator_for(schema)
+        instance_view = _adapt_owned(instance, translate_refs=False)
         errors = _bounded_validation_issues(
             validator.iter_errors(instance_view)
         )
@@ -2099,16 +2352,18 @@ def evaluate_schema(
     accepted_instance = _require_evaluation_instance(instance, instance_binding)
     if type(ledger) is not BudgetLedger:
         raise SchemaEvaluationInputError("evaluation requires the invocation ledger")
+    instance_nodes = count_json_nodes(accepted_instance)
     reservation = reserve_schema_evaluation(
         accepted_schema,
-        instance_nodes=count_json_nodes(accepted_instance),
+        instance_nodes=instance_nodes,
         ledger=ledger,
     )
-    return evaluate_schema_with_reservation(
+    return _evaluate_schema_with_reservation(
         accepted_schema,
         accepted_instance,
         instance_binding=instance_binding,
         reservation=reservation,
+        instance_nodes=instance_nodes,
     )
 
 
