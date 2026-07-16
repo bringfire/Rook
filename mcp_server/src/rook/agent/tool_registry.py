@@ -42,6 +42,14 @@ from .tool_groups import (
 
 logger = logging.getLogger(__name__)
 
+AGENT_MANAGEMENT_TOOL_NAMES = frozenset({
+    "spawn_agent",
+    "plan_and_execute",
+    "agent_status",
+    "agent_abort",
+    "agent_answer",
+})
+
 
 def mcp_tool_to_litellm(tool) -> dict:
     """Convert an MCP Tool object to LiteLLM tool schema format.
@@ -81,6 +89,29 @@ def build_catalog_from_mcp_tools(tools: list) -> Dict[str, dict]:
         catalog[tool.name] = schema
     logger.info(f"Built catalog with {len(catalog)} tools from MCP")
     return catalog
+
+
+def filter_agent_catalog(catalog: Mapping[str, dict]) -> Dict[str, dict]:
+    """Apply lifecycle and agent-management policy without mutating input."""
+    filtered: Dict[str, dict] = {}
+    for raw_name, raw_schema in filter_litellm_catalog(catalog).items():
+        function = (
+            raw_schema.get("function")
+            if isinstance(raw_schema, Mapping)
+            else None
+        )
+        embedded_name = (
+            function.get("name")
+            if isinstance(function, Mapping)
+            else None
+        )
+        if (
+            raw_name in AGENT_MANAGEMENT_TOOL_NAMES
+            or embedded_name in AGENT_MANAGEMENT_TOOL_NAMES
+        ):
+            continue
+        filtered[raw_name] = raw_schema
+    return filtered
 
 
 def get_catalog_cache_path() -> Path:

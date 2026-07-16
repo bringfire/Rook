@@ -26,6 +26,13 @@ _CACHE_CONTRACT_NAMES = (
 _CACHE_CONTRACT_AVAILABLE = all(
     hasattr(tool_registry, name) for name in _CACHE_CONTRACT_NAMES
 )
+_AGENT_MANAGEMENT_NAMES = frozenset({
+    "spawn_agent",
+    "plan_and_execute",
+    "agent_status",
+    "agent_abort",
+    "agent_answer",
+})
 
 
 def test_catalog_cache_contract_is_available():
@@ -446,6 +453,101 @@ if _CACHE_CONTRACT_AVAILABLE:
             and "_AGENT_MANAGEMENT_TOOLS" in spawn_source
             and "_AGENT_MANAGEMENT_TOOLS" in plan_source
         ), "EXPECTED_RED:T2:PYTEST agent handlers still write catalog cache"
+
+    @pytest.mark.asyncio
+    async def test_spawn_cached_catalog_keeps_agent_management_tools_out_of_worker_registry(
+        monkeypatch,
+        tmp_path,
+    ):
+        from rook.agent import spawn
+
+        store = _telemetry_store(monkeypatch, tmp_path)
+        cached_catalog = {
+            "safe_agent_inspect": _schema("safe_agent_inspect"),
+            "agent_status": _schema("agent_status"),
+            "agent_abort": _schema("agent_abort"),
+            "agent_answer": _schema("agent_answer"),
+        }
+        original_catalog = deepcopy(cached_catalog)
+        monkeypatch.setattr(
+            tool_registry,
+            "load_catalog_cache_state",
+            lambda *_args, **_kwargs: CatalogCacheState(
+                catalog=cached_catalog,
+                refresh_requested=False,
+                source="current",
+            ),
+        )
+
+        agent = MagicMock()
+        agent.prompt = AsyncMock()
+        agent.wait_for_idle = AsyncMock()
+        agent.messages = []
+        agent._turn_count = 0
+        agent._total_input_tokens = 0
+        agent._total_output_tokens = 0
+        agent._total_cost = 0.0
+        agent.config = SimpleNamespace(model="test-model")
+        agent_ctor = MagicMock(return_value=agent)
+        monkeypatch.setattr("rook.agent.base_agent.RookAgent", agent_ctor)
+        before = store.get_containment_denials_snapshot()
+
+        result = await spawn.run_task(
+            "inspect",
+            catalog=None,
+            tool_executor=AsyncMock(),
+            guardian_enabled=False,
+            task_id="task-management-cache",
+        )
+
+        after = store.get_containment_denials_snapshot()
+        worker_registry = agent_ctor.call_args.kwargs["tool_registry"]
+        assert (
+            result.status == "success"
+            and "safe_agent_inspect" in worker_registry._catalog
+            and _AGENT_MANAGEMENT_NAMES.isdisjoint(worker_registry._catalog)
+            and cached_catalog == original_catalog
+            and after == before
+        ), "EXPECTED_RED:T2:REVIEW cached worker registry admits management tools"
+
+    @pytest.mark.asyncio
+    async def test_planner_injected_catalog_keeps_agent_management_tools_out(
+        monkeypatch,
+        tmp_path,
+    ):
+        from rook.agent import spawn
+
+        store = _telemetry_store(monkeypatch, tmp_path)
+        injected_catalog = {
+            "safe_agent_inspect": _schema("safe_agent_inspect"),
+            **{
+                name: _schema(name)
+                for name in _AGENT_MANAGEMENT_NAMES
+            },
+        }
+        original_catalog = deepcopy(injected_catalog)
+        expected_result = object()
+        planner = MagicMock()
+        planner.run = AsyncMock(return_value=expected_result)
+        planner_ctor = MagicMock(return_value=planner)
+        monkeypatch.setattr("rook.agent.planner.Planner", planner_ctor)
+        before = store.get_containment_denials_snapshot()
+
+        result = await spawn.run_plan(
+            "inspect",
+            config=MagicMock(),
+            catalog=injected_catalog,
+            tool_executor=AsyncMock(),
+        )
+
+        after = store.get_containment_denials_snapshot()
+        planner_catalog = planner_ctor.call_args.kwargs["catalog"]
+        assert (
+            result is expected_result
+            and set(planner_catalog) == {"safe_agent_inspect"}
+            and injected_catalog == original_catalog
+            and after == before
+        ), "EXPECTED_RED:T2:REVIEW injected planner catalog admits management tools"
 
     def test_mcp_main_refreshes_unprofiled_catalog_once_before_transport(
         monkeypatch,

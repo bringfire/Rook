@@ -218,6 +218,84 @@ def test_model_overlay_is_revalidated_before_registry_construction(
     ), "EXPECTED_RED:T2:PYTEST RookChat model overlay admits contained records"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("catalog_source", ["cache", "injected"])
+async def test_chatrunner_catalog_excludes_agent_management_from_search_and_model_tools(
+    monkeypatch,
+    tmp_path,
+    conversation,
+    catalog_source,
+):
+    management_names = {
+        "spawn_agent",
+        "plan_and_execute",
+        "agent_status",
+        "agent_abort",
+        "agent_answer",
+    }
+    catalog = {
+        "safe_agent_inspect": _dirty_schema("safe_agent_inspect"),
+        **{
+            name: _dirty_schema(name)
+            for name in management_names
+        },
+    }
+    original_catalog = json.loads(json.dumps(catalog))
+    store = _chat_telemetry_store(monkeypatch, tmp_path)
+    before = store.get_containment_denials_snapshot()
+
+    if catalog_source == "cache":
+        monkeypatch.setattr(
+            chat_runner_module,
+            "load_catalog_from_cache",
+            lambda: catalog,
+        )
+        runner = ChatRunner(tool_executor=AsyncMock())
+    else:
+        runner = ChatRunner(
+            tool_executor=AsyncMock(),
+            catalog=catalog,
+        )
+
+    search_result = runner._registry.search("agent", top_k=20, turn=1)
+    result_names = {
+        result["name"]
+        for result in search_result["results"]
+    }
+    captured = {}
+
+    async def capture_acompletion(**kwargs):
+        captured.update(kwargs)
+        return _make_text_response("done")
+
+    with patch(
+        "litellm.acompletion",
+        side_effect=capture_acompletion,
+    ), _runtime_facts_patch():
+        async for _ in runner.run_turn(
+            conversation,
+            "inspect",
+            system_prompt="test",
+        ):
+            pass
+
+    after = store.get_containment_denials_snapshot()
+    final_names = _visible_schema_names(captured["tools"])
+    assert (
+        "safe_agent_inspect" in runner._registry._catalog
+        and "safe_agent_inspect" in result_names
+        and "safe_agent_inspect" in search_result["loaded"]
+        and "safe_agent_inspect" in final_names
+        and management_names.isdisjoint(runner._registry._catalog)
+        and management_names.isdisjoint(result_names)
+        and management_names.isdisjoint(search_result["loaded"])
+        and management_names.isdisjoint(runner._registry._active)
+        and management_names.isdisjoint(final_names)
+        and catalog == original_catalog
+        and after == before
+    ), "EXPECTED_RED:T2:REVIEW RookChat catalog exposes management tools"
+
+
 def test_tool_section_filters_injected_registry_schemas_without_telemetry(
     monkeypatch,
     tmp_path,

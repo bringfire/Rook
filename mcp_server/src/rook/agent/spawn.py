@@ -42,7 +42,7 @@ from .guardian import Guardian, GuardianConfig
 from .model_profiles import api_base_for_model
 from .substrate_analytics import summarize_substrate_observations
 from .tool_groups import READONLY_TIER_0, READONLY_ALLOWED_GROUPS
-from ..tool_lifecycle import filter_litellm_catalog, filter_litellm_schemas
+from ..tool_lifecycle import filter_litellm_schemas
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +216,8 @@ async def run_task(
         task_id: Optional ID; auto-generated if not provided.
         on_agent_created: Optional callback(task_id, agent) for Conductor.
         guardian_enabled: Attach Guardian trajectory monitor.
-        catalog: Pre-built tool catalog. If None, creates empty registry.
+        catalog: Pre-built tool catalog. If None, loads the safely revalidated
+            cache and returns catalog_unavailable when no safe cache exists.
         tool_executor: Async callable(name, params) -> dict. If None, uses
             the agent's default HTTP bridge. Used by MCP server to route
             tools through call_tool() instead of the bridge.
@@ -225,7 +226,7 @@ async def run_task(
         SpawnResult with status, metrics, and tool call log.
     """
     from .base_agent import RookAgent
-    from .tool_registry import ToolRegistry
+    from .tool_registry import ToolRegistry, filter_agent_catalog
 
     # Resolve model and/or api_base from active profile.
     # Both paths matter: model defaults to profile worker when empty;
@@ -273,8 +274,9 @@ async def run_task(
         elif event.type == ERROR:
             error_log.append(event.data.get("message", "unknown error"))
 
-    # Load cached catalog when none provided (autonomous spawn path)
-    if catalog is None:
+    # Load cached catalog when none provided (autonomous spawn path).
+    loaded_from_cache = catalog is None
+    if loaded_from_cache:
         from .tool_registry import load_catalog_cache_state
 
         cache_state = load_catalog_cache_state()
@@ -288,18 +290,21 @@ async def run_task(
                 errors=["catalog_unavailable"],
                 failure_reason="catalog_unavailable",
             )
-        logger.info(f"Loaded {len(catalog)} tools from safe catalog cache")
-    else:
-        catalog = filter_litellm_catalog(catalog)
-        if not catalog:
-            return SpawnResult(
-                task_id=tid,
-                status="error",
-                task=task,
-                summary="catalog_unavailable",
-                errors=["catalog_unavailable"],
-                failure_reason="catalog_unavailable",
-            )
+
+    catalog = filter_agent_catalog(catalog)
+    if not catalog:
+        return SpawnResult(
+            task_id=tid,
+            status="error",
+            task=task,
+            summary="catalog_unavailable",
+            errors=["catalog_unavailable"],
+            failure_reason="catalog_unavailable",
+        )
+    if loaded_from_cache:
+        logger.info(
+            f"Loaded {len(catalog)} agent-safe tools from safe catalog cache"
+        )
 
     # Check tool_access from persona display config
     _tool_access = "full"
@@ -664,9 +669,11 @@ async def run_plan(
         PlanResult with per-task results and aggregated metrics.
     """
     from .planner import Plan, Planner, PlanResult
+    from .tool_registry import filter_agent_catalog
 
     # Load cached catalog when none provided (same fallback as run_task)
-    if catalog is None:
+    loaded_from_cache = catalog is None
+    if loaded_from_cache:
         from .tool_registry import load_catalog_cache_state
 
         cache_state = load_catalog_cache_state()
@@ -678,18 +685,20 @@ async def run_plan(
                 status="error",
                 summary="catalog_unavailable",
             )
-        logger.info(
-            f"run_plan: loaded {len(catalog)} tools from safe catalog cache"
+
+    catalog = filter_agent_catalog(catalog)
+    if not catalog:
+        return PlanResult(
+            goal=request,
+            plan=Plan(goal=request),
+            status="error",
+            summary="catalog_unavailable",
         )
-    else:
-        catalog = filter_litellm_catalog(catalog)
-        if not catalog:
-            return PlanResult(
-                goal=request,
-                plan=Plan(goal=request),
-                status="error",
-                summary="catalog_unavailable",
-            )
+    if loaded_from_cache:
+        logger.info(
+            f"run_plan: loaded {len(catalog)} agent-safe tools "
+            f"from safe catalog cache"
+        )
 
     planner = Planner(
         config or PlannerConfig(),

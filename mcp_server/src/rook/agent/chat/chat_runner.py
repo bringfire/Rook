@@ -48,6 +48,7 @@ from ...tool_lifecycle import (
 )
 from ..tool_registry import (
     ToolRegistry,
+    filter_agent_catalog,
     load_catalog_from_cache,
 )
 from ..generation_params import sanitize_generation_params_for_model
@@ -874,7 +875,7 @@ class ChatRunner:
             local_catalog = _build_local_tool_catalog(self._dispatcher._local_tools)
             catalog.update(filter_litellm_catalog(local_catalog))
         catalog.update(filter_litellm_catalog(_CHAT_MODEL_TOOL_SCHEMAS))
-        catalog = filter_litellm_catalog(catalog)
+        catalog = filter_agent_catalog(catalog)
 
         # Build registry with appropriate tier0
         chat_model_tier0 = {"list_chat_models", "set_chat_model"}
