@@ -129,7 +129,7 @@ To create a hollow shell, use boolean difference with a scaled inner copy.
 
 ```python
 # Copy the solid column
-copy_result = rhino_copy(ids=[column_id], offset=[0, 0, 0])
+copy_result = rhino_copy(ids=[loft_id], offset=[0, 0, 0])
 if copy_result.get("copiedCount") != 1:
     raise Exception("inner-solid copy did not return exactly one object")
 inner_id = copy_result["copies"][0]["newId"]
@@ -145,7 +145,7 @@ rs.ScaleObject('{inner_id}', center, (0.7, 0.7, 1.3))
 # Boolean difference to hollow, then verify the returned result object
 hollow = rhino_boolean(
     operation="difference",
-    targetId=column_id,
+    targetId=loft_id,
     toolIds=[inner_id],
     deleteInputs=True,
 )

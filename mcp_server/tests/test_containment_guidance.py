@@ -322,6 +322,12 @@ def test_twisted_column_examples_follow_copy_and_centroid_contracts() -> None:
         if forbidden in text:
             findings.append(f"{relative_path}: {contract}: {forbidden}")
 
+    if "column_id" in text:
+        findings.append(
+            f"{relative_path}: optional hollowing must use the established "
+            "capped loft_id; column_id is never assigned"
+        )
+
     _fail(findings)
 
 
