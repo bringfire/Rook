@@ -445,23 +445,35 @@ def _process_evidence(
     sys_path: list[str] | None = None,
     origins: dict[str, str] | None = None,
     cwd: Path | None = None,
+    data_root: Path | None = None,
+    dspy_cache: Path | None = None,
+    chirp_home: Path | None = None,
+    profile: str | None = None,
+    interactive: bool = False,
 ) -> dict[str, object]:
     package_root = install_root / "mcp_server" / "src" / "rook"
     package_root.mkdir(parents=True, exist_ok=True)
+    data_root = data_root or install_root.parent / "data"
+    dspy_cache = dspy_cache or data_root / "dspy-cache"
+    environment = {
+        "PYTHONNOUSERSITE": "1",
+        "ROOK_INSTALL_ROOT": str(install_root.resolve()),
+        "ROOK_DATA_DIR": str(data_root.resolve()),
+        "ROOK_MODE": "release",
+        "ROOK_DSPY_RESTRICT_PICKLE": "1",
+        "DSPY_CACHEDIR": str(dspy_cache.resolve()),
+    }
+    if chirp_home is not None:
+        environment["CHIRP_HOME"] = str(chirp_home.resolve())
+    if profile is not None:
+        environment["ROOK_MCP_TOOL_PROFILE"] = profile
+    if interactive:
+        environment["ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING"] = "1"
     return {
         "executable": str((install_root / "python" / "python.exe").resolve()),
         "installed_root": str(install_root.resolve()),
         "cwd": str((cwd or install_root.parent / "run").resolve()),
-        "environment": {
-            "PYTHONNOUSERSITE": "1",
-            "ROOK_INSTALL_ROOT": str(install_root.resolve()),
-            "ROOK_DATA_DIR": str((install_root.parent / "data").resolve()),
-            "ROOK_MODE": "release",
-            "ROOK_DSPY_RESTRICT_PICKLE": "1",
-            "DSPY_CACHEDIR": str(
-                (install_root.parent / "data" / "dspy-cache").resolve()
-            ),
-        },
+        "environment": environment,
         "sys_path": sys_path
         or [
             str((install_root.parent / "run").resolve()),
@@ -476,6 +488,137 @@ def _process_evidence(
         "process_id": os.getpid(),
         "process_start_token": "a" * 32,
     }
+
+
+_PROCESS_ENV_CASES = (
+    ("transport-full-parent", "full", False, False),
+    ("transport-lean-parent", "lean", False, False),
+    ("transport-readonly-parent", "readonly", False, False),
+    ("transport-full-private-child", "full", False, True),
+    ("transport-lean-private-child", "lean", False, False),
+    ("transport-readonly-private-child", "readonly", False, False),
+    ("discovery-default", None, False, False),
+    ("discovery-interactive", "full", True, False),
+    ("internal-matrix", None, False, False),
+)
+
+
+@requires_contract
+@pytest.mark.parametrize(
+    "command,profile,interactive,with_chirp",
+    _PROCESS_ENV_CASES,
+)
+def test_process_environment_is_exact_and_closed_for_every_installed_mode(
+    tmp_path: Path,
+    command: str,
+    profile: str | None,
+    interactive: bool,
+    with_chirp: bool,
+) -> None:
+    install_root = tmp_path / command / "app"
+    data_root = tmp_path / command / "data"
+    dspy_cache = data_root / "dspy-cache"
+    chirp_home = tmp_path / command / "chirp" if with_chirp else None
+    evidence = _process_evidence(
+        install_root,
+        data_root=data_root,
+        dspy_cache=dspy_cache,
+        chirp_home=chirp_home,
+        profile=profile,
+        interactive=interactive,
+    )
+    expected = {
+        "expected_data_root": data_root,
+        "expected_dspy_cache": dspy_cache,
+        "expected_chirp_home": chirp_home,
+        "expected_profile": profile,
+        "expected_interactive": interactive,
+    }
+
+    acceptance._validate_process_evidence(
+        evidence,
+        expected_install_root=install_root,
+        **expected,
+    )
+
+    mutations = {
+        "target": ("ROOK_TARGET", "hostile-target"),
+        "process": ("ROOK_PROCESS_ID", "123"),
+        "document": ("ROOK_DOCUMENT_ID", "secret-doc"),
+        "rhino-port": ("ROOK_RHINO_PORT", "9999"),
+        "rhino-executable": ("ROOK_RHINO_EXECUTABLE", "C:/Rhino.exe"),
+        "bridge": ("ROOK_BRIDGE_OVERRIDE", "unsafe"),
+        "harness": ("ROOK_HARNESS_MODE", "unsafe"),
+        "model": ("ROOK_MODEL", "unsafe-model"),
+        "data-root": ("ROOK_DATA_DIR", str(tmp_path / "wrong-data")),
+        "dspy-cache": ("DSPY_CACHEDIR", str(tmp_path / "wrong-cache")),
+        "profile": (
+            "ROOK_MCP_TOOL_PROFILE",
+            "lean" if profile != "lean" else "full",
+        ),
+        "interactive": (
+            "ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING",
+            "0" if interactive else "1",
+        ),
+        "chirp": (
+            "CHIRP_HOME",
+            str(tmp_path / ("wrong-chirp" if chirp_home else "unexpected-chirp")),
+        ),
+    }
+    for label, (name, value) in mutations.items():
+        drifted = copy.deepcopy(evidence)
+        drifted["environment"][name] = value
+        with pytest.raises(
+            acceptance.AcceptanceError,
+            match="environment",
+        ):
+            acceptance._validate_process_evidence(
+                drifted,
+                expected_install_root=install_root,
+                **expected,
+            )
+
+
+@requires_contract
+def test_process_evidence_rejects_source_like_cwd_before_command_allowlist(
+    tmp_path: Path,
+) -> None:
+    install_root = tmp_path / "fixture-install" / "app"
+    source_cwd = tmp_path / "development" / ".worktrees" / "branch" / "run"
+    source_cwd.mkdir(parents=True)
+    contaminated = _process_evidence(
+        install_root,
+        cwd=source_cwd,
+        sys_path=[
+            str(source_cwd.resolve()),
+            str((install_root / "mcp_server" / "src").resolve()),
+        ],
+    )
+
+    with pytest.raises(acceptance.AcceptanceError, match="cwd.*source|source.*cwd"):
+        acceptance._validate_process_evidence(
+            contaminated,
+            expected_install_root=install_root,
+            allowed_command_roots=(source_cwd,),
+        )
+
+    isolated_cwd = (
+        tmp_path / "isolated" / "rook-containment" / RUN_ID / "full"
+    )
+    isolated_cwd.mkdir(parents=True)
+    legitimate = _process_evidence(
+        install_root,
+        cwd=isolated_cwd,
+        sys_path=[
+            str(isolated_cwd.resolve()),
+            str((install_root / "mcp_server" / "src").resolve()),
+        ],
+    )
+    acceptance._validate_process_evidence(
+        legitimate,
+        expected_install_root=install_root,
+        allowed_command_roots=(isolated_cwd,),
+    )
 
 
 @requires_contract
@@ -1166,7 +1309,7 @@ def _managed_dependency_site() -> Path | None:
 @pytest.fixture(scope="session")
 def synthetic_installed_runtime(
     tmp_path_factory: pytest.TempPathFactory,
-) -> dict[str, Path]:
+) -> dict[str, Any]:
     if acceptance is None:
         pytest.skip("acceptance module is not implemented")
     dependency_site = _managed_dependency_site()
@@ -1236,6 +1379,60 @@ def synthetic_installed_runtime(
         encoding="utf-8",
     )
 
+    version_probe = subprocess.run(
+        [
+            str(python),
+            "-c",
+            (
+                "import sys; "
+                "print(f'Python{sys.version_info.major}{sys.version_info.minor}')"
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert version_probe.returncode == 0, version_probe.stderr
+    user_site = (
+        root
+        / "hostile-user-base"
+        / version_probe.stdout.strip()
+        / "site-packages"
+    )
+    user_site.mkdir(parents=True, exist_ok=True)
+    tripwire_code = (
+        "from pathlib import Path; "
+        "Path(__file__).with_suffix('.hit').write_text("
+        "'executed', encoding='ascii')"
+    )
+    for filename in ("sitecustomize.py", "usercustomize.py"):
+        (user_site / filename).write_text(tripwire_code, encoding="utf-8")
+
+    hostile_environment = {
+        "PyThOnPaTh": str(source_package.parent.resolve()),
+        "pYtHoNhOmE": str((root / "hostile-python-home").resolve()),
+        "PyThOnUsErBaSe": str(user_site.parents[1].resolve()),
+        "pYtHoNnOuSeRsItE": "0",
+        "DSPY_MODEL": "hostile/model",
+        "dspy_cachedir": str(source_package.resolve()),
+        "CHIRP_HOME": str(source_package.resolve()),
+        "ROOK_INSTALL_ROOT": str(source_package.resolve()),
+        "rook_data_dir": str(source_package.resolve()),
+        "Rook_mode": "dev",
+        "ROOK_DSPY_RESTRICT_PICKLE": "0",
+        "ROOK_MCP_TOOL_PROFILE": "readonly",
+        "rook_enable_interactive_command_learning": "1",
+        "ROOK_TARGET": "hostile-target",
+        "ROOK_PROCESS_ID": "123",
+        "ROOK_DOCUMENT_ID": "secret-doc",
+        "ROOK_RHINO_PORT": "9999",
+        "ROOK_RHINO_EXECUTABLE": "C:/Rhino.exe",
+        "ROOK_BRIDGE_OVERRIDE": "unsafe",
+        "ROOK_HARNESS_MODE": "unsafe",
+        "ROOK_MODEL": "unsafe-model",
+    }
+
     return {
         "root": root,
         "python": python,
@@ -1246,18 +1443,25 @@ def synthetic_installed_runtime(
         "run_root": run_root,
         "source_package": source_package,
         "dependency_site": dependency_site,
+        "hostile_environment": hostile_environment,
+        "sitecustomize_marker": user_site / "sitecustomize.hit",
+        "usercustomize_marker": user_site / "usercustomize.hit",
     }
 
 
 def _installed_command_environment(
-    runtime: dict[str, Path],
+    runtime: dict[str, Any],
     *,
     profile: str | None = None,
     interactive: bool = False,
 ) -> dict[str, str]:
     assert acceptance is not None
+    inherited = {
+        **os.environ,
+        **runtime["hostile_environment"],
+    }
     return acceptance._sanitized_child_environment(
-        os.environ,
+        inherited,
         install_root=runtime["install_root"],
         data_root=runtime["data_root"],
         dspy_cache=runtime["dspy_cache"],
@@ -1267,7 +1471,7 @@ def _installed_command_environment(
 
 
 def _run_installed_command(
-    runtime: dict[str, Path],
+    runtime: dict[str, Any],
     *args: str,
     timeout: int = 180,
 ) -> subprocess.CompletedProcess[str]:
@@ -1287,13 +1491,54 @@ def _run_installed_command(
     )
 
 
+def _expected_installed_environment(
+    runtime: dict[str, Any],
+    *,
+    profile: str | None = None,
+    interactive: bool = False,
+) -> dict[str, str]:
+    expected = {
+        "PYTHONNOUSERSITE": "1",
+        "DSPY_CACHEDIR": str(runtime["dspy_cache"].resolve()),
+        "ROOK_INSTALL_ROOT": str(runtime["install_root"].resolve()),
+        "ROOK_DATA_DIR": str(runtime["data_root"].resolve()),
+        "ROOK_MODE": "release",
+        "ROOK_DSPY_RESTRICT_PICKLE": "1",
+    }
+    if profile is not None:
+        expected["ROOK_MCP_TOOL_PROFILE"] = profile
+    if interactive:
+        expected["ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING"] = "1"
+    return expected
+
+
+def _assert_exact_installed_environment(
+    actual: object,
+    runtime: dict[str, Any],
+    *,
+    profile: str | None = None,
+    interactive: bool = False,
+) -> None:
+    assert isinstance(actual, dict)
+    assert actual == _expected_installed_environment(
+        runtime,
+        profile=profile,
+        interactive=interactive,
+    )
+
+
+def _assert_hostile_startup_markers_absent(runtime: dict[str, Any]) -> None:
+    assert not runtime["sitecustomize_marker"].exists()
+    assert not runtime["usercustomize_marker"].exists()
+
+
 @requires_contract
 @pytest.mark.parametrize(
     "profile,expected_count",
     [("full", 422), ("lean", 20), ("readonly", 148)],
 )
 def test_private_child_runs_true_stdio_transport_end_to_end(
-    synthetic_installed_runtime: dict[str, Path],
+    synthetic_installed_runtime: dict[str, Any],
     profile: str,
     expected_count: int,
 ) -> None:
@@ -1313,11 +1558,26 @@ def test_private_child_runs_true_stdio_transport_end_to_end(
 
     artifact_path = artifact_dir / f"transport-{profile}.json"
     artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    run_id = artifact.get("run_id")
+    assert type(run_id) is str and re.fullmatch(r"[0-9a-f]{32}", run_id)
+    _assert_exact_installed_environment(
+        artifact["process"]["environment"],
+        runtime,
+        profile=profile,
+    )
+    _assert_exact_installed_environment(
+        artifact.get("child_environment"),
+        runtime,
+        profile=profile,
+    )
+    _assert_hostile_startup_markers_absent(runtime)
     acceptance._validate_transport_artifact(
         artifact,
         expected_profile=profile,
         expected_count=expected_count,
         expected_install_root=runtime["install_root"],
+        expected_data_root=runtime["data_root"],
+        expected_dspy_cache=runtime["dspy_cache"],
         forbidden_source_roots=(runtime["source_package"],),
         allowed_command_roots=(runtime["root"],),
     )
@@ -1332,6 +1592,9 @@ def test_private_child_runs_true_stdio_transport_end_to_end(
     assert {
         probe["spy"]["process_id"] for probe in artifact["probes"]
     } == {artifact["child_process_id"]}
+    assert {
+        probe["spy"]["run_id"] for probe in artifact["probes"]
+    } == {run_id}
     assert artifact["final_spy_sha256"] == acceptance._sha256_file(
         Path(artifact["final_spy_path"])
     )
@@ -1344,10 +1607,46 @@ def test_private_child_runs_true_stdio_transport_end_to_end(
         for probe in artifact["probes"]
     )
 
+    mismatched_run = copy.deepcopy(artifact)
+    mismatched_run["probes"][0]["spy"]["run_id"] = (
+        "a" * 32 if run_id != "a" * 32 else "b" * 32
+    )
+    with pytest.raises(acceptance.AcceptanceError, match="run"):
+        acceptance._validate_transport_artifact(
+            mismatched_run,
+            expected_profile=profile,
+            expected_count=expected_count,
+            expected_install_root=runtime["install_root"],
+            expected_data_root=runtime["data_root"],
+            expected_dspy_cache=runtime["dspy_cache"],
+            forbidden_source_roots=(runtime["source_package"],),
+            allowed_command_roots=(runtime["root"],),
+        )
+
+    for environment_key in ("process", "child_environment"):
+        hostile = copy.deepcopy(artifact)
+        environment = (
+            hostile[environment_key]["environment"]
+            if environment_key == "process"
+            else hostile[environment_key]
+        )
+        environment["ROOK_TARGET"] = "late-hostile-target"
+        with pytest.raises(acceptance.AcceptanceError, match="environment"):
+            acceptance._validate_transport_artifact(
+                hostile,
+                expected_profile=profile,
+                expected_count=expected_count,
+                expected_install_root=runtime["install_root"],
+                expected_data_root=runtime["data_root"],
+                expected_dspy_cache=runtime["dspy_cache"],
+                forbidden_source_roots=(runtime["source_package"],),
+                allowed_command_roots=(runtime["root"],),
+            )
+
 
 @requires_contract
 def test_discovery_commands_run_in_isolated_installed_children(
-    synthetic_installed_runtime: dict[str, Path],
+    synthetic_installed_runtime: dict[str, Any],
 ) -> None:
     runtime = synthetic_installed_runtime
     for command, expected_count in (
@@ -1367,19 +1666,45 @@ def test_discovery_commands_run_in_isolated_installed_children(
         artifact = json.loads(
             (artifact_dir / f"{command}.json").read_text(encoding="utf-8")
         )
+        interactive = command == "discovery-interactive"
+        profile = "full" if interactive else None
+        _assert_exact_installed_environment(
+            artifact["process"]["environment"],
+            runtime,
+            profile=profile,
+            interactive=interactive,
+        )
+        _assert_hostile_startup_markers_absent(runtime)
         acceptance._validate_discovery_artifact(
             artifact,
             expected_command=command,
             expected_count=expected_count,
             expected_install_root=runtime["install_root"],
+            expected_data_root=runtime["data_root"],
+            expected_dspy_cache=runtime["dspy_cache"],
             forbidden_source_roots=(runtime["source_package"],),
             allowed_command_roots=(runtime["root"],),
         )
+        hostile = copy.deepcopy(artifact)
+        hostile["process"]["environment"]["ROOK_TARGET"] = (
+            "late-hostile-target"
+        )
+        with pytest.raises(acceptance.AcceptanceError, match="environment"):
+            acceptance._validate_discovery_artifact(
+                hostile,
+                expected_command=command,
+                expected_count=expected_count,
+                expected_install_root=runtime["install_root"],
+                expected_data_root=runtime["data_root"],
+                expected_dspy_cache=runtime["dspy_cache"],
+                forbidden_source_roots=(runtime["source_package"],),
+                allowed_command_roots=(runtime["root"],),
+            )
 
 
 @requires_contract
 def test_internal_matrix_runs_exact_164_installed_seams(
-    synthetic_installed_runtime: dict[str, Path],
+    synthetic_installed_runtime: dict[str, Any],
 ) -> None:
     runtime = synthetic_installed_runtime
     artifact_dir = runtime["artifact_root"] / "internal-matrix"
@@ -1396,9 +1721,16 @@ def test_internal_matrix_runs_exact_164_installed_seams(
     artifact = json.loads(
         (artifact_dir / "internal-matrix.json").read_text(encoding="utf-8")
     )
+    _assert_exact_installed_environment(
+        artifact["process"]["environment"],
+        runtime,
+    )
+    _assert_hostile_startup_markers_absent(runtime)
     acceptance._validate_internal_artifact(
         artifact,
         expected_install_root=runtime["install_root"],
+        expected_data_root=runtime["data_root"],
+        expected_dspy_cache=runtime["dspy_cache"],
         forbidden_source_roots=(runtime["source_package"],),
         allowed_command_roots=(runtime["root"],),
     )
@@ -1419,6 +1751,17 @@ def test_internal_matrix_runs_exact_164_installed_seams(
         )
         for probe in artifact["probes"]
     )
+    hostile = copy.deepcopy(artifact)
+    hostile["process"]["environment"]["ROOK_TARGET"] = "late-hostile-target"
+    with pytest.raises(acceptance.AcceptanceError, match="environment"):
+        acceptance._validate_internal_artifact(
+            hostile,
+            expected_install_root=runtime["install_root"],
+            expected_data_root=runtime["data_root"],
+            expected_dspy_cache=runtime["dspy_cache"],
+            forbidden_source_roots=(runtime["source_package"],),
+            allowed_command_roots=(runtime["root"],),
+        )
 
 
 @requires_contract

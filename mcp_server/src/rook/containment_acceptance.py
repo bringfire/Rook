@@ -410,14 +410,95 @@ def _sanitized_child_environment(
     return cleaned
 
 
-def _relevant_environment() -> dict[str, str]:
+def _relevant_environment(
+    source: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    source = os.environ if source is None else source
     relevant = {
         key: value
-        for key, value in os.environ.items()
+        for key, value in source.items()
         if key.upper() in _RELEVANT_NON_ROOK_ENV
         or key.casefold().startswith("rook_")
     }
     return dict(sorted(relevant.items(), key=lambda item: item[0].casefold()))
+
+
+def _expected_relevant_environment(
+    *,
+    install_root: Path,
+    data_root: Path,
+    dspy_cache: Path,
+    chirp_home: Path | None,
+    profile: str | None,
+    interactive: bool,
+) -> dict[str, str]:
+    if profile is not None and profile not in PROFILE_VALUES:
+        raise AcceptanceError(f"invalid expected profile: {profile!r}")
+    if interactive and profile != "full":
+        raise AcceptanceError("interactive environment requires profile full")
+    expected = {
+        "PYTHONNOUSERSITE": "1",
+        "DSPY_CACHEDIR": str(Path(dspy_cache).expanduser().resolve()),
+        "ROOK_INSTALL_ROOT": str(Path(install_root).expanduser().resolve()),
+        "ROOK_DATA_DIR": str(Path(data_root).expanduser().resolve()),
+        "ROOK_MODE": "release",
+        "ROOK_DSPY_RESTRICT_PICKLE": "1",
+    }
+    if chirp_home is not None:
+        expected["CHIRP_HOME"] = str(
+            Path(chirp_home).expanduser().resolve()
+        )
+    if profile is not None:
+        expected["ROOK_MCP_TOOL_PROFILE"] = profile
+    if interactive:
+        expected["ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING"] = "1"
+    return expected
+
+
+def _validate_relevant_environment(
+    environment: object,
+    *,
+    install_root: Path,
+    data_root: Path,
+    dspy_cache: Path,
+    chirp_home: Path | None,
+    profile: str | None,
+    interactive: bool,
+) -> None:
+    if not isinstance(environment, Mapping) or not all(
+        type(key) is str and type(value) is str
+        for key, value in environment.items()
+    ):
+        raise AcceptanceError("environment evidence is malformed")
+    folded = {
+        key.casefold(): value
+        for key, value in environment.items()
+    }
+    if len(folded) != len(environment):
+        raise AcceptanceError("environment evidence has duplicate keys")
+    expected = {
+        key.casefold(): value
+        for key, value in _expected_relevant_environment(
+            install_root=install_root,
+            data_root=data_root,
+            dspy_cache=dspy_cache,
+            chirp_home=chirp_home,
+            profile=profile,
+            interactive=interactive,
+        ).items()
+    }
+    if folded != expected:
+        missing = sorted(set(expected).difference(folded))
+        unexpected = sorted(set(folded).difference(expected))
+        changed = sorted(
+            key
+            for key in set(expected).intersection(folded)
+            if expected[key] != folded[key]
+        )
+        raise AcceptanceError(
+            "environment closed allowlist drift: "
+            f"missing={missing}, unexpected={unexpected}, changed={changed}"
+        )
 
 
 def _loaded_rook_origins() -> dict[str, str]:
@@ -491,6 +572,11 @@ def _validate_process_evidence(
     evidence: Mapping[str, object],
     *,
     expected_install_root: Path,
+    expected_data_root: Path | None = None,
+    expected_dspy_cache: Path | None = None,
+    expected_chirp_home: Path | None = None,
+    expected_profile: str | None = None,
+    expected_interactive: bool = False,
     forbidden_source_roots: Iterable[Path] = (),
     allowed_command_roots: Iterable[Path] = (),
     required_rook_modules: Iterable[str] = ("rook",),
@@ -514,42 +600,47 @@ def _validate_process_evidence(
     executable = Path(str(evidence["executable"]))
     if not executable.is_absolute():
         raise AcceptanceError("installed executable is not absolute")
-    cwd = Path(str(evidence["cwd"]))
-    if not cwd.is_absolute():
+    raw_cwd = Path(str(evidence["cwd"])).expanduser()
+    if not raw_cwd.is_absolute():
         raise AcceptanceError("installed cwd is not absolute")
+    cwd = raw_cwd.resolve()
     if type(evidence["process_id"]) is not int:
         raise AcceptanceError("process identity is malformed")
     token = evidence["process_start_token"]
     if type(token) is not str or _TOKEN_RE.fullmatch(token) is None:
         raise AcceptanceError("process start token is malformed")
 
-    environment = evidence["environment"]
-    if not isinstance(environment, Mapping):
-        raise AcceptanceError("environment evidence is malformed")
-    required_env = {
-        "PYTHONNOUSERSITE": "1",
-        "ROOK_INSTALL_ROOT": str(install_root),
-        "ROOK_MODE": "release",
-        "ROOK_DSPY_RESTRICT_PICKLE": "1",
-    }
-    folded_env = {
-        str(key).casefold(): str(value)
-        for key, value in environment.items()
-    }
-    for name, expected in required_env.items():
-        if folded_env.get(name.casefold()) != expected:
-            raise AcceptanceError(f"environment drift: {name}")
-    for absent in ("PYTHONPATH", "PYTHONHOME", "PYTHONUSERBASE", "DSPY_MODEL"):
-        if absent.casefold() in folded_env:
-            raise AcceptanceError(f"hostile environment survived: {absent}")
-
-    allowed_roots = [install_root]
-    allowed_roots.extend(
-        Path(root).expanduser().resolve() for root in allowed_command_roots
+    data_root = (
+        install_root.parent / "data"
+        if expected_data_root is None
+        else Path(expected_data_root)
+    ).expanduser().resolve()
+    dspy_cache = (
+        data_root / "dspy-cache"
+        if expected_dspy_cache is None
+        else Path(expected_dspy_cache)
+    ).expanduser().resolve()
+    _validate_relevant_environment(
+        evidence["environment"],
+        install_root=install_root,
+        data_root=data_root,
+        dspy_cache=dspy_cache,
+        chirp_home=expected_chirp_home,
+        profile=expected_profile,
+        interactive=expected_interactive,
     )
+
+    command_roots = [
+        Path(root).expanduser().resolve() for root in allowed_command_roots
+    ]
     forbidden_roots = [
         Path(root).expanduser().resolve() for root in forbidden_source_roots
     ]
+    if not _is_relative_to(cwd, install_root) and (
+        any(_is_relative_to(cwd, root) for root in forbidden_roots)
+        or _path_looks_like_development_source(cwd)
+    ):
+        raise AcceptanceError(f"source cwd contamination: {cwd}")
     raw_sys_path = evidence["sys_path"]
     if type(raw_sys_path) is not list or not all(
         type(item) is str for item in raw_sys_path
@@ -557,12 +648,15 @@ def _validate_process_evidence(
         raise AcceptanceError("sys.path evidence is malformed")
     for raw_path in raw_sys_path:
         path = Path(raw_path).expanduser().resolve()
-        if any(_is_relative_to(path, root) for root in allowed_roots):
+        if _is_relative_to(path, install_root):
             continue
-        if any(_is_relative_to(path, root) for root in forbidden_roots):
+        if (
+            any(_is_relative_to(path, root) for root in forbidden_roots)
+            or _path_looks_like_development_source(path)
+        ):
             raise AcceptanceError(f"source path contamination: {path}")
-        if _path_looks_like_development_source(path):
-            raise AcceptanceError(f"source path contamination: {path}")
+        if any(_is_relative_to(path, root) for root in command_roots):
+            continue
 
     origins = evidence["rook_origins"]
     if not isinstance(origins, Mapping):
@@ -1322,6 +1416,9 @@ def _validate_transport_artifact(
     expected_profile: str,
     expected_count: int,
     expected_install_root: Path,
+    expected_data_root: Path,
+    expected_dspy_cache: Path,
+    expected_chirp_home: Path | None = None,
     forbidden_source_roots: Iterable[Path] = (),
     allowed_command_roots: Iterable[Path] = (),
 ) -> None:
@@ -1329,7 +1426,9 @@ def _validate_transport_artifact(
         "schema_version",
         "command",
         "profile",
+        "run_id",
         "process",
+        "child_environment",
         "catalog",
         "model_projections",
         "probes",
@@ -1347,12 +1446,19 @@ def _validate_transport_artifact(
         or artifact["profile"] != expected_profile
     ):
         raise AcceptanceError("transport artifact identity drift")
+    run_id = artifact["run_id"]
+    if type(run_id) is not str or _RUN_ID_RE.fullmatch(run_id) is None:
+        raise AcceptanceError("transport artifact run id drift")
     process = artifact["process"]
     if not isinstance(process, Mapping):
         raise AcceptanceError("transport process evidence is malformed")
     _validate_process_evidence(
         process,
         expected_install_root=expected_install_root,
+        expected_data_root=expected_data_root,
+        expected_dspy_cache=expected_dspy_cache,
+        expected_chirp_home=expected_chirp_home,
+        expected_profile=expected_profile,
         forbidden_source_roots=forbidden_source_roots,
         allowed_command_roots=allowed_command_roots,
         required_rook_modules=(
@@ -1360,6 +1466,15 @@ def _validate_transport_artifact(
             "rook.containment_acceptance",
             "rook.server",
         ),
+    )
+    _validate_relevant_environment(
+        artifact["child_environment"],
+        install_root=expected_install_root,
+        data_root=expected_data_root,
+        dspy_cache=expected_dspy_cache,
+        chirp_home=expected_chirp_home,
+        profile=expected_profile,
+        interactive=False,
     )
     catalog = artifact["catalog"]
     if not isinstance(catalog, Mapping):
@@ -1434,7 +1549,7 @@ def _validate_transport_artifact(
             raise AcceptanceError("transport spy record is malformed")
         _validate_spy_record(
             spy,
-            expected_run_id=spy.get("run_id"),
+            expected_run_id=run_id,
             expected_index=index,
             expected_adapter=adapter,
             expected_tool=tool,
@@ -1464,6 +1579,9 @@ def _validate_discovery_artifact(
     expected_command: str,
     expected_count: int,
     expected_install_root: Path,
+    expected_data_root: Path,
+    expected_dspy_cache: Path,
+    expected_chirp_home: Path | None = None,
     forbidden_source_roots: Iterable[Path] = (),
     allowed_command_roots: Iterable[Path] = (),
 ) -> None:
@@ -1490,6 +1608,15 @@ def _validate_discovery_artifact(
     _validate_process_evidence(
         process,
         expected_install_root=expected_install_root,
+        expected_data_root=expected_data_root,
+        expected_dspy_cache=expected_dspy_cache,
+        expected_chirp_home=expected_chirp_home,
+        expected_profile=(
+            "full" if expected_command == "discovery-interactive" else None
+        ),
+        expected_interactive=(
+            expected_command == "discovery-interactive"
+        ),
         forbidden_source_roots=forbidden_source_roots,
         allowed_command_roots=allowed_command_roots,
         required_rook_modules=(
@@ -1533,6 +1660,9 @@ def _validate_internal_artifact(
     artifact: Mapping[str, object],
     *,
     expected_install_root: Path,
+    expected_data_root: Path,
+    expected_dspy_cache: Path,
+    expected_chirp_home: Path | None = None,
     forbidden_source_roots: Iterable[Path] = (),
     allowed_command_roots: Iterable[Path] = (),
 ) -> None:
@@ -1556,6 +1686,9 @@ def _validate_internal_artifact(
     _validate_process_evidence(
         process,
         expected_install_root=expected_install_root,
+        expected_data_root=expected_data_root,
+        expected_dspy_cache=expected_dspy_cache,
+        expected_chirp_home=expected_chirp_home,
         forbidden_source_roots=forbidden_source_roots,
         allowed_command_roots=allowed_command_roots,
         required_rook_modules=(
@@ -1653,6 +1786,8 @@ def _validate_current_installed_process(
     *,
     required_rook_modules: Iterable[str],
     allowed_command_roots: Iterable[Path] = (),
+    expected_profile: str | None = None,
+    expected_interactive: bool = False,
 ) -> dict[str, object]:
     runtime = resolve_runtime_paths()
     if runtime.mode != "release":
@@ -1663,10 +1798,14 @@ def _validate_current_installed_process(
     _validate_process_evidence(
         evidence,
         expected_install_root=runtime.install_root,
+        expected_data_root=runtime.data_root,
+        expected_dspy_cache=(runtime.data_root / "dspy-cache").resolve(),
+        expected_chirp_home=_code_owned_chirp_home(runtime.install_root),
+        expected_profile=expected_profile,
+        expected_interactive=expected_interactive,
         allowed_command_roots=(
             runtime.install_root,
             runtime.runtime_root,
-            Path.cwd(),
             *allowed_command_roots,
         ),
         required_rook_modules=required_rook_modules,
@@ -1717,6 +1856,7 @@ async def _transport_child(
             "rook.tool_lifecycle_runtime",
         ),
         allowed_command_roots=(spy_path.parent,),
+        expected_profile=profile,
     )
     retained_handler = server.mcp.request_handlers[mcp_types.CallToolRequest]
     probe_index = 0
@@ -1986,12 +2126,15 @@ async def _transport_profile(
             "rook.server",
         ),
         allowed_command_roots=(artifact_dir, child_cwd),
+        expected_profile=profile,
     )
     artifact = {
         "schema_version": SCHEMA_VERSION,
         "command": "transport-profile",
         "profile": profile,
+        "run_id": run_id,
         "process": process,
+        "child_environment": _relevant_environment(child_environment),
         "catalog": catalog,
         "model_projections": projections,
         "probes": probes,
@@ -2008,6 +2151,9 @@ async def _transport_profile(
         expected_profile=profile,
         expected_count=_PROFILE_COUNTS[profile],
         expected_install_root=runtime.install_root,
+        expected_data_root=runtime.data_root,
+        expected_dspy_cache=dspy_cache,
+        expected_chirp_home=chirp_home,
         allowed_command_roots=(
             runtime.runtime_root,
             artifact_dir,
@@ -2063,6 +2209,10 @@ async def _discovery_command(
             "rook.server",
         ),
         allowed_command_roots=(artifact_dir,),
+        expected_profile=(
+            "full" if command == "discovery-interactive" else None
+        ),
+        expected_interactive=(command == "discovery-interactive"),
     )
     artifact = {
         "schema_version": SCHEMA_VERSION,
@@ -2082,6 +2232,9 @@ async def _discovery_command(
         expected_command=command,
         expected_count=_DISCOVERY_COUNTS[command],
         expected_install_root=runtime.install_root,
+        expected_data_root=runtime.data_root,
+        expected_dspy_cache=(runtime.data_root / "dspy-cache").resolve(),
+        expected_chirp_home=_code_owned_chirp_home(runtime.install_root),
         allowed_command_roots=(
             runtime.runtime_root,
             artifact_dir,
@@ -2954,6 +3107,9 @@ def _internal_matrix(*, artifact_dir: Path) -> Path:
     _validate_internal_artifact(
         artifact,
         expected_install_root=runtime.install_root,
+        expected_data_root=runtime.data_root,
+        expected_dspy_cache=(runtime.data_root / "dspy-cache").resolve(),
+        expected_chirp_home=_code_owned_chirp_home(runtime.install_root),
         allowed_command_roots=(
             runtime.runtime_root,
             artifact_dir,
