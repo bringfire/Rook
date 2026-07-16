@@ -56,6 +56,10 @@ def _schema(name: str) -> dict:
     }
 
 
+class _StringLike(str):
+    pass
+
+
 def _mcp_tool(name: str):
     return SimpleNamespace(
         name=name,
@@ -99,6 +103,40 @@ if _CACHE_CONTRACT_AVAILABLE:
             set(catalog) == {"safe_tool"}
             and after == before
         ), "EXPECTED_RED:T2:PYTEST MCP catalog builder admits contained tools"
+
+    def test_agent_catalog_filter_preserves_non_string_identity_values():
+        raw_string_like = _StringLike("agent_status")
+        dirty = {
+            raw_string_like: _schema("safe_embedded"),
+            "safe_malformed": {
+                "type": "function",
+                "function": {
+                    "name": ["agent_status"],
+                    "description": "malformed but unrelated",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": False,
+                    },
+                },
+            },
+        }
+        original = deepcopy(dirty)
+
+        try:
+            filtered = tool_registry.filter_agent_catalog(dirty)
+        except Exception as exc:
+            pytest.fail(
+                "EXPECTED_RED:T2:REGISTRY_REVIEW agent catalog filter raised "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+        assert (
+            filtered == dirty
+            and raw_string_like in filtered
+            and filtered["safe_malformed"]["function"]["name"] == ["agent_status"]
+            and dirty == original
+        ), "EXPECTED_RED:T2:REGISTRY_REVIEW non-string identities were coerced or removed"
 
     def test_matching_fingerprint_still_revalidates_contained_cache_records(
         monkeypatch,

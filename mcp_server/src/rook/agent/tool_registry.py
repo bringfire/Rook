@@ -20,7 +20,7 @@ import json
 import logging
 import os
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Set, Tuple
@@ -49,6 +49,13 @@ AGENT_MANAGEMENT_TOOL_NAMES = frozenset({
     "agent_abort",
     "agent_answer",
 })
+
+
+def _is_agent_management_name(raw_name: object) -> bool:
+    return (
+        type(raw_name) is str
+        and raw_name in AGENT_MANAGEMENT_TOOL_NAMES
+    )
 
 
 def mcp_tool_to_litellm(tool) -> dict:
@@ -106,11 +113,31 @@ def filter_agent_catalog(catalog: Mapping[str, dict]) -> Dict[str, dict]:
             else None
         )
         if (
-            raw_name in AGENT_MANAGEMENT_TOOL_NAMES
-            or embedded_name in AGENT_MANAGEMENT_TOOL_NAMES
+            _is_agent_management_name(raw_name)
+            or _is_agent_management_name(embedded_name)
         ):
             continue
         filtered[raw_name] = raw_schema
+    return filtered
+
+
+def filter_agent_schemas(schemas: Iterable[object]) -> List[object]:
+    """Apply lifecycle and agent-management policy to model schemas."""
+    filtered: List[object] = []
+    for raw_schema in filter_litellm_schemas(schemas):
+        function = (
+            raw_schema.get("function")
+            if isinstance(raw_schema, Mapping)
+            else None
+        )
+        embedded_name = (
+            function.get("name")
+            if isinstance(function, Mapping)
+            else None
+        )
+        if _is_agent_management_name(embedded_name):
+            continue
+        filtered.append(raw_schema)
     return filtered
 
 

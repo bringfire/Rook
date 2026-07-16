@@ -1,6 +1,7 @@
 """Tests for ChatRunner — the conversation turn loop."""
 import json
 import pytest
+from copy import deepcopy
 from unittest.mock import AsyncMock, MagicMock, patch
 from rook.agent.chat import chat_runner as chat_runner_module
 from rook.agent.chat.conversation_store import Conversation
@@ -8,6 +9,15 @@ from rook.agent.chat.chat_runner import ChatRunner, ChatEvent, MAX_META_ONLY_ROU
 from rook.agent.chat.tool_contracts import ToolResultView
 from rook.agent.tool_registry import ToolRegistry
 from rook.tool_lifecycle import contained_names
+
+
+_AGENT_MANAGEMENT_NAMES = frozenset({
+    "spawn_agent",
+    "plan_and_execute",
+    "agent_status",
+    "agent_abort",
+    "agent_answer",
+})
 
 
 @pytest.fixture
@@ -82,6 +92,7 @@ class _DirtyInjectedRegistry:
         return [
             _dirty_schema("safe_tool"),
             _dirty_schema("spawn_agent"),
+            _dirty_schema("agent_status"),
         ]
 
     def is_meta_tool(self, name):
@@ -91,7 +102,7 @@ class _DirtyInjectedRegistry:
         return []
 
     def get_active_count(self):
-        return 2
+        return 3
 
 
 @pytest.fixture
@@ -226,18 +237,11 @@ async def test_chatrunner_catalog_excludes_agent_management_from_search_and_mode
     conversation,
     catalog_source,
 ):
-    management_names = {
-        "spawn_agent",
-        "plan_and_execute",
-        "agent_status",
-        "agent_abort",
-        "agent_answer",
-    }
     catalog = {
         "safe_agent_inspect": _dirty_schema("safe_agent_inspect"),
         **{
             name: _dirty_schema(name)
-            for name in management_names
+            for name in _AGENT_MANAGEMENT_NAMES
         },
     }
     original_catalog = json.loads(json.dumps(catalog))
@@ -286,14 +290,134 @@ async def test_chatrunner_catalog_excludes_agent_management_from_search_and_mode
         and "safe_agent_inspect" in result_names
         and "safe_agent_inspect" in search_result["loaded"]
         and "safe_agent_inspect" in final_names
-        and management_names.isdisjoint(runner._registry._catalog)
-        and management_names.isdisjoint(result_names)
-        and management_names.isdisjoint(search_result["loaded"])
-        and management_names.isdisjoint(runner._registry._active)
-        and management_names.isdisjoint(final_names)
+        and _AGENT_MANAGEMENT_NAMES.isdisjoint(runner._registry._catalog)
+        and _AGENT_MANAGEMENT_NAMES.isdisjoint(result_names)
+        and _AGENT_MANAGEMENT_NAMES.isdisjoint(search_result["loaded"])
+        and _AGENT_MANAGEMENT_NAMES.isdisjoint(runner._registry._active)
+        and _AGENT_MANAGEMENT_NAMES.isdisjoint(final_names)
         and catalog == original_catalog
         and after == before
     ), "EXPECTED_RED:T2:REVIEW RookChat catalog exposes management tools"
+
+
+@pytest.mark.asyncio
+async def test_chatrunner_projects_concrete_injected_registry_without_mutating_source(
+    monkeypatch,
+    tmp_path,
+    conversation,
+):
+    catalog = {
+        "rhino_ping": _dirty_schema("rhino_ping"),
+        "rhino_create": _dirty_schema("rhino_create"),
+        **{
+            name: _dirty_schema(name)
+            for name in _AGENT_MANAGEMENT_NAMES
+        },
+    }
+    catalog["rhino_create"]["function"]["description"] = (
+        "Safe agent geometry inspection"
+    )
+    allowed_groups = {"rhino_geometry"}
+    source_registry = ToolRegistry(
+        catalog=catalog,
+        max_active=12,
+        tier0={
+            "rhino_ping",
+            "agent_status",
+            "request_tools",
+            "search_tools",
+        },
+        allowed_groups=allowed_groups,
+    )
+    source_registry._locally_registered.add("rhino_create")
+    source_registry._last_used.update({
+        "rhino_ping": 4,
+        "agent_status": 4,
+    })
+    source_registry._current_turn = 5
+    source_state = {
+        "catalog": deepcopy(source_registry._catalog),
+        "max_active": source_registry._max_active,
+        "tier0": set(source_registry._tier0),
+        "allowed_groups": set(source_registry._allowed_groups or ()),
+        "locally_registered": set(source_registry._locally_registered),
+        "active": set(source_registry._active),
+        "always_active": set(source_registry._always_active),
+        "last_used": dict(source_registry._last_used),
+        "current_turn": source_registry._current_turn,
+    }
+    store = _chat_telemetry_store(monkeypatch, tmp_path)
+    before = store.get_containment_denials_snapshot()
+
+    runner = ChatRunner(
+        tool_executor=AsyncMock(),
+        registry=source_registry,
+    )
+    initial_names = _visible_schema_names(runner._active_schemas())
+    search_result = runner._handle_meta_tool(
+        "search_tools",
+        {"query": "agent", "top_k": 20},
+    )
+    result_names = {
+        result["name"]
+        for result in search_result["results"]
+    }
+    captured = {}
+
+    async def capture_acompletion(**kwargs):
+        captured.update(kwargs)
+        return _make_text_response("done")
+
+    with patch(
+        "litellm.acompletion",
+        side_effect=capture_acompletion,
+    ), _runtime_facts_patch():
+        async for _ in runner.run_turn(
+            conversation,
+            "inspect",
+            system_prompt="test",
+        ):
+            pass
+
+    final_names = _visible_schema_names(captured["tools"])
+    after = store.get_containment_denials_snapshot()
+    current_source_state = {
+        "catalog": source_registry._catalog,
+        "max_active": source_registry._max_active,
+        "tier0": source_registry._tier0,
+        "allowed_groups": source_registry._allowed_groups,
+        "locally_registered": source_registry._locally_registered,
+        "active": source_registry._active,
+        "always_active": source_registry._always_active,
+        "last_used": source_registry._last_used,
+        "current_turn": source_registry._current_turn,
+    }
+
+    assert (
+        runner._registry is not source_registry
+        and runner._registry._max_active == 12
+        and runner._registry._allowed_groups == {"rhino_geometry"}
+        and runner._registry._allowed_groups is not source_registry._allowed_groups
+        and runner._registry._locally_registered == {"rhino_create"}
+        and runner._registry._current_turn == 5
+        and runner._registry._last_used["rhino_ping"] == 4
+        and "rhino_ping" in initial_names
+        and "rhino_create" in result_names
+        and "rhino_create" in search_result["loaded"]
+        and {"rhino_ping", "rhino_create"} <= runner._registry._active
+        and {"rhino_ping", "rhino_create"} <= final_names
+        and _AGENT_MANAGEMENT_NAMES.isdisjoint(runner._registry._catalog)
+        and _AGENT_MANAGEMENT_NAMES.isdisjoint(initial_names)
+        and _AGENT_MANAGEMENT_NAMES.isdisjoint(result_names)
+        and _AGENT_MANAGEMENT_NAMES.isdisjoint(search_result["loaded"])
+        and _AGENT_MANAGEMENT_NAMES.isdisjoint(runner._registry._active)
+        and _AGENT_MANAGEMENT_NAMES.isdisjoint(
+            runner._registry._always_active
+        )
+        and _AGENT_MANAGEMENT_NAMES.isdisjoint(final_names)
+        and current_source_state == source_state
+        and after == before
+    ), "EXPECTED_RED:T2:REGISTRY_REVIEW concrete registry injection bypasses agent policy"
 
 
 def test_tool_section_filters_injected_registry_schemas_without_telemetry(
@@ -311,7 +435,7 @@ def test_tool_section_filters_injected_registry_schemas_without_telemetry(
 
     assert (
         "safe_tool" in section
-        and "spawn_agent" not in section
+        and all(name not in section for name in _AGENT_MANAGEMENT_NAMES)
         and after == before
     ), "EXPECTED_RED:T2:PYTEST RookChat tool section exposes contained identity"
 
@@ -691,7 +815,7 @@ async def test_meta_tool_request_tools(conversation):
     runner = ChatRunner(tool_executor=mock_executor, registry=registry)
 
     # Initial active count (Tier 0 tools from catalog + meta-tools)
-    initial_count = registry.get_active_count()
+    initial_count = runner._registry.get_active_count()
 
     # LLM calls request_tools("gh_canvas") then gives a text response
     tool_response = _make_tool_response(
@@ -717,7 +841,7 @@ async def test_meta_tool_request_tools(conversation):
     mock_executor.assert_not_awaited()
 
     # Registry should now have more active tools than before
-    assert registry.get_active_count() > initial_count
+    assert runner._registry.get_active_count() > initial_count
 
     # The tool_result event should contain success info
     result_events = [e for e in events if e.type == "tool_result"]

@@ -43,12 +43,12 @@ from ..tool_dispatcher import (
 from ..tool_groups import AGENT_TIER_0, READONLY_TIER_0, TOOL_GROUP_TRIGGERS
 from ...tool_lifecycle import (
     filter_litellm_catalog,
-    filter_litellm_schemas,
     filter_local_registrations,
 )
 from ..tool_registry import (
     ToolRegistry,
     filter_agent_catalog,
+    filter_agent_schemas,
     load_catalog_from_cache,
 )
 from ..generation_params import sanitize_generation_params_for_model
@@ -794,6 +794,51 @@ def _build_local_tool_catalog(local_tools: dict) -> Dict[str, dict]:
     return normalize_catalog(filter_litellm_catalog(catalog))
 
 
+def _project_agent_tool_registry(registry: ToolRegistry) -> ToolRegistry:
+    """Copy a concrete registry into RookChat's agent-safe consumer view."""
+    allowed_groups = (
+        None
+        if registry._allowed_groups is None
+        else set(registry._allowed_groups)
+    )
+    projected = ToolRegistry(
+        catalog=filter_agent_catalog(registry._catalog),
+        max_active=registry._max_active,
+        tier0=set(),
+        allowed_groups=allowed_groups,
+    )
+
+    catalog_names = set(projected._catalog)
+    valid_names = catalog_names | set(projected._meta_schemas)
+    projected._tier0 = {
+        name
+        for name in registry._tier0
+        if name in valid_names
+    }
+    projected._locally_registered = {
+        name
+        for name in registry._locally_registered
+        if name in catalog_names
+    }
+    projected._active = {
+        name
+        for name in registry._active
+        if name in valid_names
+    }
+    projected._always_active = {
+        name
+        for name in registry._always_active
+        if name in valid_names
+    }
+    projected._last_used = {
+        name: turn
+        for name, turn in registry._last_used.items()
+        if name in valid_names
+    }
+    projected._current_turn = registry._current_turn
+    return projected
+
+
 class ChatRunner:
     """Executes conversation turns: LLM call + tool dispatch + streaming events.
 
@@ -832,7 +877,11 @@ class ChatRunner:
 
         # Set up progressive disclosure
         if registry is not None:
-            self._registry = registry
+            self._registry = (
+                _project_agent_tool_registry(registry)
+                if isinstance(registry, ToolRegistry)
+                else registry
+            )
         else:
             self._registry = self._build_registry(tool_access, catalog)
 
@@ -892,8 +941,8 @@ class ChatRunner:
         )
 
     def _active_schemas(self) -> List[dict]:
-        """Return a final lifecycle-safe model projection."""
-        return filter_litellm_schemas(
+        """Return a final lifecycle- and agent-policy-safe projection."""
+        return filter_agent_schemas(
             self._registry.get_active_schemas()
         )
 
