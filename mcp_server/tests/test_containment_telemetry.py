@@ -710,7 +710,7 @@ if runtime is not None and not _CONTRACT_MISSING:
         raw_lean = await server.list_tools()
         projected_lean = filter_mcp_records(raw_lean)
         assert len(PUBLIC_LEAN_TOOL_NAMES) == 22
-        assert len(raw_lean) == 22
+        assert len(raw_lean) == 20
         assert len(projected_lean) == 20
         assert "metrics_summary" not in {tool.name for tool in raw_lean}
         assert {
