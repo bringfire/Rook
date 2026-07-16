@@ -42,6 +42,7 @@ from .guardian import Guardian, GuardianConfig
 from .model_profiles import api_base_for_model
 from .substrate_analytics import summarize_substrate_observations
 from .tool_groups import READONLY_TIER_0, READONLY_ALLOWED_GROUPS
+from ..tool_lifecycle import filter_litellm_catalog, filter_litellm_schemas
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +159,7 @@ def _build_worker_prompt(
             base = ""
 
     # Build dynamic tool summary from registry's active schemas
-    schemas = registry.get_active_schemas()
+    schemas = filter_litellm_schemas(registry.get_active_schemas())
     tool_lines = []
     for schema in schemas:
         func = schema.get("function", {})
@@ -274,10 +275,31 @@ async def run_task(
 
     # Load cached catalog when none provided (autonomous spawn path)
     if catalog is None:
-        from .tool_registry import load_catalog_from_cache
-        catalog = load_catalog_from_cache()
-        if catalog:
-            logger.info(f"Loaded {len(catalog)} tools from catalog cache")
+        from .tool_registry import load_catalog_cache_state
+
+        cache_state = load_catalog_cache_state()
+        catalog = cache_state.catalog
+        if catalog is None:
+            return SpawnResult(
+                task_id=tid,
+                status="error",
+                task=task,
+                summary="catalog_unavailable",
+                errors=["catalog_unavailable"],
+                failure_reason="catalog_unavailable",
+            )
+        logger.info(f"Loaded {len(catalog)} tools from safe catalog cache")
+    else:
+        catalog = filter_litellm_catalog(catalog)
+        if not catalog:
+            return SpawnResult(
+                task_id=tid,
+                status="error",
+                task=task,
+                summary="catalog_unavailable",
+                errors=["catalog_unavailable"],
+                failure_reason="catalog_unavailable",
+            )
 
     # Check tool_access from persona display config
     _tool_access = "full"
@@ -641,14 +663,33 @@ async def run_plan(
     Returns:
         PlanResult with per-task results and aggregated metrics.
     """
-    from .planner import Planner
+    from .planner import Plan, Planner, PlanResult
 
     # Load cached catalog when none provided (same fallback as run_task)
     if catalog is None:
-        from .tool_registry import load_catalog_from_cache
-        catalog = load_catalog_from_cache()
-        if catalog:
-            logger.info(f"run_plan: loaded {len(catalog)} tools from catalog cache")
+        from .tool_registry import load_catalog_cache_state
+
+        cache_state = load_catalog_cache_state()
+        catalog = cache_state.catalog
+        if catalog is None:
+            return PlanResult(
+                goal=request,
+                plan=Plan(goal=request),
+                status="error",
+                summary="catalog_unavailable",
+            )
+        logger.info(
+            f"run_plan: loaded {len(catalog)} tools from safe catalog cache"
+        )
+    else:
+        catalog = filter_litellm_catalog(catalog)
+        if not catalog:
+            return PlanResult(
+                goal=request,
+                plan=Plan(goal=request),
+                status="error",
+                summary="catalog_unavailable",
+            )
 
     planner = Planner(
         config or PlannerConfig(),

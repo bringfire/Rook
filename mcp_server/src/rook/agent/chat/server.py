@@ -13,11 +13,12 @@ from aiohttp import web
 from ...bridge import rhino_request_context
 from .conversation_store import ConversationStore
 from .prompt_builder import PromptBuilder
-from .chat_runner import ChatRunner
+from .chat_runner import ChatRunner, _build_fallback_catalog
 from . import model_status
 from .runtime_health import collect_runtime_facts
 
 from ..personas import available_personas, load_display_config
+from ..tool_registry import refresh_catalog_at_startup
 
 logger = logging.getLogger(__name__)
 
@@ -707,7 +708,33 @@ async def start_chat_server(
 
     async def _run():
         global _app_runner, _discovery_path, _startup_future
+        fallback_catalog = _build_fallback_catalog()
+        startup_catalog = None
+        try:
+            from ... import server as rook_server
+
+            startup = await refresh_catalog_at_startup(
+                rook_server._all_live_tools,
+                fallback=fallback_catalog,
+            )
+            startup_catalog = startup.catalog
+            if startup.status != "fresh":
+                logger.warning(
+                    "RookChat catalog startup is degraded: "
+                    "status=%s refresh_requested=%s",
+                    startup.status,
+                    startup.refresh_requested,
+                )
+        except Exception:
+            logger.exception(
+                "RookChat catalog refresh failed unexpectedly; "
+                "using code-owned fallback"
+            )
+            startup_catalog = fallback_catalog
+
+        runner = ChatRunner(catalog=startup_catalog)
         app = create_chat_app(
+            runner=runner,
             port=port,
             include_gh_health=include_gh_health,
             owner=owner,

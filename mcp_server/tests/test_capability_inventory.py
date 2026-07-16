@@ -14,6 +14,7 @@ from rook.agent.capability_inventory import (
     reconcile_active_schemas,
 )
 from rook.agent.capability_record import CapabilityInventory, SurfaceSources
+from rook.tool_lifecycle import contained_names
 
 
 def _schema(name: str) -> dict:
@@ -95,6 +96,52 @@ def test_build_inventory_records_cover_full_universe_sorted():
         "set_chat_model", "gh_snapshot", "gh_move", "rhino_objects",
         "rhino_create", "gh_edit", "gh_knowledge_query", "dual_tool",
     }
+
+
+def test_build_inventory_filters_contained_tier_group_route_local_and_catalog_unions(
+    monkeypatch,
+    tmp_path,
+):
+    from rook.learning import metrics_store
+
+    store = metrics_store.MetricsStore(tmp_path / "metrics.json")
+    monkeypatch.setattr(metrics_store, "_metrics_store", store)
+    before = store.get_containment_denials_snapshot()
+
+    sources = SurfaceSources(
+        tier0=frozenset({"safe_tool", "gh_execute_intent"}),
+        agent_tier0=frozenset({"rhino_execute_intent"}),
+        readonly_tier0=frozenset({"safe_tool"}),
+        planner_tier0=frozenset({"spawn_agent"}),
+        groups={
+            "mixed": (
+                "safe_tool",
+                "plan_and_execute",
+                "gh_explore_workflow",
+            )
+        },
+        bridge_names=frozenset({"safe_tool", "gh_replay_recipe"}),
+        transform_names=frozenset({"spawn_agent"}),
+        local_tool_names=frozenset({"safe_tool", "rhino_execute_intent"}),
+        creation_tools=frozenset({"plan_and_execute"}),
+        modal_risk_tools=frozenset({"gh_execute_intent"}),
+        needs_verification=frozenset({"gh_replay_recipe"}),
+    )
+    catalog = {
+        "safe_tool": _schema("safe_tool"),
+        "spawn_agent": _schema("safe_embedded_name"),
+        "safe_raw_hidden_embedded": _schema("gh_replay_recipe"),
+    }
+
+    inventory = build_inventory(sources, catalog)
+    after = store.get_containment_denials_snapshot()
+    names = {record.name for record in inventory.records}
+
+    assert (
+        names == {"safe_tool"}
+        and contained_names().isdisjoint(names)
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST capability inventory admits contained unions"
 
 
 def test_intercepted_meta_tools_are_not_dispatch_unknown():
@@ -251,6 +298,52 @@ def test_collect_live_sources_reads_constants_only(monkeypatch):
     assert "gh_snapshot" in sources.bridge_names or "gh_snapshot" in sources.agent_tier0
 
 
+def test_collect_live_sources_filters_runtime_projections_but_not_latent_constants(
+    monkeypatch,
+    tmp_path,
+):
+    from rook.agent import tool_groups
+    from rook.learning import metrics_store
+
+    store = metrics_store.MetricsStore(tmp_path / "metrics.json")
+    monkeypatch.setattr(metrics_store, "_metrics_store", store)
+    before = store.get_containment_denials_snapshot()
+
+    sources = collect_live_sources()
+    projected = set()
+    for field_name in (
+        "tier0",
+        "agent_tier0",
+        "readonly_tier0",
+        "planner_tier0",
+        "bridge_names",
+        "transform_names",
+        "intercepted_names",
+        "excluded_names",
+        "local_tool_names",
+        "zero_argument_names",
+        "strict_no_argument_names",
+        "creation_tools",
+        "modal_risk_tools",
+        "needs_verification",
+    ):
+        projected.update(getattr(sources, field_name))
+    for group_members in sources.groups.values():
+        projected.update(group_members)
+
+    after = store.get_containment_denials_snapshot()
+    latent = (
+        {"gh_execute_intent", "rhino_execute_intent"} <= tool_groups.TIER_0
+        and "gh_explore_workflow" in tool_groups.TOOL_GROUPS["gh_exploration"]
+        and "gh_replay_recipe" in tool_groups.TOOL_GROUPS["gh_patterns"]
+    )
+    assert (
+        latent
+        and contained_names().isdisjoint(projected)
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST live capability projections expose contained constants"
+
+
 def test_collect_live_sources_carries_readonly_allowed_groups(monkeypatch):
     from rook.agent.tool_groups import READONLY_ALLOWED_GROUPS
 
@@ -333,6 +426,33 @@ def test_collect_runtime_sources_enriches_local_tool_names(monkeypatch):
     assert dataclasses.replace(out, local_tool_names=frozenset()) == base
 
 
+def test_collect_runtime_sources_filters_contained_local_registrations(
+    monkeypatch,
+    tmp_path,
+):
+    import rook.agent.capability_inventory as ci
+    import rook.agent.tool_dispatcher as td
+    from rook.learning import metrics_store
+
+    store = metrics_store.MetricsStore(tmp_path / "metrics.json")
+    monkeypatch.setattr(metrics_store, "_metrics_store", store)
+    before = store.get_containment_denials_snapshot()
+    monkeypatch.setattr(ci, "collect_live_sources", lambda: SurfaceSources())
+    monkeypatch.setattr(
+        td,
+        "build_local_tools",
+        lambda: {"safe_local": object(), "rhino_execute_intent": object()},
+    )
+
+    out = ci.collect_runtime_sources()
+    after = store.get_containment_denials_snapshot()
+
+    assert (
+        out.local_tool_names == frozenset({"safe_local"})
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST runtime capability locals expose contained identity"
+
+
 def test_collect_runtime_sources_propagates_builder_failure(monkeypatch):
     import rook.agent.capability_inventory as ci
     import rook.agent.tool_dispatcher as td
@@ -386,6 +506,33 @@ def test_reconcile_active_schemas_initial_literal_matches_tier_fields():
 
     hints = typing.get_type_hints(reconcile_active_schemas)
     assert set(typing.get_args(hints["initial"])) == set(TIER_FIELDS)
+
+
+def test_reconcile_active_schemas_filters_contained_intended_membership(
+    monkeypatch,
+    tmp_path,
+):
+    from rook.learning import metrics_store
+
+    store = metrics_store.MetricsStore(tmp_path / "metrics.json")
+    monkeypatch.setattr(metrics_store, "_metrics_store", store)
+    before = store.get_containment_denials_snapshot()
+    sources = SurfaceSources(
+        agent_tier0=frozenset({"safe_tool", "spawn_agent"}),
+        bridge_names=frozenset({"safe_tool"}),
+    )
+
+    findings = reconcile_active_schemas(
+        sources,
+        {"safe_tool": _schema("safe_tool")},
+        group=None,
+    )
+    after = store.get_containment_denials_snapshot()
+
+    assert (
+        not any(f.tool in contained_names() for f in findings)
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST reconciliation leaks contained intended membership"
 
 
 def test_collect_live_sources_stays_light_no_planner_machinery():

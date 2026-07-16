@@ -9,6 +9,7 @@ from rook.agent.execution_profile import (
     resolve_profile,
 )
 from rook.agent.profile_reconciliation import ProfileReconciliation, reconcile_profile
+from rook.tool_lifecycle import contained_names
 
 
 def _schema(name: str) -> dict:
@@ -230,3 +231,39 @@ def test_local_tool_names_clears_not_dispatchable_on_audit_path():
     assert any(
         f.code == "not_dispatchable" and f.tool == "x" for f in rec_bare.registry_findings
     )
+
+
+def test_reconcile_profile_filters_contained_tiers_catalog_and_intended_names(
+    monkeypatch,
+    tmp_path,
+):
+    from rook.learning import metrics_store
+
+    store = metrics_store.MetricsStore(tmp_path / "metrics.json")
+    monkeypatch.setattr(metrics_store, "_metrics_store", store)
+    before = store.get_containment_denials_snapshot()
+
+    sources = SurfaceSources(
+        agent_tier0=frozenset({"safe_tool", "spawn_agent"}),
+        bridge_names=frozenset({"safe_tool"}),
+    )
+    definition = ProfileDefinition(name="p", initial_tier="agent_tier0")
+    resolution = _resolution(
+        definition,
+        tool_names=("safe_tool", "spawn_agent", "gh_replay_recipe"),
+    )
+    catalog = {
+        "safe_tool": _schema("safe_tool"),
+        "spawn_agent": _schema("safe_embedded"),
+        "safe_raw_hidden_embedded": _schema("gh_replay_recipe"),
+    }
+
+    rec = reconcile_profile(resolution, sources, catalog)
+    after = store.get_containment_denials_snapshot()
+
+    assert (
+        rec.active_names == ("safe_tool",)
+        and rec.intended_names == ("safe_tool",)
+        and not any(f.tool in contained_names() for f in rec.registry_findings)
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST profile reconciliation exposes contained identities"

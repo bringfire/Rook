@@ -31,6 +31,7 @@ from .gh_csharp_preflight import (
 )
 from .gh_script_receipts import build_script_receipt
 from .gh_status_contract import normalize_gh_status_result
+from .tool_lifecycle import filter_local_registrations, filter_mcp_records
 from .runtime_paths import (
     load_runtime_dotenv,
     resolve_readable_knowledge_path,
@@ -71,6 +72,7 @@ from .mcp_tool_profiles import (
     tool_blocked,
 )
 from .capability_index import build_index, validate_arguments
+from .agent.tool_registry import refresh_catalog_at_startup
 from . import artifacts, merge_execution, script_library, targeting, workbench, work_units
 from .mesh2splat import pipeline as mesh2splat_pipeline
 targeting.initialize_from_environment()
@@ -13180,13 +13182,14 @@ Returns the full profile JSON including features, surfaces, and elements.""",
     else:
         live_tools = all_tools
 
-    return live_tools
+    return filter_mcp_records(live_tools)
 
 
 @mcp.list_tools()
 async def list_tools() -> list[Tool]:
     """List tools for the active MCP profile (a projection over the unprofiled source)."""
-    return filter_tools(await _all_live_tools(), resolve_profile(os.environ))
+    profiled = filter_tools(await _all_live_tools(), resolve_profile(os.environ))
+    return filter_mcp_records(profiled)
 
 
 def _record_observation(
@@ -13315,7 +13318,7 @@ async def _handle_spawn_agent(arguments: dict) -> dict:
     import uuid
     try:
         from .agent.spawn import run_task, SpawnResult
-        from .agent.tool_registry import build_catalog_from_mcp_tools, save_catalog_to_cache, get_catalog_cache_path
+        from .agent.tool_registry import build_catalog_from_mcp_tools
 
         prompt = arguments.get("prompt", "")
         if not prompt:
@@ -13348,9 +13351,6 @@ async def _handle_spawn_agent(arguments: dict) -> dict:
         all_mcp_tools = await list_tools()
         catalog = build_catalog_from_mcp_tools(all_mcp_tools)
         catalog = {k: v for k, v in catalog.items() if k not in _AGENT_MANAGEMENT_TOOLS}
-
-        # Cache for autonomous spawn (when catalog=None in run_task)
-        save_catalog_to_cache(catalog, get_catalog_cache_path())
 
         agent_id = uuid.uuid4().hex[:8]
         _active_agents[agent_id] = {"status": "running", "prompt": prompt[:200]}
@@ -13407,7 +13407,7 @@ async def _handle_plan_and_execute(arguments: dict) -> dict:
     import uuid
     try:
         from .agent.planner import Planner, PlannerConfig
-        from .agent.tool_registry import build_catalog_from_mcp_tools, save_catalog_to_cache, get_catalog_cache_path
+        from .agent.tool_registry import build_catalog_from_mcp_tools
 
         request = arguments.get("request", "")
         if not request:
@@ -13430,9 +13430,6 @@ async def _handle_plan_and_execute(arguments: dict) -> dict:
         all_mcp_tools = await list_tools()
         catalog = build_catalog_from_mcp_tools(all_mcp_tools)
         catalog = {k: v for k, v in catalog.items() if k not in _AGENT_MANAGEMENT_TOOLS}
-
-        # Cache for autonomous spawn (when catalog=None in run_task)
-        save_catalog_to_cache(catalog, get_catalog_cache_path())
 
         plan_id = f"plan_{uuid.uuid4().hex[:8]}"
         _active_agents[plan_id] = {"status": "running", "prompt": request[:200]}
@@ -20750,7 +20747,10 @@ def _scan_dispatch_case_labels() -> frozenset[str]:
             if isinstance(node, ast.MatchValue) and isinstance(node.value, ast.Constant)
             and isinstance(node.value.value, str)
         }
-        return frozenset(labels) | META_TOOL_NAMES
+        admitted = filter_local_registrations(
+            {name: None for name in labels | META_TOOL_NAMES}
+        )
+        return frozenset(admitted)
     except Exception:
         logger.exception("Could not scan dispatch case labels; capability index limited to meta-tools")
         return META_TOOL_NAMES
@@ -20989,6 +20989,18 @@ def main():
     sys.dont_write_bytecode = True
 
     async def run():
+        try:
+            startup = await refresh_catalog_at_startup(_all_live_tools)
+            if startup.status != "fresh":
+                logger.warning(
+                    "Tool catalog startup is degraded: status=%s refresh_requested=%s",
+                    startup.status,
+                    startup.refresh_requested,
+                )
+        except Exception:
+            logger.exception(
+                "Tool catalog startup refresh failed unexpectedly; continuing transport"
+            )
         async with stdio_server() as (read_stream, write_stream):
             await mcp.run(read_stream, write_stream, mcp.create_initialization_options())
 

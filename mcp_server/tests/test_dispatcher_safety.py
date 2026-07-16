@@ -24,6 +24,7 @@ from rook.agent.chat.execution_policy import (
     needs_verification,
     annotate_result,
 )
+from rook.tool_lifecycle import contained_names
 
 
 def _safe_line_knowledge_store():
@@ -407,59 +408,101 @@ class TestDispatcherVerification:
 
 
 # =============================================================================
-# rhino_execute_intent route-based verification
+# Local registration lifecycle projection
 # =============================================================================
 
-class TestExecuteIntentVerification:
-    """rhino_execute_intent is verified when substrate is known_command or interactive."""
+def _dispatcher_telemetry_store(monkeypatch, tmp_path):
+    from rook.learning import metrics_store
 
-    @pytest.fixture
-    def dispatcher(self):
-        d = ToolDispatcher(port=9950)
-        # Register a mock rhino_execute_intent as local tool
-        async def mock_intent(intent="", **kwargs):
-            return {
-                "success": True,
-                "data": {
-                    "route_taken": "known_command",
-                    "objectsCreated": 1,
-                },
-            }
-        d.register_local("rhino_execute_intent", mock_intent)
-        return d
+    store = metrics_store.MetricsStore(tmp_path / "metrics.json")
+    monkeypatch.setattr(metrics_store, "_metrics_store", store)
+    return store
 
-    @pytest.mark.asyncio
-    async def test_known_command_substrate_gets_verified(self, dispatcher):
-        """rhino_execute_intent with known_command substrate should be verified."""
-        prompt_idle = {"success": True, "data": {"is_active": False, "prompt": ""}}
 
-        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
-            mock_rhino.return_value = prompt_idle
-            result = await dispatcher.dispatch("rhino_execute_intent", {"intent": "create a box"})
+def test_dispatcher_constructor_filters_contained_local_tools(
+    monkeypatch,
+    tmp_path,
+):
+    store = _dispatcher_telemetry_store(monkeypatch, tmp_path)
+    before = store.get_containment_denials_snapshot()
+    dispatcher = ToolDispatcher(
+        local_tools={"safe_local": object(), "rhino_execute_intent": object()}
+    )
+    after = store.get_containment_denials_snapshot()
 
-        assert "verified" in result
+    assert (
+        set(dispatcher._local_tools) == {"safe_local"}
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST ToolDispatcher constructor admits contained local"
 
-    @pytest.mark.asyncio
-    async def test_direct_api_substrate_not_verified(self):
-        """rhino_execute_intent with direct_api substrate should NOT be verified."""
-        d = ToolDispatcher(port=9950)
 
-        async def mock_intent(intent="", **kwargs):
-            return {
-                "success": True,
-                "data": {
-                    "route_taken": "direct_api",
-                    "objectsCreated": 1,
-                },
-            }
-        d.register_local("rhino_execute_intent", mock_intent)
+def test_dispatcher_register_local_filters_contained_name(
+    monkeypatch,
+    tmp_path,
+):
+    store = _dispatcher_telemetry_store(monkeypatch, tmp_path)
+    dispatcher = ToolDispatcher()
+    before = store.get_containment_denials_snapshot()
+    dispatcher.register_local("spawn_agent", object())
+    after = store.get_containment_denials_snapshot()
 
-        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
-            result = await d.dispatch("rhino_execute_intent", {"intent": "create a box"})
+    assert (
+        "spawn_agent" not in dispatcher._local_tools
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST ToolDispatcher.register_local admits contained name"
 
-        # direct_api does not need verification — no RunScript, no modal risk
-        assert "verified" not in result
-        mock_rhino.assert_not_called()
+
+def test_dispatcher_register_locals_filters_contained_names(
+    monkeypatch,
+    tmp_path,
+):
+    store = _dispatcher_telemetry_store(monkeypatch, tmp_path)
+    dispatcher = ToolDispatcher()
+    before = store.get_containment_denials_snapshot()
+    dispatcher.register_locals(
+        {"safe_local": object(), "plan_and_execute": object()}
+    )
+    after = store.get_containment_denials_snapshot()
+
+    assert (
+        set(dispatcher._local_tools) == {"safe_local"}
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST ToolDispatcher.register_locals admits contained name"
+
+
+def test_dispatcher_all_known_tools_revalidates_poisoned_local_state(
+    monkeypatch,
+    tmp_path,
+):
+    store = _dispatcher_telemetry_store(monkeypatch, tmp_path)
+    dispatcher = ToolDispatcher(local_tools={"safe_local": object()})
+    dispatcher._local_tools["gh_replay_recipe"] = object()
+    before = store.get_containment_denials_snapshot()
+    known = dispatcher.all_known_tools
+    after = store.get_containment_denials_snapshot()
+
+    assert (
+        "safe_local" in known
+        and contained_names().isdisjoint(known)
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST ToolDispatcher.all_known_tools leaks contained name"
+
+
+def test_build_local_tools_omits_rhino_execute_intent_without_telemetry(
+    monkeypatch,
+    tmp_path,
+):
+    from rook.agent.tool_dispatcher import build_local_tools
+
+    store = _dispatcher_telemetry_store(monkeypatch, tmp_path)
+    before = store.get_containment_denials_snapshot()
+    tools = build_local_tools()
+    after = store.get_containment_denials_snapshot()
+
+    assert (
+        "rhino_execute_intent" not in tools
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST build_local_tools still registers contained intent tool"
 
 
 # =============================================================================

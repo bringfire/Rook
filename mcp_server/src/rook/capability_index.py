@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 from rook.agent.capability_record import CapabilityRecord  # type only; stdlib-only module
+from rook.tool_lifecycle import filter_mcp_records
 
 
 @dataclass(frozen=True)
@@ -108,7 +109,7 @@ def _groups_for(name: str) -> tuple[str, ...]:
 
 def build_index(tools, agent_records, dispatchable_names) -> CapabilityIndex:
     records = []
-    for tool in tools:
+    for tool in filter_mcp_records(tools):
         name = tool.name
         domain = _domain_for(name)
         groups = _groups_for(name)

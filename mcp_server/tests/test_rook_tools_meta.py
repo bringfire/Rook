@@ -1,5 +1,6 @@
 import asyncio
 from rook import server
+from rook.tool_lifecycle import contained_names
 
 
 def test_dispatchable_names_include_meta_and_a_known_native():
@@ -14,6 +15,28 @@ def test_dispatchable_names_include_or_case_arms():
     assert "rhino_command_knowledge" in names and "rhino_knowledge_query" in names
 
 
+def test_dispatch_case_scan_and_cached_projection_omit_contained_identities(
+    monkeypatch,
+    tmp_path,
+):
+    from rook.learning import metrics_store
+
+    store = metrics_store.MetricsStore(tmp_path / "metrics.json")
+    monkeypatch.setattr(metrics_store, "_metrics_store", store)
+    before = store.get_containment_denials_snapshot()
+    hidden = contained_names()
+    scanned = server._scan_dispatch_case_labels()
+    cached = server._dispatchable_tool_names()
+    after = store.get_containment_denials_snapshot()
+    assert (
+        hidden.isdisjoint(scanned)
+        and hidden.isdisjoint(cached)
+        and after == before
+    ), (
+        "EXPECTED_RED:T2:PYTEST AST dispatch labels still expose contained identities"
+    )
+
+
 def test_capability_index_covers_full_unprofiled_surface(monkeypatch):
     monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "lean")
     server._reset_capability_index_cache()
@@ -22,6 +45,9 @@ def test_capability_index_covers_full_unprofiled_surface(monkeypatch):
     assert {r.name for r in idx.records} == live
     assert idx.by_name["rhino_objects"].mcp_dispatchable is True
     assert "rhino_director_preview_motion" not in idx.by_name
+    assert contained_names().isdisjoint(idx.by_name), (
+        "EXPECTED_RED:T2:PYTEST capability index cache exposes contained identities"
+    )
 
 
 def test_index_survives_lm2a_failure(monkeypatch):

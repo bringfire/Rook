@@ -47,6 +47,7 @@ from rook.mcp_tool_profiles import (
     PUBLIC_READONLY_TOOL_NAMES,
     SENTINEL_TOOL_NAMES,
 )
+from rook.tool_lifecycle import contained_names
 
 
 def test_set_sizes_are_pinned():
@@ -56,6 +57,16 @@ def test_set_sizes_are_pinned():
     assert not any(
         name.startswith("rhino_director_") for name in PUBLIC_READONLY_TOOL_NAMES
     )
+
+
+def test_raw_profile_memberships_remain_latent_policy_inputs():
+    hidden = contained_names()
+    assert len(PUBLIC_LEAN_TOOL_NAMES) == 22
+    assert PUBLIC_LEAN_TOOL_NAMES & hidden == {
+        "gh_execute_intent",
+        "rhino_execute_intent",
+    }
+    assert PUBLIC_READONLY_TOOL_NAMES.isdisjoint(hidden)
 
 
 def test_readonly_is_disjoint_from_sentinels():

@@ -62,6 +62,7 @@ def test_importing_capability_index_does_not_load_server_or_inventory():
 from types import SimpleNamespace
 from rook.capability_index import build_index
 from rook.mcp_tool_profiles import PUBLIC_READONLY_TOOL_NAMES
+from rook.tool_lifecycle import contained_names
 
 
 def _tool(name, desc="Do a thing. Second sentence.", schema=None):
@@ -103,6 +104,38 @@ def test_mcp_dispatchable_is_from_dispatchable_names_not_agent_mcp_only():
 def test_build_index_tolerates_empty_agent_records():
     idx = build_index([_tool("x")], {}, frozenset({"x"}))
     assert idx.by_name["x"].agent_record is None  # LM2A "unavailable" still yields a working index
+
+
+def test_build_index_defensively_filters_direct_injected_contained_tools(
+    monkeypatch,
+    tmp_path,
+):
+    from rook.learning import metrics_store
+
+    store = metrics_store.MetricsStore(tmp_path / "metrics.json")
+    monkeypatch.setattr(metrics_store, "_metrics_store", store)
+    before = store.get_containment_denials_snapshot()
+
+    tools = [
+        _tool("safe_tool"),
+        _tool("spawn_agent"),
+        _tool("gh_replay_recipe"),
+    ]
+    idx = build_index(
+        tools,
+        {
+            "safe_tool": _agent_rec("safe_tool"),
+            "spawn_agent": _agent_rec("spawn_agent"),
+        },
+        frozenset({"safe_tool", "spawn_agent", "gh_replay_recipe"}),
+    )
+    after = store.get_containment_denials_snapshot()
+
+    assert (
+        set(idx.by_name) == {"safe_tool"}
+        and contained_names().isdisjoint(idx.by_name)
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST build_index admits contained injected tools"
 
 
 def test_summary_is_first_sentence():

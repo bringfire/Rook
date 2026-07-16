@@ -7,6 +7,7 @@ from rook.agent.chat.conversation_store import Conversation
 from rook.agent.chat.chat_runner import ChatRunner, ChatEvent, MAX_META_ONLY_ROUNDS
 from rook.agent.chat.tool_contracts import ToolResultView
 from rook.agent.tool_registry import ToolRegistry
+from rook.tool_lifecycle import contained_names
 
 
 @pytest.fixture
@@ -45,6 +46,54 @@ def _make_minimal_registry() -> ToolRegistry:
     return ToolRegistry(catalog=catalog, agent_mode=True)
 
 
+def _dirty_schema(name: str) -> dict:
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": name,
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+def _visible_schema_names(schemas) -> set[str]:
+    return {
+        schema.get("function", {}).get("name")
+        for schema in schemas
+        if isinstance(schema, dict)
+    }
+
+
+def _chat_telemetry_store(monkeypatch, tmp_path):
+    from rook.learning import metrics_store
+
+    store = metrics_store.MetricsStore(tmp_path / "metrics.json")
+    monkeypatch.setattr(metrics_store, "_metrics_store", store)
+    return store
+
+
+class _DirtyInjectedRegistry:
+    def get_active_schemas(self):
+        return [
+            _dirty_schema("safe_tool"),
+            _dirty_schema("spawn_agent"),
+        ]
+
+    def is_meta_tool(self, name):
+        return False
+
+    def get_group_names(self):
+        return []
+
+    def get_active_count(self):
+        return 2
+
+
 @pytest.fixture
 def runner():
     """ChatRunner with a mock executor and minimal registry (no ToolDispatcher)."""
@@ -53,6 +102,177 @@ def runner():
         tool_executor=mock_executor,
         registry=_make_minimal_registry(),
     )
+
+
+def test_cached_catalog_is_revalidated_before_chatrunner_registry(
+    monkeypatch,
+    tmp_path,
+):
+    store = _chat_telemetry_store(monkeypatch, tmp_path)
+    dirty = {
+        "safe_tool": _dirty_schema("safe_tool"),
+        "plan_and_execute": _dirty_schema("safe_embedded"),
+        "safe_raw_hidden_embedded": _dirty_schema("gh_replay_recipe"),
+    }
+    monkeypatch.setattr(
+        chat_runner_module,
+        "load_catalog_from_cache",
+        lambda: dirty,
+    )
+    before = store.get_containment_denials_snapshot()
+    runner = ChatRunner(tool_executor=AsyncMock())
+    after = store.get_containment_denials_snapshot()
+
+    assert (
+        set(runner._registry._catalog).isdisjoint(contained_names())
+        and "safe_raw_hidden_embedded" not in runner._registry._catalog
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST cached RookChat catalog admits contained records"
+
+
+def test_fallback_catalog_filters_contained_route_names(
+    monkeypatch,
+    tmp_path,
+):
+    store = _chat_telemetry_store(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        chat_runner_module,
+        "BRIDGE_ROUTES",
+        {"safe_bridge": object(), "gh_explore_workflow": object()},
+    )
+    monkeypatch.setattr(
+        chat_runner_module,
+        "TRANSFORM_FUNCTIONS",
+        {"safe_transform": object(), "gh_replay_recipe": object()},
+    )
+    before = store.get_containment_denials_snapshot()
+    catalog = chat_runner_module._build_fallback_catalog()
+    after = store.get_containment_denials_snapshot()
+
+    assert (
+        {"safe_bridge", "safe_transform"} <= set(catalog)
+        and contained_names().isdisjoint(catalog)
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST RookChat fallback catalog admits contained routes"
+
+
+def test_fallback_startup_guidance_does_not_recommend_spawn_agent(
+    monkeypatch,
+    caplog,
+):
+    caplog.set_level("INFO", logger="rook.agent.chat.chat_runner")
+    monkeypatch.setattr(
+        chat_runner_module,
+        "load_catalog_from_cache",
+        lambda: None,
+    )
+
+    ChatRunner(tool_executor=AsyncMock())
+
+    assert "spawn_agent" not in caplog.text, (
+        "EXPECTED_RED:T2:PYTEST RookChat still recommends contained cache refresh"
+    )
+
+
+def test_local_catalog_filters_contained_registration_names(
+    monkeypatch,
+    tmp_path,
+):
+    store = _chat_telemetry_store(monkeypatch, tmp_path)
+    before = store.get_containment_denials_snapshot()
+    catalog = chat_runner_module._build_local_tool_catalog(
+        {"safe_local": object(), "rhino_execute_intent": object()}
+    )
+    after = store.get_containment_denials_snapshot()
+
+    assert (
+        set(catalog) == {"safe_local"}
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST RookChat local catalog admits contained name"
+
+
+def test_model_overlay_is_revalidated_before_registry_construction(
+    monkeypatch,
+    tmp_path,
+):
+    store = _chat_telemetry_store(monkeypatch, tmp_path)
+    monkeypatch.setattr(chat_runner_module, "load_catalog_from_cache", lambda: {
+        "safe_tool": _dirty_schema("safe_tool"),
+    })
+    monkeypatch.setattr(
+        chat_runner_module,
+        "_CHAT_MODEL_TOOL_SCHEMAS",
+        {
+            "safe_overlay": _dirty_schema("safe_overlay"),
+            "spawn_agent": _dirty_schema("safe_embedded"),
+            "safe_raw_hidden_embedded": _dirty_schema("plan_and_execute"),
+        },
+    )
+    before = store.get_containment_denials_snapshot()
+    runner = ChatRunner(tool_executor=AsyncMock())
+    after = store.get_containment_denials_snapshot()
+
+    assert (
+        set(runner._registry._catalog) == {"safe_tool", "safe_overlay"}
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST RookChat model overlay admits contained records"
+
+
+def test_tool_section_filters_injected_registry_schemas_without_telemetry(
+    monkeypatch,
+    tmp_path,
+):
+    store = _chat_telemetry_store(monkeypatch, tmp_path)
+    runner = ChatRunner(
+        tool_executor=AsyncMock(),
+        registry=_DirtyInjectedRegistry(),
+    )
+    before = store.get_containment_denials_snapshot()
+    section = runner._build_tool_section()
+    after = store.get_containment_denials_snapshot()
+
+    assert (
+        "safe_tool" in section
+        and "spawn_agent" not in section
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST RookChat tool section exposes contained identity"
+
+
+@pytest.mark.asyncio
+async def test_final_litellm_tools_filter_injected_registry_schemas(
+    monkeypatch,
+    tmp_path,
+    conversation,
+):
+    store = _chat_telemetry_store(monkeypatch, tmp_path)
+    runner = ChatRunner(
+        tool_executor=AsyncMock(),
+        registry=_DirtyInjectedRegistry(),
+    )
+    captured = {}
+
+    async def capture_acompletion(**kwargs):
+        captured.update(kwargs)
+        return _make_text_response("done")
+
+    before = store.get_containment_denials_snapshot()
+    with patch(
+        "litellm.acompletion",
+        side_effect=capture_acompletion,
+    ), _runtime_facts_patch():
+        async for _ in runner.run_turn(
+            conversation,
+            "inspect",
+            system_prompt="test",
+        ):
+            pass
+    after = store.get_containment_denials_snapshot()
+    names = _visible_schema_names(captured["tools"])
+
+    assert (
+        names == {"safe_tool"}
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST final LiteLLM projection exposes contained identity"
 
 
 def _make_text_response(text, prompt_tokens=10, completion_tokens=5):

@@ -108,17 +108,14 @@ def test_fallback_catalog_rhino_execute_schema_is_actionable():
     assert audit_litellm_tool_schema(catalog["rhino_execute"]) == []
 
 
-def test_local_catalog_rhino_execute_intent_schema_is_actionable():
+def test_local_catalog_omits_rhino_execute_intent():
     from rook.agent.chat.chat_runner import _build_local_tool_catalog
 
     catalog = _build_local_tool_catalog({"rhino_execute_intent": object()})
 
-    intent_params = catalog["rhino_execute_intent"]["function"]["parameters"]
-    assert intent_params["type"] == "object"
-    assert intent_params["required"] == ["intent"]
-    assert intent_params["additionalProperties"] is False
-    assert "intent" in intent_params["properties"]
-    assert audit_litellm_tool_schema(catalog["rhino_execute_intent"]) == []
+    assert "rhino_execute_intent" not in catalog, (
+        "EXPECTED_RED:T2:PYTEST local RookChat catalog exposes contained intent tool"
+    )
 
 
 def test_local_catalog_unknown_tools_are_closed_by_default():

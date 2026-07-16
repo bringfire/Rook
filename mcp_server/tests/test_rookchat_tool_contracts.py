@@ -1,4 +1,5 @@
 import pytest
+from copy import deepcopy
 
 
 def test_closed_no_arg_schema_shape():
@@ -475,6 +476,109 @@ def test_meta_tool_schemas_are_closed():
     for name in ("request_tools", "search_tools"):
         params = schemas[name]["function"]["parameters"]
         assert params["additionalProperties"] is False
+
+
+def _catalog_schema(name: str) -> dict:
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": name,
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+def _catalog_telemetry_store(monkeypatch, tmp_path):
+    from rook.learning import metrics_store
+
+    store = metrics_store.MetricsStore(tmp_path / "metrics.json")
+    monkeypatch.setattr(metrics_store, "_metrics_store", store)
+    return store
+
+
+def test_tool_registry_constructor_filters_raw_and_embedded_contained_names(
+    monkeypatch,
+    tmp_path,
+):
+    from rook.agent.tool_registry import ToolRegistry
+
+    store = _catalog_telemetry_store(monkeypatch, tmp_path)
+    dirty = {
+        "safe_tool": _catalog_schema("safe_tool"),
+        "spawn_agent": _catalog_schema("safe_embedded"),
+        "safe_raw_hidden_embedded": _catalog_schema("gh_replay_recipe"),
+    }
+    original = deepcopy(dirty)
+    before = store.get_containment_denials_snapshot()
+    registry = ToolRegistry(
+        catalog=dirty,
+        tier0={"safe_tool", "spawn_agent", "safe_raw_hidden_embedded"},
+    )
+    after = store.get_containment_denials_snapshot()
+
+    assert (
+        set(registry._catalog) == {"safe_tool"}
+        and dirty == original
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST ToolRegistry constructor admits contained catalog records"
+
+
+def test_tool_registry_register_local_catalog_filters_both_identity_positions(
+    monkeypatch,
+    tmp_path,
+):
+    from rook.agent.tool_registry import ToolRegistry
+
+    store = _catalog_telemetry_store(monkeypatch, tmp_path)
+    registry = ToolRegistry(catalog={}, tier0=set())
+    dirty = {
+        "safe_local": _catalog_schema("safe_local"),
+        "plan_and_execute": _catalog_schema("safe_embedded"),
+        "safe_raw_hidden_embedded": _catalog_schema("gh_explore_workflow"),
+    }
+    original = deepcopy(dirty)
+    before = store.get_containment_denials_snapshot()
+    registry.register_local_catalog(dirty)
+    after = store.get_containment_denials_snapshot()
+
+    assert (
+        set(registry._catalog) == {"safe_local"}
+        and registry._locally_registered == {"safe_local"}
+        and dirty == original
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST ToolRegistry local catalog admits contained records"
+
+
+def test_tool_registry_active_schema_projection_revalidates_poisoned_state(
+    monkeypatch,
+    tmp_path,
+):
+    from rook.agent.tool_registry import ToolRegistry
+
+    store = _catalog_telemetry_store(monkeypatch, tmp_path)
+    registry = ToolRegistry(
+        catalog={"safe_tool": _catalog_schema("safe_tool")},
+        tier0={"safe_tool"},
+    )
+    registry._catalog["poisoned"] = _catalog_schema("spawn_agent")
+    registry._active.add("poisoned")
+    before = store.get_containment_denials_snapshot()
+    schemas = registry.get_active_schemas()
+    after = store.get_containment_denials_snapshot()
+    names = {
+        schema.get("function", {}).get("name")
+        for schema in schemas
+    }
+
+    assert (
+        names == {"safe_tool"}
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST ToolRegistry final schema projection emits contained identity"
 
 
 def test_normalize_tool_result_top_level_truth_precedence():

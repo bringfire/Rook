@@ -15,11 +15,22 @@ converted to LiteLLM format at startup.
 Adapted from Engram's ToolRegistry for the Rhino/GH domain.
 """
 
+import inspect
 import json
 import logging
+import os
+import tempfile
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 from ..runtime_paths import resolve_writable_knowledge_path
+from ..tool_lifecycle import (
+    filter_litellm_catalog,
+    filter_litellm_schemas,
+    filter_mcp_records,
+    lifecycle_fingerprint,
+)
 
 from .chat.tool_contracts import normalize_catalog, normalize_litellm_tool_schema
 from .tool_groups import (
@@ -65,7 +76,7 @@ def build_catalog_from_mcp_tools(tools: list) -> Dict[str, dict]:
         Dict mapping tool_name -> LiteLLM schema.
     """
     catalog = {}
-    for tool in tools:
+    for tool in filter_mcp_records(tools):
         schema = mcp_tool_to_litellm(tool)
         catalog[tool.name] = schema
     logger.info(f"Built catalog with {len(catalog)} tools from MCP")
@@ -77,34 +88,215 @@ def get_catalog_cache_path() -> Path:
     return resolve_writable_knowledge_path("agent_tool_catalog.json")
 
 
-def load_catalog_from_cache(cache_path: Optional[Path] = None) -> Optional[Dict[str, dict]]:
-    """Load cached catalog from JSON file."""
-    if cache_path is None:
-        cache_path = get_catalog_cache_path()
+@dataclass(frozen=True)
+class CatalogCacheState:
+    catalog: dict[str, dict] | None
+    refresh_requested: bool
+    source: Literal[
+        "current",
+        "legacy",
+        "fingerprint_mismatch",
+        "missing",
+        "unreadable",
+    ]
+
+
+@dataclass(frozen=True)
+class CatalogStartupResult:
+    catalog: dict[str, dict] | None
+    status: Literal["fresh", "degraded_cache", "degraded_fallback", "unavailable"]
+    persisted: bool
+    refresh_requested: bool
+
+
+def _safe_normalized_catalog(
+    raw_catalog: Mapping[object, object],
+) -> dict[str, dict] | None:
+    """Lifecycle-filter and normalize a catalog, rejecting empty/malformed data."""
+    try:
+        admitted = filter_litellm_catalog(raw_catalog)
+        if not admitted:
+            return None
+        if not all(
+            isinstance(name, str) and isinstance(schema, dict)
+            for name, schema in admitted.items()
+        ):
+            return None
+        normalized = normalize_catalog(dict(admitted))
+        return normalized or None
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None
+
+
+def load_catalog_cache_state(path: Optional[Path] = None) -> CatalogCacheState:
+    """Load, lifecycle-revalidate, and classify the catalog cache."""
+    cache_path = path or get_catalog_cache_path()
     if not cache_path.exists():
-        return None
+        return CatalogCacheState(
+            catalog=None,
+            refresh_requested=True,
+            source="missing",
+        )
+
     try:
-        with open(cache_path, encoding="utf-8") as f:
-            catalog = normalize_catalog(json.load(f))
-        logger.info(f"Loaded {len(catalog)} schemas from cache: {cache_path.name}")
-        return catalog
-    except (json.JSONDecodeError, KeyError, OSError):
+        with open(cache_path, encoding="utf-8") as cache_file:
+            payload = json.load(cache_file)
+    except (json.JSONDecodeError, OSError, UnicodeError):
         logger.warning("Cache corrupted or unreadable, will rebuild")
-        return None
+        return CatalogCacheState(
+            catalog=None,
+            refresh_requested=True,
+            source="unreadable",
+        )
+
+    if not isinstance(payload, Mapping) or not payload:
+        return CatalogCacheState(
+            catalog=None,
+            refresh_requested=True,
+            source="unreadable",
+        )
+
+    envelope_keys = {"lifecycle_fingerprint", "catalog"}
+    if set(payload) == envelope_keys:
+        raw_fingerprint = payload.get("lifecycle_fingerprint")
+        raw_catalog = payload.get("catalog")
+        if not isinstance(raw_fingerprint, str) or not isinstance(raw_catalog, Mapping):
+            return CatalogCacheState(
+                catalog=None,
+                refresh_requested=True,
+                source="unreadable",
+            )
+        if raw_fingerprint == lifecycle_fingerprint():
+            source: Literal["current", "fingerprint_mismatch"] = "current"
+            refresh_requested = False
+        else:
+            source = "fingerprint_mismatch"
+            refresh_requested = True
+    elif envelope_keys & set(payload):
+        return CatalogCacheState(
+            catalog=None,
+            refresh_requested=True,
+            source="unreadable",
+        )
+    else:
+        raw_catalog = payload
+        source = "legacy"
+        refresh_requested = True
+
+    catalog = _safe_normalized_catalog(raw_catalog)
+    if catalog is None:
+        return CatalogCacheState(
+            catalog=None,
+            refresh_requested=True,
+            source="unreadable",
+        )
+
+    logger.info(
+        "Loaded %d safe schemas from cache: %s (%s)",
+        len(catalog),
+        cache_path.name,
+        source,
+    )
+    return CatalogCacheState(
+        catalog=catalog,
+        refresh_requested=refresh_requested,
+        source=source,
+    )
 
 
-def save_catalog_to_cache(catalog: Dict[str, dict], cache_path: Path) -> None:
-    """Save catalog to JSON cache file (atomic write via temp + rename)."""
+def load_catalog_from_cache(path: Optional[Path] = None) -> Optional[Dict[str, dict]]:
+    """Compatibility wrapper returning only a safely revalidated catalog."""
+    return load_catalog_cache_state(path).catalog
+
+
+def save_catalog_to_cache(catalog: Mapping[str, dict], path: Path) -> bool:
+    """Lifecycle-filter and atomically persist the canonical cache envelope."""
+    cache_path = path
+    admitted = filter_litellm_catalog(catalog)
+    envelope = {
+        "lifecycle_fingerprint": lifecycle_fingerprint(),
+        "catalog": admitted,
+    }
     try:
+        serialized = json.dumps(envelope, indent=2)
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = cache_path.with_suffix(".tmp")
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(catalog, f, indent=2)
-        import os
-        os.replace(str(tmp_path), str(cache_path))
-        logger.info(f"Cached {len(catalog)} schemas to {cache_path.name}")
-    except OSError as e:
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=f"{cache_path.name}.",
+            suffix=".tmp",
+            dir=cache_path.parent,
+            text=True,
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as cache_file:
+                cache_file.write(serialized)
+                cache_file.flush()
+                os.fsync(cache_file.fileno())
+            os.replace(tmp_name, cache_path)
+        except Exception:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
+        logger.info(f"Cached {len(admitted)} schemas to {cache_path.name}")
+        return True
+    except Exception as e:
         logger.warning(f"Could not cache schemas: {e}")
+        return False
+
+
+async def refresh_catalog_at_startup(
+    tool_loader,
+    *,
+    cache_path: Path | None = None,
+    fallback: Mapping[str, dict] | None = None,
+) -> CatalogStartupResult:
+    """Build a fresh unprofiled catalog while retaining only safe fallbacks."""
+    resolved_cache_path = cache_path or get_catalog_cache_path()
+    old_state = load_catalog_cache_state(resolved_cache_path)
+
+    try:
+        loaded_tools = tool_loader()
+        if inspect.isawaitable(loaded_tools):
+            loaded_tools = await loaded_tools
+        fresh_catalog = build_catalog_from_mcp_tools(list(loaded_tools))
+        if not fresh_catalog:
+            raise ValueError("fresh catalog is empty")
+    except Exception as exc:
+        logger.warning("Catalog refresh construction failed: %s", exc)
+        if old_state.catalog is not None:
+            return CatalogStartupResult(
+                catalog=old_state.catalog,
+                status="degraded_cache",
+                persisted=False,
+                refresh_requested=True,
+            )
+        safe_fallback = (
+            _safe_normalized_catalog(fallback)
+            if isinstance(fallback, Mapping)
+            else None
+        )
+        if safe_fallback is not None:
+            return CatalogStartupResult(
+                catalog=safe_fallback,
+                status="degraded_fallback",
+                persisted=False,
+                refresh_requested=True,
+            )
+        return CatalogStartupResult(
+            catalog=None,
+            status="unavailable",
+            persisted=False,
+            refresh_requested=True,
+        )
+
+    persisted = save_catalog_to_cache(fresh_catalog, resolved_cache_path)
+    return CatalogStartupResult(
+        catalog=fresh_catalog,
+        status="fresh" if persisted else "degraded_cache",
+        persisted=persisted,
+        refresh_requested=not persisted,
+    )
 
 
 class ToolRegistry:
@@ -147,7 +339,10 @@ class ToolRegistry:
                           Used by planner to enforce read-only access.
             agent_mode: If True, uses AGENT_TIER_0 (excludes gh_execute_intent).
         """
-        self._catalog: Dict[str, dict] = normalize_catalog(catalog or {})
+        raw_catalog = {} if catalog is None else catalog
+        self._catalog: Dict[str, dict] = normalize_catalog(
+            filter_litellm_catalog(raw_catalog)
+        )
         self._max_active = max_active
         if tier0 is not None:
             self._tier0 = tier0
@@ -267,7 +462,7 @@ class ToolRegistry:
                 schemas.append(normalize_litellm_tool_schema(self._meta_schemas[name]))
             elif name in self._catalog:
                 schemas.append(normalize_litellm_tool_schema(self._catalog[name]))
-        return schemas
+        return filter_litellm_schemas(schemas)
 
     def get_active_count(self) -> int:
         """Number of currently active tools."""
@@ -519,7 +714,8 @@ class ToolRegistry:
 
         Merges into the existing catalog and rebuilds groups/descriptions.
         """
-        normalized_catalog = normalize_catalog(catalog)
+        admitted_catalog = filter_litellm_catalog(catalog)
+        normalized_catalog = normalize_catalog(admitted_catalog)
         self._catalog.update(normalized_catalog)
         for name, schema in normalized_catalog.items():
             func = schema.get("function", {})
@@ -528,7 +724,10 @@ class ToolRegistry:
         self._groups = self._build_groups()
         self._meta_schemas = self._build_meta_schemas()
         self._initialize_tier0()
-        logger.info(f"Registered {len(catalog)} local tools: {list(catalog.keys())}")
+        logger.info(
+            f"Registered {len(normalized_catalog)} local tools: "
+            f"{list(normalized_catalog.keys())}"
+        )
 
     def reset(self) -> None:
         """Reset to Tier 0 only."""

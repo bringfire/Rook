@@ -3,8 +3,8 @@ Phase 2 ToolDispatcher Tests
 =============================
 
 Verifies:
-A: Knowledge middleware (gotchas + correction detection)
-B: Local tool smoke tests (4 new tools)
+A: Knowledge middleware retirement compatibility
+B: Local tool smoke tests
 C: Tier 0 agent_mode check
 D: Seam 3 correction_detected and attempt_number
 E: Coverage re-audit
@@ -18,7 +18,6 @@ so pytest does not collect it. Run directly: `python manual_phase2_dispatcher.py
 import asyncio
 import sys
 import os
-import time
 from unittest.mock import AsyncMock, patch, MagicMock
 
 # Add project root to path
@@ -52,130 +51,24 @@ def test(name):
 print("\n=== A: Knowledge Middleware ===")
 
 
-@test("KNOWLEDGE_WRAPPED_TOOLS has correct 4 entries")
+@test("KNOWLEDGE_WRAPPED_TOOLS remains empty after gh_edit consolidation")
 def _():
     from rook.agent.tool_dispatcher import KNOWLEDGE_WRAPPED_TOOLS
-    assert len(KNOWLEDGE_WRAPPED_TOOLS) == 4
-    assert "gh_connect" in KNOWLEDGE_WRAPPED_TOOLS
-    assert "gh_disconnect" in KNOWLEDGE_WRAPPED_TOOLS
-    assert "gh_set_value" in KNOWLEDGE_WRAPPED_TOOLS
-    assert "gh_delete" in KNOWLEDGE_WRAPPED_TOOLS
+    assert KNOWLEDGE_WRAPPED_TOOLS == {}
 
 
-@test("Context builders produce correct keys")
+@test("No legacy knowledge-wrapper context builders remain")
 def _():
     from rook.agent.tool_dispatcher import KNOWLEDGE_WRAPPED_TOOLS
-
-    op, ctx_fn = KNOWLEDGE_WRAPPED_TOOLS["gh_connect"]
-    assert op == "wire"
-    ctx = ctx_fn({"sourceGuid": "a", "targetGuid": "b", "targetParam": "X"})
-    assert ctx["source_guid"] == "a"
-    assert ctx["target_guid"] == "b"
-    assert ctx["param"] == "X"
-
-    op, ctx_fn = KNOWLEDGE_WRAPPED_TOOLS["gh_set_value"]
-    assert op == "set_value"
-    ctx = ctx_fn({"guid": "c", "value": 42})
-    assert ctx["target_guid"] == "c"
-    assert ctx["value"] == 42
-
-    op, ctx_fn = KNOWLEDGE_WRAPPED_TOOLS["gh_delete"]
-    assert op == "delete"
-    ctx = ctx_fn({"guids": ["d", "e"]})
-    assert ctx["guids"] == ["d", "e"]
+    assert list(KNOWLEDGE_WRAPPED_TOOLS) == []
 
 
-@test("Knowledge tier intercepts before bridge tier in dispatch()")
-async def _():
+@test("Retired legacy wrapper identities are not dispatcher-visible")
+def _():
     from rook.agent.tool_dispatcher import ToolDispatcher
 
     d = ToolDispatcher()
-
-    # Mock call_rhino and knowledge functions
-    with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino, \
-         patch("rook.learning.gh_knowledge.gh_query_operation") as mock_op, \
-         patch("rook.learning.gh_knowledge.get_gh_knowledge_store") as mock_store:
-
-        mock_rhino.return_value = {
-            "success": True,
-            "data": {"success": True, "message": "connected"},
-        }
-        mock_op.return_value = {
-            "gotchas": [{"message": "Watch out for param order"}],
-        }
-        mock_store_inst = MagicMock()
-        mock_store.return_value = mock_store_inst
-
-        result = await d.dispatch("gh_connect", {
-            "sourceGuid": "a", "targetGuid": "b", "targetParam": "X",
-        })
-
-        assert result["data"]["gotchas"] == ["Watch out for param order"]
-        assert result["data"]["correction_detected"] is False
-        mock_rhino.assert_called_once()
-        mock_store_inst.record_gotcha_success.assert_called_once_with("wire")
-
-
-@test("Correction detection: fail then succeed triggers correction_detected=True")
-async def _():
-    from rook.agent.tool_dispatcher import ToolDispatcher
-
-    d = ToolDispatcher()
-
-    with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino, \
-         patch("rook.learning.gh_knowledge.gh_query_operation") as mock_op, \
-         patch("rook.learning.gh_knowledge.get_gh_knowledge_store"):
-
-        mock_op.return_value = {"gotchas": []}
-
-        # First call: failure
-        mock_rhino.return_value = {
-            "success": False,
-            "data": {"success": False, "error": "bad param"},
-        }
-        result1 = await d.dispatch("gh_connect", {
-            "sourceGuid": "a", "targetGuid": "b", "targetParam": "X",
-        })
-        assert result1["data"]["correction_detected"] is False
-        assert len(d._recent_failures) == 1
-
-        # Second call: success with same context
-        mock_rhino.return_value = {
-            "success": True,
-            "data": {"success": True, "message": "ok"},
-        }
-        result2 = await d.dispatch("gh_connect", {
-            "sourceGuid": "a", "targetGuid": "b", "targetParam": "X",
-        })
-        assert result2["data"]["correction_detected"] is True
-        assert len(d._recent_failures) == 0
-
-
-@test("Expired failures don't trigger correction")
-async def _():
-    from rook.agent.tool_dispatcher import ToolDispatcher
-
-    d = ToolDispatcher()
-    d._failure_expiry_seconds = 0.01  # Very short expiry
-
-    with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino, \
-         patch("rook.learning.gh_knowledge.gh_query_operation") as mock_op, \
-         patch("rook.learning.gh_knowledge.get_gh_knowledge_store"):
-
-        mock_op.return_value = {"gotchas": []}
-
-        # Failure
-        mock_rhino.return_value = {"success": False, "data": "error"}
-        await d.dispatch("gh_set_value", {"guid": "a", "value": 1})
-        assert len(d._recent_failures) == 1
-
-        # Wait for expiry
-        time.sleep(0.02)
-
-        # Success after expiry
-        mock_rhino.return_value = {"success": True, "data": {"success": True}}
-        result = await d.dispatch("gh_set_value", {"guid": "a", "value": 1})
-        assert result.get("correction_detected", False) is False
+    assert {"gh_connect", "gh_set_value"}.isdisjoint(d.all_known_tools)
 
 
 # =========================================================================
@@ -189,12 +82,11 @@ print("\n=== B: Local Tool Smoke Tests ===")
 def _():
     from rook.agent.tool_dispatcher import build_local_tools
     tools = build_local_tools()
-    # Original 4: knowledge_query, gh_knowledge_query, rhino_instances, rhino_execute_intent
-    # New 4: gh_constraints, rhino_command_select, rhino_command_queue, gh_canvas_cleanup
     new_tools = {"gh_constraints", "rhino_command_select", "rhino_command_queue", "gh_canvas_cleanup"}
     for t in new_tools:
         assert t in tools, f"Missing local tool: {t}"
-    assert len(tools) >= 8, f"Expected at least 8 local tools, got {len(tools)}"
+    assert "rhino_execute_intent" not in tools, \
+        "EXPECTED_RED:T2:MANUAL_PHASE2 build_local_tools exposes contained identity"
 
 
 @test("gh_constraints tool returns data for no filter")
@@ -236,18 +128,20 @@ async def _():
 print("\n=== C: Tier 0 Agent Mode ===")
 
 
-@test("AGENT_TIER_0 excludes gh_execute_intent")
+@test("AGENT_TIER_0 preserves its independent dispatch exclusions")
 def _():
-    from rook.agent.tool_groups import TIER_0, AGENT_TIER_0
+    from rook.agent.tool_groups import (
+        AGENT_TIER_0,
+        LOCAL_TIER_0_DISPATCH_EXCLUSIONS,
+        TIER_0,
+    )
+
     assert "gh_execute_intent" in TIER_0
     assert "gh_execute_intent" not in AGENT_TIER_0
-    # All other TIER_0 tools should be in AGENT_TIER_0
-    for t in TIER_0:
-        if t != "gh_execute_intent":
-            assert t in AGENT_TIER_0, f"Missing from AGENT_TIER_0: {t}"
+    assert AGENT_TIER_0.isdisjoint(LOCAL_TIER_0_DISPATCH_EXCLUSIONS)
 
 
-@test("ToolRegistry(agent_mode=True) excludes gh_execute_intent from active")
+@test("ToolRegistry excludes contained gh_execute_intent in every agent mode")
 def _():
     from rook.agent.tool_registry import ToolRegistry
     # Need a catalog with gh_execute_intent for it to be activatable
@@ -267,7 +161,8 @@ def _():
     normal_names = {s["function"]["name"] for s in reg_normal.get_active_schemas()}
     agent_names = {s["function"]["name"] for s in reg_agent.get_active_schemas()}
 
-    assert "gh_execute_intent" in normal_names
+    assert "gh_execute_intent" not in normal_names, \
+        "EXPECTED_RED:T2:MANUAL_PHASE2 normal registry exposes contained identity"
     assert "gh_execute_intent" not in agent_names
     # Both should have rhino_ping
     assert "rhino_ping" in normal_names
@@ -419,7 +314,7 @@ async def _():
             assert "Unknown tool" not in str(result.get("data", "")), f"{tool_name} failed dispatch"
 
 
-@test("All 8 local tools dispatchable via ToolDispatcher")
+@test("Supported local tools dispatchable and contained local absent")
 async def _():
     from rook.agent.tool_dispatcher import ToolDispatcher, build_local_tools
 
@@ -428,7 +323,7 @@ async def _():
 
     expected = {
         "knowledge_query", "gh_knowledge_query", "rhino_instances",
-        "rhino_execute_intent", "gh_constraints", "rhino_command_select",
+        "gh_constraints", "rhino_command_select",
         "rhino_command_queue", "gh_canvas_cleanup",
     }
     for name in expected:
@@ -436,6 +331,7 @@ async def _():
             pass  # It's registered
         else:
             raise AssertionError(f"Local tool {name} not registered")
+    assert "rhino_execute_intent" not in d._local_tools
 
 
 # =========================================================================

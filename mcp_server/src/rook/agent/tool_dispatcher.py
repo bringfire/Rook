@@ -23,6 +23,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from ..bridge import call_rhino
 from ..gh_edit_contract import apply_gh_edit_contract
 from ..gh_status_contract import normalize_gh_status_result
+from ..tool_lifecycle import filter_local_registrations
 from .chat.execution_policy import annotate_result, needs_verification
 
 logger = logging.getLogger(__name__)
@@ -1569,69 +1570,6 @@ def build_local_tools() -> Dict[str, Any]:
     except ImportError:
         logger.debug("rhino_instances local tool unavailable (import failed)")
 
-    # --- rhino_execute_intent ---
-    try:
-        from ..learning.intent_orchestrator import IntentOrchestrator
-        from ..learning.graph import KnowledgeGraphV2
-        from ..learning.command_knowledge_store import CommandKnowledgeStore
-        from ..knowledge import record_knowledge
-
-        async def _rhino_execute_intent(
-            intent: str = "", port: int | None = None, **kwargs,
-        ) -> dict:
-            if not intent:
-                return {"success": False, "data": "Missing required parameter: intent"}
-            try:
-                kg = KnowledgeGraphV2()
-                try:
-                    ks = CommandKnowledgeStore()
-                except Exception:
-                    ks = None
-
-                async def bound_caller(endpoint, method="GET", data=None):
-                    return await call_rhino(endpoint, method, data, port=port)
-
-                geo_context = None
-                try:
-                    sel_resp = await bound_caller("/selection", "GET", None)
-                    if sel_resp.get("success"):
-                        sel_data = sel_resp.get("data", {})
-                        if isinstance(sel_data, dict):
-                            objects = sel_data.get("objects", [])
-                            if objects:
-                                sel_ids = [
-                                    obj["id"] for obj in objects
-                                    if isinstance(obj, dict) and "id" in obj
-                                ]
-                                geo_types = {
-                                    obj["id"]: obj.get("type", "object")
-                                    for obj in objects
-                                    if isinstance(obj, dict) and "id" in obj
-                                }
-                                if sel_ids:
-                                    geo_context = {
-                                        "selected_ids": sel_ids,
-                                        "geometry_types": geo_types,
-                                    }
-                except Exception:
-                    pass
-
-                orchestrator = IntentOrchestrator(
-                    http_caller=bound_caller,
-                    knowledge_store=ks,
-                    knowledge_graph=kg,
-                    recorder=record_knowledge,
-                )
-                exec_result = await orchestrator.run(intent, context=geo_context)
-                return {"success": exec_result["success"], "data": exec_result}
-            except Exception as e:
-                logger.error(f"rhino_execute_intent failed: {e}", exc_info=True)
-                return {"success": False, "data": f"Execution failed: {str(e)}"}
-
-        tools["rhino_execute_intent"] = _rhino_execute_intent
-    except ImportError:
-        logger.debug("rhino_execute_intent local tool unavailable (import failed)")
-
     # --- gh_constraints ---
     try:
         from ..learning.constraints import get_constraint_checker
@@ -1969,7 +1907,7 @@ def build_local_tools() -> Dict[str, Any]:
         }
     tools["ui_block"] = _ui_block_sentinel
 
-    return tools
+    return filter_local_registrations(tools)
 
 
 # =============================================================================
@@ -2012,7 +1950,9 @@ class ToolDispatcher:
         local_tools: Optional[Dict[str, Any]] = None,
     ):
         self._port = port
-        self._local_tools: Dict[str, Any] = local_tools or {}
+        self._local_tools: Dict[str, Any] = filter_local_registrations(
+            {} if local_tools is None else local_tools
+        )
         self._call_count = 0
         # Correction detection state (mirrors server.py's _gh_recent_failures)
         self._recent_failures: Dict[str, dict] = {}
@@ -2020,11 +1960,13 @@ class ToolDispatcher:
 
     def register_local(self, name: str, handler: Any) -> None:
         """Register a single local tool handler."""
-        self._local_tools[name] = handler
+        self._local_tools.update(
+            filter_local_registrations({name: handler})
+        )
 
     def register_locals(self, tools: Dict[str, Any]) -> None:
         """Register multiple local tool handlers."""
-        self._local_tools.update(tools)
+        self._local_tools.update(filter_local_registrations(tools))
 
     async def dispatch(self, name: str, params: dict) -> dict:
         """Dispatch a tool call to the appropriate handler.
@@ -2256,4 +2198,12 @@ class ToolDispatcher:
     @property
     def all_known_tools(self) -> Set[str]:
         """All tool names this dispatcher can handle."""
-        return set(BRIDGE_ROUTES.keys()) | set(TRANSFORM_FUNCTIONS.keys()) | set(self._local_tools.keys())
+        known = {
+            name: None
+            for name in (
+                set(BRIDGE_ROUTES)
+                | set(TRANSFORM_FUNCTIONS)
+                | set(self._local_tools)
+            )
+        }
+        return set(filter_local_registrations(known))

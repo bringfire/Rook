@@ -57,6 +57,7 @@ from .substrate_analytics import (
     persist_substrate_observation,
     _compact_error as _substrate_compact_error,
 )
+from ..tool_lifecycle import filter_litellm_schemas, filter_local_registrations
 from ..runtime_paths import (
     load_runtime_dotenv,
     resolve_readable_knowledge_path,
@@ -183,7 +184,7 @@ class RookAgent:
             logger.info("Auto-built ToolDispatcher (direct bridge, no MCP overhead)")
         else:
             self._tool_executor = tool_executor
-        self._tool_schemas = tool_schemas or []
+        self._tool_schemas = filter_litellm_schemas(tool_schemas or [])
         self._tool_registry = tool_registry
 
         # Event system
@@ -353,7 +354,7 @@ class RookAgent:
 
     def set_tool_schemas(self, schemas: List[dict]) -> None:
         """Replace the active tool schemas."""
-        self._tool_schemas = schemas
+        self._tool_schemas = filter_litellm_schemas(schemas)
 
     def set_tool_executor(self, executor: ToolExecutor) -> None:
         """Replace the tool executor."""
@@ -365,8 +366,11 @@ class RookAgent:
         Args:
             tools: Dict mapping tool_name -> async callable(params) -> dict.
         """
-        self._local_tools.update(tools)
-        logger.info(f"Registered {len(tools)} local tools: {list(tools.keys())}")
+        admitted = filter_local_registrations(tools)
+        self._local_tools.update(admitted)
+        logger.info(
+            f"Registered {len(admitted)} local tools: {list(admitted.keys())}"
+        )
 
     def clear_messages(self) -> None:
         """Clear conversation history and related seam state."""
@@ -676,8 +680,10 @@ class RookAgent:
     def _get_tool_schemas(self) -> List[dict]:
         """Get current tool schemas. Uses ToolRegistry when available."""
         if self._tool_registry:
-            return self._tool_registry.get_active_schemas()
-        return self._tool_schemas
+            return filter_litellm_schemas(
+                self._tool_registry.get_active_schemas()
+            )
+        return filter_litellm_schemas(self._tool_schemas)
 
     def _track_usage(self, response) -> None:
         """Track token usage and cost from a ModelResponse."""

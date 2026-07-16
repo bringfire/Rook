@@ -20,6 +20,7 @@ from rook.agent.tool_dispatcher import (
 )
 from rook.agent.tool_groups import AGENT_TIER_0, READONLY_TIER_0, TOOL_GROUPS
 from rook.agent.tool_registry import ToolRegistry
+from rook.tool_lifecycle import contained_names
 
 
 CHAT_MODEL_TIER0 = frozenset({"list_chat_models", "set_chat_model"})
@@ -185,3 +186,29 @@ def test_readonly_initial_visible_tools_are_dispatchable_with_synthetic_cached_c
     registry = _registry(_fallback_local_catalog(extra_names), READONLY_TIER_0)
 
     _assert_no_dispatchability_findings(registry.get_active_schemas())
+
+
+def test_fallback_local_and_model_overlay_catalogs_omit_contained_identities(
+    monkeypatch,
+    tmp_path,
+):
+    from rook.learning import metrics_store
+
+    store = metrics_store.MetricsStore(tmp_path / "metrics.json")
+    monkeypatch.setattr(metrics_store, "_metrics_store", store)
+    before = store.get_containment_denials_snapshot()
+    combined = _fallback_local_catalog(contained_names())
+    catalog = _registry(combined, AGENT_TIER_0)._catalog
+    after = store.get_containment_denials_snapshot()
+
+    names = set(catalog)
+    embedded_names = {
+        schema.get("function", {}).get("name")
+        for schema in catalog.values()
+        if isinstance(schema, dict)
+    }
+    assert (
+        contained_names().isdisjoint(names)
+        and contained_names().isdisjoint(embedded_names)
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST RookChat combined catalog exposes contained identities"

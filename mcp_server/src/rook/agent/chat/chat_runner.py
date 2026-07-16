@@ -41,6 +41,11 @@ from ..tool_dispatcher import (
     build_local_tools,
 )
 from ..tool_groups import AGENT_TIER_0, READONLY_TIER_0, TOOL_GROUP_TRIGGERS
+from ...tool_lifecycle import (
+    filter_litellm_catalog,
+    filter_litellm_schemas,
+    filter_local_registrations,
+)
 from ..tool_registry import (
     ToolRegistry,
     load_catalog_from_cache,
@@ -293,7 +298,7 @@ def _build_fallback_catalog() -> Dict[str, dict]:
         }
     catalog["gh_update_script"] = _GH_UPDATE_SCRIPT_SCHEMA
     catalog.update(_GH_CREATE_SCRIPT_SCHEMAS)
-    return normalize_catalog(catalog)
+    return normalize_catalog(filter_litellm_catalog(catalog))
 
 
 _UI_BLOCK_SCHEMA: dict = {
@@ -755,7 +760,7 @@ _GH_CREATE_SCRIPT_SCHEMAS: Dict[str, dict] = {
 def _build_local_tool_catalog(local_tools: dict) -> Dict[str, dict]:
     """Build LiteLLM catalog entries for local Python tools."""
     catalog: Dict[str, dict] = {}
-    for name in local_tools:
+    for name in filter_local_registrations(local_tools):
         # Use the typed schema for ui_block instead of the generic fallback
         if name == "ui_block":
             catalog[name] = _UI_BLOCK_SCHEMA
@@ -785,7 +790,7 @@ def _build_local_tool_catalog(local_tools: dict) -> Dict[str, dict]:
                 },
             },
         }
-    return normalize_catalog(catalog)
+    return normalize_catalog(filter_litellm_catalog(catalog))
 
 
 class ChatRunner:
@@ -803,6 +808,7 @@ class ChatRunner:
         tool_executor: Optional[Any] = None,
         tool_access: str = "full",
         registry: Optional[ToolRegistry] = None,
+        catalog: Optional[Dict[str, dict]] = None,
     ):
         """Initialize the ChatRunner.
 
@@ -812,6 +818,7 @@ class ChatRunner:
             tool_access: "full" or "readonly" — controls which Tier 0 set is used.
             registry: Pre-built ToolRegistry. If None, builds one from
                 cached catalog or fallback descriptions.
+            catalog: Fresh in-memory catalog to use when no registry is injected.
         """
         # Set up tool execution
         if tool_executor:
@@ -826,7 +833,7 @@ class ChatRunner:
         if registry is not None:
             self._registry = registry
         else:
-            self._registry = self._build_registry(tool_access)
+            self._registry = self._build_registry(tool_access, catalog)
 
         # Track auto-loaded groups (reset per turn for shared runners)
         self._auto_loaded_groups: Set[str] = set()
@@ -835,26 +842,39 @@ class ChatRunner:
         self._tool_section_cache: Optional[str] = None
         self._tool_section_key: Optional[frozenset] = None
 
-    def _build_registry(self, tool_access: str) -> ToolRegistry:
+    def _build_registry(
+        self,
+        tool_access: str,
+        catalog_override: Optional[Dict[str, dict]] = None,
+    ) -> ToolRegistry:
         """Build a ToolRegistry, preferring cached catalog with full schemas."""
-        # Try cached catalog first (has parameter schemas from MCP server)
-        catalog = load_catalog_from_cache()
+        # Prefer a fresh startup catalog, then the safely revalidated cache.
+        catalog = (
+            catalog_override
+            if catalog_override is not None
+            else load_catalog_from_cache()
+        )
 
         if catalog is None:
             # Fall back to minimal catalog (descriptions only, no param schemas)
             catalog = _build_fallback_catalog()
             logger.info(
-                f"No catalog cache found — using fallback ({len(catalog)} tools). "
-                f"Run spawn_agent once to generate full catalog with parameter schemas."
+                f"No catalog cache found — using fallback ({len(catalog)} tools)."
             )
         else:
-            logger.info(f"Loaded cached catalog with {len(catalog)} tools (with parameter schemas)")
+            catalog = filter_litellm_catalog(catalog)
+            logger.info(
+                f"Loaded admitted catalog with {len(catalog)} tools "
+                f"(with parameter schemas)"
+            )
 
         # Register local tools into catalog
+        catalog = dict(filter_litellm_catalog(catalog))
         if self._dispatcher:
             local_catalog = _build_local_tool_catalog(self._dispatcher._local_tools)
-            catalog.update(local_catalog)
-        catalog.update(_CHAT_MODEL_TOOL_SCHEMAS)
+            catalog.update(filter_litellm_catalog(local_catalog))
+        catalog.update(filter_litellm_catalog(_CHAT_MODEL_TOOL_SCHEMAS))
+        catalog = filter_litellm_catalog(catalog)
 
         # Build registry with appropriate tier0
         chat_model_tier0 = {"list_chat_models", "set_chat_model"}
@@ -870,6 +890,12 @@ class ChatRunner:
             agent_mode=True,
         )
 
+    def _active_schemas(self) -> List[dict]:
+        """Return a final lifecycle-safe model projection."""
+        return filter_litellm_schemas(
+            self._registry.get_active_schemas()
+        )
+
     def _build_tool_section(self) -> str:
         """Build dynamic tool documentation to inject into the system prompt.
 
@@ -879,7 +905,7 @@ class ChatRunner:
 
         Cached between rounds — only rebuilt when the active tool set changes.
         """
-        schemas = self._registry.get_active_schemas()
+        schemas = self._active_schemas()
         cache_key = frozenset(
             s.get("function", {}).get("name", "") for s in schemas
         )
@@ -1050,7 +1076,7 @@ class ChatRunner:
                     return
 
                 # Get current active tool schemas (changes as groups are loaded)
-                tools = self._registry.get_active_schemas()
+                tools = self._active_schemas()
 
                 # Build system prompt with verified runtime facts and dynamic tool
                 # section (updates as tools load).

@@ -1,6 +1,7 @@
 """Tests for the agent chat HTTP server."""
 import json
 import socket
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -1208,6 +1209,55 @@ async def test_start_chat_server_port_zero_writes_actual_bound_port(monkeypatch,
         assert health["service"]["port"] == payload["port"]
         assert health["service"]["owner"] == "rhino-panel"
         assert health["service"]["rhinoProcessId"] == 2468
+    finally:
+        await chat_server.stop_chat_server()
+
+
+@pytest.mark.asyncio
+async def test_start_chat_server_refreshes_unprofiled_catalog_once_before_runner(
+    monkeypatch,
+    tmp_path,
+):
+    from rook import server as rook_server
+
+    assert hasattr(chat_server, "refresh_catalog_at_startup"), (
+        "EXPECTED_RED:T2:PYTEST RookChat startup refresh hook is missing"
+    )
+    fresh_catalog = {
+        "safe_tool": {
+            "type": "function",
+            "function": {
+                "name": "safe_tool",
+                "description": "safe",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False,
+                },
+            },
+        },
+    }
+    refresh = AsyncMock(
+        return_value=SimpleNamespace(
+            catalog=fresh_catalog,
+            status="degraded_cache",
+            persisted=False,
+            refresh_requested=True,
+        )
+    )
+    runner_ctor = MagicMock(return_value=MagicMock())
+    monkeypatch.setattr(chat_server, "refresh_catalog_at_startup", refresh)
+    monkeypatch.setattr(chat_server, "ChatRunner", runner_ctor)
+    monkeypatch.setattr(chat_server, "DISCOVERY_FOLDER", tmp_path)
+
+    try:
+        await chat_server.start_chat_server(port=0)
+        assert (
+            refresh.await_count == 1
+            and refresh.await_args.args[0] is rook_server._all_live_tools
+            and runner_ctor.call_count == 1
+            and runner_ctor.call_args.kwargs.get("catalog") == fresh_catalog
+        ), "EXPECTED_RED:T2:PYTEST RookChat startup refresh is not canonical or fresh"
     finally:
         await chat_server.stop_chat_server()
 

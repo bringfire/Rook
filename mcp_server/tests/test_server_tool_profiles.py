@@ -8,6 +8,7 @@ from rook.mcp_tool_profiles import (
     PUBLIC_READONLY_TOOL_NAMES,
     SENTINEL_TOOL_NAMES,
 )
+from rook.tool_lifecycle import contained_names
 
 _GATED = {"rhino_command_experiment", "rhino_learn_next", "rhino_prepare_geometry"}
 
@@ -24,53 +25,93 @@ def _list_names(monkeypatch, profile_value):
     return {t.name for t in tools}
 
 
-def test_full_surface_is_428_and_gates_deprecated(monkeypatch):
+def test_full_surface_is_422_and_gates_deprecated(monkeypatch):
     full = _list_names(monkeypatch, None)  # absent => full
-    assert len(full) == 428
+    hidden = contained_names()
+    assert len(full) == 422, (
+        "EXPECTED_RED:T2:PYTEST full catalog still exposes contained identities"
+    )
     assert {"gh_solve_readiness", "gh_wait_for_solve_readiness"} <= full
     assert _GATED.isdisjoint(full)
-    assert PUBLIC_LEAN_TOOL_NAMES <= full
+    assert (PUBLIC_LEAN_TOOL_NAMES - hidden) <= full
     assert PUBLIC_READONLY_TOOL_NAMES <= full
-    assert SENTINEL_TOOL_NAMES <= full
+    assert (SENTINEL_TOOL_NAMES - hidden) <= full
+    assert hidden.isdisjoint(full)
 
 
 def test_deprecated_interactive_gate_adds_exactly_three_tools(monkeypatch):
     default = _list_names(monkeypatch, None)
     monkeypatch.setenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", "1")
     enabled = {t.name for t in asyncio.run(server.list_tools())}
-    assert len(enabled) == 431
+    assert len(enabled) == 425, (
+        "EXPECTED_RED:T2:PYTEST interactive catalog still exposes contained identities"
+    )
     assert enabled - default == _GATED
+    assert contained_names().isdisjoint(enabled)
 
 
-def test_all_live_tools_is_unprofiled_428(monkeypatch):
+def test_all_live_tools_is_unprofiled_422(monkeypatch):
     monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
-    # Even with a restrictive profile set, the unprofiled source is the full 428.
+    # Even with a restrictive profile set, the unprofiled source is the full
+    # lifecycle-projected 422.
     monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "lean")
     names = {t.name for t in asyncio.run(server._all_live_tools())}
-    assert len(names) == 428
+    assert len(names) == 422, (
+        "EXPECTED_RED:T2:PYTEST _all_live_tools still exposes contained identities"
+    )
     assert _GATED.isdisjoint(names)
+    assert contained_names().isdisjoint(names)
+
+
+def test_live_and_post_profile_projection_omit_without_telemetry(
+    monkeypatch,
+    tmp_path,
+):
+    from rook.learning import metrics_store
+
+    store = metrics_store.MetricsStore(tmp_path / "metrics.json")
+    monkeypatch.setattr(metrics_store, "_metrics_store", store)
+    monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "lean")
+    before = store.get_containment_denials_snapshot()
+    live = {tool.name for tool in asyncio.run(server._all_live_tools())}
+    profiled = {tool.name for tool in asyncio.run(server.list_tools())}
+    after = store.get_containment_denials_snapshot()
+
+    assert (
+        contained_names().isdisjoint(live)
+        and contained_names().isdisjoint(profiled)
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST live/profile omission records telemetry or leaks names"
 
 
 def test_explicit_full_equals_absent(monkeypatch):
     assert _list_names(monkeypatch, "full") == _list_names(monkeypatch, None)
 
 
-def test_lean_surface_is_exactly_22(monkeypatch):
+def test_lean_surface_is_exactly_20(monkeypatch):
     lean = _list_names(monkeypatch, "lean")
-    assert lean == set(PUBLIC_LEAN_TOOL_NAMES)
-    assert len(lean) == 22
+    expected = set(PUBLIC_LEAN_TOOL_NAMES) - contained_names()
+    assert lean == expected, (
+        "EXPECTED_RED:T2:PYTEST lean catalog still exposes contained identities"
+    )
+    assert len(lean) == 20
 
 
 def test_readonly_surface_is_exactly_148(monkeypatch):
     ro = _list_names(monkeypatch, "readonly")
     assert ro == set(PUBLIC_READONLY_TOOL_NAMES)
     assert len(ro) == 148
+    assert contained_names().isdisjoint(ro)
 
 
 def test_meta_tools_present_in_all_profiles(monkeypatch):
     for prof in (None, "full", "lean", "readonly"):
         names = _list_names(monkeypatch, prof)
         assert {"rook_tools_ls", "rook_tools_search", "rook_tools_read", "rook_tools_call"} <= names
+        assert contained_names().isdisjoint(names), (
+            "EXPECTED_RED:T2:PYTEST profile catalog exposes contained identities"
+        )
 
 
 def test_readonly_partition_over_live_surface(monkeypatch):
@@ -81,7 +122,9 @@ def test_readonly_partition_over_live_surface(monkeypatch):
     excluded = full - ro
     assert ro | excluded == full
     assert ro.isdisjoint(excluded)
-    assert len(ro) + len(excluded) == len(full) == 428
+    assert len(ro) + len(excluded) == len(full) == 422, (
+        "EXPECTED_RED:T2:PYTEST readonly partition still includes contained identities"
+    )
 
 
 def _call_text(name, args=None):

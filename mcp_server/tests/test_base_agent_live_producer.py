@@ -6,6 +6,7 @@ from rook.agent.base_agent import RookAgent
 from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
 from rook.learning.plan_graph import PlanGraph, PlanGraphNode
 from rook.learning.plan_graph_projection import OUTCOME_PROJECTION_ROLE_KEY
+from rook.tool_lifecycle import contained_names
 
 
 COMPONENT_GUID = "fbfd3ba5-5951-4064-8478-ee1d173150a9"
@@ -45,6 +46,33 @@ def _producer_graph(declared_params: dict) -> PlanGraph:
     return graph
 
 
+def _tool_schema(name: str) -> dict:
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": name,
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }
+
+
+def _schema_names(schemas: list[dict]) -> set[str]:
+    return {
+        schema.get("function", {}).get("name")
+        for schema in schemas
+        if isinstance(schema, dict)
+    }
+
+
+def _telemetry_store(monkeypatch, tmp_path):
+    from rook.learning import metrics_store
+
+    store = metrics_store.MetricsStore(tmp_path / "metrics.json")
+    monkeypatch.setattr(metrics_store, "_metrics_store", store)
+    return store
+
+
 class _SyncSpy:
     """A plain (non-async) ToolExecutor that records calls and returns a dict."""
 
@@ -75,6 +103,87 @@ def test_construction_does_not_invoke_executor():
     spy = _SyncSpy(_usable_raw())
     RookAgent(tool_executor=spy)
     assert spy.calls == []
+
+
+def test_constructor_filters_raw_tool_schemas_without_telemetry(
+    monkeypatch,
+    tmp_path,
+):
+    store = _telemetry_store(monkeypatch, tmp_path)
+    before = store.get_containment_denials_snapshot()
+    agent = RookAgent(
+        tool_executor=lambda *_args, **_kwargs: {},
+        tool_schemas=[_tool_schema("safe_tool"), _tool_schema("spawn_agent")],
+    )
+    after = store.get_containment_denials_snapshot()
+
+    assert (
+        _schema_names(agent._tool_schemas) == {"safe_tool"}
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST RookAgent constructor admits contained schema"
+
+
+def test_set_tool_schemas_filters_contained_schema_without_telemetry(
+    monkeypatch,
+    tmp_path,
+):
+    store = _telemetry_store(monkeypatch, tmp_path)
+    agent = RookAgent(tool_executor=lambda *_args, **_kwargs: {})
+    before = store.get_containment_denials_snapshot()
+    agent.set_tool_schemas(
+        [_tool_schema("safe_tool"), _tool_schema("gh_replay_recipe")]
+    )
+    after = store.get_containment_denials_snapshot()
+
+    assert (
+        _schema_names(agent._tool_schemas) == {"safe_tool"}
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST RookAgent schema setter admits contained schema"
+
+
+def test_register_local_tools_filters_contained_keys_without_telemetry(
+    monkeypatch,
+    tmp_path,
+):
+    store = _telemetry_store(monkeypatch, tmp_path)
+    agent = RookAgent(tool_executor=lambda *_args, **_kwargs: {})
+    before = store.get_containment_denials_snapshot()
+    agent.register_local_tools(
+        {"safe_local": object(), "rhino_execute_intent": object()}
+    )
+    after = store.get_containment_denials_snapshot()
+
+    assert (
+        set(agent._local_tools) == {"safe_local"}
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST RookAgent local registration admits contained key"
+
+
+def test_get_tool_schemas_defensively_filters_injected_registry_without_telemetry(
+    monkeypatch,
+    tmp_path,
+):
+    class DirtyRegistry:
+        def get_active_schemas(self):
+            return [
+                _tool_schema("safe_tool"),
+                _tool_schema("plan_and_execute"),
+            ]
+
+    store = _telemetry_store(monkeypatch, tmp_path)
+    agent = RookAgent(
+        tool_executor=lambda *_args, **_kwargs: {},
+        tool_registry=DirtyRegistry(),
+    )
+    before = store.get_containment_denials_snapshot()
+    schemas = agent._get_tool_schemas()
+    after = store.get_containment_denials_snapshot()
+
+    assert (
+        _schema_names(schemas) == {"safe_tool"}
+        and contained_names().isdisjoint(_schema_names(schemas))
+        and after == before
+    ), "EXPECTED_RED:T2:PYTEST RookAgent final projection trusts dirty registry"
 
 
 def test_method_drives_node_via_sync_executor():

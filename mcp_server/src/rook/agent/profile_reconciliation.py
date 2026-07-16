@@ -23,8 +23,18 @@ from rook.agent.capability_record import CapabilityFinding, SurfaceSources, TIER
 from rook.agent.chat.tool_contracts import audit_visible_tool_dispatchability
 from rook.agent.execution_profile import ProfileFinding, ProfileResolution
 from rook.agent.tool_registry import ToolRegistry
+from rook.tool_lifecycle import (
+    filter_litellm_catalog,
+    filter_local_registrations,
+)
 
 _TIER_FIELDS = frozenset(TIER_FIELDS)
+
+
+def _filter_names(names) -> frozenset[str]:
+    return frozenset(
+        filter_local_registrations({name: None for name in names}).keys()
+    )
 
 
 @dataclass(frozen=True)
@@ -53,11 +63,14 @@ def reconcile_profile(
     definition = resolution.profile
     initial = definition.initial_tier
     tier_members = (
-        frozenset(getattr(sources, initial))
+        _filter_names(getattr(sources, initial))
         if initial in _TIER_FIELDS
         else frozenset()
     )
-    registry = ToolRegistry(catalog=dict(catalog), tier0=set(tier_members))
+    registry = ToolRegistry(
+        catalog=filter_litellm_catalog(catalog),
+        tier0=set(tier_members),
+    )
 
     findings: list[CapabilityFinding] = []
     for group in definition.groups:
@@ -83,7 +96,7 @@ def reconcile_profile(
         )
     )
 
-    intended = frozenset(resolution.tool_names)
+    intended = _filter_names(resolution.tool_names)
     for name in sorted(intended - active_names):
         findings.append(
             CapabilityFinding(
@@ -108,7 +121,9 @@ def reconcile_profile(
     )
     return ProfileReconciliation(
         profile_name=definition.name,
-        intended_names=resolution.tool_names,
+        intended_names=tuple(
+            name for name in resolution.tool_names if name in intended
+        ),
         active_names=tuple(sorted(active_names)),
         registry_findings=registry_findings,
         profile_findings=resolution.findings,

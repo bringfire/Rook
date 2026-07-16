@@ -26,6 +26,10 @@ from rook.agent.chat.tool_contracts import (
     classify_visible_tool,
 )
 from rook.agent.tool_registry import ToolRegistry
+from rook.tool_lifecycle import (
+    filter_litellm_catalog,
+    filter_local_registrations,
+)
 
 INTERCEPTED_META_TOOLS: frozenset[str] = frozenset(
     {"request_tools", "search_tools", "ui_block", "list_chat_models", "set_chat_model"}
@@ -38,7 +42,51 @@ _DISPATCH_UNKNOWN_SEVERITY = {
 }
 
 
+def _filter_names(names: Iterable[str]) -> frozenset[str]:
+    return frozenset(
+        filter_local_registrations({name: None for name in names}).keys()
+    )
+
+
+def _filter_groups(
+    groups: Mapping[str, Iterable[str]],
+) -> dict[str, tuple[str, ...]]:
+    return {
+        group_name: tuple(
+            filter_local_registrations(
+                {name: None for name in group_members}
+            ).keys()
+        )
+        for group_name, group_members in groups.items()
+    }
+
+
+def _project_sources(sources: SurfaceSources) -> SurfaceSources:
+    """Return a lifecycle-safe runtime projection without mutating constants."""
+    replacements = {
+        tier_field: _filter_names(getattr(sources, tier_field))
+        for tier_field in TIER_FIELDS
+    }
+    replacements.update(
+        groups=_filter_groups(sources.groups),
+        bridge_names=_filter_names(sources.bridge_names),
+        transform_names=_filter_names(sources.transform_names),
+        intercepted_names=_filter_names(sources.intercepted_names),
+        excluded_names=_filter_names(sources.excluded_names),
+        local_tool_names=_filter_names(sources.local_tool_names),
+        zero_argument_names=_filter_names(sources.zero_argument_names),
+        strict_no_argument_names=_filter_names(
+            sources.strict_no_argument_names
+        ),
+        creation_tools=_filter_names(sources.creation_tools),
+        modal_risk_tools=_filter_names(sources.modal_risk_tools),
+        needs_verification=_filter_names(sources.needs_verification),
+    )
+    return dataclasses.replace(sources, **replacements)
+
+
 def dispatch_context_from_sources(sources: SurfaceSources) -> DispatchContext:
+    sources = _project_sources(sources)
     return DispatchContext(
         intercepted_names=frozenset(sources.intercepted_names),
         local_tool_names=frozenset(sources.local_tool_names),
@@ -92,6 +140,8 @@ def _visibility(
 
 
 def _universe(sources: SurfaceSources, catalog: Mapping[str, dict]) -> list[str]:
+    sources = _project_sources(sources)
+    catalog = filter_litellm_catalog(catalog)
     names: set[str] = set()
     for tier_field in TIER_FIELDS:
         names |= set(getattr(sources, tier_field))
@@ -109,6 +159,8 @@ def _universe(sources: SurfaceSources, catalog: Mapping[str, dict]) -> list[str]
 def build_inventory(
     sources: SurfaceSources, catalog: Mapping[str, dict]
 ) -> CapabilityInventory:
+    sources = _project_sources(sources)
+    catalog = filter_litellm_catalog(catalog)
     ctx = dispatch_context_from_sources(sources)
     records: list[CapabilityRecord] = []
     findings: list[CapabilityFinding] = []
@@ -242,6 +294,8 @@ def reconcile_active_schemas(
     group: str | None = None,
     initial: Literal["tier0", "agent_tier0", "readonly_tier0", "planner_tier0"] = "agent_tier0",
 ) -> tuple[CapabilityFinding, ...]:
+    sources = _project_sources(sources)
+    catalog = filter_litellm_catalog(catalog)
     selected_tier = frozenset(getattr(sources, initial))
     registry = ToolRegistry(catalog=dict(catalog), tier0=set(selected_tier))
     if group is not None:
@@ -291,7 +345,7 @@ def collect_live_sources() -> SurfaceSources:
     from rook.agent.chat import execution_policy as ep
     from rook.agent.chat.tool_contracts import ZERO_ARGUMENT_TOOLS
 
-    return SurfaceSources(
+    return _project_sources(SurfaceSources(
         tier0=frozenset(tg.TIER_0),
         agent_tier0=frozenset(tg.AGENT_TIER_0),
         readonly_tier0=frozenset(tg.READONLY_TIER_0),
@@ -310,7 +364,7 @@ def collect_live_sources() -> SurfaceSources:
         creation_tools=frozenset(ep.CREATION_TOOLS),
         modal_risk_tools=frozenset(ep.MODAL_RISK_TOOLS),
         needs_verification=frozenset(ep.NEEDS_VERIFICATION),
-    )
+    ))
 
 
 def collect_runtime_sources() -> SurfaceSources:
@@ -329,5 +383,5 @@ def collect_runtime_sources() -> SurfaceSources:
     from rook.agent import tool_dispatcher as td  # lazy, like collect_live_sources
 
     base = collect_live_sources()
-    local_names = frozenset(td.build_local_tools().keys())
+    local_names = _filter_names(td.build_local_tools().keys())
     return dataclasses.replace(base, local_tool_names=local_names)

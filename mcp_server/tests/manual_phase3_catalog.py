@@ -57,7 +57,9 @@ print("\n=== A: Catalog Cache Round-Trip ===")
 
 @test("round-trip preserves exact schema structure including nested parameters")
 def _():
+    from rook.agent.chat.tool_contracts import normalize_catalog
     from rook.agent.tool_registry import save_catalog_to_cache, load_catalog_from_cache
+    from rook.tool_lifecycle import lifecycle_fingerprint
 
     # Use a realistic schema with nested parameters, required fields, enums
     catalog = {
@@ -81,27 +83,30 @@ def _():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         cache_path = Path(tmpdir) / "test_catalog.json"
-        save_catalog_to_cache(catalog, cache_path)
+        saved = save_catalog_to_cache(catalog, cache_path)
         loaded = load_catalog_from_cache(cache_path)
+        persisted = json.loads(cache_path.read_text(encoding="utf-8"))
 
-        # Deep equality — not just len, but exact nested structure
-        assert loaded == catalog, f"Deep structure mismatch"
+        assert saved is True
+        assert loaded == normalize_catalog(catalog), f"Deep structure mismatch"
+        assert set(persisted) == {"lifecycle_fingerprint", "catalog"}, \
+            "EXPECTED_RED:T2:MANUAL_PHASE3 cache envelope missing"
+        assert persisted["lifecycle_fingerprint"] == lifecycle_fingerprint()
         # Verify nested fields survived
         params = loaded["gh_connect"]["function"]["parameters"]
         assert params["required"] == ["source_guid", "target_guid"]
         assert params["properties"]["source_output"]["default"] == 0
 
 
-@test("empty catalog round-trips to empty dict, not None")
+@test("empty catalog is rejected on load rather than becoming an empty registry")
 def _():
     from rook.agent.tool_registry import save_catalog_to_cache, load_catalog_from_cache
 
     with tempfile.TemporaryDirectory() as tmpdir:
         cache_path = Path(tmpdir) / "test_catalog.json"
-        save_catalog_to_cache({}, cache_path)
+        assert save_catalog_to_cache({}, cache_path) is True
         loaded = load_catalog_from_cache(cache_path)
-        assert loaded == {}, f"Empty catalog should round-trip to {{}}, got {loaded}"
-        assert loaded is not None, "Should be empty dict, not None"
+        assert loaded is None, f"Empty catalog must be unavailable, got {loaded}"
 
 
 @test("missing file returns None (not crash, not empty dict)")
@@ -123,34 +128,37 @@ def _():
         assert result is None
 
 
-@test("valid JSON but wrong type (array instead of dict) returns array — no type guard")
+@test("valid JSON but wrong type is rejected")
 def _():
-    """Proves we DON'T validate the schema — a potential bug to document."""
     from rook.agent.tool_registry import load_catalog_from_cache
 
     with tempfile.TemporaryDirectory() as tmpdir:
         cache_path = Path(tmpdir) / "array.json"
         cache_path.write_text('[1, 2, 3]')
         result = load_catalog_from_cache(cache_path)
-        # This IS a gap — we return the array instead of None.
-        # Test documents this behavior so we notice if/when we add type guards.
-        assert isinstance(result, list), "Current behavior: returns raw parsed JSON without type check"
+        assert result is None
 
 
 @test("atomic write: crash simulation — .tmp doesn't leak on success")
 def _():
     from rook.agent.tool_registry import save_catalog_to_cache
+    from rook.tool_lifecycle import lifecycle_fingerprint
 
     with tempfile.TemporaryDirectory() as tmpdir:
         cache_path = Path(tmpdir) / "test.json"
-        save_catalog_to_cache({"a": 1}, cache_path)
+        assert save_catalog_to_cache({"safe_tool": {
+            "type": "function",
+            "function": {"name": "safe_tool", "parameters": {}},
+        }}, cache_path) is True
         # Verify no .tmp leftover
         tmp_files = list(Path(tmpdir).glob("*.tmp"))
         assert len(tmp_files) == 0, f".tmp files leaked: {tmp_files}"
         # Verify final file is valid JSON
         with open(cache_path) as f:
             data = json.load(f)
-        assert data == {"a": 1}
+        assert set(data) == {"lifecycle_fingerprint", "catalog"}
+        assert data["lifecycle_fingerprint"] == lifecycle_fingerprint()
+        assert set(data["catalog"]) == {"safe_tool"}
 
 
 @test("overwrite: saving twice replaces content, doesn't append")
@@ -159,8 +167,14 @@ def _():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         cache_path = Path(tmpdir) / "test.json"
-        save_catalog_to_cache({"v1_tool": {}}, cache_path)
-        save_catalog_to_cache({"v2_tool": {}}, cache_path)
+        save_catalog_to_cache({"v1_tool": {
+            "type": "function",
+            "function": {"name": "v1_tool", "parameters": {}},
+        }}, cache_path)
+        save_catalog_to_cache({"v2_tool": {
+            "type": "function",
+            "function": {"name": "v2_tool", "parameters": {}},
+        }}, cache_path)
         loaded = load_catalog_from_cache(cache_path)
         assert "v2_tool" in loaded, "Second save should overwrite"
         assert "v1_tool" not in loaded, "First save's data should be gone"
@@ -173,38 +187,40 @@ def _():
 print("\n=== B: Spawn Cache Loading ===")
 
 
-@test("get_catalog_cache_path resolves to knowledge/ at repo root")
+@test("get_catalog_cache_path resolves under the writable data root")
 def _():
     from rook.agent.tool_registry import get_catalog_cache_path
 
     path = get_catalog_cache_path()
     assert path.name == "agent_tool_catalog.json"
-    assert path.parent.name == "knowledge"
-    # The grandparent should be the repo root (contains mcp_server/)
-    repo_root = path.parent.parent
-    assert (repo_root / "mcp_server").exists(), \
-        f"Path {path} doesn't resolve to repo root. Parent: {repo_root}"
+    configured_data_root = Path(os.environ["ROOK_DATA_DIR"]).resolve()
+    assert path.parent.resolve() == configured_data_root
 
 
-@test("run_task cache fallback: catalog=None triggers load_catalog_from_cache")
+@test("run_task cache fallback: catalog=None triggers safe cache-state load")
 def _():
     """Test the ACTUAL code path in run_task, not a manual simulation."""
     from rook.agent.spawn import run_task
+    import rook.agent.tool_registry as tool_registry
 
     calls = []
 
     def tracking_load(cache_path=None):
         calls.append(cache_path)
-        return {
-            "rhino_ping": {
-                "type": "function",
-                "function": {"name": "rhino_ping", "description": "test", "parameters": {}},
+        return tool_registry.CatalogCacheState(
+            catalog={
+                "rhino_ping": {
+                    "type": "function",
+                    "function": {"name": "rhino_ping", "description": "test", "parameters": {}},
+                },
             },
-        }
+            refresh_requested=False,
+            source="current",
+        )
 
-    # Patch at the SOURCE module (tool_registry), since run_task does
-    # `from .tool_registry import load_catalog_from_cache` inside the function body
-    with patch("rook.agent.tool_registry.load_catalog_from_cache", side_effect=tracking_load):
+    assert hasattr(tool_registry, "load_catalog_cache_state"), \
+        "EXPECTED_RED:T2:MANUAL_PHASE3 safe cache-state loader missing"
+    with patch("rook.agent.tool_registry.load_catalog_cache_state", side_effect=tracking_load):
         with patch("rook.agent.base_agent.RookAgent") as MockAgent:
             agent_instance = MagicMock()
             agent_instance.prompt = AsyncMock()
@@ -228,16 +244,18 @@ def _():
 
             asyncio.get_event_loop().run_until_complete(_run())
 
-        # Verify load_catalog_from_cache was actually called
-        assert len(calls) >= 1, f"load_catalog_from_cache never called! calls={calls}"
+        assert len(calls) >= 1, f"load_catalog_cache_state never called! calls={calls}"
 
 
 @test("run_task with explicit catalog=dict does NOT trigger cache fallback")
 def _():
     """When catalog is provided, the cache should NOT be consulted."""
     from rook.agent.spawn import run_task
+    import rook.agent.tool_registry as tool_registry
 
-    with patch("rook.agent.tool_registry.load_catalog_from_cache") as mock_load:
+    assert hasattr(tool_registry, "load_catalog_cache_state"), \
+        "EXPECTED_RED:T2:MANUAL_PHASE3 safe cache-state loader missing"
+    with patch("rook.agent.tool_registry.load_catalog_cache_state") as mock_load:
         with patch("rook.agent.base_agent.RookAgent") as MockAgent:
             agent_instance = MagicMock()
             agent_instance.prompt = AsyncMock()
@@ -264,13 +282,20 @@ def _():
         mock_load.assert_not_called()
 
 
-@test("run_plan cache fallback: catalog=None triggers load_catalog_from_cache")
+@test("run_plan cache fallback: catalog=None triggers safe cache-state load")
 def _():
     """run_plan has the same cache fallback as run_task."""
     from rook.agent.spawn import run_plan
+    import rook.agent.tool_registry as tool_registry
 
-    with patch("rook.agent.tool_registry.load_catalog_from_cache") as mock_load:
-        mock_load.return_value = {"rhino_ping": {"type": "function", "function": {"name": "rhino_ping", "description": "t", "parameters": {}}}}
+    assert hasattr(tool_registry, "load_catalog_cache_state"), \
+        "EXPECTED_RED:T2:MANUAL_PHASE3 safe cache-state loader missing"
+    with patch("rook.agent.tool_registry.load_catalog_cache_state") as mock_load:
+        mock_load.return_value = tool_registry.CatalogCacheState(
+            catalog={"rhino_ping": {"type": "function", "function": {"name": "rhino_ping", "description": "t", "parameters": {}}}},
+            refresh_requested=False,
+            source="current",
+        )
 
         with patch("rook.agent.planner.Planner") as MockPlanner:
             planner_instance = MagicMock()
@@ -318,7 +343,7 @@ def _():
             f"should come before '{required_sections[i+1]}' (pos {positions[i+1]})"
 
 
-@test("WORKER.md 4-step GH workflow is coherent (create->wire->set->verify)")
+@test("WORKER.md 2-step GH workflow is coherent (atomic edit->verify)")
 def _():
     from rook.agent.base_agent import RookAgent
     prompt = RookAgent._default_system_prompt()
@@ -331,12 +356,11 @@ def _():
         next_section = prompt.find("\n## ", gh_section_start + 1)
     gh_section = prompt[gh_section_start:next_section]
 
-    # Must contain the 4 steps in order
+    # Must contain the current atomic-edit and verification steps in order
     step_keywords = [
-        ("gh_component", "Step 1: Create components"),
-        ("gh_connect", "Step 2: Wire connections"),
-        ("gh_set_value", "Step 3: Set values"),
-        ("gh_errors", "Step 4: Verify"),
+        ("gh_edit", "Step 1: Build atomically"),
+        ("gh_snapshot", "Step 2: Inspect"),
+        ("gh_errors", "Step 2: Verify errors"),
     ]
     last_pos = -1
     for keyword, step_name in step_keywords:
@@ -355,10 +379,9 @@ def _():
         "WORKER.md must NOT mention gh_execute_intent (excluded from agents)"
 
 
-@test("WORKER.md Preloaded Tools section lists all gh_canvas tools")
+@test("WORKER.md Preloaded Tools section lists the core GH workflow tools")
 def _():
     from rook.agent.base_agent import RookAgent
-    from rook.agent.tool_groups import TOOL_GROUPS
 
     prompt = RookAgent._default_system_prompt()
 
@@ -367,11 +390,19 @@ def _():
     preloaded_end = prompt.find("\n## ", preloaded_start + 1)
     preloaded_section = prompt[preloaded_start:preloaded_end]
 
-    # Every tool in the gh_canvas group should be mentioned
-    gh_canvas_tools = TOOL_GROUPS["gh_canvas"]
-    missing = [t for t in gh_canvas_tools if t not in preloaded_section]
+    core_tools = {
+        "gh_snapshot",
+        "gh_edit",
+        "gh_errors",
+        "gh_update_script",
+        "gh_create_script",
+        "gh_move",
+        "gh_inspect_output",
+        "gh_constraints",
+    }
+    missing = [tool for tool in sorted(core_tools) if tool not in preloaded_section]
     assert not missing, \
-        f"Preloaded Tools section missing gh_canvas tools: {missing}"
+        f"Preloaded Tools section missing core GH tools: {missing}"
 
 
 @test("WORKER.md Common Gotchas mentions gh_knowledge_query for GUID resolution")
@@ -396,7 +427,7 @@ def _():
 print("\n=== D: Dispatch Coverage ===")
 
 
-@test("agent_mode=True excludes ONLY gh_execute_intent, not rhino_execute_intent")
+@test("agent_mode=True excludes both contained execute-intent identities")
 def _():
     from rook.agent.tool_registry import ToolRegistry
 
@@ -415,10 +446,11 @@ def _():
     active = {s["function"]["name"] for s in registry.get_active_schemas()}
 
     assert "gh_execute_intent" not in active, "gh_execute_intent must be excluded"
-    assert "rhino_execute_intent" in active, "rhino_execute_intent must be included"
+    assert "rhino_execute_intent" not in active, \
+        "EXPECTED_RED:T2:MANUAL_PHASE3 rhino_execute_intent must be excluded"
 
 
-@test("agent_mode=False INCLUDES gh_execute_intent (normal MCP path)")
+@test("agent_mode=False still excludes contained gh_execute_intent")
 def _():
     from rook.agent.tool_registry import ToolRegistry
 
@@ -431,16 +463,18 @@ def _():
     registry = ToolRegistry(catalog=catalog, agent_mode=False)
     active = {s["function"]["name"] for s in registry.get_active_schemas()}
 
-    assert "gh_execute_intent" in active, \
-        "Non-agent mode should include gh_execute_intent (it's in TIER_0)"
+    assert "gh_execute_intent" not in active, \
+        "EXPECTED_RED:T2:MANUAL_PHASE3 normal registry exposes contained identity"
 
 
-@test("gh_canvas preload activates ALL 16 canvas tools and nothing else")
+@test("gh_canvas preload activates all admitted canvas tools and nothing else")
 def _():
     from rook.agent.tool_registry import ToolRegistry
     from rook.agent.tool_groups import TOOL_GROUPS
+    from rook.tool_lifecycle import contained_names
 
     gh_canvas_tools = set(TOOL_GROUPS["gh_canvas"])
+    admitted_canvas_tools = gh_canvas_tools - contained_names()
 
     # Build catalog with gh_canvas + some extra tools
     catalog = {}
@@ -470,9 +504,10 @@ def _():
 
     post_active = {s["function"]["name"] for s in registry.get_active_schemas()}
 
-    # All canvas tools should now be active
-    for name in gh_canvas_tools:
+    # All admitted canvas tools should now be active
+    for name in admitted_canvas_tools:
         assert name in post_active, f"{name} NOT active after gh_canvas preload"
+    assert contained_names().isdisjoint(post_active)
 
     # Non-canvas tool should NOT be active (unless it's Tier 0)
     if "rhino_boolean" not in AGENT_TIER_0:
@@ -537,19 +572,25 @@ def _():
         ToolDispatcher, build_local_tools, KNOWLEDGE_WRAPPED_TOOLS,
         BRIDGE_ROUTES, TRANSFORM_FUNCTIONS,
     )
-    from rook.agent.tool_groups import TIER_0, AGENT_TIER_0, TOOL_GROUPS
+    from rook.agent.tool_groups import (
+        AGENT_TIER_0,
+        LOCAL_TIER_0_DISPATCH_EXCLUSIONS,
+        TIER_0,
+        TOOL_GROUPS,
+    )
 
     # Exact counts — any change should be deliberate
-    assert len(KNOWLEDGE_WRAPPED_TOOLS) == 4, \
-        f"KNOWLEDGE_WRAPPED_TOOLS changed: {len(KNOWLEDGE_WRAPPED_TOOLS)} != 4"
-    assert AGENT_TIER_0 == TIER_0 - {"gh_execute_intent"}, \
-        "AGENT_TIER_0 is not TIER_0 minus gh_execute_intent"
+    assert len(KNOWLEDGE_WRAPPED_TOOLS) == 0, \
+        f"KNOWLEDGE_WRAPPED_TOOLS changed: {len(KNOWLEDGE_WRAPPED_TOOLS)} != 0"
+    assert "gh_execute_intent" in TIER_0
+    assert "gh_execute_intent" not in AGENT_TIER_0
+    assert AGENT_TIER_0.isdisjoint(LOCAL_TIER_0_DISPATCH_EXCLUSIONS)
     assert "gh_canvas" in TOOL_GROUPS, "gh_canvas group missing"
-    assert len(TOOL_GROUPS["gh_canvas"]) == 16, \
-        f"gh_canvas group size changed: {len(TOOL_GROUPS['gh_canvas'])} != 16"
+    assert len(TOOL_GROUPS["gh_canvas"]) == 21, \
+        f"gh_canvas group size changed: {len(TOOL_GROUPS['gh_canvas'])} != 21"
 
     tools = build_local_tools()
-    assert len(tools) >= 8, f"Expected at least 8 local tools, got {len(tools)}"
+    assert "rhino_execute_intent" not in tools
 
 
 # =========================================================================
