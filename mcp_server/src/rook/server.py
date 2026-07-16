@@ -19936,7 +19936,11 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             from rook.learning.metrics_store import get_metrics_store
             try:
                 store = get_metrics_store()
-                result = {"success": True, "data": store.get_summary()}
+                summary = store.get_summary()
+                summary["containment_denials"] = (
+                    store.get_containment_denials_snapshot()
+                )
+                result = {"success": True, "data": summary}
             except Exception as e:
                 result = {"success": False, "data": f"Failed to get metrics: {str(e)}"}
 

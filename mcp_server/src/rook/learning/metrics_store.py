@@ -10,18 +10,23 @@ tracking and workflow phase awareness.
 Storage: knowledge/metrics.json (auto-saved every 10 observations).
 """
 
+import copy
 import json
 import logging
+import os
+import uuid
 from collections import deque
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 from ..runtime_paths import resolve_writable_knowledge_path
+from ..tool_lifecycle import DispatchOrigin, LifecycleEntry
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_METRICS_PATH = resolve_writable_knowledge_path("metrics.json")
+_PROCESS_START_TOKEN = uuid.uuid4().hex
 
 
 @dataclass
@@ -149,6 +154,7 @@ class MetricsStore:
         self._periods: dict[str, PeriodMetrics] = {}
         self._tools: dict[str, ToolMetrics] = {}
         self._recent: deque[dict] = deque(maxlen=50)
+        self._containment_denials: deque[dict[str, str]] = deque(maxlen=50)
         self._dirty_count = 0
         self._recording_failures = 0
         self._load()
@@ -178,6 +184,9 @@ class MetricsStore:
             for obs in data.get("recent", []):
                 self._recent.append(obs)
 
+            for event in data.get("containment_denials", []):
+                self._containment_denials.append(event)
+
             logger.info(f"Loaded metrics: {len(self._periods)} periods, {len(self._tools)} tools")
         except Exception as e:
             logger.warning(f"Failed to load metrics from {self._path}: {e}")
@@ -190,6 +199,7 @@ class MetricsStore:
                 "periods": {k: v.to_dict() for k, v in self._periods.items()},
                 "tools": {k: v.to_dict() for k, v in self._tools.items()},
                 "recent": list(self._recent),
+                "containment_denials": list(self._containment_denials),
             }
             with open(self._path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
@@ -278,6 +288,42 @@ class MetricsStore:
         except Exception as e:
             self._recording_failures += 1
             logger.warning(f"Failed to record observation: {e}")
+
+    def record_containment_denial(
+        self,
+        entry: LifecycleEntry,
+        origin: DispatchOrigin,
+    ) -> None:
+        """Append one closed-schema lifecycle denial event."""
+        if type(entry) is not LifecycleEntry:
+            raise TypeError("entry must be a LifecycleEntry")
+        if type(origin) is not DispatchOrigin:
+            raise TypeError("origin must be a DispatchOrigin")
+
+        timestamp = (
+            datetime.now(timezone.utc)
+            .isoformat(timespec="microseconds")
+            .replace("+00:00", "Z")
+        )
+        self._containment_denials.append(
+            {
+                "tool": entry.name,
+                "disposition": entry.disposition.value,
+                "origin": origin.value,
+                "timestamp": timestamp,
+            }
+        )
+        self._dirty_count += 1
+        if self._dirty_count >= 10:
+            self.save()
+
+    def get_containment_denials_snapshot(self) -> dict[str, object]:
+        """Return a process-bound defensive copy of the denial ring."""
+        return {
+            "process_id": os.getpid(),
+            "process_start_token": _PROCESS_START_TOKEN,
+            "events": copy.deepcopy(list(self._containment_denials)),
+        }
 
     def get_current_period(self) -> Optional[PeriodMetrics]:
         """Get today's period metrics."""
