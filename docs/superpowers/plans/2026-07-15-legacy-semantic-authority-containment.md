@@ -1484,6 +1484,88 @@ function Assert-ExpectedRedResult {
 }
 ```
 
+**Task 7 prerequisite — repair the cold baseline JSON spy in a separate commit:**
+
+Before creating, resuming, or staging either Task 7 implementation file, repair only
+`mcp_server/tests/test_containment_agent_protocols.py`. The steering parameter
+currently patches `base_agent_module.json.loads`, which mutates the process-wide
+stdlib `json` module and counts legitimate lazy `UnifiedStore` reads as tool
+argument decoding. Preserve the admitted `safe_tool` path and its blocking-gotcha
+middleware; do not prewarm knowledge state or stub `_check_blocking_gotchas`.
+
+First run the cold steering case and require its existing marked assertion
+failure:
+
+```powershell
+$PrerequisiteRedJunit = Join-Path $env:TEMP 'rook-containment-t7-prerequisite.xml'
+if (Test-Path -LiteralPath $PrerequisiteRedJunit) { Remove-Item -LiteralPath $PrerequisiteRedJunit -Force }
+$SavedErrorActionPreference = $ErrorActionPreference
+try {
+  $ErrorActionPreference = 'Continue'
+  $PrerequisiteRedOutput = @(
+    & $Python -m pytest `
+      'mcp_server/tests/test_containment_agent_protocols.py::test_rook_agent_skips_before_containment_and_argument_decode[steering]' `
+      --junitxml $PrerequisiteRedJunit -q 2>&1
+  )
+  $PrerequisiteRedExit = $LASTEXITCODE
+} finally { $ErrorActionPreference = $SavedErrorActionPreference }
+Assert-ExpectedRedResult `
+  -ExitCode $PrerequisiteRedExit `
+  -Output $PrerequisiteRedOutput `
+  -Marker 'EXPECTED_RED:T5:AGENT_PROTOCOLS' `
+  -JunitPath $PrerequisiteRedJunit
+```
+
+Then replace the shared-module mutation with this module-local proxy:
+
+```python
+real_json = base_agent_module.json
+
+def tracking_loads(raw, *args, **kwargs):
+    parsed_arguments.append(raw)
+    return real_json.loads(raw, *args, **kwargs)
+
+monkeypatch.setattr(
+    base_agent_module,
+    "json",
+    SimpleNamespace(
+        load=real_json.load,
+        loads=tracking_loads,
+        dumps=real_json.dumps,
+        JSONDecodeError=real_json.JSONDecodeError,
+    ),
+)
+```
+
+Use `real_json.loads(...)` for the later skipped-result assertion. This keeps
+the spy scoped to `RookAgent`'s JSON lookup while all other importers retain the
+real stdlib module. Verify all three skip modes and the complete protocol file,
+then commit and review this one-file prerequisite independently:
+
+```powershell
+& $Python -m pytest `
+  'mcp_server/tests/test_containment_agent_protocols.py::test_rook_agent_skips_before_containment_and_argument_decode' -q
+if ($LASTEXITCODE -ne 0) { throw "Task 7 prerequisite skip-order tests failed with exit code $LASTEXITCODE" }
+& $Python -m pytest mcp_server/tests/test_containment_agent_protocols.py -q
+if ($LASTEXITCODE -ne 0) { throw "Task 7 prerequisite protocol tests failed with exit code $LASTEXITCODE" }
+git add mcp_server/tests/test_containment_agent_protocols.py
+if ($LASTEXITCODE -ne 0) { throw "Task 7 prerequisite staging failed with exit code $LASTEXITCODE" }
+$ExpectedTask7Prerequisite = @('mcp_server/tests/test_containment_agent_protocols.py')
+$ActualTask7Prerequisite = @(git diff --cached --name-only)
+if ($LASTEXITCODE -ne 0) { throw "Task 7 prerequisite staged-file inspection failed with exit code $LASTEXITCODE" }
+$Task7PrerequisiteDelta = @(Compare-Object $ExpectedTask7Prerequisite ($ActualTask7Prerequisite | Sort-Object))
+if ($Task7PrerequisiteDelta.Count -ne 0) { throw "Task 7 prerequisite staged-file set mismatch: $($Task7PrerequisiteDelta | Out-String)" }
+git diff --cached --check
+if ($LASTEXITCODE -ne 0) { throw "Task 7 prerequisite staged diff check failed with exit code $LASTEXITCODE" }
+git commit -m "test(containment): isolate agent JSON decode spy"
+if ($LASTEXITCODE -ne 0) { throw "Task 7 prerequisite commit failed with exit code $LASTEXITCODE" }
+```
+
+Run a fresh spec-compliance review and then a fresh code-quality review of that
+prerequisite commit. Fix and re-review every important finding before resuming
+the two-file Task 7 implementation. The Task 7 implementation staging allowlist
+below remains unchanged.
+
 **Files:**
 - Create: `mcp_server/src/rook/containment_acceptance.py`
 - Create: `mcp_server/tests/test_containment_acceptance.py`
