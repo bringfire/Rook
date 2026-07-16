@@ -64,6 +64,20 @@ if runtime is not None and not _CONTRACT_MISSING:
         assert entry is not None
         return entry
 
+    def _persisted_event(
+        *,
+        tool: object = "spawn_agent",
+        disposition: object = "suspended",
+        origin: object = "internal_handler",
+        timestamp: object = "2026-07-16T12:34:56.000000Z",
+    ) -> dict[str, object]:
+        return {
+            "tool": tool,
+            "disposition": disposition,
+            "origin": origin,
+            "timestamp": timestamp,
+        }
+
     def _snapshot_delta(
         before: dict[str, object],
         after: dict[str, object],
@@ -332,6 +346,170 @@ if runtime is not None and not _CONTRACT_MISSING:
             second.get_containment_denials_snapshot()["events"]
             == first.get_containment_denials_snapshot()["events"]
         )
+
+    @pytest.mark.parametrize(
+        "persisted",
+        [
+            None,
+            "not-a-mapping",
+            7,
+            [],
+            {
+                "tool": "spawn_agent",
+                "disposition": "suspended",
+                "origin": "internal_handler",
+            },
+            {
+                **_persisted_event(),
+                "unexpected": "must-not-survive",
+            },
+            _persisted_event(tool="safe_tool"),
+            _persisted_event(tool="Spawn_Agent"),
+            _persisted_event(tool="spawn_agent "),
+            _persisted_event(disposition="retired"),
+            _persisted_event(origin="caller_supplied"),
+            _persisted_event(timestamp="2026-07-16T12:34:56Z"),
+            _persisted_event(timestamp="2026-07-16T12:34:56.00000Z"),
+            _persisted_event(timestamp="2026-07-16T12:34:56.000000+00:00"),
+            _persisted_event(timestamp="2026-13-16T12:34:56.000000Z"),
+            _persisted_event(timestamp=123),
+        ],
+        ids=[
+            "none",
+            "string",
+            "integer",
+            "list",
+            "missing-key",
+            "extra-key",
+            "unknown-tool",
+            "nonexact-tool-case",
+            "nonexact-tool-space",
+            "disposition-mismatch",
+            "invalid-origin",
+            "missing-microseconds",
+            "five-digit-microseconds",
+            "noncanonical-offset",
+            "invalid-calendar-date",
+            "nonstr-timestamp",
+        ],
+    )
+    def test_load_discards_invalid_persisted_containment_denial(
+        tmp_path: Path,
+        persisted: object,
+    ) -> None:
+        path = tmp_path / "metrics.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "periods": {},
+                    "tools": {},
+                    "recent": [],
+                    "containment_denials": [persisted],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        store = MetricsStore(path)
+
+        assert store.get_containment_denials_snapshot()["events"] == []
+
+    def test_load_keeps_only_valid_denials_in_original_order(
+        tmp_path: Path,
+    ) -> None:
+        path = tmp_path / "metrics.json"
+        first = _persisted_event(
+            tool="gh_execute_intent",
+            disposition="retired",
+            origin="public_mcp",
+            timestamp="2026-07-16T12:34:56.000001Z",
+        )
+        second = _persisted_event(
+            tool="gh_replay_recipe",
+            disposition="suspended",
+            origin="rook_chat",
+            timestamp="2026-07-16T12:34:56.000002Z",
+        )
+        path.write_text(
+            json.dumps(
+                {
+                    "periods": {},
+                    "tools": {},
+                    "recent": [],
+                    "containment_denials": [
+                        _persisted_event(tool="unknown_tool"),
+                        first,
+                        {**second, "extra": "drop"},
+                        second,
+                        _persisted_event(origin="unbounded-origin"),
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        store = MetricsStore(path)
+
+        assert store.get_containment_denials_snapshot()["events"] == [
+            first,
+            second,
+        ]
+
+    def test_load_preserves_valid_denial_ring_eviction_order(
+        tmp_path: Path,
+    ) -> None:
+        path = tmp_path / "metrics.json"
+        persisted = [
+            _persisted_event(
+                timestamp=f"2026-07-16T12:34:56.{index:06d}Z",
+            )
+            for index in range(52)
+        ]
+        path.write_text(
+            json.dumps(
+                {
+                    "periods": {},
+                    "tools": {},
+                    "recent": [],
+                    "containment_denials": persisted,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        store = MetricsStore(path)
+        events = store.get_containment_denials_snapshot()["events"]
+
+        assert len(events) == 50
+        assert events == persisted[2:]
+
+    def test_invalid_persisted_denial_content_is_not_logged(
+        caplog,
+        tmp_path: Path,
+    ) -> None:
+        path = tmp_path / "metrics.json"
+        secret = "private-user-content-must-not-be-logged"
+        path.write_text(
+            json.dumps(
+                {
+                    "periods": {},
+                    "tools": {},
+                    "recent": [],
+                    "containment_denials": [
+                        {
+                            **_persisted_event(),
+                            "unexpected": secret,
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        store = MetricsStore(path)
+
+        assert store.get_containment_denials_snapshot()["events"] == []
+        assert secret not in caplog.text
 
     def test_pre_containment_metrics_json_loads_and_gains_ring_without_loss(
         tmp_path: Path,

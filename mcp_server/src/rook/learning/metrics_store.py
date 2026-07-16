@@ -14,19 +14,73 @@ import copy
 import json
 import logging
 import os
+import re
 import uuid
 from collections import deque
+from collections.abc import Mapping
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 from ..runtime_paths import resolve_writable_knowledge_path
-from ..tool_lifecycle import DispatchOrigin, LifecycleEntry
+from ..tool_lifecycle import (
+    DispatchOrigin,
+    LifecycleEntry,
+    resolve_contained_identity,
+)
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_METRICS_PATH = resolve_writable_knowledge_path("metrics.json")
 _PROCESS_START_TOKEN = uuid.uuid4().hex
+_CONTAINMENT_EVENT_KEYS = frozenset(
+    {"tool", "disposition", "origin", "timestamp"}
+)
+_CONTAINMENT_TIMESTAMP_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$"
+)
+
+
+def _validated_persisted_containment_denial(
+    raw_event: object,
+) -> dict[str, str] | None:
+    if not isinstance(raw_event, Mapping):
+        return None
+    if frozenset(raw_event.keys()) != _CONTAINMENT_EVENT_KEYS:
+        return None
+
+    raw_tool = raw_event.get("tool")
+    entry = resolve_contained_identity(raw_tool)
+    if entry is None or raw_tool != entry.name:
+        return None
+    if raw_event.get("disposition") != entry.disposition.value:
+        return None
+
+    raw_origin = raw_event.get("origin")
+    if type(raw_origin) is not str:
+        return None
+    try:
+        origin = DispatchOrigin(raw_origin)
+    except ValueError:
+        return None
+
+    raw_timestamp = raw_event.get("timestamp")
+    if (
+        type(raw_timestamp) is not str
+        or _CONTAINMENT_TIMESTAMP_RE.fullmatch(raw_timestamp) is None
+    ):
+        return None
+    try:
+        datetime.strptime(raw_timestamp, "%Y-%m-%dT%H:%M:%S.%fZ")
+    except ValueError:
+        return None
+
+    return {
+        "tool": entry.name,
+        "disposition": entry.disposition.value,
+        "origin": origin.value,
+        "timestamp": raw_timestamp,
+    }
 
 
 @dataclass
@@ -184,8 +238,14 @@ class MetricsStore:
             for obs in data.get("recent", []):
                 self._recent.append(obs)
 
-            for event in data.get("containment_denials", []):
-                self._containment_denials.append(event)
+            persisted_denials = data.get("containment_denials", [])
+            if isinstance(persisted_denials, list):
+                for raw_event in persisted_denials:
+                    event = _validated_persisted_containment_denial(
+                        raw_event
+                    )
+                    if event is not None:
+                        self._containment_denials.append(event)
 
             logger.info(f"Loaded metrics: {len(self._periods)} periods, {len(self._tools)} tools")
         except Exception as e:
