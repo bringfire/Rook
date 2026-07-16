@@ -2,13 +2,20 @@
 import json
 import pytest
 from copy import deepcopy
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
+from rook import tool_lifecycle_runtime
 from rook.agent.chat import chat_runner as chat_runner_module
 from rook.agent.chat.conversation_store import Conversation
 from rook.agent.chat.chat_runner import ChatRunner, ChatEvent, MAX_META_ONLY_ROUNDS
 from rook.agent.chat.tool_contracts import ToolResultView
 from rook.agent.tool_registry import ToolRegistry
-from rook.tool_lifecycle import contained_names
+from rook.tool_lifecycle import (
+    DispatchOrigin,
+    containment_envelope,
+    contained_names,
+    resolve_contained_identity,
+)
 
 
 _AGENT_MANAGEMENT_NAMES = frozenset({
@@ -18,6 +25,7 @@ _AGENT_MANAGEMENT_NAMES = frozenset({
     "agent_abort",
     "agent_answer",
 })
+_T5_EXPECTED_RED = "EXPECTED_RED:T5:AGENT_PROTOCOLS"
 
 
 @pytest.fixture
@@ -85,6 +93,23 @@ def _chat_telemetry_store(monkeypatch, tmp_path):
     store = metrics_store.MetricsStore(tmp_path / "metrics.json")
     monkeypatch.setattr(metrics_store, "_metrics_store", store)
     return store
+
+
+def _chat_telemetry_probe(monkeypatch, tmp_path):
+    store = _chat_telemetry_store(monkeypatch, tmp_path)
+    attempts = []
+    real_recorder = tool_lifecycle_runtime._record_containment_denial
+
+    def recording_spy(entry, origin):
+        attempts.append((entry.name, origin.value))
+        return real_recorder(entry, origin)
+
+    monkeypatch.setattr(
+        tool_lifecycle_runtime,
+        "_record_containment_denial",
+        recording_spy,
+    )
+    return store, attempts
 
 
 class _DirtyInjectedRegistry:
@@ -525,6 +550,54 @@ def _make_tool_response(tool_name, tool_args, tool_call_id="call_123",
     return _gen()
 
 
+class _PoisonRawArguments(str):
+    """Allow the streamed protocol copy, then fail on any execution-path read."""
+
+    def __new__(cls, value: str):
+        instance = super().__new__(cls, value)
+        instance.bool_reads = 0
+        return instance
+
+    def __bool__(self):
+        self.bool_reads += 1
+        if self.bool_reads > 1:
+            raise AssertionError(
+                f"{_T5_EXPECTED_RED} RookChat inspected denied arguments"
+            )
+        return True
+
+    def __radd__(self, other):
+        if other == "":
+            return self
+        return type(self)(str(other) + str(self))
+
+
+def _make_raw_tool_response(
+    tool_name: str,
+    raw_arguments: _PoisonRawArguments,
+    tool_call_id: str,
+):
+    async def _gen():
+        chunk = MagicMock()
+        chunk.choices = [MagicMock()]
+        chunk.choices[0].delta.content = None
+        tc_delta = MagicMock()
+        tc_delta.index = 0
+        tc_delta.id = tool_call_id
+        tc_delta.function.name = tool_name
+        tc_delta.function.arguments = raw_arguments
+        chunk.choices[0].delta.tool_calls = [tc_delta]
+        chunk.usage = None
+        yield chunk
+
+        final = MagicMock()
+        final.choices = []
+        final.usage = MagicMock(prompt_tokens=10, completion_tokens=5)
+        yield final
+
+    return _gen()
+
+
 def _make_two_tool_response():
     async def _gen():
         chunk = MagicMock()
@@ -575,6 +648,148 @@ def _make_two_tool_response_reusing_stream_index():
         final.usage = MagicMock(prompt_tokens=10, completion_tokens=5)
         yield final
     return _gen()
+
+
+def test_run_turn_has_no_eager_tool_call_wrapper_before_lifecycle_guard():
+    source = Path(chat_runner_module.__file__).read_text(encoding="utf-8")
+    assert (
+        "class _ToolCall" not in source
+        and "choice_tool_calls" not in source
+    ), (
+        f"{_T5_EXPECTED_RED} RookChat still copies raw arguments into an "
+        "eager tool-call wrapper"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("contained_name", tuple(sorted(contained_names())))
+async def test_run_turn_denies_raw_contained_call_before_arguments_and_continues(
+    monkeypatch,
+    tmp_path,
+    conversation,
+    contained_name,
+):
+    raw_arguments = _PoisonRawArguments('{"private":"protocol-only"}')
+    executor = AsyncMock(
+        side_effect=AssertionError(
+            f"{_T5_EXPECTED_RED} RookChat denial reached executor"
+        )
+    )
+    runner = ChatRunner(
+        tool_executor=executor,
+        registry=_make_minimal_registry(),
+    )
+    runner._update_tool_surface = MagicMock(
+        side_effect=AssertionError(
+            f"{_T5_EXPECTED_RED} RookChat denial reached adaptation"
+        )
+    )
+    monkeypatch.setattr(chat_runner_module, "MAX_META_ONLY_ROUNDS", 1)
+    monkeypatch.setattr(
+        chat_runner_module,
+        "normalize_tool_result",
+        MagicMock(
+            side_effect=AssertionError(
+                f"{_T5_EXPECTED_RED} RookChat denial reached result projection"
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        chat_runner_module,
+        "extract_substrate_observation",
+        MagicMock(
+            side_effect=AssertionError(
+                f"{_T5_EXPECTED_RED} RookChat denial reached substrate extraction"
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        chat_runner_module,
+        "persist_substrate_observation",
+        MagicMock(
+            side_effect=AssertionError(
+                f"{_T5_EXPECTED_RED} RookChat denial reached substrate persistence"
+            )
+        ),
+    )
+
+    store, attempts = _chat_telemetry_probe(monkeypatch, tmp_path)
+    before = store.get_containment_denials_snapshot()
+    model_calls = []
+
+    async def mock_acompletion(**kwargs):
+        model_calls.append(kwargs)
+        if len(model_calls) == 1:
+            return _make_raw_tool_response(
+                contained_name,
+                raw_arguments,
+                "call_denied",
+            )
+        return _make_text_response("continued after refusal")
+
+    events = []
+    with patch(
+        "litellm.acompletion",
+        side_effect=mock_acompletion,
+    ), _runtime_facts_patch():
+        async for event in runner.run_turn(
+            conversation,
+            "deny the stale call",
+            system_prompt="test",
+        ):
+            events.append(event)
+
+    entry = resolve_contained_identity(contained_name)
+    assert entry is not None, _T5_EXPECTED_RED
+    expected_content = json.dumps(
+        containment_envelope(entry),
+        separators=(",", ":"),
+    )
+    tool_messages = [
+        message
+        for message in conversation.messages
+        if message.get("role") == "tool"
+    ]
+    assistant_tool_message = next(
+        message
+        for message in conversation.messages
+        if message.get("role") == "assistant" and message.get("tool_calls")
+    )
+    after = store.get_containment_denials_snapshot()
+    added = after["events"][len(before["events"]):]
+
+    assert len(model_calls) == 2, _T5_EXPECTED_RED
+    assert raw_arguments.bool_reads == 1, _T5_EXPECTED_RED
+    assert executor.await_count == 0, _T5_EXPECTED_RED
+    assert runner._update_tool_surface.call_count == 0, _T5_EXPECTED_RED
+    assert [
+        event.type for event in events if event.type in {"tool_start", "tool_result"}
+    ] == [], _T5_EXPECTED_RED
+    assert not any(event.type == "error" for event in events), _T5_EXPECTED_RED
+    assert len(tool_messages) == 1, _T5_EXPECTED_RED
+    assert tool_messages[0]["tool_call_id"] == "call_denied", _T5_EXPECTED_RED
+    assert tool_messages[0]["content"] == expected_content, _T5_EXPECTED_RED
+    assert (
+        assistant_tool_message["tool_calls"][0]["function"]["arguments"]
+        == raw_arguments
+    ), _T5_EXPECTED_RED
+    assert [message["role"] for message in conversation.messages] == [
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+    ], _T5_EXPECTED_RED
+    assert attempts == [
+        (contained_name, DispatchOrigin.ROOK_CHAT.value)
+    ], _T5_EXPECTED_RED
+    assert before["process_id"] == after["process_id"], _T5_EXPECTED_RED
+    assert (
+        before["process_start_token"] == after["process_start_token"]
+    ), _T5_EXPECTED_RED
+    assert len(added) == 1, _T5_EXPECTED_RED
+    assert added[0]["tool"] == contained_name, _T5_EXPECTED_RED
+    assert added[0]["disposition"] == entry.disposition.value, _T5_EXPECTED_RED
+    assert added[0]["origin"] == DispatchOrigin.ROOK_CHAT.value, _T5_EXPECTED_RED
 
 
 def test_chat_event_creation():

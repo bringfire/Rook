@@ -26,6 +26,9 @@ _FORBIDDEN_SOURCE_SUBSTRINGS = (
     "rook.server",
     "rook.agent.chat",
     "ChatRunner",
+    "deny_if_contained",
+    "DispatchOrigin",
+    "tool_lifecycle_runtime",
 )
 
 COMPONENT_GUID = "fbfd3ba5-5951-4064-8478-ee1d173150a9"

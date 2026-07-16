@@ -57,7 +57,12 @@ from .substrate_analytics import (
     persist_substrate_observation,
     _compact_error as _substrate_compact_error,
 )
-from ..tool_lifecycle import filter_litellm_schemas, filter_local_registrations
+from ..tool_lifecycle import (
+    DispatchOrigin,
+    filter_litellm_schemas,
+    filter_local_registrations,
+)
+from ..tool_lifecycle_runtime import deny_if_contained
 from ..runtime_paths import (
     load_runtime_dotenv,
     resolve_readable_knowledge_path,
@@ -524,13 +529,6 @@ class RookAgent:
                                 )
                                 interrupted = True
 
-                        tool_name = tool_call.function.name
-                        try:
-                            tool_args = json.loads(tool_call.function.arguments)
-                        except json.JSONDecodeError:
-                            tool_args = {}
-                            logger.warning(f"Failed to parse tool args for {tool_name}")
-
                         if should_skip:
                             reason = "aborted" if self._abort else "skipped (steering interrupt)"
                             self.messages.append({
@@ -543,6 +541,30 @@ class RookAgent:
                                 }),
                             })
                             continue
+
+                        raw_name = tool_call.function.name
+                        denial = deny_if_contained(
+                            raw_name,
+                            DispatchOrigin.ROOK_AGENT,
+                        )
+                        if denial is not None:
+                            calls_this_turn += 1
+                            self.messages.append({
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "content": json.dumps(
+                                    denial,
+                                    separators=(",", ":"),
+                                ),
+                            })
+                            continue
+
+                        tool_name = raw_name
+                        try:
+                            tool_args = json.loads(tool_call.function.arguments)
+                        except json.JSONDecodeError:
+                            tool_args = {}
+                            logger.warning(f"Failed to parse tool args for {tool_name}")
 
                         tool_names_used.add(tool_name)
                         calls_this_turn += 1
@@ -616,7 +638,8 @@ class RookAgent:
                         })
 
                     # --- SEAM 4: Post-turn adaptation ---
-                    self._post_turn_adapt(tool_names_used)
+                    if tool_names_used:
+                        self._post_turn_adapt(tool_names_used)
 
                     self._events.emit(AgentEvent(TURN_END, {
                         "turn": self._turn_count,
@@ -917,6 +940,10 @@ class RookAgent:
 
         Meta-tools (request_tools, search_tools) are handled internally.
         """
+        denial = deny_if_contained(name, DispatchOrigin.ROOK_AGENT)
+        if denial is not None:
+            return denial
+
         # --- Meta-tools: handled by ToolRegistry ---
         if self._tool_registry and hasattr(self._tool_registry, "is_meta_tool"):
             if self._tool_registry.is_meta_tool(name):
@@ -1142,6 +1169,10 @@ class RookAgent:
 
     async def _execute_local_tool(self, name: str, params: dict) -> dict:
         """Execute a locally registered tool (no bridge, pure Python)."""
+        denial = deny_if_contained(name, DispatchOrigin.ROOK_AGENT)
+        if denial is not None:
+            return denial
+
         fn = self._local_tools[name]
         try:
             result = fn(**params)

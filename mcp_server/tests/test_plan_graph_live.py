@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from rook import tool_lifecycle_runtime
 from rook.learning.plan_graph import (
     PlanGraph,
     PlanGraphNode,
@@ -20,6 +21,11 @@ from rook.agent.plan_graph_live import (
     _resolve_tool_name,
     _check_admissibility,
 )
+from rook.tool_lifecycle import (
+    DispatchOrigin,
+    contained_names,
+    resolve_contained_identity,
+)
 
 import rook.agent.plan_graph_live as _live_mod
 from rook.learning import plan_graph as _pg_mod
@@ -28,11 +34,14 @@ _ADAPTER_PATH = Path(_live_mod.__file__)
 _LEARNING_DIR = Path(_pg_mod.__file__).parent
 
 _ALLOWED_ROOK_IMPORTS = {
+    "rook.tool_lifecycle",
+    "rook.tool_lifecycle_runtime",
     "rook.learning.plan_graph",
     "rook.learning.plan_graph_projection",
     "rook.learning.plan_graph_runner",
 }
 _FORBIDDEN_SUBSTRINGS = ("tool_dispatcher", "rook.server", "chat", "ChatRunner")
+_T5_EXPECTED_RED = "EXPECTED_RED:T5:AGENT_PROTOCOLS"
 
 
 COMPONENT_GUID = "fbfd3ba5-5951-4064-8478-ee1d173150a9"
@@ -216,6 +225,121 @@ class _BadConversionMap(Mapping):
 
     def __len__(self):
         return 1
+
+
+class _ContainmentPoisonParams(Mapping):
+    def __init__(self):
+        self.accesses: list[str] = []
+
+    def _fail(self, action: str):
+        self.accesses.append(action)
+        raise AssertionError(
+            f"{_T5_EXPECTED_RED} PlanGraph parameters accessed via {action}"
+        )
+
+    def __getitem__(self, key):
+        return self._fail(f"getitem:{key}")
+
+    def __iter__(self):
+        return self._fail("iter")
+
+    def __len__(self):
+        return self._fail("len")
+
+    def get(self, key, default=None):
+        return self._fail(f"get:{key}")
+
+    def items(self):
+        return self._fail("items")
+
+    def keys(self):
+        return self._fail("keys")
+
+    def __copy__(self):
+        return self._fail("copy")
+
+    def __deepcopy__(self, memo):
+        return self._fail("deepcopy")
+
+
+@pytest.mark.parametrize("contained_name", tuple(sorted(contained_names())))
+def test_contained_execution_ref_returns_typed_refusal_before_params_or_dispatch(
+    monkeypatch,
+    tmp_path,
+    contained_name,
+):
+    from rook.learning import metrics_store
+
+    poison = _ContainmentPoisonParams()
+    graph = _producer_graph(
+        execution_ref=f"{contained_name}:v1",
+        execution_params=poison,
+    )
+    resolve_params_calls = []
+    original_resolve_params = _live_mod._resolve_params
+
+    def tracking_resolve_params(node):
+        resolve_params_calls.append(node)
+        return original_resolve_params(node)
+
+    monkeypatch.setattr(_live_mod, "_resolve_params", tracking_resolve_params)
+    monkeypatch.setattr(
+        _live_mod,
+        "apply_producer_result",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError(
+                f"{_T5_EXPECTED_RED} PlanGraph containment reached outcome projection"
+            )
+        ),
+    )
+    store = metrics_store.MetricsStore(tmp_path / "metrics.json")
+    monkeypatch.setattr(metrics_store, "_metrics_store", store)
+    attempts = []
+    real_recorder = tool_lifecycle_runtime._record_containment_denial
+
+    def recording_spy(entry, origin):
+        attempts.append((entry.name, origin.value))
+        return real_recorder(entry, origin)
+
+    monkeypatch.setattr(
+        tool_lifecycle_runtime,
+        "_record_containment_denial",
+        recording_spy,
+    )
+    before = store.get_containment_denials_snapshot()
+
+    async def forbidden_dispatch(_name, _params):
+        raise AssertionError(
+            f"{_T5_EXPECTED_RED} PlanGraph containment reached dispatch"
+        )
+
+    result = asyncio.run(
+        apply_live_producer_node(graph, "create_script", forbidden_dispatch)
+    )
+    after = store.get_containment_denials_snapshot()
+    added = after["events"][len(before["events"]):]
+    entry = resolve_contained_identity(contained_name)
+
+    assert entry is not None, _T5_EXPECTED_RED
+    assert result.graph is graph, _T5_EXPECTED_RED
+    assert result.applied is False, _T5_EXPECTED_RED
+    assert result.node_id == "create_script", _T5_EXPECTED_RED
+    assert result.tool_name == contained_name, _T5_EXPECTED_RED
+    assert result.outcome_status is None, _T5_EXPECTED_RED
+    assert result.reason == "tool_lifecycle_denied", _T5_EXPECTED_RED
+    assert resolve_params_calls == [], _T5_EXPECTED_RED
+    assert poison.accesses == [], _T5_EXPECTED_RED
+    assert attempts == [
+        (contained_name, DispatchOrigin.PLAN_GRAPH.value)
+    ], _T5_EXPECTED_RED
+    assert before["process_id"] == after["process_id"], _T5_EXPECTED_RED
+    assert (
+        before["process_start_token"] == after["process_start_token"]
+    ), _T5_EXPECTED_RED
+    assert len(added) == 1, _T5_EXPECTED_RED
+    assert added[0]["tool"] == contained_name, _T5_EXPECTED_RED
+    assert added[0]["disposition"] == entry.disposition.value, _T5_EXPECTED_RED
+    assert added[0]["origin"] == DispatchOrigin.PLAN_GRAPH.value, _T5_EXPECTED_RED
 
 
 def test_happy_path_applies_succeeded():

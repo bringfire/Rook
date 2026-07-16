@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator, Mapping
 
+from rook import tool_lifecycle_runtime
 from rook.agent.base_agent import RookAgent
 from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
 from rook.learning.plan_graph import PlanGraph, PlanGraphNode
 from rook.learning.plan_graph_projection import OUTCOME_PROJECTION_ROLE_KEY
-from rook.tool_lifecycle import contained_names
+from rook.tool_lifecycle import DispatchOrigin, contained_names
 
 
 COMPONENT_GUID = "fbfd3ba5-5951-4064-8478-ee1d173150a9"
 PROBE_TOOL_NAME = "lm4d_live_producer_probe"
 _DECLARED_PARAMS = {"language": "csharp", "code": "// noop", "component_name": "C"}
+_T5_EXPECTED_RED = "EXPECTED_RED:T5:AGENT_PROTOCOLS"
 
 
 def _usable_raw() -> dict:
@@ -95,6 +98,25 @@ class _AsyncSpy:
     async def __call__(self, name: str, params: dict) -> dict:
         self.calls.append((name, params))
         return self._raw
+
+
+class _WrapperPoisonParams(Mapping[str, object]):
+    def _fail(self, action: str):
+        raise AssertionError(
+            f"{_T5_EXPECTED_RED} RookAgent PlanGraph wrapper accessed params via {action}"
+        )
+
+    def __getitem__(self, key: str) -> object:
+        return self._fail(f"getitem:{key}")
+
+    def __iter__(self) -> Iterator[str]:
+        return self._fail("iter")
+
+    def __len__(self) -> int:
+        return self._fail("len")
+
+    def __deepcopy__(self, memo):
+        return self._fail("deepcopy")
 
 
 def test_construction_does_not_invoke_executor():
@@ -184,6 +206,57 @@ def test_get_tool_schemas_defensively_filters_injected_registry_without_telemetr
         and contained_names().isdisjoint(_schema_names(schemas))
         and after == before
     ), "EXPECTED_RED:T2:PYTEST RookAgent final projection trusts dirty registry"
+
+
+def test_method_preserves_plan_graph_lifecycle_refusal_before_agent_executor(
+    monkeypatch,
+    tmp_path,
+):
+    from rook.learning import metrics_store
+
+    executor_calls = []
+
+    def executor(*args, **kwargs):
+        executor_calls.append((args, kwargs))
+        raise AssertionError(
+            f"{_T5_EXPECTED_RED} RookAgent PlanGraph wrapper reached executor"
+        )
+
+    graph = _producer_graph(_WrapperPoisonParams())
+    graph.nodes["create_script"].execution_ref = "gh_replay_recipe:v1"
+    agent = RookAgent(tool_executor=executor)
+    store = metrics_store.MetricsStore(tmp_path / "metrics.json")
+    monkeypatch.setattr(metrics_store, "_metrics_store", store)
+    attempts = []
+    real_recorder = tool_lifecycle_runtime._record_containment_denial
+
+    def recording_spy(entry, origin):
+        attempts.append((entry.name, origin.value))
+        return real_recorder(entry, origin)
+
+    monkeypatch.setattr(
+        tool_lifecycle_runtime,
+        "_record_containment_denial",
+        recording_spy,
+    )
+    before = store.get_containment_denials_snapshot()
+
+    result = asyncio.run(agent.run_live_producer_node(graph, "create_script"))
+
+    after = store.get_containment_denials_snapshot()
+    added = after["events"][len(before["events"]):]
+    assert result.graph is graph, _T5_EXPECTED_RED
+    assert result.applied is False, _T5_EXPECTED_RED
+    assert result.tool_name == "gh_replay_recipe", _T5_EXPECTED_RED
+    assert result.outcome_status is None, _T5_EXPECTED_RED
+    assert result.reason == "tool_lifecycle_denied", _T5_EXPECTED_RED
+    assert executor_calls == [], _T5_EXPECTED_RED
+    assert attempts == [
+        ("gh_replay_recipe", DispatchOrigin.PLAN_GRAPH.value)
+    ], _T5_EXPECTED_RED
+    assert len(added) == 1, _T5_EXPECTED_RED
+    assert added[0]["tool"] == "gh_replay_recipe", _T5_EXPECTED_RED
+    assert added[0]["origin"] == DispatchOrigin.PLAN_GRAPH.value, _T5_EXPECTED_RED
 
 
 def test_method_drives_node_via_sync_executor():

@@ -42,9 +42,11 @@ from ..tool_dispatcher import (
 )
 from ..tool_groups import AGENT_TIER_0, READONLY_TIER_0, TOOL_GROUP_TRIGGERS
 from ...tool_lifecycle import (
+    DispatchOrigin,
     filter_litellm_catalog,
     filter_local_registrations,
 )
+from ...tool_lifecycle_runtime import deny_if_contained
 from ..tool_registry import (
     ToolRegistry,
     filter_agent_catalog,
@@ -1237,26 +1239,32 @@ class ChatRunner:
                 if not tool_calls_list:
                     break
 
-                # Adapt tool_calls_list to iterable with .id/.function attributes
-                # so the dispatch loop below can use tc.id and tc.function.name/arguments
-                class _ToolCall:
-                    def __init__(self, d: dict):
-                        self.id = d["id"]
-                        class _Fn:
-                            def __init__(self, name: str, args: str):
-                                self.name = name
-                                self.arguments = args
-                        self.function = _Fn(d["name"], d["arguments"])
-
-                choice_tool_calls = [_ToolCall(tc) for tc in tool_calls_list]
-
                 # Execute tool calls
                 tools_used: Set[str] = set()
                 meta_only_round = True
-                for tc in choice_tool_calls:
-                    tool_name = tc.function.name
+                for raw_tc in tool_calls_list:
+                    raw_name = raw_tc["name"]
+                    denial = deny_if_contained(
+                        raw_name,
+                        DispatchOrigin.ROOK_CHAT,
+                    )
+                    if denial is not None:
+                        meta_only_round = False
+                        conversation.messages.append({
+                            "role": "tool",
+                            "tool_call_id": raw_tc["id"],
+                            "content": json.dumps(
+                                denial,
+                                separators=(",", ":"),
+                            ),
+                        })
+                        continue
+
+                    tool_call_id = raw_tc["id"]
+                    tool_name = raw_name
+                    raw_arguments = raw_tc["arguments"]
                     try:
-                        params = json.loads(tc.function.arguments) if tc.function.arguments else {}
+                        params = json.loads(raw_arguments) if raw_arguments else {}
                     except json.JSONDecodeError:
                         params = {}
 
@@ -1271,7 +1279,7 @@ class ChatRunner:
                         )
                         conversation.messages.append({
                             "role": "tool",
-                            "tool_call_id": tc.id,
+                            "tool_call_id": tool_call_id,
                             "content": json.dumps({"block_id": block_id, "status": "rendered"}),
                         })
                         continue
@@ -1283,7 +1291,7 @@ class ChatRunner:
                             "tool_start",
                             name=tool_name,
                             params=params,
-                            tool_call_id=tc.id,
+                            tool_call_id=tool_call_id,
                         )
 
                         if tool_name == "list_chat_models":
@@ -1294,7 +1302,7 @@ class ChatRunner:
 
                         conversation.messages.append({
                             "role": "tool",
-                            "tool_call_id": tc.id,
+                            "tool_call_id": tool_call_id,
                             "content": result_str,
                         })
 
@@ -1304,7 +1312,7 @@ class ChatRunner:
                             "tool_result",
                             name=tool_name,
                             result=result_str,
-                            tool_call_id=tc.id,
+                            tool_call_id=tool_call_id,
                             tool_status=result_view.status,
                             verified=result_view.verified,
                             verification_note=result_view.verification_note,
@@ -1320,7 +1328,12 @@ class ChatRunner:
                             )
                         continue
 
-                    yield ChatEvent("tool_start", name=tool_name, params=params, tool_call_id=tc.id)
+                    yield ChatEvent(
+                        "tool_start",
+                        name=tool_name,
+                        params=params,
+                        tool_call_id=tool_call_id,
+                    )
 
                     # Handle meta-tools internally (request_tools, search_tools)
                     if self._registry.is_meta_tool(tool_name):
@@ -1362,7 +1375,7 @@ class ChatRunner:
                     # the real result, not synthesize a cancellation.
                     conversation.messages.append({
                         "role": "tool",
-                        "tool_call_id": tc.id,
+                        "tool_call_id": tool_call_id,
                         "content": result_str,
                     })
 
@@ -1372,7 +1385,7 @@ class ChatRunner:
                         "tool_result",
                         name=tool_name,
                         result=result_str,
-                        tool_call_id=tc.id,
+                        tool_call_id=tool_call_id,
                         verified=result_view.verified,
                         verification_note=result_view.verification_note,
                         tool_status=result_view.status,
