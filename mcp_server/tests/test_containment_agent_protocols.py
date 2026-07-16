@@ -197,13 +197,22 @@ async def test_rook_agent_skips_before_containment_and_argument_decode(
 
         agent._call_model = aborting_call_model
 
-    real_loads = json.loads
+    real_json = base_agent_module.json
 
-    def tracking_loads(raw, *_args, **_kwargs):
+    def tracking_loads(raw, *args, **kwargs):
         parsed_arguments.append(raw)
-        return {}
+        return real_json.loads(raw, *args, **kwargs)
 
-    monkeypatch.setattr(base_agent_module.json, "loads", tracking_loads)
+    monkeypatch.setattr(
+        base_agent_module,
+        "json",
+        SimpleNamespace(
+            load=real_json.load,
+            loads=tracking_loads,
+            dumps=real_json.dumps,
+            JSONDecodeError=real_json.JSONDecodeError,
+        ),
+    )
     store, attempts = _telemetry_probe(monkeypatch, tmp_path)
     before = store.get_containment_denials_snapshot()
 
@@ -227,7 +236,7 @@ async def test_rook_agent_skips_before_containment_and_argument_decode(
     assert (
         parsed_arguments == expected_parsed
         and len(skipped) == 1
-        and real_loads(skipped[0]["content"]).get("skipped") is True
+        and real_json.loads(skipped[0]["content"]).get("skipped") is True
         and denied_tool_events == []
         and attempts == []
         and after == before
