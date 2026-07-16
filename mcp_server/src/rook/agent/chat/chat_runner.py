@@ -214,7 +214,6 @@ _TOOL_DESCRIPTIONS: Dict[str, str] = {
     "rhino_boolean": "Boolean operations (union, difference, intersection) on solids",
     "rhino_extrude": "Extrude a curve to create a surface or solid",
     "rhino_text": "Create 3D text objects",
-    "rhino_execute_intent": "Execute a Rhino intent through the typed runtime. It prefers direct API routes and may use only known-safe fully scripted command substrates when safety metadata permits.",
     # Grasshopper
     "gh_status": "Get Grasshopper document status",
     "gh_snapshot": "Read the entire canvas as a structured graph document",
@@ -280,9 +279,6 @@ def _build_fallback_catalog() -> Dict[str, dict]:
             continue
         if tool_name == "rhino_command":
             catalog[tool_name] = _RHINO_COMMAND_SCHEMA
-            continue
-        if tool_name == "rhino_execute_intent":
-            catalog[tool_name] = _RHINO_EXECUTE_INTENT_SCHEMA
             continue
         if tool_name == "rhino_create":
             catalog[tool_name] = _RHINO_CREATE_SCHEMA
@@ -476,25 +472,6 @@ _RHINO_COMMAND_SCHEMA: dict = {
                 },
             },
             "required": ["command"],
-            "additionalProperties": False,
-        },
-    },
-}
-
-_RHINO_EXECUTE_INTENT_SCHEMA: dict = {
-    "type": "function",
-    "function": {
-        "name": "rhino_execute_intent",
-        "description": _TOOL_DESCRIPTIONS["rhino_execute_intent"],
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "intent": {
-                    "type": "string",
-                    "description": "Natural language intent describing what to create or do.",
-                },
-            },
-            "required": ["intent"],
             "additionalProperties": False,
         },
     },
@@ -770,9 +747,6 @@ def _build_local_tool_catalog(local_tools: dict) -> Dict[str, dict]:
             continue
         if name in _CHAT_MODEL_TOOL_SCHEMAS:
             catalog[name] = _CHAT_MODEL_TOOL_SCHEMAS[name]
-            continue
-        if name == "rhino_execute_intent":
-            catalog[name] = _RHINO_EXECUTE_INTENT_SCHEMA
             continue
         if name == "gh_update_script":
             catalog[name] = _GH_UPDATE_SCRIPT_SCHEMA

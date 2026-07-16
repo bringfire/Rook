@@ -140,7 +140,7 @@ The strongest detail here is `AvailableOperations`. This is not just the host ex
 
 `Plan` and `PlanResult` dataclasses, validation logic, and dispatch infrastructure all exist in `mcp_server/src/rook/agent/`. The CLAUDE.md architecture description (agents calling HTTP directly, not through MCP) is accurate as a design.
 
-**But:** the end-to-end multi-step agent loop is **not yet wired in production**. `spawn_agent` and conductor logic exist but no live multi-worker coordination is happening in user-facing flows. The chat server is primarily backing the embedded chat panel, not orchestrating workers.
+**But:** autonomous agent spawning and multi-worker coordination are suspended from production surfaces. The underlying planner/conductor implementation remains for disposition review and tests; the chat server primarily backs the embedded chat panel and calls lifecycle-filtered explicit tools.
 
 **Honest framing:** Save for a future v0.2 announcement when the loop ships end-to-end. Don't include in v1 launch.
 

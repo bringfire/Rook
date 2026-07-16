@@ -1,5 +1,10 @@
 # Work Queue
 
+> **CURRENT SEMANTIC-AUTHORITY CONTAINMENT (2026-07-15):** `gh_execute_intent` and `rhino_execute_intent` are retired; `plan_and_execute`, `spawn_agent`, `gh_explore_workflow`, and `gh_replay_recipe` are suspended.
+> Dated rows below are retained as historical evidence only and must not be used
+> to restore or recommend those identities. Current work must rediscover the
+> admitted surface and use explicit lifecycle-filtered tools.
+
 > **PARTIALLY SUPERSEDED — Director MCP retirement (2026-07-13):** The general
 > non-Director architecture and dated evidence in this document remain available.
 > All `rhino_director_*`, `/director`, VisionDirector, and Director-domain examples,

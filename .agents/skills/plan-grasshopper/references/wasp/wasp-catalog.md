@@ -30,22 +30,19 @@ you can specify "70% panels, 20% columns, 10% connectors".
 ```python
 # BATCH: Part Catalog
 
-# Step 1: Ratio sliders (one per part type)
-gh_execute_intent(intent="create number slider named PanelRatio", x=1100, y=600)
-# → Record as $RATIO_PANEL
-gh_set_value(guid=$RATIO_PANEL, value=0.7, min=0.0, max=1.0)
-
-gh_execute_intent(intent="create number slider named ColumnRatio", x=1100, y=700)
-# → Record as $RATIO_COLUMN
-gh_set_value(guid=$RATIO_COLUMN, value=0.2, min=0.0, max=1.0)
-
-gh_execute_intent(intent="create number slider named ConnectorRatio", x=1100, y=800)
-# → Record as $RATIO_CONNECTOR
-gh_set_value(guid=$RATIO_CONNECTOR, value=0.1, min=0.0, max=1.0)
-
-# Step 2: Create Part Catalog component
-gh_execute_intent(intent="create wasp part catalog", x=1300, y=700)
-# → Record as $CATALOG
+# Steps 1-2: ratio sliders and resolved Part Catalog component
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "type": "slider", "nick": "PanelRatio", "min": 0.0, "max": 1.0, "value": 0.7, "pos": [1100, 600]},
+        {"temp_id": "T2", "type": "slider", "nick": "ColumnRatio", "min": 0.0, "max": 1.0, "value": 0.2, "pos": [1100, 700]},
+        {"temp_id": "T3", "type": "slider", "nick": "ConnectorRatio", "min": 0.0, "max": 1.0, "value": 0.1, "pos": [1100, 800]},
+        {"temp_id": "T4", "guid": "$GUID_WASP_PART_CATALOG", "pos": [1300, 700]},
+    ],
+)
+# Record T1-T4 as $RATIO_PANEL, $RATIO_COLUMN, $RATIO_CONNECTOR,
+# and $CATALOG from edit_summary.temp_id_map.
 # Wire: parts list → Catalog.PART
 # Wire: ratio values → Catalog.RATIO (as matching list)
 

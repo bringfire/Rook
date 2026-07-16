@@ -177,7 +177,7 @@ async def test_dispatcher_direct():
 # =============================================================================
 
 async def test_worker_rhino_geometry():
-    """Worker agent creates geometry in Rhino via rhino_execute_intent."""
+    """Worker agent creates geometry in Rhino via an explicit typed route."""
     print("\n" + "="*60)
     print("  TEST 2: Worker — Rhino Geometry Creation")
     print("="*60)
@@ -219,7 +219,8 @@ async def test_worker_gh_canvas():
         "In Grasshopper, create a Number Slider component and a Panel component. "
         "Wire the slider output to the panel input. "
         "Then verify the connection exists using gh_snapshot. "
-        "Use gh_component, gh_connect, and gh_snapshot tools — NOT gh_execute_intent.",
+        "Use gh_snapshot to inspect state, gh_edit to create and connect the "
+        "components, and a follow-up gh_snapshot to verify the solved graph.",
         agent_type="worker",
         max_turns=15,
         catalog=catalog,
@@ -269,7 +270,7 @@ async def test_explorer_readonly():
 
     # Check NO write tools were used
     write_tools = {
-        "rhino_execute_intent", "rhino_create", "rhino_transform",
+        "rhino_create", "rhino_transform",
         "rhino_delete", "rhino_boolean", "rhino_extrude",
         "gh_component", "gh_connect", "gh_set_value", "gh_delete",
     }
@@ -330,7 +331,7 @@ async def test_swarm_parallel():
     swarm_result = await run_swarm(
         [
             {
-                "task": "Create a box at 0,0,0 with size 10 using rhino_execute_intent. Verify it exists.",
+                "task": "Create a box at 0,0,0 with size 10 using rhino_create. Verify it exists with rhino_objects.",
                 "task_id": "swarm_a",
                 "workspace_assets": ["Layer::SwarmA"],
             },

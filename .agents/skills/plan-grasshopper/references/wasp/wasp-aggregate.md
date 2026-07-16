@@ -40,30 +40,21 @@ unless a fixed seed is provided.
 ```python
 # BATCH: Stochastic Aggregation
 
-# Step 1: Part count slider
-gh_execute_intent(intent="create number slider named PartCount", x=1100, y=100)
-# → Record as $PART_COUNT
-gh_set_value(guid=$PART_COUNT, value=50, min=1, max=500)
-
-# Step 2: Fixed seed slider (for reproducibility)
-gh_execute_intent(intent="create number slider named Seed", x=1100, y=200)
-# → Record as $SEED
-gh_set_value(guid=$SEED, value=42, min=0, max=9999)
-
-# Step 3: Reset toggle
-gh_execute_intent(intent="create boolean toggle", x=1100, y=300)
-# → Record as $RESET
-gh_set_value(guid=$RESET, value="false")
-
-# Step 4: Constraint mode (if using constraints)
-gh_execute_intent(intent="create integer slider named ConstraintMode", x=1100, y=400)
-# → Record as $CONSTRAINT_MODE
-gh_set_value(guid=$CONSTRAINT_MODE, value=0, min=0, max=2)
-# 0=none, 1=local, 2=global
-
-# Step 5: Create Aggregation component
-gh_execute_intent(intent="create wasp aggregation", x=1400, y=200)
-# → Record as $AGGREGATION
+# Steps 1-5: create controls and the resolved Wasp Aggregation component
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "type": "slider", "nick": "PartCount", "min": 1, "max": 500, "value": 50, "pos": [1100, 100]},
+        {"temp_id": "T2", "type": "slider", "nick": "Seed", "min": 0, "max": 9999, "value": 42, "pos": [1100, 200]},
+        {"temp_id": "T3", "type": "toggle", "value": False, "pos": [1100, 300]},
+        {"temp_id": "T4", "type": "slider", "nick": "ConstraintMode", "min": 0, "max": 2, "value": 0, "pos": [1100, 400]},
+        {"temp_id": "T5", "guid": "$GUID_WASP_AGGREGATION", "pos": [1400, 200]},
+    ],
+)
+# Resolve $GUID_WASP_AGGREGATION during planning. Record T1-T5 from
+# edit_summary.temp_id_map as $PART_COUNT, $SEED, $RESET,
+# $CONSTRAINT_MODE, and $AGGREGATION. Mode: 0=none, 1=local, 2=global.
 
 # Step 6: Wire inputs
 gh_connect(sourceGuid=$PARTS_MERGE, targetGuid=$AGGREGATION, targetParam="PART")
@@ -96,8 +87,12 @@ gh_errors()
 # $AGGREGATION output "GEO" → aggregated geometry (list of transformed parts)
 
 # Aggregation graph (for analysis)
-gh_execute_intent(intent="create wasp aggregation graph", x=1700, y=200)
-# → Record as $AGG_GRAPH
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[{"temp_id": "T1", "guid": "$GUID_WASP_AGGREGATION_GRAPH", "pos": [1700, 200]}],
+)
+# Record T1 as $AGG_GRAPH, then wire $AGGREGATION → AggregationGraph.AGG.
 # Wire: $AGGREGATION → AggregationGraph.AGG
 ```
 

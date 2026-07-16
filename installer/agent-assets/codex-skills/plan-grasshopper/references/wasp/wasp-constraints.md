@@ -57,14 +57,17 @@ includes local checks.
 ```python
 # BATCH: Constraint Setup
 
-# Step 1: Define support geometry (e.g., ground plane)
-gh_execute_intent(intent="create plane parameter", x=900, y=500)
-# → Record as $GROUND_PLANE
-# Or reference existing Rhino geometry as support surface
-
-# Step 2: Create Wasp supports component
-gh_execute_intent(intent="create wasp supports", x=1100, y=500)
-# → Record as $SUPPORTS
+# Steps 1-2: resolved Plane parameter + Wasp Supports component
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "guid": "$GUID_PLANE_PARAMETER", "pos": [900, 500]},
+        {"temp_id": "T2", "guid": "$GUID_WASP_SUPPORTS", "pos": [1100, 500]},
+    ],
+)
+# Record T1/T2 as $GROUND_PLANE/$SUPPORTS. Or reference approved Rhino
+# support geometry through the explicit parameter-reference tool.
 # Wire: $GROUND_PLANE → Supports.GEO
 
 # Step 3: Wire supports to AdvancedPart (back in wasp-parts batch)
@@ -78,9 +81,13 @@ gh_set_value(guid=$CONSTRAINT_MODE, value=1)
 ### Pattern B: Additional Collider
 
 ```python
-# Step 1: Collider geometry (mesh, slightly larger than part)
-gh_execute_intent(intent="create mesh parameter", x=900, y=600)
-# → Record as $COLLIDER_MESH
+# Step 1: Collider geometry parameter (mesh, slightly larger than part)
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[{"temp_id": "T1", "guid": "$GUID_MESH_PARAMETER", "pos": [900, 600]}],
+)
+# Record T1 as $COLLIDER_MESH.
 
 # Step 2: Wire to AdvancedPart
 gh_connect(sourceGuid=$COLLIDER_MESH, targetGuid=$PART_A, targetParam="COL")
@@ -89,13 +96,16 @@ gh_connect(sourceGuid=$COLLIDER_MESH, targetGuid=$PART_A, targetParam="COL")
 ### Pattern C: Plane Boundary (Global)
 
 ```python
-# Step 1: Boundary plane
-gh_execute_intent(intent="create plane parameter", x=900, y=700)
-# → Record as $BOUNDARY_PLANE
-
-# Step 2: Create Wasp global constraint
-gh_execute_intent(intent="create wasp global constraint plane", x=1100, y=700)
-# → Record as $GLOBAL_CONSTRAINT
+# Steps 1-2: boundary plane + resolved global plane constraint
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "guid": "$GUID_PLANE_PARAMETER", "pos": [900, 700]},
+        {"temp_id": "T2", "guid": "$GUID_WASP_GLOBAL_CONSTRAINT_PLANE", "pos": [1100, 700]},
+    ],
+)
+# Record T1/T2 as $BOUNDARY_PLANE/$GLOBAL_CONSTRAINT.
 # Wire: $BOUNDARY_PLANE → GlobalConstraint.PLN
 
 # Step 3: Wire to Aggregation
@@ -108,13 +118,16 @@ gh_set_value(guid=$CONSTRAINT_MODE, value=2)
 ### Pattern D: Mesh Containment (Global)
 
 ```python
-# Step 1: Containment mesh (from Rhino)
-gh_execute_intent(intent="create mesh parameter", x=900, y=700)
-# → Record as $CONTAINMENT_MESH
-
-# Step 2: Create Wasp global constraint mesh
-gh_execute_intent(intent="create wasp global constraint mesh", x=1100, y=700)
-# → Record as $GLOBAL_CONSTRAINT
+# Steps 1-2: containment mesh parameter + resolved global mesh constraint
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "guid": "$GUID_MESH_PARAMETER", "pos": [900, 700]},
+        {"temp_id": "T2", "guid": "$GUID_WASP_GLOBAL_CONSTRAINT_MESH", "pos": [1100, 700]},
+    ],
+)
+# Record T1/T2 as $CONTAINMENT_MESH/$GLOBAL_CONSTRAINT.
 # Wire: $CONTAINMENT_MESH → GlobalConstraint.MESH
 
 # Step 3: Wire to Aggregation + set Mode 2

@@ -61,43 +61,23 @@ Organize into batches. Each batch is a logical unit (e.g., "input controls", "co
 ```markdown
 ## BATCH 1: Input Controls (x=100)
 
-### Step 1: Create Radius Slider
+### Step 1: Create Inputs and Core Component
 ```python
-gh_execute_intent(intent="create number slider named Radius", x=100, y=100)
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "type": "slider", "nick": "Radius", "min": 0.1, "max": 50.0, "value": 5.0, "pos": [100, 100]},
+        {"temp_id": "T2", "type": "slider", "nick": "Height", "min": 1.0, "max": 100.0, "value": 10.0, "pos": [100, 200]},
+        {"temp_id": "T3", "guid": "$SPHERE_TYPE_GUID", "pos": [400, 100]},
+    ],
+    connect=["T1.O0>T3.I0"],
+)
 ```
-→ Record GUID as `$RADIUS_SLIDER`
-→ Expected: slider component on canvas
-
-### Step 2: Set Radius Range
-```python
-gh_set_value(guid=$RADIUS_SLIDER, value=5.0, min=0.1, max=50.0)
-```
-
-### Step 3: Create Height Slider
-```python
-gh_execute_intent(intent="create number slider named Height", x=100, y=200)
-```
-→ Record GUID as `$HEIGHT_SLIDER`
-
-### Step 4: Set Height Range
-```python
-gh_set_value(guid=$HEIGHT_SLIDER, value=10.0, min=1.0, max=100.0)
-```
-
----
-
-## BATCH 2: Core Components (x=400)
-
-### Step 5: Create Sphere
-```python
-gh_execute_intent(intent="create sphere component", x=400, y=100)
-```
-→ Record GUID as `$SPHERE`
-
-### Step 6: Wire Radius to Sphere
-```python
-gh_edit(epoch=<current>, connect=["$RADIUS_SLIDER.O0>$SPHERE.I0"])
-```
+→ Resolve `$SPHERE_TYPE_GUID` during Step 2 knowledge lookup.
+→ Record committed IDs from `edit_summary.temp_id_map` as
+`$RADIUS_SLIDER`, `$HEIGHT_SLIDER`, and `$SPHERE`.
+→ Expected: two initialized sliders and one wired sphere component.
 
 ### CHECKPOINT
 ```python
@@ -134,7 +114,7 @@ At the top of the plan, list all gotchas that affect execution:
 ## Gotchas (apply during execution)
 
 1. **Sweep1 requires open curves** — if input curve is closed, Split it first
-2. **Number Slider min/max set AFTER creation** — gh_set_value must follow gh_execute_intent
+2. **Number Slider range/value is explicit at creation** — include min, max, and value in the `gh_edit` create entry
 3. **Data tree mismatch** — Flatten output of List component before connecting to Loft
 ```
 
@@ -173,7 +153,7 @@ docs/plans/YYYY-MM-DD-<name>-plan.md
 ```markdown
 # <Definition Name> Implementation Plan
 
-> **For Codex:** Use /execute-grasshopper to execute this plan.
+> **For the executing agent:** Use /execute-grasshopper to execute this plan.
 > **Design doc:** <path to design doc>
 
 ## Gotchas
@@ -211,8 +191,10 @@ Skill(skill="execute-grasshopper", args="docs/plans/<filename>")
 
 ## Invariants
 
-- Every `gh_execute_intent` must have explicit `x, y` canvas positions
-- Every slider gets `gh_set_value` immediately after creation
+- Every `gh_edit` create entry must have an explicit `pos`
+- Every new slider defines `min`, `max`, and `value` in its create entry
+- Every batch uses the epoch from a fresh `gh_snapshot`
+- Temp IDs are unique within a batch and committed IDs are recorded from `edit_summary.temp_id_map`
 - Checkpoints (`gh_solve` + `gh_errors`) after every 3-5 component creations
 - Variable names must be descriptive (`$SPHERE_COMP`, not `$VAR1`)
 - No tool call may reference a GUID not assigned in a prior step

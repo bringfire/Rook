@@ -62,7 +62,8 @@ When a checkpoint finds errors:
 6. APPLY one fix:
    - Reconnect: gh_edit(disconnect=[...], connect=[...]) with correct flow strings
    - Change value: gh_set_value()
-   - Insert converter: gh_execute_intent() for a type converter component
+   - Insert converter: resolve the exact converter with gh_library or
+     gh_knowledge_query, then add and wire it in one bounded gh_edit batch
 7. RE-RUN checkpoint:
    gh_solve(delay=500)
    gh_errors()

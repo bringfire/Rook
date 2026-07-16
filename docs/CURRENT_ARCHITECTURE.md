@@ -11,7 +11,7 @@ MCP Client (Claude Code, Claude Desktop, Codex CLI, Cursor, etc.)
        │
        │  MCP Protocol (stdio)
        ▼
-Rook MCP Server (Python)          ← 428 tools advertised by list_tools(), knowledge graph, agent system
+Rook MCP Server (Python)          ← 422 tools advertised by default, knowledge graph, chat runtime
   │         │
   │         │ HTTP (127.0.0.1, OS-assigned port via discovery file)
   │         ▼
@@ -80,19 +80,23 @@ Managed companion domain evidence is internal. The companion writes it to its ex
 
 | Fact | Value |
 |------|-------|
-| MCP tools | 431 static definitions; 428 advertised by default (`full`) |
-| Other MCP profiles | 22 advertised by `lean`; 148 advertised by `readonly`; 3 deprecated-interactive definitions gated by default |
+| MCP tools | 431 static definitions; 422 advertised by default (`full`); 425 when deprecated interactive command learning is enabled |
+| Other MCP profiles | 20 advertised by `lean`; 148 advertised by `readonly` |
 | Entry point | `python -m rook` (stdio transport) |
 | HTTP bridge | `bridge.py` — discovers native plugin via `%LOCALAPPDATA%\Rook\discovery` by default and legacy `%TEMP%\rook` compatibility files |
-| Key subsystems | Intent runtime, Knowledge stores, Agent system, Chat service, DSPy consolidation, Chirp manager |
+| Key subsystems | Knowledge stores, Chat service, DSPy consolidation, Chirp manager, and retained semantic/agent implementation modules |
 
 - Director is retired from MCP discovery, profiles, meta-tools, targeting, and internal-agent dispatch. Native `/director/*` routes and implementation modules remain temporarily preserved for disposition review; they are not a public or agent-callable capability.
+- Lifecycle containment: `gh_execute_intent` and `rhino_execute_intent` are retired; `plan_and_execute`, `spawn_agent`, `gh_explore_workflow`, and `gh_replay_recipe` are suspended.
 
 Future scene preview, timeline, rendering, and finalized-video export belongs in RookStudio. `rook2` remains a narrow Rhino connector/broker and is unchanged by this retirement.
 
-### Agent System (`agent/`)
+### Agent Implementation and Chat Runtime (`agent/`)
 
-The multi-agent system provides autonomous task execution via Planner → Worker orchestration. ~12,000 lines. See `AGENT_ARCHITECTURE.md` for full details.
+The directory retains planner, worker, guardian, conductor, and semantic runtime
+implementation modules, but autonomous orchestration is not a public capability.
+RookChat uses the lifecycle-filtered tool registry for interactive conversations.
+`AGENT_ARCHITECTURE.md` is historical implementation documentation.
 
 | Component | Purpose |
 |-----------|---------|
@@ -101,13 +105,18 @@ The multi-agent system provides autonomous task execution via Planner → Worker
 | Guardian | Per-agent trajectory monitor (stuck/loop/drift/budget detection) |
 | Conductor | Fleet coordinator for parallel swarms (systemic issue detection) |
 | ChatRunner | Interactive chat service for Rook panel (aiohttp, execution policy) |
-| IntentOrchestrator | Layered intent pipeline: plan → route → execute → reflect |
+| Semantic runtime modules | Retained layered planning/routing/reflection implementation; not an advertised semantic executor |
 
-**Key principle:** Agents call RookNative HTTP endpoints directly via `bridge.py` — they never go through MCP. Port is resolved via discovery files in the shared discovery root.
+**Key principle:** Public clients use the lifecycle-filtered MCP surface. Retained
+internal agent implementations reach RookNative through `bridge.py` only in
+explicit internal/test contexts. Port is resolved via discovery files in the
+shared discovery root.
 
-### Intent Runtime (`learning/intent_*.py`)
+### Retained Semantic Runtime Modules (`learning/intent_*.py`)
 
-Replaces the old monolithic `rhino_execute_intent` with a typed pipeline:
+These modules preserve a typed planning and reflection pipeline for disposition
+review and internal development. They are not a public or agent-callable
+replacement surface:
 
 ```
 IntentPlanner (P1) → ExecutionPlan → SmartExecutor (P2) → ExecutionResult → TypedReflection (P3)

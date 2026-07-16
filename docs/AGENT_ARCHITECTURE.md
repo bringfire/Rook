@@ -1,5 +1,11 @@
 # Agent Architecture
 
+> **SUPERSEDED CURRENT-STATE NOTICE (2026-07-15):** This document is retained as
+> historical implementation architecture, not as the current public capability
+> contract. `gh_execute_intent` and `rhino_execute_intent` are retired; `plan_and_execute`, `spawn_agent`, `gh_explore_workflow`, and `gh_replay_recipe` are suspended.
+> Use `docs/CURRENT_ARCHITECTURE.md` and the lifecycle-filtered advertised catalog
+> for current behavior. Do not use the body below to restore a contained tool.
+
 Updated: 2026-06-05
 
 This document describes the agent system as it exists today.

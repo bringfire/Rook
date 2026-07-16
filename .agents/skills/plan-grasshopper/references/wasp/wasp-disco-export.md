@@ -41,28 +41,29 @@ for multiplayer design sessions with physics and connection rules.
 ```python
 # BATCH: DisCo Export Setup
 
-# Step 1: Ensure geometry is mesh (if using brep parts)
-gh_execute_intent(intent="create mesh brep component", x=100, y=800)
-# → Record as $MESH_CONVERT
-# Wire: part geometry → MeshBrep.B
-# Use meshed output for Part geometry in wasp-parts
-
-# Step 2: Export path panel
-gh_execute_intent(intent="create panel", x=1700, y=600)
-# → Record as $DISCO_PATH
-# Set content: "C:/path/to/disco_export/"
-
-# Step 3: Create Wasp2DisCo component
-gh_execute_intent(intent="create wasp to disco", x=1900, y=600)
-# → Record as $WASP2DISCO
+# Steps 1-3: mesh conversion, export path, and resolved Wasp2DisCo component
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "guid": "$GUID_MESH_BREP_COMPONENT", "pos": [100, 800]},
+        {"temp_id": "T2", "type": "panel", "content": "C:/path/to/disco_export/", "pos": [1700, 600]},
+        {"temp_id": "T3", "guid": "$GUID_WASP_TO_DISCO", "pos": [1900, 600]},
+    ],
+)
+# Record T1-T3 as $MESH_CONVERT, $DISCO_PATH, and $WASP2DISCO.
+# Wire: part geometry → MeshBrep.B; use meshed output for Part geometry.
 # Wire: parts → Wasp2DisCo.PART
 # Wire: rules → Wasp2DisCo.RULE
 # Wire: $DISCO_PATH → Wasp2DisCo.PATH
 
 # Step 4 (optional): Rule groups for DisCo UI
-gh_execute_intent(intent="create panel", x=1700, y=700)
-# → Record as $RULE_GROUPS
-# Set content: group definitions (text format)
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[{"temp_id": "T1", "type": "panel", "content": "<rule group definitions>", "pos": [1700, 700]}],
+)
+# Record T1 as $RULE_GROUPS.
 # Wire: $RULE_GROUPS → Wasp2DisCo.RG
 
 # Step 5 (optional): Environment settings
@@ -72,8 +73,12 @@ gh_execute_intent(intent="create panel", x=1700, y=700)
 # Wire: player count, roles, etc. to Wasp2DisCo player inputs
 
 # Step 7: Export trigger
-gh_execute_intent(intent="create boolean toggle", x=1700, y=800)
-# → Record as $EXPORT_TRIGGER
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[{"temp_id": "T1", "type": "toggle", "value": False, "pos": [1700, 800]}],
+)
+# Record T1 as $EXPORT_TRIGGER.
 # Wire: $EXPORT_TRIGGER → Wasp2DisCo.SAVE
 
 # CHECKPOINT
@@ -86,14 +91,16 @@ gh_errors()
 ```python
 # BATCH: Import DisCo Aggregation
 
-# Step 1: DisCo result file path
-gh_execute_intent(intent="create panel", x=100, y=900)
-# → Record as $DISCO_RESULT_PATH
-# Set content: "C:/path/to/disco_aggregation.json"
-
-# Step 2: Create LoadFromDisCo component
-gh_execute_intent(intent="create wasp load from disco", x=300, y=900)
-# → Record as $LOAD_DISCO
+# Steps 1-2: result path + resolved LoadFromDisCo component
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "type": "panel", "content": "C:/path/to/disco_aggregation.json", "pos": [100, 900]},
+        {"temp_id": "T2", "guid": "$GUID_WASP_LOAD_FROM_DISCO", "pos": [300, 900]},
+    ],
+)
+# Record T1/T2 as $DISCO_RESULT_PATH/$LOAD_DISCO.
 # Wire: $DISCO_RESULT_PATH → LoadFromDisCo.PATH
 
 # Loaded aggregation can feed into:

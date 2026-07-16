@@ -49,40 +49,62 @@ Choose AdvancedPart when in doubt for structural/architectural workflows.
 ```python
 # BATCH: Part Definition (repeat per part type)
 
-# Step 1: Reference geometry from Rhino (organized by scaffold)
-gh_execute_intent(intent="create geometry pipeline referencing layer Wasp::Parts::<PartName>",
-                  x=100, y=200)
-# → Record as $PART_A_GEO
+# Step 1: Create the exact resolved geometry-reference parameter/pipeline
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[{"temp_id": "T1", "guid": "$GUID_GEOMETRY_REFERENCE_PIPELINE", "pos": [100, 200]}],
+)
+# Record T1 as $PART_A_GEO, then set its Rhino reference with the explicit
+# parameter-reference tool using the approved objects on Wasp::Parts::<PartName>.
 # Note: Layer name comes from scaffold Step 3 — geometry was validated and organized there
 
 # Step 2: Define connection planes
 # Option A: From direction vectors (most common)
-gh_execute_intent(intent="create wasp connection from direction",
-                  x=300, y=200)
-# → Record as $CONN_A_1
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[{"temp_id": "T1", "guid": "$GUID_WASP_CONNECTION_FROM_DIRECTION", "pos": [300, 200]}],
+)
+# Record T1 as $CONN_A_1.
 # Wire: direction vector → Connection.DIR, geometry → Connection.GEO
 
 # Option B: From plane directly
-gh_execute_intent(intent="create wasp connection from plane",
-                  x=300, y=350)
-# → Record as $CONN_A_2
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[{"temp_id": "T1", "guid": "$GUID_WASP_CONNECTION_FROM_PLANE", "pos": [300, 350]}],
+)
+# Record T1 as $CONN_A_2.
 # Wire: plane → Connection.PLN, geometry → Connection.GEO
 
 # Step 3: Merge connections if multiple
-gh_execute_intent(intent="create merge component", x=500, y=275)
-# → Record as $CONN_A_MERGE
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[{"temp_id": "T1", "guid": "$GUID_MERGE_COMPONENT", "pos": [500, 275]}],
+)
+# Record T1 as $CONN_A_MERGE.
 # Wire: $CONN_A_1 → Merge.D1, $CONN_A_2 → Merge.D2
 
 # Step 4: Create Part (or AdvancedPart)
-gh_execute_intent(intent="create wasp part", x=700, y=250)
-# → Record as $PART_A
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[{"temp_id": "T1", "guid": "$GUID_WASP_PART", "pos": [700, 250]}],
+)
+# Record T1 as $PART_A.
 # Wire: $PART_A_GEO → Part.GEO
 # Wire: $CONN_A_MERGE → Part.CONN
 # Wire: part name panel → Part.NAME
 
 # Step 4 (alternative): Create AdvancedPart
-gh_execute_intent(intent="create wasp advanced part", x=700, y=250)
-# → Record as $PART_A
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[{"temp_id": "T1", "guid": "$GUID_WASP_ADVANCED_PART", "pos": [700, 250]}],
+)
+# Record T1 as $PART_A.
 # Wire: same as Part, plus:
 # Wire: supports → AdvancedPart.SUP (if constrained)
 # Wire: collider → AdvancedPart.COL (if additional colliders needed)
@@ -94,8 +116,12 @@ When the aggregation needs a specific starting position/orientation:
 
 ```python
 # After Part is created, add TransformPart
-gh_execute_intent(intent="create wasp transform part", x=900, y=250)
-# → Record as $TRANSFORM_PART
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[{"temp_id": "T1", "guid": "$GUID_WASP_TRANSFORM_PART", "pos": [900, 250]}],
+)
+# Record T1 as $TRANSFORM_PART.
 # Wire: $PART_A → TransformPart.PART
 # Wire: base plane → TransformPart.PLN
 ```
