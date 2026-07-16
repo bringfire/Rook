@@ -49,9 +49,16 @@ Copy the base profile to each height level. For 5 profiles over 40 units:
 
 ```python
 # Copy base profile to each height
+profile_ids = [base_profile_id]
 for i in range(1, num_profiles):
     z_offset = (column_height / (num_profiles - 1)) * i
-    rhino_copy(ids=[base_profile_id], offset=[0, 0, z_offset])
+    copy_result = rhino_copy(
+        ids=[base_profile_id],
+        offset=[0, 0, z_offset],
+    )
+    if copy_result.get("copiedCount") != 1:
+        raise Exception("profile copy did not return exactly one object")
+    profile_ids.append(copy_result["copies"][0]["newId"])
 ```
 
 ### Step 3: Rotate Each Profile
@@ -68,13 +75,13 @@ for i, profile_id in enumerate(profile_ids):
         continue  # Base profile stays at 0°
     angle = twist_per_level * i
     # Get profile center for rotation
-    centroid = rhino_measure_centroid(id=profile_id)
+    centroid_result = rhino_measure_centroid(id=profile_id)
     rhino_transform(
         ids=[profile_id],
         operation="rotate",
         angle=angle,
         axis=[0, 0, 1],
-        center=centroid["point"]
+        center=centroid_result["centroid"],
     )
 ```
 
@@ -83,7 +90,7 @@ for i, profile_id in enumerate(profile_ids):
 Loft the explicit profile IDs to create the twisted surface.
 
 ```python
-loft = rhino_create_loft(curveIds=all_profile_ids, loftType="Normal")
+loft = rhino_create_loft(curveIds=profile_ids, loftType="Normal")
 loft_id = loft["objects"][0]["id"]
 rhino_geometry(id=loft_id)
 ```
@@ -122,7 +129,10 @@ To create a hollow shell, use boolean difference with a scaled inner copy.
 
 ```python
 # Copy the solid column
-inner_id = rhino_copy(ids=[column_id], offset=[0, 0, 0])
+copy_result = rhino_copy(ids=[column_id], offset=[0, 0, 0])
+if copy_result.get("copiedCount") != 1:
+    raise Exception("inner-solid copy did not return exactly one object")
+inner_id = copy_result["copies"][0]["newId"]
 
 # Scale smaller in XY but LARGER in Z (extends through top/bottom)
 # This ensures boolean intersection
@@ -165,14 +175,22 @@ base_id = base["id"]
 heights = [10, 20, 30, 40]
 profile_ids = [base_id]
 for h in heights:
-    result = rhino_copy(ids=[base_id], offset=[0, 0, h])
-    profile_ids.append(result["ids"][0])
+    copy_result = rhino_copy(ids=[base_id], offset=[0, 0, h])
+    if copy_result.get("copiedCount") != 1:
+        raise Exception("profile copy did not return exactly one object")
+    profile_ids.append(copy_result["copies"][0]["newId"])
 
 # Step 3: Rotate profiles (15° increments for 60° total over 4 steps)
 for i, pid in enumerate(profile_ids[1:], 1):
     angle = 15 * i
-    centroid = rhino_measure_centroid(id=pid)
-    rhino_transform(ids=[pid], operation="rotate", angle=angle, axis=[0,0,1], center=centroid["point"])
+    centroid_result = rhino_measure_centroid(id=pid)
+    rhino_transform(
+        ids=[pid],
+        operation="rotate",
+        angle=angle,
+        axis=[0,0,1],
+        center=centroid_result["centroid"],
+    )
 
 # Step 4: Loft
 loft = rhino_create_loft(curveIds=profile_ids, loftType="Normal")

@@ -284,6 +284,47 @@ def test_current_guidance_and_recursively_shipped_text_are_clean() -> None:
     _fail(findings)
 
 
+def test_twisted_column_examples_follow_copy_and_centroid_contracts() -> None:
+    relative_path = ".agents/skills/twisted-column/SKILL.md"
+    text = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+    findings: list[str] = []
+
+    copy_calls = text.count("rhino_copy(")
+    copied_id_reads = text.count('["copies"][0]["newId"]')
+    if copied_id_reads != copy_calls:
+        findings.append(
+            f"{relative_path}: {copy_calls} rhino_copy examples require "
+            f"copies[0].newId extraction, found {copied_id_reads}"
+        )
+
+    centroid_calls = text.count("rhino_measure_centroid(")
+    centroid_reads = text.count('["centroid"]')
+    if centroid_reads != centroid_calls:
+        findings.append(
+            f"{relative_path}: {centroid_calls} centroid examples require "
+            f"the top-level centroid field, found {centroid_reads}"
+        )
+
+    for forbidden, contract in (
+        (
+            "inner_id = rhino_copy(",
+            "do not pass the whole rhino_copy result as an object ID",
+        ),
+        (
+            'result["ids"]',
+            "rhino_copy returns copies[].newId, not ids",
+        ),
+        (
+            'centroid["point"]',
+            "rhino_measure_centroid returns centroid, not point",
+        ),
+    ):
+        if forbidden in text:
+            findings.append(f"{relative_path}: {contract}: {forbidden}")
+
+    _fail(findings)
+
+
 def test_final_model_visible_schemas_and_prompts_are_clean(monkeypatch) -> None:
     findings: list[str] = []
 
