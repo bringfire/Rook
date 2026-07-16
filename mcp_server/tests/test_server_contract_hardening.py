@@ -7,6 +7,11 @@ import pytest
 
 from rook import server
 from rook import targeting
+from rook.tool_lifecycle import (
+    containment_envelope,
+    containment_payload,
+    resolve_contained_identity,
+)
 
 
 class _DummyPhaseTracker:
@@ -3258,23 +3263,10 @@ def test_rhino_create_bootstrap_matrix_matches_native_rejection_contract():
 
 @pytest.mark.asyncio
 async def test_gh_execute_intent_description_does_not_claim_only_tool():
-    """Drift regression — gh_execute_intent must not claim exclusive ownership
-    of GH component creation when gh_create_python_script and
-    gh_create_csharp_script are dedicated creation tools AND gh_execute_intent
-    is excluded from worker-mode preload per tool_groups.py.
-    """
+    """The retired semantic executor has no model-visible description."""
     tools = await server.list_tools()
     gh_execute_intent = next((t for t in tools if t.name == "gh_execute_intent"), None)
-    assert gh_execute_intent is not None, "gh_execute_intent tool missing from registered tools"
-
-    desc = gh_execute_intent.description
-    assert "This is the ONLY tool for creating GH components" not in desc, (
-        "gh_execute_intent description reintroduces ONLY-tool claim — false per "
-        "gh_create_python_script / gh_create_csharp_script + tool_groups.py:37 exclusion"
-    )
-    assert "All component creation MUST go through this tool" not in desc, (
-        "gh_execute_intent description reintroduces MUST-go-through claim"
-    )
+    assert gh_execute_intent is None
 
 
 # ---------- gh_create_script — unified tool contract (PR-2) ----------
@@ -3707,13 +3699,10 @@ async def test_gh_create_script_unified_uses_unified_error_prefix(monkeypatch, p
     )
 
 
-# ---------- gh_execute_intent — script-component handoff (PR-3) ----------
-# Anchors for 2026-04-21 gh-script-component-routing design-pass memo §PR-3.
-# The handoff check refuses to create modern RhinoCode Python 3 / C# Script
-# components via `/gh/create-component` and points the caller at
-# `gh_create_script`. Runs post-resolution (both DSPy and fallback paths)
-# and pre-dispatch; fires as a control-flow exception caught at the
-# gh_execute_intent case-arm boundary.
+# ---------- gh_execute_intent — containment before dormant PR-3 body ----------
+# These scenarios preserve the old handoff setup as poisoned downstream state.
+# The exact retired identity must now return its tombstone before any resolver,
+# candidate, component-GUID, observation, or host-dispatch behavior is reached.
 
 
 _PR3_PY3_GUID = "719467e6-7cf5-4848-99b0-c5dd57e5442c"
@@ -3739,12 +3728,7 @@ def _make_handoff_test_knowledge_store(components: list[dict]):
 
 
 def _break_dspy_resolver(monkeypatch):
-    """Force the gh_execute_intent case-arm onto the hardcoded fallback
-    path by making GHIntentResolver construction raise. The case-arm's
-    DSPy try/except catches, sets DSPY_AVAILABLE = False internally, and
-    falls through to the categorization branch — which is the boundary
-    where our handoff check still fires from the final `all_positioned`.
-    """
+    """Poison the dormant DSPy path if containment ever fails open."""
     import rook.learning.dspy_modules as dspy_modules_mod
 
     class _BrokenResolver:
@@ -3756,11 +3740,7 @@ def _break_dspy_resolver(monkeypatch):
 
 @pytest.fixture
 def pr3_handoff_setup(monkeypatch, patched_server):
-    """Shared fixture for PR-3 handoff tests: stubs the noisy optional
-    queries (unified store + pattern store) so the case-arm reaches the
-    resolver/fallback boundary cleanly. Each test supplies its own
-    knowledge-store candidate components and call_rhino behavior.
-    """
+    """Retain legacy PR-3 setup as unreachable downstream state."""
     # Silence optional pattern queries — both are try/except-wrapped in the
     # case-arm, so raising is safe; this just skips noise.
     import rook.learning.gh_knowledge as gh_kno
@@ -3787,27 +3767,17 @@ async def _call_gh_execute_intent(intent: str):
     return _decode_response(response)
 
 
-def _parse_handoff_payload(payload: dict) -> dict:
-    """Parse the structured JSON dict carried inside a failure `data`
-    string. `_decode_response` returns `payload["data"]` as a raw
-    post-'Error: ' string; for PR-3 handoffs that string is a JSON blob
-    because the case-arm puts a dict in `result["data"]` and call_tool's
-    failure formatter json.dumps it. Returns the parsed dict.
-    """
-    raw = payload.get("data")
-    if isinstance(raw, dict):
-        return raw
-    if isinstance(raw, str):
-        return json.loads(raw)
-    raise AssertionError(f"handoff data payload is neither dict nor str: {raw!r}")
+def _assert_gh_execute_intent_contained(payload: dict) -> None:
+    entry = resolve_contained_identity("gh_execute_intent")
+    assert entry is not None
+    assert payload == {
+        "success": False,
+        "data": containment_payload(entry),
+    }, "EXPECTED_RED:T3:BOUNDARIES"
 
 
 def _build_handoff_call_rhino(routes_called: list):
-    """Permissive call_rhino mock: succeeds on read-only routes used by
-    session recording and candidate-resolution, but RAISES on any
-    dispatch route that would materialize a component. If the handoff
-    check fires correctly, none of the dispatch routes should be hit.
-    """
+    """Poison host boundary retained from the dormant handoff scenarios."""
     async def fake_call_rhino(route, method="GET", payload=None, port=None):
         routes_called.append(route)
         if route == "/gh/document":
@@ -3816,11 +3786,11 @@ def _build_handoff_call_rhino(routes_called: list):
             return {"success": True, "data": {"objects": []}}
         if route == "/gh/snapshot":
             return {"success": True, "data": {"epoch": "test-epoch", "components": []}}
-        # Any component-creation / edit route must NOT fire on handoff.
+        # No host route is reachable once public containment runs.
         if route in ("/gh/create-component", "/gh/edit", "/gh/script-params",
                      "/gh/script", "/gh/errors", "/gh/solve"):
             raise AssertionError(
-                f"Handoff must short-circuit before dispatch; got route {route!r}"
+                f"Containment must short-circuit before dispatch; got route {route!r}"
             )
         return {"success": True, "data": {}}
 
@@ -3828,14 +3798,10 @@ def _build_handoff_call_rhino(routes_called: list):
 
 
 @pytest.mark.asyncio
-async def test_gh_execute_intent_hands_off_python_script_component(
+async def test_gh_execute_intent_contains_before_python_script_resolution(
     monkeypatch, pr3_handoff_setup
 ):
-    """Intent resolves to a RhinoCode Python 3 Script component → the
-    handoff check must refuse with structured `handoff_required`,
-    naming gh_create_script(language="python") as the recommended tool.
-    No /gh/create-component or /gh/edit call fires.
-    """
+    """A dormant Python-script scenario cannot outrun the public guard."""
     _break_dspy_resolver(monkeypatch)
     # get_gh_knowledge_store is imported locally inside the case arm
     # (`from rook.learning.gh_knowledge import get_gh_knowledge_store`),
@@ -3860,21 +3826,15 @@ async def test_gh_execute_intent_hands_off_python_script_component(
 
     payload = await _call_gh_execute_intent("create a python script that prints hello")
 
-    assert payload["success"] is False
-    data = _parse_handoff_payload(payload)
-    assert data.get("handoff_required") is True
-    assert data.get("recommended_tool") == "gh_create_script"
-    assert data.get("recommended_language") == "python"
-    assert data.get("component_guid") == _PR3_PY3_GUID
+    _assert_gh_execute_intent_contained(payload)
+    assert routes == [], "EXPECTED_RED:T3:BOUNDARIES"
 
 
 @pytest.mark.asyncio
-async def test_gh_execute_intent_hands_off_csharp_script_component(
+async def test_gh_execute_intent_contains_before_csharp_script_resolution(
     monkeypatch, pr3_handoff_setup
 ):
-    """Symmetric to the python test — CS3 GUID triggers handoff with
-    recommended_language='csharp'.
-    """
+    """A dormant C#-script scenario cannot outrun the public guard."""
     _break_dspy_resolver(monkeypatch)
     # get_gh_knowledge_store is imported locally inside the case arm
     # (`from rook.learning.gh_knowledge import get_gh_knowledge_store`),
@@ -3899,22 +3859,15 @@ async def test_gh_execute_intent_hands_off_csharp_script_component(
 
     payload = await _call_gh_execute_intent("create a C# script that computes a sum")
 
-    assert payload["success"] is False
-    data = _parse_handoff_payload(payload)
-    assert data.get("handoff_required") is True
-    assert data.get("recommended_tool") == "gh_create_script"
-    assert data.get("recommended_language") == "csharp"
-    assert data.get("component_guid") == _PR3_CS3_GUID
+    _assert_gh_execute_intent_contained(payload)
+    assert routes == [], "EXPECTED_RED:T3:BOUNDARIES"
 
 
 @pytest.mark.asyncio
-async def test_gh_execute_intent_handoff_response_names_alias_tool(
+async def test_gh_execute_intent_tombstone_is_stable_across_script_languages(
     monkeypatch, pr3_handoff_setup
 ):
-    """Handoff response must surface the language-specific alias tool
-    name so callers plumbed for the alias can drop in without migrating
-    to the unified tool immediately.
-    """
+    """Python and C# intents return the same identity tombstone."""
     _break_dspy_resolver(monkeypatch)
     # get_gh_knowledge_store is imported locally inside the case arm
     # (`from rook.learning.gh_knowledge import get_gh_knowledge_store`),
@@ -3933,10 +3886,9 @@ async def test_gh_execute_intent_handoff_response_names_alias_tool(
 
     payload = await _call_gh_execute_intent("write a python script")
 
-    data = _parse_handoff_payload(payload)
-    assert data.get("alias_tool") == "gh_create_python_script"
+    _assert_gh_execute_intent_contained(payload)
 
-    # Also confirm the csharp case.
+    # The exact retired identity has one stable tombstone regardless of intent.
     # get_gh_knowledge_store is imported locally inside the case arm
     # (`from rook.learning.gh_knowledge import get_gh_knowledge_store`),
     # so the patch must target the module-of-origin, not `server`.
@@ -3950,20 +3902,15 @@ async def test_gh_execute_intent_handoff_response_names_alias_tool(
         ]),
     )
     payload_cs = await _call_gh_execute_intent("write a C# script")
-    data_cs = _parse_handoff_payload(payload_cs)
-    assert data_cs.get("alias_tool") == "gh_create_csharp_script"
+    _assert_gh_execute_intent_contained(payload_cs)
+    assert routes == [], "EXPECTED_RED:T3:BOUNDARIES"
 
 
 @pytest.mark.asyncio
-async def test_gh_execute_intent_handoff_fires_on_fallback_path(
+async def test_gh_execute_intent_contains_before_fallback_resolution(
     monkeypatch, pr3_handoff_setup
 ):
-    """Handoff must fire whether the resolution path is DSPy or the
-    hardcoded fallback — both routes populate `all_positioned`, and the
-    check runs on the final list before dispatch. _break_dspy_resolver
-    forces the fallback path; this test is the explicit regression floor
-    for that branch.
-    """
+    """Containment precedes the dormant DSPy/fallback resolver split."""
     _break_dspy_resolver(monkeypatch)
     # get_gh_knowledge_store is imported locally inside the case arm
     # (`from rook.learning.gh_knowledge import get_gh_knowledge_store`),
@@ -3982,20 +3929,15 @@ async def test_gh_execute_intent_handoff_fires_on_fallback_path(
 
     payload = await _call_gh_execute_intent("make a python script component")
 
-    assert payload["success"] is False
-    data = _parse_handoff_payload(payload)
-    assert data.get("handoff_required") is True
-    # Regression: the dispatch routes must never be hit — assertion fires
-    # from the mock if they are. No extra check needed here beyond success.
+    _assert_gh_execute_intent_contained(payload)
+    assert routes == [], "EXPECTED_RED:T3:BOUNDARIES"
 
 
 @pytest.mark.asyncio
-async def test_gh_execute_intent_does_not_handoff_on_non_script_components(
+async def test_gh_execute_intent_contains_non_script_intents_too(
     monkeypatch, pr3_handoff_setup
 ):
-    """Regression floor: a normal intent (sphere) must NOT trigger the
-    handoff. The check fires only on the two fixed RhinoCode script GUIDs.
-    """
+    """Containment follows the retired identity, not resolved component type."""
     _break_dspy_resolver(monkeypatch)
     # get_gh_knowledge_store is imported locally inside the case arm
     # (`from rook.learning.gh_knowledge import get_gh_knowledge_store`),
@@ -4009,7 +3951,7 @@ async def test_gh_execute_intent_does_not_handoff_on_non_script_components(
              "quick": "", "params": {}, "deprecated": False},
         ]),
     )
-    # Permissive call_rhino — the dispatch routes ARE expected to run here.
+    # This permissive host stub must remain unreachable.
     async def permissive_call_rhino(route, method="GET", payload=None, port=None):
         if route == "/gh/document":
             return {"success": True, "data": {"name": "test.gh", "path": ""}}
@@ -4025,36 +3967,14 @@ async def test_gh_execute_intent_does_not_handoff_on_non_script_components(
 
     payload = await _call_gh_execute_intent("create a sphere")
 
-    # Non-handoff path — either succeeds or fails for other reasons, but
-    # MUST NOT return a handoff_required response.
-    data = payload["data"]
-    if isinstance(data, dict):
-        assert data.get("handoff_required") is not True, (
-            f"Non-script intent triggered false-positive handoff; data={data!r}"
-        )
-    elif isinstance(data, str):
-        # Failure-with-string-data path; confirm it's NOT a JSON-serialized
-        # handoff that slipped through (defense in depth — the sphere path
-        # should not produce any handoff shape regardless of serialization).
-        try:
-            parsed = json.loads(data)
-        except Exception:
-            parsed = None
-        if isinstance(parsed, dict):
-            assert parsed.get("handoff_required") is not True, (
-                f"Non-script intent produced handoff-shaped error body: {parsed!r}"
-            )
+    _assert_gh_execute_intent_contained(payload)
 
 
 @pytest.mark.asyncio
-async def test_gh_execute_intent_handoff_preserves_component_guid_in_response(
+async def test_gh_execute_intent_contains_before_component_guid_inspection(
     monkeypatch, pr3_handoff_setup
 ):
-    """Debuggability: the handoff response must include the exact GUID
-    that triggered it so callers can introspect WHY the refusal fired
-    (e.g., distinguish PY3 vs CS3 root cause from logs / transcripts).
-    GUID is normalized to lowercase in the response per the helper.
-    """
+    """Even unusual downstream GUID casing is irrelevant to the tombstone."""
     _break_dspy_resolver(monkeypatch)
     # Feed uppercase GUID through — helper must normalize it.
     upper_guid = _PR3_CS3_GUID.upper()
@@ -4075,26 +3995,15 @@ async def test_gh_execute_intent_handoff_preserves_component_guid_in_response(
 
     payload = await _call_gh_execute_intent("make a csharp script")
 
-    data = _parse_handoff_payload(payload)
-    # The response's component_guid field must carry the triggering GUID
-    # (lowercase-normalized); this is the primary debuggability anchor.
-    assert data.get("component_guid") == _PR3_CS3_GUID  # lowercase canonical
+    _assert_gh_execute_intent_contained(payload)
+    assert routes == [], "EXPECTED_RED:T3:BOUNDARIES"
 
 
 @pytest.mark.asyncio
-async def test_gh_execute_intent_handoff_is_structured_for_mcp_tool_executor(
+async def test_gh_execute_intent_containment_is_structured_for_mcp_tool_executor(
     monkeypatch, pr3_handoff_setup
 ):
-    """_mcp_tool_executor is the canonical agent-path executor (used by
-    spawn_agent and plan_and_execute). PR-3's handoff must surface as a
-    structured dict on THAT surface, not just in the raw MCP text — agents
-    can't branch on `handoff_required` / `recommended_tool` otherwise.
-
-    Codex review of PR-3 caught that call_tool formats dict-data failures
-    as `Error: {json}`, but _mcp_tool_executor fell back to a success
-    wrapper on unparseable text. Fix threads `Error: <json>` through so
-    the executor returns `{"success": False, "data": <parsed-dict>}`.
-    """
+    """The agent-path executor returns the same containment envelope."""
     _break_dspy_resolver(monkeypatch)
     import rook.learning.gh_knowledge as _ghk
     monkeypatch.setattr(
@@ -4108,49 +4017,25 @@ async def test_gh_execute_intent_handoff_is_structured_for_mcp_tool_executor(
     routes: list[str] = []
     monkeypatch.setattr(server, "call_rhino", _build_handoff_call_rhino(routes))
 
-    # Go through the canonical agent executor rather than call_tool + _decode_response.
     result = await server._mcp_tool_executor(
         "gh_execute_intent",
         {"intent": "create a python script that prints hi"},
     )
 
-    # The executor must return a structured failure with the handoff dict
-    # reachable via result["data"] — no string-parsing required by callers.
-    assert result.get("success") is False, (
-        f"Handoff must be signaled as failure via _mcp_tool_executor; got: {result!r}"
-    )
-    data = result.get("data")
-    assert isinstance(data, dict), (
-        f"Handoff data must be a dict on the agent-executor surface; got: {data!r}"
-    )
-    assert data.get("handoff_required") is True
-    assert data.get("recommended_tool") == "gh_create_script"
-    assert data.get("recommended_language") == "python"
-    assert data.get("alias_tool") == "gh_create_python_script"
+    entry = resolve_contained_identity("gh_execute_intent")
+    assert entry is not None
+    assert result == containment_envelope(entry), "EXPECTED_RED:T3:BOUNDARIES"
+    assert routes == [], "EXPECTED_RED:T3:BOUNDARIES"
 
 
 @pytest.mark.asyncio
-async def test_gh_execute_intent_handoff_does_not_record_as_failed_observation(
+async def test_gh_execute_intent_containment_skips_execution_observation(
     monkeypatch, pr3_handoff_setup
 ):
-    """Handoffs are routing corrections, not execution failures. They must
-    NOT inflate per-tool failure counters / lower success rates in the
-    metrics store. The `_is_handoff` sentinel gates `_record_observation`
-    early-return.
-
-    Codex review of PR-3 caught that _record_observation ran
-    unconditionally at call_tool's tail with `success=False`,
-    contradicting the intent to "not track as failure." This test pins
-    the early-return behavior.
-    """
+    """Containment returns before ordinary execution observation."""
     observation_calls: list[tuple[str, dict]] = []
 
     def _recording_stub(tool_name, arguments, result, duration_ms, injection_meta):
-        # The real _record_observation contains an _is_handoff early-return;
-        # we re-wrap it here so the test asserts on whether the observation
-        # body was ever entered (i.e. whether the early-return logic held).
-        if result.get("_is_handoff"):
-            return  # same short-circuit as production
         observation_calls.append((tool_name, dict(result)))
 
     monkeypatch.setattr(server, "_record_observation", _recording_stub)
@@ -4168,25 +4053,19 @@ async def test_gh_execute_intent_handoff_does_not_record_as_failed_observation(
     routes: list[str] = []
     monkeypatch.setattr(server, "call_rhino", _build_handoff_call_rhino(routes))
 
-    await _call_gh_execute_intent("make a python script")
+    payload = await _call_gh_execute_intent("make a python script")
 
-    # The handoff path must not have recorded any observation for this tool.
+    _assert_gh_execute_intent_contained(payload)
     intent_obs = [obs for obs in observation_calls if obs[0] == "gh_execute_intent"]
-    assert intent_obs == [], (
-        f"Handoff path recorded an observation for gh_execute_intent; "
-        f"got {len(intent_obs)} observations: {intent_obs!r}"
-    )
+    assert intent_obs == [], "EXPECTED_RED:T3:BOUNDARIES"
+    assert routes == [], "EXPECTED_RED:T3:BOUNDARIES"
 
 
 @pytest.mark.asyncio
-async def test_gh_execute_intent_handoff_sentinel_not_in_response_text(
+async def test_gh_execute_intent_public_response_is_exact_tombstone(
     monkeypatch, pr3_handoff_setup
 ):
-    """The `_is_handoff` sentinel is an internal-only marker (same
-    underscore-prefix convention as `_metrics_extra` and `_injection_meta`).
-    It must be popped before response serialization so callers never see
-    it in the response text.
-    """
+    """The raw MCP response is the stable public containment tombstone."""
     _break_dspy_resolver(monkeypatch)
     import rook.learning.gh_knowledge as _ghk
     monkeypatch.setattr(
@@ -4205,7 +4084,10 @@ async def test_gh_execute_intent_handoff_sentinel_not_in_response_text(
         {"intent": "make a python script"},
     )
     text = response[0].text
-    assert "_is_handoff" not in text, (
-        f"Internal handoff sentinel leaked into response text: {text!r}"
-    )
+    entry = resolve_contained_identity("gh_execute_intent")
+    assert entry is not None
+    assert text == (
+        f"Error: {json.dumps(containment_payload(entry), indent=2)}"
+    ), "EXPECTED_RED:T3:BOUNDARIES"
+    assert routes == [], "EXPECTED_RED:T3:BOUNDARIES"
 

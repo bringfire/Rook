@@ -2,6 +2,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -548,7 +549,57 @@ async def test_call_tool_rejects_conflicting_document_serial(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_panel_lock_blocks_spawn_agent_before_background_task(monkeypatch):
+async def test_spawn_agent_containment_precedes_panel_target_and_background_task(
+    monkeypatch,
+):
+    from rook import server, targeting
+    from rook.tool_lifecycle import containment_payload, resolve_contained_identity
+
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    touched = []
+
+    def policy_spy(_name):
+        touched.append("target_policy")
+        return SimpleNamespace(requires_rhino=False)
+
+    def discovery_spy():
+        touched.append("target_discovery")
+        return [
+            {
+                "host": "127.0.0.1",
+                "port": 9950,
+                "processId": 7101,
+                "pluginType": "native",
+            },
+        ]
+
+    background = AsyncMock(
+        side_effect=AssertionError(
+            "EXPECTED_RED:T3:BOUNDARIES spawn_agent handler was entered"
+        )
+    )
+    monkeypatch.setattr(targeting, "policy_for_tool", policy_spy)
+    monkeypatch.setattr(targeting, "discover_instances", discovery_spy)
+    monkeypatch.setattr(server, "_handle_spawn_agent", background)
+
+    result = await server.call_tool("spawn_agent", {"prompt": "create a box"})
+
+    entry = resolve_contained_identity("spawn_agent")
+    assert entry is not None
+    assert result[0].text == (
+        f"Error: {json.dumps(containment_payload(entry), indent=2)}"
+    ), "EXPECTED_RED:T3:BOUNDARIES"
+    assert touched == [], "EXPECTED_RED:T3:BOUNDARIES"
+    assert background.await_count == 0, "EXPECTED_RED:T3:BOUNDARIES"
+
+
+@pytest.mark.asyncio
+async def test_panel_lock_still_blocks_admitted_workbench_list(monkeypatch):
     from rook import server, targeting
 
     targeting.reset_targeting_state_for_tests()
@@ -557,13 +608,17 @@ async def test_panel_lock_blocks_spawn_agent_before_background_task(monkeypatch)
         "ROOK_MCP_TARGET_PROCESS_ID": "7101",
         "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
     })
-    monkeypatch.setattr(targeting, "discover_instances", lambda: [
-        {"host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native"},
-    ])
+    workbench_call = AsyncMock(
+        side_effect=AssertionError(
+            "panel-locked admitted workbench call must not execute"
+        )
+    )
+    monkeypatch.setattr(server.workbench, "list_owned_workbenches", workbench_call)
 
-    result = await server.call_tool("spawn_agent", {"prompt": "create a box"})
+    result = await server.call_tool("rhino_workbench_list", {})
 
     assert "panel_target_locked" in result[0].text
+    workbench_call.assert_not_awaited()
 
 
 @pytest.mark.asyncio

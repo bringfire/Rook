@@ -1,6 +1,10 @@
 import asyncio
 from rook import server
-from rook.tool_lifecycle import contained_names
+from rook.tool_lifecycle import (
+    contained_names,
+    containment_envelope,
+    resolve_contained_identity,
+)
 
 
 def test_dispatchable_names_include_meta_and_a_known_native():
@@ -165,6 +169,73 @@ def test_rook_tools_call_rejects_non_object_arguments(monkeypatch):
     monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
     text = _text("rook_tools_call", {"name": "rhino_instances", "arguments": "abc"})
     assert "invalid_arguments" in text
+
+
+def test_contained_meta_target_formats_once_inside_handler_and_returns_unchanged(
+    monkeypatch,
+):
+    marker = "EXPECTED_RED:T3:BOUNDARIES"
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "readonly")
+    entry = resolve_contained_identity("spawn_agent")
+    assert entry is not None
+    sentinel = [object()]
+    formatted = []
+
+    def format_spy(result):
+        formatted.append(result)
+        return sentinel
+
+    def profile_must_not_run(_env):
+        raise AssertionError(
+            f"{marker} contained progressive target reached profile resolution"
+        )
+
+    async def capability_must_not_run():
+        raise AssertionError(
+            f"{marker} contained progressive target built capability index"
+        )
+
+    monkeypatch.setattr(server, "_format_tool_result", format_spy)
+    monkeypatch.setattr(server, "resolve_profile", profile_must_not_run)
+    monkeypatch.setattr(server, "_get_capability_index", capability_must_not_run)
+
+    result = asyncio.run(
+        server.call_tool(
+            "rook_tools_call",
+            {
+                "name": "spawn_agent",
+                "arguments": object(),
+            },
+        )
+    )
+
+    assert result is sentinel, marker
+    assert formatted == [containment_envelope(entry)], marker
+
+
+def test_contained_direct_target_formats_once_before_profile_resolution(monkeypatch):
+    marker = "EXPECTED_RED:T3:BOUNDARIES"
+    entry = resolve_contained_identity("spawn_agent")
+    assert entry is not None
+    sentinel = [object()]
+    formatted = []
+
+    def format_spy(result):
+        formatted.append(result)
+        return sentinel
+
+    def profile_must_not_run(_env):
+        raise AssertionError(
+            f"{marker} contained direct target reached profile resolution"
+        )
+
+    monkeypatch.setattr(server, "_format_tool_result", format_spy)
+    monkeypatch.setattr(server, "resolve_profile", profile_must_not_run)
+
+    result = asyncio.run(server.call_tool("spawn_agent", None))
+
+    assert result is sentinel, marker
+    assert formatted == [containment_envelope(entry)], marker
 
 
 def test_rook_tools_ls_tolerates_malformed_depth(monkeypatch):

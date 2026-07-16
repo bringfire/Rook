@@ -6,6 +6,7 @@ import pytest
 
 from rook import server, targeting
 import rook.learning.gh_session_history as gh_session_history
+from rook.tool_lifecycle import containment_payload, resolve_contained_identity
 
 
 class _DummyPhaseTracker:
@@ -228,7 +229,18 @@ async def test_record_gh_to_session_marks_edit_summary_errors_as_partial(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_gh_replay_recipe_strict_partial_failure_is_recorded_as_partial(monkeypatch, patched_server):
+async def test_gh_replay_recipe_returns_containment_tombstone_before_recipe_or_host_work(
+    monkeypatch,
+    patched_server,
+    tmp_path,
+):
+    marker = "EXPECTED_RED:T3:BOUNDARIES"
+    from rook.learning import metrics_store
+
+    store = metrics_store.MetricsStore(tmp_path / "metrics.json")
+    monkeypatch.setattr(metrics_store, "_metrics_store", store)
+    touched = []
+
     class _Pattern:
         pattern_id = "pat-1"
         name = "partial recipe"
@@ -240,10 +252,12 @@ async def test_gh_replay_recipe_strict_partial_failure_is_recorded_as_partial(mo
 
     class _Store:
         def get(self, pattern_id):
+            touched.append("pattern")
             assert pattern_id == "pat-1"
             return _Pattern()
 
     async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        touched.append(f"host:{route}")
         if route == "/gh/snapshot":
             return {"success": True, "data": {"epoch": 4}}
         if route == "/gh/edit":
@@ -259,19 +273,25 @@ async def test_gh_replay_recipe_strict_partial_failure_is_recorded_as_partial(mo
             }
         raise AssertionError(f"Unexpected route: {route}")
 
-    record_mock = AsyncMock()
+    async def record_spy(*_args, **_kwargs):
+        touched.append("session")
 
     monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
-    monkeypatch.setattr(server, "_record_gh_to_session", record_mock)
+    monkeypatch.setattr(server, "_record_gh_to_session", record_spy)
     monkeypatch.setattr("rook.learning.pattern_store.get_pattern_store", lambda: _Store())
+    before = store.get_containment_denials_snapshot()
 
     response = await server.call_tool("gh_replay_recipe", {"pattern_id": "pat-1"})
-    payload = _decode_response(response)
-
-    assert payload["success"] is False
-    assert payload["data"]["partial_success"] is True
-    assert payload["data"]["errors"] == ["connect: failed during replay"]
-    record_mock.assert_awaited_once()
+    entry = resolve_contained_identity("gh_replay_recipe")
+    assert entry is not None
+    assert response[0].text == (
+        f"Error: {json.dumps(containment_payload(entry), indent=2)}"
+    ), marker
+    assert touched == [], marker
+    after = store.get_containment_denials_snapshot()
+    assert len(after["events"]) == len(before["events"]) + 1, marker
+    assert after["events"][-1]["tool"] == "gh_replay_recipe", marker
+    assert after["events"][-1]["origin"] == "public_mcp", marker
 
 
 def test_batch_gh_edit_partial_result_does_not_request_sequential_fallback():

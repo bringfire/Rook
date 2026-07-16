@@ -24,7 +24,11 @@ from rook.agent.chat.execution_policy import (
     needs_verification,
     annotate_result,
 )
-from rook.tool_lifecycle import contained_names
+from rook.tool_lifecycle import (
+    contained_names,
+    containment_envelope,
+    resolve_contained_identity,
+)
 
 
 def _safe_line_knowledge_store():
@@ -503,6 +507,53 @@ def test_build_local_tools_omits_rhino_execute_intent_without_telemetry(
         "rhino_execute_intent" not in tools
         and after == before
     ), "EXPECTED_RED:T2:PYTEST build_local_tools still registers contained intent tool"
+
+
+@pytest.mark.asyncio
+async def test_poisoned_local_rhino_execute_intent_cannot_bypass_dispatch_guard(
+    monkeypatch,
+    tmp_path,
+):
+    marker = "EXPECTED_RED:T3:BOUNDARIES"
+    store = _dispatcher_telemetry_store(monkeypatch, tmp_path)
+    called = False
+
+    async def stale_local_handler(**_kwargs):
+        nonlocal called
+        called = True
+        return {"success": True, "data": "stale handler executed"}
+
+    class PoisonParams(dict):
+        def keys(self):
+            raise AssertionError(
+                f"{marker} dispatcher copied params before containment"
+            )
+
+        def __iter__(self):
+            raise AssertionError(
+                f"{marker} dispatcher iterated params before containment"
+            )
+
+        def __len__(self):
+            raise AssertionError(
+                f"{marker} dispatcher inspected params before containment"
+            )
+
+    dispatcher = ToolDispatcher()
+    dispatcher._local_tools["rhino_execute_intent"] = stale_local_handler
+    before = store.get_containment_denials_snapshot()
+
+    result = await dispatcher.dispatch("rhino_execute_intent", PoisonParams())
+
+    entry = resolve_contained_identity("rhino_execute_intent")
+    assert entry is not None
+    assert result == containment_envelope(entry), marker
+    assert dispatcher.call_count == 0, marker
+    assert called is False, marker
+    after = store.get_containment_denials_snapshot()
+    assert len(after["events"]) == len(before["events"]) + 1, marker
+    assert after["events"][-1]["tool"] == "rhino_execute_intent", marker
+    assert after["events"][-1]["origin"] == "tool_dispatcher", marker
 
 
 # =============================================================================

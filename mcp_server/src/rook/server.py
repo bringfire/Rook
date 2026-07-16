@@ -15,11 +15,13 @@ import os
 import tempfile
 import textwrap
 import uuid
+from collections.abc import Mapping
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
 import httpx
+from mcp import types as mcp_types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
@@ -31,7 +33,13 @@ from .gh_csharp_preflight import (
 )
 from .gh_script_receipts import build_script_receipt
 from .gh_status_contract import normalize_gh_status_result
-from .tool_lifecycle import filter_local_registrations, filter_mcp_records
+from .tool_lifecycle import (
+    DispatchOrigin,
+    filter_local_registrations,
+    filter_mcp_records,
+    resolve_contained_identity,
+)
+from .tool_lifecycle_runtime import deny_if_contained
 from .runtime_paths import (
     load_runtime_dotenv,
     resolve_readable_knowledge_path,
@@ -821,13 +829,14 @@ async def _mcp_tool_executor(tool_name: str, params: dict) -> dict:
     to plain dicts that the agent loop expects.
 
     Failure envelopes: call_tool formats failures as `Error: <str>` or
-    `Error: <json>`. When the trailing payload parses as JSON (e.g. the
-    PR-3 gh_execute_intent handoff response, which carries structured
-    fields like `handoff_required` / `recommended_tool` /
-    `recommended_language`), return the parsed dict so agent callers can
-    branch on those markers without re-parsing the text. When it doesn't
-    parse, return the raw string — same surface as before this change.
+    `Error: <json>`. When the trailing payload parses as JSON, return the
+    structured dict so agent callers can branch on stable fields without
+    re-parsing the text. When it doesn't parse, return the raw string.
     """
+    denial = deny_if_contained(tool_name, DispatchOrigin.SERVER_DISPATCH)
+    if denial is not None:
+        return denial
+
     try:
         result = await call_tool(tool_name, params)
         if isinstance(result, list) and result:
@@ -13314,6 +13323,10 @@ async def _handle_spawn_agent(arguments: dict) -> dict:
     Runs the agent as a background asyncio.Task so the MCP server stays
     responsive. Returns the agent_id immediately; use agent_status to poll.
     """
+    denial = deny_if_contained("spawn_agent", DispatchOrigin.INTERNAL_HANDLER)
+    if denial is not None:
+        return denial
+
     import asyncio
     import uuid
     try:
@@ -13403,6 +13416,13 @@ async def _handle_plan_and_execute(arguments: dict) -> dict:
     Runs planner + workers as a background asyncio.Task. Returns plan_id
     immediately; use agent_status to poll for completion.
     """
+    denial = deny_if_contained(
+        "plan_and_execute",
+        DispatchOrigin.INTERNAL_HANDLER,
+    )
+    if denial is not None:
+        return denial
+
     import asyncio
     import uuid
     try:
@@ -13707,6 +13727,10 @@ def _encode_reconstruction_job_id(jid: Any) -> tuple[str | None, dict | None]:
 
 async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     """Handle tool calls."""
+    denial = deny_if_contained(name, DispatchOrigin.SERVER_DISPATCH)
+    if denial is not None:
+        return denial
+
     import time as _time
     _t0 = _time.perf_counter()
     _tool_name = name  # Preserve original tool name — handlers may reassign `name`
@@ -20808,6 +20832,19 @@ async def _handle_meta_tool(name, arguments, profile):
     arguments-is-object -> field validation -> dispatch under _dispatch_origin="meta". All caller
     inputs are untrusted (this is a public MCP dispatcher) and coerced/guarded before use.
     """
+    if name == "rook_tools_call":
+        denial = deny_if_contained(
+            arguments.get("name"),
+            DispatchOrigin.PROGRESSIVE_META,
+        )
+        if denial is not None:
+            return _format_tool_result(denial)
+
+    if profile is None:
+        profile = resolve_profile(os.environ)
+        if tool_blocked(name, profile):
+            return _format_tool_result(profile_blocked_envelope(name, profile))
+
     index = await _get_capability_index()
     scope_readonly = (profile == Profile.READONLY)
     if name == "rook_tools_ls":
@@ -20865,8 +20902,22 @@ async def _handle_meta_tool(name, arguments, profile):
 
 
 @mcp.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+async def call_tool(
+    name: str,
+    arguments: dict[str, Any] | None,
+) -> list[TextContent]:
     """Handle tool calls with centralized Rhino target routing."""
+    denial = deny_if_contained(name, DispatchOrigin.PUBLIC_MCP)
+    if denial is not None:
+        return _format_tool_result(denial)
+
+    if name == "rook_tools_call":
+        return await _handle_meta_tool(
+            name,
+            arguments if arguments is not None else {},
+            None,
+        )
+
     arguments = dict(arguments) if arguments else {}
     _active_profile = resolve_profile(os.environ)
     if tool_blocked(name, _active_profile):
@@ -20966,6 +21017,46 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         raw_result = await _call_tool_dispatch(name, dispatch_arguments)
     raw_result = targeting.attach_route_metadata(raw_result, route)
     return _format_tool_result(raw_result)
+
+
+def _install_mcp_call_tool_containment_wrapper() -> None:
+    """Bypass SDK schema validation only for exact lifecycle tombstones."""
+    retained_handler = mcp.request_handlers[mcp_types.CallToolRequest]
+    if getattr(retained_handler, "_rook_containment_wrapper", False):
+        return
+
+    async def containment_handler(req):
+        raw_name = req.params.name
+        if resolve_contained_identity(raw_name) is not None:
+            contents = await call_tool(raw_name, None)
+            return mcp_types.ServerResult(
+                mcp_types.CallToolResult(content=contents, isError=False)
+            )
+
+        if raw_name == "rook_tools_call":
+            raw_outer_mapping = req.params.arguments
+            raw_target = (
+                raw_outer_mapping.get("name")
+                if isinstance(raw_outer_mapping, Mapping)
+                else None
+            )
+            if resolve_contained_identity(raw_target) is not None:
+                contents = await call_tool(
+                    "rook_tools_call",
+                    raw_outer_mapping,
+                )
+                return mcp_types.ServerResult(
+                    mcp_types.CallToolResult(content=contents, isError=False)
+                )
+
+        return await retained_handler(req)
+
+    containment_handler._rook_containment_wrapper = True
+    containment_handler._rook_retained_handler = retained_handler
+    mcp.request_handlers[mcp_types.CallToolRequest] = containment_handler
+
+
+_install_mcp_call_tool_containment_wrapper()
 
 
 def _validate_profile_or_exit() -> None:

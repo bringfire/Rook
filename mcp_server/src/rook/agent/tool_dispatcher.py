@@ -6,7 +6,7 @@ Gives agents direct access to Rhino/GH tools WITHOUT going through MCP.
 Matches Engram's architecture where agents are peers of MCP, not consumers.
 
 Three dispatch tiers:
-  1. Local tools (knowledge queries, intent execution) → direct Python calls
+  1. Local tools (knowledge queries and bounded helpers) → direct Python calls
   2. Transform tools (parameter rewriting needed) → transform → call_rhino()
   3. Bridge tools (simple passthrough) → call_rhino() directly
 
@@ -23,7 +23,8 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from ..bridge import call_rhino
 from ..gh_edit_contract import apply_gh_edit_contract
 from ..gh_status_contract import normalize_gh_status_result
-from ..tool_lifecycle import filter_local_registrations
+from ..tool_lifecycle import DispatchOrigin, filter_local_registrations
+from ..tool_lifecycle_runtime import deny_if_contained
 from .chat.execution_policy import annotate_result, needs_verification
 
 logger = logging.getLogger(__name__)
@@ -1975,10 +1976,13 @@ class ToolDispatcher:
         no session recording — those are the agent's responsibility via Seam 1-4.
 
         Post-dispatch verification (execution_policy) runs after all tiers return,
-        covering CREATION_TOOLS, MODAL_RISK_TOOLS, and route-based
-        rhino_execute_intent. This is the single enforcement point — both chat
-        and agent paths converge here.
+        covering CREATION_TOOLS and MODAL_RISK_TOOLS. This is the single
+        enforcement point — both chat and agent paths converge here.
         """
+        denial = deny_if_contained(name, DispatchOrigin.TOOL_DISPATCHER)
+        if denial is not None:
+            return denial
+
         self._call_count += 1
         params = dict(params) if params else {}
         port = params.pop("port", None) or self._port
@@ -1986,9 +1990,8 @@ class ToolDispatcher:
         result = await self._dispatch_inner(name, params, port)
 
         # --- Post-dispatch verification (single enforcement point) ---
-        # Covers CREATION_TOOLS (silent-failure detection via objectsCreated),
-        # MODAL_RISK_TOOLS (prompt idle check), and route-based
-        # rhino_execute_intent (when substrate is known_command or interactive).
+        # Covers CREATION_TOOLS (silent-failure detection via objectsCreated)
+        # and MODAL_RISK_TOOLS (prompt idle check).
         # Skip when _pre_dispatch_failure is set — the tool never reached Rhino,
         # so prompt-polling and modal-risk notes would be misleading.
         if (
@@ -2011,6 +2014,10 @@ class ToolDispatcher:
 
     async def _dispatch_inner(self, name: str, params: dict, port: int | None) -> dict:
         """Core dispatch logic — routes to the correct tier without verification."""
+        denial = deny_if_contained(name, DispatchOrigin.TOOL_DISPATCHER)
+        if denial is not None:
+            return denial
+
         if name in _DEPRECATED_INTERACTIVE_COMMAND_TOOLS:
             return _interactive_command_deprecated_result(name)
 
@@ -2075,6 +2082,10 @@ class ToolDispatcher:
 
     async def _call_local(self, name: str, params: dict, port: int | None = None) -> dict:
         """Execute a local Python tool."""
+        denial = deny_if_contained(name, DispatchOrigin.TOOL_DISPATCHER)
+        if denial is not None:
+            return denial
+
         fn = self._local_tools[name]
         try:
             call_params = dict(params)
@@ -2111,6 +2122,10 @@ class ToolDispatcher:
         (agents record via their own MetricsStore in Seam 3).
         Currently empty — gh_edit handles its own knowledge/session recording.
         """
+        denial = deny_if_contained(name, DispatchOrigin.TOOL_DISPATCHER)
+        if denial is not None:
+            return denial
+
         from ..learning.gh_knowledge import gh_query_operation, get_gh_knowledge_store
 
         op_name, ctx_builder = KNOWLEDGE_WRAPPED_TOOLS[name]
