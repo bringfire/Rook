@@ -20827,9 +20827,9 @@ async def _handle_meta_tool(name, arguments, profile):
     """Serve the four rook_tools_* progressive-disclosure meta-tools.
 
     ls/search/read are pure queries over the capability index, readonly-scoped when the active
-    profile is READONLY. rook_tools_call re-enters call_tool() for its target with guards in a
-    fixed order: recursion -> readonly wall (BEFORE validation) -> mcp_dispatchable ->
-    arguments-is-object -> field validation -> dispatch under _dispatch_origin="meta". All caller
+    profile is READONLY. For rook_tools_call, exact nested lifecycle containment runs first.
+    An admitted target then follows recursion -> target readonly wall -> dispatchability ->
+    argument-object/schema validation -> dispatch under _dispatch_origin="meta". All caller
     inputs are untrusted (this is a public MCP dispatcher) and coerced/guarded before use.
     """
     if name == "rook_tools_call":
@@ -20865,8 +20865,8 @@ async def _handle_meta_tool(name, arguments, profile):
             return _format_tool_result({"success": False, "data": {"error": "unknown_or_non_dispatchable",
                                                                    "name": arguments.get("name")}})
         return _format_tool_result({"success": True, "data": rec})
-    # rook_tools_call — untrusted input; guards in order: recursion -> readonly wall(target) ->
-    # mcp_dispatchable -> arguments-is-object -> field validation -> dispatch.
+    # Exact nested lifecycle containment already ran above. The admitted-target order is:
+    # recursion -> target readonly wall -> dispatchability -> argument/schema validation -> dispatch.
     target = str(arguments.get("name") or "")
     targs = arguments.get("arguments")
     if targs is None:
@@ -20928,10 +20928,11 @@ async def call_tool(
             {"success": False, "data": f"Unknown tool: {name}"}
         )
 
-    # Progressive-disclosure meta-tools are intercepted here — AFTER the readonly wall (so a
-    # blocked meta-tool is refused like any other) and BEFORE _call_tool_dispatch (so they never
-    # hit the universal recording tail themselves). rook_tools_call re-enters call_tool() for its
-    # target, so the wall + dispatch + recording all apply to the target unchanged.
+    # The public gateway exact-name guard and gateway profile wall precede this ordinary meta
+    # interception. rook_tools_call is intercepted earlier only to run exact nested containment;
+    # _handle_meta_tool then applies that same outer gateway profile wall before admitted-target
+    # processing. An admitted target follows recursion -> target readonly wall -> dispatchability
+    # -> argument/schema validation -> dispatch, and re-enters call_tool for normal target policy.
     if name in META_TOOL_NAMES:
         return await _handle_meta_tool(name, arguments, _active_profile)
 
