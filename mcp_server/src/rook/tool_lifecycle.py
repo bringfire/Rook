@@ -63,7 +63,7 @@ def _validate_text(
         raise ValueError(
             f"{label} must be 1-{maximum_utf8_bytes} UTF-8 bytes"
         )
-    if value.splitlines(keepends=True) != [value]:
+    if value.splitlines() != [value]:
         raise ValueError(f"{label} must be single-line")
     if any(unicodedata.category(character) == "Cc" for character in value):
         raise ValueError(f"{label} must not contain control characters")

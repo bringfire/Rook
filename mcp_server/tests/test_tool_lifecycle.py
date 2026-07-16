@@ -277,6 +277,20 @@ if lifecycle is not None:
         with pytest.raises(ValueError):
             _build(_entry(recovery=f"before{control}after"))
 
+    @pytest.mark.parametrize("separator", ["\u2028", "\u2029"])
+    @pytest.mark.parametrize("placement", ["interior", "terminal"])
+    def test_recovery_rejects_unicode_line_and_paragraph_separators(
+        separator: str,
+        placement: str,
+    ) -> None:
+        recovery = (
+            f"before{separator}after"
+            if placement == "interior"
+            else f"before{separator}"
+        )
+        with pytest.raises(ValueError):
+            _build(_entry(recovery=recovery))
+
     @pytest.mark.parametrize("count", [1, 16])
     def test_suspended_criteria_accepts_1_to_16_items(count: int) -> None:
         criteria = tuple(f"Criterion {index}." for index in range(count))
@@ -309,6 +323,21 @@ if lifecycle is not None:
         control: str,
     ) -> None:
         criterion = f"before{control}after"
+        assert len(criterion.encode("utf-8")) < 256
+        with pytest.raises(ValueError):
+            _build(_entry(restoration_criteria=(criterion,)))
+
+    @pytest.mark.parametrize("separator", ["\u2028", "\u2029"])
+    @pytest.mark.parametrize("placement", ["interior", "terminal"])
+    def test_criteria_reject_unicode_line_and_paragraph_separators(
+        separator: str,
+        placement: str,
+    ) -> None:
+        criterion = (
+            f"before{separator}after"
+            if placement == "interior"
+            else f"before{separator}"
+        )
         assert len(criterion.encode("utf-8")) < 256
         with pytest.raises(ValueError):
             _build(_entry(restoration_criteria=(criterion,)))

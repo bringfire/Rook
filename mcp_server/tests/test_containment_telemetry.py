@@ -44,6 +44,7 @@ def test_containment_telemetry_contract_is_available() -> None:
 
 if runtime is not None and not _CONTRACT_MISSING:
     from rook import server
+    from rook.agent import substrate_analytics
     from aiohttp.test_utils import TestClient, TestServer
     from unittest.mock import AsyncMock
 
@@ -273,7 +274,17 @@ if runtime is not None and not _CONTRACT_MISSING:
         def observation_path_must_not_run(*args, **kwargs):
             raise AssertionError("containment denial must not call record(Observation)")
 
+        def substrate_persistence_must_not_run(*args, **kwargs):
+            raise AssertionError(
+                "containment denial must not persist a substrate observation"
+            )
+
         monkeypatch.setattr(store, "record", observation_path_must_not_run)
+        monkeypatch.setattr(
+            substrate_analytics,
+            "persist_substrate_observation",
+            substrate_persistence_must_not_run,
+        )
         store.record_containment_denial(
             _entry("gh_explore_workflow"),
             DispatchOrigin.ROOK_CHAT,
