@@ -74,7 +74,8 @@ gh_connect(sourceGuid=$CONSTRAINT_MODE, targetGuid=$AGGREGATION, targetParam="MO
 # gh_connect(sourceGuid=$TRANSFORM_PART, targetGuid=$AGGREGATION, targetParam="PREV")
 
 # CHECKPOINT — aggregation solve can be slow
-gh_solve(delay=2000)
+# Bounded-poll gh_status until ready_for_edit is true, solverEnabled is true,
+# and solutionState is PostProcess; stop on timeout or disabled/unknown state.
 gh_errors()
 # → Expected: aggregation geometry visible in viewport
 # → If "no valid placements": check connection directions, rule compatibility

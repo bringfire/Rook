@@ -132,7 +132,8 @@ gh_edit(
 # Wire: $EXTRACTED → Aggregation.PREV (continue from extracted positions)
 
 # CHECKPOINT
-gh_solve(delay=3000)
+# Bounded-poll gh_status until ready_for_edit is true, solverEnabled is true,
+# and solutionState is PostProcess; stop on timeout or disabled/unknown state.
 gh_errors()
 ```
 

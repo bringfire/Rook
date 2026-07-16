@@ -99,7 +99,8 @@ gh_connect(sourceGuid=$RESET, targetGuid=$GRAMMAR_AGG, targetParam="RESET")
 # gh_connect(sourceGuid=$FIELD, targetGuid=$GRAMMAR_AGG, targetParam="FIELD")
 
 # CHECKPOINT
-gh_solve(delay=2000)
+# Bounded-poll gh_status until ready_for_edit is true, solverEnabled is true,
+# and solutionState is PostProcess; stop on timeout or disabled/unknown state.
 gh_errors()
 # → Expected: deterministic assembly following production rules
 ```

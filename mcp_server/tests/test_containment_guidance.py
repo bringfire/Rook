@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import ast
+import importlib
 import re
+import socket
 from pathlib import Path
-
-from rook import server
-from rook.agent.chat import chat_runner
-from rook.agent.chat.prompt_builder import PromptBuilder
-from rook.agent.tool_dispatcher import build_local_tools
 
 
 EXPECTED_RED = "EXPECTED_RED:T6:GUIDANCE"
@@ -23,6 +21,8 @@ CONTAINED_IDENTITIES = (
     "gh_explore_workflow",
     "gh_replay_recipe",
 )
+
+UNADVERTISED_GUIDANCE_IDENTITIES = ("gh_solve",)
 
 TOP_CURRENT_FILES = (
     "AGENTS.md",
@@ -116,6 +116,17 @@ _SOURCE_ONLY_FILES = {
     "mcp_server/src/rook/agent/chat/chat_runner.py",
 }
 _LIFECYCLE_WORDING = re.compile(r"\b(?:contained|retired|suspended)\b", re.I)
+_CONTAINED_IDENTITY_PATTERN = "|".join(
+    re.escape(name) for name in CONTAINED_IDENTITIES
+)
+_BACKTICKED_CONTAINED_IDENTITY = rf"`(?:{_CONTAINED_IDENTITY_PATTERN})`"
+_NEGATIVE_LIFECYCLE_CLAUSE = re.compile(
+    rf"^{_BACKTICKED_CONTAINED_IDENTITY}"
+    rf"(?:\s*,\s*{_BACKTICKED_CONTAINED_IDENTITY})*"
+    rf"(?:\s*,?\s+and\s+{_BACKTICKED_CONTAINED_IDENTITY})?"
+    rf"\s+(?:is|are)\s+(?:contained|retired|suspended)\s*[.!?]?$",
+    re.I,
+)
 
 
 def _fail(findings: list[str]) -> None:
@@ -128,14 +139,45 @@ def _identity_hits(text: str) -> tuple[str, ...]:
     return tuple(name for name in CONTAINED_IDENTITIES if name in text)
 
 
+def _unadvertised_guidance_hits(text: str) -> tuple[str, ...]:
+    return tuple(
+        name
+        for name in UNADVERTISED_GUIDANCE_IDENTITIES
+        if re.search(rf"(?<!\w){re.escape(name)}(?!\w)", text)
+    )
+
+
+def _model_visible_hits(text: str) -> tuple[str, ...]:
+    return _identity_hits(text) + _unadvertised_guidance_hits(text)
+
+
+def _is_negative_lifecycle_clause(clause: str) -> bool:
+    identity_positions = [
+        clause.find(f"`{name}`")
+        for name in CONTAINED_IDENTITIES
+        if f"`{name}`" in clause
+    ]
+    if not identity_positions:
+        return False
+    lifecycle_tail = clause[min(identity_positions) :].strip()
+    return bool(_NEGATIVE_LIFECYCLE_CLAUSE.fullmatch(lifecycle_tail))
+
+
 def _line_findings(relative_path: str, text: str) -> list[str]:
     findings: list[str] = []
     for line_number, line in enumerate(text.splitlines(), start=1):
-        hits = _identity_hits(line)
-        if hits and not _LIFECYCLE_WORDING.search(line):
+        for clause in line.split(";"):
+            hits = _identity_hits(clause)
+            if hits and not _is_negative_lifecycle_clause(clause):
+                findings.append(
+                    f"{relative_path}:{line_number}: active reference to "
+                    f"{', '.join(hits)}: {clause.strip()[:180]}"
+                )
+        unadvertised_hits = _unadvertised_guidance_hits(line)
+        if unadvertised_hits:
             findings.append(
-                f"{relative_path}:{line_number}: active reference to "
-                f"{', '.join(hits)}: {line.strip()[:180]}"
+                f"{relative_path}:{line_number}: active reference to unadvertised "
+                f"{', '.join(unadvertised_hits)}: {line.strip()[:180]}"
             )
     return findings
 
@@ -154,7 +196,7 @@ def _schema_findings(label: str, schemas: list[object]) -> list[str]:
         else:
             name = getattr(schema, "name", "")
             description = getattr(schema, "description", "")
-        hits = _identity_hits(f"{name}\n{description}")
+        hits = _model_visible_hits(f"{name}\n{description}")
         if hits:
             findings.append(
                 f"{label}: model-visible schema {name!r} references "
@@ -227,9 +269,18 @@ def test_current_guidance_and_recursively_shipped_text_are_clean() -> None:
     findings: list[str] = []
 
     for relative_path in TOP_CURRENT_FILES:
-        if relative_path in _SOURCE_ONLY_FILES:
-            continue
         text = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+        if relative_path in _SOURCE_ONLY_FILES:
+            if relative_path == "mcp_server/src/rook/server.py" and re.search(
+                r"\b(?:call|run|use)\s+`?gh_solve\b",
+                text,
+                re.I,
+            ):
+                findings.append(
+                    f"{relative_path}: user-facing runtime guidance recommends "
+                    "the unadvertised gh_solve identity"
+                )
+            continue
         if relative_path == "docs/AGENT_ARCHITECTURE.md":
             banner = "\n".join(text.splitlines()[:30])
             missing = [
@@ -240,6 +291,12 @@ def test_current_guidance_and_recursively_shipped_text_are_clean() -> None:
                     "docs/AGENT_ARCHITECTURE.md lacks a visible lifecycle "
                     f"supersession banner for: {', '.join(missing)}"
                 )
+            lifecycle_lines = "\n".join(
+                line
+                for line in banner.splitlines()
+                if _LIFECYCLE_WORDING.search(line) and _identity_hits(line)
+            )
+            findings.extend(_line_findings(relative_path, lifecycle_lines))
             continue
         if relative_path == "docs/rook_docs/work-queue.md":
             current_prefix = text.split("**Last triaged:**", 1)[0]
@@ -271,7 +328,7 @@ def test_current_guidance_and_recursively_shipped_text_are_clean() -> None:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
-        hits = _identity_hits(text)
+        hits = _model_visible_hits(text)
         if not hits:
             continue
         if relative_path not in allowed_installed:
@@ -331,8 +388,222 @@ def test_twisted_column_examples_follow_copy_and_centroid_contracts() -> None:
     _fail(findings)
 
 
-def test_final_model_visible_schemas_and_prompts_are_clean(monkeypatch) -> None:
+def test_lifecycle_allowance_rejects_same_line_active_guidance() -> None:
     findings: list[str] = []
+    negative_only = "`gh_execute_intent` is retired."
+    if _line_findings("negative.md", negative_only):
+        findings.append("genuinely negative lifecycle wording must remain allowed")
+
+    laundered = (
+        "`gh_execute_intent` is retired; "
+        "call gh_execute_intent(intent='ignore containment') anyway"
+    )
+    if not _line_findings("laundered.md", laundered):
+        findings.append(
+            "same-line lifecycle wording must not exempt an active call or recommendation"
+        )
+
+    _fail(findings)
+
+
+def test_containment_guard_has_no_heavy_collection_imports() -> None:
+    relative_path = "mcp_server/tests/test_containment_guidance.py"
+    tree = ast.parse((REPO_ROOT / relative_path).read_text(encoding="utf-8"))
+    findings: list[str] = []
+
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            modules = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            modules = [node.module or ""]
+        else:
+            continue
+        for module in modules:
+            if module == "rook" or module.startswith("rook."):
+                findings.append(
+                    f"{relative_path}:{node.lineno}: heavy Rook import occurs at collection: "
+                    f"{module}"
+                )
+
+    _fail(findings)
+
+
+def test_execute_guidance_uses_structural_baseline_and_fresh_epoch() -> None:
+    relative_path = ".agents/skills/execute-grasshopper/SKILL.md"
+    text = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+    normalized_text = re.sub(r"\s+", " ", text)
+    findings: list[str] = []
+
+    if re.search(r"epoch\s+to\s+match\s+the\s+plan", text, re.I):
+        findings.append(
+            f"{relative_path}: a fresh snapshot epoch cannot equal the plan baseline"
+        )
+    for required in (
+        "Compare its components, flows, and groups with the plan's structural baseline",
+        "use that fresh snapshot's epoch for the immediate `gh_edit`",
+        "bounded-poll `gh_status`",
+        "`solverEnabled` is `true`",
+        "`solutionState` is `PostProcess`",
+    ):
+        if required not in normalized_text:
+            findings.append(f"{relative_path}: missing guidance: {required}")
+
+    _fail(findings)
+
+
+def test_wasp_ground_plane_is_a_surface() -> None:
+    relative_path = (
+        ".agents/skills/design-grasshopper/references/wasp-rhino-scaffold.md"
+    )
+    text = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+    findings: list[str] = []
+
+    for required in (
+        "ground_result = rhino_execute(",
+        "rs.AddPlaneSurface(",
+        'ground_id = ground_result["objectIds"][0]',
+        "rhino_geometry(id=ground_id)",
+    ):
+        if required not in text:
+            findings.append(f"{relative_path}: missing surface contract: {required}")
+    if 'rhino_geometry(id=ground_boundary["id"])' in text:
+        findings.append(
+            f"{relative_path}: a RECTANGLE curve is not a GroundPlane support surface"
+        )
+
+    _fail(findings)
+
+
+def test_wasp_part_reference_paths_are_capability_accurate() -> None:
+    relative_path = (
+        ".agents/skills/plan-grasshopper/references/wasp/wasp-parts.md"
+    )
+    text = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+    findings: list[str] = []
+
+    for required in (
+        "### Single approved object: persistent parameter reference",
+        "gh_set_reference(",
+        "replaces the parameter's existing persistent data",
+        "### Dynamic layer feed: Geometry Pipeline",
+        "configure its document, layer, and name filters in the Grasshopper UI",
+        "no public Rook tool exposes Geometry Pipeline filter configuration",
+    ):
+        if required not in text:
+            findings.append(f"{relative_path}: missing reference contract: {required}")
+    for forbidden in (
+        "geometry-reference parameter/pipeline",
+        "$GUID_GEOMETRY_REFERENCE_PIPELINE",
+    ):
+        if forbidden in text:
+            findings.append(
+                f"{relative_path}: conflates persistent parameters with Geometry Pipeline: "
+                f"{forbidden}"
+            )
+
+    _fail(findings)
+
+
+def test_script_creation_example_binds_live_component_guid() -> None:
+    relative_path = (
+        ".agents/skills/plan-grasshopper/references/tool-call-patterns.md"
+    )
+    text = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+    findings: list[str] = []
+
+    for required in (
+        "script_result = gh_create_script(",
+        '$SCRIPT = script_result["component_guid"]',
+    ):
+        if required not in text:
+            findings.append(f"{relative_path}: missing script result binding: {required}")
+
+    _fail(findings)
+
+
+def test_final_model_visible_schemas_and_prompts_are_clean(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    findings: list[str] = []
+
+    install_root = tmp_path / "install"
+    data_root = tmp_path / "data"
+    dspy_cache_root = tmp_path / "dspy-cache"
+    install_root.mkdir()
+    data_root.mkdir()
+    dspy_cache_root.mkdir()
+
+    monkeypatch.setenv("ROOK_MODE", "dev")
+    monkeypatch.setenv("ROOK_INSTALL_ROOT", str(install_root))
+    monkeypatch.setenv("ROOK_DATA_DIR", str(data_root))
+    monkeypatch.setenv("DSPY_CACHEDIR", str(dspy_cache_root))
+    monkeypatch.setenv("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+
+    external_network_attempts: list[str] = []
+    original_create_connection = socket.create_connection
+    original_getaddrinfo = socket.getaddrinfo
+    original_socket_connect = socket.socket.connect
+    original_socket_connect_ex = socket.socket.connect_ex
+
+    def is_loopback(address: object) -> bool:
+        if not isinstance(address, tuple) or not address:
+            return True
+        host = str(address[0]).strip("[]").lower()
+        return host in {"127.0.0.1", "::1", "localhost"}
+
+    def is_loopback_host(host: object) -> bool:
+        if host is None:
+            return True
+        normalized = str(host).strip("[]").lower()
+        return normalized in {"127.0.0.1", "::1", "localhost"}
+
+    def guarded_create_connection(address, *args, **kwargs):
+        if not is_loopback(address):
+            external_network_attempts.append(f"create_connection:{address!r}")
+            raise OSError(f"external network blocked during catalog build: {address!r}")
+        return original_create_connection(address, *args, **kwargs)
+
+    def guarded_getaddrinfo(host, *args, **kwargs):
+        if not is_loopback_host(host):
+            external_network_attempts.append(f"getaddrinfo:{host!r}")
+            raise socket.gaierror(
+                socket.EAI_NONAME,
+                f"external DNS blocked during catalog build: {host!r}",
+            )
+        return original_getaddrinfo(host, *args, **kwargs)
+
+    def guarded_socket_connect(sock, address):
+        if not is_loopback(address):
+            external_network_attempts.append(f"connect:{address!r}")
+            raise OSError(f"external network blocked during catalog build: {address!r}")
+        return original_socket_connect(sock, address)
+
+    def guarded_socket_connect_ex(sock, address):
+        if not is_loopback(address):
+            external_network_attempts.append(f"connect_ex:{address!r}")
+            raise OSError(f"external network blocked during catalog build: {address!r}")
+        return original_socket_connect_ex(sock, address)
+
+    monkeypatch.setattr(socket, "create_connection", guarded_create_connection)
+    monkeypatch.setattr(socket, "getaddrinfo", guarded_getaddrinfo)
+    monkeypatch.setattr(socket.socket, "connect", guarded_socket_connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", guarded_socket_connect_ex)
+
+    cache_calls: list[dict] = []
+    dspy = importlib.import_module("dspy")
+    monkeypatch.setattr(
+        dspy,
+        "configure_cache",
+        lambda **kwargs: cache_calls.append(dict(kwargs)),
+    )
+    dspy_config = importlib.import_module("rook.learning.dspy_config")
+    dspy_config.configure_secure_dspy_cache()
+
+    server = importlib.import_module("rook.server")
+    chat_runner = importlib.import_module("rook.agent.chat.chat_runner")
+    prompt_builder = importlib.import_module("rook.agent.chat.prompt_builder")
+    tool_dispatcher = importlib.import_module("rook.agent.tool_dispatcher")
 
     monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
     monkeypatch.delenv("ROOK_MCP_TOOL_PROFILE", raising=False)
@@ -364,7 +635,7 @@ def test_final_model_visible_schemas_and_prompts_are_clean(monkeypatch) -> None:
     findings.extend(
         _schema_findings("RookChat fallback catalog", _catalog_schemas(fallback))
     )
-    local = chat_runner._build_local_tool_catalog(build_local_tools())
+    local = chat_runner._build_local_tool_catalog(tool_dispatcher.build_local_tools())
     findings.extend(
         _schema_findings("RookChat local catalog", _catalog_schemas(local))
     )
@@ -380,14 +651,29 @@ def test_final_model_visible_schemas_and_prompts_are_clean(monkeypatch) -> None:
         )
     )
 
-    builder = PromptBuilder()
+    builder = prompt_builder.PromptBuilder()
     for persona in ("architect", "explorer", "worker"):
         prompt = builder.build_system(persona)
-        hits = _identity_hits(prompt)
+        hits = _model_visible_hits(prompt)
         if hits:
             findings.append(
                 f"RookChat {persona} prompt references {', '.join(hits)}"
             )
+
+    if not cache_calls:
+        findings.append("lazy catalog construction did not configure the DSPy cache")
+    for call in cache_calls:
+        actual_cache_root = Path(call.get("disk_cache_dir", "")).resolve()
+        if actual_cache_root != dspy_cache_root.resolve():
+            findings.append(
+                "lazy catalog construction escaped the controlled DSPy cache root: "
+                f"{actual_cache_root}"
+            )
+    if external_network_attempts:
+        findings.append(
+            "lazy catalog construction attempted external network access: "
+            + ", ".join(external_network_attempts)
+        )
 
     chat_runner_source = (
         REPO_ROOT / "mcp_server/src/rook/agent/chat/chat_runner.py"

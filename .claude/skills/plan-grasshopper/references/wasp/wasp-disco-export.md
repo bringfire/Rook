@@ -82,7 +82,8 @@ gh_edit(
 # Wire: $EXPORT_TRIGGER → Wasp2DisCo.SAVE
 
 # CHECKPOINT
-gh_solve(delay=1000)
+# Bounded-poll gh_status until ready_for_edit is true, solverEnabled is true,
+# and solutionState is PostProcess; stop on timeout or disabled/unknown state.
 gh_errors()
 ```
 

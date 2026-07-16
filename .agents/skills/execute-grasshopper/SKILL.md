@@ -60,8 +60,10 @@ For each batch in the plan:
 
 **For each step:**
 
-1. Capture a fresh `gh_snapshot` and require its epoch to match the plan's
-   expected baseline.
+1. Capture a fresh `gh_snapshot`. Compare its components, flows, and groups with
+   the plan's structural baseline. If they match, use that fresh snapshot's epoch
+   for the immediate `gh_edit`. Never compare or persist epoch numbers across
+   snapshots.
 2. Execute the exact bounded `gh_edit` batch from the plan. Slider/panel/toggle
    values belong in their create entries; updates to existing controls belong in
    `set_values`.
@@ -75,10 +77,20 @@ For each batch in the plan:
    `gh_inspect_output` after the solve settles.
 
 **At each checkpoint:**
+
+The preceding `gh_edit` schedules the solution. After it reports
+`edit_summary.solve_scheduled`, bounded-poll `gh_status` to a fixed timeout.
+Continue only when `ready_for_edit` is true, `solverEnabled` is `true`, and
+`solutionState` is `PostProcess`; then inspect errors:
+
 ```python
-gh_solve(delay=500)
+status = gh_status()
+# Repeat only until the fixed checkpoint timeout while readiness is false.
 errors = gh_errors()
 ```
+
+Stop and report instead of continuing if the timeout expires, the solver is
+disabled, or the solution state is unknown.
 
 - **No errors:** Continue to next batch
 - **Warnings only:** Note them, continue (warnings are usually acceptable)
@@ -116,8 +128,9 @@ gh_edit(epoch=<current>, groups=[
   {"action": "create", "nick": "Output", "colour": "#FF8833", "members": [...]}
 ])
 
-# Final verification
-gh_solve(delay=500)
+# Final verification after the grouping edit's scheduled solution settles
+final_status = gh_status()
+# Apply the same bounded readiness predicate before reading errors.
 final_errors = gh_errors()
 final_state = gh_snapshot()
 ```
@@ -145,7 +158,7 @@ Skill(skill="consolidate")
 
 ## Invariants
 
-- **Never skip a checkpoint** — every batch must verify with solve + errors
+- **Never skip a checkpoint** — every batch must verify solved readiness + errors
 - **Maintain the component registry** — plan variable → committed ID, updated from every batch result
 - **If creation errors, don't wire** — skip connections to failed components
 - **One fix attempt per error** — don't loop on the same error

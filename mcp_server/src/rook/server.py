@@ -2165,7 +2165,8 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
             error_summary["verification_deferred"] = True   # stays boolean
             error_summary["verification_note"] = (
                 "Grasshopper solver is locked or its state is unknown; the script source was "
-                "written but not recompiled. Unlock the solver and run gh_solve to verify."
+                "written but not recompiled. Unlock the solver, rerun gh_update_script, and "
+                "verify the result with gh_errors."
             )
         elif check_errors_requested:
             await _await_gh_solve_settle(port, scheduled_delay_ms=50)

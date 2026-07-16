@@ -46,18 +46,60 @@ Choose AdvancedPart when in doubt for structural/architectural workflows.
 
 ## Tool Call Pattern
 
+Choose exactly one geometry-source branch per part definition.
+
+### Single approved object: persistent parameter reference
+
+Use a supported Brep or Mesh parameter when the scaffold approved one stable Rhino
+object:
+
 ```python
 # BATCH: Part Definition (repeat per part type)
 
-# Step 1: Create the exact resolved geometry-reference parameter/pipeline
+# Step 1: Create the exact resolved Brep parameter (use the resolved Mesh
+# parameter instead when the approved object is a mesh).
 snap = gh_snapshot()
 gh_edit(
     epoch=snap["epoch"],
-    create=[{"temp_id": "T1", "guid": "$GUID_GEOMETRY_REFERENCE_PIPELINE", "pos": [100, 200]}],
+    create=[{"temp_id": "T1", "guid": "$GUID_BREP_PARAMETER", "pos": [100, 200]}],
 )
-# Record T1 as $PART_A_GEO, then set its Rhino reference with the explicit
-# parameter-reference tool using the approved objects on Wasp::Parts::<PartName>.
-# Note: Layer name comes from scaffold Step 3 — geometry was validated and organized there
+# Record T1 as $PART_A_GEO, then set and verify the one approved Rhino object.
+gh_set_reference(
+    paramGuid=$PART_A_GEO,
+    rhinoObjectId=$PART_A_RHINO_ID,
+)
+gh_get_reference(guid=$PART_A_GEO)
+```
+
+Each `gh_set_reference` call replaces the parameter's existing persistent data;
+it does not accumulate references. Use one supported parameter component per
+approved object.
+
+### Dynamic layer feed: Geometry Pipeline
+
+Use a real Geometry Pipeline only when the definition must follow a layer or name
+filter dynamically:
+
+```python
+# Resolve the installed Geometry Pipeline component before planning this batch.
+gh_library(search="Geometry Pipeline")
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[{"temp_id": "T1", "guid": "$GUID_GEOMETRY_PIPELINE", "pos": [100, 200]}],
+)
+# Record T1 as $PART_A_GEO.
+```
+
+After creation, configure its document, layer, and name filters in the Grasshopper UI
+and verify that its preview contains only the approved part geometry. Currently,
+no public Rook tool exposes Geometry Pipeline filter configuration. Do not use
+`gh_set_reference` on a Geometry Pipeline. If unattended execution is required,
+stop and report this capability gap instead of pretending the pipeline is configured.
+
+Continue with either branch's `$PART_A_GEO` output:
+
+```python
 
 # Step 2: Define connection planes
 # Option A: From direction vectors (most common)

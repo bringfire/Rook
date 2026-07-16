@@ -60,7 +60,8 @@ gh_edit(
 # Wire: integer slider → RulesVisualizer.INDEX
 
 # CHECKPOINT
-gh_solve(delay=1000)
+# Bounded-poll gh_status until ready_for_edit is true, solverEnabled is true,
+# and solutionState is PostProcess; stop on timeout or disabled/unknown state.
 gh_errors()
 # → Expected: extracted rules list from RulesFromAgg output
 ```

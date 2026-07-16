@@ -322,15 +322,21 @@ Based on the decision tree results, create supporting geometry.
 ```python
 # If constraints are needed:
 rhino_layer_create(name="Wasp::Constraints::GroundPlane", color="180,180,180")
-ground_boundary = rhino_create(
-    type="RECTANGLE",
-    origin=[-50, -50, 0],
-    width=100,
-    height=100,
-    layer="Wasp::Constraints::GroundPlane",
-    name="GroundPlaneBoundary",
-)
-rhino_geometry(id=ground_boundary["id"])
+ground_result = rhino_execute(code="""
+import rhinoscriptsyntax as rs
+
+plane = rs.PlaneFromFrame((-50, -50, 0), (1, 0, 0), (0, 1, 0))
+surface_id = rs.AddPlaneSurface(plane, 100, 100)
+if not surface_id:
+    raise Exception("Failed to create GroundPlane support surface")
+rs.ObjectLayer(surface_id, "Wasp::Constraints::GroundPlane")
+rs.ObjectName(surface_id, "GroundPlane")
+print(str(surface_id))
+""")
+if ground_result.get("objectsCreated") != 1:
+    raise Exception("GroundPlane support surface was not created")
+ground_id = ground_result["objectIds"][0]
+rhino_geometry(id=ground_id)
 ```
 
 ### Attractor Points (for field-driven density)

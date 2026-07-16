@@ -57,7 +57,8 @@ gh_edit(
 )
 
 # Checkpoint after chain
-gh_solve(delay=500)
+# The preceding gh_edit scheduled the solution. Bounded-poll gh_status until
+# ready_for_edit is true, solverEnabled is true, and solutionState is PostProcess.
 gh_errors()
 ```
 
@@ -100,7 +101,7 @@ gh_edit(
 For custom logic that doesn't have a native component.
 
 ```python
-gh_create_script(
+script_result = gh_create_script(
     language="python",
     code="import Rhino.Geometry as rg\n\nA = x * 2\n",
     pins_in=[{"name": "x", "type": "double"}],
@@ -109,7 +110,7 @@ gh_create_script(
     x=400,
     y=300,
 )
-# Record the returned component ID as $SCRIPT.
+$SCRIPT = script_result["component_guid"]
 
 # Wire inputs
 snap = gh_snapshot()
@@ -121,8 +122,10 @@ gh_edit(epoch=snap["epoch"], connect=["$INPUT.O0>$SCRIPT.I0"])
 After every 3-5 component creations:
 
 ```python
-# 1. Trigger solution
-gh_solve(delay=500)
+# 1. The preceding mutation scheduled the solution. Bounded-poll status.
+status = gh_status()
+# Continue only when ready_for_edit is true, solverEnabled is true,
+# and solutionState is PostProcess; stop on timeout or disabled/unknown state.
 
 # 2. Check for errors
 gh_errors()

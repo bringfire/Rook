@@ -50,7 +50,8 @@ gh_edit(
 gh_connect(sourceGuid=$CATALOG, targetGuid=$AGGREGATION, targetParam="CATA")
 
 # CHECKPOINT
-gh_solve(delay=500)
+# Bounded-poll gh_status until ready_for_edit is true, solverEnabled is true,
+# and solutionState is PostProcess; stop on timeout or disabled/unknown state.
 gh_errors()
 ```
 

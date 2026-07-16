@@ -81,7 +81,9 @@ gh_edit(
 
 ### CHECKPOINT
 ```python
-gh_solve(delay=500)
+# The preceding gh_edit scheduled the solution.
+# Bounded-poll gh_status until ready_for_edit is true, solverEnabled is true,
+# and solutionState is PostProcess; stop on timeout or disabled/unknown state.
 gh_errors()
 ```
 → Expected: no errors, sphere visible in viewport with radius=5
@@ -195,7 +197,7 @@ Skill(skill="execute-grasshopper", args="docs/plans/<filename>")
 - Every new slider defines `min`, `max`, and `value` in its create entry
 - Every batch uses the epoch from a fresh `gh_snapshot`
 - Temp IDs are unique within a batch and committed IDs are recorded from `edit_summary.temp_id_map`
-- Checkpoints (`gh_solve` + `gh_errors`) after every 3-5 component creations
+- Solve-state checkpoints (`gh_status` readiness + `gh_errors`) after every 3-5 component creations
 - Variable names must be descriptive (`$SPHERE_COMP`, not `$VAR1`)
 - No tool call may reference a GUID not assigned in a prior step
 - The plan MUST end with `gh_canvas_cleanup()` + `gh_edit(groups=[...])` calls
