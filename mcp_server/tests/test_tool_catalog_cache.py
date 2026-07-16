@@ -543,4 +543,3 @@ if _CACHE_CONTRACT_AVAILABLE:
             and result.summary == "catalog_unavailable"
             and planner_ctor.call_count == 0
         ), "EXPECTED_RED:T2:PYTEST planner silently constructs empty registry"
-
