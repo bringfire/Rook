@@ -595,7 +595,10 @@ def test_process_evidence_rejects_source_like_cwd_before_command_allowlist(
         ],
     )
 
-    with pytest.raises(acceptance.AcceptanceError, match="cwd.*source|source.*cwd"):
+    with pytest.raises(
+        acceptance.AcceptanceError,
+        match="cwd.*source|source.*cwd",
+    ):
         acceptance._validate_process_evidence(
             contaminated,
             expected_install_root=install_root,
@@ -619,6 +622,113 @@ def test_process_evidence_rejects_source_like_cwd_before_command_allowlist(
         expected_install_root=install_root,
         allowed_command_roots=(isolated_cwd,),
     )
+
+
+def _structural_rook_checkout(
+    root: Path,
+    *,
+    git_marker_kind: str,
+) -> Path:
+    checkout = root / f"source-checkout-{git_marker_kind}"
+    if git_marker_kind == "directory":
+        (checkout / ".git").mkdir(parents=True)
+    else:
+        checkout.mkdir(parents=True)
+        (checkout / ".git").write_text(
+            "gitdir: detached-metadata\n",
+            encoding="utf-8",
+        )
+    (checkout / "Rook.sln").write_text("fixture\n", encoding="utf-8")
+    (checkout / "mcp_server" / "src" / "rook").mkdir(parents=True)
+    (checkout / "docs").mkdir()
+    return checkout
+
+
+@requires_contract
+@pytest.mark.parametrize(
+    "git_marker_kind,relative_cwd",
+    [
+        ("directory", Path(".")),
+        ("file", Path("docs")),
+    ],
+    ids=("checkout-root", "ordinary-descendant"),
+)
+def test_process_evidence_rejects_structural_rook_checkout_cwd(
+    tmp_path: Path,
+    git_marker_kind: str,
+    relative_cwd: Path,
+) -> None:
+    install_root = tmp_path / "fixture-install" / "app"
+    checkout = _structural_rook_checkout(
+        tmp_path,
+        git_marker_kind=git_marker_kind,
+    )
+    source_cwd = (checkout / relative_cwd).resolve()
+    contaminated = _process_evidence(
+        install_root,
+        cwd=source_cwd,
+        sys_path=[
+            str(source_cwd),
+            str((install_root / "mcp_server" / "src").resolve()),
+        ],
+    )
+
+    with pytest.raises(acceptance.AcceptanceError, match="cwd.*source|source.*cwd"):
+        acceptance._validate_process_evidence(
+            contaminated,
+            expected_install_root=install_root,
+            allowed_command_roots=(source_cwd,),
+        )
+
+
+def _actual_main_checkout_root() -> Path:
+    checkout = Path(__file__).resolve().parents[2]
+    git_marker = checkout / ".git"
+    if git_marker.is_dir():
+        return checkout
+    pointer = git_marker.read_text(encoding="utf-8").strip()
+    prefix = "gitdir:"
+    if not pointer.casefold().startswith(prefix):
+        raise AssertionError("worktree .git pointer is malformed")
+    git_dir = Path(pointer[len(prefix):].strip())
+    if not git_dir.is_absolute():
+        git_dir = checkout / git_dir
+    return git_dir.resolve().parents[2]
+
+
+@requires_contract
+def test_actual_main_checkout_root_and_docs_are_source_like() -> None:
+    checkout = _actual_main_checkout_root()
+    assert (checkout / "Rook.sln").is_file()
+    assert (checkout / "mcp_server" / "src" / "rook").is_dir()
+    assert acceptance._path_looks_like_development_source(checkout)
+    assert acceptance._path_looks_like_development_source(checkout / "docs")
+
+
+@requires_contract
+def test_structural_checkout_detection_preserves_installed_and_named_rook_cwds(
+    tmp_path: Path,
+) -> None:
+    install_root = tmp_path / "fixture-install" / "app"
+    installed_cwd = install_root / "run"
+    arbitrary_named_rook_cwd = tmp_path / "unrelated" / "rook" / "docs"
+    installed_cwd.mkdir(parents=True)
+    arbitrary_named_rook_cwd.mkdir(parents=True)
+
+    for cwd in (installed_cwd, arbitrary_named_rook_cwd):
+        legitimate = _process_evidence(
+            install_root,
+            cwd=cwd,
+            sys_path=[
+                str(cwd.resolve()),
+                str((install_root / "mcp_server" / "src").resolve()),
+            ],
+        )
+        acceptance._validate_process_evidence(
+            legitimate,
+            expected_install_root=install_root,
+            allowed_command_roots=(cwd,),
+        )
 
 
 @requires_contract

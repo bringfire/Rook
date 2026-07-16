@@ -560,11 +560,22 @@ def _is_relative_to(path: Path, root: Path) -> bool:
 
 
 def _path_looks_like_development_source(path: Path) -> bool:
-    normalized = str(path).replace("\\", "/").casefold()
-    return (
+    resolved = Path(path).expanduser().resolve()
+    normalized = str(resolved).replace("\\", "/").casefold()
+    if (
         "/.worktrees/" in normalized
         or normalized.endswith("/mcp_server/src")
         or "/source/repos/rook/mcp_server/src/" in normalized
+    ):
+        return True
+    return any(
+        (
+            (candidate / ".git").is_file()
+            or (candidate / ".git").is_dir()
+        )
+        and (candidate / "Rook.sln").is_file()
+        and (candidate / "mcp_server" / "src" / "rook").is_dir()
+        for candidate in (resolved, *resolved.parents)
     )
 
 
