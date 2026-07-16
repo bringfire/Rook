@@ -37,6 +37,8 @@ from .tool_schemas import (
     ToolSchema,
 )
 from ..explorer.context import ExplorationContext, GeometryType, parse_create_result
+from ..tool_lifecycle import DispatchOrigin
+from ..tool_lifecycle_runtime import deny_if_contained
 
 logger = logging.getLogger("rook.learning.investigator")
 
@@ -95,6 +97,18 @@ class InvestigationResult:
     # Insights gained
     insights: list[str] = field(default_factory=list)
 
+    # Stable refusal detail when lifecycle containment prevents investigation
+    containment_denial: dict[str, object] | None = None
+
+
+def _containment_result(
+    denial: dict[str, object],
+) -> InvestigationResult:
+    return InvestigationResult(
+        tool=denial["data"]["tool"],
+        containment_denial=denial,
+    )
+
 
 # Type alias for tool executor function
 ToolExecutor = Callable[[str, dict], Awaitable[dict]]
@@ -143,6 +157,13 @@ class Investigator:
         Returns:
             InvestigationResult with findings
         """
+        denial = deny_if_contained(
+            gap.tool,
+            DispatchOrigin.INTERNAL_HANDLER,
+        )
+        if denial is not None:
+            return _containment_result(denial)
+
         result = InvestigationResult(gap_id=gap.id, tool=gap.tool)
 
         # Mark gap as being investigated
@@ -252,6 +273,13 @@ class Investigator:
         Returns:
             InvestigationResult with findings
         """
+        denial = deny_if_contained(
+            tool_name,
+            DispatchOrigin.INTERNAL_HANDLER,
+        )
+        if denial is not None:
+            return _containment_result(denial)
+
         result = InvestigationResult(tool=tool_name)
 
         logger.info(f"Investigating tool: {tool_name}")
@@ -330,6 +358,14 @@ class Investigator:
         Returns:
             InvestigationResult with findings
         """
+        for step in workflow:
+            denial = deny_if_contained(
+                step[0],
+                DispatchOrigin.INTERNAL_HANDLER,
+            )
+            if denial is not None:
+                return _containment_result(denial)
+
         result = InvestigationResult(tool=workflow[0][0] if workflow else "")
 
         logger.info(f"Investigating workflow: {description}")
@@ -391,6 +427,17 @@ class Investigator:
 
     async def _run_experiment(self, tool: str, params: dict) -> ExperimentResult:
         """Run a single experiment."""
+        denial = deny_if_contained(tool, DispatchOrigin.INTERNAL_HANDLER)
+        if denial is not None:
+            return ExperimentResult(
+                tool=denial["data"]["tool"],
+                params={},
+                success=False,
+                response=denial,
+                error="legacy_semantic_tool_contained",
+                execution_time_ms=0,
+            )
+
         import time
         start = time.time()
 

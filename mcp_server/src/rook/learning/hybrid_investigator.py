@@ -79,6 +79,8 @@ from .graph import KnowledgeGraphV2
 from .schema import Pattern, Antipattern, Gap, Insight
 from .tool_schemas import get_tool_schema, generate_params_for_tool
 from .verifier import VisualVerifier, ViewportState
+from ..tool_lifecycle import DispatchOrigin
+from ..tool_lifecycle_runtime import deny_if_contained
 
 logger = logging.getLogger("rook.learning.hybrid_investigator")
 
@@ -184,6 +186,9 @@ class HybridInvestigationResult:
     attempts: int = 0
     time_ms: float = 0
 
+    # Stable refusal detail when lifecycle containment prevents investigation
+    containment_denial: dict[str, object] | None = None
+
     def to_dict(self) -> dict:
         """Convert to dictionary."""
         return {
@@ -207,7 +212,18 @@ class HybridInvestigationResult:
             "resolution": self.resolution,
             "attempts": self.attempts,
             "time_ms": self.time_ms,
+            "containment_denial": self.containment_denial,
         }
+
+
+def _containment_result(
+    denial: dict[str, object],
+) -> HybridInvestigationResult:
+    return HybridInvestigationResult(
+        tool=denial["data"]["tool"],
+        success=False,
+        containment_denial=denial,
+    )
 
 
 @dataclass
@@ -452,6 +468,13 @@ class HybridInvestigator:
         Returns:
             HybridInvestigationResult with all learnings
         """
+        denial = deny_if_contained(
+            tool_name,
+            DispatchOrigin.INTERNAL_HANDLER,
+        )
+        if denial is not None:
+            return _containment_result(denial)
+
         start = time.time()
         result = HybridInvestigationResult(tool=tool_name, success=False)
 
@@ -811,6 +834,13 @@ class HybridInvestigator:
         Returns:
             HybridInvestigationResult
         """
+        denial = deny_if_contained(
+            gap.tool,
+            DispatchOrigin.INTERNAL_HANDLER,
+        )
+        if denial is not None:
+            return _containment_result(denial)
+
         result = HybridInvestigationResult(tool=gap.tool, success=False)
 
         # Use DSPy to generate hypotheses for the gap
