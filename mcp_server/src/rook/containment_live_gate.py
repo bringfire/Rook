@@ -124,6 +124,12 @@ _DESCRIPTIONS = {
     },
 }
 _TOKEN_RE = re.compile(r"^[0-9a-f]{32}$", re.ASCII)
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
+_UTC_TIMESTAMP_RE = re.compile(
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
+    r"\.[0-9]{1,6}Z$",
+    re.ASCII,
+)
 _GUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
     re.ASCII | re.IGNORECASE,
@@ -200,6 +206,7 @@ class _RunState:
     created_rhino_ids: list[str] | None = None
     gh_edit_may_have_applied: bool = False
     gh_undo_attempts: int = 0
+    cleanup_live_at_entry: bool | None = None
 
 
 def _utc_now() -> str:
@@ -1410,35 +1417,94 @@ async def _run_grasshopper_forward(state: _RunState, recorder: _OperationRecorde
     }
 
 
-async def _restore_rhino(state: _RunState, recorder: _OperationRecorder) -> bool:
-    state.result.restoration["attempted"] = True
-    current_ids = _rhino_object_ids(
-        _data(
-            await recorder.call(
-                "rhino_objects", {"limit": 500, "offset": 0}
-            ),
-            "rhino_objects",
-        )
+async def _validate_rhino_restoration_target(
+    state: _RunState,
+    recorder: _OperationRecorder,
+) -> tuple[dict[str, Any], list[str]]:
+    expected = (
+        state.result.pre_state.get("scratch_projection")
+        if isinstance(state.result.pre_state, Mapping)
+        else None
     )
-    validated_ids = set(state.created_rhino_ids or [])
+    expected_keys = {
+        "runtime_serial",
+        "path",
+        "modified",
+        "object_count",
+        "object_ids",
+    }
+    if (
+        not isinstance(expected, Mapping)
+        or set(expected) != expected_keys
+        or type(expected["runtime_serial"]) is not int
+        or expected["runtime_serial"] <= 0
+        or type(expected["path"]) is not str
+        or expected["path"] != str(state.scratch_path)
+    ):
+        raise OwnershipAmbiguous("Rhino restoration scratch identity is unknown")
+    raw_validated_ids = state.created_rhino_ids
+    if not isinstance(raw_validated_ids, list) or any(
+        type(item) is not str or _GUID_RE.fullmatch(item) is None
+        for item in raw_validated_ids
+    ):
+        raise OwnershipAmbiguous("Rhino restoration created-object identity is unknown")
+    validated_ids = {item.lower() for item in raw_validated_ids}
+    if len(validated_ids) != len(raw_validated_ids):
+        raise OwnershipAmbiguous("Rhino restoration created-object identity is ambiguous")
+    try:
+        serial_result = await recorder.call(
+            "rhino_execute", {"code": RUNTIME_SERIAL_CODE}
+        )
+        serial = _parse_runtime_serial(
+            _script_output(serial_result, "rhino_execute")
+        )
+        document = _rhino_document_projection(
+            _data(await recorder.call("rhino_document", {}), "rhino_document")
+        )
+        current_ids = _rhino_object_ids(
+            _data(
+                await recorder.call(
+                    "rhino_objects", {"limit": 500, "offset": 0}
+                ),
+                "rhino_objects",
+            )
+        )
+    except OwnershipAmbiguous:
+        raise
+    except Exception as exc:
+        raise OwnershipAmbiguous(
+            "Rhino restoration target identity could not be revalidated"
+        ) from exc
+    if (
+        serial != expected["runtime_serial"]
+        or document["path"] != expected["path"]
+        or document["object_count"] != len(current_ids)
+        or len(set(current_ids)) != len(current_ids)
+    ):
+        raise OwnershipAmbiguous("Rhino restoration scratch identity drift")
     if not set(current_ids).issubset(validated_ids):
         raise OwnershipAmbiguous(
             "Rhino restoration observed an unvalidated object identity"
         )
-    remaining_gate_ids = sorted(set(current_ids) & validated_ids)
+    return document, current_ids
+
+
+async def _restore_rhino(state: _RunState, recorder: _OperationRecorder) -> bool:
+    state.result.restoration["attempted"] = True
+    _, current_ids = await _validate_rhino_restoration_target(state, recorder)
+    remaining_gate_ids = sorted(current_ids)
     if remaining_gate_ids:
         await recorder.call("rhino_delete", {"ids": remaining_gate_ids})
-    dirty = _rhino_document_projection(_data(await recorder.call("rhino_document", {}), "rhino_document"))
+    dirty, current_ids = await _validate_rhino_restoration_target(state, recorder)
+    if current_ids:
+        return False
     if remaining_gate_ids and dirty["modified"] is not True:
         return False
     await recorder.call("rhino_document_ops", {"action": "save", "path": str(state.scratch_path)})
-    serial_result = await recorder.call("rhino_execute", {"code": RUNTIME_SERIAL_CODE})
-    serial = _parse_runtime_serial(_script_output(serial_result, "rhino_execute"))
-    document = _rhino_document_projection(_data(await recorder.call("rhino_document", {}), "rhino_document"))
-    ids = _rhino_object_ids(_data(await recorder.call("rhino_objects", {"limit": 500, "offset": 0}), "rhino_objects"))
+    document, ids = await _validate_rhino_restoration_target(state, recorder)
     expected = state.result.pre_state.get("scratch_projection") if state.result.pre_state else None
     restored = {
-        "runtime_serial": serial,
+        "runtime_serial": expected["runtime_serial"],
         "path": document["path"],
         "modified": document["modified"],
         "object_count": document["object_count"],
@@ -1452,24 +1518,146 @@ async def _restore_rhino(state: _RunState, recorder: _OperationRecorder) -> bool
 async def _observe_grasshopper_restoration(
     state: _RunState, recorder: _OperationRecorder
 ) -> tuple[dict[str, Any], bool]:
-    snapshot = _data(await recorder.call("gh_snapshot", {}), "gh_snapshot")
-    errors, warnings = _errors_projection(
-        _data(await recorder.call("gh_errors", {}), "gh_errors")
+    expected = (
+        state.result.pre_state.get("scratch_projection")
+        if isinstance(state.result.pre_state, Mapping)
+        else None
     )
-    status = _gh_status_projection(
-        _data(await recorder.call("gh_status", {}), "gh_status")
-    )
-    if type(status["document_id"]) is not str:
-        raise _ScenarioFailure(
-            "restoration_failed", "Grasshopper restoration target identity is absent"
+    expected_keys = {
+        "document_id",
+        "has_active_canvas",
+        "gate_canvas_token",
+        "path",
+        "object_count",
+        "component_ids",
+        "wires",
+        "errors",
+        "warnings",
+    }
+    target = state.result.target
+    if (
+        not isinstance(expected, Mapping)
+        or set(expected) != expected_keys
+        or type(expected["document_id"]) is not str
+        or expected["has_active_canvas"] is not True
+        or type(expected["gate_canvas_token"]) is not str
+        or type(expected["path"]) is not str
+        or expected["path"] != str(state.scratch_path)
+        or type(expected["object_count"]) is not int
+        or expected["object_count"] != 0
+        or expected["component_ids"] != []
+        or expected["wires"] != []
+        or not isinstance(target, Mapping)
+        or type(target.get("process_start_token")) is not str
+    ):
+        raise OwnershipAmbiguous(
+            "Grasshopper restoration scratch identity is unknown"
         )
-    projection = _snapshot_projection(
-        snapshot,
-        process_id=state.record.pid,
-        process_token=state.result.target["process_start_token"],
-        port=state.record.port,
-        document_id=status["document_id"],
-    )
+    try:
+        snapshot = _data(await recorder.call("gh_snapshot", {}), "gh_snapshot")
+        errors, warnings = _errors_projection(
+            _data(await recorder.call("gh_errors", {}), "gh_errors")
+        )
+        status = _gh_status_projection(
+            _data(await recorder.call("gh_status", {}), "gh_status")
+        )
+        document_id = status["document_id"]
+        if type(document_id) is not str:
+            raise LiveGateError("Grasshopper restoration target identity is absent")
+        projection = _snapshot_projection(
+            snapshot,
+            process_id=state.record.pid,
+            process_token=target["process_start_token"],
+            port=state.record.port,
+            document_id=document_id,
+        )
+        components = _ci_get(snapshot, "components")
+        flows = _ci_get(snapshot, "flows")
+        if not isinstance(components, list) or not isinstance(flows, list):
+            raise LiveGateError("Grasshopper restoration state is malformed")
+    except OwnershipAmbiguous:
+        raise
+    except Exception as exc:
+        raise OwnershipAmbiguous(
+            "Grasshopper restoration target could not be revalidated"
+        ) from exc
+    if not (
+        status["has_active_canvas"] is True
+        and status["has_active_document"] is True
+        and document_id == expected["document_id"]
+        and status["document_path"] == expected["path"]
+        and projection["document_id"] == expected["document_id"]
+        and projection["gate_canvas_token"] == expected["gate_canvas_token"]
+        and projection["path"] == expected["path"]
+        and type(status["object_count"]) is int
+        and type(projection["object_count"]) is int
+        and status["object_count"] == len(components)
+        and projection["object_count"] == len(components)
+    ):
+        raise OwnershipAmbiguous("Grasshopper restoration scratch identity drift")
+
+    by_id: dict[str, Mapping[str, Any]] = {}
+    for component in components:
+        component_id = _ci_get(component, "id") if isinstance(component, Mapping) else None
+        if (
+            type(component_id) is not str
+            or component_id not in {"C1", "C2"}
+            or component_id in by_id
+        ):
+            raise OwnershipAmbiguous(
+                "Grasshopper restoration observed an unknown component"
+            )
+        by_id[component_id] = component
+    if flows not in ([], ["C1.O0>C2.I1"]):
+        raise OwnershipAmbiguous(
+            "Grasshopper restoration observed an unknown wire"
+        )
+    wired = flows == ["C1.O0>C2.I1"]
+    if wired and set(by_id) != {"C1", "C2"}:
+        raise OwnershipAmbiguous(
+            "Grasshopper restoration wire endpoints are incomplete"
+        )
+    slider = by_id.get("C1")
+    if slider is not None:
+        value = _ci_get(slider, "value")
+        if not (
+            _ci_get(slider, "type") == "NumberSlider"
+            and _ci_get(slider, "nick")
+            == f"RookContainmentRadius-{state.run_id}"
+            and _ci_get(slider, "pos") == [100, 100]
+            and isinstance(value, Mapping)
+            and _ci_get(value, "type") == "slider"
+            and _ci_get(value, "min") == 1
+            and _ci_get(value, "max") == 9
+            and _ci_get(value, "val") == 4
+        ):
+            raise OwnershipAmbiguous(
+                "Grasshopper restoration observed an altered slider"
+            )
+    sphere = by_id.get("C2")
+    if sphere is not None:
+        inputs = _ci_get(sphere, "inputs")
+        radius_input = next(
+            (
+                item
+                for item in inputs
+                if isinstance(item, Mapping) and _ci_get(item, "idx") == 1
+            ),
+            None,
+        ) if isinstance(inputs, list) else None
+        if not (
+            _ci_get(sphere, "type") == "Component"
+            and str(_ci_get(sphere, "componentGuid", "")).lower()
+            == SPHERE_COMPONENT_GUID
+            and _ci_get(sphere, "name") == "Sphere"
+            and _ci_get(sphere, "pos") == [400, 100]
+            and isinstance(radius_input, Mapping)
+            and _ci_get(radius_input, "name") == "Radius"
+            and _ci_get(radius_input, "sources") == (1 if wired else 0)
+        ):
+            raise OwnershipAmbiguous(
+                "Grasshopper restoration observed an altered Sphere"
+            )
     return projection, not errors and not warnings
 
 
@@ -1479,13 +1667,13 @@ async def _restore_grasshopper(state: _RunState, recorder: _OperationRecorder) -
     if not isinstance(expected, Mapping):
         return False
     if state.gh_edit_may_have_applied:
-        observed, clean = await _observe_grasshopper_restoration(state, recorder)
-        matched = clean and observed == dict(expected)
-        while not matched and state.gh_undo_attempts < 4:
-            state.gh_undo_attempts += 1
-            await recorder.call("gh_undo", {})
+        while True:
             observed, clean = await _observe_grasshopper_restoration(state, recorder)
             matched = clean and observed == dict(expected)
+            if matched or state.gh_undo_attempts >= 4:
+                break
+            state.gh_undo_attempts += 1
+            await recorder.call("gh_undo", {})
         state.result.restoration["in_process_projection_matches_declared"] = matched
         return matched
     state.result.restoration["in_process_projection_matches_declared"] = True
@@ -1496,10 +1684,18 @@ def _cleanup_owned_target(state: _RunState, diagnostics: list[str]) -> bool:
     if state.process is None:
         return False
     owned_process = getattr(state.process, "process", state.process)
+    live_at_entry = owned_process.poll() is None
+    state.cleanup_live_at_entry = live_at_entry
+    graceful_confirmed = False
     forced = False
-    if owned_process.poll() is None:
+    if not live_at_entry:
+        diagnostics.append(
+            f"owned process pid {owned_process.pid} had already exited before cleanup"
+        )
+    else:
         try:
             forced = _request_graceful_close(owned_process, diagnostics)
+            graceful_confirmed = not forced and owned_process.poll() is not None
         except Exception as exc:
             diagnostics.append(f"graceful cleanup failed for pid {owned_process.pid}: {_bounded_detail(exc)}")
             forced = True
@@ -1528,7 +1724,13 @@ def _cleanup_owned_target(state: _RunState, diagnostics: list[str]) -> bool:
     state.result.restoration["prior_identity_or_absence_restored"] = True
     state.result.restoration["scratch_disposed"] = scratch_disposed
     state.result.restoration["discovery_removed"] = discovery_removed
-    return not forced and scratch_disposed and discovery_removed
+    return (
+        live_at_entry
+        and graceful_confirmed
+        and not forced
+        and scratch_disposed
+        and discovery_removed
+    )
 
 
 def _restoration_is_verified(state: _RunState, *, cleanup_ok: bool) -> bool:
@@ -1640,23 +1842,36 @@ def run_live_scenario(
     run_id = _new_run_id()
     if _TOKEN_RE.fullmatch(run_id) is None:
         raise LiveGateError("run identifier generator drift")
-    owned_dir = _claim_artifact_directory(Path(artifact_dir), run_id)
     started_at = _utc_now()
     result = _new_result(scenario, run_id, started_at)
+    rhino_path = Path(rhino_exe).expanduser().resolve()
+    owned_dir = _claim_artifact_directory(Path(artifact_dir), run_id)
     state = _RunState(
         scenario=scenario,
         run_id=run_id,
         artifact_dir=owned_dir,
-        rhino_exe=Path(rhino_exe).expanduser().resolve(),
+        rhino_exe=rhino_path,
         started_at=started_at,
         result=result,
     )
-    _register_artifact(result, owned_dir / OWNERSHIP_MARKER, owned_dir, "ownership_marker")
     failure: _ScenarioFailure | None = None
     interruption: BaseException | None = None
     interruption_label: str | None = None
     diagnostics: list[str] = []
     try:
+        try:
+            _register_artifact(
+                result,
+                owned_dir / OWNERSHIP_MARKER,
+                owned_dir,
+                "ownership_marker",
+            )
+        except Exception as exc:
+            raise _ScenarioFailure(
+                "runtime_origin_invalid",
+                "artifact ownership marker evidence registration failed",
+            ) from exc
+
         try:
             if not state.rhino_exe.is_file() or _is_reparse(state.rhino_exe):
                 raise LiveGateError("Rhino executable is missing or reparse-backed")
@@ -1807,7 +2022,9 @@ def run_live_scenario(
                 if cleanup_attempt == 1:
                     break
         if not cleanup_ok:
-            if result.failure_label not in {"ownership_ambiguous", "restoration_failed"}:
+            if state.cleanup_live_at_entry is False:
+                result.failure_label = "cleanup_failed"
+            elif result.failure_label not in {"ownership_ambiguous", "restoration_failed"}:
                 result.failure_label = "cleanup_failed"
             result.success = False
     elif state.process is None:
@@ -1851,6 +2068,29 @@ def run_live_scenario(
         if result.failure_label is None:
             result.failure_label = failure.label if failure is not None else "cleanup_failed"
 
+    if not any(
+        item.get("relative_path") == OWNERSHIP_MARKER
+        for item in result.artifacts
+        if isinstance(item, Mapping)
+    ):
+        try:
+            _register_artifact(
+                result,
+                owned_dir / OWNERSHIP_MARKER,
+                owned_dir,
+                "ownership_marker",
+            )
+        except Exception as marker_exc:
+            result.success = False
+            if result.failure_label is None:
+                result.failure_label = "runtime_origin_invalid"
+            _record_diagnostic(
+                state,
+                "evidence",
+                result.failure_label,
+                marker_exc,
+            )
+
     result.ended_at = _utc_now()
     path, digest = _write_final_evidence_pair(owned_dir, scenario, result.to_dict())
     if path.name != f"{scenario}-scenario.json":
@@ -1875,6 +2115,477 @@ def _safe_relative(root: Path, raw: object) -> Path:
     return candidate
 
 
+def _closed_mapping(
+    value: object,
+    keys: set[str],
+    label: str,
+) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != keys:
+        raise LiveGateError(f"{label} schema drift")
+    return value
+
+
+def _is_sha256(value: object) -> bool:
+    return type(value) is str and _SHA256_RE.fullmatch(value) is not None
+
+
+def _is_utc_timestamp(value: object) -> bool:
+    if type(value) is not str or _UTC_TIMESTAMP_RE.fullmatch(value) is None:
+        return False
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None and parsed.utcoffset() == timezone.utc.utcoffset(parsed)
+
+
+def _validate_runtime_result(value: object) -> Mapping[str, Any] | None:
+    if value is None:
+        return None
+    runtime = _closed_mapping(
+        value,
+        {"python_executable", "installed_root", "cwd", "sys_path", "rook_origins"},
+        "runtime evidence",
+    )
+    if not all(
+        type(runtime[key]) is str
+        for key in ("python_executable", "installed_root", "cwd")
+    ):
+        raise LiveGateError("runtime evidence path type drift")
+    sys_path = runtime["sys_path"]
+    origins = runtime["rook_origins"]
+    if (
+        not isinstance(sys_path, list)
+        or not all(type(item) is str for item in sys_path)
+        or not isinstance(origins, Mapping)
+        or not all(
+            type(key) is str and type(origin) is str
+            for key, origin in origins.items()
+        )
+    ):
+        raise LiveGateError("runtime evidence collection type drift")
+    return runtime
+
+
+def _validate_target_result(value: object) -> Mapping[str, Any] | None:
+    if value is None:
+        return None
+    target = _closed_mapping(
+        value,
+        {
+            "process_id",
+            "port",
+            "process_start_token",
+            "discovery_record_sha256",
+            "scratch_path",
+            "ownership_certain",
+        },
+        "target evidence",
+    )
+    if (
+        type(target["process_id"]) is not int
+        or target["process_id"] <= 0
+        or type(target["port"]) is not int
+        or not 1 <= target["port"] <= 65535
+        or type(target["process_start_token"]) is not str
+        or _TOKEN_RE.fullmatch(target["process_start_token"]) is None
+        or not _is_sha256(target["discovery_record_sha256"])
+        or type(target["scratch_path"]) is not str
+        or not target["scratch_path"]
+        or type(target["ownership_certain"]) is not bool
+    ):
+        raise LiveGateError("target evidence type drift")
+    return target
+
+
+def _validate_authorization_result(
+    value: object,
+    *,
+    scenario: str,
+    run_id: str,
+    target: Mapping[str, Any] | None,
+) -> Mapping[str, Any] | None:
+    if value is None:
+        return None
+    authorization = _closed_mapping(
+        value,
+        {
+            "nonce",
+            "challenge_sha256",
+            "authorized_at",
+            "preflight_sha256",
+            "pre_mutation_sha256",
+            "state_unchanged",
+        },
+        "authorization evidence",
+    )
+    authorized_at = authorization["authorized_at"]
+    pre_mutation = authorization["pre_mutation_sha256"]
+    if (
+        type(authorization["nonce"]) is not str
+        or _TOKEN_RE.fullmatch(authorization["nonce"]) is None
+        or not _is_sha256(authorization["challenge_sha256"])
+        or (authorized_at is not None and not _is_utc_timestamp(authorized_at))
+        or not _is_sha256(authorization["preflight_sha256"])
+        or (pre_mutation is not None and not _is_sha256(pre_mutation))
+        or type(authorization["state_unchanged"]) is not bool
+    ):
+        raise LiveGateError("authorization evidence type drift")
+    if target is None:
+        raise LiveGateError("authorization evidence has no bound target")
+    expected_challenge = _build_authorization_challenge(
+        scenario=scenario,
+        run_id=run_id,
+        nonce=authorization["nonce"],
+        target={
+            "label": AUTHORIZATION_LABELS[scenario],
+            "process_id": target["process_id"],
+            "port": target["port"],
+            "scratch_path": target["scratch_path"],
+        },
+    )
+    if authorization["challenge_sha256"] != _sha256_value(expected_challenge):
+        raise LiveGateError("authorization challenge digest mismatch")
+    state_unchanged = authorization["state_unchanged"]
+    if authorized_at is None:
+        relationship_valid = pre_mutation is None and state_unchanged is False
+    elif pre_mutation is None:
+        relationship_valid = state_unchanged is False
+    else:
+        relationship_valid = state_unchanged is (
+            pre_mutation == authorization["preflight_sha256"]
+        )
+    if not relationship_valid:
+        raise LiveGateError("authorization state relationship drift")
+    return authorization
+
+
+def _validate_host_projection(
+    value: object,
+    *,
+    scenario: str,
+) -> Mapping[str, Any]:
+    if scenario == "rhino":
+        projection = _closed_mapping(
+            value,
+            {
+                "prior_active_document_runtime_serial",
+                "prior_path",
+                "prior_modified",
+            },
+            "Rhino host projection",
+        )
+        if (
+            type(projection["prior_active_document_runtime_serial"]) is not int
+            or projection["prior_active_document_runtime_serial"] <= 0
+            or type(projection["prior_path"]) is not str
+            or type(projection["prior_modified"]) is not bool
+        ):
+            raise LiveGateError("Rhino host projection type drift")
+        return projection
+    projection = _closed_mapping(
+        value,
+        {"has_active_canvas", "document_id"},
+        "Grasshopper host projection",
+    )
+    if (
+        type(projection["has_active_canvas"]) is not bool
+        or projection["has_active_canvas"] is not False
+        or projection["document_id"] is not None
+    ):
+        raise LiveGateError("Grasshopper host projection type drift")
+    return projection
+
+
+def _validate_scratch_projection(
+    value: object,
+    *,
+    scenario: str,
+) -> Mapping[str, Any]:
+    if scenario == "rhino":
+        projection = _closed_mapping(
+            value,
+            {"runtime_serial", "path", "modified", "object_count", "object_ids"},
+            "Rhino scratch projection",
+        )
+        object_ids = projection["object_ids"]
+        if (
+            type(projection["runtime_serial"]) is not int
+            or projection["runtime_serial"] <= 0
+            or type(projection["path"]) is not str
+            or type(projection["modified"]) is not bool
+            or type(projection["object_count"]) is not int
+            or projection["object_count"] < 0
+            or not isinstance(object_ids, list)
+            or not all(
+                type(item) is str and _GUID_RE.fullmatch(item) is not None
+                for item in object_ids
+            )
+            or projection["object_count"] != len(object_ids)
+        ):
+            raise LiveGateError("Rhino scratch projection type drift")
+        return projection
+    projection = _closed_mapping(
+        value,
+        {
+            "document_id",
+            "has_active_canvas",
+            "gate_canvas_token",
+            "path",
+            "object_count",
+            "component_ids",
+            "wires",
+            "errors",
+            "warnings",
+        },
+        "Grasshopper scratch projection",
+    )
+    component_ids = projection["component_ids"]
+    wires = projection["wires"]
+    if (
+        type(projection["document_id"]) is not str
+        or not projection["document_id"]
+        or projection["has_active_canvas"] is not True
+        or not _is_sha256(projection["gate_canvas_token"])
+        or type(projection["path"]) is not str
+        or type(projection["object_count"]) is not int
+        or projection["object_count"] < 0
+        or not isinstance(component_ids, list)
+        or not all(type(item) is str for item in component_ids)
+        or projection["object_count"] != len(component_ids)
+        or not isinstance(wires, list)
+        or not all(type(item) is str for item in wires)
+        or type(projection["errors"]) is not int
+        or projection["errors"] < 0
+        or type(projection["warnings"]) is not int
+        or projection["warnings"] < 0
+    ):
+        raise LiveGateError("Grasshopper scratch projection type drift")
+    return projection
+
+
+def _validate_pre_state_result(
+    value: object,
+    *,
+    scenario: str,
+) -> Mapping[str, Any] | None:
+    if value is None:
+        return None
+    pre_state = _closed_mapping(
+        value,
+        {"host_projection", "host_sha256", "scratch_projection", "scratch_sha256"},
+        "pre-state evidence",
+    )
+    host = _validate_host_projection(pre_state["host_projection"], scenario=scenario)
+    if (
+        not _is_sha256(pre_state["host_sha256"])
+        or pre_state["host_sha256"] != _sha256_value(host)
+    ):
+        raise LiveGateError("pre-state host projection digest drift")
+    scratch = pre_state["scratch_projection"]
+    scratch_sha = pre_state["scratch_sha256"]
+    if scratch is None:
+        if scratch_sha is not None:
+            raise LiveGateError("pre-state scratch nullability drift")
+    else:
+        scratch_projection = _validate_scratch_projection(
+            scratch,
+            scenario=scenario,
+        )
+        if not _is_sha256(scratch_sha) or scratch_sha != _sha256_value(
+            scratch_projection
+        ):
+            raise LiveGateError("pre-state scratch projection digest drift")
+    return pre_state
+
+
+def _validate_verification_result(value: object) -> Mapping[str, Any]:
+    verification = _closed_mapping(
+        value,
+        {"passed", "projection", "projection_sha256", "errors", "warnings"},
+        "verification evidence",
+    )
+    projection = verification["projection"]
+    projection_sha = verification["projection_sha256"]
+    if (
+        type(verification["passed"]) is not bool
+        or not isinstance(verification["errors"], list)
+        or not isinstance(verification["warnings"], list)
+    ):
+        raise LiveGateError("verification evidence type drift")
+    if projection is None:
+        if projection_sha is not None:
+            raise LiveGateError("verification projection nullability drift")
+    elif (
+        not isinstance(projection, Mapping)
+        or not _is_sha256(projection_sha)
+        or projection_sha != _sha256_value(projection)
+    ):
+        raise LiveGateError("verification projection digest drift")
+    return verification
+
+
+def _validate_restoration_result(value: object) -> Mapping[str, Any]:
+    restoration = _closed_mapping(
+        value,
+        {
+            "ownership_certain",
+            "attempted",
+            "verified",
+            "in_process_projection_matches_declared",
+            "prior_identity_or_absence_restored",
+            "scratch_disposed",
+            "discovery_removed",
+        },
+        "restoration evidence",
+    )
+    if not all(type(item) is bool for item in restoration.values()):
+        raise LiveGateError("restoration evidence type drift")
+    return restoration
+
+
+def _validate_telemetry_result(value: object) -> Mapping[str, Any] | None:
+    if value is None:
+        return None
+    telemetry = _closed_mapping(
+        value,
+        {
+            "process_id",
+            "process_start_token",
+            "before_sha256",
+            "after_sha256",
+            "delta_count",
+            "events_added",
+        },
+        "telemetry evidence",
+    )
+    if (
+        type(telemetry["process_id"]) is not int
+        or telemetry["process_id"] <= 0
+        or type(telemetry["process_start_token"]) is not str
+        or _TOKEN_RE.fullmatch(telemetry["process_start_token"]) is None
+        or not _is_sha256(telemetry["before_sha256"])
+    ):
+        raise LiveGateError("telemetry evidence type drift")
+    after = telemetry["after_sha256"]
+    delta = telemetry["delta_count"]
+    events = telemetry["events_added"]
+    if after is None or delta is None or events is None:
+        if not (after is None and delta is None and events is None):
+            raise LiveGateError("telemetry evidence nullability drift")
+    elif (
+        not _is_sha256(after)
+        or type(delta) is not int
+        or delta < 0
+        or not isinstance(events, list)
+        or delta != len(events)
+    ):
+        raise LiveGateError("telemetry final evidence type drift")
+    return telemetry
+
+
+def _validate_diagnostics_result(value: object) -> list[Mapping[str, Any]]:
+    if not isinstance(value, list):
+        raise LiveGateError("diagnostic evidence is malformed")
+    diagnostics: list[Mapping[str, Any]] = []
+    for item in value:
+        diagnostic = _closed_mapping(
+            item,
+            {"stage", "label", "relative_path", "sha256"},
+            "diagnostic evidence entry",
+        )
+        if (
+            type(diagnostic["stage"]) is not str
+            or type(diagnostic["label"]) is not str
+            or type(diagnostic["relative_path"]) is not str
+            or not _is_sha256(diagnostic["sha256"])
+        ):
+            raise LiveGateError("diagnostic evidence entry type drift")
+        diagnostics.append(diagnostic)
+    return diagnostics
+
+
+def _validate_nested_scenario_result(
+    evidence: Mapping[str, Any],
+    *,
+    scenario: str,
+) -> list[Mapping[str, Any]]:
+    if (
+        type(evidence["schema_version"]) is not int
+        or evidence["schema_version"] != SCHEMA_VERSION
+        or type(evidence["scenario"]) is not str
+        or evidence["scenario"] != scenario
+        or type(evidence["run_id"]) is not str
+        or _TOKEN_RE.fullmatch(evidence["run_id"]) is None
+        or not _is_utc_timestamp(evidence["started_at"])
+        or not _is_utc_timestamp(evidence["ended_at"])
+        or evidence["ended_at"] < evidence["started_at"]
+    ):
+        raise LiveGateError("final evidence scalar type drift")
+    runtime = _validate_runtime_result(evidence["runtime"])
+    target = _validate_target_result(evidence["target"])
+    authorization = _validate_authorization_result(
+        evidence["authorization"],
+        scenario=scenario,
+        run_id=evidence["run_id"],
+        target=target,
+    )
+    pre_state = _validate_pre_state_result(evidence["pre_state"], scenario=scenario)
+    verification = _validate_verification_result(evidence["verification"])
+    restoration = _validate_restoration_result(evidence["restoration"])
+    telemetry = _validate_telemetry_result(evidence["telemetry"])
+    diagnostics = _validate_diagnostics_result(evidence["diagnostics"])
+    if runtime is None and any(
+        item is not None for item in (target, authorization, pre_state, telemetry)
+    ):
+        raise LiveGateError("runtime evidence nullability drift")
+    if target is None and any(
+        item is not None for item in (authorization, pre_state)
+    ):
+        raise LiveGateError("target evidence nullability drift")
+    if authorization is not None and (target is None or pre_state is None):
+        raise LiveGateError("authorization evidence nullability drift")
+    if pre_state is not None and target is None:
+        raise LiveGateError("pre-state evidence nullability drift")
+    failure_label = evidence["failure_label"]
+    if failure_label == "runtime_origin_invalid" and any(
+        item is not None for item in (target, authorization, pre_state, telemetry)
+    ):
+        raise LiveGateError("runtime-origin failure contains downstream evidence")
+    if failure_label == "launch_failed" and any(
+        item is not None for item in (target, authorization, pre_state)
+    ):
+        raise LiveGateError("launch failure contains downstream evidence")
+    if failure_label == "readiness_failed" and any(
+        item is not None for item in (authorization, pre_state)
+    ):
+        raise LiveGateError("readiness failure contains downstream evidence")
+    if failure_label in {"preflight_blocked", "authorization_rejected"} and evidence[
+        "operations"
+    ] != []:
+        raise LiveGateError("pre-authorization failure contains operation evidence")
+    if evidence["success"]:
+        if any(
+            item is None
+            for item in (runtime, target, authorization, pre_state, telemetry)
+        ):
+            raise LiveGateError("successful evidence contains a null required section")
+        if (
+            authorization["authorized_at"] is None
+            or authorization["pre_mutation_sha256"] is None
+            or authorization["state_unchanged"] is not True
+            or verification["passed"] is not True
+            or verification["projection"] is None
+            or restoration["verified"] is not True
+            or not all(restoration.values())
+            or telemetry["after_sha256"] is None
+            or telemetry["delta_count"] != 0
+            or telemetry["events_added"] != []
+        ):
+            raise LiveGateError("successful evidence state relationship drift")
+    return diagnostics
+
+
 def _validate_scenario_artifacts(artifact_dir: Path, *, scenario: str) -> dict[str, Any]:
     root = Path(artifact_dir).resolve()
     if scenario not in SCENARIOS:
@@ -1893,14 +2604,14 @@ def _validate_scenario_artifacts(artifact_dir: Path, *, scenario: str) -> dict[s
         raise LiveGateError("final evidence sidecar mismatch")
     if not isinstance(evidence, Mapping) or set(evidence) != set(RESULT_FIELDS):
         raise LiveGateError("final evidence schema drift")
-    if evidence["scenario"] != scenario or evidence["schema_version"] != SCHEMA_VERSION:
-        raise LiveGateError("final evidence scenario drift")
     success = evidence["success"]
     failure_label = evidence["failure_label"]
     if type(success) is not bool or (success and failure_label is not None) or (
-        not success and failure_label not in FAILURE_LABELS
+        not success
+        and (type(failure_label) is not str or failure_label not in FAILURE_LABELS)
     ):
         raise LiveGateError("final evidence success/failure relationship drift")
+    diagnostics = _validate_nested_scenario_result(evidence, scenario=scenario)
     artifacts = evidence["artifacts"]
     if not isinstance(artifacts, list):
         raise LiveGateError("artifact inventory is malformed")
@@ -1908,6 +2619,15 @@ def _validate_scenario_artifacts(artifact_dir: Path, *, scenario: str) -> dict[s
     for item in artifacts:
         if not isinstance(item, Mapping) or set(item) != {"kind", "relative_path", "sha256", "size"}:
             raise LiveGateError("artifact inventory entry is malformed")
+        if (
+            type(item["kind"]) is not str
+            or type(item["relative_path"]) is not str
+            or not _is_sha256(item["sha256"])
+            or type(item["size"]) is not int
+            or item["size"] < 0
+            or item["relative_path"] in inventory
+        ):
+            raise LiveGateError("artifact inventory entry type drift")
         path = _safe_relative(root, item["relative_path"])
         if not path.is_file():
             raise LiveGateError("artifact inventory file is missing")
@@ -1915,6 +2635,36 @@ def _validate_scenario_artifacts(artifact_dir: Path, *, scenario: str) -> dict[s
         if _sha256_bytes(content) != item["sha256"] or len(content) != item["size"]:
             raise LiveGateError("artifact inventory digest mismatch")
         inventory[str(item["relative_path"])] = item
+    marker = inventory.get(OWNERSHIP_MARKER)
+    if marker is None or marker["kind"] != "ownership_marker":
+        raise LiveGateError("ownership marker inventory binding mismatch")
+    marker_content = (root / OWNERSHIP_MARKER).read_bytes()
+    try:
+        marker_payload = json.loads(marker_content)
+    except Exception as exc:
+        raise LiveGateError("ownership marker is malformed") from exc
+    if (
+        marker_content != _canonical_json_bytes(marker_payload)
+        or not isinstance(marker_payload, Mapping)
+        or set(marker_payload) != {"process_id", "run_id", "schema_version"}
+        or type(marker_payload["process_id"]) is not int
+        or marker_payload["process_id"] <= 0
+        or marker_payload["run_id"] != evidence["run_id"]
+        or type(marker_payload["schema_version"]) is not int
+        or marker_payload["schema_version"] != SCHEMA_VERSION
+        or (
+            evidence["telemetry"] is not None
+            and marker_payload["process_id"]
+            != evidence["telemetry"]["process_id"]
+        )
+    ):
+        raise LiveGateError("ownership marker content binding mismatch")
+    for diagnostic in diagnostics:
+        relative = diagnostic["relative_path"]
+        if relative not in inventory:
+            raise LiveGateError("diagnostic artifact is not enumerated")
+        if inventory[relative]["sha256"] != diagnostic["sha256"]:
+            raise LiveGateError("diagnostic artifact digest mismatch")
     operations = evidence["operations"]
     if not isinstance(operations, list):
         raise LiveGateError("operation evidence is malformed")
@@ -1928,7 +2678,18 @@ def _validate_scenario_artifacts(artifact_dir: Path, *, scenario: str) -> dict[s
             "result_sha256",
             "success",
         }
-        if not isinstance(operation, Mapping) or set(operation) != expected_keys or operation["index"] != expected_index:
+        if (
+            not isinstance(operation, Mapping)
+            or set(operation) != expected_keys
+            or type(operation["index"]) is not int
+            or operation["index"] != expected_index
+            or type(operation["name"]) is not str
+            or type(operation["arguments_path"]) is not str
+            or not _is_sha256(operation["arguments_sha256"])
+            or type(operation["result_path"]) is not str
+            or not _is_sha256(operation["result_sha256"])
+            or type(operation["success"]) is not bool
+        ):
             raise LiveGateError("operation evidence schema or order drift")
         if operation["name"] not in (RHINO_TOOL_ALLOWLIST if scenario == "rhino" else GRASSHOPPER_TOOL_ALLOWLIST):
             raise LiveGateError("operation tool is outside the scenario allowlist")

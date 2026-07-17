@@ -315,6 +315,81 @@ def test_artifact_claim_is_atomic_and_marker_is_canonical(tmp_path: Path) -> Non
 
 
 @requires_live_gate
+@pytest.mark.parametrize("failure_site", ["registration", "read", "hash"])
+def test_post_claim_marker_failure_emits_canonical_failure_without_launch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    failure_site: str,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    failed = False
+    original_register = live._register_artifact
+    original_read = Path.read_bytes
+    original_hash = live._sha256_bytes
+
+    if failure_site == "registration":
+        def fail_once_register(result, path, root, kind):
+            nonlocal failed
+            if kind == "ownership_marker" and not failed:
+                failed = True
+                raise OSError("one-shot marker registration failure")
+            return original_register(result, path, root, kind)
+
+        monkeypatch.setattr(live, "_register_artifact", fail_once_register)
+    elif failure_site == "read":
+        def fail_once_read(path: Path):
+            nonlocal failed
+            if path.name == live.OWNERSHIP_MARKER and not failed:
+                failed = True
+                raise OSError("one-shot marker read failure")
+            return original_read(path)
+
+        monkeypatch.setattr(Path, "read_bytes", fail_once_read)
+    else:
+        def fail_once_hash(payload: bytes):
+            nonlocal failed
+            if not failed:
+                failed = True
+                raise RuntimeError("one-shot marker hash failure")
+            return original_hash(payload)
+
+        monkeypatch.setattr(live, "_sha256_bytes", fail_once_hash)
+
+    try:
+        result = live.run_live_scenario(
+            scenario="rhino",
+            rhino_exe=harness.rhino_exe,
+            artifact_dir=harness.artifact,
+        )
+    except Exception as exc:
+        pytest.fail(
+            f"{EXPECTED_RED}:POST_CLAIM_MARKER:{failure_site} "
+            f"failure escaped final evidence state machine: {exc!r}"
+        )
+
+    assert failed is True
+    assert harness.trace == [], (
+        f"{EXPECTED_RED}:POST_CLAIM_MARKER:{failure_site} host launch occurred"
+    )
+    assert result.success is False
+    assert result.failure_label in live.FAILURE_LABELS
+    evidence = _load_final_artifact(harness.artifact, "rhino")
+    assert evidence["success"] is False
+    assert evidence["failure_label"] == result.failure_label
+    assert any(
+        item["kind"] == "ownership_marker"
+        and item["relative_path"] == live.OWNERSHIP_MARKER
+        for item in evidence["artifacts"]
+    )
+    live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert len(records) == 1
+    assert records[0]["type"] == "scenario_result"
+    assert records[0]["success"] is False
+
+
+@requires_live_gate
 def test_runtime_serial_and_point_parsers_require_one_exact_line() -> None:
     assert live._parse_runtime_serial("ROOK_DOC_RUNTIME_SERIAL=17\n") == 17
     assert live._parse_point_id(f"ROOK_POINT_ID={POINT_ID}\n") == POINT_ID
@@ -1168,6 +1243,53 @@ def test_keyboard_interrupt_retry_never_exceeds_total_four_undo_attempts(
 
 @requires_live_gate
 @pytest.mark.parametrize("scenario", ["rhino", "grasshopper"])
+def test_keyboard_interrupt_during_restoration_validation_preserves_exit_130(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    scenario: str,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario=scenario)
+    original = harness.adapter.call
+    observed = 0
+
+    async def interrupt_first_restoration_validation(name, arguments):
+        nonlocal observed
+        is_validation_probe = (
+            scenario == "rhino"
+            and name == "rhino_execute"
+            and arguments == {"code": live.RUNTIME_SERIAL_CODE}
+        ) or (scenario == "grasshopper" and name == "gh_snapshot")
+        if is_validation_probe:
+            observed += 1
+            if observed == 4:
+                raise KeyboardInterrupt
+        return await original(name, arguments)
+
+    harness.adapter.call = interrupt_first_restoration_validation
+    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+        exit_code = live.main(
+            [
+                "run",
+                "--scenario",
+                scenario,
+                "--rhino-exe",
+                str(harness.rhino_exe),
+                "--artifact-dir",
+                str(harness.artifact),
+            ]
+        )
+
+    assert exit_code == 130, (
+        f"{EXPECTED_RED}:RESTORE_VALIDATION_INTERRUPT:{scenario} "
+        "KeyboardInterrupt was converted into an ordinary failure"
+    )
+    evidence = _load_final_artifact(harness.artifact, scenario)
+    assert evidence["success"] is False
+    assert evidence["restoration"]["verified"] is True
+
+
+@requires_live_gate
+@pytest.mark.parametrize("scenario", ["rhino", "grasshopper"])
 @pytest.mark.parametrize("authorization", ["eof", "wrong"])
 def test_authorization_rejection_blocks_all_forward_mutation_and_is_not_green(
     monkeypatch: pytest.MonkeyPatch,
@@ -1359,6 +1481,75 @@ def test_force_cleanup_can_never_turn_success_green(
 
 
 @requires_live_gate
+@pytest.mark.parametrize("returncode", [0, 7])
+def test_cleanup_requires_process_live_at_entry_and_confirmed_graceful_close(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    returncode: int,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    original_restore = live._restore_rhino
+
+    async def restore_then_process_exits(state, recorder):
+        restored = await original_restore(state, recorder)
+        harness.process.returncode = returncode
+        harness.discovery.removed = True
+        Path(harness.record.path).unlink()
+        return restored
+
+    monkeypatch.setattr(live, "_restore_rhino", restore_then_process_exits)
+
+    result = live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    )
+
+    assert result.success is False, (
+        f"{EXPECTED_RED}:CLEANUP_LIVE_ENTRY:returncode={returncode} "
+        "an already-exited process was accepted as graceful cleanup"
+    )
+    assert result.failure_label == "cleanup_failed"
+    assert result.restoration["verified"] is False
+    assert harness.close_calls == []
+    evidence = _load_final_artifact(harness.artifact, "rhino")
+    assert evidence["restoration"]["verified"] is False
+
+
+@requires_live_gate
+@pytest.mark.parametrize("returncode", [0, 7])
+def test_already_exited_cleanup_label_overrides_prior_restoration_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    returncode: int,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+
+    async def restoration_fails_then_process_exits(state, recorder):
+        state.result.restoration["attempted"] = True
+        state.result.restoration["in_process_projection_matches_declared"] = False
+        harness.process.returncode = returncode
+        harness.discovery.removed = True
+        Path(harness.record.path).unlink()
+        return False
+
+    monkeypatch.setattr(live, "_restore_rhino", restoration_fails_then_process_exits)
+
+    result = live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    )
+
+    assert result.success is False
+    assert result.failure_label == "cleanup_failed", (
+        f"{EXPECTED_RED}:CLEANUP_EXIT_LABEL:returncode={returncode} "
+        "an already-exited process did not take cleanup-failure precedence"
+    )
+    assert result.restoration["verified"] is False
+
+
+@requires_live_gate
 def test_stale_discovery_record_is_not_deleted_or_reported_as_restored(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1467,6 +1658,267 @@ def test_rhino_restoration_refuses_unvalidated_object_id_without_deletion(
 
     assert "rhino_delete" not in [name for name, _ in harness.adapter.calls]
     assert set(harness.adapter.objects) == {SPHERE_ID, unexpected_id}
+
+
+def _direct_rhino_restoration_state(harness: Any):
+    harness.artifact.mkdir(parents=True)
+    harness.scratch.write_bytes(b"fake-3dm")
+    harness.adapter.saved = True
+    harness.adapter.modified = True
+    harness.adapter.objects = {
+        SPHERE_ID: {
+            "id": SPHERE_ID,
+            "name": f"RookContainmentSphere-{RUN_ID}",
+            "type": "Brep",
+        },
+        POINT_ID: {
+            "id": POINT_ID,
+            "name": f"RookContainmentPoint-{RUN_ID}",
+            "type": "Point",
+        },
+    }
+    result = live._new_result("rhino", RUN_ID, live._utc_now())
+    scratch_projection = {
+        "runtime_serial": 41,
+        "path": str(harness.scratch),
+        "modified": False,
+        "object_count": 0,
+        "object_ids": [],
+    }
+    result.pre_state = {
+        "host_projection": {
+            "prior_active_document_runtime_serial": 41,
+            "prior_path": "",
+            "prior_modified": False,
+        },
+        "host_sha256": live._sha256_value(
+            {
+                "prior_active_document_runtime_serial": 41,
+                "prior_path": "",
+                "prior_modified": False,
+            }
+        ),
+        "scratch_projection": scratch_projection,
+        "scratch_sha256": live._sha256_value(scratch_projection),
+    }
+    return live._RunState(
+        scenario="rhino",
+        run_id=RUN_ID,
+        artifact_dir=harness.artifact,
+        rhino_exe=harness.rhino_exe,
+        started_at=result.started_at,
+        result=result,
+        adapter=harness.adapter,
+        scratch_path=harness.scratch,
+        created_rhino_ids=[SPHERE_ID, POINT_ID],
+    )
+
+
+@requires_live_gate
+@pytest.mark.parametrize("drift_phase", ["before_delete", "before_save"])
+def test_rhino_restoration_revalidates_exact_scratch_identity_before_each_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    drift_phase: str,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    state = _direct_rhino_restoration_state(harness)
+    original = harness.adapter.call
+
+    if drift_phase == "before_delete":
+        harness.adapter.serial = 99
+
+    async def drift_after_delete(name, arguments):
+        result = await original(name, arguments)
+        if drift_phase == "before_save" and name == "rhino_delete":
+            harness.adapter.serial = 99
+        return result
+
+    harness.adapter.call = drift_after_delete
+
+    try:
+        asyncio.run(live._restore_rhino(state, live._OperationRecorder(state)))
+    except live.OwnershipAmbiguous:
+        pass
+    else:
+        pytest.fail(
+            f"{EXPECTED_RED}:RHINO_RESTORE_REVALIDATE:{drift_phase} "
+            "drifted scratch identity was not classified as ambiguous"
+        )
+
+    mutation_names = [
+        name
+        for name, _ in harness.adapter.calls
+        if name in {"rhino_delete", "rhino_document_ops"}
+    ]
+    expected = [] if drift_phase == "before_delete" else ["rhino_delete"]
+    assert mutation_names == expected, (
+        f"{EXPECTED_RED}:RHINO_RESTORE_REVALIDATE:{drift_phase} "
+        f"unexpected restorative mutation sequence: {mutation_names}"
+    )
+
+
+def _direct_grasshopper_restoration_state(harness: Any):
+    harness.artifact.mkdir(parents=True)
+    harness.adapter.bootstrapped = True
+    harness.adapter.opened = True
+    harness.adapter.edited = False
+    empty_snapshot = harness.adapter._snapshot()
+    expected = live._snapshot_projection(
+        empty_snapshot,
+        process_id=harness.record.pid,
+        process_token=PROCESS_TOKEN,
+        port=harness.record.port,
+        document_id=GH_DOCUMENT_ID,
+    )
+    harness.adapter.edited = True
+    result = live._new_result("grasshopper", RUN_ID, live._utc_now())
+    result.target = {
+        "process_id": harness.record.pid,
+        "port": harness.record.port,
+        "process_start_token": PROCESS_TOKEN,
+        "discovery_record_sha256": harness.record_sha256,
+        "scratch_path": str(harness.scratch),
+        "ownership_certain": True,
+    }
+    host_projection = {"has_active_canvas": False, "document_id": None}
+    result.pre_state = {
+        "host_projection": host_projection,
+        "host_sha256": live._sha256_value(host_projection),
+        "scratch_projection": expected,
+        "scratch_sha256": live._sha256_value(expected),
+    }
+    state = live._RunState(
+        scenario="grasshopper",
+        run_id=RUN_ID,
+        artifact_dir=harness.artifact,
+        rhino_exe=harness.rhino_exe,
+        started_at=result.started_at,
+        result=result,
+        record=harness.record,
+        adapter=harness.adapter,
+        scratch_path=harness.scratch,
+        gh_edit_may_have_applied=True,
+    )
+    return state
+
+
+@requires_live_gate
+@pytest.mark.parametrize(
+    "drift_case",
+    [
+        "different_document",
+        "different_path",
+        "different_canvas_token",
+        "unexpected_component",
+        "altered_component",
+        "unexpected_wire",
+        "object_count_bool",
+        "expected_object_count_bool",
+    ],
+)
+def test_grasshopper_restoration_revalidates_target_and_owned_state_before_undo(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    drift_case: str,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
+    state = _direct_grasshopper_restoration_state(harness)
+    original = harness.adapter.call
+    if drift_case == "different_canvas_token":
+        state.result.pre_state["scratch_projection"]["gate_canvas_token"] = "f" * 64
+    if drift_case == "expected_object_count_bool":
+        state.result.pre_state["scratch_projection"]["object_count"] = False
+
+    async def drift_restoration_observation(name, arguments):
+        result = await original(name, arguments)
+        if name == "gh_status" and drift_case == "different_document":
+            result = copy.deepcopy(result)
+            result["data"]["document_id"] = "55555555-5555-4555-8555-555555555555"
+        if name == "gh_status" and drift_case == "object_count_bool":
+            result = copy.deepcopy(result)
+            result["data"]["object_count"] = True
+        if name == "gh_snapshot" and harness.adapter.edited:
+            result = copy.deepcopy(result)
+            if drift_case == "different_path":
+                result["data"]["document"]["path"] = str(tmp_path / "other.ghx")
+            elif drift_case == "unexpected_component":
+                result["data"]["components"].append(
+                    {"id": "C9", "type": "Panel", "nick": "Unexpected", "pos": [0, 0]}
+                )
+            elif drift_case == "altered_component":
+                result["data"]["components"][0]["value"]["val"] = 5
+            elif drift_case == "unexpected_wire":
+                result["data"]["flows"] = ["C1.O0>C2.I0"]
+            elif drift_case == "object_count_bool":
+                result["data"]["components"] = [result["data"]["components"][0]]
+                result["data"]["flows"] = []
+        return result
+
+    harness.adapter.call = drift_restoration_observation
+
+    try:
+        asyncio.run(live._restore_grasshopper(state, live._OperationRecorder(state)))
+    except live.OwnershipAmbiguous:
+        pass
+    else:
+        pytest.fail(
+            f"{EXPECTED_RED}:GH_RESTORE_REVALIDATE:{drift_case} "
+            "unknown restoration target/state was not classified as ambiguous"
+        )
+
+    assert harness.adapter.undo_count == 0, (
+        f"{EXPECTED_RED}:GH_RESTORE_REVALIDATE:{drift_case} "
+        "gh_undo ran after ownership became ambiguous"
+    )
+    assert "gh_undo" not in [name for name, _ in harness.adapter.calls]
+
+
+@requires_live_gate
+@pytest.mark.parametrize("owned_subset", ["slider", "sphere", "components", "full"])
+def test_grasshopper_restoration_allows_exact_code_owned_partial_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    owned_subset: str,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
+    state = _direct_grasshopper_restoration_state(harness)
+    original_snapshot = harness.adapter._snapshot
+    original_status = harness.adapter._status
+
+    def partial_snapshot():
+        snapshot = original_snapshot()
+        if not harness.adapter.edited:
+            return snapshot
+        components = snapshot["components"]
+        if owned_subset == "slider":
+            snapshot["components"] = [components[0]]
+            snapshot["flows"] = []
+        elif owned_subset == "sphere":
+            snapshot["components"] = [components[1]]
+            snapshot["components"][0]["inputs"][1]["sources"] = 0
+            snapshot["flows"] = []
+        elif owned_subset == "components":
+            snapshot["components"][1]["inputs"][1]["sources"] = 0
+            snapshot["flows"] = []
+        return snapshot
+
+    harness.adapter._snapshot = partial_snapshot
+
+    def partial_status():
+        status = original_status()
+        if harness.adapter.edited and owned_subset in {"slider", "sphere"}:
+            status["object_count"] = 1
+        return status
+
+    harness.adapter._status = partial_status
+
+    restored = asyncio.run(
+        live._restore_grasshopper(state, live._OperationRecorder(state))
+    )
+
+    assert restored is True
+    assert harness.adapter.undo_count == 1
 
 
 @requires_live_gate
@@ -1761,6 +2213,436 @@ def test_consumer_rejects_missing_tampered_noncanonical_and_escaping_artifacts(
         live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
 
 
+def _rewrite_final_evidence(
+    artifact: Path,
+    scenario: str,
+    evidence: dict[str, Any],
+) -> None:
+    payload = live._canonical_json_bytes(evidence)
+    (artifact / f"{scenario}-scenario.json").write_bytes(payload)
+    digest = hashlib.sha256(payload).hexdigest()
+    (artifact / f"{scenario}-scenario.sha256").write_bytes(
+        f"{digest}\n".encode("ascii")
+    )
+
+
+@requires_live_gate
+@pytest.mark.parametrize("scenario", ["rhino", "grasshopper"])
+def test_consumer_rejects_closed_nested_schema_tampering_with_valid_sidecar(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    scenario: str,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario=scenario)
+    assert live.run_live_scenario(
+        scenario=scenario,
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    ).success
+    evidence_path = harness.artifact / f"{scenario}-scenario.json"
+    baseline = json.loads(evidence_path.read_bytes())
+    host_wrong_field = (
+        "prior_modified" if scenario == "rhino" else "has_active_canvas"
+    )
+    scratch_wrong_field = "object_count"
+
+    def add_extra(section: str):
+        return lambda item: item[section].__setitem__("unexpected", True)
+
+    def remove_key(section: str, key: str):
+        return lambda item: item[section].pop(key)
+
+    def wrong_field(section: str, key: str, value: object):
+        return lambda item: item[section].__setitem__(key, value)
+
+    cases = [
+        ("schema_version_bool", lambda item: item.__setitem__("schema_version", True)),
+        ("run_id_wrong_type", lambda item: item.__setitem__("run_id", 1)),
+        ("started_at_wrong_type", lambda item: item.__setitem__("started_at", None)),
+        ("runtime_extra", add_extra("runtime")),
+        ("runtime_missing", remove_key("runtime", "cwd")),
+        ("runtime_wrong_type", wrong_field("runtime", "sys_path", "not-an-array")),
+        ("target_extra", add_extra("target")),
+        ("target_missing", remove_key("target", "port")),
+        ("target_wrong_type", wrong_field("target", "process_id", "9001")),
+        ("authorization_extra", add_extra("authorization")),
+        ("authorization_missing", remove_key("authorization", "nonce")),
+        ("authorization_wrong_type", wrong_field("authorization", "state_unchanged", 1)),
+        ("pre_state_extra", add_extra("pre_state")),
+        ("pre_state_missing", remove_key("pre_state", "host_sha256")),
+        ("pre_state_wrong_type", wrong_field("pre_state", "host_sha256", None)),
+        (
+            "host_projection_extra",
+            lambda item: item["pre_state"]["host_projection"].__setitem__(
+                "unexpected", True
+            ),
+        ),
+        (
+            "host_projection_missing",
+            lambda item: item["pre_state"]["host_projection"].pop(
+                host_wrong_field
+            ),
+        ),
+        (
+            "host_projection_wrong_type",
+            lambda item: item["pre_state"]["host_projection"].__setitem__(
+                host_wrong_field, 1
+            ),
+        ),
+        (
+            "scratch_projection_extra",
+            lambda item: item["pre_state"]["scratch_projection"].__setitem__(
+                "unexpected", True
+            ),
+        ),
+        (
+            "scratch_projection_missing",
+            lambda item: item["pre_state"]["scratch_projection"].pop("path"),
+        ),
+        (
+            "scratch_projection_wrong_type",
+            lambda item: item["pre_state"]["scratch_projection"].__setitem__(
+                scratch_wrong_field, True
+            ),
+        ),
+        ("verification_extra", add_extra("verification")),
+        ("verification_missing", remove_key("verification", "warnings")),
+        ("verification_wrong_type", wrong_field("verification", "passed", 1)),
+        ("restoration_extra", add_extra("restoration")),
+        ("restoration_missing", remove_key("restoration", "discovery_removed")),
+        ("restoration_wrong_type", wrong_field("restoration", "verified", 1)),
+        ("telemetry_extra", add_extra("telemetry")),
+        ("telemetry_missing", remove_key("telemetry", "events_added")),
+        ("telemetry_wrong_type", wrong_field("telemetry", "delta_count", False)),
+        ("diagnostics_wrong_type", lambda item: item.__setitem__("diagnostics", {})),
+        (
+            "diagnostic_entry_extra",
+            lambda item: item.__setitem__(
+                "diagnostics",
+                [
+                    {
+                        "stage": "scenario",
+                        "label": "verification_failed",
+                        "relative_path": "diagnostics/001.json",
+                        "sha256": "0" * 64,
+                        "unexpected": True,
+                    }
+                ],
+            ),
+        ),
+        (
+            "diagnostic_entry_missing",
+            lambda item: item.__setitem__(
+                "diagnostics",
+                [
+                    {
+                        "stage": "scenario",
+                        "label": "verification_failed",
+                        "relative_path": "diagnostics/001.json",
+                    }
+                ],
+            ),
+        ),
+        ("success_runtime_null", lambda item: item.__setitem__("runtime", None)),
+        ("success_target_null", lambda item: item.__setitem__("target", None)),
+        ("success_authorization_null", lambda item: item.__setitem__("authorization", None)),
+        ("success_pre_state_null", lambda item: item.__setitem__("pre_state", None)),
+        ("success_telemetry_null", lambda item: item.__setitem__("telemetry", None)),
+        (
+            "success_authorized_at_null",
+            lambda item: item["authorization"].__setitem__("authorized_at", None),
+        ),
+        (
+            "success_pre_mutation_null",
+            lambda item: item["authorization"].__setitem__(
+                "pre_mutation_sha256", None
+            ),
+        ),
+        (
+            "success_verification_projection_null",
+            lambda item: item["verification"].update(
+                {"projection": None, "projection_sha256": None}
+            ),
+        ),
+        (
+            "success_restoration_unverified",
+            lambda item: item["restoration"].__setitem__("verified", False),
+        ),
+        (
+            "success_telemetry_final_null",
+            lambda item: item["telemetry"].update(
+                {"after_sha256": None, "delta_count": None, "events_added": None}
+            ),
+        ),
+    ]
+    accepted: list[str] = []
+    for label, mutate in cases:
+        tampered = copy.deepcopy(baseline)
+        mutate(tampered)
+        _rewrite_final_evidence(harness.artifact, scenario, tampered)
+        try:
+            live._validate_scenario_artifacts(
+                harness.artifact,
+                scenario=scenario,
+            )
+        except live.LiveGateError:
+            pass
+        else:
+            accepted.append(label)
+
+    _rewrite_final_evidence(harness.artifact, scenario, baseline)
+    assert accepted == [], (
+        f"{EXPECTED_RED}:CLOSED_NESTED_SCHEMA:{scenario} accepted={accepted}"
+    )
+    live._validate_scenario_artifacts(harness.artifact, scenario=scenario)
+
+
+@requires_live_gate
+def test_consumer_rejects_failure_stage_fabrication_with_valid_sidecar(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    assert live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    ).success
+    baseline = _load_final_artifact(harness.artifact, "rhino")
+
+    def failure_shape(label: str) -> dict[str, Any]:
+        evidence = copy.deepcopy(baseline)
+        evidence["success"] = False
+        evidence["failure_label"] = label
+        evidence["operations"] = []
+        if label == "runtime_origin_invalid":
+            for field in ("target", "authorization", "pre_state", "telemetry"):
+                evidence[field] = None
+        elif label == "launch_failed":
+            for field in ("target", "authorization", "pre_state"):
+                evidence[field] = None
+        elif label == "readiness_failed":
+            evidence["authorization"] = None
+            evidence["pre_state"] = None
+        elif label == "preflight_blocked":
+            evidence["authorization"] = None
+            evidence["pre_state"] = None
+        elif label == "authorization_rejected":
+            evidence["authorization"].update(
+                {
+                    "authorized_at": None,
+                    "pre_mutation_sha256": None,
+                    "state_unchanged": False,
+                }
+            )
+        return evidence
+
+    cases = [
+        ("runtime_target", "runtime_origin_invalid", ("target",)),
+        ("runtime_pre_state", "runtime_origin_invalid", ("target", "pre_state")),
+        (
+            "runtime_authorization",
+            "runtime_origin_invalid",
+            ("target", "pre_state", "authorization"),
+        ),
+        ("runtime_telemetry", "runtime_origin_invalid", ("telemetry",)),
+        ("launch_target", "launch_failed", ("target",)),
+        ("launch_pre_state", "launch_failed", ("target", "pre_state")),
+        (
+            "launch_authorization",
+            "launch_failed",
+            ("target", "pre_state", "authorization"),
+        ),
+        ("readiness_pre_state", "readiness_failed", ("pre_state",)),
+        (
+            "readiness_authorization",
+            "readiness_failed",
+            ("pre_state", "authorization"),
+        ),
+        ("preflight_operations", "preflight_blocked", ("operations",)),
+        (
+            "authorization_operations",
+            "authorization_rejected",
+            ("operations",),
+        ),
+    ]
+    accepted: list[str] = []
+    for case, label, fabricated_fields in cases:
+        tampered = failure_shape(label)
+        for field in fabricated_fields:
+            tampered[field] = copy.deepcopy(baseline[field])
+        if label == "authorization_rejected":
+            tampered["authorization"].update(
+                {
+                    "authorized_at": None,
+                    "pre_mutation_sha256": None,
+                    "state_unchanged": False,
+                }
+            )
+        _rewrite_final_evidence(harness.artifact, "rhino", tampered)
+        try:
+            live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
+        except live.LiveGateError:
+            pass
+        else:
+            accepted.append(case)
+
+    _rewrite_final_evidence(harness.artifact, "rhino", baseline)
+    assert accepted == [], (
+        f"{EXPECTED_RED}:FAILURE_STAGE_INVARIANTS accepted={accepted}"
+    )
+
+
+@requires_live_gate
+def test_consumer_reconstructs_authorization_and_rejects_impossible_states(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    assert live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    ).success
+    baseline = _load_final_artifact(harness.artifact, "rhino")
+
+    def failed_evidence() -> dict[str, Any]:
+        evidence = copy.deepcopy(baseline)
+        evidence["success"] = False
+        evidence["failure_label"] = "cleanup_failed"
+        return evidence
+
+    cases: list[tuple[str, dict[str, Any]]] = []
+    wrong_challenge = failed_evidence()
+    wrong_challenge["authorization"]["challenge_sha256"] = "f" * 64
+    cases.append(("challenge_sha256", wrong_challenge))
+
+    missing_authorized_at = failed_evidence()
+    missing_authorized_at["authorization"].update(
+        {"authorized_at": None, "state_unchanged": False}
+    )
+    cases.append(("pre_mutation_without_authorized_at", missing_authorized_at))
+
+    unchanged_without_projection = failed_evidence()
+    unchanged_without_projection["authorization"].update(
+        {"pre_mutation_sha256": None, "state_unchanged": True}
+    )
+    cases.append(("unchanged_without_pre_mutation", unchanged_without_projection))
+
+    equal_but_claimed_changed = failed_evidence()
+    equal_but_claimed_changed["authorization"]["state_unchanged"] = False
+    cases.append(("equal_hashes_claimed_changed", equal_but_claimed_changed))
+
+    mismatched_but_claimed_unchanged = copy.deepcopy(baseline)
+    mismatched_but_claimed_unchanged["authorization"]["pre_mutation_sha256"] = "f" * 64
+    cases.append(("different_hashes_claimed_unchanged", mismatched_but_claimed_unchanged))
+
+    accepted: list[str] = []
+    for case, tampered in cases:
+        _rewrite_final_evidence(harness.artifact, "rhino", tampered)
+        try:
+            live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
+        except live.LiveGateError:
+            pass
+        else:
+            accepted.append(case)
+    assert accepted == [], (
+        f"{EXPECTED_RED}:AUTHORIZATION_STATE_MACHINE accepted={accepted}"
+    )
+
+    interrupted_revalidation = failed_evidence()
+    interrupted_revalidation["failure_label"] = "state_drift"
+    interrupted_revalidation["operations"] = []
+    interrupted_revalidation["authorization"].update(
+        {"pre_mutation_sha256": None, "state_unchanged": False}
+    )
+    _rewrite_final_evidence(harness.artifact, "rhino", interrupted_revalidation)
+    live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
+
+    _rewrite_final_evidence(harness.artifact, "rhino", baseline)
+    live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
+
+
+@requires_live_gate
+def test_consumer_requires_canonical_bound_ownership_marker_inventory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    assert live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    ).success
+    baseline = _load_final_artifact(harness.artifact, "rhino")
+    marker_path = harness.artifact / live.OWNERSHIP_MARKER
+    baseline_marker = marker_path.read_bytes()
+    expected_marker = json.loads(baseline_marker)
+
+    def marker_item(evidence: dict[str, Any]) -> dict[str, Any]:
+        return next(
+            item
+            for item in evidence["artifacts"]
+            if item["relative_path"] == live.OWNERSHIP_MARKER
+        )
+
+    cases: list[tuple[str, dict[str, Any], bytes]] = []
+    missing = copy.deepcopy(baseline)
+    missing["artifacts"] = [
+        item
+        for item in missing["artifacts"]
+        if item["relative_path"] != live.OWNERSHIP_MARKER
+    ]
+    cases.append(("missing_inventory", missing, baseline_marker))
+
+    wrong_kind = copy.deepcopy(baseline)
+    marker_item(wrong_kind)["kind"] = "diagnostic"
+    cases.append(("wrong_kind", wrong_kind, baseline_marker))
+
+    for case, updates in (
+        ("wrong_run_id", {"run_id": "f" * 32}),
+        ("wrong_process_id", {"process_id": expected_marker["process_id"] + 1}),
+        ("wrong_schema_version", {"schema_version": live.SCHEMA_VERSION + 1}),
+        ("extra_key", {"unexpected": True}),
+    ):
+        evidence = copy.deepcopy(baseline)
+        payload = live._canonical_json_bytes({**expected_marker, **updates})
+        item = marker_item(evidence)
+        item["sha256"] = hashlib.sha256(payload).hexdigest()
+        item["size"] = len(payload)
+        cases.append((case, evidence, payload))
+
+    noncanonical = json.dumps(expected_marker, indent=2).encode("utf-8")
+    noncanonical_evidence = copy.deepcopy(baseline)
+    item = marker_item(noncanonical_evidence)
+    item["sha256"] = hashlib.sha256(noncanonical).hexdigest()
+    item["size"] = len(noncanonical)
+    cases.append(("noncanonical_content", noncanonical_evidence, noncanonical))
+
+    accepted: list[str] = []
+    for case, tampered, marker_payload in cases:
+        marker_path.write_bytes(marker_payload)
+        _rewrite_final_evidence(harness.artifact, "rhino", tampered)
+        try:
+            live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
+        except live.LiveGateError:
+            pass
+        else:
+            accepted.append(case)
+
+    marker_path.write_bytes(baseline_marker)
+    _rewrite_final_evidence(harness.artifact, "rhino", baseline)
+    assert accepted == [], (
+        f"{EXPECTED_RED}:OWNERSHIP_MARKER_BINDING accepted={accepted}"
+    )
+    monkeypatch.setattr(
+        live.os,
+        "getpid",
+        lambda: expected_marker["process_id"] + 1000,
+    )
+    live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
+
+
 @requires_live_gate
 def test_final_evidence_write_failure_emits_no_fabricated_result(
     monkeypatch: pytest.MonkeyPatch,
@@ -1821,6 +2703,7 @@ def test_early_failure_null_invariants(monkeypatch: pytest.MonkeyPatch, tmp_path
     assert evidence["authorization"] is None
     assert evidence["pre_state"] is None
     assert evidence["telemetry"] is None
+    live._validate_scenario_artifacts(artifact, scenario="rhino")
 
 
 @requires_live_gate
