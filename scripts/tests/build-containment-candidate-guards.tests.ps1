@@ -117,6 +117,37 @@ function ConvertTo-GuardCanonicalJson {
     return ConvertTo-Json -InputObject ([string]$Value) -Compress
 }
 
+function Assert-GuardNoReparsePathComponents {
+    param([string]$Path, [string]$Label)
+    $item = Get-Item -LiteralPath $Path -Force
+    while ($null -ne $item) {
+        Assert-True -Condition (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) -Message "$Label contains a reparse-point path component: $($item.FullName)"
+        $item = if ($item -is [System.IO.DirectoryInfo]) { $item.Parent } else { $item.Directory }
+    }
+}
+
+function Get-GuardInventoryDiskPaths {
+    param([string]$Root, [System.Collections.Generic.HashSet[string]]$Excluded, [string]$Label)
+    $canonicalRoot = [System.IO.Path]::GetFullPath($Root).TrimEnd('\')
+    $rootItem = Get-Item -LiteralPath $canonicalRoot -Force
+    Assert-True -Condition $rootItem.PSIsContainer -Message "$Label root is not a directory: $canonicalRoot"
+    Assert-GuardNoReparsePathComponents -Path $canonicalRoot -Label "$Label root"
+    $paths = New-Object System.Collections.Generic.List[string]
+    $pending = New-Object System.Collections.Generic.Stack[string]
+    $pending.Push($canonicalRoot)
+    while ($pending.Count -ne 0) {
+        foreach ($item in @(Get-ChildItem -LiteralPath $pending.Pop() -Force)) {
+            $relative = $item.FullName.Substring($canonicalRoot.Length).TrimStart('\').Replace('\','/')
+            Assert-True -Condition (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) -Message "$Label tree contains a reparse point: $relative"
+            if ($relative -match '(?i)(^|/)\.git(/|$)') { continue }
+            if ($item.PSIsContainer) { $pending.Push($item.FullName); continue }
+            Assert-True -Condition ($item -is [System.IO.FileInfo]) -Message "$Label tree contains an unsupported filesystem object: $relative"
+            if (-not $Excluded.Contains($relative)) { $paths.Add($relative) }
+        }
+    }
+    return @(Get-GuardOrdinalSortedStrings -Values $paths.ToArray())
+}
+
 function Assert-InventoryMatchesDisk {
     param(
         [object]$Inventory,
@@ -131,10 +162,7 @@ function Assert-InventoryMatchesDisk {
     $excluded = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach ($relative in $ExcludedRelativePaths) { [void]$excluded.Add($relative.Replace('\','/')) }
     $recordedPaths = @($files | ForEach-Object { [string]$_.relative_path })
-    $diskPaths = @(Get-GuardOrdinalSortedStrings -Values @(Get-ChildItem -LiteralPath $canonicalRoot -Recurse -File -Force | ForEach-Object {
-        $relative = $_.FullName.Substring($canonicalRoot.Length).TrimStart('\').Replace('\','/')
-        if ($relative -notmatch '(?i)(^|/)\.git(/|$)' -and -not $excluded.Contains($relative)) { $relative }
-    }))
+    $diskPaths = @(Get-GuardInventoryDiskPaths -Root $canonicalRoot -Excluded $excluded -Label $Label)
     Assert-Equal -Actual $recordedPaths.Count -Expected $diskPaths.Count -Message "$Label does not cover the exact disk file set."
     for ($index = 0; $index -lt $recordedPaths.Count; $index++) {
         Assert-True -Condition ([string]::Equals($recordedPaths[$index],$diskPaths[$index],[StringComparison]::Ordinal)) -Message "$Label disk file-set mismatch at index ${index}: recorded=$($recordedPaths[$index]) disk=$($diskPaths[$index])"
@@ -146,6 +174,7 @@ function Assert-InventoryMatchesDisk {
         $path = [System.IO.Path]::GetFullPath((Join-Path $canonicalRoot $relative.Replace('/','\')))
         Assert-True -Condition ($path.StartsWith($canonicalRoot + '\',[StringComparison]::OrdinalIgnoreCase)) -Message "$Label path escaped its root: $relative"
         Assert-True -Condition (Test-Path -LiteralPath $path -PathType Leaf) -Message "$Label recorded file is missing: $relative"
+        Assert-GuardNoReparsePathComponents -Path $path -Label "$Label recorded file $relative"
         $item = Get-Item -LiteralPath $path
         Assert-Equal -Actual ([long]$file.size) -Expected ([long]$item.Length) -Message "$Label size mismatch for $relative."
         Assert-Equal -Actual ([string]$file.sha256) -Expected ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()) -Message "$Label SHA-256 mismatch for $relative."
@@ -165,12 +194,14 @@ function Assert-SelectedProjectionMatchesDisk {
     $actual = @($files | ForEach-Object { [string]$_.relative_path })
     Assert-StringSequenceEqual -Actual $actual -Expected $expected -Message "$Label relative-path set is not exact."
     $canonicalRoot = [System.IO.Path]::GetFullPath($Root).TrimEnd('\')
+    Assert-GuardNoReparsePathComponents -Path $canonicalRoot -Label "$Label root"
     foreach ($file in $files) {
         $relative = [string]$file.relative_path
         Assert-True -Condition (-not [System.IO.Path]::IsPathRooted($relative) -and $relative -notmatch '(^|/)\.\.(/|$)') -Message "$Label contains an unsafe relative path: $relative"
         $path = [System.IO.Path]::GetFullPath((Join-Path $canonicalRoot $relative.Replace('/','\')))
         Assert-True -Condition ($path.StartsWith($canonicalRoot + '\',[StringComparison]::OrdinalIgnoreCase)) -Message "$Label path escaped its root: $relative"
         $item = Get-Item -LiteralPath $path -Force
+        Assert-GuardNoReparsePathComponents -Path $path -Label "$Label file $relative"
         Assert-Equal -Actual ([long]$file.size) -Expected ([long]$item.Length) -Message "$Label size mismatch for $relative."
         Assert-Equal -Actual ([string]$file.sha256) -Expected ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()) -Message "$Label SHA-256 mismatch for $relative."
     }
@@ -310,6 +341,11 @@ foreach ($name in @('python.exe','python311.dll','vcruntime140.dll','vcruntime14
 if ($env:T9_MUTATE_SOURCE_FILE) { [System.IO.File]::WriteAllText($env:T9_MUTATE_SOURCE_FILE, 'source changed') }
 if ($env:T9_MUTATE_STAGED_SOURCE -eq '1') { [System.IO.File]::AppendAllText((Join-Path $RepoRoot 'src\RookNative\RookNative.vcxproj'), "`n<!-- staged drift -->`n") }
 if ($env:T9_MUTATE_ALLOWED_EARLY -eq '1') { [System.IO.File]::AppendAllText((Join-Path $RepoRoot 'third_party\ffmpeg\ffmpeg.exe'), "early drift`n") }
+if ($env:T9_SWAP_LIVE_TO_JUNCTION -eq '1') {
+    $livePath = Join-Path $env:APPDATA 'McNeel\Rhinoceros\8.0\Plug-ins\RookNative'
+    Remove-Item -LiteralPath $livePath -Recurse -Force
+    New-Item -ItemType Junction -Path $livePath -Target $env:T9_LIVE_JUNCTION_TARGET | Out-Null
+}
 [System.IO.File]::WriteAllText((Join-Path $RepoRoot 'stage-runtime.args.txt'), ($PSBoundParameters.Keys | Sort-Object | ForEach-Object { "$_=$($PSBoundParameters[$_])" }) -join "`n")
 '@
     Write-Utf8NoBom -Path (Join-Path $Root 'scripts\python-runtime\build-rook-python-wheelhouse.ps1') -Text @'
@@ -336,6 +372,7 @@ try {
 } finally { $archive.Dispose() }
 [System.IO.File]::WriteAllText((Join-Path $RepoRoot 'wheelhouse.args.txt'), "Version=$Version`nRepoRoot=$RepoRoot`nChirpRoot=$ChirpRoot")
 if ($env:T9_MUTATE_WHEEL_VALIDATOR -eq '1') { [System.IO.File]::AppendAllText((Join-Path $RepoRoot 'scripts\validate-python-wheelhouse.ps1'), "`n# mutated by wheel build`n") }
+if ($env:T9_CREATE_INVENTORY_JUNCTION -eq '1') { New-Item -ItemType Junction -Path (Join-Path $outDir 'nested-reparse') -Target $env:T9_INVENTORY_JUNCTION_TARGET | Out-Null }
 '@
     Write-Utf8NoBom -Path (Join-Path $Root 'scripts\validate-python-wheelhouse.ps1') -Text @'
 param(
@@ -499,6 +536,7 @@ for %%A in (%*) do (
 if defined pluginDir if exist "!pluginDir!" exit /b 91
 if "%T9_CREATE_INERT%"=="1" if defined pluginDir mkdir "!pluginDir!"
 if "%T9_MUTATE_LIVE%"=="1" > "%APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\mutated.txt" echo changed
+if "%T9_CREATE_LIVE_FILE%"=="1" > "%APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative" echo regular file
 if /I "%~1"=="build" if "%T9_MUTATE_ALLOWED_LATE%"=="1" >> "%~dp2..\..\third_party\ffmpeg\ffmpeg.exe" echo late drift
 if /I "%~1"=="build" if "%T9_MUTATE_WHEEL_LATE%"=="1" >> "%~dp2..\..\installer\runtime\python-wheelhouse\rook-9.8.7-py3-none-any.whl" echo late wheel drift
 if /I "%~1"=="build" if "%T9_MUTATE_MANIFEST_LATE%"=="1" >> "%~dp2..\..\artifacts\ffmpeg\ffmpeg-7.1.1-rook-minimal\rook-ffmpeg-source-bundle-manifest.json" echo late manifest drift
@@ -593,6 +631,10 @@ function New-Task9Fixture {
     $appData = New-Directory -Path (Join-Path $root 'appdata')
     $livePlugin = New-Directory -Path (Join-Path $appData 'McNeel\Rhinoceros\8.0\Plug-ins\RookNative')
     Write-Utf8NoBom -Path (Join-Path $livePlugin 'sentinel\keep.bin') -Text 'live sentinel'
+    $liveJunctionTarget = New-Directory -Path (Join-Path $root 'external\LivePluginMirror')
+    Write-Utf8NoBom -Path (Join-Path $liveJunctionTarget 'sentinel\keep.bin') -Text 'live sentinel'
+    $inventoryJunctionTarget = New-Directory -Path (Join-Path $root 'external\InventoryEscape')
+    Write-Utf8NoBom -Path (Join-Path $inventoryJunctionTarget 'outside.txt') -Text 'must never be inventoried through a reparse point'
     $stubLog = New-Directory -Path (Join-Path $root 'stub-log')
     $decoy = New-Directory -Path (Join-Path $root 'decoy-path')
     $decoyOcct = New-Directory -Path (Join-Path $root 'decoy-occt')
@@ -675,6 +717,8 @@ function Get-ItemProperty {
         RhinoSdkDriftRoot = $rhinoSdkDrift
         AppData = $appData
         LivePlugin = $livePlugin
+        LiveJunctionTarget = $liveJunctionTarget
+        InventoryJunctionTarget = $inventoryJunctionTarget
         StubLog = $stubLog
         DecoyPath = $decoy
         DecoyOcct = $decoyOcct
@@ -754,6 +798,11 @@ function Invoke-BuilderFixture {
         T9_STUB_LOG = $Fixture.StubLog
         T9_CREATE_INERT = '0'
         T9_MUTATE_LIVE = '0'
+        T9_CREATE_LIVE_FILE = '0'
+        T9_SWAP_LIVE_TO_JUNCTION = '0'
+        T9_LIVE_JUNCTION_TARGET = ''
+        T9_CREATE_INVENTORY_JUNCTION = '0'
+        T9_INVENTORY_JUNCTION_TARGET = ''
         T9_WRITE_ERROR = '0'
         T9_MUTATE_SOURCE_FILE = ''
         T9_MUTATE_EXTERNAL_FILE = ''
@@ -1151,6 +1200,58 @@ function Test-ManagedDeploymentGuards {
     Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $result.ArtifactDirectory 'containment-candidate.json'))) -Message 'Identity was written after an installer-stage wheelhouse mutation.'
 }
 
+function Reset-LivePluginFixture {
+    param([object]$Fixture)
+    $path = [System.IO.Path]::GetFullPath([string]$Fixture.LivePlugin).TrimEnd('\')
+    $root = [System.IO.Path]::GetFullPath([string]$Fixture.Root).TrimEnd('\')
+    Assert-True -Condition ($path.StartsWith($root + '\',[StringComparison]::OrdinalIgnoreCase)) -Message "Refusing to reset a live fixture outside the test root: $path"
+    if (Test-Path -LiteralPath $path) {
+        $item = Get-Item -LiteralPath $path -Force
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            $item.Delete()
+        } elseif ($item.PSIsContainer) {
+            Remove-Item -LiteralPath $path -Recurse -Force
+        } else {
+            Remove-Item -LiteralPath $path -Force
+        }
+    }
+    New-Directory -Path $path | Out-Null
+    Write-Utf8NoBom -Path (Join-Path $path 'sentinel\keep.bin') -Text 'live sentinel'
+}
+
+function Test-FilesystemObjectAndReparseGuards {
+    param([object]$Fixture)
+    $failures = New-Object System.Collections.Generic.List[string]
+
+    try {
+        $absentAppData = New-Directory -Path (Join-Path $Fixture.Root 'appdata-absent-live')
+        New-Directory -Path (Join-Path $absentAppData 'McNeel\Rhinoceros\8.0\Plug-ins') | Out-Null
+        $result = Invoke-BuilderFixture -Fixture $Fixture -AdditionalEnvironment @{ APPDATA = $absentAppData; T9_CREATE_LIVE_FILE = '1' }
+        Assert-FailedWith -Result $result -Marker 'Live RookNative plug-in path must be absent or a directory' -Message 'An absent live plug-in path replaced by a regular file was not rejected.'
+        Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $result.ArtifactDirectory 'containment-candidate.json'))) -Message 'Identity was written after the live path became a regular file.'
+    } catch { $failures.Add("live absent-to-file: $($_.Exception.Message)") }
+
+    try {
+        $result = Invoke-BuilderFixture -Fixture $Fixture -AdditionalEnvironment @{
+            T9_SWAP_LIVE_TO_JUNCTION = '1'
+            T9_LIVE_JUNCTION_TARGET = $Fixture.LiveJunctionTarget
+        }
+        Assert-FailedWith -Result $result -Marker 'Live RookNative plug-in path must not be a reparse point' -Message 'A live plug-in directory replaced by a same-content junction was not rejected.'
+        Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $result.ArtifactDirectory 'containment-candidate.json'))) -Message 'Identity was written after the live directory became a junction.'
+    } catch { $failures.Add("live directory-to-junction: $($_.Exception.Message)") } finally { Reset-LivePluginFixture -Fixture $Fixture }
+
+    try {
+        $result = Invoke-BuilderFixture -Fixture $Fixture -AdditionalEnvironment @{
+            T9_CREATE_INVENTORY_JUNCTION = '1'
+            T9_INVENTORY_JUNCTION_TARGET = $Fixture.InventoryJunctionTarget
+        }
+        Assert-FailedWith -Result $result -Marker 'Inventory tree must not contain a reparse point' -Message 'A nested staged-tree junction was traversed or omitted instead of rejected.'
+        Assert-True -Condition (-not (Test-Path -LiteralPath (Join-Path $result.ArtifactDirectory 'containment-candidate.json'))) -Message 'Identity was written after a nested inventory junction was introduced.'
+    } catch { $failures.Add("nested inventory junction: $($_.Exception.Message)") }
+
+    if ($failures.Count -ne 0) { throw "EXPECTED_RED:T9:FILESYSTEM_OBJECT_GUARDS`n$($failures -join "`n")" }
+}
+
 function Assert-SortedProjection {
     param([object[]]$Files, [string]$Label)
     $actual = @($Files | ForEach-Object { [string]$_.relative_path })
@@ -1431,15 +1532,20 @@ try {
     }
     Invoke-Test -Name 'static builder contract' -Body { Test-StaticContract }
     $fixture = New-Task9Fixture
-    Invoke-Test -Name 'source, root, tool, OCCT, and stale-output preflight guards' -Body { Test-PreflightGuards -Fixture $fixture }
-    Invoke-Test -Name 'normally nonterminating cmdlet error stops next stage' -Body { Test-InjectedNonterminatingErrorStopsNextStage -Fixture $fixture }
-    Invoke-Test -Name 'identity drift fails before MSBuild' -Body { Test-IdentityDriftFailsBeforeMsbuild -Fixture $fixture }
-    Invoke-Test -Name 'tracked staged-source mutation is rejected' -Body { Test-StagedSourceChangeIsRejected -Fixture $fixture }
-    Invoke-Test -Name 'exact post-FFmpeg tracked build outputs are allowed and inventoried' -Body { Test-TrackedBuildOutputAllowance -Fixture $fixture }
-    Invoke-Test -Name 'validated native environment is reused for MSBuild' -Body { Test-ValidatedNativeEnvironmentIsReused -Fixture $fixture }
-    Invoke-Test -Name 'original source change during build is rejected' -Body { Test-OriginalSourceChangeIsRejected -Fixture $fixture }
-    Invoke-Test -Name 'managed inert and live deployment guards' -Body { Test-ManagedDeploymentGuards -Fixture $fixture }
-    Invoke-Test -Name 'fake-only standalone candidate build and identity contract' -Body { Test-FakeCandidateBuild -Fixture $fixture }
+    if ($env:T9_ONLY_FILESYSTEM_GUARDS -eq '1') {
+        Invoke-Test -Name 'filesystem object-kind and reparse guards' -Body { Test-FilesystemObjectAndReparseGuards -Fixture $fixture }
+    } else {
+        Invoke-Test -Name 'source, root, tool, OCCT, and stale-output preflight guards' -Body { Test-PreflightGuards -Fixture $fixture }
+        Invoke-Test -Name 'normally nonterminating cmdlet error stops next stage' -Body { Test-InjectedNonterminatingErrorStopsNextStage -Fixture $fixture }
+        Invoke-Test -Name 'identity drift fails before MSBuild' -Body { Test-IdentityDriftFailsBeforeMsbuild -Fixture $fixture }
+        Invoke-Test -Name 'tracked staged-source mutation is rejected' -Body { Test-StagedSourceChangeIsRejected -Fixture $fixture }
+        Invoke-Test -Name 'exact post-FFmpeg tracked build outputs are allowed and inventoried' -Body { Test-TrackedBuildOutputAllowance -Fixture $fixture }
+        Invoke-Test -Name 'validated native environment is reused for MSBuild' -Body { Test-ValidatedNativeEnvironmentIsReused -Fixture $fixture }
+        Invoke-Test -Name 'original source change during build is rejected' -Body { Test-OriginalSourceChangeIsRejected -Fixture $fixture }
+        Invoke-Test -Name 'managed inert and live deployment guards' -Body { Test-ManagedDeploymentGuards -Fixture $fixture }
+        Invoke-Test -Name 'filesystem object-kind and reparse guards' -Body { Test-FilesystemObjectAndReparseGuards -Fixture $fixture }
+        Invoke-Test -Name 'fake-only standalone candidate build and identity contract' -Body { Test-FakeCandidateBuild -Fixture $fixture }
+    }
     Write-Host "Task 9 containment candidate guard tests passed: $script:TestsPassed tests."
 } finally {
     if ($null -ne $fixture -and (Test-Path -LiteralPath $fixture.Root -PathType Container)) {

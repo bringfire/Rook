@@ -256,21 +256,32 @@ function Get-RelativePathText {
 
 function Get-TreeInventory {
     param([string]$Root, [switch]$ExcludeGit)
-    if (-not (Test-Path -LiteralPath $Root -PathType Container)) { return @() }
-    $resolvedRoot = (Resolve-Path -LiteralPath $Root).Path.TrimEnd('\')
-    $files = @(Get-ChildItem -LiteralPath $resolvedRoot -Recurse -Force -File | Where-Object {
-        if (-not $ExcludeGit) { return $true }
-        $relative = Get-RelativePathText -Root $resolvedRoot -Path $_.FullName
-        return ($relative -notmatch '(?i)(^|/)\.git(/|$)')
-    })
+    if (-not (Test-Path -LiteralPath $Root)) { return @() }
+    $rootItem = Get-Item -LiteralPath $Root -Force
+    if (($rootItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Inventory tree must not contain a reparse point: $($rootItem.FullName)" }
+    if (-not $rootItem.PSIsContainer) { throw "Inventory root must be a directory: $($rootItem.FullName)" }
+    $resolvedRoot = Resolve-RequiredDirectory -Path $rootItem.FullName -Label 'Inventory root'
     $recordsByPath = [System.Collections.Generic.SortedDictionary[string,object]]::new([StringComparer]::Ordinal)
-    foreach ($file in $files) {
-        $record = [ordered]@{
-            relative_path = Get-RelativePathText -Root $resolvedRoot -Path $file.FullName
-            size = [long]$file.Length
-            sha256 = Get-LowerSha256 -Path $file.FullName
+    $pendingDirectories = New-Object System.Collections.Generic.Stack[string]
+    $pendingDirectories.Push($resolvedRoot)
+    while ($pendingDirectories.Count -ne 0) {
+        $directory = $pendingDirectories.Pop()
+        foreach ($item in @(Get-ChildItem -LiteralPath $directory -Force)) {
+            $relativePath = Get-RelativePathText -Root $resolvedRoot -Path $item.FullName
+            if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Inventory tree must not contain a reparse point: $($item.FullName)" }
+            if ($ExcludeGit -and $relativePath -match '(?i)(^|/)\.git(/|$)') { continue }
+            if ($item.PSIsContainer) {
+                $pendingDirectories.Push($item.FullName)
+                continue
+            }
+            if (-not ($item -is [System.IO.FileInfo])) { throw "Inventory tree contains an unsupported filesystem object: $($item.FullName)" }
+            $record = [ordered]@{
+                relative_path = $relativePath
+                size = [long]$item.Length
+                sha256 = Get-LowerSha256 -Path $item.FullName
+            }
+            $recordsByPath.Add([string]$record.relative_path,$record)
         }
-        $recordsByPath.Add([string]$record.relative_path,$record)
     }
     return @($recordsByPath.Values)
 }
@@ -306,8 +317,14 @@ function Get-SelectedFileProjection {
 function Get-LivePluginProjection {
     param([string]$Path)
     $absolute = [System.IO.Path]::GetFullPath($Path).TrimEnd('\')
-    $exists = Test-Path -LiteralPath $absolute -PathType Container
-    $files = if ($exists) { @(Get-TreeInventory -Root $absolute) } else { @() }
+    $exists = Test-Path -LiteralPath $absolute
+    $files = @()
+    if ($exists) {
+        $item = Get-Item -LiteralPath $absolute -Force
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Live RookNative plug-in path must not be a reparse point: $absolute" }
+        if (-not $item.PSIsContainer) { throw "Live RookNative plug-in path must be absent or a directory: $absolute" }
+        $files = @(Get-TreeInventory -Root $absolute)
+    }
     $projection = [ordered]@{ exists = [bool]$exists; path = $absolute; files = $files }
     return [ordered]@{ projection = $projection; sha256 = Get-StringSha256 -Text (ConvertTo-CanonicalJson -Value $projection) }
 }
