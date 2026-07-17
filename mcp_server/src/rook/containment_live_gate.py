@@ -1368,17 +1368,20 @@ class _ArtifactRootClaim:
         parent_lease.verify()
 
     def retain_view(self, leases: _RetainedPathLeases) -> None:
-        self.verify()
-        if leases.released:
-            raise LiveGateError("retained run path view was already released")
-        leases.verify()
-        if leases._registry is not self._leases._registry:
-            leases.release()
-            raise LiveGateError("retained run path view uses a different registry")
         try:
+            self.verify()
+            if leases.released:
+                raise LiveGateError("retained run path view was already released")
+            leases.verify()
+            if leases._registry is not self._leases._registry:
+                raise LiveGateError("retained run path view uses a different registry")
             self._retained_views.append(leases)
         except BaseException:
-            leases.release()
+            if not leases.released:
+                try:
+                    leases.release()
+                except BaseException:
+                    pass
             raise
 
     def release(self) -> None:

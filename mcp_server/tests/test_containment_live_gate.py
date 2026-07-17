@@ -3225,6 +3225,126 @@ def test_postlaunch_discovery_ancestry_stays_pinned_through_cleanup(
     assert {calls[0] for calls in releases.values()} == {1}
 
 
+def _tracked_claim_and_unadopted_view(tmp_path: Path) -> SimpleNamespace:
+    artifact = tmp_path / "retain-view-artifacts"
+    discovery = tmp_path / "retain-view-discovery"
+    artifact.mkdir()
+    discovery.mkdir()
+    root_leases = live._acquire_retained_path_leases(artifact, "directory")
+    try:
+        incoming = live._acquire_retained_path_leases(
+            discovery,
+            "directory",
+            registry=root_leases._registry,
+        )
+    except BaseException:
+        root_leases.release()
+        raise
+    claim = live._ArtifactRootClaim(artifact, root_leases)
+    claim.verify()
+    incoming.verify()
+
+    underlying_release_calls: dict[Path, list[int]] = {}
+    for _identity, lease, _references in root_leases._registry._entries.values():
+        calls = [0]
+        underlying_release_calls[lease.path] = calls
+        original_release = lease.release
+
+        def tracked_release(
+            *,
+            _calls: list[int] = calls,
+            _original_release=original_release,
+        ) -> None:
+            _calls[0] += 1
+            _original_release()
+
+        lease.release = tracked_release
+
+    incoming_release_calls = [0]
+    original_incoming_release = incoming.release
+
+    def tracked_incoming_release() -> None:
+        incoming_release_calls[0] += 1
+        original_incoming_release()
+
+    incoming.release = tracked_incoming_release
+    return SimpleNamespace(
+        claim=claim,
+        incoming=incoming,
+        registry=root_leases._registry,
+        incoming_release_calls=incoming_release_calls,
+        underlying_release_calls=underlying_release_calls,
+    )
+
+
+@requires_live_gate
+@pytest.mark.parametrize("validation_site", ["claim", "incoming_view"])
+@pytest.mark.parametrize("error_type", [RuntimeError, KeyboardInterrupt])
+def test_retain_view_validation_failure_releases_unadopted_view_once(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    validation_site: str,
+    error_type: type[BaseException],
+) -> None:
+    tracked = _tracked_claim_and_unadopted_view(tmp_path)
+    injected = error_type(f"{validation_site} validation interrupted")
+
+    def fail_validation() -> None:
+        raise injected
+
+    target = tracked.claim if validation_site == "claim" else tracked.incoming
+    monkeypatch.setattr(target, "verify", fail_validation)
+    caught: BaseException | None = None
+    observed_view_releases = -1
+    observed_underlying_releases: set[int] = set()
+    observed_registry_empty = False
+    try:
+        with pytest.raises(error_type) as raised:
+            tracked.claim.retain_view(tracked.incoming)
+        caught = raised.value
+    finally:
+        try:
+            if not tracked.claim._released:
+                tracked.claim.release()
+        finally:
+            observed_view_releases = tracked.incoming_release_calls[0]
+            observed_underlying_releases = {
+                calls[0] for calls in tracked.underlying_release_calls.values()
+            }
+            observed_registry_empty = not tracked.registry._entries
+            if not tracked.incoming.released:
+                tracked.incoming.release()
+
+    assert caught is injected
+    assert tracked.claim._retained_views == []
+    assert observed_view_releases == 1
+    assert observed_underlying_releases == {1}
+    assert observed_registry_empty is True
+
+
+@requires_live_gate
+def test_retain_view_success_transfers_release_ownership_once(
+    tmp_path: Path,
+) -> None:
+    tracked = _tracked_claim_and_unadopted_view(tmp_path)
+    try:
+        tracked.claim.retain_view(tracked.incoming)
+        assert tracked.claim._retained_views == [tracked.incoming]
+        assert tracked.incoming_release_calls == [0]
+        tracked.claim.release()
+    finally:
+        if not tracked.claim._released:
+            tracked.claim.release()
+        if not tracked.incoming.released:
+            tracked.incoming.release()
+
+    assert tracked.incoming_release_calls == [1]
+    assert {
+        calls[0] for calls in tracked.underlying_release_calls.values()
+    } == {1}
+    assert tracked.registry._entries == {}
+
+
 @requires_live_gate
 def test_target_and_adapter_share_exact_fresh_discovery_record_bytes(
     monkeypatch: pytest.MonkeyPatch,
