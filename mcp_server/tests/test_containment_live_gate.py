@@ -1210,28 +1210,43 @@ def test_grasshopper_requires_a_fresh_post_edit_epoch(
 
 
 @requires_live_gate
-def test_grasshopper_requires_gh_edit_to_schedule_a_fresh_solve(
+@pytest.mark.parametrize(
+    "case",
+    ["solve_not_scheduled", "deferred_false", "deferred_missing"],
+)
+def test_grasshopper_requires_exact_deferred_edit_solve_evidence(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    case: str,
 ) -> None:
     harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
     original = harness.adapter.call
 
-    async def unscheduled_edit(name, arguments):
+    async def invalid_edit_solve_evidence(name, arguments):
         result = await original(name, arguments)
         if name == "gh_edit":
             result = copy.deepcopy(result)
-            result["data"]["edit_summary"]["solve_scheduled"] = False
+            summary = result["data"]["edit_summary"]
+            if case == "solve_not_scheduled":
+                summary["solve_scheduled"] = False
+            elif case == "deferred_false":
+                summary["verification_deferred"] = False
+            else:
+                summary.pop("verification_deferred")
         return result
 
-    harness.adapter.call = unscheduled_edit
+    harness.adapter.call = invalid_edit_solve_evidence
     result = live.run_live_scenario(
         scenario="grasshopper",
         rhino_exe=harness.rhino_exe,
         artifact_dir=harness.artifact,
     )
     assert result.success is False and result.failure_label == "verification_failed"
-    assert "gh_undo" in [name for name, _ in harness.adapter.calls]
+    undo_count = [name for name, _ in harness.adapter.calls].count("gh_undo")
+    assert 1 <= undo_count <= 4
+    evidence = _load_final_artifact(harness.artifact, "grasshopper")
+    assert evidence["restoration"]["attempted"] is True
+    assert evidence["restoration"]["in_process_projection_matches_declared"] is True
 
 
 @requires_live_gate

@@ -1333,9 +1333,11 @@ async def _run_grasshopper_forward(state: _RunState, recorder: _OperationRecorde
         edit_solve["solve_scheduled"] is True
         and edit_solve["solver_locked"] is False
         and edit_solve["solver_state_known"] is True
+        and edit_solve["verification_deferred"] is True
     ):
         raise _ScenarioFailure(
-            "verification_failed", "Grasshopper edit did not schedule an enabled solve"
+            "verification_failed",
+            "Grasshopper edit did not schedule the expected deferred solve",
         )
 
     solved_snapshot: Mapping[str, Any] | None = None
