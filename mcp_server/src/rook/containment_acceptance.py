@@ -1847,6 +1847,8 @@ def _validate_current_installed_process(
         ),
         required_rook_modules=required_rook_modules,
     )
+    if evidence["process_id"] != os.getpid():
+        raise AcceptanceError("current process identity drift")
     return evidence
 
 

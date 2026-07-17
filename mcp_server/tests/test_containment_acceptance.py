@@ -581,6 +581,30 @@ def test_process_environment_is_exact_and_closed_for_every_installed_mode(
 
 
 @requires_contract
+def test_current_process_validation_rejects_foreign_process_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime = _fake_release_runtime(tmp_path)
+    evidence = _process_evidence(runtime.install_root)
+    evidence["process_id"] = os.getpid() + 1
+    monkeypatch.setattr(acceptance, "resolve_runtime_paths", lambda: runtime)
+    monkeypatch.setattr(
+        acceptance,
+        "_collect_process_evidence",
+        lambda: evidence,
+    )
+
+    with pytest.raises(
+        acceptance.AcceptanceError,
+        match="current process identity",
+    ):
+        acceptance._validate_current_installed_process(
+            required_rook_modules=("rook", "rook.server"),
+        )
+
+
+@requires_contract
 def test_process_evidence_rejects_source_like_cwd_before_command_allowlist(
     tmp_path: Path,
 ) -> None:
