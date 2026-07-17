@@ -9,6 +9,7 @@ import io
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -58,6 +59,13 @@ def _directory_symlink_or_skip(link: Path, target: Path) -> None:
         link.symlink_to(target, target_is_directory=True)
     except OSError:
         pytest.skip("directory symlinks/reparse points unavailable")
+
+
+def _file_symlink_or_skip(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("file symlinks/reparse points unavailable")
 
 
 def test_containment_live_gate_contract_is_available() -> None:
@@ -339,14 +347,248 @@ def test_artifact_preownership_rejection_is_zero_write(
 def test_artifact_claim_is_atomic_and_marker_is_canonical(tmp_path: Path) -> None:
     artifact = tmp_path / "artifacts"
     claim = live._claim_artifact_directory(artifact, RUN_ID)
-    assert claim == artifact.resolve()
-    marker = artifact / live.OWNERSHIP_MARKER
-    payload = marker.read_bytes()
-    decoded = json.loads(payload)
-    assert decoded == {"process_id": os.getpid(), "run_id": RUN_ID, "schema_version": 1}
-    assert payload == live._canonical_json_bytes(decoded)
-    with pytest.raises(live.PreOwnershipBlocked):
-        live._claim_artifact_directory(artifact, RUN_ID)
+    try:
+        assert claim.path == artifact.resolve()
+        marker = artifact / live.OWNERSHIP_MARKER
+        payload = marker.read_bytes()
+        decoded = json.loads(payload)
+        assert decoded == {"process_id": os.getpid(), "run_id": RUN_ID, "schema_version": 1}
+        assert payload == live._canonical_json_bytes(decoded)
+        with pytest.raises(live.PreOwnershipBlocked):
+            live._claim_artifact_directory(artifact, RUN_ID)
+    finally:
+        claim.release()
+
+
+@requires_live_gate
+def test_artifact_claim_pins_root_before_marker_creation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "artifacts"
+    displaced = tmp_path / "displaced-artifacts"
+    redirected = tmp_path / "redirected-artifacts"
+    redirected.mkdir()
+    original_open = live.os.open
+    blocked = False
+    swapped = False
+
+    def race_marker_open(path: Path, flags: int, mode: int = 0o777) -> int:
+        nonlocal blocked, swapped
+        if Path(path).name == live.OWNERSHIP_MARKER and not blocked and not swapped:
+            try:
+                artifact.rename(displaced)
+            except PermissionError:
+                blocked = True
+            else:
+                _directory_symlink_or_skip(artifact, redirected)
+                swapped = True
+        return original_open(path, flags, mode)
+
+    monkeypatch.setattr(live.os, "open", race_marker_open)
+
+    claim = live._claim_artifact_directory(artifact, RUN_ID)
+    try:
+        assert claim.path == artifact.resolve()
+        assert blocked is True
+        assert swapped is False, "artifact root was redirected during marker creation"
+        assert (artifact / live.OWNERSHIP_MARKER).is_file()
+        assert not (redirected / live.OWNERSHIP_MARKER).exists()
+    finally:
+        claim.release()
+
+
+@requires_live_gate
+def test_producer_retains_root_claim_immediately_after_claim(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    redirected = tmp_path / "redirected-after-claim"
+    redirected.mkdir()
+    displaced = tmp_path / "displaced-after-claim"
+    original_claim = live._claim_artifact_directory
+    blocked = False
+    swapped = False
+
+    def race_after_claim(path: Path, run_id: str):
+        nonlocal blocked, swapped
+        claim = original_claim(path, run_id)
+        try:
+            claim.path.rename(displaced)
+        except PermissionError:
+            blocked = True
+        else:
+            _directory_symlink_or_skip(claim.path, redirected)
+            swapped = True
+        return claim
+
+    monkeypatch.setattr(live, "_claim_artifact_directory", race_after_claim)
+
+    result = live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    )
+
+    assert result.success is True
+    assert blocked is True
+    assert swapped is False, "producer root was redirected immediately after claim"
+    assert not list(redirected.iterdir())
+
+
+@requires_live_gate
+def test_producer_retains_root_claim_through_final_emission(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    redirected = tmp_path / "redirected-final"
+    redirected.mkdir()
+    displaced = tmp_path / "displaced-final"
+    original_write_pair = live._write_final_evidence_pair
+    blocked = False
+    swapped = False
+
+    def race_final_pair(artifact_dir: Path, scenario: str, evidence, *args, **kwargs):
+        nonlocal blocked, swapped
+        try:
+            Path(artifact_dir).rename(displaced)
+        except PermissionError:
+            blocked = True
+        else:
+            _directory_symlink_or_skip(Path(artifact_dir), redirected)
+            swapped = True
+        return original_write_pair(artifact_dir, scenario, evidence, *args, **kwargs)
+
+    monkeypatch.setattr(live, "_write_final_evidence_pair", race_final_pair)
+
+    result = live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    )
+
+    assert result.success is True
+    assert blocked is True
+    assert swapped is False, "producer root was redirected during final emission"
+    assert not list(redirected.iterdir())
+
+
+@requires_live_gate
+def test_producer_releases_root_claim_exactly_once_on_baseexception(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    original_claim = live._claim_artifact_directory
+    original_acquire = live._acquire_windows_path_lease
+    release_calls = 0
+    lease_release_calls: list[int] = []
+
+    def tracked_acquire(*args, **kwargs):
+        lease = original_acquire(*args, **kwargs)
+        release_index = len(lease_release_calls)
+        lease_release_calls.append(0)
+        original_release = lease.release
+
+        def tracked_lease_release() -> None:
+            lease_release_calls[release_index] += 1
+            original_release()
+
+        lease.release = tracked_lease_release
+        return lease
+
+    def tracked_claim(path: Path, run_id: str):
+        nonlocal release_calls
+        claim = original_claim(path, run_id)
+        original_release = claim.release
+
+        def tracked_release() -> None:
+            nonlocal release_calls
+            release_calls += 1
+            original_release()
+
+        claim.release = tracked_release
+        return claim
+
+    injected = _FinalPairBaseInterrupt("final evidence interrupted")
+    monkeypatch.setattr(live, "_acquire_windows_path_lease", tracked_acquire)
+    monkeypatch.setattr(live, "_claim_artifact_directory", tracked_claim)
+    monkeypatch.setattr(
+        live,
+        "_run_claimed_live_scenario",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(injected),
+    )
+
+    with pytest.raises(_FinalPairBaseInterrupt) as caught:
+        live.run_live_scenario(
+            scenario="rhino",
+            rhino_exe=harness.rhino_exe,
+            artifact_dir=harness.artifact,
+        )
+
+    assert caught.value is injected
+    assert release_calls == 1
+    assert lease_release_calls
+    assert set(lease_release_calls) == {1}
+    harness.artifact.rename(tmp_path / "released-artifacts")
+
+
+@requires_live_gate
+@pytest.mark.parametrize("terminal", ["success", "ordinary_failure", "baseexception"])
+def test_producer_releases_every_acquired_lease_once_on_all_terminal_paths(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    terminal: str,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    original_acquire = live._acquire_windows_path_lease
+    release_calls: list[int] = []
+
+    def tracked_acquire(*args, **kwargs):
+        lease = original_acquire(*args, **kwargs)
+        release_index = len(release_calls)
+        release_calls.append(0)
+        original_release = lease.release
+
+        def tracked_release() -> None:
+            release_calls[release_index] += 1
+            original_release()
+
+        lease.release = tracked_release
+        return lease
+
+    monkeypatch.setattr(live, "_acquire_windows_path_lease", tracked_acquire)
+    if terminal != "success":
+        injected = (
+            OSError("ordinary final interruption")
+            if terminal == "ordinary_failure"
+            else _FinalPairBaseInterrupt("base final interruption")
+        )
+        monkeypatch.setattr(
+            live,
+            "_write_final_evidence_pair",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(injected),
+        )
+
+    if terminal == "success":
+        assert live.run_live_scenario(
+            scenario="rhino",
+            rhino_exe=harness.rhino_exe,
+            artifact_dir=harness.artifact,
+        ).success
+    else:
+        with pytest.raises(type(injected)) as caught:
+            live.run_live_scenario(
+                scenario="rhino",
+                rhino_exe=harness.rhino_exe,
+                artifact_dir=harness.artifact,
+            )
+        assert caught.value is injected
+
+    assert len(release_calls) > 1
+    assert set(release_calls) == {1}
 
 
 @requires_live_gate
@@ -381,6 +623,65 @@ def test_run_rejects_relative_rhino_path_before_resolution_or_artifact_claim(
         )
 
     assert not harness.artifact.exists()
+
+
+@requires_live_gate
+def test_run_checks_raw_rhino_absoluteness_before_expanduser(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    raw = Path("~") / "Rhino.exe"
+    original_expanduser = Path.expanduser
+
+    def reject_early_expansion(path: Path) -> Path:
+        if path == raw:
+            raise AssertionError("relative Rhino path was expanded before rejection")
+        return original_expanduser(path)
+
+    monkeypatch.setattr(Path, "expanduser", reject_early_expansion)
+
+    with pytest.raises(live.PreOwnershipBlocked, match="absolute"):
+        live.run_live_scenario(
+            scenario="rhino",
+            rhino_exe=raw,
+            artifact_dir=tmp_path / "artifacts",
+        )
+
+
+@requires_live_gate
+def test_claim_checks_raw_artifact_absoluteness_before_expanduser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = Path("~") / "artifacts"
+    original_expanduser = Path.expanduser
+
+    def reject_early_expansion(path: Path) -> Path:
+        if path == raw:
+            raise AssertionError("relative artifact path was expanded before rejection")
+        return original_expanduser(path)
+
+    monkeypatch.setattr(Path, "expanduser", reject_early_expansion)
+
+    with pytest.raises(live.PreOwnershipBlocked, match="absolute"):
+        live._claim_artifact_directory(raw, RUN_ID)
+
+
+@requires_live_gate
+def test_consumer_checks_raw_artifact_absoluteness_before_expanduser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = Path("~") / "artifacts"
+    original_expanduser = Path.expanduser
+
+    def reject_early_expansion(path: Path) -> Path:
+        if path == raw:
+            raise AssertionError("relative artifact path was expanded before rejection")
+        return original_expanduser(path)
+
+    monkeypatch.setattr(Path, "expanduser", reject_early_expansion)
+
+    with pytest.raises(live.LiveGateError, match="absolute"):
+        live._validate_scenario_artifacts(raw, scenario="rhino")
 
 
 @requires_live_gate
@@ -554,6 +855,7 @@ class _Record:
 class _Discovery:
     def __init__(self, record: _Record):
         self.record = record
+        self.discovery_dir = record.path.parent
         self.removed = False
         self.read_count = 0
 
@@ -599,6 +901,8 @@ def _install_bound_adapter(
         started=started,
         record=record,
         process_start_token=process_token,
+        record_bytes=record_bytes,
+        record_file_id=record_path.stat().st_ino,
     )
     return SimpleNamespace(
         adapter=adapter,
@@ -610,6 +914,44 @@ def _install_bound_adapter(
         discovery=discovery,
         process_token=process_token,
     )
+
+
+@requires_live_gate
+def test_bound_adapter_constructor_reuses_captured_bytes_without_path_reread(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    process = _AdapterProcess(9001)
+    started = SimpleNamespace(process=process, pid=process.pid, started_wall=100.0)
+    record_path = tmp_path / "instance-9001-native.json"
+    record_bytes = b'{"pluginType":"native","port":19001,"processId":9001}'
+    record_path.write_bytes(record_bytes)
+    record = _Record(
+        9001,
+        19001,
+        record_path,
+        {"pluginType": "native", "port": 19001, "processId": 9001},
+    )
+    original_read = Path.read_bytes
+
+    def reject_record_reread(path: Path) -> bytes:
+        if path == record_path:
+            raise AssertionError("accepted discovery bytes were reread before binding")
+        return original_read(path)
+
+    monkeypatch.setattr(Path, "read_bytes", reject_record_reread)
+
+    adapter = live.BoundInstalledToolAdapter(
+        port=record.port,
+        process_id=record.pid,
+        started=started,
+        record=record,
+        process_start_token=live._owned_process_start_token(started),
+        record_bytes=record_bytes,
+        record_file_id=record_path.stat().st_ino,
+    )
+
+    assert adapter._record_bytes is record_bytes
 
 
 @requires_live_gate
@@ -743,6 +1085,66 @@ class _Store:
             "process_start_token": self.token,
             "events": copy.deepcopy(self.events),
         }
+
+
+class _TelemetryDict(dict):
+    pass
+
+
+class _TelemetryList(list):
+    pass
+
+
+class _TelemetryInt(int):
+    pass
+
+
+class _TelemetryToken(str):
+    pass
+
+
+@requires_live_gate
+@pytest.mark.parametrize(
+    "drift",
+    ["mapping_subclass", "pid_subclass", "token_subclass", "events_subclass", "oversized_ring"],
+)
+def test_runtime_telemetry_snapshot_requires_exact_contract_types(
+    drift: str,
+) -> None:
+    snapshot: dict[str, Any] = {
+        "process_id": os.getpid(),
+        "process_start_token": "a" * 32,
+        "events": [],
+    }
+    candidate: Any = snapshot
+    if drift == "mapping_subclass":
+        candidate = _TelemetryDict(snapshot)
+    elif drift == "pid_subclass":
+        snapshot["process_id"] = _TelemetryInt(os.getpid())
+    elif drift == "token_subclass":
+        snapshot["process_start_token"] = _TelemetryToken("a" * 32)
+    elif drift == "events_subclass":
+        snapshot["events"] = _TelemetryList()
+    else:
+        snapshot["events"] = [{} for _ in range(51)]
+
+    with pytest.raises(live.LiveGateError, match="telemetry"):
+        live._validate_snapshot(candidate)
+
+
+@requires_live_gate
+def test_final_telemetry_events_require_an_exact_list() -> None:
+    telemetry = {
+        "process_id": os.getpid(),
+        "process_start_token": "a" * 32,
+        "before_sha256": "b" * 64,
+        "after_sha256": "c" * 64,
+        "delta_count": 0,
+        "events_added": _TelemetryList(),
+    }
+
+    with pytest.raises(live.LiveGateError, match="telemetry"):
+        live._validate_telemetry_result(telemetry)
 
 
 class _Process:
@@ -1164,18 +1566,28 @@ def _install_fake_scenario(
     authorization: str = "valid",
     drift: bool = False,
     graceful_forced: bool = False,
+    discovery_mode: str = "fresh",
 ):
     artifact = tmp_path / f"artifacts-{scenario}"
     rhino_exe = tmp_path / "Rhino.exe"
     rhino_exe.write_bytes(b"fake")
     process = _Process(9001 if scenario == "rhino" else 9002)
     record_path = tmp_path / f"instance-{process.pid}-native.json"
-    record_path.write_text(
-        json.dumps({"processId": process.pid, "port": 19001 if scenario == "rhino" else 19002, "pluginType": "native"}),
-        encoding="utf-8",
+    record_raw = {
+        "processId": process.pid,
+        "port": 19001 if scenario == "rhino" else 19002,
+        "pluginType": "native",
+    }
+    record_bytes = json.dumps(record_raw).encode("utf-8")
+    if discovery_mode == "stale_unchanged":
+        record_path.write_bytes(record_bytes)
+    record_sha256 = hashlib.sha256(record_bytes).hexdigest()
+    record = _Record(
+        process.pid,
+        19001 if scenario == "rhino" else 19002,
+        record_path,
+        dict(record_raw),
     )
-    record_sha256 = hashlib.sha256(record_path.read_bytes()).hexdigest()
-    record = _Record(process.pid, 19001 if scenario == "rhino" else 19002, record_path, json.loads(record_path.read_text()))
     discovery = _Discovery(record)
     scratch_suffix = "3dm" if scenario == "rhino" else "ghx"
     scratch_prefix = "RookContainmentRhino" if scenario == "rhino" else "RookContainmentGH"
@@ -1193,17 +1605,30 @@ def _install_fake_scenario(
     def start(*, rhino_exe: Path, launch: dict[str, Any]):
         assert store.get_containment_denials_snapshot()
         trace.append("launch")
+        if discovery_mode != "stale_unchanged":
+            record_path.write_bytes(record_bytes)
+            if discovery_mode == "changed_but_old":
+                os.utime(record_path, (0.0, 0.0))
         return SimpleNamespace(process=process, pid=process.pid, started_wall=100.0)
 
     monkeypatch.setattr(live, "_start_owned_rhino", start)
     monkeypatch.setattr(live, "_new_owned_discovery", lambda: discovery)
     monkeypatch.setattr(live, "_wait_for_owned_readiness", lambda started, owned: record)
     monkeypatch.setattr(live, "_owned_process_start_token", lambda started: PROCESS_TOKEN)
-    monkeypatch.setattr(
-        live,
-        "_new_bound_adapter",
-        lambda *, started, record, process_start_token: adapter,
-    )
+    accepted_record_bytes: list[bytes | None] = []
+
+    def new_adapter(
+        *,
+        started,
+        record,
+        process_start_token,
+        record_bytes=None,
+        record_file_id=None,
+    ):
+        accepted_record_bytes.append(record_bytes)
+        return adapter
+
+    monkeypatch.setattr(live, "_new_bound_adapter", new_adapter)
 
     close_calls: list[int] = []
 
@@ -1274,6 +1699,8 @@ def _install_fake_scenario(
         process=process,
         record=record,
         record_sha256=record_sha256,
+        record_bytes=record_bytes,
+        accepted_record_bytes=accepted_record_bytes,
         discovery=discovery,
         adapter=adapter,
         store=store,
@@ -1427,6 +1854,55 @@ def test_grasshopper_library_count_rejects_boolean_one(
 
     assert result.success is False
     assert result.failure_label == "verification_failed"
+
+
+@requires_live_gate
+@pytest.mark.parametrize(
+    "discovery_mode",
+    ["stale_unchanged", "changed_but_old"],
+)
+def test_owned_discovery_record_must_be_new_or_changed_and_launch_fresh(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    discovery_mode: str,
+) -> None:
+    harness = _install_fake_scenario(
+        monkeypatch,
+        tmp_path,
+        scenario="rhino",
+        discovery_mode=discovery_mode,
+    )
+
+    result = live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    )
+
+    assert result.success is False
+    assert result.failure_label == "readiness_failed"
+    assert harness.accepted_record_bytes == []
+
+
+@requires_live_gate
+def test_target_and_adapter_share_exact_fresh_discovery_record_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+
+    result = live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    )
+
+    assert result.success is True
+    assert harness.accepted_record_bytes == [harness.record_bytes]
+    assert result.target is not None
+    assert result.target["discovery_record_sha256"] == hashlib.sha256(
+        harness.accepted_record_bytes[0]
+    ).hexdigest()
 
 
 @requires_live_gate
@@ -2213,6 +2689,44 @@ def test_stale_discovery_record_is_not_deleted_or_reported_as_restored(
 
 
 @requires_live_gate
+@pytest.mark.parametrize("broken_path", ["scratch", "discovery"])
+def test_cleanup_rejects_broken_scratch_or_discovery_link_as_successful_disposal(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    broken_path: str,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    original_close = live._request_graceful_close
+
+    def close_then_install_broken_link(proc, diagnostics):
+        result = original_close(proc, diagnostics)
+        target = harness.scratch if broken_path == "scratch" else Path(harness.record.path)
+        try:
+            target.unlink()
+        except FileNotFoundError:
+            pass
+        _file_symlink_or_skip(target, tmp_path / f"missing-{broken_path}")
+        return result
+
+    monkeypatch.setattr(live, "_request_graceful_close", close_then_install_broken_link)
+
+    result = live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    )
+
+    assert result.success is False
+    assert result.failure_label == "cleanup_failed"
+    assert result.restoration[
+        "scratch_disposed" if broken_path == "scratch" else "discovery_removed"
+    ] is False
+    assert live._is_reparse(
+        harness.scratch if broken_path == "scratch" else Path(harness.record.path)
+    ) is True
+
+
+@requires_live_gate
 def test_cleanup_exception_uses_force_only_as_failed_diagnostic_cleanup(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -2814,10 +3328,10 @@ def test_post_dispatch_gh_edit_result_write_failure_inspects_and_undoes(
     harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
     original_write = live._atomic_write_bytes
 
-    def fail_edit_result(path: Path, payload: bytes) -> None:
+    def fail_edit_result(path: Path, payload: bytes, **kwargs) -> None:
         if path.name.endswith("-gh_edit-result.json"):
             raise OSError("result evidence disk failure")
-        original_write(path, payload)
+        original_write(path, payload, **kwargs)
 
     monkeypatch.setattr(live, "_atomic_write_bytes", fail_edit_result)
     result = live.run_live_scenario(
@@ -2892,10 +3406,10 @@ def test_operation_artifact_write_failure_stops_forward_work_and_cannot_pass(
     harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
     original = live._atomic_write_bytes
 
-    def fail_on_create(path: Path, payload: bytes):
+    def fail_on_create(path: Path, payload: bytes, **kwargs):
         if "rhino_create-arguments" in path.name:
             raise OSError("disk full")
-        return original(path, payload)
+        return original(path, payload, **kwargs)
 
     monkeypatch.setattr(live, "_atomic_write_bytes", fail_on_create)
     result = live.run_live_scenario(scenario="rhino", rhino_exe=harness.rhino_exe, artifact_dir=harness.artifact)
@@ -3081,6 +3595,126 @@ def test_consumer_nonfollowing_walk_rejects_directory_swapped_to_reparse_before_
     with pytest.raises(live.LiveGateError, match="reparse|changed"):
         live._scan_artifact_tree_nonfollowing(root)
     assert swapped is False, "the swapped reparse target was traversed before drift detection"
+
+
+@requires_live_gate
+def test_consumer_holds_root_lease_before_first_artifact_capture(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    assert live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    ).success
+    redirected = tmp_path / "redirected-artifacts"
+    shutil.copytree(harness.artifact, redirected)
+    displaced = tmp_path / "displaced-artifacts"
+    original_capture = live._capture_protected_artifact_tree
+    blocked = False
+    swapped = False
+
+    def race_before_capture(root: Path, root_lease):
+        nonlocal blocked, swapped
+        try:
+            root.rename(displaced)
+        except PermissionError:
+            blocked = True
+        else:
+            _directory_symlink_or_skip(root, redirected)
+            swapped = True
+        return original_capture(root, root_lease)
+
+    monkeypatch.setattr(live, "_capture_protected_artifact_tree", race_before_capture)
+
+    evidence = live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
+
+    assert evidence["success"] is True
+    assert blocked is True
+    assert swapped is False, "consumer root was redirected before its first read"
+
+
+@requires_live_gate
+def test_consumer_validates_only_from_handle_captured_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    assert live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    ).success
+    original_read_bytes = Path.read_bytes
+
+    def reject_artifact_path_read(path: Path) -> bytes:
+        if path == harness.artifact or harness.artifact in path.parents:
+            raise AssertionError(f"consumer fell back to a path read: {path}")
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", reject_artifact_path_read)
+
+    evidence = live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
+
+    assert evidence["success"] is True
+
+
+@requires_live_gate
+def test_consumer_rejects_child_swap_immediately_after_entry_snapshot_without_traversal_or_read(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    assert live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    ).success
+    operations = harness.artifact / "operations"
+    displaced = tmp_path / "displaced-operations"
+    redirected = tmp_path / "redirected-operations"
+    shutil.copytree(operations, redirected)
+    original_scandir = live.os.scandir
+    original_inspect = live._inspect_directory_entry
+    original_read_bytes = Path.read_bytes
+    swapped = False
+    traversed = False
+    operation_path_reads: list[Path] = []
+
+    def track_scandir(path: Path):
+        nonlocal traversed
+        if Path(path) == operations and swapped:
+            traversed = True
+        return original_scandir(path)
+
+    def race_after_entry_snapshot(entry, candidate: Path):
+        nonlocal swapped
+        snapshot = original_inspect(entry, candidate)
+        if Path(candidate) == operations and not swapped:
+            operations.rename(displaced)
+            _directory_symlink_or_skip(operations, redirected)
+            swapped = True
+        return snapshot
+
+    def track_operation_path_reads(path: Path) -> bytes:
+        if operations in path.parents:
+            operation_path_reads.append(path)
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(live.os, "scandir", track_scandir)
+    monkeypatch.setattr(live, "_inspect_directory_entry", race_after_entry_snapshot)
+    monkeypatch.setattr(Path, "read_bytes", track_operation_path_reads)
+
+    with pytest.raises(
+        live.LiveGateError,
+        match="reparse|changed|identity",
+    ) as caught:
+        live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
+
+    assert swapped is True, f"race hook did not fire: {caught.value}"
+    assert traversed is False, "consumer traversed the swapped child target"
+    assert operation_path_reads == [], "consumer read child paths before protected capture"
 
 
 @requires_live_gate
@@ -3581,14 +4215,14 @@ def test_diagnostic_persistence_failure_cleans_owned_host_and_suppresses_final_r
             raise RuntimeError("post-mutation verification failure")
         return await original_call(name, arguments)
 
-    def fail_diagnostic_write(path: Path, payload: bytes) -> None:
+    def fail_diagnostic_write(path: Path, payload: bytes, **kwargs) -> None:
         is_diagnostic = path.parent.name == "diagnostics"
         if is_diagnostic and (
             (failure_site == "payload" and path.suffix == ".json")
             or (failure_site == "sidecar" and path.name.endswith(".json.sha256"))
         ):
             raise injected
-        original_write(path, payload)
+        original_write(path, payload, **kwargs)
 
     def fail_diagnostic_registration(result, path, root, kind):
         if failure_site == "registration" and kind == "diagnostic":
@@ -3636,10 +4270,10 @@ def test_final_evidence_write_failure_emits_no_fabricated_result(
     harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
     original = live._atomic_write_bytes
 
-    def fail_final(path: Path, payload: bytes):
+    def fail_final(path: Path, payload: bytes, **kwargs):
         if path.name == "rhino-scenario.json":
             raise OSError("final disk failure")
-        return original(path, payload)
+        return original(path, payload, **kwargs)
 
     monkeypatch.setattr(live, "_atomic_write_bytes", fail_final)
     with pytest.raises(live.FinalEvidenceWriteError):
@@ -3670,7 +4304,7 @@ def test_final_evidence_pair_cleans_both_paths_and_preserves_interrupts(
     original = live._atomic_write_bytes
     injected = error_type(f"final {failure_site} write interrupted")
 
-    def fail_selected(path: Path, payload: bytes) -> None:
+    def fail_selected(path: Path, payload: bytes, **kwargs) -> None:
         if (
             failure_site == "evidence"
             and path == evidence_path
@@ -3678,7 +4312,7 @@ def test_final_evidence_pair_cleans_both_paths_and_preserves_interrupts(
             and path == sidecar
         ):
             raise injected
-        original(path, payload)
+        original(path, payload, **kwargs)
 
     monkeypatch.setattr(live, "_atomic_write_bytes", fail_selected)
     if isinstance(injected, Exception):

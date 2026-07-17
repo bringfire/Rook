@@ -194,9 +194,12 @@ class _RunState:
     rhino_exe: Path
     started_at: str
     result: LiveScenarioResult
+    root_claim: Any = None
     process: Any = None
     discovery: Any = None
     record: Any = None
+    discovery_record_bytes: bytes | None = None
+    discovery_record_file_id: int | None = None
     adapter: Any = None
     scratch_path: Path | None = None
     metrics_store: Any = None
@@ -241,8 +244,10 @@ def _sha256_value(payload: object) -> str:
     return _sha256_bytes(_canonical_json_bytes(payload))
 
 
-def _atomic_write_bytes(path: Path, payload: bytes) -> None:
+def _atomic_write_bytes(path: Path, payload: bytes, *, root_claim: Any = None) -> None:
     path = Path(path)
+    if root_claim is not None:
+        root_claim.verify()
     path.parent.mkdir(parents=True, exist_ok=True)
     handle, raw_temp = tempfile.mkstemp(
         prefix=f".{path.name}.",
@@ -255,7 +260,11 @@ def _atomic_write_bytes(path: Path, payload: bytes) -> None:
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
+        if root_claim is not None:
+            root_claim.verify()
         os.replace(temp_path, path)
+        if root_claim is not None:
+            root_claim.verify()
     except BaseException:
         try:
             temp_path.unlink()
@@ -332,14 +341,74 @@ def _read_regular_file(path: Path) -> bytes:
         raise LiveGateError("artifact inventory file could not be read") from exc
 
 
-def _acquire_windows_directory_lease(path: Path, expected: os.stat_result) -> Any:
+class _WindowsPathLease:
+    def __init__(
+        self,
+        *,
+        path: Path,
+        kind: Literal["file", "directory"],
+        file_id: int,
+        inspect_handle: Any,
+        read_handle: Any,
+        close_handle: Any,
+    ):
+        self.path = Path(path)
+        self.kind = kind
+        self.file_id = file_id
+        self._inspect_handle = inspect_handle
+        self._read_handle = read_handle
+        self._close_handle = close_handle
+        self._released = False
+
+    def verify(self) -> None:
+        if self._released:
+            raise LiveGateError("protected artifact handle was already released")
+        attributes, file_id, _ = self._inspect_handle()
+        if attributes & 0x0400:
+            raise LiveGateError("artifact path is reparse-backed")
+        handle_kind = "directory" if attributes & 0x0010 else "file"
+        if handle_kind != self.kind or file_id != self.file_id:
+            raise LiveGateError("artifact handle identity changed")
+        try:
+            current = self.path.lstat()
+        except OSError as exc:
+            raise LiveGateError("artifact path identity is unavailable") from exc
+        if (
+            _filesystem_entry_kind(current) != self.kind
+            or getattr(current, "st_ino", 0) != self.file_id
+        ):
+            raise LiveGateError("artifact path identity changed")
+
+    def read_bytes(self) -> bytes:
+        if self.kind != "file" or self._read_handle is None:
+            raise LiveGateError("protected artifact handle is not readable")
+        self.verify()
+        payload = self._read_handle()
+        self.verify()
+        _, _, size = self._inspect_handle()
+        if len(payload) != size:
+            raise LiveGateError("artifact file size changed during capture")
+        return payload
+
+    def release(self) -> None:
+        if self._released:
+            raise LiveGateError("protected artifact handle released more than once")
+        self._released = True
+        self._close_handle()
+
+
+def _acquire_windows_path_lease(
+    path: Path,
+    expected: os.stat_result,
+    kind: Literal["file", "directory"],
+) -> _WindowsPathLease:
     if os.name != "nt":
-        raise LiveGateError("protected artifact directory inventory is unavailable")
+        raise LiveGateError("protected artifact handle capture is unavailable")
     try:
         import ctypes
         from ctypes import wintypes
     except Exception as exc:
-        raise LiveGateError("protected artifact directory inventory is unavailable") from exc
+        raise LiveGateError("protected artifact handle capture is unavailable") from exc
 
     class _ByHandleFileInformation(ctypes.Structure):
         _fields_ = [
@@ -378,10 +447,11 @@ def _acquire_windows_directory_lease(path: Path, expected: os.stat_result) -> An
         close_handle.argtypes = [wintypes.HANDLE]
         close_handle.restype = wintypes.BOOL
     except Exception as exc:
-        raise LiveGateError("protected artifact directory inventory is unavailable") from exc
+        raise LiveGateError("protected artifact handle capture is unavailable") from exc
 
     file_read_attributes = 0x0080
     delete_access = 0x00010000
+    generic_read = 0x80000000
     file_share_read = 0x0001
     file_share_write = 0x0002
     open_existing = 3
@@ -390,51 +460,268 @@ def _acquire_windows_directory_lease(path: Path, expected: os.stat_result) -> An
     invalid_handle_value = ctypes.c_void_p(-1).value
     handle = create_file(
         str(path),
-        file_read_attributes | delete_access,
-        file_share_read | file_share_write,
+        file_read_attributes | delete_access if kind == "directory" else generic_read,
+        file_share_read | file_share_write if kind == "directory" else file_share_read,
         None,
         open_existing,
-        file_flag_backup_semantics | file_flag_open_reparse_point,
+        (
+            file_flag_backup_semantics | file_flag_open_reparse_point
+            if kind == "directory"
+            else file_flag_open_reparse_point
+        ),
         None,
     )
     if handle == invalid_handle_value:
         error_code = ctypes.get_last_error()
         raise OSError(error_code, ctypes.FormatError(error_code))
 
-    try:
+    def inspect_handle() -> tuple[int, int, int]:
         information = _ByHandleFileInformation()
         if not get_information(handle, ctypes.byref(information)):
             error_code = ctypes.get_last_error()
             raise OSError(error_code, ctypes.FormatError(error_code))
-        attributes = information.file_attributes
-        if attributes & 0x0400 or not attributes & 0x0010:
-            raise LiveGateError("artifact directory path is reparse-backed")
         file_id = information.file_index_high << 32 | information.file_index_low
-        expected_id = getattr(expected, "st_ino", 0)
-        if type(expected_id) is not int or expected_id <= 0 or file_id != expected_id:
-            raise LiveGateError("artifact directory identity changed before inventory")
-        current = Path(path).lstat()
-        if (
-            _filesystem_entry_kind(current) != "directory"
-            or getattr(current, "st_ino", 0) != file_id
-        ):
-            raise LiveGateError("artifact directory identity changed before inventory")
-    except BaseException:
-        close_handle(handle)
-        raise
+        size = information.file_size_high << 32 | information.file_size_low
+        return information.file_attributes, file_id, size
 
-    def release() -> None:
+    read_handle = None
+    if kind == "file":
+        set_pointer = kernel32.SetFilePointerEx
+        set_pointer.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_longlong,
+            ctypes.POINTER(ctypes.c_longlong),
+            wintypes.DWORD,
+        ]
+        set_pointer.restype = wintypes.BOOL
+        read_file = kernel32.ReadFile
+        read_file.argtypes = [
+            wintypes.HANDLE,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+            ctypes.POINTER(wintypes.DWORD),
+            wintypes.LPVOID,
+        ]
+        read_file.restype = wintypes.BOOL
+
+        def read_handle() -> bytes:
+            if not set_pointer(handle, 0, None, 0):
+                error_code = ctypes.get_last_error()
+                raise OSError(error_code, ctypes.FormatError(error_code))
+            _, _, size = inspect_handle()
+            remaining = size
+            chunks: list[bytes] = []
+            while remaining:
+                chunk_size = min(remaining, 64 * 1024)
+                buffer = ctypes.create_string_buffer(chunk_size)
+                read = wintypes.DWORD()
+                if not read_file(
+                    handle,
+                    buffer,
+                    chunk_size,
+                    ctypes.byref(read),
+                    None,
+                ):
+                    error_code = ctypes.get_last_error()
+                    raise OSError(error_code, ctypes.FormatError(error_code))
+                if read.value <= 0:
+                    raise LiveGateError("artifact file read made no progress")
+                chunks.append(buffer.raw[: read.value])
+                remaining -= read.value
+            return b"".join(chunks)
+
+    def release_handle() -> None:
         if not close_handle(handle):
             error_code = ctypes.get_last_error()
             raise OSError(error_code, ctypes.FormatError(error_code))
 
-    return release
+    expected_id = getattr(expected, "st_ino", 0)
+    if (
+        _filesystem_entry_kind(expected) != kind
+        or type(expected_id) is not int
+        or expected_id <= 0
+    ):
+        close_handle(handle)
+        raise LiveGateError("artifact path identity is invalid")
+    lease = _WindowsPathLease(
+        path=Path(path),
+        kind=kind,
+        file_id=expected_id,
+        inspect_handle=inspect_handle,
+        read_handle=read_handle,
+        close_handle=release_handle,
+    )
+    try:
+        lease.verify()
+    except BaseException:
+        lease.release()
+        raise
+    return lease
 
 
-def _claim_artifact_directory(path: Path, run_id: str) -> Path:
-    raw = Path(path).expanduser()
-    if not raw.is_absolute():
+def _acquire_windows_directory_lease(
+    path: Path, expected: os.stat_result
+) -> _WindowsPathLease:
+    return _acquire_windows_path_lease(path, expected, "directory")
+
+
+@dataclass(frozen=True)
+class _DiscoveryRecordSnapshot:
+    path: Path
+    device_id: int
+    file_id: int
+    mtime_ns: int
+    size: int
+    payload: bytes
+
+
+_DISCOVERY_RECORD_NAME_RE = re.compile(
+    r"^instance-[1-9][0-9]*-native\.json$",
+    re.ASCII,
+)
+
+
+def _capture_discovery_record(path: Path) -> _DiscoveryRecordSnapshot:
+    candidate = Path(path)
+    if not candidate.is_absolute() or _has_reparse_component(candidate):
+        raise LiveGateError("owned discovery record path is unsafe")
+    try:
+        before = candidate.lstat()
+    except OSError as exc:
+        raise LiveGateError("owned discovery record is unavailable") from exc
+    if _filesystem_entry_kind(before) != "file":
+        raise LiveGateError("owned discovery record is not a regular file")
+    lease = _acquire_windows_path_lease(candidate, before, "file")
+    try:
+        payload = lease.read_bytes()
+        lease.verify()
+        after = candidate.lstat()
+    except BaseException:
+        raise
+    finally:
+        lease.release()
+    before_identity = (
+        getattr(before, "st_dev", 0),
+        getattr(before, "st_ino", 0),
+        getattr(before, "st_mtime_ns", 0),
+        getattr(before, "st_size", -1),
+    )
+    after_identity = (
+        getattr(after, "st_dev", 0),
+        getattr(after, "st_ino", 0),
+        getattr(after, "st_mtime_ns", 0),
+        getattr(after, "st_size", -1),
+    )
+    if (
+        before_identity != after_identity
+        or type(before_identity[0]) is not int
+        or type(before_identity[1]) is not int
+        or type(before_identity[2]) is not int
+        or type(before_identity[3]) is not int
+        or before_identity[1] <= 0
+        or before_identity[3] != len(payload)
+    ):
+        raise LiveGateError("owned discovery record changed during capture")
+    return _DiscoveryRecordSnapshot(
+        path=candidate,
+        device_id=before_identity[0],
+        file_id=before_identity[1],
+        mtime_ns=before_identity[2],
+        size=before_identity[3],
+        payload=payload,
+    )
+
+
+def _snapshot_prelaunch_discovery_records(
+    discovery: Any,
+) -> dict[Path, _DiscoveryRecordSnapshot]:
+    raw_directory = getattr(discovery, "discovery_dir", None)
+    if raw_directory is None:
+        raise LiveGateError("owned discovery directory is unavailable")
+    raw_path = Path(raw_directory)
+    if not raw_path.is_absolute():
+        raise LiveGateError("owned discovery directory path is unsafe")
+    directory = raw_path.expanduser()
+    if _has_reparse_component(directory):
+        raise LiveGateError("owned discovery directory path is unsafe")
+    try:
+        directory_info = directory.lstat()
+    except FileNotFoundError:
+        return {}
+    except OSError as exc:
+        raise LiveGateError("owned discovery directory is unavailable") from exc
+    if _filesystem_entry_kind(directory_info) != "directory":
+        raise LiveGateError("owned discovery directory is not a plain directory")
+    directory_lease = _acquire_windows_directory_lease(directory, directory_info)
+    try:
+        snapshots: dict[Path, _DiscoveryRecordSnapshot] = {}
+        with os.scandir(directory) as iterator:
+            names = sorted(
+                entry.name
+                for entry in iterator
+                if _DISCOVERY_RECORD_NAME_RE.fullmatch(entry.name) is not None
+            )
+        for name in names:
+            snapshot = _capture_discovery_record(directory / name)
+            snapshots[snapshot.path] = snapshot
+        directory_lease.verify()
+        return snapshots
+    finally:
+        directory_lease.release()
+
+
+def _accept_fresh_owned_discovery_record(
+    *,
+    started: Any,
+    record: Any,
+    prelaunch: Mapping[Path, _DiscoveryRecordSnapshot],
+) -> _DiscoveryRecordSnapshot:
+    if getattr(record, "pid", None) != getattr(started, "pid", None):
+        raise LiveGateError("owned discovery record PID does not match launch")
+    snapshot = _capture_discovery_record(Path(record.path))
+    started_wall = getattr(started, "started_wall", None)
+    if type(started_wall) not in {int, float} or isinstance(started_wall, bool):
+        raise LiveGateError("owned launch wall-clock identity is invalid")
+    if snapshot.mtime_ns < int((float(started_wall) - 2.0) * 1_000_000_000):
+        raise LiveGateError("owned discovery record predates this launch")
+    previous = prelaunch.get(snapshot.path)
+    if previous is not None and snapshot == previous:
+        raise LiveGateError("owned discovery record was unchanged from prelaunch")
+    try:
+        decoded = json.loads(snapshot.payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise LiveGateError("owned discovery record bytes are malformed") from exc
+    if not isinstance(decoded, Mapping) or dict(decoded) != getattr(record, "raw", None):
+        raise LiveGateError("owned discovery record bytes do not match readiness")
+    return snapshot
+
+
+class _ArtifactRootClaim:
+    def __init__(self, path: Path, lease: _WindowsPathLease):
+        self.path = Path(path)
+        self._lease = lease
+        self._released = False
+
+    def verify(self) -> None:
+        if self._released:
+            raise OwnershipAmbiguous("artifact root claim was already released")
+        try:
+            self._lease.verify()
+        except Exception as exc:
+            raise OwnershipAmbiguous("artifact root ownership identity changed") from exc
+
+    def release(self) -> None:
+        if self._released:
+            raise LiveGateError("artifact root claim released more than once")
+        self._released = True
+        self._lease.release()
+
+
+def _claim_artifact_directory(path: Path, run_id: str) -> _ArtifactRootClaim:
+    unexpanded = Path(path)
+    if not unexpanded.is_absolute():
         raise PreOwnershipBlocked("artifact directory must be absolute")
+    raw = unexpanded.expanduser()
     parent = raw.parent
     if _has_reparse_component(raw):
         raise PreOwnershipBlocked("artifact directory path is reparse-backed")
@@ -444,6 +731,7 @@ def _claim_artifact_directory(path: Path, run_id: str) -> Path:
         raise PreOwnershipBlocked("artifact directory is not a plain directory")
     created = False
     marker_created = False
+    lease: _WindowsPathLease | None = None
     if not raw.exists():
         try:
             raw.mkdir()
@@ -451,8 +739,20 @@ def _claim_artifact_directory(path: Path, run_id: str) -> Path:
         except OSError as exc:
             raise PreOwnershipBlocked("artifact directory could not be created") from exc
     try:
-        if _has_reparse_component(raw) or not raw.is_dir():
+        if _has_reparse_component(raw):
             raise PreOwnershipBlocked("artifact directory path is reparse-backed")
+        try:
+            root_info = raw.lstat()
+        except OSError as exc:
+            raise PreOwnershipBlocked("artifact directory identity is unavailable") from exc
+        if _filesystem_entry_kind(root_info) != "directory":
+            raise PreOwnershipBlocked("artifact directory is not a plain directory")
+        try:
+            lease = _acquire_windows_directory_lease(raw, root_info)
+        except (LiveGateError, OSError) as exc:
+            raise PreOwnershipBlocked(
+                "artifact directory ownership lease could not be acquired"
+            ) from exc
         if any(raw.iterdir()):
             raise PreOwnershipBlocked("artifact directory must be new and empty")
         marker = raw / OWNERSHIP_MARKER
@@ -486,15 +786,23 @@ def _claim_artifact_directory(path: Path, run_id: str) -> Path:
                 pass
         if pending is not None:
             raise pending
-        if _has_reparse_component(raw) or set(raw.iterdir()) != {marker}:
+        lease.verify()
+        if set(raw.iterdir()) != {marker}:
             raise PreOwnershipBlocked("artifact directory changed during ownership claim")
-        return raw.resolve()
+        claim = _ArtifactRootClaim(raw.resolve(), lease)
+        claim.verify()
+        return claim
     except BaseException:
-        cleanup_path_is_plain = not _has_reparse_component(raw)
+        cleanup_path_is_plain = lease is not None or not _has_reparse_component(raw)
         if marker_created and cleanup_path_is_plain:
             try:
                 (raw / OWNERSHIP_MARKER).unlink()
             except OSError:
+                pass
+        if lease is not None:
+            try:
+                lease.release()
+            except BaseException:
                 pass
         if created and cleanup_path_is_plain:
             try:
@@ -779,6 +1087,8 @@ class BoundInstalledToolAdapter:
         started: Any,
         record: Any,
         process_start_token: str,
+        record_bytes: bytes,
+        record_file_id: int,
     ):
         if type(port) is not int or port <= 0 or type(process_id) is not int or process_id <= 0:
             raise LiveGateError("bound adapter identity is invalid")
@@ -793,11 +1103,19 @@ class BoundInstalledToolAdapter:
             raise LiveGateError("bound adapter process identity is invalid")
         if getattr(record, "pid", None) != process_id or getattr(record, "port", None) != port:
             raise LiveGateError("bound adapter discovery identity is invalid")
+        if type(record_bytes) is not bytes or not record_bytes:
+            raise LiveGateError("bound adapter discovery bytes are invalid")
+        if type(record_file_id) is not int or record_file_id <= 0:
+            raise LiveGateError("bound adapter discovery file identity is invalid")
         try:
             record_path = Path(record.path)
-            record_bytes = record_path.read_bytes()
-        except Exception as exc:
-            raise OwnershipAmbiguous("owned discovery record is unavailable") from exc
+            decoded_record = json.loads(record_bytes.decode("utf-8"))
+        except (AttributeError, TypeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise LiveGateError("bound adapter discovery bytes are malformed") from exc
+        if not isinstance(decoded_record, Mapping) or dict(decoded_record) != getattr(
+            record, "raw", None
+        ):
+            raise LiveGateError("bound adapter discovery bytes mismatch")
         self.port = port
         self.process_id = process_id
         self._started = started
@@ -806,6 +1124,7 @@ class BoundInstalledToolAdapter:
         self._process_start_token = process_start_token
         self._record_path = record_path
         self._record_bytes = record_bytes
+        self._record_file_id = record_file_id
         self._record_sha256 = _sha256_bytes(record_bytes)
         self._discovery = _new_owned_discovery()
 
@@ -828,7 +1147,8 @@ class BoundInstalledToolAdapter:
         try:
             record = self._discovery.read_owned_record(self.process_id)
             record_path = Path(record.path)
-            record_bytes = record_path.read_bytes()
+            record_snapshot = _capture_discovery_record(record_path)
+            record_bytes = record_snapshot.payload
             record_sha256 = _sha256_bytes(record_bytes)
         except Exception as exc:
             raise OwnershipAmbiguous("owned discovery record is unavailable") from exc
@@ -836,6 +1156,8 @@ class BoundInstalledToolAdapter:
             raise OwnershipAmbiguous("owned discovery PID/port drift")
         if record_path != self._record_path:
             raise OwnershipAmbiguous("owned discovery record path drift")
+        if record_snapshot.file_id != self._record_file_id:
+            raise OwnershipAmbiguous("owned discovery record identity drift")
         if record_bytes != self._record_bytes or record_sha256 != self._record_sha256:
             raise OwnershipAmbiguous("owned discovery record bytes drift")
 
@@ -863,7 +1185,12 @@ class BoundInstalledToolAdapter:
 
 
 def _new_bound_adapter(
-    *, started: Any, record: Any, process_start_token: str
+    *,
+    started: Any,
+    record: Any,
+    process_start_token: str,
+    record_bytes: bytes,
+    record_file_id: int,
 ) -> BoundInstalledToolAdapter:
     return BoundInstalledToolAdapter(
         port=record.port,
@@ -871,6 +1198,8 @@ def _new_bound_adapter(
         started=started,
         record=record,
         process_start_token=process_start_token,
+        record_bytes=record_bytes,
+        record_file_id=record_file_id,
     )
 
 
@@ -899,16 +1228,24 @@ def _monotonic() -> float:
 
 
 def _validate_snapshot(snapshot: object) -> dict[str, Any]:
-    if not isinstance(snapshot, Mapping) or set(snapshot) != {
+    if type(snapshot) is not dict or set(snapshot) != {
         "process_id",
         "process_start_token",
         "events",
     }:
         raise LiveGateError("containment telemetry snapshot schema drift")
     value = dict(snapshot)
-    if value["process_id"] != os.getpid() or _TOKEN_RE.fullmatch(str(value["process_start_token"])) is None:
+    process_id = value["process_id"]
+    process_start_token = value["process_start_token"]
+    if (
+        type(process_id) is not int
+        or process_id <= 0
+        or process_id != os.getpid()
+        or type(process_start_token) is not str
+        or _TOKEN_RE.fullmatch(process_start_token) is None
+    ):
         raise LiveGateError("containment telemetry process identity drift")
-    if not isinstance(value["events"], list):
+    if type(value["events"]) is not list or len(value["events"]) > 50:
         raise LiveGateError("containment telemetry events are malformed")
     return value
 
@@ -956,7 +1293,11 @@ class _OperationRecorder:
         args_path = self.directory / f"{stem}-arguments.json"
         result_path = self.directory / f"{stem}-result.json"
         try:
-            _atomic_write_bytes(args_path, _canonical_json_bytes(dict(arguments)))
+            _atomic_write_bytes(
+                args_path,
+                _canonical_json_bytes(dict(arguments)),
+                root_claim=self.state.root_claim,
+            )
             _register_artifact(self.state.result, args_path, self.state.artifact_dir, "operation_arguments")
         except Exception as exc:
             raise _ScenarioFailure("mutation_failed", "operation argument evidence write failed") from exc
@@ -966,7 +1307,11 @@ class _OperationRecorder:
             self.state.ownership_certain = False
             raise
         try:
-            _atomic_write_bytes(result_path, _canonical_json_bytes(envelope))
+            _atomic_write_bytes(
+                result_path,
+                _canonical_json_bytes(envelope),
+                root_claim=self.state.root_claim,
+            )
             _register_artifact(self.state.result, result_path, self.state.artifact_dir, "operation_result")
         except Exception as exc:
             raise _ScenarioFailure("mutation_failed", "operation result evidence write failed") from exc
@@ -1171,8 +1516,12 @@ def _record_diagnostic(state: _RunState, stage: str, label: str, exc: BaseExcept
     try:
         payload_bytes = _canonical_json_bytes(payload)
         digest = _sha256_bytes(payload_bytes)
-        _atomic_write_bytes(path, payload_bytes)
-        _atomic_write_bytes(sidecar, f"{digest}\n".encode("ascii"))
+        _atomic_write_bytes(path, payload_bytes, root_claim=state.root_claim)
+        _atomic_write_bytes(
+            sidecar,
+            f"{digest}\n".encode("ascii"),
+            root_claim=state.root_claim,
+        )
         _register_artifact(state.result, path, state.artifact_dir, "diagnostic")
         _register_artifact(state.result, sidecar, state.artifact_dir, "diagnostic_sidecar")
         state.result.diagnostics.append(
@@ -1202,7 +1551,9 @@ def _record_diagnostic(state: _RunState, stage: str, label: str, exc: BaseExcept
 
 
 def _target_dict(state: _RunState, process_token: str) -> dict[str, Any]:
-    raw = Path(state.record.path).read_bytes()
+    raw = state.discovery_record_bytes
+    if type(raw) is not bytes or not raw:
+        raise LiveGateError("accepted discovery record bytes are unavailable")
     return {
         "process_id": int(state.record.pid),
         "port": int(state.record.port),
@@ -1649,7 +2000,11 @@ async def _run_grasshopper_forward(state: _RunState, recorder: _OperationRecorde
     try:
         payload = _fixture_resource_path().read_bytes()
         _validate_fixture_bytes(payload)
-        _atomic_write_bytes(state.scratch_path, payload)
+        _atomic_write_bytes(
+            state.scratch_path,
+            payload,
+            root_claim=state.root_claim,
+        )
         _register_artifact(
             state.result,
             state.scratch_path,
@@ -2120,6 +2475,7 @@ async def _restore_grasshopper(state: _RunState, recorder: _OperationRecorder) -
 
 
 def _cleanup_owned_target(state: _RunState, diagnostics: list[str]) -> bool:
+    state.root_claim.verify()
     if state.process is None:
         return False
     owned_process = getattr(state.process, "process", state.process)
@@ -2150,24 +2506,55 @@ def _cleanup_owned_target(state: _RunState, diagnostics: list[str]) -> bool:
     discovery_removed = record_path is None
     if record_path is not None:
         for _ in range(20):
-            if not record_path.exists():
+            try:
+                record_info = record_path.lstat()
+            except FileNotFoundError:
                 discovery_removed = True
+                break
+            except OSError:
+                break
+            try:
+                record_kind = _filesystem_entry_kind(record_info)
+            except LiveGateError:
+                break
+            if (
+                record_kind != "file"
+                or type(state.discovery_record_file_id) is not int
+                or getattr(record_info, "st_ino", 0)
+                != state.discovery_record_file_id
+            ):
                 break
             _sleep(0.25)
     scratch_disposed = True
-    if state.scratch_path is not None and state.scratch_path.exists():
+    if state.scratch_path is not None:
         try:
-            state.scratch_path.unlink()
-            scratch_relative = state.scratch_path.relative_to(
-                state.artifact_dir
-            ).as_posix()
-            state.result.artifacts = [
-                item
-                for item in state.result.artifacts
-                if item["relative_path"] != scratch_relative
-            ]
+            scratch_info = state.scratch_path.lstat()
+        except FileNotFoundError:
+            scratch_info = None
         except OSError:
             scratch_disposed = False
+            scratch_info = None
+        if scratch_info is not None:
+            if _filesystem_entry_kind(scratch_info) != "file":
+                scratch_disposed = False
+            else:
+                try:
+                    state.scratch_path.unlink()
+                    state.scratch_path.lstat()
+                except FileNotFoundError:
+                    scratch_relative = state.scratch_path.relative_to(
+                        state.artifact_dir
+                    ).as_posix()
+                    state.result.artifacts = [
+                        item
+                        for item in state.result.artifacts
+                        if item["relative_path"] != scratch_relative
+                    ]
+                except OSError:
+                    scratch_disposed = False
+                else:
+                    scratch_disposed = False
+    state.root_claim.verify()
     state.result.restoration["prior_identity_or_absence_restored"] = True
     state.result.restoration["scratch_disposed"] = scratch_disposed
     state.result.restoration["discovery_removed"] = discovery_removed
@@ -2234,14 +2621,20 @@ def _write_final_evidence_pair(
     artifact_dir: Path,
     scenario: str,
     evidence: Mapping[str, Any],
+    *,
+    root_claim: _ArtifactRootClaim | None = None,
 ) -> tuple[Path, str]:
     path = artifact_dir / f"{scenario}-scenario.json"
     sidecar = artifact_dir / f"{scenario}-scenario.sha256"
     try:
         payload = _canonical_json_bytes(dict(evidence))
-        _atomic_write_bytes(path, payload)
+        _atomic_write_bytes(path, payload, root_claim=root_claim)
         digest = _sha256_bytes(payload)
-        _atomic_write_bytes(sidecar, f"{digest}\n".encode("ascii"))
+        _atomic_write_bytes(
+            sidecar,
+            f"{digest}\n".encode("ascii"),
+            root_claim=root_claim,
+        )
         return path, digest
     except BaseException as exc:
         for candidate in (path, sidecar):
@@ -2300,13 +2693,38 @@ def run_live_scenario(
         raise LiveGateError("run identifier generator drift")
     started_at = _utc_now()
     result = _new_result(scenario, run_id, started_at)
-    raw_rhino_path = Path(rhino_exe).expanduser()
-    if not raw_rhino_path.is_absolute():
+    unexpanded_rhino_path = Path(rhino_exe)
+    if not unexpanded_rhino_path.is_absolute():
         raise PreOwnershipBlocked("Rhino executable path must be absolute")
+    raw_rhino_path = unexpanded_rhino_path.expanduser()
     if _has_reparse_component(raw_rhino_path):
         raise PreOwnershipBlocked("Rhino executable path is reparse-backed")
     rhino_path = raw_rhino_path.resolve()
-    owned_dir = _claim_artifact_directory(Path(artifact_dir), run_id)
+    root_claim = _claim_artifact_directory(Path(artifact_dir), run_id)
+    try:
+        return _run_claimed_live_scenario(
+            scenario=scenario,
+            rhino_path=rhino_path,
+            root_claim=root_claim,
+            run_id=run_id,
+            started_at=started_at,
+            result=result,
+        )
+    finally:
+        root_claim.release()
+
+
+def _run_claimed_live_scenario(
+    *,
+    scenario: Literal["rhino", "grasshopper"],
+    rhino_path: Path,
+    root_claim: _ArtifactRootClaim,
+    run_id: str,
+    started_at: str,
+    result: LiveScenarioResult,
+) -> LiveScenarioResult:
+    root_claim.verify()
+    owned_dir = root_claim.path
     state = _RunState(
         scenario=scenario,
         run_id=run_id,
@@ -2314,6 +2732,7 @@ def run_live_scenario(
         rhino_exe=rhino_path,
         started_at=started_at,
         result=result,
+        root_claim=root_claim,
     )
     failure: _ScenarioFailure | None = None
     interruption: BaseException | None = None
@@ -2358,12 +2777,39 @@ def run_live_scenario(
 
         try:
             launch = _build_launch_environment()
-            state.process = _start_owned_rhino(rhino_exe=state.rhino_exe, launch=launch)
+        except Exception as exc:
+            raise _ScenarioFailure("launch_failed", "owned Rhino launch preparation failed") from exc
+        try:
+            state.discovery = _new_owned_discovery()
+            prelaunch_discovery = _snapshot_prelaunch_discovery_records(
+                state.discovery
+            )
+        except Exception as exc:
+            raise _ScenarioFailure(
+                "readiness_failed",
+                "prelaunch discovery inventory failed",
+            ) from exc
+        try:
+            root_claim.verify()
+            state.process = _start_owned_rhino(
+                rhino_exe=state.rhino_exe,
+                launch=launch,
+            )
         except Exception as exc:
             raise _ScenarioFailure("launch_failed", "owned Rhino launch failed") from exc
         try:
-            state.discovery = _new_owned_discovery()
-            state.record = _wait_for_owned_readiness(state.process, state.discovery)
+            candidate_record = _wait_for_owned_readiness(
+                state.process,
+                state.discovery,
+            )
+            accepted_record = _accept_fresh_owned_discovery_record(
+                started=state.process,
+                record=candidate_record,
+                prelaunch=prelaunch_discovery,
+            )
+            state.record = candidate_record
+            state.discovery_record_bytes = accepted_record.payload
+            state.discovery_record_file_id = accepted_record.file_id
         except Exception as exc:
             raise _ScenarioFailure("readiness_failed", "owned Rhino readiness failed") from exc
 
@@ -2378,6 +2824,8 @@ def run_live_scenario(
             started=state.process,
             record=state.record,
             process_start_token=process_token,
+            record_bytes=state.discovery_record_bytes,
+            record_file_id=state.discovery_record_file_id,
         )
         asyncio.run(_execute_scenario(state))
     except OwnershipAmbiguous as exc:
@@ -2581,9 +3029,16 @@ def run_live_scenario(
         ) from persistence_error
 
     result.ended_at = _utc_now()
-    path, digest = _write_final_evidence_pair(owned_dir, scenario, result.to_dict())
+    root_claim.verify()
+    path, digest = _write_final_evidence_pair(
+        owned_dir,
+        scenario,
+        result.to_dict(),
+        root_claim=root_claim,
+    )
     if path.name != f"{scenario}-scenario.json":
         raise FinalEvidenceWriteError("final evidence path drift")
+    root_claim.verify()
     _emit_jsonl(_scenario_result_record(result, digest))
     if interruption is not None:
         raise interruption
@@ -2607,63 +3062,161 @@ def _safe_relative(root: Path, raw: object) -> Path:
     return candidate
 
 
-def _scan_artifact_tree_nonfollowing(root: Path) -> tuple[set[str], set[str]]:
-    files: set[str] = set()
-    directories: set[str] = set()
-    pending = [Path(root)]
-    while pending:
-        current = pending.pop()
-        if _has_reparse_component(current):
-            raise LiveGateError("artifact directory path is reparse-backed")
+def _artifact_relative_key(raw: object) -> str:
+    if type(raw) is not str:
+        raise LiveGateError("artifact path is not a string")
+    relative = Path(raw)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise LiveGateError("artifact path escapes the owned directory")
+    key = relative.as_posix()
+    if key in {"", "."}:
+        raise LiveGateError("artifact path is empty")
+    return key
+
+
+def _inspect_directory_entry(entry: Any, candidate: Path) -> tuple[Literal["file", "directory"], int]:
+    try:
+        entry_info = entry.stat(follow_symlinks=False)
+        entry_id = entry.inode()
+        current_info = candidate.lstat()
+    except OSError as exc:
+        raise LiveGateError("artifact directory entry could not be inspected") from exc
+    kind = _filesystem_entry_kind(entry_info)
+    if (
+        type(entry_id) is not int
+        or entry_id <= 0
+        or _filesystem_entry_kind(current_info) != kind
+        or getattr(current_info, "st_ino", 0) != entry_id
+    ):
+        raise LiveGateError("artifact directory entry identity changed")
+    return kind, entry_id
+
+
+class _ProtectedArtifactTree:
+    def __init__(self, root: Path, root_lease: _WindowsPathLease):
+        self.root = Path(root)
+        self.files: dict[str, bytes] = {}
+        self.file_leases: dict[str, _WindowsPathLease] = {}
+        self.directory_leases: dict[str, _WindowsPathLease] = {"": root_lease}
+        self.directory_entries: dict[
+            str, dict[str, tuple[Literal["file", "directory"], int]]
+        ] = {}
+        self._leases: list[_WindowsPathLease] = [root_lease]
+        self._released = False
+
+    @property
+    def directories(self) -> set[str]:
+        return {relative for relative in self.directory_leases if relative}
+
+    def add_lease(self, relative: str, lease: _WindowsPathLease) -> None:
+        self._leases.append(lease)
+        if lease.kind == "file":
+            self.file_leases[relative] = lease
+        else:
+            self.directory_leases[relative] = lease
+
+    def read_file(self, raw: object) -> bytes:
+        relative = _artifact_relative_key(raw)
         try:
-            before = current.lstat()
-            if _filesystem_entry_kind(before) != "directory":
-                raise LiveGateError("artifact traversal entry is not a directory")
-            release = _acquire_windows_directory_lease(current, before)
+            return self.files[relative]
+        except KeyError as exc:
+            raise LiveGateError("artifact inventory file is missing") from exc
+
+    def assert_closed(self) -> None:
+        if self._released:
+            raise LiveGateError("protected artifact tree was already released")
+        for relative, lease in self.directory_leases.items():
+            lease.verify()
             try:
-                with os.scandir(current) as entries:
+                with os.scandir(lease.path) as entries:
                     snapshot = list(entries)
-                if _has_reparse_component(current):
-                    raise LiveGateError("artifact directory path is reparse-backed")
-                after = current.lstat()
-                if (
-                    _filesystem_entry_kind(after) != "directory"
-                    or not os.path.samestat(before, after)
-                ):
-                    raise LiveGateError("artifact directory changed during inventory")
-            finally:
-                release()
+            except OSError as exc:
+                raise LiveGateError("artifact directory changed during validation") from exc
+            observed: dict[str, tuple[Literal["file", "directory"], int]] = {}
+            for entry in snapshot:
+                candidate = lease.path / entry.name
+                observed[entry.name] = _inspect_directory_entry(entry, candidate)
+            if observed != self.directory_entries[relative]:
+                raise LiveGateError("artifact directory changed during validation")
+            lease.verify()
+        for lease in self.file_leases.values():
+            lease.verify()
+
+    def release(self) -> None:
+        if self._released:
+            raise LiveGateError("protected artifact tree released more than once")
+        self._released = True
+        pending: BaseException | None = None
+        for lease in reversed(self._leases):
+            try:
+                lease.release()
+            except BaseException as exc:
+                if pending is None:
+                    pending = exc
+        if pending is not None:
+            raise pending
+
+
+def _capture_protected_artifact_tree(
+    root: Path,
+    root_lease: _WindowsPathLease,
+) -> _ProtectedArtifactTree:
+    tree = _ProtectedArtifactTree(root, root_lease)
+
+    def capture_directory(relative: str, lease: _WindowsPathLease) -> None:
+        lease.verify()
+        try:
+            with os.scandir(lease.path) as entries:
+                snapshot = list(entries)
         except OSError as exc:
             raise LiveGateError(
                 "artifact directory changed or could not be inventoried"
             ) from exc
+        observed: dict[str, tuple[Literal["file", "directory"], int]] = {}
+        child_directories: list[tuple[str, _WindowsPathLease]] = []
         for entry in snapshot:
-            try:
-                info = entry.stat(follow_symlinks=False)
-            except OSError as exc:
-                raise LiveGateError("artifact directory entry could not be inspected") from exc
-            kind = _filesystem_entry_kind(info)
-            candidate = Path(entry.path)
-            if _has_reparse_component(candidate):
-                raise LiveGateError("artifact path is reparse-backed")
+            candidate = lease.path / entry.name
+            kind, entry_id = _inspect_directory_entry(entry, candidate)
+            observed[entry.name] = (kind, entry_id)
             try:
                 current_info = candidate.lstat()
             except OSError as exc:
                 raise LiveGateError("artifact directory entry changed during inventory") from exc
-            if _filesystem_entry_kind(current_info) != kind:
-                raise LiveGateError(
-                    "artifact directory entry is reparse-backed or changed during inventory"
-                )
-            try:
-                relative = candidate.relative_to(root).as_posix()
-            except ValueError as exc:
-                raise LiveGateError("artifact traversal escaped the owned directory") from exc
+            child_relative = (
+                f"{relative}/{entry.name}" if relative else entry.name
+            ).replace("\\", "/")
+            child_lease = _acquire_windows_path_lease(candidate, current_info, kind)
+            tree.add_lease(child_relative, child_lease)
             if kind == "file":
-                files.add(relative)
+                tree.files[child_relative] = child_lease.read_bytes()
             else:
-                directories.add(relative)
-                pending.append(candidate)
-    return files, directories
+                child_directories.append((child_relative, child_lease))
+        tree.directory_entries[relative] = observed
+        lease.verify()
+        for child_relative, child_lease in child_directories:
+            capture_directory(child_relative, child_lease)
+
+    try:
+        capture_directory("", root_lease)
+        return tree
+    except BaseException:
+        tree.release()
+        raise
+
+
+def _scan_artifact_tree_nonfollowing(root: Path) -> tuple[set[str], set[str]]:
+    raw_root = Path(root)
+    try:
+        root_info = raw_root.lstat()
+    except OSError as exc:
+        raise LiveGateError("artifact directory is missing") from exc
+    root_lease = _acquire_windows_directory_lease(raw_root, root_info)
+    tree = _capture_protected_artifact_tree(raw_root, root_lease)
+    try:
+        tree.assert_closed()
+        return set(tree.files), tree.directories
+    finally:
+        tree.release()
 
 
 def _declared_artifact_directories(files: set[str]) -> set[str]:
@@ -3038,7 +3591,7 @@ def _validate_telemetry_result(value: object) -> Mapping[str, Any] | None:
         not _is_sha256(after)
         or type(delta) is not int
         or delta < 0
-        or not isinstance(events, list)
+        or type(events) is not list
         or delta != len(events)
     ):
         raise LiveGateError("telemetry final evidence type drift")
@@ -3150,9 +3703,10 @@ def _validate_nested_scenario_result(
 def _validate_scenario_artifacts(artifact_dir: Path, *, scenario: str) -> dict[str, Any]:
     if scenario not in SCENARIOS:
         raise LiveGateError("scenario evidence identity is invalid")
-    raw_root = Path(artifact_dir).expanduser()
-    if not raw_root.is_absolute():
+    unexpanded_root = Path(artifact_dir)
+    if not unexpanded_root.is_absolute():
         raise LiveGateError("artifact directory must be absolute")
+    raw_root = unexpanded_root.expanduser()
     if _has_reparse_component(raw_root):
         raise LiveGateError("artifact directory path is reparse-backed")
     try:
@@ -3161,18 +3715,32 @@ def _validate_scenario_artifacts(artifact_dir: Path, *, scenario: str) -> dict[s
         raise LiveGateError("artifact directory is missing") from exc
     if _filesystem_entry_kind(root_info) != "directory":
         raise LiveGateError("artifact root is not a directory")
-    root = raw_root.resolve()
+    root = raw_root
+    root_lease = _acquire_windows_directory_lease(root, root_info)
+    tree = _capture_protected_artifact_tree(root, root_lease)
+    try:
+        return _validate_captured_scenario_artifacts(tree, scenario=scenario)
+    finally:
+        tree.release()
+
+
+def _validate_captured_scenario_artifacts(
+    tree: _ProtectedArtifactTree,
+    *,
+    scenario: str,
+) -> dict[str, Any]:
+    root = tree.root
     evidence_path = root / f"{scenario}-scenario.json"
     sidecar = root / f"{scenario}-scenario.sha256"
     try:
-        payload = _read_regular_file(evidence_path)
+        payload = tree.read_file(evidence_path.name)
         evidence = json.loads(payload)
     except Exception as exc:
         raise LiveGateError("final evidence artifact is missing or malformed") from exc
     if payload != _canonical_json_bytes(evidence):
         raise LiveGateError("final evidence artifact is noncanonical")
     digest = _sha256_bytes(payload)
-    if _read_regular_file(sidecar) != f"{digest}\n".encode("ascii"):
+    if tree.read_file(sidecar.name) != f"{digest}\n".encode("ascii"):
         raise LiveGateError("final evidence sidecar mismatch")
     if not isinstance(evidence, Mapping) or set(evidence) != set(RESULT_FIELDS):
         raise LiveGateError("final evidence schema drift")
@@ -3200,15 +3768,14 @@ def _validate_scenario_artifacts(artifact_dir: Path, *, scenario: str) -> dict[s
             or item["relative_path"] in inventory
         ):
             raise LiveGateError("artifact inventory entry type drift")
-        path = _safe_relative(root, item["relative_path"])
-        content = _read_regular_file(path)
+        content = tree.read_file(item["relative_path"])
         if _sha256_bytes(content) != item["sha256"] or len(content) != item["size"]:
             raise LiveGateError("artifact inventory digest mismatch")
         inventory[str(item["relative_path"])] = item
     marker = inventory.get(OWNERSHIP_MARKER)
     if marker is None or marker["kind"] != "ownership_marker":
         raise LiveGateError("ownership marker inventory binding mismatch")
-    marker_content = _read_regular_file(root / OWNERSHIP_MARKER)
+    marker_content = tree.read_file(OWNERSHIP_MARKER)
     try:
         marker_payload = json.loads(marker_content)
     except Exception as exc:
@@ -3265,10 +3832,10 @@ def _validate_scenario_artifacts(artifact_dir: Path, *, scenario: str) -> dict[s
             raise LiveGateError("operation tool is outside the scenario allowlist")
         for kind in ("arguments", "result"):
             relative = operation[f"{kind}_path"]
-            path = _safe_relative(root, relative)
-            if relative not in inventory:
+            relative_key = _artifact_relative_key(relative)
+            if relative_key not in inventory:
                 raise LiveGateError("operation artifact is not enumerated")
-            content = _read_regular_file(path)
+            content = tree.read_file(relative_key)
             try:
                 decoded = json.loads(content)
             except Exception as exc:
@@ -3282,11 +3849,13 @@ def _validate_scenario_artifacts(artifact_dir: Path, *, scenario: str) -> dict[s
         f"{scenario}-scenario.sha256",
         *inventory.keys(),
     }
-    actual_files, actual_directories = _scan_artifact_tree_nonfollowing(root)
+    actual_files = set(tree.files)
+    actual_directories = tree.directories
     if actual_files != declared_files:
         raise LiveGateError("artifact directory contains unenumerated files")
     if actual_directories != _declared_artifact_directories(declared_files):
         raise LiveGateError("artifact directory contains unenumerated directories")
+    tree.assert_closed()
     return dict(evidence)
 
 
