@@ -68,6 +68,33 @@ def _file_symlink_or_skip(link: Path, target: Path) -> None:
         pytest.skip("file symlinks/reparse points unavailable")
 
 
+@pytest.fixture
+def owned_claim_factory(request: pytest.FixtureRequest):
+    claims = []
+
+    def create(path: Path):
+        claim = live._claim_artifact_directory(path, RUN_ID)
+        claims.append(claim)
+        return claim
+
+    def reclaim(path: Path):
+        leases = live._acquire_retained_path_leases(path, "directory")
+        claim = live._ArtifactRootClaim(path, leases)
+        claim.verify()
+        claims.append(claim)
+        return claim
+
+    create.reclaim = reclaim  # type: ignore[attr-defined]
+
+    def release_claims() -> None:
+        for claim in reversed(claims):
+            if not claim._released:
+                claim.release()
+
+    request.addfinalizer(release_claims)
+    return create
+
+
 def test_containment_live_gate_contract_is_available() -> None:
     assert live is not None, f"{EXPECTED_RED} rook.containment_live_gate is not implemented"
 
@@ -411,9 +438,9 @@ def test_producer_retains_root_claim_immediately_after_claim(
     blocked = False
     swapped = False
 
-    def race_after_claim(path: Path, run_id: str):
+    def race_after_claim(path: Path, run_id: str, **kwargs):
         nonlocal blocked, swapped
-        claim = original_claim(path, run_id)
+        claim = original_claim(path, run_id, **kwargs)
         try:
             claim.path.rename(displaced)
         except PermissionError:
@@ -499,9 +526,9 @@ def test_producer_releases_root_claim_exactly_once_on_baseexception(
         lease.release = tracked_lease_release
         return lease
 
-    def tracked_claim(path: Path, run_id: str):
+    def tracked_claim(path: Path, run_id: str, **kwargs):
         nonlocal release_calls
-        claim = original_claim(path, run_id)
+        claim = original_claim(path, run_id, **kwargs)
         original_release = claim.release
 
         def tracked_release() -> None:
@@ -533,6 +560,53 @@ def test_producer_releases_root_claim_exactly_once_on_baseexception(
     assert lease_release_calls
     assert set(lease_release_calls) == {1}
     harness.artifact.rename(tmp_path / "released-artifacts")
+
+
+@requires_live_gate
+def test_producer_root_adoption_failure_releases_unadopted_lease_once(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "artifacts"
+    original_acquire = live._acquire_windows_path_lease
+    original_adopt_registered = live._RetainedPathLeases._adopt_registered
+    acquired: list[tuple[object, list[int], object]] = []
+    injected = KeyboardInterrupt("producer root adoption interrupted")
+
+    def tracked_acquire(*args, **kwargs):
+        lease = original_acquire(*args, **kwargs)
+        calls = [0]
+        original_release = lease.release
+
+        def tracked_release() -> None:
+            calls[0] += 1
+            original_release()
+
+        lease.release = tracked_release
+        acquired.append((lease, calls, original_release))
+        return lease
+
+    def interrupt_root_adoption(retained, lease) -> None:
+        if lease.path == artifact:
+            raise injected
+        original_adopt_registered(retained, lease)
+
+    monkeypatch.setattr(live, "_acquire_windows_path_lease", tracked_acquire)
+    monkeypatch.setattr(
+        live._RetainedPathLeases,
+        "_adopt_registered",
+        interrupt_root_adoption,
+    )
+
+    with pytest.raises(KeyboardInterrupt) as caught:
+        live._claim_artifact_directory(artifact, RUN_ID)
+
+    observed = [calls[0] for _lease, calls, _release in acquired]
+    for lease, calls, original_release in acquired:
+        if calls[0] == 0:
+            original_release()
+    assert caught.value is injected
+    assert observed and set(observed) == {1}
 
 
 @requires_live_gate
@@ -589,6 +663,775 @@ def test_producer_releases_every_acquired_lease_once_on_all_terminal_paths(
 
     assert len(release_calls) > 1
     assert set(release_calls) == {1}
+
+
+@requires_live_gate
+def test_retained_directory_handles_pin_each_writable_path_until_reverse_release(
+    tmp_path: Path,
+) -> None:
+    ancestor = tmp_path / "retained-ancestor"
+    descendant = ancestor / "retained-descendant"
+    descendant.mkdir(parents=True)
+    leases = [
+        live._acquire_windows_directory_lease(path, path.lstat())
+        for path in (ancestor, descendant)
+    ]
+    try:
+        assert all(lease.rename_pinned is True for lease in leases)
+        for path in (descendant, ancestor):
+            with pytest.raises(PermissionError):
+                path.rename(path.with_name(f"{path.name}-while-retained"))
+    finally:
+        for lease in reversed(leases):
+            lease.release()
+
+    descendant.rename(ancestor / "descendant-after-release")
+    ancestor.rename(tmp_path / "ancestor-after-release")
+
+
+@requires_live_gate
+def test_directory_sharing_violation_never_falls_back_to_weak_open(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import ctypes
+
+    target = tmp_path / "sharing-conflict"
+    target.mkdir()
+    create_calls = 0
+
+    class FakeFunction:
+        def __init__(self, callback):
+            self.callback = callback
+            self.argtypes = None
+            self.restype = None
+
+        def __call__(self, *args):
+            return self.callback(*args)
+
+    class FakeKernel32:
+        def __init__(self):
+            self.CreateFileW = FakeFunction(self._create)
+            self.GetFileInformationByHandle = FakeFunction(lambda *_args: 0)
+            self.CloseHandle = FakeFunction(lambda *_args: 1)
+
+        def _create(self, *_args):
+            nonlocal create_calls
+            create_calls += 1
+            ctypes.set_last_error(32)
+            return ctypes.c_void_p(-1).value
+
+    monkeypatch.setattr(
+        ctypes,
+        "WinDLL",
+        lambda *_args, **_kwargs: FakeKernel32(),
+    )
+
+    with pytest.raises(OSError) as caught:
+        live._acquire_windows_directory_lease(target, target.lstat())
+
+    assert caught.value.errno == 32
+    assert create_calls == 1
+
+
+@requires_live_gate
+@pytest.mark.parametrize("acquisition", ["terminal_chain", "direct_descendant"])
+def test_sensitive_directory_use_rejects_weak_handle_and_closes_once(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    acquisition: str,
+) -> None:
+    target = tmp_path / "weak-terminal"
+    target.mkdir()
+    original_acquire = live._acquire_windows_path_lease
+    weak_lease = None
+    release_calls = 0
+    original_release = None
+
+    def inject_weak_lease(path: Path, *args, **kwargs):
+        nonlocal weak_lease, release_calls, original_release
+        lease = original_acquire(path, *args, **kwargs)
+        if Path(path) != target:
+            return lease
+        lease.rename_pinned = False
+        weak_lease = lease
+        original_release = lease.release
+
+        def tracked_release() -> None:
+            nonlocal release_calls
+            release_calls += 1
+            original_release()
+
+        lease.release = tracked_release
+        return lease
+
+    monkeypatch.setattr(live, "_acquire_windows_path_lease", inject_weak_lease)
+    caught = None
+    retained = None
+    try:
+        try:
+            if acquisition == "terminal_chain":
+                retained = live._acquire_retained_path_leases(target, "directory")
+            else:
+                retained = live._acquire_windows_directory_lease(
+                    target,
+                    target.lstat(),
+                )
+        except live.LiveGateError as exc:
+            caught = exc
+        observed_releases = release_calls
+    finally:
+        if retained is not None:
+            if isinstance(retained, live._RetainedPathLeases):
+                if not retained.released:
+                    retained.release()
+            elif not retained._released:
+                retained.release()
+        elif weak_lease is not None and not weak_lease._released:
+            original_release()
+
+    assert caught is not None and "rename-pinned" in str(caught)
+    assert observed_releases == 1
+
+
+@requires_live_gate
+def test_acl_identity_anchor_drift_is_rejected_before_dependent_use(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "anchor-parent"
+    anchor = parent / "acl-anchor"
+    child = anchor / "child"
+    child.mkdir(parents=True)
+
+    def fake_directory_lease(path: Path):
+        info = path.lstat()
+        attributes = 0x0010
+        return live._WindowsPathLease(
+            path=path,
+            kind="directory",
+            rename_pinned=True,
+            device_id=info.st_dev,
+            volume_serial=info.st_dev & 0xFFFFFFFF,
+            file_id=info.st_ino,
+            inspect_handle=lambda: (
+                attributes,
+                info.st_dev & 0xFFFFFFFF,
+                info.st_ino,
+                0,
+            ),
+            read_handle=None,
+            close_handle=lambda: None,
+        )
+
+    anchor_info = anchor.lstat()
+    retained = live._RetainedPathLeases()
+    retained.adopt(fake_directory_lease(parent))
+    retained.adopt(
+        live._RetainedPathIdentity(
+            path=anchor,
+            kind="directory",
+            device_id=anchor_info.st_dev,
+            file_id=anchor_info.st_ino,
+        )
+    )
+    retained.adopt(fake_directory_lease(child))
+    retained.verify()
+    displaced = parent / "displaced-anchor"
+    anchor.rename(displaced)
+    (anchor / "child").mkdir(parents=True)
+    dependent_used = False
+    try:
+        with pytest.raises(live.LiveGateError, match="identity"):
+            retained.verify()
+    finally:
+        retained.release()
+    assert dependent_used is False
+
+
+@requires_live_gate
+def test_machine_profile_acl_anchor_and_writable_descendant_modes(
+    tmp_path: Path,
+) -> None:
+    profile = Path.home()
+    if profile not in tmp_path.parents:
+        pytest.skip("temporary directory is not below the machine profile")
+    retained = live._acquire_retained_path_leases(tmp_path, "directory")
+    try:
+        profile_entry = retained.lease_for(profile)
+        writable_entry = retained.lease_for(tmp_path)
+        assert isinstance(profile_entry, live._RetainedPathIdentity)
+        assert isinstance(writable_entry, live._WindowsPathLease)
+        assert writable_entry.rename_pinned is True
+    finally:
+        retained.release()
+
+
+@requires_live_gate
+def test_overlapping_path_views_share_handles_and_close_at_last_reverse_release(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    shared = tmp_path / "shared"
+    child = shared / "child"
+    child.mkdir(parents=True)
+    original_acquire = live._acquire_windows_path_lease
+    releases: dict[Path, int] = {}
+
+    def tracked_acquire(path: Path, *args, **kwargs):
+        lease = original_acquire(path, *args, **kwargs)
+        original_release = lease.release
+        releases[Path(path)] = 0
+
+        def tracked_release() -> None:
+            releases[Path(path)] += 1
+            original_release()
+
+        lease.release = tracked_release
+        return lease
+
+    monkeypatch.setattr(live, "_acquire_windows_path_lease", tracked_acquire)
+    registry = live._RetainedLeaseRegistry()
+    first = live._acquire_retained_path_leases(
+        shared,
+        "directory",
+        registry=registry,
+    )
+    second = live._acquire_retained_path_leases(
+        child,
+        "directory",
+        registry=registry,
+    )
+    try:
+        assert releases[shared] == 0
+        second.release()
+        assert releases[child] == 1
+        assert releases[shared] == 0
+        with pytest.raises(PermissionError):
+            shared.rename(tmp_path / "shared-while-first-view-live")
+    finally:
+        if not second.released:
+            second.release()
+        first.release()
+    assert releases and set(releases.values()) == {1}
+    shared.rename(tmp_path / "shared-after-last-view")
+
+
+@requires_live_gate
+@pytest.mark.parametrize("error_type", [OSError, KeyboardInterrupt])
+def test_overlapping_partial_view_failure_decrements_only_its_references(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    error_type: type[BaseException],
+) -> None:
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    failing = shared / "failing"
+    failing.mkdir()
+    original_acquire = live._acquire_windows_path_lease
+    releases: dict[Path, int] = {}
+    injected = error_type("overlap acquisition interrupted")
+
+    def tracked_acquire(path: Path, *args, **kwargs):
+        if Path(path) == failing:
+            raise injected
+        lease = original_acquire(path, *args, **kwargs)
+        original_release = lease.release
+        releases[Path(path)] = 0
+
+        def tracked_release() -> None:
+            releases[Path(path)] += 1
+            original_release()
+
+        lease.release = tracked_release
+        return lease
+
+    monkeypatch.setattr(live, "_acquire_windows_path_lease", tracked_acquire)
+    registry = live._RetainedLeaseRegistry()
+    first = live._acquire_retained_path_leases(
+        shared,
+        "directory",
+        registry=registry,
+    )
+    try:
+        with pytest.raises(error_type) as caught:
+            live._acquire_retained_path_leases(
+                failing,
+                "directory",
+                registry=registry,
+            )
+        assert caught.value is injected
+        assert releases[shared] == 0
+        first.verify()
+    finally:
+        first.release()
+    assert releases and set(releases.values()) == {1}
+
+
+@requires_live_gate
+@pytest.mark.parametrize("failure_site", ["read_api_setup", "expected_stat"])
+@pytest.mark.parametrize("error_type", [OSError, KeyboardInterrupt])
+def test_raw_windows_handle_closes_once_when_post_create_setup_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    failure_site: str,
+    error_type: type[BaseException],
+) -> None:
+    import ctypes
+
+    target = tmp_path / "raw-handle.json"
+    target.write_bytes(b"{}")
+    expected = target.lstat()
+    injected = error_type(f"injected {failure_site} failure")
+    close_calls = 0
+
+    class FakeFunction:
+        def __init__(self, callback):
+            self.callback = callback
+            self.argtypes = None
+            self.restype = None
+
+        def __call__(self, *args):
+            return self.callback(*args)
+
+    class FakeKernel32:
+        def __init__(self):
+            self.CreateFileW = FakeFunction(lambda *_args: 7331)
+            self.GetFileInformationByHandle = FakeFunction(lambda *_args: 1)
+            self.CloseHandle = FakeFunction(self._close)
+            self.ReadFile = FakeFunction(lambda *_args: 1)
+            self._set_pointer = FakeFunction(lambda *_args: 1)
+
+        def _close(self, _handle):
+            nonlocal close_calls
+            close_calls += 1
+            return 1
+
+        @property
+        def SetFilePointerEx(self):
+            if failure_site == "read_api_setup":
+                raise injected
+            return self._set_pointer
+
+    fake_kernel = FakeKernel32()
+    monkeypatch.setattr(ctypes, "WinDLL", lambda *_args, **_kwargs: fake_kernel)
+    original_kind = live._filesystem_entry_kind
+
+    def fail_expected_stat(info):
+        if failure_site == "expected_stat" and info is expected:
+            raise injected
+        return original_kind(info)
+
+    monkeypatch.setattr(live, "_filesystem_entry_kind", fail_expected_stat)
+
+    with pytest.raises(error_type) as caught:
+        live._acquire_windows_path_lease(target, expected, "file")
+
+    assert caught.value is injected
+    assert close_calls == 1
+
+
+@requires_live_gate
+def test_child_tree_adoption_failure_releases_unadopted_lease_once(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "capture-root"
+    root.mkdir()
+    child = root / "child.json"
+    child.write_bytes(b"{}")
+    original_acquire = live._acquire_windows_path_lease
+    original_add = live._ProtectedArtifactTree.add_lease
+    acquired: list[tuple[object, list[int], object]] = []
+
+    def tracked_acquire(*args, **kwargs):
+        lease = original_acquire(*args, **kwargs)
+        calls = [0]
+        original_release = lease.release
+
+        def tracked_release() -> None:
+            calls[0] += 1
+            original_release()
+
+        lease.release = tracked_release
+        acquired.append((lease, calls, original_release))
+        return lease
+
+    def reject_child_adoption(tree, relative: str, lease) -> None:
+        if relative == "child.json":
+            raise KeyboardInterrupt("child adoption interrupted")
+        original_add(tree, relative, lease)
+
+    monkeypatch.setattr(live, "_acquire_windows_path_lease", tracked_acquire)
+    monkeypatch.setattr(live._ProtectedArtifactTree, "add_lease", reject_child_adoption)
+
+    with pytest.raises(KeyboardInterrupt, match="adoption"):
+        live._scan_artifact_tree_nonfollowing(root)
+
+    observed = [calls[0] for _lease, calls, _release in acquired]
+    for lease, calls, original_release in acquired:
+        if calls[0] == 0:
+            original_release()
+    assert observed and set(observed) == {1}
+
+
+@requires_live_gate
+def test_consumer_root_capture_failure_releases_every_retained_lease_once(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    assert live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    ).success
+    original_acquire = live._acquire_windows_path_lease
+    acquired: list[tuple[object, list[int], object]] = []
+
+    def tracked_acquire(*args, **kwargs):
+        lease = original_acquire(*args, **kwargs)
+        calls = [0]
+        original_release = lease.release
+
+        def tracked_release() -> None:
+            calls[0] += 1
+            original_release()
+
+        lease.release = tracked_release
+        acquired.append((lease, calls, original_release))
+        return lease
+
+    injected = KeyboardInterrupt("consumer root capture interrupted")
+    monkeypatch.setattr(live, "_acquire_windows_path_lease", tracked_acquire)
+    monkeypatch.setattr(
+        live,
+        "_capture_protected_artifact_tree",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(injected),
+    )
+
+    with pytest.raises(KeyboardInterrupt) as caught:
+        live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
+
+    observed = [calls[0] for _lease, calls, _release in acquired]
+    for lease, calls, original_release in acquired:
+        if calls[0] == 0:
+            original_release()
+    assert caught.value is injected
+    assert observed and set(observed) == {1}
+
+
+@requires_live_gate
+def test_producer_rejects_active_child_reparse_before_any_external_write(
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "artifacts"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    claim = live._claim_artifact_directory(artifact, RUN_ID)
+    try:
+        _directory_symlink_or_skip(artifact / "operations", outside)
+        with pytest.raises((live.LiveGateError, live.OwnershipAmbiguous)):
+            live._atomic_write_bytes(
+                artifact / "operations" / "001-rhino_ping-arguments.json",
+                b"{}",
+                root_claim=claim,
+            )
+        assert list(outside.iterdir()) == []
+    finally:
+        claim.release()
+
+
+@requires_live_gate
+@pytest.mark.parametrize(
+    "replacement_payload",
+    [b'{"attacker":true}', b"{}"],
+    ids=["different-payload", "same-payload"],
+)
+def test_atomic_write_rejects_same_kind_target_replacement_before_registration(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    replacement_payload: bytes,
+) -> None:
+    artifact = tmp_path / "artifacts"
+    claim = live._claim_artifact_directory(artifact, RUN_ID)
+    target = artifact / "operations" / "001-rhino_ping-arguments.json"
+    displaced = artifact / "displaced-arguments.json"
+    original_replace = live.os.replace
+    swapped = False
+
+    def replace_then_swap(source: Path, destination: Path) -> None:
+        nonlocal swapped
+        original_replace(source, destination)
+        if Path(destination) == target and not swapped:
+            target.rename(displaced)
+            target.write_bytes(replacement_payload)
+            swapped = True
+
+    monkeypatch.setattr(live.os, "replace", replace_then_swap)
+    result = live._new_result("rhino", RUN_ID, live._utc_now())
+    failure = None
+    completed = False
+    try:
+        try:
+            captured = live._atomic_write_bytes(target, b"{}", root_claim=claim)
+            live._register_artifact(
+                result,
+                captured,
+                artifact,
+                "operation_arguments",
+            )
+            completed = True
+        except (live.LiveGateError, live.OwnershipAmbiguous) as exc:
+            failure = exc
+        assert swapped is True
+    finally:
+        claim.release()
+    assert failure is not None
+    assert completed is False
+    assert result.artifacts == []
+
+
+@requires_live_gate
+@pytest.mark.parametrize("failure_site", ["directory", "file"])
+def test_producer_path_capture_preserves_nonexception_baseexception(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    failure_site: str,
+) -> None:
+    artifact = tmp_path / "artifacts"
+    claim = live._claim_artifact_directory(artifact, RUN_ID)
+    target = artifact / ("operations" if failure_site == "directory" else "owned.json")
+    injected = _FinalPairBaseInterrupt(f"{failure_site} capture interrupted")
+    if failure_site == "directory":
+        target.mkdir()
+        original = live._acquire_windows_directory_lease
+
+        def interrupt(path: Path, *args, **kwargs):
+            if Path(path) == target:
+                raise injected
+            return original(path, *args, **kwargs)
+
+        monkeypatch.setattr(live, "_acquire_windows_directory_lease", interrupt)
+    else:
+        target.write_bytes(b"{}")
+        original = live._acquire_windows_path_lease
+
+        def interrupt(path: Path, *args, **kwargs):
+            if Path(path) == target:
+                raise injected
+            return original(path, *args, **kwargs)
+
+        monkeypatch.setattr(live, "_acquire_windows_path_lease", interrupt)
+
+    try:
+        with pytest.raises(_FinalPairBaseInterrupt) as caught:
+            if failure_site == "directory":
+                claim.ensure_directory(target)
+            else:
+                claim.capture_file(target)
+    finally:
+        claim.release()
+
+    assert caught.value is injected
+
+
+@requires_live_gate
+@pytest.mark.parametrize("error_type", [OSError, _FinalPairBaseInterrupt])
+def test_atomic_write_fdopen_failure_closes_raw_descriptor_once(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    error_type: type[BaseException],
+) -> None:
+    artifact = tmp_path / "artifacts"
+    claim = live._claim_artifact_directory(artifact, RUN_ID)
+    target = artifact / "operations" / "owned.json"
+    original_mkstemp = live.tempfile.mkstemp
+    original_close = live.os.close
+    descriptors: list[int] = []
+    close_calls = 0
+    injected = error_type("fdopen ownership transfer interrupted")
+
+    def tracked_mkstemp(*args, **kwargs):
+        descriptor, path = original_mkstemp(*args, **kwargs)
+        descriptors.append(descriptor)
+        return descriptor, path
+
+    def tracked_close(descriptor: int) -> None:
+        nonlocal close_calls
+        close_calls += 1
+        original_close(descriptor)
+
+    monkeypatch.setattr(live.tempfile, "mkstemp", tracked_mkstemp)
+    monkeypatch.setattr(live.os, "close", tracked_close)
+    monkeypatch.setattr(
+        live.os,
+        "fdopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(injected),
+    )
+
+    try:
+        with pytest.raises(error_type) as caught:
+            live._atomic_write_bytes(target, b"{}", root_claim=claim)
+        observed_close_calls = close_calls
+    finally:
+        for descriptor in descriptors:
+            try:
+                original_close(descriptor)
+            except OSError:
+                pass
+        claim.release()
+
+    assert caught.value is injected
+    assert descriptors
+    assert observed_close_calls == 1
+
+
+@requires_live_gate
+def test_producer_never_rereads_owned_artifacts_by_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    original_read_bytes = Path.read_bytes
+
+    def reject_owned_path_read(path: Path) -> bytes:
+        if path == harness.artifact or harness.artifact in path.parents:
+            raise AssertionError(f"producer reread owned artifact by path: {path}")
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", reject_owned_path_read)
+
+    result = live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    )
+
+    assert result.success is True
+
+
+@requires_live_gate
+def test_producer_holds_parent_ancestor_chain_before_missing_leaf_creation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    ancestor = tmp_path / "claim-ancestor"
+    parent = ancestor / "claim-parent"
+    parent.mkdir(parents=True)
+    artifact = parent / "artifacts"
+    displaced = tmp_path / "displaced-claim-ancestor"
+    redirected = tmp_path / "redirected-claim-ancestor"
+    (redirected / "claim-parent").mkdir(parents=True)
+    original_mkdir = Path.mkdir
+    blocked = False
+    swapped = False
+
+    def race_before_leaf_creation(path: Path, *args, **kwargs) -> None:
+        nonlocal blocked, swapped
+        if path == artifact and not blocked and not swapped:
+            try:
+                ancestor.rename(displaced)
+            except PermissionError:
+                blocked = True
+            else:
+                _directory_symlink_or_skip(ancestor, redirected)
+                swapped = True
+        return original_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", race_before_leaf_creation)
+
+    claim = live._claim_artifact_directory(artifact, RUN_ID)
+    try:
+        assert blocked is True
+        assert swapped is False
+        assert claim.path == artifact
+    finally:
+        claim.release()
+
+
+@requires_live_gate
+def test_rhino_executable_ancestor_chain_is_held_through_process_creation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    install = tmp_path / "install"
+    system = install / "System"
+    system.mkdir(parents=True)
+    rhino_exe = system / "Rhino.exe"
+    rhino_exe.write_bytes(b"fake-rhino")
+    redirected = tmp_path / "redirected-install"
+    (redirected / "System").mkdir(parents=True)
+    (redirected / "System" / "Rhino.exe").write_bytes(b"external-rhino")
+    displaced = tmp_path / "displaced-install"
+    original_start = live._start_owned_rhino
+    blocked = False
+    swapped = False
+
+    def race_at_process_creation(*, rhino_exe: Path, launch):
+        nonlocal blocked, swapped
+        try:
+            install.rename(displaced)
+        except PermissionError:
+            blocked = True
+        else:
+            _directory_symlink_or_skip(install, redirected)
+            swapped = True
+        return original_start(rhino_exe=rhino_exe, launch=launch)
+
+    monkeypatch.setattr(live, "_start_owned_rhino", race_at_process_creation)
+
+    result = live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=rhino_exe,
+        artifact_dir=harness.artifact,
+    )
+
+    assert result.success is True
+    assert blocked is True
+    assert swapped is False
+    install.rename(tmp_path / "install-after-release")
+
+
+@requires_live_gate
+def test_consumer_holds_ancestor_chain_before_root_handle_acquisition(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    container = tmp_path / "consumer-container"
+    container.mkdir()
+    harness = _install_fake_scenario(monkeypatch, container, scenario="rhino")
+    assert live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    ).success
+    redirected = tmp_path / "redirected-consumer-container"
+    shutil.copytree(container, redirected)
+    displaced = tmp_path / "displaced-consumer-container"
+    original_acquire = live._acquire_windows_path_lease
+    blocked = False
+    swapped = False
+
+    def race_before_root_acquire(path: Path, expected, kind):
+        nonlocal blocked, swapped
+        if Path(path) == harness.artifact and not blocked and not swapped:
+            try:
+                container.rename(displaced)
+            except PermissionError:
+                blocked = True
+            else:
+                _directory_symlink_or_skip(container, redirected)
+                swapped = True
+        return original_acquire(path, expected, kind)
+
+    monkeypatch.setattr(live, "_acquire_windows_path_lease", race_before_root_acquire)
+
+    evidence = live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
+
+    assert evidence["success"] is True
+    assert blocked is True
+    assert swapped is False
 
 
 @requires_live_gate
@@ -721,11 +1564,14 @@ def test_artifact_claim_failure_removes_partial_marker_and_only_created_director
     if preexisting:
         artifact.mkdir()
     original_close = live.os.close
+    close_calls = 0
 
     def fail(*_args, **_kwargs):
         raise error_type(f"claim {failure_site} interrupted")
 
     def close_then_fail(descriptor: int) -> None:
+        nonlocal close_calls
+        close_calls += 1
         original_close(descriptor)
         fail()
 
@@ -738,6 +1584,8 @@ def test_artifact_claim_failure_removes_partial_marker_and_only_created_director
         with pytest.raises(error_type, match=failure_site):
             live._claim_artifact_directory(artifact, RUN_ID)
 
+    if failure_site == "close":
+        assert close_calls == 1
     assert not (artifact / live.OWNERSHIP_MARKER).exists()
     if preexisting:
         assert artifact.is_dir()
@@ -747,7 +1595,49 @@ def test_artifact_claim_failure_removes_partial_marker_and_only_created_director
 
 
 @requires_live_gate
-@pytest.mark.parametrize("failure_site", ["registration", "read", "hash"])
+def test_ownership_marker_capture_rejects_same_payload_replacement(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "artifacts"
+    marker = artifact / live.OWNERSHIP_MARKER
+    displaced = tmp_path / "displaced-marker"
+    payload = live._canonical_json_bytes(
+        {
+            "process_id": os.getpid(),
+            "run_id": RUN_ID,
+            "schema_version": live.SCHEMA_VERSION,
+        }
+    )
+    original_close = live.os.close
+    swapped = False
+
+    def close_then_swap(descriptor: int) -> None:
+        nonlocal swapped
+        original_close(descriptor)
+        if not swapped:
+            marker.rename(displaced)
+            marker.write_bytes(payload)
+            swapped = True
+
+    monkeypatch.setattr(live.os, "close", close_then_swap)
+    claim = None
+    failure = None
+    try:
+        try:
+            claim = live._claim_artifact_directory(artifact, RUN_ID)
+        except (live.LiveGateError, live.OwnershipAmbiguous) as exc:
+            failure = exc
+    finally:
+        if claim is not None:
+            claim.release()
+
+    assert swapped is True
+    assert failure is not None
+
+
+@requires_live_gate
+@pytest.mark.parametrize("failure_site", ["registration", "hash"])
 def test_post_claim_marker_failure_emits_canonical_failure_without_launch(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -757,7 +1647,6 @@ def test_post_claim_marker_failure_emits_canonical_failure_without_launch(
     harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
     failed = False
     original_register = live._register_artifact
-    original_read = Path.read_bytes
     original_hash = live._sha256_bytes
 
     if failure_site == "registration":
@@ -769,15 +1658,6 @@ def test_post_claim_marker_failure_emits_canonical_failure_without_launch(
             return original_register(result, path, root, kind)
 
         monkeypatch.setattr(live, "_register_artifact", fail_once_register)
-    elif failure_site == "read":
-        def fail_once_read(path: Path):
-            nonlocal failed
-            if path.name == live.OWNERSHIP_MARKER and not failed:
-                failed = True
-                raise OSError("one-shot marker read failure")
-            return original_read(path)
-
-        monkeypatch.setattr(Path, "read_bytes", fail_once_read)
     else:
         def fail_once_hash(payload: bytes):
             nonlocal failed
@@ -1606,7 +2486,9 @@ def _install_fake_scenario(
         assert store.get_containment_denials_snapshot()
         trace.append("launch")
         if discovery_mode != "stale_unchanged":
-            record_path.write_bytes(record_bytes)
+            replacement = record_path.with_suffix(".json.tmp")
+            replacement.write_bytes(record_bytes)
+            os.replace(replacement, record_path)
             if discovery_mode == "changed_but_old":
                 os.utime(record_path, (0.0, 0.0))
         return SimpleNamespace(process=process, pid=process.pid, started_wall=100.0)
@@ -1882,6 +2764,168 @@ def test_owned_discovery_record_must_be_new_or_changed_and_launch_fresh(
     assert result.success is False
     assert result.failure_label == "readiness_failed"
     assert harness.accepted_record_bytes == []
+
+
+@requires_live_gate
+def test_discovery_rejects_same_identity_after_same_byte_fresh_touch(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "instance-7001-native.json"
+    raw = {"pid": 7001, "port": 17001}
+    payload = live._canonical_json_bytes(raw)
+    path.write_bytes(payload)
+    before = live._capture_discovery_record(path)
+    os.utime(path, None)
+    record = SimpleNamespace(pid=7001, port=17001, path=path, raw=raw)
+    started = SimpleNamespace(
+        pid=7001,
+        started_wall=path.stat().st_mtime_ns / 1_000_000_000,
+    )
+
+    with pytest.raises(live.LiveGateError, match="prelaunch|identity|unchanged"):
+        live._accept_fresh_owned_discovery_record(
+            started=started,
+            record=record,
+            prelaunch={path: before},
+        )
+
+
+@requires_live_gate
+def test_discovery_rejects_prelaunch_identity_renamed_to_accepted_pid_path(
+    tmp_path: Path,
+) -> None:
+    old_path = tmp_path / "instance-7000-native.json"
+    accepted_path = tmp_path / "instance-7001-native.json"
+    raw = {"pid": 7001, "port": 17001}
+    old_path.write_bytes(live._canonical_json_bytes(raw))
+    before = live._capture_discovery_record(old_path)
+    old_path.rename(accepted_path)
+    os.utime(accepted_path, None)
+    record = SimpleNamespace(pid=7001, port=17001, path=accepted_path, raw=raw)
+    started = SimpleNamespace(
+        pid=7001,
+        started_wall=accepted_path.stat().st_mtime_ns / 1_000_000_000,
+    )
+
+    with pytest.raises(live.LiveGateError, match="prelaunch|identity|unchanged"):
+        live._accept_fresh_owned_discovery_record(
+            started=started,
+            record=record,
+            prelaunch={old_path: before},
+        )
+
+
+@requires_live_gate
+def test_discovery_rejects_nonmatching_prelaunch_identity_renamed_to_accepted_path(
+    tmp_path: Path,
+) -> None:
+    stale_path = tmp_path / "stale-native-publication.tmp"
+    accepted_path = tmp_path / "instance-7001-native.json"
+    raw = {"pid": 7001, "port": 17001}
+    stale_path.write_bytes(live._canonical_json_bytes(raw))
+    prelaunch = live._snapshot_prelaunch_discovery_records(
+        SimpleNamespace(discovery_dir=tmp_path)
+    )
+    stale_path.rename(accepted_path)
+    os.utime(accepted_path, None)
+    record = SimpleNamespace(pid=7001, port=17001, path=accepted_path, raw=raw)
+    started = SimpleNamespace(
+        pid=7001,
+        started_wall=accepted_path.stat().st_mtime_ns / 1_000_000_000,
+    )
+
+    assert stale_path in prelaunch
+    with pytest.raises(live.LiveGateError, match="prelaunch|identity|unchanged"):
+        live._accept_fresh_owned_discovery_record(
+            started=started,
+            record=record,
+            prelaunch=prelaunch,
+        )
+
+
+@requires_live_gate
+def test_discovery_binds_direntry_identity_through_prelaunch_capture(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    discovery_dir = tmp_path / "discovery"
+    discovery_dir.mkdir()
+    stale_path = discovery_dir / "a-stale.tmp"
+    accepted_path = discovery_dir / "instance-7001-native.json"
+    replacement = tmp_path / "replacement.tmp"
+    stale_raw = {"pid": 7001, "port": 17001}
+    stale_path.write_bytes(live._canonical_json_bytes(stale_raw))
+    replacement.write_bytes(b'{"replacement":true}')
+    original_capture = live._capture_discovery_record
+    swapped = False
+
+    def swap_after_entry_inspection(path: Path, *args, **kwargs):
+        nonlocal swapped
+        if Path(path) == stale_path and not swapped:
+            stale_path.rename(accepted_path)
+            replacement.rename(stale_path)
+            swapped = True
+        return original_capture(path, *args, **kwargs)
+
+    monkeypatch.setattr(
+        live,
+        "_capture_discovery_record",
+        swap_after_entry_inspection,
+    )
+    record = SimpleNamespace(
+        pid=7001,
+        port=17001,
+        path=accepted_path,
+        raw=stale_raw,
+    )
+
+    with pytest.raises(live.LiveGateError, match="identity|changed|prelaunch"):
+        prelaunch = live._snapshot_prelaunch_discovery_records(
+            SimpleNamespace(discovery_dir=discovery_dir)
+        )
+        os.utime(accepted_path, None)
+        live._accept_fresh_owned_discovery_record(
+            started=SimpleNamespace(
+                pid=7001,
+                started_wall=accepted_path.stat().st_mtime_ns / 1_000_000_000,
+            ),
+            record=record,
+            prelaunch=prelaunch,
+        )
+
+    assert swapped is True
+
+
+@requires_live_gate
+def test_discovery_accepts_same_bytes_from_fresh_atomic_replacement(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "instance-7001-native.json"
+    temp = tmp_path / "instance-7001-native.json.tmp"
+    raw = {"pid": 7001, "port": 17001}
+    payload = live._canonical_json_bytes(raw)
+    path.write_bytes(payload)
+    before = live._capture_discovery_record(path)
+    temp.write_bytes(payload)
+    os.replace(temp, path)
+    os.utime(path, None)
+    record = SimpleNamespace(pid=7001, port=17001, path=path, raw=raw)
+    started = SimpleNamespace(
+        pid=7001,
+        started_wall=path.stat().st_mtime_ns / 1_000_000_000,
+    )
+
+    accepted = live._accept_fresh_owned_discovery_record(
+        started=started,
+        record=record,
+        prelaunch={path: before},
+    )
+
+    assert accepted.payload == payload
+    assert (accepted.device_id, accepted.file_id) != (
+        before.device_id,
+        before.file_id,
+    )
 
 
 @requires_live_gate
@@ -2762,11 +3806,16 @@ def test_cleanup_exception_uses_force_only_as_failed_diagnostic_cleanup(
 def test_rhino_restoration_refuses_unvalidated_object_id_without_deletion(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    owned_claim_factory,
 ) -> None:
     harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
     unexpected_id = "55555555-5555-4555-8555-555555555555"
-    harness.artifact.mkdir(parents=True)
-    harness.scratch.write_bytes(b"fake-3dm")
+    root_claim = owned_claim_factory(harness.artifact)
+    live._atomic_write_bytes(
+        harness.scratch,
+        b"fake-3dm",
+        root_claim=root_claim,
+    )
     harness.adapter.saved = True
     harness.adapter.modified = True
     harness.adapter.objects = {
@@ -2804,6 +3853,7 @@ def test_rhino_restoration_refuses_unvalidated_object_id_without_deletion(
         adapter=harness.adapter,
         scratch_path=harness.scratch,
         created_rhino_ids=[SPHERE_ID],
+        root_claim=root_claim,
     )
 
     with pytest.raises(live.OwnershipAmbiguous, match="object"):
@@ -2813,9 +3863,13 @@ def test_rhino_restoration_refuses_unvalidated_object_id_without_deletion(
     assert set(harness.adapter.objects) == {SPHERE_ID, unexpected_id}
 
 
-def _direct_rhino_restoration_state(harness: Any):
-    harness.artifact.mkdir(parents=True)
-    harness.scratch.write_bytes(b"fake-3dm")
+def _direct_rhino_restoration_state(harness: Any, owned_claim_factory):
+    root_claim = owned_claim_factory(harness.artifact)
+    live._atomic_write_bytes(
+        harness.scratch,
+        b"fake-3dm",
+        root_claim=root_claim,
+    )
     harness.adapter.saved = True
     harness.adapter.modified = True
     harness.adapter.objects = {
@@ -2864,6 +3918,7 @@ def _direct_rhino_restoration_state(harness: Any):
         adapter=harness.adapter,
         scratch_path=harness.scratch,
         created_rhino_ids=[SPHERE_ID, POINT_ID],
+        root_claim=root_claim,
     )
 
 
@@ -2873,9 +3928,10 @@ def test_rhino_restoration_revalidates_exact_scratch_identity_before_each_mutati
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     drift_phase: str,
+    owned_claim_factory,
 ) -> None:
     harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
-    state = _direct_rhino_restoration_state(harness)
+    state = _direct_rhino_restoration_state(harness, owned_claim_factory)
     original = harness.adapter.call
 
     if drift_phase == "before_delete":
@@ -2911,8 +3967,8 @@ def test_rhino_restoration_revalidates_exact_scratch_identity_before_each_mutati
     )
 
 
-def _direct_grasshopper_restoration_state(harness: Any):
-    harness.artifact.mkdir(parents=True)
+def _direct_grasshopper_restoration_state(harness: Any, owned_claim_factory):
+    root_claim = owned_claim_factory(harness.artifact)
     harness.adapter.bootstrapped = True
     harness.adapter.opened = True
     harness.adapter.edited = False
@@ -2953,6 +4009,7 @@ def _direct_grasshopper_restoration_state(harness: Any):
         adapter=harness.adapter,
         scratch_path=harness.scratch,
         gh_edit_may_have_applied=True,
+        root_claim=root_claim,
     )
     return state
 
@@ -2963,9 +4020,10 @@ def test_grasshopper_restoration_observes_once_when_edit_not_known_applied(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     observed_empty: bool,
+    owned_claim_factory,
 ) -> None:
     harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
-    state = _direct_grasshopper_restoration_state(harness)
+    state = _direct_grasshopper_restoration_state(harness, owned_claim_factory)
     state.gh_edit_may_have_applied = False
     harness.adapter.edited = not observed_empty
 
@@ -3000,9 +4058,10 @@ def test_grasshopper_restoration_rejects_boolean_integer_fields_before_undo(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     integer_field: str,
+    owned_claim_factory,
 ) -> None:
     harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
-    state = _direct_grasshopper_restoration_state(harness)
+    state = _direct_grasshopper_restoration_state(harness, owned_claim_factory)
     original = harness.adapter.call
 
     async def boolean_integer_observation(name, arguments):
@@ -3053,9 +4112,10 @@ def test_grasshopper_restoration_revalidates_target_and_owned_state_before_undo(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     drift_case: str,
+    owned_claim_factory,
 ) -> None:
     harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
-    state = _direct_grasshopper_restoration_state(harness)
+    state = _direct_grasshopper_restoration_state(harness, owned_claim_factory)
     original = harness.adapter.call
     if drift_case == "different_canvas_token":
         state.result.pre_state["scratch_projection"]["gate_canvas_token"] = "f" * 64
@@ -3112,9 +4172,10 @@ def test_grasshopper_restoration_allows_exact_code_owned_partial_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     owned_subset: str,
+    owned_claim_factory,
 ) -> None:
     harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
-    state = _direct_grasshopper_restoration_state(harness)
+    state = _direct_grasshopper_restoration_state(harness, owned_claim_factory)
     original_snapshot = harness.adapter._snapshot
     original_status = harness.adapter._status
 
@@ -3328,10 +4389,10 @@ def test_post_dispatch_gh_edit_result_write_failure_inspects_and_undoes(
     harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
     original_write = live._atomic_write_bytes
 
-    def fail_edit_result(path: Path, payload: bytes, **kwargs) -> None:
+    def fail_edit_result(path: Path, payload: bytes, **kwargs):
         if path.name.endswith("-gh_edit-result.json"):
             raise OSError("result evidence disk failure")
-        original_write(path, payload, **kwargs)
+        return original_write(path, payload, **kwargs)
 
     monkeypatch.setattr(live, "_atomic_write_bytes", fail_edit_result)
     result = live.run_live_scenario(
@@ -3461,6 +4522,7 @@ def test_ownership_ambiguous_preserves_and_enumerates_grasshopper_scratch(
 def test_consumer_rejects_missing_tampered_noncanonical_and_escaping_artifacts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    owned_claim_factory,
 ) -> None:
     harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
     assert live.run_live_scenario(scenario="rhino", rhino_exe=harness.rhino_exe, artifact_dir=harness.artifact).success
@@ -3479,7 +4541,13 @@ def test_consumer_rejects_missing_tampered_noncanonical_and_escaping_artifacts(
     operation_path.write_bytes(original)
 
     evidence["operations"][0]["arguments_path"] = "../escape.json"
-    live._write_final_evidence_pair(harness.artifact, "rhino", evidence)
+    root_claim = owned_claim_factory.reclaim(harness.artifact)
+    live._write_final_evidence_pair(
+        harness.artifact,
+        "rhino",
+        evidence,
+        root_claim=root_claim,
+    )
     with pytest.raises(live.LiveGateError, match="path"):
         live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
 
@@ -3688,9 +4756,9 @@ def test_consumer_rejects_child_swap_immediately_after_entry_snapshot_without_tr
             traversed = True
         return original_scandir(path)
 
-    def race_after_entry_snapshot(entry, candidate: Path):
+    def race_after_entry_snapshot(entry, candidate: Path, *args):
         nonlocal swapped
-        snapshot = original_inspect(entry, candidate)
+        snapshot = original_inspect(entry, candidate, *args)
         if Path(candidate) == operations and not swapped:
             operations.rename(displaced)
             _directory_symlink_or_skip(operations, redirected)
@@ -3715,6 +4783,80 @@ def test_consumer_rejects_child_swap_immediately_after_entry_snapshot_without_tr
     assert swapped is True, f"race hook did not fire: {caught.value}"
     assert traversed is False, "consumer traversed the swapped child target"
     assert operation_path_reads == [], "consumer read child paths before protected capture"
+
+
+@requires_live_gate
+def test_consumer_entry_snapshot_binds_device_and_file_identity_before_open() -> None:
+    entry_info = SimpleNamespace(
+        st_mode=stat.S_IFREG | 0o600,
+        st_file_attributes=0,
+        st_dev=101,
+        st_ino=909,
+    )
+    replacement_info = SimpleNamespace(
+        st_mode=stat.S_IFREG | 0o600,
+        st_file_attributes=0,
+        st_dev=202,
+        st_ino=909,
+    )
+    entry = SimpleNamespace(
+        stat=lambda *, follow_symlinks: entry_info,
+        inode=lambda: entry_info.st_ino,
+    )
+    candidate = SimpleNamespace(lstat=lambda: replacement_info)
+
+    with pytest.raises(live.LiveGateError, match="identity"):
+        live._inspect_directory_entry(entry, candidate)
+
+
+@requires_live_gate
+@pytest.mark.parametrize("kind", ["file", "directory"])
+def test_consumer_rejects_same_kind_swap_at_fresh_lstat_gap_before_access(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    kind: str,
+) -> None:
+    root = tmp_path / "snapshot-root"
+    root.mkdir()
+    candidate = root / "candidate"
+    replacement = root / "replacement"
+    displaced = root / "displaced"
+    if kind == "file":
+        candidate.write_bytes(b"owned")
+        replacement.write_bytes(b"replacement")
+    else:
+        candidate.mkdir()
+        replacement.mkdir()
+        (replacement / "external.json").write_bytes(b"external")
+    with os.scandir(root) as iterator:
+        entry = next(item for item in iterator if item.name == "candidate")
+    original_lstat = Path.lstat
+    original_acquire = live._acquire_windows_path_lease
+    swapped = False
+    opened_replacement = False
+
+    def swap_before_fresh_lstat(path: Path):
+        nonlocal swapped
+        if path == candidate and not swapped:
+            candidate.rename(displaced)
+            replacement.rename(candidate)
+            swapped = True
+        return original_lstat(path)
+
+    def track_open(path: Path, expected, expected_kind):
+        nonlocal opened_replacement
+        if Path(path) == candidate and swapped:
+            opened_replacement = True
+        return original_acquire(path, expected, expected_kind)
+
+    monkeypatch.setattr(Path, "lstat", swap_before_fresh_lstat)
+    monkeypatch.setattr(live, "_acquire_windows_path_lease", track_open)
+
+    with pytest.raises(live.LiveGateError, match="identity"):
+        live._inspect_directory_entry(entry, candidate)
+
+    assert swapped is True
+    assert opened_replacement is False
 
 
 @requires_live_gate
@@ -4215,14 +5357,14 @@ def test_diagnostic_persistence_failure_cleans_owned_host_and_suppresses_final_r
             raise RuntimeError("post-mutation verification failure")
         return await original_call(name, arguments)
 
-    def fail_diagnostic_write(path: Path, payload: bytes, **kwargs) -> None:
+    def fail_diagnostic_write(path: Path, payload: bytes, **kwargs):
         is_diagnostic = path.parent.name == "diagnostics"
         if is_diagnostic and (
             (failure_site == "payload" and path.suffix == ".json")
             or (failure_site == "sidecar" and path.name.endswith(".json.sha256"))
         ):
             raise injected
-        original_write(path, payload, **kwargs)
+        return original_write(path, payload, **kwargs)
 
     def fail_diagnostic_registration(result, path, root, kind):
         if failure_site == "registration" and kind == "diagnostic":
@@ -4294,17 +5436,26 @@ def test_final_evidence_pair_cleans_both_paths_and_preserves_interrupts(
     tmp_path: Path,
     failure_site: str,
     error_type: type[BaseException],
+    owned_claim_factory,
 ) -> None:
     artifact = tmp_path / "artifacts"
-    artifact.mkdir()
+    root_claim = owned_claim_factory(artifact)
     evidence_path = artifact / "rhino-scenario.json"
     sidecar = artifact / "rhino-scenario.sha256"
-    evidence_path.write_bytes(b"stale-evidence")
-    sidecar.write_bytes(b"stale-sidecar")
+    live._atomic_write_bytes(
+        evidence_path,
+        b"stale-evidence",
+        root_claim=root_claim,
+    )
+    live._atomic_write_bytes(
+        sidecar,
+        b"stale-sidecar",
+        root_claim=root_claim,
+    )
     original = live._atomic_write_bytes
     injected = error_type(f"final {failure_site} write interrupted")
 
-    def fail_selected(path: Path, payload: bytes, **kwargs) -> None:
+    def fail_selected(path: Path, payload: bytes, **kwargs):
         if (
             failure_site == "evidence"
             and path == evidence_path
@@ -4312,18 +5463,24 @@ def test_final_evidence_pair_cleans_both_paths_and_preserves_interrupts(
             and path == sidecar
         ):
             raise injected
-        original(path, payload, **kwargs)
+        return original(path, payload, **kwargs)
 
     monkeypatch.setattr(live, "_atomic_write_bytes", fail_selected)
     if isinstance(injected, Exception):
         with pytest.raises(live.FinalEvidenceWriteError):
             live._write_final_evidence_pair(
-                artifact, "rhino", {"schema_version": live.SCHEMA_VERSION}
+                artifact,
+                "rhino",
+                {"schema_version": live.SCHEMA_VERSION},
+                root_claim=root_claim,
             )
     else:
         with pytest.raises(error_type) as caught:
             live._write_final_evidence_pair(
-                artifact, "rhino", {"schema_version": live.SCHEMA_VERSION}
+                artifact,
+                "rhino",
+                {"schema_version": live.SCHEMA_VERSION},
+                root_claim=root_claim,
             )
         assert caught.value is injected
 
