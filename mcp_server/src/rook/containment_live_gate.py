@@ -208,6 +208,7 @@ class _RunState:
     gh_edit_may_have_applied: bool = False
     gh_undo_attempts: int = 0
     cleanup_live_at_entry: bool | None = None
+    diagnostic_persistence_error: BaseException | None = None
 
 
 def _utc_now() -> str:
@@ -279,13 +280,155 @@ def _bounded_detail(exc: BaseException) -> str:
     return text if len(text) <= 1000 else text[:997] + "..."
 
 
+def _stat_is_reparse(info: Any) -> bool:
+    attributes = getattr(info, "st_file_attributes", 0)
+    return stat.S_ISLNK(info.st_mode) or bool(
+        attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    )
+
+
+def _filesystem_entry_kind(info: Any) -> Literal["file", "directory"]:
+    if _stat_is_reparse(info):
+        raise LiveGateError("artifact path is reparse-backed")
+    if stat.S_ISREG(info.st_mode):
+        return "file"
+    if stat.S_ISDIR(info.st_mode):
+        return "directory"
+    raise LiveGateError("artifact directory contains a non-regular entry")
+
+
 def _is_reparse(path: Path) -> bool:
     try:
         info = path.lstat()
     except OSError:
         return False
-    attributes = getattr(info, "st_file_attributes", 0)
-    return path.is_symlink() or bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+    return _stat_is_reparse(info)
+
+
+def _has_reparse_component(path: Path) -> bool:
+    raw = Path(path)
+    for candidate in reversed((raw, *raw.parents)):
+        try:
+            info = candidate.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return True
+        if _stat_is_reparse(info):
+            return True
+    return False
+
+
+def _read_regular_file(path: Path) -> bytes:
+    try:
+        info = Path(path).lstat()
+    except OSError as exc:
+        raise LiveGateError("artifact inventory file is missing") from exc
+    if _filesystem_entry_kind(info) != "file":
+        raise LiveGateError("artifact inventory entry is not a regular file")
+    try:
+        return Path(path).read_bytes()
+    except OSError as exc:
+        raise LiveGateError("artifact inventory file could not be read") from exc
+
+
+def _acquire_windows_directory_lease(path: Path, expected: os.stat_result) -> Any:
+    if os.name != "nt":
+        raise LiveGateError("protected artifact directory inventory is unavailable")
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except Exception as exc:
+        raise LiveGateError("protected artifact directory inventory is unavailable") from exc
+
+    class _ByHandleFileInformation(ctypes.Structure):
+        _fields_ = [
+            ("file_attributes", wintypes.DWORD),
+            ("creation_time", wintypes.FILETIME),
+            ("last_access_time", wintypes.FILETIME),
+            ("last_write_time", wintypes.FILETIME),
+            ("volume_serial_number", wintypes.DWORD),
+            ("file_size_high", wintypes.DWORD),
+            ("file_size_low", wintypes.DWORD),
+            ("number_of_links", wintypes.DWORD),
+            ("file_index_high", wintypes.DWORD),
+            ("file_index_low", wintypes.DWORD),
+        ]
+
+    try:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        create_file = kernel32.CreateFileW
+        create_file.argtypes = [
+            wintypes.LPCWSTR,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.HANDLE,
+        ]
+        create_file.restype = wintypes.HANDLE
+        get_information = kernel32.GetFileInformationByHandle
+        get_information.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(_ByHandleFileInformation),
+        ]
+        get_information.restype = wintypes.BOOL
+        close_handle = kernel32.CloseHandle
+        close_handle.argtypes = [wintypes.HANDLE]
+        close_handle.restype = wintypes.BOOL
+    except Exception as exc:
+        raise LiveGateError("protected artifact directory inventory is unavailable") from exc
+
+    file_read_attributes = 0x0080
+    delete_access = 0x00010000
+    file_share_read = 0x0001
+    file_share_write = 0x0002
+    open_existing = 3
+    file_flag_backup_semantics = 0x02000000
+    file_flag_open_reparse_point = 0x00200000
+    invalid_handle_value = ctypes.c_void_p(-1).value
+    handle = create_file(
+        str(path),
+        file_read_attributes | delete_access,
+        file_share_read | file_share_write,
+        None,
+        open_existing,
+        file_flag_backup_semantics | file_flag_open_reparse_point,
+        None,
+    )
+    if handle == invalid_handle_value:
+        error_code = ctypes.get_last_error()
+        raise OSError(error_code, ctypes.FormatError(error_code))
+
+    try:
+        information = _ByHandleFileInformation()
+        if not get_information(handle, ctypes.byref(information)):
+            error_code = ctypes.get_last_error()
+            raise OSError(error_code, ctypes.FormatError(error_code))
+        attributes = information.file_attributes
+        if attributes & 0x0400 or not attributes & 0x0010:
+            raise LiveGateError("artifact directory path is reparse-backed")
+        file_id = information.file_index_high << 32 | information.file_index_low
+        expected_id = getattr(expected, "st_ino", 0)
+        if type(expected_id) is not int or expected_id <= 0 or file_id != expected_id:
+            raise LiveGateError("artifact directory identity changed before inventory")
+        current = Path(path).lstat()
+        if (
+            _filesystem_entry_kind(current) != "directory"
+            or getattr(current, "st_ino", 0) != file_id
+        ):
+            raise LiveGateError("artifact directory identity changed before inventory")
+    except BaseException:
+        close_handle(handle)
+        raise
+
+    def release() -> None:
+        if not close_handle(handle):
+            error_code = ctypes.get_last_error()
+            raise OSError(error_code, ctypes.FormatError(error_code))
+
+    return release
 
 
 def _claim_artifact_directory(path: Path, run_id: str) -> Path:
@@ -293,11 +436,14 @@ def _claim_artifact_directory(path: Path, run_id: str) -> Path:
     if not raw.is_absolute():
         raise PreOwnershipBlocked("artifact directory must be absolute")
     parent = raw.parent
-    if not parent.is_dir() or _is_reparse(parent):
+    if _has_reparse_component(raw):
+        raise PreOwnershipBlocked("artifact directory path is reparse-backed")
+    if not parent.is_dir():
         raise PreOwnershipBlocked("artifact directory parent is missing or reparse-backed")
-    if raw.exists() and (_is_reparse(raw) or not raw.is_dir()):
+    if raw.exists() and not raw.is_dir():
         raise PreOwnershipBlocked("artifact directory is not a plain directory")
     created = False
+    marker_created = False
     if not raw.exists():
         try:
             raw.mkdir()
@@ -305,6 +451,8 @@ def _claim_artifact_directory(path: Path, run_id: str) -> Path:
         except OSError as exc:
             raise PreOwnershipBlocked("artifact directory could not be created") from exc
     try:
+        if _has_reparse_component(raw) or not raw.is_dir():
+            raise PreOwnershipBlocked("artifact directory path is reparse-backed")
         if any(raw.iterdir()):
             raise PreOwnershipBlocked("artifact directory must be new and empty")
         marker = raw / OWNERSHIP_MARKER
@@ -313,21 +461,42 @@ def _claim_artifact_directory(path: Path, run_id: str) -> Path:
         )
         try:
             descriptor = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            marker_created = True
         except OSError as exc:
             raise PreOwnershipBlocked("artifact directory ownership claim failed") from exc
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        if set(raw.iterdir()) != {marker}:
+        pending: BaseException | None = None
+        try:
+            offset = 0
+            while offset < len(payload):
+                written = os.write(descriptor, payload[offset:])
+                if type(written) is not int or written <= 0:
+                    raise OSError("artifact ownership marker write made no progress")
+                offset += written
+            os.fsync(descriptor)
+        except BaseException as exc:
+            pending = exc
+        try:
+            os.close(descriptor)
+        except BaseException as exc:
+            if pending is None:
+                pending = exc
             try:
-                marker.unlink()
-            except OSError:
+                os.close(descriptor)
+            except BaseException:
                 pass
+        if pending is not None:
+            raise pending
+        if _has_reparse_component(raw) or set(raw.iterdir()) != {marker}:
             raise PreOwnershipBlocked("artifact directory changed during ownership claim")
         return raw.resolve()
     except BaseException:
-        if created:
+        cleanup_path_is_plain = not _has_reparse_component(raw)
+        if marker_created and cleanup_path_is_plain:
+            try:
+                (raw / OWNERSHIP_MARKER).unlink()
+            except OSError:
+                pass
+        if created and cleanup_path_is_plain:
             try:
                 raw.rmdir()
             except OSError:
@@ -336,12 +505,12 @@ def _claim_artifact_directory(path: Path, run_id: str) -> Path:
 
 
 def _artifact_record(path: Path, root: Path, kind: str) -> dict[str, Any]:
-    resolved = path.resolve()
     try:
-        relative = resolved.relative_to(root.resolve()).as_posix()
+        relative = Path(path).relative_to(Path(root)).as_posix()
     except ValueError as exc:
         raise LiveGateError("artifact path escapes the owned directory") from exc
-    payload = resolved.read_bytes()
+    resolved = _safe_relative(Path(root), relative)
+    payload = _read_regular_file(resolved)
     return {
         "kind": kind,
         "relative_path": relative,
@@ -600,22 +769,75 @@ async def _dispatch_installed_tool(name: str, arguments: dict[str, Any]) -> dict
 
 
 class BoundInstalledToolAdapter:
-    """Dispatch admitted tools only to one PID/port pair."""
+    """Dispatch admitted tools only to one owned launch identity."""
 
-    def __init__(self, port: int, process_id: int):
+    def __init__(
+        self,
+        port: int,
+        process_id: int,
+        *,
+        started: Any,
+        record: Any,
+        process_start_token: str,
+    ):
         if type(port) is not int or port <= 0 or type(process_id) is not int or process_id <= 0:
             raise LiveGateError("bound adapter identity is invalid")
+        if type(process_start_token) is not str or not re.fullmatch(
+            r"[0-9a-f]{32}", process_start_token
+        ):
+            raise LiveGateError("bound adapter process start token is invalid")
+        process = getattr(started, "process", None)
+        if process is None or getattr(started, "pid", None) != process_id:
+            raise LiveGateError("bound adapter launch identity is invalid")
+        if getattr(process, "pid", None) != process_id:
+            raise LiveGateError("bound adapter process identity is invalid")
+        if getattr(record, "pid", None) != process_id or getattr(record, "port", None) != port:
+            raise LiveGateError("bound adapter discovery identity is invalid")
+        try:
+            record_path = Path(record.path)
+            record_bytes = record_path.read_bytes()
+        except Exception as exc:
+            raise OwnershipAmbiguous("owned discovery record is unavailable") from exc
         self.port = port
         self.process_id = process_id
+        self._started = started
+        self._process = process
+        self._record = record
+        self._process_start_token = process_start_token
+        self._record_path = record_path
+        self._record_bytes = record_bytes
+        self._record_sha256 = _sha256_bytes(record_bytes)
         self._discovery = _new_owned_discovery()
 
-    def _check_owned_record(self) -> None:
+    def _check_owned_continuity(self) -> None:
+        try:
+            if getattr(self._started, "process", None) is not self._process:
+                raise OwnershipAmbiguous("owned process object drift")
+            if getattr(self._started, "pid", None) != self.process_id:
+                raise OwnershipAmbiguous("owned launch PID drift")
+            if getattr(self._process, "pid", None) != self.process_id:
+                raise OwnershipAmbiguous("owned process PID drift")
+            if self._process.poll() is not None:
+                raise OwnershipAmbiguous("owned process is no longer live")
+            if _owned_process_start_token(self._started) != self._process_start_token:
+                raise OwnershipAmbiguous("owned process start token drift")
+        except OwnershipAmbiguous:
+            raise
+        except Exception as exc:
+            raise OwnershipAmbiguous("owned process continuity is unavailable") from exc
         try:
             record = self._discovery.read_owned_record(self.process_id)
+            record_path = Path(record.path)
+            record_bytes = record_path.read_bytes()
+            record_sha256 = _sha256_bytes(record_bytes)
         except Exception as exc:
             raise OwnershipAmbiguous("owned discovery record is unavailable") from exc
         if record.pid != self.process_id or record.port != self.port:
             raise OwnershipAmbiguous("owned discovery PID/port drift")
+        if record_path != self._record_path:
+            raise OwnershipAmbiguous("owned discovery record path drift")
+        if record_bytes != self._record_bytes or record_sha256 != self._record_sha256:
+            raise OwnershipAmbiguous("owned discovery record bytes drift")
 
     async def call(
         self,
@@ -628,19 +850,28 @@ class BoundInstalledToolAdapter:
             raise LiveGateError("tool arguments must be a string-keyed mapping")
         if "port" in arguments:
             raise LiveGateError("tool arguments may not override the bound port")
-        self._check_owned_record()
+        self._check_owned_continuity()
         bound_arguments = dict(arguments)
         bound_arguments["port"] = self.port
         from .bridge import rhino_request_context
 
-        with rhino_request_context(port=self.port, process_id=self.process_id):
-            result = await _dispatch_installed_tool(name, bound_arguments)
-        self._check_owned_record()
-        return result
+        try:
+            with rhino_request_context(port=self.port, process_id=self.process_id):
+                return await _dispatch_installed_tool(name, bound_arguments)
+        finally:
+            self._check_owned_continuity()
 
 
-def _new_bound_adapter(port: int, process_id: int) -> BoundInstalledToolAdapter:
-    return BoundInstalledToolAdapter(port=port, process_id=process_id)
+def _new_bound_adapter(
+    *, started: Any, record: Any, process_start_token: str
+) -> BoundInstalledToolAdapter:
+    return BoundInstalledToolAdapter(
+        port=record.port,
+        process_id=record.pid,
+        started=started,
+        record=record,
+        process_start_token=process_start_token,
+    )
 
 
 def _request_graceful_close(process: Any, diagnostics: list[str]) -> bool:
@@ -823,7 +1054,7 @@ async def _rhino_preflight(recorder: _OperationRecorder) -> tuple[dict[str, Any]
 
 
 def _gh_status_projection(data: Mapping[str, Any]) -> dict[str, Any]:
-    return {
+    projection = {
         "available": _ci_get(data, "available"),
         "has_active_canvas": _ci_get(
             data, "has_active_canvas", _ci_get(data, "hasActiveCanvas")
@@ -849,6 +1080,30 @@ def _gh_status_projection(data: Mapping[str, Any]) -> dict[str, Any]:
             data, "solutionState", _ci_get(data, "solution_state")
         ),
     }
+    if (
+        type(projection["available"]) is not bool
+        or type(projection["has_active_canvas"]) is not bool
+        or type(projection["has_active_document"]) is not bool
+        or type(projection["ready_for_edit"]) is not bool
+        or type(projection["solver_state_known"]) is not bool
+        or (
+            projection["solver_enabled"] is not None
+            and type(projection["solver_enabled"]) is not bool
+        )
+        or (
+            projection["document_id"] is not None
+            and type(projection["document_id"]) is not str
+        )
+        or type(projection["document_path"]) is not str
+        or type(projection["object_count"]) is not int
+        or projection["object_count"] < 0
+        or (
+            projection["solution_state"] is not None
+            and type(projection["solution_state"]) is not str
+        )
+    ):
+        raise LiveGateError("Grasshopper status projection is malformed")
+    return projection
 
 
 async def _grasshopper_preflight(recorder: _OperationRecorder) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -902,8 +1157,11 @@ def _new_result(scenario: str, run_id: str, started_at: str) -> LiveScenarioResu
 
 
 def _record_diagnostic(state: _RunState, stage: str, label: str, exc: BaseException) -> None:
+    if state.diagnostic_persistence_error is not None:
+        return
     index = len(state.result.diagnostics) + 1
     path = state.artifact_dir / "diagnostics" / f"{index:03d}-{label}.json"
+    sidecar = path.with_suffix(path.suffix + ".sha256")
     payload = {
         "schema_version": SCHEMA_VERSION,
         "stage": stage,
@@ -911,9 +1169,10 @@ def _record_diagnostic(state: _RunState, stage: str, label: str, exc: BaseExcept
         "detail": _bounded_detail(exc),
     }
     try:
-        _atomic_write_bytes(path, _canonical_json_bytes(payload))
-        sidecar = path.with_suffix(path.suffix + ".sha256")
-        _atomic_write_bytes(sidecar, f"{_sha256_bytes(path.read_bytes())}\n".encode("ascii"))
+        payload_bytes = _canonical_json_bytes(payload)
+        digest = _sha256_bytes(payload_bytes)
+        _atomic_write_bytes(path, payload_bytes)
+        _atomic_write_bytes(sidecar, f"{digest}\n".encode("ascii"))
         _register_artifact(state.result, path, state.artifact_dir, "diagnostic")
         _register_artifact(state.result, sidecar, state.artifact_dir, "diagnostic_sidecar")
         state.result.diagnostics.append(
@@ -921,11 +1180,25 @@ def _record_diagnostic(state: _RunState, stage: str, label: str, exc: BaseExcept
                 "stage": stage,
                 "label": label,
                 "relative_path": path.relative_to(state.artifact_dir).as_posix(),
-                "sha256": _sha256_bytes(path.read_bytes()),
+                "sha256": digest,
             }
         )
-    except Exception:
-        return
+    except BaseException as persistence_error:
+        failed_relatives = {
+            path.relative_to(state.artifact_dir).as_posix(),
+            sidecar.relative_to(state.artifact_dir).as_posix(),
+        }
+        state.result.artifacts = [
+            item
+            for item in state.result.artifacts
+            if item.get("relative_path") not in failed_relatives
+        ]
+        for candidate in (path, sidecar):
+            try:
+                candidate.unlink()
+            except OSError:
+                pass
+        state.diagnostic_persistence_error = persistence_error
 
 
 def _target_dict(state: _RunState, process_token: str) -> dict[str, Any]:
@@ -1208,8 +1481,17 @@ def _snapshot_projection(
         component_ids.append(str(_ci_get(item, "id")))
     errors = _ci_get(diagnostics, "errors", 0)
     warnings = _ci_get(diagnostics, "warnings", 0)
-    if type(has_active_canvas) is not bool:
-        raise LiveGateError("Grasshopper canvas observation is malformed")
+    total = _ci_get(diagnostics, "total")
+    if (
+        type(has_active_canvas) is not bool
+        or type(total) is not int
+        or total < 0
+        or type(errors) is not int
+        or errors < 0
+        or type(warnings) is not int
+        or warnings < 0
+    ):
+        raise LiveGateError("Grasshopper snapshot projection is malformed")
     token = _sha256_value(
         [process_id, process_token, port, has_active_canvas, document_id]
     )
@@ -1241,9 +1523,19 @@ def _assert_empty_gh_projection(projection: Mapping[str, Any], scratch_path: Pat
 def _errors_projection(data: Mapping[str, Any]) -> tuple[list[Any], list[Any]]:
     errors = _ci_get(data, "errors", [])
     warnings = _ci_get(data, "warnings", [])
+    total_count = _ci_get(data, "totalComponents")
     error_count = _ci_get(data, "errorCount", len(errors) if isinstance(errors, list) else None)
     warning_count = _ci_get(data, "warningCount", len(warnings) if isinstance(warnings, list) else None)
-    if not isinstance(errors, list) or not isinstance(warnings, list) or error_count != len(errors) or warning_count != len(warnings):
+    if (
+        not isinstance(errors, list)
+        or not isinstance(warnings, list)
+        or type(total_count) is not int
+        or total_count < 0
+        or type(error_count) is not int
+        or type(warning_count) is not int
+        or error_count != len(errors)
+        or warning_count != len(warnings)
+    ):
         raise LiveGateError("Grasshopper error projection is malformed")
     return errors, warnings
 
@@ -1254,7 +1546,7 @@ def _gh_edit_solve_projection(data: Mapping[str, Any]) -> dict[str, Any]:
         raise _ScenarioFailure(
             "verification_failed", "Grasshopper edit solve evidence is absent"
         )
-    return {
+    projection = {
         "solve_scheduled": _ci_get(
             summary, "solve_scheduled", _ci_get(summary, "solveScheduled")
         ),
@@ -1270,6 +1562,11 @@ def _gh_edit_solve_projection(data: Mapping[str, Any]) -> dict[str, Any]:
             _ci_get(summary, "verificationDeferred"),
         ),
     }
+    if not all(type(value) is bool for value in projection.values()):
+        raise _ScenarioFailure(
+            "verification_failed", "Grasshopper edit solve evidence is malformed"
+        )
+    return projection
 
 
 def _verify_gh_edit(snapshot: Mapping[str, Any], run_id: str) -> dict[str, Any]:
@@ -1288,7 +1585,9 @@ def _verify_gh_edit(snapshot: Mapping[str, Any], run_id: str) -> dict[str, Any]:
         (
             item
             for item in inputs
-            if isinstance(item, Mapping) and _ci_get(item, "idx") == 1
+            if isinstance(item, Mapping)
+            and type(_ci_get(item, "idx")) is int
+            and _ci_get(item, "idx") == 1
         ),
         None,
     ) if isinstance(inputs, list) else None
@@ -1297,14 +1596,18 @@ def _verify_gh_edit(snapshot: Mapping[str, Any], run_id: str) -> dict[str, Any]:
         or _ci_get(slider, "nick") != f"RookContainmentRadius-{run_id}"
         or _ci_get(slider, "pos") != [100, 100]
         or not isinstance(value, Mapping)
+        or type(_ci_get(value, "min")) is not int
         or _ci_get(value, "min") != 1
+        or type(_ci_get(value, "max")) is not int
         or _ci_get(value, "max") != 9
+        or type(_ci_get(value, "val")) is not int
         or _ci_get(value, "val") != 4
         or _ci_get(sphere, "id") != "C2"
         or _ci_get(sphere, "name") != "Sphere"
         or _ci_get(sphere, "pos") != [400, 100]
         or not isinstance(radius_input, Mapping)
         or _ci_get(radius_input, "name") != "Radius"
+        or type(_ci_get(radius_input, "sources")) is not int
         or _ci_get(radius_input, "sources") != 1
     ):
         raise _ScenarioFailure("verification_failed", "Grasshopper component settings mismatch")
@@ -1315,17 +1618,29 @@ def _verify_gh_edit(snapshot: Mapping[str, Any], run_id: str) -> dict[str, Any]:
     data = _ci_get(output, "data") if isinstance(output, Mapping) else None
     if (
         not isinstance(output, Mapping)
+        or type(_ci_get(output, "idx")) is not int
         or _ci_get(output, "idx") != 0
         or _ci_get(output, "name") != "Sphere"
         or _ci_get(output, "type") != "Sphere"
         or not isinstance(data, Mapping)
         or _ci_get(data, "structure") != "single"
+        or type(_ci_get(data, "count")) is not int
         or _ci_get(data, "count") != 1
     ):
         raise _ScenarioFailure(
             "verification_failed", "Sphere output projection mismatch"
         )
-    if _ci_get(diagnostics, "errors", 0) != 0 or _ci_get(diagnostics, "warnings", 0) != 0:
+    diagnostic_total = _ci_get(diagnostics, "total")
+    diagnostic_errors = _ci_get(diagnostics, "errors", 0)
+    diagnostic_warnings = _ci_get(diagnostics, "warnings", 0)
+    if (
+        type(diagnostic_total) is not int
+        or diagnostic_total < 0
+        or type(diagnostic_errors) is not int
+        or diagnostic_errors != 0
+        or type(diagnostic_warnings) is not int
+        or diagnostic_warnings != 0
+    ):
         raise _ScenarioFailure("verification_failed", "Grasshopper snapshot contains diagnostics")
     return {"components": components, "flows": flows, "diagnostics": dict(diagnostics)}
 
@@ -1439,8 +1754,10 @@ async def _run_grasshopper_forward(state: _RunState, recorder: _OperationRecorde
 
     library = _data(await recorder.call("gh_library", {"search": "Sphere", "exact": True}), "gh_library")
     components = _ci_get(library, "components")
+    library_count = _ci_get(library, "count")
     if (
-        _ci_get(library, "count") != 1
+        type(library_count) is not int
+        or library_count != 1
         or not isinstance(components, list)
         or len(components) != 1
     ):
@@ -1728,8 +2045,11 @@ async def _observe_grasshopper_restoration(
             and _ci_get(slider, "pos") == [100, 100]
             and isinstance(value, Mapping)
             and _ci_get(value, "type") == "slider"
+            and type(_ci_get(value, "min")) is int
             and _ci_get(value, "min") == 1
+            and type(_ci_get(value, "max")) is int
             and _ci_get(value, "max") == 9
+            and type(_ci_get(value, "val")) is int
             and _ci_get(value, "val") == 4
         ):
             raise OwnershipAmbiguous(
@@ -1742,10 +2062,20 @@ async def _observe_grasshopper_restoration(
             (
                 item
                 for item in inputs
-                if isinstance(item, Mapping) and _ci_get(item, "idx") == 1
+                if isinstance(item, Mapping)
+                and type(_ci_get(item, "idx")) is int
+                and _ci_get(item, "idx") == 1
             ),
             None,
         ) if isinstance(inputs, list) else None
+        outputs = _ci_get(sphere, "outputs")
+        output = outputs[0] if isinstance(outputs, list) and len(outputs) == 1 else None
+        output_data = _ci_get(output, "data") if isinstance(output, Mapping) else None
+        source_count = (
+            _ci_get(radius_input, "sources")
+            if isinstance(radius_input, Mapping)
+            else None
+        )
         if not (
             _ci_get(sphere, "type") == "Component"
             and str(_ci_get(sphere, "componentGuid", "")).lower()
@@ -1754,7 +2084,17 @@ async def _observe_grasshopper_restoration(
             and _ci_get(sphere, "pos") == [400, 100]
             and isinstance(radius_input, Mapping)
             and _ci_get(radius_input, "name") == "Radius"
-            and _ci_get(radius_input, "sources") == (1 if wired else 0)
+            and type(source_count) is int
+            and source_count == (1 if wired else 0)
+            and isinstance(output, Mapping)
+            and type(_ci_get(output, "idx")) is int
+            and _ci_get(output, "idx") == 0
+            and _ci_get(output, "name") == "Sphere"
+            and _ci_get(output, "type") == "Sphere"
+            and isinstance(output_data, Mapping)
+            and _ci_get(output_data, "structure") == "single"
+            and type(_ci_get(output_data, "count")) is int
+            and _ci_get(output_data, "count") == 1
         ):
             raise OwnershipAmbiguous(
                 "Grasshopper restoration observed an altered Sphere"
@@ -1767,18 +2107,16 @@ async def _restore_grasshopper(state: _RunState, recorder: _OperationRecorder) -
     expected = state.result.pre_state.get("scratch_projection") if state.result.pre_state else None
     if not isinstance(expected, Mapping):
         return False
+    observed, clean = await _observe_grasshopper_restoration(state, recorder)
+    matched = clean and observed == dict(expected)
     if state.gh_edit_may_have_applied:
-        while True:
-            observed, clean = await _observe_grasshopper_restoration(state, recorder)
-            matched = clean and observed == dict(expected)
-            if matched or state.gh_undo_attempts >= 4:
-                break
+        while not matched and state.gh_undo_attempts < 4:
             state.gh_undo_attempts += 1
             await recorder.call("gh_undo", {})
-        state.result.restoration["in_process_projection_matches_declared"] = matched
-        return matched
-    state.result.restoration["in_process_projection_matches_declared"] = True
-    return True
+            observed, clean = await _observe_grasshopper_restoration(state, recorder)
+            matched = clean and observed == dict(expected)
+    state.result.restoration["in_process_projection_matches_declared"] = matched
+    return matched
 
 
 def _cleanup_owned_target(state: _RunState, diagnostics: list[str]) -> bool:
@@ -1873,7 +2211,8 @@ def _finalize_telemetry(state: _RunState) -> None:
         raise _ScenarioFailure("telemetry_changed", "containment telemetry process identity drift")
     before_events = before["events"]
     after_events = after["events"]
-    added = after_events[len(before_events) :] if after_events[: len(before_events)] == before_events else after_events
+    prefix_matches = after_events[: len(before_events)] == before_events
+    added = after_events[len(before_events) :] if prefix_matches else after_events
     delta = len(added) if after_events != before_events else 0
     state.result.telemetry = {
         "process_id": before["process_id"],
@@ -1883,6 +2222,10 @@ def _finalize_telemetry(state: _RunState) -> None:
         "delta_count": delta,
         "events_added": added,
     }
+    if not prefix_matches:
+        raise _ScenarioFailure(
+            "telemetry_changed", "containment telemetry event history drift"
+        )
     if delta != 0:
         raise _ScenarioFailure("telemetry_changed", "supported workflow emitted containment telemetry")
 
@@ -1900,13 +2243,17 @@ def _write_final_evidence_pair(
         digest = _sha256_bytes(payload)
         _atomic_write_bytes(sidecar, f"{digest}\n".encode("ascii"))
         return path, digest
-    except Exception as exc:
+    except BaseException as exc:
         for candidate in (path, sidecar):
             try:
                 candidate.unlink()
             except OSError:
                 pass
-        raise FinalEvidenceWriteError("final evidence pair could not be persisted") from exc
+        if isinstance(exc, Exception):
+            raise FinalEvidenceWriteError(
+                "final evidence pair could not be persisted"
+            ) from exc
+        raise
 
 
 def _scenario_result_record(result: LiveScenarioResult, evidence_sha256: str) -> dict[str, Any]:
@@ -1953,7 +2300,12 @@ def run_live_scenario(
         raise LiveGateError("run identifier generator drift")
     started_at = _utc_now()
     result = _new_result(scenario, run_id, started_at)
-    rhino_path = Path(rhino_exe).expanduser().resolve()
+    raw_rhino_path = Path(rhino_exe).expanduser()
+    if not raw_rhino_path.is_absolute():
+        raise PreOwnershipBlocked("Rhino executable path must be absolute")
+    if _has_reparse_component(raw_rhino_path):
+        raise PreOwnershipBlocked("Rhino executable path is reparse-backed")
+    rhino_path = raw_rhino_path.resolve()
     owned_dir = _claim_artifact_directory(Path(artifact_dir), run_id)
     state = _RunState(
         scenario=scenario,
@@ -2022,7 +2374,11 @@ def run_live_scenario(
         )
         process_token = _owned_process_start_token(state.process)
         result.target = _target_dict(state, process_token)
-        state.adapter = _new_bound_adapter(state.record.port, state.record.pid)
+        state.adapter = _new_bound_adapter(
+            started=state.process,
+            record=state.record,
+            process_start_token=process_token,
+        )
         asyncio.run(_execute_scenario(state))
     except OwnershipAmbiguous as exc:
         state.ownership_certain = False
@@ -2208,6 +2564,22 @@ def run_live_scenario(
                 marker_exc,
             )
 
+    if state.diagnostic_persistence_error is not None:
+        persistence_error = state.diagnostic_persistence_error
+        for candidate in (
+            owned_dir / f"{scenario}-scenario.json",
+            owned_dir / f"{scenario}-scenario.sha256",
+        ):
+            try:
+                candidate.unlink()
+            except OSError:
+                pass
+        if not isinstance(persistence_error, Exception):
+            raise persistence_error
+        raise FinalEvidenceWriteError(
+            "diagnostic persistence failed; final evidence is unrepresentable"
+        ) from persistence_error
+
     result.ended_at = _utc_now()
     path, digest = _write_final_evidence_pair(owned_dir, scenario, result.to_dict())
     if path.name != f"{scenario}-scenario.json":
@@ -2224,12 +2596,84 @@ def _safe_relative(root: Path, raw: object) -> Path:
     relative = Path(raw)
     if relative.is_absolute() or ".." in relative.parts:
         raise LiveGateError("artifact path escapes the owned directory")
-    candidate = (root / relative).resolve()
+    raw_candidate = Path(root) / relative
+    if _has_reparse_component(raw_candidate):
+        raise LiveGateError("artifact path is reparse-backed")
+    candidate = raw_candidate.resolve()
     try:
-        candidate.relative_to(root.resolve())
+        candidate.relative_to(Path(root).resolve())
     except ValueError as exc:
         raise LiveGateError("artifact path escapes the owned directory") from exc
     return candidate
+
+
+def _scan_artifact_tree_nonfollowing(root: Path) -> tuple[set[str], set[str]]:
+    files: set[str] = set()
+    directories: set[str] = set()
+    pending = [Path(root)]
+    while pending:
+        current = pending.pop()
+        if _has_reparse_component(current):
+            raise LiveGateError("artifact directory path is reparse-backed")
+        try:
+            before = current.lstat()
+            if _filesystem_entry_kind(before) != "directory":
+                raise LiveGateError("artifact traversal entry is not a directory")
+            release = _acquire_windows_directory_lease(current, before)
+            try:
+                with os.scandir(current) as entries:
+                    snapshot = list(entries)
+                if _has_reparse_component(current):
+                    raise LiveGateError("artifact directory path is reparse-backed")
+                after = current.lstat()
+                if (
+                    _filesystem_entry_kind(after) != "directory"
+                    or not os.path.samestat(before, after)
+                ):
+                    raise LiveGateError("artifact directory changed during inventory")
+            finally:
+                release()
+        except OSError as exc:
+            raise LiveGateError(
+                "artifact directory changed or could not be inventoried"
+            ) from exc
+        for entry in snapshot:
+            try:
+                info = entry.stat(follow_symlinks=False)
+            except OSError as exc:
+                raise LiveGateError("artifact directory entry could not be inspected") from exc
+            kind = _filesystem_entry_kind(info)
+            candidate = Path(entry.path)
+            if _has_reparse_component(candidate):
+                raise LiveGateError("artifact path is reparse-backed")
+            try:
+                current_info = candidate.lstat()
+            except OSError as exc:
+                raise LiveGateError("artifact directory entry changed during inventory") from exc
+            if _filesystem_entry_kind(current_info) != kind:
+                raise LiveGateError(
+                    "artifact directory entry is reparse-backed or changed during inventory"
+                )
+            try:
+                relative = candidate.relative_to(root).as_posix()
+            except ValueError as exc:
+                raise LiveGateError("artifact traversal escaped the owned directory") from exc
+            if kind == "file":
+                files.add(relative)
+            else:
+                directories.add(relative)
+                pending.append(candidate)
+    return files, directories
+
+
+def _declared_artifact_directories(files: set[str]) -> set[str]:
+    directories: set[str] = set()
+    for relative in files:
+        parent = Path(relative).parent
+        while parent != Path("."):
+            directories.add(parent.as_posix())
+            parent = parent.parent
+    return directories
 
 
 def _closed_mapping(
@@ -2704,20 +3148,31 @@ def _validate_nested_scenario_result(
 
 
 def _validate_scenario_artifacts(artifact_dir: Path, *, scenario: str) -> dict[str, Any]:
-    root = Path(artifact_dir).resolve()
     if scenario not in SCENARIOS:
         raise LiveGateError("scenario evidence identity is invalid")
+    raw_root = Path(artifact_dir).expanduser()
+    if not raw_root.is_absolute():
+        raise LiveGateError("artifact directory must be absolute")
+    if _has_reparse_component(raw_root):
+        raise LiveGateError("artifact directory path is reparse-backed")
+    try:
+        root_info = raw_root.lstat()
+    except OSError as exc:
+        raise LiveGateError("artifact directory is missing") from exc
+    if _filesystem_entry_kind(root_info) != "directory":
+        raise LiveGateError("artifact root is not a directory")
+    root = raw_root.resolve()
     evidence_path = root / f"{scenario}-scenario.json"
     sidecar = root / f"{scenario}-scenario.sha256"
     try:
-        payload = evidence_path.read_bytes()
+        payload = _read_regular_file(evidence_path)
         evidence = json.loads(payload)
     except Exception as exc:
         raise LiveGateError("final evidence artifact is missing or malformed") from exc
     if payload != _canonical_json_bytes(evidence):
         raise LiveGateError("final evidence artifact is noncanonical")
     digest = _sha256_bytes(payload)
-    if sidecar.read_bytes() != f"{digest}\n".encode("ascii"):
+    if _read_regular_file(sidecar) != f"{digest}\n".encode("ascii"):
         raise LiveGateError("final evidence sidecar mismatch")
     if not isinstance(evidence, Mapping) or set(evidence) != set(RESULT_FIELDS):
         raise LiveGateError("final evidence schema drift")
@@ -2746,16 +3201,14 @@ def _validate_scenario_artifacts(artifact_dir: Path, *, scenario: str) -> dict[s
         ):
             raise LiveGateError("artifact inventory entry type drift")
         path = _safe_relative(root, item["relative_path"])
-        if not path.is_file():
-            raise LiveGateError("artifact inventory file is missing")
-        content = path.read_bytes()
+        content = _read_regular_file(path)
         if _sha256_bytes(content) != item["sha256"] or len(content) != item["size"]:
             raise LiveGateError("artifact inventory digest mismatch")
         inventory[str(item["relative_path"])] = item
     marker = inventory.get(OWNERSHIP_MARKER)
     if marker is None or marker["kind"] != "ownership_marker":
         raise LiveGateError("ownership marker inventory binding mismatch")
-    marker_content = (root / OWNERSHIP_MARKER).read_bytes()
+    marker_content = _read_regular_file(root / OWNERSHIP_MARKER)
     try:
         marker_payload = json.loads(marker_content)
     except Exception as exc:
@@ -2813,9 +3266,9 @@ def _validate_scenario_artifacts(artifact_dir: Path, *, scenario: str) -> dict[s
         for kind in ("arguments", "result"):
             relative = operation[f"{kind}_path"]
             path = _safe_relative(root, relative)
-            if relative not in inventory or not path.is_file():
+            if relative not in inventory:
                 raise LiveGateError("operation artifact is not enumerated")
-            content = path.read_bytes()
+            content = _read_regular_file(path)
             try:
                 decoded = json.loads(content)
             except Exception as exc:
@@ -2829,13 +3282,11 @@ def _validate_scenario_artifacts(artifact_dir: Path, *, scenario: str) -> dict[s
         f"{scenario}-scenario.sha256",
         *inventory.keys(),
     }
-    actual_files = {
-        candidate.relative_to(root).as_posix()
-        for candidate in root.rglob("*")
-        if candidate.is_file()
-    }
+    actual_files, actual_directories = _scan_artifact_tree_nonfollowing(root)
     if actual_files != declared_files:
         raise LiveGateError("artifact directory contains unenumerated files")
+    if actual_directories != _declared_artifact_directories(declared_files):
+        raise LiveGateError("artifact directory contains unenumerated directories")
     return dict(evidence)
 
 

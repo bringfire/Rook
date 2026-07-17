@@ -9,6 +9,7 @@ import io
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -34,6 +35,10 @@ GH_BOOTSTRAP_DOCUMENT_ID = "44444444-4444-4444-8444-444444444444"
 SPHERE_AREA = 201.0619
 SPHERE_VOLUME = 268.0826
 
+
+class _FinalPairBaseInterrupt(BaseException):
+    pass
+
 try:
     live = importlib.import_module("rook.containment_live_gate")
 except ModuleNotFoundError as exc:
@@ -46,6 +51,13 @@ requires_live_gate = pytest.mark.skipif(
     live is None,
     reason="installed containment live gate is not implemented",
 )
+
+
+def _directory_symlink_or_skip(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory symlinks/reparse points unavailable")
 
 
 def test_containment_live_gate_contract_is_available() -> None:
@@ -338,6 +350,102 @@ def test_artifact_claim_is_atomic_and_marker_is_canonical(tmp_path: Path) -> Non
 
 
 @requires_live_gate
+def test_artifact_claim_rejects_reparse_in_any_existing_ancestor(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "target"
+    (target / "nested").mkdir(parents=True)
+    linked = tmp_path / "linked"
+    _directory_symlink_or_skip(linked, target)
+    artifact = linked / "nested" / "artifacts"
+
+    with pytest.raises(live.PreOwnershipBlocked, match="reparse"):
+        live._claim_artifact_directory(artifact, RUN_ID)
+
+    assert not (target / "nested" / "artifacts").exists()
+
+
+@requires_live_gate
+def test_run_rejects_relative_rhino_path_before_resolution_or_artifact_claim(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(live.PreOwnershipBlocked, match="absolute"):
+        live.run_live_scenario(
+            scenario="rhino",
+            rhino_exe=Path(harness.rhino_exe.name),
+            artifact_dir=harness.artifact,
+        )
+
+    assert not harness.artifact.exists()
+
+
+@requires_live_gate
+def test_run_rejects_reparse_in_rhino_executable_ancestor_before_claim(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    target = tmp_path / "installed"
+    (target / "System").mkdir(parents=True)
+    (target / "System" / "Rhino.exe").write_bytes(b"fake")
+    linked = tmp_path / "linked-install"
+    _directory_symlink_or_skip(linked, target)
+
+    with pytest.raises(live.PreOwnershipBlocked, match="reparse"):
+        live.run_live_scenario(
+            scenario="rhino",
+            rhino_exe=linked / "System" / "Rhino.exe",
+            artifact_dir=harness.artifact,
+        )
+
+    assert not harness.artifact.exists()
+
+
+@requires_live_gate
+@pytest.mark.parametrize("preexisting", [False, True])
+@pytest.mark.parametrize("failure_site", ["write", "fsync", "close"])
+@pytest.mark.parametrize("error_type", [OSError, KeyboardInterrupt])
+def test_artifact_claim_failure_removes_partial_marker_and_only_created_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    preexisting: bool,
+    failure_site: str,
+    error_type: type[BaseException],
+) -> None:
+    artifact = tmp_path / "artifacts"
+    if preexisting:
+        artifact.mkdir()
+    original_close = live.os.close
+
+    def fail(*_args, **_kwargs):
+        raise error_type(f"claim {failure_site} interrupted")
+
+    def close_then_fail(descriptor: int) -> None:
+        original_close(descriptor)
+        fail()
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(
+            live.os,
+            failure_site,
+            close_then_fail if failure_site == "close" else fail,
+        )
+        with pytest.raises(error_type, match=failure_site):
+            live._claim_artifact_directory(artifact, RUN_ID)
+
+    assert not (artifact / live.OWNERSHIP_MARKER).exists()
+    if preexisting:
+        assert artifact.is_dir()
+        assert list(artifact.iterdir()) == []
+    else:
+        assert not artifact.exists()
+
+
+@requires_live_gate
 @pytest.mark.parametrize("failure_site", ["registration", "read", "hash"])
 def test_post_claim_marker_failure_emits_canonical_failure_without_launch(
     monkeypatch: pytest.MonkeyPatch,
@@ -447,11 +555,61 @@ class _Discovery:
     def __init__(self, record: _Record):
         self.record = record
         self.removed = False
+        self.read_count = 0
 
     def read_owned_record(self, pid: int) -> _Record:
+        self.read_count += 1
         if self.removed or pid != self.record.pid:
             raise RuntimeError("discovery missing")
         return self.record
+
+
+class _AdapterProcess:
+    def __init__(self, pid: int):
+        self.pid = pid
+        self.returncode: int | None = None
+
+    def poll(self):
+        return self.returncode
+
+
+def _install_bound_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    dispatch,
+):
+    process = _AdapterProcess(9001)
+    started = SimpleNamespace(process=process, pid=process.pid, started_wall=100.0)
+    record_path = tmp_path / "instance-9001-native.json"
+    record_bytes = b'{"pluginType":"native","port":19001,"processId":9001}'
+    record_path.write_bytes(record_bytes)
+    record = _Record(
+        9001,
+        19001,
+        record_path,
+        {"processId": 9001, "port": 19001, "pluginType": "native"},
+    )
+    discovery = _Discovery(record)
+    process_token = live._owned_process_start_token(started)
+    monkeypatch.setattr(live, "_new_owned_discovery", lambda: discovery)
+    monkeypatch.setattr(live, "_dispatch_installed_tool", dispatch)
+    adapter = live.BoundInstalledToolAdapter(
+        port=19001,
+        process_id=9001,
+        started=started,
+        record=record,
+        process_start_token=process_token,
+    )
+    return SimpleNamespace(
+        adapter=adapter,
+        process=process,
+        started=started,
+        record=record,
+        record_path=record_path,
+        record_bytes=record_bytes,
+        discovery=discovery,
+        process_token=process_token,
+    )
 
 
 @requires_live_gate
@@ -459,9 +617,6 @@ def test_bound_adapter_rechecks_pid_port_preserves_envelope_and_injects_port(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    record_path = tmp_path / "instance-9001-native.json"
-    record_path.write_text("{}", encoding="utf-8")
-    discovery = _Discovery(_Record(9001, 19001, record_path, {"processId": 9001, "port": 19001}))
     seen: list[tuple[str, dict[str, Any], dict[str, int | None]]] = []
     envelope = {"success": True, "data": {"pong": True}}
 
@@ -471,11 +626,10 @@ def test_bound_adapter_rechecks_pid_port_preserves_envelope_and_injects_port(
         seen.append((name, dict(arguments), get_rhino_request_context()))
         return envelope
 
-    monkeypatch.setattr(live, "_new_owned_discovery", lambda: discovery)
-    monkeypatch.setattr(live, "_dispatch_installed_tool", dispatch)
-    adapter = live.BoundInstalledToolAdapter(port=19001, process_id=9001)
-    result = asyncio.run(adapter.call("rhino_ping", {}))
+    harness = _install_bound_adapter(monkeypatch, tmp_path, dispatch)
+    result = asyncio.run(harness.adapter.call("rhino_ping", {}))
     assert result is envelope
+    assert harness.discovery.read_count == 2
     assert seen == [
         (
             "rhino_ping",
@@ -484,12 +638,98 @@ def test_bound_adapter_rechecks_pid_port_preserves_envelope_and_injects_port(
         )
     ]
     with pytest.raises(live.LiveGateError, match="allowlist"):
-        asyncio.run(adapter.call("gh_execute_intent", {}))
+        asyncio.run(harness.adapter.call("gh_execute_intent", {}))
     with pytest.raises(live.LiveGateError, match="argument"):
-        asyncio.run(adapter.call("rhino_ping", {"port": 9}))
-    discovery.record = _Record(9001, 19002, record_path, {"processId": 9001, "port": 19002})
+        asyncio.run(harness.adapter.call("rhino_ping", {"port": 9}))
+    harness.discovery.record = _Record(
+        9001,
+        19002,
+        harness.record_path,
+        {"processId": 9001, "port": 19002},
+    )
     with pytest.raises(live.OwnershipAmbiguous):
-        asyncio.run(adapter.call("rhino_ping", {}))
+        asyncio.run(harness.adapter.call("rhino_ping", {}))
+
+
+@requires_live_gate
+@pytest.mark.parametrize(
+    "drift_case",
+    [
+        "started_process_replaced",
+        "process_exited_before",
+        "process_exited_after",
+        "start_token_changed",
+        "record_path_replaced",
+        "record_bytes_changed",
+    ],
+)
+def test_bound_adapter_rejects_process_or_discovery_continuity_drift(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    drift_case: str,
+) -> None:
+    dispatched: list[str] = []
+    holder: dict[str, Any] = {}
+
+    async def dispatch(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        dispatched.append(name)
+        if drift_case == "process_exited_after":
+            holder["harness"].process.returncode = 0
+        return _success({"pong": True})
+
+    harness = _install_bound_adapter(monkeypatch, tmp_path, dispatch)
+    holder["harness"] = harness
+    if drift_case == "started_process_replaced":
+        harness.started.process = _AdapterProcess(harness.process.pid)
+    elif drift_case == "process_exited_before":
+        harness.process.returncode = 0
+    elif drift_case == "start_token_changed":
+        harness.started.started_wall = 101.0
+    elif drift_case == "record_path_replaced":
+        replacement_path = tmp_path / "replacement-instance.json"
+        replacement_path.write_bytes(harness.record_bytes)
+        harness.discovery.record = _Record(
+            9001,
+            19001,
+            replacement_path,
+            dict(harness.record.raw),
+        )
+    elif drift_case == "record_bytes_changed":
+        harness.record_path.write_bytes(b'{"processId":9001,"port":19001}')
+
+    with pytest.raises(live.OwnershipAmbiguous):
+        asyncio.run(harness.adapter.call("rhino_ping", {}))
+
+    assert dispatched == (["rhino_ping"] if drift_case == "process_exited_after" else [])
+
+
+@requires_live_gate
+@pytest.mark.parametrize(
+    ("name", "arguments"),
+    [
+        ("rhino_delete", {"ids": [SPHERE_ID]}),
+        ("gh_undo", {}),
+    ],
+)
+def test_bound_adapter_rechecks_process_after_restoration_calls(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    name: str,
+    arguments: dict[str, Any],
+) -> None:
+    holder: dict[str, Any] = {}
+
+    async def exit_after_dispatch(
+        tool_name: str, tool_arguments: dict[str, Any]
+    ) -> dict[str, Any]:
+        holder["harness"].process.returncode = 0
+        return _success({})
+
+    harness = _install_bound_adapter(monkeypatch, tmp_path, exit_after_dispatch)
+    holder["harness"] = harness
+
+    with pytest.raises(live.OwnershipAmbiguous):
+        asyncio.run(harness.adapter.call(name, arguments))
 
 
 class _Store:
@@ -800,6 +1040,106 @@ def test_gh_status_projection_consumes_exact_server_normalized_wire_shape() -> N
     }
 
 
+@requires_live_gate
+@pytest.mark.parametrize(
+    ("field", "invalid"),
+    [
+        ("objectCount", False),
+        ("available", 1),
+        ("hasActiveCanvas", 1),
+        ("hasActiveDocument", 1),
+        ("readyForEdit", 1),
+        ("solverEnabled", 1),
+        ("solverStateKnown", 1),
+    ],
+)
+def test_gh_status_rejects_boolean_counts_and_numeric_boolean_flags(
+    field: str,
+    invalid: object,
+) -> None:
+    data = {
+        "available": True,
+        "hasActiveCanvas": True,
+        "hasActiveDocument": True,
+        "documentId": GH_DOCUMENT_ID,
+        "documentPath": r"C:\scratch\containment.ghx",
+        "objectCount": 0,
+        "readyForEdit": True,
+        "solverEnabled": True,
+        "solverStateKnown": True,
+        "solutionState": "PostProcess",
+    }
+    data[field] = invalid
+
+    with pytest.raises(live.LiveGateError, match="status"):
+        live._gh_status_projection(data)
+
+
+@requires_live_gate
+@pytest.mark.parametrize("field", ["total", "errors", "warnings"])
+def test_snapshot_projection_rejects_boolean_diagnostic_counts(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    adapter = _GrasshopperAdapter(tmp_path / "scratch.ghx")
+    snapshot = adapter._snapshot()
+    snapshot["diagnostics"][field] = False
+
+    with pytest.raises(live.LiveGateError, match="snapshot"):
+        live._snapshot_projection(
+            snapshot,
+            process_id=9002,
+            process_token=PROCESS_TOKEN,
+            port=19002,
+            document_id=GH_DOCUMENT_ID,
+            has_active_canvas=True,
+        )
+
+
+@requires_live_gate
+@pytest.mark.parametrize(
+    "field", ["totalComponents", "errorCount", "warningCount"]
+)
+def test_gh_errors_rejects_boolean_counts(field: str) -> None:
+    data = {
+        "totalComponents": 0,
+        "errorCount": 0,
+        "warningCount": 0,
+        "errors": [],
+        "warnings": [],
+    }
+    data[field] = False
+
+    with pytest.raises(live.LiveGateError, match="error projection"):
+        live._errors_projection(data)
+
+
+@requires_live_gate
+@pytest.mark.parametrize(
+    ("field", "numeric"),
+    [
+        ("solve_scheduled", 1),
+        ("solver_locked", 0),
+        ("solver_state_known", 1),
+        ("verification_deferred", 1),
+    ],
+)
+def test_gh_edit_solve_projection_keeps_flags_exactly_boolean(
+    field: str,
+    numeric: int,
+) -> None:
+    summary = {
+        "solve_scheduled": True,
+        "solver_locked": False,
+        "solver_state_known": True,
+        "verification_deferred": True,
+    }
+    summary[field] = numeric
+
+    with pytest.raises(live._ScenarioFailure, match="solve"):
+        live._gh_edit_solve_projection({"edit_summary": summary})
+
+
 def _runtime_evidence(tmp_path: Path) -> dict[str, Any]:
     root = (tmp_path / "installed").resolve()
     root.mkdir(exist_ok=True)
@@ -859,7 +1199,11 @@ def _install_fake_scenario(
     monkeypatch.setattr(live, "_new_owned_discovery", lambda: discovery)
     monkeypatch.setattr(live, "_wait_for_owned_readiness", lambda started, owned: record)
     monkeypatch.setattr(live, "_owned_process_start_token", lambda started: PROCESS_TOKEN)
-    monkeypatch.setattr(live, "_new_bound_adapter", lambda port, process_id: adapter)
+    monkeypatch.setattr(
+        live,
+        "_new_bound_adapter",
+        lambda *, started, record, process_start_token: adapter,
+    )
 
     close_calls: list[int] = []
 
@@ -1006,6 +1350,83 @@ def test_grasshopper_output_contract_rejects_wrong_value_or_empty_data(
 
     with pytest.raises(live._ScenarioFailure):
         live._verify_gh_edit(snapshot, RUN_ID)
+
+
+@requires_live_gate
+@pytest.mark.parametrize(
+    "integer_field",
+    [
+        "slider_min",
+        "slider_max",
+        "slider_value",
+        "input_index",
+        "source_count",
+        "output_index",
+        "output_count",
+        "diagnostic_total",
+        "diagnostic_errors",
+        "diagnostic_warnings",
+    ],
+)
+def test_grasshopper_edit_verification_rejects_boolean_integer_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    integer_field: str,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
+    harness.adapter.edited = True
+    snapshot = harness.adapter._snapshot()
+    slider = snapshot["components"][0]
+    sphere = snapshot["components"][1]
+    if integer_field == "slider_min":
+        slider["value"]["min"] = True
+    elif integer_field == "slider_max":
+        slider["value"]["max"] = True
+    elif integer_field == "slider_value":
+        slider["value"]["val"] = True
+    elif integer_field == "input_index":
+        sphere["inputs"][1]["idx"] = True
+    elif integer_field == "source_count":
+        sphere["inputs"][1]["sources"] = True
+    elif integer_field == "output_index":
+        sphere["outputs"][0]["idx"] = False
+    elif integer_field == "output_count":
+        sphere["outputs"][0]["data"]["count"] = True
+    elif integer_field == "diagnostic_total":
+        snapshot["diagnostics"]["total"] = False
+    elif integer_field == "diagnostic_errors":
+        snapshot["diagnostics"]["errors"] = False
+    else:
+        snapshot["diagnostics"]["warnings"] = False
+
+    with pytest.raises(live._ScenarioFailure):
+        live._verify_gh_edit(snapshot, RUN_ID)
+
+
+@requires_live_gate
+def test_grasshopper_library_count_rejects_boolean_one(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
+    original = harness.adapter.call
+
+    async def boolean_library_count(name: str, arguments: dict[str, Any]):
+        result = await original(name, arguments)
+        if name == "gh_library":
+            result = copy.deepcopy(result)
+            result["data"]["count"] = True
+        return result
+
+    harness.adapter.call = boolean_library_count
+    result = live.run_live_scenario(
+        scenario="grasshopper",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    )
+
+    assert result.success is False
+    assert result.failure_label == "verification_failed"
 
 
 @requires_live_gate
@@ -1628,6 +2049,47 @@ def test_telemetry_baseline_precedes_launch_seed_before_allowed_seed_after_fails
 
 
 @requires_live_gate
+@pytest.mark.parametrize("drift", ["reset", "truncated", "nonprefix"])
+def test_telemetry_requires_before_events_as_exact_after_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    drift: str,
+) -> None:
+    first = {
+        "tool": "spawn_agent",
+        "disposition": "suspended",
+        "origin": "rook_agent",
+        "timestamp": "2026-07-16T00:00:00.000000Z",
+    }
+    second = {**first, "tool": "gh_execute_intent"}
+    store = _Store(events=[first, second])
+    harness = _install_fake_scenario(
+        monkeypatch, tmp_path, scenario="rhino", store=store
+    )
+    original_close = live._request_graceful_close
+
+    def close_and_drift(proc, diagnostics):
+        value = original_close(proc, diagnostics)
+        if drift == "reset":
+            store.events.clear()
+        elif drift == "truncated":
+            store.events.pop()
+        else:
+            store.events[0] = {**first, "tool": "nonprefix_replacement"}
+        return value
+
+    monkeypatch.setattr(live, "_request_graceful_close", close_and_drift)
+    result = live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    )
+
+    assert result.success is False
+    assert result.failure_label == "telemetry_changed"
+
+
+@requires_live_gate
 def test_telemetry_process_token_or_accessor_replacement_fails(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1979,6 +2441,84 @@ def _direct_grasshopper_restoration_state(harness: Any):
         gh_edit_may_have_applied=True,
     )
     return state
+
+
+@requires_live_gate
+@pytest.mark.parametrize("observed_empty", [True, False])
+def test_grasshopper_restoration_observes_once_when_edit_not_known_applied(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    observed_empty: bool,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
+    state = _direct_grasshopper_restoration_state(harness)
+    state.gh_edit_may_have_applied = False
+    harness.adapter.edited = not observed_empty
+
+    restored = asyncio.run(
+        live._restore_grasshopper(state, live._OperationRecorder(state))
+    )
+
+    assert restored is observed_empty
+    assert state.result.restoration["in_process_projection_matches_declared"] is (
+        observed_empty
+    )
+    assert [name for name, _ in harness.adapter.calls] == [
+        "gh_snapshot",
+        "gh_errors",
+        "gh_status",
+    ]
+    assert harness.adapter.undo_count == 0
+
+
+@requires_live_gate
+@pytest.mark.parametrize(
+    "integer_field",
+    [
+        "slider_min",
+        "input_index",
+        "source_count",
+        "output_index",
+        "output_count",
+    ],
+)
+def test_grasshopper_restoration_rejects_boolean_integer_fields_before_undo(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    integer_field: str,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
+    state = _direct_grasshopper_restoration_state(harness)
+    original = harness.adapter.call
+
+    async def boolean_integer_observation(name, arguments):
+        result = await original(name, arguments)
+        if name != "gh_snapshot" or not harness.adapter.edited:
+            return result
+        result = copy.deepcopy(result)
+        slider = result["data"]["components"][0]
+        sphere = result["data"]["components"][1]
+        if integer_field == "slider_min":
+            slider["value"]["min"] = True
+        elif integer_field == "input_index":
+            sphere["inputs"][1]["idx"] = True
+        elif integer_field == "source_count":
+            sphere["inputs"][1]["sources"] = True
+        elif integer_field == "output_index":
+            sphere["outputs"][0]["idx"] = False
+        else:
+            sphere["outputs"][0]["data"]["count"] = True
+        return result
+
+    harness.adapter.call = boolean_integer_observation
+
+    with pytest.raises(live.OwnershipAmbiguous):
+        asyncio.run(
+            live._restore_grasshopper(state, live._OperationRecorder(state))
+        )
+
+    assert harness.adapter.undo_count == 0
+    assert "gh_undo" not in [name for name, _ in harness.adapter.calls]
 
 
 @requires_live_gate
@@ -2451,6 +2991,145 @@ def test_consumer_rejects_unenumerated_artifact_directory_file(
         live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
 
 
+@requires_live_gate
+def test_consumer_rejects_relative_root_before_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    assert live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    ).success
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(live.LiveGateError, match="absolute"):
+        live._validate_scenario_artifacts(
+            harness.artifact.relative_to(tmp_path), scenario="rhino"
+        )
+
+
+@requires_live_gate
+def test_consumer_rejects_reparse_in_root_ancestor(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    real = tmp_path / "real"
+    real.mkdir()
+    harness = _install_fake_scenario(monkeypatch, real, scenario="rhino")
+    assert live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    ).success
+    linked = tmp_path / "linked"
+    _directory_symlink_or_skip(linked, real)
+
+    with pytest.raises(live.LiveGateError, match="reparse"):
+        live._validate_scenario_artifacts(
+            linked / harness.artifact.relative_to(real), scenario="rhino"
+        )
+
+
+@requires_live_gate
+def test_consumer_nonfollowing_walk_rejects_broken_reparse_entry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    assert live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    ).success
+    broken = harness.artifact / "broken-entry"
+    try:
+        broken.symlink_to(harness.artifact / "missing-target")
+    except OSError:
+        pytest.skip("file symlinks/reparse points unavailable")
+    assert live._is_reparse(broken) is True
+
+    with pytest.raises(live.LiveGateError, match="reparse"):
+        live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
+
+
+@requires_live_gate
+def test_consumer_nonfollowing_walk_rejects_directory_swapped_to_reparse_before_scan(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "root"
+    nested = root / "nested"
+    outside = tmp_path / "outside"
+    nested.mkdir(parents=True)
+    outside.mkdir()
+    (outside / "payload.json").write_bytes(b"{}")
+    original_scandir = live.os.scandir
+    swapped = False
+
+    def swapping_scandir(path: Path):
+        nonlocal swapped
+        if Path(path) == nested and not swapped:
+            nested.rename(tmp_path / "original-nested")
+            _directory_symlink_or_skip(nested, outside)
+            swapped = True
+        return original_scandir(path)
+
+    monkeypatch.setattr(live.os, "scandir", swapping_scandir)
+
+    with pytest.raises(live.LiveGateError, match="reparse|changed"):
+        live._scan_artifact_tree_nonfollowing(root)
+    assert swapped is False, "the swapped reparse target was traversed before drift detection"
+
+
+@requires_live_gate
+def test_consumer_rejects_undeclared_directory_entry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    assert live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    ).success
+    (harness.artifact / "undeclared-directory").mkdir()
+
+    with pytest.raises(live.LiveGateError, match="directory|enumerated"):
+        live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
+
+
+@requires_live_gate
+@pytest.mark.parametrize(
+    "mode",
+    [stat.S_IFCHR | 0o600, stat.S_IFIFO | 0o600, stat.S_IFSOCK | 0o600],
+)
+def test_filesystem_entry_classifier_rejects_device_and_nonregular_modes(
+    mode: int,
+) -> None:
+    info = SimpleNamespace(st_mode=mode, st_file_attributes=0)
+
+    with pytest.raises(live.LiveGateError, match="non-regular"):
+        live._filesystem_entry_kind(info)
+
+
+@requires_live_gate
+def test_safe_relative_rejects_reparse_traversal_before_resolving_escape(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "payload.json").write_bytes(b"{}")
+    linked = root / "junction-like"
+    _directory_symlink_or_skip(linked, outside)
+
+    with pytest.raises(live.LiveGateError, match="reparse"):
+        live._safe_relative(root, "junction-like/payload.json")
+
+
 def _rewrite_final_evidence(
     artifact: Path,
     scenario: str,
@@ -2882,6 +3561,73 @@ def test_consumer_requires_canonical_bound_ownership_marker_inventory(
 
 
 @requires_live_gate
+@pytest.mark.parametrize("failure_site", ["payload", "sidecar", "registration"])
+@pytest.mark.parametrize("error_type", [OSError, KeyboardInterrupt])
+def test_diagnostic_persistence_failure_cleans_owned_host_and_suppresses_final_result(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    failure_site: str,
+    error_type: type[BaseException],
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    original_call = harness.adapter.call
+    original_write = live._atomic_write_bytes
+    original_register = live._register_artifact
+    injected = error_type(f"diagnostic {failure_site} persistence failure")
+
+    async def fail_after_mutation(name: str, arguments: dict[str, Any]):
+        if name == "rhino_geometry":
+            raise RuntimeError("post-mutation verification failure")
+        return await original_call(name, arguments)
+
+    def fail_diagnostic_write(path: Path, payload: bytes) -> None:
+        is_diagnostic = path.parent.name == "diagnostics"
+        if is_diagnostic and (
+            (failure_site == "payload" and path.suffix == ".json")
+            or (failure_site == "sidecar" and path.name.endswith(".json.sha256"))
+        ):
+            raise injected
+        original_write(path, payload)
+
+    def fail_diagnostic_registration(result, path, root, kind):
+        if failure_site == "registration" and kind == "diagnostic":
+            raise injected
+        return original_register(result, path, root, kind)
+
+    harness.adapter.call = fail_after_mutation
+    monkeypatch.setattr(live, "_atomic_write_bytes", fail_diagnostic_write)
+    monkeypatch.setattr(live, "_register_artifact", fail_diagnostic_registration)
+
+    if isinstance(injected, Exception):
+        with pytest.raises(live.FinalEvidenceWriteError, match="diagnostic"):
+            live.run_live_scenario(
+                scenario="rhino",
+                rhino_exe=harness.rhino_exe,
+                artifact_dir=harness.artifact,
+            )
+    else:
+        with pytest.raises(error_type) as caught:
+            live.run_live_scenario(
+                scenario="rhino",
+                rhino_exe=harness.rhino_exe,
+                artifact_dir=harness.artifact,
+            )
+        assert caught.value is injected
+
+    assert harness.close_calls == [harness.process.pid]
+    assert harness.process.poll() is not None
+    assert harness.adapter.objects == {}
+    assert not harness.scratch.exists()
+    assert not Path(harness.record.path).exists()
+    assert not (harness.artifact / "rhino-scenario.json").exists()
+    assert not (harness.artifact / "rhino-scenario.sha256").exists()
+    diagnostics = harness.artifact / "diagnostics"
+    assert not diagnostics.exists() or list(diagnostics.iterdir()) == []
+    assert "scenario_result" not in capsys.readouterr().out
+
+
+@requires_live_gate
 def test_final_evidence_write_failure_emits_no_fabricated_result(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -2902,6 +3648,53 @@ def test_final_evidence_write_failure_emits_no_fabricated_result(
     assert "scenario_result" not in stdout
     assert not (harness.artifact / "rhino-scenario.json").exists()
     assert not (harness.artifact / "rhino-scenario.sha256").exists()
+
+
+@requires_live_gate
+@pytest.mark.parametrize("failure_site", ["evidence", "sidecar"])
+@pytest.mark.parametrize(
+    "error_type", [OSError, _FinalPairBaseInterrupt, KeyboardInterrupt]
+)
+def test_final_evidence_pair_cleans_both_paths_and_preserves_interrupts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    failure_site: str,
+    error_type: type[BaseException],
+) -> None:
+    artifact = tmp_path / "artifacts"
+    artifact.mkdir()
+    evidence_path = artifact / "rhino-scenario.json"
+    sidecar = artifact / "rhino-scenario.sha256"
+    evidence_path.write_bytes(b"stale-evidence")
+    sidecar.write_bytes(b"stale-sidecar")
+    original = live._atomic_write_bytes
+    injected = error_type(f"final {failure_site} write interrupted")
+
+    def fail_selected(path: Path, payload: bytes) -> None:
+        if (
+            failure_site == "evidence"
+            and path == evidence_path
+            or failure_site == "sidecar"
+            and path == sidecar
+        ):
+            raise injected
+        original(path, payload)
+
+    monkeypatch.setattr(live, "_atomic_write_bytes", fail_selected)
+    if isinstance(injected, Exception):
+        with pytest.raises(live.FinalEvidenceWriteError):
+            live._write_final_evidence_pair(
+                artifact, "rhino", {"schema_version": live.SCHEMA_VERSION}
+            )
+    else:
+        with pytest.raises(error_type) as caught:
+            live._write_final_evidence_pair(
+                artifact, "rhino", {"schema_version": live.SCHEMA_VERSION}
+            )
+        assert caught.value is injected
+
+    assert not evidence_path.exists()
+    assert not sidecar.exists()
 
 
 @requires_live_gate
