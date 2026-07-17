@@ -407,28 +407,6 @@ def _rhino_point_script(run_id: str) -> str:
     )
 
 
-def _rhino_sphere_probe_script(object_id: str) -> str:
-    if type(object_id) is not str or _GUID_RE.fullmatch(object_id) is None:
-        raise LiveGateError("invalid sphere probe object identifier")
-    object_id = object_id.lower()
-    return (
-        "import json\n"
-        "import Rhino\n"
-        "import System\n"
-        "import scriptcontext as sc\n"
-        f'object_id = System.Guid("{object_id}")\n'
-        "rhino_object = sc.doc.Objects.FindId(object_id)\n"
-        "geometry = rhino_object.Geometry if rhino_object is not None else None\n"
-        "brep = geometry if isinstance(geometry, Rhino.Geometry.Brep) else None\n"
-        "surface = brep.Faces[0].UnderlyingSurface() if brep is not None and brep.Faces.Count == 1 else None\n"
-        "success, sphere = surface.TryGetSphere() if surface is not None else (False, None)\n"
-        'payload = {"center": [float(sphere.Center.X), float(sphere.Center.Y), float(sphere.Center.Z)] if success else None, '
-        '"id": str(rhino_object.Id) if rhino_object is not None else None, "is_sphere": bool(success), '
-        '"radius": float(sphere.Radius) if success else None}\n'
-        'print("ROOK_SPHERE_GEOMETRY={0}".format(json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)))'
-    )
-
-
 def _grasshopper_edit_arguments(run_id: str, epoch: int) -> dict[str, Any]:
     if _TOKEN_RE.fullmatch(run_id) is None or type(epoch) is not int:
         raise LiveGateError("invalid Grasshopper edit identity")
@@ -544,47 +522,6 @@ def _parse_point_id(output: object) -> str:
     if len(matches) != 1 or _GUID_RE.fullmatch(matches[0]) is None:
         raise LiveGateError("point output must contain exactly one GUID marker")
     return matches[0].lower()
-
-
-def _parse_sphere_probe(output: object, *, expected_id: str) -> dict[str, Any]:
-    if type(output) is not str:
-        raise _ScenarioFailure("verification_failed", "sphere probe output is not text")
-    matches = re.findall(r"(?m)^ROOK_SPHERE_GEOMETRY=(\{[^\r\n]*\})$", output)
-    if len(matches) != 1:
-        raise _ScenarioFailure(
-            "verification_failed", "sphere probe output must contain exactly one marker"
-        )
-    try:
-        payload = json.loads(matches[0])
-        canonical = _canonical_json_bytes(payload).decode("utf-8")
-    except Exception as exc:
-        raise _ScenarioFailure("verification_failed", "sphere probe output is malformed") from exc
-    if matches[0] != canonical or not isinstance(payload, Mapping):
-        raise _ScenarioFailure("verification_failed", "sphere probe output is noncanonical")
-    if set(payload) != {"center", "id", "is_sphere", "radius"}:
-        raise _ScenarioFailure("verification_failed", "sphere probe schema mismatch")
-    observed_id = _validate_guid(payload["id"], "observed sphere ID")
-    center = payload["center"]
-    radius = payload["radius"]
-    if (
-        observed_id != expected_id
-        or payload["is_sphere"] is not True
-        or not isinstance(center, list)
-        or len(center) != 3
-        or any(type(value) not in (int, float) for value in center)
-        or any(not math.isfinite(float(value)) for value in center)
-        or [float(value) for value in center] != [0.0, 0.0, 0.0]
-        or type(radius) not in (int, float)
-        or not math.isfinite(float(radius))
-        or float(radius) != 4.0
-    ):
-        raise _ScenarioFailure("verification_failed", "observed sphere geometry mismatch")
-    return {
-        "center": [float(value) for value in center],
-        "id": observed_id,
-        "is_sphere": True,
-        "radius": float(radius),
-    }
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -1018,6 +955,39 @@ def _validate_guid(value: object, label: str) -> str:
     return value.lower()
 
 
+def _sphere_observation_from_bbox(bbox: object) -> dict[str, Any]:
+    if not isinstance(bbox, Mapping):
+        raise _ScenarioFailure("verification_failed", "sphere bbox projection is malformed")
+    minimum = _ci_get(bbox, "min")
+    maximum = _ci_get(bbox, "max")
+    if (
+        not isinstance(minimum, list)
+        or not isinstance(maximum, list)
+        or len(minimum) != 3
+        or len(maximum) != 3
+        or any(type(value) not in (int, float) for value in [*minimum, *maximum])
+        or any(not math.isfinite(float(value)) for value in [*minimum, *maximum])
+    ):
+        raise _ScenarioFailure("verification_failed", "sphere bbox projection is malformed")
+    minimum_values = [float(value) for value in minimum]
+    maximum_values = [float(value) for value in maximum]
+    extents = [
+        maximum_values[index] - minimum_values[index]
+        for index in range(3)
+    ]
+    if extents[0] <= 0.0 or extents[1:] != [extents[0], extents[0]]:
+        raise _ScenarioFailure(
+            "verification_failed", "sphere bbox does not have positive equal-axis extents"
+        )
+    return {
+        "center": [
+            (minimum_values[index] + maximum_values[index]) / 2.0
+            for index in range(3)
+        ],
+        "radius": extents[0] / 2.0,
+    }
+
+
 def _verify_rhino_geometry(
     sphere: Mapping[str, Any],
     point: Mapping[str, Any],
@@ -1029,7 +999,18 @@ def _verify_rhino_geometry(
     sphere_geometry = _ci_get(sphere, "geometry")
     point_geometry = _ci_get(point, "geometry")
     sphere_bbox = _ci_get(sphere, "bbox")
+    sphere_observation = _sphere_observation_from_bbox(sphere_bbox)
     expected_bbox = {"min": [-4, -4, -4], "max": [4, 4, 4]}
+    face_count = _ci_get(sphere_geometry, "faceCount") if isinstance(sphere_geometry, Mapping) else None
+    edge_count = _ci_get(sphere_geometry, "edgeCount") if isinstance(sphere_geometry, Mapping) else None
+    vertex_count = _ci_get(sphere_geometry, "vertexCount") if isinstance(sphere_geometry, Mapping) else None
+    is_solid = _ci_get(sphere_geometry, "isSolid") if isinstance(sphere_geometry, Mapping) else None
+    is_manifold = _ci_get(sphere_geometry, "isManifold") if isinstance(sphere_geometry, Mapping) else None
+    area = _ci_get(sphere_geometry, "area") if isinstance(sphere_geometry, Mapping) else None
+    volume = _ci_get(sphere_geometry, "volume") if isinstance(sphere_geometry, Mapping) else None
+    observed_radius = sphere_observation["radius"]
+    expected_area = round(4.0 * math.pi * observed_radius**2, 4)
+    expected_volume = round((4.0 / 3.0) * math.pi * observed_radius**3, 4)
     if (
         str(_ci_get(sphere, "id", "")).lower() != sphere_id
         or _ci_get(sphere, "name") != f"RookContainmentSphere-{run_id}"
@@ -1037,7 +1018,21 @@ def _verify_rhino_geometry(
         or sphere_bbox != expected_bbox
         or not isinstance(sphere_geometry, Mapping)
         or _ci_get(sphere_geometry, "type") != "Brep"
-        or _ci_get(sphere_geometry, "isSolid") is not True
+        or type(face_count) is not int
+        or face_count != 1
+        or type(edge_count) is not int
+        or edge_count != 1
+        or type(vertex_count) is not int
+        or vertex_count != 2
+        or is_solid is not True
+        or is_manifold is not True
+        or type(area) not in (int, float)
+        or not math.isfinite(float(area))
+        or float(area) != expected_area
+        or type(volume) not in (int, float)
+        or not math.isfinite(float(volume))
+        or float(volume) != expected_volume
+        or sphere_observation != {"center": [0.0, 0.0, 0.0], "radius": 4.0}
     ):
         raise _ScenarioFailure("verification_failed", "sphere projection mismatch")
     if (
@@ -1054,8 +1049,19 @@ def _verify_rhino_geometry(
             "id": sphere_id,
             "name": f"RookContainmentSphere-{run_id}",
             "type": "Brep",
-            "bbox": expected_bbox,
-            "is_solid": True,
+            "center": sphere_observation["center"],
+            "radius": sphere_observation["radius"],
+            "bbox": {
+                "min": list(_ci_get(sphere_bbox, "min")),
+                "max": list(_ci_get(sphere_bbox, "max")),
+            },
+            "face_count": face_count,
+            "edge_count": edge_count,
+            "vertex_count": vertex_count,
+            "is_solid": is_solid,
+            "is_manifold": is_manifold,
+            "area": float(area),
+            "volume": float(volume),
         },
         "point": {
             "id": point_id,
@@ -1167,16 +1173,6 @@ async def _run_rhino_forward(state: _RunState, recorder: _OperationRecorder) -> 
         sphere_id=sphere_id,
         point_id=point_id,
     )
-    sphere_probe_result = await recorder.call(
-        "rhino_execute",
-        {"code": _rhino_sphere_probe_script(sphere_id)},
-    )
-    sphere_observation = _parse_sphere_probe(
-        _script_output(sphere_probe_result, "rhino_execute"),
-        expected_id=sphere_id,
-    )
-    geometry["sphere"]["center"] = sphere_observation["center"]
-    geometry["sphere"]["radius"] = sphere_observation["radius"]
     doc_after = _rhino_document_projection(_data(await recorder.call("rhino_document", {}), "rhino_document"))
     if doc_after["object_count"] != 2 or doc_after["modified"] is not True:
         raise _ScenarioFailure("verification_failed", "Rhino document did not report the two mutations")

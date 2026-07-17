@@ -31,6 +31,8 @@ SPHERE_ID = "11111111-1111-4111-8111-111111111111"
 POINT_ID = "22222222-2222-4222-8222-222222222222"
 GH_DOCUMENT_ID = "33333333-3333-4333-8333-333333333333"
 GH_BOOTSTRAP_DOCUMENT_ID = "44444444-4444-4444-8444-444444444444"
+SPHERE_AREA = 201.0619
+SPHERE_VOLUME = 268.0826
 
 try:
     live = importlib.import_module("rook.containment_live_gate")
@@ -527,25 +529,6 @@ def _success(data: Any) -> dict[str, Any]:
     return {"success": True, "data": data}
 
 
-def _expected_rhino_sphere_probe_script(object_id: str) -> str:
-    return (
-        "import json\n"
-        "import Rhino\n"
-        "import System\n"
-        "import scriptcontext as sc\n"
-        f'object_id = System.Guid("{object_id}")\n'
-        "rhino_object = sc.doc.Objects.FindId(object_id)\n"
-        "geometry = rhino_object.Geometry if rhino_object is not None else None\n"
-        "brep = geometry if isinstance(geometry, Rhino.Geometry.Brep) else None\n"
-        "surface = brep.Faces[0].UnderlyingSurface() if brep is not None and brep.Faces.Count == 1 else None\n"
-        "success, sphere = surface.TryGetSphere() if surface is not None else (False, None)\n"
-        'payload = {"center": [float(sphere.Center.X), float(sphere.Center.Y), float(sphere.Center.Z)] if success else None, '
-        '"id": str(rhino_object.Id) if rhino_object is not None else None, "is_sphere": bool(success), '
-        '"radius": float(sphere.Radius) if success else None}\n'
-        'print("ROOK_SPHERE_GEOMETRY={0}".format(json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)))'
-    )
-
-
 class _RhinoAdapter:
     def __init__(self, scratch_path: Path):
         self.scratch_path = scratch_path
@@ -554,12 +537,7 @@ class _RhinoAdapter:
         self.saved = False
         self.objects: dict[str, dict[str, Any]] = {}
         self.modified = False
-        self.sphere_probe: dict[str, Any] = {
-            "center": [0.0, 0.0, 0.0],
-            "id": SPHERE_ID,
-            "is_sphere": True,
-            "radius": 4.0,
-        }
+        self.sphere_geometry_overrides: dict[str, Any] = {}
 
     async def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         self.calls.append((name, copy.deepcopy(arguments)))
@@ -594,16 +572,6 @@ class _RhinoAdapter:
             }
             self.modified = True
             return _success({"id": SPHERE_ID})
-        if name == "rhino_execute" and arguments == {
-            "code": _expected_rhino_sphere_probe_script(SPHERE_ID)
-        }:
-            marker = json.dumps(
-                self.sphere_probe,
-                sort_keys=True,
-                separators=(",", ":"),
-                allow_nan=False,
-            )
-            return _success({"output": f"ROOK_SPHERE_GEOMETRY={marker}\n"})
         if name == "rhino_execute":
             assert arguments == {"code": live._rhino_point_script(RUN_ID)}
             self.objects[POINT_ID] = {
@@ -616,22 +584,24 @@ class _RhinoAdapter:
         if name == "rhino_geometry":
             object_id = arguments["id"]
             if object_id == SPHERE_ID:
-                return _success(
-                    {
-                        "id": SPHERE_ID,
-                        "name": f"RookContainmentSphere-{RUN_ID}",
+                projection = {
+                    "id": SPHERE_ID,
+                    "name": f"RookContainmentSphere-{RUN_ID}",
+                    "type": "Brep",
+                    "bbox": {"min": [-4, -4, -4], "max": [4, 4, 4]},
+                    "geometry": {
                         "type": "Brep",
-                        "bbox": {"min": [-4, -4, -4], "max": [4, 4, 4]},
-                        "geometry": {
-                            "type": "Brep",
-                            "faceCount": 1,
-                            "edgeCount": 0,
-                            "vertexCount": 0,
-                            "isSolid": True,
-                            "isManifold": True,
-                        },
-                    }
-                )
+                        "faceCount": 1,
+                        "edgeCount": 1,
+                        "vertexCount": 2,
+                        "isSolid": True,
+                        "isManifold": True,
+                        "area": SPHERE_AREA,
+                        "volume": SPHERE_VOLUME,
+                    },
+                }
+                projection["geometry"].update(self.sphere_geometry_overrides)
+                return _success(projection)
             return _success(
                 {
                     "id": POINT_ID,
@@ -1104,13 +1074,22 @@ def test_successful_fake_host_scenarios_emit_exact_evidence_and_restore(
     if scenario == "rhino":
         assert ("rhino_create", live._rhino_sphere_arguments(RUN_ID)) in harness.adapter.calls
         assert ("rhino_execute", {"code": live._rhino_point_script(RUN_ID)}) in harness.adapter.calls
-        assert (
-            "rhino_execute",
-            {"code": _expected_rhino_sphere_probe_script(SPHERE_ID)},
-        ) in harness.adapter.calls
         sphere = artifact["verification"]["projection"]["objects"]["sphere"]
-        assert sphere["center"] == [0.0, 0.0, 0.0]
-        assert sphere["radius"] == 4.0
+        assert sphere == {
+            "id": SPHERE_ID,
+            "name": f"RookContainmentSphere-{RUN_ID}",
+            "type": "Brep",
+            "center": [0.0, 0.0, 0.0],
+            "radius": 4.0,
+            "bbox": {"min": [-4, -4, -4], "max": [4, 4, 4]},
+            "face_count": 1,
+            "edge_count": 1,
+            "vertex_count": 2,
+            "is_solid": True,
+            "is_manifold": True,
+            "area": SPHERE_AREA,
+            "volume": SPHERE_VOLUME,
+        }
         assert names.index("rhino_delete") < names.index("rhino_document_ops", names.index("rhino_delete"))
         dirty_checks = [
             args for name, args in harness.adapter.calls if name == "rhino_document"
@@ -1126,50 +1105,58 @@ def test_successful_fake_host_scenarios_emit_exact_evidence_and_restore(
 
 
 @requires_live_gate
-def test_rhino_sphere_probe_is_fixed_read_only_and_object_bound() -> None:
-    assert live._rhino_sphere_probe_script(SPHERE_ID) == _expected_rhino_sphere_probe_script(
-        SPHERE_ID
+def test_rhino_uses_only_the_plan_sanctioned_point_script(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+
+    result = live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    )
+
+    assert result.success is True
+    script_bodies = [
+        arguments["code"]
+        for name, arguments in harness.adapter.calls
+        if name == "rhino_execute"
+        and arguments != {"code": live.RUNTIME_SERIAL_CODE}
+    ]
+    assert script_bodies == [live._rhino_point_script(RUN_ID)], (
+        f"{EXPECTED_RED}:RHINO_SOLE_SCRIPT the gate executed a code body not "
+        "sanctioned by the frozen Task 8 plan"
     )
 
 
 @requires_live_gate
 @pytest.mark.parametrize(
-    "observed",
+    "geometry_override",
     [
-        {
-            "center": None,
-            "id": SPHERE_ID,
-            "is_sphere": False,
-            "radius": None,
-        },
-        {
-            "center": [1.0, 0.0, 0.0],
-            "id": SPHERE_ID,
-            "is_sphere": True,
-            "radius": 4.0,
-        },
-        {
-            "center": [0.0, 0.0, 0.0],
-            "id": SPHERE_ID,
-            "is_sphere": True,
-            "radius": 3.0,
-        },
-        {
-            "center": [0.0, 0.0, 0.0],
-            "id": POINT_ID,
-            "is_sphere": True,
-            "radius": 4.0,
-        },
+        {"faceCount": 2},
+        {"edgeCount": 0},
+        {"vertexCount": 0},
+        {"isManifold": False},
+        {"area": 200.0},
+        {"volume": 267.0},
     ],
-    ids=["same_bbox_non_sphere", "wrong_center", "wrong_radius", "wrong_guid"],
+    ids=[
+        "wrong_face_count",
+        "wrong_edge_count",
+        "wrong_vertex_count",
+        "non_manifold",
+        "wrong_area",
+        "wrong_volume",
+    ],
 )
-def test_rhino_rejects_unobserved_or_different_sphere_geometry(
+def test_rhino_rejects_same_bbox_brep_signature_impostors(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    observed: dict[str, Any],
+    geometry_override: dict[str, Any],
 ) -> None:
     harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
-    harness.adapter.sphere_probe = observed
+    harness.adapter.sphere_geometry_overrides = geometry_override
 
     result = live.run_live_scenario(
         scenario="rhino",
@@ -1178,17 +1165,26 @@ def test_rhino_rejects_unobserved_or_different_sphere_geometry(
     )
 
     assert result.success is False, (
-        f"{EXPECTED_RED}:RHINO_OBSERVED_SPHERE same-bbox or differently observed "
-        "geometry was accepted"
+        f"{EXPECTED_RED}:RHINO_BREP_SIGNATURE a same-bbox topology or mass "
+        "properties impostor was accepted"
     )
     assert result.failure_label == "verification_failed"
-    assert (
-        "rhino_execute",
-        {"code": _expected_rhino_sphere_probe_script(SPHERE_ID)},
-    ) in harness.adapter.calls
     evidence = _load_final_artifact(harness.artifact, "rhino")
     assert evidence["verification"]["passed"] is False
     live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
+
+
+@requires_live_gate
+def test_sphere_center_and_radius_are_derived_from_equal_axis_bbox() -> None:
+    observed = live._sphere_observation_from_bbox(
+        {"min": [-3, -2, -1], "max": [5, 6, 7]}
+    )
+    assert observed == {"center": [1.0, 2.0, 3.0], "radius": 4.0}
+
+    with pytest.raises(live._ScenarioFailure, match="equal-axis"):
+        live._sphere_observation_from_bbox(
+            {"min": [-3, -2, -1], "max": [5, 6, 6]}
+        )
 
 
 @requires_live_gate
