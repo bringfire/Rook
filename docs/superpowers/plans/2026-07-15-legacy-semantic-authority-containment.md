@@ -1777,6 +1777,7 @@ function Assert-ExpectedRedResult {
 ```
 
 **Files:**
+- Modify: `.gitattributes`
 - Create: `mcp_server/src/rook/containment_live_gate.py`
 - Create: `mcp_server/src/rook/resources/containment_empty.ghx`
 - Create: `mcp_server/tests/test_containment_live_gate.py`
@@ -1886,6 +1887,11 @@ Tests use fake owned-process/discovery/tool adapters and prove:
 - Every participating Python process has an adjacent before/after containment-ring snapshot with stable PID/start token and zero event delta; the first launch/adapter/tool fake asserts the baseline already exists, and before-baseline versus after-baseline seeded-event cases pin the boundary.
 - The Rhino sphere arguments, complete point script/coordinates/name, Grasshopper library query, fixed Sphere GUID `dabc854d-f50e-408a-b001-d043c7de151d`, and resulting canonical operation hashes match the literals in Steps 4–5 with no alternate fixture inputs.
 - The exact fixture bytes, length, SHA-256, XML counts, package-resource lookup, and live-open empty-state validation are mandatory.
+- The repository root `.gitattributes` contains exactly
+  `mcp_server/src/rook/resources/containment_empty.ghx -text` for this fixture.
+  Tests and staging checks require the fixture's `text` attribute to be
+  `unset`, so `core.autocrlf=true` cannot rewrite its approved LF-only bytes on
+  a fresh Windows checkout.
 - CLI/parser, pre-ownership invalid/nonempty/reparse rejection with zero writes, single-line challenge/response, EOF/wrong-response/drift blocking, absence of an injectable authorization callback, adapter binding/allowlist/envelope preservation, exact result schema/canonical sidecar, deterministic per-operation argument/result artifacts, missing/tampered/noncanonical/path-escaping artifact rejection, installed-origin rejection, and Task 10's fake-consumer parsing are all covered.
 
 - [ ] **Step 2: Run the new tests and confirm they fail**
@@ -1905,6 +1911,13 @@ Assert-ExpectedRedResult -ExitCode $RedExit -Output $RedOutput -Marker 'EXPECTED
 Expected: FAIL because the live-gate module and fixture do not exist.
 
 - [ ] **Step 3: Create the exact approved empty GHX fixture**
+
+Before creating the fixture, append this one exact root attribute line without
+changing existing attributes:
+
+```text
+mcp_server/src/rook/resources/containment_empty.ghx -text
+```
 
 Create `containment_empty.ghx` as UTF-8 **without BOM**, LF line endings, and one final LF. It must be exactly 2,708 bytes with SHA-256 `2def4c0009b3b41de681fe23880f741189c0119820260a35a48f048d2b8830df`. The complete bytes are this ASCII text:
 
@@ -2000,9 +2013,11 @@ Require exactly those two components, exact slider settings/value, exactly that 
 if ($LASTEXITCODE -ne 0) { throw "Task 8 tests failed with exit code $LASTEXITCODE" }
 git add mcp_server/src/rook/containment_live_gate.py `
   mcp_server/src/rook/resources/containment_empty.ghx `
-  mcp_server/tests/test_containment_live_gate.py
+  mcp_server/tests/test_containment_live_gate.py `
+  .gitattributes
 if ($LASTEXITCODE -ne 0) { throw "Task 8 staging failed with exit code $LASTEXITCODE" }
 $ExpectedTask8 = @(
+  '.gitattributes',
   'mcp_server/src/rook/containment_live_gate.py',
   'mcp_server/src/rook/resources/containment_empty.ghx',
   'mcp_server/tests/test_containment_live_gate.py'
@@ -2011,6 +2026,18 @@ $ActualTask8 = @(git diff --cached --name-only)
 if ($LASTEXITCODE -ne 0) { throw "Task 8 staged-file inspection failed with exit code $LASTEXITCODE" }
 $Task8Delta = @(Compare-Object $ExpectedTask8 ($ActualTask8 | Sort-Object))
 if ($Task8Delta.Count -ne 0) { throw "Task 8 staged-file set mismatch: $($Task8Delta | Out-String)" }
+$FixturePath = 'mcp_server/src/rook/resources/containment_empty.ghx'
+$FixtureAttribute = (& git check-attr --cached text -- $FixturePath 2>&1) -join "`n"
+if ($LASTEXITCODE -ne 0 -or $FixtureAttribute -ne "$FixturePath`: text: unset") { throw "Task 8 fixture text attribute is not unset: $FixtureAttribute" }
+$FixtureBytes = [IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $FixturePath).Path)
+if ($FixtureBytes.Length -ne 2708) { throw "Task 8 fixture length drifted: $($FixtureBytes.Length)" }
+$FixtureHash = ([BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($FixtureBytes))).Replace('-', '').ToLowerInvariant()
+if ($FixtureHash -ne '2def4c0009b3b41de681fe23880f741189c0119820260a35a48f048d2b8830df') { throw "Task 8 fixture hash drifted: $FixtureHash" }
+$WorkingBlob = (& git hash-object -- $FixturePath 2>&1) -join "`n"
+$StagedBlob = (& git rev-parse ":$FixturePath" 2>&1) -join "`n"
+if ($LASTEXITCODE -ne 0 -or $WorkingBlob -ne $StagedBlob) { throw "Task 8 staged fixture bytes differ from the verified working bytes" }
+$FixtureEol = (& git ls-files --eol -- $FixturePath 2>&1) -join "`n"
+if ($LASTEXITCODE -ne 0 -or $FixtureEol -notmatch '(^|\s)i/lf\s+w/lf\s+attr/-text(\s|$)') { throw "Task 8 fixture EOL/attribute proof failed: $FixtureEol" }
 git commit -m "test(containment): add authorized live preservation"
 if ($LASTEXITCODE -ne 0) { throw "Task 8 commit failed with exit code $LASTEXITCODE" }
 ```
