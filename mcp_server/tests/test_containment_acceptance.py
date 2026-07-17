@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import copy
 import hashlib
 import importlib
@@ -731,6 +732,249 @@ def test_structural_checkout_detection_preserves_installed_and_named_rook_cwds(
         )
 
 
+def _fake_release_runtime(tmp_path: Path) -> SimpleNamespace:
+    runtime_root = tmp_path / "installed-runtime"
+    install_root = runtime_root / "app"
+    data_root = runtime_root / "data"
+    temp_root = runtime_root / "temp"
+    for path in (install_root, data_root, temp_root):
+        path.mkdir(parents=True)
+    return SimpleNamespace(
+        mode="release",
+        install_root=install_root,
+        data_root=data_root,
+        runtime_root=runtime_root,
+        temp_root=temp_root,
+    )
+
+
+def _set_exact_acceptance_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime: SimpleNamespace,
+    *,
+    profile: str | None = None,
+    interactive: bool = False,
+) -> None:
+    for name in tuple(os.environ):
+        if (
+            name.upper() in acceptance._RELEVANT_NON_ROOK_ENV
+            or name.casefold().startswith("rook_")
+        ):
+            monkeypatch.delenv(name, raising=False)
+    expected = acceptance._expected_relevant_environment(
+        install_root=runtime.install_root,
+        data_root=runtime.data_root,
+        dspy_cache=runtime.data_root / "dspy-cache",
+        chirp_home=None,
+        profile=profile,
+        interactive=interactive,
+    )
+    for name, value in expected.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("TEMP", str(runtime.temp_root))
+    monkeypatch.setenv("TMP", str(runtime.temp_root))
+
+
+def _install_forbidden_acceptance_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, int]:
+    from mcp.client import stdio as mcp_stdio
+    from rook import server
+
+    calls = {"refresh": 0, "list": 0, "probe": 0, "child": 0}
+
+    async def forbidden_refresh(_server: object) -> None:
+        calls["refresh"] += 1
+        raise acceptance.AcceptanceError("acceptance work started")
+
+    async def forbidden_list_tools():
+        calls["list"] += 1
+        raise acceptance.AcceptanceError("acceptance work started")
+
+    @contextlib.contextmanager
+    def forbidden_probe(*_args, **_kwargs):
+        calls["probe"] += 1
+        raise acceptance.AcceptanceError("acceptance work started")
+        yield
+
+    @contextlib.asynccontextmanager
+    async def forbidden_child(*_args, **_kwargs):
+        calls["child"] += 1
+        raise acceptance.AcceptanceError("acceptance work started")
+        yield
+
+    monkeypatch.setattr(
+        acceptance,
+        "_refresh_installed_catalog",
+        forbidden_refresh,
+    )
+    monkeypatch.setattr(server, "list_tools", forbidden_list_tools)
+    monkeypatch.setattr(
+        acceptance,
+        "_prepare_internal_probe",
+        forbidden_probe,
+    )
+    monkeypatch.setattr(mcp_stdio, "stdio_client", forbidden_child)
+    return calls
+
+
+def _invoke_acceptance_command(
+    command: str,
+    *,
+    tmp_path: Path,
+    profile: str | None = None,
+) -> None:
+    artifact_dir = tmp_path / f"artifacts-{command}-{profile or 'none'}"
+    if command == "transport-profile":
+        assert profile is not None
+        asyncio.run(
+            acceptance._transport_profile(
+                profile=profile,
+                artifact_dir=artifact_dir,
+            )
+        )
+    elif command == "_transport-child":
+        assert profile is not None
+        asyncio.run(
+            acceptance._transport_child(
+                profile=profile,
+                run_id=RUN_ID,
+                spy_path=(tmp_path / f"spy-{profile}.json").resolve(),
+            )
+        )
+    elif command in {"discovery-default", "discovery-interactive"}:
+        asyncio.run(
+            acceptance._discovery_command(
+                command=command,
+                artifact_dir=artifact_dir,
+            )
+        )
+    elif command == "internal-matrix":
+        acceptance._internal_matrix(artifact_dir=artifact_dir)
+    else:
+        raise AssertionError(f"unsupported test command: {command}")
+
+
+@requires_contract
+@pytest.mark.parametrize(
+    "command,profile,interactive",
+    [
+        ("transport-profile", "full", False),
+        ("_transport-child", "full", False),
+        ("discovery-default", None, False),
+        ("internal-matrix", None, False),
+    ],
+)
+def test_bad_installed_origin_aborts_before_refresh_list_probe_or_child(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    command: str,
+    profile: str | None,
+    interactive: bool,
+) -> None:
+    calls = _install_forbidden_acceptance_work(monkeypatch)
+    runtime = _fake_release_runtime(tmp_path)
+    _set_exact_acceptance_environment(
+        monkeypatch,
+        runtime,
+        profile=profile,
+        interactive=interactive,
+    )
+    monkeypatch.setattr(acceptance, "resolve_runtime_paths", lambda: runtime)
+
+    def reject_bad_origin(**_kwargs):
+        raise acceptance.AcceptanceError("bad installed origin")
+
+    monkeypatch.setattr(
+        acceptance,
+        "_validate_current_installed_process",
+        reject_bad_origin,
+    )
+
+    with pytest.raises(acceptance.AcceptanceError, match="bad installed origin"):
+        _invoke_acceptance_command(
+            command,
+            tmp_path=tmp_path,
+            profile=profile,
+        )
+    assert calls == {"refresh": 0, "list": 0, "probe": 0, "child": 0}
+
+
+@requires_contract
+@pytest.mark.parametrize(
+    "command,profile,interactive,mismatch_name,mismatch_value",
+    [
+        ("transport-profile", "full", False, "ROOK_MCP_TOOL_PROFILE", "lean"),
+        ("transport-profile", "lean", False, "ROOK_MCP_TOOL_PROFILE", "full"),
+        (
+            "transport-profile",
+            "readonly",
+            False,
+            "ROOK_MCP_TOOL_PROFILE",
+            "full",
+        ),
+        (
+            "_transport-child",
+            "full",
+            False,
+            "ROOK_TARGET",
+            "hostile-target",
+        ),
+        (
+            "discovery-default",
+            None,
+            False,
+            "ROOK_MCP_TOOL_PROFILE",
+            "readonly",
+        ),
+        (
+            "discovery-interactive",
+            "full",
+            True,
+            "ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING",
+            None,
+        ),
+        (
+            "internal-matrix",
+            None,
+            False,
+            "ROOK_TARGET",
+            "hostile-target",
+        ),
+    ],
+)
+def test_acceptance_commands_reject_startup_environment_mismatch_before_work(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    command: str,
+    profile: str | None,
+    interactive: bool,
+    mismatch_name: str,
+    mismatch_value: str | None,
+) -> None:
+    calls = _install_forbidden_acceptance_work(monkeypatch)
+    runtime = _fake_release_runtime(tmp_path)
+    _set_exact_acceptance_environment(
+        monkeypatch,
+        runtime,
+        profile=profile,
+        interactive=interactive,
+    )
+    if mismatch_value is None:
+        monkeypatch.delenv(mismatch_name)
+    else:
+        monkeypatch.setenv(mismatch_name, mismatch_value)
+    monkeypatch.setattr(acceptance, "resolve_runtime_paths", lambda: runtime)
+
+    with pytest.raises(acceptance.AcceptanceError, match="environment"):
+        _invoke_acceptance_command(
+            command,
+            tmp_path=tmp_path,
+            profile=profile,
+        )
+    assert calls == {"refresh": 0, "list": 0, "probe": 0, "child": 0}
+
+
 @requires_contract
 def test_installed_origin_and_source_free_evidence_validation(
     tmp_path: Path,
@@ -1216,6 +1460,87 @@ def test_spy_record_never_serializes_sensitive_payload_fields() -> None:
         assert forbidden not in serialized.casefold()
 
 
+def _canonical_denial_tool_message(tool: str, call_id: str) -> dict[str, str]:
+    entry = resolve_contained_identity(tool)
+    assert entry is not None
+    return {
+        "role": "tool",
+        "tool_call_id": call_id,
+        "content": json.dumps(
+            containment_envelope(entry),
+            separators=(",", ":"),
+        ),
+    }
+
+
+@requires_contract
+@pytest.mark.parametrize("adapter", ["rook_agent", "rook_chat"])
+def test_primary_continuation_requires_exact_causal_denial_history(
+    adapter: str,
+) -> None:
+    validator = getattr(
+        acceptance,
+        "_require_causal_denial_history",
+        None,
+    )
+    assert callable(validator), "causal denial history validator is missing"
+    validator(
+        [_canonical_denial_tool_message("spawn_agent", "call-1")],
+        tool="spawn_agent",
+        call_id="call-1",
+        adapter=adapter,
+    )
+
+
+@requires_contract
+@pytest.mark.parametrize("adapter", ["rook_agent", "rook_chat"])
+@pytest.mark.parametrize(
+    "history",
+    [
+        [],
+        [
+            {
+                "role": "assistant",
+                "tool_call_id": "call-1",
+                "content": _canonical_denial_tool_message(
+                    "spawn_agent",
+                    "call-1",
+                )["content"],
+            }
+        ],
+        [_canonical_denial_tool_message("spawn_agent", "wrong-call")],
+        [
+            {
+                **_canonical_denial_tool_message("spawn_agent", "call-1"),
+                "content": json.dumps(
+                    containment_envelope(
+                        resolve_contained_identity("spawn_agent")
+                    )
+                ),
+            }
+        ],
+    ],
+    ids=("count-only", "fake-role", "fake-call-id", "noncanonical-content"),
+)
+def test_primary_continuation_rejects_count_only_or_fake_history(
+    adapter: str,
+    history: list[dict[str, str]],
+) -> None:
+    validator = getattr(
+        acceptance,
+        "_require_causal_denial_history",
+        None,
+    )
+    assert callable(validator), "causal denial history validator is missing"
+    with pytest.raises(acceptance.AcceptanceError, match="causal|denial|history"):
+        validator(
+            history,
+            tool="spawn_agent",
+            call_id="call-1",
+            adapter=adapter,
+        )
+
+
 @requires_contract
 def test_internal_pair_matrix_is_exact_164_with_pinned_origins() -> None:
     pairs = acceptance._expected_internal_pairs()
@@ -1421,15 +1746,37 @@ def synthetic_installed_runtime(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> dict[str, Any]:
     if acceptance is None:
-        pytest.skip("acceptance module is not implemented")
+        raise RuntimeError(
+            "Task 7 installed fixture infrastructure missing: "
+            "rook.containment_acceptance could not be imported"
+        )
+    local_appdata = os.environ.get("LOCALAPPDATA")
+    if not local_appdata:
+        raise RuntimeError(
+            "Task 7 installed fixture infrastructure missing: "
+            "LOCALAPPDATA is unset"
+        )
     dependency_site = _managed_dependency_site()
     if dependency_site is None:
-        pytest.skip("managed dependency venv is unavailable")
+        expected_site = (
+            Path(local_appdata)
+            / "Rook"
+            / "venv"
+            / "Lib"
+            / "site-packages"
+        )
+        raise RuntimeError(
+            "Task 7 installed fixture dependency site is missing: "
+            f"{expected_site}"
+        )
     dependency_python = (
         dependency_site.parents[1] / "Scripts" / "python.exe"
     )
     if not dependency_python.is_file():
-        pytest.skip("managed dependency interpreter is unavailable")
+        raise RuntimeError(
+            "Task 7 installed fixture interpreter is missing: "
+            f"{dependency_python}"
+        )
 
     root = tmp_path_factory.mktemp("t7-installed")
     install_root = root / "app"
@@ -1559,6 +1906,62 @@ def synthetic_installed_runtime(
     }
 
 
+@pytest.mark.parametrize(
+    "scenario,expected_fragment",
+    [
+        ("acceptance-missing", "rook.containment_acceptance"),
+        ("localappdata-unset", "LOCALAPPDATA"),
+        ("dependency-site-missing", "site-packages"),
+        ("interpreter-missing", "python.exe"),
+    ],
+)
+def test_installed_fixture_missing_infrastructure_is_a_hard_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    scenario: str,
+    expected_fragment: str,
+) -> None:
+    module = sys.modules[__name__]
+    if scenario == "acceptance-missing":
+        monkeypatch.setattr(module, "acceptance", None)
+    elif scenario == "localappdata-unset":
+        monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    else:
+        local_appdata = tmp_path / "LocalAppData"
+        monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
+        if scenario == "interpreter-missing":
+            (
+                local_appdata
+                / "Rook"
+                / "venv"
+                / "Lib"
+                / "site-packages"
+            ).mkdir(parents=True)
+
+    fixture_body = synthetic_installed_runtime.__wrapped__
+    unused_factory = SimpleNamespace(
+        mktemp=lambda _name: pytest.fail(
+            "fixture allocated temp state before dependency validation"
+        )
+    )
+    try:
+        fixture_body(unused_factory)
+    except BaseException as exc:
+        assert isinstance(exc, RuntimeError), (
+            f"missing infrastructure must raise RuntimeError, got {type(exc)!r}"
+        )
+        assert expected_fragment.casefold() in str(exc).casefold()
+    else:
+        pytest.fail("missing installed fixture infrastructure was accepted")
+
+
+def test_installed_fixture_contains_no_pytest_skip_path() -> None:
+    fixture_source = inspect.getsource(
+        synthetic_installed_runtime.__wrapped__
+    )
+    assert "pytest.skip" not in fixture_source
+
+
 def _installed_command_environment(
     runtime: dict[str, Any],
     *,
@@ -1583,6 +1986,8 @@ def _installed_command_environment(
 def _run_installed_command(
     runtime: dict[str, Any],
     *args: str,
+    profile: str | None = None,
+    interactive: bool = False,
     timeout: int = 180,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -1593,7 +1998,11 @@ def _run_installed_command(
             *args,
         ],
         cwd=runtime["run_root"],
-        env=_installed_command_environment(runtime),
+        env=_installed_command_environment(
+            runtime,
+            profile=profile,
+            interactive=interactive,
+        ),
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -1661,6 +2070,7 @@ def test_private_child_runs_true_stdio_transport_end_to_end(
         profile,
         "--artifact-dir",
         str(artifact_dir),
+        profile=profile,
     )
     assert completed.returncode == 0, (
         completed.stdout + "\n" + completed.stderr
@@ -1764,11 +2174,15 @@ def test_discovery_commands_run_in_isolated_installed_children(
         ("discovery-interactive", 425),
     ):
         artifact_dir = runtime["artifact_root"] / command
+        interactive = command == "discovery-interactive"
+        profile = "full" if interactive else None
         completed = _run_installed_command(
             runtime,
             command,
             "--artifact-dir",
             str(artifact_dir),
+            profile=profile,
+            interactive=interactive,
         )
         assert completed.returncode == 0, (
             completed.stdout + "\n" + completed.stderr
@@ -1776,8 +2190,6 @@ def test_discovery_commands_run_in_isolated_installed_children(
         artifact = json.loads(
             (artifact_dir / f"{command}.json").read_text(encoding="utf-8")
         )
-        interactive = command == "discovery-interactive"
-        profile = "full" if interactive else None
         _assert_exact_installed_environment(
             artifact["process"]["environment"],
             runtime,

@@ -1793,6 +1793,32 @@ def _code_owned_dspy_cache(data_root: Path) -> Path:
     return cache
 
 
+def _validate_current_installed_startup_environment(
+    *,
+    expected_profile: str | None = None,
+    expected_interactive: bool = False,
+):
+    runtime = resolve_runtime_paths()
+    if runtime.mode != "release":
+        raise AcceptanceError(
+            f"acceptance commands require release mode, got {runtime.mode!r}"
+        )
+    if _path_looks_like_development_source(runtime.install_root):
+        raise AcceptanceError(
+            f"startup install root is source-like: {runtime.install_root}"
+        )
+    _validate_relevant_environment(
+        _relevant_environment(),
+        install_root=runtime.install_root,
+        data_root=runtime.data_root,
+        dspy_cache=(runtime.data_root / "dspy-cache").resolve(),
+        chirp_home=_code_owned_chirp_home(runtime.install_root),
+        profile=expected_profile,
+        interactive=expected_interactive,
+    )
+    return runtime
+
+
 def _validate_current_installed_process(
     *,
     required_rook_modules: Iterable[str],
@@ -1849,8 +1875,9 @@ async def _transport_child(
         raise AcceptanceError("private transport spy path is malformed")
     if spy_path.exists():
         raise AcceptanceError("private transport spy path must be fresh")
-    if os.environ.get("ROOK_MCP_TOOL_PROFILE") != profile:
-        raise AcceptanceError("private transport profile environment drift")
+    _validate_current_installed_startup_environment(
+        expected_profile=profile,
+    )
 
     from mcp import types as mcp_types
     from mcp.server.stdio import stdio_server
@@ -1858,7 +1885,6 @@ async def _transport_child(
     from . import server
     from .learning.metrics_store import get_metrics_store
 
-    await _refresh_installed_catalog(server)
     process_evidence = _validate_current_installed_process(
         required_rook_modules=(
             "rook",
@@ -1869,6 +1895,7 @@ async def _transport_child(
         allowed_command_roots=(spy_path.parent,),
         expected_profile=profile,
     )
+    await _refresh_installed_catalog(server)
     retained_handler = server.mcp.request_handlers[mcp_types.CallToolRequest]
     probe_index = 0
 
@@ -1961,7 +1988,22 @@ async def _transport_child(
         raise AcceptanceError(
             f"private transport ended after {probe_index} probes"
         )
-    if process_evidence["process_id"] != os.getpid():
+    final_process_evidence = _validate_current_installed_process(
+        required_rook_modules=(
+            "rook",
+            "rook.containment_acceptance",
+            "rook.server",
+            "rook.tool_lifecycle_runtime",
+        ),
+        allowed_command_roots=(spy_path.parent,),
+        expected_profile=profile,
+    )
+    if (
+        final_process_evidence["process_id"]
+        != process_evidence["process_id"]
+        or final_process_evidence["process_start_token"]
+        != process_evidence["process_start_token"]
+    ):
         raise AcceptanceError("private transport process identity drift")
 
 
@@ -1972,9 +2014,20 @@ async def _transport_profile(
 ) -> Path:
     if profile not in PROFILE_VALUES:
         raise AcceptanceError(f"invalid transport profile: {profile}")
-    runtime = resolve_runtime_paths()
-    if runtime.mode != "release":
-        raise AcceptanceError("transport acceptance requires release mode")
+    runtime = _validate_current_installed_startup_environment(
+        expected_profile=profile,
+    )
+
+    from . import server
+
+    _validate_current_installed_process(
+        required_rook_modules=(
+            "rook",
+            "rook.containment_acceptance",
+            "rook.server",
+        ),
+        expected_profile=profile,
+    )
     artifact_dir = Path(artifact_dir).expanduser().resolve()
     artifact_dir.mkdir(parents=True, exist_ok=True)
     data_root = runtime.data_root.resolve()
@@ -2125,9 +2178,6 @@ async def _transport_profile(
         raise AcceptanceError("private transport child emitted a traceback")
     final_spy = json.loads(spy_path.read_text(encoding="utf-8"))
 
-    os.environ["ROOK_MCP_TOOL_PROFILE"] = profile
-    from . import server
-
     parent_tools = await server.list_tools()
     projections = _collect_model_projection_evidence_from_tools(parent_tools)
     process = _validate_current_installed_process(
@@ -2181,16 +2231,25 @@ async def _discovery_command(
 ) -> Path:
     if command not in _DISCOVERY_COUNTS:
         raise AcceptanceError(f"invalid discovery command: {command}")
-    if command == "discovery-default":
-        os.environ.pop("ROOK_MCP_TOOL_PROFILE", None)
-        os.environ.pop("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", None)
-    else:
-        os.environ["ROOK_MCP_TOOL_PROFILE"] = "full"
-        os.environ["ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING"] = "1"
+    interactive = command == "discovery-interactive"
+    profile = "full" if interactive else None
+    runtime = _validate_current_installed_startup_environment(
+        expected_profile=profile,
+        expected_interactive=interactive,
+    )
 
     from . import server
     from .learning.metrics_store import get_metrics_store
 
+    _validate_current_installed_process(
+        required_rook_modules=(
+            "rook",
+            "rook.containment_acceptance",
+            "rook.server",
+        ),
+        expected_profile=profile,
+        expected_interactive=interactive,
+    )
     await _refresh_installed_catalog(server)
     store = get_metrics_store()
     before = store.get_containment_denials_snapshot()
@@ -2210,7 +2269,6 @@ async def _discovery_command(
         telemetry_after=after,
     )
     projections = _collect_model_projection_evidence_from_tools(tools)
-    runtime = resolve_runtime_paths()
     artifact_dir = Path(artifact_dir).expanduser().resolve()
     artifact_dir.mkdir(parents=True, exist_ok=True)
     process = _validate_current_installed_process(
@@ -2220,10 +2278,8 @@ async def _discovery_command(
             "rook.server",
         ),
         allowed_command_roots=(artifact_dir,),
-        expected_profile=(
-            "full" if command == "discovery-interactive" else None
-        ),
-        expected_interactive=(command == "discovery-interactive"),
+        expected_profile=profile,
+        expected_interactive=interactive,
     )
     artifact = {
         "schema_version": SCHEMA_VERSION,
@@ -2355,6 +2411,35 @@ def _extract_internal_denial(tool: str, result: object) -> dict[str, object]:
     denial = dict(candidate)
     _validate_denial_result(tool, denial)
     return denial
+
+
+def _require_causal_denial_history(
+    history: object,
+    *,
+    tool: str,
+    call_id: str,
+    adapter: Literal["rook_agent", "rook_chat"],
+) -> None:
+    if adapter not in {"rook_agent", "rook_chat"}:
+        raise AcceptanceError(f"unsupported causal history adapter: {adapter}")
+    entry = resolve_contained_identity(tool)
+    if entry is None:
+        raise AcceptanceError(f"causal history tool is not contained: {tool}")
+    expected = {
+        "role": "tool",
+        "tool_call_id": call_id,
+        "content": json.dumps(
+            containment_envelope(entry),
+            separators=(",", ":"),
+        ),
+    }
+    if type(history) is not list or sum(
+        type(message) is dict and message == expected
+        for message in history
+    ) != 1:
+        raise AcceptanceError(
+            f"{adapter} primary continuation lacks exact causal denial history"
+        )
 
 
 def _internal_agent_response(
@@ -2546,8 +2631,9 @@ def _prepare_internal_probe(
             )
             call_id = f"acceptance-agent-{tool}"
             calls = {"count": 0}
+            causal_history_validated = {"value": False}
 
-            async def primary_model(_context):
+            async def primary_model(context):
                 calls["count"] += 1
                 if calls["count"] == 1:
                     return _internal_agent_response(
@@ -2555,6 +2641,13 @@ def _prepare_internal_probe(
                         call_id=call_id,
                     )
                 if calls["count"] == 2:
+                    _require_causal_denial_history(
+                        context,
+                        tool=tool,
+                        call_id=call_id,
+                        adapter="rook_agent",
+                    )
+                    causal_history_validated["value"] = True
                     return _internal_agent_response(
                         content="continued after containment"
                     )
@@ -2570,6 +2663,10 @@ def _prepare_internal_probe(
                 if calls["count"] != 2:
                     raise AcceptanceError(
                         "RookAgent primary model call count drift"
+                    )
+                if not causal_history_validated["value"]:
+                    raise AcceptanceError(
+                        "RookAgent causal denial history was not validated"
                     )
                 messages = [
                     message
@@ -2612,12 +2709,20 @@ def _prepare_internal_probe(
             )
             call_id = f"acceptance-chat-{tool}"
             calls = {"count": 0}
+            causal_history_validated = {"value": False}
 
-            async def primary_provider(**_kwargs):
+            async def primary_provider(**kwargs):
                 calls["count"] += 1
                 if calls["count"] == 1:
                     return _internal_chat_tool_stream(tool, call_id)
                 if calls["count"] == 2:
+                    _require_causal_denial_history(
+                        kwargs.get("messages"),
+                        tool=tool,
+                        call_id=call_id,
+                        adapter="rook_chat",
+                    )
+                    causal_history_validated["value"] = True
                     return _internal_chat_text_stream()
                 raise AcceptanceError(
                     "ChatRunner primary model exceeded two calls"
@@ -2657,6 +2762,10 @@ def _prepare_internal_probe(
                 if calls["count"] != 2:
                     raise AcceptanceError(
                         "ChatRunner primary model call count drift"
+                    )
+                if not causal_history_validated["value"]:
+                    raise AcceptanceError(
+                        "ChatRunner causal denial history was not validated"
                     )
                 messages = [
                     message
@@ -2991,23 +3100,21 @@ def _invoke_prepared_internal_probe(
 
 
 def _internal_matrix(*, artifact_dir: Path) -> Path:
-    if "ROOK_MCP_TOOL_PROFILE" in os.environ:
-        raise AcceptanceError(
-            "internal matrix profile environment must be absent"
-        )
-    if "ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING" in os.environ:
-        raise AcceptanceError(
-            "internal matrix interactive environment must be absent"
-        )
-    runtime = resolve_runtime_paths()
-    if runtime.mode != "release":
-        raise AcceptanceError("internal acceptance requires release mode")
+    runtime = _validate_current_installed_startup_environment()
     artifact_dir = Path(artifact_dir).expanduser().resolve()
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
     from . import server
     from .learning.metrics_store import get_metrics_store
 
+    _validate_current_installed_process(
+        required_rook_modules=(
+            "rook",
+            "rook.containment_acceptance",
+            "rook.server",
+        ),
+        allowed_command_roots=(artifact_dir,),
+    )
     pairs = _expected_internal_pairs()
     _validate_internal_pair_set(pairs)
     probes: list[dict[str, object]] = []
