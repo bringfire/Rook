@@ -435,12 +435,288 @@ function New-ContainmentCreateNewStream {
     )
 }
 
-function Remove-ContainmentOwnedFile {
+function Initialize-ContainmentNativeFileApi {
+    if ($null -ne ([Management.Automation.PSTypeName]'RookTask10ContainmentNativeFileApi').Type) {
+        return
+    }
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+public static class RookTask10ContainmentNativeFileApi
+{
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ByHandleFileInformation
+    {
+        public uint FileAttributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+        public uint VolumeSerialNumber;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+        public uint NumberOfLinks;
+        public uint FileIndexHigh;
+        public uint FileIndexLow;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct FileDispositionInfo
+    {
+        [MarshalAs(UnmanagedType.Bool)]
+        public bool DeleteFile;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetFileInformationByHandle(
+        SafeFileHandle file,
+        out ByHandleFileInformation information);
+
+    [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
+    public static extern SafeFileHandle CreateFile(
+        string path,
+        uint desiredAccess,
+        uint shareMode,
+        IntPtr securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        IntPtr templateFile);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetFileInformationByHandle(
+        SafeFileHandle file,
+        int informationClass,
+        ref FileDispositionInfo information,
+        uint bufferSize);
+}
+'@ -ErrorAction Stop | Out-Null
+}
+
+function Get-ContainmentOwnedFileIdentity {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][Microsoft.Win32.SafeHandles.SafeFileHandle]$SafeFileHandle
+    )
+
+    Initialize-ContainmentNativeFileApi
+    $information = [RookTask10ContainmentNativeFileApi+ByHandleFileInformation]::new()
+    if (-not [RookTask10ContainmentNativeFileApi]::GetFileInformationByHandle($SafeFileHandle, [ref]$information)) {
+        $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        $message = ([ComponentModel.Win32Exception]::new($errorCode)).Message
+        throw "owned file identity query failed: $Path; win32_error=$errorCode ($message)"
+    }
+    return [pscustomobject]@{
+        Path = [IO.Path]::GetFullPath($Path)
+        VolumeSerialNumber = [uint64]$information.VolumeSerialNumber
+        FileIndexHigh = [uint64]$information.FileIndexHigh
+        FileIndexLow = [uint64]$information.FileIndexLow
+    }
+}
+
+function Test-ContainmentOwnedFileIdentityEqual {
+    param(
+        [Parameter(Mandatory = $true)][object]$Left,
+        [Parameter(Mandatory = $true)][object]$Right
+    )
+
+    return ([uint64]$Left.VolumeSerialNumber -eq [uint64]$Right.VolumeSerialNumber -and
+        [uint64]$Left.FileIndexHigh -eq [uint64]$Right.FileIndexHigh -and
+        [uint64]$Left.FileIndexLow -eq [uint64]$Right.FileIndexLow)
+}
+
+function Copy-ContainmentOwnedFileIdentityPath {
+    param(
+        [Parameter(Mandatory = $true)][object]$Ownership,
+        [Parameter(Mandatory = $true)][string]$Path
+    )
+
+    return [pscustomobject]@{
+        Path = [IO.Path]::GetFullPath($Path)
+        VolumeSerialNumber = [uint64]$Ownership.VolumeSerialNumber
+        FileIndexHigh = [uint64]$Ownership.FileIndexHigh
+        FileIndexLow = [uint64]$Ownership.FileIndexLow
+    }
+}
+
+function Get-ContainmentFileIdentityAtPath {
     param([Parameter(Mandatory = $true)][string]$Path)
 
-    Remove-Item -LiteralPath $Path -Force -ErrorAction Stop
-    if (Test-Path -LiteralPath $Path) {
-        throw "owned file remains after cleanup: $Path"
+    Initialize-ContainmentNativeFileApi
+    $readAttributes = [uint32]0x00000080
+    $shareReadWriteDelete = [uint32]0x00000007
+    $openExisting = [uint32]3
+    $openReparsePoint = [uint32]0x00200000
+    $handle = [RookTask10ContainmentNativeFileApi]::CreateFile(
+        $Path,
+        $readAttributes,
+        $shareReadWriteDelete,
+        [IntPtr]::Zero,
+        $openExisting,
+        $openReparsePoint,
+        [IntPtr]::Zero)
+    if ($handle.IsInvalid) {
+        $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        $handle.Dispose()
+        $message = ([ComponentModel.Win32Exception]::new($errorCode)).Message
+        throw "file identity open failed: $Path; win32_error=$errorCode ($message)"
+    }
+    try {
+        return Get-ContainmentOwnedFileIdentity -Path $Path -SafeFileHandle $handle
+    }
+    finally {
+        $handle.Dispose()
+    }
+}
+
+function Get-ContainmentDirectoryIdentityAtPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    Initialize-ContainmentNativeFileApi
+    $readAttributes = [uint32]0x00000080
+    $shareReadWriteDelete = [uint32]0x00000007
+    $openExisting = [uint32]3
+    $backupSemanticsAndOpenReparsePoint = [uint32]0x02200000
+    $handle = [RookTask10ContainmentNativeFileApi]::CreateFile(
+        $Path,
+        $readAttributes,
+        $shareReadWriteDelete,
+        [IntPtr]::Zero,
+        $openExisting,
+        $backupSemanticsAndOpenReparsePoint,
+        [IntPtr]::Zero)
+    if ($handle.IsInvalid) {
+        $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        $handle.Dispose()
+        $message = ([ComponentModel.Win32Exception]::new($errorCode)).Message
+        throw "directory identity open failed: $Path; win32_error=$errorCode ($message)"
+    }
+    try {
+        return Get-ContainmentOwnedFileIdentity -Path $Path -SafeFileHandle $handle
+    }
+    finally {
+        $handle.Dispose()
+    }
+}
+
+function Remove-ContainmentOwnedFileByIdentity {
+    param([Parameter(Mandatory = $true)][object]$Ownership)
+
+    Initialize-ContainmentNativeFileApi
+    $path = [string]$Ownership.Path
+    if (-not (Test-Path -LiteralPath $path)) { return }
+    $deleteAccess = [uint32]0x00010080
+    $shareReadWriteDelete = [uint32]0x00000007
+    $openExisting = [uint32]3
+    $openReparsePoint = [uint32]0x00200000
+    $handle = [RookTask10ContainmentNativeFileApi]::CreateFile(
+        $path,
+        $deleteAccess,
+        $shareReadWriteDelete,
+        [IntPtr]::Zero,
+        $openExisting,
+        $openReparsePoint,
+        [IntPtr]::Zero)
+    if ($handle.IsInvalid) {
+        $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        $handle.Dispose()
+        if ($errorCode -eq 2 -or $errorCode -eq 3) { return }
+        $message = ([ComponentModel.Win32Exception]::new($errorCode)).Message
+        throw "owned file cleanup open failed: $path; win32_error=$errorCode ($message)"
+    }
+    try {
+        $actual = Get-ContainmentOwnedFileIdentity -Path $path -SafeFileHandle $handle
+        if (-not (Test-ContainmentOwnedFileIdentityEqual -Left $Ownership -Right $actual)) {
+            throw "owned file identity mismatch; refusing pathname cleanup: $path"
+        }
+        $disposition = [RookTask10ContainmentNativeFileApi+FileDispositionInfo]::new()
+        $disposition.DeleteFile = $true
+        $size = [uint32][Runtime.InteropServices.Marshal]::SizeOf($disposition)
+        if (-not [RookTask10ContainmentNativeFileApi]::SetFileInformationByHandle($handle, 4, [ref]$disposition, $size)) {
+            $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            $message = ([ComponentModel.Win32Exception]::new($errorCode)).Message
+            throw "owned file handle disposition failed: $path; win32_error=$errorCode ($message)"
+        }
+    }
+    finally {
+        $handle.Dispose()
+    }
+    if (Test-Path -LiteralPath $path) {
+        throw "owned file path remains after identity-bound cleanup: $path"
+    }
+}
+
+function Remove-ContainmentOwnedDirectoryByIdentity {
+    param([Parameter(Mandatory = $true)][object]$Ownership)
+
+    Initialize-ContainmentNativeFileApi
+    $path = [string]$Ownership.Path
+    if (-not (Test-Path -LiteralPath $path)) { return }
+    $deleteAccess = [uint32]0x00010080
+    $shareReadWriteDelete = [uint32]0x00000007
+    $openExisting = [uint32]3
+    $backupSemanticsAndOpenReparsePoint = [uint32]0x02200000
+    $handle = [RookTask10ContainmentNativeFileApi]::CreateFile(
+        $path,
+        $deleteAccess,
+        $shareReadWriteDelete,
+        [IntPtr]::Zero,
+        $openExisting,
+        $backupSemanticsAndOpenReparsePoint,
+        [IntPtr]::Zero)
+    if ($handle.IsInvalid) {
+        $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        $handle.Dispose()
+        if ($errorCode -eq 2 -or $errorCode -eq 3) { return }
+        $message = ([ComponentModel.Win32Exception]::new($errorCode)).Message
+        throw "owned directory cleanup open failed: $path; win32_error=$errorCode ($message)"
+    }
+    try {
+        $actual = Get-ContainmentOwnedFileIdentity -Path $path -SafeFileHandle $handle
+        if (-not (Test-ContainmentOwnedFileIdentityEqual -Left $Ownership -Right $actual)) {
+            throw "owned directory identity mismatch; refusing pathname cleanup: $path"
+        }
+        $disposition = [RookTask10ContainmentNativeFileApi+FileDispositionInfo]::new()
+        $disposition.DeleteFile = $true
+        $size = [uint32][Runtime.InteropServices.Marshal]::SizeOf($disposition)
+        if (-not [RookTask10ContainmentNativeFileApi]::SetFileInformationByHandle($handle, 4, [ref]$disposition, $size)) {
+            $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            $message = ([ComponentModel.Win32Exception]::new($errorCode)).Message
+            throw "owned directory handle disposition failed: $path; win32_error=$errorCode ($message)"
+        }
+    }
+    finally {
+        $handle.Dispose()
+    }
+    if (Test-Path -LiteralPath $path) {
+        throw "owned directory path remains after identity-bound cleanup: $path"
+    }
+}
+
+function Remove-ContainmentOwnedJsonPair {
+    param(
+        [AllowNull()][object]$PathOwnership,
+        [AllowNull()][object]$SidecarOwnership
+    )
+
+    $cleanupFailures = [Collections.Generic.List[string]]::new()
+    foreach ($member in @(
+        [ordered]@{ Label = 'sidecar'; Ownership = $SidecarOwnership },
+        [ordered]@{ Label = 'JSON'; Ownership = $PathOwnership }
+    )) {
+        if ($null -eq $member.Ownership) { continue }
+        try {
+            Remove-ContainmentOwnedFileByIdentity -Ownership $member.Ownership
+            if (Test-Path -LiteralPath ([string]$member.Ownership.Path)) {
+                throw "owned $($member.Label) path remains after cleanup: $($member.Ownership.Path)"
+            }
+        }
+        catch { $cleanupFailures.Add("$($member.Label): $($_.Exception.Message)") }
+    }
+    if ($cleanupFailures.Count -ne 0) {
+        throw "owned canonical JSON pair cleanup was incomplete: $($cleanupFailures -join '; ')"
     }
 }
 
@@ -453,10 +729,12 @@ function Write-ContainmentCreateNewBytes {
     }
     $stream = $null
     $destinationCreated = $false
+    $ownership = $null
     $publicationFailure = $null
     try {
         $stream = New-ContainmentCreateNewStream -Path $Path
         $destinationCreated = $true
+        $ownership = Get-ContainmentOwnedFileIdentity -Path $Path -SafeFileHandle $stream.SafeFileHandle
         $stream.Write($Bytes, 0, $Bytes.Length)
         $stream.Flush($true)
     }
@@ -476,9 +754,7 @@ function Write-ContainmentCreateNewBytes {
     if ($null -ne $publicationFailure) {
         if ($destinationCreated) {
             try {
-                if (Test-Path -LiteralPath $Path -PathType Leaf) {
-                    Remove-ContainmentOwnedFile -Path $Path
-                }
+                Remove-ContainmentOwnedFileByIdentity -Ownership $ownership
                 if (Test-Path -LiteralPath $Path) {
                     throw "owned destination remains after failed publication: $Path"
                 }
@@ -489,6 +765,7 @@ function Write-ContainmentCreateNewBytes {
         }
         throw $publicationFailure
     }
+    return $ownership
 }
 
 function Write-CanonicalJsonPair {
@@ -501,50 +778,30 @@ function Write-CanonicalJsonPair {
     if ((Test-Path -LiteralPath $Path) -or (Test-Path -LiteralPath $SidecarPath)) {
         throw 'canonical JSON evidence pair path already exists'
     }
-    $pathCreated = $false
-    $sidecarCreated = $false
+    $pathOwnership = $null
+    $sidecarOwnership = $null
     try {
         $json = ConvertTo-ContainmentCanonicalJson -Value $Value
-        Write-ContainmentCreateNewBytes -Path $Path -Bytes ([Text.UTF8Encoding]::new($false).GetBytes($json))
-        $pathCreated = $true
+        $pathOwnership = Write-ContainmentCreateNewBytes -Path $Path -Bytes ([Text.UTF8Encoding]::new($false).GetBytes($json))
         $digest = Get-ContainmentSha256 -Path $Path
         $sidecar = "$digest  $([IO.Path]::GetFileName($Path))`n"
-        Write-ContainmentCreateNewBytes -Path $SidecarPath -Bytes ([Text.Encoding]::ASCII.GetBytes($sidecar))
-        $sidecarCreated = $true
+        $sidecarOwnership = Write-ContainmentCreateNewBytes -Path $SidecarPath -Bytes ([Text.Encoding]::ASCII.GetBytes($sidecar))
         return [pscustomobject]@{
             Path = $Path
             Sha256 = $digest
             SidecarPath = $SidecarPath
             SidecarSha256 = Get-ContainmentSha256 -Path $SidecarPath
+            PathOwnership = $pathOwnership
+            SidecarOwnership = $sidecarOwnership
         }
     }
     catch {
         $pairFailure = $_
-        $cleanupFailures = [Collections.Generic.List[string]]::new()
-        if ($sidecarCreated) {
-            try {
-                if (Test-Path -LiteralPath $SidecarPath -PathType Leaf) {
-                    Remove-ContainmentOwnedFile -Path $SidecarPath
-                }
-                if (Test-Path -LiteralPath $SidecarPath) {
-                    throw "owned sidecar path remains after cleanup: $SidecarPath"
-                }
-            }
-            catch { $cleanupFailures.Add("sidecar: $($_.Exception.Message)") }
+        try {
+            Remove-ContainmentOwnedJsonPair -PathOwnership $pathOwnership -SidecarOwnership $sidecarOwnership
         }
-        if ($pathCreated) {
-            try {
-                if (Test-Path -LiteralPath $Path -PathType Leaf) {
-                    Remove-ContainmentOwnedFile -Path $Path
-                }
-                if (Test-Path -LiteralPath $Path) {
-                    throw "owned JSON path remains after cleanup: $Path"
-                }
-            }
-            catch { $cleanupFailures.Add("JSON: $($_.Exception.Message)") }
-        }
-        if ($cleanupFailures.Count -ne 0) {
-            throw "canonical JSON evidence pair publication failed and owned cleanup was incomplete: $($cleanupFailures -join '; '); publication failure: $($pairFailure.Exception.Message)"
+        catch {
+            throw "canonical JSON evidence pair publication failed and owned cleanup was incomplete: $($_.Exception.Message); publication failure: $($pairFailure.Exception.Message)"
         }
         throw $pairFailure
     }
@@ -1590,7 +1847,10 @@ public static class RookTask10ContainmentNativeDirectoryApi
 }
 
 function New-ContainmentEvidenceDirectoryExclusive {
-    param([Parameter(Mandatory = $true)][string]$Path)
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][byte[]]$MarkerBytes
+    )
 
     $parent = Split-Path -Parent $Path
     if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
@@ -1607,30 +1867,76 @@ function New-ContainmentEvidenceDirectoryExclusive {
     if ($null -eq $stagingPath) {
         throw 'exclusive evidence directory staging name retries were exhausted'
     }
-    $moveFailure = $null
+    $stagingMarkerPath = Join-Path $stagingPath '.containment-run-owner.json'
+    $directoryOwnership = $null
+    $markerOwnership = $null
+    $publicationFailure = $null
     try {
+        $directoryOwnership = Get-ContainmentDirectoryIdentityAtPath -Path $stagingPath
+        $markerOwnership = Write-ContainmentCreateNewBytes -Path $stagingMarkerPath -Bytes $MarkerBytes
+        Assert-ContainmentEvidenceDirectoryClaimState `
+            -EvidenceDirectory $stagingPath -MarkerOwnership $markerOwnership `
+            -DirectoryOwnership $directoryOwnership -Label 'staged evidence directory claim'
         [IO.Directory]::Move($stagingPath, $Path)
     }
     catch {
-        $moveFailure = $_
+        $publicationFailure = $_
     }
-    if ($null -ne $moveFailure) {
-        try {
-            if (-not (Test-Path -LiteralPath $stagingPath -PathType Container)) {
-                throw 'owned staging directory is missing after failed exclusive publication'
-            }
-            if (@(Get-ChildItem -LiteralPath $stagingPath -Force -ErrorAction Stop).Count -ne 0) {
-                throw 'owned staging directory is not empty after failed exclusive publication'
-            }
-            [IO.Directory]::Delete($stagingPath, $false)
-            if (Test-Path -LiteralPath $stagingPath) {
-                throw 'owned staging directory remains after failed exclusive publication'
-            }
+    if ($null -ne $publicationFailure) {
+        $cleanupFailures = [Collections.Generic.List[string]]::new()
+        if ($null -ne $markerOwnership) {
+            try { Remove-ContainmentOwnedFileByIdentity -Ownership $markerOwnership }
+            catch { $cleanupFailures.Add("staging marker: $($_.Exception.Message)") }
         }
-        catch {
-            throw "exclusive evidence directory publication failed and staging cleanup was incomplete: $($_.Exception.Message); publication failure: $($moveFailure.Exception.Message)"
+        if ($null -eq $directoryOwnership) {
+            $cleanupFailures.Add('staging directory: ownership identity is unavailable; refusing pathname cleanup')
         }
-        throw $moveFailure
+        else {
+            try {
+                Remove-ContainmentOwnedDirectoryByIdentity -Ownership $directoryOwnership
+                if (Test-Path -LiteralPath $stagingPath) {
+                    throw 'owned staging directory remains after failed exclusive publication'
+                }
+            }
+            catch { $cleanupFailures.Add("staging directory: $($_.Exception.Message)") }
+        }
+        if ($cleanupFailures.Count -ne 0) {
+            throw "exclusive evidence directory publication failed and staging cleanup was incomplete: $($cleanupFailures -join '; '); publication failure: $($publicationFailure.Exception.Message)"
+        }
+        throw $publicationFailure
+    }
+    return [pscustomobject]@{
+        MarkerOwnership = (Copy-ContainmentOwnedFileIdentityPath `
+            -Ownership $markerOwnership -Path (Join-Path $Path '.containment-run-owner.json'))
+        DirectoryOwnership = (Copy-ContainmentOwnedFileIdentityPath `
+            -Ownership $directoryOwnership -Path $Path)
+    }
+}
+
+function Assert-ContainmentEvidenceDirectoryClaimState {
+    param(
+        [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
+        [Parameter(Mandatory = $true)][object]$MarkerOwnership,
+        [AllowNull()][object]$DirectoryOwnership,
+        [string]$Label = 'evidence directory claim'
+    )
+
+    [void](Assert-ContainmentPathNotReparse -Path $EvidenceDirectory -Label $Label)
+    if ($null -ne $DirectoryOwnership) {
+        $actualDirectory = Get-ContainmentDirectoryIdentityAtPath -Path $EvidenceDirectory
+        if (-not (Test-ContainmentOwnedFileIdentityEqual -Left $DirectoryOwnership -Right $actualDirectory)) {
+            throw "$Label directory identity mismatch"
+        }
+    }
+    $children = @(Get-ChildItem -LiteralPath $EvidenceDirectory -Force -ErrorAction Stop)
+    if ($children.Count -ne 1 -or $children[0].Name -cne '.containment-run-owner.json' -or $children[0].PSIsContainer) {
+        throw "$Label exact child set mismatch"
+    }
+    $markerPath = Join-Path $EvidenceDirectory '.containment-run-owner.json'
+    [void](Assert-ContainmentPathNotReparse -Path $markerPath -Label "$Label owner marker")
+    $actual = Get-ContainmentFileIdentityAtPath -Path $markerPath
+    if (-not (Test-ContainmentOwnedFileIdentityEqual -Left $MarkerOwnership -Right $actual)) {
+        throw "$Label owner marker identity mismatch"
     }
 }
 
@@ -1645,9 +1951,11 @@ function New-EvidenceDirectoryClaim {
         throw 'evidence directory must be absolute'
     }
     $full = [IO.Path]::GetFullPath($EvidenceDirectory)
-    $directoryCreated = $false
-    $markerCreated = $false
+    $directoryOwnership = $null
+    $markerOwnership = $null
     $markerPath = Join-Path $full '.containment-run-owner.json'
+    $marker = [ordered]@{ schema_version = 1; run_id = $RunId }
+    $markerBytes = [Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-ContainmentCanonicalJson $marker))
     [void](Assert-ContainmentPathNotReparse -Path $full -Label 'evidence directory')
     try {
         if (Test-Path -LiteralPath $full) {
@@ -1662,35 +1970,34 @@ function New-EvidenceDirectoryClaim {
             if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
                 throw 'evidence directory parent must already exist'
             }
-            New-ContainmentEvidenceDirectoryExclusive -Path $full
-            $directoryCreated = $true
+            $claimOwnership = New-ContainmentEvidenceDirectoryExclusive -Path $full -MarkerBytes $markerBytes
+            $markerOwnership = $claimOwnership.MarkerOwnership
+            $directoryOwnership = $claimOwnership.DirectoryOwnership
+        }
+        if ($null -eq $markerOwnership) {
+            $markerOwnership = Write-ContainmentCreateNewBytes -Path $markerPath -Bytes $markerBytes
         }
         [void](Assert-ContainmentPathNotReparse -Path $full -Label 'evidence directory')
-        $marker = [ordered]@{ schema_version = 1; run_id = $RunId }
-        Write-ContainmentCreateNewBytes -Path $markerPath -Bytes ([Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-ContainmentCanonicalJson $marker)))
-        $markerCreated = $true
+        Assert-ContainmentEvidenceDirectoryClaimState `
+            -EvidenceDirectory $full -MarkerOwnership $markerOwnership `
+            -DirectoryOwnership $directoryOwnership -Label 'evidence directory claim'
         return [pscustomobject]@{ EvidenceDirectory = $full; MarkerPath = $markerPath; RunId = $RunId }
     }
     catch {
         $claimFailure = $_
         $cleanupFailures = [Collections.Generic.List[string]]::new()
-        if ($markerCreated) {
+        if ($null -ne $markerOwnership) {
             try {
-                if (Test-Path -LiteralPath $markerPath -PathType Leaf) {
-                    Remove-ContainmentOwnedFile -Path $markerPath
-                }
+                Remove-ContainmentOwnedFileByIdentity -Ownership $markerOwnership
                 if (Test-Path -LiteralPath $markerPath) {
                     throw "owned marker path remains after cleanup: $markerPath"
                 }
             }
             catch { $cleanupFailures.Add("owner marker: $($_.Exception.Message)") }
         }
-        if ($directoryCreated -and (Test-Path -LiteralPath $full -PathType Container)) {
+        if ($null -ne $directoryOwnership) {
             try {
-                if (@(Get-ChildItem -LiteralPath $full -Force -ErrorAction Stop).Count -ne 0) {
-                    throw 'new evidence directory is not empty after failed claim publication'
-                }
-                [IO.Directory]::Delete($full, $false)
+                Remove-ContainmentOwnedDirectoryByIdentity -Ownership $directoryOwnership
                 if (Test-Path -LiteralPath $full) {
                     throw 'new evidence directory remains after failed claim publication'
                 }
@@ -5148,6 +5455,7 @@ function Invoke-ContainmentCandidateValidator {
     $installerStarted = $false
     $installerLaunchState = [pscustomobject]@{started=$false;process_id=$null}
     $acceptancePairStarted = $false
+    $acceptancePair = $null
     $preflightEngaged = $false
     $candidate = $null
     $startupProjection = $null
@@ -5309,9 +5617,9 @@ function Invoke-ContainmentCandidateValidator {
             -Diagnostics $diagnosticProjection -PostRunArtifactSnapshot $postRunSnapshot
         [void](Read-AndValidateContainmentAcceptance `
             -EvidenceDirectory $evidenceRoot -RequireNormalEvidence -Record $acceptance)
-        [void](Write-CanonicalJsonPair `
+        $acceptancePair = Write-CanonicalJsonPair `
             -Path (Join-Path $evidenceRoot $script:ContainmentAcceptanceFileName) `
-            -SidecarPath (Join-Path $evidenceRoot 'containment-acceptance.sha256') -Value $acceptance)
+            -SidecarPath (Join-Path $evidenceRoot 'containment-acceptance.sha256') -Value $acceptance
         $acceptancePairStarted = $true
         $verified = Read-AndValidateContainmentAcceptance -EvidenceDirectory $evidenceRoot -RequireNormalEvidence
         $acceptancePairStarted = $false
@@ -5329,16 +5637,15 @@ function Invoke-ContainmentCandidateValidator {
             $emergencyFailureLabels -ccontains $failureLabel)
         $installerStarted = $installerStarted -or [bool]$installerLaunchState.started
         $durableHold = $null
+        $acceptanceRollbackFailure = $null
         if ($claimed) {
             if ($acceptancePairStarted) {
-                foreach ($partialAcceptance in @(
-                    (Join-Path $evidenceRoot 'containment-acceptance.sha256'),
-                    (Join-Path $evidenceRoot $script:ContainmentAcceptanceFileName)
-                )) {
-                    if (Test-Path -LiteralPath $partialAcceptance -PathType Leaf) {
-                        Remove-Item -LiteralPath $partialAcceptance -Force -ErrorAction SilentlyContinue
-                    }
+                try {
+                    Remove-ContainmentOwnedJsonPair `
+                        -PathOwnership $acceptancePair.PathOwnership `
+                        -SidecarOwnership $acceptancePair.SidecarOwnership
                 }
+                catch { $acceptanceRollbackFailure = $_ }
             }
             if ($installerStarted) {
                 $holdMessage = $null
@@ -5425,16 +5732,21 @@ function Invoke-ContainmentCandidateValidator {
                 }
                 catch { $failureStage = 'emergency-quiescence' }
             }
-            try {
-                $diagnosticProjection = @(Get-ContainmentDiagnosticProjection -EvidenceDirectory $evidenceRoot)
-                [void](Write-ContainmentFailureEvidence `
-                    -EvidenceDirectory $evidenceRoot -RunId $runId -StartedUtc $startedUtc `
-                    -FailureStage $failureStage -Message ([string]$caught.Exception.Message) `
-                    -InstallerStarted:$installerStarted -DurableHold $durableHold -Diagnostics $diagnosticProjection)
+            if ($null -eq $acceptanceRollbackFailure) {
+                try {
+                    $diagnosticProjection = @(Get-ContainmentDiagnosticProjection -EvidenceDirectory $evidenceRoot)
+                    [void](Write-ContainmentFailureEvidence `
+                        -EvidenceDirectory $evidenceRoot -RunId $runId -StartedUtc $startedUtc `
+                        -FailureStage $failureStage -Message ([string]$caught.Exception.Message) `
+                        -InstallerStarted:$installerStarted -DurableHold $durableHold -Diagnostics $diagnosticProjection)
+                }
+                catch {
+                    throw "containment validation failed at $failureStage and failure evidence could not be persisted: $($caught.Exception.Message); evidence error: $($_.Exception.Message)"
+                }
             }
-            catch {
-                throw "containment validation failed at $failureStage and failure evidence could not be persisted: $($caught.Exception.Message); evidence error: $($_.Exception.Message)"
-            }
+        }
+        if ($null -ne $acceptanceRollbackFailure) {
+            throw "containment validation failed at $failureStage and acceptance cleanup was incomplete: $($acceptanceRollbackFailure.Exception.Message); original failure: $($caught.Exception.Message)"
         }
         throw "containment validation failed at $failureStage`: $($caught.Exception.Message)"
     }

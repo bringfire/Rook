@@ -81,11 +81,17 @@ function Get-TestSha256 {
 function New-TestFaultingCreateNewStream {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
-        [ValidateSet('write','flush','dispose')][string]$FaultStage
+        [ValidateSet('write','flush','dispose')][string]$FaultStage,
+        [AllowNull()][scriptblock]$AfterDispose
     )
 
     $inner = [IO.File]::Open($Path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
-    $wrapper = [pscustomobject]@{ Inner=$inner; FaultStage=$FaultStage }
+    $wrapper = [pscustomobject]@{
+        Inner=$inner
+        FaultStage=$FaultStage
+        AfterDispose=$AfterDispose
+        SafeFileHandle=$inner.SafeFileHandle
+    }
     Add-Member -InputObject $wrapper -MemberType ScriptMethod -Name Write -Value {
         param([byte[]]$Buffer,[int]$Offset,[int]$Count)
         if ($this.FaultStage -ceq 'write') {
@@ -104,6 +110,7 @@ function New-TestFaultingCreateNewStream {
     }
     Add-Member -InputObject $wrapper -MemberType ScriptMethod -Name Dispose -Value {
         $this.Inner.Dispose()
+        if ($null -ne $this.AfterDispose) { & $this.AfterDispose }
         if ($this.FaultStage -ceq 'dispose') {
             throw [IO.IOException]::new('injected create-new dispose failure')
         }
@@ -923,7 +930,7 @@ function Test-CreateNewPublicationFailureCleanup {
     param([string]$Root)
 
     $savedFactory = (Get-Item -LiteralPath Function:\New-ContainmentCreateNewStream).ScriptBlock
-    $savedOwnedFileRemover = (Get-Item -LiteralPath Function:\Remove-ContainmentOwnedFile).ScriptBlock
+    $savedIdentityRemover = (Get-Item -LiteralPath Function:\Remove-ContainmentOwnedFileByIdentity).ScriptBlock
     $savedEvidenceDirectoryCreator = (Get-Item -LiteralPath Function:\New-ContainmentEvidenceDirectoryExclusive).ScriptBlock
     $savedClaimStagingPathFactory = (Get-Item -LiteralPath Function:\New-ContainmentClaimStagingPath).ScriptBlock
     $payload = [Text.Encoding]::ASCII.GetBytes('publisher-payload')
@@ -998,12 +1005,12 @@ function Test-CreateNewPublicationFailureCleanup {
             return & $savedFactory -Path $Path
         }.GetNewClosure())
         $removeFaultPath = $cleanupFaultJson
-        Set-Item Function:\Remove-ContainmentOwnedFile -Value ({
-            param([string]$Path)
-            if ([string]::Equals([IO.Path]::GetFullPath($Path),[IO.Path]::GetFullPath($removeFaultPath),[StringComparison]::OrdinalIgnoreCase)) {
+        Set-Item Function:\Remove-ContainmentOwnedFileByIdentity -Value ({
+            param([object]$Ownership)
+            if ([string]::Equals([IO.Path]::GetFullPath([string]$Ownership.Path),[IO.Path]::GetFullPath($removeFaultPath),[StringComparison]::OrdinalIgnoreCase)) {
                 throw [IO.IOException]::new('injected final-pair rollback deletion failure')
             }
-            return & $savedOwnedFileRemover -Path $Path
+            return & $savedIdentityRemover -Ownership $Ownership
         }.GetNewClosure())
         try {
             Assert-ThrowsLike {
@@ -1013,9 +1020,9 @@ function Test-CreateNewPublicationFailureCleanup {
             Assert-False (Test-Path -LiteralPath $cleanupFaultSidecar) 'Final-pair rollback deletion fault stranded the failed sidecar publication.'
         }
         finally {
-            Set-Item Function:\Remove-ContainmentOwnedFile -Value $savedOwnedFileRemover
+            Set-Item Function:\Remove-ContainmentOwnedFileByIdentity -Value $savedIdentityRemover
             if (Test-Path -LiteralPath $cleanupFaultJson -PathType Leaf) {
-                & $savedOwnedFileRemover -Path $cleanupFaultJson
+                Remove-Item -LiteralPath $cleanupFaultJson -Force -ErrorAction Stop
             }
         }
 
@@ -1044,7 +1051,7 @@ function Test-CreateNewPublicationFailureCleanup {
         finally {
             Set-Item Function:\New-ContainmentClaimStagingPath -Value $savedClaimStagingPathFactory
             foreach ($file in @($stagingRetryMarker,(Join-Path $stagingRetryClaim 'foreign-staging-sentinel.txt'),$foreignStagingSentinel)) {
-                if (Test-Path -LiteralPath $file -PathType Leaf) { & $savedOwnedFileRemover -Path $file }
+                if (Test-Path -LiteralPath $file -PathType Leaf) { Remove-Item -LiteralPath $file -Force -ErrorAction Stop }
             }
             foreach ($directory in @($stagingRetryClaim,$foreignStaging,$retryStaging)) {
                 if ((Test-Path -LiteralPath $directory -PathType Container) -and @(Get-ChildItem -LiteralPath $directory -Force).Count -eq 0) {
@@ -1057,10 +1064,10 @@ function Test-CreateNewPublicationFailureCleanup {
         $racingSentinel = Join-Path $racingClaim 'foreign-sentinel.txt'
         $racingMarker = Join-Path $racingClaim '.containment-run-owner.json'
         Set-Item Function:\New-ContainmentEvidenceDirectoryExclusive -Value ({
-            param([string]$Path)
+            param([string]$Path,[byte[]]$MarkerBytes)
             [IO.Directory]::CreateDirectory($Path) | Out-Null
             Write-TestAscii -Path $racingSentinel -Text 'foreign-race-owner'
-            return & $savedEvidenceDirectoryCreator -Path $Path
+            return & $savedEvidenceDirectoryCreator -Path $Path -MarkerBytes $MarkerBytes
         }.GetNewClosure())
         try {
             Assert-ThrowsLike {
@@ -1072,8 +1079,8 @@ function Test-CreateNewPublicationFailureCleanup {
         }
         finally {
             Set-Item Function:\New-ContainmentEvidenceDirectoryExclusive -Value $savedEvidenceDirectoryCreator
-            if (Test-Path -LiteralPath $racingMarker -PathType Leaf) { & $savedOwnedFileRemover -Path $racingMarker }
-            if (Test-Path -LiteralPath $racingSentinel -PathType Leaf) { & $savedOwnedFileRemover -Path $racingSentinel }
+            if (Test-Path -LiteralPath $racingMarker -PathType Leaf) { Remove-Item -LiteralPath $racingMarker -Force -ErrorAction Stop }
+            if (Test-Path -LiteralPath $racingSentinel -PathType Leaf) { Remove-Item -LiteralPath $racingSentinel -Force -ErrorAction Stop }
             if (Test-Path -LiteralPath $racingClaim -PathType Container) { [IO.Directory]::Delete($racingClaim, $false) }
         }
 
@@ -1083,7 +1090,9 @@ function Test-CreateNewPublicationFailureCleanup {
             $faultStage = $stage
             Set-Item Function:\New-ContainmentCreateNewStream -Value ({
                 param([string]$Path)
-                if ([string]::Equals([IO.Path]::GetFullPath($Path),[IO.Path]::GetFullPath($faultPath),[StringComparison]::OrdinalIgnoreCase)) {
+                $isStagedOwnerMarker = ([IO.Path]::GetFileName($Path) -ceq '.containment-run-owner.json' -and
+                    [IO.Path]::GetFileName((Split-Path -Parent $Path)).StartsWith('.containment-claim-staging-', [StringComparison]::Ordinal))
+                if ($isStagedOwnerMarker) {
                     return New-TestFaultingCreateNewStream -Path $Path -FaultStage $faultStage
                 }
                 return & $savedFactory -Path $Path
@@ -1120,9 +1129,176 @@ function Test-CreateNewPublicationFailureCleanup {
     }
     finally {
         Set-Item Function:\New-ContainmentCreateNewStream -Value $savedFactory
-        Set-Item Function:\Remove-ContainmentOwnedFile -Value $savedOwnedFileRemover
+        Set-Item Function:\Remove-ContainmentOwnedFileByIdentity -Value $savedIdentityRemover
         Set-Item Function:\New-ContainmentEvidenceDirectoryExclusive -Value $savedEvidenceDirectoryCreator
         Set-Item Function:\New-ContainmentClaimStagingPath -Value $savedClaimStagingPathFactory
+    }
+}
+
+function Test-LowLevelIdentityBoundReplacementCleanup {
+    param([string]$Root)
+
+    $savedFactory = (Get-Item -LiteralPath Function:\New-ContainmentCreateNewStream).ScriptBlock
+    $path = Join-Path $Root 'rebound-low-level.bin'
+    $ownedAway = Join-Path $Root 'rebound-low-level-owned-away.bin'
+    $payload = [Text.Encoding]::ASCII.GetBytes('owned-low-level-payload')
+    $afterDispose = {
+        Move-Item -LiteralPath $path -Destination $ownedAway -ErrorAction Stop
+        Write-TestAscii -Path $path -Text 'foreign-low-level-replacement'
+    }.GetNewClosure()
+    try {
+        Set-Item Function:\New-ContainmentCreateNewStream -Value ({
+            param([string]$Path)
+            if ([string]::Equals([IO.Path]::GetFullPath($Path),[IO.Path]::GetFullPath($path),[StringComparison]::OrdinalIgnoreCase)) {
+                return New-TestFaultingCreateNewStream -Path $Path -FaultStage write -AfterDispose $afterDispose
+            }
+            return & $savedFactory -Path $Path
+        }.GetNewClosure())
+        Assert-ThrowsLike {
+            Write-ContainmentCreateNewBytes -Path $path -Bytes $payload
+        } 'identity|replacement|refus|cleanup.*incomplete' 'Low-level failed-write cleanup did not reject a foreign pathname replacement.'
+        Assert-Equal ([IO.File]::ReadAllText($path)) 'foreign-low-level-replacement' 'Low-level failed-write cleanup changed or removed the foreign replacement.'
+        Assert-True (Test-Path -LiteralPath $ownedAway -PathType Leaf) 'Low-level replacement fixture lost the original helper-created file.'
+    }
+    finally {
+        Set-Item Function:\New-ContainmentCreateNewStream -Value $savedFactory
+    }
+}
+
+function Test-PairIdentityBoundReplacementCleanup {
+    param([string]$Root)
+
+    $savedFactory = (Get-Item -LiteralPath Function:\New-ContainmentCreateNewStream).ScriptBlock
+    $savedHash = (Get-Item -LiteralPath Function:\Get-ContainmentSha256).ScriptBlock
+    $jsonPath = Join-Path $Root 'rebound-pair.json'
+    $sidecarPath = Join-Path $Root 'rebound-pair.sha256'
+    $ownedAway = Join-Path $Root 'rebound-pair-owned-away.json'
+    $hashState = [pscustomobject]@{ Replaced = $false }
+    try {
+        Set-Item Function:\New-ContainmentCreateNewStream -Value ({
+            param([string]$Path)
+            if ([string]::Equals([IO.Path]::GetFullPath($Path),[IO.Path]::GetFullPath($sidecarPath),[StringComparison]::OrdinalIgnoreCase)) {
+                return New-TestFaultingCreateNewStream -Path $Path -FaultStage write
+            }
+            return & $savedFactory -Path $Path
+        }.GetNewClosure())
+        Set-Item Function:\Get-ContainmentSha256 -Value ({
+            param([string]$Path)
+            if (-not $hashState.Replaced -and
+                [string]::Equals([IO.Path]::GetFullPath($Path),[IO.Path]::GetFullPath($jsonPath),[StringComparison]::OrdinalIgnoreCase)) {
+                $hashState.Replaced = $true
+                Move-Item -LiteralPath $jsonPath -Destination $ownedAway -ErrorAction Stop
+                Write-TestAscii -Path $jsonPath -Text 'foreign-pair-replacement'
+            }
+            return & $savedHash -Path $Path
+        }.GetNewClosure())
+        Assert-ThrowsLike {
+            Write-CanonicalJsonPair -Path $jsonPath -SidecarPath $sidecarPath -Value ([ordered]@{schema_version=1;success=$true})
+        } 'identity|replacement|refus|cleanup.*incomplete' 'Final-pair rollback did not reject a foreign JSON pathname replacement.'
+        Assert-Equal ([IO.File]::ReadAllText($jsonPath)) 'foreign-pair-replacement' 'Final-pair rollback changed or removed the foreign JSON replacement.'
+        Assert-False (Test-Path -LiteralPath $sidecarPath) 'Final-pair replacement fault stranded the failed sidecar publication.'
+        Assert-True (Test-Path -LiteralPath $ownedAway -PathType Leaf) 'Final-pair replacement fixture lost the original helper-created JSON.'
+    }
+    finally {
+        Set-Item Function:\New-ContainmentCreateNewStream -Value $savedFactory
+        Set-Item Function:\Get-ContainmentSha256 -Value $savedHash
+    }
+}
+
+function Test-NewEvidenceClaimForeignChildGap {
+    param([string]$Root)
+
+    $savedPathAssert = (Get-Item -LiteralPath Function:\Assert-ContainmentPathNotReparse).ScriptBlock
+    $claimPath = Join-Path $Root 'new-claim-foreign-child-gap'
+    $markerPath = Join-Path $claimPath '.containment-run-owner.json'
+    $foreignChild = Join-Path $claimPath 'foreign-gap-child.txt'
+    $state = [pscustomobject]@{ Injected = $false }
+    try {
+        Set-Item Function:\Assert-ContainmentPathNotReparse -Value ({
+            param([string]$Path,[string]$Label)
+            $result = & $savedPathAssert -Path $Path -Label $Label
+            if (-not $state.Injected -and
+                [string]::Equals([IO.Path]::GetFullPath($Path),[IO.Path]::GetFullPath($claimPath),[StringComparison]::OrdinalIgnoreCase) -and
+                (Test-Path -LiteralPath $claimPath -PathType Container)) {
+                $state.Injected = $true
+                Write-TestAscii -Path $foreignChild -Text 'foreign-post-publication-child'
+            }
+            return $result
+        }.GetNewClosure())
+        Assert-ThrowsLike {
+            New-EvidenceDirectoryClaim -EvidenceDirectory $claimPath -RunId ('f'*32)
+        } 'exact|child|nonempty|claim.*incomplete|ownership' 'New evidence claim accepted a foreign child injected after directory publication.'
+        Assert-Equal ([IO.File]::ReadAllText($foreignChild)) 'foreign-post-publication-child' 'Failed new evidence claim changed or removed the injected foreign child.'
+        Assert-False (Test-Path -LiteralPath $markerPath) 'Failed new evidence claim stranded its owned marker beside the foreign child.'
+        Assert-True (Test-Path -LiteralPath $claimPath -PathType Container) 'Failed new evidence claim removed the directory containing a foreign child.'
+    }
+    finally {
+        Set-Item Function:\Assert-ContainmentPathNotReparse -Value $savedPathAssert
+    }
+}
+
+function Test-NewEvidenceClaimEmptyDirectoryReplacement {
+    param([string]$Root)
+
+    $savedPathAssert = (Get-Item -LiteralPath Function:\Assert-ContainmentPathNotReparse).ScriptBlock
+    $claimPath = Join-Path $Root 'new-claim-empty-directory-replacement'
+    $ownedAway = Join-Path $Root 'new-claim-owned-directory-away'
+    $state = [pscustomobject]@{ Replaced = $false }
+    try {
+        Set-Item Function:\Assert-ContainmentPathNotReparse -Value ({
+            param([string]$Path,[string]$Label)
+            $result = & $savedPathAssert -Path $Path -Label $Label
+            if (-not $state.Replaced -and
+                [string]::Equals([IO.Path]::GetFullPath($Path),[IO.Path]::GetFullPath($claimPath),[StringComparison]::OrdinalIgnoreCase) -and
+                (Test-Path -LiteralPath $claimPath -PathType Container)) {
+                $state.Replaced = $true
+                Move-Item -LiteralPath $claimPath -Destination $ownedAway -ErrorAction Stop
+                [IO.Directory]::CreateDirectory($claimPath) | Out-Null
+            }
+            return $result
+        }.GetNewClosure())
+        Assert-ThrowsLike {
+            New-EvidenceDirectoryClaim -EvidenceDirectory $claimPath -RunId ('e'*32)
+        } 'identity|replacement|refus|claim.*incomplete|ownership' 'New evidence claim cleanup accepted or removed an empty foreign directory replacement.'
+        Assert-True (Test-Path -LiteralPath $claimPath -PathType Container) 'Failed new evidence claim removed the empty foreign directory replacement.'
+        Assert-Equal @(Get-ChildItem -LiteralPath $claimPath -Force).Count 0 'Foreign replacement directory did not remain empty.'
+        Assert-True (Test-Path -LiteralPath $ownedAway -PathType Container) 'Whole-directory replacement fixture lost the original helper-created directory.'
+        Assert-True (Test-Path -LiteralPath (Join-Path $ownedAway '.containment-run-owner.json') -PathType Leaf) 'Whole-directory replacement fixture lost the original owned marker.'
+    }
+    finally {
+        Set-Item Function:\Assert-ContainmentPathNotReparse -Value $savedPathAssert
+    }
+}
+
+function Test-ExistingEvidenceClaimMarkerReplacement {
+    param([string]$Root)
+
+    $savedWriter = (Get-Item -LiteralPath Function:\Write-ContainmentCreateNewBytes).ScriptBlock
+    $claimPath = New-TestDirectory $Root 'existing-claim-marker-replacement'
+    $markerPath = Join-Path $claimPath '.containment-run-owner.json'
+    $ownedAway = Join-Path $Root 'existing-claim-owned-marker-away.json'
+    $state = [pscustomobject]@{ Replaced = $false }
+    try {
+        Set-Item Function:\Write-ContainmentCreateNewBytes -Value ({
+            param([string]$Path,[byte[]]$Bytes)
+            $ownership = & $savedWriter -Path $Path -Bytes $Bytes
+            if (-not $state.Replaced -and
+                [string]::Equals([IO.Path]::GetFullPath($Path),[IO.Path]::GetFullPath($markerPath),[StringComparison]::OrdinalIgnoreCase)) {
+                $state.Replaced = $true
+                Move-Item -LiteralPath $markerPath -Destination $ownedAway -ErrorAction Stop
+                Write-TestAscii -Path $markerPath -Text 'foreign-owner-marker-replacement'
+            }
+            return $ownership
+        }.GetNewClosure())
+        Assert-ThrowsLike {
+            New-EvidenceDirectoryClaim -EvidenceDirectory $claimPath -RunId ('1'*32)
+        } 'identity|replacement|refus|claim.*incomplete|ownership' 'Existing evidence claim accepted a foreign owner-marker replacement.'
+        Assert-Equal ([IO.File]::ReadAllText($markerPath)) 'foreign-owner-marker-replacement' 'Existing claim cleanup changed or removed the foreign marker replacement.'
+        Assert-True (Test-Path -LiteralPath $ownedAway -PathType Leaf) 'Existing claim replacement fixture lost the original owned marker.'
+        Assert-True (Test-Path -LiteralPath $claimPath -PathType Container) 'Existing claim failure removed the pre-existing directory.'
+    }
+    finally {
+        Set-Item Function:\Write-ContainmentCreateNewBytes -Value $savedWriter
     }
 }
 
@@ -2069,7 +2245,7 @@ function Invoke-FakeNormalModeCase {
             'success','failed-preflight','failed-preflight-cleanup-nonquiet','failed-install','wrong-installed-origin',
             'task7-discovery-leak','task7-denial-mismatch','task7-telemetry-mismatch','task7-child-replacement',
             'live-target-state-drift','live-failure','live-uncertain-ownership','live-unverified-restoration','live-cleanup-failure',
-            'cleanup-failure','hold-receipt-failure','post-run-drift'
+            'cleanup-failure','hold-receipt-failure','post-run-drift','acceptance-self-check','acceptance-self-check-replacement'
         )][string]$Fault
     )
 
@@ -2120,7 +2296,7 @@ function Invoke-FakeNormalModeCase {
         preflight_labels=(New-Object Collections.Generic.List[string])
         task7_reached=$false;live_reached=$false;acceptance_written=$false
         failure_written=$false;failure_stage=$null;hold_attempted=$false;hold_record=$null
-        final_cleanup_fault_fired=$false
+        final_cleanup_fault_fired=$false;acceptance_pair=$null
     }
     $savedFunctions = @{}
     $functionNames = @(
@@ -2242,11 +2418,24 @@ function Invoke-FakeNormalModeCase {
         Set-Item Function:\Read-AndValidateContainmentAcceptance -Value ({
             param($EvidenceDirectory,[switch]$RequireNormalEvidence,[AllowNull()][object]$Record)
             if ($null -ne $Record) { return $Record }
+            if ($state.fault -in @('acceptance-self-check','acceptance-self-check-replacement')) {
+                if ($state.fault -eq 'acceptance-self-check-replacement') {
+                    $acceptancePath = Join-Path $EvidenceDirectory 'containment-acceptance.json'
+                    $ownedAway = Join-Path $caseRoot 'acceptance-owned-away.json'
+                    Move-Item -LiteralPath $acceptancePath -Destination $ownedAway -ErrorAction Stop
+                    Write-TestAscii -Path $acceptancePath -Text 'foreign-acceptance-replacement'
+                }
+                throw 'injected acceptance self-check failure'
+            }
             return [ordered]@{schema_version=1;success=$true;evidence_directory=$EvidenceDirectory}
         }.GetNewClosure())
         Set-Item Function:\Write-CanonicalJsonPair -Value ({
             param($Path,$SidecarPath,$Value)
             $state.acceptance_written=$true
+            if ($state.fault -in @('acceptance-self-check','acceptance-self-check-replacement')) {
+                $state.acceptance_pair = & $savedFunctions['Write-CanonicalJsonPair'] -Path $Path -SidecarPath $SidecarPath -Value $Value
+                return $state.acceptance_pair
+            }
             return [pscustomobject]@{Path=$Path;SidecarPath=$SidecarPath;Sha256=('a'*64);SidecarSha256=('b'*64)}
         }.GetNewClosure())
         Set-Item Function:\Enter-ContainmentDurableHold -Value ({
@@ -2301,8 +2490,10 @@ function Invoke-FakeNormalModeCase {
         }
         else {
             Assert-True ($null -ne $caught) "Fake normal-mode fault $Fault unexpectedly succeeded."
-            Assert-False $state.acceptance_written "Fake normal-mode fault $Fault wrote acceptance."
-            Assert-True $state.failure_written "Fake normal-mode fault $Fault omitted failure evidence."
+            $postPublicationFault = $Fault -in @('acceptance-self-check','acceptance-self-check-replacement')
+            Assert-Equal ([bool]$state.acceptance_written) $postPublicationFault "Fake normal-mode fault $Fault acceptance-publication reachability drifted."
+            $expectedFailureEvidence = $Fault -ne 'acceptance-self-check-replacement'
+            Assert-Equal ([bool]$state.failure_written) $expectedFailureEvidence "Fake normal-mode fault $Fault failure-evidence disposition drifted."
             $expectation = switch -Exact ($Fault) {
                 'failed-preflight' { [ordered]@{message='preinstall process boundary is not quiet';stage='preinstall-quiescence';task7=$false;live=$false;installer=$false} }
                 'failed-preflight-cleanup-nonquiet' { [ordered]@{message='preinstall process boundary is not quiet';stage='emergency-quiescence';task7=$false;live=$false;installer=$false} }
@@ -2320,10 +2511,18 @@ function Invoke-FakeNormalModeCase {
                 'cleanup-failure' { [ordered]@{message='injected cleanup failure after green checks';stage='emergency-quiescence';task7=$true;live=$true;installer=$true} }
                 'hold-receipt-failure' { [ordered]@{message='injected primary failure before hold receipt verification';stage='emergency-quiescence';task7=$true;live=$false;installer=$true} }
                 'post-run-drift' { [ordered]@{message='candidate artifact drifted during installed/live acceptance';stage='post-run-candidate-rehash';task7=$true;live=$true;installer=$true} }
+                'acceptance-self-check' { [ordered]@{message='injected acceptance self-check failure';stage='acceptance-write';task7=$true;live=$true;installer=$true} }
+                'acceptance-self-check-replacement' { [ordered]@{message='injected acceptance self-check failure';stage='acceptance-write';task7=$true;live=$true;installer=$true} }
                 default { throw "Missing fake normal-mode expectation for $Fault" }
             }
             Assert-Contains ([string]$caught.Exception.Message) ([string]$expectation.message) "Fake normal-mode fault $Fault failed for the wrong reason."
-            Assert-Equal ([string]$state.failure_stage) ([string]$expectation.stage) "Fake normal-mode fault $Fault recorded the wrong failure stage."
+            if ($expectedFailureEvidence) {
+                Assert-Equal ([string]$state.failure_stage) ([string]$expectation.stage) "Fake normal-mode fault $Fault recorded the wrong failure stage."
+            }
+            else {
+                Assert-Equal ([string]$state.failure_stage) '' "Fake normal-mode fault $Fault recorded contradictory failure evidence."
+                Assert-Contains ([string]$caught.Exception.Message) ([string]$expectation.stage) "Fake normal-mode fault $Fault lost its failure-stage context."
+            }
             Assert-Equal ([bool]$state.task7_reached) ([bool]$expectation.task7) "Fake normal-mode fault $Fault Task 7 reachability drifted."
             Assert-Equal ([bool]$state.live_reached) ([bool]$expectation.live) "Fake normal-mode fault $Fault live reachability drifted."
             Assert-Equal ([bool]$state.installer_started) ([bool]$expectation.installer) "Fake normal-mode fault $Fault installer reachability drifted."
@@ -2335,6 +2534,17 @@ function Invoke-FakeNormalModeCase {
                 Assert-Equal ([string]$state.hold_record.projection_sha256) (Get-TestValueSha256 $state.hold_record.projection) 'Hold receipt failure did not bind its retained-state projection.'
                 Assert-Equal ([string]$state.hold_record.sha256) (Get-TestSha256 $state.hold_record.receipt_path) 'Hold receipt failure lost the existing receipt hash.'
                 Assert-Equal ([string]$state.hold_record.sidecar_sha256) (Get-TestSha256 $state.hold_record.receipt_sidecar_path) 'Hold receipt failure lost the existing sidecar hash.'
+            }
+            if ($Fault -eq 'acceptance-self-check') {
+                Assert-False (Test-Path -LiteralPath (Join-Path $evidencePath 'containment-acceptance.json')) 'Acceptance self-check rollback left JSON behind.'
+                Assert-False (Test-Path -LiteralPath (Join-Path $evidencePath 'containment-acceptance.sha256')) 'Acceptance self-check rollback left sidecar behind.'
+            }
+            if ($Fault -eq 'acceptance-self-check-replacement') {
+                $foreignAcceptance = Join-Path $evidencePath 'containment-acceptance.json'
+                Assert-Equal ([IO.File]::ReadAllText($foreignAcceptance)) 'foreign-acceptance-replacement' 'Acceptance self-check rollback changed or removed the foreign JSON replacement.'
+                Assert-False (Test-Path -LiteralPath (Join-Path $evidencePath 'containment-acceptance.sha256')) 'Acceptance replacement rollback left its owned sidecar behind.'
+                Assert-True (Test-Path -LiteralPath (Join-Path $caseRoot 'acceptance-owned-away.json') -PathType Leaf) 'Acceptance replacement fixture lost the originally published JSON.'
+                Assert-Contains ([string]$caught.Exception.Message) 'cleanup' 'Acceptance replacement failure did not surface incomplete cleanup.'
             }
         }
         return $state
@@ -2355,6 +2565,7 @@ function Test-FakeNormalModeOrchestrationMatrix {
         'task7-discovery-leak','task7-denial-mismatch','task7-telemetry-mismatch','task7-child-replacement',
         'live-target-state-drift','live-failure','live-uncertain-ownership','live-unverified-restoration','live-cleanup-failure',
         'cleanup-failure','hold-receipt-failure','post-run-drift'
+        ,'acceptance-self-check','acceptance-self-check-replacement'
     )
     foreach ($fault in $faults) {
         [void](Invoke-FakeNormalModeCase -Root $Root -Fault $fault)
@@ -2383,6 +2594,11 @@ $started = [Diagnostics.Stopwatch]::StartNew()
 try {
     Invoke-Test 'static PS5.1, parameter, and process-boundary contract' { Test-StaticContract }
     Invoke-Test 'CreateNew publication and claim failure cleanup' { Test-CreateNewPublicationFailureCleanup -Root (New-TestDirectory $runRoot 'publication-cleanup') }
+    Invoke-Test 'low-level cleanup rejects a foreign pathname replacement' { Test-LowLevelIdentityBoundReplacementCleanup -Root (New-TestDirectory $runRoot 'low-level-replacement') }
+    Invoke-Test 'final-pair rollback rejects a foreign pathname replacement' { Test-PairIdentityBoundReplacementCleanup -Root (New-TestDirectory $runRoot 'pair-replacement') }
+    Invoke-Test 'new evidence claim rejects a post-publication foreign child' { Test-NewEvidenceClaimForeignChildGap -Root (New-TestDirectory $runRoot 'new-claim-gap') }
+    Invoke-Test 'new evidence claim preserves an empty foreign directory replacement' { Test-NewEvidenceClaimEmptyDirectoryReplacement -Root (New-TestDirectory $runRoot 'new-claim-directory-replacement') }
+    Invoke-Test 'existing evidence claim rejects an owner-marker replacement' { Test-ExistingEvidenceClaimMarkerReplacement -Root (New-TestDirectory $runRoot 'existing-claim-replacement') }
     Invoke-Test 'Windows quoting and unique working directory' { Test-ProcessQuotingAndWorkingDirectory -Root (New-TestDirectory $runRoot 'quoting') }
     Invoke-Test 'concurrent stdout/stderr drain and timeout termination' { Test-ConcurrentStreamsAndTimeout -Root (New-TestDirectory $runRoot 'streams') }
     Invoke-Test 'installed-child and installer environment sanitization matrix' { Test-InstalledAndInstallerEnvironmentPolicies -Root (New-TestDirectory $runRoot 'environment') }
