@@ -1595,6 +1595,90 @@ def test_artifact_claim_failure_removes_partial_marker_and_only_created_director
 
 
 @requires_live_gate
+@pytest.mark.parametrize("rmdir_outcome", ["success", "exception", "baseexception"])
+def test_created_claim_failure_pins_parent_between_leaf_release_and_rmdir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    rmdir_outcome: str,
+) -> None:
+    container = tmp_path / "claim-container"
+    parent = container / "claim-parent"
+    parent.mkdir(parents=True)
+    artifact = parent / "artifacts"
+    displaced_parent = container / "displaced-claim-parent"
+    external_parent = tmp_path / "external-claim-parent"
+    external_artifact = external_parent / "artifacts"
+    external_artifact.mkdir(parents=True)
+    original_acquire = live._acquire_windows_path_lease
+    original_scandir = live.os.scandir
+    original_rmdir = Path.rmdir
+    releases: list[tuple[Path, list[int]]] = []
+    raw_scans = 0
+    blocked = False
+    swapped = False
+    rmdir_calls = 0
+    injected = RuntimeError("claim failed after marker capture")
+
+    def tracked_acquire(path: Path, *args, **kwargs):
+        lease = original_acquire(path, *args, **kwargs)
+        calls = [0]
+        original_release = lease.release
+
+        def tracked_release() -> None:
+            calls[0] += 1
+            original_release()
+
+        lease.release = tracked_release
+        releases.append((Path(path), calls))
+        return lease
+
+    def fail_final_inventory(path: Path):
+        nonlocal raw_scans
+        if Path(path) == artifact:
+            raw_scans += 1
+            if raw_scans == 2:
+                raise injected
+        return original_scandir(path)
+
+    def race_at_rmdir(path: Path) -> None:
+        nonlocal blocked, swapped, rmdir_calls
+        if Path(path) != artifact:
+            return original_rmdir(path)
+        rmdir_calls += 1
+        leaf_releases = [calls[0] for lease_path, calls in releases if lease_path == artifact]
+        parent_releases = [calls[0] for lease_path, calls in releases if lease_path == parent]
+        assert leaf_releases == [1], "created leaf handle was not released before rmdir"
+        assert parent_releases == [0], "parent handle was released before leaf rmdir"
+        try:
+            parent.rename(displaced_parent)
+        except PermissionError:
+            blocked = True
+        else:
+            _directory_symlink_or_skip(parent, external_parent)
+            swapped = True
+        if rmdir_outcome == "exception":
+            raise OSError("created leaf rmdir failed")
+        if rmdir_outcome == "baseexception":
+            raise _FinalPairBaseInterrupt("created leaf rmdir interrupted")
+        return original_rmdir(path)
+
+    monkeypatch.setattr(live, "_acquire_windows_path_lease", tracked_acquire)
+    monkeypatch.setattr(live.os, "scandir", fail_final_inventory)
+    monkeypatch.setattr(Path, "rmdir", race_at_rmdir)
+
+    with pytest.raises(RuntimeError) as caught:
+        live._claim_artifact_directory(artifact, RUN_ID)
+
+    assert caught.value is injected
+    assert raw_scans == 2
+    assert rmdir_calls == 1
+    assert blocked is True
+    assert swapped is False
+    assert external_artifact.is_dir(), "claim cleanup removed an external directory"
+    assert releases and {calls[0] for _path, calls in releases} == {1}
+
+
+@requires_live_gate
 def test_ownership_marker_capture_rejects_same_payload_replacement(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1759,6 +1843,7 @@ def _install_bound_adapter(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     dispatch,
+    request: pytest.FixtureRequest,
 ):
     process = _AdapterProcess(9001)
     started = SimpleNamespace(process=process, pid=process.pid, started_wall=100.0)
@@ -1773,6 +1858,17 @@ def _install_bound_adapter(
     )
     discovery = _Discovery(record)
     process_token = live._owned_process_start_token(started)
+    discovery_leases = live._acquire_retained_path_leases(
+        record_path.parent,
+        "directory",
+    )
+    request.addfinalizer(
+        lambda: (
+            discovery_leases.release()
+            if not discovery_leases.released
+            else None
+        )
+    )
     monkeypatch.setattr(live, "_new_owned_discovery", lambda: discovery)
     monkeypatch.setattr(live, "_dispatch_installed_tool", dispatch)
     adapter = live.BoundInstalledToolAdapter(
@@ -1782,7 +1878,9 @@ def _install_bound_adapter(
         record=record,
         process_start_token=process_token,
         record_bytes=record_bytes,
+        record_device_id=record_path.stat().st_dev,
         record_file_id=record_path.stat().st_ino,
+        discovery_leases=discovery_leases,
     )
     return SimpleNamespace(
         adapter=adapter,
@@ -1792,6 +1890,7 @@ def _install_bound_adapter(
         record_path=record_path,
         record_bytes=record_bytes,
         discovery=discovery,
+        discovery_leases=discovery_leases,
         process_token=process_token,
     )
 
@@ -1800,6 +1899,7 @@ def _install_bound_adapter(
 def test_bound_adapter_constructor_reuses_captured_bytes_without_path_reread(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    request: pytest.FixtureRequest,
 ) -> None:
     process = _AdapterProcess(9001)
     started = SimpleNamespace(process=process, pid=process.pid, started_wall=100.0)
@@ -1821,6 +1921,18 @@ def test_bound_adapter_constructor_reuses_captured_bytes_without_path_reread(
 
     monkeypatch.setattr(Path, "read_bytes", reject_record_reread)
 
+    discovery_leases = live._acquire_retained_path_leases(
+        record_path.parent,
+        "directory",
+    )
+    request.addfinalizer(
+        lambda: (
+            discovery_leases.release()
+            if not discovery_leases.released
+            else None
+        )
+    )
+
     adapter = live.BoundInstalledToolAdapter(
         port=record.port,
         process_id=record.pid,
@@ -1828,7 +1940,9 @@ def test_bound_adapter_constructor_reuses_captured_bytes_without_path_reread(
         record=record,
         process_start_token=live._owned_process_start_token(started),
         record_bytes=record_bytes,
+        record_device_id=record_path.stat().st_dev,
         record_file_id=record_path.stat().st_ino,
+        discovery_leases=discovery_leases,
     )
 
     assert adapter._record_bytes is record_bytes
@@ -1838,6 +1952,7 @@ def test_bound_adapter_constructor_reuses_captured_bytes_without_path_reread(
 def test_bound_adapter_rechecks_pid_port_preserves_envelope_and_injects_port(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    request: pytest.FixtureRequest,
 ) -> None:
     seen: list[tuple[str, dict[str, Any], dict[str, int | None]]] = []
     envelope = {"success": True, "data": {"pong": True}}
@@ -1848,7 +1963,7 @@ def test_bound_adapter_rechecks_pid_port_preserves_envelope_and_injects_port(
         seen.append((name, dict(arguments), get_rhino_request_context()))
         return envelope
 
-    harness = _install_bound_adapter(monkeypatch, tmp_path, dispatch)
+    harness = _install_bound_adapter(monkeypatch, tmp_path, dispatch, request)
     result = asyncio.run(harness.adapter.call("rhino_ping", {}))
     assert result is envelope
     assert harness.discovery.read_count == 2
@@ -1889,6 +2004,7 @@ def test_bound_adapter_rejects_process_or_discovery_continuity_drift(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     drift_case: str,
+    request: pytest.FixtureRequest,
 ) -> None:
     dispatched: list[str] = []
     holder: dict[str, Any] = {}
@@ -1899,7 +2015,7 @@ def test_bound_adapter_rejects_process_or_discovery_continuity_drift(
             holder["harness"].process.returncode = 0
         return _success({"pong": True})
 
-    harness = _install_bound_adapter(monkeypatch, tmp_path, dispatch)
+    harness = _install_bound_adapter(monkeypatch, tmp_path, dispatch, request)
     holder["harness"] = harness
     if drift_case == "started_process_replaced":
         harness.started.process = _AdapterProcess(harness.process.pid)
@@ -1938,6 +2054,7 @@ def test_bound_adapter_rechecks_process_after_restoration_calls(
     tmp_path: Path,
     name: str,
     arguments: dict[str, Any],
+    request: pytest.FixtureRequest,
 ) -> None:
     holder: dict[str, Any] = {}
 
@@ -1947,7 +2064,12 @@ def test_bound_adapter_rechecks_process_after_restoration_calls(
         holder["harness"].process.returncode = 0
         return _success({})
 
-    harness = _install_bound_adapter(monkeypatch, tmp_path, exit_after_dispatch)
+    harness = _install_bound_adapter(
+        monkeypatch,
+        tmp_path,
+        exit_after_dispatch,
+        request,
+    )
     holder["harness"] = harness
 
     with pytest.raises(live.OwnershipAmbiguous):
@@ -2447,12 +2569,15 @@ def _install_fake_scenario(
     drift: bool = False,
     graceful_forced: bool = False,
     discovery_mode: str = "fresh",
+    discovery_dir: Path | None = None,
 ):
     artifact = tmp_path / f"artifacts-{scenario}"
     rhino_exe = tmp_path / "Rhino.exe"
     rhino_exe.write_bytes(b"fake")
     process = _Process(9001 if scenario == "rhino" else 9002)
-    record_path = tmp_path / f"instance-{process.pid}-native.json"
+    record_directory = discovery_dir or tmp_path
+    record_directory.mkdir(parents=True, exist_ok=True)
+    record_path = record_directory / f"instance-{process.pid}-native.json"
     record_raw = {
         "processId": process.pid,
         "port": 19001 if scenario == "rhino" else 19002,
@@ -2505,7 +2630,9 @@ def _install_fake_scenario(
         record,
         process_start_token,
         record_bytes=None,
+        record_device_id=None,
         record_file_id=None,
+        discovery_leases=None,
     ):
         accepted_record_bytes.append(record_bytes)
         return adapter
@@ -2926,6 +3053,176 @@ def test_discovery_accepts_same_bytes_from_fresh_atomic_replacement(
         before.device_id,
         before.file_id,
     )
+
+
+@requires_live_gate
+@pytest.mark.parametrize("race_phase", ["accepted_capture", "adapter_continuity"])
+def test_postlaunch_discovery_ancestry_stays_pinned_through_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    race_phase: str,
+) -> None:
+    discovery_container = tmp_path / "owned-discovery-container"
+    discovery_dir = discovery_container / "discovery"
+    harness = _install_fake_scenario(
+        monkeypatch,
+        tmp_path,
+        scenario="rhino",
+        discovery_dir=discovery_dir,
+    )
+    displaced_container = tmp_path / "displaced-discovery-container"
+    attacker_container = tmp_path / "attacker-discovery-container"
+    attacker_dir = attacker_container / "discovery"
+    attacker_dir.mkdir(parents=True)
+    attacker_record = attacker_dir / harness.record.path.name
+    attacker_record.write_bytes(
+        live._canonical_json_bytes(
+            {
+                "processId": harness.process.pid,
+                "port": 29999,
+                "pluginType": "native",
+            }
+        )
+    )
+    original_capture = live._capture_discovery_record
+    original_acquire = live._acquire_windows_path_lease
+    original_close = live._request_graceful_close
+    original_force = live._force_owned_cleanup
+    original_final_pair = live._write_final_evidence_pair
+    capture_calls = 0
+    blocked = False
+    swapped = False
+    external_record_opened = False
+    cleanup_finished = False
+    released_before_cleanup = False
+    bound_ports: list[int] = []
+    host_dispatches: list[str] = []
+    cleanup_calls: list[str] = []
+    releases: dict[Path, list[int]] = {}
+    tracked_directories = {discovery_container, discovery_dir}
+    target_capture = 1 if race_phase == "accepted_capture" else 2
+
+    def tracked_acquire(path: Path, *args, **kwargs):
+        nonlocal external_record_opened, released_before_cleanup
+        candidate = Path(path)
+        if swapped:
+            try:
+                external_record_opened = (
+                    external_record_opened
+                    or candidate.resolve() == attacker_record.resolve()
+                )
+            except OSError:
+                pass
+        lease = original_acquire(path, *args, **kwargs)
+        if candidate in tracked_directories:
+            calls = [0]
+            releases[candidate] = calls
+            original_release = lease.release
+
+            def tracked_release() -> None:
+                nonlocal released_before_cleanup
+                calls[0] += 1
+                if not cleanup_finished:
+                    released_before_cleanup = True
+                original_release()
+
+            lease.release = tracked_release
+        return lease
+
+    def race_capture(path: Path, *args, **kwargs):
+        nonlocal capture_calls, blocked, swapped
+        if Path(path) == harness.record.path:
+            capture_calls += 1
+            if capture_calls == target_capture:
+                try:
+                    discovery_container.rename(displaced_container)
+                except PermissionError:
+                    blocked = True
+                else:
+                    _directory_symlink_or_skip(
+                        discovery_container,
+                        attacker_container,
+                    )
+                    swapped = True
+                snapshot = original_capture(path, *args, **kwargs)
+                raise live.LiveGateError("stop after protected discovery capture")
+        return original_capture(path, *args, **kwargs)
+
+    def new_bound_adapter(**kwargs):
+        bound_ports.append(kwargs["record"].port)
+        constructor = {
+            "port": kwargs["record"].port,
+            "process_id": kwargs["record"].pid,
+            "started": kwargs["started"],
+            "record": kwargs["record"],
+            "process_start_token": kwargs["process_start_token"],
+            "record_bytes": kwargs["record_bytes"],
+            "record_file_id": kwargs["record_file_id"],
+        }
+        for name in ("record_device_id", "discovery_leases"):
+            if name in kwargs:
+                constructor[name] = kwargs[name]
+        return live.BoundInstalledToolAdapter(**constructor)
+
+    async def track_dispatch(name: str, arguments: dict[str, Any]):
+        host_dispatches.append(name)
+        forwarded = dict(arguments)
+        forwarded.pop("port", None)
+        return await harness.adapter.call(name, forwarded)
+
+    def close_before_release(process, diagnostics):
+        nonlocal cleanup_finished
+        cleanup_calls.append("graceful")
+        result = original_close(process, diagnostics)
+        cleanup_finished = True
+        return result
+
+    def force_before_release(process, diagnostics):
+        nonlocal cleanup_finished
+        cleanup_calls.append("forced")
+        result = original_force(process, diagnostics)
+        cleanup_finished = True
+        return result
+
+    def final_pair_before_release(*args, **kwargs):
+        nonlocal cleanup_finished
+        result = original_final_pair(*args, **kwargs)
+        cleanup_finished = True
+        return result
+
+    monkeypatch.setattr(live, "_acquire_windows_path_lease", tracked_acquire)
+    monkeypatch.setattr(live, "_capture_discovery_record", race_capture)
+    monkeypatch.setattr(live, "_new_bound_adapter", new_bound_adapter)
+    monkeypatch.setattr(live, "_dispatch_installed_tool", track_dispatch)
+    monkeypatch.setattr(live, "_request_graceful_close", close_before_release)
+    monkeypatch.setattr(live, "_force_owned_cleanup", force_before_release)
+    monkeypatch.setattr(live, "_write_final_evidence_pair", final_pair_before_release)
+
+    result = live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    )
+
+    assert result.success is False
+    assert capture_calls == target_capture
+    assert blocked is True
+    assert swapped is False
+    assert external_record_opened is False
+    assert 29999 not in bound_ports
+    assert host_dispatches == []
+    assert harness.adapter.calls == []
+    assert cleanup_finished is True
+    if race_phase == "accepted_capture":
+        assert cleanup_calls == ["graceful"]
+        assert not harness.record.path.exists(), "normal plugin record deletion was blocked"
+    else:
+        assert cleanup_calls == []
+        assert harness.record.path.is_file(), "forced cleanup removed the discovery record"
+    assert attacker_record.is_file(), "cleanup removed an external discovery record"
+    assert released_before_cleanup is False
+    assert set(releases) == tracked_directories
+    assert {calls[0] for calls in releases.values()} == {1}
 
 
 @requires_live_gate

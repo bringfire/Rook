@@ -198,8 +198,10 @@ class _RunState:
     rhino_claim: Any = None
     process: Any = None
     discovery: Any = None
+    discovery_leases: Any = None
     record: Any = None
     discovery_record_bytes: bytes | None = None
+    discovery_record_device_id: int | None = None
     discovery_record_file_id: int | None = None
     adapter: Any = None
     scratch_path: Path | None = None
@@ -1001,100 +1003,159 @@ class _DiscoveryRecordSnapshot:
     payload: bytes
 
 
-def _capture_discovery_record(
-    path: Path,
-    *,
-    expected_identity: tuple[int, int] | None = None,
-) -> _DiscoveryRecordSnapshot:
-    candidate = Path(path)
-    if not candidate.is_absolute() or _has_reparse_component(candidate):
-        raise LiveGateError("owned discovery record path is unsafe")
-    try:
-        before = candidate.lstat()
-    except OSError as exc:
-        raise LiveGateError("owned discovery record is unavailable") from exc
-    if _filesystem_entry_kind(before) != "file":
-        raise LiveGateError("owned discovery record is not a regular file")
-    lease = _acquire_windows_path_lease(candidate, before, "file")
-    try:
-        if expected_identity is not None and (
-            type(expected_identity) is not tuple
-            or len(expected_identity) != 2
-            or type(expected_identity[0]) is not int
-            or expected_identity[0] < 0
-            or type(expected_identity[1]) is not int
-            or expected_identity[1] <= 0
-            or (lease.device_id, lease.file_id) != expected_identity
-        ):
-            raise LiveGateError("owned discovery record identity changed")
-        payload = lease.read_bytes()
-        lease.verify()
-        after = candidate.lstat()
-    except BaseException:
-        raise
-    finally:
-        lease.release()
-    before_identity = (
-        getattr(before, "st_dev", 0),
-        getattr(before, "st_ino", 0),
-        getattr(before, "st_mtime_ns", 0),
-        getattr(before, "st_size", -1),
-    )
-    after_identity = (
-        getattr(after, "st_dev", 0),
-        getattr(after, "st_ino", 0),
-        getattr(after, "st_mtime_ns", 0),
-        getattr(after, "st_size", -1),
-    )
-    if (
-        before_identity != after_identity
-        or type(before_identity[0]) is not int
-        or type(before_identity[1]) is not int
-        or type(before_identity[2]) is not int
-        or type(before_identity[3]) is not int
-        or before_identity[1] <= 0
-        or before_identity[3] != len(payload)
-    ):
-        raise LiveGateError("owned discovery record changed during capture")
-    return _DiscoveryRecordSnapshot(
-        path=candidate,
-        device_id=before_identity[0],
-        file_id=before_identity[1],
-        mtime_ns=before_identity[2],
-        size=before_identity[3],
-        payload=payload,
-    )
-
-
-def _snapshot_prelaunch_discovery_records(
-    discovery: Any,
-    *,
-    registry: _RetainedLeaseRegistry | None = None,
-) -> dict[Path, _DiscoveryRecordSnapshot]:
+def _discovery_directory_path(discovery: Any) -> Path:
     raw_directory = getattr(discovery, "discovery_dir", None)
     if raw_directory is None:
         raise LiveGateError("owned discovery directory is unavailable")
     raw_path = Path(raw_directory)
     if not raw_path.is_absolute():
         raise LiveGateError("owned discovery directory path is unsafe")
-    directory = raw_path.expanduser()
-    if _has_reparse_component(directory):
-        raise LiveGateError("owned discovery directory path is unsafe")
+    return raw_path.expanduser()
+
+
+def _acquire_discovery_directory_leases(
+    discovery: Any,
+    *,
+    registry: _RetainedLeaseRegistry | None = None,
+) -> _RetainedPathLeases:
+    directory = _discovery_directory_path(discovery)
     try:
-        directory_info = directory.lstat()
-    except FileNotFoundError:
-        return {}
-    except OSError as exc:
-        raise LiveGateError("owned discovery directory is unavailable") from exc
-    if _filesystem_entry_kind(directory_info) != "directory":
-        raise LiveGateError("owned discovery directory is not a plain directory")
-    directory_leases = _acquire_retained_path_leases(
-        directory,
-        "directory",
-        registry=registry,
-    )
-    directory_lease = directory_leases.lease_for(directory)
+        return _acquire_retained_path_leases(
+            directory,
+            "directory",
+            registry=registry,
+        )
+    except (LiveGateError, OSError) as exc:
+        raise LiveGateError(
+            "owned discovery directory is unavailable or reparse-backed"
+        ) from exc
+
+
+def _capture_discovery_record(
+    path: Path,
+    *,
+    expected_identity: tuple[int, int] | None = None,
+    directory_leases: _RetainedPathLeases | None = None,
+    registry: _RetainedLeaseRegistry | None = None,
+) -> _DiscoveryRecordSnapshot:
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        raise LiveGateError("owned discovery record path is unsafe")
+    owned_leases: _RetainedPathLeases | None = None
+    active_leases = directory_leases
+    if active_leases is None:
+        owned_leases = _acquire_retained_path_leases(
+            candidate.parent,
+            "directory",
+            registry=registry,
+        )
+        active_leases = owned_leases
     try:
+        active_leases.verify()
+        parent_lease = active_leases.lease_for(candidate.parent)
+        if (
+            not isinstance(parent_lease, _WindowsPathLease)
+            or not parent_lease.rename_pinned
+        ):
+            raise LiveGateError("owned discovery directory is not rename-pinned")
+        parent_lease.verify()
+        try:
+            before = candidate.lstat()
+        except OSError as exc:
+            raise LiveGateError("owned discovery record is unavailable") from exc
+        if _filesystem_entry_kind(before) != "file":
+            raise LiveGateError("owned discovery record is not a regular file")
+        lease = _acquire_windows_path_lease(candidate, before, "file")
+        try:
+            parent_lease.verify()
+            if expected_identity is not None and (
+                type(expected_identity) is not tuple
+                or len(expected_identity) != 2
+                or type(expected_identity[0]) is not int
+                or expected_identity[0] < 0
+                or type(expected_identity[1]) is not int
+                or expected_identity[1] <= 0
+                or (lease.device_id, lease.file_id) != expected_identity
+            ):
+                raise LiveGateError("owned discovery record identity changed")
+            payload = lease.read_bytes()
+            lease.verify()
+            after = candidate.lstat()
+            before_identity = (
+                getattr(before, "st_dev", 0),
+                getattr(before, "st_ino", 0),
+                getattr(before, "st_mtime_ns", 0),
+                getattr(before, "st_size", -1),
+            )
+            after_identity = (
+                getattr(after, "st_dev", 0),
+                getattr(after, "st_ino", 0),
+                getattr(after, "st_mtime_ns", 0),
+                getattr(after, "st_size", -1),
+            )
+            if (
+                before_identity != after_identity
+                or type(before_identity[0]) is not int
+                or type(before_identity[1]) is not int
+                or type(before_identity[2]) is not int
+                or type(before_identity[3]) is not int
+                or before_identity[1] <= 0
+                or before_identity[3] != len(payload)
+            ):
+                raise LiveGateError("owned discovery record changed during capture")
+            parent_lease.verify()
+            active_leases.verify()
+            snapshot = _DiscoveryRecordSnapshot(
+                path=candidate,
+                device_id=before_identity[0],
+                file_id=before_identity[1],
+                mtime_ns=before_identity[2],
+                size=before_identity[3],
+                payload=payload,
+            )
+        finally:
+            lease.release()
+        parent_lease.verify()
+        active_leases.verify()
+        return snapshot
+    except BaseException:
+        if owned_leases is not None and not owned_leases.released:
+            try:
+                owned_leases.release()
+            except BaseException:
+                pass
+        raise
+    finally:
+        if owned_leases is not None and not owned_leases.released:
+            owned_leases.release()
+
+
+def _snapshot_prelaunch_discovery_records(
+    discovery: Any,
+    *,
+    registry: _RetainedLeaseRegistry | None = None,
+    directory_leases: _RetainedPathLeases | None = None,
+) -> dict[Path, _DiscoveryRecordSnapshot]:
+    directory = _discovery_directory_path(discovery)
+    owned_leases: _RetainedPathLeases | None = None
+    active_leases = directory_leases
+    if active_leases is None:
+        try:
+            directory_info = directory.lstat()
+        except FileNotFoundError:
+            return {}
+        except OSError as exc:
+            raise LiveGateError("owned discovery directory is unavailable") from exc
+        if _filesystem_entry_kind(directory_info) != "directory":
+            raise LiveGateError("owned discovery directory is not a plain directory")
+        owned_leases = _acquire_discovery_directory_leases(
+            discovery,
+            registry=registry,
+        )
+        active_leases = owned_leases
+    directory_lease = active_leases.lease_for(directory)
+    try:
+        active_leases.verify()
         snapshots: dict[Path, _DiscoveryRecordSnapshot] = {}
         with os.scandir(directory) as iterator:
             entries = list(iterator)
@@ -1112,12 +1173,15 @@ def _snapshot_prelaunch_discovery_records(
             snapshot = _capture_discovery_record(
                 directory / name,
                 expected_identity=(device_id, file_id),
+                directory_leases=active_leases,
             )
             snapshots[snapshot.path] = snapshot
         directory_lease.verify()
+        active_leases.verify()
         return snapshots
     finally:
-        directory_leases.release()
+        if owned_leases is not None and not owned_leases.released:
+            owned_leases.release()
 
 
 def _accept_fresh_owned_discovery_record(
@@ -1125,10 +1189,14 @@ def _accept_fresh_owned_discovery_record(
     started: Any,
     record: Any,
     prelaunch: Mapping[Path, _DiscoveryRecordSnapshot],
+    directory_leases: _RetainedPathLeases | None = None,
 ) -> _DiscoveryRecordSnapshot:
     if getattr(record, "pid", None) != getattr(started, "pid", None):
         raise LiveGateError("owned discovery record PID does not match launch")
-    snapshot = _capture_discovery_record(Path(record.path))
+    snapshot = _capture_discovery_record(
+        Path(record.path),
+        directory_leases=directory_leases,
+    )
     started_wall = getattr(started, "started_wall", None)
     if type(started_wall) not in {int, float} or isinstance(started_wall, bool):
         raise LiveGateError("owned launch wall-clock identity is invalid")
@@ -1153,6 +1221,7 @@ class _ArtifactRootClaim:
     def __init__(self, path: Path, leases: _RetainedPathLeases):
         self.path = Path(path)
         self._leases = leases
+        self._retained_views: list[_RetainedPathLeases] = []
         self.marker_artifact: _CapturedArtifact | None = None
         self._released = False
 
@@ -1298,11 +1367,41 @@ class _ArtifactRootClaim:
         directory.rmdir()
         parent_lease.verify()
 
+    def retain_view(self, leases: _RetainedPathLeases) -> None:
+        self.verify()
+        if leases.released:
+            raise LiveGateError("retained run path view was already released")
+        leases.verify()
+        if leases._registry is not self._leases._registry:
+            leases.release()
+            raise LiveGateError("retained run path view uses a different registry")
+        try:
+            self._retained_views.append(leases)
+        except BaseException:
+            leases.release()
+            raise
+
     def release(self) -> None:
         if self._released:
             raise LiveGateError("artifact root claim released more than once")
         self._released = True
-        self._leases.release()
+        pending: BaseException | None = None
+        for retained in reversed(self._retained_views):
+            try:
+                if retained.released:
+                    raise LiveGateError("retained run path view was released early")
+                retained.release()
+            except BaseException as exc:
+                if pending is None:
+                    pending = exc
+        self._retained_views.clear()
+        try:
+            self._leases.release()
+        except BaseException as exc:
+            if pending is None:
+                pending = exc
+        if pending is not None:
+            raise pending
 
 
 def _claim_artifact_directory(
@@ -1420,22 +1519,32 @@ def _claim_artifact_directory(
         claim.verify()
         return claim
     except BaseException:
-        if marker_created and retained is not None and not retained.released:
-            try:
-                retained.lease_for(raw).verify()
-                (raw / OWNERSHIP_MARKER).unlink()
-            except (LiveGateError, OSError):
-                pass
-        if retained is not None and not retained.released:
-            try:
-                retained.release()
-            except BaseException:
-                pass
-        if created:
-            try:
-                raw.rmdir()
-            except OSError:
-                pass
+        try:
+            if marker_created and retained is not None and not retained.released:
+                try:
+                    retained.lease_for(raw).verify()
+                    (raw / OWNERSHIP_MARKER).unlink()
+                except BaseException:
+                    pass
+            if created and retained is not None and not retained.released:
+                try:
+                    parent_lease = retained.lease_for(parent)
+                    retained.lease_for(raw)
+                    parent_lease.verify()
+                    retained.remove(raw)
+                    parent_lease.verify()
+                    try:
+                        raw.rmdir()
+                    finally:
+                        parent_lease.verify()
+                except BaseException:
+                    pass
+        finally:
+            if retained is not None and not retained.released:
+                try:
+                    retained.release()
+                except BaseException:
+                    pass
         raise
 
 
@@ -1724,7 +1833,9 @@ class BoundInstalledToolAdapter:
         record: Any,
         process_start_token: str,
         record_bytes: bytes,
+        record_device_id: int,
         record_file_id: int,
+        discovery_leases: _RetainedPathLeases,
     ):
         if type(port) is not int or port <= 0 or type(process_id) is not int or process_id <= 0:
             raise LiveGateError("bound adapter identity is invalid")
@@ -1741,6 +1852,8 @@ class BoundInstalledToolAdapter:
             raise LiveGateError("bound adapter discovery identity is invalid")
         if type(record_bytes) is not bytes or not record_bytes:
             raise LiveGateError("bound adapter discovery bytes are invalid")
+        if type(record_device_id) is not int or record_device_id < 0:
+            raise LiveGateError("bound adapter discovery device identity is invalid")
         if type(record_file_id) is not int or record_file_id <= 0:
             raise LiveGateError("bound adapter discovery file identity is invalid")
         try:
@@ -1752,6 +1865,14 @@ class BoundInstalledToolAdapter:
             record, "raw", None
         ):
             raise LiveGateError("bound adapter discovery bytes mismatch")
+        discovery_leases.verify()
+        discovery_parent = discovery_leases.lease_for(record_path.parent)
+        if (
+            not isinstance(discovery_parent, _WindowsPathLease)
+            or not discovery_parent.rename_pinned
+        ):
+            raise LiveGateError("bound adapter discovery directory is not retained")
+        discovery_parent.verify()
         self.port = port
         self.process_id = process_id
         self._started = started
@@ -1760,8 +1881,10 @@ class BoundInstalledToolAdapter:
         self._process_start_token = process_start_token
         self._record_path = record_path
         self._record_bytes = record_bytes
+        self._record_device_id = record_device_id
         self._record_file_id = record_file_id
         self._record_sha256 = _sha256_bytes(record_bytes)
+        self._discovery_leases = discovery_leases
         self._discovery = _new_owned_discovery()
 
     def _check_owned_continuity(self) -> None:
@@ -1783,7 +1906,10 @@ class BoundInstalledToolAdapter:
         try:
             record = self._discovery.read_owned_record(self.process_id)
             record_path = Path(record.path)
-            record_snapshot = _capture_discovery_record(record_path)
+            record_snapshot = _capture_discovery_record(
+                record_path,
+                directory_leases=self._discovery_leases,
+            )
             record_bytes = record_snapshot.payload
             record_sha256 = _sha256_bytes(record_bytes)
         except Exception as exc:
@@ -1792,7 +1918,10 @@ class BoundInstalledToolAdapter:
             raise OwnershipAmbiguous("owned discovery PID/port drift")
         if record_path != self._record_path:
             raise OwnershipAmbiguous("owned discovery record path drift")
-        if record_snapshot.file_id != self._record_file_id:
+        if (
+            record_snapshot.device_id != self._record_device_id
+            or record_snapshot.file_id != self._record_file_id
+        ):
             raise OwnershipAmbiguous("owned discovery record identity drift")
         if record_bytes != self._record_bytes or record_sha256 != self._record_sha256:
             raise OwnershipAmbiguous("owned discovery record bytes drift")
@@ -1826,7 +1955,9 @@ def _new_bound_adapter(
     record: Any,
     process_start_token: str,
     record_bytes: bytes,
+    record_device_id: int,
     record_file_id: int,
+    discovery_leases: _RetainedPathLeases,
 ) -> BoundInstalledToolAdapter:
     return BoundInstalledToolAdapter(
         port=record.port,
@@ -1835,7 +1966,9 @@ def _new_bound_adapter(
         record=record,
         process_start_token=process_start_token,
         record_bytes=record_bytes,
+        record_device_id=record_device_id,
         record_file_id=record_file_id,
+        discovery_leases=discovery_leases,
     )
 
 
@@ -3482,9 +3615,15 @@ def _run_claimed_live_scenario(
             raise _ScenarioFailure("launch_failed", "owned Rhino launch preparation failed") from exc
         try:
             state.discovery = _new_owned_discovery()
+            state.discovery_leases = _acquire_discovery_directory_leases(
+                state.discovery,
+                registry=root_claim._leases._registry,
+            )
+            root_claim.retain_view(state.discovery_leases)
             prelaunch_discovery = _snapshot_prelaunch_discovery_records(
                 state.discovery,
                 registry=root_claim._leases._registry,
+                directory_leases=state.discovery_leases,
             )
         except Exception as exc:
             raise _ScenarioFailure(
@@ -3517,9 +3656,11 @@ def _run_claimed_live_scenario(
                 started=state.process,
                 record=candidate_record,
                 prelaunch=prelaunch_discovery,
+                directory_leases=state.discovery_leases,
             )
             state.record = candidate_record
             state.discovery_record_bytes = accepted_record.payload
+            state.discovery_record_device_id = accepted_record.device_id
             state.discovery_record_file_id = accepted_record.file_id
         except Exception as exc:
             raise _ScenarioFailure("readiness_failed", "owned Rhino readiness failed") from exc
@@ -3536,7 +3677,9 @@ def _run_claimed_live_scenario(
             record=state.record,
             process_start_token=process_token,
             record_bytes=state.discovery_record_bytes,
+            record_device_id=state.discovery_record_device_id,
             record_file_id=state.discovery_record_file_id,
+            discovery_leases=state.discovery_leases,
         )
         asyncio.run(_execute_scenario(state))
     except OwnershipAmbiguous as exc:
