@@ -95,6 +95,12 @@ CONTAINED_IDENTITIES = tuple(sorted(contained_names()))
 SPHERE_COMPONENT_GUID = "dabc854d-f50e-408a-b001-d043c7de151d"
 FIXTURE_SIZE = 2708
 FIXTURE_SHA256 = "2def4c0009b3b41de681fe23880f741189c0119820260a35a48f048d2b8830df"
+GH_DEFERRED_DISPATCH_DELAY_SECONDS = 5.0
+GH_SOLVE_ALLOWANCE_SECONDS = 10.0
+GH_SOLVE_SETTLE_TIMEOUT_SECONDS = (
+    GH_DEFERRED_DISPATCH_DELAY_SECONDS + GH_SOLVE_ALLOWANCE_SECONDS
+)
+GH_SOLVE_POLL_INTERVAL_SECONDS = 0.25
 OWNERSHIP_MARKER = ".rook-containment-owner.json"
 RUNTIME_SERIAL_CODE = (
     "import Rhino\n"
@@ -193,6 +199,7 @@ class _RunState:
     ownership_certain: bool = True
     created_rhino_ids: list[str] | None = None
     gh_edit_may_have_applied: bool = False
+    gh_undo_attempts: int = 0
 
 
 def _utc_now() -> str:
@@ -634,6 +641,10 @@ def _force_owned_cleanup(process: Any, diagnostics: list[str]) -> bool:
 
 def _sleep(seconds: float) -> None:
     time.sleep(seconds)
+
+
+def _monotonic() -> float:
+    return time.monotonic()
 
 
 def _validate_snapshot(snapshot: object) -> dict[str, Any]:
@@ -1206,12 +1217,22 @@ def _verify_gh_edit(snapshot: Mapping[str, Any], run_id: str) -> dict[str, Any]:
     ):
         raise _ScenarioFailure("verification_failed", "Grasshopper component settings mismatch")
     outputs = _ci_get(sphere, "outputs")
-    if not isinstance(outputs, list) or not outputs:
+    if not isinstance(outputs, list) or len(outputs) != 1:
         raise _ScenarioFailure("verification_failed", "Sphere output is absent")
-    data = _ci_get(outputs[0], "data") if isinstance(outputs[0], Mapping) else None
-    preview = _ci_get(data, "preview") if isinstance(data, Mapping) else None
-    if not isinstance(data, Mapping) or _ci_get(data, "count") != 1 or not isinstance(preview, list) or not any("4" in str(item) for item in preview):
-        raise _ScenarioFailure("verification_failed", "Sphere radius-4 output was not observed")
+    output = outputs[0]
+    data = _ci_get(output, "data") if isinstance(output, Mapping) else None
+    if (
+        not isinstance(output, Mapping)
+        or _ci_get(output, "idx") != 0
+        or _ci_get(output, "name") != "Sphere"
+        or _ci_get(output, "type") != "Sphere"
+        or not isinstance(data, Mapping)
+        or _ci_get(data, "structure") != "single"
+        or _ci_get(data, "count") != 1
+    ):
+        raise _ScenarioFailure(
+            "verification_failed", "Sphere output projection mismatch"
+        )
     if _ci_get(diagnostics, "errors", 0) != 0 or _ci_get(diagnostics, "warnings", 0) != 0:
         raise _ScenarioFailure("verification_failed", "Grasshopper snapshot contains diagnostics")
     return {"components": components, "flows": flows, "diagnostics": dict(diagnostics)}
@@ -1344,7 +1365,8 @@ async def _run_grasshopper_forward(state: _RunState, recorder: _OperationRecorde
     solved_status: dict[str, Any] | None = None
     final_errors: list[Any] = []
     final_warnings: list[Any] = []
-    for _ in range(20):
+    settle_deadline = _monotonic() + GH_SOLVE_SETTLE_TIMEOUT_SECONDS
+    while True:
         candidate = _data(await recorder.call("gh_snapshot", {}), "gh_snapshot")
         errors, warnings = _errors_projection(_data(await recorder.call("gh_errors", {}), "gh_errors"))
         status = _gh_status_projection(_data(await recorder.call("gh_status", {}), "gh_status"))
@@ -1368,7 +1390,10 @@ async def _run_grasshopper_forward(state: _RunState, recorder: _OperationRecorde
             solved_status = status
             final_errors, final_warnings = errors, warnings
             break
-        _sleep(0.25)
+        remaining = settle_deadline - _monotonic()
+        if remaining <= 0:
+            break
+        _sleep(min(GH_SOLVE_POLL_INTERVAL_SECONDS, remaining))
     if solved_snapshot is None:
         raise _ScenarioFailure("verification_failed", "Grasshopper edit did not settle to the expected solved projection")
     verified_projection = _verify_gh_edit(solved_snapshot, state.run_id)
@@ -1387,10 +1412,24 @@ async def _run_grasshopper_forward(state: _RunState, recorder: _OperationRecorde
 
 async def _restore_rhino(state: _RunState, recorder: _OperationRecorder) -> bool:
     state.result.restoration["attempted"] = True
-    if state.created_rhino_ids:
-        await recorder.call("rhino_delete", {"ids": list(state.created_rhino_ids)})
+    current_ids = _rhino_object_ids(
+        _data(
+            await recorder.call(
+                "rhino_objects", {"limit": 500, "offset": 0}
+            ),
+            "rhino_objects",
+        )
+    )
+    validated_ids = set(state.created_rhino_ids or [])
+    if not set(current_ids).issubset(validated_ids):
+        raise OwnershipAmbiguous(
+            "Rhino restoration observed an unvalidated object identity"
+        )
+    remaining_gate_ids = sorted(set(current_ids) & validated_ids)
+    if remaining_gate_ids:
+        await recorder.call("rhino_delete", {"ids": remaining_gate_ids})
     dirty = _rhino_document_projection(_data(await recorder.call("rhino_document", {}), "rhino_document"))
-    if state.created_rhino_ids and dirty["modified"] is not True:
+    if remaining_gate_ids and dirty["modified"] is not True:
         return False
     await recorder.call("rhino_document_ops", {"action": "save", "path": str(state.scratch_path)})
     serial_result = await recorder.call("rhino_execute", {"code": RUNTIME_SERIAL_CODE})
@@ -1442,9 +1481,8 @@ async def _restore_grasshopper(state: _RunState, recorder: _OperationRecorder) -
     if state.gh_edit_may_have_applied:
         observed, clean = await _observe_grasshopper_restoration(state, recorder)
         matched = clean and observed == dict(expected)
-        for _ in range(4):
-            if matched:
-                break
+        while not matched and state.gh_undo_attempts < 4:
+            state.gh_undo_attempts += 1
             await recorder.call("gh_undo", {})
             observed, clean = await _observe_grasshopper_restoration(state, recorder)
             matched = clean and observed == dict(expected)
@@ -1459,11 +1497,12 @@ def _cleanup_owned_target(state: _RunState, diagnostics: list[str]) -> bool:
         return False
     owned_process = getattr(state.process, "process", state.process)
     forced = False
-    try:
-        forced = _request_graceful_close(owned_process, diagnostics)
-    except Exception as exc:
-        diagnostics.append(f"graceful cleanup failed for pid {owned_process.pid}: {_bounded_detail(exc)}")
-        forced = True
+    if owned_process.poll() is None:
+        try:
+            forced = _request_graceful_close(owned_process, diagnostics)
+        except Exception as exc:
+            diagnostics.append(f"graceful cleanup failed for pid {owned_process.pid}: {_bounded_detail(exc)}")
+            forced = True
     if owned_process.poll() is None:
         forced = True
         try:
@@ -1490,6 +1529,19 @@ def _cleanup_owned_target(state: _RunState, diagnostics: list[str]) -> bool:
     state.result.restoration["scratch_disposed"] = scratch_disposed
     state.result.restoration["discovery_removed"] = discovery_removed
     return not forced and scratch_disposed and discovery_removed
+
+
+def _restoration_is_verified(state: _RunState, *, cleanup_ok: bool) -> bool:
+    restoration = state.result.restoration
+    return bool(
+        cleanup_ok
+        and restoration["ownership_certain"] is True
+        and restoration["attempted"] is True
+        and restoration["in_process_projection_matches_declared"] is True
+        and restoration["prior_identity_or_absence_restored"] is True
+        and restoration["scratch_disposed"] is True
+        and restoration["discovery_removed"] is True
+    )
 
 
 def _finalize_telemetry(state: _RunState) -> None:
@@ -1601,6 +1653,8 @@ def run_live_scenario(
     )
     _register_artifact(result, owned_dir / OWNERSHIP_MARKER, owned_dir, "ownership_marker")
     failure: _ScenarioFailure | None = None
+    interruption: BaseException | None = None
+    interruption_label: str | None = None
     diagnostics: list[str] = []
     try:
         try:
@@ -1653,23 +1707,50 @@ def run_live_scenario(
         failure = exc
     except Exception as exc:
         failure = _ScenarioFailure("verification_failed", _bounded_detail(exc))
+    except BaseException as exc:
+        interruption = exc
+        interruption_label = (
+            "authorization_rejected"
+            if not state.authorized
+            else "mutation_failed"
+            if state.mutation_started
+            else "verification_failed"
+        )
 
-    if failure is not None:
+    if failure is not None or interruption is not None:
         if not state.authorized and result.operations:
             try:
                 _discard_pre_authorization_operations(state)
             except Exception as discard_exc:
-                failure = _ScenarioFailure("cleanup_failed", _bounded_detail(discard_exc))
+                if failure is not None:
+                    failure = _ScenarioFailure(
+                        "cleanup_failed", _bounded_detail(discard_exc)
+                    )
+                else:
+                    _record_diagnostic(
+                        state, "cleanup", "cleanup_failed", discard_exc
+                    )
         result.success = False
-        result.failure_label = failure.label
-        _record_diagnostic(state, "scenario", failure.label, failure)
-        if (
-            state.ownership_certain
-            and state.process is not None
-            and state.authorized
-            and state.mutation_started
-            and not result.restoration["attempted"]
-        ):
+        if failure is not None:
+            result.failure_label = failure.label
+            _record_diagnostic(state, "scenario", failure.label, failure)
+        if interruption is not None:
+            if result.failure_label is None:
+                result.failure_label = interruption_label
+            _record_diagnostic(state, "scenario", "interrupted", interruption)
+
+    if (
+        state.ownership_certain
+        and state.process is not None
+        and state.authorized
+        and state.mutation_started
+        and result.restoration["in_process_projection_matches_declared"] is not True
+        and (
+            interruption is not None
+            or result.restoration["attempted"] is not True
+        )
+    ):
+        for restore_attempt in range(2):
             try:
                 recorder = _OperationRecorder(state)
                 restored = asyncio.run(
@@ -1677,27 +1758,64 @@ def run_live_scenario(
                     if scenario == "rhino"
                     else _restore_grasshopper(state, recorder)
                 )
-                if not restored and failure.label not in {"ownership_ambiguous", "restoration_failed"}:
+                if not restored and result.failure_label != "ownership_ambiguous":
                     result.failure_label = "restoration_failed"
+                break
             except OwnershipAmbiguous:
                 state.ownership_certain = False
                 result.failure_label = "ownership_ambiguous"
+                break
             except Exception as restore_exc:
-                if failure.label != "ownership_ambiguous":
+                if result.failure_label != "ownership_ambiguous":
                     result.failure_label = "restoration_failed"
                 _record_diagnostic(state, "restoration", result.failure_label, restore_exc)
+                break
+            except BaseException as restore_interrupt:
+                if interruption is None:
+                    interruption = restore_interrupt
+                    interruption_label = "restoration_failed"
+                    if result.failure_label is None:
+                        result.failure_label = interruption_label
+                _record_diagnostic(
+                    state, "restoration", "interrupted", restore_interrupt
+                )
+                if restore_attempt == 1:
+                    break
 
     result.restoration["ownership_certain"] = state.ownership_certain
     cleanup_ok = False
     if state.process is not None and state.ownership_certain:
-        cleanup_ok = _cleanup_owned_target(state, diagnostics)
+        for cleanup_attempt in range(2):
+            try:
+                cleanup_ok = _cleanup_owned_target(state, diagnostics)
+                break
+            except Exception as cleanup_exc:
+                diagnostics.append(
+                    f"owned cleanup failed: {_bounded_detail(cleanup_exc)}"
+                )
+                cleanup_ok = False
+                break
+            except BaseException as cleanup_interrupt:
+                if interruption is None:
+                    interruption = cleanup_interrupt
+                    interruption_label = "cleanup_failed"
+                    if result.failure_label is None:
+                        result.failure_label = interruption_label
+                _record_diagnostic(
+                    state, "cleanup", "interrupted", cleanup_interrupt
+                )
+                if cleanup_attempt == 1:
+                    break
         if not cleanup_ok:
             if result.failure_label not in {"ownership_ambiguous", "restoration_failed"}:
                 result.failure_label = "cleanup_failed"
             result.success = False
-            result.restoration["verified"] = False
     elif state.process is None:
         cleanup_ok = True
+
+    result.restoration["verified"] = _restoration_is_verified(
+        state, cleanup_ok=cleanup_ok
+    )
 
     if diagnostics:
         _record_diagnostic(state, "cleanup", "cleanup_failed" if not cleanup_ok else "cleanup_notes", LiveGateError("; ".join(diagnostics)))
@@ -1709,15 +1827,22 @@ def run_live_scenario(
             result.success = False
             result.failure_label = telemetry_failure.label
             _record_diagnostic(state, "telemetry", telemetry_failure.label, telemetry_failure)
+        except BaseException as telemetry_interrupt:
+            if interruption is None:
+                interruption = telemetry_interrupt
+                interruption_label = "telemetry_changed"
+                if result.failure_label is None:
+                    result.failure_label = interruption_label
+            _record_diagnostic(
+                state, "telemetry", "interrupted", telemetry_interrupt
+            )
 
-    if failure is None and cleanup_ok and result.failure_label is None:
+    if interruption is not None:
+        result.success = False
+        if result.failure_label is None:
+            result.failure_label = interruption_label or "verification_failed"
+    elif failure is None and result.failure_label is None:
         result.success = True
-        result.restoration["verified"] = (
-            result.restoration["in_process_projection_matches_declared"]
-            and result.restoration["prior_identity_or_absence_restored"]
-            and result.restoration["scratch_disposed"]
-            and result.restoration["discovery_removed"]
-        )
         if not result.restoration["verified"]:
             result.success = False
             result.failure_label = "restoration_failed"
@@ -1731,6 +1856,8 @@ def run_live_scenario(
     if path.name != f"{scenario}-scenario.json":
         raise FinalEvidenceWriteError("final evidence path drift")
     _emit_jsonl(_scenario_result_record(result, digest))
+    if interruption is not None:
+        raise interruption
     return result
 
 

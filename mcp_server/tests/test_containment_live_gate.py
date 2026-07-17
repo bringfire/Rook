@@ -593,7 +593,18 @@ class _GrasshopperAdapter:
                     "componentGuid": live.SPHERE_COMPONENT_GUID,
                     "pos": [400, 100],
                     "inputs": [{"idx": 0, "name": "Base"}, {"idx": 1, "name": "Radius", "sources": 1}],
-                    "outputs": [{"idx": 0, "name": "Sphere", "data": {"structure": "single", "count": 1, "preview": ["Sphere radius 4"]}}],
+                    "outputs": [
+                        {
+                            "idx": 0,
+                            "name": "Sphere",
+                            "type": "Sphere",
+                            "data": {
+                                "structure": "single",
+                                "count": 1,
+                                "preview": ["Sphere"],
+                            },
+                        }
+                    ],
                 },
             ],
             "flows": ["C1.O0>C2.I1"],
@@ -760,7 +771,15 @@ def _install_fake_scenario(
 
     monkeypatch.setattr(live, "_request_graceful_close", close)
     monkeypatch.setattr(live, "_force_owned_cleanup", lambda proc, diagnostics: False)
-    monkeypatch.setattr(live, "_sleep", lambda _seconds: None)
+    fake_clock = {"now": 0.0}
+    monkeypatch.setattr(live, "_monotonic", lambda: fake_clock["now"])
+    monkeypatch.setattr(
+        live,
+        "_sleep",
+        lambda seconds: fake_clock.__setitem__(
+            "now", fake_clock["now"] + seconds
+        ),
+    )
 
     challenge_target = {
         "label": live.AUTHORIZATION_LABELS[scenario],
@@ -824,6 +843,65 @@ def _load_final_artifact(artifact: Path, scenario: str) -> dict[str, Any]:
     digest = hashlib.sha256(payload).hexdigest()
     assert (artifact / f"{scenario}-scenario.sha256").read_bytes() == f"{digest}\n".encode()
     return json.loads(payload)
+
+
+@requires_live_gate
+def test_grasshopper_output_contract_uses_structured_fields_not_preview(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
+    harness.adapter.edited = True
+    snapshot = harness.adapter._snapshot()
+
+    projection = live._verify_gh_edit(snapshot, RUN_ID)
+
+    output = projection["components"][1]["outputs"][0]
+    assert output["idx"] == 0
+    assert output["name"] == "Sphere"
+    assert output["type"] == "Sphere"
+    assert output["data"]["structure"] == "single"
+    assert output["data"]["count"] == 1
+    assert output["data"]["preview"] == ["Sphere"]
+
+
+@requires_live_gate
+def test_grasshopper_output_contract_rejects_misleading_digit_preview(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
+    harness.adapter.edited = True
+    snapshot = harness.adapter._snapshot()
+    output = snapshot["components"][1]["outputs"][0]
+    output["type"] = "Integer"
+    output["data"]["preview"] = ["misleading radius 4"]
+
+    with pytest.raises(live._ScenarioFailure, match="output"):
+        live._verify_gh_edit(snapshot, RUN_ID)
+
+
+@requires_live_gate
+@pytest.mark.parametrize("case", ["wrong_slider_value", "empty_output"])
+def test_grasshopper_output_contract_rejects_wrong_value_or_empty_data(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    case: str,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
+    harness.adapter.edited = True
+    snapshot = harness.adapter._snapshot()
+    if case == "wrong_slider_value":
+        snapshot["components"][0]["value"]["val"] = 5
+    else:
+        snapshot["components"][1]["outputs"][0]["data"] = {
+            "structure": "empty",
+            "count": 0,
+            "preview": ["misleading radius 4"],
+        }
+
+    with pytest.raises(live._ScenarioFailure):
+        live._verify_gh_edit(snapshot, RUN_ID)
 
 
 @requires_live_gate
@@ -904,6 +982,188 @@ def test_successful_fake_host_scenarios_emit_exact_evidence_and_restore(
         assert edit_calls == [live._grasshopper_edit_arguments(RUN_ID, 7)]
         assert 1 <= names.count("gh_undo") <= 4
         assert "gh_solve" not in names and "gh_document_new" not in names
+
+
+@requires_live_gate
+def test_grasshopper_settle_waits_past_real_deferred_dispatch_delay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
+    original_call = harness.adapter.call
+    clock = {"now": 0.0}
+    edited_status_times: list[float] = []
+
+    async def delayed_settle(name, arguments):
+        result = await original_call(name, arguments)
+        if name == "gh_status" and harness.adapter.edited:
+            edited_status_times.append(clock["now"])
+            if clock["now"] < 5.25:
+                result = copy.deepcopy(result)
+                result["data"]["solutionState"] = "PreProcess"
+        return result
+
+    harness.adapter.call = delayed_settle
+    monkeypatch.setattr(live, "_monotonic", lambda: clock["now"], raising=False)
+    monkeypatch.setattr(
+        live,
+        "_sleep",
+        lambda seconds: clock.__setitem__("now", clock["now"] + seconds),
+    )
+
+    result = live.run_live_scenario(
+        scenario="grasshopper",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    )
+
+    assert live.GH_SOLVE_SETTLE_TIMEOUT_SECONDS > 5.0
+    assert result.success is True
+    assert edited_status_times[0] == 0.0
+    assert max(edited_status_times) >= 5.25
+    assert max(edited_status_times) <= live.GH_SOLVE_SETTLE_TIMEOUT_SECONDS
+
+
+@requires_live_gate
+def test_keyboard_interrupt_before_authorization_closes_owned_target_and_exits_130(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+
+    def interrupt_authorization() -> str:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(live, "_read_authorization_line", interrupt_authorization)
+    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+        exit_code = live.main(
+            [
+                "run",
+                "--scenario",
+                "rhino",
+                "--rhino-exe",
+                str(harness.rhino_exe),
+                "--artifact-dir",
+                str(harness.artifact),
+            ]
+        )
+
+    names = [name for name, _ in harness.adapter.calls]
+    assert exit_code == 130
+    assert not {
+        "rhino_document_ops",
+        "rhino_create",
+        "rhino_delete",
+    }.intersection(names)
+    assert harness.process.closed and not harness.process.killed
+    assert harness.close_calls == [harness.process.pid]
+    assert not Path(harness.record.path).exists()
+    assert not harness.scratch.exists()
+    evidence = _load_final_artifact(harness.artifact, "rhino")
+    assert evidence["success"] is False
+    assert evidence["failure_label"] == "authorization_rejected"
+    assert evidence["restoration"]["attempted"] is False
+    assert evidence["restoration"]["verified"] is False
+    live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
+
+
+@requires_live_gate
+def test_keyboard_interrupt_during_restoration_retries_safely_then_exits_130(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
+    original_call = harness.adapter.call
+    undo_attempts = 0
+
+    async def interrupt_first_undo(name, arguments):
+        nonlocal undo_attempts
+        if name == "gh_undo":
+            undo_attempts += 1
+            if undo_attempts == 1:
+                raise KeyboardInterrupt
+        return await original_call(name, arguments)
+
+    harness.adapter.call = interrupt_first_undo
+    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+        exit_code = live.main(
+            [
+                "run",
+                "--scenario",
+                "grasshopper",
+                "--rhino-exe",
+                str(harness.rhino_exe),
+                "--artifact-dir",
+                str(harness.artifact),
+            ]
+        )
+
+    assert exit_code == 130
+    assert undo_attempts == 2
+    assert harness.adapter.undo_count == 1
+    assert harness.adapter.edited is False
+    assert harness.process.closed and not harness.process.killed
+    assert harness.close_calls == [harness.process.pid]
+    assert not Path(harness.record.path).exists()
+    assert not harness.scratch.exists()
+    evidence = _load_final_artifact(harness.artifact, "grasshopper")
+    assert evidence["success"] is False
+    assert evidence["failure_label"] == "mutation_failed"
+    assert evidence["restoration"]["attempted"] is True
+    assert evidence["restoration"]["verified"] is True
+    live._validate_scenario_artifacts(harness.artifact, scenario="grasshopper")
+
+
+@requires_live_gate
+def test_keyboard_interrupt_retry_never_exceeds_total_four_undo_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
+    original_call = harness.adapter.call
+    undo_attempts = 0
+
+    async def interrupt_fourth_undo(name, arguments):
+        nonlocal undo_attempts
+        if name == "gh_undo":
+            undo_attempts += 1
+            if undo_attempts < 4:
+                harness.adapter.calls.append((name, copy.deepcopy(arguments)))
+                return _success(
+                    {
+                        "message": "Undo reported without restoration",
+                        "epoch": 8 + undo_attempts,
+                        "snapshot": harness.adapter._snapshot(),
+                    }
+                )
+            if undo_attempts == 4:
+                raise KeyboardInterrupt
+        return await original_call(name, arguments)
+
+    harness.adapter.call = interrupt_fourth_undo
+    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+        exit_code = live.main(
+            [
+                "run",
+                "--scenario",
+                "grasshopper",
+                "--rhino-exe",
+                str(harness.rhino_exe),
+                "--artifact-dir",
+                str(harness.artifact),
+            ]
+        )
+
+    assert exit_code == 130
+    assert undo_attempts == 4
+    assert harness.adapter.edited is True
+    assert harness.process.closed and not harness.process.killed
+    evidence = _load_final_artifact(harness.artifact, "grasshopper")
+    assert evidence["success"] is False
+    assert evidence["failure_label"] == "restoration_failed"
+    assert evidence["restoration"]["attempted"] is True
+    assert evidence["restoration"]["verified"] is False
+    live._validate_scenario_artifacts(harness.artifact, scenario="grasshopper")
 
 
 @requires_live_gate
@@ -1155,6 +1415,61 @@ def test_cleanup_exception_uses_force_only_as_failed_diagnostic_cleanup(
 
 
 @requires_live_gate
+def test_rhino_restoration_refuses_unvalidated_object_id_without_deletion(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    unexpected_id = "55555555-5555-4555-8555-555555555555"
+    harness.artifact.mkdir(parents=True)
+    harness.scratch.write_bytes(b"fake-3dm")
+    harness.adapter.saved = True
+    harness.adapter.modified = True
+    harness.adapter.objects = {
+        SPHERE_ID: {
+            "id": SPHERE_ID,
+            "name": f"RookContainmentSphere-{RUN_ID}",
+            "type": "Brep",
+        },
+        unexpected_id: {
+            "id": unexpected_id,
+            "name": "Unexpected",
+            "type": "Point",
+        },
+    }
+    result = live._new_result("rhino", RUN_ID, live._utc_now())
+    result.pre_state = {
+        "host_projection": None,
+        "host_sha256": None,
+        "scratch_projection": {
+            "runtime_serial": 41,
+            "path": str(harness.scratch),
+            "modified": False,
+            "object_count": 0,
+            "object_ids": [],
+        },
+        "scratch_sha256": None,
+    }
+    state = live._RunState(
+        scenario="rhino",
+        run_id=RUN_ID,
+        artifact_dir=harness.artifact,
+        rhino_exe=harness.rhino_exe,
+        started_at=result.started_at,
+        result=result,
+        adapter=harness.adapter,
+        scratch_path=harness.scratch,
+        created_rhino_ids=[SPHERE_ID],
+    )
+
+    with pytest.raises(live.OwnershipAmbiguous, match="object"):
+        asyncio.run(live._restore_rhino(state, live._OperationRecorder(state)))
+
+    assert "rhino_delete" not in [name for name, _ in harness.adapter.calls]
+    assert set(harness.adapter.objects) == {SPHERE_ID, unexpected_id}
+
+
+@requires_live_gate
 def test_grasshopper_restoration_never_exceeds_four_undo_calls(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1247,6 +1562,8 @@ def test_grasshopper_requires_exact_deferred_edit_solve_evidence(
     evidence = _load_final_artifact(harness.artifact, "grasshopper")
     assert evidence["restoration"]["attempted"] is True
     assert evidence["restoration"]["in_process_projection_matches_declared"] is True
+    assert evidence["restoration"]["verified"] is True
+    assert evidence["success"] is False
 
 
 @requires_live_gate
@@ -1313,6 +1630,8 @@ def test_partial_successful_gh_edit_is_undone_before_failure_is_reported(
     evidence = _load_final_artifact(harness.artifact, "grasshopper")
     assert evidence["restoration"]["attempted"] is True
     assert evidence["restoration"]["in_process_projection_matches_declared"] is True
+    assert evidence["restoration"]["verified"] is True
+    assert evidence["success"] is False
     edit_operation = next(item for item in evidence["operations"] if item["name"] == "gh_edit")
     assert edit_operation["success"] is False
 
@@ -1342,6 +1661,8 @@ def test_post_dispatch_gh_edit_result_write_failure_inspects_and_undoes(
     assert 1 <= names.count("gh_undo") <= 4
     evidence = _load_final_artifact(harness.artifact, "grasshopper")
     assert evidence["restoration"]["in_process_projection_matches_declared"] is True
+    assert evidence["restoration"]["verified"] is True
+    assert evidence["success"] is False
     assert not any(item["name"] == "gh_edit" for item in evidence["operations"])
     orphan_arguments = [
         item
