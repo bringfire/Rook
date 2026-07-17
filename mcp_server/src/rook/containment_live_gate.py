@@ -192,7 +192,7 @@ class _RunState:
     mutation_started: bool = False
     ownership_certain: bool = True
     created_rhino_ids: list[str] | None = None
-    gh_edit_applied: bool = False
+    gh_edit_may_have_applied: bool = False
 
 
 def _utc_now() -> str:
@@ -794,12 +794,29 @@ async def _rhino_preflight(recorder: _OperationRecorder) -> tuple[dict[str, Any]
 def _gh_status_projection(data: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "available": _ci_get(data, "available"),
-        "has_active_canvas": _ci_get(data, "hasActiveCanvas"),
-        "has_active_document": _ci_get(data, "hasActiveDocument"),
-        "document_id": _ci_get(data, "documentId"),
-        "document_path": _ci_get(data, "documentPath", ""),
-        "object_count": _ci_get(data, "objectCount"),
-        "ready_for_edit": _ci_get(data, "readyForEdit"),
+        "has_active_canvas": _ci_get(
+            data, "has_active_canvas", _ci_get(data, "hasActiveCanvas")
+        ),
+        "has_active_document": _ci_get(
+            data, "has_active_document", _ci_get(data, "hasActiveDocument")
+        ),
+        "document_id": _ci_get(data, "document_id", _ci_get(data, "documentId")),
+        "document_path": _ci_get(
+            data, "document_path", _ci_get(data, "documentPath", "")
+        ),
+        "object_count": _ci_get(data, "object_count", _ci_get(data, "objectCount")),
+        "ready_for_edit": _ci_get(
+            data, "ready_for_edit", _ci_get(data, "readyForEdit")
+        ),
+        "solver_enabled": _ci_get(
+            data, "solverEnabled", _ci_get(data, "solver_enabled")
+        ),
+        "solver_state_known": _ci_get(
+            data, "solverStateKnown", _ci_get(data, "solver_state_known")
+        ),
+        "solution_state": _ci_get(
+            data, "solutionState", _ci_get(data, "solution_state")
+        ),
     }
 
 
@@ -1128,6 +1145,30 @@ def _errors_projection(data: Mapping[str, Any]) -> tuple[list[Any], list[Any]]:
     return errors, warnings
 
 
+def _gh_edit_solve_projection(data: Mapping[str, Any]) -> dict[str, Any]:
+    summary = _ci_get(data, "edit_summary")
+    if not isinstance(summary, Mapping):
+        raise _ScenarioFailure(
+            "verification_failed", "Grasshopper edit solve evidence is absent"
+        )
+    return {
+        "solve_scheduled": _ci_get(
+            summary, "solve_scheduled", _ci_get(summary, "solveScheduled")
+        ),
+        "solver_locked": _ci_get(
+            summary, "solver_locked", _ci_get(summary, "solverLocked")
+        ),
+        "solver_state_known": _ci_get(
+            summary, "solver_state_known", _ci_get(summary, "solverStateKnown")
+        ),
+        "verification_deferred": _ci_get(
+            summary,
+            "verification_deferred",
+            _ci_get(summary, "verificationDeferred"),
+        ),
+    }
+
+
 def _verify_gh_edit(snapshot: Mapping[str, Any], run_id: str) -> dict[str, Any]:
     components = _ci_get(snapshot, "components")
     flows = _ci_get(snapshot, "flows")
@@ -1283,10 +1324,22 @@ async def _run_grasshopper_forward(state: _RunState, recorder: _OperationRecorde
     epoch = _ci_get(edit_base, "epoch")
     if type(epoch) is not int:
         raise _ScenarioFailure("verification_failed", "Grasshopper snapshot epoch is invalid")
-    await recorder.call("gh_edit", _grasshopper_edit_arguments(state.run_id, epoch))
-    state.gh_edit_applied = True
+    state.gh_edit_may_have_applied = True
+    edit_result = await recorder.call(
+        "gh_edit", _grasshopper_edit_arguments(state.run_id, epoch)
+    )
+    edit_solve = _gh_edit_solve_projection(_data(edit_result, "gh_edit"))
+    if not (
+        edit_solve["solve_scheduled"] is True
+        and edit_solve["solver_locked"] is False
+        and edit_solve["solver_state_known"] is True
+    ):
+        raise _ScenarioFailure(
+            "verification_failed", "Grasshopper edit did not schedule an enabled solve"
+        )
 
     solved_snapshot: Mapping[str, Any] | None = None
+    solved_status: dict[str, Any] | None = None
     final_errors: list[Any] = []
     final_warnings: list[Any] = []
     for _ in range(20):
@@ -1302,18 +1355,29 @@ async def _run_grasshopper_forward(state: _RunState, recorder: _OperationRecorde
             )
         except _ScenarioFailure:
             verified = None
-        if verified is not None and not errors and not warnings and status["ready_for_edit"] is True:
+        solve_settled = (
+            status["ready_for_edit"] is True
+            and status["solver_state_known"] is True
+            and status["solver_enabled"] is True
+            and status["solution_state"] == "PostProcess"
+        )
+        if verified is not None and not errors and not warnings and solve_settled:
             solved_snapshot = candidate
+            solved_status = status
             final_errors, final_warnings = errors, warnings
             break
         _sleep(0.25)
     if solved_snapshot is None:
         raise _ScenarioFailure("verification_failed", "Grasshopper edit did not settle to the expected solved projection")
     verified_projection = _verify_gh_edit(solved_snapshot, state.run_id)
+    verification_projection = {
+        **verified_projection,
+        "solve": {"edit": edit_solve, "status": solved_status},
+    }
     state.result.verification = {
         "passed": True,
-        "projection": verified_projection,
-        "projection_sha256": _sha256_value(verified_projection),
+        "projection": verification_projection,
+        "projection_sha256": _sha256_value(verification_projection),
         "errors": final_errors,
         "warnings": final_warnings,
     }
@@ -1344,30 +1408,44 @@ async def _restore_rhino(state: _RunState, recorder: _OperationRecorder) -> bool
     return matches and state.scratch_path.is_file()
 
 
+async def _observe_grasshopper_restoration(
+    state: _RunState, recorder: _OperationRecorder
+) -> tuple[dict[str, Any], bool]:
+    snapshot = _data(await recorder.call("gh_snapshot", {}), "gh_snapshot")
+    errors, warnings = _errors_projection(
+        _data(await recorder.call("gh_errors", {}), "gh_errors")
+    )
+    status = _gh_status_projection(
+        _data(await recorder.call("gh_status", {}), "gh_status")
+    )
+    if type(status["document_id"]) is not str:
+        raise _ScenarioFailure(
+            "restoration_failed", "Grasshopper restoration target identity is absent"
+        )
+    projection = _snapshot_projection(
+        snapshot,
+        process_id=state.record.pid,
+        process_token=state.result.target["process_start_token"],
+        port=state.record.port,
+        document_id=status["document_id"],
+    )
+    return projection, not errors and not warnings
+
+
 async def _restore_grasshopper(state: _RunState, recorder: _OperationRecorder) -> bool:
     state.result.restoration["attempted"] = True
     expected = state.result.pre_state.get("scratch_projection") if state.result.pre_state else None
     if not isinstance(expected, Mapping):
         return False
-    if state.gh_edit_applied:
-        matched = False
+    if state.gh_edit_may_have_applied:
+        observed, clean = await _observe_grasshopper_restoration(state, recorder)
+        matched = clean and observed == dict(expected)
         for _ in range(4):
-            await recorder.call("gh_undo", {})
-            snapshot = _data(await recorder.call("gh_snapshot", {}), "gh_snapshot")
-            errors, warnings = _errors_projection(_data(await recorder.call("gh_errors", {}), "gh_errors"))
-            status = _gh_status_projection(_data(await recorder.call("gh_status", {}), "gh_status"))
-            if type(status["document_id"]) is not str or errors or warnings:
-                continue
-            projection = _snapshot_projection(
-                snapshot,
-                process_id=state.record.pid,
-                process_token=state.result.target["process_start_token"],
-                port=state.record.port,
-                document_id=status["document_id"],
-            )
-            if projection == dict(expected):
-                matched = True
+            if matched:
                 break
+            await recorder.call("gh_undo", {})
+            observed, clean = await _observe_grasshopper_restoration(state, recorder)
+            matched = clean and observed == dict(expected)
         state.result.restoration["in_process_projection_matches_declared"] = matched
         return matched
     state.result.restoration["in_process_projection_matches_declared"] = True

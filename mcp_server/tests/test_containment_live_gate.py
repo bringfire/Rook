@@ -20,6 +20,8 @@ from typing import Any
 
 import pytest
 
+from rook.gh_status_contract import normalize_gh_status_result
+
 
 EXPECTED_RED = "EXPECTED_RED:T8:LIVE_GATE"
 RUN_ID = "1" * 32
@@ -528,7 +530,7 @@ class _GrasshopperAdapter:
 
     def _status(self) -> dict[str, Any]:
         if not self.bootstrapped:
-            return {
+            raw = {
                 "available": False,
                 "assemblyVersion": "",
                 "hasActiveCanvas": False,
@@ -538,19 +540,28 @@ class _GrasshopperAdapter:
                 "objectCount": 0,
                 "readyForEdit": False,
                 "warnings": ["Grasshopper assembly is not loaded."],
+                "solverEnabled": None,
+                "solverStateKnown": False,
+                "solutionState": None,
             }
-        return {
-            "available": True,
-            "assemblyVersion": "8.0",
-            "hasActiveCanvas": True,
-            "hasActiveDocument": True,
-            "documentId": GH_DOCUMENT_ID if self.opened else GH_BOOTSTRAP_DOCUMENT_ID,
-            "documentPath": str(self.scratch_path) if self.opened else "",
-            "objectCount": 2 if self.edited else 0,
-            "readyForEdit": True,
-            "warnings": [],
-            "solutionState": "PostProcess",
-        }
+        else:
+            raw = {
+                "available": True,
+                "assemblyVersion": "8.0",
+                "hasActiveCanvas": True,
+                "hasActiveDocument": True,
+                "documentId": GH_DOCUMENT_ID if self.opened else GH_BOOTSTRAP_DOCUMENT_ID,
+                "documentPath": str(self.scratch_path) if self.opened else "",
+                "objectCount": 2 if self.edited else 0,
+                "readyForEdit": True,
+                "warnings": [],
+                "solverEnabled": True,
+                "solverStateKnown": True,
+                "solutionState": "PostProcess",
+            }
+        normalized = normalize_gh_status_result(_success(raw))
+        assert normalized["success"] is True and isinstance(normalized["data"], dict)
+        return normalized["data"]
 
     def _snapshot(self) -> dict[str, Any]:
         if not self.edited:
@@ -616,12 +627,62 @@ class _GrasshopperAdapter:
         if name == "gh_edit":
             assert arguments == live._grasshopper_edit_arguments(RUN_ID, 7)
             self.edited = True
-            return _success(self._snapshot())
+            result = self._snapshot()
+            result["edit_summary"] = {
+                "created": 2,
+                "connected": 1,
+                "solve_scheduled": True,
+                "solver_locked": False,
+                "solver_state_known": True,
+                "verification_deferred": True,
+                "errors": None,
+            }
+            return _success(result)
         if name == "gh_undo":
             self.undo_count += 1
             self.edited = False
             return _success({"message": "Undo successful", "epoch": 8 + self.undo_count, "snapshot": self._snapshot()})
         raise AssertionError((name, arguments))
+
+
+@requires_live_gate
+def test_gh_status_projection_consumes_exact_server_normalized_wire_shape() -> None:
+    normalized = normalize_gh_status_result(
+        _success(
+            {
+                "available": True,
+                "assemblyVersion": "8.0",
+                "hasActiveCanvas": True,
+                "hasActiveDocument": True,
+                "documentId": GH_DOCUMENT_ID,
+                "documentPath": r"C:\scratch\containment.ghx",
+                "objectCount": 2,
+                "readyForEdit": True,
+                "warnings": [],
+                "solverEnabled": True,
+                "solverStateKnown": True,
+                "solutionState": "PostProcess",
+            }
+        )
+    )
+    data = normalized["data"]
+    assert "hasActiveCanvas" not in data and data["has_active_canvas"] is True
+    assert "documentId" not in data and data["document_id"] == GH_DOCUMENT_ID
+    assert data["solverEnabled"] is True
+    assert data["solverStateKnown"] is True
+    assert data["solutionState"] == "PostProcess"
+    assert live._gh_status_projection(data) == {
+        "available": True,
+        "has_active_canvas": True,
+        "has_active_document": True,
+        "document_id": GH_DOCUMENT_ID,
+        "document_path": r"C:\scratch\containment.ghx",
+        "object_count": 2,
+        "ready_for_edit": True,
+        "solver_enabled": True,
+        "solver_state_known": True,
+        "solution_state": "PostProcess",
+    }
 
 
 def _runtime_evidence(tmp_path: Path) -> dict[str, Any]:
@@ -733,7 +794,9 @@ def _install_fake_scenario(
                 seen_preflight += 1
                 if seen_preflight >= 2 and result["success"]:
                     result = copy.deepcopy(result)
-                    result["data"]["objectCount"] = 99
+                    result["data"][
+                        "objectCount" if scenario == "rhino" else "object_count"
+                    ] = 99
             return result
 
         adapter.call = drifting_call
@@ -891,10 +954,11 @@ def test_preflight_blocked_has_no_operation_entries(
             result["data"].update(
                 {
                     "available": True,
-                    "hasActiveCanvas": True,
-                    "hasActiveDocument": True,
-                    "documentId": GH_BOOTSTRAP_DOCUMENT_ID,
-                    "readyForEdit": True,
+                    "has_active_canvas": True,
+                    "has_active_document": True,
+                    "document_id": GH_BOOTSTRAP_DOCUMENT_ID,
+                    "ready_for_edit": True,
+                    "object_count": 1,
                 }
             )
         return result
@@ -1143,6 +1207,137 @@ def test_grasshopper_requires_a_fresh_post_edit_epoch(
         artifact_dir=harness.artifact,
     )
     assert result.success is False and result.failure_label == "verification_failed"
+
+
+@requires_live_gate
+def test_grasshopper_requires_gh_edit_to_schedule_a_fresh_solve(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
+    original = harness.adapter.call
+
+    async def unscheduled_edit(name, arguments):
+        result = await original(name, arguments)
+        if name == "gh_edit":
+            result = copy.deepcopy(result)
+            result["data"]["edit_summary"]["solve_scheduled"] = False
+        return result
+
+    harness.adapter.call = unscheduled_edit
+    result = live.run_live_scenario(
+        scenario="grasshopper",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    )
+    assert result.success is False and result.failure_label == "verification_failed"
+    assert "gh_undo" in [name for name, _ in harness.adapter.calls]
+
+
+@requires_live_gate
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("solverEnabled", False),
+        ("solverStateKnown", False),
+        ("solutionState", "PreProcess"),
+    ],
+)
+def test_grasshopper_requires_known_enabled_postprocess_solver_after_edit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
+    original = harness.adapter.call
+
+    async def non_solved_status(name, arguments):
+        result = await original(name, arguments)
+        if name == "gh_status" and harness.adapter.edited:
+            result = copy.deepcopy(result)
+            result["data"][field] = value
+        return result
+
+    harness.adapter.call = non_solved_status
+    result = live.run_live_scenario(
+        scenario="grasshopper",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    )
+    assert result.success is False and result.failure_label == "verification_failed"
+
+
+@requires_live_gate
+def test_partial_successful_gh_edit_is_undone_before_failure_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
+    original = harness.adapter.call
+
+    async def partial_edit(name, arguments):
+        result = await original(name, arguments)
+        if name == "gh_edit":
+            result = copy.deepcopy(result)
+            result["success"] = False
+            result["partial_success"] = True
+            result["verified"] = False
+            result["data"]["edit_summary"]["errors"] = ["bounded edit partially applied"]
+        return result
+
+    harness.adapter.call = partial_edit
+    result = live.run_live_scenario(
+        scenario="grasshopper",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    )
+    assert result.success is False and result.failure_label == "mutation_failed"
+    names = [name for name, _ in harness.adapter.calls]
+    assert 1 <= names.count("gh_undo") <= 4
+    evidence = _load_final_artifact(harness.artifact, "grasshopper")
+    assert evidence["restoration"]["attempted"] is True
+    assert evidence["restoration"]["in_process_projection_matches_declared"] is True
+    edit_operation = next(item for item in evidence["operations"] if item["name"] == "gh_edit")
+    assert edit_operation["success"] is False
+
+
+@requires_live_gate
+def test_post_dispatch_gh_edit_result_write_failure_inspects_and_undoes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
+    original_write = live._atomic_write_bytes
+
+    def fail_edit_result(path: Path, payload: bytes) -> None:
+        if path.name.endswith("-gh_edit-result.json"):
+            raise OSError("result evidence disk failure")
+        original_write(path, payload)
+
+    monkeypatch.setattr(live, "_atomic_write_bytes", fail_edit_result)
+    result = live.run_live_scenario(
+        scenario="grasshopper",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    )
+    assert result.success is False and result.failure_label == "mutation_failed"
+    names = [name for name, _ in harness.adapter.calls]
+    assert "gh_edit" in names
+    assert 1 <= names.count("gh_undo") <= 4
+    evidence = _load_final_artifact(harness.artifact, "grasshopper")
+    assert evidence["restoration"]["in_process_projection_matches_declared"] is True
+    assert not any(item["name"] == "gh_edit" for item in evidence["operations"])
+    orphan_arguments = [
+        item
+        for item in evidence["artifacts"]
+        if item["relative_path"].endswith("-gh_edit-arguments.json")
+    ]
+    assert len(orphan_arguments) == 1
+    assert not any(
+        item["relative_path"].endswith("-gh_edit-result.json")
+        for item in evidence["artifacts"]
+    )
 
 
 @requires_live_gate
