@@ -424,6 +424,26 @@ function Test-ContainmentCanonicalEqual {
         (ConvertTo-ContainmentCanonicalJson -Value $Right))
 }
 
+function New-ContainmentCreateNewStream {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    return [IO.File]::Open(
+        $Path,
+        [IO.FileMode]::CreateNew,
+        [IO.FileAccess]::Write,
+        [IO.FileShare]::None
+    )
+}
+
+function Remove-ContainmentOwnedFile {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    Remove-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if (Test-Path -LiteralPath $Path) {
+        throw "owned file remains after cleanup: $Path"
+    }
+}
+
 function Write-ContainmentCreateNewBytes {
     param([string]$Path, [byte[]]$Bytes)
 
@@ -431,18 +451,43 @@ function Write-ContainmentCreateNewBytes {
     if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
         throw "owned output parent is missing: $parent"
     }
-    $stream = [IO.File]::Open(
-        $Path,
-        [IO.FileMode]::CreateNew,
-        [IO.FileAccess]::Write,
-        [IO.FileShare]::None
-    )
+    $stream = $null
+    $destinationCreated = $false
+    $publicationFailure = $null
     try {
+        $stream = New-ContainmentCreateNewStream -Path $Path
+        $destinationCreated = $true
         $stream.Write($Bytes, 0, $Bytes.Length)
         $stream.Flush($true)
     }
-    finally {
-        $stream.Dispose()
+    catch {
+        $publicationFailure = $_
+    }
+    if ($null -ne $stream) {
+        try {
+            $stream.Dispose()
+        }
+        catch {
+            if ($null -eq $publicationFailure) {
+                $publicationFailure = $_
+            }
+        }
+    }
+    if ($null -ne $publicationFailure) {
+        if ($destinationCreated) {
+            try {
+                if (Test-Path -LiteralPath $Path -PathType Leaf) {
+                    Remove-ContainmentOwnedFile -Path $Path
+                }
+                if (Test-Path -LiteralPath $Path) {
+                    throw "owned destination remains after failed publication: $Path"
+                }
+            }
+            catch {
+                throw "CreateNew publication failed and its owned destination could not be removed: $Path; cleanup failure: $($_.Exception.Message); publication failure: $($publicationFailure.Exception.Message)"
+            }
+        }
+        throw $publicationFailure
     }
 }
 
@@ -474,13 +519,34 @@ function Write-CanonicalJsonPair {
         }
     }
     catch {
-        if ($sidecarCreated -and (Test-Path -LiteralPath $SidecarPath -PathType Leaf)) {
-            Remove-Item -LiteralPath $SidecarPath -Force -ErrorAction SilentlyContinue
+        $pairFailure = $_
+        $cleanupFailures = [Collections.Generic.List[string]]::new()
+        if ($sidecarCreated) {
+            try {
+                if (Test-Path -LiteralPath $SidecarPath -PathType Leaf) {
+                    Remove-ContainmentOwnedFile -Path $SidecarPath
+                }
+                if (Test-Path -LiteralPath $SidecarPath) {
+                    throw "owned sidecar path remains after cleanup: $SidecarPath"
+                }
+            }
+            catch { $cleanupFailures.Add("sidecar: $($_.Exception.Message)") }
         }
-        if ($pathCreated -and (Test-Path -LiteralPath $Path -PathType Leaf)) {
-            Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+        if ($pathCreated) {
+            try {
+                if (Test-Path -LiteralPath $Path -PathType Leaf) {
+                    Remove-ContainmentOwnedFile -Path $Path
+                }
+                if (Test-Path -LiteralPath $Path) {
+                    throw "owned JSON path remains after cleanup: $Path"
+                }
+            }
+            catch { $cleanupFailures.Add("JSON: $($_.Exception.Message)") }
         }
-        throw
+        if ($cleanupFailures.Count -ne 0) {
+            throw "canonical JSON evidence pair publication failed and owned cleanup was incomplete: $($cleanupFailures -join '; '); publication failure: $($pairFailure.Exception.Message)"
+        }
+        throw $pairFailure
     }
 }
 
@@ -1489,6 +1555,85 @@ function Assert-CandidateArtifactSnapshot {
     }
 }
 
+function New-ContainmentClaimStagingPath {
+    param([Parameter(Mandatory = $true)][string]$Parent)
+
+    return (Join-Path $Parent ('.containment-claim-staging-' + [guid]::NewGuid().ToString('N')))
+}
+
+function New-ContainmentDirectoryCreateNew {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $typeName = 'RookTask10ContainmentNativeDirectoryApi'
+    if ($null -eq ([Management.Automation.PSTypeName]$typeName).Type) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class RookTask10ContainmentNativeDirectoryApi
+{
+    [DllImport("kernel32.dll", EntryPoint = "CreateDirectoryW", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool CreateDirectory(string path, IntPtr securityAttributes);
+}
+'@ -ErrorAction Stop | Out-Null
+    }
+    if ([RookTask10ContainmentNativeDirectoryApi]::CreateDirectory($Path, [IntPtr]::Zero)) {
+        return $true
+    }
+    $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    if ($errorCode -eq 80 -or $errorCode -eq 183) {
+        return $false
+    }
+    $message = ([ComponentModel.Win32Exception]::new($errorCode)).Message
+    throw "exclusive staging directory creation failed: $Path; win32_error=$errorCode ($message)"
+}
+
+function New-ContainmentEvidenceDirectoryExclusive {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $parent = Split-Path -Parent $Path
+    if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+        throw "exclusive evidence directory parent is missing: $parent"
+    }
+    $stagingPath = $null
+    for ($attempt = 0; $attempt -lt 16; $attempt++) {
+        $candidate = New-ContainmentClaimStagingPath -Parent $parent
+        if (New-ContainmentDirectoryCreateNew -Path $candidate) {
+            $stagingPath = $candidate
+            break
+        }
+    }
+    if ($null -eq $stagingPath) {
+        throw 'exclusive evidence directory staging name retries were exhausted'
+    }
+    $moveFailure = $null
+    try {
+        [IO.Directory]::Move($stagingPath, $Path)
+    }
+    catch {
+        $moveFailure = $_
+    }
+    if ($null -ne $moveFailure) {
+        try {
+            if (-not (Test-Path -LiteralPath $stagingPath -PathType Container)) {
+                throw 'owned staging directory is missing after failed exclusive publication'
+            }
+            if (@(Get-ChildItem -LiteralPath $stagingPath -Force -ErrorAction Stop).Count -ne 0) {
+                throw 'owned staging directory is not empty after failed exclusive publication'
+            }
+            [IO.Directory]::Delete($stagingPath, $false)
+            if (Test-Path -LiteralPath $stagingPath) {
+                throw 'owned staging directory remains after failed exclusive publication'
+            }
+        }
+        catch {
+            throw "exclusive evidence directory publication failed and staging cleanup was incomplete: $($_.Exception.Message); publication failure: $($moveFailure.Exception.Message)"
+        }
+        throw $moveFailure
+    }
+}
+
 function New-EvidenceDirectoryClaim {
     param(
         [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
@@ -1500,26 +1645,63 @@ function New-EvidenceDirectoryClaim {
         throw 'evidence directory must be absolute'
     }
     $full = [IO.Path]::GetFullPath($EvidenceDirectory)
-    [void](Assert-ContainmentPathNotReparse -Path $full -Label 'evidence directory')
-    if (Test-Path -LiteralPath $full) {
-        $item = Get-Item -LiteralPath $full -Force
-        if (-not $item.PSIsContainer) { throw 'evidence path must be an empty directory' }
-        if (@(Get-ChildItem -LiteralPath $full -Force).Count -ne 0) {
-            throw 'evidence directory must be empty before ownership is claimed'
-        }
-    }
-    else {
-        $parent = Split-Path -Parent $full
-        if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
-            throw 'evidence directory parent must already exist'
-        }
-        [IO.Directory]::CreateDirectory($full) | Out-Null
-    }
-    [void](Assert-ContainmentPathNotReparse -Path $full -Label 'evidence directory')
+    $directoryCreated = $false
+    $markerCreated = $false
     $markerPath = Join-Path $full '.containment-run-owner.json'
-    $marker = [ordered]@{ schema_version = 1; run_id = $RunId }
-    Write-ContainmentCreateNewBytes -Path $markerPath -Bytes ([Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-ContainmentCanonicalJson $marker)))
-    return [pscustomobject]@{ EvidenceDirectory = $full; MarkerPath = $markerPath; RunId = $RunId }
+    [void](Assert-ContainmentPathNotReparse -Path $full -Label 'evidence directory')
+    try {
+        if (Test-Path -LiteralPath $full) {
+            $item = Get-Item -LiteralPath $full -Force
+            if (-not $item.PSIsContainer) { throw 'evidence path must be an empty directory' }
+            if (@(Get-ChildItem -LiteralPath $full -Force).Count -ne 0) {
+                throw 'evidence directory must be empty before ownership is claimed'
+            }
+        }
+        else {
+            $parent = Split-Path -Parent $full
+            if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+                throw 'evidence directory parent must already exist'
+            }
+            New-ContainmentEvidenceDirectoryExclusive -Path $full
+            $directoryCreated = $true
+        }
+        [void](Assert-ContainmentPathNotReparse -Path $full -Label 'evidence directory')
+        $marker = [ordered]@{ schema_version = 1; run_id = $RunId }
+        Write-ContainmentCreateNewBytes -Path $markerPath -Bytes ([Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-ContainmentCanonicalJson $marker)))
+        $markerCreated = $true
+        return [pscustomobject]@{ EvidenceDirectory = $full; MarkerPath = $markerPath; RunId = $RunId }
+    }
+    catch {
+        $claimFailure = $_
+        $cleanupFailures = [Collections.Generic.List[string]]::new()
+        if ($markerCreated) {
+            try {
+                if (Test-Path -LiteralPath $markerPath -PathType Leaf) {
+                    Remove-ContainmentOwnedFile -Path $markerPath
+                }
+                if (Test-Path -LiteralPath $markerPath) {
+                    throw "owned marker path remains after cleanup: $markerPath"
+                }
+            }
+            catch { $cleanupFailures.Add("owner marker: $($_.Exception.Message)") }
+        }
+        if ($directoryCreated -and (Test-Path -LiteralPath $full -PathType Container)) {
+            try {
+                if (@(Get-ChildItem -LiteralPath $full -Force -ErrorAction Stop).Count -ne 0) {
+                    throw 'new evidence directory is not empty after failed claim publication'
+                }
+                [IO.Directory]::Delete($full, $false)
+                if (Test-Path -LiteralPath $full) {
+                    throw 'new evidence directory remains after failed claim publication'
+                }
+            }
+            catch { $cleanupFailures.Add("evidence directory: $($_.Exception.Message)") }
+        }
+        if ($cleanupFailures.Count -ne 0) {
+            throw "evidence directory claim failed and owned cleanup was incomplete: $($cleanupFailures -join '; '); claim failure: $($claimFailure.Exception.Message)"
+        }
+        throw $claimFailure
+    }
 }
 
 function ConvertFrom-CanonicalJsonLine {

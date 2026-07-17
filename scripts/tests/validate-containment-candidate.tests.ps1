@@ -78,6 +78,39 @@ function Get-TestSha256 {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function New-TestFaultingCreateNewStream {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [ValidateSet('write','flush','dispose')][string]$FaultStage
+    )
+
+    $inner = [IO.File]::Open($Path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    $wrapper = [pscustomobject]@{ Inner=$inner; FaultStage=$FaultStage }
+    Add-Member -InputObject $wrapper -MemberType ScriptMethod -Name Write -Value {
+        param([byte[]]$Buffer,[int]$Offset,[int]$Count)
+        if ($this.FaultStage -ceq 'write') {
+            $partial = [Math]::Min(1, $Count)
+            if ($partial -gt 0) { $this.Inner.Write($Buffer, $Offset, $partial) }
+            throw [IO.IOException]::new('injected create-new mid-write failure')
+        }
+        $this.Inner.Write($Buffer, $Offset, $Count)
+    }
+    Add-Member -InputObject $wrapper -MemberType ScriptMethod -Name Flush -Value {
+        param([bool]$FlushToDisk)
+        $this.Inner.Flush($FlushToDisk)
+        if ($this.FaultStage -ceq 'flush') {
+            throw [IO.IOException]::new('injected create-new durable-flush failure')
+        }
+    }
+    Add-Member -InputObject $wrapper -MemberType ScriptMethod -Name Dispose -Value {
+        $this.Inner.Dispose()
+        if ($this.FaultStage -ceq 'dispose') {
+            throw [IO.IOException]::new('injected create-new dispose failure')
+        }
+    }
+    return $wrapper
+}
+
 function New-TestDirectory {
     param([string]$Parent, [string]$Name)
     $path = Join-Path $Parent $Name
@@ -884,6 +917,213 @@ function Test-StaticContract {
     Assert-False $source.Contains('WaitForExit(60000)') 'Live-gate restoration uses a secondary fixed timeout instead of the original overall deadline.'
     foreach ($parameter in @('ArtifactDirectory','CandidateIdentityPath','CandidateSidecarPath','EvidenceDirectory','RhinoExe','VerifyEvidenceOnly')) { Assert-Contains $source $parameter "Validator parameter is missing." }
     foreach ($required in @('ConvertTo-ProcessArgument','BeginOutputReadLine','PYTHONNOUSERSITE','authorization_required','containment-failure.json','containment-acceptance.json','containment-hold.json')) { Assert-Contains $source $required "Validator required contract is missing." }
+}
+
+function Test-CreateNewPublicationFailureCleanup {
+    param([string]$Root)
+
+    $savedFactory = (Get-Item -LiteralPath Function:\New-ContainmentCreateNewStream).ScriptBlock
+    $savedOwnedFileRemover = (Get-Item -LiteralPath Function:\Remove-ContainmentOwnedFile).ScriptBlock
+    $savedEvidenceDirectoryCreator = (Get-Item -LiteralPath Function:\New-ContainmentEvidenceDirectoryExclusive).ScriptBlock
+    $savedClaimStagingPathFactory = (Get-Item -LiteralPath Function:\New-ContainmentClaimStagingPath).ScriptBlock
+    $payload = [Text.Encoding]::ASCII.GetBytes('publisher-payload')
+    try {
+        foreach ($stage in @('write','flush','dispose')) {
+            $path = Join-Path $Root "low-level-$stage.bin"
+            $faultPath = $path
+            $faultStage = $stage
+            Set-Item Function:\New-ContainmentCreateNewStream -Value ({
+                param([string]$Path)
+                if ([string]::Equals([IO.Path]::GetFullPath($Path),[IO.Path]::GetFullPath($faultPath),[StringComparison]::OrdinalIgnoreCase)) {
+                    return New-TestFaultingCreateNewStream -Path $Path -FaultStage $faultStage
+                }
+                return & $savedFactory -Path $Path
+            }.GetNewClosure())
+            Assert-ThrowsLike {
+                Write-ContainmentCreateNewBytes -Path $path -Bytes $payload
+            } 'injected create-new' "Low-level CreateNew $stage fault did not propagate."
+            Assert-False (Test-Path -LiteralPath $path) "Low-level CreateNew $stage fault stranded its owned destination."
+        }
+
+        $foreignPath = Join-Path $Root 'foreign-low-level.bin'
+        Write-TestAscii $foreignPath 'foreign-owned-low-level'
+        Assert-ThrowsLike {
+            Write-ContainmentCreateNewBytes -Path $foreignPath -Bytes $payload
+        } 'exist|used|access|create' 'Low-level CreateNew accepted a foreign pre-existing path.'
+        Assert-Equal ([IO.File]::ReadAllText($foreignPath)) 'foreign-owned-low-level' 'Low-level CreateNew changed or removed a foreign pre-existing path.'
+
+        foreach ($stage in @('write','flush','dispose')) {
+            foreach ($member in @('json','sidecar')) {
+                $pairRoot = New-TestDirectory $Root "pair-$member-$stage"
+                $jsonPath = Join-Path $pairRoot 'final.json'
+                $sidecarPath = Join-Path $pairRoot 'final.sha256'
+                $faultPath = if ($member -ceq 'json') { $jsonPath } else { $sidecarPath }
+                $faultStage = $stage
+                Set-Item Function:\New-ContainmentCreateNewStream -Value ({
+                    param([string]$Path)
+                    if ([string]::Equals([IO.Path]::GetFullPath($Path),[IO.Path]::GetFullPath($faultPath),[StringComparison]::OrdinalIgnoreCase)) {
+                        return New-TestFaultingCreateNewStream -Path $Path -FaultStage $faultStage
+                    }
+                    return & $savedFactory -Path $Path
+                }.GetNewClosure())
+                Assert-ThrowsLike {
+                    Write-CanonicalJsonPair -Path $jsonPath -SidecarPath $sidecarPath -Value ([ordered]@{schema_version=1;success=$true})
+                } 'injected create-new' "Final pair $member $stage fault did not propagate."
+                Assert-False (Test-Path -LiteralPath $jsonPath) "Final pair $member $stage fault stranded JSON."
+                Assert-False (Test-Path -LiteralPath $sidecarPath) "Final pair $member $stage fault stranded sidecar."
+            }
+        }
+
+        $foreignPairRoot = New-TestDirectory $Root 'foreign-pair'
+        $foreignJson = Join-Path $foreignPairRoot 'final.json'
+        $foreignSidecar = Join-Path $foreignPairRoot 'final.sha256'
+        Write-TestAscii $foreignJson 'foreign-json'
+        Write-TestAscii $foreignSidecar 'foreign-sidecar'
+        Assert-ThrowsLike {
+            Write-CanonicalJsonPair -Path $foreignJson -SidecarPath $foreignSidecar -Value ([ordered]@{success=$true})
+        } 'already exists' 'Final pair accepted foreign pre-existing members.'
+        Assert-Equal ([IO.File]::ReadAllText($foreignJson)) 'foreign-json' 'Final pair changed or removed foreign JSON.'
+        Assert-Equal ([IO.File]::ReadAllText($foreignSidecar)) 'foreign-sidecar' 'Final pair changed or removed foreign sidecar.'
+
+        $cleanupFaultRoot = New-TestDirectory $Root 'pair-cleanup-fault'
+        $cleanupFaultJson = Join-Path $cleanupFaultRoot 'final.json'
+        $cleanupFaultSidecar = Join-Path $cleanupFaultRoot 'final.sha256'
+        $faultPath = $cleanupFaultSidecar
+        $faultStage = 'write'
+        Set-Item Function:\New-ContainmentCreateNewStream -Value ({
+            param([string]$Path)
+            if ([string]::Equals([IO.Path]::GetFullPath($Path),[IO.Path]::GetFullPath($faultPath),[StringComparison]::OrdinalIgnoreCase)) {
+                return New-TestFaultingCreateNewStream -Path $Path -FaultStage $faultStage
+            }
+            return & $savedFactory -Path $Path
+        }.GetNewClosure())
+        $removeFaultPath = $cleanupFaultJson
+        Set-Item Function:\Remove-ContainmentOwnedFile -Value ({
+            param([string]$Path)
+            if ([string]::Equals([IO.Path]::GetFullPath($Path),[IO.Path]::GetFullPath($removeFaultPath),[StringComparison]::OrdinalIgnoreCase)) {
+                throw [IO.IOException]::new('injected final-pair rollback deletion failure')
+            }
+            return & $savedOwnedFileRemover -Path $Path
+        }.GetNewClosure())
+        try {
+            Assert-ThrowsLike {
+                Write-CanonicalJsonPair -Path $cleanupFaultJson -SidecarPath $cleanupFaultSidecar -Value ([ordered]@{success=$true})
+            } 'cleanup.*incomplete|cleanup.*failed|rollback deletion failure' 'Final-pair rollback deletion failure was hidden behind its publication error.'
+            Assert-True (Test-Path -LiteralPath $cleanupFaultJson -PathType Leaf) 'Final-pair rollback deletion fault fixture did not retain the JSON member it refused to remove.'
+            Assert-False (Test-Path -LiteralPath $cleanupFaultSidecar) 'Final-pair rollback deletion fault stranded the failed sidecar publication.'
+        }
+        finally {
+            Set-Item Function:\Remove-ContainmentOwnedFile -Value $savedOwnedFileRemover
+            if (Test-Path -LiteralPath $cleanupFaultJson -PathType Leaf) {
+                & $savedOwnedFileRemover -Path $cleanupFaultJson
+            }
+        }
+
+        $foreignStaging = New-TestDirectory $Root '.containment-claim-staging-foreign'
+        $foreignStagingSentinel = Join-Path $foreignStaging 'foreign-staging-sentinel.txt'
+        Write-TestAscii $foreignStagingSentinel 'foreign-staging-owner'
+        $retryStaging = Join-Path $Root '.containment-claim-staging-retry'
+        $stagingRetryClaim = Join-Path $Root 'staging-retry-claim'
+        $stagingRetryMarker = Join-Path $stagingRetryClaim '.containment-run-owner.json'
+        $stagingPathState = [pscustomobject]@{ Count = 0 }
+        Set-Item Function:\New-ContainmentClaimStagingPath -Value ({
+            param([string]$Parent)
+            $stagingPathState.Count++
+            if ($stagingPathState.Count -eq 1) { return $foreignStaging }
+            return $retryStaging
+        }.GetNewClosure())
+        try {
+            $stagingRetryResult = New-EvidenceDirectoryClaim -EvidenceDirectory $stagingRetryClaim -RunId ('e'*32)
+            Assert-Equal ([string]$stagingRetryResult.MarkerPath) $stagingRetryMarker 'Staging collision retry returned the wrong owner marker.'
+            Assert-True (Test-Path -LiteralPath $foreignStaging -PathType Container) 'Staging collision moved or removed the foreign staging directory.'
+            Assert-Equal ([IO.File]::ReadAllText($foreignStagingSentinel)) 'foreign-staging-owner' 'Staging collision changed or removed the foreign sentinel.'
+            Assert-False (Test-Path -LiteralPath (Join-Path $stagingRetryClaim 'foreign-staging-sentinel.txt')) 'Staging collision moved the foreign sentinel into the claimed directory.'
+            Assert-False (Test-Path -LiteralPath $retryStaging) 'Successful staging retry left its staging directory behind.'
+            Assert-True ($stagingPathState.Count -ge 2) 'Exclusive staging creation did not retry after the forced collision.'
+        }
+        finally {
+            Set-Item Function:\New-ContainmentClaimStagingPath -Value $savedClaimStagingPathFactory
+            foreach ($file in @($stagingRetryMarker,(Join-Path $stagingRetryClaim 'foreign-staging-sentinel.txt'),$foreignStagingSentinel)) {
+                if (Test-Path -LiteralPath $file -PathType Leaf) { & $savedOwnedFileRemover -Path $file }
+            }
+            foreach ($directory in @($stagingRetryClaim,$foreignStaging,$retryStaging)) {
+                if ((Test-Path -LiteralPath $directory -PathType Container) -and @(Get-ChildItem -LiteralPath $directory -Force).Count -eq 0) {
+                    [IO.Directory]::Delete($directory, $false)
+                }
+            }
+        }
+
+        $racingClaim = Join-Path $Root 'racing-foreign-claim'
+        $racingSentinel = Join-Path $racingClaim 'foreign-sentinel.txt'
+        $racingMarker = Join-Path $racingClaim '.containment-run-owner.json'
+        Set-Item Function:\New-ContainmentEvidenceDirectoryExclusive -Value ({
+            param([string]$Path)
+            [IO.Directory]::CreateDirectory($Path) | Out-Null
+            Write-TestAscii -Path $racingSentinel -Text 'foreign-race-owner'
+            return & $savedEvidenceDirectoryCreator -Path $Path
+        }.GetNewClosure())
+        try {
+            Assert-ThrowsLike {
+                New-EvidenceDirectoryClaim -EvidenceDirectory $racingClaim -RunId ('d'*32)
+            } 'exist|collision|ownership|race' 'Claim accepted a foreign directory created after its initial absence check.'
+            Assert-Equal ([IO.File]::ReadAllText($racingSentinel)) 'foreign-race-owner' 'Lost directory-creation race changed or removed the foreign sentinel.'
+            Assert-False (Test-Path -LiteralPath $racingMarker) 'Lost directory-creation race published an owner marker into the foreign directory.'
+            Assert-Equal @(Get-ChildItem -LiteralPath $Root -Force -Filter '.containment-claim-staging-*').Count 0 'Lost directory-creation race stranded an owned staging directory.'
+        }
+        finally {
+            Set-Item Function:\New-ContainmentEvidenceDirectoryExclusive -Value $savedEvidenceDirectoryCreator
+            if (Test-Path -LiteralPath $racingMarker -PathType Leaf) { & $savedOwnedFileRemover -Path $racingMarker }
+            if (Test-Path -LiteralPath $racingSentinel -PathType Leaf) { & $savedOwnedFileRemover -Path $racingSentinel }
+            if (Test-Path -LiteralPath $racingClaim -PathType Container) { [IO.Directory]::Delete($racingClaim, $false) }
+        }
+
+        foreach ($stage in @('write','flush','dispose')) {
+            $newClaim = Join-Path $Root "new-claim-$stage"
+            $faultPath = Join-Path $newClaim '.containment-run-owner.json'
+            $faultStage = $stage
+            Set-Item Function:\New-ContainmentCreateNewStream -Value ({
+                param([string]$Path)
+                if ([string]::Equals([IO.Path]::GetFullPath($Path),[IO.Path]::GetFullPath($faultPath),[StringComparison]::OrdinalIgnoreCase)) {
+                    return New-TestFaultingCreateNewStream -Path $Path -FaultStage $faultStage
+                }
+                return & $savedFactory -Path $Path
+            }.GetNewClosure())
+            Assert-ThrowsLike {
+                New-EvidenceDirectoryClaim -EvidenceDirectory $newClaim -RunId ('a'*32)
+            } 'injected create-new' "New-directory owner marker $stage fault did not propagate."
+            Assert-False (Test-Path -LiteralPath $faultPath) "Owner marker $stage fault stranded its marker."
+            Assert-False (Test-Path -LiteralPath $newClaim) "Owner marker $stage fault stranded its newly created evidence directory."
+
+            $existingClaim = New-TestDirectory $Root "existing-claim-$stage"
+            $faultPath = Join-Path $existingClaim '.containment-run-owner.json'
+            Set-Item Function:\New-ContainmentCreateNewStream -Value ({
+                param([string]$Path)
+                if ([string]::Equals([IO.Path]::GetFullPath($Path),[IO.Path]::GetFullPath($faultPath),[StringComparison]::OrdinalIgnoreCase)) {
+                    return New-TestFaultingCreateNewStream -Path $Path -FaultStage $faultStage
+                }
+                return & $savedFactory -Path $Path
+            }.GetNewClosure())
+            Assert-ThrowsLike {
+                New-EvidenceDirectoryClaim -EvidenceDirectory $existingClaim -RunId ('b'*32)
+            } 'injected create-new' "Existing-directory owner marker $stage fault did not propagate."
+            Assert-True (Test-Path -LiteralPath $existingClaim -PathType Container) "Owner marker $stage fault removed a pre-existing empty evidence directory."
+            Assert-Equal @(Get-ChildItem -LiteralPath $existingClaim -Force).Count 0 "Owner marker $stage fault stranded content in a pre-existing evidence directory."
+        }
+
+        $foreignClaim = New-TestDirectory $Root 'foreign-claim'
+        $foreignMarker = Join-Path $foreignClaim '.containment-run-owner.json'
+        Write-TestAscii $foreignMarker 'foreign-owner-marker'
+        Assert-ThrowsLike {
+            New-EvidenceDirectoryClaim -EvidenceDirectory $foreignClaim -RunId ('c'*32)
+        } 'empty|nonempty' 'Claim accepted a foreign pre-existing owner marker.'
+        Assert-Equal ([IO.File]::ReadAllText($foreignMarker)) 'foreign-owner-marker' 'Claim changed or removed a foreign pre-existing marker.'
+    }
+    finally {
+        Set-Item Function:\New-ContainmentCreateNewStream -Value $savedFactory
+        Set-Item Function:\Remove-ContainmentOwnedFile -Value $savedOwnedFileRemover
+        Set-Item Function:\New-ContainmentEvidenceDirectoryExclusive -Value $savedEvidenceDirectoryCreator
+        Set-Item Function:\New-ContainmentClaimStagingPath -Value $savedClaimStagingPathFactory
+    }
 }
 
 function Test-ProcessQuotingAndWorkingDirectory {
@@ -2142,6 +2382,7 @@ $runRoot = Join-Path $env:TEMP ("rook-t10-validator-tests-" + [guid]::NewGuid().
 $started = [Diagnostics.Stopwatch]::StartNew()
 try {
     Invoke-Test 'static PS5.1, parameter, and process-boundary contract' { Test-StaticContract }
+    Invoke-Test 'CreateNew publication and claim failure cleanup' { Test-CreateNewPublicationFailureCleanup -Root (New-TestDirectory $runRoot 'publication-cleanup') }
     Invoke-Test 'Windows quoting and unique working directory' { Test-ProcessQuotingAndWorkingDirectory -Root (New-TestDirectory $runRoot 'quoting') }
     Invoke-Test 'concurrent stdout/stderr drain and timeout termination' { Test-ConcurrentStreamsAndTimeout -Root (New-TestDirectory $runRoot 'streams') }
     Invoke-Test 'installed-child and installer environment sanitization matrix' { Test-InstalledAndInstallerEnvironmentPolicies -Root (New-TestDirectory $runRoot 'environment') }
