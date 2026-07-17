@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import math
 import os
 import re
 import stat
@@ -406,6 +407,28 @@ def _rhino_point_script(run_id: str) -> str:
     )
 
 
+def _rhino_sphere_probe_script(object_id: str) -> str:
+    if type(object_id) is not str or _GUID_RE.fullmatch(object_id) is None:
+        raise LiveGateError("invalid sphere probe object identifier")
+    object_id = object_id.lower()
+    return (
+        "import json\n"
+        "import Rhino\n"
+        "import System\n"
+        "import scriptcontext as sc\n"
+        f'object_id = System.Guid("{object_id}")\n'
+        "rhino_object = sc.doc.Objects.FindId(object_id)\n"
+        "geometry = rhino_object.Geometry if rhino_object is not None else None\n"
+        "brep = geometry if isinstance(geometry, Rhino.Geometry.Brep) else None\n"
+        "surface = brep.Faces[0].UnderlyingSurface() if brep is not None and brep.Faces.Count == 1 else None\n"
+        "success, sphere = surface.TryGetSphere() if surface is not None else (False, None)\n"
+        'payload = {"center": [float(sphere.Center.X), float(sphere.Center.Y), float(sphere.Center.Z)] if success else None, '
+        '"id": str(rhino_object.Id) if rhino_object is not None else None, "is_sphere": bool(success), '
+        '"radius": float(sphere.Radius) if success else None}\n'
+        'print("ROOK_SPHERE_GEOMETRY={0}".format(json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)))'
+    )
+
+
 def _grasshopper_edit_arguments(run_id: str, epoch: int) -> dict[str, Any]:
     if _TOKEN_RE.fullmatch(run_id) is None or type(epoch) is not int:
         raise LiveGateError("invalid Grasshopper edit identity")
@@ -472,25 +495,37 @@ def _build_authorization_challenge(
     }
 
 
-def _read_authorization_line() -> str:
-    line = sys.stdin.readline(_MAX_AUTHORIZATION_BYTES + 2)
-    if len(line.encode("utf-8")) > _MAX_AUTHORIZATION_BYTES + 1:
+def _read_authorization_line() -> bytes:
+    stream = getattr(sys.stdin, "buffer", None)
+    if stream is None or not callable(getattr(stream, "readline", None)):
+        raise LiveGateError("binary authorization input is unavailable")
+    line = stream.readline(_MAX_AUTHORIZATION_BYTES + 2)
+    if type(line) is not bytes:
+        raise LiveGateError("authorization input did not return bytes")
+    if len(line) > _MAX_AUTHORIZATION_BYTES + 1:
         raise LiveGateError("authorization line exceeds the bounded protocol")
     return line
 
 
-def _authorization_matches(challenge: Mapping[str, Any], raw_line: str) -> bool:
-    if not isinstance(raw_line, str) or raw_line == "":
+def _authorization_matches(challenge: Mapping[str, Any], raw_line: bytes) -> bool:
+    if type(raw_line) is not bytes or raw_line == b"":
         return False
-    if raw_line.endswith("\r\n"):
+    if raw_line.endswith(b"\r\n"):
         candidate = raw_line[:-2]
-    elif raw_line.endswith("\n"):
+    elif raw_line.endswith(b"\n"):
         candidate = raw_line[:-1]
     else:
         return False
-    if "\n" in candidate or "\r" in candidate:
+    if b"\n" in candidate or b"\r" in candidate:
         return False
-    return candidate == challenge.get("required_response")
+    expected = challenge.get("required_response")
+    if type(expected) is not str:
+        return False
+    try:
+        expected_bytes = expected.encode("ascii")
+    except UnicodeEncodeError:
+        return False
+    return candidate == expected_bytes
 
 
 def _parse_runtime_serial(output: object) -> int:
@@ -509,6 +544,47 @@ def _parse_point_id(output: object) -> str:
     if len(matches) != 1 or _GUID_RE.fullmatch(matches[0]) is None:
         raise LiveGateError("point output must contain exactly one GUID marker")
     return matches[0].lower()
+
+
+def _parse_sphere_probe(output: object, *, expected_id: str) -> dict[str, Any]:
+    if type(output) is not str:
+        raise _ScenarioFailure("verification_failed", "sphere probe output is not text")
+    matches = re.findall(r"(?m)^ROOK_SPHERE_GEOMETRY=(\{[^\r\n]*\})$", output)
+    if len(matches) != 1:
+        raise _ScenarioFailure(
+            "verification_failed", "sphere probe output must contain exactly one marker"
+        )
+    try:
+        payload = json.loads(matches[0])
+        canonical = _canonical_json_bytes(payload).decode("utf-8")
+    except Exception as exc:
+        raise _ScenarioFailure("verification_failed", "sphere probe output is malformed") from exc
+    if matches[0] != canonical or not isinstance(payload, Mapping):
+        raise _ScenarioFailure("verification_failed", "sphere probe output is noncanonical")
+    if set(payload) != {"center", "id", "is_sphere", "radius"}:
+        raise _ScenarioFailure("verification_failed", "sphere probe schema mismatch")
+    observed_id = _validate_guid(payload["id"], "observed sphere ID")
+    center = payload["center"]
+    radius = payload["radius"]
+    if (
+        observed_id != expected_id
+        or payload["is_sphere"] is not True
+        or not isinstance(center, list)
+        or len(center) != 3
+        or any(type(value) not in (int, float) for value in center)
+        or any(not math.isfinite(float(value)) for value in center)
+        or [float(value) for value in center] != [0.0, 0.0, 0.0]
+        or type(radius) not in (int, float)
+        or not math.isfinite(float(radius))
+        or float(radius) != 4.0
+    ):
+        raise _ScenarioFailure("verification_failed", "observed sphere geometry mismatch")
+    return {
+        "center": [float(value) for value in center],
+        "id": observed_id,
+        "is_sphere": True,
+        "radius": float(radius),
+    }
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -978,8 +1054,6 @@ def _verify_rhino_geometry(
             "id": sphere_id,
             "name": f"RookContainmentSphere-{run_id}",
             "type": "Brep",
-            "center": [0, 0, 0],
-            "radius": 4,
             "bbox": expected_bbox,
             "is_solid": True,
         },
@@ -1093,6 +1167,16 @@ async def _run_rhino_forward(state: _RunState, recorder: _OperationRecorder) -> 
         sphere_id=sphere_id,
         point_id=point_id,
     )
+    sphere_probe_result = await recorder.call(
+        "rhino_execute",
+        {"code": _rhino_sphere_probe_script(sphere_id)},
+    )
+    sphere_observation = _parse_sphere_probe(
+        _script_output(sphere_probe_result, "rhino_execute"),
+        expected_id=sphere_id,
+    )
+    geometry["sphere"]["center"] = sphere_observation["center"]
+    geometry["sphere"]["radius"] = sphere_observation["radius"]
     doc_after = _rhino_document_projection(_data(await recorder.call("rhino_document", {}), "rhino_document"))
     if doc_after["object_count"] != 2 or doc_after["modified"] is not True:
         raise _ScenarioFailure("verification_failed", "Rhino document did not report the two mutations")
@@ -1113,6 +1197,7 @@ def _snapshot_projection(
     process_token: str,
     port: int,
     document_id: str,
+    has_active_canvas: bool,
 ) -> dict[str, Any]:
     document = _ci_get(snapshot, "document")
     components = _ci_get(snapshot, "components")
@@ -1127,10 +1212,14 @@ def _snapshot_projection(
         component_ids.append(str(_ci_get(item, "id")))
     errors = _ci_get(diagnostics, "errors", 0)
     warnings = _ci_get(diagnostics, "warnings", 0)
-    token = _sha256_value([process_id, process_token, port, True, document_id])
+    if type(has_active_canvas) is not bool:
+        raise LiveGateError("Grasshopper canvas observation is malformed")
+    token = _sha256_value(
+        [process_id, process_token, port, has_active_canvas, document_id]
+    )
     return {
         "document_id": document_id,
-        "has_active_canvas": True,
+        "has_active_canvas": has_active_canvas,
         "gate_canvas_token": token,
         "path": str(_ci_get(document, "path", "")),
         "object_count": len(components),
@@ -1250,6 +1339,12 @@ async def _run_grasshopper_forward(state: _RunState, recorder: _OperationRecorde
         payload = _fixture_resource_path().read_bytes()
         _validate_fixture_bytes(payload)
         _atomic_write_bytes(state.scratch_path, payload)
+        _register_artifact(
+            state.result,
+            state.scratch_path,
+            state.artifact_dir,
+            "scratch",
+        )
         if state.scratch_path.read_bytes() != payload:
             raise LiveGateError("scratch fixture copy mismatch")
     except Exception as exc:
@@ -1317,11 +1412,19 @@ async def _run_grasshopper_forward(state: _RunState, recorder: _OperationRecorde
     status_after_open = _gh_status_projection(_data(await recorder.call("gh_status", {}), "gh_status"))
     document_id = status_after_open["document_id"]
     if (
-        type(document_id) is not str
+        status_after_open["available"] is not True
+        or status_after_open["has_active_canvas"] is not True
+        or status_after_open["has_active_document"] is not True
+        or status_after_open["ready_for_edit"] is not True
+        or type(document_id) is not str
         or document_id == bootstrap_document_id
+        or status_after_open["document_path"] != str(state.scratch_path)
         or status_after_open["object_count"] != 0
     ):
-        raise _ScenarioFailure("fixture_invalid", "opened Grasshopper document identity drift")
+        raise _ScenarioFailure(
+            "fixture_invalid",
+            "opened Grasshopper canvas or document projection mismatch",
+        )
     empty_snapshot = _data(await recorder.call("gh_snapshot", {}), "gh_snapshot")
     empty_errors, empty_warnings = _errors_projection(_data(await recorder.call("gh_errors", {}), "gh_errors"))
     if empty_errors or empty_warnings:
@@ -1332,6 +1435,7 @@ async def _run_grasshopper_forward(state: _RunState, recorder: _OperationRecorde
         process_token=state.result.target["process_start_token"],
         port=state.record.port,
         document_id=document_id,
+        has_active_canvas=status_after_open["has_active_canvas"],
     )
     _assert_empty_gh_projection(projection, state.scratch_path)
     state.result.pre_state["scratch_projection"] = projection
@@ -1570,6 +1674,7 @@ async def _observe_grasshopper_restoration(
             process_token=target["process_start_token"],
             port=state.record.port,
             document_id=document_id,
+            has_active_canvas=status["has_active_canvas"],
         )
         components = _ci_get(snapshot, "components")
         flows = _ci_get(snapshot, "flows")
@@ -1719,6 +1824,14 @@ def _cleanup_owned_target(state: _RunState, diagnostics: list[str]) -> bool:
     if state.scratch_path is not None and state.scratch_path.exists():
         try:
             state.scratch_path.unlink()
+            scratch_relative = state.scratch_path.relative_to(
+                state.artifact_dir
+            ).as_posix()
+            state.result.artifacts = [
+                item
+                for item in state.result.artifacts
+                if item["relative_path"] != scratch_relative
+            ]
         except OSError:
             scratch_disposed = False
     state.result.restoration["prior_identity_or_absence_restored"] = True
@@ -2067,6 +2180,14 @@ def run_live_scenario(
         result.success = False
         if result.failure_label is None:
             result.failure_label = failure.label if failure is not None else "cleanup_failed"
+
+    if state.scratch_path is not None and state.scratch_path.is_file():
+        _register_artifact(
+            result,
+            state.scratch_path,
+            owned_dir,
+            "scratch",
+        )
 
     if not any(
         item.get("relative_path") == OWNERSHIP_MARKER
@@ -2707,6 +2828,18 @@ def _validate_scenario_artifacts(artifact_dir: Path, *, scenario: str) -> dict[s
                 raise LiveGateError("operation artifact is noncanonical")
             if _sha256_bytes(content) != operation[f"{kind}_sha256"]:
                 raise LiveGateError("operation artifact digest mismatch")
+    declared_files = {
+        f"{scenario}-scenario.json",
+        f"{scenario}-scenario.sha256",
+        *inventory.keys(),
+    }
+    actual_files = {
+        candidate.relative_to(root).as_posix()
+        for candidate in root.rglob("*")
+        if candidate.is_file()
+    }
+    if actual_files != declared_files:
+        raise LiveGateError("artifact directory contains unenumerated files")
     return dict(evidence)
 
 

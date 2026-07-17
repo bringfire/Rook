@@ -191,24 +191,45 @@ def test_authorization_protocol_is_canonical_exact_and_one_shot(tmp_path: Path) 
     assert encoded == json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     assert b"\n" not in encoded
 
-    assert live._authorization_matches(record, record["required_response"] + "\n")
-    assert live._authorization_matches(record, record["required_response"] + "\r\n")
+    required = record["required_response"].encode("ascii")
+    assert live._authorization_matches(record, required + b"\n")
+    assert live._authorization_matches(record, required + b"\r\n")
     for rejected in (
-        "",
-        record["required_response"],
-        record["required_response"] + " \n",
-        record["required_response"].lower() + "\n",
-        record["required_response"] + "\nEXTRA\n",
+        b"",
+        required,
+        required + b"\r",
+        required + b" \n",
+        required.lower() + b"\n",
+        required + b"\xff\n",
+        required + b"\x00\n",
+        required + b"\nEXTRA\n",
+        record["required_response"] + "\n",
     ):
         assert not live._authorization_matches(record, rejected)
 
 
 @requires_live_gate
 def test_stdin_seam_reads_exactly_one_bounded_line(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sys, "stdin", io.StringIO("alpha\r\nbeta\n"))
-    assert live._read_authorization_line() == "alpha\r\n"
-    assert sys.stdin.read() == "beta\n"
-    monkeypatch.setattr(sys, "stdin", io.StringIO("x" * 8193 + "\n"))
+    class BinaryOnlyStdin:
+        def __init__(self, payload: bytes):
+            self.buffer = io.BytesIO(payload)
+
+        def readline(self, *args, **kwargs):
+            pytest.fail(f"{EXPECTED_RED}:AUTHORIZATION_BYTES text-mode stdin was read")
+
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        BinaryOnlyStdin(b"alpha\r\nbeta\xff\n"),
+    )
+    assert live._read_authorization_line() == b"alpha\r\n"
+    assert sys.stdin.buffer.read() == b"beta\xff\n"
+
+    for payload in (b"alpha\n", b"alpha\r", b"\xff\n", b"\x80alternate\n", b""):
+        monkeypatch.setattr(sys, "stdin", BinaryOnlyStdin(payload))
+        assert live._read_authorization_line() == payload
+
+    monkeypatch.setattr(sys, "stdin", BinaryOnlyStdin(b"x" * 8193 + b"\n"))
     with pytest.raises(live.LiveGateError, match="authorization line"):
         live._read_authorization_line()
 
@@ -506,6 +527,25 @@ def _success(data: Any) -> dict[str, Any]:
     return {"success": True, "data": data}
 
 
+def _expected_rhino_sphere_probe_script(object_id: str) -> str:
+    return (
+        "import json\n"
+        "import Rhino\n"
+        "import System\n"
+        "import scriptcontext as sc\n"
+        f'object_id = System.Guid("{object_id}")\n'
+        "rhino_object = sc.doc.Objects.FindId(object_id)\n"
+        "geometry = rhino_object.Geometry if rhino_object is not None else None\n"
+        "brep = geometry if isinstance(geometry, Rhino.Geometry.Brep) else None\n"
+        "surface = brep.Faces[0].UnderlyingSurface() if brep is not None and brep.Faces.Count == 1 else None\n"
+        "success, sphere = surface.TryGetSphere() if surface is not None else (False, None)\n"
+        'payload = {"center": [float(sphere.Center.X), float(sphere.Center.Y), float(sphere.Center.Z)] if success else None, '
+        '"id": str(rhino_object.Id) if rhino_object is not None else None, "is_sphere": bool(success), '
+        '"radius": float(sphere.Radius) if success else None}\n'
+        'print("ROOK_SPHERE_GEOMETRY={0}".format(json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)))'
+    )
+
+
 class _RhinoAdapter:
     def __init__(self, scratch_path: Path):
         self.scratch_path = scratch_path
@@ -514,6 +554,12 @@ class _RhinoAdapter:
         self.saved = False
         self.objects: dict[str, dict[str, Any]] = {}
         self.modified = False
+        self.sphere_probe: dict[str, Any] = {
+            "center": [0.0, 0.0, 0.0],
+            "id": SPHERE_ID,
+            "is_sphere": True,
+            "radius": 4.0,
+        }
 
     async def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         self.calls.append((name, copy.deepcopy(arguments)))
@@ -548,6 +594,16 @@ class _RhinoAdapter:
             }
             self.modified = True
             return _success({"id": SPHERE_ID})
+        if name == "rhino_execute" and arguments == {
+            "code": _expected_rhino_sphere_probe_script(SPHERE_ID)
+        }:
+            marker = json.dumps(
+                self.sphere_probe,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+            return _success({"output": f"ROOK_SPHERE_GEOMETRY={marker}\n"})
         if name == "rhino_execute":
             assert arguments == {"code": live._rhino_point_script(RUN_ID)}
             self.objects[POINT_ID] = {
@@ -602,6 +658,7 @@ class _GrasshopperAdapter:
         self.opened = False
         self.edited = False
         self.undo_count = 0
+        self.open_status_overrides: dict[str, Any] = {}
 
     def _status(self) -> dict[str, Any]:
         if not self.bootstrapped:
@@ -634,6 +691,8 @@ class _GrasshopperAdapter:
                 "solverStateKnown": True,
                 "solutionState": "PostProcess",
             }
+            if self.opened and not self.edited:
+                raw.update(self.open_status_overrides)
         normalized = normalize_gh_status_result(_success(raw))
         assert normalized["success"] is True and isinstance(normalized["data"], dict)
         return normalized["data"]
@@ -869,11 +928,11 @@ def _install_fake_scenario(
         target=challenge_target,
     )
     if authorization == "valid":
-        line = expected_challenge["required_response"] + "\n"
+        line = expected_challenge["required_response"].encode("ascii") + b"\n"
     elif authorization == "eof":
-        line = ""
+        line = b""
     else:
-        line = "WRONG\n"
+        line = b"WRONG\n"
     monkeypatch.setattr(live, "_read_authorization_line", lambda: line)
 
     if drift:
@@ -1045,6 +1104,13 @@ def test_successful_fake_host_scenarios_emit_exact_evidence_and_restore(
     if scenario == "rhino":
         assert ("rhino_create", live._rhino_sphere_arguments(RUN_ID)) in harness.adapter.calls
         assert ("rhino_execute", {"code": live._rhino_point_script(RUN_ID)}) in harness.adapter.calls
+        assert (
+            "rhino_execute",
+            {"code": _expected_rhino_sphere_probe_script(SPHERE_ID)},
+        ) in harness.adapter.calls
+        sphere = artifact["verification"]["projection"]["objects"]["sphere"]
+        assert sphere["center"] == [0.0, 0.0, 0.0]
+        assert sphere["radius"] == 4.0
         assert names.index("rhino_delete") < names.index("rhino_document_ops", names.index("rhino_delete"))
         dirty_checks = [
             args for name, args in harness.adapter.calls if name == "rhino_document"
@@ -1057,6 +1123,121 @@ def test_successful_fake_host_scenarios_emit_exact_evidence_and_restore(
         assert edit_calls == [live._grasshopper_edit_arguments(RUN_ID, 7)]
         assert 1 <= names.count("gh_undo") <= 4
         assert "gh_solve" not in names and "gh_document_new" not in names
+
+
+@requires_live_gate
+def test_rhino_sphere_probe_is_fixed_read_only_and_object_bound() -> None:
+    assert live._rhino_sphere_probe_script(SPHERE_ID) == _expected_rhino_sphere_probe_script(
+        SPHERE_ID
+    )
+
+
+@requires_live_gate
+@pytest.mark.parametrize(
+    "observed",
+    [
+        {
+            "center": None,
+            "id": SPHERE_ID,
+            "is_sphere": False,
+            "radius": None,
+        },
+        {
+            "center": [1.0, 0.0, 0.0],
+            "id": SPHERE_ID,
+            "is_sphere": True,
+            "radius": 4.0,
+        },
+        {
+            "center": [0.0, 0.0, 0.0],
+            "id": SPHERE_ID,
+            "is_sphere": True,
+            "radius": 3.0,
+        },
+        {
+            "center": [0.0, 0.0, 0.0],
+            "id": POINT_ID,
+            "is_sphere": True,
+            "radius": 4.0,
+        },
+    ],
+    ids=["same_bbox_non_sphere", "wrong_center", "wrong_radius", "wrong_guid"],
+)
+def test_rhino_rejects_unobserved_or_different_sphere_geometry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    observed: dict[str, Any],
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    harness.adapter.sphere_probe = observed
+
+    result = live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    )
+
+    assert result.success is False, (
+        f"{EXPECTED_RED}:RHINO_OBSERVED_SPHERE same-bbox or differently observed "
+        "geometry was accepted"
+    )
+    assert result.failure_label == "verification_failed"
+    assert (
+        "rhino_execute",
+        {"code": _expected_rhino_sphere_probe_script(SPHERE_ID)},
+    ) in harness.adapter.calls
+    evidence = _load_final_artifact(harness.artifact, "rhino")
+    assert evidence["verification"]["passed"] is False
+    live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
+
+
+@requires_live_gate
+@pytest.mark.parametrize(
+    "status_override",
+    [
+        {"hasActiveCanvas": False},
+        {"hasActiveCanvas": None},
+        {"hasActiveDocument": False},
+        {"hasActiveDocument": None},
+        {"documentPath": r"C:\wrong\not-the-owned-scratch.ghx"},
+        {"readyForEdit": False},
+        {"readyForEdit": None},
+    ],
+    ids=[
+        "canvas_false",
+        "canvas_unknown",
+        "document_false",
+        "document_unknown",
+        "wrong_path",
+        "not_ready",
+        "readiness_unknown",
+    ],
+)
+def test_grasshopper_rejects_unready_or_wrong_post_open_projection(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    status_override: dict[str, Any],
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
+    harness.adapter.open_status_overrides = status_override
+
+    with redirect_stdout(io.StringIO()):
+        result = live.run_live_scenario(
+            scenario="grasshopper",
+            rhino_exe=harness.rhino_exe,
+            artifact_dir=harness.artifact,
+        )
+
+    assert result.success is False, (
+        f"{EXPECTED_RED}:GH_POST_OPEN_STATUS an inactive, unknown, unready, or "
+        "wrong-path canvas was projected as the owned scratch canvas"
+    )
+    names = [name for name, _ in harness.adapter.calls]
+    assert "gh_document_open" in names
+    assert "gh_library" not in names and "gh_edit" not in names
+    evidence = _load_final_artifact(harness.artifact, "grasshopper")
+    assert evidence["pre_state"]["scratch_projection"] is None
+    live._validate_scenario_artifacts(harness.artifact, scenario="grasshopper")
 
 
 @requires_live_gate
@@ -1770,6 +1951,7 @@ def _direct_grasshopper_restoration_state(harness: Any):
         process_token=PROCESS_TOKEN,
         port=harness.record.port,
         document_id=GH_DOCUMENT_ID,
+        has_active_canvas=True,
     )
     harness.adapter.edited = True
     result = live._new_result("grasshopper", RUN_ID, live._utc_now())
@@ -2187,6 +2369,45 @@ def test_operation_artifact_write_failure_stops_forward_work_and_cannot_pass(
 
 
 @requires_live_gate
+def test_ownership_ambiguous_preserves_and_enumerates_grasshopper_scratch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="grasshopper")
+    original = harness.adapter.call
+
+    async def lose_ownership_after_scratch_copy(name, arguments):
+        if name == "rhino_command":
+            raise live.OwnershipAmbiguous("lost owned Grasshopper target")
+        return await original(name, arguments)
+
+    harness.adapter.call = lose_ownership_after_scratch_copy
+    result = live.run_live_scenario(
+        scenario="grasshopper",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    )
+
+    assert result.success is False
+    assert result.failure_label == "ownership_ambiguous"
+    assert harness.scratch.is_file()
+    scratch_items = [
+        item
+        for item in result.artifacts
+        if item["relative_path"] == harness.scratch.name
+    ]
+    assert scratch_items == [
+        {
+            "kind": "scratch",
+            "relative_path": harness.scratch.name,
+            "sha256": live.FIXTURE_SHA256,
+            "size": live.FIXTURE_SIZE,
+        }
+    ], f"{EXPECTED_RED}:SCRATCH_INVENTORY retained GHX was not hash-bound"
+    live._validate_scenario_artifacts(harness.artifact, scenario="grasshopper")
+
+
+@requires_live_gate
 def test_consumer_rejects_missing_tampered_noncanonical_and_escaping_artifacts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -2210,6 +2431,27 @@ def test_consumer_rejects_missing_tampered_noncanonical_and_escaping_artifacts(
     evidence["operations"][0]["arguments_path"] = "../escape.json"
     live._write_final_evidence_pair(harness.artifact, "rhino", evidence)
     with pytest.raises(live.LiveGateError, match="path"):
+        live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
+
+
+@requires_live_gate
+def test_consumer_rejects_unenumerated_artifact_directory_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    harness = _install_fake_scenario(monkeypatch, tmp_path, scenario="rhino")
+    assert live.run_live_scenario(
+        scenario="rhino",
+        rhino_exe=harness.rhino_exe,
+        artifact_dir=harness.artifact,
+    ).success
+    live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
+
+    (harness.artifact / "undeclared.bin").write_bytes(b"not inventoried")
+    with pytest.raises(
+        live.LiveGateError,
+        match="inventory|enumerated",
+    ):
         live._validate_scenario_artifacts(harness.artifact, scenario="rhino")
 
 
