@@ -1,7 +1,8 @@
 # Legacy Semantic-Authority Containment Design
 
 Date: 2026-07-15
-Status: Design approved in conversation; consolidated specification under review
+Amended: 2026-07-18
+Status: Compressed design approved in conversation; amended specification under review
 
 ## Decision
 
@@ -24,6 +25,20 @@ The six identities are:
 | `spawn_agent` | `suspended` |
 | `gh_explore_workflow` | `suspended` |
 | `gh_replay_recipe` | `suspended` |
+
+### 2026-07-18 release-proof amendment
+
+This amendment leaves the six-name runtime containment contract unchanged and
+supersedes the earlier release-proof requirements for a full installed
+six-by-seam matrix, an alternate candidate builder, generalized installed
+validator, durable-hold system, and artifact-bound rollback verifier.
+
+Release proof now uses the normal Rook release artifacts, exhaustive source
+coverage, a complete 36-probe installed transport set, one installed
+representative for each of the current 29 internal seams, and the two supported
+live workflows. Failure handling withdraws the disposable runtime while
+preserving the non-disposable RookVision gallery. This specification is the
+single amended baseline from which the implementation plan must be rewritten.
 
 There is no environment flag, maintenance profile, hidden direct-call path, or
 packaged test callable that may reactivate them. A stale client calling an exact
@@ -919,49 +934,311 @@ Unexpected user state, a wrong target, an unverifiable result, unexpected
 Grasshopper warnings or errors, restoration mismatch, or containment-telemetry
 activity fails the scenario and preserves diagnostic artifacts.
 
+### RookVision gallery preservation
+
+The runtime is disposable. The RookVision gallery is not.
+
+The protected root is `%APPDATA%\Rook\artifacts`, as defined by
+`RookPaths.ArtifactsRoot`. Existing RookVision artifacts are non-disposable and
+never part of installation, withdrawal, or cleanup. Containment acceptance and
+withdrawal tooling never treats their contents as mutation, cleanup, or payload
+inputs. Their path, type, and file-size inventory is read-only acceptance
+evidence. No campaign code deletes, renames, moves, truncates, overwrites, or
+recursively cleans the protected root, any of its descendants, or
+`%APPDATA%\Rook` as a parent. Acceptance evidence is stored elsewhere.
+
+Gallery verification is phase-aware because normal Rook startup performs
+established gallery maintenance:
+
+- With Rhino and Rook quiesced, the inventory immediately before and after
+  installation must have exact path, type, and file-size equality.
+- During live acceptance, every pre-existing non-transient path must remain
+  present with the same type, and every pre-existing non-`manifest.json` file
+  must retain its size. Current startup reconciliation or backfill may add only
+  `poster.jpg`, `start_frame.jpg`, or `end_frame.jpg` beneath a pre-existing
+  finalized artifact directory; it may not add a directory. Existing startup
+  maintenance may change `manifest.json` sizes in those pre-existing artifact
+  directories. Every other new gallery path fails the gate.
+- With Rhino and Rook quiesced, the inventory immediately before and after
+  withdrawal or uninstallation must again have exact path, type, and file-size
+  equality.
+
+Inventory never follows reparse points. The only excluded pre-existing residue
+is the deletion residue already defined by `ArtifactStore`: `*.deleting.tmp`
+trees and empty GUID directories. Real gallery-file contents are never read or
+hashed. This is a deletion and truncation safeguard, not byte-integrity
+certification.
+
+Any mismatch or unverifiable inventory produces
+`artifact_preservation_failed`, blocks publication, and stops forward testing.
+The gate performs no gallery repair. If bounded runtime withdrawal remains
+safe, it may continue, but it must remain categorically outside the protected
+root.
+
+A focused regression uses a synthetic sentinel tree and verifies exact sentinel
+bytes through installation, the same-application legacy-log migration,
+failed-candidate withdrawal, and uninstallation.
+No real-gallery hashing, backup, restoration, artifact-management subsystem, or
+parent-directory cleanup is added.
+
 ## Rollout And Release Posture
 
 ### Atomic campaign boundary
 
-The production candidate contains only:
+The shipped containment change contains only:
 
 - the lifecycle manifest and exact resolver;
 - catalog filtering, load-time revalidation, and the startup refresh path;
 - shallow early-return guards at the inventoried execution boundaries;
 - the dedicated bounded containment-denial ring and read-only accessor;
 - removal of the local semantic intent handler from production registration;
-- current guidance cleanup;
-- focused bypass and regression tests; and
-- the two authorized live-preservation scenarios.
+- current guidance cleanup; and
+- the single installer-level legacy-log migration described below.
+
+Exhaustive source tests, installed-runtime probes, and the two authorized live
+scenarios are campaign evidence, not public runtime features. Release-only
+acceptance and live-gate code resides outside the public `rook-mcp` package.
 
 These parts ship together. A candidate must never filter discovery while an
 identified dispatch path remains executable, or deny execution while leaving a
 contained identity advertised.
 
-### Deployed-runtime acceptance
+### Legacy uninstall-log migration
 
-Verification exercises the deployed candidate, not only source imports. Before
-release acceptance:
+The existing Rook installer retains its exact public `AppId`, per-user
+privilege mode, x64 install mode, application directory, and uninstall-files
+directory. Its `[Setup]` section adds exactly:
 
-1. quiesce existing Rook MCP, RookChat, and internal-agent processes that may
+```ini
+UninstallLogMode=overwrite
+```
+
+This is an intentional legacy-log migration, not an installer redesign. A
+successful eligible same-application upgrade replaces rather than appends the
+prior uninstall log, so recursive `%APPDATA%\Rook` deletion actions shipped by
+older public installers cannot remain in the upgraded public uninstall
+authority. Ordinary users require no manual uninstall or pre-cleanup. The
+directive remains until a separately reviewed migration proves every supported
+upgrade path safe. `post_install.py`, the current uninstall cleanup, the public
+`AppId`, and all other installer behavior remain unchanged by this campaign.
+
+One bounded Windows PowerShell 5.1 regression generates and compiles a
+disposable Inno Setup 6 legacy/candidate pair. The pair uses one fresh synthetic
+AppId shared only by those two fixture versions, identical privilege/bitness and
+literal test-owned install/uninstall-log paths, and no real Rook AppId,
+known-folder constant, registry target, runtime root, configuration path, or
+gallery path. The legacy fixture records an unsafe recursive deletion against
+only a synthetic gallery sentinel and omits the directive so Inno's documented
+append default applies. The candidate fixture projects the reviewed production
+`UninstallLogMode=overwrite` directive and otherwise supplies only the minimal
+uninstall path needed for this proof.
+
+Fixture generation reads only the raw `UninstallLogMode` assignment from the
+production `RookSetup.iss` `[Setup]` section. Before implementation, no
+assignment produces no candidate-fixture directive and therefore the real
+append-behavior red. After implementation, exactly one assignment whose value is
+exactly `overwrite` is projected verbatim. Any other value, duplicate, malformed
+section placement, or independent hardcoded fixture mode is an infrastructure
+failure and cannot satisfy either red or green.
+
+The control and preservation sentinels share an ordinary non-reparse synthetic
+root that is a sibling of, not equal to or beneath, every candidate application,
+runtime, configuration, Temp-cleanup, setup-delete, uninstall-delete, and
+`post_install.py` cleanup target. The generated candidate is statically checked
+not to name that root or any ancestor of it. Only the legacy fixture's exact
+unsafe entry targets it. Final test-root teardown occurs only after every
+preservation assertion and is not candidate cleanup evidence.
+
+The regression first installs the legacy fixture, creates a disposable control
+sentinel, performs an ordinary legacy uninstall, and requires that sentinel to
+be deleted and the synthetic registration/log authority to be removed. It then
+reinstalls the same compiled legacy fixture, creates a separate byte-pinned
+preservation sentinel, installs the overwrite candidate, and requires the
+candidate `DisplayVersion` and registered uninstall path, a changed synthetic
+`unins000.dat` digest, and exactly one current app-root uninstaller/log identity.
+Ordinary candidate uninstall must preserve the second sentinel exactly and end
+with no registered or app-root legacy uninstaller/log authority. The real Rook
+uninstall registration remains unchanged throughout; this synthetic regression
+adds no new read or hash of the real gallery, whose separate phase-aware
+coordinator checks remain authoritative.
+
+Fixture installer, uninstaller, and private-Python process environments are
+constructed case-insensitively from a scrubbed copy. They remove inherited
+`PYTHONPATH`, `PYTHONHOME`, `PYTHONUSERBASE`, `PYTHONNOUSERSITE`, `DSPY_MODEL`,
+`DSPY_CACHEDIR`, `CHIRP_HOME`, every `ROOK_*` name, `APPDATA`, `LOCALAPPDATA`,
+`USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, `HOME`, `TEMP`, `TMP`, `TMPDIR`, `PATH`,
+and `NoDefaultCurrentDirectoryInExePath`. They then set only the test-owned
+profile/AppData/LocalAppData/home-drive/home-path values, the test-owned Temp
+child beneath the validated real known-folder LocalAppData `Temp`,
+`PYTHONNOUSERSITE=1`, present-but-empty `PATH`, and
+`NoDefaultCurrentDirectoryInExePath=1`; `HOME` remains absent. Before unchanged
+`post_install.py --uninstall` may continue, a test-only startup guard requires
+`Path.home()`, `get_runtime_root()`, `APPDATA`, `tempfile.gettempdir()`, the
+private interpreter and working directory, and every configuration/runtime
+destination the script can touch to resolve beneath canonical non-reparse
+synthetic roots. Any mismatch exits before tool lookup or cleanup. No real Rook
+configuration, runtime, registry, or gallery path is used as a mutation target
+and safety never relies on detecting damage afterward.
+
+The regression launches both real synthetic Inno uninstallers through the
+production bounded observer and proves the actual original-to-TEMP-clone
+identity and completion sequence, the copied private-CPython working directory
+and unchanged `post_install.py --uninstall` path, and zero hostile `claude.exe`
+tripwire hits.
+The fixture is generated beneath one canonical non-reparse test-owned Temp root;
+all generated `.iss` paths are literal and evidence remains outside every
+synthetic deletion target. Compile, install, observer, or cleanup ambiguity is a
+hard failure with no skip or Python-process substitute. Failure handling may
+terminate only recorded fixture-owned PID/creation identities and may remove
+only the proven synthetic registry key and root; it never invokes, deletes, or
+repairs real Rook or gallery state. Delayed Inno TEMP self-delete residue is not
+treated as registered or app-root uninstall authority.
+
+The TDD red uses this same full fixture before the production directive exists.
+It must reach the ordinary synthetic candidate uninstall and fail specifically
+because the synthetic sentinel was deleted by retained legacy authority;
+compiler, installer, observer, path, or cleanup failure does not satisfy that
+red. After the one-line production migration is added, the same fixture must
+reach the same point and preserve the sentinel exactly.
+
+### Normal release sequence and artifact identity
+
+Containment acceptance is additive to the existing release process. Existing
+Rhino, Rhino.Inside/Revit, wheelhouse, FFmpeg, installer, smoke, and release
+artifact validation remains mandatory and is not reimplemented by this
+campaign.
+
+The release sequence is:
+
+1. merge the reviewed containment change to `main` without publishing;
+2. create the normal version-bump release branch from updated `main`, complete
+   and merge its reviewed release PR, then designate the resulting
+   version-bumped `main` commit as the expected release SHA;
+3. use the normal release process to build the unpublished installer for that
+   exact SHA and version, without installing or publishing it yet;
+4. start the thin containment coordinator with the expected release SHA,
+   version, and installer path; it recomputes the installer digest, validates a
+   fresh diagnostics root, quiesces the required processes, and records the
+   pre-install gallery, environment, and uninstall-state baselines;
+5. have the coordinator launch that installer with the sanitized environment,
+   then, before any host starts, require exact post-install gallery equality;
+6. run the existing standalone Rhino and Rhino.Inside/Revit smoke workflows
+   inside the same acceptance session, beginning the live gallery phase; those
+   workflows write the external smoke manifest, which is passed unchanged to
+   the existing release-artifact validator; that validator retains its normal
+   Git and provenance checks and emits the release manifest;
+7. have the coordinator verify installed provenance and manifest identity, then
+   finish the discovery, 36 transport, 29 representative internal, and paired
+   live gates; and
+8. publish the normal release asset set, including the independently validated
+   FFmpeg source bundle and manifest, while publishing the exact accepted
+   installer, smoke-manifest, and release-manifest bytes without rebuilding,
+   rewriting, or repacking those three files.
+
+The pre-install gallery baseline therefore precedes the first candidate
+installation and every normal smoke launch. The post-install equality check
+precedes standalone Rhino and Rhino.Inside/Revit startup. Those normal smoke
+launches and the later paired live gates all occur inside the phase-aware live
+gallery interval.
+
+The containment coordinator consumes artifacts. It performs no Git, merge,
+versioning, build, publication, or installer-construction operation.
+
+After the normal smoke and release manifests exist, but before containment
+discovery or denial probes begin, the coordinator requires equality across:
+
+- the recomputed installer SHA-256 and the release-manifest installer SHA-256;
+- the expected release SHA and the `git_sha` or `rook_git_sha` recorded by the
+  release manifest, smoke manifest, packaged runtime manifest, and installed
+  runtime manifest;
+- the expected Rook product version and only these Rook product-version fields:
+  release-manifest `version`, smoke-manifest `rook_version`, runtime-manifest
+  `release_version`, the `rook-mcp` wheel version and metadata, the Rook
+  lockfile pin, and the existing native and managed `X.Y.Z.0` file versions;
+- the packaged and installed runtime-manifest bytes and SHA-256, together with
+  the runtime-manifest identity recorded in install state;
+- each recomputed wheel SHA-256 and its runtime-manifest declaration;
+- the exact packaged Rook wheel and the installed Rook package files described
+  by its wheel `RECORD`; and
+- the installed Rook venv root and the origins of every loaded `rook.*` module.
+
+Python, Rhino, Revit, Rhino.Inside, Chirp, third-party wheel, and other component
+versions continue to use their existing independent validation contracts. This
+campaign adds no Rook release-version field to install state.
+
+For wheel comparison, every hash-and-size-bearing `rook/` entry in the packaged
+wheel `RECORD` must match its installed file. Missing, changed, or unexpected
+installed Rook source or package-data files fail acceptance; interpreter-created
+`__pycache__` directories and `.pyc` files are ignored. Acceptance does not
+force-import dormant modules merely to enlarge this proof. Every `rook.*` module
+that a probe loads must originate beneath the verified installed package root.
+
+The coordinator computes SHA-256 over the exact external smoke-manifest and
+release-manifest bytes. It also requires semantic JSON equality between the
+external smoke manifest and the release manifest's embedded `smoke` object.
+The passing record binds the expected release SHA, version, installer digest,
+smoke-manifest digest, and release-manifest digest. Publication independently
+confirms that it is promoting those exact three files while retaining every
+other asset required by the normal release contract.
+
+### Thin deployed-runtime acceptance
+
+Verification exercises the deployed candidate, not only source imports. Within
+the single release sequence above and before installed containment probes begin,
+the coordinator:
+
+1. quiesces existing Rook MCP, RookChat, and internal-agent processes that may
    retain old registrations;
-2. prove no old agent or plan tasks remain active;
-3. install the candidate runtime;
-4. restart consumers against that candidate;
-5. allow normal startup refresh without deleting a safely revalidated cache;
-   and
-6. confirm the six names are absent from actual model-visible surfaces before
+2. proves no old agent or plan tasks remain active;
+3. installs the candidate runtime exactly once with the sanitized environment;
+4. runs the existing normal smoke and manifest-production steps;
+5. restarts containment consumers against that candidate and allows normal startup
+   refresh without deleting a safely revalidated cache; and
+6. confirms the six names are absent from actual model-visible surfaces before
    running the paired live gate.
 
-### Installed containment matrix
+Before installation, the coordinator creates a sanitized copy of the required
+Windows process environment. Case-insensitively, it removes inherited
+`PYTHONPATH`, `PYTHONHOME`, `PYTHONUSERBASE`, `PYTHONNOUSERSITE`, `DSPY_MODEL`,
+`DSPY_CACHEDIR`, `CHIRP_HOME`, and every key beginning with `ROOK_`, then adds
+only code-owned `PYTHONNOUSERSITE=1` among those scrubbed controls for the
+installer launch. Required ordinary Windows environment values remain. The
+coordinator launches the installer itself with that environment. Inno Setup,
+`post_install.py`, and every post-install descendant inherit the sanitized
+boundary; sanitation does not begin inside Python after startup hooks could
+already execute. Production post-install code may establish only its existing
+validated code-owned runtime values for descendants.
+
+Every later installed-Python parent and child applies the same case-insensitive
+scrub. It then sets code-owned `PYTHONNOUSERSITE=1`, validated installed values
+for `ROOK_INSTALL_ROOT`, `ROOK_DATA_DIR`, `ROOK_MODE=release`, and
+`ROOK_DSPY_RESTRICT_PICKLE=1`, plus a validated code-owned `DSPY_CACHEDIR` and
+optional code-owned `CHIRP_HOME`. A profile probe may additionally set its exact
+`ROOK_MCP_TOOL_PROFILE`; only interactive discovery may set
+`ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING=1`. `PYTHONUSERBASE`, `DSPY_MODEL`,
+and all other caller-supplied source, model, cache, target, process, document,
+bridge, harness, or profile overrides remain absent.
+
+Every installed Python acceptance-probe process reports an effective `sys.path`
+containing no canonical repository or worktree root, and every loaded `rook.*`
+module must originate beneath the verified installed package root. Child
+working directories and the acceptance output directory are fresh and outside
+the checkout, installation roots, and RookVision gallery. The installer chain
+does not require new production `post_install.py` reporting. A focused
+startup-chain regression instead proves through inherited environment and
+user-site tripwires that the sanitized installer-to-`post_install.py` descendant
+and Python-grandchild chain cannot observe the removed variables or execute
+user-site startup hooks.
+
+Discovery acceptance retains the exact current snapshots: default full `422`,
+interactive full `425`, lean `20`, and readonly `148`. Every surface must also
+omit the six exact contained identities.
+
+### Installed transport probes
 
 Installed-runtime acceptance also proves execution containment, not only
 discovery omission. It launches a fresh candidate process for each `full`,
-`lean`, and `readonly` profile, with `PYTHONPATH` empty and a working directory
-outside every source checkout. The harness asserts that all loaded `rook`
-modules originate beneath the installed candidate root and that no repository
-or worktree module supplied the runtime under test. Its effective `sys.path`
-contains no repository or worktree root.
+`lean`, and `readonly` profile under the installed-child policy above.
 
 For every profile, the harness invokes all six contained identities through:
 
@@ -990,20 +1267,82 @@ record, duplicate record, wrong origin, or malformed payload blocks acceptance.
 Per-probe comparison prevents the 50-entry ring bound from hiding earlier
 records in a larger batch.
 
-A focused internal bypass matrix then imports the installed candidate modules,
-not workspace modules, and invokes all six identities at every concrete
-internal seam named in this specification, including the packaged bootstrap,
-learning, explorer, and mock executors. Installed-module spies prove zero entry
-into tool-specific validation, dormant implementations, downstream or
-containment-triggered models, target resolution, HTTP/Rhino/Grasshopper calls,
-ordinary observation/adaptation, or host receipts. Every internal probe must
-also produce the correct boundary adapter, `internal_handler` or other pinned
-origin, one recording attempt, and one observed record while the accessor is
-healthy.
+### Representative installed internal probes
 
-The installed matrix is non-mutating and does not require an open Rhino or
-Grasshopper target. It precedes the separately authorized live-preservation
-scenarios.
+Source tests retain the exhaustive six-identities-by-boundary bypass matrix.
+Installed acceptance does not repeat that Cartesian product. It runs one
+representative denial through each current unique internal execution seam.
+
+The reviewed release tooling pins this current 29-seam acceptance snapshot as
+literal code-owned data; it is not discovered from the candidate under test:
+
+1. `server._call_tool_dispatch`
+2. `server._mcp_tool_executor`
+3. `ToolDispatcher.dispatch`
+4. `ToolDispatcher._dispatch_inner`
+5. `ToolDispatcher._call_local`
+6. `ToolDispatcher._dispatch_with_knowledge`
+7. `RookAgent._run_loop`
+8. `RookAgent._execute_tool`
+9. `RookAgent._execute_local_tool`
+10. `ChatRunner.run_turn`
+11. `rook.agent.plan_graph_live.apply_live_producer_node`
+12. `BootstrapRunner.run_test`
+13. `BootstrapRunner._mock_executor`
+14. `bootstrap.HttpExecutor.execute`
+15. `bootstrap.create_mock_executor.callable`
+16. `learning.create_tool_executor.callable`
+17. `Investigator.investigate_tool`
+18. `Investigator.investigate_gap`
+19. `Investigator.investigate_workflow`
+20. `Investigator._run_experiment`
+21. `HybridInvestigator.investigate_tool`
+22. `HybridInvestigator.investigate_gap`
+23. `LearningSession.run_investigation_cycle.tool_target`
+24. `explorer.HttpExecutor.execute`
+25. `explorer.HttpExecutor.execute_sync`
+26. `explorer.MockExecutor.execute`
+27. `explorer.MockExecutor.execute_sync`
+28. `server._handle_spawn_agent`
+29. `server._handle_plan_and_execute`
+
+Each seam is paired with one literal representative contained identity in the
+reviewed tooling; the assignments collectively cover all six identities. The
+candidate cannot select or rewrite the inventory or assignments. `29` is a
+reviewed snapshot of the current implementation, not a timeless platform
+constant; changing the concrete boundary inventory requires review of this
+release evidence. The rewritten reviewed implementation plan and the external
+release tooling both pin the 29 representative identity assignments explicitly.
+
+Every representative probe verifies the boundary-specific refusal shape, one
+immediately adjacent containment event in the same process ID and start token,
+the correct fixed origin, and zero downstream validation, implementation,
+model, target, HTTP, host, observation, adaptation, or receipt entry. The
+RookAgent and RookChat probes include their model-visible protocol assertions;
+they do not create a duplicate installed suite.
+
+The representative installed probe set is non-mutating and does not require an
+open Rhino or Grasshopper target. It precedes the separately authorized
+live-preservation scenarios.
+
+### Thin coordinator and evidence
+
+The coordinator begins with the pre-install baseline and sanitized installation
+phase. After the existing smoke workflow and unchanged release-artifact
+validator succeed, the already-running coordinator enters installed provenance,
+the four discovery snapshots, the complete 36 transport probes, the pinned 29
+representative internal probes, and the two authorized live scenarios. It adds
+no independent Git, build, versioning, publication, smoke-schema, or
+release-validation logic and does not become a generalized validation framework.
+
+It uses a fresh output directory and writes one small digest-bound success
+record atomically only after every required result passes. Focused tests cover
+pre-install baseline ordering, immutable uninstall-state ownership, the Inno
+same-application overwrite migration and real TEMP-clone completion barrier,
+installer descendant/grandchild sanitation, provenance or manifest-semantic
+mismatch, incomplete 36- or 29-probe sets, gallery mismatch, ambiguous ownership
+or reparse preflight, withdrawal failure, and refusal to produce a passing
+record after any failure.
 
 ### Release blockers
 
@@ -1012,20 +1351,119 @@ denied invocation reaches tool-specific validation, implementation, downstream
 model/target/host execution, ordinary observation or adaptation, or host-receipt
 generation; telemetry violates its closed contract; either supported live
 workflow fails; restoration is unverified; or supported workflows generate
-containment events.
+containment events. Release is also blocked if the exact installer legacy-log
+migration is absent or changed, or if the synthetic same-application
+upgrade/uninstall regression fails.
 
-If verification fails before promotion, the candidate is not promoted and
-diagnostic artifacts are preserved. If a deployed candidate must be withdrawn,
-rollback is permitted only to a previously verified containment-safe build. If
-none exists, affected MCP, RookChat, and internal-agent surfaces remain
-quiesced until a containment-safe hotfix is deployed. No rollback, bypass, or
-gate accommodation may reactivate a contained identity.
+If verification fails before publication, the candidate is not published,
+forward testing stops, and concise diagnostics are preserved outside the
+RookVision gallery. The diagnostics root must also be outside all four fallback
+roots, every current normal-uninstaller deletion root,
+`%LOCALAPPDATA%\Rook\logs`, and `%TEMP%\rook`. No automatic rollback or
+restoration of an earlier Rook installation is attempted. The runtime is
+disposable.
 
-A "previously verified containment-safe build" is an immutable candidate
-artifact whose SHA-256 digest is bound to a retained acceptance record covering
-its installed discovery, denial, telemetry, internal-bypass, supported workflow,
-and restoration evidence. Rollback verifies that digest before deployment; a
-mutable tag, version label, or unbound historical build is not sufficient.
+Before invoking the normal uninstaller or any fallback cleanup, the operator
+must close Rhino, Revit, Claude, Codex, and every other configured Rook launcher.
+The coordinator gracefully closes only hosts certainly owned by the current
+gate. It stops a candidate-owned process only when both its PID and creation
+identity match the process recorded by the gate. It never force-kills a user
+host. Ambiguous process ownership, enumeration, or closure skips destructive
+withdrawal and produces a failed/manual-withdrawal result.
+
+Before candidate launch, while Rook is quiesced, the coordinator records a
+non-following, case-insensitive inventory of immediate entries beneath the exact
+canonical `%LOCALAPPDATA%\Rook\app` root matching `unins*.exe`, `unins*.dat`,
+or `unins*.msg`. An absent app root is an empty baseline. An uninspectable or
+reparse app root, or an uninspectable or reparse matching entry, blocks
+installation. Ordinary readable non-reparse matches are inventoried and may
+proceed through installation, but the baseline is immutable for the session.
+If any match existed before launch, any later
+candidate failure returns `manual_withdrawal_required`; the coordinator invokes
+neither the normal uninstaller nor fallback, configuration, or startup-authority
+cleanup. Candidate overwrite or removal of pre-existing state cannot clear this
+disqualifier. The coordinator never reads, parses, or rewrites an uninstall log.
+This conservative failed-session rule remains independent of the installer-level
+overwrite migration: coordinator refusal protects an ambiguous acceptance
+failure, while the migration protects an ordinary user's later uninstall after
+a successful public upgrade. Coordinator refusal alone is not public upgrade
+protection.
+
+Automatic normal uninstallation additionally requires an empty pre-install
+uninstall-state baseline and an unambiguous session-local empty-to-created
+transition after the exact candidate process exits: ordinary non-reparse
+`unins000.exe` and `unins000.dat`, at most the matching `unins000.msg`, and no
+other matching state. Immediately before launch, a fresh inventory must equal
+the recorded candidate-created path, type, and size inventory. Missing, extra,
+mismatched, changed, reparse, or uninspectable state produces
+`manual_withdrawal_required` with no destructive action. Uninstall state never
+establishes installer phase, process identity, or
+`verified_partial_installation`.
+
+Aside from the setup-time legacy-log overwrite above, normal withdrawal uses the
+existing uninstaller without redesigning its current runtime and configuration
+cleanup. For that supervised launch, the coordinator
+derives LocalAppData through the Windows known-folder API, validates its existing
+`Temp` child and every intervening component as ordinary and non-reparse, removes
+inherited `TEMP`, `TMP`, and `TMPDIR` case-insensitively, and sets all three to
+that exact root. No caller, candidate, or ambient environment value may select
+the clone root.
+
+A bounded process observer starts before the uninstaller launch. It must attach
+a live process handle to exactly one new
+direct child of the recorded uninstaller identity whose creation does not
+predate its parent and whose canonical ordinary non-reparse executable is
+strictly beneath the coordinator's already validated code-owned Temp root. The
+coordinator waits for the original uninstaller identity and then for that exact
+TEMP-clone identity to exit before any post-withdrawal check or fallback. The
+original exit code remains the uninstall status; clone exit is only the
+completion barrier. Zero, multiple, ambiguous, raced, outside-Temp, reparse,
+unattachable, reused, or timed-out clone observations produce
+`manual_withdrawal_required` with no further destructive action. The later Rook
+process preflight cannot substitute for this barrier, and no generalized
+process framework is added.
+
+The focused withdrawal regression observes the actual private-Python
+`post_install.py --uninstall` process launched by the unchanged Inno `Exec`
+path. Inside that process, it requires exactly one case-insensitive `PATH` entry
+whose value is the empty string, exactly one
+`NoDefaultCurrentDirectoryInExePath` entry whose value is `1`, canonical
+equality between the effective working directory and the validated private
+interpreter's parent, `shutil.which("claude") is None`, and an executable
+`claude.exe` tripwire in that effective working directory that produces no hit.
+For the pinned CPython 3.11.9 runtime, present-but-empty `PATH` is the operative
+lookup suppression; `NoDefaultCurrentDirectoryInExePath=1` remains
+defense-in-depth and future-runtime policy.
+
+If emergency cleanup is required afterward,
+the coordinator's fallback deletion allowlist is closed to exactly four roots
+derived from Windows known-folder APIs:
+
+- `%LOCALAPPDATA%\Rook\app`
+- `%LOCALAPPDATA%\Rook\python`
+- `%LOCALAPPDATA%\Rook\venv`
+- `%APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative`
+
+Before either the normal uninstaller or fallback cleanup, a read-only preflight
+derives every affected root from Windows known-folder APIs and checks every
+intervening component below its known-folder anchor plus every descendant that
+the operation would traverse. Any reparse point, inspection failure, or identity
+ambiguity blocks destructive withdrawal. The preflight and cleanup never follow
+reparse points.
+
+Every fallback root must also have the exact expected canonical identity. The
+fallback never accepts a caller-, candidate-, or manifest-supplied deletion path
+and never broadens deletion after an error. The parent directories
+`%LOCALAPPDATA%\Rook` and `%APPDATA%\Rook`, the protected
+`%APPDATA%\Rook\artifacts` root, persistent data, configuration outside the
+allowlist, and all other paths are categorically excluded.
+
+After withdrawal, the coordinator verifies candidate-process absence and every
+configured MCP, RookChat, internal-agent, native-plugin, and managed-plugin
+startup authority, plus gallery preservation. If cleanup or verification is
+uncertain, it reports failed/manual withdrawal and stops. It does not claim
+ownership, delete more broadly, produce a passing record, or create durable-hold
+or rollback machinery.
 
 ### Isolation
 
@@ -1034,8 +1472,9 @@ Implementation remains isolated in:
 - Worktree: `C:/Users/aryan/source/repos/Rook/.worktrees/gh-execute-intent-root-fix`
 - Branch: `codex/gh-execute-intent-root-fix`
 
-No production implementation begins until this written specification and its
-derived implementation plan receive user and senior-reviewer approval.
+No further implementation, pruning, or release-tooling work begins until this
+amended specification and its rewritten implementation plan receive user and
+senior-reviewer approval.
 
 ## Explicit Exclusions
 
@@ -1052,7 +1491,13 @@ The following are separate future decisions:
 - integrating LM9A as a live replacement executor;
 - permanent deletion of every dormant implementation;
 - evaluating or restoring suspended semantic tools; and
-- changing public tool names beyond the six lifecycle tombstones.
+- changing public tool names beyond the six lifecycle tombstones;
+- an alternate candidate builder or installer workflow;
+- a generalized release validator, immutable evidence store, durable-hold
+  system, or rollback verifier;
+- requiring a VM, disposable OS profile, or isolated user gallery;
+- hostile-workstation or general build-hermeticity certification; and
+- gallery backup, repair, restoration, or artifact-management machinery.
 
 ## Acceptance Criteria
 
@@ -1084,11 +1529,34 @@ The following are separate future decisions:
 - The authorized Rhino and Grasshopper live scenarios both produce the expected
   host result, verify their declared observable state, restore that state, and
   generate zero containment events.
+- Quiesced installation and withdrawal preserve the exact observable
+  RookVision inventory; live acceptance preserves existing non-transient assets
+  under the phase-aware maintenance allowances.
+- The thin coordinator begins before the first candidate installation, records
+  the quiesced gallery baseline, launches the installer with the sanitized
+  environment, and verifies exact post-install gallery equality before normal
+  Rhino or Rhino.Inside/Revit smoke begins.
+- The accepted installer is built by the normal release process from the final
+  merged, version-bumped `main` SHA; its Rook product-version fields, manifests,
+  wheel, install state, installed package files, venv, loaded module origins,
+  and source-free effective `sys.path` satisfy their explicit contracts.
 - The deployed candidate is accepted only after old processes and tasks are
-  quiesced, actual installed model-visible surfaces are verified, and the full
-  installed public, progressive-meta, and internal containment matrices pass.
+  quiesced, actual installed model-visible surfaces match `422/425/20/148` and
+  omit all six names, the complete 36 transport probes pass, and the pinned 29
+  representative internal probes pass alongside the exhaustive source matrix.
 - Every telemetry baseline pins the participating process ID and start token;
   restart or replacement invalidates the evidence.
-- Any rollback target is bound by immutable artifact digest to a retained
-  containment-safe acceptance record.
+- The thin coordinator emits one atomic success record only after all required
+  evidence passes. It binds the exact installer, external smoke-manifest, and
+  release-manifest byte digests, and the embedded smoke object is semantically
+  equal to the external smoke manifest.
+- Publication preserves the normal release asset set and promotes the exact
+  three accepted installer/smoke/release-manifest files without rebuild,
+  rewrite, or repack.
+- Failed candidates are withdrawn without touching the gallery. Destructive
+  withdrawal requires an empty pre-install uninstall-state baseline, an
+  unambiguous candidate-created uninstaller pair, unambiguous process ownership,
+  the TEMP-clone completion barrier, and a no-reparse preflight; fallback cleanup
+  is limited to the closed four-root allowlist, and uncertain withdrawal remains
+  a manual failure.
 - The implementation remains within this campaign's explicit exclusions.
