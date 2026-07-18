@@ -24,6 +24,21 @@
 - Revit API references must remain isolated to `src/RookBim`; do not add Autodesk/Revit references to `src/Rook`
 - `src/RookBim/RookBim.csproj` is a net48 module that copies `RookBim.dll` into `src/Rook/bin/<Configuration>/net48`; release/local deploy workflows must build it after `src/Rook/Rook.csproj`
 
+## Evidence-Led Development Discipline
+- For architecture campaigns, agent/model probes, compilers, validation infrastructure, and cross-layer workflows, follow `docs/superpowers/specs/2026-07-18-rook-claim-evidence-development-discipline.md`.
+- State one narrow claim and its non-claims before implementation. Distinguish deterministic substrate, arrival, repeatability, transfer, scaling, and product competence.
+- Every proposed slice must include an architectural continuity statement: current owner and insertion point, a broad path from trusted ingress to authoritative verification, durable inputs and outputs, disposable scaffolding, next expected consumer, next functional observation, and the condition that would reveal a dead end or parallel system.
+- A successor forecast is a falsifiable hypothesis, not implementation authorization. Revisit it after every canonical observation.
+- Prefer production-shaped vertical slices. Durable artifacts must flow unchanged into their predicted successor; test-only schemas or translation layers do not establish product architecture.
+- Do not build more than one untested functional layer beyond the last trusted observation. A prerequisite foundation slice must name the immediate observation that consumes it.
+- Scale tests by consequence. Evidence integrity, canonicalization, authority, and live mutation require exhaustive boundary treatment; offline semantic behavior requires representative coverage of distinct rules, not combinatorial enumeration.
+- Before joining uncertain layers, establish controls independently. Use hand-authored artifacts, direct product smokes, frozen fixtures, and independent wrapper audits where they preserve attribution.
+- Preserve exact bounded inputs, raw outputs, fingerprints, program identities, receipts, denominators, and terminal classifications. Do not repair, autofill, retry, or replace attempts unless that intervention was preregistered.
+- Keep durable product code separate from disposable probe scaffolding. A provider probe does not become the product Planner, compiler, executor, or verifier.
+- Every campaign spec must declare a scope budget, stop conditions, and deferred-obligations matrix. Each deferred item names the claim it prevents and the gate where it becomes mandatory.
+- Stop and return to design when a slice adds an unplanned subsystem, creates a parallel artifact, loses failure attribution, cannot construct honest evidence, or exceeds its scope budget.
+- Interpret evidence narrowly. A successful artifact publication is not compilation, execution, verification, repeatability, or product competence unless those exact boundaries were exercised.
+
 ## Codex App Notes
 - When emitting Codex app directives in final responses, use forward-slash absolute Windows paths, for example `C:/Users/aryan/source/repos/Rook`. Do not use backslash paths like `C:\Users\...` inside directive attributes; they can be parsed as invalid escapes by the app after task completion.
 
