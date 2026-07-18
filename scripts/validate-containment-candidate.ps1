@@ -3594,6 +3594,48 @@ function New-ContainmentStartupRecord {
     }
 }
 
+function Get-ContainmentPathEntryState {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    try { $attributes = [IO.File]::GetAttributes($fullPath) }
+    catch [IO.FileNotFoundException] {
+        return [ordered]@{path=$fullPath;present=$false;kind='absent';reparse=$false}
+    }
+    catch [IO.DirectoryNotFoundException] {
+        return [ordered]@{path=$fullPath;present=$false;kind='absent';reparse=$false}
+    }
+    $kind = if (($attributes -band [IO.FileAttributes]::Directory) -ne 0) { 'directory' } else { 'file' }
+    return [ordered]@{
+        path = $fullPath
+        present = $true
+        kind = $kind
+        reparse = (($attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    }
+}
+
+function New-ContainmentStartupAuthorityPathRecord {
+    param(
+        [Parameter(Mandatory = $true)][string]$Surface,
+        [Parameter(Mandatory = $true)][string]$Path,
+        [ValidateSet('directory','file')][string]$ExpectedKind
+    )
+
+    $state = Get-ContainmentPathEntryState -Path $Path
+    if ([bool]$state.present) {
+        if ([bool]$state.reparse) { throw "startup authority $Surface is a reparse point: $($state.path)" }
+        [void](Assert-ContainmentPathNotReparse ([string]$state.path) "startup authority $Surface")
+    }
+    return [ordered]@{
+        surface = $Surface
+        path = [string]$state.path
+        expected_kind = $ExpectedKind
+        present = [bool]$state.present
+        actual_kind = [string]$state.kind
+        valid = (-not [bool]$state.present -or [string]$state.kind -ceq $ExpectedKind)
+    }
+}
+
 function Get-ContainmentStartupSurfaceProjection {
     param(
         [Parameter(Mandatory = $true)][string]$LocalAppDataRoot,
@@ -3614,6 +3656,15 @@ function Get-ContainmentStartupSurfaceProjection {
     $expectedRegistry = Join-Path $pluginRoot 'net8.0\Rook.rhp'
     $records = New-Object Collections.Generic.List[object]
     $valid = $true
+    $authorityPaths = @(
+        New-ContainmentStartupAuthorityPathRecord -Surface 'rook-venv' -Path $expectedVenv -ExpectedKind directory
+        New-ContainmentStartupAuthorityPathRecord -Surface 'rook-rhp:net8.0' -Path (Join-Path $pluginRoot 'net8.0\Rook.rhp') -ExpectedKind file
+        New-ContainmentStartupAuthorityPathRecord -Surface 'rook-rhp:net7.0' -Path (Join-Path $pluginRoot 'net7.0\Rook.rhp') -ExpectedKind file
+        New-ContainmentStartupAuthorityPathRecord -Surface 'rook-rhp:net48' -Path (Join-Path $pluginRoot 'net48\Rook.rhp') -ExpectedKind file
+    )
+    foreach ($authorityPath in $authorityPaths) {
+        if (-not [bool]$authorityPath.valid) { $valid = $false }
+    }
 
     $jsonConfigs = @(
         [ordered]@{surface='claude-user';path=(Join-Path $homePath '.claude.json')},
@@ -3684,11 +3735,15 @@ function Get-ContainmentStartupSurfaceProjection {
     return [ordered]@{
         schema_version = 1
         valid = $valid
+        local_app_data_root = $local
+        app_data_root = $appdata
+        home_root = $homePath
         expected_venv_path = $expectedVenv
         expected_python_path = $expectedPython
         expected_working_directory = $expectedWorking
         plugin_root = $pluginRoot
         registry_file_name = $registryFile
+        authority_paths = @($authorityPaths)
         records = @($records.ToArray())
     }
 }
@@ -3715,6 +3770,40 @@ function Assert-ContainmentStartupProjection {
         if ([string]$record.kind -eq 'plugin-registry' -and
             -not (Test-ContainmentSamePath ([string]$record.resolved_path) (Join-Path ([IO.Path]::GetFullPath($ExpectedPluginRoot)) 'net8.0\Rook.rhp'))) {
             throw 'startup projection contains an alternate plug-in registration'
+        }
+    }
+    return $true
+}
+
+function Assert-ContainmentPostHoldStartupProjection {
+    param(
+        [AllowNull()][object]$Projection,
+        [Parameter(Mandatory = $true)][string]$ExpectedVenvPath,
+        [Parameter(Mandatory = $true)][string]$ExpectedPluginRoot
+    )
+
+    [void](Assert-ContainmentStartupProjection `
+        -Projection $Projection -ExpectedVenvPath $ExpectedVenvPath -ExpectedPluginRoot $ExpectedPluginRoot)
+    $venv = [IO.Path]::GetFullPath($ExpectedVenvPath)
+    $plugin = [IO.Path]::GetFullPath($ExpectedPluginRoot)
+    $expected = @(
+        [ordered]@{surface='rook-venv';path=$venv;kind='directory'},
+        [ordered]@{surface='rook-rhp:net8.0';path=(Join-Path $plugin 'net8.0\Rook.rhp');kind='file'},
+        [ordered]@{surface='rook-rhp:net7.0';path=(Join-Path $plugin 'net7.0\Rook.rhp');kind='file'},
+        [ordered]@{surface='rook-rhp:net48';path=(Join-Path $plugin 'net48\Rook.rhp');kind='file'}
+    )
+    $actual = @($Projection.authority_paths)
+    if ($actual.Count -ne $expected.Count) { throw 'post-hold startup authority path projection is incomplete' }
+    for ($index = 0; $index -lt $expected.Count; $index++) {
+        $record = $actual[$index]
+        $wanted = $expected[$index]
+        if ([string]$record.surface -cne [string]$wanted.surface -or
+            -not (Test-ContainmentSamePath ([string]$record.path) ([string]$wanted.path)) -or
+            [string]$record.expected_kind -cne [string]$wanted.kind -or
+            $record.present -isnot [bool] -or [bool]$record.present -or
+            [string]$record.actual_kind -cne 'absent' -or
+            $record.valid -isnot [bool] -or -not [bool]$record.valid) {
+            throw "post-hold startup authority path is active or invalid: $($wanted.surface)"
         }
     }
     return $true
@@ -3799,119 +3888,175 @@ function Enter-ContainmentDurableHold {
         [Parameter(Mandatory = $true)][string]$HomeRoot,
         [AllowNull()][object]$StartupProjection,
         [AllowNull()][object]$FinalQuietResweep,
-        [AllowNull()][scriptblock]$FinalQuietResweepAction
+        [AllowNull()][scriptblock]$FinalQuietResweepAction,
+        [AllowNull()][AllowEmptyCollection()][string[]]$PreHoldErrors = @()
     )
 
     $identity = Assert-ContainmentHex $CandidateIdentitySha256 64 'candidate identity hash'
     $run = Assert-ContainmentHex $RunId 32 'run id'
     $local = Get-ContainmentCanonicalPath -Path $LocalAppDataRoot -Kind Container -Label 'durable hold LOCALAPPDATA root'
-    [void](Get-ContainmentCanonicalPath -Path $AppDataRoot -Kind Container -Label 'durable hold APPDATA root')
-    [void](Get-ContainmentCanonicalPath -Path $HomeRoot -Kind Container -Label 'durable hold home root')
+    $appdata = Get-ContainmentCanonicalPath -Path $AppDataRoot -Kind Container -Label 'durable hold APPDATA root'
+    $homeRootPath = Get-ContainmentCanonicalPath -Path $HomeRoot -Kind Container -Label 'durable hold home root'
     $runtimeRoot = Join-Path $local 'Rook'
     if (-not (Test-Path -LiteralPath $runtimeRoot -PathType Container)) { throw 'durable hold runtime root is missing' }
     [void](Assert-ContainmentPathNotReparse $runtimeRoot 'durable hold runtime root')
     $venvPath = Join-Path $runtimeRoot 'venv'
-    $pluginRoot = [IO.Path]::GetFullPath([string]$StartupProjection.plugin_root)
-    if ($null -eq $FinalQuietResweep -or -not [bool]$FinalQuietResweep.quiet) {
-        throw 'durable hold requires a quiet final process resweep'
-    }
-    if ($null -eq $FinalQuietResweepAction) {
-        throw 'durable hold requires a post-disable quiet resweep action'
-    }
+    $pluginRoot = [IO.Path]::GetFullPath((Join-Path $appdata 'McNeel\Rhinoceros\8.0\Plug-ins\RookNative'))
     $preDisableQuietResweep = $FinalQuietResweep
 
     $identityRoot = Join-Path $runtimeRoot ("containment-hold\" + $identity)
-    if (-not (Test-Path -LiteralPath $identityRoot)) { [IO.Directory]::CreateDirectory($identityRoot) | Out-Null }
+    $identityRootState = Get-ContainmentPathEntryState -Path $identityRoot
+    if (-not [bool]$identityRootState.present) { [IO.Directory]::CreateDirectory($identityRoot) | Out-Null }
+    elseif ([string]$identityRootState.kind -cne 'directory' -or [bool]$identityRootState.reparse) {
+        throw "durable hold identity root has the wrong type: $identityRoot"
+    }
     [void](Assert-ContainmentPathNotReparse $identityRoot 'durable hold identity root')
+
+    $assemblyPlans = @(
+        foreach ($tfm in @('net8.0','net7.0','net48')) {
+            $original = Join-Path $pluginRoot "$tfm\Rook.rhp"
+            [ordered]@{tfm=$tfm;original=$original;held=("$original.contained.$identity.$run")}
+        }
+    )
     $holdRoot = Join-Path $identityRoot $run
-    if (Test-Path -LiteralPath $holdRoot) { throw "durable hold collision: fresh leaf already exists: $holdRoot" }
-    [void](Assert-ContainmentStartupProjection -Projection $StartupProjection -ExpectedVenvPath $venvPath -ExpectedPluginRoot $pluginRoot)
-    [IO.Directory]::CreateDirectory($holdRoot) | Out-Null
+    if (-not (New-ContainmentDirectoryCreateNew -Path $holdRoot)) {
+        throw "durable hold collision: fresh leaf already exists: $holdRoot"
+    }
     [void](Assert-ContainmentPathNotReparse $holdRoot 'durable hold root')
 
     try {
-    $errors = New-Object Collections.Generic.List[string]
-    $heldVenv = Join-Path $holdRoot 'venv'
-    $venvRecord = [ordered]@{ source_present=$false; original_path=$venvPath; held_path=$heldVenv; sha256=$null; files=@() }
-    if (Test-Path -LiteralPath $venvPath -PathType Container) {
+        $errors = New-Object Collections.Generic.List[string]
+        foreach ($priorError in @($PreHoldErrors)) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$priorError)) { $errors.Add([string]$priorError) }
+        }
         try {
-            [void](Assert-ContainmentPathNotReparse $venvPath 'durable hold venv')
-            $before = Get-ContainmentTreeProjection -Root $venvPath
-            [IO.Directory]::Move($venvPath, $heldVenv)
-            $after = Get-ContainmentTreeProjection -Root $heldVenv
-            if ((ConvertTo-ContainmentCanonicalJson $before) -cne (ConvertTo-ContainmentCanonicalJson $after) -or (Test-Path -LiteralPath $venvPath)) {
-                throw 'durable hold venv projection drift'
+            if ($null -eq $FinalQuietResweep -or -not [bool]$FinalQuietResweep.quiet) {
+                throw 'durable hold requires a quiet pre-disable process resweep'
             }
-            $venvRecord = [ordered]@{source_present=$true;original_path=$venvPath;held_path=$heldVenv;sha256=$after.digest;files=@($after.files)}
+        }
+        catch { $errors.Add("pre-disable resweep: $($_.Exception.Message)") }
+        try {
+            if ($null -eq $StartupProjection) { throw 'durable hold startup projection is unavailable' }
+            [void](Assert-ContainmentStartupProjection `
+                -Projection $StartupProjection -ExpectedVenvPath $venvPath -ExpectedPluginRoot $pluginRoot)
+        }
+        catch { $errors.Add("pre-disable startup inspection: $($_.Exception.Message)") }
+
+        $heldVenv = Join-Path $holdRoot 'venv'
+        $venvRecord = [ordered]@{ source_present=$false; original_path=$venvPath; held_path=$heldVenv; sha256=$null; files=@() }
+        try {
+            $venvSourceState = Get-ContainmentPathEntryState -Path $venvPath
+            $venvDestinationState = Get-ContainmentPathEntryState -Path $heldVenv
+            if ([bool]$venvDestinationState.present) { throw "durable hold venv destination exists: $heldVenv" }
+            if ([bool]$venvSourceState.present) {
+                $venvRecord.source_present = $true
+                if ([string]$venvSourceState.kind -cne 'directory' -or [bool]$venvSourceState.reparse) {
+                    throw "durable hold venv has the wrong object type: $venvPath"
+                }
+                [void](Assert-ContainmentPathNotReparse $venvPath 'durable hold venv')
+                $before = Get-ContainmentTreeProjection -Root $venvPath
+                [IO.Directory]::Move($venvPath, $heldVenv)
+                $after = Get-ContainmentTreeProjection -Root $heldVenv
+                if ((ConvertTo-ContainmentCanonicalJson $before) -cne (ConvertTo-ContainmentCanonicalJson $after) -or
+                    [bool](Get-ContainmentPathEntryState -Path $venvPath).present) {
+                    throw 'durable hold venv projection drift'
+                }
+                $venvRecord = [ordered]@{source_present=$true;original_path=$venvPath;held_path=$heldVenv;sha256=$after.digest;files=@($after.files)}
+            }
         }
         catch { $errors.Add("venv: $($_.Exception.Message)") }
-    }
 
-    $assemblies = New-Object Collections.Generic.List[object]
-    foreach ($tfm in @('net8.0','net7.0','net48')) {
-        $original = Join-Path $pluginRoot "$tfm\Rook.rhp"
-        $held = "$original.contained.$identity.$run"
-        $record = [ordered]@{tfm=$tfm;source_present=$false;original_path=$original;held_path=$held;sha256=$null;size=0}
-        if (Test-Path -LiteralPath $original -PathType Leaf) {
-            $record.source_present = $true
+        $assemblies = New-Object Collections.Generic.List[object]
+        foreach ($plan in $assemblyPlans) {
+            $tfm = [string]$plan.tfm
+            $original = [string]$plan.original
+            $held = [string]$plan.held
+            $record = [ordered]@{tfm=$tfm;source_present=$false;original_path=$original;held_path=$held;sha256=$null;size=0}
             try {
-                [void](Assert-ContainmentPathNotReparse $original "durable hold $tfm assembly")
-                if (Test-Path -LiteralPath $held) { throw "durable hold assembly destination exists: $held" }
-                $before = Get-ContainmentFileProjection $original
-                [IO.File]::Move($original, $held)
-                $after = Get-ContainmentFileProjection $held
-                if ([string]$before.sha256 -cne [string]$after.sha256 -or [long]$before.size -ne [long]$after.size -or
-                    (Test-Path -LiteralPath $original) -or $held.EndsWith('.rhp', [StringComparison]::OrdinalIgnoreCase)) {
-                    throw "durable hold $tfm assembly projection drift"
+                $sourceState = Get-ContainmentPathEntryState -Path $original
+                $destinationState = Get-ContainmentPathEntryState -Path $held
+                if ([bool]$destinationState.present) { throw "durable hold assembly destination exists: $held" }
+                if ([bool]$sourceState.present) {
+                    $record.source_present = $true
+                    if ([string]$sourceState.kind -cne 'file' -or [bool]$sourceState.reparse) {
+                        throw "durable hold $tfm assembly has the wrong object type: $original"
+                    }
+                    [void](Assert-ContainmentPathNotReparse $original "durable hold $tfm assembly")
+                    $before = Get-ContainmentFileProjection $original
+                    [IO.File]::Move($original, $held)
+                    $after = Get-ContainmentFileProjection $held
+                    if ([string]$before.sha256 -cne [string]$after.sha256 -or [long]$before.size -ne [long]$after.size -or
+                        [bool](Get-ContainmentPathEntryState -Path $original).present -or
+                        $held.EndsWith('.rhp', [StringComparison]::OrdinalIgnoreCase)) {
+                        throw "durable hold $tfm assembly projection drift"
+                    }
+                    $record.sha256 = $after.sha256
+                    $record.size = $after.size
                 }
-                $record.sha256 = $after.sha256
-                $record.size = $after.size
             }
             catch { $errors.Add("$tfm`: $($_.Exception.Message)") }
+            $assemblies.Add($record)
         }
-        $assemblies.Add($record)
-    }
-    if ($errors.Count -ne 0) { throw "durable hold partial failure; held bytes were not restored: $($errors -join '; ')" }
-    if (Test-Path -LiteralPath $venvPath) { throw 'durable hold left the original venv active' }
-    foreach ($record in $assemblies) {
-        if ([bool]$record.source_present -and ((Test-Path -LiteralPath $record.original_path) -or -not (Test-Path -LiteralPath $record.held_path -PathType Leaf))) {
-            throw 'durable hold left an original Rook.rhp authority active'
-        }
-    }
-    $postDisableQuietResweep = & $FinalQuietResweepAction
-    if ($null -eq $postDisableQuietResweep -or -not [bool]$postDisableQuietResweep.quiet) {
-        throw 'durable hold post-disable process resweep was not quiet'
-    }
 
-    $receipt = [ordered]@{
-        schema_version = 1
-        success = $true
-        candidate_identity_sha256 = $identity
-        run_id = $run
-        held_at = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.ffffffZ')
-        venv = $venvRecord
-        assemblies = @($assemblies.ToArray())
-        startup_projection = $StartupProjection
-        pre_disable_quiet_resweep = $preDisableQuietResweep
-        post_disable_quiet_resweep = $postDisableQuietResweep
-    }
-    $receiptPath = Join-Path $holdRoot $script:ContainmentHoldFileName
-    $sidecarPath = Join-Path $holdRoot 'containment-hold.sha256'
-    $pair = Write-CanonicalJsonPair -Path $receiptPath -SidecarPath $sidecarPath -Value $receipt
-    $verified = Test-ContainmentDurableHold -ReceiptPath $receiptPath -SidecarPath $sidecarPath
-    if (-not [bool]$verified.success) { throw 'durable hold receipt verification failed' }
-    return [ordered]@{
-        success = $true
-        path = $holdRoot
-        sha256 = $pair.Sha256
-        sidecar_sha256 = $pair.SidecarSha256
-        receipt_path = $receiptPath
-        receipt_sidecar_path = $sidecarPath
-        pre_disable_quiet_resweep = $preDisableQuietResweep
-        post_disable_quiet_resweep = $postDisableQuietResweep
-        venv = $venvRecord
-        assemblies = @($assemblies.ToArray())
-    }
+        $postDisableQuietResweep = $null
+        if ($null -eq $FinalQuietResweepAction) {
+            $errors.Add('post-disable resweep: durable hold requires a post-disable quiet resweep action')
+        }
+        else {
+            try {
+                $postDisableQuietResweep = & $FinalQuietResweepAction
+                if ($null -eq $postDisableQuietResweep -or -not [bool]$postDisableQuietResweep.quiet) {
+                    throw 'durable hold post-disable process resweep was not quiet'
+                }
+            }
+            catch { $errors.Add("post-disable resweep: $($_.Exception.Message)") }
+        }
+
+        $postHoldStartupProjection = $null
+        try {
+            $currentRegistryFile = Get-ContainmentCompanionRegistryFileName -AppDataRoot $appdata
+            $postHoldStartupProjection = Get-ContainmentStartupSurfaceProjection `
+                -LocalAppDataRoot $local -AppDataRoot $appdata -HomeRoot $homeRootPath `
+                -RegistryFileName $currentRegistryFile
+            [void](Assert-ContainmentPostHoldStartupProjection `
+                -Projection $postHoldStartupProjection -ExpectedVenvPath $venvPath -ExpectedPluginRoot $pluginRoot)
+        }
+        catch { $errors.Add("post-disable startup inspection: $($_.Exception.Message)") }
+
+        if ($errors.Count -ne 0) {
+            throw "durable hold partial failure; held bytes were not restored: $($errors -join '; ')"
+        }
+
+        $receipt = [ordered]@{
+            schema_version = 1
+            success = $true
+            candidate_identity_sha256 = $identity
+            run_id = $run
+            held_at = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.ffffffZ')
+            venv = $venvRecord
+            assemblies = @($assemblies.ToArray())
+            startup_projection = $postHoldStartupProjection
+            pre_disable_quiet_resweep = $preDisableQuietResweep
+            post_disable_quiet_resweep = $postDisableQuietResweep
+        }
+        $receiptPath = Join-Path $holdRoot $script:ContainmentHoldFileName
+        $sidecarPath = Join-Path $holdRoot 'containment-hold.sha256'
+        $pair = Write-CanonicalJsonPair -Path $receiptPath -SidecarPath $sidecarPath -Value $receipt
+        $verified = Test-ContainmentDurableHold -ReceiptPath $receiptPath -SidecarPath $sidecarPath
+        if (-not [bool]$verified.success) { throw 'durable hold receipt verification failed' }
+        return [ordered]@{
+            success = $true
+            path = $holdRoot
+            sha256 = $pair.Sha256
+            sidecar_sha256 = $pair.SidecarSha256
+            receipt_path = $receiptPath
+            receipt_sidecar_path = $sidecarPath
+            pre_disable_quiet_resweep = $preDisableQuietResweep
+            post_disable_quiet_resweep = $postDisableQuietResweep
+            startup_projection = $postHoldStartupProjection
+            venv = $venvRecord
+            assemblies = @($assemblies.ToArray())
+        }
     }
     catch {
         $primaryFailure = $_
@@ -3959,25 +4104,78 @@ function Test-ContainmentDurableHold {
     }
     [void](Assert-ContainmentHex $receipt.candidate_identity_sha256 64 'durable hold candidate identity')
     [void](Assert-ContainmentHex $receipt.run_id 32 'durable hold run id')
+    $boundStartupProjection = $receipt.startup_projection
+    [void](Assert-ContainmentPostHoldStartupProjection `
+        -Projection $boundStartupProjection `
+        -ExpectedVenvPath ([string]$boundStartupProjection.expected_venv_path) `
+        -ExpectedPluginRoot ([string]$boundStartupProjection.plugin_root))
+
+    $expectedVenv = [IO.Path]::GetFullPath([string]$boundStartupProjection.expected_venv_path)
+    $expectedPlugin = [IO.Path]::GetFullPath([string]$boundStartupProjection.plugin_root)
+    $expectedHoldRoot = Split-Path -Parent ([IO.Path]::GetFullPath($ReceiptPath))
+    if (-not (Test-ContainmentSamePath ([string]$receipt.venv.original_path) $expectedVenv) -or
+        -not (Test-ContainmentSamePath ([string]$receipt.venv.held_path) (Join-Path $expectedHoldRoot 'venv'))) {
+        throw 'durable hold venv original/held path drift'
+    }
+    $venvOriginalState = Get-ContainmentPathEntryState -Path ([string]$receipt.venv.original_path)
+    $venvHeldState = Get-ContainmentPathEntryState -Path ([string]$receipt.venv.held_path)
+    if ([bool]$venvOriginalState.present) { throw 'durable hold venv original authority drift' }
     if ([bool]$receipt.venv.source_present) {
-        if ((Test-Path -LiteralPath $receipt.venv.original_path) -or -not (Test-Path -LiteralPath $receipt.venv.held_path -PathType Container)) {
-            throw 'durable hold venv path state drift'
+        if (-not [bool]$venvHeldState.present -or [string]$venvHeldState.kind -cne 'directory' -or [bool]$venvHeldState.reparse) {
+            throw 'durable hold venv held path state drift'
         }
+        [void](Assert-ContainmentPathNotReparse ([string]$receipt.venv.held_path) 'durable hold held venv')
         $projection = Get-ContainmentTreeProjection -Root ([string]$receipt.venv.held_path)
         if ([string]$projection.digest -cne [string]$receipt.venv.sha256 -or
             (ConvertTo-ContainmentCanonicalJson @($projection.files)) -cne (ConvertTo-ContainmentCanonicalJson @($receipt.venv.files))) {
             throw 'durable hold venv hash drift'
         }
     }
-    foreach ($assembly in @($receipt.assemblies)) {
+    elseif ([bool]$venvHeldState.present) {
+        throw 'durable hold absent-source venv destination drift'
+    }
+
+    $assemblies = @($receipt.assemblies)
+    $expectedTfms = @('net8.0','net7.0','net48')
+    if ($assemblies.Count -ne $expectedTfms.Count) { throw 'durable hold assembly projection is incomplete' }
+    for ($index = 0; $index -lt $expectedTfms.Count; $index++) {
+        $assembly = $assemblies[$index]
+        $tfm = $expectedTfms[$index]
+        $expectedOriginal = Join-Path $expectedPlugin "$tfm\Rook.rhp"
+        $expectedHeld = "$expectedOriginal.contained.$($receipt.candidate_identity_sha256).$($receipt.run_id)"
+        if ([string]$assembly.tfm -cne $tfm -or
+            -not (Test-ContainmentSamePath ([string]$assembly.original_path) $expectedOriginal) -or
+            -not (Test-ContainmentSamePath ([string]$assembly.held_path) $expectedHeld)) {
+            throw "durable hold $tfm assembly original/held path drift"
+        }
+        $originalState = Get-ContainmentPathEntryState -Path ([string]$assembly.original_path)
+        $heldState = Get-ContainmentPathEntryState -Path ([string]$assembly.held_path)
+        if ([bool]$originalState.present) { throw "durable hold $tfm assembly original authority drift" }
         if ([bool]$assembly.source_present) {
-            if ((Test-Path -LiteralPath $assembly.original_path) -or -not (Test-Path -LiteralPath $assembly.held_path -PathType Leaf) -or
+            if (-not [bool]$heldState.present -or [string]$heldState.kind -cne 'file' -or [bool]$heldState.reparse -or
                 [string]$assembly.sha256 -cne (Get-ContainmentSha256 $assembly.held_path) -or
                 [long]$assembly.size -ne (Get-Item $assembly.held_path).Length -or
                 ([string]$assembly.held_path).EndsWith('.rhp', [StringComparison]::OrdinalIgnoreCase)) {
                 throw 'durable hold assembly hash/path drift'
             }
+            [void](Assert-ContainmentPathNotReparse ([string]$assembly.held_path) "durable hold held $tfm assembly")
         }
+        elseif ([bool]$heldState.present) {
+            throw "durable hold absent-source $tfm assembly destination drift"
+        }
+    }
+
+    $localRoot = Get-ContainmentCanonicalPath -Path ([string]$boundStartupProjection.local_app_data_root) -Kind Container -Label 'durable hold retained LOCALAPPDATA root'
+    $appDataRoot = Get-ContainmentCanonicalPath -Path ([string]$boundStartupProjection.app_data_root) -Kind Container -Label 'durable hold retained APPDATA root'
+    $homeRootPath = Get-ContainmentCanonicalPath -Path ([string]$boundStartupProjection.home_root) -Kind Container -Label 'durable hold retained home root'
+    $currentRegistryFile = Get-ContainmentCompanionRegistryFileName -AppDataRoot $appDataRoot
+    $currentStartupProjection = Get-ContainmentStartupSurfaceProjection `
+        -LocalAppDataRoot $localRoot -AppDataRoot $appDataRoot -HomeRoot $homeRootPath `
+        -RegistryFileName $currentRegistryFile
+    [void](Assert-ContainmentPostHoldStartupProjection `
+        -Projection $currentStartupProjection -ExpectedVenvPath $expectedVenv -ExpectedPluginRoot $expectedPlugin)
+    if (-not (Test-ContainmentCanonicalEqual $boundStartupProjection $currentStartupProjection)) {
+        throw 'durable hold current startup projection drift'
     }
     return [ordered]@{success=$true;receipt=$receipt;sha256=(Get-ContainmentSha256 $ReceiptPath)}
 }
@@ -5651,19 +5849,38 @@ function Invoke-ContainmentCandidateValidator {
                 $holdMessage = $null
                 try {
                     $failureStageBeforeHold = $failureStage
-                    $cleanupClose = Invoke-ContainmentProcessPreflight `
-                        -Mode close -PreflightScript $preflightScript -RookRoot $runtimeRoot `
-                        -EvidenceDirectory (Join-Path $evidenceRoot 'diagnostics') -Label 'emergency close'
-                    $cleanupQuiet = Invoke-ContainmentProcessPreflight `
-                        -Mode enumerate -PreflightScript $preflightScript -RookRoot $runtimeRoot `
-                        -EvidenceDirectory (Join-Path $evidenceRoot 'diagnostics') -Label 'emergency quiet resweep'
-                    $registryFile = Get-ContainmentCompanionRegistryFileName -AppDataRoot $env:APPDATA
-                    $startupProjection = Get-ContainmentStartupSurfaceProjection `
-                        -LocalAppDataRoot $env:LOCALAPPDATA -AppDataRoot $env:APPDATA `
-                        -HomeRoot $env:USERPROFILE -RegistryFileName $registryFile
-                    [void](Assert-ContainmentStartupProjection `
-                        -Projection $startupProjection -ExpectedVenvPath (Join-Path $runtimeRoot 'venv') `
-                        -ExpectedPluginRoot (Join-Path $env:APPDATA 'McNeel\Rhinoceros\8.0\Plug-ins\RookNative'))
+                    $preHoldErrors = New-Object Collections.Generic.List[string]
+                    $cleanupClose = $null
+                    try {
+                        $cleanupClose = Invoke-ContainmentProcessPreflight `
+                            -Mode close -PreflightScript $preflightScript -RookRoot $runtimeRoot `
+                            -EvidenceDirectory (Join-Path $evidenceRoot 'diagnostics') -Label 'emergency close'
+                    }
+                    catch { $preHoldErrors.Add("emergency close: $($_.Exception.Message)") }
+
+                    $cleanupQuiet = $null
+                    try {
+                        $cleanupQuiet = Invoke-ContainmentProcessPreflight `
+                            -Mode enumerate -PreflightScript $preflightScript -RookRoot $runtimeRoot `
+                            -EvidenceDirectory (Join-Path $evidenceRoot 'diagnostics') -Label 'emergency quiet resweep'
+                        if ($null -eq $cleanupQuiet -or -not [bool]$cleanupQuiet.quiet) {
+                            $preHoldErrors.Add('emergency quiet resweep: process boundary is not quiet')
+                        }
+                    }
+                    catch { $preHoldErrors.Add("emergency quiet resweep: $($_.Exception.Message)") }
+
+                    $startupProjection = $null
+                    try {
+                        $registryFile = Get-ContainmentCompanionRegistryFileName -AppDataRoot $env:APPDATA
+                        $startupProjection = Get-ContainmentStartupSurfaceProjection `
+                            -LocalAppDataRoot $env:LOCALAPPDATA -AppDataRoot $env:APPDATA `
+                            -HomeRoot $env:USERPROFILE -RegistryFileName $registryFile
+                        [void](Assert-ContainmentStartupProjection `
+                            -Projection $startupProjection -ExpectedVenvPath (Join-Path $runtimeRoot 'venv') `
+                            -ExpectedPluginRoot (Join-Path $env:APPDATA 'McNeel\Rhinoceros\8.0\Plug-ins\RookNative'))
+                    }
+                    catch { $preHoldErrors.Add("emergency startup inspection: $($_.Exception.Message)") }
+
                     $holdResweepAction = {
                         Invoke-ContainmentProcessPreflight `
                             -Mode enumerate -PreflightScript $preflightScript -RookRoot $runtimeRoot `
@@ -5673,7 +5890,7 @@ function Invoke-ContainmentCandidateValidator {
                         -CandidateIdentitySha256 ([string]$candidate.identity_sha256) -RunId $runId `
                         -LocalAppDataRoot $env:LOCALAPPDATA -AppDataRoot $env:APPDATA -HomeRoot $env:USERPROFILE `
                         -StartupProjection $startupProjection -FinalQuietResweep $cleanupQuiet `
-                        -FinalQuietResweepAction $holdResweepAction
+                        -FinalQuietResweepAction $holdResweepAction -PreHoldErrors @($preHoldErrors.ToArray())
                     $failureStage = if ($requiresEmergencyStage) { 'emergency-quiescence' } else { $failureStageBeforeHold }
                 }
                 catch {

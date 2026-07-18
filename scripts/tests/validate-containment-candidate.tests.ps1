@@ -1954,6 +1954,20 @@ if ($Mode -eq 'oversized-extra') {
     }
 }
 
+function Invoke-TestWithSyntheticCompanionRegistry {
+    param([Parameter(Mandatory = $true)][scriptblock]$Body)
+
+    $savedRegistryReader = (Get-Item -LiteralPath Function:\Get-ContainmentCompanionRegistryFileName).ScriptBlock
+    try {
+        Set-Item Function:\Get-ContainmentCompanionRegistryFileName -Value {
+            param($AppDataRoot)
+            return [IO.Path]::GetFullPath((Join-Path $AppDataRoot 'McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\Rook.rhp'))
+        }
+        & $Body
+    }
+    finally { Set-Item Function:\Get-ContainmentCompanionRegistryFileName -Value $savedRegistryReader }
+}
+
 function Test-StartupSurfaceAndDurableHold {
     param([string]$Root)
     $local = New-TestDirectory $Root 'localappdata'
@@ -2031,11 +2045,24 @@ function Test-StartupSurfaceAndDurableHold {
     $partialIdentity = 'e' * 64
     $partialRun = 'f' * 32
     $collisionAssembly = (Join-Path $partialPlugin 'net7.0\Rook.rhp') + ".contained.$partialIdentity.$partialRun"
-    Write-TestAscii $collisionAssembly 'preexisting-collision'
+    $collisionState = [pscustomobject]@{checks=0}
+    $savedPathEntryState = (Get-Item -LiteralPath Function:\Get-ContainmentPathEntryState).ScriptBlock
     $partialFailure = $null
     try {
-        [void](Enter-ContainmentDurableHold -CandidateIdentitySha256 $partialIdentity -RunId $partialRun -LocalAppDataRoot $partialLocal -AppDataRoot $partialAppData -HomeRoot $partialHome -StartupProjection $partialProjection -FinalQuietResweep ([ordered]@{quiet=$true}) -FinalQuietResweepAction { [ordered]@{quiet=$true} })
-    } catch { $partialFailure = $_ }
+        Set-Item Function:\Get-ContainmentPathEntryState -Value ({
+            param($Path)
+            if (Test-ContainmentSamePath ([IO.Path]::GetFullPath($Path)) ([IO.Path]::GetFullPath($collisionAssembly))) {
+                $collisionState.checks++
+                if ($collisionState.checks -eq 2) { Write-TestAscii $collisionAssembly 'raced-collision' }
+            }
+            return (& $savedPathEntryState -Path $Path)
+        }.GetNewClosure())
+        try {
+            [void](Enter-ContainmentDurableHold -CandidateIdentitySha256 $partialIdentity -RunId $partialRun -LocalAppDataRoot $partialLocal -AppDataRoot $partialAppData -HomeRoot $partialHome -StartupProjection $partialProjection -FinalQuietResweep ([ordered]@{quiet=$true}) -FinalQuietResweepAction { [ordered]@{quiet=$true} })
+        } catch { $partialFailure = $_ }
+    }
+    finally { Set-Item Function:\Get-ContainmentPathEntryState -Value $savedPathEntryState }
+    Assert-True ($collisionState.checks -ge 2) 'Partial hold race did not reach the post-preflight destination check.'
     Assert-True ($null -ne $partialFailure) 'Partial durable hold failure did not fail closed.'
     $retainedHoldPath = [string]$partialFailure.Exception.Data['ContainmentHoldPath']
     Assert-True ([IO.Path]::IsPathRooted($retainedHoldPath)) 'Partial hold failure omitted its deterministic hold path.'
@@ -2114,6 +2141,471 @@ function Test-StartupSurfaceAndDurableHold {
     Assert-Equal ([string]$receiptFailure.Exception.Data['ContainmentHoldReceiptSha256']) (Get-TestSha256 $publishedReceiptPath) 'Receipt-verification failure did not preserve the actual receipt hash.'
     Assert-Equal ([string]$receiptFailure.Exception.Data['ContainmentHoldReceiptSidecarSha256']) (Get-TestSha256 $publishedSidecarPath) 'Receipt-verification failure did not preserve the actual sidecar hash.'
     Assert-Equal ([string]$receiptFailure.Exception.Data['ContainmentHoldProjectionSha256']) (Get-TestValueSha256 $receiptFailure.Exception.Data['ContainmentHoldProjection']) 'Receipt-verification failure did not bind its retained-state projection.'
+}
+
+function New-TestDurableHoldFixture {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$Name,
+        [string[]]$AbsentTfms = @()
+    )
+
+    $caseRoot = New-TestDirectory $Root $Name
+    $local = New-TestDirectory $caseRoot 'localappdata'
+    $appdata = New-TestDirectory $caseRoot 'appdata'
+    $homeRoot = New-TestDirectory $caseRoot 'home'
+    $runtime = New-TestDirectory $local 'Rook'
+    $venv = New-TestDirectory $runtime 'venv'
+    $scripts = New-TestDirectory $venv 'Scripts'
+    Write-TestAscii -Path (Join-Path $scripts 'python.exe') -Text 'fake-python-marker'
+    Write-TestAscii (Join-Path $venv 'runtime.bin') 'fake-runtime'
+    $plugin = New-TestDirectory (New-TestDirectory (New-TestDirectory (New-TestDirectory $appdata 'McNeel') 'Rhinoceros') '8.0') 'Plug-ins'
+    $plugin = New-TestDirectory $plugin 'RookNative'
+    $assemblies = [ordered]@{}
+    foreach ($tfm in @('net8.0','net7.0','net48')) {
+        $directory = New-TestDirectory $plugin $tfm
+        $assembly = Join-Path $directory 'Rook.rhp'
+        $assemblies[$tfm] = $assembly
+        if ($AbsentTfms -notcontains $tfm) { Write-TestAscii $assembly "assembly-$tfm" }
+        $manifest = [ordered]@{
+            pythonPath=(Join-Path $venv 'Scripts\python.exe')
+            workingDirectory=(Join-Path $runtime 'app\mcp_server')
+            module='rook.agent.chat.service_main'
+            owner='rhino-panel';pythonPathEntries=@();environment=[ordered]@{}
+        }
+        Write-TestUtf8NoBom (Join-Path $directory 'RookChatService.json') (ConvertTo-TestCanonicalJson $manifest)
+    }
+    $claudePath = Join-Path $homeRoot '.claude.json'
+    $claude = [ordered]@{mcpServers=[ordered]@{rook=[ordered]@{command=(Join-Path $venv 'Scripts\python.exe');args=@('-m','rook')}}}
+    $claudeText = ConvertTo-TestCanonicalJson $claude
+    Write-TestUtf8NoBom $claudePath $claudeText
+    $codex = New-TestDirectory $homeRoot '.codex'
+    Write-TestUtf8NoBom (Join-Path $codex 'config.toml') "[mcp_servers.rook]`ncommand = '$(Join-Path $venv 'Scripts\python.exe')'`n"
+    $registryFile = [string]$assemblies['net8.0']
+    $projection = Get-ContainmentStartupSurfaceProjection `
+        -LocalAppDataRoot $local -AppDataRoot $appdata -HomeRoot $homeRoot -RegistryFileName $registryFile
+    return [pscustomobject]@{
+        Root=$caseRoot;Local=$local;AppData=$appdata;Home=$homeRoot;Runtime=$runtime;Venv=$venv
+        Plugin=$plugin;Assemblies=$assemblies;RegistryFile=$registryFile
+        Projection=$projection;ClaudePath=$claudePath;ClaudeText=$claudeText
+    }
+}
+
+function Invoke-TestStartupRespawnAttempt {
+    param([Parameter(Mandatory = $true)][object]$Fixture)
+
+    $pythonPath = Join-Path $Fixture.Venv 'Scripts\python.exe'
+    $pythonPathResolved = Test-Path -LiteralPath $pythonPath -PathType Leaf
+    $venvPathResolved = Test-Path -LiteralPath $Fixture.Venv -PathType Container
+    $activeAssemblies = @(
+        foreach ($tfm in @('net8.0','net7.0','net48')) {
+            $path = [string]$Fixture.Assemblies[$tfm]
+            if (Test-Path -LiteralPath $path -PathType Leaf) { $path }
+        }
+    )
+    return [ordered]@{
+        python_path_resolved = [bool]$pythonPathResolved
+        venv_path_resolved = [bool]$venvPathResolved
+        active_assembly_paths = $activeAssemblies
+        startup_authority_available = ([bool]$pythonPathResolved -or $activeAssemblies.Count -ne 0)
+    }
+}
+
+function Assert-TestRespawnAttemptBlocked {
+    param([Parameter(Mandatory = $true)][object]$Attempt, [Parameter(Mandatory = $true)][string]$Label)
+    Assert-False ([bool]$Attempt.startup_authority_available) "$Label resolved an original startup authority."
+    Assert-False ([bool]$Attempt.python_path_resolved) "$Label resolved the original Python path."
+    Assert-False ([bool]$Attempt.venv_path_resolved) "$Label resolved the original venv path."
+    Assert-Equal @($Attempt.active_assembly_paths).Count 0 "$Label found an original Rook.rhp path."
+}
+
+function Test-OuterValidatorExitAfterRealDurableHold {
+    param([string]$Root)
+
+    $fixture = New-TestDurableHoldFixture -Root $Root -Name 'outer-validator-exit'
+    $controlAttempt = Invoke-TestStartupRespawnAttempt -Fixture $fixture
+    Assert-True ([bool]$controlAttempt.startup_authority_available) 'Outer-validator pre-hold control did not resolve a startup authority.'
+    Assert-True ([bool]$controlAttempt.python_path_resolved) 'Outer-validator pre-hold control did not resolve the Python marker.'
+    Assert-True ([bool]$controlAttempt.venv_path_resolved) 'Outer-validator pre-hold control did not resolve the venv.'
+    Assert-Equal @($controlAttempt.active_assembly_paths).Count 3 'Outer-validator pre-hold control did not resolve every RHP authority.'
+
+    $artifact = New-TestDirectory $fixture.Root 'artifact'
+    $identityPath = Join-Path $artifact 'containment-candidate.json'
+    $identitySidecar = Join-Path $artifact 'containment-candidate.sha256'
+    $installerPath = Join-Path $artifact 'candidate-installer.exe'
+    $preflightPath = Join-Path $artifact 'rook_process_preflight.ps1'
+    $rhinoPath = Join-Path $fixture.Root 'fake-rhino.exe'
+    foreach ($entry in @(
+        [ordered]@{path=$identityPath;text='identity-marker'},
+        [ordered]@{path=$identitySidecar;text='identity-sidecar-marker'},
+        [ordered]@{path=$installerPath;text='installer-marker'},
+        [ordered]@{path=$preflightPath;text='preflight-marker'},
+        [ordered]@{path=$rhinoPath;text='rhino-marker'}
+    )) { Write-TestAscii -Path $entry.path -Text $entry.text }
+
+    $rookRoot = New-TestDirectory $fixture.Root 'rook-source'
+    $chirpRoot = New-TestDirectory $fixture.Root 'chirp-source'
+    $installRoot = New-TestDirectory $fixture.Root 'installed-app'
+    $dataRoot = New-TestDirectory $fixture.Root 'installed-data'
+    $dspyCache = New-TestDirectory $dataRoot 'dspy-cache'
+    $privatePython = Join-Path $fixture.Venv 'Scripts\python.exe'
+    $candidate = [ordered]@{
+        artifact_directory=$artifact
+        identity_path=$identityPath;identity_sha256=('8'*64)
+        sidecar_path=$identitySidecar;sidecar_sha256=('9'*64)
+        installer_path=$installerPath;installer_sha256=(Get-TestSha256 $installerPath)
+        private_python_path=$privatePython;private_python_sha256=(Get-TestSha256 $privatePython)
+        record=[ordered]@{
+            private_python=[ordered]@{sha256=(Get-TestSha256 $privatePython)}
+            sources=[ordered]@{
+                rook=[ordered]@{sha=('a'*40);root=$rookRoot;stage_path=$rookRoot}
+                chirp=[ordered]@{sha=('b'*40);root=$chirpRoot;stage_path=$chirpRoot}
+            }
+        }
+    }
+    $installed = [ordered]@{
+        python_executable=$privatePython;python_sha256=(Get-TestSha256 $privatePython)
+        install_root=$installRoot;data_root=$dataRoot;dspy_cache=$dspyCache;chirp_home=$null
+        plugin_root=$fixture.Plugin;processes=@()
+    }
+    $state = [pscustomobject]@{
+        installer_callback_reached=$false
+        task7_reached=$false
+        live_reached=$false
+        failure_written=$false
+        failure_stage=$null
+        hold_record=$null
+        preflight_labels=(New-Object Collections.Generic.List[string])
+        respawn_attempts=(New-Object Collections.Generic.List[object])
+    }
+
+    $functionNames = @(
+        'Read-AndValidateCandidateIdentity','Get-CandidateArtifactSnapshot','Test-PythonStartupIsolation',
+        'Resolve-ContainmentOwnedRelativePath','Invoke-ContainmentProcessPreflight',
+        'New-ContainmentInstallerTripwire','Invoke-ContainmentCandidateInstallation',
+        'Assert-ContainmentInstalledRuntime','Invoke-ContainmentTask7Certification',
+        'Invoke-ContainmentLiveScenarios','Get-ContainmentDiagnosticProjection',
+        'Write-ContainmentFailureEvidence'
+    )
+    $savedFunctions = @{}
+    foreach ($name in $functionNames) {
+        $savedFunctions[$name] = (Get-Item -LiteralPath "Function:\$name").ScriptBlock
+    }
+    $savedEnvironment = [ordered]@{
+        LOCALAPPDATA=$env:LOCALAPPDATA
+        APPDATA=$env:APPDATA
+        USERPROFILE=$env:USERPROFILE
+    }
+    $evidenceParent = New-TestDirectory $fixture.Root 'evidence-parent'
+    $evidencePath = Join-Path $evidenceParent 'run'
+
+    try {
+        $env:LOCALAPPDATA = $fixture.Local
+        $env:APPDATA = $fixture.AppData
+        $env:USERPROFILE = $fixture.Home
+
+        Set-Item Function:\Read-AndValidateCandidateIdentity -Value ({
+            param($ArtifactDirectory,$CandidateIdentityPath,$CandidateSidecarPath,[switch]$ValidateSourceRepositories)
+            return $candidate
+        }.GetNewClosure())
+        Set-Item Function:\Get-CandidateArtifactSnapshot -Value ({
+            param($Candidate)
+            return [ordered]@{sha256=$Candidate.identity_sha256;installer_sha256=$Candidate.installer_sha256}
+        }.GetNewClosure())
+        Set-Item Function:\Test-PythonStartupIsolation -Value {
+            param($PythonPath,$EvidenceRoot,$InstallRoot,$DataRoot,$ExpectedVersion)
+            return [ordered]@{control_fired=$true;sanitized=$true}
+        }
+        Set-Item Function:\Resolve-ContainmentOwnedRelativePath -Value ({
+            param($Root,$RelativePath,$Kind,$Label)
+            return $preflightPath
+        }.GetNewClosure())
+        Set-Item Function:\Invoke-ContainmentProcessPreflight -Value ({
+            param($Mode,$PreflightScript,$RookRoot,$EvidenceDirectory,$Label)
+            $state.preflight_labels.Add([string]$Label)
+            if ($Label -ceq 'post-hold quiet resweep') {
+                $state.respawn_attempts.Add((Invoke-TestStartupRespawnAttempt -Fixture $fixture))
+            }
+            return [ordered]@{quiet=$true;sha256=('c'*64);records=@()}
+        }.GetNewClosure())
+        Set-Item Function:\New-ContainmentInstallerTripwire -Value {
+            param($PythonPath,$EvidenceDirectory)
+            return [ordered]@{path=(Join-Path $EvidenceDirectory 'tripwire-marker')}
+        }
+        Set-Item Function:\Invoke-ContainmentCandidateInstallation -Value ({
+            param($Candidate,$Tripwire,$DiagnosticDirectory,$StartedUtc,$OnInstallerStarted)
+            & $OnInstallerStarted 4242
+            $state.installer_callback_reached = $true
+            return [ordered]@{external_hits_absent=$true;installer_process_id=4242}
+        }.GetNewClosure())
+        Set-Item Function:\Assert-ContainmentInstalledRuntime -Value ({
+            param($Candidate,$LocalAppDataRoot,$AppDataRoot,$InstallStartedUtc,$DiagnosticDirectory)
+            return $installed
+        }.GetNewClosure())
+        Set-Item Function:\Invoke-ContainmentTask7Certification -Value ({
+            param($EvidenceDirectory,$InstalledPython,$InstallRoot,$DataRoot,$DspyCache,$ChirpHome,$ForbiddenSourceRoots)
+            $state.task7_reached = $true
+            throw 'injected outer-validator post-installer failure'
+        }.GetNewClosure())
+        Set-Item Function:\Invoke-ContainmentLiveScenarios -Value ({
+            param($EvidenceDirectory,$InstalledPython,$InstallRoot,$DataRoot,$DspyCache,$ChirpHome,$RhinoExe)
+            $state.live_reached = $true
+            throw 'outer-validator live boundary must not run'
+        }.GetNewClosure())
+        Set-Item Function:\Get-ContainmentDiagnosticProjection -Value {
+            param($EvidenceDirectory)
+            return @()
+        }
+        Set-Item Function:\Write-ContainmentFailureEvidence -Value ({
+            param($EvidenceDirectory,$RunId,$StartedUtc,$FailureStage,$Message,[switch]$InstallerStarted,$DurableHold,$Diagnostics)
+            $state.failure_written = $true
+            $state.failure_stage = [string]$FailureStage
+            $state.hold_record = $DurableHold
+            return [ordered]@{success=$false;failure_stage=$FailureStage}
+        }.GetNewClosure())
+
+        $ArtifactDirectory = $artifact
+        $CandidateIdentityPath = $identityPath
+        $CandidateSidecarPath = $identitySidecar
+        $EvidenceDirectory = $evidencePath
+        $RhinoExe = $rhinoPath
+        $VerifyEvidenceOnly = $false
+        $validatorFailure = $null
+        try { [void](Invoke-ContainmentCandidateValidator) }
+        catch { $validatorFailure = $_ }
+        $state.respawn_attempts.Add((Invoke-TestStartupRespawnAttempt -Fixture $fixture))
+
+        Assert-True ($null -ne $validatorFailure) 'Outer-validator forced post-installer failure unexpectedly succeeded.'
+        Assert-Contains ([string]$validatorFailure.Exception.Message) 'injected outer-validator post-installer failure' 'Outer-validator lost the forced post-installer failure.'
+        Assert-True $state.installer_callback_reached 'Outer-validator installation mock did not invoke the installer-started callback.'
+        Assert-True $state.task7_reached 'Outer-validator did not reach the forced Task 7 failure.'
+        Assert-False $state.live_reached 'Outer-validator reached the live boundary after the forced Task 7 failure.'
+        Assert-True $state.failure_written 'Outer-validator did not persist fake failure evidence after the real durable hold.'
+        Assert-Equal ([string]$state.failure_stage) 'installed-containment-certification' 'Outer-validator recorded the wrong failure stage.'
+        Assert-True ($null -ne $state.hold_record -and [bool]$state.hold_record.success) 'Outer-validator failure evidence did not retain a successful real durable hold.'
+        Assert-True (Test-Path -LiteralPath ([string]$state.hold_record.receipt_path) -PathType Leaf) 'Outer-validator real hold receipt is missing.'
+        Assert-True (Test-Path -LiteralPath ([string]$state.hold_record.receipt_sidecar_path) -PathType Leaf) 'Outer-validator real hold sidecar is missing.'
+        Assert-Equal $state.respawn_attempts.Count 2 'Top-level validator exit epoch was not observed.'
+        Assert-TestRespawnAttemptBlocked -Attempt $state.respawn_attempts[0] -Label 'Post-hold resweep epoch'
+        Assert-TestRespawnAttemptBlocked -Attempt $state.respawn_attempts[1] -Label 'Post-validator-exit epoch'
+        Assert-False (Test-Path -LiteralPath $fixture.Venv) 'Outer-validator real hold left the original venv active.'
+        foreach ($tfm in @('net8.0','net7.0','net48')) {
+            Assert-False (Test-Path -LiteralPath ([string]$fixture.Assemblies[$tfm])) "Outer-validator real hold left the original $tfm RHP active."
+        }
+    }
+    finally {
+        foreach ($name in $functionNames) {
+            Set-Item -LiteralPath "Function:\$name" -Value $savedFunctions[$name]
+        }
+        $env:LOCALAPPDATA = $savedEnvironment.LOCALAPPDATA
+        $env:APPDATA = $savedEnvironment.APPDATA
+        $env:USERPROFILE = $savedEnvironment.USERPROFILE
+    }
+}
+
+function Test-DurableHoldAttemptsAllActionsAfterInvalidPreconditions {
+    param([string]$Root)
+
+    $fixture = New-TestDurableHoldFixture -Root $Root -Name 'invalid-preconditions'
+    $attempts = New-Object Collections.Generic.List[object]
+    $postDisable = {
+        $attempts.Add((Invoke-TestStartupRespawnAttempt -Fixture $fixture))
+        return [ordered]@{quiet=$true;sha256=('1'*64)}
+    }.GetNewClosure()
+    $caught = $null
+    try {
+        [void](Enter-ContainmentDurableHold `
+            -CandidateIdentitySha256 ('2'*64) -RunId ('3'*32) `
+            -LocalAppDataRoot $fixture.Local -AppDataRoot $fixture.AppData -HomeRoot $fixture.Home `
+            -StartupProjection $null -FinalQuietResweep ([ordered]@{quiet=$false}) `
+            -FinalQuietResweepAction $postDisable)
+    }
+    catch { $caught = $_ }
+    Assert-True ($null -ne $caught) 'Invalid pre-hold evidence unexpectedly produced a successful receipt.'
+    Assert-Equal $attempts.Count 1 'A pre-hold inspection/resweep failure skipped the post-disable resweep action.'
+    Assert-TestRespawnAttemptBlocked -Attempt $attempts[0] -Label 'Post-disable respawn attempt'
+}
+
+function Test-DurableHoldBindsAndRechecksCurrentStartupProjection {
+    param([string]$Root)
+
+    $fixture = New-TestDurableHoldFixture -Root $Root -Name 'current-projection' -AbsentTfms @('net48')
+    $controlAttempt = Invoke-TestStartupRespawnAttempt -Fixture $fixture
+    Assert-True ([bool]$controlAttempt.startup_authority_available) 'Pre-hold respawn control did not resolve a canonical startup authority.'
+    Assert-True ([bool]$controlAttempt.python_path_resolved) 'Pre-hold respawn control did not resolve the canonical Python path.'
+    Assert-True ([bool]$controlAttempt.venv_path_resolved) 'Pre-hold respawn control did not resolve the canonical venv path.'
+    Assert-Equal @($controlAttempt.active_assembly_paths).Count 2 'Pre-hold respawn control did not see the source-present RHP paths.'
+    $respawnAttempts = New-Object Collections.Generic.List[object]
+    $postDisable = {
+        $respawnAttempts.Add((Invoke-TestStartupRespawnAttempt -Fixture $fixture))
+        return [ordered]@{quiet=$true;sha256=('4'*64)}
+    }.GetNewClosure()
+    $hold = Enter-ContainmentDurableHold `
+        -CandidateIdentitySha256 ('5'*64) -RunId ('6'*32) `
+        -LocalAppDataRoot $fixture.Local -AppDataRoot $fixture.AppData -HomeRoot $fixture.Home `
+        -StartupProjection $fixture.Projection -FinalQuietResweep ([ordered]@{quiet=$true;sha256=('7'*64)}) `
+        -FinalQuietResweepAction $postDisable
+    $respawnAttempts.Add((Invoke-TestStartupRespawnAttempt -Fixture $fixture))
+    Assert-Equal $respawnAttempts.Count 2 'Durable respawn coverage did not run after the post-disable resweep and after Enter returned.'
+    Assert-TestRespawnAttemptBlocked -Attempt $respawnAttempts[0] -Label 'Post-disable-resweep respawn attempt'
+    Assert-TestRespawnAttemptBlocked -Attempt $respawnAttempts[1] -Label 'Post-Enter-return respawn attempt'
+
+    $receipt = Read-ContainmentCanonicalJsonFile -Path $hold.receipt_path -Label 'test durable hold receipt'
+    $authorityProperty = $receipt.startup_projection.PSObject.Properties['authority_paths']
+    Assert-True ($null -ne $authorityProperty) 'Receipt did not bind the current post-hold authority projection.'
+    Assert-Equal @($receipt.startup_projection.authority_paths).Count 4 'Receipt did not bind all four canonical post-hold authority paths.'
+    foreach ($pathState in @($receipt.startup_projection.authority_paths)) {
+        Assert-False ([bool]$pathState.present) "Receipt retained an active post-hold authority path: $($pathState.path)"
+    }
+    [void](Test-ContainmentDurableHold -ReceiptPath $hold.receipt_path -SidecarPath $hold.receipt_sidecar_path)
+}
+
+function Test-DurableHoldVerifierRejectsStartupConfigurationDrift {
+    param([string]$Root)
+
+    $fixture = New-TestDurableHoldFixture -Root $Root -Name 'configuration-drift'
+    $hold = Enter-ContainmentDurableHold `
+        -CandidateIdentitySha256 ('d'*64) -RunId ('e'*32) `
+        -LocalAppDataRoot $fixture.Local -AppDataRoot $fixture.AppData -HomeRoot $fixture.Home `
+        -StartupProjection $fixture.Projection -FinalQuietResweep ([ordered]@{quiet=$true}) `
+        -FinalQuietResweepAction { [ordered]@{quiet=$true} }
+    $alternate = [ordered]@{mcpServers=[ordered]@{rook=[ordered]@{command=(Join-Path $fixture.Root 'alternate-python.exe');args=@('-m','rook')}}}
+    Write-TestUtf8NoBom $fixture.ClaudePath (ConvertTo-TestCanonicalJson $alternate)
+    Assert-ThrowsLike {
+        Test-ContainmentDurableHold -ReceiptPath $hold.receipt_path -SidecarPath $hold.receipt_sidecar_path
+    } 'startup|alternate|drift' 'Idempotent verification accepted alternate executable authority.'
+}
+
+function Test-DurableHoldVerifierRejectsRecreatedWrongTypeAuthority {
+    param([string]$Root)
+
+    $fixture = New-TestDurableHoldFixture -Root $Root -Name 'wrong-type-authority' -AbsentTfms @('net48')
+    $hold = Enter-ContainmentDurableHold `
+        -CandidateIdentitySha256 ('f'*64) -RunId ('0'*32) `
+        -LocalAppDataRoot $fixture.Local -AppDataRoot $fixture.AppData -HomeRoot $fixture.Home `
+        -StartupProjection $fixture.Projection -FinalQuietResweep ([ordered]@{quiet=$true}) `
+        -FinalQuietResweepAction { [ordered]@{quiet=$true} }
+    [IO.Directory]::CreateDirectory([string]$fixture.Assemblies['net48']) | Out-Null
+    Assert-ThrowsLike {
+        Test-ContainmentDurableHold -ReceiptPath $hold.receipt_path -SidecarPath $hold.receipt_sidecar_path
+    } 'startup|authority|path|type|drift' 'Idempotent verification accepted a recreated absent-source RHP with the wrong object type.'
+}
+
+function Test-DurableHoldVerifierRejectsRegistryDrift {
+    param([string]$Root)
+
+    $fixture = New-TestDurableHoldFixture -Root $Root -Name 'registry-drift'
+    $hold = Enter-ContainmentDurableHold `
+        -CandidateIdentitySha256 ('1'*64) -RunId ('2'*32) `
+        -LocalAppDataRoot $fixture.Local -AppDataRoot $fixture.AppData -HomeRoot $fixture.Home `
+        -StartupProjection $fixture.Projection -FinalQuietResweep ([ordered]@{quiet=$true}) `
+        -FinalQuietResweepAction { [ordered]@{quiet=$true} }
+    $savedRegistryReader = (Get-Item -LiteralPath Function:\Get-ContainmentCompanionRegistryFileName).ScriptBlock
+    try {
+        Set-Item Function:\Get-ContainmentCompanionRegistryFileName -Value ({ param($AppDataRoot); return (Join-Path $fixture.Root 'alternate\Rook.rhp') }.GetNewClosure())
+        Assert-ThrowsLike {
+            Test-ContainmentDurableHold -ReceiptPath $hold.receipt_path -SidecarPath $hold.receipt_sidecar_path
+        } 'startup|alternate|registry|drift' 'Idempotent verification accepted companion registry drift.'
+    }
+    finally { Set-Item Function:\Get-ContainmentCompanionRegistryFileName -Value $savedRegistryReader }
+}
+
+function Test-DurableHoldClaimsLeafExclusively {
+    param([string]$Root)
+
+    $fixture = New-TestDurableHoldFixture -Root $Root -Name 'exclusive-leaf'
+    $identity = '7' * 64
+    $run = '8' * 32
+    $raceLeaf = [IO.Path]::GetFullPath((Join-Path $fixture.Runtime "containment-hold\$identity\$run"))
+    $sentinel = Join-Path $raceLeaf 'foreign-sentinel.txt'
+    $raceState = [pscustomobject]@{called=$false}
+    $savedCreateNew = (Get-Item -LiteralPath Function:\New-ContainmentDirectoryCreateNew).ScriptBlock
+    $caught = $null
+    try {
+        Set-Item Function:\New-ContainmentDirectoryCreateNew -Value ({
+            param($Path)
+            if ([string]::Equals([IO.Path]::GetFullPath($Path),$raceLeaf,[StringComparison]::OrdinalIgnoreCase)) {
+                $raceState.called=$true
+                [IO.Directory]::CreateDirectory($raceLeaf) | Out-Null
+                Write-TestAscii $sentinel 'foreign-leaf'
+                return $false
+            }
+            return (& $savedCreateNew -Path $Path)
+        }.GetNewClosure())
+        try {
+            [void](Enter-ContainmentDurableHold `
+                -CandidateIdentitySha256 $identity -RunId $run `
+                -LocalAppDataRoot $fixture.Local -AppDataRoot $fixture.AppData -HomeRoot $fixture.Home `
+                -StartupProjection $fixture.Projection -FinalQuietResweep ([ordered]@{quiet=$true}) `
+                -FinalQuietResweepAction { [ordered]@{quiet=$true} })
+        }
+        catch { $caught = $_ }
+    }
+    finally { Set-Item Function:\New-ContainmentDirectoryCreateNew -Value $savedCreateNew }
+    Assert-True $raceState.called 'Durable hold did not use the exclusive native leaf claim.'
+    Assert-True ($null -ne $caught) 'A raced foreign hold leaf was accepted.'
+    Assert-Equal ([IO.File]::ReadAllText($sentinel)) 'foreign-leaf' 'Foreign raced leaf content was changed or removed.'
+    Assert-True (Test-Path -LiteralPath $fixture.Venv -PathType Container) 'Leaf collision moved the original venv.'
+    foreach ($tfm in @('net8.0','net7.0','net48')) {
+        Assert-True (Test-Path -LiteralPath ([string]$fixture.Assemblies[$tfm]) -PathType Leaf) "Leaf collision moved the original $tfm RHP."
+    }
+}
+
+function Test-DurableHoldRecordsDestinationCollisionAndAttemptsOtherActions {
+    param([string]$Root)
+
+    $fixture = New-TestDurableHoldFixture -Root $Root -Name 'destination-collision-actions'
+    $identity = '9' * 64
+    $run = 'a' * 32
+    $held = ([string]$fixture.Assemblies['net7.0']) + ".contained.$identity.$run"
+    Write-TestAscii $held 'foreign-held-destination'
+    $postDisableState = [pscustomobject]@{Count=0}
+    $postDisable = {
+        $postDisableState.Count++
+        return [ordered]@{quiet=$true;sha256=('8'*64)}
+    }.GetNewClosure()
+    $caught = $null
+    try {
+        [void](Enter-ContainmentDurableHold `
+            -CandidateIdentitySha256 $identity -RunId $run `
+            -LocalAppDataRoot $fixture.Local -AppDataRoot $fixture.AppData -HomeRoot $fixture.Home `
+            -StartupProjection $fixture.Projection -FinalQuietResweep ([ordered]@{quiet=$true}) `
+            -FinalQuietResweepAction $postDisable)
+    }
+    catch { $caught = $_ }
+    Assert-True ($null -ne $caught) 'Held-destination collision was accepted.'
+    Assert-Contains ([string]$caught.Exception.Message) 'destination' 'Held-destination collision failed for the wrong reason.'
+    Assert-Equal ([IO.File]::ReadAllText($held)) 'foreign-held-destination' 'Foreign held destination was changed or removed.'
+    Assert-False (Test-Path -LiteralPath $fixture.Venv) 'Held-destination collision skipped the venv action.'
+    $holdRoot = Join-Path $fixture.Runtime "containment-hold\$identity\$run"
+    Assert-True (Test-Path -LiteralPath (Join-Path $holdRoot 'venv') -PathType Container) 'Held-destination collision did not retain the moved venv.'
+    foreach ($tfm in @('net8.0','net48')) {
+        $original = [string]$fixture.Assemblies[$tfm]
+        $unaffectedHeld = "$original.contained.$identity.$run"
+        Assert-False (Test-Path -LiteralPath $original) "Held-destination collision skipped the unaffected $tfm action."
+        Assert-True (Test-Path -LiteralPath $unaffectedHeld -PathType Leaf) "Held-destination collision did not retain the moved $tfm RHP."
+    }
+    Assert-True (Test-Path -LiteralPath ([string]$fixture.Assemblies['net7.0']) -PathType Leaf) 'Held-destination collision changed or removed the colliding source.'
+    Assert-Equal $postDisableState.Count 1 'Held-destination collision skipped the post-disable resweep action.'
+}
+
+function Test-DurableHoldVerifierRejectsAbsentSourceDestination {
+    param([string]$Root)
+
+    $fixture = New-TestDurableHoldFixture -Root $Root -Name 'absent-source-verifier' -AbsentTfms @('net7.0')
+    $identity = 'b' * 64
+    $run = 'c' * 32
+    $hold = Enter-ContainmentDurableHold `
+        -CandidateIdentitySha256 $identity -RunId $run `
+        -LocalAppDataRoot $fixture.Local -AppDataRoot $fixture.AppData -HomeRoot $fixture.Home `
+        -StartupProjection $fixture.Projection -FinalQuietResweep ([ordered]@{quiet=$true}) `
+        -FinalQuietResweepAction { [ordered]@{quiet=$true} }
+    $held = ([string]$fixture.Assemblies['net7.0']) + ".contained.$identity.$run"
+    Write-TestAscii $held 'late-foreign-held-destination'
+    Assert-ThrowsLike {
+        Test-ContainmentDurableHold -ReceiptPath $hold.receipt_path -SidecarPath $hold.receipt_sidecar_path
+    } 'assembly|destination|path|drift' 'Idempotent verification accepted an absent-source held destination.'
+    Assert-Equal ([IO.File]::ReadAllText($held)) 'late-foreign-held-destination' 'Verifier changed or removed a foreign absent-source destination.'
 }
 
 function Test-AcceptanceFailureAndReadOnlyVerification {
@@ -2245,7 +2737,8 @@ function Invoke-FakeNormalModeCase {
             'success','failed-preflight','failed-preflight-cleanup-nonquiet','failed-install','wrong-installed-origin',
             'task7-discovery-leak','task7-denial-mismatch','task7-telemetry-mismatch','task7-child-replacement',
             'live-target-state-drift','live-failure','live-uncertain-ownership','live-unverified-restoration','live-cleanup-failure',
-            'cleanup-failure','hold-receipt-failure','post-run-drift','acceptance-self-check','acceptance-self-check-replacement'
+            'cleanup-failure','hold-receipt-failure','emergency-close-failure','emergency-resweep-failure',
+            'emergency-startup-inspection-failure','post-run-drift','acceptance-self-check','acceptance-self-check-replacement'
         )][string]$Fault
     )
 
@@ -2296,7 +2789,8 @@ function Invoke-FakeNormalModeCase {
         preflight_labels=(New-Object Collections.Generic.List[string])
         task7_reached=$false;live_reached=$false;acceptance_written=$false
         failure_written=$false;failure_stage=$null;hold_attempted=$false;hold_record=$null
-        final_cleanup_fault_fired=$false;acceptance_pair=$null
+        final_cleanup_fault_fired=$false;acceptance_pair=$null;startup_projection_calls=0
+        hold_pre_errors=@()
     }
     $savedFunctions = @{}
     $functionNames = @(
@@ -2340,6 +2834,10 @@ function Invoke-FakeNormalModeCase {
         Set-Item Function:\Get-ContainmentCompanionRegistryFileName -Value ({ param($AppDataRoot); return (Join-Path $pluginRoot 'net8.0\Rook.rhp') }.GetNewClosure())
         Set-Item Function:\Get-ContainmentStartupSurfaceProjection -Value ({
             param($LocalAppDataRoot,$AppDataRoot,$HomeRoot,$RegistryFileName)
+            $state.startup_projection_calls++
+            if ($state.fault -eq 'emergency-startup-inspection-failure' -and $state.startup_projection_calls -ge 3) {
+                throw 'injected emergency startup inspection failure'
+            }
             return [ordered]@{plugin_root=$pluginRoot;valid=$true;records=@()}
         }.GetNewClosure())
         Set-Item Function:\Assert-ContainmentStartupProjection -Value ({ param($Projection,$ExpectedVenvPath,$ExpectedPluginRoot); return $true }.GetNewClosure())
@@ -2350,6 +2848,12 @@ function Invoke-FakeNormalModeCase {
             if ($state.fault -eq 'cleanup-failure' -and $Label -ceq 'final close' -and -not $state.final_cleanup_fault_fired) {
                 $state.final_cleanup_fault_fired=$true
                 throw 'injected cleanup failure after green checks'
+            }
+            if ($state.fault -eq 'emergency-close-failure' -and $Label -ceq 'emergency close') {
+                throw 'injected emergency close failure'
+            }
+            if ($state.fault -eq 'emergency-resweep-failure' -and $Label -ceq 'emergency quiet resweep') {
+                throw 'injected emergency quiet resweep failure'
             }
             if ($state.fault -in @('failed-preflight','failed-preflight-cleanup-nonquiet') -and $Label -ceq 'preinstall quiet resweep') {
                 return [ordered]@{quiet=$false;records=@([ordered]@{process_id=99})}
@@ -2384,6 +2888,9 @@ function Invoke-FakeNormalModeCase {
             }
             if ($messages.ContainsKey($state.fault)) { throw $messages[$state.fault] }
             if ($state.fault -eq 'hold-receipt-failure') { throw 'injected primary failure before hold receipt verification' }
+            if ($state.fault -in @('emergency-close-failure','emergency-resweep-failure','emergency-startup-inspection-failure')) {
+                throw 'injected post-installer failure before emergency action wave'
+            }
             return [ordered]@{discovery=[ordered]@{valid=$true};transport_records=@();internal_records=@()}
         }.GetNewClosure())
         Set-Item Function:\Invoke-ContainmentLiveScenarios -Value ({
@@ -2439,8 +2946,13 @@ function Invoke-FakeNormalModeCase {
             return [pscustomobject]@{Path=$Path;SidecarPath=$SidecarPath;Sha256=('a'*64);SidecarSha256=('b'*64)}
         }.GetNewClosure())
         Set-Item Function:\Enter-ContainmentDurableHold -Value ({
-            param($CandidateIdentitySha256,$RunId,$LocalAppDataRoot,$AppDataRoot,$HomeRoot,$StartupProjection,$FinalQuietResweep,$FinalQuietResweepAction)
+            param($CandidateIdentitySha256,$RunId,$LocalAppDataRoot,$AppDataRoot,$HomeRoot,$StartupProjection,$FinalQuietResweep,$FinalQuietResweepAction,$PreHoldErrors)
             $state.hold_attempted=$true
+            $state.hold_pre_errors=@($PreHoldErrors)
+            if ($state.fault -in @('emergency-close-failure','emergency-resweep-failure','emergency-startup-inspection-failure')) {
+                if ($null -ne $FinalQuietResweepAction) { [void](& $FinalQuietResweepAction) }
+                throw 'injected incomplete durable hold after earlier emergency failure'
+            }
             if ($state.fault -eq 'hold-receipt-failure') {
                 $exception = [InvalidOperationException]::new('injected durable hold receipt failure')
                 $holdPath = Join-Path $LocalAppDataRoot "Rook\containment-hold\$CandidateIdentitySha256\$RunId"
@@ -2510,6 +3022,9 @@ function Invoke-FakeNormalModeCase {
                 'live-cleanup-failure' { [ordered]@{message='injected live cleanup failure';stage='emergency-quiescence';task7=$true;live=$true;installer=$true} }
                 'cleanup-failure' { [ordered]@{message='injected cleanup failure after green checks';stage='emergency-quiescence';task7=$true;live=$true;installer=$true} }
                 'hold-receipt-failure' { [ordered]@{message='injected primary failure before hold receipt verification';stage='emergency-quiescence';task7=$true;live=$false;installer=$true} }
+                'emergency-close-failure' { [ordered]@{message='injected post-installer failure before emergency action wave';stage='emergency-quiescence';task7=$true;live=$false;installer=$true} }
+                'emergency-resweep-failure' { [ordered]@{message='injected post-installer failure before emergency action wave';stage='emergency-quiescence';task7=$true;live=$false;installer=$true} }
+                'emergency-startup-inspection-failure' { [ordered]@{message='injected post-installer failure before emergency action wave';stage='emergency-quiescence';task7=$true;live=$false;installer=$true} }
                 'post-run-drift' { [ordered]@{message='candidate artifact drifted during installed/live acceptance';stage='post-run-candidate-rehash';task7=$true;live=$true;installer=$true} }
                 'acceptance-self-check' { [ordered]@{message='injected acceptance self-check failure';stage='acceptance-write';task7=$true;live=$true;installer=$true} }
                 'acceptance-self-check-replacement' { [ordered]@{message='injected acceptance self-check failure';stage='acceptance-write';task7=$true;live=$true;installer=$true} }
@@ -2528,6 +3043,13 @@ function Invoke-FakeNormalModeCase {
             Assert-Equal ([bool]$state.installer_started) ([bool]$expectation.installer) "Fake normal-mode fault $Fault installer reachability drifted."
             $expectedHold = [bool]$expectation.installer
             Assert-Equal $state.hold_attempted $expectedHold "Fake normal-mode fault $Fault durable-hold dispatch drifted."
+            if ($Fault -in @('emergency-close-failure','emergency-resweep-failure','emergency-startup-inspection-failure')) {
+                foreach ($label in @('emergency close','emergency quiet resweep','post-hold quiet resweep')) {
+                    Assert-True (@($state.preflight_labels) -ccontains $label) "Fake normal-mode fault $Fault skipped $label."
+                }
+                Assert-True ($state.startup_projection_calls -ge 3) "Fake normal-mode fault $Fault skipped emergency startup re-inventory."
+                Assert-True (@($state.hold_pre_errors).Count -ge 1) "Fake normal-mode fault $Fault did not carry earlier emergency failures into hold verification."
+            }
             if ($Fault -eq 'hold-receipt-failure') {
                 Assert-False ([bool]$state.hold_record.success) 'Hold receipt failure was recorded as a successful hold.'
                 Assert-True ([IO.Path]::IsPathRooted([string]$state.hold_record.path)) 'Hold receipt failure lost its deterministic partial hold path.'
@@ -2606,9 +3128,21 @@ try {
     Invoke-Test 'candidate identity, sidecar, installer, source, snapshot, and evidence path guards' { Test-CandidateIdentityAndEvidencePathGuards -Root (New-TestDirectory $runRoot 'candidate') }
     Invoke-Test 'Task 7 transport, discovery, and internal evidence validators' { Test-Task7ArtifactValidators -Root (New-TestDirectory $runRoot 'task7') }
     Invoke-Test 'canonical JSONL authorization and scenario evidence validation' { Test-AuthorizationProtocolAndScenarioValidation -Root (New-TestDirectory $runRoot 'gate') }
-    Invoke-Test 'startup-surface projection and durable containment hold' { Test-StartupSurfaceAndDurableHold -Root (New-TestDirectory $runRoot 'hold') }
+    Invoke-Test 'startup-surface projection and durable containment hold' { Invoke-TestWithSyntheticCompanionRegistry { Test-StartupSurfaceAndDurableHold -Root (New-TestDirectory $runRoot 'hold') } }
+    Invoke-Test 'durable hold attempts every action after invalid preconditions' { Invoke-TestWithSyntheticCompanionRegistry { Test-DurableHoldAttemptsAllActionsAfterInvalidPreconditions -Root (New-TestDirectory $runRoot 'hold-invalid-preconditions') } }
+    Invoke-Test 'durable hold binds and rechecks current startup projection and respawn attempts' { Invoke-TestWithSyntheticCompanionRegistry { Test-DurableHoldBindsAndRechecksCurrentStartupProjection -Root (New-TestDirectory $runRoot 'hold-current-projection') } }
+    Invoke-Test 'outer validator exit retains the real durable hold across respawn epochs' { Invoke-TestWithSyntheticCompanionRegistry { Test-OuterValidatorExitAfterRealDurableHold -Root (New-TestDirectory $runRoot 'hold-outer-validator-exit') } }
+    Invoke-Test 'durable hold verifier rejects startup configuration drift' { Invoke-TestWithSyntheticCompanionRegistry { Test-DurableHoldVerifierRejectsStartupConfigurationDrift -Root (New-TestDirectory $runRoot 'hold-configuration-drift') } }
+    Invoke-Test 'durable hold verifier rejects recreated wrong-type authority' { Invoke-TestWithSyntheticCompanionRegistry { Test-DurableHoldVerifierRejectsRecreatedWrongTypeAuthority -Root (New-TestDirectory $runRoot 'hold-wrong-type') } }
+    Invoke-Test 'durable hold verifier rejects registry drift' { Invoke-TestWithSyntheticCompanionRegistry { Test-DurableHoldVerifierRejectsRegistryDrift -Root (New-TestDirectory $runRoot 'hold-registry-drift') } }
+    Invoke-Test 'durable hold claims its run leaf exclusively' { Invoke-TestWithSyntheticCompanionRegistry { Test-DurableHoldClaimsLeafExclusively -Root (New-TestDirectory $runRoot 'hold-exclusive-leaf') } }
+    Invoke-Test 'durable hold records a destination collision and attempts other actions' { Invoke-TestWithSyntheticCompanionRegistry { Test-DurableHoldRecordsDestinationCollisionAndAttemptsOtherActions -Root (New-TestDirectory $runRoot 'hold-destination-collision-actions') } }
+    Invoke-Test 'durable hold verifier rejects absent-source destinations' { Invoke-TestWithSyntheticCompanionRegistry { Test-DurableHoldVerifierRejectsAbsentSourceDestination -Root (New-TestDirectory $runRoot 'hold-absent-verifier') } }
     Invoke-Test 'acceptance, failure, post-drift, and read-only evidence contracts' { Test-AcceptanceFailureAndReadOnlyVerification -Root (New-TestDirectory $runRoot 'evidence') }
     Invoke-Test 'fake normal-mode success and fail-closed orchestration matrix' { Test-FakeNormalModeOrchestrationMatrix -Root (New-TestDirectory $runRoot 'normal-mode') }
+    Invoke-Test 'emergency close failure still attempts the complete durable-hold wave' { [void](Invoke-FakeNormalModeCase -Root (New-TestDirectory $runRoot 'emergency-close-wave') -Fault 'emergency-close-failure') }
+    Invoke-Test 'emergency resweep failure still attempts the complete durable-hold wave' { [void](Invoke-FakeNormalModeCase -Root (New-TestDirectory $runRoot 'emergency-resweep-wave') -Fault 'emergency-resweep-failure') }
+    Invoke-Test 'emergency startup inspection failure still attempts the complete durable-hold wave' { [void](Invoke-FakeNormalModeCase -Root (New-TestDirectory $runRoot 'emergency-startup-wave') -Fault 'emergency-startup-inspection-failure') }
     Invoke-Test 'normally nonterminating error fail-fast and frozen installer wiring' { Test-FailFastStageAndFrozenWiring -Root (New-TestDirectory $runRoot 'fail-fast') }
     $started.Stop()
     Write-Host ("Task 10 validator tests passed: {0} tests in {1:N2}s." -f $script:TestsPassed,$started.Elapsed.TotalSeconds)
