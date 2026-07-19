@@ -1,0 +1,33 @@
+{
+  "schema": "rook.environment_snapshot:v1",
+  "artifact_id": "environment_snapshot",
+  "environment_session_id": "lm9b-c-r01-environment-session",
+  "payload_schema": "rook.lm9b_c.r01_environment_payload:v1",
+  "payload_schema_fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "payload": {
+    "document": {
+      "unit_context": {
+        "schema": "rook.semantic_unit_context:v1",
+        "model_unit": "millimeter",
+        "meters_per_model_unit": "0.001"
+      }
+    }
+  },
+  "value_bindings": [
+    {
+      "binding_id": "environment-value.document_unit_context",
+      "json_pointer": "/document/unit_context",
+      "semantic_key": "document_unit_context",
+      "value_schema": "rook.semantic_unit_context:v1",
+      "typed_value_fingerprint": "sha256:0909090909090909090909090909090909090909090909090909090909090909",
+      "authority_kind": "environment_observation"
+    }
+  ],
+  "observed_at": "2026-07-19T12:00:00Z",
+  "expires_at": "2026-07-20T12:00:00Z",
+  "issuer": {
+    "kind": "trusted_environment_gateway",
+    "authority_id": "lm9b-c-fixture-environment-gateway"
+  },
+  "artifact_fingerprint": "sha256:e1e1bd37bcd91bf66431f26e9898e3cfac57ec3f30d529a5b34d48ecb1660b1d"
+}

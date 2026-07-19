@@ -1,0 +1,328 @@
+{
+  "schema": "rook.planner_graph_recipe:v1",
+  "source_task": {
+    "artifact_id": "task_envelope",
+    "artifact_kind": "task_envelope",
+    "schema": "rook.planner_task_envelope:v1",
+    "fingerprint": "sha256:1d9d75417c6b434469f8bbcfee59d822c4944895c14dfc0bde17828dab4c7005"
+  },
+  "authority_artifacts": [
+    {
+      "artifact_id": "environment_snapshot",
+      "artifact_kind": "environment_snapshot",
+      "schema": "rook.environment_snapshot:v1",
+      "fingerprint": "sha256:e1e1bd37bcd91bf66431f26e9898e3cfac57ec3f30d529a5b34d48ecb1660b1d"
+    },
+    {
+      "artifact_id": "planning_policy",
+      "artifact_kind": "planning_policy",
+      "schema": "rook.planning_policy:v1",
+      "fingerprint": "sha256:09e95f9faf9a99e9d9f79a45caf9f089c2ad4fad613431ad4a3bd7fb7324bd9c"
+    }
+  ],
+  "goal": {
+    "clause_id": "goal.radial_box_field",
+    "statement": "Create a 10 by 10 field of boxes whose heights are lowest near the array center and rise with radial distance.",
+    "source_refs": [
+      {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/element_kind"},
+      {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/grid_count_x"},
+      {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/grid_count_y"},
+      {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/operation_kind"},
+      {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/radial_height_relationship"},
+      {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/target_scope"},
+      {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/task_scope"}
+    ],
+    "assumption_refs": [],
+    "derived_fact_refs": [],
+    "synthesis": null,
+    "projected_into": {
+      "maintains_clause_ids": ["maintained.radial_box_field"],
+      "invariant_clause_ids": [],
+      "unresolved_intent_ids": []
+    }
+  },
+  "requires": [
+    {
+      "clause_id": "required.document_unit_context",
+      "statement": "The document unit context used for dimensional assumptions is current and session-correct for this validation context.",
+      "source_refs": [
+        {"kind": "artifact_value", "artifact_id": "environment_snapshot", "json_pointer": "/document/unit_context"}
+      ],
+      "assumption_refs": [],
+      "derived_fact_refs": [],
+      "synthesis": null,
+      "supports_clause_ids": ["maintained.radial_box_field"],
+      "evidence_requirement": {
+        "semantic_key": "document_unit_context",
+        "value_schema": "rook.semantic_unit_context:v1",
+        "freshness_required": true,
+        "session_binding_required": true
+      }
+    }
+  ],
+  "maintains": [
+    {
+      "clause_id": "maintained.radial_box_field",
+      "statement": "The accepted result is a 10 by 10 field of 100 boxes on the authorized placement frame and spacing, with authorized footprints and positive heights between the authorized bounds; height follows the authorized profile and is lowest at the array center without decreasing as radial distance increases.",
+      "source_refs": [
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/element_kind"},
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/grid_count_x"},
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/grid_count_y"},
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/radial_height_relationship"}
+      ],
+      "derived_fact_refs": ["derived.element_count"],
+      "assumption_refs": [
+        "assumption.array_center_definition",
+        "assumption.box_footprint_x",
+        "assumption.box_footprint_y",
+        "assumption.grid_spacing",
+        "assumption.height_direction",
+        "assumption.height_profile",
+        "assumption.maximum_height",
+        "assumption.minimum_height",
+        "assumption.placement_frame"
+      ],
+      "synthesis": null,
+      "canonicalization": [
+        {
+          "clause_id": "canonicalization.box_collection_order",
+          "statement": "Collection order is immaterial when element identity, geometry, placement relationship, and radial height truth are unchanged.",
+          "applies_to_clause_ids": ["maintained.radial_box_field"],
+          "source_refs": [],
+          "assumption_refs": [],
+          "inherited_support_from": ["maintained.radial_box_field"],
+          "synthesis": {"kind": "planner_semantic_classification"}
+        }
+      ],
+      "postconditions": [
+        {
+          "clause_id": "postcondition.element_count",
+          "statement": "The verified result contains exactly the derived number of box elements.",
+          "source_refs": [
+            {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/grid_count_x"},
+            {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/grid_count_y"}
+          ],
+          "derived_fact_refs": ["derived.element_count"],
+          "assumption_refs": [],
+          "synthesis": null,
+          "inherited_support_from": ["maintained.radial_box_field"]
+        },
+        {
+          "clause_id": "postcondition.box_geometry",
+          "statement": "Every verified element is a box with the authorized X and Y footprint and a positive-Z height inside the authorized bounds.",
+          "source_refs": [
+            {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/element_kind"}
+          ],
+          "derived_fact_refs": [],
+          "assumption_refs": [
+            "assumption.box_footprint_x",
+            "assumption.box_footprint_y",
+            "assumption.height_direction",
+            "assumption.maximum_height",
+            "assumption.minimum_height"
+          ],
+          "synthesis": null,
+          "inherited_support_from": ["maintained.radial_box_field"]
+        },
+        {
+          "clause_id": "postcondition.array_layout",
+          "statement": "Verified box positions form the maintained 10 by 10 field on the authorized frame, spacing, and center definition.",
+          "source_refs": [],
+          "derived_fact_refs": [],
+          "assumption_refs": [
+            "assumption.array_center_definition",
+            "assumption.grid_spacing",
+            "assumption.placement_frame"
+          ],
+          "synthesis": null,
+          "inherited_support_from": ["maintained.radial_box_field"]
+        },
+        {
+          "clause_id": "postcondition.radial_height_order",
+          "statement": "Verified box heights follow the authorized profile and do not decrease as radial distance from the maintained array center increases.",
+          "source_refs": [
+            {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/radial_height_relationship"}
+          ],
+          "derived_fact_refs": [],
+          "assumption_refs": [
+            "assumption.array_center_definition",
+            "assumption.height_profile",
+            "assumption.maximum_height",
+            "assumption.minimum_height"
+          ],
+          "synthesis": null,
+          "inherited_support_from": ["maintained.radial_box_field"]
+        }
+      ]
+    }
+  ],
+  "assumptions": [
+    {
+      "assumption_id": "assumption.array_center_definition",
+      "semantic_key": "array_center_definition",
+      "statement": "Use the center of the full grid extents as the radial center.",
+      "typed_value": {"schema": "rook.semantic_string:v1", "value": "center_of_grid_extents", "unit": null, "unit_context_ref": null},
+      "affects": ["geometry_state"],
+      "basis_refs": [
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/operation_kind"},
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/target_scope"},
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/task_scope"}
+      ],
+      "authorization_refs": {"policy_refs": [{"kind": "policy_rule", "artifact_id": "planning_policy", "json_pointer": "/rules/rule.array_center_definition"}], "confirmation_ref": null}
+    },
+    {
+      "assumption_id": "assumption.box_footprint_x",
+      "semantic_key": "box_footprint_x",
+      "statement": "Use a box footprint width of 1 model unit.",
+      "typed_value": {"schema": "rook.semantic_scalar:v1", "value": "1", "unit": "model_unit", "unit_context_ref": {"kind": "artifact_value", "artifact_id": "environment_snapshot", "json_pointer": "/document/unit_context"}},
+      "affects": ["geometry_state"],
+      "basis_refs": [
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/operation_kind"},
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/target_scope"},
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/task_scope"}
+      ],
+      "authorization_refs": {"policy_refs": [{"kind": "policy_rule", "artifact_id": "planning_policy", "json_pointer": "/rules/rule.box_footprint_x"}], "confirmation_ref": null}
+    },
+    {
+      "assumption_id": "assumption.box_footprint_y",
+      "semantic_key": "box_footprint_y",
+      "statement": "Use a box footprint depth of 1 model unit.",
+      "typed_value": {"schema": "rook.semantic_scalar:v1", "value": "1", "unit": "model_unit", "unit_context_ref": {"kind": "artifact_value", "artifact_id": "environment_snapshot", "json_pointer": "/document/unit_context"}},
+      "affects": ["geometry_state"],
+      "basis_refs": [
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/operation_kind"},
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/target_scope"},
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/task_scope"}
+      ],
+      "authorization_refs": {"policy_refs": [{"kind": "policy_rule", "artifact_id": "planning_policy", "json_pointer": "/rules/rule.box_footprint_y"}], "confirmation_ref": null}
+    },
+    {
+      "assumption_id": "assumption.grid_spacing",
+      "semantic_key": "grid_spacing",
+      "statement": "Use uniform grid spacing of 2 model units.",
+      "typed_value": {"schema": "rook.semantic_scalar:v1", "value": "2", "unit": "model_unit", "unit_context_ref": {"kind": "artifact_value", "artifact_id": "environment_snapshot", "json_pointer": "/document/unit_context"}},
+      "affects": ["geometry_state"],
+      "basis_refs": [
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/operation_kind"},
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/target_scope"},
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/task_scope"}
+      ],
+      "authorization_refs": {"policy_refs": [{"kind": "policy_rule", "artifact_id": "planning_policy", "json_pointer": "/rules/rule.grid_spacing"}], "confirmation_ref": null}
+    },
+    {
+      "assumption_id": "assumption.height_direction",
+      "semantic_key": "height_direction",
+      "statement": "Measure box height in the positive Z direction of the placement frame.",
+      "typed_value": {"schema": "rook.semantic_string:v1", "value": "positive_z", "unit": null, "unit_context_ref": null},
+      "affects": ["geometry_state"],
+      "basis_refs": [
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/operation_kind"},
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/target_scope"},
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/task_scope"}
+      ],
+      "authorization_refs": {"policy_refs": [{"kind": "policy_rule", "artifact_id": "planning_policy", "json_pointer": "/rules/rule.height_direction"}], "confirmation_ref": null}
+    },
+    {
+      "assumption_id": "assumption.height_profile",
+      "semantic_key": "height_profile",
+      "statement": "Interpolate height linearly over normalized radial distance.",
+      "typed_value": {"schema": "rook.semantic_string:v1", "value": "linear_normalized_radial_distance", "unit": null, "unit_context_ref": null},
+      "affects": ["geometry_state", "verifier_predicate"],
+      "basis_refs": [
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/operation_kind"},
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/target_scope"},
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/task_scope"}
+      ],
+      "authorization_refs": {"policy_refs": [{"kind": "policy_rule", "artifact_id": "planning_policy", "json_pointer": "/rules/rule.height_profile"}], "confirmation_ref": null}
+    },
+    {
+      "assumption_id": "assumption.maximum_height",
+      "semantic_key": "maximum_height",
+      "statement": "Use a maximum box height of 10 model units.",
+      "typed_value": {"schema": "rook.semantic_scalar:v1", "value": "10", "unit": "model_unit", "unit_context_ref": {"kind": "artifact_value", "artifact_id": "environment_snapshot", "json_pointer": "/document/unit_context"}},
+      "affects": ["geometry_state", "verifier_threshold"],
+      "basis_refs": [
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/operation_kind"},
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/target_scope"},
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/task_scope"}
+      ],
+      "authorization_refs": {"policy_refs": [{"kind": "policy_rule", "artifact_id": "planning_policy", "json_pointer": "/rules/rule.maximum_height"}], "confirmation_ref": null}
+    },
+    {
+      "assumption_id": "assumption.minimum_height",
+      "semantic_key": "minimum_height",
+      "statement": "Use a minimum box height of 1 model unit.",
+      "typed_value": {"schema": "rook.semantic_scalar:v1", "value": "1", "unit": "model_unit", "unit_context_ref": {"kind": "artifact_value", "artifact_id": "environment_snapshot", "json_pointer": "/document/unit_context"}},
+      "affects": ["geometry_state", "verifier_threshold"],
+      "basis_refs": [
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/operation_kind"},
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/target_scope"},
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/task_scope"}
+      ],
+      "authorization_refs": {"policy_refs": [{"kind": "policy_rule", "artifact_id": "planning_policy", "json_pointer": "/rules/rule.minimum_height"}], "confirmation_ref": null}
+    },
+    {
+      "assumption_id": "assumption.placement_frame",
+      "semantic_key": "placement_frame",
+      "statement": "Place the field on World XY centered at the world origin.",
+      "typed_value": {"schema": "rook.semantic_string:v1", "value": "world_xy_centered_at_world_origin", "unit": null, "unit_context_ref": null},
+      "affects": ["geometry_state"],
+      "basis_refs": [
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/operation_kind"},
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/target_scope"},
+        {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/task_scope"}
+      ],
+      "authorization_refs": {"policy_refs": [{"kind": "policy_rule", "artifact_id": "planning_policy", "json_pointer": "/rules/rule.placement_frame"}], "confirmation_ref": null}
+    }
+  ],
+  "derived_facts": [
+    {
+      "derived_fact_id": "derived.element_count",
+      "typed_value": {"schema": "rook.semantic_integer:v1", "value": 100},
+      "derivation": {
+        "operator": "multiply",
+        "input_refs": [
+          {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/grid_count_x"},
+          {"kind": "artifact_value", "artifact_id": "task_envelope", "json_pointer": "/facts/grid_count_y"}
+        ]
+      }
+    }
+  ],
+  "unresolved_intent": [],
+  "invariants": [],
+  "shape": {
+    "vocabulary_version": "rook.semantic_authority_codes:v1",
+    "vocabulary_fingerprint": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "self": [
+      {"shape_id": "shape.self.semantic_contract", "authority_code": "author_semantic_contract", "statement": "The validated semantic contract remains fixed during lowering."}
+    ],
+    "delegates": [
+      {"shape_id": "shape.delegate.representation", "delegate_kind": "compile_phase", "authority_code": "select_representation", "worker_slot_id": null, "statement": "Compile may use the fixed admitted representation while preserving the semantic contract."},
+      {"shape_id": "shape.delegate.topology", "delegate_kind": "compile_phase", "authority_code": "construct_topology", "worker_slot_id": null, "statement": "Compile may describe inert topology within the maintained truth and capability boundary."},
+      {"shape_id": "shape.delegate.verification", "delegate_kind": "compile_phase", "authority_code": "lower_verification", "worker_slot_id": null, "statement": "Compile may lower maintained truth into an explicit verification plan."}
+    ],
+    "prohibited": [
+      {"shape_id": "shape.prohibited.semantic_expansion", "authority_code": "add_material_semantics", "statement": "Compile cannot add or alter a material semantic outcome."},
+      {"shape_id": "shape.prohibited.scope_expansion", "authority_code": "expand_mutation_scope", "statement": "Compile cannot broaden target or mutation authority."},
+      {"shape_id": "shape.prohibited.verifier_bypass", "authority_code": "disable_required_verification", "statement": "Compile cannot omit or weaken required verification coverage."}
+    ]
+  },
+  "required_capabilities": {
+    "vocabulary_version": "rook.semantic_capability_codes:v1",
+    "vocabulary_fingerprint": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "entries": [
+      {
+        "capability_id": "capability.construct_parametric_geometry",
+        "capability_code": "construct_parametric_geometry",
+        "statement": "The compiler needs an available way to construct task-scoped parametric geometry.",
+        "supports_clause_ids": ["maintained.radial_box_field"]
+      }
+    ]
+  },
+  "worker_slots": {
+    "vocabulary_version": "rook.worker_slot_codes:v1",
+    "vocabulary_fingerprint": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "entries": []
+  },
+  "recipe_fingerprint": "sha256:2a6e03424c7378da23aa1906da0ec2cddfda367ccd90df5478aab76c7d38360f"
+}
