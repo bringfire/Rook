@@ -1,13 +1,30 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 
 import pytest
 
 from rook.gh_csharp_preflight import (
     is_recognized_csharp_full_source,
     preflight_csharp_script,
+    validate_rhinocode_csharp_full_source,
 )
+
+
+_FIXTURE_DIR = Path(__file__).with_name("fixtures")
+
+
+def _pin(name: str, *, access: str = "item", type_name: str = "System.Object"):
+    return {"name": name, "type": type_name, "access": access}
+
+
+def _contract_result(code, pins_in=None, pins_out=None):
+    return validate_rhinocode_csharp_full_source(
+        code=code,
+        pins_in=[] if pins_in is None else pins_in,
+        pins_out=[] if pins_out is None else pins_out,
+    )
 
 
 def _result(code, pins_in=None, pins_out=None, mode="auto"):
@@ -206,3 +223,115 @@ def test_helper_does_not_mutate_pin_inputs():
     assert result.ok is True
     assert pins_in == before_in
     assert pins_out == before_out
+
+
+def test_exact_contract_accepts_generic_rhinocode_source():
+    result = _contract_result(
+        "public class Script_Instance : GH_ScriptInstance {\n"
+        "  private void RunScript(object Input, ref object Result) { Result = Input; }\n"
+        "}\n",
+        pins_in=[_pin("Input")],
+        pins_out=[_pin("Result", access="list")],
+    )
+
+    assert result.ok is True
+    assert result.error_codes == ()
+
+
+def test_exact_contract_rejects_preserved_first_candidate_for_both_defects():
+    source = (_FIXTURE_DIR / "lm9b_c_first_candidate.cs").read_text(encoding="utf-8")
+
+    result = _contract_result(source, pins_out=[_pin("Boxes", access="list")])
+
+    assert result.ok is False
+    assert result.error_codes == (
+        "missing_gh_script_instance_base",
+        "runscript_signature_mismatch",
+    )
+
+
+@pytest.mark.parametrize("visibility", ["public", "protected", "internal"])
+def test_exact_contract_rejects_nonprivate_runscript(visibility):
+    source = (
+        "public class Script_Instance : GH_ScriptInstance { "
+        f"{visibility} void RunScript(ref object A) {{ }} }}"
+    )
+
+    result = _contract_result(source, pins_out=[_pin("A")])
+
+    assert "runscript_signature_mismatch" in result.error_codes
+
+
+@pytest.mark.parametrize(
+    "parameters,pins_in,pins_out",
+    [
+        ("ref object A", [_pin("R")], [_pin("A")]),
+        ("object R, object X, ref object A", [_pin("R")], [_pin("A")]),
+        ("ref object A, object R", [_pin("R")], [_pin("A")]),
+        ("object Radius, ref object A", [_pin("R")], [_pin("A")]),
+        ("object R, ref object Result", [_pin("R")], [_pin("A")]),
+        ("object R, out object A", [_pin("R")], [_pin("A")]),
+    ],
+)
+def test_exact_contract_binds_parameter_count_order_name_and_modifier(
+    parameters, pins_in, pins_out
+):
+    source = (
+        "public class Script_Instance : GH_ScriptInstance { "
+        f"private void RunScript({parameters}) {{ }} }}"
+    )
+
+    result = _contract_result(source, pins_in=pins_in, pins_out=pins_out)
+
+    assert result.error_codes == ("runscript_signature_mismatch",)
+
+
+def test_exact_contract_requires_gh_script_instance_inheritance():
+    result = _contract_result(
+        "public class Script_Instance { private void RunScript(ref object A) { } }",
+        pins_out=[_pin("A")],
+    )
+
+    assert result.error_codes == ("missing_gh_script_instance_base",)
+
+
+def test_exact_contract_rejects_gh_component_subclass():
+    result = _contract_result(
+        "public class Script_Instance : GH_Component { "
+        "private void RunScript(ref object A) { } }",
+        pins_out=[_pin("A")],
+    )
+
+    assert result.error_codes == (
+        "gh_component_subclass_forbidden",
+        "missing_gh_script_instance_base",
+    )
+
+
+def test_exact_contract_rejects_duplicate_runscript_methods():
+    result = _contract_result(
+        "public class Script_Instance : GH_ScriptInstance { "
+        "private void RunScript(ref object A) { } "
+        "private void RunScript(ref object A, ref object B) { } }",
+        pins_out=[_pin("A")],
+    )
+
+    assert result.error_codes == ("runscript_method_count_mismatch",)
+
+
+@pytest.mark.parametrize(
+    "pin",
+    [
+        {"name": "A", "type": "System.Object"},
+        {"name": "A", "access": "item"},
+        {"name": "A", "type": "System.Object", "access": "invalid"},
+    ],
+)
+def test_exact_contract_requires_complete_pin_declarations(pin):
+    result = _contract_result(
+        "public class Script_Instance : GH_ScriptInstance { "
+        "private void RunScript(ref object A) { } }",
+        pins_out=[pin],
+    )
+
+    assert result.error_codes == ("invalid_pin_declaration",)

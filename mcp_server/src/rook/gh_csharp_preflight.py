@@ -15,6 +15,14 @@ _CLASS_DECLARATION_RE = re.compile(r"\bclass\s+[A-Za-z_][A-Za-z0-9_]*\b")
 _GH_COMPONENT_SUBCLASS_RE = re.compile(
     r":\s*(?:[A-Za-z_][A-Za-z0-9_]*\.)*GH_Component\b"
 )
+_SCRIPT_INSTANCE_BASE_RE = re.compile(
+    r"\bpublic\s+class\s+Script_Instance\s*:\s*"
+    r"(?:[A-Za-z_][A-Za-z0-9_]*\.)*GH_ScriptInstance\b"
+)
+_RUNSCRIPT_DECLARATION_RE = re.compile(
+    r"\b(?P<visibility>public|private|protected|internal)\s+void\s+"
+    r"RunScript\s*\((?P<parameters>[^()]*)\)"
+)
 _WRONG_COMPONENT_PATTERNS: tuple[str, ...] = (
     "SolveInstance",
     "RegisterInputParams",
@@ -44,6 +52,12 @@ class CSharpScriptPreflightResult:
     ok: bool
     message: str | None = None
     code: str | None = None
+
+
+@dataclass(frozen=True)
+class CSharpRepresentationContractResult:
+    ok: bool
+    error_codes: tuple[str, ...]
 
 
 def is_recognized_csharp_full_source(code: Any) -> bool:
@@ -84,6 +98,80 @@ def _validate_pin_names(
                 )
             seen.add(stripped)
     return None
+
+
+def _complete_pin_declarations(
+    pins: Sequence[Mapping[str, Any]],
+) -> bool:
+    for pin in pins:
+        if set(pin) != {"name", "type", "access"}:
+            return False
+        type_name = pin.get("type")
+        if not isinstance(type_name, str) or not type_name.strip():
+            return False
+        if pin.get("access") not in {"item", "list", "tree"}:
+            return False
+    return True
+
+
+def validate_rhinocode_csharp_full_source(
+    *,
+    code: Any,
+    pins_in: Sequence[Mapping[str, Any]],
+    pins_out: Sequence[Mapping[str, Any]],
+) -> CSharpRepresentationContractResult:
+    """Recognize the exact full-source boundary Rook sends to RhinoCode C#.
+
+    This intentionally validates only the class and method envelope. RhinoCode
+    compilation remains authoritative for the C# language and method body.
+    """
+
+    if not isinstance(code, str) or not code.strip():
+        return CSharpRepresentationContractResult(
+            ok=False,
+            error_codes=("invalid_full_source",),
+        )
+
+    all_pins = [*pins_in, *pins_out]
+    if (
+        not _complete_pin_declarations(all_pins)
+        or _validate_pin_names(pins_in, pins_out) is not None
+    ):
+        return CSharpRepresentationContractResult(
+            ok=False,
+            error_codes=("invalid_pin_declaration",),
+        )
+
+    errors: list[str] = []
+    if _GH_COMPONENT_SUBCLASS_RE.search(code):
+        errors.append("gh_component_subclass_forbidden")
+    if _SCRIPT_INSTANCE_BASE_RE.search(code) is None:
+        errors.append("missing_gh_script_instance_base")
+
+    declarations = tuple(_RUNSCRIPT_DECLARATION_RE.finditer(code))
+    if len(declarations) != 1:
+        errors.append("runscript_method_count_mismatch")
+    else:
+        declaration = declarations[0]
+        actual_parameters = tuple(
+            re.sub(r"\s+", " ", parameter.strip())
+            for parameter in declaration.group("parameters").split(",")
+            if parameter.strip()
+        )
+        expected_parameters = tuple(
+            [f'object {pin["name"]}' for pin in pins_in]
+            + [f'ref object {pin["name"]}' for pin in pins_out]
+        )
+        if (
+            declaration.group("visibility") != "private"
+            or actual_parameters != expected_parameters
+        ):
+            errors.append("runscript_signature_mismatch")
+
+    return CSharpRepresentationContractResult(
+        ok=not errors,
+        error_codes=tuple(errors),
+    )
 
 
 def preflight_csharp_script(
