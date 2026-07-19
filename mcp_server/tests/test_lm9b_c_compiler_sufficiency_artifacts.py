@@ -135,6 +135,18 @@ def test_generic_implementation_context_contains_no_task_solution() -> None:
         assert leaked_term not in rendered
     assert "csharp_script_instance" in rendered
     assert "no auxiliary canvas components" in rendered
+    contract = inputs.implementation_context["representation_profile"][
+        "mechanical_contract"
+    ]
+    assert contract == {
+        "class_declaration": "public class Script_Instance : GH_ScriptInstance",
+        "runscript_count": 1,
+        "runscript_declaration": "private void RunScript",
+        "input_parameter_shape": "object <declared-input-name>",
+        "output_parameter_shape": "ref object <declared-output-name>",
+        "forbidden_output_modifier": "out",
+        "forbidden_base_type": "GH_Component",
+    }
 
 
 def test_renderer_partitions_source_context_and_exclusions() -> None:
@@ -147,7 +159,62 @@ def test_renderer_partitions_source_context_and_exclusions() -> None:
     assert "Create a 10 x 10" not in rendered
     assert "evaluation rubric" not in rendered.lower()
     assert inputs.recipe["recipe_fingerprint"] in rendered
-    assert compiler.renderer_id == "lm9b_c.compiler_request_renderer:v1"
+    assert compiler.renderer_id == "lm9b_c.compiler_request_renderer:v2"
+
+
+def test_compiler_request_exposes_only_the_r01_derived_trace_catalog() -> None:
+    inputs = ARTIFACTS.load_frozen_inputs(_fixture_dir())
+    compiler = ARTIFACTS.render_compiler_request(inputs)
+    payload = json.loads(compiler.user_prompt)
+
+    catalog = payload["legal_trace_reference_catalog"]
+    assert catalog == ARTIFACTS.derive_legal_trace_reference_catalog(
+        inputs.contract_index
+    )
+    assert catalog == {
+        "capability_ids": inputs.contract_index["capability_ids"],
+        "maintains_clause_ids": inputs.contract_index["maintains_clause_ids"],
+        "material_support_ids": inputs.contract_index["support_ids"],
+        "postcondition_clause_ids": inputs.contract_index[
+            "postcondition_clause_ids"
+        ],
+        "requires_or_invariant_clause_ids": sorted(
+            [
+                *inputs.contract_index["requires_clause_ids"],
+                *inputs.contract_index["invariant_clause_ids"],
+            ]
+        ),
+        "shape_delegation_ids": inputs.contract_index["shape_delegation_ids"],
+    }
+    serialized = json.dumps(catalog, sort_keys=True)
+    for forbidden in (
+        "Script_Instance",
+        "RunScript",
+        "connections",
+        "component_chain",
+        "expected_solution",
+        "evaluation_rubric",
+        "verification_plan",
+    ):
+        assert forbidden not in serialized
+
+
+def test_follow_up_preserves_r01_and_authority_raw_hashes() -> None:
+    inputs = ARTIFACTS.load_frozen_inputs(_fixture_dir())
+    hashes = {record.role: record.raw_sha256 for record in inputs.records}
+
+    assert hashes["recipe"] == (
+        "sha256:c2a504e7a089c37fc174d53eeb7cd409690a63e7709cfea8ea7ce7a3c13ddad2"
+    )
+    assert hashes["authority.task_envelope"] == (
+        "sha256:0ece1c89a4fc78e8a75411f48dd27a3c65da48f8b2dced8487a6a49816659ddc"
+    )
+    assert hashes["authority.environment_snapshot"] == (
+        "sha256:79e2596e92afed1f623554e7dc585cd4a5a0ef44d9b81bf97e0d752e138be16d"
+    )
+    assert hashes["authority.planning_policy"] == (
+        "sha256:9ff141e2e8baf2ecfe5c653d465fb1a2bdecca6e804f2e766282a55616614d5d"
+    )
 
 
 def test_contract_index_is_derived_from_frozen_recipe_not_a_parallel_dialect() -> None:

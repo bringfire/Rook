@@ -268,6 +268,11 @@ def run_probe(
     if (
         compiler_session.terminal_submission is not None
         and compiler_session.terminal_validation is not None
+        and (
+            compiler_session.terminal_submission["result_kind"]
+            == "contract_insufficient"
+            or compiler_session.terminal_validation.representation_contract_ok is True
+        )
     ):
         evaluator_request = render_evaluator_request(
             inputs,

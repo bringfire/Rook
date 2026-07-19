@@ -23,8 +23,8 @@ from rook.validation_kernel.owned_json import own_trusted_json
 
 
 MANIFEST_SCHEMA_ID = "rook.lm9b_c.input_manifest:v1"
-COMPILER_RENDERER_ID = "lm9b_c.compiler_request_renderer:v1"
-EVALUATOR_RENDERER_ID = "lm9b_c.evaluator_request_renderer:v1"
+COMPILER_RENDERER_ID = "lm9b_c.compiler_request_renderer:v2"
+EVALUATOR_RENDERER_ID = "lm9b_c.evaluator_request_renderer:v2"
 
 
 @dataclass(frozen=True)
@@ -127,6 +127,26 @@ def derive_contract_index(recipe: Mapping[str, object]) -> dict[str, object]:
             for item in recipe["required_capabilities"]["entries"]
         ],
         "support_ids": sorted(support_ids),
+    }
+
+
+def derive_legal_trace_reference_catalog(
+    contract_index: Mapping[str, object],
+) -> dict[str, object]:
+    """Project exactly the identifier vocabulary accepted by trace validation."""
+
+    return {
+        "capability_ids": list(contract_index["capability_ids"]),
+        "maintains_clause_ids": list(contract_index["maintains_clause_ids"]),
+        "material_support_ids": list(contract_index["support_ids"]),
+        "postcondition_clause_ids": list(contract_index["postcondition_clause_ids"]),
+        "requires_or_invariant_clause_ids": sorted(
+            [
+                *contract_index["requires_clause_ids"],
+                *contract_index["invariant_clause_ids"],
+            ]
+        ),
+        "shape_delegation_ids": list(contract_index["shape_delegation_ids"]),
     }
 
 
@@ -281,6 +301,9 @@ retrieval, execution, or hidden context. Do not include hidden reasoning.
         "schema": "rook.lm9b_c.compiler_request:v1",
         "semantic_source": _semantic_source(inputs),
         "implementation_context": inputs.implementation_context,
+        "legal_trace_reference_catalog": derive_legal_trace_reference_catalog(
+            inputs.contract_index
+        ),
         "terminal_result_schema": COMPILER_RESULT_SCHEMA,
     }
     user = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
@@ -299,6 +322,10 @@ def _trace_projection(trace: TerminalValidationResult) -> dict[str, object]:
         "errors": [asdict(error) for error in trace.errors],
         "csharp_preflight_ok": trace.csharp_preflight_ok,
         "csharp_preflight_code": trace.csharp_preflight_code,
+        "representation_contract_ok": trace.representation_contract_ok,
+        "representation_contract_error_codes": list(
+            trace.representation_contract_error_codes
+        ),
         "csharp_compiled": trace.csharp_compiled,
     }
 
@@ -510,6 +537,7 @@ __all__ = (
     "InputRecord",
     "RenderedRequest",
     "derive_contract_index",
+    "derive_legal_trace_reference_catalog",
     "load_frozen_inputs",
     "render_compiler_request",
     "render_evaluator_request",

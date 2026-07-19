@@ -1,13 +1,13 @@
 {
   "schema": "rook.lm9b_c.input_manifest:v1",
-  "manifest_id": "lm9b-c-r01-compiler-sufficiency-v1",
-  "renderer_id": "lm9b_c.compiler_request_renderer:v1",
+  "manifest_id": "lm9b-c-r01-representation-validity-v2",
+  "renderer_id": "lm9b_c.compiler_request_renderer:v2",
   "records": [
     {"role": "recipe", "path": "r01_recipe.json", "raw_sha256": "sha256:c2a504e7a089c37fc174d53eeb7cd409690a63e7709cfea8ea7ce7a3c13ddad2", "canonical_fingerprint": "sha256:303b890480012d116df88472b9eb6b0148664f104a03338d33230bd0ef4aef32"},
     {"role": "authority.task_envelope", "path": "task_envelope.json", "raw_sha256": "sha256:0ece1c89a4fc78e8a75411f48dd27a3c65da48f8b2dced8487a6a49816659ddc", "canonical_fingerprint": "sha256:4c9fa666a608996804fb0d62f6280f3a2ac78a26926402f04f5928ba53f33bb0"},
     {"role": "authority.environment_snapshot", "path": "environment_snapshot.json", "raw_sha256": "sha256:79e2596e92afed1f623554e7dc585cd4a5a0ef44d9b81bf97e0d752e138be16d", "canonical_fingerprint": "sha256:55f825af4eca2d9ec2fe6ee2ea3a02ee505cdb1bd70a06bda1d856fdb0544163"},
     {"role": "authority.planning_policy", "path": "planning_policy.json", "raw_sha256": "sha256:9ff141e2e8baf2ecfe5c653d465fb1a2bdecca6e804f2e766282a55616614d5d", "canonical_fingerprint": "sha256:7bf6c5f7939b4494b6ab14b5d02d47b82076b5fa4a463c8f3da0b09f3a5dcef9"},
-    {"role": "implementation_context", "path": "implementation_context.json", "raw_sha256": "sha256:d5cc47c50c6a788ad2b387e89f54d0533229477c6dcb06387b0dcff30c5a27fe", "canonical_fingerprint": "sha256:09915a160951dc4b40cea54247612f3f607820ca943b8ca31fe144d00fa8f66f"},
+    {"role": "implementation_context", "path": "implementation_context.json", "raw_sha256": "sha256:39cb834c2b309189104417b30defd9fb08e4d64a33f14ba22ea06925b5e22454", "canonical_fingerprint": "sha256:37c1f874b34778be0761e86ba149037e378dee4f309bb308d557ede9c39bbc59"},
     {"role": "exclusion_policy", "path": "exclusion_policy.json", "raw_sha256": "sha256:ada6b320ab8ec6a5b66d61f99f984794d0728ccb88bc44fba783dbe46e95f405", "canonical_fingerprint": "sha256:72291d26ee079a8cd3f652d15e1a04c2e70b3fb07b90a48236e578b38f62163d"},
     {"role": "evaluation_rubric", "path": "evaluation_rubric.json", "raw_sha256": "sha256:a3c064f3691664bb250f565c32b77f8b8165c52192b6755c6679f88b3def6fd7", "canonical_fingerprint": "sha256:5751eae070eee8c6cd269e9ca1ec8fc781a0d1bfa5f79684aae1af20764654d6"}
   ]

@@ -109,6 +109,60 @@ def _accepted_gap_evaluation() -> dict[str, object]:
     }
 
 
+def _mechanically_invalid_candidate(inputs: object) -> dict[str, object]:
+    index = inputs.contract_index
+    return {
+        "schema": SUPPORT.COMPILER_RESULT_SCHEMA_ID,
+        "result_kind": "compiled_candidate",
+        "recipe_fingerprint": index["recipe_fingerprint"],
+        "compiled_candidate": {
+            "representation": {
+                "kind": "csharp_script_instance",
+                "pins_in": [],
+                "pins_out": [
+                    {"name": "Boxes", "type": "System.Object", "access": "list"}
+                ],
+                "source": (
+                    "public class Script_Instance { "
+                    "public void RunScript(out object Boxes) { Boxes = null; } }"
+                ),
+            },
+            "decisions": [
+                {
+                    "decision_id": "decision.material",
+                    "decision_kind": "material_semantic",
+                    "statement": "Use one authorized semantic value.",
+                    "maintains_clause_id": index["maintains_clause_ids"][0],
+                    "support_refs": [index["support_ids"][0]],
+                    "requires_or_invariant_clause_id": None,
+                    "shape_delegation_id": None,
+                    "capability_id": None,
+                },
+                {
+                    "decision_id": "decision.implementation",
+                    "decision_kind": "implementation",
+                    "statement": "Use the fixed script representation.",
+                    "maintains_clause_id": index["maintains_clause_ids"][0],
+                    "support_refs": [],
+                    "requires_or_invariant_clause_id": None,
+                    "shape_delegation_id": index["shape_delegation_ids"][0],
+                    "capability_id": index["capability_ids"][0],
+                },
+            ],
+            "verification_plan": [
+                {
+                    "verification_id": f"verification.{position}",
+                    "clause_id": clause_id,
+                    "observation": "Observe the inert candidate output.",
+                    "acceptance": "Compare the observation with the clause.",
+                }
+                for position, clause_id in enumerate(index["postcondition_clause_ids"])
+            ],
+            "unused_recipe_paths": [],
+        },
+    }
+
+
 def test_cli_defaults_match_frozen_charter() -> None:
     args = PROBE._args(
         [
@@ -205,3 +259,45 @@ def test_compiler_control_failure_skips_evaluator_and_still_writes_evidence(
         (result.run_dir / "compiler" / "control_failure.json").read_text("utf-8")
     )
     assert control == {"failure_type": "RuntimeError", "message": "offline"}
+
+
+def test_mechanical_contract_failure_stays_in_session_and_skips_evaluator(
+    tmp_path: Path,
+) -> None:
+    inputs = ARTIFACTS.load_frozen_inputs(_fixture_dir())
+    compiler = _Provider(
+        lambda request: _turn(
+            _mechanically_invalid_candidate(inputs),
+            tool_name="submit_compiler_result",
+        )
+    )
+    evaluator = _Provider(lambda request: AssertionError("must not run"))
+
+    result = PROBE.run_probe(
+        run_root=tmp_path,
+        fixture_dir=_fixture_dir(),
+        compiler_provider=compiler,
+        evaluator_provider=evaluator,
+        compiler_identity={"provider": "fake", "model": "compiler"},
+        evaluator_identity={"provider": "fake", "model": "evaluator"},
+        git_sha="deadbeef",
+        now=lambda: datetime(2026, 7, 19, 12, 34, 56, tzinfo=timezone.utc),
+    )
+
+    assert result.decision.outcome == "inconclusive"
+    assert result.decision.reason_codes == ("compiler_max_turns_exhausted",)
+    assert len(evaluator.requests) == 0
+    assert result.compiler_session.turn_count == 6
+    feedback = json.loads(
+        (
+            result.run_dir
+            / "compiler"
+            / "turns"
+            / "turn-01"
+            / "feedback.json"
+        ).read_text("utf-8")
+    )
+    assert feedback["codes"] == [
+        "missing_gh_script_instance_base",
+        "runscript_signature_mismatch",
+    ]

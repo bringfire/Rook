@@ -16,6 +16,7 @@ from jsonschema import Draft202012Validator
 from rook.gh_csharp_preflight import (
     is_recognized_csharp_full_source,
     preflight_csharp_script,
+    validate_rhinocode_csharp_full_source,
 )
 
 
@@ -337,6 +338,8 @@ class TerminalValidationResult:
     errors: tuple[TraceError, ...]
     csharp_preflight_ok: bool | None
     csharp_preflight_code: str | None
+    representation_contract_ok: bool | None
+    representation_contract_error_codes: tuple[str, ...]
     csharp_compiled: None = None
 
 
@@ -515,7 +518,7 @@ def _duplicates(values: list[str]) -> set[str]:
 def _validate_candidate_trace(
     candidate: Mapping[str, Any],
     contract_index: Mapping[str, object],
-) -> tuple[list[TraceError], bool, str | None]:
+) -> tuple[list[TraceError], bool, str | None, bool, tuple[str, ...]]:
     errors: list[TraceError] = []
     maintains = set(contract_index["maintains_clause_ids"])
     requirements = set(contract_index["requires_clause_ids"])
@@ -650,7 +653,18 @@ def _validate_candidate_trace(
     preflight_code = preflight.code if not preflight.ok else None
     if preflight.ok and not recognized:
         preflight_code = "full_source_not_recognized"
-    return errors, preflight_ok, preflight_code
+    representation_contract = validate_rhinocode_csharp_full_source(
+        code=representation["source"],
+        pins_in=representation["pins_in"],
+        pins_out=representation["pins_out"],
+    )
+    return (
+        errors,
+        preflight_ok,
+        preflight_code,
+        representation_contract.ok,
+        representation_contract.error_codes,
+    )
 
 
 def _validate_insufficient_trace(
@@ -702,6 +716,8 @@ def validate_terminal_submission(
             errors=schema_errors,
             csharp_preflight_ok=None,
             csharp_preflight_code=None,
+            representation_contract_ok=None,
+            representation_contract_error_codes=(),
         )
 
     assert isinstance(value, dict)
@@ -718,12 +734,17 @@ def validate_terminal_submission(
 
     preflight_ok: bool | None = None
     preflight_code: str | None = None
+    representation_contract_ok: bool | None = None
+    representation_contract_error_codes: tuple[str, ...] = ()
     result_kind = value["result_kind"]
     if result_kind == "compiled_candidate":
-        candidate_errors, preflight_ok, preflight_code = _validate_candidate_trace(
-            value["compiled_candidate"],
-            contract_index,
-        )
+        (
+            candidate_errors,
+            preflight_ok,
+            preflight_code,
+            representation_contract_ok,
+            representation_contract_error_codes,
+        ) = _validate_candidate_trace(value["compiled_candidate"], contract_index)
         errors.extend(candidate_errors)
     else:
         errors.extend(
@@ -737,6 +758,8 @@ def validate_terminal_submission(
         errors=tuple(errors),
         csharp_preflight_ok=preflight_ok,
         csharp_preflight_code=preflight_code,
+        representation_contract_ok=representation_contract_ok,
+        representation_contract_error_codes=representation_contract_error_codes,
     )
 
 
@@ -978,6 +1001,14 @@ def classify_observation(
     if result_kind == "compiled_candidate":
         if (
             compiler.terminal_validation is None
+            or compiler.terminal_validation.representation_contract_ok is not True
+        ):
+            return ObservationDecision(
+                outcome="candidate_failure",
+                reason_codes=("representation_contract_failed",),
+            )
+        if (
+            compiler.terminal_validation is None
             or compiler.terminal_validation.csharp_preflight_ok is not True
         ):
             return ObservationDecision(
@@ -1100,6 +1131,16 @@ def _terminal_from_message(
     validation = validate_terminal_submission(value, contract_index)
     if not validation.schema_valid or not validation.trace_valid:
         return None, validation, _unique_codes(validation.errors), tool_call_id
+    if (
+        validation.result_kind == "compiled_candidate"
+        and validation.representation_contract_ok is not True
+    ):
+        return (
+            None,
+            validation,
+            validation.representation_contract_error_codes,
+            tool_call_id,
+        )
     assert isinstance(value, dict)
     return value, validation, (), tool_call_id
 

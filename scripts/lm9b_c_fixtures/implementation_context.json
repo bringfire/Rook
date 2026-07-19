@@ -1,6 +1,6 @@
 {
-  "schema": "rook.lm9b_c.implementation_context:v1",
-  "context_id": "lm9b-c-generic-csharp-script-instance",
+  "schema": "rook.lm9b_c.implementation_context:v2",
+  "context_id": "lm9b-c-rhinocode-csharp-script-instance",
   "representation_profile": {
     "kind": "csharp_script_instance",
     "component_count": 1,
@@ -12,12 +12,24 @@
       "access_modes": ["item", "list", "tree"],
       "declared_types": "RhinoCode pin type names",
       "runtime_input_parameters": "object values requiring explicit casts",
-      "runtime_output_parameters": "ref object values assigned by declared output name"
+      "runtime_output_parameters": "ref object values assigned by declared output name",
+      "parameter_order": "all declared inputs followed by all declared outputs",
+      "parameter_names": "exactly match declared pin names in declared order"
+    },
+    "mechanical_contract": {
+      "class_declaration": "public class Script_Instance : GH_ScriptInstance",
+      "runscript_count": 1,
+      "runscript_declaration": "private void RunScript",
+      "input_parameter_shape": "object <declared-input-name>",
+      "output_parameter_shape": "ref object <declared-output-name>",
+      "forbidden_output_modifier": "out",
+      "forbidden_base_type": "GH_Component"
     },
     "source_contract": [
-      "Submit a complete Script_Instance class with one RunScript method.",
+      "Submit a complete public Script_Instance class inheriting GH_ScriptInstance.",
+      "Declare exactly one private void RunScript method whose object and ref object parameters exactly match the declared pins.",
       "Use RhinoCommon geometry types and ordinary finite C# control flow.",
-      "Do not define a GH_Component subclass or plugin registration methods.",
+      "Do not use out output parameters, define a GH_Component subclass, or define plugin registration methods.",
       "The source and pin declarations are inert probe output and are never executed."
     ]
   },
