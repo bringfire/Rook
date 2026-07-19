@@ -8,32 +8,25 @@ This document describes the agent system as it exists today.
 
 ## Overview
 
-The agent system is ~12,000 lines of Python in `mcp_server/src/rook/agent/` and `mcp_server/src/rook/learning/intent_*.py`. It provides two execution paths:
+The agent system is ~12,000 lines of Python in `mcp_server/src/rook/agent/` and `mcp_server/src/rook/learning/intent_*.py`. It provides two production execution paths:
 
-1. **MCP path** — Claude Code/Desktop calls MCP tools → `server.py` → IntentOrchestrator → bridge → RookNative
+1. **MCP path** — Claude Code/Desktop selects explicit MCP tools → `server.py` → bridge → RookNative
 2. **Chat path** — Rook chat panel → ChatRunner → ToolDispatcher → bridge → RookNative
-3. **Autonomous path** — `spawn_agent` / `plan_and_execute` MCP tools → Planner → Workers → bridge → RookNative
 
-All three paths converge at the HTTP bridge layer. **Agents never use MCP** — they call RookNative HTTP endpoints directly via `bridge.py`.
+Both paths converge at the HTTP bridge layer. Internal agent modules call RookNative HTTP endpoints directly via `bridge.py`; autonomous MCP creation entry points are lifecycle-contained and are not a production execution path.
 
 ```
 MCP Client (Claude Code)          Chat Panel (Rook C# UI)
          │                                │
-    server.py                      chat/server.py
+      server.py                     chat/server.py
          │                                │
-  IntentOrchestrator              ChatRunner + ExecutionPolicy
+ _call_tool_dispatch              ChatRunner + ExecutionPolicy
          │                                │
-         ├─── spawn_agent ──→ Planner ──→ Workers
-         │                      │           │
-         │                   Guardian    Guardian
-         │                      └──┬──┘
-         │                     Conductor (fleet monitor)
-         │                         │
-         └─────────────────────────┘
-                    │
-            ToolDispatcher
-                    │
-              bridge.py → HTTP → RookNative C++ → Rhino
+         │                         ToolDispatcher
+         │                                │
+         └──────────────┬─────────────────┘
+                        │
+                  bridge.py → HTTP → RookNative C++ → Rhino
 ```
 
 ---
@@ -125,21 +118,15 @@ Task execution runners. Three entry points:
 
 ## Progressive Tool Disclosure
 
-With 428 MCP tools advertised by `list_tools()` (431 static defs minus 3 deprecated-interactive tools gated by default), showing everything to an agent wastes context and confuses the LLM. The system uses three tiers:
+With 422 MCP tools advertised by `list_tools()` by default (425 when the 3 deprecated-interactive tools are explicitly enabled), showing everything to an agent wastes context and confuses the LLM. The system uses three tiers:
 
-The `lean` profile advertises 22 tools and the `readonly` profile advertises 148 tools.
+The `lean` profile advertises 20 tools and the `readonly` profile advertises 148 tools.
 
 - Director is retired from MCP discovery, profiles, meta-tools, targeting, and internal-agent dispatch. Native `/director/*` routes and implementation modules remain temporarily preserved for disposition review; they are not a public or agent-callable capability.
 
 ### Tier 0: Always Active (~12 tools, ~1,800 tokens)
 
-```
-rhino_execute_intent, gh_execute_intent, knowledge_query, gh_knowledge_query,
-rhino_objects, rhino_ping, gh_snapshot, gh_errors, scene_graph, scene_context,
-scene_stats, request_tools, search_tools
-```
-
-Agents get a variant (`AGENT_TIER_0`) that excludes `gh_execute_intent` (too large, DSPy-entangled) and adds `session_history`, `rhino_command_prompt`, `ui_block`.
+Tier 0 contains explicit knowledge queries, Rhino and Grasshopper inspection, scene context, and progressive-disclosure meta-tools. `AGENT_TIER_0` adds supported script mutation, session history, prompt-state inspection, and the `ui_block` pseudo-tool.
 
 ### Tier 1: Named Groups (on-demand)
 
@@ -150,7 +137,7 @@ Groups like `gh_canvas`, `rhino_transform`, `curves`, `analysis`, `layers_readon
 
 ### Tier 2: Individual Tools (search)
 
-Any of the 428 tools can be found via `search_tools("boolean")`. Returns matching tools with descriptions.
+Any active tool can be found via `search_tools("boolean")`. Returns matching tools with descriptions.
 
 ### Stale Tool Deactivation
 
@@ -209,7 +196,7 @@ After every CREATION or MODAL_RISK dispatch, the runner automatically polls `rhi
 
 ## Intent Runtime (`learning/intent_*.py`, ~2,800 lines)
 
-Replaces the old monolithic `rhino_execute_intent` with a layered pipeline:
+The retained intent internals use a layered pipeline:
 
 ```
 Natural language intent
@@ -344,17 +331,15 @@ Switch profiles by editing `"active"` in `knowledge/model_profiles.json` or sett
 
 ## MCP Entry Points (in `server.py`)
 
-Five MCP tools expose the agent system to Claude:
+Three MCP tools expose status and control for existing agent records:
 
 | Tool | Purpose | Returns |
 |------|---------|---------|
-| `spawn_agent` | Launch single autonomous agent (background) | agent_id immediately |
-| `plan_and_execute` | Planner decomposes + workers execute (background) | plan_id immediately |
 | `agent_status` | Poll agent/plan completion and metrics | Status, turns, cost, active tools |
 | `agent_abort` | Abort a running agent | Confirmation |
 | `agent_answer` | Answer a pending question from a blocked agent | Unblocks the agent |
 
-Active agents stored in `_active_agents` dict (max 50, oldest evicted).
+The autonomous creation entry points are lifecycle-contained. Existing active-agent state uses the `_active_agents` dict (max 50, oldest evicted).
 
 ---
 

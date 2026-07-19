@@ -9388,7 +9388,7 @@ Args:
 Each entry includes:
 - entry_id: Unique ID for citation by patterns
 - timestamp: When the action occurred
-- action: Tool name (gh_edit, gh_execute_intent, etc.)
+- action: Tool name (gh_edit, gh_connect, etc.)
 - params: Tool parameters
 - outcome: success/partial/failure
 - components_created/affected/deleted: GUIDs

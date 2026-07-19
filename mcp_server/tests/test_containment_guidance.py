@@ -29,9 +29,12 @@ GUIDANCE_FILES = (
     ROOT / "installer" / "CLAUDE.md",
     ROOT / "docs" / "ONBOARDING_NEW_CLAUDE.md",
     ROOT / "docs" / "TROUBLESHOOTING.md",
+    ROOT / "docs" / "AGENT_ARCHITECTURE.md",
+    ROOT / "docs" / "CURRENT_ARCHITECTURE.md",
     ROOT / "docs" / "rook_docs" / "POSITIONING.md",
     ROOT / "scripts" / "session-start.sh",
     ROOT / "mcp_server" / "src" / "rook" / "agent" / "chat" / "prompt_builder.py",
+    ROOT / "mcp_server" / "src" / "rook" / "learning" / "dspy_signatures.py",
 )
 
 
@@ -48,3 +51,17 @@ def test_active_and_installer_shipped_guidance_has_no_contained_identity() -> No
         if hits:
             findings.append(f"{path.relative_to(ROOT)}: {', '.join(hits)}")
     assert findings == []
+
+
+def test_current_architecture_documents_pin_live_profile_counts() -> None:
+    root_guidance = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    current = (ROOT / "docs" / "CURRENT_ARCHITECTURE.md").read_text(encoding="utf-8")
+    agent = (ROOT / "docs" / "AGENT_ARCHITECTURE.md").read_text(encoding="utf-8")
+
+    assert "422 tools advertised by `list_tools()`" in root_guidance
+    assert "422 advertised by default (`full`)" in current
+    assert "20 advertised by `lean`" in current
+    assert "148 advertised by `readonly`" in current
+    assert "With 422 MCP tools advertised by `list_tools()`" in agent
+    assert "The `lean` profile advertises 20 tools" in agent
+    assert "the `readonly` profile advertises 148 tools" in agent

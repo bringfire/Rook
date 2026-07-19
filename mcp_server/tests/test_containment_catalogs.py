@@ -27,6 +27,11 @@ from rook.tool_lifecycle import CONTAINED_TOOLS  # noqa: E402
 CONTAINED = {entry.name for entry in CONTAINED_TOOLS}
 
 
+def _assert_no_contained_text(value: object) -> None:
+    rendered = json.dumps(value, default=str, sort_keys=True)
+    assert not {name for name in CONTAINED if name in rendered}
+
+
 def _schema(name: str) -> dict:
     return {
         "type": "function",
@@ -49,6 +54,40 @@ async def test_public_unprofiled_surface_physically_omits_contained_tools() -> N
     names = {tool.name for tool in await server._all_live_tools()}
     assert CONTAINED.isdisjoint(names)
     assert {"gh_snapshot", "gh_edit", "rhino_execute"}.issubset(names)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("profile", ["full", "lean", "readonly"])
+async def test_model_visible_tool_text_omits_contained_identities(monkeypatch, profile: str) -> None:
+    from rook import server
+
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", profile)
+    monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
+    tools = await server.list_tools()
+    _assert_no_contained_text([
+        {
+            "name": tool.name,
+            "description": tool.description,
+            "input_schema": tool.inputSchema,
+        }
+        for tool in tools
+    ])
+
+
+@pytest.mark.asyncio
+async def test_progressive_tool_read_omits_contained_identities(monkeypatch) -> None:
+    from rook import server
+
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    server._reset_capability_index_cache()
+    index = await server._get_capability_index()
+    _assert_no_contained_text([
+        index.read(record.name)
+        for record in index.records
+        if record.mcp_dispatchable
+    ])
+    result = await server.call_tool("rook_tools_read", {"name": "gh_session_history"})
+    _assert_no_contained_text(json.loads(result[0].text))
 
 
 def test_catalog_ingresses_filter_mapping_and_embedded_identities(tmp_path: Path) -> None:
