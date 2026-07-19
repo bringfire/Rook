@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -13,6 +15,17 @@ from rook.gh_csharp_preflight import (
 
 
 _FIXTURE_DIR = Path(__file__).with_name("fixtures")
+
+
+def _preserved_first_candidate() -> str:
+    fixture = json.loads(
+        (_FIXTURE_DIR / "lm9b_c_first_candidate.json").read_text(encoding="utf-8")
+    )
+    source = fixture["source"]
+    digest = "sha256:" + hashlib.sha256(source.encode("utf-8")).hexdigest()
+    assert digest == fixture["source_sha256"]
+    assert len(source.encode("utf-8")) == 1661
+    return source
 
 
 def _pin(name: str, *, access: str = "item", type_name: str = "System.Object"):
@@ -238,8 +251,69 @@ def test_exact_contract_accepts_generic_rhinocode_source():
     assert result.error_codes == ()
 
 
+def test_exact_contract_ignores_literal_and_comment_braces_in_valid_body():
+    result = _contract_result(
+        "public class Script_Instance : GH_ScriptInstance {\n"
+        "  private void RunScript(ref object A) {\n"
+        '    var text = \"not structural: } //\"; /* neither is } */\n'
+        "    A = text;\n"
+        "  }\n"
+        "}\n",
+        pins_out=[_pin("A")],
+    )
+
+    assert result.ok is True
+    assert result.error_codes == ()
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "/* public class Script_Instance : GH_ScriptInstance { "
+            "private void RunScript(ref object A) { } } */\n"
+            "public class Wrong { }"
+        ),
+        (
+            "public class Wrong { const string Contract = \"public class "
+            "Script_Instance : GH_ScriptInstance { private void RunScript("
+            "ref object A) { } }\"; }"
+        ),
+        (
+            "public class Wrong { public class Script_Instance : "
+            "GH_ScriptInstance { private void RunScript(ref object A) { } } }"
+        ),
+        (
+            '$"""public class Script_Instance : GH_ScriptInstance { '
+            'private void RunScript(ref object A) { } }"""\n'
+            "public class Wrong { }"
+        ),
+        (
+            "#if false\npublic class Script_Instance : GH_ScriptInstance { "
+            "private void RunScript(ref object A) { } }\n#endif\n"
+            "public class Wrong { }"
+        ),
+    ],
+)
+def test_exact_contract_rejects_noncode_or_nested_contract_text(source):
+    result = _contract_result(source, pins_out=[_pin("A")])
+
+    assert result.ok is False
+
+
+def test_exact_contract_requires_runscript_owned_by_script_instance():
+    source = (
+        "public class Script_Instance : GH_ScriptInstance { } "
+        "public class Wrong { private void RunScript(ref object A) { } }"
+    )
+
+    result = _contract_result(source, pins_out=[_pin("A")])
+
+    assert result.error_codes == ("runscript_method_count_mismatch",)
+
+
 def test_exact_contract_rejects_preserved_first_candidate_for_both_defects():
-    source = (_FIXTURE_DIR / "lm9b_c_first_candidate.cs").read_text(encoding="utf-8")
+    source = _preserved_first_candidate()
 
     result = _contract_result(source, pins_out=[_pin("Boxes", access="list")])
 

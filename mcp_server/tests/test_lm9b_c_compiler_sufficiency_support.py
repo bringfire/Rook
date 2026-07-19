@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import sys
@@ -31,6 +32,17 @@ def _load_support():
 
 SUPPORT = _load_support()
 _FIXTURE_DIR = Path(__file__).with_name("fixtures")
+
+
+def _preserved_first_candidate() -> str:
+    fixture = json.loads(
+        (_FIXTURE_DIR / "lm9b_c_first_candidate.json").read_text(encoding="utf-8")
+    )
+    source = fixture["source"]
+    digest = "sha256:" + hashlib.sha256(source.encode("utf-8")).hexdigest()
+    assert digest == fixture["source_sha256"]
+    assert len(source.encode("utf-8")) == 1661
+    return source
 
 
 def _contract_index() -> dict[str, object]:
@@ -161,8 +173,8 @@ def test_compiled_candidate_schema_and_trace_are_accepted() -> None:
 def test_preserved_candidate_fails_the_exact_representation_contract() -> None:
     value = _candidate()
     value["compiled_candidate"]["representation"]["source"] = (
-        _FIXTURE_DIR / "lm9b_c_first_candidate.cs"
-    ).read_text(encoding="utf-8")
+        _preserved_first_candidate()
+    )
 
     result = SUPPORT.validate_terminal_submission(value, _contract_index())
 
@@ -712,8 +724,8 @@ def test_invalid_full_source_is_candidate_failure_even_if_evaluator_accepts() ->
 def test_evaluator_acceptance_cannot_override_representation_contract_failure() -> None:
     value = _candidate()
     value["compiled_candidate"]["representation"]["source"] = (
-        _FIXTURE_DIR / "lm9b_c_first_candidate.cs"
-    ).read_text(encoding="utf-8")
+        _preserved_first_candidate()
+    )
     session = replace(
         _terminal_session(_candidate()),
         terminal_submission=value,
@@ -729,6 +741,36 @@ def test_evaluator_acceptance_cannot_override_representation_contract_failure() 
 
     assert decision.outcome == "candidate_failure"
     assert decision.reason_codes == ("representation_contract_failed",)
+
+
+@pytest.mark.parametrize(
+    "validation_field,reason_code",
+    [
+        ("schema_valid", "terminal_schema_failed"),
+        ("trace_valid", "trace_validation_failed"),
+    ],
+)
+def test_evaluator_acceptance_cannot_override_terminal_validation_failure(
+    validation_field: str,
+    reason_code: str,
+) -> None:
+    session = _terminal_session(_candidate())
+    assert session.terminal_validation is not None
+    session = replace(
+        session,
+        terminal_validation=replace(
+            session.terminal_validation,
+            **{validation_field: False},
+        ),
+    )
+
+    decision = SUPPORT.classify_observation(
+        session,
+        SUPPORT.evaluator_result_from_report(_candidate_evaluation()),
+    )
+
+    assert decision.outcome == "candidate_failure"
+    assert decision.reason_codes == (reason_code,)
 
 
 def test_no_terminal_result_is_inconclusive_without_evaluation() -> None:

@@ -15,6 +15,7 @@ _CLASS_DECLARATION_RE = re.compile(r"\bclass\s+[A-Za-z_][A-Za-z0-9_]*\b")
 _GH_COMPONENT_SUBCLASS_RE = re.compile(
     r":\s*(?:[A-Za-z_][A-Za-z0-9_]*\.)*GH_Component\b"
 )
+_SCRIPT_INSTANCE_CLASS_RE = re.compile(r"\bpublic\s+class\s+Script_Instance\b")
 _SCRIPT_INSTANCE_BASE_RE = re.compile(
     r"\bpublic\s+class\s+Script_Instance\s*:\s*"
     r"(?:[A-Za-z_][A-Za-z0-9_]*\.)*GH_ScriptInstance\b"
@@ -22,6 +23,10 @@ _SCRIPT_INSTANCE_BASE_RE = re.compile(
 _RUNSCRIPT_DECLARATION_RE = re.compile(
     r"\b(?P<visibility>public|private|protected|internal)\s+void\s+"
     r"RunScript\s*\((?P<parameters>[^()]*)\)"
+)
+_CONDITIONAL_PREPROCESSOR_RE = re.compile(
+    r"^\s*#\s*(?:if|elif|else|endif|define|undef)\b",
+    re.MULTILINE,
 )
 _WRONG_COMPONENT_PATTERNS: tuple[str, ...] = (
     "SolveInstance",
@@ -114,6 +119,130 @@ def _complete_pin_declarations(
     return True
 
 
+def _mask_csharp_noncode(source: str) -> str:
+    """Mask comments and literals while preserving offsets and brace layout."""
+
+    chars = list(source)
+
+    def mask(start: int, end: int) -> None:
+        for index in range(start, min(end, len(chars))):
+            if chars[index] not in "\r\n":
+                chars[index] = " "
+
+    index = 0
+    length = len(source)
+    while index < length:
+        if source.startswith("//", index):
+            end = source.find("\n", index + 2)
+            end = length if end < 0 else end
+            mask(index, end)
+            index = end
+            continue
+        if source.startswith("/*", index):
+            end = source.find("*/", index + 2)
+            end = length if end < 0 else end + 2
+            mask(index, end)
+            index = end
+            continue
+
+        quote_count = 0
+        if source[index] == '"':
+            while index + quote_count < length and source[index + quote_count] == '"':
+                quote_count += 1
+        if quote_count >= 3:
+            delimiter = '"' * quote_count
+            end = source.find(delimiter, index + quote_count)
+            end = length if end < 0 else end + quote_count
+            mask(index, end)
+            index = end
+            continue
+
+        verbatim_prefix = next(
+            (
+                prefix
+                for prefix in ('$@"', '@$"', '@"')
+                if source.startswith(prefix, index)
+            ),
+            None,
+        )
+        if verbatim_prefix is not None:
+            cursor = index + len(verbatim_prefix)
+            while cursor < length:
+                if source.startswith('""', cursor):
+                    cursor += 2
+                    continue
+                if source[cursor] == '"':
+                    cursor += 1
+                    break
+                cursor += 1
+            mask(index, cursor)
+            index = cursor
+            continue
+
+        regular_prefix = '$"' if source.startswith('$"', index) else None
+        if regular_prefix is not None or source[index] == '"':
+            cursor = index + (2 if regular_prefix is not None else 1)
+            escaped = False
+            while cursor < length:
+                char = source[cursor]
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    cursor += 1
+                    break
+                cursor += 1
+            mask(index, cursor)
+            index = cursor
+            continue
+
+        if source[index] == "'":
+            cursor = index + 1
+            escaped = False
+            while cursor < length:
+                char = source[cursor]
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == "'":
+                    cursor += 1
+                    break
+                cursor += 1
+            mask(index, cursor)
+            index = cursor
+            continue
+
+        index += 1
+
+    return "".join(chars)
+
+
+def _brace_depth_at(source: str, position: int) -> int:
+    depth = 0
+    for char in source[:position]:
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+    return depth
+
+
+def _matching_brace(source: str, opening_index: int) -> int | None:
+    depth = 0
+    for index in range(opening_index, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+            if depth < 0:
+                return None
+    return None
+
+
 def validate_rhinocode_csharp_full_source(
     *,
     code: Any,
@@ -142,13 +271,56 @@ def validate_rhinocode_csharp_full_source(
             error_codes=("invalid_pin_declaration",),
         )
 
+    structural_source = _mask_csharp_noncode(code)
     errors: list[str] = []
-    if _GH_COMPONENT_SUBCLASS_RE.search(code):
+    if _CONDITIONAL_PREPROCESSOR_RE.search(structural_source):
+        errors.append("conditional_compilation_forbidden")
+    if _GH_COMPONENT_SUBCLASS_RE.search(structural_source):
         errors.append("gh_component_subclass_forbidden")
-    if _SCRIPT_INSTANCE_BASE_RE.search(code) is None:
-        errors.append("missing_gh_script_instance_base")
 
-    declarations = tuple(_RUNSCRIPT_DECLARATION_RE.finditer(code))
+    script_class_declarations = tuple(
+        match
+        for match in _SCRIPT_INSTANCE_CLASS_RE.finditer(structural_source)
+        if _brace_depth_at(structural_source, match.start()) == 0
+    )
+    base_declarations = tuple(
+        match
+        for match in _SCRIPT_INSTANCE_BASE_RE.finditer(structural_source)
+        if _brace_depth_at(structural_source, match.start()) == 0
+    )
+    class_body: str | None = None
+    if len(base_declarations) != 1:
+        errors.append("missing_gh_script_instance_base")
+    if len(script_class_declarations) == 1:
+        class_declaration = script_class_declarations[0]
+        class_open = structural_source.find("{", class_declaration.end())
+        invalid_separator = min(
+            (
+                position
+                for position in (
+                    structural_source.find(";", class_declaration.end()),
+                    structural_source.find("}", class_declaration.end()),
+                )
+                if position >= 0
+            ),
+            default=len(structural_source),
+        )
+        if class_open < 0 or invalid_separator < class_open:
+            errors.append("invalid_full_source")
+        else:
+            class_close = _matching_brace(structural_source, class_open)
+            if class_close is None:
+                errors.append("invalid_full_source")
+            else:
+                class_body = structural_source[class_open + 1 : class_close]
+    elif len(script_class_declarations) > 1:
+        errors.append("invalid_full_source")
+
+    declarations = tuple(
+        match
+        for match in _RUNSCRIPT_DECLARATION_RE.finditer(class_body or "")
+        if _brace_depth_at(class_body or "", match.start()) == 0
+    )
     if len(declarations) != 1:
         errors.append("runscript_method_count_mismatch")
     else:

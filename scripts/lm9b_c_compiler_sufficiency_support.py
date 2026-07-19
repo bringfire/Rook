@@ -998,19 +998,29 @@ def classify_observation(
             outcome="inconclusive",
             reason_codes=("evaluator_result_kind_mismatch",),
         )
+    terminal_validation = compiler.terminal_validation
+    if terminal_validation is None:
+        return ObservationDecision(
+            outcome="candidate_failure",
+            reason_codes=("terminal_validation_missing",),
+        )
+    if terminal_validation.schema_valid is not True:
+        return ObservationDecision(
+            outcome="candidate_failure",
+            reason_codes=("terminal_schema_failed",),
+        )
+    if terminal_validation.trace_valid is not True:
+        return ObservationDecision(
+            outcome="candidate_failure",
+            reason_codes=("trace_validation_failed",),
+        )
     if result_kind == "compiled_candidate":
-        if (
-            compiler.terminal_validation is None
-            or compiler.terminal_validation.representation_contract_ok is not True
-        ):
+        if terminal_validation.representation_contract_ok is not True:
             return ObservationDecision(
                 outcome="candidate_failure",
                 reason_codes=("representation_contract_failed",),
             )
-        if (
-            compiler.terminal_validation is None
-            or compiler.terminal_validation.csharp_preflight_ok is not True
-        ):
+        if terminal_validation.csharp_preflight_ok is not True:
             return ObservationDecision(
                 outcome="candidate_failure",
                 reason_codes=("csharp_preflight_failed",),
