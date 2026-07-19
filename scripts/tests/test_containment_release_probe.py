@@ -7,13 +7,14 @@ import copy
 import dataclasses
 import hashlib
 import importlib
+import inspect
 import json
 import os
 import re
 import sys
 import zipfile
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -817,7 +818,7 @@ def test_source_uses_real_mcp_process_boundary_and_inert_http_construction() -> 
         assert required in source
     assert "_child-transport" in source
     assert "_child-internal" in source
-    assert "subprocess.run" in source
+    assert "subprocess.Popen" in source
 
 
 def _record_digest(data: bytes) -> str:
@@ -1033,3 +1034,100 @@ def test_public_interfaces_exist_with_output_owned_only_by_run_all() -> None:
     ):
         assert callable(getattr(module, name))
     assert tuple(module.run_all.__annotations__) == ("inputs", "output_path", "return")
+
+
+@requires_probe
+def test_internal_model_counts_are_observed_not_synthetic_literals() -> None:
+    module = _require_probe()
+    preparation_source = inspect.getsource(module._prepare_internal_probe)
+    child_source = inspect.getsource(module._internal_child)
+    assert "lambda: 0" not in preparation_source
+    assert '"dormant_model_calls": 0' not in child_source
+    assert "spies.entries" in child_source
+
+
+@requires_probe
+def test_direct_child_artifact_pid_must_match_launched_process(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _require_probe()
+    inputs = module.RuntimeInputs(
+        expected_release_sha="a" * 40,
+        expected_version="1.2.3",
+        expected_python=tmp_path / "venv" / "Scripts" / "python.exe",
+        expected_venv=tmp_path / "venv",
+        expected_package_root=tmp_path / "venv" / "Lib" / "site-packages" / "rook",
+        packaged_runtime_manifest=tmp_path / "packaged.json",
+        installed_runtime_manifest=tmp_path / "installed.json",
+        install_state=tmp_path / "state.json",
+        packaged_wheelhouse=tmp_path / "wheelhouse",
+        forbidden_source_roots=(tmp_path / "checkout",),
+        staged_script_path=tmp_path / "installed_probe.py",
+    )
+
+    def write_foreign_artifact(command: list[str]) -> None:
+        output = Path(command[command.index("--output") + 1])
+        output.write_text(
+            json.dumps({"process": {"process_id": PID + 1}}),
+            encoding="utf-8",
+        )
+
+    def fake_run(command: list[str], **_kwargs):
+        write_foreign_artifact(command)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    class FakePopen:
+        pid = PID
+
+        def __init__(self, command: list[str], **_kwargs) -> None:
+            self.command = command
+            self.returncode = 0
+
+        def communicate(self, timeout: int | None = None):
+            assert timeout == 900
+            write_foreign_artifact(self.command)
+            return "", ""
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+    monkeypatch.setattr(module, "build_installed_child_environment", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(module, "_validate_process_evidence", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    monkeypatch.setattr(module.subprocess, "Popen", FakePopen)
+
+    with pytest.raises(module.ProbeError, match="launched child PID"):
+        module._run_subprocess_child(
+            inputs,
+            label="pid-binding",
+            arguments=["_child-internal", "--probe-index", "1"],
+            profile=None,
+        )
+
+
+@requires_probe
+def test_internal_record_pid_must_match_validated_child_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _require_probe()
+    records = _internal_records()
+    package_root = tmp_path / "venv" / "Lib" / "site-packages" / "rook"
+    process = _process(package_root, tmp_path / "child-cwd")
+
+    def fake_child(_inputs, *, arguments, **_kwargs):
+        index = int(arguments[-1])
+        record = copy.deepcopy(records[index - 1])
+        record["process_id"] = PID + 1
+        record["telemetry"]["process_id"] = PID + 1
+        return {
+            "mode": "internal",
+            "process": copy.deepcopy(process),
+            "record": record,
+        }, tmp_path
+
+    monkeypatch.setattr(module, "_run_subprocess_child", fake_child)
+    inputs = SimpleNamespace()
+    with pytest.raises(module.ProbeError, match="process PID"):
+        module.run_internal_probes(inputs)

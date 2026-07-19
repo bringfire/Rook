@@ -1448,7 +1448,7 @@ def _run_subprocess_child(
             "--output",
             str(output),
         ]
-        completed = subprocess.run(
+        child = subprocess.Popen(
             command,
             cwd=workspace,
             env=environment,
@@ -1458,21 +1458,28 @@ def _run_subprocess_child(
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=900,
-            check=False,
         )
-        if completed.returncode != 0:
-            raise ProbeError(f"{label} child failed ({completed.returncode}): {completed.stderr[-2000:]}")
-        if completed.stdout != "":
+        try:
+            stdout, stderr = child.communicate(timeout=900)
+        except subprocess.TimeoutExpired as exc:
+            child.kill()
+            child.communicate()
+            raise ProbeError(f"{label} child timed out") from exc
+        if child.returncode != 0:
+            raise ProbeError(f"{label} child failed ({child.returncode}): {stderr[-2000:]}")
+        if stdout != "":
             raise ProbeError(f"{label} child wrote an unexpected stdout machine channel")
-        if "Traceback (most recent call last)" in completed.stderr:
+        if "Traceback (most recent call last)" in stderr:
             raise ProbeError(f"{label} child emitted a traceback")
         value = _read_child_output(output)
+        process = value.get("process")
         _validate_process_evidence(
-            value.get("process"),
+            process,
             inputs,
             allowed_roots=(workspace, _canonical_path(inputs.staged_script_path).parent),
         )
+        if type(process) is not dict or process.get("process_id") != child.pid:
+            raise ProbeError(f"{label} artifact does not match launched child PID")
         return value, workspace
 
 
@@ -2038,7 +2045,7 @@ def _internal_agent_config():
 class _PreparedInternalProbe:
     invoke: Callable[[], object]
     is_async: bool
-    primary_model_calls: Callable[[], int]
+    primary_model_calls: Callable[[], int] | None
     serialize: Callable[[object], dict[str, object]]
 
 
@@ -2163,7 +2170,6 @@ def _prepare_internal_probe(
     seam = spec.seam
     tool = spec.tool
     poison = _InternalPoisonMapping()
-    no_model_calls = lambda: 0
 
     async def inert_executor(_name: str, _params: object):
         raise ProbeError("internal probe reached its inert executor")
@@ -2173,14 +2179,14 @@ def _prepare_internal_probe(
             async def invoke():
                 return await server._call_tool_dispatch(tool, poison)
 
-            yield _PreparedInternalProbe(invoke, True, no_model_calls, lambda value: _serialize_dictionary(value, tool))
+            yield _PreparedInternalProbe(invoke, True, None, lambda value: _serialize_dictionary(value, tool))
             return
 
         if seam == "server._mcp_tool_executor":
             async def invoke():
                 return await server._mcp_tool_executor(tool, poison)
 
-            yield _PreparedInternalProbe(invoke, True, no_model_calls, lambda value: _serialize_dictionary(value, tool))
+            yield _PreparedInternalProbe(invoke, True, None, lambda value: _serialize_dictionary(value, tool))
             return
 
         if seam.startswith("ToolDispatcher."):
@@ -2195,7 +2201,7 @@ def _prepare_internal_probe(
                     return await method(tool, poison)
                 return await method(tool, poison, None)
 
-            yield _PreparedInternalProbe(invoke, True, no_model_calls, lambda value: _serialize_dictionary(value, tool))
+            yield _PreparedInternalProbe(invoke, True, None, lambda value: _serialize_dictionary(value, tool))
             return
 
         if seam in {"RookAgent._execute_tool", "RookAgent._execute_local_tool"}:
@@ -2207,7 +2213,7 @@ def _prepare_internal_probe(
             async def invoke():
                 return await getattr(agent, method_name)(tool, poison)
 
-            yield _PreparedInternalProbe(invoke, True, no_model_calls, lambda value: _serialize_dictionary(value, tool))
+            yield _PreparedInternalProbe(invoke, True, None, lambda value: _serialize_dictionary(value, tool))
             return
 
         if seam == "RookAgent._run_loop":
@@ -2370,7 +2376,7 @@ def _prepare_internal_probe(
                 _validate_adapter_evidence(spec.result_adapter, tool, index, evidence)
                 return evidence
 
-            yield _PreparedInternalProbe(invoke, True, no_model_calls, serialize)
+            yield _PreparedInternalProbe(invoke, True, None, serialize)
             return
 
         if seam in {"server._handle_spawn_agent", "server._handle_plan_and_execute"}:
@@ -2379,7 +2385,7 @@ def _prepare_internal_probe(
             async def invoke():
                 return await method(poison)
 
-            yield _PreparedInternalProbe(invoke, True, no_model_calls, lambda value: _serialize_dictionary(value, tool))
+            yield _PreparedInternalProbe(invoke, True, None, lambda value: _serialize_dictionary(value, tool))
             return
 
         if seam in {"BootstrapRunner.run_test", "BootstrapRunner._mock_executor"}:
@@ -2419,12 +2425,12 @@ def _prepare_internal_probe(
                     _validate_adapter_evidence(spec.result_adapter, tool, index, evidence)
                     return evidence
 
-                yield _PreparedInternalProbe(invoke, False, no_model_calls, serialize)
+                yield _PreparedInternalProbe(invoke, False, None, serialize)
             else:
                 def invoke():
                     return runner._mock_executor(tool, poison)
 
-                yield _PreparedInternalProbe(invoke, False, no_model_calls, lambda value: _serialize_dictionary(value, tool))
+                yield _PreparedInternalProbe(invoke, False, None, lambda value: _serialize_dictionary(value, tool))
             return
 
         if seam == "bootstrap.HttpExecutor.execute":
@@ -2435,7 +2441,7 @@ def _prepare_internal_probe(
             def invoke():
                 return executor.execute(tool, poison)
 
-            yield _PreparedInternalProbe(invoke, False, no_model_calls, lambda value: _serialize_dictionary(value, tool))
+            yield _PreparedInternalProbe(invoke, False, None, lambda value: _serialize_dictionary(value, tool))
             return
 
         if seam == "bootstrap.create_mock_executor.callable":
@@ -2446,7 +2452,7 @@ def _prepare_internal_probe(
             def invoke():
                 return executor(tool, poison)
 
-            yield _PreparedInternalProbe(invoke, False, no_model_calls, lambda value: _serialize_dictionary(value, tool))
+            yield _PreparedInternalProbe(invoke, False, None, lambda value: _serialize_dictionary(value, tool))
             return
 
         if seam == "learning.create_tool_executor.callable":
@@ -2457,7 +2463,7 @@ def _prepare_internal_probe(
             async def invoke():
                 return await executor(tool, poison)
 
-            yield _PreparedInternalProbe(invoke, True, no_model_calls, lambda value: _serialize_dictionary(value, tool))
+            yield _PreparedInternalProbe(invoke, True, None, lambda value: _serialize_dictionary(value, tool))
             return
 
         if seam.startswith("Investigator."):
@@ -2483,7 +2489,7 @@ def _prepare_internal_probe(
                 return await investigator._run_experiment(tool, poison)
 
             serializer = _serialize_experiment if spec.result_adapter == "experiment_result" else _serialize_investigation
-            yield _PreparedInternalProbe(invoke, True, no_model_calls, lambda value: serializer(value, tool))
+            yield _PreparedInternalProbe(invoke, True, None, lambda value: serializer(value, tool))
             return
 
         if seam.startswith("HybridInvestigator."):
@@ -2507,7 +2513,7 @@ def _prepare_internal_probe(
                     return await investigator.investigate_tool(tool)
                 return await investigator.investigate_gap(_InternalToolOnly(tool, "hybrid gap"))
 
-            yield _PreparedInternalProbe(invoke, True, no_model_calls, lambda value: _serialize_hybrid(value, tool))
+            yield _PreparedInternalProbe(invoke, True, None, lambda value: _serialize_hybrid(value, tool))
             return
 
         if seam == "LearningSession.run_investigation_cycle.tool_target":
@@ -2524,7 +2530,7 @@ def _prepare_internal_probe(
             async def invoke():
                 return await session.run_investigation_cycle(f"tool:{tool}")
 
-            yield _PreparedInternalProbe(invoke, True, no_model_calls, lambda value: _serialize_investigation(value, tool))
+            yield _PreparedInternalProbe(invoke, True, None, lambda value: _serialize_investigation(value, tool))
             return
 
         if seam.startswith("explorer."):
@@ -2536,12 +2542,12 @@ def _prepare_internal_probe(
                 async def invoke():
                     return await executor.execute(tool, poison)
 
-                yield _PreparedInternalProbe(invoke, True, no_model_calls, lambda value: _serialize_explorer(value, tool))
+                yield _PreparedInternalProbe(invoke, True, None, lambda value: _serialize_explorer(value, tool))
             else:
                 def invoke():
                     return executor.execute_sync(tool, poison)
 
-                yield _PreparedInternalProbe(invoke, False, no_model_calls, lambda value: _serialize_explorer(value, tool))
+                yield _PreparedInternalProbe(invoke, False, None, lambda value: _serialize_explorer(value, tool))
             return
 
         raise ProbeError(f"unsupported internal seam: {seam}")
@@ -2577,7 +2583,14 @@ def _internal_child(probe_index: int, output: Path) -> None:
                 event = _one_event_delta(before, after, spec.tool, spec.origin)
                 if spies.entries:
                     raise ProbeError("internal probe reached downstream work")
-                primary_calls = prepared.primary_model_calls()
+                if prepared.primary_model_calls is None:
+                    primary_calls = sum(
+                        entry == "rook.agent.base_agent.RookAgent._call_model"
+                        for entry in spies.entries
+                    )
+                else:
+                    primary_calls = prepared.primary_model_calls()
+                dormant_calls = len(spies.entries)
     finally:
         asyncio.set_event_loop(None)
         loop.close()
@@ -2600,7 +2613,7 @@ def _internal_child(probe_index: int, output: Path) -> None:
         },
         "downstream": [],
         "primary_model_calls": primary_calls,
-        "dormant_model_calls": 0,
+        "dormant_model_calls": dormant_calls,
     }
     _validate_adapter_evidence(spec.result_adapter, spec.tool, probe_index, adapter)
     expected_primary = 2 if probe_index in {7, 10} else 0
@@ -2626,6 +2639,11 @@ def run_internal_probes(inputs: RuntimeInputs) -> list[dict[str, object]]:
         record = value["record"]
         if type(record) is not dict or record.get("index") != index:
             raise ProbeError("internal child record identity drift")
+        process = value["process"]
+        if type(process) is not dict or record.get("process_id") != process.get("process_id"):
+            raise ProbeError("internal record/process PID drift")
+        if record.get("process_start_token") != process.get("process_start_token"):
+            raise ProbeError("internal record/process start token drift")
         records.append(record)
     _validate_internal_records(records)
     return records
