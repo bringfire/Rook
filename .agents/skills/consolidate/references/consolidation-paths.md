@@ -46,8 +46,9 @@ gh_structure_query(guid="<some-guid>")
 gh_structure_query(name="Sphere")
 gh_structure_query(stable_key="primitives|surfaces|sphere")
 
-# Test intent resolution
-gh_execute_intent(intent="create a circle with center and radius")
+# Verify component discovery and guidance
+gh_library(search="Circle", exact=True)
+gh_knowledge_query(intent="circle with center and radius", depth="context")
 ```
 
 **Batch size:** 15 components per DSPy call.
@@ -56,7 +57,7 @@ gh_execute_intent(intent="create a circle with center and radius")
 
 ## Path 2: Rhino Command Consolidation
 
-**When:** After learning many new Rhino commands, or when `rhino_execute_intent` picks wrong targets.
+**When:** After learning many new Rhino commands, or when explicit command/tool discovery repeatedly picks wrong targets.
 
 **What it does:** Two sub-paths — structural consolidation (families + relationships) and tiering (condensed knowledge).
 
@@ -170,4 +171,4 @@ tool = consolidate_single_tool(
 | 10+ new commands accumulated | Path 2 (auto) | `manager.reconsolidate()` |
 | Overnight learning produced patterns | Path 3 | `consolidate_all_tools(...)` |
 | Single tool has many patterns | Path 3 (single) | `consolidate_single_tool(...)` |
-| Intent resolution picks wrong target | Path 1 or 2a | Re-run structural consolidation |
+| Explicit discovery picks wrong target | Path 1 or 2a | Re-run structural consolidation |

@@ -23,6 +23,8 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from ..bridge import call_rhino
 from ..gh_edit_contract import apply_gh_edit_contract
 from ..gh_status_contract import normalize_gh_status_result
+from ..tool_lifecycle import resolve_contained_tool
+from ..tool_lifecycle_runtime import DispatchOrigin, deny_if_contained
 from .chat.execution_policy import annotate_result, needs_verification
 
 logger = logging.getLogger(__name__)
@@ -1569,69 +1571,6 @@ def build_local_tools() -> Dict[str, Any]:
     except ImportError:
         logger.debug("rhino_instances local tool unavailable (import failed)")
 
-    # --- rhino_execute_intent ---
-    try:
-        from ..learning.intent_orchestrator import IntentOrchestrator
-        from ..learning.graph import KnowledgeGraphV2
-        from ..learning.command_knowledge_store import CommandKnowledgeStore
-        from ..knowledge import record_knowledge
-
-        async def _rhino_execute_intent(
-            intent: str = "", port: int | None = None, **kwargs,
-        ) -> dict:
-            if not intent:
-                return {"success": False, "data": "Missing required parameter: intent"}
-            try:
-                kg = KnowledgeGraphV2()
-                try:
-                    ks = CommandKnowledgeStore()
-                except Exception:
-                    ks = None
-
-                async def bound_caller(endpoint, method="GET", data=None):
-                    return await call_rhino(endpoint, method, data, port=port)
-
-                geo_context = None
-                try:
-                    sel_resp = await bound_caller("/selection", "GET", None)
-                    if sel_resp.get("success"):
-                        sel_data = sel_resp.get("data", {})
-                        if isinstance(sel_data, dict):
-                            objects = sel_data.get("objects", [])
-                            if objects:
-                                sel_ids = [
-                                    obj["id"] for obj in objects
-                                    if isinstance(obj, dict) and "id" in obj
-                                ]
-                                geo_types = {
-                                    obj["id"]: obj.get("type", "object")
-                                    for obj in objects
-                                    if isinstance(obj, dict) and "id" in obj
-                                }
-                                if sel_ids:
-                                    geo_context = {
-                                        "selected_ids": sel_ids,
-                                        "geometry_types": geo_types,
-                                    }
-                except Exception:
-                    pass
-
-                orchestrator = IntentOrchestrator(
-                    http_caller=bound_caller,
-                    knowledge_store=ks,
-                    knowledge_graph=kg,
-                    recorder=record_knowledge,
-                )
-                exec_result = await orchestrator.run(intent, context=geo_context)
-                return {"success": exec_result["success"], "data": exec_result}
-            except Exception as e:
-                logger.error(f"rhino_execute_intent failed: {e}", exc_info=True)
-                return {"success": False, "data": f"Execution failed: {str(e)}"}
-
-        tools["rhino_execute_intent"] = _rhino_execute_intent
-    except ImportError:
-        logger.debug("rhino_execute_intent local tool unavailable (import failed)")
-
     # --- gh_constraints ---
     try:
         from ..learning.constraints import get_constraint_checker
@@ -2012,7 +1951,11 @@ class ToolDispatcher:
         local_tools: Optional[Dict[str, Any]] = None,
     ):
         self._port = port
-        self._local_tools: Dict[str, Any] = local_tools or {}
+        self._local_tools: Dict[str, Any] = {
+            name: handler
+            for name, handler in (local_tools or {}).items()
+            if resolve_contained_tool(name) is None
+        }
         self._call_count = 0
         # Correction detection state (mirrors server.py's _gh_recent_failures)
         self._recent_failures: Dict[str, dict] = {}
@@ -2020,11 +1963,17 @@ class ToolDispatcher:
 
     def register_local(self, name: str, handler: Any) -> None:
         """Register a single local tool handler."""
+        if resolve_contained_tool(name) is not None:
+            return
         self._local_tools[name] = handler
 
     def register_locals(self, tools: Dict[str, Any]) -> None:
         """Register multiple local tool handlers."""
-        self._local_tools.update(tools)
+        self._local_tools.update(
+            (name, handler)
+            for name, handler in tools.items()
+            if resolve_contained_tool(name) is None
+        )
 
     async def dispatch(self, name: str, params: dict) -> dict:
         """Dispatch a tool call to the appropriate handler.
@@ -2033,10 +1982,12 @@ class ToolDispatcher:
         no session recording — those are the agent's responsibility via Seam 1-4.
 
         Post-dispatch verification (execution_policy) runs after all tiers return,
-        covering CREATION_TOOLS, MODAL_RISK_TOOLS, and route-based
-        rhino_execute_intent. This is the single enforcement point — both chat
+        covering CREATION_TOOLS and MODAL_RISK_TOOLS. This is the single enforcement point — both chat
         and agent paths converge here.
         """
+        denial = deny_if_contained(name, DispatchOrigin.TOOL_DISPATCHER)
+        if denial is not None:
+            return {"success": False, "data": denial}
         self._call_count += 1
         params = dict(params) if params else {}
         port = params.pop("port", None) or self._port
@@ -2045,8 +1996,7 @@ class ToolDispatcher:
 
         # --- Post-dispatch verification (single enforcement point) ---
         # Covers CREATION_TOOLS (silent-failure detection via objectsCreated),
-        # MODAL_RISK_TOOLS (prompt idle check), and route-based
-        # rhino_execute_intent (when substrate is known_command or interactive).
+        # MODAL_RISK_TOOLS (prompt idle check).
         # Skip when _pre_dispatch_failure is set — the tool never reached Rhino,
         # so prompt-polling and modal-risk notes would be misleading.
         if (
@@ -2069,6 +2019,9 @@ class ToolDispatcher:
 
     async def _dispatch_inner(self, name: str, params: dict, port: int | None) -> dict:
         """Core dispatch logic — routes to the correct tier without verification."""
+        denial = deny_if_contained(name, DispatchOrigin.TOOL_DISPATCHER)
+        if denial is not None:
+            return {"success": False, "data": denial}
         if name in _DEPRECATED_INTERACTIVE_COMMAND_TOOLS:
             return _interactive_command_deprecated_result(name)
 
@@ -2133,6 +2086,9 @@ class ToolDispatcher:
 
     async def _call_local(self, name: str, params: dict, port: int | None = None) -> dict:
         """Execute a local Python tool."""
+        denial = deny_if_contained(name, DispatchOrigin.TOOL_DISPATCHER)
+        if denial is not None:
+            return {"success": False, "data": denial}
         fn = self._local_tools[name]
         try:
             call_params = dict(params)
@@ -2169,6 +2125,9 @@ class ToolDispatcher:
         (agents record via their own MetricsStore in Seam 3).
         Currently empty — gh_edit handles its own knowledge/session recording.
         """
+        denial = deny_if_contained(name, DispatchOrigin.TOOL_DISPATCHER)
+        if denial is not None:
+            return {"success": False, "data": denial}
         from ..learning.gh_knowledge import gh_query_operation, get_gh_knowledge_store
 
         op_name, ctx_builder = KNOWLEDGE_WRAPPED_TOOLS[name]

@@ -15,6 +15,7 @@ import os
 import tempfile
 import textwrap
 import uuid
+from collections.abc import Mapping
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ from typing import Any
 import httpx
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
+from mcp import types as mcp_types
 from mcp.types import Tool, TextContent
 
 from .gh_edit_contract import apply_gh_edit_contract
@@ -70,6 +72,8 @@ from .mcp_tool_profiles import (
     resolve_profile,
     tool_blocked,
 )
+from .tool_lifecycle import resolve_contained_tool
+from .tool_lifecycle_runtime import DispatchOrigin, deny_if_contained
 from .capability_index import build_index, validate_arguments
 from . import artifacts, merge_execution, script_library, targeting, workbench, work_units
 from .mesh2splat import pipeline as mesh2splat_pipeline
@@ -826,6 +830,9 @@ async def _mcp_tool_executor(tool_name: str, params: dict) -> dict:
     branch on those markers without re-parsing the text. When it doesn't
     parse, return the raw string — same surface as before this change.
     """
+    denial = deny_if_contained(tool_name, DispatchOrigin.SERVER_DISPATCH)
+    if denial is not None:
+        return {"success": False, "data": denial}
     try:
         result = await call_tool(tool_name, params)
         if isinstance(result, list) and result:
@@ -7876,33 +7883,6 @@ Returns: Command learned, modes discovered, gotchas found, progress stats""",
             }
         ),
         Tool(
-            name="rhino_execute_intent",
-            description="""Execute a user intent using learned command knowledge.
-
-Uses the Hybrid Investigator to:
-1. Search for matching commands in the knowledge store
-2. Use DSPy to resolve intent to best command+mode
-3. Use MAB to select among candidates based on history
-4. Build the exact syntax and execute
-
-Example intents:
-- "create a sphere at origin with radius 5"
-- "draw a box from 0,0,0 to 10,10,10"
-- "make a cylinder at 0,0,0 with radius 3 and height 10"
-
-Returns: Command executed, mode used, objects created, reasoning trace""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "intent": {
-                        "type": "string",
-                        "description": "Natural language intent describing what to create/do"
-                    }
-                },
-                "required": ["intent"]
-            }
-        ),
-        Tool(
             name="rhino_learning_progress",
             description="""Get learning progress from the roadmap and knowledge store.
 
@@ -9885,37 +9865,6 @@ Example: Save with modifications
             },
         ),
         Tool(
-            name="gh_replay_recipe",
-            description=(
-                "Replay a stored v2 recipe onto the Grasshopper canvas.\n\n"
-                "Loads a recipe by pattern_id, converts its graph to a gh_edit document,\n"
-                "and applies it to the canvas. Only works with v2 recipes (schema_version 2.0).\n\n"
-                "The recipe's components are created with T-prefixed temp IDs, and all\n"
-                "connections are wired atomically via gh_edit.\n\n"
-                "Use offset_x/offset_y to avoid overlapping existing canvas content."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "pattern_id": {
-                        "type": "string",
-                        "description": "Pattern ID of the v2 recipe to replay (e.g., '5a0d15b5')"
-                    },
-                    "offset_x": {
-                        "type": "integer",
-                        "description": "X position offset for all components (default: 0)",
-                        "default": 0
-                    },
-                    "offset_y": {
-                        "type": "integer",
-                        "description": "Y position offset for all components (default: 0)",
-                        "default": 0
-                    },
-                },
-                "required": ["pattern_id"],
-            },
-        ),
-        Tool(
             name="gh_migration_status",
             description=(
                 "Show recipe migration progress from v1 to v2 format.\n\n"
@@ -10295,110 +10244,6 @@ Example: Get info for Sphere and Loft:
                 "required": ["names"]
             }
         ),
-        Tool(
-            name="gh_execute_intent",
-            description="""Execute a Grasshopper intent - create and wire generic component graphs.
-
-Owns generic component creation (sliders, math, geometry primitives, data
-manipulation, etc.). Does NOT own script components — programmable
-components (Python, C#) belong to `gh_create_script(language=...)`
-(or its `gh_create_python_script` / `gh_create_csharp_script` back-compat
-aliases), which create by fixed component GUID and invoke a transactional
-create/set-pins/inject-code/check-errors pipeline that this intent tool
-cannot replicate safely.
-
-For script-component work, call the dedicated create tool directly —
-do not route through this tool.
-
-It automatically:
-1. Queries the knowledge system for matching components (with gotchas and correct GUIDs)
-2. Creates components using learned knowledge
-3. Returns warnings about known pitfalls
-
-Availability: excluded from worker-mode preload per tool_groups.py — worker
-agents should compose via `gh_canvas` tools, which includes the dedicated
-script creation tools.
-
-OPTIONAL PLANNING (Phase 4):
-For complex intents, you can submit an execution plan. Plans help organize multi-step work
-and are recorded for future reflection. Planning is optional - use your judgment.
-
-Example: Simple execution (no plan):
-{"intent": "create a sphere with radius controlled by a slider"}
-
-Example: With execution plan:
-{
-  "intent": "create spiral staircase treads",
-  "plan": {
-    "reasoning": "Need concentric circles with radius-scaled domains for wedge shapes",
-    "sub_problems": ["Create inner/outer circles", "Extract equal-angle arcs", "Loft treads"],
-    "sequence": ["Create circles", "Apply domain scaling", "SubCurve extraction", "Loft"],
-    "success_criteria": "Wedge treads that respond to depth slider",
-    "patterns_to_apply": ["concentric_circle_arcs"],
-    "unknowns": ["Loft vs Ruled Surface for tread"]
-  }
-}
-
-The tool uses accumulated knowledge to select correct component GUIDs and avoid known issues.""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "intent": {
-                        "type": "string",
-                        "description": "Natural language description of what to create"
-                    },
-                    "x": {
-                        "type": "number",
-                        "description": "Base X position on canvas (default: 100)"
-                    },
-                    "y": {
-                        "type": "number",
-                        "description": "Base Y position on canvas (default: 100)"
-                    },
-                    "plan": {
-                        "type": "object",
-                        "description": "Optional execution plan for complex intents. Validated and recorded for reflection. Step tracking shows which sequence steps were executed (for Phase 5 reflection).",
-                        "properties": {
-                            "reasoning": {
-                                "type": "string",
-                                "description": "Free text explaining approach and considerations (REQUIRED)"
-                            },
-                            "sub_problems": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "Breakdown of the intent into sub-tasks (REQUIRED)"
-                            },
-                            "sequence": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "Ordered steps to execute (REQUIRED)"
-                            },
-                            "success_criteria": {
-                                "type": "string",
-                                "description": "What success looks like (REQUIRED)"
-                            },
-                            "patterns_to_apply": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "Pattern IDs from pattern memory to apply (optional)"
-                            },
-                            "constraints_checked": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "Geometric constraints verified (optional)"
-                            },
-                            "unknowns": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "Acknowledged uncertainties - encouraged! (optional)"
-                            }
-                        }
-                    }
-                },
-                "required": ["intent"]
-            }
-        ),
-
         # GH Exploration Tools (for learning and knowledge capture)
         Tool(
             name="gh_start_exploration",
@@ -10429,57 +10274,6 @@ Returns the session ID and count of observations recorded.""",
                 "type": "object",
                 "properties": {},
                 "required": []
-            }
-        ),
-        Tool(
-            name="gh_explore_workflow",
-            description="""Execute a workflow pattern and capture all observations.
-
-Creates components, wires them, and records everything:
-- Success/failure at each step
-- Runtime messages and errors
-- Output data structures (types, tree shapes)
-
-Automatically records observations for failures and interesting discoveries.
-
-Example: Test sphere with slider wiring:
-{
-  "workflow": {
-    "components": [
-      {"role": "input", "type": "slider", "nickname": "R", "value": 10},
-      {"role": "main", "type": "sphere"}
-    ],
-    "wiring": [
-      {"from": 0, "to": 1, "target_param": "R"}
-    ]
-  },
-  "description": "Parametric sphere with radius slider"
-}""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "workflow": {
-                        "type": "object",
-                        "description": "Workflow definition with components and wiring",
-                        "properties": {
-                            "components": _object_array_schema("Components to create, in order. Each has: role (input/main), type (slider/panel/sphere/etc), optional nickname/value"),
-                            "wiring": _object_array_schema("Connections to make. Each has: from (index), to (index), target_param (name)")
-                        }
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "What this workflow is testing/exploring"
-                    },
-                    "x": {
-                        "type": "number",
-                        "description": "Base X position (default: 100)"
-                    },
-                    "y": {
-                        "type": "number",
-                        "description": "Base Y position (default: 100)"
-                    }
-                },
-                "required": ["workflow", "description"]
             }
         ),
         Tool(
@@ -11080,45 +10874,6 @@ Returns:
             }
         ),
         # ---- Agent System ----
-        Tool(
-            name="spawn_agent",
-            description="Spawn a single worker agent to execute a task autonomously in the background. Returns agent_id immediately. Use agent_status to poll for completion. The agent uses Haiku by default and has access to Rhino/GH tools. In Phase 1 multi-instance routing, launch requires a resolved Rhino target, but later child tool calls follow the MCP server's process-local active binding at call time; snapshot-pinned child routing is deferred.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "prompt": {"type": "string", "description": "Natural-language task for the agent to execute"},
-                    "tool_groups": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Tool groups to preload (e.g. 'rhino_geometry', 'gh_canvas'). Available: rhino_geometry, rhino_transform, rhino_curves, rhino_surfaces, rhino_mesh, rhino_subd, rhino_blocks, rhino_selection, rhino_measurement, layers, viewport, rhino_commands, materials, game_export, gumball, annotation, import_export, gh_canvas, gh_exploration, gh_document, gh_references, gh_validation"
-                    },
-                    "model": {"type": "string", "description": "LiteLLM model ID (default: claude-haiku-4-5)"},
-                    "max_turns": {"type": "integer", "description": "Max agent turns (default: 30)"},
-                    "workspace_assets": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Rhino layers/objects this agent may modify (e.g. 'Layer::Walls')"
-                    },
-                    "guardian_enabled": {"type": "boolean", "description": "Enable Guardian trajectory monitor (default: true)"},
-                    "max_input_tokens": {"type": "integer", "description": "Token budget for the task (default: 500000). Increase for complex GH definitions."}
-                },
-                "required": ["prompt"]
-            }
-        ),
-        Tool(
-            name="plan_and_execute",
-            description="Decompose a complex task via Sonnet planner, then execute with Haiku workers in the background. Returns plan_id immediately. Use agent_status to poll for completion. Use for multi-step design tasks. In Phase 1 multi-instance routing, launch requires a resolved Rhino target, but later child tool calls follow the MCP server's process-local active binding at call time; snapshot-pinned child routing is deferred.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "request": {"type": "string", "description": "Natural-language design request to decompose and execute"},
-                    "auto_approve": {"type": "boolean", "description": "Execute plan immediately without approval pause (default: true)"},
-                    "planner_model": {"type": "string", "description": "Model for planning phase (default: claude-sonnet-4-5)"},
-                    "worker_model": {"type": "string", "description": "Model for worker execution (default: claude-haiku-4-5)"}
-                },
-                "required": ["request"]
-            }
-        ),
         Tool(
             name="agent_status",
             description="Check the status of running or completed agents. Returns agent ID, state, turn count, cost, and active tools.",
@@ -13180,7 +12935,7 @@ Returns the full profile JSON including features, surfaces, and elements.""",
     else:
         live_tools = all_tools
 
-    return live_tools
+    return [tool for tool in live_tools if resolve_contained_tool(tool.name) is None]
 
 
 @mcp.list_tools()
@@ -13311,6 +13066,9 @@ async def _handle_spawn_agent(arguments: dict) -> dict:
     Runs the agent as a background asyncio.Task so the MCP server stays
     responsive. Returns the agent_id immediately; use agent_status to poll.
     """
+    denial = deny_if_contained("spawn_agent", DispatchOrigin.INTERNAL_HANDLER)
+    if denial is not None:
+        return {"success": False, "data": denial}
     import asyncio
     import uuid
     try:
@@ -13403,6 +13161,9 @@ async def _handle_plan_and_execute(arguments: dict) -> dict:
     Runs planner + workers as a background asyncio.Task. Returns plan_id
     immediately; use agent_status to poll for completion.
     """
+    denial = deny_if_contained("plan_and_execute", DispatchOrigin.INTERNAL_HANDLER)
+    if denial is not None:
+        return {"success": False, "data": denial}
     import asyncio
     import uuid
     try:
@@ -13710,6 +13471,9 @@ def _encode_reconstruction_job_id(jid: Any) -> tuple[str | None, dict | None]:
 
 async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     """Handle tool calls."""
+    denial = deny_if_contained(name, DispatchOrigin.SERVER_DISPATCH)
+    if denial is not None:
+        return {"success": False, "data": denial}
     import time as _time
     _t0 = _time.perf_counter()
     _tool_name = name  # Preserve original tool name — handlers may reassign `name`
@@ -20746,7 +20510,10 @@ def _scan_dispatch_case_labels() -> frozenset[str]:
             if isinstance(node, ast.MatchValue) and isinstance(node.value, ast.Constant)
             and isinstance(node.value.value, str)
         }
-        return frozenset(labels) | META_TOOL_NAMES
+        return frozenset(
+            name for name in (labels | META_TOOL_NAMES)
+            if resolve_contained_tool(name) is None
+        )
     except Exception:
         logger.exception("Could not scan dispatch case labels; capability index limited to meta-tools")
         return META_TOOL_NAMES
@@ -20804,6 +20571,13 @@ async def _handle_meta_tool(name, arguments, profile):
     arguments-is-object -> field validation -> dispatch under _dispatch_origin="meta". All caller
     inputs are untrusted (this is a public MCP dispatcher) and coerced/guarded before use.
     """
+    if name == "rook_tools_call":
+        denial = deny_if_contained(
+            arguments.get("name"), DispatchOrigin.PROGRESSIVE_META
+        )
+        if denial is not None:
+            return _format_tool_result({"success": False, "data": denial})
+
     index = await _get_capability_index()
     scope_readonly = (profile == Profile.READONLY)
     if name == "rook_tools_ls":
@@ -20863,6 +20637,9 @@ async def _handle_meta_tool(name, arguments, profile):
 @mcp.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle tool calls with centralized Rhino target routing."""
+    denial = deny_if_contained(name, DispatchOrigin.PUBLIC_MCP)
+    if denial is not None:
+        return _format_tool_result({"success": False, "data": denial})
     arguments = dict(arguments) if arguments else {}
     _active_profile = resolve_profile(os.environ)
     if tool_blocked(name, _active_profile):
@@ -20962,6 +20739,39 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         raw_result = await _call_tool_dispatch(name, dispatch_arguments)
     raw_result = targeting.attach_route_metadata(raw_result, route)
     return _format_tool_result(raw_result)
+
+
+def _install_mcp_call_tool_containment_wrapper() -> None:
+    """Route exact stale tombstones before the MCP SDK validates tool schemas."""
+    retained_handler = mcp.request_handlers[mcp_types.CallToolRequest]
+    if getattr(retained_handler, "_rook_containment_wrapper", False):
+        return
+
+    async def containment_handler(request):
+        raw_name = request.params.name
+        if resolve_contained_tool(raw_name) is not None:
+            contents = await call_tool(raw_name, None)
+            return mcp_types.ServerResult(
+                mcp_types.CallToolResult(content=contents, isError=False)
+            )
+
+        if raw_name == "rook_tools_call":
+            outer = request.params.arguments
+            target = outer.get("name") if isinstance(outer, Mapping) else None
+            if resolve_contained_tool(target) is not None:
+                contents = await call_tool(raw_name, outer)
+                return mcp_types.ServerResult(
+                    mcp_types.CallToolResult(content=contents, isError=False)
+                )
+
+        return await retained_handler(request)
+
+    containment_handler._rook_containment_wrapper = True
+    containment_handler._rook_retained_handler = retained_handler
+    mcp.request_handlers[mcp_types.CallToolRequest] = containment_handler
+
+
+_install_mcp_call_tool_containment_wrapper()
 
 
 def _validate_profile_or_exit() -> None:

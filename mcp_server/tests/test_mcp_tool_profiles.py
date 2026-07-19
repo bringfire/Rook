@@ -50,9 +50,9 @@ from rook.mcp_tool_profiles import (
 
 
 def test_set_sizes_are_pinned():
-    assert len(PUBLIC_LEAN_TOOL_NAMES) == 22
+    assert len(PUBLIC_LEAN_TOOL_NAMES) == 20
     assert len(PUBLIC_READONLY_TOOL_NAMES) == 148
-    assert len(SENTINEL_TOOL_NAMES) == 26
+    assert len(SENTINEL_TOOL_NAMES) == 22
     assert not any(
         name.startswith("rhino_director_") for name in PUBLIC_READONLY_TOOL_NAMES
     )
@@ -70,8 +70,6 @@ def test_lean_is_not_a_subset_of_readonly():
     lean_only = PUBLIC_LEAN_TOOL_NAMES - PUBLIC_READONLY_TOOL_NAMES
     assert lean_only == {
         "gh_edit",
-        "rhino_execute_intent",
-        "gh_execute_intent",
         "rhino_set_active_instance",
         "rhino_clear_active_instance",
         "openrouter_refresh_catalog",

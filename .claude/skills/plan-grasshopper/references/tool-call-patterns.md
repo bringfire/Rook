@@ -7,46 +7,37 @@ Common MCP tool call sequences for Grasshopper definition construction.
 The most common pattern — a number slider feeding into a component parameter.
 
 ```python
-# 1. Create the slider
-gh_execute_intent(intent="create number slider named Radius", x=100, y=100)
-# → Record as $RADIUS_SLIDER
-
-# 2. Set range immediately
-gh_set_value(guid=$RADIUS_SLIDER, value=5.0, min=0.1, max=50.0)
-
-# 3. Create the target component
-gh_execute_intent(intent="create sphere component", x=400, y=100)
-# → Record as $SPHERE
-
-# 4. Wire slider to component
-gh_edit(epoch=<current>, connect=["$RADIUS_SLIDER.O0>$SPHERE.I0"])
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "type": "slider", "nick": "Radius", "min": 0.1, "max": 50.0, "value": 5.0, "pos": [100, 100]},
+        {"temp_id": "T2", "guid": "$SPHERE_TYPE_GUID", "pos": [400, 100]},
+    ],
+    connect=["T1.O0>T2.I0"],
+)
+# Record committed IDs from edit_summary.temp_id_map.
 ```
 
-**Gotcha:** Always set slider value/range BEFORE wiring. Some components compute immediately on connection and may error with default 0-1 range.
+**Gotcha:** Define the slider value/range in the create entry before wiring.
+Resolve `$SPHERE_TYPE_GUID` with `gh_library` or `gh_knowledge_query`.
 
 ## Pattern: Multi-Input Component
 
 Component with several inputs from different sources.
 
 ```python
-# Create inputs
-gh_execute_intent(intent="create point parameter", x=100, y=100)  # → $CENTER
-gh_execute_intent(intent="create number slider named Radius", x=100, y=200)  # → $RADIUS
-gh_execute_intent(intent="create number slider named Height", x=100, y=300)  # → $HEIGHT
-
-# Set slider ranges
-gh_set_value(guid=$RADIUS, value=5.0, min=0.1, max=50.0)
-gh_set_value(guid=$HEIGHT, value=10.0, min=1.0, max=100.0)
-
-# Create component
-gh_execute_intent(intent="create cylinder component", x=400, y=200)  # → $CYLINDER
-
-# Wire all inputs in a single batch edit
-gh_edit(epoch=<current>, connect=[
-  "$CENTER.O0>$CYLINDER.I0",   # Base plane
-  "$RADIUS.O0>$CYLINDER.I1",   # Radius
-  "$HEIGHT.O0>$CYLINDER.I2"    # Length
-])
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "guid": "$POINT_PARAM_GUID", "pos": [100, 100]},
+        {"temp_id": "T2", "type": "slider", "nick": "Radius", "min": 0.1, "max": 50.0, "value": 5.0, "pos": [100, 200]},
+        {"temp_id": "T3", "type": "slider", "nick": "Height", "min": 1.0, "max": 100.0, "value": 10.0, "pos": [100, 300]},
+        {"temp_id": "T4", "guid": "$CYLINDER_GUID", "pos": [400, 200]},
+    ],
+    connect=["T1.O0>T4.I0", "T2.O0>T4.I1", "T3.O0>T4.I2"],
+)
 ```
 
 ## Pattern: Component Chain
@@ -54,23 +45,20 @@ gh_edit(epoch=<current>, connect=[
 Sequential processing: output of one feeds input of next.
 
 ```python
-# Step 1: Create curve
-gh_execute_intent(intent="create circle component", x=100, y=100)  # → $CIRCLE
-
-# Step 2: Extrude it
-gh_execute_intent(intent="create extrude component", x=400, y=100)  # → $EXTRUDE
-
-# Step 3: Cap it
-gh_execute_intent(intent="create cap holes component", x=700, y=100)  # → $CAP
-
-# Wire the chain in one edit
-gh_edit(epoch=<current>, connect=[
-  "$CIRCLE.O0>$EXTRUDE.I0",
-  "$EXTRUDE.O0>$CAP.I0"
-])
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "guid": "$CIRCLE_GUID", "pos": [100, 100]},
+        {"temp_id": "T2", "guid": "$EXTRUDE_GUID", "pos": [400, 100]},
+        {"temp_id": "T3", "guid": "$CAP_HOLES_GUID", "pos": [700, 100]},
+    ],
+    connect=["T1.O0>T2.I0", "T2.O0>T3.I0"],
+)
 
 # Checkpoint after chain
-gh_solve(delay=500)
+# The preceding gh_edit scheduled the solution. Bounded-poll gh_status until
+# ready_for_edit is true, solverEnabled is true, and solutionState is PostProcess.
 gh_errors()
 ```
 
@@ -79,17 +67,15 @@ gh_errors()
 When components produce trees but downstream expects flat lists.
 
 ```python
-# Create component that outputs a tree
-gh_execute_intent(intent="create divide curve component", x=400, y=100)  # → $DIVIDE
-
-# Create flatten component
-gh_execute_intent(intent="create flatten tree component", x=600, y=100)  # → $FLATTEN
-
-# Wire with flatten in between
-gh_edit(epoch=<current>, connect=[
-  "$DIVIDE.O0>$FLATTEN.I0",
-  "$FLATTEN.O0>$DOWNSTREAM.I0"
-])
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "guid": "$DIVIDE_CURVE_GUID", "pos": [400, 100]},
+        {"temp_id": "T2", "guid": "$FLATTEN_GUID", "pos": [600, 100]},
+    ],
+    connect=["T1.O0>T2.I0", "T2.O0>$DOWNSTREAM.I0"],
+)
 ```
 
 **Gotcha:** Many components silently produce tree output. If downstream complains about "path mismatch", insert Flatten/Graft between them.
@@ -99,13 +85,15 @@ gh_edit(epoch=<current>, connect=[
 For enabling/disabling parts of the definition.
 
 ```python
-# Create toggle
-gh_execute_intent(intent="create boolean toggle", x=100, y=400)  # → $TOGGLE
-gh_set_value(guid=$TOGGLE, value="true")
-
-# Create gate component (Stream Filter or similar)
-gh_execute_intent(intent="create stream filter", x=400, y=400)  # → $GATE
-gh_edit(epoch=<current>, connect=["$TOGGLE.O0>$GATE.I0"])
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "type": "toggle", "value": True, "pos": [100, 400]},
+        {"temp_id": "T2", "guid": "$STREAM_FILTER_GUID", "pos": [400, 400]},
+    ],
+    connect=["T1.O0>T2.I0"],
+)
 ```
 
 ## Pattern: Python Script Component
@@ -113,14 +101,20 @@ gh_edit(epoch=<current>, connect=["$TOGGLE.O0>$GATE.I0"])
 For custom logic that doesn't have a native component.
 
 ```python
-# Create Python 3 Script component
-gh_execute_intent(intent="create python 3 script component", x=400, y=300)  # → $SCRIPT
-
-# Set the code
-gh_set_script(guid=$SCRIPT, script="import Rhino.Geometry as rg\n\na = x * 2\n")
+script_result = gh_create_script(
+    language="python",
+    code="import Rhino.Geometry as rg\n\nA = x * 2\n",
+    pins_in=[{"name": "x", "type": "double"}],
+    pins_out=[{"name": "A", "type": "double"}],
+    name="DoubleValue",
+    x=400,
+    y=300,
+)
+$SCRIPT = script_result["component_guid"]
 
 # Wire inputs
-gh_edit(epoch=<current>, connect=["$INPUT.O0>$SCRIPT.I0"])
+snap = gh_snapshot()
+gh_edit(epoch=snap["epoch"], connect=["$INPUT.O0>$SCRIPT.I0"])
 ```
 
 ## Checkpoint Protocol
@@ -128,8 +122,10 @@ gh_edit(epoch=<current>, connect=["$INPUT.O0>$SCRIPT.I0"])
 After every 3-5 component creations:
 
 ```python
-# 1. Trigger solution
-gh_solve(delay=500)
+# 1. The preceding mutation scheduled the solution. Bounded-poll status.
+status = gh_status()
+# Continue only when ready_for_edit is true, solverEnabled is true,
+# and solutionState is PostProcess; stop on timeout or disabled/unknown state.
 
 # 2. Check for errors
 gh_errors()

@@ -26,6 +26,7 @@ from rook.agent.chat.tool_contracts import (
     classify_visible_tool,
 )
 from rook.agent.tool_registry import ToolRegistry
+from rook.tool_lifecycle import resolve_contained_tool
 
 INTERCEPTED_META_TOOLS: frozenset[str] = frozenset(
     {"request_tools", "search_tools", "ui_block", "list_chat_models", "set_chat_model"}
@@ -103,7 +104,7 @@ def _universe(sources: SurfaceSources, catalog: Mapping[str, dict]) -> list[str]
     names |= set(sources.creation_tools) | set(sources.modal_risk_tools)
     names |= set(sources.needs_verification)
     names |= set(catalog.keys())
-    return sorted(names)
+    return sorted(name for name in names if resolve_contained_tool(name) is None)
 
 
 def build_inventory(

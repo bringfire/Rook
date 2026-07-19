@@ -10,6 +10,8 @@ from typing import Any
 
 import httpx
 
+from ..tool_lifecycle_runtime import DispatchOrigin, deny_if_contained
+
 logger = logging.getLogger("explorer.executor")
 
 
@@ -61,6 +63,15 @@ class HttpExecutor:
 
     async def execute(self, tool_name: str, params: dict[str, Any]) -> ExecutionResult:
         """Execute a tool and return the result."""
+        denial = deny_if_contained(tool_name, DispatchOrigin.INTERNAL_HANDLER)
+        if denial is not None:
+            return ExecutionResult(
+                tool_name=tool_name,
+                params={},
+                success=False,
+                response=denial,
+                error="legacy_semantic_tool_contained",
+            )
         import time
         start_time = time.time()
 
@@ -326,6 +337,15 @@ class MockExecutor:
 
     async def execute(self, tool_name: str, params: dict[str, Any]) -> ExecutionResult:
         """Return a mock success result."""
+        denial = deny_if_contained(tool_name, DispatchOrigin.INTERNAL_HANDLER)
+        if denial is not None:
+            return ExecutionResult(
+                tool_name=tool_name,
+                params={},
+                success=False,
+                response=denial,
+                error="legacy_semantic_tool_contained",
+            )
         return ExecutionResult(
             tool_name=tool_name,
             params=params,

@@ -20,6 +20,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 from ..runtime_paths import resolve_writable_knowledge_path
+from ..tool_lifecycle import resolve_contained_tool
 
 from .chat.tool_contracts import normalize_catalog, normalize_litellm_tool_schema
 from .tool_groups import (
@@ -30,6 +31,35 @@ from .tool_groups import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _embedded_tool_name(schema: object) -> object:
+    if not isinstance(schema, dict):
+        return None
+    function = schema.get("function")
+    if not isinstance(function, dict):
+        return None
+    return function.get("name")
+
+
+def filter_contained_catalog(catalog: Optional[Dict[str, dict]]) -> Dict[str, dict]:
+    """Omit exact lifecycle tombstones from a mapping-backed catalog."""
+    normalized = normalize_catalog(catalog or {})
+    return {
+        name: schema
+        for name, schema in normalized.items()
+        if resolve_contained_tool(name) is None
+        and resolve_contained_tool(_embedded_tool_name(schema)) is None
+    }
+
+
+def filter_contained_schemas(schemas: Optional[List[dict]]) -> List[dict]:
+    """Omit exact lifecycle tombstones from a schema list."""
+    return [
+        schema
+        for schema in (schemas or [])
+        if resolve_contained_tool(_embedded_tool_name(schema)) is None
+    ]
 
 
 def mcp_tool_to_litellm(tool) -> dict:
@@ -66,6 +96,8 @@ def build_catalog_from_mcp_tools(tools: list) -> Dict[str, dict]:
     """
     catalog = {}
     for tool in tools:
+        if resolve_contained_tool(tool.name) is not None:
+            continue
         schema = mcp_tool_to_litellm(tool)
         catalog[tool.name] = schema
     logger.info(f"Built catalog with {len(catalog)} tools from MCP")
@@ -85,7 +117,7 @@ def load_catalog_from_cache(cache_path: Optional[Path] = None) -> Optional[Dict[
         return None
     try:
         with open(cache_path, encoding="utf-8") as f:
-            catalog = normalize_catalog(json.load(f))
+            catalog = filter_contained_catalog(json.load(f))
         logger.info(f"Loaded {len(catalog)} schemas from cache: {cache_path.name}")
         return catalog
     except (json.JSONDecodeError, KeyError, OSError):
@@ -96,6 +128,7 @@ def load_catalog_from_cache(cache_path: Optional[Path] = None) -> Optional[Dict[
 def save_catalog_to_cache(catalog: Dict[str, dict], cache_path: Path) -> None:
     """Save catalog to JSON cache file (atomic write via temp + rename)."""
     try:
+        catalog = filter_contained_catalog(catalog)
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = cache_path.with_suffix(".tmp")
         with open(tmp_path, "w", encoding="utf-8") as f:
@@ -145,9 +178,9 @@ class ToolRegistry:
             tier0: Custom Tier 0 tool set. If None, uses default TIER_0.
             allowed_groups: If set, only these groups can be loaded.
                           Used by planner to enforce read-only access.
-            agent_mode: If True, uses AGENT_TIER_0 (excludes gh_execute_intent).
+            agent_mode: If True, uses the worker-oriented AGENT_TIER_0.
         """
-        self._catalog: Dict[str, dict] = normalize_catalog(catalog or {})
+        self._catalog: Dict[str, dict] = filter_contained_catalog(catalog)
         self._max_active = max_active
         if tier0 is not None:
             self._tier0 = tier0
@@ -267,7 +300,7 @@ class ToolRegistry:
                 schemas.append(normalize_litellm_tool_schema(self._meta_schemas[name]))
             elif name in self._catalog:
                 schemas.append(normalize_litellm_tool_schema(self._catalog[name]))
-        return schemas
+        return filter_contained_schemas(schemas)
 
     def get_active_count(self) -> int:
         """Number of currently active tools."""
@@ -519,7 +552,7 @@ class ToolRegistry:
 
         Merges into the existing catalog and rebuilds groups/descriptions.
         """
-        normalized_catalog = normalize_catalog(catalog)
+        normalized_catalog = filter_contained_catalog(catalog)
         self._catalog.update(normalized_catalog)
         for name, schema in normalized_catalog.items():
             func = schema.get("function", {})

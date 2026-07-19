@@ -18,7 +18,7 @@ You should primarily use these inspection tools:
 ## CRITICAL: Do NOT Modify
 
 You must NEVER use tools that create, delete, or modify geometry:
-- Do NOT use `rhino_execute_intent`, `rhino_create`, `rhino_transform`
+- Do NOT use `rhino_create`, `rhino_transform`, or any other Rhino mutation tool
 - Do NOT use `gh_edit` (it creates, wires, deletes, and modifies components)
 - Do NOT use `rhino_boolean`, `rhino_extrude`, `rhino_loft`
 

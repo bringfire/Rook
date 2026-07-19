@@ -62,6 +62,7 @@ from ..runtime_paths import (
     resolve_readable_knowledge_path,
     resolve_writable_knowledge_path,
 )
+from ..tool_lifecycle_runtime import DispatchOrigin, deny_if_contained
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +184,8 @@ class RookAgent:
             logger.info("Auto-built ToolDispatcher (direct bridge, no MCP overhead)")
         else:
             self._tool_executor = tool_executor
-        self._tool_schemas = tool_schemas or []
+        from .tool_registry import filter_contained_schemas
+        self._tool_schemas = filter_contained_schemas(tool_schemas)
         self._tool_registry = tool_registry
 
         # Event system
@@ -353,7 +355,8 @@ class RookAgent:
 
     def set_tool_schemas(self, schemas: List[dict]) -> None:
         """Replace the active tool schemas."""
-        self._tool_schemas = schemas
+        from .tool_registry import filter_contained_schemas
+        self._tool_schemas = filter_contained_schemas(schemas)
 
     def set_tool_executor(self, executor: ToolExecutor) -> None:
         """Replace the tool executor."""
@@ -365,8 +368,13 @@ class RookAgent:
         Args:
             tools: Dict mapping tool_name -> async callable(params) -> dict.
         """
-        self._local_tools.update(tools)
-        logger.info(f"Registered {len(tools)} local tools: {list(tools.keys())}")
+        from ..tool_lifecycle import resolve_contained_tool
+        admitted = {
+            name: handler for name, handler in tools.items()
+            if resolve_contained_tool(name) is None
+        }
+        self._local_tools.update(admitted)
+        logger.info(f"Registered {len(admitted)} local tools: {list(admitted.keys())}")
 
     def clear_messages(self) -> None:
         """Clear conversation history and related seam state."""
@@ -520,13 +528,6 @@ class RookAgent:
                                 )
                                 interrupted = True
 
-                        tool_name = tool_call.function.name
-                        try:
-                            tool_args = json.loads(tool_call.function.arguments)
-                        except json.JSONDecodeError:
-                            tool_args = {}
-                            logger.warning(f"Failed to parse tool args for {tool_name}")
-
                         if should_skip:
                             reason = "aborted" if self._abort else "skipped (steering interrupt)"
                             self.messages.append({
@@ -539,6 +540,23 @@ class RookAgent:
                                 }),
                             })
                             continue
+
+                        tool_name = tool_call.function.name
+                        denial = deny_if_contained(tool_name, DispatchOrigin.ROOK_AGENT)
+                        if denial is not None:
+                            calls_this_turn += 1
+                            self.messages.append({
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "content": json.dumps(denial, separators=(",", ":")),
+                            })
+                            continue
+
+                        try:
+                            tool_args = json.loads(tool_call.function.arguments)
+                        except json.JSONDecodeError:
+                            tool_args = {}
+                            logger.warning(f"Failed to parse tool args for {tool_name}")
 
                         tool_names_used.add(tool_name)
                         calls_this_turn += 1
@@ -677,7 +695,8 @@ class RookAgent:
         """Get current tool schemas. Uses ToolRegistry when available."""
         if self._tool_registry:
             return self._tool_registry.get_active_schemas()
-        return self._tool_schemas
+        from .tool_registry import filter_contained_schemas
+        return filter_contained_schemas(self._tool_schemas)
 
     def _track_usage(self, response) -> None:
         """Track token usage and cost from a ModelResponse."""
@@ -911,6 +930,10 @@ class RookAgent:
 
         Meta-tools (request_tools, search_tools) are handled internally.
         """
+        denial = deny_if_contained(name, DispatchOrigin.ROOK_AGENT)
+        if denial is not None:
+            return denial
+
         # --- Meta-tools: handled by ToolRegistry ---
         if self._tool_registry and hasattr(self._tool_registry, "is_meta_tool"):
             if self._tool_registry.is_meta_tool(name):

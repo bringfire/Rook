@@ -13,7 +13,7 @@ _GATED = {"rhino_command_experiment", "rhino_learn_next", "rhino_prepare_geometr
 
 
 def _list_names(monkeypatch, profile_value):
-    # Default flag-off state so the live surface is the canonical 428.
+    # Default flag-off state so the live surface is the canonical 422.
     monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
     monkeypatch.delenv("ROOK_MCP_TARGET_MODE", raising=False)
     if profile_value is None:
@@ -24,9 +24,9 @@ def _list_names(monkeypatch, profile_value):
     return {t.name for t in tools}
 
 
-def test_full_surface_is_428_and_gates_deprecated(monkeypatch):
+def test_full_surface_is_422_and_gates_deprecated(monkeypatch):
     full = _list_names(monkeypatch, None)  # absent => full
-    assert len(full) == 428
+    assert len(full) == 422
     assert {"gh_solve_readiness", "gh_wait_for_solve_readiness"} <= full
     assert _GATED.isdisjoint(full)
     assert PUBLIC_LEAN_TOOL_NAMES <= full
@@ -38,16 +38,16 @@ def test_deprecated_interactive_gate_adds_exactly_three_tools(monkeypatch):
     default = _list_names(monkeypatch, None)
     monkeypatch.setenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", "1")
     enabled = {t.name for t in asyncio.run(server.list_tools())}
-    assert len(enabled) == 431
+    assert len(enabled) == 425
     assert enabled - default == _GATED
 
 
-def test_all_live_tools_is_unprofiled_428(monkeypatch):
+def test_all_live_tools_is_unprofiled_422(monkeypatch):
     monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
-    # Even with a restrictive profile set, the unprofiled source is the full 428.
+    # Even with a restrictive profile set, the unprofiled source is the full 422.
     monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "lean")
     names = {t.name for t in asyncio.run(server._all_live_tools())}
-    assert len(names) == 428
+    assert len(names) == 422
     assert _GATED.isdisjoint(names)
 
 
@@ -55,10 +55,10 @@ def test_explicit_full_equals_absent(monkeypatch):
     assert _list_names(monkeypatch, "full") == _list_names(monkeypatch, None)
 
 
-def test_lean_surface_is_exactly_22(monkeypatch):
+def test_lean_surface_is_exactly_20(monkeypatch):
     lean = _list_names(monkeypatch, "lean")
     assert lean == set(PUBLIC_LEAN_TOOL_NAMES)
-    assert len(lean) == 22
+    assert len(lean) == 20
 
 
 def test_readonly_surface_is_exactly_148(monkeypatch):
@@ -81,7 +81,7 @@ def test_readonly_partition_over_live_surface(monkeypatch):
     excluded = full - ro
     assert ro | excluded == full
     assert ro.isdisjoint(excluded)
-    assert len(ro) + len(excluded) == len(full) == 428
+    assert len(ro) + len(excluded) == len(full) == 422
 
 
 def _call_text(name, args=None):

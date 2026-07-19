@@ -54,10 +54,15 @@ Level 0 (Macro): Building
 
 # Step 1-N: Define sub-parts using wasp-parts pattern
 # MUST use AdvancedPart (not basic Part)
-gh_execute_intent(intent="create wasp advanced part", x=300, y=200)
-# → Record as $SUB_PART_A (column)
-gh_execute_intent(intent="create wasp advanced part", x=300, y=400)
-# → Record as $SUB_PART_B (beam)
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "guid": "$GUID_WASP_ADVANCED_PART", "pos": [300, 200]},
+        {"temp_id": "T2", "guid": "$GUID_WASP_ADVANCED_PART", "pos": [300, 400]},
+    ],
+)
+# Record T1/T2 as $SUB_PART_A (column) and $SUB_PART_B (beam).
 # ... wire geometry, connections, name per wasp-parts pattern
 ```
 
@@ -66,18 +71,17 @@ gh_execute_intent(intent="create wasp advanced part", x=300, y=400)
 ```python
 # BATCH: Macro-Part Definition
 
-# Step 1: Define transformations that place sub-parts into macro arrangement
-# These transforms describe how sub-parts compose into one macro-part
-gh_execute_intent(intent="create transform component", x=600, y=300)
-# → Record as $MACRO_TRANSFORMS
-
-# Step 2: Define macro-part connections (how macro-parts mate at building level)
-gh_execute_intent(intent="create wasp connection from direction", x=600, y=500)
-# → Record as $MACRO_CONN
-
-# Step 3: Create macro-part (AdvancedPart wrapping sub-part arrangement)
-gh_execute_intent(intent="create wasp advanced part", x=800, y=400)
-# → Record as $MACRO_PART
+# Steps 1-3: transforms, macro connection, and macro AdvancedPart
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "guid": "$GUID_TRANSFORM_COMPONENT", "pos": [600, 300]},
+        {"temp_id": "T2", "guid": "$GUID_WASP_CONNECTION_FROM_DIRECTION", "pos": [600, 500]},
+        {"temp_id": "T3", "guid": "$GUID_WASP_ADVANCED_PART", "pos": [800, 400]},
+    ],
+)
+# Record T1-T3 as $MACRO_TRANSFORMS, $MACRO_CONN, and $MACRO_PART.
 # Wire: placeholder geometry → AdvancedPart.GEO (macro geometry is placeholder)
 # Wire: $MACRO_CONN → AdvancedPart.CONN
 # Wire: sub-parts → AdvancedPart.SUB (hierarchy input)
@@ -89,14 +93,17 @@ gh_execute_intent(intent="create wasp advanced part", x=800, y=400)
 ```python
 # BATCH: Macro-Level Aggregation (uses wasp-rules + wasp-aggregate pattern)
 
-# Generate rules for macro-parts
-gh_execute_intent(intent="create wasp rule generator", x=1000, y=300)
-# → Record as $MACRO_RULES
+# Generate rules and aggregate at macro level
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "guid": "$GUID_WASP_RULE_GENERATOR", "pos": [1000, 300]},
+        {"temp_id": "T2", "guid": "$GUID_WASP_AGGREGATION", "pos": [1200, 300]},
+    ],
+)
+# Record T1/T2 as $MACRO_RULES/$MACRO_AGG.
 # Wire: $MACRO_PART → RuleGenerator.PART
-
-# Aggregate at macro level
-gh_execute_intent(intent="create wasp aggregation", x=1200, y=300)
-# → Record as $MACRO_AGG
 # Wire: $MACRO_PART → Aggregation.PART
 # Wire: $MACRO_RULES → Aggregation.RULE
 # Wire: part count, seed, reset per wasp-aggregate pattern
@@ -107,25 +114,26 @@ gh_execute_intent(intent="create wasp aggregation", x=1200, y=300)
 ```python
 # BATCH: Sub-Part Extraction + Micro Aggregation
 
-# Step 1: Extract sub-parts from macro aggregation
-gh_execute_intent(intent="create wasp extract sub parts", x=1400, y=300)
-# → Record as $EXTRACTED
+# Steps 1-3: extract sub-parts, generate micro rules, aggregate
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "guid": "$GUID_WASP_EXTRACT_SUB_PARTS", "pos": [1400, 300]},
+        {"temp_id": "T2", "guid": "$GUID_WASP_RULE_GENERATOR", "pos": [1400, 500]},
+        {"temp_id": "T3", "guid": "$GUID_WASP_AGGREGATION", "pos": [1600, 400]},
+    ],
+)
+# Record T1-T3 as $EXTRACTED, $MICRO_RULES, and $MICRO_AGG.
 # Wire: $MACRO_AGG → Extract.AGG
-
-# Step 2: Generate rules for sub-parts
-gh_execute_intent(intent="create wasp rule generator", x=1400, y=500)
-# → Record as $MICRO_RULES
 # Wire: sub-parts merged list → RuleGenerator.PART
-
-# Step 3: Aggregate at micro level
-gh_execute_intent(intent="create wasp aggregation", x=1600, y=400)
-# → Record as $MICRO_AGG
 # Wire: sub-parts → Aggregation.PART
 # Wire: $MICRO_RULES → Aggregation.RULE
 # Wire: $EXTRACTED → Aggregation.PREV (continue from extracted positions)
 
 # CHECKPOINT
-gh_solve(delay=3000)
+# Bounded-poll gh_status until ready_for_edit is true, solverEnabled is true,
+# and solutionState is PostProcess; stop on timeout or disabled/unknown state.
 gh_errors()
 ```
 

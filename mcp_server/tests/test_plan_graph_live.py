@@ -31,6 +31,7 @@ _ALLOWED_ROOK_IMPORTS = {
     "rook.learning.plan_graph",
     "rook.learning.plan_graph_projection",
     "rook.learning.plan_graph_runner",
+    "rook.tool_lifecycle_runtime",
 }
 _FORBIDDEN_SUBSTRINGS = ("tool_dispatcher", "rook.server", "chat", "ChatRunner")
 

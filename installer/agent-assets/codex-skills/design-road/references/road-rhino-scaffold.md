@@ -72,8 +72,13 @@ rhino_layer_create(name="RoadCreator::Road_1::Tangent Polygon")
 
 Move the tangent geometry to the correct layer:
 ```python
-# After creating tangent lines, move them to the correct layer
-rhino_execute_intent(intent="move objects to layer RoadCreator::Road_1::Tangent Polygon")
+# Use this only after verifying the source layer contains exactly the approved
+# tangent objects; the typed route moves every direct object on that layer.
+rhino_layer_move_objects(
+    source="<verified temporary tangent layer>",
+    target="RoadCreator::Road_1::Tangent Polygon",
+)
+rhino_objects(layer="RoadCreator::Road_1::Tangent Polygon")
 ```
 
 **Note:** RC_TangentPolygon creates its own layers. If you run it instead of manually

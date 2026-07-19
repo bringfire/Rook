@@ -50,18 +50,17 @@ Select based on what drives the density variation:
 ```python
 # BATCH: Field Setup
 
-# Step 1: Point attractors (from Rhino or constructed)
-gh_execute_intent(intent="create point parameter", x=1100, y=500)
-# → Record as $ATTRACTOR_PTS
-
-# Step 2: Field strength slider
-gh_execute_intent(intent="create number slider named FieldStrength", x=1100, y=600)
-# → Record as $FIELD_STRENGTH
-gh_set_value(guid=$FIELD_STRENGTH, value=1.0, min=0.0, max=5.0)
-
-# Step 3: Create Wasp field from points
-gh_execute_intent(intent="create wasp field point", x=1300, y=550)
-# → Record as $FIELD
+# Steps 1-3: point parameter, initialized strength slider, and resolved field component
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "guid": "$GUID_POINT_PARAMETER", "pos": [1100, 500]},
+        {"temp_id": "T2", "type": "slider", "nick": "FieldStrength", "min": 0.0, "max": 5.0, "value": 1.0, "pos": [1100, 600]},
+        {"temp_id": "T3", "guid": "$GUID_WASP_FIELD_POINT", "pos": [1300, 550]},
+    ],
+)
+# Record T1-T3 as $ATTRACTOR_PTS, $FIELD_STRENGTH, and $FIELD.
 # Wire: $ATTRACTOR_PTS → Field.PTS
 # Wire: $FIELD_STRENGTH → Field.STR
 
@@ -72,27 +71,32 @@ gh_connect(sourceGuid=$FIELD, targetGuid=$AGGREGATION, targetParam="FIELD")
 ### Pattern B: Field from Curves
 
 ```python
-# Step 1: Curve reference (from Rhino)
-gh_execute_intent(intent="create curve parameter", x=1100, y=500)
-# → Record as $FIELD_CURVE
-
-# Step 2: Create Wasp field from curve
-gh_execute_intent(intent="create wasp field curve", x=1300, y=550)
-# → Record as $FIELD
+# Steps 1-2: curve parameter + resolved curve field component
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "guid": "$GUID_CURVE_PARAMETER", "pos": [1100, 500]},
+        {"temp_id": "T2", "guid": "$GUID_WASP_FIELD_CURVE", "pos": [1300, 550]},
+    ],
+)
+# Record T1/T2 as $FIELD_CURVE/$FIELD.
 # Wire: $FIELD_CURVE → Field.CRV
 ```
 
 ### Pattern C: Field from Expression
 
 ```python
-# Step 1: Expression panel
-gh_execute_intent(intent="create panel", x=1100, y=500)
-# → Record as $FIELD_EXPR
-# Set content: "sin(x) * cos(y)"  (or domain-specific expression)
-
-# Step 2: Create Wasp field from expression
-gh_execute_intent(intent="create wasp field expression", x=1300, y=550)
-# → Record as $FIELD
+# Steps 1-2: expression panel + resolved expression field component
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "type": "panel", "content": "sin(x) * cos(y)", "pos": [1100, 500]},
+        {"temp_id": "T2", "guid": "$GUID_WASP_FIELD_EXPRESSION", "pos": [1300, 550]},
+    ],
+)
+# Record T1/T2 as $FIELD_EXPR/$FIELD.
 # Wire: $FIELD_EXPR → Field.EXPR
 ```
 
@@ -103,8 +107,12 @@ gh_execute_intent(intent="create wasp field expression", x=1300, y=550)
 # ... (use patterns A/B/C above for each)
 
 # Combine into multi-channel
-gh_execute_intent(intent="create wasp multi channel field", x=1500, y=550)
-# → Record as $MULTI_FIELD
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[{"temp_id": "T1", "guid": "$GUID_WASP_MULTI_CHANNEL_FIELD", "pos": [1500, 550]}],
+)
+# Record T1 as $MULTI_FIELD.
 # Wire: $FIELD_A → MultiField.F1
 # Wire: $FIELD_B → MultiField.F2
 

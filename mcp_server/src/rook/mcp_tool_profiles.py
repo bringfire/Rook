@@ -61,8 +61,6 @@ PUBLIC_LEAN_TOOL_NAMES = frozenset({
     "gh_snapshot",
     "gh_errors",
     "gh_edit",
-    "rhino_execute_intent",
-    "gh_execute_intent",
     "openrouter_refresh_catalog",
     # Progressive tool disclosure meta-tools (present in every profile).
     "rook_tools_ls",
@@ -92,12 +90,8 @@ SENTINEL_TOOL_NAMES = frozenset({
     "capture_script_artifact",
     "gh_add_pattern",
     "knowledge_record",
-    "spawn_agent",
-    "plan_and_execute",
     "rhino_execute",
     "rhino_command",
-    "rhino_execute_intent",
-    "gh_execute_intent",
 })
 
 PUBLIC_READONLY_TOOL_NAMES = frozenset({

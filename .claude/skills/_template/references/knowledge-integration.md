@@ -2,38 +2,26 @@
 
 Skills can leverage the Rook knowledge system for intelligent command execution.
 
-## Primary Tool: `rhino_execute_intent`
+## Primary Workflow: Discover, Inspect, Execute, Verify
 
-**Always prefer this over raw `rhino_command`.**
+Prefer an explicit typed Rhino route. Rediscover the admitted surface and inspect
+current document state before choosing the operation:
 
 ```python
-rhino_execute_intent(intent="create a sphere at origin with radius 5")
+rhino_document()
+rhino_objects()
+rhino_create(type="SPHERE", center=[0, 0, 0], radius=5)
+rhino_objects()  # verify the host state changed as expected
 ```
 
-This tool automatically:
-1. Searches `command_knowledge.json` for matching commands
-2. Uses DSPy to resolve intent to best command + mode
-3. Uses MABWiser to select among candidates based on history
-4. Builds the correct syntax with proper parameter order
-5. Applies gotchas (e.g., Box corner Z values must match)
-6. Executes and returns result
-
-### Response Format
-
-```json
-{
-  "success": true,
-  "command": "-Sphere",
-  "mode": "default",
-  "syntax_used": "_-Sphere 0,0,0 5",
-  "objects_created": 1,
-  "reasoning_trace": ["Found 3 candidate commands", "Selected -Sphere (score: 0.95)"]
-}
-```
+Typed tools validate inputs and return structured results. If no typed route
+fits, query command knowledge, preflight a locale-independent fully scripted
+`rhino_command`, or use a short non-interactive `rhino_execute` script as the
+last resort. Verify every result and restore partial mutations before retrying.
 
 ## Query Knowledge Before Custom Operations
 
-For operations not covered by `rhino_execute_intent`:
+For unfamiliar operations or command fallback:
 
 ```python
 knowledge_query(
@@ -92,7 +80,7 @@ Each command includes:
 
 ## Recording Corrections
 
-If `rhino_execute_intent` fails and you find a workaround:
+If an explicit typed/scripted operation fails and you find a workaround:
 
 ```python
 knowledge_record(
@@ -110,7 +98,7 @@ This improves the knowledge system for future executions.
 
 ## Best Practices for Skills
 
-1. **Use `rhino_execute_intent` for geometry creation** - It handles knowledge lookup automatically
+1. **Prefer explicit typed geometry tools** - Rediscover the admitted surface, inspect state, call the exact route, and verify
 
 2. **Query knowledge for complex operations** - Before multi-step workflows, check gotchas
 
@@ -118,4 +106,4 @@ This improves the knowledge system for future executions.
 
 4. **Reference gotchas in skill docs** - Include known issues in skill's references/
 
-5. **Trust the MAB** - The system learns from successes/failures over time
+5. **Treat retrieval as guidance, not authority** - Review knowledge output before it influences a command or script

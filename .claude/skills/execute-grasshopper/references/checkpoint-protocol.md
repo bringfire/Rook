@@ -5,15 +5,18 @@
 After every batch of 3-5 tool calls:
 
 ```python
-# 1. Trigger Grasshopper to recalculate
-gh_solve(delay=500)
-# The delay (ms) gives GH time to process. 500ms is safe for most definitions.
-# Increase to 1000-2000ms for definitions with heavy computation.
+# 1. The preceding gh_edit schedules the solution. Poll only to a fixed timeout.
+status = gh_status()
+# Repeat while readiness is false. Continue only when ready_for_edit is true,
+# solverEnabled is true, and solutionState is PostProcess.
 
 # 2. Check for errors and warnings
 gh_errors()
 # Returns: list of components with error/warning messages
 ```
+
+Stop and report if the timeout expires, `solverEnabled` is false, or
+`solutionState` is unknown. Do not infer completion from elapsed time alone.
 
 ## Error Classification
 
@@ -62,9 +65,10 @@ When a checkpoint finds errors:
 6. APPLY one fix:
    - Reconnect: gh_edit(disconnect=[...], connect=[...]) with correct flow strings
    - Change value: gh_set_value()
-   - Insert converter: gh_execute_intent() for a type converter component
+   - Insert converter: resolve the exact converter with gh_library or
+     gh_knowledge_query, then add and wire it in one bounded gh_edit batch
 7. RE-RUN checkpoint:
-   gh_solve(delay=500)
+   bounded-poll gh_status to the fixed timeout and require solved readiness
    gh_errors()
 8. If error persists: LOG it and move to next batch
    (unless it blocks downstream connections)
@@ -111,7 +115,7 @@ After 2 consecutive batches with unresolved errors:
 
 ## Performance Considerations
 
-- **Simple definitions (< 20 components):** 500ms solve delay is fine
-- **Medium definitions (20-50 components):** Consider 1000ms delay
-- **Large definitions (50+ components):** Use 2000ms delay, consider checkpointing every 3 components instead of 5
+- **Simple definitions (< 20 components):** Use a short bounded status-poll timeout
+- **Medium definitions (20-50 components):** Allow a longer bounded timeout
+- **Large definitions (50+ components):** Allow a longer bounded timeout and consider checkpointing every 3 components instead of 5
 - **Heavy computation (mesh operations, large lists):** Individual component inspection with `gh_batch_component_info(names=[...])` to check output size before continuing

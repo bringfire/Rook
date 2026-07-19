@@ -34,19 +34,17 @@ refinement workflows.
 ```python
 # BATCH: Save Aggregation State
 
-# Step 1: File path panel
-gh_execute_intent(intent="create panel", x=1700, y=100)
-# → Record as $SAVE_PATH
-# Set content: "C:/path/to/aggregation_state.json"
-
-# Step 2: Save trigger toggle
-gh_execute_intent(intent="create boolean toggle", x=1700, y=200)
-# → Record as $SAVE_TRIGGER
-gh_set_value(guid=$SAVE_TRIGGER, value="false")
-
-# Step 3: Create Wasp save component
-gh_execute_intent(intent="create wasp save aggregation", x=1900, y=150)
-# → Record as $SAVE
+# Steps 1-3: save path, trigger, and resolved Wasp save component
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "type": "panel", "content": "C:/path/to/aggregation_state.json", "pos": [1700, 100]},
+        {"temp_id": "T2", "type": "toggle", "value": False, "pos": [1700, 200]},
+        {"temp_id": "T3", "guid": "$GUID_WASP_SAVE_AGGREGATION", "pos": [1900, 150]},
+    ],
+)
+# Record T1-T3 as $SAVE_PATH, $SAVE_TRIGGER, and $SAVE.
 # Wire: $AGGREGATION → Save.AGG
 # Wire: $SAVE_PATH → Save.PATH
 # Wire: $SAVE_TRIGGER → Save.SAVE
@@ -59,14 +57,16 @@ gh_execute_intent(intent="create wasp save aggregation", x=1900, y=150)
 ```python
 # BATCH: Load Previous Aggregation
 
-# Step 1: Load file path panel
-gh_execute_intent(intent="create panel", x=900, y=100)
-# → Record as $LOAD_PATH
-# Set content: "C:/path/to/saved_aggregation.json"
-
-# Step 2: Create Wasp load component
-gh_execute_intent(intent="create wasp load aggregation", x=1100, y=100)
-# → Record as $LOAD
+# Steps 1-2: load path + resolved Wasp load component
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "type": "panel", "content": "C:/path/to/saved_aggregation.json", "pos": [900, 100]},
+        {"temp_id": "T2", "guid": "$GUID_WASP_LOAD_AGGREGATION", "pos": [1100, 100]},
+    ],
+)
+# Record T1/T2 as $LOAD_PATH/$LOAD.
 # Wire: $LOAD_PATH → Load.PATH
 
 # Step 3: Wire loaded aggregation as starting point for new aggregation

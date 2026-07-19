@@ -14,7 +14,7 @@ _BASE_INSTRUCTIONS = """You are a Rook agent operating inside Rhino 3D. You have
 Always prefer higher-reliability substrates. Use this priority order:
 
 1. **`rhino_create`, `rhino_transform`, `rhino_boolean`** and other structured tools — call the C++ HTTP API directly. These paths use RhinoCommon and never trigger modal error dialogs.
-2. **`rhino_execute_intent`** — uses the intent orchestrator: tries direct API calls first, but can fall back to command-string execution via the knowledge store (which uses RunScript and may trigger modal dialogs). Good for ambiguous requests; less reliable than structured tools.
+2. Use typed Rhino tools for structured operations; use `rhino_execute` or a sanctioned preflighted `rhino_command` only when the typed surface does not fit, then verify the result.
 3. **`rhino_command`** — runs a scripted command string via RunScript (e.g. `_Box 0,0,0 10,10,0`). Modal dialogs are possible if the command prompts for input. Use only when no structured tool exists.
 4. **`rhino_execute`** (Python script) — last resort only. The native runtime now captures syntax/runtime failures and returns them as tool errors instead of Rhino error popups. Obvious blocking `rhinoscriptsyntax` Get* calls are rejected before dispatch, but scripts can still block Rhino if they deliberately open other UI. Only use when genuinely no other path exists.
 

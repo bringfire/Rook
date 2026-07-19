@@ -35,18 +35,21 @@ Read the plan document from the argument path (resolve to absolute path first �
 
 If the plan references an existing canvas state that doesn't match reality, stop and report the mismatch.
 
-### 2. Initialize GUID Registry
+### 2. Initialize Component Registry
 
-Create a mapping from plan variable names to actual GUIDs:
+Create a mapping from plan variable names to committed component IDs:
 
 ```
-GUID Registry:
+Component Registry:
   $RADIUS_SLIDER → (not yet assigned)
   $SPHERE        → (not yet assigned)
   ...
 ```
 
-As each `gh_execute_intent` returns a GUID, update the registry. All subsequent tool calls that reference `$RADIUS_SLIDER` use the actual GUID from the registry.
+Within a `gh_edit` batch, use plan-defined `T1`, `T2`, ... temp IDs in create,
+connect, and group entries. After the call, read `edit_summary.temp_id_map` and
+the returned committed topology, then update the registry before any later batch
+references those components.
 
 ### 3. Execute Batches
 
@@ -57,27 +60,37 @@ For each batch in the plan:
 
 **For each step:**
 
-1. **`gh_execute_intent` calls:**
-   - Execute with exact parameters from the plan
-   - Capture the returned GUID
-   - Map it in the GUID registry
-   - If creation fails: check gotchas, attempt ONE fix, re-try
-   - If still failing: mark as failed, skip wiring to this component
-
-2. **`gh_set_value` calls:**
-   - Execute immediately after the component it targets
-   - Verify the value was set (check return)
-
-3. **`gh_edit(connect=[...])` calls:**
-   - Substitute actual short IDs from the registry for plan variable names
-   - If either source or target is marked as failed: skip this connection
-   - If connection fails: inspect both components with `gh_batch_component_info(names=[...])`
+1. Capture a fresh `gh_snapshot`. Compare its components, flows, and groups with
+   the plan's structural baseline. If they match, use that fresh snapshot's epoch
+   for the immediate `gh_edit`. Never compare or persist epoch numbers across
+   snapshots.
+2. Execute the exact bounded `gh_edit` batch from the plan. Slider/panel/toggle
+   values belong in their create entries; updates to existing controls belong in
+   `set_values`.
+3. Inspect `partial_success`, `verified`, `edit_summary.errors`,
+   `edit_summary.temp_id_map`, and the returned topology. Update the component
+   registry only for committed creations.
+4. If creation or wiring fails, inspect the affected components, attempt ONE
+   documented fix using a fresh epoch, and retry only the missing/incorrect
+   operations. Do not replay an already committed batch.
+5. Read solved output data with a follow-up `gh_snapshot` or
+   `gh_inspect_output` after the solve settles.
 
 **At each checkpoint:**
+
+The preceding `gh_edit` schedules the solution. After it reports
+`edit_summary.solve_scheduled`, bounded-poll `gh_status` to a fixed timeout.
+Continue only when `ready_for_edit` is true, `solverEnabled` is `true`, and
+`solutionState` is `PostProcess`; then inspect errors:
+
 ```python
-gh_solve(delay=500)
+status = gh_status()
+# Repeat only until the fixed checkpoint timeout while readiness is false.
 errors = gh_errors()
 ```
+
+Stop and report instead of continuing if the timeout expires, the solver is
+disabled, or the solution state is unknown.
 
 - **No errors:** Continue to next batch
 - **Warnings only:** Note them, continue (warnings are usually acceptable)
@@ -115,8 +128,9 @@ gh_edit(epoch=<current>, groups=[
   {"action": "create", "nick": "Output", "colour": "#FF8833", "members": [...]}
 ])
 
-# Final verification
-gh_solve(delay=500)
+# Final verification after the grouping edit's scheduled solution settles
+final_status = gh_status()
+# Apply the same bounded readiness predicate before reading errors.
 final_errors = gh_errors()
 final_state = gh_snapshot()
 ```
@@ -144,8 +158,8 @@ Skill(skill="consolidate")
 
 ## Invariants
 
-- **Never skip a checkpoint** — every batch must verify with solve + errors
-- **Maintain the GUID registry** — plan variable → actual GUID, updated after every creation
+- **Never skip a checkpoint** — every batch must verify solved readiness + errors
+- **Maintain the component registry** — plan variable → committed ID, updated from every batch result
 - **If creation errors, don't wire** — skip connections to failed components
 - **One fix attempt per error** — don't loop on the same error
 - **2+ consecutive batch errors = stop** — ask user for guidance

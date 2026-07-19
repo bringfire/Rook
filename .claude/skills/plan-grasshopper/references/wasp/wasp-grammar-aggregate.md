@@ -72,24 +72,18 @@ Core     → {Elevator, Stair, Mechanical}
 ```python
 # BATCH: Graph-Grammar Aggregation
 
-# Step 1: Production rules as text panel
-gh_execute_intent(intent="create panel", x=1100, y=100)
-# → Record as $GRAMMAR_TEXT
-# Set content with production rules, e.g.:
-# "column > beam\nbeam > connector\nconnector > column"
-
-# Step 2: Part count slider
-gh_execute_intent(intent="create number slider named PartCount", x=1100, y=200)
-# → Record as $PART_COUNT
-gh_set_value(guid=$PART_COUNT, value=30, min=1, max=200)
-
-# Step 3: Reset toggle
-gh_execute_intent(intent="create boolean toggle", x=1100, y=300)
-# → Record as $RESET
-
-# Step 4: Create Graph-Grammar Aggregation component
-gh_execute_intent(intent="create wasp graph grammar aggregation", x=1400, y=200)
-# → Record as $GRAMMAR_AGG
+# Steps 1-4: production rules, controls, and resolved grammar aggregation
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "type": "panel", "content": "column > beam\nbeam > connector\nconnector > column", "pos": [1100, 100]},
+        {"temp_id": "T2", "type": "slider", "nick": "PartCount", "min": 1, "max": 200, "value": 30, "pos": [1100, 200]},
+        {"temp_id": "T3", "type": "toggle", "value": False, "pos": [1100, 300]},
+        {"temp_id": "T4", "guid": "$GUID_WASP_GRAPH_GRAMMAR_AGGREGATION", "pos": [1400, 200]},
+    ],
+)
+# Record T1-T4 as $GRAMMAR_TEXT, $PART_COUNT, $RESET, and $GRAMMAR_AGG.
 
 # Step 5: Wire inputs
 gh_connect(sourceGuid=$PARTS_MERGE, targetGuid=$GRAMMAR_AGG, targetParam="PART")
@@ -105,7 +99,8 @@ gh_connect(sourceGuid=$RESET, targetGuid=$GRAMMAR_AGG, targetParam="RESET")
 # gh_connect(sourceGuid=$FIELD, targetGuid=$GRAMMAR_AGG, targetParam="FIELD")
 
 # CHECKPOINT
-gh_solve(delay=2000)
+# Bounded-poll gh_status until ready_for_edit is true, solverEnabled is true,
+# and solutionState is PostProcess; stop on timeout or disabled/unknown state.
 gh_errors()
 # → Expected: deterministic assembly following production rules
 ```

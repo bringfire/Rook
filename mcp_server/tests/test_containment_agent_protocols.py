@@ -1,0 +1,207 @@
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+
+SRC = Path(__file__).resolve().parents[1] / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+
+from rook.agent.base_agent import RookAgent  # noqa: E402
+from rook.agent.config import AgentConfig  # noqa: E402
+from rook.agent.chat.chat_runner import ChatRunner  # noqa: E402
+from rook.agent.chat.conversation_store import Conversation  # noqa: E402
+from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY, apply_live_producer_node  # noqa: E402
+from rook.agent.tool_registry import ToolRegistry  # noqa: E402
+from rook.learning.plan_graph import PlanGraph, PlanGraphNode  # noqa: E402
+from rook.learning.plan_graph_projection import OUTCOME_PROJECTION_ROLE_KEY  # noqa: E402
+from rook.tool_lifecycle import CONTAINED_TOOLS  # noqa: E402
+
+
+CONTAINED = [entry.name for entry in CONTAINED_TOOLS]
+
+
+def _call(name: str, arguments: str = "{invalid-json"):
+    return SimpleNamespace(
+        id="denied-call",
+        type="function",
+        function=SimpleNamespace(name=name, arguments=arguments),
+    )
+
+
+def _response(*calls, content=None):
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(
+            role="assistant", content=content, tool_calls=list(calls)
+        ))],
+        usage=None,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", CONTAINED)
+async def test_rook_agent_internal_execution_denies_without_executor(name: str) -> None:
+    calls = []
+
+    async def executor(*args):
+        calls.append(args)
+        return {"success": True}
+
+    agent = RookAgent(
+        config=AgentConfig(knowledge_injection=False, observation_recording=False),
+        tool_executor=executor,
+    )
+    result = await agent._execute_tool(name, {"must_not": "dispatch"})
+    assert result["code"] == "legacy_semantic_tool_contained"
+    assert result["tool"] == name
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_rook_agent_model_loop_records_denial_without_decoding_and_continues(monkeypatch) -> None:
+    executor_calls = []
+    agent = RookAgent(
+        config=AgentConfig(
+            max_turns=3,
+            knowledge_injection=False,
+            observation_recording=False,
+            tool_surface_adaptation=False,
+        ),
+        tool_executor=lambda *args: executor_calls.append(args),
+    )
+    responses = [_response(_call("gh_execute_intent")), _response(content="continued")]
+
+    async def model(_context):
+        return responses.pop(0)
+
+    agent._call_model = model
+    agent._track_usage = lambda _response: None
+    await agent.prompt("test containment")
+
+    protocol = [m for m in agent.messages if m.get("tool_call_id") == "denied-call"]
+    assert len(protocol) == 1
+    assert json.loads(protocol[0]["content"])["code"] == "legacy_semantic_tool_contained"
+    assert executor_calls == []
+    assert any(m.get("content") == "continued" for m in agent.messages)
+
+
+def _chat_tool_stream(name: str):
+    async def stream():
+        chunk = MagicMock()
+        chunk.choices = [MagicMock()]
+        chunk.choices[0].delta.content = None
+        delta = MagicMock()
+        delta.index = 0
+        delta.id = "chat-denied"
+        delta.function.name = name
+        delta.function.arguments = "{invalid-json"
+        chunk.choices[0].delta.tool_calls = [delta]
+        chunk.usage = None
+        yield chunk
+    return stream()
+
+
+def _chat_text_stream(text: str):
+    async def stream():
+        chunk = MagicMock()
+        chunk.choices = [MagicMock()]
+        chunk.choices[0].delta.content = text
+        chunk.choices[0].delta.tool_calls = None
+        chunk.usage = None
+        yield chunk
+    return stream()
+
+
+@pytest.mark.asyncio
+async def test_rook_chat_model_loop_records_denial_without_decoding_and_continues(monkeypatch) -> None:
+    import rook.agent.chat.chat_runner as chat_module
+
+    executor = AsyncMock(return_value={"success": True})
+    registry = ToolRegistry(catalog={
+        "gh_edit": {
+            "type": "function",
+            "function": {
+                "name": "gh_edit",
+                "description": "edit",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+    }, tier0={"gh_edit"})
+    runner = ChatRunner(tool_executor=executor, registry=registry)
+    streams = [_chat_tool_stream("gh_execute_intent"), _chat_text_stream("continued")]
+
+    async def completion(**_kwargs):
+        return streams.pop(0)
+
+    monkeypatch.setattr(chat_module.litellm, "acompletion", completion)
+    monkeypatch.setattr(chat_module, "collect_runtime_facts", AsyncMock(return_value={}))
+    conversation = Conversation(id="contained-chat", persona="worker", model="test")
+    events = [event async for event in runner.run_turn(conversation, "test", "system")]
+
+    protocol = [m for m in conversation.messages if m.get("tool_call_id") == "chat-denied"]
+    assert len(protocol) == 1
+    assert json.loads(protocol[0]["content"])["code"] == "legacy_semantic_tool_contained"
+    assert executor.await_count == 0
+    assert all(event.type not in {"tool_start", "tool_result"} for event in events)
+    assert any(m.get("content") == "continued" for m in conversation.messages)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", CONTAINED)
+async def test_plan_graph_denies_before_params_or_dispatch(name: str) -> None:
+    node = PlanGraphNode(
+        id="producer",
+        intent="contained",
+        execution_ref=f"{name}:v1",
+        metadata={
+            OUTCOME_PROJECTION_ROLE_KEY: "artifact_producer",
+            EXECUTION_PARAMS_KEY: {"must_not": "copy"},
+        },
+    )
+    node.status = "ready"
+    graph = PlanGraph(nodes={"producer": node})
+    calls = []
+
+    async def dispatch(*args):
+        calls.append(args)
+        return {"success": True}
+
+    result = await apply_live_producer_node(graph, "producer", dispatch)
+    assert result.applied is False
+    assert result.reason == "tool_lifecycle_denied"
+    assert result.graph is graph
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_transport_wrapper_tombstones_missing_schema_before_sdk_validation() -> None:
+    from mcp import types as mcp_types
+    from rook import server
+
+    handler = server.mcp.request_handlers[mcp_types.CallToolRequest]
+    request = mcp_types.CallToolRequest(
+        params=mcp_types.CallToolRequestParams(
+            name="gh_execute_intent",
+            arguments={"malformed": object()},
+        )
+    )
+    result = await handler(request)
+    text = result.root.content[0].text
+    assert json.loads(text.removeprefix("Error: "))["tool"] == "gh_execute_intent"
+
+    progressive = mcp_types.CallToolRequest(
+        params=mcp_types.CallToolRequestParams(
+            name="rook_tools_call",
+            arguments={"name": "gh_replay_recipe", "arguments": "not-an-object"},
+        )
+    )
+    nested_result = await handler(progressive)
+    nested_text = nested_result.root.content[0].text
+    assert json.loads(nested_text.removeprefix("Error: "))["tool"] == "gh_replay_recipe"

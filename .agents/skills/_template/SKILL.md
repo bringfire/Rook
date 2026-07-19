@@ -23,7 +23,9 @@ Brief overview of the workflow this skill enables.
 **Intent:** Describe what this step accomplishes
 
 ```python
-rhino_execute_intent(intent="create a circle at origin with radius 5")
+circle = rhino_create(type="CIRCLE", center=[0, 0, 0], radius=5)
+circle_id = circle["id"]
+rhino_geometry(id=circle_id)
 ```
 
 **Notes:**
@@ -34,7 +36,12 @@ rhino_execute_intent(intent="create a circle at origin with radius 5")
 **Intent:** Describe what this step accomplishes
 
 ```python
-rhino_execute_intent(intent="extrude selected curve by 10 units in Z")
+extrusion = rhino_extrude(
+    curveId=circle_id,
+    direction=[0, 0, 10],
+    cap=True,
+)
+rhino_geometry(id=extrusion["id"])  # verify geometry and solid state
 ```
 
 ### Step 3: [Continue as needed...]
