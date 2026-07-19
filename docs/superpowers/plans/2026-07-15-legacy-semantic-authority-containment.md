@@ -598,56 +598,48 @@ if ($LASTEXITCODE -ne 0) { throw 'Task 2 commit failed' }
 - Create: `scripts/run-containment-release-acceptance.ps1`
 - Create: `scripts/tests/containment-release-acceptance.tests.ps1`
 
-- [ ] Run the Task Shell block.
+**Responsibility:** Task 3 sequences existing release components. It does not recreate their validation and does not implement Task 4 withdrawal.
 
-- [ ] Write the PowerShell test first. It must fail with `EXPECTED_RED:containment-release-coordinator:missing`, then cover:
+- [ ] Run the Task Shell block. Do not call `Resolve-PinnedPrivatePythonFixtureSource` or `Resolve-PinnedInnoCompiler`; Task 3 has no private-CPython or Inno dependency.
 
-  - fresh-output and gallery/environment/uninstall-state pre-install-baseline ordering;
-  - zero helper, inventory-writer, diagnostics-file, or installer calls before the output root is validated, created, and rechecked;
-  - canonical output-parent resolution, no reparse component, and exclusion from every installer deletion/protected root;
-  - canonical existing-parent/no-reparse checks for the absent smoke/release manifest paths, with both paths rejected beneath the gallery or any coordinator protected/deletion root;
-  - installer environment sanitation before process start, including hostile `APPDATA`, `LOCALAPPDATA`, `USERPROFILE`, home, and temp overrides and proof that the private-Python descendants use the same code-owned known-folder/profile/temp values as the preflight map;
-  - session-local `pre_install`, `installer_start_attempted`, `installer_started`, and `ambiguous_install_launch` transitions, with destructive withdrawal allowed only from verified `installer_started`;
-  - a non-following, case-insensitive immediate-entry inventory of `unins*.exe`, `unins*.dat`, and `unins*.msg` beneath the exact known-folder-derived app root after quiescence and before `Process.Start`; an absent app root is empty; only an uninspectable/reparse app root or an uninspectable/reparse matching entry blocks installation, while ordinary readable non-reparse matches may proceed but remain an immutable automatic-withdrawal disqualifier even if the candidate overwrites or removes them;
-  - strict round-trip parsing of the caller's normal-build start timestamp and exact code-owned seeding of the smoke shell's release variables/absolute paths, independent of ambient parent variables;
-  - validation and byte-copy preparation for the pinned full-CPython fixture, plus hostile user-site `sitecustomize.py`/`usercustomize.py` behavior before and after sanitation; Task 4 supplies the actual Inno/private-Python process chain rather than a test-owned parent substitute;
-  - gallery inventory without content reads, hashing, or reparse traversal;
-  - exact quiesced pre/post-install equality;
-  - phase-aware live comparison and only the three approved new sidecar names plus allowed `manifest.json` size changes;
-  - release SHA/version/installer/smoke/release-manifest digest equality and semantic equality of external versus embedded smoke JSON;
-  - smoke/release manifest absence at start, post-`READY` freshness, exact abort/EOF behavior, and re-quiescence before containment proof;
-  - environment sanitation for the normal-smoke shell, including poisoned inherited `APPDATA`, `LOCALAPPDATA`, `USERPROFILE`, home, and temp values and the same code-owned scrub/re-add path policy as installation; the existing source-based normal smoke scripts may still establish their ordinary source paths, while source-free `sys.path` and installed-origin proof apply only to the installed probe and both live-gate children;
-  - literal normal-smoke shell arguments `-NoProfile -NoExit`, a code-owned fresh cwd/environment, and profile suppression;
-  - the smoke shell as the sole stdin reader while alive: the coordinator waits for its exact PID/start token to exit before prompting for or reading continue/abort;
-  - refusal to begin containment proof before the existing smoke workflow and unchanged validator succeed;
-  - staging only the four literal release-tool files (`__init__.py`, `installed_probe.py`, `live_gate.py`, and `fixtures/containment_empty.ghx`) into the fresh output tree, rejecting source/destination reparses and destination extras, byte-comparing each one, invoking only that copy, and ignoring rather than recursively copying unrelated source entries such as `__pycache__`/`.pyc` residue;
-  - rejection of incomplete or duplicate discovery/36/29/live results;
-  - one atomic success record only after all gates pass; and
-  - no pass record after any failure.
+- [ ] Write `containment-release-acceptance.tests.ps1` first. It begins with `Set-StrictMode -Version Latest` and `$ErrorActionPreference = 'Stop'`, fails with `EXPECTED_RED:containment-release-coordinator:missing` while the coordinator is absent, and uses only synthetic directories plus injected fake child results. Pin these behaviors:
 
-`containment-release-acceptance.tests.ps1` also begins with `param(...)`, `Set-StrictMode -Version Latest`, and `$ErrorActionPreference = 'Stop'` before test work.
+  - the coordinator and its test are the only Task 3 files, and the production script remains below 1,000 lines;
+  - a new absolute output directory is required outside `%LOCALAPPDATA%\Rook\app`, `python`, `venv`, `data`, and `%APPDATA%\Rook\artifacts`;
+  - existing Rook processes are checked with `installer/rook_process_preflight.ps1 -Mode enumerate`, and direct exact-name checks reject running Rhino or Revit;
+  - the gallery baseline records relative path, entry type, and file size without reading file contents or following reparses;
+  - the immediate pre-install uninstaller inventory records only case-insensitive `unins*.exe`, `unins*.dat`, and `unins*.msg` entries beneath `%LOCALAPPDATA%\Rook\app` for Task 4;
+  - the installer is invoked once with `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /TYPE=full`, a scrubbed Python/Rook environment, and its actual exit code is checked;
+  - exact gallery equality is required after installation while processes remain quiescent;
+  - the coordinator prints one run-bound operator continuation/abort token but does not create or own a smoke shell;
+  - `validate-release-artifacts.ps1` receives the exact expected SHA, version, installer, smoke manifest, output manifest, build timestamp, and existing FFmpeg manifest; its exit code is authoritative and its schema logic is not reproduced;
+  - exactly `__init__.py`, `installed_probe.py`, `live_gate.py`, and `fixtures/containment_empty.ghx` are copied to `<output>/tooling`, byte-compared, and used for later calls;
+  - `installed_probe.py` runs once, then `live_gate.py` runs once for `rhino` and once for `grasshopper`, in that order, with separate gate-owned authorization handled by `live_gate.py`;
+  - the approved live-gallery comparison runs after the existing smoke workflow and after each live scenario;
+  - a failing fake child stops all later calls and never writes a passing record;
+  - a failure after the installer starts writes one small atomic failure record with `withdrawal_required: true` and the captured pre-existing-uninstaller inventory, but performs no uninstall, deletion, configuration cleanup, or repair; and
+  - only a complete ordered success writes one small atomic success record with the three recomputed file digests.
+
+The tests dot-source the coordinator with synthetic required arguments and call its private core through one coordinator-local injected hook table for process preflight, child launch, and operator input. The public `-File` path does not accept hooks or test paths. Synthetic tests create fake installer, smoke, release, probe, and live result files; they do not invoke an installer, Rhino, Inno, CPython staging, the real validator, or any user-owned path.
 
 - [ ] Run the intended red under Windows PowerShell 5.1:
 
 ```powershell
-$BasePython = Resolve-PinnedPrivatePythonFixtureSource
-$IsccPath = Resolve-PinnedInnoCompiler
 Invoke-ExpectedPowerShellRed `
   -Path 'scripts\tests\containment-release-acceptance.tests.ps1' `
-  -Marker 'EXPECTED_RED:containment-release-coordinator:missing' `
-  -Arguments @('-PrivatePythonPath', $BasePython, '-IsccPath', $IsccPath)
+  -Marker 'EXPECTED_RED:containment-release-coordinator:missing'
 ```
 
-Expected: exit `1` with `EXPECTED_RED:containment-release-coordinator:missing`, not `ParserError` or missing infrastructure.
+Expected: exit `1` with the exact marker, not `ParserError`, a missing test dependency, or a live-process failure.
 
-- [ ] Implement `scripts/run-containment-release-acceptance.ps1`. Its first executable statements after `param(...)` are:
+- [ ] Implement `scripts/run-containment-release-acceptance.ps1` as a sequencing-only script. Its first executable statements after `param(...)` are:
 
 ```powershell
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 ```
 
-Its public parameters are limited to:
+Its public parameters remain limited to:
 
 ```text
 -ExpectedReleaseSha <40-hex>
@@ -660,48 +652,24 @@ Its public parameters are limited to:
 -OutputDirectory <absolute path that does not yet exist>
 ```
 
-Do not accept installer arguments, deletion roots, seam inventories, probe assignments, gallery roots, install roots, or startup-authority paths from the caller. Derive code-owned paths from `$PSScriptRoot` and Windows known folders.
+Derive the repository root from `$PSScriptRoot` and runtime/gallery paths from Windows known folders. Do not accept caller-supplied install, gallery, deletion, probe-matrix, or tool paths. Keep all coordinator helpers in this file; do not add a third implementation file or a reusable validation/process framework.
 
-Pin one code-owned model of every current normal-uninstaller filesystem mutation. It is protection/preflight scope, not a broader fallback deletion allowlist:
+- [ ] Implement this exact ordered flow:
 
-- fixed trees/files: `%LOCALAPPDATA%\Rook\app`, `python`, `venv`, `logs`, `discovery`, and `docs`; `%LOCALAPPDATA%\Rook\CLAUDE.md`, `AGENTS.md`, `ROOK_CLAUDE_POST_INSTALL.md`, and `ROOK_CODEX_POST_INSTALL.md`; the code-owned temp root `%LOCALAPPDATA%\Temp\rook`; and `%APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative`;
-- mutated configuration files: `%USERPROFILE%\.claude.json`, `%USERPROFILE%\.claude\.mcp.json`, `%APPDATA%\Claude\claude_desktop_config.json`, and `%USERPROFILE%\.codex\config.toml`;
-- the clean candidate must contain no installed `.claude/skills` or `.claude/agents` source tree because Claude assets are marketplace-only; either legacy source tree is unexpected deletion authority and requires manual withdrawal;
-- the curated `installer/agent-assets/codex-skills` payload is copied to installed `.agents/skills`, whose source children may cause deletion of the same names beneath `%USERPROFILE%\.codex\skills`: `capture-convention`, `chirp`, `chirp-cascade`, `clean-layers`, `design-grasshopper`, `design-road`, `execute-grasshopper`, `masterplan-roads`, `plan-grasshopper`, `project-setup`, `twisted-column`; and
-- the two exact Rhino plugin registry roots already named in Task 4.
+1. Validate scalar arguments and create the fresh output directory outside the five protected roots above.
+2. Run the existing read-only Rook process preflight and direct Rhino/Revit name check. A nonquiet result stops before installation.
+3. Capture the gallery path/type/size baseline and the small immediate-entry uninstaller inventory.
+4. Launch the ordinary installer through `System.Diagnostics.ProcessStartInfo` with `UseShellExecute = false`, the fixed arguments above, and an environment formed by removing `PYTHONPATH`, `PYTHONHOME`, `PYTHONUSERBASE`, `PYTHONNOUSERSITE`, `DSPY_MODEL`, `DSPY_CACHEDIR`, `CHIRP_HOME`, and every `ROOK_*` key case-insensitively, then setting only `PYTHONNOUSERSITE=1`. Wait for the launched process and require exit `0`.
+5. Re-run the read-only quiescence check and require exact gallery equality with the pre-install baseline.
+6. Print `READY_FOR_NORMAL_RELEASE_SMOKE <run-id>`. The operator runs the existing Rhino/Revit smoke workflow outside the coordinator, closes those hosts, then enters exactly `CONTINUE_AFTER_NORMAL_RELEASE_SMOKE <run-id>` or `ABORT_NORMAL_RELEASE_SMOKE <run-id>`. The coordinator creates no shell and runs no smoke implementation.
+7. On continue, require fresh quiescence and the smoke manifest, apply the approved live-gallery comparison, then invoke unchanged `scripts/validate-release-artifacts.ps1` with `-Version`, `-RepoRoot`, `-GitSha`, `-InstallerPath`, the code-owned FFmpeg source-bundle manifest, `-SmokeManifestPath`, `-OutputManifestPath`, `-BuildStartedAt`, and `-RequireInstallerNewerThanScript`. Require exit `0`; do not parse or reproduce its release-validation schema.
+8. Copy and byte-compare only the four containment release files into `<output>/tooling` with their relative layout. Invoke only those copies.
+9. Run the installed venv Python with staged `installed_probe.py run` and its existing fixed CLI. Derive `%LOCALAPPDATA%\Rook\app`, `data`, `venv`, installed `site-packages\rook`, installed/packaged runtime manifests, install state, and packaged wheelhouse from known folders and the repository. Require exit `0` and `success: true`.
+10. Run staged `live_gate.py run --scenario rhino` with its existing fixed CLI; require exit `0`, `success: true`, and then the approved live-gallery comparison.
+11. Run staged `live_gate.py run --scenario grasshopper` with a new output path and its existing fixed CLI; require exit `0`, `success: true`, and then the approved live-gallery comparison.
+12. Recompute SHA-256 for the installer, smoke manifest, and release manifest. Write `<output>/containment-release-acceptance.json` by same-directory temporary file plus atomic rename only after every preceding step succeeds.
 
-Resolve UserProfile/AppData/LocalAppData through Windows known-folder APIs. Define the one child-process temp root as the existing, ordinary, non-reparse `Temp` directory beneath that known LocalAppData root; do not derive it from inherited `TEMP`, `TMP`, `TMPDIR`, or `[IO.Path]::GetTempPath()`. Tests compare the literal 11-name Codex set against `installer/agent-assets/codex-skills`, prove the installer packages only that curated source, and prove no Claude source payload is packaged. Before the installer starts, reject the diagnostics and manifest paths if they are equal to, beneath, or an ancestor of any affected filesystem destination. Before normal uninstallation, require installed `.claude/skills` and `.claude/agents` to be absent. Installed `.agents/skills` may be absent or contain any subset of the literal 11 names after a partial installation; every present immediate child must be a non-reparse allowlisted name, and any unknown name means manual withdrawal rather than expanded authority. Preflight the corresponding user destination only for each verified present source child. A completed successful installation must contain the exact 11-name set.
-
-The coordinator performs this exact state machine:
-
-1. set the session-local phase to `pre_install`; validate only scalar/path shape, expected SHA/version, strict round-trip `BuildStartedAt`, exact existing installer, code-owned release-tool sources, distinct absolute absent manifest files, and an absolute absent output path;
-2. derive UserProfile, LocalAppData, AppData, temp, gallery, install, protected, fallback, and the complete normal-uninstaller affected map through Windows known-folder/code-owned APIs, never ambient path authority;
-3. canonicalize/reparse-check both manifest parent chains and every existing output-parent component. The output directory must be outside and not an ancestor of the checkout, installed roots, `%APPDATA%\Rook\artifacts`, `%LOCALAPPDATA%\Rook\data`, `%LOCALAPPDATA%\Rook\rookvision_director`, the four fallback roots, and every normal-uninstaller affected destination. The intentionally checkout-resident smoke/release manifest paths are allowed beneath the validated release output directory but are rejected from every runtime/protected/affected destination. Create and recheck the fresh output directory. No helper, inventory writer, or diagnostic file may run or write before this step succeeds; an earlier failure reports only through the process exit/console;
-4. validate the four literal source files and every existing source-path component as ordinary non-reparse entries; create only the matching destination directories beneath `<output>/tooling`; copy exactly `scripts/containment_release/__init__.py`, `installed_probe.py`, `live_gate.py`, and `fixtures/containment_empty.ghx`; recheck destination components as non-reparse, byte-compare each source/copy file, reject a missing or extra destination file, and use only that staged copy later. Do not enumerate/copy unrelated source entries or recursively copy the source directory, so `__pycache__`/`.pyc` residue is ignored rather than admitted;
-5. require Rhino, Revit, Rook MCP, RookChat, and known internal-agent processes/tasks quiesced. Only now invoke the existing code-owned `installer/rook_process_preflight.ps1 -Mode enumerate`, with unique new ordinary log/summary paths beneath the proven diagnostics root; never invoke its close mode. Add only direct bounded Rhino/Revit and known-task presence checks needed by this gate, not a new process framework;
-6. record the non-following pre-install `%APPDATA%\Rook\artifacts` path/type/size inventory and the immutable uninstall-state baseline. For uninstall state, inspect only immediate entries beneath the exact canonical `%LOCALAPPDATA%\Rook\app` root whose names case-insensitively match `unins*.exe`, `unins*.dat`, or `unins*.msg`; record path, type, size, and reparse status without reading file contents. An absent app root is an empty baseline. An uninspectable/reparse app root or an uninspectable/reparse matching entry stops before installation. Ordinary readable non-reparse matches do not block installation, but permanently disqualify automatic withdrawal for this session;
-7. create a sanitized installer environment by case-insensitively removing `PYTHONPATH`, `PYTHONHOME`, `PYTHONUSERBASE`, inherited `PYTHONNOUSERSITE`, `DSPY_MODEL`, `DSPY_CACHEDIR`, `CHIRP_HOME`, all `ROOK_*`, and the path-authority variables `APPDATA`, `LOCALAPPDATA`, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, `HOME`, `TEMP`, `TMP`, and `TMPDIR`; then set code-owned `PYTHONNOUSERSITE=1`, `APPDATA`, `LOCALAPPDATA`, and `USERPROFILE` from the already validated Windows known folders, derive `HOMEDRIVE` and `HOMEPATH` from that canonical profile path, and set `TEMP`, `TMP`, and `TMPDIR` to the validated LocalAppData `Temp` directory. Do not re-add `HOME`. Tests poison every removed value and prove the installer plus private-Python descendants observe only the pinned path authority—including `Path.home()`, `get_runtime_root()`, `APPDATA`, and `tempfile.gettempdir()`—so their actual destinations equal the preflight map;
-8. immediately before `Process.Start`, transition to `installer_start_attempted`; launch the existing installer with `ProcessStartInfo`, `UseShellExecute = false`, and fixed arguments `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /TYPE=full`. Transition to `installer_started` only after a returned process handle plus PID and creation identity are recorded. Then wait for that exact process: observed exit zero establishes a completed successful installation; an observed nonzero exit with the same verified handle/PID/creation identity establishes `verified_partial_installation`; missing identity or an unobservable/ambiguous exit status transitions to `ambiguous_install_launch` and may not use partial-install relaxation. After the exact process exits, record the post-install immediate-entry uninstall-state inventory for Task 4; this filesystem state never establishes installer phase, process identity, or `verified_partial_installation`;
-9. before any host starts, capture the post-install inventory and require exact quiesced equality;
-10. launch a gate-owned Windows PowerShell 5.1 normal-smoke shell with literal `-NoProfile -NoExit -Command` arguments, the approved case-insensitive source/model/cache/Rook-control scrub plus code-owned `PYTHONNOUSERSITE=1`, a fresh cwd outside the checkout/install/gallery, and recorded PID/start token. Apply the same path-authority policy as step 7: remove inherited `APPDATA`, `LOCALAPPDATA`, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, `HOME`, `TEMP`, `TMP`, and `TMPDIR`, then re-add only the validated AppData/LocalAppData/profile/home-drive/home-path and LocalAppData `Temp` values. The code-owned command assigns validated `$VERSION`, `$gitSha`, `$buildStartedAt`, `$RepoRoot`, `$InstallerPath`, `$SmokeManifestPath`, `$ReleaseManifestPath`, `$StandaloneSmokeHarnessPath`, `$ReleaseValidatorPath`, and `$FfmpegSourceBundleManifestPath` values, all with absolute paths and PowerShell single-quote escaping; it does not evaluate caller-supplied script text or depend on ambient parent-session variables. This makes the existing workflow's `$env:LOCALAPPDATA` installed-Python selection and `$env:TEMP` evidence paths match the coordinator's preflight. The shell may run the existing source-based normal smoke scripts using those absolute paths and is not subject to the later installed-origin/source-free assertion. Emit `READY_FOR_NORMAL_RELEASE_SMOKE <run-id>` plus the shell identity, then block on that exact process exiting without reading stdin concurrently;
-11. after the exact smoke-shell PID/start token exits, record its exit code and only then prompt for/read exactly `CONTINUE_AFTER_NORMAL_RELEASE_VALIDATION <run-id>` or `ABORT_NORMAL_RELEASE_VALIDATION <run-id>`; continue additionally requires smoke-shell exit code zero. Abort, EOF, interruption, any other input, or a continue request after nonzero shell exit stops forward work and enters Task 4 withdrawal when safe;
-12. on continue, require the smoke shell, standalone Rhino, Rhino.Inside/Revit, and their Rook MCP/RookChat children closed; re-enumerate and prove fresh quiescence before any containment probe;
-13. require the previously absent external smoke and release manifests to be ordinary non-reparse files written after the recorded `READY` timestamp in this session, require `smoke_started_utc` not to predate `READY`, and require the release manifest not to predate the smoke manifest;
-14. immediately compare the gallery against the live-phase contract after normal smoke/validation; any mismatch stops before containment or live mutation;
-15. check only the approved release identity equalities rather than recreating the smoke or release schemas;
-16. launch the staged `installed_probe.py` with the installed venv Python and `-I`, the installed-child environment, a fresh child cwd, and the exact approved inputs; require its four discovery, 36 transport, and 29 internal records;
-17. launch staged `live_gate.py` for Rhino under the same installed-Python scrub/re-add, source-free `sys.path`, installed-origin, staged-script, and fresh-cwd contract; obtain its own authorization, then immediately compare the live gallery before continuing;
-18. launch staged `live_gate.py` for Grasshopper under that same contract; obtain a new authorization, then immediately compare the live gallery again;
-19. recompute the installer and both manifest digests; and
-20. write `<output>/containment-release-acceptance.json` through a same-directory temporary file and atomic rename only after every step passes.
-
-Every installer, smoke-shell, installed-Python, probe, and live-gate child is launched through `System.Diagnostics.ProcessStartInfo`; do not use the unavailable Windows PowerShell 5.1 `Start-Process -Environment` form. Check each child `ExitCode` before advancing. `containment-release-acceptance.tests.ps1` has mandatory `-PrivatePythonPath` and `-IsccPath` parameters. Every plan command obtains them only from `Resolve-PinnedPrivatePythonFixtureSource` and `Resolve-PinnedInnoCompiler`. The former reruns the existing normal-release `stage-rook-python-runtime.ps1` and therefore supplies the hash-verified official full CPython 3.11.9 runtime rather than the Task Shell's Python 3.12 test venv, an ambient installation, or stale staged bytes. The latter pins the same Inno Setup 6 compiler path used by the normal release process. The test rejects a venv executable, embedded/`._pth` runtime, a source runtime whose unsanitized user-site control does not fire, a missing/reparse/wrong-version compiler, or any skipped fixture. There is no fallback or skip.
-
-The tests never write beside that staged source interpreter. They validate its ordinary non-reparse full-runtime root and required `python.exe`, `python311.dll`, `Lib`, and `DLLs` entries, then recursively byte-copy only ordinary non-reparse entries into a fresh test-owned `<LocalAppData>\Temp\rook-containment-test-fixture-<guid>\private-python\cpython-3.11.9` root outside the checkout, gallery, every production deletion root, and the synthetic profile used below. A reparse or copy/byte-compare failure aborts the test. The copied interpreter must report Python `3.11.9`, its canonical `sys._base_executable`, `sys.executable`, base prefix, and prefix beneath the copy, and no `._pth` isolation. Task 4 copies and byte-verifies the real `installer/post_install.py`, `installer/process_rebuild_guard.py`, and `installer/python_runtime_install.py` into the generated synthetic app root and launches the unchanged `post_install.py --uninstall` only through the real synthetic Inno `Exec` path. A test-only system `sitecustomize.py` inside the copied runtime fails closed before that script continues unless every effective home/AppData/LocalAppData/temp/runtime/configuration/cwd destination is canonical, ordinary, non-reparse, and beneath its exact synthetic root. Its second closed branch makes a copied-runtime `claude.exe` atomically write an external hit marker and exit `97`; the fixture positively controls that tripwire before real uninstall and requires zero later hits. Observation and hit markers stay outside every synthetic uninstall target. The staged source interpreter and real user configuration remain untouched, and final fixture-root teardown occurs only after assertions complete.
-
-The Task 4 fixture proves the exact sanitized installer/uninstaller/TEMP-clone/private-Python chain does not fire user-site or Claude tripwires and that hostile inherited profile/AppData/temp variables cannot redirect any child away from code-owned test paths. The production coordinator applies the same control and path-authority policy to the actual installer, normal-smoke shell, normal uninstaller, and their private-Python descendants.
-
-The success record contains only:
+The success record has only:
 
 ```text
 schema_version, success, expected_release_sha, version, installer_sha256,
@@ -709,44 +677,28 @@ smoke_manifest_sha256, release_manifest_sha256, installed_probe,
 rhino_scenario, grasshopper_scenario, gallery, completed_utc
 ```
 
-`installed_probe` and scenario fields contain relative evidence paths, SHA-256, and pass/count summaries, not copied user content. The coordinator performs no Git, build, versioning, publication, smoke-schema, or general release-validation work.
+The three evidence fields contain only relative output paths, SHA-256 values, and pass/count summaries. They do not copy probe records or user content.
 
-The approved identity comparison is explicit:
+If any failure occurs after the installer process was successfully started, stop forward work and atomically write `<output>/containment-release-failure.json` with only:
 
-- recompute the installer SHA-256 before installation and again before success; require it to equal the release-manifest installer digest;
-- require the expected release SHA to equal the external smoke manifest, release manifest, packaged runtime manifest, and installed runtime manifest SHA fields;
-- require the expected Rook version to equal release-manifest `version`, smoke `rook_version`, runtime-manifest `release_version`, the `rook-mcp` wheel version/METADATA, the Rook lockfile pin, and existing native/managed `X.Y.Z.0` file versions;
-- require packaged and installed runtime-manifest bytes/digests to match and install state to record that same runtime-manifest identity;
-- require every declared wheel digest, the exact packaged Rook wheel, its hash-and-size-bearing `rook/` `RECORD` entries, and installed Rook files to match, ignoring only interpreter-created `__pycache__` and `.pyc` files;
-- require the installed venv/package roots and every loaded `rook.*` origin to match the installed candidate, with no canonical checkout/worktree path in effective `sys.path`; and
-- hash the exact external smoke and release-manifest bytes and require semantic JSON equality between the external smoke object and the release manifest's embedded `smoke` object.
+```text
+schema_version, success, stage, withdrawal_required, installer_exit_code,
+preexisting_uninstaller, message, failed_utc
+```
 
-Gallery inventory rules are exact:
+Set `success: false` and `withdrawal_required: true`. Do not invoke an uninstaller, remove files, edit configuration, repair the gallery, restore an older build, or write a passing record. Task 4 owns withdrawal.
 
-- never follow a reparse point;
-- exclude only pre-existing `*.deleting.tmp` trees and empty GUID directories;
-- read path, type, and file size only for real gallery entries;
-- exact equality while quiesced across installation;
-- during live acceptance, preserve every pre-existing non-transient path/type and every pre-existing non-`manifest.json` size;
-- permit new files only named `poster.jpg`, `start_frame.jpg`, or `end_frame.jpg` beneath a pre-existing finalized artifact directory, with no new directory;
-- permit `manifest.json` size changes only in those pre-existing directories; and
-- on any mismatch, emit `artifact_preservation_failed`, stop forward work, and never repair the gallery.
-
-The test uses a synthetic sentinel tree and verifies exact sentinel bytes across simulated installation and failure. Production inventory never reads or hashes real gallery contents.
-
-For this comparison, a pre-existing finalized artifact directory is a non-reparse baseline directory at `{YYYY-MM-DD}/{uuid}` whose UUID name and regular `manifest.json` were both present before live startup. The gate does not parse or rewrite that manifest to establish finalization.
-
-Failure handling is phase-gated. `pre_install` failures perform no uninstall, fallback deletion, configuration cleanup, or startup-authority mutation; after the output root is proven they may write concise diagnostics there and report `candidate_not_started`, otherwise they report only through exit/console. `installer_start_attempted` without verified process identity becomes `ambiguous_install_launch` and returns `manual_withdrawal_required` with no destructive cleanup. Only `installer_started` may enter Task 4's bounded withdrawal, and the immutable uninstall-state baseline independently controls whether any automatic destructive withdrawal is eligible. Within it, `verified_partial_installation` means exactly a returned process handle, recorded PID plus creation identity, and an observed nonzero exit from that same process; filesystem residue, an unobserved exit, or identity mismatch cannot establish partial installation. Eligibility is session-local and may never be inferred from installed files, `unins000.exe`, manifests, registry/config state, or caller input. No failure writes a passing record.
+Task 3 explicitly excludes private-CPython fixtures, Inno compilation, user-site or Claude tripwires, TEMP-clone/process-watch logic, a generalized uninstall mutation map, coordinator-owned smoke shells, duplicate wheel/`RECORD`/runtime-manifest/release-schema validation, fallback deletion, configuration repair, and hostile-workstation certification.
 
 - [ ] Run focused green verification and PS5.1 parsing:
 
 ```powershell
 & $WindowsPowerShell -NoProfile -ExecutionPolicy Bypass -Command "[void][scriptblock]::Create((Get-Content -LiteralPath 'scripts\run-containment-release-acceptance.ps1' -Raw))"
 if ($LASTEXITCODE -ne 0) { throw 'Coordinator parse failed' }
-$BasePython = Resolve-PinnedPrivatePythonFixtureSource
-$IsccPath = Resolve-PinnedInnoCompiler
-& $WindowsPowerShell -NoProfile -ExecutionPolicy Bypass -File scripts\tests\containment-release-acceptance.tests.ps1 -PrivatePythonPath $BasePython -IsccPath $IsccPath
+& $WindowsPowerShell -NoProfile -ExecutionPolicy Bypass -File scripts\tests\containment-release-acceptance.tests.ps1
 if ($LASTEXITCODE -ne 0) { throw 'Coordinator tests failed' }
+$CoordinatorLines = @(Get-Content -LiteralPath 'scripts\run-containment-release-acceptance.ps1').Count
+if ($CoordinatorLines -ge 1000) { throw "Coordinator exceeded the KISS limit: $CoordinatorLines lines" }
 ```
 
 - [ ] Stage exactly the two Task 3 files, verify the allowlist, and commit:
@@ -761,10 +713,9 @@ git commit -m "test(release): add thin containment coordinator"
 if ($LASTEXITCODE -ne 0) { throw 'Task 3 commit failed' }
 ```
 
-- [ ] Obtain fresh spec-compliance and code-quality reviews; fix and re-review before Task 4.
+- [ ] Task 3 closes after the focused offline verification and exact two-file commit. Do not initiate an open-ended implementation review. The one final whole-branch verification remains Task 7.
 
 ---
-
 ## Task 4: Migrate legacy uninstall authority and add bounded withdrawal
 
 **Files:**
@@ -1133,6 +1084,7 @@ $PlanCommitPaths = @(git diff-tree --no-commit-id --name-only -r $Implementation
 if ($PlanCommitPaths.Count -ne 1 -or $PlanCommitPaths[0] -cne $PlanPath) { throw 'Implementation baseline is not the approved plan-only commit' }
 
 $ExpectedChangedPaths = @(
+  $PlanPath,
   '.agents/skills/build-release/SKILL.md',
   '.claude/skills/build-release/SKILL.md',
   '.gitattributes',
@@ -1159,7 +1111,7 @@ $ExpectedChangedPaths = @(
   'scripts/validate-containment-candidate.ps1',
   'scripts/verify-containment-safe-rollback.ps1'
 ) | Sort-Object
-if ($ExpectedChangedPaths.Count -ne 25) { throw 'Expected changed-path snapshot must contain exactly 25 paths' }
+if ($ExpectedChangedPaths.Count -ne 26) { throw 'Expected changed-path snapshot must contain exactly 26 paths' }
 $ActualChangedPaths = @(git diff --no-renames --name-only "$ImplementationBaseline..HEAD") | Sort-Object
 if ($LASTEXITCODE -ne 0) { throw 'Branch changed-path read failed' }
 $PathDelta = @(Compare-Object -CaseSensitive -ReferenceObject $ExpectedChangedPaths -DifferenceObject $ActualChangedPaths)
@@ -1244,7 +1196,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Coordinator PS5.1 parse failed' }
 git diff --check "$Spec..HEAD"
 if ($LASTEXITCODE -ne 0) { throw 'Committed branch diff check failed' }
 
-$Numstat = @(git diff --no-renames --numstat "$ImplementationBaseline..HEAD")
+$Numstat = @(git diff --no-renames --numstat "$ImplementationBaseline..HEAD" -- . ":(exclude)$PlanPath")
 if ($LASTEXITCODE -ne 0) { throw 'Implementation numstat failed' }
 $Added = 0; $Deleted = 0
 $ReleaseProofRows = @()
