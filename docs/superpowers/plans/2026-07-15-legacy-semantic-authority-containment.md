@@ -690,6 +690,17 @@ Set `success: false` and `withdrawal_required: true`. Do not invoke an uninstall
 
 Task 3 explicitly excludes private-CPython fixtures, Inno compilation, user-site or Claude tripwires, TEMP-clone/process-watch logic, a generalized uninstall mutation map, coordinator-owned smoke shells, duplicate wheel/`RECORD`/runtime-manifest/release-schema validation, fallback deletion, configuration repair, and hostile-workstation certification.
 
+The live-gallery comparison is fixed and local, not delegated to a new validator:
+
+- never follow a reparse point;
+- exclude only pre-existing `*.deleting.tmp` trees and empty GUID directories from the baseline;
+- require every other pre-existing path to remain present with the same entry type;
+- require every pre-existing non-`manifest.json` file to retain its size;
+- allow a pre-existing `manifest.json` to change size;
+- allow new `poster.jpg`, `start_frame.jpg`, or `end_frame.jpg` files only directly beneath a pre-existing finalized `{YYYY-MM-DD}/{uuid}` artifact directory whose regular `manifest.json` existed in the baseline;
+- allow no new directories or other new files; and
+- on mismatch, report `artifact_preservation_failed`, stop forward work, and perform no gallery repair.
+
 - [ ] Run focused green verification and PS5.1 parsing:
 
 ```powershell
@@ -996,9 +1007,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Task 5 commit failed' }
   2. create and merge the normal reviewed version-bump release PR;
   3. build once from the resulting version-bumped `main` SHA with existing Steps 3A-7;
   4. start the coordinator before the first installer launch;
-  5. let existing standalone Rhino and Rhino.Inside/Revit smoke produce the external smoke manifest;
-  6. pass that exact file to unchanged `validate-release-artifacts.ps1`, which produces the release manifest;
-  7. resume the already-running coordinator for installed containment and paired live proof; and
+  5. let the operator run the existing standalone Rhino and Rhino.Inside/Revit smoke outside the coordinator, produce the external smoke manifest, close those hosts, and enter the run-bound continuation token;
+  6. let the already-running coordinator pass that exact file to unchanged `validate-release-artifacts.ps1`, which produces the release manifest; and
+  7. let that coordinator continue with installed containment and paired live proof; and
   8. immediately before upload, read the acceptance record and independently recompute all three accepted digests; then publish those exact installer, smoke-manifest, and release-manifest bytes with the normal FFmpeg assets, without rebuild/repack/rewrite.
 
 The guard also requires `-BuildStartedAt $buildStartedAt`, an absolute resolved coordinator path, and the immediate coordinator `$LASTEXITCODE` check. It rejects references to deleted alternate builder/validator/rollback tools and requires both skill copies to remain byte-identical for the containment addition.
@@ -1037,7 +1048,7 @@ if ((Test-Path -LiteralPath $SmokeManifestPath) -or (Test-Path -LiteralPath $Rel
 if ($LASTEXITCODE -ne 0) { throw "Containment release acceptance failed with exit code $LASTEXITCODE" }
 ```
 
-The coordinator waits after installation and opens its gate-owned sanitized normal-smoke shell with `-NoProfile -NoExit`. The shell initializer supplies the normal release variables and absolute harness/validator/artifact paths listed in Task 3. The Step 8 commands use those seeded values—never ambient parent variables or relative script/artifact paths—to run the existing normal smoke and unchanged validator. The operator then closes standalone Rhino, Rhino.Inside/Revit and their Rook children, and exits that shell. The coordinator waits for the recorded shell process to exit and only then prompts in the original console for the exact continuation or abort token, so parent and child never compete for stdin. A smoke/validator failure exits the shell and uses the printed `ABORT_NORMAL_RELEASE_VALIDATION <run-id>` token. No skill step tells the coordinator to build, merge, version, publish, generate the smoke schema, or replace the validator.
+The coordinator waits after installation and prints `READY_FOR_NORMAL_RELEASE_SMOKE <run-id>`. In the existing release shell, the operator runs the ordinary standalone Rhino and Rhino.Inside/Revit smoke workflow, closes those hosts and their Rook children, then enters `CONTINUE_AFTER_NORMAL_RELEASE_SMOKE <run-id>` or `ABORT_NORMAL_RELEASE_SMOKE <run-id>` in the coordinator console. The coordinator owns no smoke shell and runs no smoke implementation. On continue it invokes the unchanged validator itself, then advances to the installed probe and the two separately authorized live gates. No skill step tells the coordinator to build, merge, version, publish, generate the smoke schema, or replace the validator.
 
 Immediately before the existing `gh release create`, the skill reads `$AcceptanceRoot\containment-release-acceptance.json`, requires `success: true` plus the expected SHA/version, recomputes SHA-256 for `$InstallerPath`, `$SmokeManifestPath`, and `$ReleaseManifestPath`, and compares each to its recorded digest. Any drift blocks upload. The skill does not rewrite any accepted file.
 
@@ -1253,9 +1264,9 @@ This phase is operational release work, not another implementation task.
 - [ ] From that exact clean version-bumped `main`, rerun the Task 4 PowerShell suite with the pinned full CPython 3.11.9 source and normal-release Inno Setup 6 compiler. Require the real legacy-only deletion control, overwrite/preservation cycle, TEMP-clone/private-Python proof, and all coordinator tests to pass before building the release installer.
 - [ ] Follow the existing build-release skill through its normal Python/wheelhouse, FFmpeg, native, managed/RookBIM, installer-source, and ISCC steps. Build the installer once from `$gitSha`.
 - [ ] Start `run-containment-release-acceptance.ps1` with the command in Task 6. It records the pre-install gallery baseline and launches the existing installer.
-- [ ] When it prints `READY_FOR_NORMAL_RELEASE_SMOKE`, use the coordinator-owned sanitized shell to run the existing standalone Rhino and Rhino.Inside/Revit smoke workflows in the same acceptance session. Those workflows produce the previously absent `release-smoke-X.Y.Z.json`.
-- [ ] Pass that exact smoke file to unchanged `scripts/validate-release-artifacts.ps1`; it emits `release-manifest-X.Y.Z.json`.
-- [ ] Close the normal-smoke Rhino/Revit hosts, sanitized shell, and their Rook children. Return to the still-running coordinator and enter its exact continuation token only after fresh quiescence; use its exact abort token if smoke/validation failed. Grant separate explicit authorization for the Rhino and Grasshopper live scenarios only after reading each named target/mutation/restoration challenge.
+- [ ] When it prints `READY_FOR_NORMAL_RELEASE_SMOKE`, use the existing release workflow outside the coordinator to run the standalone Rhino and Rhino.Inside/Revit smoke workflows. Those workflows produce the previously absent `release-smoke-X.Y.Z.json`.
+- [ ] Close the normal-smoke Rhino/Revit hosts and their Rook children, then enter `CONTINUE_AFTER_NORMAL_RELEASE_SMOKE <run-id>` in the still-running coordinator only after fresh quiescence; use its exact abort token if smoke failed. The coordinator passes that smoke file to unchanged `scripts/validate-release-artifacts.ps1`, which emits `release-manifest-X.Y.Z.json`, then proceeds to containment proof.
+- [ ] Grant separate explicit authorization for the Rhino and Grasshopper live scenarios only after reading each named target/mutation/restoration challenge.
 - [ ] Require the coordinator's atomic success record, exact `422/425/20/148` discovery, complete 36 transport records, complete literal 29 internal records, both restored live scenarios, zero containment activity on supported paths, and the phase-aware gallery result.
 - [ ] If the coordinator fails, do not publish. Follow only its bounded withdrawal result. A manual-withdrawal result remains a release failure and authorizes no broader deletion.
 - [ ] Immediately before publication, reread the acceptance record and independently recompute the installer, external smoke-manifest, and release-manifest SHA-256 values. Publish only the normal release asset set and those exact accepted bytes. Do not rebuild, rewrite, or repack the three files.
