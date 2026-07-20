@@ -191,6 +191,8 @@ class ProviderAttemptEvidence:
     provider_turn: object | None = None
     exception_type: str | None = None
     exception_message: str | None = None
+    raw_request: bytes | None = None
+    raw_error: bytes | None = None
     elapsed_ms: int | None = None
 
     def record_return(self, provider_turn: object, started_at: float) -> None:
@@ -202,6 +204,19 @@ class ProviderAttemptEvidence:
         self.outcome = "raised"
         self.exception_type = type(exception).__name__
         self.exception_message = str(exception)
+        exception_class = type(exception)
+        transport_request = getattr(exception, "raw_request", None)
+        transport_error = getattr(exception, "raw_error", None)
+        if (
+            exception_class.__module__ == "lm9b_c_compiler_sufficiency_support"
+            and exception_class.__name__ == "ProviderCallFailure"
+            and type(getattr(exception, "failure_type", None)) is str
+            and type(getattr(exception, "message", None)) is str
+            and type(transport_request) is bytes
+            and type(transport_error) is bytes
+        ):
+            self.raw_request = transport_request
+            self.raw_error = transport_error
         self.elapsed_ms = max(0, int((time.perf_counter() - started_at) * 1000))
 
 

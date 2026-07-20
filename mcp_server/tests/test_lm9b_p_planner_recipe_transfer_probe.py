@@ -717,22 +717,31 @@ def test_join_does_not_reparse_verified_checkpoint_recipe_bytes(
     checkpoint, _ = sealed_checkpoint
     recipe_bytes = checkpoint.final_recipe_bytes
     assert type(recipe_bytes) is bytes
-    parse_calls = 0
+    artifact_parse_calls = 0
+    support_parse_calls = 0
     gate_calls = 0
-    original_parse = SUPPORT.parse_strict_json
+    original_artifact_parse = ARTIFACTS.parse_strict_json
+    original_support_parse = SUPPORT.parse_strict_json
 
-    def observed_parse(raw: bytes):
-        nonlocal parse_calls
+    def observed_artifact_parse(raw: bytes):
+        nonlocal artifact_parse_calls
         if raw == recipe_bytes:
-            parse_calls += 1
-        return original_parse(raw)
+            artifact_parse_calls += 1
+        return original_artifact_parse(raw)
+
+    def observed_support_parse(raw: bytes):
+        nonlocal support_parse_calls
+        if raw == recipe_bytes:
+            support_parse_calls += 1
+        return original_support_parse(raw)
 
     def observed_gate(**kwargs):
         nonlocal gate_calls
         gate_calls += 1
         raise AssertionError("the join adapter recomputed the mechanical gate")
 
-    monkeypatch.setattr(SUPPORT, "parse_strict_json", observed_parse)
+    monkeypatch.setattr(ARTIFACTS, "parse_strict_json", observed_artifact_parse)
+    monkeypatch.setattr(SUPPORT, "parse_strict_json", observed_support_parse)
     monkeypatch.setattr(ARTIFACTS, "evaluate_mechanical_gate", observed_gate)
     result = _run_joined(
         tmp_path=tmp_path,
@@ -742,7 +751,8 @@ def test_join_does_not_reparse_verified_checkpoint_recipe_bytes(
     )
 
     assert result.checkpoint_2 == "inconclusive"
-    assert parse_calls == 0
+    assert artifact_parse_calls == 0
+    assert support_parse_calls == 0
     assert gate_calls == 0
 
 
@@ -795,6 +805,52 @@ def test_post_contact_lm9bc_evidence_failure_has_no_aggregate_or_retry(
         assert turn.raw_response == b'{"compiler_evaluator":"response"}'
     else:
         assert result.compiler_evaluator_provider_attempts == ()
+        assert result.compiler_provider_attempts[0].raw_request is None
+        assert result.compiler_provider_attempts[0].raw_error is None
+    assert result.control_failure["locus"] == "lm9b_c_session_or_evidence"
+
+
+def test_provider_failure_evidence_survives_post_contact_archive_failure(
+    tmp_path: Path,
+    sealed_checkpoint,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checkpoint, _ = sealed_checkpoint
+    raw_request = b'{"transport":"sanitized request"}'
+    raw_error = b'{"transport":"sanitized error"}'
+    failure = LM9B_C_SUPPORT.ProviderCallFailure(
+        failure_type="BadRequestError",
+        message="provider rejected request",
+        raw_request=raw_request,
+        raw_error=raw_error,
+    )
+    compiler = _Provider([failure, AssertionError("compiler retried")])
+    evaluator = _Provider([AssertionError("evaluator must not run")])
+    monkeypatch.setattr(
+        LM9B_C_PROBE,
+        "write_probe_evidence",
+        lambda **kwargs: (_ for _ in ()).throw(OSError("evidence unavailable")),
+    )
+
+    result = _run_joined(
+        tmp_path=tmp_path,
+        checkpoint=checkpoint,
+        compiler=compiler,
+        evaluator=evaluator,
+    )
+
+    assert result.checkpoint_2 == "inconclusive"
+    assert result.aggregate_outcome == "inconclusive"
+    assert result.sealed_aggregate is None
+    assert not (tmp_path / "aggregate").exists()
+    assert len(compiler.requests) == 1
+    assert evaluator.requests == []
+    assert len(result.compiler_provider_attempts) == 1
+    attempt = result.compiler_provider_attempts[0]
+    assert attempt.outcome == "raised"
+    assert attempt.raw_request == raw_request
+    assert attempt.raw_error == raw_error
+    assert result.compiler_evaluator_provider_attempts == ()
     assert result.control_failure["locus"] == "lm9b_c_session_or_evidence"
 
 
