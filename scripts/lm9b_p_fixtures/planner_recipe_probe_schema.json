@@ -930,11 +930,266 @@
     },
     "unresolved_intent": {
       "type": "array",
-      "maxItems": 0
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "intent_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "semantic_key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "statement": {
+            "type": "string",
+            "minLength": 1
+          },
+          "affected_clause_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "value_schema": {
+            "type": "string",
+            "minLength": 1
+          },
+          "resolution_authority": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "permitted_kinds": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "user_fact",
+                    "planner_assumption"
+                  ]
+                },
+                "uniqueItems": true
+              },
+              "permitted_assumption_outcomes": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "policy_auto",
+                    "confirmed"
+                  ]
+                },
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "permitted_kinds",
+              "permitted_assumption_outcomes"
+            ]
+          },
+          "authorization_context_refs": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "policy_refs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "const": "policy_rule"
+                    },
+                    "artifact_id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "json_pointer": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "artifact_id",
+                    "json_pointer"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "policy_refs"
+            ]
+          },
+          "expected_source_location": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "artifact_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "json_pointer": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "artifact_id",
+              "json_pointer"
+            ]
+          },
+          "unit_context_ref": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "artifact_value"
+                  },
+                  "artifact_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "json_pointer": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "artifact_id",
+                  "json_pointer"
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "intent_id",
+          "semantic_key",
+          "statement",
+          "affected_clause_ids",
+          "value_schema",
+          "resolution_authority",
+          "authorization_context_refs",
+          "expected_source_location",
+          "unit_context_ref"
+        ]
+      }
     },
     "invariants": {
       "type": "array",
-      "maxItems": 0
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "clause_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "statement": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "artifact_value",
+                    "policy_rule"
+                  ]
+                },
+                "artifact_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "json_pointer": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "artifact_id",
+                "json_pointer"
+              ]
+            }
+          },
+          "assumption_refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "assumption"
+                },
+                "assumption_id": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "kind",
+                "assumption_id"
+              ]
+            }
+          },
+          "derived_fact_refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "derived_fact"
+                },
+                "derived_fact_id": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "kind",
+                "derived_fact_id"
+              ]
+            }
+          },
+          "synthesis": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "clause_id",
+          "statement",
+          "source_refs",
+          "assumption_refs",
+          "derived_fact_refs",
+          "synthesis"
+        ]
+      }
     },
     "shape": {
       "type": "object",

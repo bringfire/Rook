@@ -23,6 +23,7 @@ An honest `probe_candidate_blocked` supports neither counter-hypothesis. R01 is 
 | `scripts/lm9b_p_planner_recipe_transfer_probe.py` | Two-checkpoint orchestration, conditional join, aggregate classification, and CLI |
 | `scripts/lm9b_p_fixtures/**` | Brief, exact ratified companions, probe schema/profile, authoring contract, exclusion policy, and rubric |
 | `mcp_server/tests/fixtures/lm9b_p/non_r01_ready_recipe.json` | Test-only constructive witness; never rendered to the Planner |
+| `mcp_server/tests/fixtures/lm9b_p/non_r01_blocked_recipe.json` | Test-only honest unresolved witness; never enters LM9B-C |
 | `mcp_server/tests/test_lm9b_p_constructive_witness.py` | No-model proof of the joined handoff |
 | `mcp_server/tests/test_lm9b_p_planner_recipe_transfer_support.py` | Parser, profile, gate, session, and classification tests |
 | `mcp_server/tests/test_lm9b_p_planner_recipe_transfer_artifacts.py` | Isolation, renderer, handoff, and archive tests |
@@ -70,6 +71,7 @@ Expected: `Python 3.12.12`. Use `py -3.10 -m py_compile` for Python 3.10 compati
 - Create: `scripts/lm9b_p_fixtures/planner_recipe_probe_schema.json`
 - Create: `scripts/lm9b_p_fixtures/recipe_normalization_profile.json`
 - Create: `mcp_server/tests/fixtures/lm9b_p/non_r01_ready_recipe.json`
+- Create: `mcp_server/tests/fixtures/lm9b_p/non_r01_blocked_recipe.json`
 - Create: `scripts/lm9b_p_planner_recipe_transfer_support.py`
 - Create: `scripts/lm9b_p_planner_recipe_transfer_artifacts.py`
 - Create: `mcp_server/tests/test_lm9b_p_constructive_witness.py`
@@ -308,7 +310,7 @@ Ratified fingerprinting and canonical-normal-form checking use this normalizer. 
 
 - [ ] **Step 7: Create the schema and non-R01 fixture**
 
-Create a closed Draft 2020-12 schema with `$id = rook.lm9b_p.planner_recipe_probe_schema:v1`, `schema = rook.planner_graph_recipe:v1`, complete admitted workerless structure, ratified references and vocabulary IDs, null confirmation refs, null worker links, and `worker_slots.entries.maxItems = 0`.
+Create a closed Draft 2020-12 schema with `$id = rook.lm9b_p.planner_recipe_probe_schema:v1`, `schema = rook.planner_graph_recipe:v1`, complete admitted workerless structure, ratified references and vocabulary IDs, null confirmation refs, null worker links, and `worker_slots.entries.maxItems = 0`. The closed unresolved-intent and invariant contracts remain admitted; workerless admission does not mean R01-shaped empty collections.
 
 The required top-level fields are `schema`, `source_task`,
 `authority_artifacts`, `goal`, `requires`, `maintains`, `assumptions`,
@@ -319,6 +321,8 @@ ratified discriminated semantic-reference shapes and exact vocabulary binding
 objects; it does not simplify entries to strings.
 
 Create a hand-authored non-R01 ready recipe that uses the matched radial authority, exact codes and fingerprints, no workers or receipts, canonical normal form, and equal ratified/historical fingerprints. It uses different local IDs and is never Planner-visible.
+
+Create a matched non-R01 blocked recipe by replacing only the spacing assumption and its support references with one closed `unresolved_intent` entry. Prove it passes the mechanical gate. Its real no-compiler routing proof belongs to Task 5, where `probe_candidate_blocked` first exists; Task 1/2 must not invent semantic classification inside the gate.
 
 - [ ] **Step 8: Implement the R01-free handoff**
 
@@ -359,7 +363,11 @@ Stop if this needs recipe translation, R01 metadata, approximated vocabularies, 
 ### Task 2: Complete The Mechanical Gate And Fingerprint Handshake
 
 **Files:**
+- Modify: `scripts/lm9b_p_fixtures/planner_recipe_probe_schema.json`
+- Modify: `scripts/lm9b_p_fixtures/recipe_normalization_profile.json`
 - Modify: `scripts/lm9b_p_planner_recipe_transfer_support.py`
+- Create: `mcp_server/tests/fixtures/lm9b_p/non_r01_blocked_recipe.json`
+- Modify: `mcp_server/tests/test_lm9b_p_constructive_witness.py`
 - Modify: `mcp_server/tests/test_lm9b_p_planner_recipe_transfer_support.py`
 
 **Interfaces:**
@@ -368,7 +376,7 @@ Stop if this needs recipe translation, R01 metadata, approximated vocabularies, 
 
 - [ ] **Step 1: Add the rejection matrix**
 
-Add one named test for each: invalid UTF-8, invalid JSON, duplicate key, oversized integer, float overflow, ordinary non-integer number, non-finite constant, missing required field, unknown field, unknown artifact, missing pointer, artifact hash mismatch, vocabulary fingerprint mismatch, noncanonical collection, nonempty worker slots, forbidden marker, and claimed fingerprint mismatch.
+Add one named test for each: invalid UTF-8, invalid JSON, duplicate key, oversized integer, float overflow, ordinary non-integer number, non-finite constant, missing required field, unknown field, unknown artifact, missing pointer, artifact hash mismatch, vocabulary fingerprint mismatch, noncanonical collection, nonempty worker slots, forbidden marker, and claimed fingerprint mismatch. Add one finite typed symbol-table pass with one shared clause namespace and separate assumption, derived-fact, unresolved-intent, shape, capability, and worker-slot namespaces. It validates target kinds, unresolved affected-clause links, descriptor joins, exact policy-rule roots, machine grammar, and vocabulary membership without performing semantic LM9A validation.
 
 ```python
 @dataclass(frozen=True)
@@ -622,6 +630,7 @@ mechanically accepted + faithful_ready   -> probe_candidate_ready
 ```
 
 Assert the evaluator cannot issue public classifications and never feeds back to the Planner.
+Use the committed `non_r01_blocked_recipe.json` as the constructive blocked input. When its frozen evaluator recommendation is `faithful_blocked`, assert Checkpoint 1 derives `probe_candidate_blocked`, never calls `build_lm9bc_handoff`, never contacts a compiler provider, and records Checkpoint 2 as `not_evaluated`.
 
 - [ ] **Step 2: Implement one evaluator attempt**
 

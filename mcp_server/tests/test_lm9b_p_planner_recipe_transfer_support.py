@@ -26,6 +26,9 @@ def _load_script(name: str):
 SUPPORT = _load_script("lm9b_p_planner_recipe_transfer_support")
 ARTIFACTS = _load_script("lm9b_p_planner_recipe_transfer_artifacts")
 RECIPE_PATH = ROOT / "mcp_server/tests/fixtures/lm9b_p/non_r01_ready_recipe.json"
+BLOCKED_RECIPE_PATH = (
+    ROOT / "mcp_server/tests/fixtures/lm9b_p/non_r01_blocked_recipe.json"
+)
 
 
 def _authority():
@@ -93,6 +96,9 @@ def test_normalization_profile_is_the_complete_reviewed_inventory() -> None:
     assert any("applies_to_clause_ids" in item for item in names)
     assert any("inherited_support_from" in item for item in names)
     assert any("affected_clause_ids" in item for item in names)
+    assert (
+        "/unresolved_intent/*/authorization_context_refs/policy_refs" in names
+    )
     assert sum("policy_refs" in item for item in names) == 2
 
 
@@ -425,6 +431,85 @@ def test_gate_rejects_unused_authority_descriptor() -> None:
         assumption["typed_value"]["unit_context_ref"] = None
     result = _gate(_bytes(_seal(recipe)))
     assert result.diagnostics[0].code == "unreferenced_authority_descriptor"
+
+
+def test_closed_unresolved_fixture_is_mechanically_admitted() -> None:
+    raw = BLOCKED_RECIPE_PATH.read_bytes()
+    recipe = json.loads(raw)
+    assert recipe["unresolved_intent"]
+    assert not any(
+        item["semantic_key"] == "grid_spacing" for item in recipe["assumptions"]
+    )
+    result = _gate(raw)
+    assert result.status == "mechanically_accepted"
+    assert result.final_recipe_bytes == raw
+
+
+def test_gate_rejects_dangling_unresolved_affected_clause() -> None:
+    recipe = json.loads(BLOCKED_RECIPE_PATH.read_bytes())
+    recipe["unresolved_intent"][0]["affected_clause_ids"] = ["goal.missing"]
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.diagnostics[0].code == "dangling_local_reference"
+
+
+def test_unresolved_affected_clause_cannot_target_an_assumption_namespace() -> None:
+    recipe = json.loads(BLOCKED_RECIPE_PATH.read_bytes())
+    recipe["unresolved_intent"][0]["affected_clause_ids"] = [
+        recipe["assumptions"][0]["assumption_id"]
+    ]
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.diagnostics[0].code == "dangling_local_reference"
+
+
+def test_unresolved_value_schema_must_be_registered() -> None:
+    recipe = json.loads(BLOCKED_RECIPE_PATH.read_bytes())
+    recipe["unresolved_intent"][0]["value_schema"] = "rook.unknown_value:v1"
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.diagnostics[0].code == "unknown_value_schema"
+
+
+def test_closed_invariant_contract_is_mechanically_admitted() -> None:
+    recipe = _recipe()
+    invariant_id = "probe.invariant.task.scope"
+    recipe["invariants"] = [
+        {
+            "clause_id": invariant_id,
+            "statement": "All paths preserve the supplied task scope.",
+            "source_refs": [
+                {
+                    "kind": "artifact_value",
+                    "artifact_id": "task_envelope",
+                    "json_pointer": "/facts/task_scope",
+                }
+            ],
+            "assumption_refs": [],
+            "derived_fact_refs": [],
+            "synthesis": None,
+        }
+    ]
+    recipe["goal"]["projected_into"]["invariant_clause_ids"] = [invariant_id]
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.status == "mechanically_accepted"
+
+
+def test_same_machine_identifier_is_allowed_in_distinct_symbol_namespaces() -> None:
+    recipe = _recipe()
+    old_id = recipe["assumptions"][0]["assumption_id"]
+    shared_id = recipe["goal"]["clause_id"]
+    recipe["assumptions"][0]["assumption_id"] = shared_id
+    for _path, current in SUPPORT._walk(recipe):
+        if isinstance(current, dict) and current.get("kind") == "assumption":
+            if current["assumption_id"] == old_id:
+                current["assumption_id"] = shared_id
+    projection = {
+        key: item for key, item in recipe.items() if key != "recipe_fingerprint"
+    }
+    canonical = SUPPORT.normalize_recipe(
+        projection, _authority().normalization_profile
+    )
+    canonical["recipe_fingerprint"] = SUPPORT.fingerprint(canonical)
+    result = _gate(_bytes(canonical))
+    assert result.status == "mechanically_accepted"
 
 
 def test_exact_vocabulary_companions_are_complete_and_fingerprinted() -> None:

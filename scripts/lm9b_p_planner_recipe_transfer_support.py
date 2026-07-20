@@ -352,34 +352,45 @@ def _structural_integrity_issue(
     if machine_issue is not None:
         return machine_issue
 
-    symbols: dict[str, tuple[str, str]] = {}
+    symbols: dict[str, dict[str, tuple[str, str]]] = {
+        "clause": {},
+        "assumption": {},
+        "derived_fact": {},
+        "unresolved_intent": {},
+        "shape": {},
+        "capability": {},
+        "worker_slot": {},
+    }
 
-    def declare(identifier: str, kind: str, path: str) -> MechanicalDiagnostic | None:
-        prior = symbols.get(identifier)
+    def declare(
+        identifier: str, namespace: str, kind: str, path: str
+    ) -> MechanicalDiagnostic | None:
+        prior = symbols[namespace].get(identifier)
         if prior is not None:
             return _issue(
                 "duplicate_identifier",
                 path,
                 f"identifier duplicates {prior[1]}",
             )
-        symbols[identifier] = (kind, path)
+        symbols[namespace][identifier] = (kind, path)
         return None
 
-    declarations: list[tuple[str, str, str]] = [
-        (recipe["goal"]["clause_id"], "goal", "/goal/clause_id")
+    declarations: list[tuple[str, str, str, str]] = [
+        (recipe["goal"]["clause_id"], "clause", "goal", "/goal/clause_id")
     ]
     for collection, kind in (
         ("requires", "requires"),
         ("invariants", "invariants"),
     ):
         declarations.extend(
-            (item["clause_id"], kind, f"/{collection}/{index}/clause_id")
+            (item["clause_id"], "clause", kind, f"/{collection}/{index}/clause_id")
             for index, item in enumerate(recipe[collection])
         )
     for index, maintained in enumerate(recipe["maintains"]):
         declarations.append(
             (
                 maintained["clause_id"],
+                "clause",
                 "maintains",
                 f"/maintains/{index}/clause_id",
             )
@@ -387,6 +398,7 @@ def _structural_integrity_issue(
         declarations.extend(
             (
                 item["clause_id"],
+                "clause",
                 "canonicalization",
                 f"/maintains/{index}/canonicalization/{nested}/clause_id",
             )
@@ -395,6 +407,7 @@ def _structural_integrity_issue(
         declarations.extend(
             (
                 item["clause_id"],
+                "clause",
                 "postcondition",
                 f"/maintains/{index}/postconditions/{nested}/clause_id",
             )
@@ -406,13 +419,14 @@ def _structural_integrity_issue(
         ("unresolved_intent", "intent_id", "unresolved_intent"),
     ):
         declarations.extend(
-            (item[id_field], kind, f"/{collection}/{index}/{id_field}")
+            (item[id_field], kind, kind, f"/{collection}/{index}/{id_field}")
             for index, item in enumerate(recipe[collection])
         )
     for section in ("self", "delegates", "prohibited"):
         declarations.extend(
             (
                 item["shape_id"],
+                "shape",
                 "shape",
                 f"/shape/{section}/{index}/shape_id",
             )
@@ -422,6 +436,7 @@ def _structural_integrity_issue(
         (
             item["capability_id"],
             "capability",
+            "capability",
             f"/required_capabilities/entries/{index}/capability_id",
         )
         for index, item in enumerate(recipe["required_capabilities"]["entries"])
@@ -430,12 +445,13 @@ def _structural_integrity_issue(
         (
             item["worker_slot_id"],
             "worker_slot",
+            "worker_slot",
             f"/worker_slots/entries/{index}/worker_slot_id",
         )
         for index, item in enumerate(recipe["worker_slots"]["entries"])
     )
-    for identifier, kind, path in declarations:
-        duplicate = declare(identifier, kind, path)
+    for identifier, namespace, kind, path in declarations:
+        duplicate = declare(identifier, namespace, kind, path)
         if duplicate is not None:
             return duplicate
 
@@ -455,7 +471,7 @@ def _structural_integrity_issue(
     local_reference_fields = {
         "assumption": ("assumption_id", "assumption"),
         "derived_fact": ("derived_fact_id", "derived_fact"),
-        "clause": ("clause_id", None),
+        "clause": ("clause_id", "clause"),
         "unresolved_intent": ("intent_id", "unresolved_intent"),
         "shape": ("shape_id", "shape"),
         "capability": ("capability_id", "capability"),
@@ -467,9 +483,9 @@ def _structural_integrity_issue(
             continue
         kind = item.get("kind")
         if kind in local_reference_fields:
-            id_field, expected_kind = local_reference_fields[kind]
-            target = symbols.get(item[id_field])
-            if target is None or (expected_kind is not None and target[0] != expected_kind):
+            id_field, namespace = local_reference_fields[kind]
+            target = symbols[namespace].get(item[id_field])
+            if target is None:
                 return _issue(
                     "dangling_local_reference",
                     path,
@@ -537,10 +553,10 @@ def _structural_integrity_issue(
             )
 
     def require_targets(
-        values: object, allowed_kinds: set[str], path: str
+        values: object, namespace: str, allowed_kinds: set[str], path: str
     ) -> MechanicalDiagnostic | None:
         for index, identifier in enumerate(values):
-            target = symbols.get(identifier)
+            target = symbols[namespace].get(identifier)
             if target is None or target[0] not in allowed_kinds:
                 return _issue(
                     "dangling_local_reference",
@@ -551,17 +567,18 @@ def _structural_integrity_issue(
 
     projection = recipe["goal"]["projected_into"]
     links = (
-        (projection["maintains_clause_ids"], {"maintains"}, "/goal/projected_into/maintains_clause_ids"),
-        (projection["invariant_clause_ids"], {"invariants"}, "/goal/projected_into/invariant_clause_ids"),
-        (projection["unresolved_intent_ids"], {"unresolved_intent"}, "/goal/projected_into/unresolved_intent_ids"),
+        (projection["maintains_clause_ids"], "clause", {"maintains"}, "/goal/projected_into/maintains_clause_ids"),
+        (projection["invariant_clause_ids"], "clause", {"invariants"}, "/goal/projected_into/invariant_clause_ids"),
+        (projection["unresolved_intent_ids"], "unresolved_intent", {"unresolved_intent"}, "/goal/projected_into/unresolved_intent_ids"),
     )
-    for values, kinds, path in links:
-        issue = require_targets(values, kinds, path)
+    for values, namespace, kinds, path in links:
+        issue = require_targets(values, namespace, kinds, path)
         if issue is not None:
             return issue
     for index, requirement in enumerate(recipe["requires"]):
         issue = require_targets(
             requirement["supports_clause_ids"],
+            "clause",
             {"maintains", "invariants"},
             f"/requires/{index}/supports_clause_ids",
         )
@@ -571,6 +588,7 @@ def _structural_integrity_issue(
         for nested, item in enumerate(maintained["canonicalization"]):
             issue = require_targets(
                 item["applies_to_clause_ids"],
+                "clause",
                 {"maintains"},
                 f"/maintains/{index}/canonicalization/{nested}/applies_to_clause_ids",
             )
@@ -579,11 +597,21 @@ def _structural_integrity_issue(
         for nested, item in enumerate(maintained["postconditions"]):
             issue = require_targets(
                 item["inherited_support_from"],
+                "clause",
                 {"maintains"},
                 f"/maintains/{index}/postconditions/{nested}/inherited_support_from",
             )
             if issue is not None:
                 return issue
+    for index, unresolved in enumerate(recipe["unresolved_intent"]):
+        issue = require_targets(
+            unresolved["affected_clause_ids"],
+            "clause",
+            {"goal", "maintains", "invariants"},
+            f"/unresolved_intent/{index}/affected_clause_ids",
+        )
+        if issue is not None:
+            return issue
 
     authority_codes = {
         item["code"]: item
@@ -637,6 +665,7 @@ def _structural_integrity_issue(
             )
         issue = require_targets(
             item["supports_clause_ids"],
+            "clause",
             set(entry["permitted_supporting_clause_kinds"]),
             f"/required_capabilities/entries/{index}/supports_clause_ids",
         )
@@ -726,6 +755,13 @@ def evaluate_mechanical_gate(
             return _reject("unknown_materiality_code", "/assumptions", assumption["assumption_id"])
         if assumption["typed_value"]["schema"] not in value_schemas:
             return _reject("unknown_value_schema", "/assumptions", assumption["assumption_id"])
+    for unresolved in recipe["unresolved_intent"]:
+        if unresolved["value_schema"] not in value_schemas:
+            return _reject(
+                "unknown_value_schema",
+                "/unresolved_intent",
+                unresolved["intent_id"],
+            )
     if recipe["worker_slots"]["entries"]:
         return _reject("profile_feature_not_admitted", "/worker_slots/entries", "worker slots")
 

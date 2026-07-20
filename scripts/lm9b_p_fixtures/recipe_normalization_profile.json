@@ -185,7 +185,7 @@
       "matching": "zero_or_more"
     },
     {
-      "path_pattern": "/unresolved_intent/*/authorization_context/policy_refs",
+      "path_pattern": "/unresolved_intent/*/authorization_context_refs/policy_refs",
       "sort_kind": "semantic_reference",
       "field": null,
       "admission": "ordered_set",
@@ -227,5 +227,5 @@
       "matching": "required_container"
     }
   ],
-  "profile_fingerprint": "sha256:9c57bc4f869d1689d8ec06ede6a525527c99e66d7e70d990dbe9a19aeaf36809"
+  "profile_fingerprint": "sha256:5b8833bd1f2554c1d91fb8f04aa71a8e7509d850ccca28036096ea24f1ac000e"
 }
