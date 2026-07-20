@@ -151,6 +151,13 @@ class SealedPlannerCheckpointArchive:
     checksums_raw_sha256: str
 
 
+@dataclass(frozen=True)
+class SealedJoinedAggregate:
+    archive_dir: Path
+    aggregate_identity: str
+    checksums_raw_sha256: str
+
+
 @dataclass
 class ProviderAttemptEvidence:
     """Probe-bound provider attempt snapshot, including an invocation that raises."""
@@ -869,11 +876,6 @@ def build_lm9bc_handoff(
     accepted_recipe_bytes = accepted_result.final_recipe_bytes
     assert accepted_recipe_bytes is not None
     planner_records = _verify_frozen_planner_inputs(planner_inputs)
-    recipe = parse_strict_json(accepted_recipe_bytes)
-    if not isinstance(recipe, dict):
-        raise ValueError("accepted recipe must be an object")
-    if recipe.get("recipe_fingerprint") != accepted_result.ratified_recipe_fingerprint:
-        raise ValueError("accepted recipe fingerprint mismatch")
 
     task_record = planner_records["authority.task_envelope"]
     environment_record = planner_records["authority.environment_snapshot"]
@@ -882,30 +884,38 @@ def build_lm9bc_handoff(
     destination.mkdir(parents=True, exist_ok=False)
 
     rows = (
-        ("recipe", "accepted_recipe.json", accepted_recipe_bytes),
-        ("authority.task_envelope", "task_envelope.json", task_record.raw_bytes),
-        ("authority.environment_snapshot", "environment_snapshot.json", environment_record.raw_bytes),
-        ("authority.planning_policy", "planning_policy.json", policy_record.raw_bytes),
-        ("implementation_context", "implementation_context.json", (compiler_fixture_dir / "implementation_context.json").read_bytes()),
-        ("exclusion_policy", "exclusion_policy.json", (compiler_fixture_dir / "exclusion_policy.json").read_bytes()),
-        ("evaluation_rubric", "evaluation_rubric.json", (compiler_fixture_dir / "evaluation_rubric.json").read_bytes()),
+        (
+            "recipe",
+            "accepted_recipe.json",
+            accepted_recipe_bytes,
+            accepted_result.recipe_value_fingerprint,
+        ),
+        ("authority.task_envelope", "task_envelope.json", task_record.raw_bytes, None),
+        ("authority.environment_snapshot", "environment_snapshot.json", environment_record.raw_bytes, None),
+        ("authority.planning_policy", "planning_policy.json", policy_record.raw_bytes, None),
+        ("implementation_context", "implementation_context.json", (compiler_fixture_dir / "implementation_context.json").read_bytes(), None),
+        ("exclusion_policy", "exclusion_policy.json", (compiler_fixture_dir / "exclusion_policy.json").read_bytes(), None),
+        ("evaluation_rubric", "evaluation_rubric.json", (compiler_fixture_dir / "evaluation_rubric.json").read_bytes(), None),
     )
     records: list[dict[str, object]] = []
-    for role, filename, raw in rows:
+    for role, filename, raw, known_canonical_fingerprint in rows:
         path = destination / filename
         _write_bytes(path, raw)
         persisted = path.read_bytes()
         if persisted != raw:
             raise ValueError(f"handoff write verification failed: {role}")
-        value = parse_strict_json(persisted)
-        if not isinstance(value, dict):
-            raise ValueError(f"handoff record is not an object: {role}")
+        canonical = known_canonical_fingerprint
+        if canonical is None:
+            value = parse_strict_json(persisted)
+            if not isinstance(value, dict):
+                raise ValueError(f"handoff record is not an object: {role}")
+            canonical = canonical_fingerprint(own_trusted_json(value))
         records.append(
             {
                 "role": role,
                 "path": filename,
                 "raw_sha256": sha256_prefixed(persisted),
-                "canonical_fingerprint": canonical_fingerprint(own_trusted_json(value)),
+                "canonical_fingerprint": canonical,
             }
         )
 
@@ -968,6 +978,60 @@ def derive_checkpoint_classification(
     return classifications[recommendation]
 
 
+def derive_joined_aggregate_outcome(
+    *,
+    checkpoint_1_classification: str,
+    checkpoint_2_outcome: str,
+    compiler_session: object | None = None,
+    evaluator_result: object | None = None,
+) -> str:
+    """Attribute the joined result without promoting compiler-stage failures."""
+
+    if checkpoint_1_classification != "probe_candidate_ready":
+        if checkpoint_2_outcome != "not_evaluated":
+            raise ValueError("non-ready Checkpoint 1 must leave Checkpoint 2 unevaluated")
+        return checkpoint_1_classification
+
+    if checkpoint_2_outcome == "not_evaluated":
+        raise ValueError("ready Checkpoint 1 requires a Checkpoint 2 outcome")
+    terminal = getattr(compiler_session, "terminal_submission", None)
+    validation = getattr(compiler_session, "terminal_validation", None)
+    result_kind = terminal.get("result_kind") if isinstance(terminal, Mapping) else None
+
+    if checkpoint_2_outcome == "bounded_lowering_demonstrated":
+        if result_kind != "compiled_candidate":
+            raise ValueError("bounded lowering requires an explicit compiled candidate")
+        return "joined_transfer_demonstrated"
+    if checkpoint_2_outcome == "contract_gap_demonstrated":
+        report = getattr(evaluator_result, "report", None)
+        explicit_gap = (
+            result_kind == "contract_insufficient"
+            and validation is not None
+            and getattr(validation, "schema_valid", None) is True
+            and getattr(validation, "trace_valid", None) is True
+            and isinstance(report, Mapping)
+            and report.get("evaluated_result_kind") == "contract_insufficient"
+            and report.get("decision") == "accepted"
+            and isinstance(report.get("contract_gap_assessment"), Mapping)
+            and all(report["contract_gap_assessment"].values())
+        )
+        return "contract_gap_demonstrated" if explicit_gap else "candidate_failure"
+    if checkpoint_2_outcome == "candidate_failure":
+        return "candidate_failure"
+    if checkpoint_2_outcome == "inconclusive":
+        if terminal is not None and result_kind != "contract_insufficient":
+            return "candidate_failure"
+        turns = getattr(compiler_session, "turns", ())
+        if (
+            getattr(compiler_session, "stop_reason", None) == "max_turns_exhausted"
+            and turns
+            and all(getattr(turn, "feedback_codes", ()) for turn in turns)
+        ):
+            return "candidate_failure"
+        return "inconclusive"
+    raise ValueError("invalid Checkpoint 2 outcome")
+
+
 def _archive_json_bytes(value: object) -> bytes:
     return (
         json.dumps(_thaw_json(value), ensure_ascii=False, sort_keys=True, indent=2)
@@ -1000,6 +1064,171 @@ def _archive_write(
         }
     )
     return persisted
+
+
+def _content_addressed_tree(root: Path) -> Mapping[str, object]:
+    root = Path(root).resolve()
+    records = []
+    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+        raw = path.read_bytes()
+        records.append(
+            {
+                "path": path.relative_to(root).as_posix(),
+                "raw_sha256": sha256_prefixed(raw),
+                "byte_length": len(raw),
+            }
+        )
+    if not records:
+        raise ValueError("LM9B-C evidence archive is empty")
+    identity = canonical_fingerprint(
+        own_trusted_json(
+            {
+                "schema": "rook.lm9b_p.external_archive_binding:v1",
+                "records": records,
+            }
+        )
+    )
+    return MappingProxyType(
+        {
+            "schema": "rook.lm9b_p.external_archive_binding:v1",
+            "aggregate_identity": identity,
+            "records": tuple(MappingProxyType(record) for record in records),
+        }
+    )
+
+
+def seal_joined_aggregate(
+    *,
+    destination: Path,
+    checkpoint_1_archive: SealedPlannerCheckpointArchive,
+    checkpoint_1_classification: str,
+    checkpoint_2_outcome: str,
+    checkpoint_2_reason_codes: Sequence[str],
+    aggregate_outcome: str,
+    handoff: Lm9bcHandoff | None,
+    planner_recipe_bytes: bytes | None,
+    lm9bc_loaded_recipe_bytes: bytes | None,
+    lm9bc_run_dir: Path | None,
+    pre_session_failure: Mapping[str, object] | None,
+) -> SealedJoinedAggregate:
+    """Atomically bind both checkpoint archives and the exact recipe bytes."""
+
+    verified_checkpoint = verify_sealed_planner_checkpoint_archive(
+        checkpoint_1_archive.archive_dir,
+        expected_aggregate_identity=checkpoint_1_archive.aggregate_identity,
+    )
+    destination = Path(destination).resolve()
+    temporary = destination.with_name(f".{destination.name}.tmp-{uuid4().hex}")
+    temporary.mkdir(parents=True, exist_ok=False)
+    try:
+        evidence_recipe_bytes = None
+        lm9bc_archive = None
+        if lm9bc_run_dir is not None:
+            run_dir = Path(lm9bc_run_dir).resolve()
+            evidence_recipe_bytes = (run_dir / "inputs" / "recipe.json").read_bytes()
+            lm9bc_archive = _content_addressed_tree(run_dir)
+
+        recipe_values = (
+            planner_recipe_bytes,
+            handoff.archived_recipe_bytes if handoff is not None else None,
+            lm9bc_loaded_recipe_bytes,
+            evidence_recipe_bytes,
+        )
+        complete_recipe_proof = all(type(value) is bytes for value in recipe_values)
+        all_equal = complete_recipe_proof and len(set(recipe_values)) == 1
+        if lm9bc_run_dir is not None and not all_equal:
+            raise ValueError("joined recipe byte equality failed")
+        recipe_hashes = [
+            sha256_prefixed(value) if type(value) is bytes else None
+            for value in recipe_values
+        ]
+        aggregate = {
+            "schema": "rook.lm9b_p.joined_aggregate:v1",
+            "checkpoint_1": {
+                "classification": checkpoint_1_classification,
+                "aggregate_identity": verified_checkpoint.aggregate_identity,
+            },
+            "checkpoint_2": {
+                "outcome": checkpoint_2_outcome,
+                "reason_codes": list(checkpoint_2_reason_codes),
+            },
+            "aggregate_outcome": aggregate_outcome,
+            "handoff": (
+                {
+                    "manifest_raw_sha256": handoff.manifest_raw_sha256,
+                    "manifest_canonical_fingerprint": handoff.manifest_canonical_fingerprint,
+                    "compiler_renderer_id": handoff.compiler_renderer_id,
+                    "attempt_context_fingerprint": handoff.attempt_context_fingerprint,
+                }
+                if handoff is not None
+                else None
+            ),
+            "recipe_byte_equality": {
+                "planner_final_raw_sha256": recipe_hashes[0],
+                "handoff_archive_raw_sha256": recipe_hashes[1],
+                "lm9b_c_loaded_raw_sha256": recipe_hashes[2],
+                "lm9b_c_evidence_raw_sha256": recipe_hashes[3],
+                "all_equal": all_equal,
+            },
+            "compiler_visible_input": {
+                "renderer_id": (
+                    handoff.compiler_renderer_id if handoff is not None else None
+                ),
+                "raw_recipe_bytes_consumed_by_model": False,
+                "projection": [
+                    "parsed_rendered_recipe_projection",
+                    "legal_trace_reference_catalog",
+                    "terminal_result_schema",
+                ],
+            },
+            "pre_session_failure": (
+                dict(pre_session_failure) if pre_session_failure is not None else None
+            ),
+            "lm9b_c_archive": _thaw_json(lm9bc_archive),
+            "execution_permitted": False,
+        }
+        aggregate_raw = _archive_json_bytes(aggregate)
+        aggregate_path = temporary / "aggregate.json"
+        aggregate_path.write_bytes(aggregate_raw)
+        if aggregate_path.read_bytes() != aggregate_raw:
+            raise ValueError("joined aggregate write verification failed")
+        records = [
+            {
+                "path": "aggregate.json",
+                "raw_sha256": sha256_prefixed(aggregate_raw),
+                "byte_length": len(aggregate_raw),
+            }
+        ]
+        aggregate_identity = canonical_fingerprint(
+            own_trusted_json(
+                {
+                    "schema": "rook.lm9b_p.joined_aggregate_checksums:v1",
+                    "records": records,
+                }
+            )
+        )
+        checksums = {
+            "schema": "rook.lm9b_p.joined_aggregate_checksums:v1",
+            "records": records,
+            "aggregate_identity": aggregate_identity,
+        }
+        checksums_raw = _archive_json_bytes(checksums)
+        checksums_path = temporary / "checksums.json"
+        checksums_path.write_bytes(checksums_raw)
+        if checksums_path.read_bytes() != checksums_raw:
+            raise ValueError("joined aggregate checksums write verification failed")
+        if destination.exists():
+            raise FileExistsError(f"sealed joined aggregate already exists: {destination}")
+        temporary.rename(destination)
+    except BaseException:
+        if temporary.exists():
+            shutil.rmtree(temporary)
+        raise
+    return SealedJoinedAggregate(
+        archive_dir=destination,
+        aggregate_identity=aggregate_identity,
+        checksums_raw_sha256=sha256_prefixed(checksums_raw),
+    )
 
 
 def _gate_feedback(gate_result: object | None) -> Mapping[str, object]:
@@ -1598,14 +1827,17 @@ __all__ = (
     "PlannerInputRecord",
     "ProviderAttemptEvidence",
     "RenderedRequest",
+    "SealedJoinedAggregate",
     "SealedPlannerCheckpointArchive",
     "build_lm9bc_handoff",
     "compare_sealed_checkpoint_with_r01",
     "derive_checkpoint_classification",
+    "derive_joined_aggregate_outcome",
     "load_planner_authority_context",
     "load_planner_inputs",
     "render_planner_evaluator_request",
     "render_planner_request",
+    "seal_joined_aggregate",
     "seal_planner_checkpoint_archive",
     "verify_sealed_planner_checkpoint_archive",
 )

@@ -69,7 +69,16 @@ def test_non_r01_recipe_reaches_unchanged_fake_compiler_provider(tmp_path: Path)
 
     loaded = LM9B_C_ARTIFACTS.load_frozen_inputs(handoff.fixture_dir)
     rendered = LM9B_C_ARTIFACTS.render_compiler_request(loaded)
+    assert recipe_bytes == handoff.archived_recipe_bytes == loaded.recipe_bytes
     assert rendered.renderer_id == LM9B_C_ARTIFACTS.COMPILER_RENDERER_ID
+    compiler_payload = json.loads(rendered.user_prompt)
+    assert compiler_payload["semantic_source"]["recipe"]["artifact"] == loaded.recipe
+    assert compiler_payload["legal_trace_reference_catalog"] == (
+        LM9B_C_ARTIFACTS.derive_legal_trace_reference_catalog(loaded.contract_index)
+    )
+    assert compiler_payload["terminal_result_schema"] == (
+        LM9B_C_SUPPORT.COMPILER_RESULT_SCHEMA
+    )
 
     calls: list[dict[str, object]] = []
 
@@ -95,6 +104,40 @@ def test_non_r01_recipe_reaches_unchanged_fake_compiler_provider(tmp_path: Path)
     )
     assert len(calls) == 1
     assert result.decision.outcome == "inconclusive"
+    assert (
+        result.run_dir / "inputs" / "recipe.json"
+    ).read_bytes() == loaded.recipe_bytes == recipe_bytes
+
+
+def test_reordered_set_like_recipe_fails_checkpoint_1_without_rewrite(
+    tmp_path: Path,
+) -> None:
+    inputs = ARTIFACTS.load_planner_inputs(PLANNER_FIXTURES)
+    reordered = json.loads(NON_R01_RECIPE.read_bytes())
+    reordered["assumptions"].reverse()
+    reordered_bytes = json.dumps(reordered, indent=2).encode("utf-8") + b"\n"
+
+    gate = SUPPORT.evaluate_mechanical_gate(
+        recipe_bytes=reordered_bytes,
+        authority=inputs.authority,
+        recipe_schema=inputs.recipe_schema,
+        normalization_profile=inputs.authority.normalization_profile,
+        exclusion_policy=inputs.exclusion_policy,
+    )
+
+    assert gate.status == "probe_mechanically_rejected"
+    assert [item.code for item in gate.diagnostics] == [
+        "recipe_not_canonical_normal_form"
+    ]
+    destination = tmp_path / "must-not-exist"
+    with pytest.raises(ValueError, match="accepted gate result"):
+        ARTIFACTS.build_lm9bc_handoff(
+            planner_inputs=inputs,
+            gate_result=gate,
+            compiler_fixture_dir=COMPILER_FIXTURES,
+            destination=destination,
+        )
+    assert not destination.exists()
 
 
 def test_handoff_never_reads_r01_or_its_source_manifest(

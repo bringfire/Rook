@@ -28,6 +28,9 @@ def _load_script(name: str):
     return module
 
 
+LM9B_C_SUPPORT = _load_script("lm9b_c_compiler_sufficiency_support")
+LM9B_C_ARTIFACTS = _load_script("lm9b_c_compiler_sufficiency_artifacts")
+LM9B_C_PROBE = _load_script("lm9b_c_compiler_sufficiency_probe")
 SUPPORT = _load_script("lm9b_p_planner_recipe_transfer_support")
 ARTIFACTS = _load_script("lm9b_p_planner_recipe_transfer_artifacts")
 PROBE = _load_script("lm9b_p_planner_recipe_transfer_probe")
@@ -187,6 +190,193 @@ def _empty_planner_turn() -> object:
     )
 
 
+def _compiler_turn(submission: dict[str, object]) -> object:
+    return LM9B_C_SUPPORT.ProviderTurn(
+        raw_request=b'{"compiler":"request"}',
+        raw_response=b'{"compiler":"response"}',
+        assistant_message={
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "compiler-call-1",
+                    "type": "function",
+                    "function": {
+                        "name": "submit_compiler_result",
+                        "arguments": json.dumps(
+                            {"submission_json": json.dumps(submission)}
+                        ),
+                    },
+                }
+            ],
+        },
+        usage={"total_tokens": 100, "cost_usd": 0.01},
+        provider_metadata={"provider": "fake", "model": "compiler"},
+    )
+
+
+def _compiler_empty_turn(*, total_tokens: int) -> object:
+    return LM9B_C_SUPPORT.ProviderTurn(
+        raw_request=b'{"compiler":"request"}',
+        raw_response=b'{"compiler":"response"}',
+        assistant_message={"role": "assistant", "content": None, "tool_calls": []},
+        usage={"total_tokens": total_tokens, "cost_usd": 0.01},
+        provider_metadata={"provider": "fake", "model": "compiler"},
+    )
+
+
+def _compiler_evaluator_turn(report: dict[str, object]) -> object:
+    return LM9B_C_SUPPORT.ProviderTurn(
+        raw_request=b'{"compiler_evaluator":"request"}',
+        raw_response=b'{"compiler_evaluator":"response"}',
+        assistant_message={
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "compiler-evaluator-call-1",
+                    "type": "function",
+                    "function": {
+                        "name": "submit_evaluation_result",
+                        "arguments": json.dumps(
+                            {"evaluation_json": json.dumps(report)}
+                        ),
+                    },
+                }
+            ],
+        },
+        usage={"total_tokens": 100, "cost_usd": 0.01},
+        provider_metadata={"provider": "fake", "model": "evaluator"},
+    )
+
+
+def _contract_index() -> dict[str, object]:
+    return LM9B_C_ARTIFACTS.derive_contract_index(
+        json.loads(READY_RECIPE_BYTES)
+    )
+
+
+def _valid_compiler_candidate() -> dict[str, object]:
+    index = _contract_index()
+    return {
+        "schema": LM9B_C_SUPPORT.COMPILER_RESULT_SCHEMA_ID,
+        "result_kind": "compiled_candidate",
+        "recipe_fingerprint": index["recipe_fingerprint"],
+        "compiled_candidate": {
+            "representation": {
+                "kind": "csharp_script_instance",
+                "pins_in": [],
+                "pins_out": [
+                    {"name": "Geometry", "type": "Brep", "access": "list"}
+                ],
+                "source": (
+                    "public class Script_Instance : GH_ScriptInstance { "
+                    "private void RunScript(ref object Geometry) { Geometry = null; } }"
+                ),
+            },
+            "decisions": [
+                {
+                    "decision_id": "decision.material",
+                    "decision_kind": "material_semantic",
+                    "statement": "Use one authorized semantic value.",
+                    "maintains_clause_id": index["maintains_clause_ids"][0],
+                    "support_refs": [index["support_ids"][0]],
+                    "requires_or_invariant_clause_id": None,
+                    "shape_delegation_id": None,
+                    "capability_id": None,
+                },
+                {
+                    "decision_id": "decision.implementation",
+                    "decision_kind": "implementation",
+                    "statement": "Use the fixed script representation.",
+                    "maintains_clause_id": index["maintains_clause_ids"][0],
+                    "support_refs": [],
+                    "requires_or_invariant_clause_id": None,
+                    "shape_delegation_id": index["shape_delegation_ids"][0],
+                    "capability_id": index["capability_ids"][0],
+                },
+                {
+                    "decision_id": "decision.guard",
+                    "decision_kind": "guard_or_read",
+                    "statement": "Read the governed document context.",
+                    "maintains_clause_id": None,
+                    "support_refs": [],
+                    "requires_or_invariant_clause_id": index["requires_clause_ids"][0],
+                    "shape_delegation_id": None,
+                    "capability_id": None,
+                },
+            ],
+            "verification_plan": [
+                {
+                    "verification_id": f"verification.{position}",
+                    "clause_id": clause_id,
+                    "observation": "Observe the inert candidate output.",
+                    "acceptance": "Compare the observation with the clause.",
+                }
+                for position, clause_id in enumerate(
+                    index["postcondition_clause_ids"]
+                )
+            ],
+            "unused_recipe_paths": [],
+        },
+    }
+
+
+def _contract_insufficient() -> dict[str, object]:
+    index = _contract_index()
+    return {
+        "schema": LM9B_C_SUPPORT.COMPILER_RESULT_SCHEMA_ID,
+        "result_kind": "contract_insufficient",
+        "recipe_fingerprint": index["recipe_fingerprint"],
+        "contract_insufficient": {
+            "missing_decisions": [
+                {
+                    "missing_decision_id": "missing.some_decision",
+                    "statement": "A required semantic decision is absent.",
+                    "affected_clause_ids": [index["maintains_clause_ids"][0]],
+                    "absent_authority": "No declared authority supplies the value.",
+                    "why_delegation_is_insufficient": (
+                        "The fixed representation cannot choose material meaning."
+                    ),
+                }
+            ]
+        },
+    }
+
+
+def _candidate_evaluation(*, accepted: bool = True) -> dict[str, object]:
+    decision = "accepted" if accepted else "rejected"
+    return {
+        "schema": LM9B_C_SUPPORT.EVALUATION_REPORT_SCHEMA_ID,
+        "evaluated_result_kind": "compiled_candidate",
+        "decision": decision,
+        "candidate_assessment": {
+            "source_fidelity": decision,
+            "material_authority": decision,
+            "representation_coherence": decision,
+            "verification_fidelity": decision,
+        },
+        "issue_codes": [] if accepted else ["material_invention"],
+        "bounded_rationale": "The candidate is checked against the source.",
+    }
+
+
+def _gap_evaluation(*, accepted: bool = True) -> dict[str, object]:
+    return {
+        "schema": LM9B_C_SUPPORT.EVALUATION_REPORT_SCHEMA_ID,
+        "evaluated_result_kind": "contract_insufficient",
+        "decision": "accepted" if accepted else "rejected",
+        "contract_gap_assessment": {
+            "missing_decision_precise": True,
+            "absent_from_semantic_source": True,
+            "necessary_for_conforming_lowering": accepted,
+            "outside_delegated_latitude": True,
+        },
+        "issue_codes": [] if accepted else ["gap_not_necessary"],
+        "bounded_rationale": "The explicit gap is checked against the source.",
+    }
+
+
 def _turn_with_tool_calls(
     *,
     role: str,
@@ -337,6 +527,335 @@ def sealed_checkpoint(tmp_path: Path):
     )
     assert result.sealed_archive is not None
     return result, archive_dir
+
+
+def _run_joined(
+    *,
+    tmp_path: Path,
+    checkpoint: object,
+    compiler: _Provider,
+    evaluator: _Provider,
+) -> object:
+    # Other test modules load these scripts under the same names during collection.
+    sys.modules["lm9b_c_compiler_sufficiency_support"] = LM9B_C_SUPPORT
+    sys.modules["lm9b_c_compiler_sufficiency_artifacts"] = LM9B_C_ARTIFACTS
+    sys.modules["lm9b_c_compiler_sufficiency_probe"] = LM9B_C_PROBE
+    return PROBE.run_joined_probe(
+        checkpoint_1=checkpoint,
+        compiler_fixture_dir=COMPILER_FIXTURES,
+        handoff_destination=tmp_path / "handoff",
+        compiler_run_root=tmp_path / "compiler-run",
+        aggregate_destination=tmp_path / "aggregate",
+        compiler_provider=compiler,
+        compiler_evaluator_provider=evaluator,
+        compiler_identity={"provider": "fake", "model": "compiler"},
+        compiler_evaluator_identity={"provider": "fake", "model": "evaluator"},
+        git_sha="deadbeef",
+    )
+
+
+@pytest.mark.parametrize(
+    (
+        "case",
+        "expected_aggregate",
+        "expected_compiler_calls",
+        "expected_evaluator_calls",
+    ),
+    [
+        ("bounded", "joined_transfer_demonstrated", 1, 1),
+        ("explicit_gap", "contract_gap_demonstrated", 1, 1),
+        ("malformed_candidate", "candidate_failure", LM9B_C_PROBE.MAX_TURNS, 0),
+        ("csharp_preflight", "candidate_failure", LM9B_C_PROBE.MAX_TURNS, 0),
+        ("evaluator_rejection", "candidate_failure", 1, 1),
+    ],
+)
+def test_ready_checkpoint_derives_joined_attribution_matrix(
+    tmp_path: Path,
+    sealed_checkpoint,
+    case: str,
+    expected_aggregate: str,
+    expected_compiler_calls: int,
+    expected_evaluator_calls: int,
+) -> None:
+    checkpoint, _ = sealed_checkpoint
+    candidate = _valid_compiler_candidate()
+    if case == "bounded":
+        compiler_responses = [_compiler_turn(candidate)]
+        evaluator_responses = [
+            _compiler_evaluator_turn(_candidate_evaluation())
+        ]
+    elif case == "explicit_gap":
+        compiler_responses = [_compiler_turn(_contract_insufficient())]
+        evaluator_responses = [_compiler_evaluator_turn(_gap_evaluation())]
+    elif case == "malformed_candidate":
+        candidate.pop("schema")
+        compiler_responses = [
+            _compiler_turn(candidate) for _ in range(LM9B_C_PROBE.MAX_TURNS)
+        ]
+        evaluator_responses = [AssertionError("evaluator must not run")]
+    elif case == "csharp_preflight":
+        candidate["compiled_candidate"]["representation"]["source"] = "not valid C#"
+        compiler_responses = [
+            _compiler_turn(candidate) for _ in range(LM9B_C_PROBE.MAX_TURNS)
+        ]
+        evaluator_responses = [AssertionError("evaluator must not run")]
+    else:
+        compiler_responses = [_compiler_turn(candidate)]
+        evaluator_responses = [
+            _compiler_evaluator_turn(_candidate_evaluation(accepted=False))
+        ]
+    compiler = _Provider(compiler_responses)
+    evaluator = _Provider(evaluator_responses)
+
+    result = _run_joined(
+        tmp_path=tmp_path,
+        checkpoint=checkpoint,
+        compiler=compiler,
+        evaluator=evaluator,
+    )
+
+    assert result.checkpoint_1.classification == "probe_candidate_ready"
+    assert result.aggregate_outcome == expected_aggregate
+    assert len(compiler.requests) == expected_compiler_calls
+    assert len(evaluator.requests) == expected_evaluator_calls
+    assert result.sealed_aggregate is not None
+    aggregate = json.loads(
+        (result.sealed_aggregate.archive_dir / "aggregate.json").read_bytes()
+    )
+    assert aggregate["aggregate_outcome"] == expected_aggregate
+    assert aggregate["checkpoint_1"]["aggregate_identity"] == (
+        checkpoint.sealed_archive.aggregate_identity
+    )
+    assert aggregate["lm9b_c_archive"]["aggregate_identity"].startswith("sha256:")
+
+
+@pytest.mark.parametrize(
+    ("control", "response"),
+    [
+        ("provider", RuntimeError("provider unavailable")),
+        ("timeout", TimeoutError("provider timed out")),
+        (
+            "budget",
+            _compiler_empty_turn(
+                total_tokens=LM9B_C_PROBE.TOKEN_STOP_THRESHOLD
+            ),
+        ),
+    ],
+)
+def test_compiler_control_failures_are_inconclusive_without_evaluator(
+    tmp_path: Path,
+    sealed_checkpoint,
+    control: str,
+    response: object,
+) -> None:
+    checkpoint, _ = sealed_checkpoint
+    compiler = _Provider([response])
+    evaluator = _Provider([AssertionError("evaluator must not run")])
+
+    result = _run_joined(
+        tmp_path=tmp_path,
+        checkpoint=checkpoint,
+        compiler=compiler,
+        evaluator=evaluator,
+    )
+
+    assert result.checkpoint_2 == "inconclusive", control
+    assert result.aggregate_outcome == "inconclusive"
+    assert len(compiler.requests) == 1
+    assert evaluator.requests == []
+    assert result.lm9bc_result is not None
+
+
+@pytest.mark.parametrize("failure_locus", ["load_or_index", "render"])
+def test_pre_session_failure_is_inconclusive_without_compiler_contact(
+    tmp_path: Path,
+    sealed_checkpoint,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_locus: str,
+) -> None:
+    checkpoint, _ = sealed_checkpoint
+    compiler = _Provider([AssertionError("compiler must not run")])
+    evaluator = _Provider([AssertionError("evaluator must not run")])
+    if failure_locus == "load_or_index":
+        monkeypatch.setattr(
+            LM9B_C_ARTIFACTS,
+            "load_frozen_inputs",
+            lambda fixture_dir: (_ for _ in ()).throw(ValueError("bad manifest")),
+        )
+    else:
+        monkeypatch.setattr(
+            LM9B_C_ARTIFACTS,
+            "render_compiler_request",
+            lambda inputs: (_ for _ in ()).throw(ValueError("bad projection")),
+        )
+
+    result = _run_joined(
+        tmp_path=tmp_path,
+        checkpoint=checkpoint,
+        compiler=compiler,
+        evaluator=evaluator,
+    )
+
+    assert result.checkpoint_2 == "inconclusive"
+    assert result.aggregate_outcome == "inconclusive"
+    assert result.pre_session_failure["locus"] == failure_locus
+    assert compiler.requests == []
+    assert evaluator.requests == []
+    assert result.lm9bc_result is None
+    aggregate = json.loads(
+        (result.sealed_aggregate.archive_dir / "aggregate.json").read_bytes()
+    )
+    assert aggregate["pre_session_failure"]["locus"] == failure_locus
+    assert aggregate["lm9b_c_archive"] is None
+
+
+def test_handoff_construction_failure_is_inconclusive_without_compiler_contact(
+    tmp_path: Path,
+    sealed_checkpoint,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checkpoint, _ = sealed_checkpoint
+    compiler = _Provider([AssertionError("compiler must not run")])
+    evaluator = _Provider([AssertionError("evaluator must not run")])
+    monkeypatch.setattr(
+        PROBE.ARTIFACTS,
+        "build_lm9bc_handoff",
+        lambda **kwargs: (_ for _ in ()).throw(ValueError("bad handoff manifest")),
+    )
+
+    result = _run_joined(
+        tmp_path=tmp_path,
+        checkpoint=checkpoint,
+        compiler=compiler,
+        evaluator=evaluator,
+    )
+
+    assert result.checkpoint_2 == "inconclusive"
+    assert result.aggregate_outcome == "inconclusive"
+    assert result.pre_session_failure["locus"] == "handoff"
+    assert result.handoff is None
+    assert result.lm9bc_result is None
+    assert compiler.requests == []
+    assert evaluator.requests == []
+
+
+@pytest.mark.parametrize(
+    ("planner_responses", "evaluator_responses", "classification"),
+    [
+        (
+            [_planner_turn(BLOCKED_RECIPE)],
+            [_evaluator_turn("faithful_blocked")],
+            "probe_candidate_blocked",
+        ),
+        (
+            [_planner_turn(READY_RECIPE)],
+            [_evaluator_turn("planner_failure")],
+            "probe_planner_failure",
+        ),
+        (
+            [_planner_turn(READY_RECIPE)],
+            [RuntimeError("evaluator unavailable")],
+            "probe_inconclusive",
+        ),
+        (
+            [_empty_planner_turn() for _ in range(SUPPORT.PLANNER_MAX_TURNS)],
+            [AssertionError("evaluator must not run")],
+            "probe_mechanically_rejected",
+        ),
+    ],
+)
+def test_every_non_ready_checkpoint_skips_handoff_and_compiler(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    planner_responses: list[object],
+    evaluator_responses: list[object],
+    classification: str,
+) -> None:
+    checkpoint = PROBE.run_planner_checkpoint(
+        fixture_dir=FIXTURES,
+        planner_provider=_Provider(planner_responses),
+        evaluator_provider=_Provider(evaluator_responses),
+        archive_destination=tmp_path / "checkpoint-1",
+        archive_identity=ARCHIVE_IDENTITY,
+    )
+    handoff_calls: list[object] = []
+
+    def unexpected_handoff(*args, **kwargs):
+        handoff_calls.append((args, kwargs))
+        raise AssertionError("non-ready checkpoint reached handoff")
+
+    monkeypatch.setattr(PROBE.ARTIFACTS, "build_lm9bc_handoff", unexpected_handoff)
+    compiler = _Provider([AssertionError("compiler must not run")])
+    evaluator = _Provider([AssertionError("compiler evaluator must not run")])
+
+    result = _run_joined(
+        tmp_path=tmp_path,
+        checkpoint=checkpoint,
+        compiler=compiler,
+        evaluator=evaluator,
+    )
+
+    assert result.checkpoint_1.classification == classification
+    assert result.checkpoint_2 == "not_evaluated"
+    assert result.aggregate_outcome == classification
+    assert handoff_calls == []
+    assert compiler.requests == []
+    assert evaluator.requests == []
+
+
+def test_join_verifies_retained_checkpoint_aggregate_before_handoff(
+    tmp_path: Path,
+    sealed_checkpoint,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checkpoint, archive_dir = sealed_checkpoint
+    (archive_dir / "checkpoint" / "classification.json").write_bytes(b"{}\n")
+    handoff_calls: list[object] = []
+    monkeypatch.setattr(
+        PROBE.ARTIFACTS,
+        "build_lm9bc_handoff",
+        lambda *args, **kwargs: handoff_calls.append((args, kwargs)),
+    )
+
+    with pytest.raises(ValueError, match="sealed checkpoint archive"):
+        _run_joined(
+            tmp_path=tmp_path,
+            checkpoint=checkpoint,
+            compiler=_Provider([AssertionError("compiler must not run")]),
+            evaluator=_Provider([AssertionError("evaluator must not run")]),
+        )
+    assert handoff_calls == []
+
+
+def test_joined_aggregate_proves_all_recipe_byte_boundaries(
+    tmp_path: Path,
+    sealed_checkpoint,
+) -> None:
+    checkpoint, _ = sealed_checkpoint
+    result = _run_joined(
+        tmp_path=tmp_path,
+        checkpoint=checkpoint,
+        compiler=_Provider([RuntimeError("bounded stop")]),
+        evaluator=_Provider([AssertionError("evaluator must not run")]),
+    )
+
+    aggregate = json.loads(
+        (result.sealed_aggregate.archive_dir / "aggregate.json").read_bytes()
+    )
+    proof = aggregate["recipe_byte_equality"]
+    expected = SUPPORT.sha256_prefixed(checkpoint.final_recipe_bytes)
+    assert proof == {
+        "planner_final_raw_sha256": expected,
+        "handoff_archive_raw_sha256": expected,
+        "lm9b_c_loaded_raw_sha256": expected,
+        "lm9b_c_evidence_raw_sha256": expected,
+        "all_equal": True,
+    }
+    assert checkpoint.final_recipe_bytes == result.handoff.archived_recipe_bytes
+    assert checkpoint.final_recipe_bytes == result.lm9bc_result.inputs.recipe_bytes
+    assert checkpoint.final_recipe_bytes == (
+        result.lm9bc_result.run_dir / "inputs" / "recipe.json"
+    ).read_bytes()
 
 
 def test_checkpoint_archive_is_complete_atomic_and_byte_derived(

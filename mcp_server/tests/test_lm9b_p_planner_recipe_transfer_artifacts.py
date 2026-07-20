@@ -140,6 +140,35 @@ def _accepted_gate(inputs, recipe_bytes: bytes | None = None):
     return result
 
 
+def test_handoff_treats_the_accepted_recipe_as_opaque_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inputs = ARTIFACTS.load_planner_inputs(PLANNER_FIXTURES)
+    accepted = _accepted_gate(inputs)
+    recipe_bytes = accepted.final_recipe_bytes
+    assert recipe_bytes is not None
+    original_parse = ARTIFACTS.parse_strict_json
+
+    def reject_recipe_parse(raw: bytes):
+        if raw == recipe_bytes:
+            raise AssertionError("the join adapter parsed accepted recipe bytes")
+        return original_parse(raw)
+
+    monkeypatch.setattr(ARTIFACTS, "parse_strict_json", reject_recipe_parse)
+    handoff = ARTIFACTS.build_lm9bc_handoff(
+        planner_inputs=inputs,
+        gate_result=accepted,
+        compiler_fixture_dir=COMPILER_FIXTURES,
+        destination=tmp_path / "opaque-handoff",
+    )
+
+    recipe_row = next(
+        row for row in handoff.manifest["records"] if row["role"] == "recipe"
+    )
+    assert handoff.archived_recipe_bytes == recipe_bytes
+    assert recipe_row["canonical_fingerprint"] == accepted.recipe_value_fingerprint
+
+
 def test_corrected_authority_preserves_facts_not_placeholder_bytes() -> None:
     for filename in ("task_envelope.json", "environment_snapshot.json"):
         corrected = _json(PLANNER_FIXTURES / filename)
