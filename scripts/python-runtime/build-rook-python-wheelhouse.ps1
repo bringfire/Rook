@@ -184,7 +184,7 @@ if (-not $chirpWheel) { Fail 'chirp wheel was not produced' }
 Copy-Item -LiteralPath $rookWheel.FullName -Destination $wheelhouse
 Copy-Item -LiteralPath $chirpWheel.FullName -Destination $wheelhouse
 
-$bootstrapToolPackages = @('pip==26.1.2', 'setuptools==82.0.1')
+$bootstrapToolPackages = @('pip==26.1.2', 'setuptools==83.0.0')
 Invoke-CheckedProcess -FilePath $pythonExe -Arguments (@('-m', 'pip', 'download', '--dest', $wheelhouse, '--only-binary=:all:') + $bootstrapToolPackages) -Label 'bootstrap tool wheel download'
 
 Invoke-CheckedProcess -FilePath $pythonExe -Arguments @('-m', 'pip', 'download', '--dest', $wheelhouse, '--only-binary=:all:', '--implementation', 'cp', '--python-version', '3.11', '--abi', 'cp311', '--platform', 'win_amd64', $rookWheel.FullName, $chirpWheel.FullName) -Label 'dependency wheel download'
