@@ -89,7 +89,7 @@ function Test-WheelhouseBuilderEnforcesReleaseContracts {
     Assert-Contains -Text $code -Expected '$pipAuditPackage = ''pip-audit==2.10.0''' -Message 'Wheelhouse builder must pin pip-audit tooling for reproducible release gates.'
     Assert-Contains -Text $code -Expected 'Invoke-CheckedProcess -FilePath $auditPython -Arguments @( ''-m'' , ''pip'' , ''--isolated'' , ''--disable-pip-version-check'' , ''install'' , $pipAuditPackage )' -Message 'pip-audit install must ignore global/user pip configuration and be timeout bounded.'
     Assert-Contains -Text $content -Expected '''pip==26.1.2''' -Message 'Wheelhouse builder must pin patched pip bootstrap tooling.'
-    Assert-Contains -Text $content -Expected '''setuptools==82.0.1''' -Message 'Wheelhouse builder must pin patched setuptools bootstrap tooling.'
+    Assert-Contains -Text $content -Expected '''setuptools==83.0.0''' -Message 'Wheelhouse builder must pin patched setuptools bootstrap tooling.'
     Assert-Contains -Text $content -Expected 'requirements-bootstrap-lock.txt' -Message 'Wheelhouse builder must write a hash-locked bootstrap requirements file.'
     Assert-Contains -Text $content -Expected 'packaging_tags.sys_tags()' -Message 'Wheelhouse builder must validate wheel tags against interpreter accepted tags.'
     Assert-Contains -Text $content -Expected '{module}.__file__' -Message 'Wheelhouse builder must record module import origin evidence.'

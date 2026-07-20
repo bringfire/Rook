@@ -73,6 +73,15 @@ def test_bootstrap_pip_command_is_offline_and_hash_locked(tmp_path: Path) -> Non
     assert "--require-hashes" in command
 
 
+def test_bootstrap_tool_requirements_pin_patched_setuptools() -> None:
+    runtime = load_runtime_install()
+
+    assert runtime.BOOTSTRAP_TOOL_REQUIREMENTS == (
+        "pip==26.1.2",
+        "setuptools==83.0.0",
+    )
+
+
 def test_sanitized_install_env_removes_python_and_pip_index_state(monkeypatch) -> None:
     runtime = load_runtime_install()
     monkeypatch.setenv("PYTHONHOME", "C:/bad")
