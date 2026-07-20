@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import copy
 import json
+import queue
 import re
 import sys
+import threading
 import time
 from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass
@@ -39,14 +41,22 @@ PLANNER_OVERALL_DEADLINE_S = 600.0
 PLANNER_TOKEN_STOP_THRESHOLD = 120_000
 PLANNER_COST_STOP_THRESHOLD_USD = 10.0
 PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS = 8_192
-PLANNER_TOOL_PARAMETERS = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-        "recipe_json": {"type": "string", "minLength": 1, "maxLength": 1_048_576}
-    },
-    "required": ["recipe_json"],
-}
+_PLANNER_RECIPE_ARGUMENT_SOURCE = ("recipe_json", 1, 1_048_576)
+
+
+def _planner_tool_parameters_from_source() -> dict[str, object]:
+    name, minimum, maximum = _PLANNER_RECIPE_ARGUMENT_SOURCE
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            name: {"type": "string", "minLength": minimum, "maxLength": maximum}
+        },
+        "required": [name],
+    }
+
+
+PLANNER_TOOL_PARAMETERS = _planner_tool_parameters_from_source()
 _MACHINE_IDENTIFIER = re.compile(r"^[a-z0-9]+(?:[._:-][a-z0-9]+)*$")
 _MACHINE_SCALAR_FIELDS = {
     "artifact_kind",
@@ -973,6 +983,45 @@ class PlannerSessionResult:
     final_recipe_bytes: bytes | None
 
 
+@dataclass(frozen=True)
+class _BoundedProviderCall:
+    response: object | None
+    exception: BaseException | None
+    timed_out: bool
+
+
+def _bounded_provider_call(
+    provider: Callable[[dict[str, object]], ProviderTurn],
+    request: dict[str, object],
+    *,
+    timeout_s: float,
+) -> _BoundedProviderCall:
+    """Invoke one provider call without accepting a result after its deadline."""
+
+    outcomes: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
+
+    def invoke() -> None:
+        try:
+            outcomes.put(("response", provider(request)))
+        except BaseException as exc:
+            outcomes.put(("exception", exc))
+
+    worker = threading.Thread(target=invoke, daemon=True)
+    worker.start()
+    worker.join(timeout_s)
+    if worker.is_alive():
+        return _BoundedProviderCall(response=None, exception=None, timed_out=True)
+    kind, value = outcomes.get_nowait()
+    if kind == "exception":
+        assert isinstance(value, BaseException)
+        return _BoundedProviderCall(
+            response=None,
+            exception=value,
+            timed_out=False,
+        )
+    return _BoundedProviderCall(response=value, exception=None, timed_out=False)
+
+
 def planner_tool_definition() -> dict[str, object]:
     return {
         "type": "function",
@@ -982,7 +1031,7 @@ def planner_tool_definition() -> dict[str, object]:
                 "Submit one proposed planner recipe as exact UTF-8 JSON text. "
                 "A mechanically accepted submission ends the session."
             ),
-            "parameters": PLANNER_TOOL_PARAMETERS,
+            "parameters": _planner_tool_parameters_from_source(),
         },
     }
 
@@ -1129,12 +1178,6 @@ def run_planner_session(
     recipe_schema: Mapping[str, object],
     normalization_profile: NormalizationProfile,
     exclusion_policy: Mapping[str, object],
-    max_turns: int = PLANNER_MAX_TURNS,
-    max_completion_tokens: int = PLANNER_MAX_COMPLETION_TOKENS,
-    provider_timeout_s: float = PLANNER_PROVIDER_TIMEOUT_S,
-    overall_deadline_s: float = PLANNER_OVERALL_DEADLINE_S,
-    token_stop_threshold: int = PLANNER_TOKEN_STOP_THRESHOLD,
-    cost_stop_threshold_usd: float = PLANNER_COST_STOP_THRESHOLD_USD,
     monotonic: Callable[[], float] = time.monotonic,
 ) -> PlannerSessionResult:
     """Run one bounded Planner session with deterministic mechanical feedback."""
@@ -1164,30 +1207,42 @@ def run_planner_session(
             final_recipe_bytes=final_recipe_bytes,
         )
 
-    for turn_index in range(1, max_turns + 1):
-        if monotonic() - started >= overall_deadline_s:
+    for turn_index in range(1, PLANNER_MAX_TURNS + 1):
+        remaining_s = PLANNER_OVERALL_DEADLINE_S - (monotonic() - started)
+        if remaining_s <= 0:
             return finish("timeout")
+        call_timeout_s = min(PLANNER_PROVIDER_TIMEOUT_S, remaining_s)
         request = {
             "messages": json.loads(json.dumps(messages, ensure_ascii=False)),
             "tools": [planner_tool_definition()],
             "tool_choice": "auto",
-            "max_completion_tokens": max_completion_tokens,
-            "provider_timeout_s": provider_timeout_s,
+            "max_completion_tokens": PLANNER_MAX_COMPLETION_TOKENS,
+            "provider_timeout_s": call_timeout_s,
         }
         turn_started = monotonic()
         try:
-            response = provider(request)
-        except ProviderCallFailure as exc:
+            outcome = _bounded_provider_call(
+                provider,
+                request,
+                timeout_s=call_timeout_s,
+            )
+        except Exception:
+            return finish("provider_failure")
+        if outcome.timed_out:
+            return finish("timeout")
+        if isinstance(outcome.exception, ProviderCallFailure):
+            exc = outcome.exception
             termination = (
                 "timeout"
                 if "timeout" in exc.failure_type.casefold()
                 else "provider_failure"
             )
             return finish(termination)
-        except TimeoutError:
+        if isinstance(outcome.exception, TimeoutError):
             return finish("timeout")
-        except Exception:
+        if outcome.exception is not None:
             return finish("provider_failure")
+        response = outcome.response
         elapsed_ms = max(0, int((monotonic() - turn_started) * 1000))
         if type(response) is not ProviderTurn:
             return finish("provider_failure")
@@ -1208,7 +1263,7 @@ def run_planner_session(
             tool_call_id,
         ) = _planner_submission_from_message(response.assistant_message)
 
-        if monotonic() - started >= overall_deadline_s:
+        if monotonic() - started >= PLANNER_OVERALL_DEADLINE_S:
             turns.append(
                 PlannerTurnRecord(
                     turn_index=turn_index,
@@ -1247,9 +1302,9 @@ def run_planner_session(
 
         messages.append(dict(response.assistant_message))
         messages.append(_planner_feedback_message(gate_result, tool_call_id))
-        if total_tokens >= token_stop_threshold:
+        if total_tokens >= PLANNER_TOKEN_STOP_THRESHOLD:
             return finish("mechanically_rejected")
-        if cost_complete and total_cost >= cost_stop_threshold_usd:
+        if cost_complete and total_cost >= PLANNER_COST_STOP_THRESHOLD_USD:
             return finish("mechanically_rejected")
 
     return finish("mechanically_rejected")

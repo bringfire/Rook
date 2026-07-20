@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import inspect
 import json
 import shutil
 import sys
+import threading
 from dataclasses import replace
 from pathlib import Path
 
@@ -948,7 +950,9 @@ class _PlannerProvider:
         return self.responses.pop(0)
 
 
-def _planner_session(provider: object, **overrides: object):
+def _planner_session(
+    provider: object, *, monotonic: object | None = None
+):
     authority = _authority()
     values: dict[str, object] = {
         "provider": provider,
@@ -959,7 +963,8 @@ def _planner_session(provider: object, **overrides: object):
         "normalization_profile": authority.normalization_profile,
         "exclusion_policy": authority.exclusion_policy,
     }
-    values.update(overrides)
+    if monotonic is not None:
+        values["monotonic"] = monotonic
     return SUPPORT.run_planner_session(**values)
 
 
@@ -1116,6 +1121,121 @@ def test_planner_stops_after_an_accepted_submission() -> None:
     result = _planner_session(provider)
     assert result.termination == "mechanically_accepted"
     assert len(provider.requests) == 1
+
+
+def test_bounded_provider_call_times_out_without_late_session_publication() -> None:
+    started = threading.Event()
+    release = threading.Event()
+    completed = threading.Event()
+    recipe_text = RECIPE_PATH.read_text(encoding="utf-8")
+
+    def blocked_provider(_request: dict[str, object]) -> object:
+        started.set()
+        assert release.wait(1.0)
+        completed.set()
+        return _planner_turn(tool_calls=[_planner_tool_call(recipe_text)])
+
+    outcome = SUPPORT._bounded_provider_call(
+        blocked_provider,
+        {"request": "value"},
+        timeout_s=0.01,
+    )
+    assert started.is_set()
+    assert outcome.timed_out is True
+    assert outcome.response is None
+    release.set()
+    assert completed.wait(1.0)
+    assert outcome.response is None
+
+
+def test_timed_out_planner_session_never_records_a_late_provider_turn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(SUPPORT, "PLANNER_PROVIDER_TIMEOUT_S", 0.01)
+    started = threading.Event()
+    release = threading.Event()
+    completed = threading.Event()
+    recipe_text = RECIPE_PATH.read_text(encoding="utf-8")
+
+    def blocked_provider(_request: dict[str, object]) -> object:
+        started.set()
+        assert release.wait(1.0)
+        completed.set()
+        return _planner_turn(tool_calls=[_planner_tool_call(recipe_text)])
+
+    result = _planner_session(blocked_provider)
+    assert started.is_set()
+    assert result.termination == "timeout"
+    assert result.turns == ()
+    release.set()
+    assert completed.wait(1.0)
+    assert result.turns == ()
+
+
+def test_planner_session_bounds_are_not_caller_overridable() -> None:
+    parameters = inspect.signature(SUPPORT.run_planner_session).parameters
+    assert not {
+        "max_turns",
+        "max_completion_tokens",
+        "provider_timeout_s",
+        "overall_deadline_s",
+        "token_stop_threshold",
+        "cost_stop_threshold_usd",
+    } & set(parameters)
+
+    provider = _PlannerProvider(
+        [_planner_turn(tool_calls=[]) for _ in range(SUPPORT.PLANNER_MAX_TURNS)]
+    )
+    result = _planner_session(provider)
+    assert result.termination == "mechanically_rejected"
+    assert all(
+        request["max_completion_tokens"] == SUPPORT.PLANNER_MAX_COMPLETION_TOKENS
+        and request["provider_timeout_s"] == SUPPORT.PLANNER_PROVIDER_TIMEOUT_S
+        for request in provider.requests
+    )
+
+
+def test_planner_provider_timeout_is_clamped_to_remaining_deadline() -> None:
+    recipe_text = RECIPE_PATH.read_text(encoding="utf-8")
+    provider = _PlannerProvider(
+        [_planner_turn(tool_calls=[_planner_tool_call(recipe_text)])]
+    )
+    ticks = iter((0.0, 500.0, 500.0, 500.0, 500.0))
+    result = _planner_session(provider, monotonic=lambda: next(ticks))
+    assert result.termination == "mechanically_accepted"
+    assert provider.requests[0]["provider_timeout_s"] == 100.0
+
+
+def test_planner_tool_schema_is_fresh_per_turn_and_public_definition_is_unchanged() -> None:
+    recipe_text = RECIPE_PATH.read_text(encoding="utf-8")
+    original = copy.deepcopy(SUPPORT.PLANNER_TOOL_PARAMETERS)
+
+    class MutatingProvider:
+        def __init__(self) -> None:
+            self.requests: list[dict[str, object]] = []
+
+        def __call__(self, request: dict[str, object]) -> object:
+            self.requests.append(request)
+            parameters = request["tools"][0]["function"]["parameters"]
+            if len(self.requests) == 1:
+                parameters["properties"]["recipe_json"]["maxLength"] = 1
+                return _planner_turn(tool_calls=[])
+            return _planner_turn(tool_calls=[_planner_tool_call(recipe_text)])
+
+    provider = MutatingProvider()
+    try:
+        result = _planner_session(provider)
+        assert result.termination == "mechanically_accepted"
+        assert (
+            provider.requests[1]["tools"][0]["function"]["parameters"]
+            ["properties"]["recipe_json"]["maxLength"]
+            == 1_048_576
+        )
+        assert SUPPORT.PLANNER_TOOL_PARAMETERS == original
+    finally:
+        if isinstance(SUPPORT.PLANNER_TOOL_PARAMETERS, dict):
+            SUPPORT.PLANNER_TOOL_PARAMETERS.clear()
+            SUPPORT.PLANNER_TOOL_PARAMETERS.update(original)
 
 def test_exact_vocabulary_companions_are_complete_and_fingerprinted() -> None:
     expected = {
