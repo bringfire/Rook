@@ -5,19 +5,48 @@ from __future__ import annotations
 import copy
 import json
 import re
+import sys
+import time
 from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Mapping, NoReturn
+from typing import Callable, Literal, Mapping, NoReturn
 
 from jsonschema import Draft202012Validator
 from rook.validation_kernel.canonical_json import canonical_fingerprint, sha256_prefixed
 from rook.validation_kernel.owned_json import own_trusted_json
 
 
+_MCP_SERVER_SRC = Path(__file__).resolve().parents[1] / "mcp_server" / "src"
+_SCRIPTS_DIR = Path(__file__).resolve().parent
+for _import_path in (str(_MCP_SERVER_SRC), str(_SCRIPTS_DIR)):
+    if _import_path not in sys.path:
+        sys.path.insert(0, _import_path)
+
+from lm9b_c_compiler_sufficiency_support import (  # noqa: E402
+    ProviderCallFailure,
+    ProviderTurn,
+)
+
+
 MAX_RECIPE_BYTES = 1_048_576
 MAX_JSON_DEPTH = 64
 MAX_INTEGER_TOKEN_CHARS = 1_024
+PLANNER_MAX_TURNS = 6
+PLANNER_MAX_COMPLETION_TOKENS = 16_384
+PLANNER_PROVIDER_TIMEOUT_S = 180.0
+PLANNER_OVERALL_DEADLINE_S = 600.0
+PLANNER_TOKEN_STOP_THRESHOLD = 120_000
+PLANNER_COST_STOP_THRESHOLD_USD = 10.0
+PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS = 8_192
+PLANNER_TOOL_PARAMETERS = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "recipe_json": {"type": "string", "minLength": 1, "maxLength": 1_048_576}
+    },
+    "required": ["recipe_json"],
+}
 _MACHINE_IDENTIFIER = re.compile(r"^[a-z0-9]+(?:[._:-][a-z0-9]+)*$")
 _MACHINE_SCALAR_FIELDS = {
     "artifact_kind",
@@ -922,11 +951,327 @@ def evaluate_mechanical_gate(
     )
 
 
+@dataclass(frozen=True)
+class PlannerTurnRecord:
+    turn_index: int
+    raw_response: bytes
+    tool_arguments: bytes | None
+    gate_result: MechanicalGateResult | None
+    usage: Mapping[str, object]
+    elapsed_ms: int
+
+
+@dataclass(frozen=True)
+class PlannerSessionResult:
+    termination: Literal[
+        "mechanically_accepted",
+        "mechanically_rejected",
+        "provider_failure",
+        "timeout",
+    ]
+    turns: tuple[PlannerTurnRecord, ...]
+    final_recipe_bytes: bytes | None
+
+
+def planner_tool_definition() -> dict[str, object]:
+    return {
+        "type": "function",
+        "function": {
+            "name": "submit_planner_recipe",
+            "description": (
+                "Submit one proposed planner recipe as exact UTF-8 JSON text. "
+                "A mechanically accepted submission ends the session."
+            ),
+            "parameters": PLANNER_TOOL_PARAMETERS,
+        },
+    }
+
+
+def _planner_feedback_message(
+    gate_result: MechanicalGateResult,
+    tool_call_id: str | None,
+) -> dict[str, object]:
+    content = json.dumps(
+        {
+            "accepted": False,
+            "feedback": [
+                {
+                    "code": diagnostic.code,
+                    "path": diagnostic.path,
+                    "message": diagnostic.message,
+                }
+                for diagnostic in gate_result.diagnostics
+            ],
+            "instruction": "Submit exactly one conforming planner recipe tool call.",
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    if tool_call_id is not None:
+        return {"role": "tool", "tool_call_id": tool_call_id, "content": content}
+    return {"role": "user", "content": content}
+
+
+def _planner_protocol_rejection(
+    code: str,
+    path: str,
+    message: str,
+) -> tuple[None, None, MechanicalGateResult, None]:
+    return None, None, _reject(code, path, message), None
+
+
+def _planner_submission_from_message(
+    message: Mapping[str, object],
+) -> tuple[bytes | None, bytes | None, MechanicalGateResult | None, str | None]:
+    tool_calls = message.get("tool_calls", [])
+    if type(tool_calls) is not list:
+        return _planner_protocol_rejection(
+            "provider_tool_calls_malformed",
+            "/tool_calls",
+            "provider tool calls must be a list",
+        )
+    if not tool_calls:
+        return _planner_protocol_rejection(
+            "planner_tool_missing",
+            "/tool_calls",
+            "exactly one submit_planner_recipe tool call is required",
+        )
+    if len(tool_calls) != 1:
+        return _planner_protocol_rejection(
+            "multiple_tool_calls",
+            "/tool_calls",
+            "at most one tool call is permitted per Planner turn",
+        )
+    tool_call = tool_calls[0]
+    if type(tool_call) is not dict:
+        return _planner_protocol_rejection(
+            "provider_tool_call_malformed",
+            "/tool_calls/0",
+            "provider tool call must be an object",
+        )
+    tool_call_id = tool_call.get("id")
+    if type(tool_call_id) is not str or not tool_call_id:
+        tool_call_id = None
+    function = tool_call.get("function")
+    if type(function) is not dict:
+        return None, None, _reject(
+            "provider_tool_call_malformed",
+            "/tool_calls/0/function",
+            "provider tool function must be an object",
+        ), tool_call_id
+    if function.get("name") != "submit_planner_recipe":
+        return None, None, _reject(
+            "unknown_tool",
+            "/tool_calls/0/function/name",
+            "only submit_planner_recipe is available",
+        ), tool_call_id
+    arguments = function.get("arguments")
+    if type(arguments) is not str:
+        return None, None, _reject(
+            "tool_arguments_not_exact_string",
+            "/tool_calls/0/function/arguments",
+            "provider must expose the exact tool argument string",
+        ), tool_call_id
+    try:
+        tool_arguments = arguments.encode("utf-8", errors="strict")
+    except (StrictJsonError, UnicodeError):
+        return None, None, _reject(
+            "tool_arguments_not_utf8",
+            "/tool_calls/0/function/arguments",
+            "tool arguments must be representable as UTF-8",
+        ), tool_call_id
+    try:
+        envelope = parse_strict_json(tool_arguments)
+    except StrictJsonError:
+        return tool_arguments, None, _reject(
+            "tool_arguments_invalid_json",
+            "/tool_calls/0/function/arguments",
+            "tool arguments must be strict JSON",
+        ), tool_call_id
+    if (
+        type(envelope) is not dict
+        or set(envelope) != {"recipe_json"}
+        or type(envelope.get("recipe_json")) is not str
+        or not envelope["recipe_json"]
+        or len(envelope["recipe_json"]) > MAX_RECIPE_BYTES
+    ):
+        return tool_arguments, None, _reject(
+            "tool_arguments_shape_invalid",
+            "/tool_calls/0/function/arguments",
+            "tool arguments must be the closed recipe_json object",
+        ), tool_call_id
+    try:
+        recipe_bytes = envelope["recipe_json"].encode("utf-8", errors="strict")
+    except UnicodeError:
+        return tool_arguments, None, _reject(
+            "tool_arguments_not_utf8",
+            "/tool_calls/0/function/arguments/recipe_json",
+            "recipe_json must be representable as UTF-8",
+        ), tool_call_id
+    return tool_arguments, recipe_bytes, None, tool_call_id
+
+
+def _planner_usage_values(usage: Mapping[str, object]) -> tuple[int, float, bool]:
+    token_value = usage.get("total_tokens", 0)
+    tokens = token_value if type(token_value) is int and token_value >= 0 else 0
+    cost_value = usage.get("cost_usd")
+    if type(cost_value) in (int, float) and float(cost_value) >= 0:
+        return tokens, float(cost_value), True
+    return tokens, 0.0, False
+
+
+def run_planner_session(
+    *,
+    provider: Callable[[dict[str, object]], ProviderTurn],
+    system_prompt: str,
+    user_prompt: str,
+    authority: object,
+    recipe_schema: Mapping[str, object],
+    normalization_profile: NormalizationProfile,
+    exclusion_policy: Mapping[str, object],
+    max_turns: int = PLANNER_MAX_TURNS,
+    max_completion_tokens: int = PLANNER_MAX_COMPLETION_TOKENS,
+    provider_timeout_s: float = PLANNER_PROVIDER_TIMEOUT_S,
+    overall_deadline_s: float = PLANNER_OVERALL_DEADLINE_S,
+    token_stop_threshold: int = PLANNER_TOKEN_STOP_THRESHOLD,
+    cost_stop_threshold_usd: float = PLANNER_COST_STOP_THRESHOLD_USD,
+    monotonic: Callable[[], float] = time.monotonic,
+) -> PlannerSessionResult:
+    """Run one bounded Planner session with deterministic mechanical feedback."""
+
+    started = monotonic()
+    messages: list[dict[str, object]] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    turns: list[PlannerTurnRecord] = []
+    total_tokens = 0
+    total_cost = 0.0
+    cost_complete = True
+
+    def finish(
+        termination: Literal[
+            "mechanically_accepted",
+            "mechanically_rejected",
+            "provider_failure",
+            "timeout",
+        ],
+        final_recipe_bytes: bytes | None = None,
+    ) -> PlannerSessionResult:
+        return PlannerSessionResult(
+            termination=termination,
+            turns=tuple(turns),
+            final_recipe_bytes=final_recipe_bytes,
+        )
+
+    for turn_index in range(1, max_turns + 1):
+        if monotonic() - started >= overall_deadline_s:
+            return finish("timeout")
+        request = {
+            "messages": json.loads(json.dumps(messages, ensure_ascii=False)),
+            "tools": [planner_tool_definition()],
+            "tool_choice": "auto",
+            "max_completion_tokens": max_completion_tokens,
+            "provider_timeout_s": provider_timeout_s,
+        }
+        turn_started = monotonic()
+        try:
+            response = provider(request)
+        except ProviderCallFailure as exc:
+            termination = (
+                "timeout"
+                if "timeout" in exc.failure_type.casefold()
+                else "provider_failure"
+            )
+            return finish(termination)
+        except TimeoutError:
+            return finish("timeout")
+        except Exception:
+            return finish("provider_failure")
+        elapsed_ms = max(0, int((monotonic() - turn_started) * 1000))
+        if type(response) is not ProviderTurn:
+            return finish("provider_failure")
+        if type(response.raw_response) is not bytes or not isinstance(
+            response.assistant_message, MappingABC
+        ):
+            return finish("provider_failure")
+
+        usage = dict(response.usage) if isinstance(response.usage, MappingABC) else {}
+        turn_tokens, turn_cost, turn_cost_complete = _planner_usage_values(usage)
+        total_tokens += turn_tokens
+        total_cost += turn_cost
+        cost_complete = cost_complete and turn_cost_complete
+        (
+            tool_arguments,
+            recipe_bytes,
+            protocol_rejection,
+            tool_call_id,
+        ) = _planner_submission_from_message(response.assistant_message)
+
+        if monotonic() - started >= overall_deadline_s:
+            turns.append(
+                PlannerTurnRecord(
+                    turn_index=turn_index,
+                    raw_response=response.raw_response,
+                    tool_arguments=tool_arguments,
+                    gate_result=protocol_rejection,
+                    usage=usage,
+                    elapsed_ms=elapsed_ms,
+                )
+            )
+            return finish("timeout")
+
+        gate_result = protocol_rejection
+        if recipe_bytes is not None:
+            gate_result = evaluate_mechanical_gate(
+                recipe_bytes=recipe_bytes,
+                authority=authority,
+                recipe_schema=recipe_schema,
+                normalization_profile=normalization_profile,
+                exclusion_policy=exclusion_policy,
+            )
+        turns.append(
+            PlannerTurnRecord(
+                turn_index=turn_index,
+                raw_response=response.raw_response,
+                tool_arguments=tool_arguments,
+                gate_result=gate_result,
+                usage=usage,
+                elapsed_ms=elapsed_ms,
+            )
+        )
+        assert gate_result is not None
+        if gate_result.status == "mechanically_accepted":
+            assert gate_result.final_recipe_bytes is not None
+            return finish("mechanically_accepted", gate_result.final_recipe_bytes)
+
+        messages.append(dict(response.assistant_message))
+        messages.append(_planner_feedback_message(gate_result, tool_call_id))
+        if total_tokens >= token_stop_threshold:
+            return finish("mechanically_rejected")
+        if cost_complete and total_cost >= cost_stop_threshold_usd:
+            return finish("mechanically_rejected")
+
+    return finish("mechanically_rejected")
+
+
 __all__ = (
     "MechanicalDiagnostic",
     "MechanicalGateResult",
     "NormalizationProfile",
     "NormalizationRow",
+    "PLANNER_COST_STOP_THRESHOLD_USD",
+    "PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS",
+    "PLANNER_MAX_COMPLETION_TOKENS",
+    "PLANNER_MAX_TURNS",
+    "PLANNER_OVERALL_DEADLINE_S",
+    "PLANNER_PROVIDER_TIMEOUT_S",
+    "PLANNER_TOKEN_STOP_THRESHOLD",
+    "PLANNER_TOOL_PARAMETERS",
+    "PlannerSessionResult",
+    "PlannerTurnRecord",
+    "ProviderCallFailure",
+    "ProviderTurn",
     "StrictJsonError",
     "evaluate_mechanical_gate",
     "fingerprint",
@@ -935,7 +1280,9 @@ __all__ = (
     "normalization_profile_from_value",
     "normalize_recipe",
     "parse_strict_json",
+    "planner_tool_definition",
     "resolve_json_pointer",
+    "run_planner_session",
     "sha256_prefixed",
     "validate_exclusion_policy",
 )

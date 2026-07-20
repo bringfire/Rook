@@ -890,7 +890,6 @@ def test_unfingerprinted_exclusion_policy_cannot_replace_frozen_input() -> None:
         exclusion_policy=substituted,
     )
     assert result.diagnostics[0].code == "invalid_exclusion_policy"
-
     substituted["policy_fingerprint"] = SUPPORT.fingerprint_without(
         substituted, "policy_fingerprint"
     )
@@ -903,6 +902,220 @@ def test_unfingerprinted_exclusion_policy_cannot_replace_frozen_input() -> None:
     )
     assert result.diagnostics[0].code == "invalid_exclusion_policy"
 
+
+def _planner_turn(
+    *,
+    tool_calls: object,
+    content: object = None,
+    usage: dict[str, object] | None = None,
+) -> object:
+    return SUPPORT.ProviderTurn(
+        raw_request=b'{"planner":"request"}',
+        raw_response=b'{"planner":"response"}',
+        assistant_message={
+            "role": "assistant",
+            "content": content,
+            "tool_calls": tool_calls,
+        },
+        usage={} if usage is None else usage,
+        provider_metadata={},
+    )
+
+
+def _planner_tool_call(
+    recipe_text: str, *, name: str = "submit_planner_recipe"
+) -> dict[str, object]:
+    return {
+        "id": "planner-call-1",
+        "function": {
+            "name": name,
+            "arguments": json.dumps({"recipe_json": recipe_text}),
+        },
+    }
+
+
+def _planner_arguments_bytes(recipe_text: str) -> bytes:
+    return json.dumps({"recipe_json": recipe_text}).encode("utf-8")
+
+
+class _PlannerProvider:
+    def __init__(self, responses: list[object]) -> None:
+        self.responses = list(responses)
+        self.requests: list[dict[str, object]] = []
+
+    def __call__(self, request: dict[str, object]) -> object:
+        self.requests.append(request)
+        return self.responses.pop(0)
+
+
+def _planner_session(provider: object, **overrides: object):
+    authority = _authority()
+    values: dict[str, object] = {
+        "provider": provider,
+        "system_prompt": "planner system",
+        "user_prompt": "planner user",
+        "authority": authority,
+        "recipe_schema": authority.recipe_schema,
+        "normalization_profile": authority.normalization_profile,
+        "exclusion_policy": authority.exclusion_policy,
+    }
+    values.update(overrides)
+    return SUPPORT.run_planner_session(**values)
+
+
+def test_planner_tool_definition_is_exactly_one_closed_recipe_submission() -> None:
+    assert SUPPORT.planner_tool_definition() == {
+        "type": "function",
+        "function": {
+            "name": "submit_planner_recipe",
+            "description": (
+                "Submit one proposed planner recipe as exact UTF-8 JSON text. "
+                "A mechanically accepted submission ends the session."
+            ),
+            "parameters": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "recipe_json": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1_048_576,
+                    }
+                },
+                "required": ["recipe_json"],
+            },
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("tool_calls", "code"),
+    [
+        ([], "planner_tool_missing"),
+        ([_planner_tool_call("{}", name="unknown")], "unknown_tool"),
+        ([_planner_tool_call("{}"), _planner_tool_call("{}")], "multiple_tool_calls"),
+        ("not-a-list", "provider_tool_calls_malformed"),
+        ([{"id": "planner-call-1", "function": []}], "provider_tool_call_malformed"),
+    ],
+)
+def test_planner_protocol_rejects_bad_or_absent_tool_calls(
+    tool_calls: object, code: str
+) -> None:
+    recipe_text = RECIPE_PATH.read_text(encoding="utf-8")
+    provider = _PlannerProvider(
+        [
+            _planner_turn(tool_calls=tool_calls),
+            _planner_turn(tool_calls=[_planner_tool_call(recipe_text)]),
+        ]
+    )
+    result = _planner_session(provider)
+    assert result.termination == "mechanically_accepted"
+    assert result.turns[0].gate_result.diagnostics[0].code == code
+    assert code in provider.requests[1]["messages"][-1]["content"]
+
+
+def test_planner_protocol_rejects_free_text_and_mapping_only_arguments() -> None:
+    recipe_text = RECIPE_PATH.read_text(encoding="utf-8")
+    free_text = _PlannerProvider(
+        [
+            _planner_turn(tool_calls=[], content="recipe"),
+            _planner_turn(tool_calls=[_planner_tool_call(recipe_text)]),
+        ]
+    )
+    free_text_result = _planner_session(free_text)
+    assert free_text_result.termination == "mechanically_accepted"
+    assert free_text_result.turns[0].gate_result.diagnostics[0].code == "planner_tool_missing"
+
+    mapped = _planner_tool_call("{}")
+    mapped["function"]["arguments"] = {"recipe_json": "{}"}
+    mapping_only = _PlannerProvider(
+        [
+            _planner_turn(tool_calls=[mapped]),
+            _planner_turn(tool_calls=[_planner_tool_call(recipe_text)]),
+        ]
+    )
+    mapping_result = _planner_session(mapping_only)
+    assert mapping_result.termination == "mechanically_accepted"
+    assert (
+        mapping_result.turns[0].gate_result.diagnostics[0].code
+        == "tool_arguments_not_exact_string"
+    )
+
+
+def test_planner_preserves_exact_recipe_argument_bytes_and_accepts_immediately() -> None:
+    recipe_text = RECIPE_PATH.read_text(encoding="utf-8")
+    provider = _PlannerProvider([_planner_turn(tool_calls=[_planner_tool_call(recipe_text)])])
+    result = _planner_session(provider)
+    assert result.termination == "mechanically_accepted"
+    assert result.final_recipe_bytes == recipe_text.encode("utf-8")
+    assert result.turns[0].tool_arguments == _planner_arguments_bytes(recipe_text)
+    assert result.turns[0].gate_result.status == "mechanically_accepted"
+    assert len(provider.requests) == 1
+
+
+def test_planner_allows_fingerprint_resubmission_without_controller_edit() -> None:
+    recipe = _recipe()
+    recipe["recipe_fingerprint"] = "sha256:" + "0" * 64
+    stale_text = _bytes(recipe).decode("utf-8")
+    sealed_text = _bytes(_seal(recipe)).decode("utf-8")
+    provider = _PlannerProvider(
+        [
+            _planner_turn(tool_calls=[_planner_tool_call(stale_text)]),
+            _planner_turn(tool_calls=[_planner_tool_call(sealed_text)]),
+        ]
+    )
+    result = _planner_session(provider)
+    assert result.termination == "mechanically_accepted"
+    assert result.turns[0].tool_arguments == _planner_arguments_bytes(stale_text)
+    assert (
+        result.turns[0].gate_result.status == "fingerprint_resubmission_required"
+    )
+    assert result.final_recipe_bytes == sealed_text.encode("utf-8")
+    assert result.turns[1].tool_arguments == _planner_arguments_bytes(sealed_text)
+    assert result.turns[1].gate_result.status == "mechanically_accepted"
+
+
+def test_planner_normal_turn_limit_is_mechanical_rejection() -> None:
+    provider = _PlannerProvider(
+        [_planner_turn(tool_calls=[]) for _ in range(SUPPORT.PLANNER_MAX_TURNS)]
+    )
+    result = _planner_session(provider)
+    assert result.termination == "mechanically_rejected"
+    assert result.final_recipe_bytes is None
+    assert len(result.turns) == SUPPORT.PLANNER_MAX_TURNS
+    assert len(provider.requests) == SUPPORT.PLANNER_MAX_TURNS
+
+
+def test_planner_provider_failure_and_timeout_are_terminal() -> None:
+    failed = _PlannerProvider([RuntimeError("provider unavailable")])
+    failed_result = _planner_session(failed)
+    assert failed_result.termination == "provider_failure"
+    assert failed_result.turns == ()
+
+    ticks = iter((0.0, 0.0, 0.0, 0.0, 601.0))
+    recipe_text = RECIPE_PATH.read_text(encoding="utf-8")
+    timed_out = _PlannerProvider(
+        [_planner_turn(tool_calls=[_planner_tool_call(recipe_text)])]
+    )
+    timeout_result = _planner_session(timed_out, monotonic=lambda: next(ticks))
+    assert timeout_result.termination == "timeout"
+    assert len(timeout_result.turns) == 1
+    assert timeout_result.turns[0].tool_arguments == _planner_arguments_bytes(
+        recipe_text
+    )
+
+
+def test_planner_stops_after_an_accepted_submission() -> None:
+    recipe_text = RECIPE_PATH.read_text(encoding="utf-8")
+    provider = _PlannerProvider(
+        [
+            _planner_turn(tool_calls=[_planner_tool_call(recipe_text)]),
+            RuntimeError("must not be consumed"),
+        ]
+    )
+    result = _planner_session(provider)
+    assert result.termination == "mechanically_accepted"
+    assert len(provider.requests) == 1
 
 def test_exact_vocabulary_companions_are_complete_and_fingerprinted() -> None:
     expected = {
