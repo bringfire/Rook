@@ -1,195 +1,224 @@
 # Rook — AI Agents for Rhino & Grasshopper
 
-> An agent platform that lets AI operate directly inside Rhino 3D
-> and Grasshopper. nearly 400 MCP tools. Works with any LLM provider.
+> Rook lets AI agents inspect and operate Rhino 3D and Grasshopper through
+> 400+ MCP tools. It supports multiple cloud and local models through LiteLLM.
 
 > **Using this file:** If your working directory is the Rook install folder
 > (`%LOCALAPPDATA%\Rook`), this file loads automatically. Otherwise, copy it
-> to your project root so your AI agent can use it as context when working
-> with Rook. You can customize the copy with project-specific conventions
-> (units, layer naming, etc.) — the Rook guidance below will still apply.
+> to your project root so Codex can use it as context when working with Rook.
+> You can customize the copy with project-specific conventions such as units
+> and layer naming.
 
 ---
 
 ## Start Here
 
+```text
+1. Run /mcp and look for "rook".
+2. Call rhino_ping; it should return "pong".
+3. Inspect the current Rhino document or Grasshopper definition before mutating it.
 ```
-1. Run /mcp - look for "rook"
-2. Call rhino_ping - should return "pong"
-3. You're connected.
-```
+
+The active MCP profile may advertise a compact tool set. When the exact tool you
+need is not visible, use `rook_tools_search` → `rook_tools_read` →
+`rook_tools_call`. These gateways discover and invoke admitted tools through the
+normal policy path.
 
 **Key docs (load only when needed):**
-- `docs/ONBOARDING_NEW_CLAUDE.md` - Quick decision tree for tool selection (~175 lines)
-- `docs/CURRENT_ARCHITECTURE.md` - Runtime architecture description (~150 lines)
-- `docs/AGENT_ARCHITECTURE.md` - Agent system, intent runtime, chat service (~400 lines)
-- `docs/TROUBLESHOOTING.md` - Common issues and recovery (~525 lines)
+
+- `docs/ONBOARDING_NEW_CLAUDE.md` — quick tool-selection reference
+- `docs/CURRENT_ARCHITECTURE.md` — current runtime architecture
+- `docs/AGENT_ARCHITECTURE.md` — agent loops, tool admission, and chat service
+- `docs/TROUBLESHOOTING.md` — common issues and recovery
 
 ---
 
-## Philosophy
+## Operating Model
 
-### The Knowledge Store is Not a Lookup Table
+Keep the primary model as the actor and use explicit tools as bounded operations:
 
-The knowledge store contains **components, recipes, and patterns** extracted from real Grasshopper definitions. It's a **semantic graph of composable primitives**, not a database of finished solutions.
+1. **Inspect live state** — identify the active document, definition, objects,
+   components, errors, and relevant constraints.
+2. **Discover the admitted tool** — search when necessary and read its current
+   schema instead of guessing names or arguments.
+3. **Act explicitly** — call the smallest typed or structured tool that performs
+   the intended operation.
+4. **Verify** — inspect the returned receipt and the resulting Rhino or
+   Grasshopper state, including solve errors and outputs.
+5. **Recover deliberately** — undo or clean up only state created or changed by
+   the attempted operation; ask before destructive or unrestorable action.
 
-When you query for "spiral staircase," you won't find a spiral staircase. You'll find helix patterns, point-sequence patterns, trig patterns, pipe/sweep patterns — and their links to each other. **Your job is to compose them.**
+The knowledge store is **optional advisory context**. It can provide component
+facts, patterns, and known failure modes, but it does not authorize mutation,
+replace live inspection, or prove that a result succeeded. Do not make knowledge
+lookup a mandatory hop before ordinary supported operations.
 
-When a user asks for something not directly in the store:
-1. **Query for related concepts** — linked neighborhoods surface relevant primitives
-2. **Understand each primitive** — components, wiring patterns, gotchas
-3. **Compose** — combine primitives to achieve the intent
-4. **Bridge the gap** — domain knowledge about how things work together
-
-### Record Corrections, Not Successes
-
-When `correction_detected: true` appears in tool output, call `knowledge_record`. The store learns from failure, not routine success.
+Record durable knowledge only when a correction has been reproduced and
+validated and the record contains no sensitive user content. Do not record
+routine successes or guessed explanations automatically.
 
 ---
 
-## Primary Tools
+## Primary Workflows
 
-There are nearly 400 MCP tools available. Two paths matter most.
+### Grasshopper canvas — `gh_snapshot` → `gh_edit`
 
-### For Grasshopper: prefer the batch path — `gh_snapshot` → `gh_edit`
+This is the default path for inspecting and changing a definition:
 
-**This is the default, fastest, most reliable way to work on the canvas.**
-
-1. `gh_snapshot` — read the entire canvas in ONE call (components, wires, groups,
-   errors, data previews) and get back an `epoch`.
-2. `gh_edit` — apply every change in ONE atomic call, passing that `epoch`:
-   create → disconnect → delete → set_values → connect → groups.
+1. `gh_snapshot` reads the canvas in one call and returns components, wires,
+   groups, diagnostics, data previews, short IDs, and an `epoch`.
+2. `gh_edit` submits a batch of explicit changes using that `epoch`:
+   create → disconnect → delete → set values → connect → groups.
 
 ```python
-snap = gh_snapshot()                       # batch read; returns epoch + short IDs
-gh_edit(epoch=snap["epoch"], create=[...], connect=["T1.O0>C2.I1"], set_values=[...])
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[...],
+    connect=["T1.O0>C2.I1"],
+    set_values=[...],
+)
 ```
 
-One read, one atomic write — deterministic, minimal round trips, no GUID guessing.
-Use this by default for creating, wiring, and editing definitions. `gh_undo`
-reverses the last edit.
+Treat this as an epoch-validated batched write, not as proof of all-or-nothing
+transactionality. Inspect the returned result, then call `gh_snapshot` and
+`gh_errors` to verify topology, solve state, and outputs.
 
-For an unfamiliar component, query `gh_library` or `gh_knowledge_query` first,
-then pass the exact name or GUID to `gh_edit`. Follow every mutation with
-`gh_snapshot` and `gh_errors`; use `gh_undo` or explicit cleanup when a partial
-edit committed.
+`gh_undo` reverses the most recent Grasshopper undo event. A compound workflow
+may create more than one undo event, so verify after each undo and call it again
+only when the remaining state is known to belong to the attempted operation.
 
-### For Rhino Geometry: rediscover, inspect, then use explicit routes
+Progressive discovery searches Rook tools, not Grasshopper components. For an
+unfamiliar component, use `gh_library` for exact component identity and
+`gh_batch_component_info` for SDK-backed input/output metadata. If those tools
+are hidden, use progressive discovery to locate and read their MCP schemas. Use
+`gh_knowledge_query` only when advisory component knowledge would materially help.
 
-Typed routes — `rhino_create`, `rhino_transform`, `rhino_boolean`, `rhino_extrude`,
-`rhino_loft`, `rhino_sweep`, … — are the preferred, validated, deterministic path.
+### Grasshopper Python and C# scripts
 
-When the operation is unfamiliar, rediscover the admitted tool surface and inspect
-the document before choosing a route. If no typed route fits, use only a sanctioned,
-fully scripted `rhino_command` after knowledge lookup and preflight, or a short
-non-interactive `rhino_execute` script as the last resort. Verify the result with
-the structured response plus `rhino_objects`, `rhino_geometry`, or the relevant
-query tool.
+- Create a RhinoCode script component with `gh_create_script`, setting
+  `language` to `python` or `csharp`.
+- Use `gh_update_script` for ordinary source edits.
+- When the component's inputs or outputs must change, call
+  `gh_set_script_pins` before `gh_update_script`.
+- Use `gh_set_script` when exact raw replacement or a legacy script component
+  requires it.
 
-### Everything Else
+These tools may be hidden by a compact profile; discover them with
+`rook_tools_search`, inspect them with `rook_tools_read`, and invoke them with
+`rook_tools_call`. After every script mutation, solve the definition and verify
+source, pins, errors, warnings, and output data.
+
+### Rhino geometry — inspect, then use explicit routes
+
+Prefer typed routes such as `rhino_create`, `rhino_transform`, `rhino_boolean`,
+`rhino_extrude`, `rhino_create_loft`, `rhino_create_sweep1`, and
+`rhino_create_sweep2`. They provide bounded inputs and structured results.
+
+When the operation is unfamiliar, inspect the document and discover the current
+tool schema before choosing a route. If no typed route fits, use a sanctioned,
+fully parameterized, non-interactive `rhino_command` after preflight, or a short
+non-interactive `rhino_execute` script as the last resort. Verify the resulting
+objects and geometry with the appropriate query tools.
+
+### Other common needs
 
 | Need | Tool |
 |------|------|
-| Query objects | `rhino_objects`, `rhino_geometry` |
-| Direct knowledge lookup | `knowledge_query`, `gh_knowledge_query` |
-| See what's failing | `gh_errors` |
+| Query Rhino objects | `rhino_objects`, `rhino_geometry` |
+| Inspect GH failures | `gh_errors` |
+| Advisory knowledge | `knowledge_query`, `gh_knowledge_query` |
+| Discover a tool | `rook_tools_search` |
+| Read its schema | `rook_tools_read` |
+| Invoke a discovered tool | `rook_tools_call` |
 
-For other tools, use `/mcp` to see the full list with descriptions.
+`/mcp` shows the tools advertised by the current profile; it is not necessarily
+the complete admitted catalog.
 
-### For LLM-Powered GH Components: Chirp
+### LLM-powered Grasshopper components — Chirp
 
-Chirp components are native Grasshopper nodes powered by language models. Use the
-`chirp_create` tool or the `/chirp` skill to create them.
+Chirp components are Grasshopper nodes powered by language models. Use
+`chirp_create` or the `/chirp` skill to create one. Available categories are
+`planner`, `interpreter`, `critic`, `narrator`, `classifier`, `gate`, and
+`editor`. Use `/chirp-cascade` when the user explicitly wants a multi-component
+reasoning cascade.
 
-Available categories: `planner`, `interpreter`, `critic`, `narrator`, `classifier`,
-`gate`, `editor`. Chain multiple Chirp components into reasoning cascades using
-`/chirp-cascade`.
-
-Chirp components wire into definitions like any other GH node — they take data in,
-run LLM reasoning, and output structured results.
-
-### Any LLM Provider
-
-Rook uses LiteLLM for model routing. Works with Claude (Anthropic), GPT (OpenAI),
-or local models via Ollama / LM Studio. Configure in `.env` files. The user chooses
-their provider — never assume a specific model is available.
-
----
-
-## Using the Knowledge Store
-
-### Query Before You're Stuck
-
-```python
-# When you're uncertain about a command
-knowledge_query(intent="create cone", depth="context")
-
-# When something failed
-knowledge_query(intent="create cone", depth="errors")
-```
-
-**Depth tiers:**
-- `quick` (~20 tokens) - essential facts
-- `context` (~50 tokens) - specific rules for your use case
-- `errors` (~30 tokens) - what fails and why
-- `raw` (~500+ tokens) - full patterns
-
-Each knowledge note has a `links` field to related notes — follow them to find related primitives.
+Rook uses LiteLLM for model routing and can be configured for supported cloud or
+local providers such as Anthropic, OpenAI, Ollama, and LM Studio. Provider and
+model availability depends on the installed configuration and credentials;
+never assume a particular model is available.
 
 ---
 
 ## Critical Rules
 
-### Never Say "I Can't"
+### Be persistent and honest
 
-Rhino and Grasshopper are professional tools refined over decades. Basic operations always have solutions. If you can't accomplish something:
-1. The solution exists — you haven't found it yet
-2. Re-read tool descriptions completely
-3. Query the knowledge store with different intents
-4. Follow the linked neighborhoods
+If the first tool choice does not work:
 
-**Never tell the user to do it manually.** That's giving up.
+1. Inspect the returned error and current host state.
+2. Re-read the tool schema and use progressive discovery for alternatives.
+3. Query advisory knowledge when it is relevant to the failure.
+4. Try another admitted, bounded path when evidence supports it.
 
-### Use MCP Tools, Not HTTP
+Never invent a capability, claim unverified success, or silently expand the
+requested scope. When completion genuinely requires a user action—such as
+dismissing a modal dialog, selecting a target, saving user state, granting
+authorization, or configuring credentials—explain the blocker and request only
+that bounded action.
 
-Never use curl or direct HTTP calls. The MCP tools handle request formatting and error handling.
+### Protect user state
 
-### No Keyboard Automation
+Inspect before mutation. Operate only on the intended document or definition.
+Do not delete, overwrite, close, or broadly clean user-owned state without clear
+authorization. After mutation, verify the result; after a scratch test, restore
+the declared observable pre-state.
 
-Never use PowerShell SendKeys or wscript.shell. This triggers security alerts.
+### Use MCP tools, not direct HTTP
 
-### Prefer Typed Routes Over Scripts
+Do not use curl or direct HTTP calls to bypass Rook. MCP tools provide the
+supported request, policy, and error-handling path.
 
-Most geometry operations have dedicated typed endpoints (`rhino_create`, `rhino_transform`,
-`rhino_boolean`, `rhino_extrude`, `rhino_loft`, `rhino_sweep`, etc.) that are safe and
-return structured results. Rediscover the admitted surface and call the exact route directly.
+### No keyboard automation
 
-`rhino_execute` and `rhino_command` have built-in error handling (script wrapper with
-try/except, preflight validation, interactive detection with auto-cancel), so script
-errors return structured JSON rather than freezing Rhino. However, typed routes are
-still preferred — they validate inputs, track created objects, and avoid edge cases
-where a Rhino command pops a native dialog (file chooser, confirmation prompt) that
-blocks the UI thread with no programmatic recovery.
+Do not use PowerShell SendKeys or `wscript.shell`. Keyboard automation is
+unreliable, can target the wrong window, and may trigger security controls.
+
+### Prefer typed routes over scripts
+
+Typed routes validate structured inputs and return structured results. Use
+`rhino_execute` or `rhino_command` only when a typed route does not fit and the
+operation is short, non-interactive, preflighted, and verifiable. Stop if a
+native dialog or unknown prompt blocks deterministic execution.
 
 ---
 
 ## Troubleshooting
 
 ### MCP tools not available
-Run `/mcp` in Claude Code, look for "rook". If missing, restart Claude Code from project directory.
+
+Run `/mcp` in Codex and look for `rook`. If it is missing, restart Codex from
+the intended project directory and check the Rook MCP configuration.
 
 ### Rhino not responding
-A modal dialog may be blocking Rhino. Check the Rhino window for any dialog box
-and dismiss it, then try `rhino_ping`. If this happened after a scripted command,
-report it — the typed route for that operation may be missing.
 
-### Command creates 0 objects
-Invalid inputs. Check coordinates, units, required options.
+A modal dialog may be blocking Rhino. Ask the user to inspect and dismiss the
+dialog, then retry `rhino_ping`. Do not use keyboard automation to dismiss it.
 
-### GH component not found
-Don't guess component names — GUIDs differ across installs. Look up the correct
-GUID with `gh_knowledge_query` or `gh_library`, pass it to `gh_edit`, and verify
-the solved graph with a follow-up `gh_snapshot`.
+### Command creates zero objects
+
+Inspect the structured error and verify coordinates, units, target document,
+required options, and preconditions. Do not treat an empty result as success.
+
+### Grasshopper component not found
+
+Do not guess component names, GUIDs, or parameter layouts. Progressive discovery
+searches Rook tools, not Grasshopper components. Use `gh_library` for exact
+component identity and `gh_batch_component_info` for SDK-backed input/output
+metadata. If those tools are hidden, locate and read them with
+`rook_tools_search`/`rook_tools_read`. Then create the component by exact identity
+and verify the solved graph with `gh_snapshot` and `gh_errors`.
 
 ### Still stuck?
+
 File an issue at https://github.com/bringfire/rook-release/issues
