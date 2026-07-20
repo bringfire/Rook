@@ -1,0 +1,106 @@
+{
+  "schema": "rook.planner_task_envelope:v1",
+  "artifact_id": "task_envelope",
+  "task_session_id": "lm9b-c-r01-task-session",
+  "payload_schema": "rook.lm9b_c.r01_task_payload:v1",
+  "payload_schema_fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "payload": {
+    "facts": {
+      "element_kind": "box",
+      "grid_count_x": 10,
+      "grid_count_y": 10,
+      "operation_kind": "create_new",
+      "radial_height_relationship": "lowest_at_array_center_and_nondecreasing_with_radial_distance",
+      "target_scope": "task_created_objects",
+      "task_scope": "task_created_objects"
+    }
+  },
+  "value_bindings": [
+    {
+      "binding_id": "task-value.element_kind",
+      "json_pointer": "/facts/element_kind",
+      "semantic_key": "element_kind",
+      "value_schema": "rook.semantic_string:v1",
+      "typed_value_fingerprint": "sha256:0101010101010101010101010101010101010101010101010101010101010101",
+      "authority_kind": "user_fact",
+      "provenance": {
+        "issuer_kind": "deterministic_fixture",
+        "issuer_id": "lm9b-c-r01-fixture"
+      }
+    },
+    {
+      "binding_id": "task-value.grid_count_x",
+      "json_pointer": "/facts/grid_count_x",
+      "semantic_key": "grid_count_x",
+      "value_schema": "rook.semantic_integer:v1",
+      "typed_value_fingerprint": "sha256:0202020202020202020202020202020202020202020202020202020202020202",
+      "authority_kind": "user_fact",
+      "provenance": {
+        "issuer_kind": "deterministic_fixture",
+        "issuer_id": "lm9b-c-r01-fixture"
+      }
+    },
+    {
+      "binding_id": "task-value.grid_count_y",
+      "json_pointer": "/facts/grid_count_y",
+      "semantic_key": "grid_count_y",
+      "value_schema": "rook.semantic_integer:v1",
+      "typed_value_fingerprint": "sha256:0303030303030303030303030303030303030303030303030303030303030303",
+      "authority_kind": "user_fact",
+      "provenance": {
+        "issuer_kind": "deterministic_fixture",
+        "issuer_id": "lm9b-c-r01-fixture"
+      }
+    },
+    {
+      "binding_id": "task-value.operation_kind",
+      "json_pointer": "/facts/operation_kind",
+      "semantic_key": "operation_kind",
+      "value_schema": "rook.semantic_string:v1",
+      "typed_value_fingerprint": "sha256:0404040404040404040404040404040404040404040404040404040404040404",
+      "authority_kind": "task_fact",
+      "provenance": {
+        "issuer_kind": "deterministic_fixture",
+        "issuer_id": "lm9b-c-r01-fixture"
+      }
+    },
+    {
+      "binding_id": "task-value.radial_height_relationship",
+      "json_pointer": "/facts/radial_height_relationship",
+      "semantic_key": "radial_height_relationship",
+      "value_schema": "rook.semantic_string:v1",
+      "typed_value_fingerprint": "sha256:0505050505050505050505050505050505050505050505050505050505050505",
+      "authority_kind": "user_fact",
+      "provenance": {
+        "issuer_kind": "deterministic_fixture",
+        "issuer_id": "lm9b-c-r01-fixture"
+      }
+    },
+    {
+      "binding_id": "task-value.target_scope",
+      "json_pointer": "/facts/target_scope",
+      "semantic_key": "target_scope",
+      "value_schema": "rook.semantic_string:v1",
+      "typed_value_fingerprint": "sha256:0707070707070707070707070707070707070707070707070707070707070707",
+      "authority_kind": "task_fact",
+      "provenance": {
+        "issuer_kind": "deterministic_fixture",
+        "issuer_id": "lm9b-c-r01-fixture"
+      }
+    },
+    {
+      "binding_id": "task-value.task_scope",
+      "json_pointer": "/facts/task_scope",
+      "semantic_key": "task_scope",
+      "value_schema": "rook.semantic_string:v1",
+      "typed_value_fingerprint": "sha256:0808080808080808080808080808080808080808080808080808080808080808",
+      "authority_kind": "task_fact",
+      "provenance": {
+        "issuer_kind": "deterministic_fixture",
+        "issuer_id": "lm9b-c-r01-fixture"
+      }
+    }
+  ],
+  "issued_at": "2026-07-19T12:00:00Z",
+  "artifact_fingerprint": "sha256:1d9d75417c6b434469f8bbcfee59d822c4944895c14dfc0bde17828dab4c7005"
+}

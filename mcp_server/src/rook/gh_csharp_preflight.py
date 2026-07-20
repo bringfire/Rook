@@ -15,6 +15,19 @@ _CLASS_DECLARATION_RE = re.compile(r"\bclass\s+[A-Za-z_][A-Za-z0-9_]*\b")
 _GH_COMPONENT_SUBCLASS_RE = re.compile(
     r":\s*(?:[A-Za-z_][A-Za-z0-9_]*\.)*GH_Component\b"
 )
+_SCRIPT_INSTANCE_CLASS_RE = re.compile(r"\bpublic\s+class\s+Script_Instance\b")
+_SCRIPT_INSTANCE_BASE_RE = re.compile(
+    r"\bpublic\s+class\s+Script_Instance\s*:\s*"
+    r"(?:[A-Za-z_][A-Za-z0-9_]*\.)*GH_ScriptInstance\b"
+)
+_RUNSCRIPT_DECLARATION_RE = re.compile(
+    r"\b(?P<visibility>public|private|protected|internal)\s+void\s+"
+    r"RunScript\s*\((?P<parameters>[^()]*)\)"
+)
+_CONDITIONAL_PREPROCESSOR_RE = re.compile(
+    r"^\s*#\s*(?:if|elif|else|endif|define|undef)\b",
+    re.MULTILINE,
+)
 _WRONG_COMPONENT_PATTERNS: tuple[str, ...] = (
     "SolveInstance",
     "RegisterInputParams",
@@ -44,6 +57,12 @@ class CSharpScriptPreflightResult:
     ok: bool
     message: str | None = None
     code: str | None = None
+
+
+@dataclass(frozen=True)
+class CSharpRepresentationContractResult:
+    ok: bool
+    error_codes: tuple[str, ...]
 
 
 def is_recognized_csharp_full_source(code: Any) -> bool:
@@ -84,6 +103,247 @@ def _validate_pin_names(
                 )
             seen.add(stripped)
     return None
+
+
+def _complete_pin_declarations(
+    pins: Sequence[Mapping[str, Any]],
+) -> bool:
+    for pin in pins:
+        if set(pin) != {"name", "type", "access"}:
+            return False
+        type_name = pin.get("type")
+        if not isinstance(type_name, str) or not type_name.strip():
+            return False
+        if pin.get("access") not in {"item", "list", "tree"}:
+            return False
+    return True
+
+
+def _mask_csharp_noncode(source: str) -> str:
+    """Mask comments and literals while preserving offsets and brace layout."""
+
+    chars = list(source)
+
+    def mask(start: int, end: int) -> None:
+        for index in range(start, min(end, len(chars))):
+            if chars[index] not in "\r\n":
+                chars[index] = " "
+
+    index = 0
+    length = len(source)
+    while index < length:
+        if source.startswith("//", index):
+            end = source.find("\n", index + 2)
+            end = length if end < 0 else end
+            mask(index, end)
+            index = end
+            continue
+        if source.startswith("/*", index):
+            end = source.find("*/", index + 2)
+            end = length if end < 0 else end + 2
+            mask(index, end)
+            index = end
+            continue
+
+        quote_count = 0
+        if source[index] == '"':
+            while index + quote_count < length and source[index + quote_count] == '"':
+                quote_count += 1
+        if quote_count >= 3:
+            delimiter = '"' * quote_count
+            end = source.find(delimiter, index + quote_count)
+            end = length if end < 0 else end + quote_count
+            mask(index, end)
+            index = end
+            continue
+
+        verbatim_prefix = next(
+            (
+                prefix
+                for prefix in ('$@"', '@$"', '@"')
+                if source.startswith(prefix, index)
+            ),
+            None,
+        )
+        if verbatim_prefix is not None:
+            cursor = index + len(verbatim_prefix)
+            while cursor < length:
+                if source.startswith('""', cursor):
+                    cursor += 2
+                    continue
+                if source[cursor] == '"':
+                    cursor += 1
+                    break
+                cursor += 1
+            mask(index, cursor)
+            index = cursor
+            continue
+
+        regular_prefix = '$"' if source.startswith('$"', index) else None
+        if regular_prefix is not None or source[index] == '"':
+            cursor = index + (2 if regular_prefix is not None else 1)
+            escaped = False
+            while cursor < length:
+                char = source[cursor]
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    cursor += 1
+                    break
+                cursor += 1
+            mask(index, cursor)
+            index = cursor
+            continue
+
+        if source[index] == "'":
+            cursor = index + 1
+            escaped = False
+            while cursor < length:
+                char = source[cursor]
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == "'":
+                    cursor += 1
+                    break
+                cursor += 1
+            mask(index, cursor)
+            index = cursor
+            continue
+
+        index += 1
+
+    return "".join(chars)
+
+
+def _brace_depth_at(source: str, position: int) -> int:
+    depth = 0
+    for char in source[:position]:
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+    return depth
+
+
+def _matching_brace(source: str, opening_index: int) -> int | None:
+    depth = 0
+    for index in range(opening_index, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+            if depth < 0:
+                return None
+    return None
+
+
+def validate_rhinocode_csharp_full_source(
+    *,
+    code: Any,
+    pins_in: Sequence[Mapping[str, Any]],
+    pins_out: Sequence[Mapping[str, Any]],
+) -> CSharpRepresentationContractResult:
+    """Recognize the exact full-source boundary Rook sends to RhinoCode C#.
+
+    This intentionally validates only the class and method envelope. RhinoCode
+    compilation remains authoritative for the C# language and method body.
+    """
+
+    if not isinstance(code, str) or not code.strip():
+        return CSharpRepresentationContractResult(
+            ok=False,
+            error_codes=("invalid_full_source",),
+        )
+
+    all_pins = [*pins_in, *pins_out]
+    if (
+        not _complete_pin_declarations(all_pins)
+        or _validate_pin_names(pins_in, pins_out) is not None
+    ):
+        return CSharpRepresentationContractResult(
+            ok=False,
+            error_codes=("invalid_pin_declaration",),
+        )
+
+    structural_source = _mask_csharp_noncode(code)
+    errors: list[str] = []
+    if _CONDITIONAL_PREPROCESSOR_RE.search(structural_source):
+        errors.append("conditional_compilation_forbidden")
+    if _GH_COMPONENT_SUBCLASS_RE.search(structural_source):
+        errors.append("gh_component_subclass_forbidden")
+
+    script_class_declarations = tuple(
+        match
+        for match in _SCRIPT_INSTANCE_CLASS_RE.finditer(structural_source)
+        if _brace_depth_at(structural_source, match.start()) == 0
+    )
+    base_declarations = tuple(
+        match
+        for match in _SCRIPT_INSTANCE_BASE_RE.finditer(structural_source)
+        if _brace_depth_at(structural_source, match.start()) == 0
+    )
+    class_body: str | None = None
+    if len(base_declarations) != 1:
+        errors.append("missing_gh_script_instance_base")
+    if len(script_class_declarations) == 1:
+        class_declaration = script_class_declarations[0]
+        class_open = structural_source.find("{", class_declaration.end())
+        invalid_separator = min(
+            (
+                position
+                for position in (
+                    structural_source.find(";", class_declaration.end()),
+                    structural_source.find("}", class_declaration.end()),
+                )
+                if position >= 0
+            ),
+            default=len(structural_source),
+        )
+        if class_open < 0 or invalid_separator < class_open:
+            errors.append("invalid_full_source")
+        else:
+            class_close = _matching_brace(structural_source, class_open)
+            if class_close is None:
+                errors.append("invalid_full_source")
+            else:
+                class_body = structural_source[class_open + 1 : class_close]
+    elif len(script_class_declarations) > 1:
+        errors.append("invalid_full_source")
+
+    declarations = tuple(
+        match
+        for match in _RUNSCRIPT_DECLARATION_RE.finditer(class_body or "")
+        if _brace_depth_at(class_body or "", match.start()) == 0
+    )
+    if len(declarations) != 1:
+        errors.append("runscript_method_count_mismatch")
+    else:
+        declaration = declarations[0]
+        actual_parameters = tuple(
+            re.sub(r"\s+", " ", parameter.strip())
+            for parameter in declaration.group("parameters").split(",")
+            if parameter.strip()
+        )
+        expected_parameters = tuple(
+            [f'object {pin["name"]}' for pin in pins_in]
+            + [f'ref object {pin["name"]}' for pin in pins_out]
+        )
+        if (
+            declaration.group("visibility") != "private"
+            or actual_parameters != expected_parameters
+        ):
+            errors.append("runscript_signature_mismatch")
+
+    return CSharpRepresentationContractResult(
+        ok=not errors,
+        error_codes=tuple(errors),
+    )
 
 
 def preflight_csharp_script(
