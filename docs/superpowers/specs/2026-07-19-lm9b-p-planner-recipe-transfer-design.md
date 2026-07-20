@@ -77,7 +77,8 @@ shadow implementation of LM9A semantics.
 
 ### 3.1 Narrow Claim
 
-> Given the frozen radial brief and its unchanged trusted authority context, one
+> Given the frozen radial brief and a content-addressed, LM9A-replayable
+> authority context preserving the historical R01 context's semantic facts, one
 > bounded frontier Planner session can author a
 > `rook.planner_graph_recipe:v1` that is mechanically admissible under the
 > frozen probe gate, independently recommended as semantically faithful and
@@ -240,10 +241,14 @@ experimental guard against that behavior.
 
 ## 6. Canonical Scenario And Controls
 
-The canonical attempt uses the same radial brief and trusted authority context
-underlying R01. This is the cleanest matched historical control because the
-downstream environment remains fixed while Planner authorship is the principal
-intervention.
+The canonical attempt uses the same radial brief and the same semantic task,
+environment, and policy facts underlying R01. LM9B-P replaces the historical
+fixtures' placeholder payload-schema and typed-value fingerprints with exact
+content-addressed values and supplies the matching payload-schema registry.
+The historical R01 context is therefore semantically matched but not
+byte-identical. This remains the cleanest available matched historical control
+while ensuring the authored recipe and its bound authority context can be
+replayed unchanged by future LM9A-S.
 
 R01 is:
 
