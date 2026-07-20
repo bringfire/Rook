@@ -1,2 +1,5 @@
 third_party/ffmpeg/ffmpeg.exe filter=lfs diff=lfs merge=lfs -text
 scripts/lm9b_c_fixtures/*.json text eol=lf
+scripts/lm9b_p_fixtures/*.json text eol=lf
+scripts/lm9b_p_fixtures/*.txt text eol=lf
+mcp_server/tests/fixtures/lm9b_p/*.json text eol=lf

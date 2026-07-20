@@ -1,0 +1,1 @@
+Create a 10 x 10 array of boxes whose heights are lowest near the center and rise with radial distance from the center.
