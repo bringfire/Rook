@@ -41,7 +41,21 @@ PLANNER_OVERALL_DEADLINE_S = 600.0
 PLANNER_TOKEN_STOP_THRESHOLD = 120_000
 PLANNER_COST_STOP_THRESHOLD_USD = 10.0
 PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS = 8_192
+PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S = 180.0
 _PLANNER_RECIPE_ARGUMENT_SOURCE = ("recipe_json", 1, 1_048_576)
+_PLANNER_EVALUATION_ARGUMENT_SOURCE = ("evaluation_json", 1, 65_536)
+_PLANNER_EVALUATION_RECOMMENDATIONS = (
+    "faithful_ready",
+    "faithful_blocked",
+    "planner_failure",
+)
+_PLANNER_EVALUATION_CRITERIA = (
+    "brief_fidelity",
+    "provenance_fidelity",
+    "material_authority",
+    "unresolved_intent_honesty",
+    "implementation_leakage",
+)
 
 
 def _planner_tool_parameters_from_source() -> dict[str, object]:
@@ -57,6 +71,45 @@ def _planner_tool_parameters_from_source() -> dict[str, object]:
 
 
 PLANNER_TOOL_PARAMETERS = _planner_tool_parameters_from_source()
+
+
+def _planner_evaluation_parameters_from_source() -> dict[str, object]:
+    name, minimum, maximum = _PLANNER_EVALUATION_ARGUMENT_SOURCE
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            name: {"type": "string", "minLength": minimum, "maxLength": maximum}
+        },
+        "required": [name],
+    }
+
+
+PLANNER_EVALUATOR_TOOL_PARAMETERS = _planner_evaluation_parameters_from_source()
+_PLANNER_EVALUATION_REPORT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "recommendation": {"enum": list(_PLANNER_EVALUATION_RECOMMENDATIONS)},
+        "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "criterion_id": {"enum": list(_PLANNER_EVALUATION_CRITERIA)},
+                    "finding": {"type": "string", "minLength": 1},
+                },
+                "required": ["criterion_id", "finding"],
+            },
+        },
+    },
+    "required": ["recommendation", "evidence"],
+}
+_PLANNER_EVALUATION_REPORT_VALIDATOR = Draft202012Validator(
+    _PLANNER_EVALUATION_REPORT_SCHEMA
+)
 _MACHINE_IDENTIFIER = re.compile(r"^[a-z0-9]+(?:[._:-][a-z0-9]+)*$")
 _MACHINE_SCALAR_FIELDS = {
     "artifact_kind",
@@ -984,6 +1037,22 @@ class PlannerSessionResult:
 
 
 @dataclass(frozen=True)
+class PlannerEvaluationResult:
+    termination: Literal[
+        "valid_recommendation",
+        "provider_failure",
+        "timeout",
+        "malformed",
+    ]
+    recommendation: Literal[
+        "faithful_ready", "faithful_blocked", "planner_failure"
+    ] | None
+    evidence: tuple[Mapping[str, object], ...]
+    raw_response: bytes | None
+    usage: Mapping[str, object] | None
+
+
+@dataclass(frozen=True)
 class _BoundedProviderCall:
     response: object | None
     exception: BaseException | None
@@ -1034,6 +1103,115 @@ def planner_tool_definition() -> dict[str, object]:
             "parameters": _planner_tool_parameters_from_source(),
         },
     }
+
+
+def planner_evaluator_tool_definition() -> dict[str, object]:
+    return {
+        "type": "function",
+        "function": {
+            "name": "submit_planner_evaluation",
+            "description": (
+                "Submit one independent Planner evaluation recommendation with "
+                "visible evidence. This recommendation does not classify the probe "
+                "and is never returned to the Planner."
+            ),
+            "parameters": _planner_evaluation_parameters_from_source(),
+        },
+    }
+
+
+def _malformed_planner_evaluation(
+    response: ProviderTurn | None = None,
+) -> PlannerEvaluationResult:
+    return PlannerEvaluationResult(
+        termination="malformed",
+        recommendation=None,
+        evidence=(),
+        raw_response=None if response is None else response.raw_response,
+        usage=None if response is None else response.usage,
+    )
+
+
+def _planner_evaluation_from_message(
+    response: ProviderTurn,
+) -> PlannerEvaluationResult:
+    message = response.assistant_message
+    calls = message.get("tool_calls", []) if isinstance(message, MappingABC) else []
+    if type(calls) is not list or len(calls) != 1 or type(calls[0]) is not dict:
+        return _malformed_planner_evaluation(response)
+    function = calls[0].get("function")
+    if (
+        type(function) is not dict
+        or function.get("name") != "submit_planner_evaluation"
+        or type(function.get("arguments")) is not str
+    ):
+        return _malformed_planner_evaluation(response)
+    try:
+        envelope = parse_strict_json(function["arguments"].encode("utf-8"))
+    except (StrictJsonError, UnicodeError):
+        return _malformed_planner_evaluation(response)
+    if (
+        type(envelope) is not dict
+        or set(envelope) != {"evaluation_json"}
+        or type(envelope.get("evaluation_json")) is not str
+    ):
+        return _malformed_planner_evaluation(response)
+    try:
+        report = parse_strict_json(envelope["evaluation_json"].encode("utf-8"))
+    except (StrictJsonError, UnicodeError):
+        return _malformed_planner_evaluation(response)
+    if type(report) is not dict or any(
+        _PLANNER_EVALUATION_REPORT_VALIDATOR.iter_errors(report)
+    ):
+        return _malformed_planner_evaluation(response)
+    recommendation = report["recommendation"]
+    evidence = report["evidence"]
+    assert recommendation in _PLANNER_EVALUATION_RECOMMENDATIONS
+    assert isinstance(evidence, list)
+    return PlannerEvaluationResult(
+        termination="valid_recommendation",
+        recommendation=recommendation,
+        evidence=tuple(evidence),
+        raw_response=response.raw_response,
+        usage=response.usage,
+    )
+
+
+def run_planner_evaluation(
+    *,
+    provider: Callable[[dict[str, object]], ProviderTurn],
+    system_prompt: str,
+    user_prompt: str,
+) -> PlannerEvaluationResult:
+    """Run one independent Planner evaluator call with no feedback path."""
+
+    request = {
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "tools": [planner_evaluator_tool_definition()],
+        "tool_choice": {
+            "type": "function",
+            "function": {"name": "submit_planner_evaluation"},
+        },
+        "max_completion_tokens": PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS,
+        "provider_timeout_s": PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S,
+    }
+    outcome = _bounded_provider_call(
+        provider,
+        request,
+        timeout_s=PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S,
+    )
+    if outcome.timed_out or isinstance(outcome.exception, TimeoutError):
+        return PlannerEvaluationResult("timeout", None, (), None, None)
+    if isinstance(outcome.exception, ProviderCallFailure):
+        if "timeout" in outcome.exception.failure_type.casefold():
+            return PlannerEvaluationResult("timeout", None, (), None, None)
+        return PlannerEvaluationResult("provider_failure", None, (), None, None)
+    if outcome.exception is not None or type(outcome.response) is not ProviderTurn:
+        return PlannerEvaluationResult("provider_failure", None, (), None, None)
+    return _planner_evaluation_from_message(outcome.response)
 
 
 def _planner_feedback_message(
@@ -1317,6 +1495,8 @@ __all__ = (
     "NormalizationRow",
     "PLANNER_COST_STOP_THRESHOLD_USD",
     "PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS",
+    "PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S",
+    "PLANNER_EVALUATOR_TOOL_PARAMETERS",
     "PLANNER_MAX_COMPLETION_TOKENS",
     "PLANNER_MAX_TURNS",
     "PLANNER_OVERALL_DEADLINE_S",
@@ -1324,6 +1504,7 @@ __all__ = (
     "PLANNER_TOKEN_STOP_THRESHOLD",
     "PLANNER_TOOL_PARAMETERS",
     "PlannerSessionResult",
+    "PlannerEvaluationResult",
     "PlannerTurnRecord",
     "ProviderCallFailure",
     "ProviderTurn",
@@ -1336,8 +1517,10 @@ __all__ = (
     "normalize_recipe",
     "parse_strict_json",
     "planner_tool_definition",
+    "planner_evaluator_tool_definition",
     "resolve_json_pointer",
     "run_planner_session",
+    "run_planner_evaluation",
     "sha256_prefixed",
     "validate_exclusion_policy",
 )

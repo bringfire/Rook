@@ -947,7 +947,10 @@ class _PlannerProvider:
 
     def __call__(self, request: dict[str, object]) -> object:
         self.requests.append(request)
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        if isinstance(response, BaseException):
+            raise response
+        return response
 
 
 def _planner_session(
@@ -1236,6 +1239,139 @@ def test_planner_tool_schema_is_fresh_per_turn_and_public_definition_is_unchange
         if isinstance(SUPPORT.PLANNER_TOOL_PARAMETERS, dict):
             SUPPORT.PLANNER_TOOL_PARAMETERS.clear()
             SUPPORT.PLANNER_TOOL_PARAMETERS.update(original)
+
+
+def _planner_evaluation_turn(
+    report: object,
+    *,
+    name: str = "submit_planner_evaluation",
+) -> object:
+    return SUPPORT.ProviderTurn(
+        raw_request=b'{"evaluator":"request"}',
+        raw_response=b'{"evaluator":"response"}',
+        assistant_message={
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "evaluation-call-1",
+                    "function": {
+                        "name": name,
+                        "arguments": json.dumps(
+                            {"evaluation_json": json.dumps(report)}
+                        ),
+                    },
+                }
+            ],
+        },
+        usage={},
+        provider_metadata={},
+    )
+
+
+def test_planner_evaluator_exposes_one_closed_recommendation_tool() -> None:
+    definition = SUPPORT.planner_evaluator_tool_definition()
+    assert definition["function"]["name"] == "submit_planner_evaluation"
+    parameters = definition["function"]["parameters"]
+    assert parameters["additionalProperties"] is False
+    assert set(parameters["properties"]) == {"evaluation_json"}
+    assert "probe_candidate_ready" not in json.dumps(definition)
+    assert "probe_candidate_blocked" not in json.dumps(definition)
+
+
+def test_planner_evaluation_accepts_one_evidence_backed_recommendation_without_retry() -> None:
+    provider = _PlannerProvider(
+        [
+            _planner_evaluation_turn(
+                {
+                    "recommendation": "faithful_ready",
+                    "evidence": [
+                        {
+                            "criterion_id": "brief_fidelity",
+                            "finding": "The requested radial box field is represented.",
+                        }
+                    ],
+                }
+            ),
+            RuntimeError("must not be consumed"),
+        ]
+    )
+    result = SUPPORT.run_planner_evaluation(
+        provider=provider,
+        system_prompt="evaluator system",
+        user_prompt="evaluator user",
+    )
+    assert result.termination == "valid_recommendation"
+    assert result.recommendation == "faithful_ready"
+    assert len(provider.requests) == 1
+    request = provider.requests[0]
+    assert request["tool_choice"]["function"]["name"] == "submit_planner_evaluation"
+    assert request["max_completion_tokens"] == SUPPORT.PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS
+    assert request["provider_timeout_s"] == SUPPORT.PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        _planner_evaluation_turn(
+            {"recommendation": "faithful_ready", "evidence": []}
+        ),
+        _planner_evaluation_turn(
+            {
+                "recommendation": "probe_candidate_ready",
+                "evidence": [
+                    {
+                        "criterion_id": "brief_fidelity",
+                        "finding": "Not a recommendation.",
+                    }
+                ],
+            }
+        ),
+        _planner_evaluation_turn(
+            {
+                "recommendation": "faithful_ready",
+                "evidence": [
+                    {
+                        "criterion_id": "not_a_rubric_criterion",
+                        "finding": "Unknown evidence.",
+                    }
+                ],
+            }
+        ),
+    ],
+)
+def test_planner_evaluation_malformed_or_missing_evidence_is_inconclusive_without_retry(
+    response: object,
+) -> None:
+    provider = _PlannerProvider([response, RuntimeError("must not be consumed")])
+    result = SUPPORT.run_planner_evaluation(
+        provider=provider,
+        system_prompt="evaluator system",
+        user_prompt="evaluator user",
+    )
+    assert result.termination == "malformed"
+    assert result.recommendation is None
+    assert len(provider.requests) == 1
+
+
+@pytest.mark.parametrize(
+    ("failure", "termination"),
+    [
+        (RuntimeError("provider unavailable"), "provider_failure"),
+        (TimeoutError("provider timeout"), "timeout"),
+    ],
+)
+def test_planner_evaluation_provider_failure_is_inconclusive_without_retry(
+    failure: BaseException, termination: str
+) -> None:
+    provider = _PlannerProvider([failure])
+    result = SUPPORT.run_planner_evaluation(
+        provider=provider,
+        system_prompt="evaluator system",
+        user_prompt="evaluator user",
+    )
+    assert result.termination == termination
+    assert result.recommendation is None
+    assert len(provider.requests) == 1
 
 def test_exact_vocabulary_companions_are_complete_and_fingerprinted() -> None:
     expected = {
