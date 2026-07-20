@@ -6934,9 +6934,11 @@ Example:
         # Knowledge Graph tools
         Tool(
             name="knowledge_query",
-            description="""Query the Rook knowledge graph for patterns BEFORE performing Rhino operations.
+            description="""Query the Rook knowledge graph for optional advisory context about Rhino operations.
 
-IMPORTANT: Call this BEFORE every Rhino action to get relevant patterns and avoid known mistakes.
+Use this when a tool or operation is unfamiliar, when known patterns would help,
+or when debugging a failure. It is not required before supported operations and
+does not authorize mutation, replace live-state inspection, or prove success.
 
 TIERS (you decide which depth you need):
 - "quick" (~20 tokens): Essential facts, use when you know the tool
