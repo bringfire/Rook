@@ -343,7 +343,10 @@ def test_checkpoint_archive_is_complete_atomic_and_byte_derived(
     sealed_checkpoint,
 ) -> None:
     result, archive_dir = sealed_checkpoint
-    sealed = ARTIFACTS.verify_sealed_planner_checkpoint_archive(archive_dir)
+    sealed = ARTIFACTS.verify_sealed_planner_checkpoint_archive(
+        archive_dir,
+        expected_aggregate_identity=result.sealed_archive.aggregate_identity,
+    )
     assert result.sealed_archive.aggregate_identity == sealed.aggregate_identity
     assert sorted(
         path.relative_to(archive_dir).as_posix()
@@ -368,6 +371,18 @@ def test_checkpoint_archive_is_complete_atomic_and_byte_derived(
         },
         "execution_permitted": False,
     }
+    assert json.loads(
+        (archive_dir / "planner/attempts/000/capture.json").read_bytes()
+    )["provider_metadata"] == {
+        "model_identity": "planner-model-2026-07-20",
+        "profile_identity": "provider-profile-2026-07-20",
+    }
+    assert json.loads(
+        (archive_dir / "evaluator/attempts/000/capture.json").read_bytes()
+    )["provider_metadata"] == {
+        "model_identity": "evaluator-model-2026-07-20",
+        "profile_identity": "provider-profile-2026-07-20",
+    }
     classification = json.loads(
         (archive_dir / "checkpoint/classification.json").read_bytes()
     )
@@ -382,31 +397,37 @@ def test_checkpoint_archive_is_complete_atomic_and_byte_derived(
 def test_checkpoint_archive_rejects_deletion_of_every_required_record(
     sealed_checkpoint, tmp_path: Path, relative_path: str
 ) -> None:
-    _, archive_dir = sealed_checkpoint
+    sealed_result, archive_dir = sealed_checkpoint
     damaged = tmp_path / "deleted"
     shutil.copytree(archive_dir, damaged)
     (damaged / relative_path).unlink()
     with pytest.raises(ValueError, match="sealed checkpoint archive"):
-        ARTIFACTS.verify_sealed_planner_checkpoint_archive(damaged)
+        ARTIFACTS.verify_sealed_planner_checkpoint_archive(
+            damaged,
+            expected_aggregate_identity=sealed_result.sealed_archive.aggregate_identity,
+        )
 
 
 @pytest.mark.parametrize("relative_path", ARCHIVE_RECORD_PATHS)
 def test_checkpoint_archive_rejects_mutation_of_every_required_record(
     sealed_checkpoint, tmp_path: Path, relative_path: str
 ) -> None:
-    _, archive_dir = sealed_checkpoint
+    sealed_result, archive_dir = sealed_checkpoint
     damaged = tmp_path / "mutated"
     shutil.copytree(archive_dir, damaged)
     target = damaged / relative_path
     target.write_bytes(b"{}" if target.name == "checksums.json" else target.read_bytes() + b"!")
     with pytest.raises(ValueError, match="sealed checkpoint archive"):
-        ARTIFACTS.verify_sealed_planner_checkpoint_archive(damaged)
+        ARTIFACTS.verify_sealed_planner_checkpoint_archive(
+            damaged,
+            expected_aggregate_identity=sealed_result.sealed_archive.aggregate_identity,
+        )
 
 
 def test_checkpoint_archive_rejects_reduced_records_even_after_recomputed_checksums(
     sealed_checkpoint, tmp_path: Path
 ) -> None:
-    _, archive_dir = sealed_checkpoint
+    sealed_result, archive_dir = sealed_checkpoint
     damaged = tmp_path / "reduced"
     shutil.copytree(archive_dir, damaged)
     removed = "planner/final_recipe_identity.json"
@@ -419,7 +440,81 @@ def test_checkpoint_archive_rejects_reduced_records_even_after_recomputed_checks
     checksums_path.write_text(json.dumps(checksums), encoding="utf-8")
     _recompute_checksums(damaged)
     with pytest.raises(ValueError, match="sealed checkpoint archive"):
-        ARTIFACTS.verify_sealed_planner_checkpoint_archive(damaged)
+        ARTIFACTS.verify_sealed_planner_checkpoint_archive(
+            damaged,
+            expected_aggregate_identity=sealed_result.sealed_archive.aggregate_identity,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("planner_model_identity", "different-planner-model"),
+        ("evaluator_model_identity", "different-evaluator-model"),
+        ("provider_profile_identity", "different-profile"),
+    ],
+)
+def test_checkpoint_archive_rejects_successful_provider_metadata_mismatch(
+    field: str, value: str, tmp_path: Path,
+) -> None:
+    identity = dict(ARCHIVE_IDENTITY)
+    identity[field] = value
+    with pytest.raises(ValueError, match="provider identity"):
+        PROBE.run_planner_checkpoint(
+            fixture_dir=FIXTURES,
+            planner_provider=_Provider([_planner_turn_bytes(READY_RECIPE_BYTES)]),
+            evaluator_provider=_Provider([_evaluator_turn("faithful_ready")]),
+            archive_destination=tmp_path / "checkpoint-1",
+            archive_identity=identity,
+        )
+
+
+def test_checkpoint_archive_rejects_coordinated_attempt_count_and_index_reduction(
+    tmp_path: Path,
+) -> None:
+    archive_dir = tmp_path / "checkpoint-1"
+    result = PROBE.run_planner_checkpoint(
+        fixture_dir=FIXTURES,
+        planner_provider=_Provider(
+            [_empty_planner_turn() for _ in range(SUPPORT.PLANNER_MAX_TURNS)]
+        ),
+        evaluator_provider=_Provider([RuntimeError("must not be consumed")]),
+        archive_destination=archive_dir,
+        archive_identity=ARCHIVE_IDENTITY,
+    )
+    damaged = tmp_path / "reduced"
+    shutil.copytree(archive_dir, damaged)
+    for index in range(2, SUPPORT.PLANNER_MAX_TURNS):
+        shutil.rmtree(damaged / "planner" / "attempts" / f"{index:03d}")
+        shutil.rmtree(damaged / "planner" / "turns" / f"{index:03d}")
+    session_path = damaged / "checkpoint/session.json"
+    session = json.loads(session_path.read_bytes())
+    session["planner"]["attempt_count"] = 2
+    session["planner"]["turn_count"] = 2
+    session_path.write_text(json.dumps(session), encoding="utf-8")
+    checksums_path = damaged / "checksums.json"
+    checksums = json.loads(checksums_path.read_bytes())
+    checksums["records"] = [
+        record
+        for record in checksums["records"]
+        if not any(
+            record["path"].startswith(f"planner/{kind}/{index:03d}/")
+            for kind in ("attempts", "turns")
+            for index in range(2, SUPPORT.PLANNER_MAX_TURNS)
+        )
+    ]
+    for record in checksums["records"]:
+        path = damaged / record["path"]
+        raw = path.read_bytes()
+        record["raw_sha256"] = SUPPORT.sha256_prefixed(raw)
+        record["byte_length"] = len(raw)
+    checksums_path.write_text(json.dumps(checksums), encoding="utf-8")
+    _recompute_checksums(damaged)
+    with pytest.raises(ValueError, match="retained seal"):
+        ARTIFACTS.verify_sealed_planner_checkpoint_archive(
+            damaged,
+            expected_aggregate_identity=result.sealed_archive.aggregate_identity,
+        )
 
 
 def test_checkpoint_archive_preserves_every_planner_tool_argument(
@@ -511,7 +606,10 @@ def test_checkpoint_archive_preserves_argument_after_a_malformed_tool_call(
     )
     assert result.classification == "probe_inconclusive"
     assert (tmp_path / "checkpoint-1/evaluator/attempts/000/tool_arguments/001.bin").read_bytes() == argument.encode("utf-8")
-    assert ARTIFACTS.verify_sealed_planner_checkpoint_archive(tmp_path / "checkpoint-1")
+    assert ARTIFACTS.verify_sealed_planner_checkpoint_archive(
+        tmp_path / "checkpoint-1",
+        expected_aggregate_identity=result.sealed_archive.aggregate_identity,
+    )
 
 
 @pytest.mark.parametrize("failure", [RuntimeError("provider unavailable"), TimeoutError("provider timeout")])
@@ -533,7 +631,11 @@ def test_evaluator_failure_paths_still_seal_complete_inconclusive_evidence(
     )
     assert capture["outcome"] == "raised"
     assert capture["exception_type"] == type(failure).__name__
-    assert ARTIFACTS.verify_sealed_planner_checkpoint_archive(archive_dir)
+    assert capture["provider_metadata"] is None
+    assert ARTIFACTS.verify_sealed_planner_checkpoint_archive(
+        archive_dir,
+        expected_aggregate_identity=result.sealed_archive.aggregate_identity,
+    )
 
 
 def test_checkpoint_archive_rejects_a_valid_but_non_head_git_sha(
@@ -581,7 +683,10 @@ def test_mechanically_rejected_checkpoint_seals_without_an_evaluator_call(
     assert result.classification == "probe_mechanically_rejected"
     assert result.sealed_archive is not None
     assert (archive_dir / "evaluator/not_run.json").is_file()
-    assert ARTIFACTS.verify_sealed_planner_checkpoint_archive(archive_dir)
+    assert ARTIFACTS.verify_sealed_planner_checkpoint_archive(
+        archive_dir,
+        expected_aggregate_identity=result.sealed_archive.aggregate_identity,
+    )
 
 
 def test_pre_freeze_checkpoint_and_sealing_never_read_hidden_controls(
@@ -642,7 +747,7 @@ def test_post_freeze_r01_comparison_requires_verified_sealed_aggregate_and_prese
 ) -> None:
     result, archive_dir = sealed_checkpoint
     before = (archive_dir / "checksums.json").read_bytes()
-    with pytest.raises(ValueError, match="sealed aggregate identity"):
+    with pytest.raises(ValueError, match="retained seal"):
         ARTIFACTS.compare_sealed_checkpoint_with_r01(
             archive_dir=archive_dir,
             sealed_aggregate_identity="sha256:" + "0" * 64,

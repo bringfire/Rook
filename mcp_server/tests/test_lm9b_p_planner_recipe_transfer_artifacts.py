@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import builtins
 import io
+import inspect
 import json
 import os
 import shutil
@@ -47,7 +48,17 @@ def test_sealed_archive_verification_recomputes_the_persisted_aggregate(
         json.dumps(checksums), encoding="utf-8"
     )
     with pytest.raises(ValueError, match="sealed checkpoint archive"):
-        ARTIFACTS.verify_sealed_planner_checkpoint_archive(archive)
+        ARTIFACTS.verify_sealed_planner_checkpoint_archive(
+            archive, expected_aggregate_identity="sha256:" + "0" * 64
+        )
+
+
+def test_archive_exports_one_authoritative_sealer_and_aggregate_bound_verifier() -> None:
+    source = inspect.getsource(ARTIFACTS)
+    assert source.count("def seal_planner_checkpoint_archive(") == 1
+    assert source.count("def verify_sealed_planner_checkpoint_archive(") == 1
+    with pytest.raises(TypeError):
+        ARTIFACTS.verify_sealed_planner_checkpoint_archive(Path("missing"))
 
 
 def test_complete_pre_freeze_process_audit_covers_import_and_low_level_reads() -> None:
