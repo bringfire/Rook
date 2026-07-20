@@ -155,6 +155,17 @@ class JoinedProbeResult:
     control_failure: Mapping[str, object] | None = None
 
 
+@dataclass(frozen=True)
+class TerminalControlFailureResult:
+    """Unsealed in-memory result for a control failure outside provider calls."""
+
+    checkpoint_1: PlannerCheckpointResult | None
+    checkpoint_2: Literal["not_evaluated"]
+    aggregate_outcome: Literal["inconclusive"]
+    sealed_aggregate: None
+    control_failure: Mapping[str, object]
+
+
 def _checkpoint_classification(
     planner_session: PlannerSessionResult,
     evaluator: PlannerEvaluationResult | None,
@@ -968,7 +979,9 @@ def _build_provider(*, role: str, model: str, temperature: float) -> object:
     return lm9bc_probe.LiteLLMProvider(model=model, temperature=temperature)
 
 
-def _execute_transmitted_attempt(prepared: PreparedTransmission) -> JoinedProbeResult:
+def _execute_transmitted_attempt(
+    prepared: PreparedTransmission,
+) -> JoinedProbeResult | TerminalControlFailureResult:
     config = prepared.config
     checkout = _git_checkout_state()
     if not checkout.clean or checkout.commit_sha != prepared.git_sha:
@@ -985,16 +998,41 @@ def _execute_transmitted_attempt(prepared: PreparedTransmission) -> JoinedProbeR
         destination.write_bytes(record.raw_bytes)
         if destination.read_bytes() != record.raw_bytes:
             raise ValueError("compiler control snapshot write verification failed")
-    planner_provider = _build_provider(
-        role="planner",
-        model=config.planner_model,
-        temperature=config.planner_temperature,
-    )
-    planner_evaluator_provider = _build_provider(
-        role="planner_evaluator",
-        model=config.planner_evaluator_model,
-        temperature=config.planner_evaluator_temperature,
-    )
+    def construction_failure(
+        role: str,
+        exc: Exception,
+        *,
+        checkpoint_1: PlannerCheckpointResult | None = None,
+    ) -> TerminalControlFailureResult:
+        return TerminalControlFailureResult(
+            checkpoint_1=checkpoint_1,
+            checkpoint_2="not_evaluated",
+            aggregate_outcome="inconclusive",
+            sealed_aggregate=None,
+            control_failure={
+                "locus": "provider_construction",
+                "role": role,
+                "exception_type": type(exc).__name__,
+                "message": str(exc)[:2000],
+            },
+        )
+
+    try:
+        planner_provider = _build_provider(
+            role="planner",
+            model=config.planner_model,
+            temperature=config.planner_temperature,
+        )
+    except Exception as exc:
+        return construction_failure("planner", exc)
+    try:
+        planner_evaluator_provider = _build_provider(
+            role="planner_evaluator",
+            model=config.planner_evaluator_model,
+            temperature=config.planner_evaluator_temperature,
+        )
+    except Exception as exc:
+        return construction_failure("planner_evaluator", exc)
     checkpoint = run_planner_checkpoint(
         fixture_dir=_PLANNER_FIXTURES,
         frozen_inputs=prepared.planner_inputs,
@@ -1023,16 +1061,24 @@ def _execute_transmitted_attempt(prepared: PreparedTransmission) -> JoinedProbeR
             sealed_aggregate=None,
             control_failure=checkpoint.control_failure,
         )
-    compiler_provider = _build_provider(
-        role="compiler",
-        model=config.compiler_model,
-        temperature=config.compiler_temperature,
-    )
-    compiler_evaluator_provider = _build_provider(
-        role="compiler_evaluator",
-        model=config.compiler_evaluator_model,
-        temperature=config.compiler_evaluator_temperature,
-    )
+    try:
+        compiler_provider = _build_provider(
+            role="compiler",
+            model=config.compiler_model,
+            temperature=config.compiler_temperature,
+        )
+    except Exception as exc:
+        return construction_failure("compiler", exc, checkpoint_1=checkpoint)
+    try:
+        compiler_evaluator_provider = _build_provider(
+            role="compiler_evaluator",
+            model=config.compiler_evaluator_model,
+            temperature=config.compiler_evaluator_temperature,
+        )
+    except Exception as exc:
+        return construction_failure(
+            "compiler_evaluator", exc, checkpoint_1=checkpoint
+        )
     return run_joined_probe(
         checkpoint_1=checkpoint,
         compiler_fixture_dir=compiler_control_dir,
@@ -1054,10 +1100,15 @@ def main(argv: list[str] | None = None) -> int:
     if not config.transmit:
         return 0
     result = _execute_transmitted_attempt(prepared)
+    checkpoint_1_classification = (
+        result.checkpoint_1.classification
+        if result.checkpoint_1 is not None
+        else None
+    )
     print(
         json.dumps(
             {
-                "checkpoint_1": result.checkpoint_1.classification,
+                "checkpoint_1": checkpoint_1_classification,
                 "checkpoint_2": result.checkpoint_2,
                 "aggregate_outcome": result.aggregate_outcome,
                 "sealed_aggregate": (

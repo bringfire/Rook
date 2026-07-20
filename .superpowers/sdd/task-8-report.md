@@ -173,3 +173,55 @@ git diff --check:       passed
 - Dry-run and fake-provider tests continue to prove zero real contact without
   explicit transmission. No canonical attempt, result archive, or scientific
   result report was created.
+
+## Provider Construction Amendment
+
+Final pre-transmission review found that provider-adapter construction could
+fail outside both provider-attempt evidence and aggregate result handling. The
+focused correction adds one in-memory terminal control-failure result; it does
+not add or alter a production schema, archive, seal, or provider protocol.
+
+### RED And GREEN Evidence
+
+The initial role-parameterized test reproduced all four escaping failures:
+
+```text
+5 failed
+```
+
+The four constructor roles and deterministic CLI rendering then passed:
+
+```text
+5 passed
+```
+
+Final full gates after the production change:
+
+```text
+LM9B-P:                 358 passed
+LM9B-C/kernel adjacent: 102 passed
+Python 3.10 py_compile: passed
+git diff --check:       passed
+```
+
+### Boundary Review
+
+- Planner or Planner-evaluator constructor failure records the exact role,
+  construction locus, exception type, and bounded message as aggregate
+  `inconclusive`. It creates no Planner checkpoint or seal, calls no provider,
+  requests no later constructor, and performs no retry.
+- Compiler or compiler-evaluator constructor failure occurs only after the
+  contacted Checkpoint 1 has completed and sealed. The in-memory terminal
+  result retains that exact checkpoint and its Planner/evaluator attempt
+  objects, creates no joined aggregate, calls no compiler provider, requests no
+  later constructor, and performs no retry.
+- Compiler-evaluator construction remains before compiler contact, preserving
+  the reviewed execution order rather than changing the experiment.
+- The already-created run root remains single-use after any constructor
+  failure. A second execution refuses overwrite before requesting another
+  constructor.
+- CLI output handles the terminal variant directly and prints a null
+  Checkpoint 1 only when no checkpoint exists. It does not fabricate a
+  checkpoint, archive, joined aggregate, provider attempt, or seal.
+- The canonical attempt remains unrun. All provider activity in verification
+  used deterministic fakes; no real provider was contacted.

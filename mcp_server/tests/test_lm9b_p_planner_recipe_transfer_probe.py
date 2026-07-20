@@ -1570,6 +1570,174 @@ def test_execute_stops_after_checkpoint_seal_failure(
     assert joined_calls == []
 
 
+@pytest.mark.parametrize(
+    "failure_role",
+    ["planner", "planner_evaluator", "compiler", "compiler_evaluator"],
+)
+def test_provider_constructor_failure_is_terminal_and_preserves_completed_work(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_role: str,
+) -> None:
+    run_root = tmp_path / f"run-{failure_role}"
+    config = PROBE.parse_cli_args(_canonical_cli_args(run_root, transmit=True))
+    inputs = ARTIFACTS.load_planner_inputs(FIXTURES)
+    prepared = PROBE.PreparedTransmission(
+        config=config,
+        git_sha=ARCHIVE_IDENTITY["git_commit_sha"],
+        planner_inputs=inputs,
+        planner_request=ARTIFACTS.render_planner_request(inputs),
+        compiler_controls=PROBE._freeze_compiler_controls(),
+        summary={},
+    )
+    planner_turn = _planner_turn_bytes(READY_RECIPE_BYTES)
+    planner_turn = SUPPORT.ProviderTurn(
+        raw_request=planner_turn.raw_request,
+        raw_response=planner_turn.raw_response,
+        assistant_message=planner_turn.assistant_message,
+        usage=planner_turn.usage,
+        provider_metadata={
+            "model_identity": config.planner_model,
+            "profile_identity": PROBE._PLANNER_PROVIDER_PROFILE_ID,
+        },
+    )
+    evaluator_turn = _evaluator_turn("faithful_ready")
+    evaluator_turn = SUPPORT.ProviderTurn(
+        raw_request=evaluator_turn.raw_request,
+        raw_response=evaluator_turn.raw_response,
+        assistant_message=evaluator_turn.assistant_message,
+        usage=evaluator_turn.usage,
+        provider_metadata={
+            "model_identity": config.planner_evaluator_model,
+            "profile_identity": PROBE._PLANNER_PROVIDER_PROFILE_ID,
+        },
+    )
+    planner = _Provider([planner_turn])
+    planner_evaluator = _Provider([evaluator_turn])
+    compiler = _Provider([AssertionError("compiler must not be called")])
+    compiler.identity = {"provider": "fake-compiler"}
+    compiler_evaluator = _Provider(
+        [AssertionError("compiler evaluator must not be called")]
+    )
+    compiler_evaluator.identity = {"provider": "fake-compiler-evaluator"}
+    providers = {
+        "planner": planner,
+        "planner_evaluator": planner_evaluator,
+        "compiler": compiler,
+        "compiler_evaluator": compiler_evaluator,
+    }
+    role_order = list(providers)
+    constructed_roles: list[str] = []
+    failure_message = f"{failure_role} adapter unavailable"
+    if failure_role == "planner":
+        failure_message += ":" + "x" * 2100
+
+    def build_provider(**kwargs: object) -> object:
+        role = str(kwargs["role"])
+        constructed_roles.append(role)
+        if role == failure_role:
+            raise LookupError(failure_message)
+        return providers[role]
+
+    monkeypatch.setattr(
+        PROBE,
+        "_git_checkout_state",
+        lambda: PROBE.GitCheckoutState(ARCHIVE_IDENTITY["git_commit_sha"], True),
+    )
+    monkeypatch.setattr(PROBE, "_build_provider", build_provider)
+    joined_calls: list[object] = []
+    monkeypatch.setattr(
+        PROBE,
+        "run_joined_probe",
+        lambda **kwargs: joined_calls.append(kwargs),
+    )
+
+    result = PROBE._execute_transmitted_attempt(prepared)
+
+    assert type(result) is PROBE.TerminalControlFailureResult
+    assert result.aggregate_outcome == "inconclusive"
+    assert result.checkpoint_2 == "not_evaluated"
+    assert result.sealed_aggregate is None
+    assert result.control_failure == {
+        "locus": "provider_construction",
+        "role": failure_role,
+        "exception_type": "LookupError",
+        "message": failure_message[:2000],
+    }
+    failure_index = role_order.index(failure_role)
+    assert constructed_roles == role_order[: failure_index + 1]
+    if failure_role in {"planner", "planner_evaluator"}:
+        assert result.checkpoint_1 is None
+        assert planner.requests == []
+        assert planner_evaluator.requests == []
+    else:
+        assert result.checkpoint_1 is not None
+        assert result.checkpoint_1.classification == "probe_candidate_ready"
+        assert result.checkpoint_1.sealed_archive is not None
+        assert len(result.checkpoint_1.planner_provider_attempts) == 1
+        assert len(result.checkpoint_1.evaluator_provider_attempts) == 1
+        assert result.checkpoint_1.planner_provider_attempts[0].provider_turn is planner_turn
+        assert (
+            result.checkpoint_1.evaluator_provider_attempts[0].provider_turn
+            is evaluator_turn
+        )
+        assert ARTIFACTS.verify_sealed_planner_checkpoint_archive(
+            result.checkpoint_1.sealed_archive.archive_dir,
+            expected_aggregate_identity=(
+                result.checkpoint_1.sealed_archive.aggregate_identity
+            ),
+        )
+        assert len(planner.requests) == 1
+        assert len(planner_evaluator.requests) == 1
+    assert compiler.requests == []
+    assert compiler_evaluator.requests == []
+    assert joined_calls == []
+    assert run_root.is_dir()
+    with pytest.raises(FileExistsError):
+        PROBE._execute_transmitted_attempt(prepared)
+
+
+def test_cli_reports_provider_constructor_failure_without_fabricated_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    failure = {
+        "locus": "provider_construction",
+        "role": "planner",
+        "exception_type": "LookupError",
+        "message": "planner adapter unavailable",
+    }
+    monkeypatch.setattr(
+        PROBE,
+        "_git_checkout_state",
+        lambda: PROBE.GitCheckoutState("d" * 40, True),
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "_execute_transmitted_attempt",
+        lambda prepared: PROBE.TerminalControlFailureResult(
+            checkpoint_1=None,
+            checkpoint_2="not_evaluated",
+            aggregate_outcome="inconclusive",
+            sealed_aggregate=None,
+            control_failure=failure,
+        ),
+    )
+
+    assert PROBE.main(_canonical_cli_args(tmp_path / "run", transmit=True)) == 0
+
+    output_lines = capsys.readouterr().out.splitlines()
+    terminal = json.loads(output_lines[-1])
+    assert terminal == {
+        "aggregate_outcome": "inconclusive",
+        "checkpoint_1": None,
+        "checkpoint_2": "not_evaluated",
+        "control_failure": failure,
+        "sealed_aggregate": None,
+    }
+
+
 @pytest.mark.parametrize("tamper", ["raw_request", "raw_error", "failure_type"])
 def test_provider_call_failure_archive_rejects_reauthenticated_transport_tamper(
     tmp_path: Path, tamper: str,
