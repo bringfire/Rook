@@ -455,6 +455,50 @@ def _structural_integrity_issue(
         if duplicate is not None:
             return duplicate
 
+    def require_support_or_synthesis(
+        clause: Mapping[str, object], path: str
+    ) -> MechanicalDiagnostic | None:
+        has_direct_support = bool(clause["source_refs"]) or bool(
+            clause["assumption_refs"]
+        )
+        if "derived_fact_refs" in clause:
+            has_direct_support = has_direct_support or bool(
+                clause["derived_fact_refs"]
+            )
+        if not has_direct_support and clause["synthesis"] is None:
+            return _issue(
+                "clause_support_missing",
+                path,
+                "clause without direct support requires synthesis",
+            )
+        return None
+
+    clause_locations: list[tuple[Mapping[str, object], str]] = [
+        (recipe["goal"], "/goal")
+    ]
+    clause_locations.extend(
+        (item, f"/requires/{index}")
+        for index, item in enumerate(recipe["requires"])
+    )
+    clause_locations.extend(
+        (item, f"/invariants/{index}")
+        for index, item in enumerate(recipe["invariants"])
+    )
+    for index, maintained in enumerate(recipe["maintains"]):
+        clause_locations.append((maintained, f"/maintains/{index}"))
+        clause_locations.extend(
+            (item, f"/maintains/{index}/canonicalization/{nested}")
+            for nested, item in enumerate(maintained["canonicalization"])
+        )
+        clause_locations.extend(
+            (item, f"/maintains/{index}/postconditions/{nested}")
+            for nested, item in enumerate(maintained["postconditions"])
+        )
+    for clause, path in clause_locations:
+        support_issue = require_support_or_synthesis(clause, path)
+        if support_issue is not None:
+            return support_issue
+
     descriptors = [recipe["source_task"], *recipe["authority_artifacts"]]
     descriptor_by_id: dict[str, Mapping[str, object]] = {}
     for index, descriptor in enumerate(descriptors):
@@ -585,24 +629,29 @@ def _structural_integrity_issue(
         if issue is not None:
             return issue
     for index, maintained in enumerate(recipe["maintains"]):
+        parent_id = maintained["clause_id"]
         for nested, item in enumerate(maintained["canonicalization"]):
-            issue = require_targets(
-                item["applies_to_clause_ids"],
-                "clause",
-                {"maintains"},
-                f"/maintains/{index}/canonicalization/{nested}/applies_to_clause_ids",
-            )
-            if issue is not None:
-                return issue
+            base_path = f"/maintains/{index}/canonicalization/{nested}"
+            if item["applies_to_clause_ids"] != [parent_id]:
+                return _issue(
+                    "nested_parent_mismatch",
+                    f"{base_path}/applies_to_clause_ids",
+                    "canonicalization must apply to its containing maintains clause",
+                )
+            if item["inherited_support_from"] not in ([], [parent_id]):
+                return _issue(
+                    "nested_parent_mismatch",
+                    f"{base_path}/inherited_support_from",
+                    "canonicalization may inherit only from its containing parent",
+                )
         for nested, item in enumerate(maintained["postconditions"]):
-            issue = require_targets(
-                item["inherited_support_from"],
-                "clause",
-                {"maintains"},
-                f"/maintains/{index}/postconditions/{nested}/inherited_support_from",
-            )
-            if issue is not None:
-                return issue
+            inherited = item["inherited_support_from"]
+            if inherited not in ([], [parent_id]):
+                return _issue(
+                    "nested_parent_mismatch",
+                    f"/maintains/{index}/postconditions/{nested}/inherited_support_from",
+                    "postcondition may inherit only from its containing parent",
+                )
     for index, unresolved in enumerate(recipe["unresolved_intent"]):
         issue = require_targets(
             unresolved["affected_clause_ids"],

@@ -52,10 +52,37 @@ silently broaden another.
 | worker slots and confirmation receipts | absent in this profile | nonempty or attached forms reject |
 | all set-like collections | normalization-profile row | duplicates or noncanonical order reject |
 
+### Relational Invariants
+
+Carrier-valid fields form an admitted recipe only when these cross-field
+equations also hold:
+
+```text
+for every clause:
+  source_refs != []
+  or assumption_refs != []
+  or permitted derived_fact_refs != []
+  or synthesis != null
+
+for every nested canonicalization:
+  applies_to_clause_ids == [containing maintains clause ID]
+  inherited_support_from == []
+  or inherited_support_from == [containing maintains clause ID]
+
+for every nested postcondition:
+  inherited_support_from == []
+  or inherited_support_from == [containing maintains clause ID]
+```
+
+Inherited parent support does not satisfy the direct-support-or-synthesis
+equation. Parameterized tests cover all six clause kinds, the valid synthesis
+branch, absent inheritance, exact parent inheritance, a valid sibling
+substitution, and a missing-parent substitution.
+
 This is an executable design ledger, not a new production artifact or schema
 generator. Any newly admitted field must add its positive witness, nearest
-one-property boundary mutation, and normalization/namespace rule in the same
-change.
+one-property boundary mutation, relational equation where applicable, and
+normalization/namespace rule in the same change.
 
 ## Global Constraints
 

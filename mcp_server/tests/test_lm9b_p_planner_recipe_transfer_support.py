@@ -576,6 +576,32 @@ def _set_clause_synthesis(
     clause["synthesis"] = {"kind": synthesis_kind}
 
 
+def _clause_for_kind(recipe: dict[str, object], clause_kind: str) -> dict[str, object]:
+    if clause_kind == "goal":
+        return recipe["goal"]
+    if clause_kind == "requires":
+        return recipe["requires"][0]
+    if clause_kind == "maintains":
+        return recipe["maintains"][0]
+    if clause_kind == "canonicalization":
+        return recipe["maintains"][0]["canonicalization"][0]
+    if clause_kind == "postcondition":
+        return recipe["maintains"][0]["postconditions"][0]
+    invariant_id = "probe.invariant.task.scope"
+    recipe["invariants"] = [
+        {
+            "clause_id": invariant_id,
+            "statement": "All paths preserve the supplied task scope.",
+            "source_refs": [],
+            "assumption_refs": [],
+            "derived_fact_refs": [],
+            "synthesis": None,
+        }
+    ]
+    recipe["goal"]["projected_into"]["invariant_clause_ids"] = [invariant_id]
+    return recipe["invariants"][0]
+
+
 @pytest.mark.parametrize("clause_kind", CLAUSE_SOURCE_KINDS)
 def test_artifact_value_is_reachable_as_every_clause_source_kind(
     clause_kind: str,
@@ -628,6 +654,82 @@ def test_clause_synthesis_uses_its_ratified_kind(clause_kind: str) -> None:
     _set_clause_synthesis(recipe, clause_kind, wrong_kind)
     result = _gate(_bytes(_seal(recipe)))
     assert result.diagnostics[0].code == "recipe_schema_failed"
+
+
+@pytest.mark.parametrize("clause_kind", CLAUSE_SOURCE_KINDS)
+def test_clause_requires_direct_support_or_synthesis(clause_kind: str) -> None:
+    recipe = _recipe()
+    clause = _clause_for_kind(recipe, clause_kind)
+    clause["source_refs"] = []
+    clause["assumption_refs"] = []
+    if "derived_fact_refs" in clause:
+        clause["derived_fact_refs"] = []
+    clause["synthesis"] = None
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.diagnostics[0].code == "clause_support_missing"
+
+    clause["synthesis"] = {"kind": CLAUSE_SYNTHESIS_CODES[clause_kind]}
+    assert _gate(_bytes(_seal(recipe))).status == "mechanically_accepted"
+
+
+def _append_sibling_maintains(recipe: dict[str, object]) -> str:
+    sibling_id = "probe.maintained.sibling"
+    recipe["maintains"].append(
+        {
+            "clause_id": sibling_id,
+            "statement": "A sibling maintained result remains independently scoped.",
+            "source_refs": [
+                {
+                    "kind": "artifact_value",
+                    "artifact_id": "task_envelope",
+                    "json_pointer": "/facts/task_scope",
+                }
+            ],
+            "derived_fact_refs": [],
+            "assumption_refs": [],
+            "synthesis": None,
+            "canonicalization": [],
+            "postconditions": [],
+        }
+    )
+    return sibling_id
+
+
+@pytest.mark.parametrize(
+    "relationship",
+    (
+        "canonicalization_applies_to",
+        "canonicalization_inherits_from",
+        "canonicalization_inherits_missing",
+        "postcondition_inherits_from",
+    ),
+)
+def test_nested_clause_relationships_bind_the_containing_parent(
+    relationship: str,
+) -> None:
+    recipe = _recipe()
+    sibling_id = _append_sibling_maintains(recipe)
+    parent = recipe["maintains"][0]
+    if relationship == "canonicalization_applies_to":
+        parent["canonicalization"][0]["applies_to_clause_ids"] = [sibling_id]
+    elif relationship == "canonicalization_inherits_from":
+        parent["canonicalization"][0]["inherited_support_from"] = [sibling_id]
+    elif relationship == "canonicalization_inherits_missing":
+        parent["canonicalization"][0]["inherited_support_from"] = [
+            "probe.maintained.missing"
+        ]
+    else:
+        parent["postconditions"][0]["inherited_support_from"] = [sibling_id]
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.diagnostics[0].code == "nested_parent_mismatch"
+
+
+def test_nested_clause_may_decline_parent_support_inheritance() -> None:
+    recipe = _recipe()
+    parent = recipe["maintains"][0]
+    parent["canonicalization"][0]["inherited_support_from"] = []
+    parent["postconditions"][0]["inherited_support_from"] = []
+    assert _gate(_bytes(_seal(recipe))).status == "mechanically_accepted"
 
 
 def test_derived_fact_operator_is_closed_for_the_probe_profile() -> None:
