@@ -492,6 +492,228 @@ def test_closed_invariant_contract_is_mechanically_admitted() -> None:
     assert result.status == "mechanically_accepted"
 
 
+CLAUSE_SOURCE_KINDS = (
+    "goal",
+    "requires",
+    "maintains",
+    "canonicalization",
+    "postcondition",
+    "invariant",
+)
+CLAUSE_SYNTHESIS_CODES = {
+    "goal": "planner_goal_synthesis",
+    "requires": "planner_requirement_synthesis",
+    "maintains": "planner_semantic_synthesis",
+    "canonicalization": "planner_semantic_classification",
+    "postcondition": "planner_postcondition_projection",
+    "invariant": "planner_invariant_projection",
+}
+
+
+def _set_clause_source(
+    recipe: dict[str, object], clause_kind: str, reference: dict[str, str]
+) -> None:
+    if clause_kind == "goal":
+        recipe["goal"]["source_refs"] = [reference]
+    elif clause_kind == "requires":
+        recipe["requires"][0]["source_refs"] = [reference]
+    elif clause_kind == "maintains":
+        recipe["maintains"][0]["source_refs"] = [reference]
+    elif clause_kind == "canonicalization":
+        recipe["maintains"][0]["canonicalization"][0]["source_refs"] = [
+            reference
+        ]
+    elif clause_kind == "postcondition":
+        recipe["maintains"][0]["postconditions"][0]["source_refs"] = [
+            reference
+        ]
+    else:
+        invariant_id = "probe.invariant.task.scope"
+        recipe["invariants"] = [
+            {
+                "clause_id": invariant_id,
+                "statement": "All paths preserve the supplied task scope.",
+                "source_refs": [reference],
+                "assumption_refs": [],
+                "derived_fact_refs": [],
+                "synthesis": None,
+            }
+        ]
+        recipe["goal"]["projected_into"]["invariant_clause_ids"] = [
+            invariant_id
+        ]
+
+
+def _set_clause_synthesis(
+    recipe: dict[str, object], clause_kind: str, synthesis_kind: str
+) -> None:
+    if clause_kind == "goal":
+        clause = recipe["goal"]
+    elif clause_kind == "requires":
+        clause = recipe["requires"][0]
+    elif clause_kind == "maintains":
+        clause = recipe["maintains"][0]
+    elif clause_kind == "canonicalization":
+        clause = recipe["maintains"][0]["canonicalization"][0]
+    elif clause_kind == "postcondition":
+        clause = recipe["maintains"][0]["postconditions"][0]
+    else:
+        invariant_id = "probe.invariant.task.scope"
+        recipe["invariants"] = [
+            {
+                "clause_id": invariant_id,
+                "statement": "All paths preserve the supplied task scope.",
+                "source_refs": [],
+                "assumption_refs": [],
+                "derived_fact_refs": [],
+                "synthesis": None,
+            }
+        ]
+        recipe["goal"]["projected_into"]["invariant_clause_ids"] = [
+            invariant_id
+        ]
+        clause = recipe["invariants"][0]
+    clause["synthesis"] = {"kind": synthesis_kind}
+
+
+@pytest.mark.parametrize("clause_kind", CLAUSE_SOURCE_KINDS)
+def test_artifact_value_is_reachable_as_every_clause_source_kind(
+    clause_kind: str,
+) -> None:
+    recipe = _recipe()
+    _set_clause_source(
+        recipe,
+        clause_kind,
+        {
+            "kind": "artifact_value",
+            "artifact_id": "task_envelope",
+            "json_pointer": "/facts/task_scope",
+        },
+    )
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.status == "mechanically_accepted"
+
+
+@pytest.mark.parametrize(
+    "clause_kind",
+    CLAUSE_SOURCE_KINDS,
+)
+def test_policy_rule_cannot_masquerade_as_clause_source_truth(
+    clause_kind: str,
+) -> None:
+    recipe = _recipe()
+    policy_ref = {
+        "kind": "policy_rule",
+        "artifact_id": "planning_policy",
+        "json_pointer": "/rules/rule.grid_spacing",
+    }
+    _set_clause_source(recipe, clause_kind, policy_ref)
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.diagnostics[0].code == "recipe_schema_failed"
+
+
+@pytest.mark.parametrize("clause_kind", CLAUSE_SOURCE_KINDS)
+def test_clause_synthesis_uses_its_ratified_kind(clause_kind: str) -> None:
+    recipe = _recipe()
+    _set_clause_synthesis(
+        recipe, clause_kind, CLAUSE_SYNTHESIS_CODES[clause_kind]
+    )
+    assert _gate(_bytes(_seal(recipe))).status == "mechanically_accepted"
+
+    wrong_kind = (
+        "planner_invariant_projection"
+        if clause_kind != "invariant"
+        else "planner_goal_synthesis"
+    )
+    _set_clause_synthesis(recipe, clause_kind, wrong_kind)
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.diagnostics[0].code == "recipe_schema_failed"
+
+
+def test_derived_fact_operator_is_closed_for_the_probe_profile() -> None:
+    recipe = _recipe()
+    recipe["derived_facts"][0]["derivation"]["operator"] = "invented_operator"
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.diagnostics[0].code == "recipe_schema_failed"
+
+
+@pytest.mark.parametrize(
+    "authority_role",
+    (
+        "assumption_unit_context",
+        "assumption_policy_context",
+        "derived_fact_input",
+        "unresolved_policy_context",
+        "unresolved_unit_context",
+    ),
+)
+def test_authority_reference_kinds_are_field_specific(authority_role: str) -> None:
+    recipe = (
+        json.loads(BLOCKED_RECIPE_PATH.read_bytes())
+        if authority_role.startswith("unresolved_")
+        else _recipe()
+    )
+    policy_ref = {
+        "kind": "policy_rule",
+        "artifact_id": "planning_policy",
+        "json_pointer": "/rules/rule.grid_spacing",
+    }
+    artifact_ref = {
+        "kind": "artifact_value",
+        "artifact_id": "task_envelope",
+        "json_pointer": "/facts/task_scope",
+    }
+    if authority_role == "assumption_unit_context":
+        recipe["assumptions"][1]["typed_value"]["unit_context_ref"] = policy_ref
+    elif authority_role == "assumption_policy_context":
+        recipe["assumptions"][0]["authorization_refs"]["policy_refs"] = [
+            artifact_ref
+        ]
+    elif authority_role == "derived_fact_input":
+        recipe["derived_facts"][0]["derivation"]["input_refs"] = [policy_ref]
+    elif authority_role == "unresolved_policy_context":
+        recipe["unresolved_intent"][0]["authorization_context_refs"][
+            "policy_refs"
+        ] = [artifact_ref]
+    else:
+        recipe["unresolved_intent"][0]["unit_context_ref"] = policy_ref
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.diagnostics[0].code == "recipe_schema_failed"
+
+
+@pytest.mark.parametrize(
+    ("kind", "id_field", "target"),
+    (
+        ("clause", "clause_id", "probe.goal.radial_box_field"),
+        (
+            "assumption",
+            "assumption_id",
+            "probe.assumption.array_center_definition",
+        ),
+        ("derived_fact", "derived_fact_id", "probe.derived.element_count"),
+        (
+            "shape",
+            "shape_id",
+            "probe.shape.delegate.representation",
+        ),
+        (
+            "capability",
+            "capability_id",
+            "probe.capability.construct_parametric_geometry",
+        ),
+    ),
+)
+def test_assumption_basis_admits_ratified_local_reference_variants(
+    kind: str, id_field: str, target: str
+) -> None:
+    recipe = _recipe()
+    recipe["assumptions"][0]["basis_refs"] = [
+        {"kind": kind, id_field: target}
+    ]
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.status == "mechanically_accepted"
+
+
 def test_same_machine_identifier_is_allowed_in_distinct_symbol_namespaces() -> None:
     recipe = _recipe()
     old_id = recipe["assumptions"][0]["assumption_id"]

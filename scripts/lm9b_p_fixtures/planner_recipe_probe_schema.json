@@ -1,6 +1,173 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "rook.lm9b_p.planner_recipe_probe_schema:v1",
+  "$defs": {
+    "non_receipt_semantic_reference": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "artifact_value"
+            },
+            "artifact_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "json_pointer": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "artifact_id",
+            "json_pointer"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "policy_rule"
+            },
+            "artifact_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "json_pointer": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "artifact_id",
+            "json_pointer"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "clause"
+            },
+            "clause_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "kind",
+            "clause_id"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "assumption"
+            },
+            "assumption_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "kind",
+            "assumption_id"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "derived_fact"
+            },
+            "derived_fact_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "kind",
+            "derived_fact_id"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "unresolved_intent"
+            },
+            "intent_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "kind",
+            "intent_id"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "shape"
+            },
+            "shape_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "kind",
+            "shape_id"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "capability"
+            },
+            "capability_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "kind",
+            "capability_id"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "worker_slot"
+            },
+            "worker_slot_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "kind",
+            "worker_slot_id"
+          ]
+        }
+      ]
+    }
+  },
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -85,10 +252,7 @@
             "additionalProperties": false,
             "properties": {
               "kind": {
-                "enum": [
-                  "artifact_value",
-                  "policy_rule"
-                ]
+                "const": "artifact_value"
               },
               "artifact_id": {
                 "type": "string",
@@ -155,8 +319,7 @@
               "additionalProperties": false,
               "properties": {
                 "kind": {
-                  "type": "string",
-                  "minLength": 1
+                  "const": "planner_goal_synthesis"
                 }
               },
               "required": [
@@ -229,10 +392,7 @@
               "additionalProperties": false,
               "properties": {
                 "kind": {
-                  "enum": [
-                    "artifact_value",
-                    "policy_rule"
-                  ]
+                  "const": "artifact_value"
                 },
                 "artifact_id": {
                   "type": "string",
@@ -299,8 +459,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "kind": {
-                    "type": "string",
-                    "minLength": 1
+                    "const": "planner_requirement_synthesis"
                   }
                 },
                 "required": [
@@ -376,10 +535,7 @@
               "additionalProperties": false,
               "properties": {
                 "kind": {
-                  "enum": [
-                    "artifact_value",
-                    "policy_rule"
-                  ]
+                  "const": "artifact_value"
                 },
                 "artifact_id": {
                   "type": "string",
@@ -446,8 +602,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "kind": {
-                    "type": "string",
-                    "minLength": 1
+                    "const": "planner_semantic_synthesis"
                   }
                 },
                 "required": [
@@ -484,10 +639,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "kind": {
-                        "enum": [
-                          "artifact_value",
-                          "policy_rule"
-                        ]
+                        "const": "artifact_value"
                       },
                       "artifact_id": {
                         "type": "string",
@@ -541,8 +693,7 @@
                       "additionalProperties": false,
                       "properties": {
                         "kind": {
-                          "type": "string",
-                          "minLength": 1
+                          "const": "planner_semantic_classification"
                         }
                       },
                       "required": [
@@ -584,10 +735,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "kind": {
-                        "enum": [
-                          "artifact_value",
-                          "policy_rule"
-                        ]
+                        "const": "artifact_value"
                       },
                       "artifact_id": {
                         "type": "string",
@@ -654,8 +802,7 @@
                       "additionalProperties": false,
                       "properties": {
                         "kind": {
-                          "type": "string",
-                          "minLength": 1
+                          "const": "planner_postcondition_projection"
                         }
                       },
                       "required": [
@@ -739,10 +886,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "kind": {
-                        "enum": [
-                          "artifact_value",
-                          "policy_rule"
-                        ]
+                        "const": "artifact_value"
                       },
                       "artifact_id": {
                         "type": "string",
@@ -778,28 +922,7 @@
           "basis_refs": {
             "type": "array",
             "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "kind": {
-                  "enum": [
-                    "artifact_value",
-                    "policy_rule"
-                  ]
-                },
-                "artifact_id": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "json_pointer": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "kind",
-                "artifact_id",
-                "json_pointer"
-              ]
+              "$ref": "#/$defs/non_receipt_semantic_reference"
             }
           },
           "authorization_refs": {
@@ -813,10 +936,7 @@
                   "additionalProperties": false,
                   "properties": {
                     "kind": {
-                      "enum": [
-                        "artifact_value",
-                        "policy_rule"
-                      ]
+                      "const": "policy_rule"
                     },
                     "artifact_id": {
                       "type": "string",
@@ -884,8 +1004,7 @@
             "additionalProperties": false,
             "properties": {
               "operator": {
-                "type": "string",
-                "minLength": 1
+                "const": "multiply"
               },
               "input_refs": {
                 "type": "array",
@@ -894,10 +1013,7 @@
                   "additionalProperties": false,
                   "properties": {
                     "kind": {
-                      "enum": [
-                        "artifact_value",
-                        "policy_rule"
-                      ]
+                      "const": "artifact_value"
                     },
                     "artifact_id": {
                       "type": "string",
@@ -1100,10 +1216,7 @@
               "additionalProperties": false,
               "properties": {
                 "kind": {
-                  "enum": [
-                    "artifact_value",
-                    "policy_rule"
-                  ]
+                  "const": "artifact_value"
                 },
                 "artifact_id": {
                   "type": "string",
@@ -1170,8 +1283,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "kind": {
-                    "type": "string",
-                    "minLength": 1
+                    "const": "planner_invariant_projection"
                   }
                 },
                 "required": [

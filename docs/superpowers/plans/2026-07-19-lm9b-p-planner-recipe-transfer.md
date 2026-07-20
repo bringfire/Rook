@@ -29,6 +29,34 @@ An honest `probe_candidate_blocked` supports neither counter-hypothesis. R01 is 
 | `mcp_server/tests/test_lm9b_p_planner_recipe_transfer_artifacts.py` | Isolation, renderer, handoff, and archive tests |
 | `mcp_server/tests/test_lm9b_p_planner_recipe_transfer_probe.py` | Orchestration and outcome-attribution tests |
 
+## Admitted-Language Closure Ledger
+
+The probe schema defines one finite workerless subset of the ratified recipe
+language. Tests construct each positive carrier before applying one-property
+boundary mutations. This table, the schema, normalization profile, structural
+checker, Task 3 authoring contract, and Task 3 rubric must agree; none may
+silently broaden another.
+
+| Recipe carrier | Admitted kind or code | Mechanical boundary |
+| --- | --- | --- |
+| all common-clause `source_refs` | `artifact_value` | policy rules reject as source truth |
+| clause `assumption_refs` / `derived_fact_refs` | matching typed local reference | per-kind namespace resolution |
+| clause `synthesis.kind` | exact clause-kind synthesis code | another clause kind's code rejects |
+| assumption `typed_value.unit_context_ref` | null or `artifact_value` | policy rules reject |
+| assumption `basis_refs` | ratified non-receipt semantic-reference union | exact variant shape and typed target resolution |
+| assumption authorization policy refs | `policy_rule` | artifact values reject |
+| derived-fact operator and inputs | `multiply`; `artifact_value` inputs | unknown operators and policy inputs reject |
+| unresolved authorization and unit context | `policy_rule`; null or `artifact_value` | reversed authority roles reject |
+| homogeneous clause/projection links | field-declared target namespace | missing or wrong-kind targets reject |
+| shape, capability, value, and materiality codes | supplied finite vocabularies | unknown or context-invalid codes reject |
+| worker slots and confirmation receipts | absent in this profile | nonempty or attached forms reject |
+| all set-like collections | normalization-profile row | duplicates or noncanonical order reject |
+
+This is an executable design ledger, not a new production artifact or schema
+generator. Any newly admitted field must add its positive witness, nearest
+one-property boundary mutation, and normalization/namespace rule in the same
+change.
+
 ## Global Constraints
 
 - Use `docs/superpowers/specs/2026-07-19-lm9b-p-planner-recipe-transfer-design.md` as normative.
@@ -466,6 +494,10 @@ fresh-process hashes match under `PYTHONHASHSEED=1` and `8675309`.
 The exclusion-policy test passes the content-addressed policy into the
 mechanical gate, changes one forbidden marker, and proves both gate behavior
 and rendered request identity move. No hardcoded production marker remains.
+Task 3 also parses the authoring contract and evaluator rubric in tests and
+checks every authority/reference role they describe against the admitted-
+language closure ledger. Prose may explain the language but cannot admit a
+reference kind, code, or outcome absent from the executable gate.
 
 - [ ] **Step 2: Create frozen authoring inputs**
 
