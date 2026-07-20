@@ -4,6 +4,7 @@ import builtins
 import importlib.util
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -33,7 +34,9 @@ PROBE = _load_script("lm9b_p_planner_recipe_transfer_probe")
 
 
 ARCHIVE_IDENTITY = {
-    "git_commit_sha": "0123456789abcdef0123456789abcdef01234567",
+    "git_commit_sha": subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+    ).strip(),
     "planner_model_identity": "planner-model-2026-07-20",
     "evaluator_model_identity": "evaluator-model-2026-07-20",
     "provider_profile_identity": "provider-profile-2026-07-20",
@@ -58,12 +61,16 @@ ARCHIVE_RECORD_PATHS = (
     "inputs/planner_evaluation_rubric.json",
     "inputs/manifest.json",
     "planner/request.json",
-    "planner/turns/000/raw_request.bin",
     "planner/turns/000/raw_response.bin",
-    "planner/turns/000/tool_arguments.bin",
     "planner/turns/000/feedback.json",
     "planner/turns/000/usage.json",
     "planner/turns/000/timing.json",
+    "planner/attempts/000/capture.json",
+    "planner/attempts/000/provider_request.json",
+    "planner/attempts/000/raw_request.bin",
+    "planner/attempts/000/raw_response.bin",
+    "planner/attempts/000/usage.json",
+    "planner/attempts/000/tool_arguments/000.bin",
     "planner/final_recipe.json",
     "planner/final_recipe_identity.json",
     "evaluator/request.json",
@@ -71,7 +78,14 @@ ARCHIVE_RECORD_PATHS = (
     "evaluator/report.json",
     "evaluator/usage.json",
     "evaluator/timing.json",
+    "evaluator/attempts/000/capture.json",
+    "evaluator/attempts/000/provider_request.json",
+    "evaluator/attempts/000/raw_request.bin",
+    "evaluator/attempts/000/raw_response.bin",
+    "evaluator/attempts/000/usage.json",
+    "evaluator/attempts/000/tool_arguments/000.bin",
     "checkpoint/classification.json",
+    "checkpoint/session.json",
     "identity.json",
     "checksums.json",
 )
@@ -170,6 +184,44 @@ def _empty_planner_turn() -> object:
             "model_identity": "planner-model-2026-07-20",
             "profile_identity": "provider-profile-2026-07-20",
         },
+    )
+
+
+def _turn_with_tool_calls(
+    *,
+    role: str,
+    calls: list[object],
+) -> object:
+    return SUPPORT.ProviderTurn(
+        raw_request=(f'{{"{role}":"request"}}').encode("utf-8"),
+        raw_response=(f'{{"{role}":"response"}}').encode("utf-8"),
+        assistant_message={"role": "assistant", "tool_calls": calls},
+        usage={},
+        provider_metadata={
+            "model_identity": (
+                "planner-model-2026-07-20"
+                if role == "planner"
+                else "evaluator-model-2026-07-20"
+            ),
+            "profile_identity": "provider-profile-2026-07-20",
+        },
+    )
+
+
+def _recompute_checksums(archive_dir: Path) -> None:
+    checksums_path = archive_dir / "checksums.json"
+    checksums = json.loads(checksums_path.read_bytes())
+    records = checksums["records"]
+    checksums["aggregate_identity"] = ARTIFACTS.canonical_fingerprint(
+        ARTIFACTS.own_trusted_json(
+            {
+                "schema": checksums["schema"],
+                "records": records,
+            }
+        )
+    )
+    checksums_path.write_text(
+        json.dumps(checksums, sort_keys=True, indent=2) + "\n", encoding="utf-8"
     )
 
 
@@ -349,6 +401,154 @@ def test_checkpoint_archive_rejects_mutation_of_every_required_record(
     target.write_bytes(b"{}" if target.name == "checksums.json" else target.read_bytes() + b"!")
     with pytest.raises(ValueError, match="sealed checkpoint archive"):
         ARTIFACTS.verify_sealed_planner_checkpoint_archive(damaged)
+
+
+def test_checkpoint_archive_rejects_reduced_records_even_after_recomputed_checksums(
+    sealed_checkpoint, tmp_path: Path
+) -> None:
+    _, archive_dir = sealed_checkpoint
+    damaged = tmp_path / "reduced"
+    shutil.copytree(archive_dir, damaged)
+    removed = "planner/final_recipe_identity.json"
+    (damaged / removed).unlink()
+    checksums_path = damaged / "checksums.json"
+    checksums = json.loads(checksums_path.read_bytes())
+    checksums["records"] = [
+        record for record in checksums["records"] if record["path"] != removed
+    ]
+    checksums_path.write_text(json.dumps(checksums), encoding="utf-8")
+    _recompute_checksums(damaged)
+    with pytest.raises(ValueError, match="sealed checkpoint archive"):
+        ARTIFACTS.verify_sealed_planner_checkpoint_archive(damaged)
+
+
+def test_checkpoint_archive_preserves_every_planner_tool_argument(
+    tmp_path: Path,
+) -> None:
+    first = '{"recipe_json":"{}"}'
+    second = '{"malformed":true}'
+    planner = _turn_with_tool_calls(
+        role="planner",
+        calls=[
+            {
+                "id": "planner-call-1",
+                "function": {"name": "submit_planner_recipe", "arguments": first},
+            },
+            {
+                "id": "planner-call-2",
+                "function": {"name": "unexpected", "arguments": second},
+            },
+        ],
+    )
+    result = PROBE.run_planner_checkpoint(
+        fixture_dir=FIXTURES,
+        planner_provider=_Provider([planner]),
+        evaluator_provider=_Provider([RuntimeError("must not be consumed")]),
+        archive_destination=tmp_path / "checkpoint-1",
+        archive_identity=ARCHIVE_IDENTITY,
+    )
+    assert result.classification == "probe_inconclusive"
+    assert (tmp_path / "checkpoint-1/planner/attempts/000/tool_arguments/000.bin").read_bytes() == first.encode("utf-8")
+    assert (tmp_path / "checkpoint-1/planner/attempts/000/tool_arguments/001.bin").read_bytes() == second.encode("utf-8")
+
+
+def test_checkpoint_archive_preserves_every_evaluator_tool_argument(
+    tmp_path: Path,
+) -> None:
+    first = '{"evaluation_json":"{}"}'
+    second = '{"extra":true}'
+    evaluator = _turn_with_tool_calls(
+        role="evaluator",
+        calls=[
+            {
+                "id": "evaluator-call-1",
+                "function": {
+                    "name": "submit_planner_evaluation",
+                    "arguments": first,
+                },
+            },
+            {
+                "id": "evaluator-call-2",
+                "function": {"name": "unexpected", "arguments": second},
+            },
+        ],
+    )
+    result = PROBE.run_planner_checkpoint(
+        fixture_dir=FIXTURES,
+        planner_provider=_Provider([_planner_turn_bytes(READY_RECIPE_BYTES)]),
+        evaluator_provider=_Provider([evaluator]),
+        archive_destination=tmp_path / "checkpoint-1",
+        archive_identity=ARCHIVE_IDENTITY,
+    )
+    assert result.classification == "probe_inconclusive"
+    assert (tmp_path / "checkpoint-1/evaluator/attempts/000/tool_arguments/000.bin").read_bytes() == first.encode("utf-8")
+    assert (tmp_path / "checkpoint-1/evaluator/attempts/000/tool_arguments/001.bin").read_bytes() == second.encode("utf-8")
+
+
+def test_checkpoint_archive_preserves_argument_after_a_malformed_tool_call(
+    tmp_path: Path,
+) -> None:
+    argument = '{"evaluation_json":"{}"}'
+    evaluator = _turn_with_tool_calls(
+        role="evaluator",
+        calls=[
+            {"id": "malformed", "function": []},
+            {
+                "id": "evaluator-call-2",
+                "function": {
+                    "name": "submit_planner_evaluation",
+                    "arguments": argument,
+                },
+            },
+        ],
+    )
+    result = PROBE.run_planner_checkpoint(
+        fixture_dir=FIXTURES,
+        planner_provider=_Provider([_planner_turn_bytes(READY_RECIPE_BYTES)]),
+        evaluator_provider=_Provider([evaluator]),
+        archive_destination=tmp_path / "checkpoint-1",
+        archive_identity=ARCHIVE_IDENTITY,
+    )
+    assert result.classification == "probe_inconclusive"
+    assert (tmp_path / "checkpoint-1/evaluator/attempts/000/tool_arguments/001.bin").read_bytes() == argument.encode("utf-8")
+    assert ARTIFACTS.verify_sealed_planner_checkpoint_archive(tmp_path / "checkpoint-1")
+
+
+@pytest.mark.parametrize("failure", [RuntimeError("provider unavailable"), TimeoutError("provider timeout")])
+def test_evaluator_failure_paths_still_seal_complete_inconclusive_evidence(
+    failure: BaseException, tmp_path: Path
+) -> None:
+    archive_dir = tmp_path / "checkpoint-1"
+    result = PROBE.run_planner_checkpoint(
+        fixture_dir=FIXTURES,
+        planner_provider=_Provider([_planner_turn_bytes(READY_RECIPE_BYTES)]),
+        evaluator_provider=_Provider([failure]),
+        archive_destination=archive_dir,
+        archive_identity=ARCHIVE_IDENTITY,
+    )
+    assert result.classification == "probe_inconclusive"
+    assert result.sealed_archive is not None
+    capture = json.loads(
+        (archive_dir / "evaluator/attempts/000/capture.json").read_bytes()
+    )
+    assert capture["outcome"] == "raised"
+    assert capture["exception_type"] == type(failure).__name__
+    assert ARTIFACTS.verify_sealed_planner_checkpoint_archive(archive_dir)
+
+
+def test_checkpoint_archive_rejects_a_valid_but_non_head_git_sha(
+    tmp_path: Path,
+) -> None:
+    identity = dict(ARCHIVE_IDENTITY)
+    identity["git_commit_sha"] = "f" * 40
+    with pytest.raises(ValueError, match="checked-out HEAD"):
+        PROBE.run_planner_checkpoint(
+            fixture_dir=FIXTURES,
+            planner_provider=_Provider([_planner_turn_bytes(READY_RECIPE_BYTES)]),
+            evaluator_provider=_Provider([_evaluator_turn("faithful_ready")]),
+            archive_destination=tmp_path / "checkpoint-1",
+            archive_identity=identity,
+        )
 
 
 def test_checkpoint_archive_never_overwrites_an_existing_seal(

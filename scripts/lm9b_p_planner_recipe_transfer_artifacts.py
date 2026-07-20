@@ -5,7 +5,9 @@ from __future__ import annotations
 import importlib.util
 import json
 import shutil
+import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -146,6 +148,29 @@ class SealedPlannerCheckpointArchive:
     archive_dir: Path
     aggregate_identity: str
     checksums_raw_sha256: str
+
+
+@dataclass
+class ProviderAttemptEvidence:
+    """Probe-bound provider attempt snapshot, including an invocation that raises."""
+
+    provider_request_bytes: bytes
+    outcome: str = "pending"
+    provider_turn: object | None = None
+    exception_type: str | None = None
+    exception_message: str | None = None
+    elapsed_ms: int | None = None
+
+    def record_return(self, provider_turn: object, started_at: float) -> None:
+        self.outcome = "returned"
+        self.provider_turn = provider_turn
+        self.elapsed_ms = max(0, int((time.perf_counter() - started_at) * 1000))
+
+    def record_exception(self, exception: BaseException, started_at: float) -> None:
+        self.outcome = "raised"
+        self.exception_type = type(exception).__name__
+        self.exception_message = str(exception)
+        self.elapsed_ms = max(0, int((time.perf_counter() - started_at) * 1000))
 
 
 _CHECKPOINT_CHECKSUMS_SCHEMA = "rook.lm9b_p.checkpoint_checksums:v1"
@@ -1501,11 +1526,381 @@ def compare_sealed_checkpoint_with_r01(
     )
 
 
+def _checked_out_git_head() -> str:
+    completed = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=Path(__file__).resolve().parent,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    head = completed.stdout.strip()
+    if len(head) != 40 or any(character not in "0123456789abcdef" for character in head):
+        raise ValueError("checked-out HEAD is not a commit SHA")
+    return head
+
+
+def _attempt_snapshot(attempt: ProviderAttemptEvidence) -> Mapping[str, object]:
+    outcome = attempt.outcome
+    if outcome not in {"pending", "raised", "returned"}:
+        raise ValueError("provider attempt outcome is invalid")
+    turn = attempt.provider_turn if outcome == "returned" else None
+    raw_request = getattr(turn, "raw_request", None)
+    raw_response = getattr(turn, "raw_response", None)
+    usage = getattr(turn, "usage", None)
+    message = getattr(turn, "assistant_message", None)
+    arguments: list[tuple[int, bytes]] = []
+    if isinstance(message, Mapping):
+        calls = message.get("tool_calls")
+        if isinstance(calls, list):
+            for index, call in enumerate(calls):
+                if not isinstance(call, Mapping):
+                    continue
+                function = call.get("function")
+                if not isinstance(function, Mapping):
+                    continue
+                value = function.get("arguments")
+                if isinstance(value, str):
+                    try:
+                        arguments.append((index, value.encode("utf-8", errors="strict")))
+                    except UnicodeError as exc:
+                        raise ValueError("provider tool arguments are not UTF-8") from exc
+    return MappingProxyType(
+        {
+            "outcome": outcome,
+            "provider_request_bytes": attempt.provider_request_bytes,
+            "raw_request": raw_request if isinstance(raw_request, bytes) else None,
+            "raw_response": raw_response if isinstance(raw_response, bytes) else None,
+            "usage": dict(usage) if isinstance(usage, Mapping) else None,
+            "tool_arguments": tuple(arguments),
+            "exception_type": attempt.exception_type,
+            "exception_message": attempt.exception_message,
+            "elapsed_ms": attempt.elapsed_ms,
+            "provider_turn": turn,
+        }
+    )
+
+
+def _write_attempt(
+    root: Path,
+    records: list[dict[str, object]],
+    *,
+    phase: str,
+    index: int,
+    snapshot: Mapping[str, object],
+) -> None:
+    prefix = f"{phase}/attempts/{index:03d}"
+    arguments = snapshot["tool_arguments"]
+    assert isinstance(arguments, tuple)
+    argument_indexes = [item[0] for item in arguments]
+    capture = {
+        "schema": "rook.lm9b_p.provider_attempt:v1",
+        "outcome": snapshot["outcome"],
+        "elapsed_ms": snapshot["elapsed_ms"],
+        "exception_type": snapshot["exception_type"],
+        "exception_message": snapshot["exception_message"],
+        "has_raw_request": snapshot["raw_request"] is not None,
+        "has_raw_response": snapshot["raw_response"] is not None,
+        "has_usage": snapshot["usage"] is not None,
+        "tool_argument_indexes": argument_indexes,
+    }
+    _archive_write(
+        root, records, role=f"{phase}_attempt:{index}:capture",
+        relative_path=f"{prefix}/capture.json", raw=_archive_json_bytes(capture)
+    )
+    _archive_write(
+        root, records, role=f"{phase}_attempt:{index}:provider_request",
+        relative_path=f"{prefix}/provider_request.json",
+        raw=snapshot["provider_request_bytes"],
+    )
+    for field, filename in (("raw_request", "raw_request.bin"), ("raw_response", "raw_response.bin")):
+        raw = snapshot[field]
+        if raw is not None:
+            assert isinstance(raw, bytes)
+            _archive_write(
+                root, records, role=f"{phase}_attempt:{index}:{field}",
+                relative_path=f"{prefix}/{filename}", raw=raw
+            )
+    usage = snapshot["usage"]
+    if usage is not None:
+        _archive_write(
+            root, records, role=f"{phase}_attempt:{index}:usage",
+            relative_path=f"{prefix}/usage.json", raw=_archive_json_bytes(usage)
+        )
+    for tool_index, raw in arguments:
+        _archive_write(
+            root, records, role=f"{phase}_attempt:{index}:tool_arguments:{tool_index}",
+            relative_path=f"{prefix}/tool_arguments/{tool_index:03d}.bin", raw=raw
+        )
+
+
+def _archive_object(path: Path, label: str) -> Mapping[str, object]:
+    try:
+        value = parse_strict_json(path.read_bytes())
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"sealed checkpoint archive {label} is unavailable") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"sealed checkpoint archive {label} is invalid")
+    return value
+
+
+def _expected_attempt_records(
+    archive_dir: Path, phase: str, index: int
+) -> Mapping[str, str]:
+    prefix = f"{phase}/attempts/{index:03d}"
+    capture = _archive_object(archive_dir / f"{prefix}/capture.json", "attempt capture")
+    required = {
+        "schema", "outcome", "elapsed_ms", "exception_type", "exception_message",
+        "has_raw_request", "has_raw_response", "has_usage", "tool_argument_indexes",
+    }
+    if set(capture) != required or capture["schema"] != "rook.lm9b_p.provider_attempt:v1":
+        raise ValueError("sealed checkpoint archive attempt capture shape is invalid")
+    outcome = capture["outcome"]
+    if outcome not in {"pending", "raised", "returned"} or not isinstance(capture["tool_argument_indexes"], list):
+        raise ValueError("sealed checkpoint archive attempt capture values are invalid")
+    indexes = capture["tool_argument_indexes"]
+    if (
+        any(type(item) is not int or item < 0 for item in indexes)
+        or indexes != sorted(set(indexes))
+    ):
+        raise ValueError("sealed checkpoint archive tool argument order is invalid")
+    expected = {
+        f"{prefix}/capture.json": f"{phase}_attempt:{index}:capture",
+        f"{prefix}/provider_request.json": f"{phase}_attempt:{index}:provider_request",
+    }
+    for field, filename in (("has_raw_request", "raw_request.bin"), ("has_raw_response", "raw_response.bin")):
+        if type(capture[field]) is not bool:
+            raise ValueError("sealed checkpoint archive attempt flag is invalid")
+        if capture[field]:
+            expected[f"{prefix}/{filename}"] = f"{phase}_attempt:{index}:{field[4:]}"
+    if type(capture["has_usage"]) is not bool:
+        raise ValueError("sealed checkpoint archive attempt usage flag is invalid")
+    if capture["has_usage"]:
+        expected[f"{prefix}/usage.json"] = f"{phase}_attempt:{index}:usage"
+    for tool_index in indexes:
+        expected[f"{prefix}/tool_arguments/{tool_index:03d}.bin"] = (
+            f"{phase}_attempt:{index}:tool_arguments:{tool_index}"
+        )
+    if outcome == "raised" and not isinstance(capture["exception_type"], str):
+        raise ValueError("sealed checkpoint archive raised attempt lacks exception evidence")
+    if outcome != "returned" and any(capture[field] for field in ("has_raw_request", "has_raw_response", "has_usage")):
+        raise ValueError("sealed checkpoint archive failed attempt has returned evidence")
+    return MappingProxyType(expected)
+
+
+def _closed_archive_records(archive_dir: Path) -> Mapping[str, str]:
+    session = _archive_object(archive_dir / "checkpoint/session.json", "session")
+    if set(session) != {"schema", "planner", "evaluator"} or session["schema"] != "rook.lm9b_p.checkpoint_session:v1":
+        raise ValueError("sealed checkpoint archive session shape is invalid")
+    planner = session["planner"]
+    evaluator = session["evaluator"]
+    if not isinstance(planner, dict) or not isinstance(evaluator, dict):
+        raise ValueError("sealed checkpoint archive session values are invalid")
+    if set(planner) != {"termination", "turn_count", "attempt_count"} or set(evaluator) != {"termination", "attempt_count"}:
+        raise ValueError("sealed checkpoint archive session cardinality is invalid")
+    planner_termination = planner["termination"]
+    evaluator_termination = evaluator["termination"]
+    turn_count = planner["turn_count"]
+    planner_attempt_count = planner["attempt_count"]
+    evaluator_attempt_count = evaluator["attempt_count"]
+    if (
+        planner_termination not in {"mechanically_accepted", "mechanically_rejected", "provider_failure", "timeout"}
+        or evaluator_termination not in {"not_run", "valid_recommendation", "provider_failure", "timeout", "malformed"}
+        or any(type(value) is not int or value < 0 for value in (turn_count, planner_attempt_count, evaluator_attempt_count))
+        or turn_count > planner_attempt_count
+    ):
+        raise ValueError("sealed checkpoint archive session values are invalid")
+    expected: dict[str, str] = {
+        **{f"inputs/{filename}": f"input:{role}" for role, filename, _ in _PLANNER_INPUT_FILES},
+        "inputs/manifest.json": "inputs_manifest",
+        "planner/request.json": "planner_request",
+        "checkpoint/classification.json": "checkpoint_classification",
+        "checkpoint/session.json": "checkpoint_session",
+        "identity.json": "identity",
+    }
+    for index in range(turn_count):
+        prefix = f"planner/turns/{index:03d}"
+        expected.update({
+            f"{prefix}/raw_response.bin": f"planner_turn:{index}:raw_response",
+            f"{prefix}/feedback.json": f"planner_turn:{index}:feedback",
+            f"{prefix}/usage.json": f"planner_turn:{index}:usage",
+            f"{prefix}/timing.json": f"planner_turn:{index}:timing",
+        })
+    for index in range(planner_attempt_count):
+        expected.update(_expected_attempt_records(archive_dir, "planner", index))
+    if planner_termination == "mechanically_accepted":
+        if evaluator_termination == "not_run" or evaluator_attempt_count != 1:
+            raise ValueError("sealed checkpoint archive accepted evaluator shape is invalid")
+        expected.update({
+            "planner/final_recipe.json": "planner_final_recipe",
+            "planner/final_recipe_identity.json": "planner_final_recipe_identity",
+            "evaluator/request.json": "evaluator_request",
+            "evaluator/report.json": "evaluator_report",
+            "evaluator/usage.json": "evaluator_usage",
+            "evaluator/timing.json": "evaluator_timing",
+        })
+        capture = _archive_object(archive_dir / "evaluator/attempts/000/capture.json", "evaluator attempt capture")
+        if capture.get("has_raw_response"):
+            expected["evaluator/raw_response.bin"] = "evaluator_raw_response"
+        for index in range(evaluator_attempt_count):
+            expected.update(_expected_attempt_records(archive_dir, "evaluator", index))
+    else:
+        if evaluator_termination != "not_run" or evaluator_attempt_count != 0:
+            raise ValueError("sealed checkpoint archive no-evaluator shape is invalid")
+        expected["evaluator/not_run.json"] = "evaluator_not_run"
+    classification = _archive_object(archive_dir / "checkpoint/classification.json", "classification")
+    if set(classification) != {"schema", "classification", "checkpoint_2"} or classification["schema"] != _CHECKPOINT_CLASSIFICATION_SCHEMA or classification["checkpoint_2"] != "not_evaluated":
+        raise ValueError("sealed checkpoint archive classification shape is invalid")
+    expected_classification = (
+        "probe_mechanically_rejected" if planner_termination == "mechanically_rejected"
+        else "probe_inconclusive" if planner_termination != "mechanically_accepted" or evaluator_termination != "valid_recommendation"
+        else None
+    )
+    if expected_classification is not None:
+        if classification["classification"] != expected_classification:
+            raise ValueError("sealed checkpoint archive classification is invalid")
+    elif classification["classification"] not in {"probe_candidate_blocked", "probe_planner_failure", "probe_candidate_ready"}:
+        raise ValueError("sealed checkpoint archive evaluator classification is invalid")
+    return MappingProxyType(expected)
+
+
+def _verify_archive_checksums(archive_dir: Path) -> SealedPlannerCheckpointArchive:
+    checksums_path = archive_dir / "checksums.json"
+    checksums = _archive_object(checksums_path, "checksums")
+    if set(checksums) != {"schema", "records", "aggregate_identity"} or checksums["schema"] != _CHECKPOINT_CHECKSUMS_SCHEMA:
+        raise ValueError("sealed checkpoint archive checksum shape is invalid")
+    records = checksums["records"]
+    if not isinstance(records, list) or not isinstance(checksums["aggregate_identity"], str):
+        raise ValueError("sealed checkpoint archive checksum values are invalid")
+    expected = _closed_archive_records(archive_dir)
+    by_path: dict[str, Mapping[str, object]] = {}
+    for record in records:
+        if not isinstance(record, dict) or set(record) != {"role", "path", "raw_sha256", "byte_length"}:
+            raise ValueError("sealed checkpoint archive checksum record is invalid")
+        path = record["path"]
+        if not isinstance(path, str) or path in by_path:
+            raise ValueError("sealed checkpoint archive checksum path is invalid")
+        by_path[path] = record
+    if list(by_path) != sorted(by_path) or set(by_path) != set(expected):
+        raise ValueError("sealed checkpoint archive required record closure is invalid")
+    actual_files = {path.relative_to(archive_dir).as_posix() for path in archive_dir.rglob("*") if path.is_file()}
+    if actual_files != set(expected) | {"checksums.json"}:
+        raise ValueError("sealed checkpoint archive file set is invalid")
+    for path, role in expected.items():
+        record = by_path[path]
+        persisted = (archive_dir / path).read_bytes()
+        if record["role"] != role or record["raw_sha256"] != sha256_prefixed(persisted) or record["byte_length"] != len(persisted):
+            raise ValueError(f"sealed checkpoint archive checksum mismatch: {path}")
+    expected_aggregate = canonical_fingerprint(own_trusted_json({"schema": _CHECKPOINT_CHECKSUMS_SCHEMA, "records": records}))
+    if checksums["aggregate_identity"] != expected_aggregate:
+        raise ValueError("sealed checkpoint archive aggregate identity is invalid")
+    return SealedPlannerCheckpointArchive(archive_dir, checksums["aggregate_identity"], sha256_prefixed(checksums_path.read_bytes()))
+
+
+def verify_sealed_planner_checkpoint_archive(archive_dir: Path) -> SealedPlannerCheckpointArchive:
+    archive_dir = Path(archive_dir).resolve()
+    if not archive_dir.is_dir():
+        raise ValueError("sealed checkpoint archive directory is unavailable")
+    return _verify_archive_checksums(archive_dir)
+
+
+def seal_planner_checkpoint_archive(
+    *, destination: Path, inputs: FrozenPlannerInputs, planner_request: RenderedRequest,
+    planner_session: object, evaluator: object | None, evaluator_request: RenderedRequest | None,
+    planner_provider_attempts: Sequence[ProviderAttemptEvidence], evaluator_provider_attempts: Sequence[ProviderAttemptEvidence],
+    evaluator_elapsed_ms: int | None, classification: str, archive_identity: Mapping[str, object],
+) -> SealedPlannerCheckpointArchive:
+    destination = Path(destination).resolve()
+    if destination.exists():
+        raise FileExistsError(f"sealed checkpoint archive already exists: {destination}")
+    _verify_frozen_planner_inputs(inputs)
+    if classification != derive_checkpoint_classification(planner_session, evaluator):
+        raise ValueError("checkpoint classification is not mechanically derived")
+    head = _checked_out_git_head()
+    if archive_identity.get("git_commit_sha") != head:
+        raise ValueError("archive git SHA does not match checked-out HEAD")
+    planner_model = archive_identity.get("planner_model_identity")
+    evaluator_model = archive_identity.get("evaluator_model_identity")
+    profile = archive_identity.get("provider_profile_identity")
+    if not all(isinstance(value, str) and value for value in (planner_model, evaluator_model, profile)):
+        raise ValueError("exact model and profile identities are required")
+    assert isinstance(planner_model, str) and isinstance(evaluator_model, str) and isinstance(profile, str)
+    planner_attempts = tuple(_attempt_snapshot(item) for item in planner_provider_attempts)
+    evaluator_attempts = tuple(_attempt_snapshot(item) for item in evaluator_provider_attempts)
+    session_turns = tuple(getattr(planner_session, "turns", ()))
+    returned_planner = tuple(item for item in planner_attempts if item["raw_response"] is not None)
+    if len(session_turns) > len(returned_planner):
+        raise ValueError("Planner turn archive is incomplete")
+    for turn, attempt in zip(session_turns, returned_planner):
+        if getattr(turn, "raw_response", None) != attempt["raw_response"] or getattr(turn, "usage", None) != attempt["usage"]:
+            raise ValueError("Planner turn archive does not match execution")
+    if evaluator is not None and len(evaluator_attempts) != 1:
+        raise ValueError("evaluator attempt archive is incomplete")
+    if evaluator is None and evaluator_attempts:
+        raise ValueError("unexpected evaluator attempt archive")
+    temporary = destination.parent / f".{destination.name}.tmp-{uuid4().hex}"
+    temporary.mkdir(parents=True, exist_ok=False)
+    records: list[dict[str, object]] = []
+    try:
+        input_records = []
+        for record in inputs.records:
+            persisted = _archive_write(temporary, records, role=f"input:{record.role}", relative_path=f"inputs/{record.relative_path}", raw=record.raw_bytes)
+            input_records.append({"role": record.role, "path": record.relative_path, "raw_sha256": sha256_prefixed(persisted), "canonical_fingerprint": record.canonical_fingerprint})
+        _archive_write(temporary, records, role="inputs_manifest", relative_path="inputs/manifest.json", raw=_archive_json_bytes({"schema": "rook.lm9b_p.planner_input_manifest:v1", "records": input_records}))
+        _archive_write(temporary, records, role="planner_request", relative_path="planner/request.json", raw=planner_request.raw_bytes)
+        for index, turn in enumerate(session_turns):
+            prefix = f"planner/turns/{index:03d}"
+            for role, path, raw in (
+                ("raw_response", f"{prefix}/raw_response.bin", getattr(turn, "raw_response")),
+                ("feedback", f"{prefix}/feedback.json", _archive_json_bytes(_gate_feedback(getattr(turn, "gate_result")))),
+                ("usage", f"{prefix}/usage.json", _archive_json_bytes(getattr(turn, "usage"))),
+                ("timing", f"{prefix}/timing.json", _archive_json_bytes({"elapsed_ms": getattr(turn, "elapsed_ms")})),
+            ):
+                _archive_write(temporary, records, role=f"planner_turn:{index}:{role}", relative_path=path, raw=raw)
+        for index, attempt in enumerate(planner_attempts):
+            _write_attempt(temporary, records, phase="planner", index=index, snapshot=attempt)
+        final_recipe = getattr(planner_session, "final_recipe_bytes", None)
+        if final_recipe is not None:
+            persisted = _archive_write(temporary, records, role="planner_final_recipe", relative_path="planner/final_recipe.json", raw=final_recipe)
+            gate = evaluate_mechanical_gate(recipe_bytes=persisted, authority=inputs.authority, recipe_schema=inputs.recipe_schema, normalization_profile=inputs.authority.normalization_profile, exclusion_policy=inputs.exclusion_policy)
+            _archive_write(temporary, records, role="planner_final_recipe_identity", relative_path="planner/final_recipe_identity.json", raw=_archive_json_bytes({"raw_sha256": sha256_prefixed(persisted), "mechanical_status": gate.status, "recipe_value_fingerprint": gate.recipe_value_fingerprint, "ratified_recipe_fingerprint": gate.ratified_recipe_fingerprint, "historical_recipe_fingerprint": gate.historical_recipe_fingerprint}))
+        if evaluator is None:
+            _archive_write(temporary, records, role="evaluator_not_run", relative_path="evaluator/not_run.json", raw=_archive_json_bytes({"status": "not_run"}))
+        else:
+            if evaluator_request is None:
+                raise ValueError("evaluator request archive is incomplete")
+            _archive_write(temporary, records, role="evaluator_request", relative_path="evaluator/request.json", raw=evaluator_request.raw_bytes)
+            raw_response = getattr(evaluator, "raw_response", None)
+            if raw_response is not None:
+                _archive_write(temporary, records, role="evaluator_raw_response", relative_path="evaluator/raw_response.bin", raw=raw_response)
+            _archive_write(temporary, records, role="evaluator_report", relative_path="evaluator/report.json", raw=_archive_json_bytes({"termination": getattr(evaluator, "termination"), "recommendation": getattr(evaluator, "recommendation"), "evidence": getattr(evaluator, "evidence"), "raw_response_sha256": sha256_prefixed(raw_response) if raw_response is not None else None}))
+            _archive_write(temporary, records, role="evaluator_usage", relative_path="evaluator/usage.json", raw=_archive_json_bytes(getattr(evaluator, "usage", None) or {"available": False}))
+            _archive_write(temporary, records, role="evaluator_timing", relative_path="evaluator/timing.json", raw=_archive_json_bytes({"elapsed_ms": evaluator_elapsed_ms, "attempts": len(evaluator_attempts)}))
+            for index, attempt in enumerate(evaluator_attempts):
+                _write_attempt(temporary, records, phase="evaluator", index=index, snapshot=attempt)
+        _archive_write(temporary, records, role="checkpoint_classification", relative_path="checkpoint/classification.json", raw=_archive_json_bytes({"schema": _CHECKPOINT_CLASSIFICATION_SCHEMA, "classification": classification, "checkpoint_2": "not_evaluated"}))
+        _archive_write(temporary, records, role="checkpoint_session", relative_path="checkpoint/session.json", raw=_archive_json_bytes({"schema": "rook.lm9b_p.checkpoint_session:v1", "planner": {"termination": getattr(planner_session, "termination"), "turn_count": len(session_turns), "attempt_count": len(planner_attempts)}, "evaluator": {"termination": getattr(evaluator, "termination", "not_run") if evaluator is not None else "not_run", "attempt_count": len(evaluator_attempts)}}))
+        _archive_write(temporary, records, role="identity", relative_path="identity.json", raw=_archive_json_bytes({"schema": _CHECKPOINT_IDENTITY_SCHEMA, "git_commit_sha": head, "planner_model_identity": planner_model, "evaluator_model_identity": evaluator_model, "provider_profile_identity": profile, "normalization_profile_identity": {"profile_id": inputs.authority.normalization_profile.profile_id, "profile_fingerprint": inputs.authority.normalization_profile.profile_fingerprint}, "bounds": {"planner_max_turns": PLANNER_MAX_TURNS, "evaluator_max_attempts": 1}, "execution_permitted": False}))
+        ordered = sorted(records, key=lambda record: record["path"])
+        checksums = {"schema": _CHECKPOINT_CHECKSUMS_SCHEMA, "records": ordered, "aggregate_identity": canonical_fingerprint(own_trusted_json({"schema": _CHECKPOINT_CHECKSUMS_SCHEMA, "records": ordered}))}
+        (temporary / "checksums.json").write_bytes(_archive_json_bytes(checksums))
+        _verify_archive_checksums(temporary)
+        if destination.exists():
+            raise FileExistsError(f"sealed checkpoint archive already exists: {destination}")
+        temporary.rename(destination)
+    except BaseException:
+        if temporary.exists():
+            shutil.rmtree(temporary)
+        raise
+    return verify_sealed_planner_checkpoint_archive(destination)
+
+
 __all__ = (
     "FrozenPlannerAuthority",
     "FrozenPlannerInputs",
     "Lm9bcHandoff",
     "PlannerInputRecord",
+    "ProviderAttemptEvidence",
     "RenderedRequest",
     "SealedPlannerCheckpointArchive",
     "build_lm9bc_handoff",

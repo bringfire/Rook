@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import time
 from dataclasses import dataclass, replace
@@ -95,14 +96,28 @@ def run_planner_checkpoint(
         raise ValueError("checkpoint archive identity is required")
     inputs = ARTIFACTS.load_planner_inputs(Path(fixture_dir))
     planner_request = ARTIFACTS.render_planner_request(inputs)
-    planner_provider_turns: list[ProviderTurn] = []
-    evaluator_provider_turns: list[ProviderTurn] = []
+    planner_provider_attempts: list[ARTIFACTS.ProviderAttemptEvidence] = []
+    evaluator_provider_attempts: list[ARTIFACTS.ProviderAttemptEvidence] = []
     evaluator_request: ARTIFACTS.RenderedRequest | None = None
     evaluator_elapsed_ms: int | None = None
 
+    def provider_request_bytes(request: dict[str, object]) -> bytes:
+        return json.dumps(
+            request, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+
     def recorded_planner_provider(request: dict[str, object]) -> ProviderTurn:
-        turn = planner_provider(request)
-        planner_provider_turns.append(turn)
+        attempt = ARTIFACTS.ProviderAttemptEvidence(
+            provider_request_bytes=provider_request_bytes(request)
+        )
+        planner_provider_attempts.append(attempt)
+        started_at = time.perf_counter()
+        try:
+            turn = planner_provider(request)
+        except BaseException as exc:
+            attempt.record_exception(exc, started_at)
+            raise
+        attempt.record_return(turn, started_at)
         return turn
 
     def finish(result: PlannerCheckpointResult) -> PlannerCheckpointResult:
@@ -116,8 +131,8 @@ def run_planner_checkpoint(
             planner_session=result.planner_session,
             evaluator=result.evaluator,
             evaluator_request=evaluator_request,
-            planner_provider_turns=planner_provider_turns,
-            evaluator_provider_turns=evaluator_provider_turns,
+            planner_provider_attempts=planner_provider_attempts,
+            evaluator_provider_attempts=evaluator_provider_attempts,
             evaluator_elapsed_ms=evaluator_elapsed_ms,
             classification=result.classification,
             archive_identity=archive_identity,
@@ -155,8 +170,17 @@ def run_planner_checkpoint(
         inputs, gate_result=gate_result
     )
     def recorded_evaluator_provider(request: dict[str, object]) -> ProviderTurn:
-        turn = evaluator_provider(request)
-        evaluator_provider_turns.append(turn)
+        attempt = ARTIFACTS.ProviderAttemptEvidence(
+            provider_request_bytes=provider_request_bytes(request)
+        )
+        evaluator_provider_attempts.append(attempt)
+        started_at = time.perf_counter()
+        try:
+            turn = evaluator_provider(request)
+        except BaseException as exc:
+            attempt.record_exception(exc, started_at)
+            raise
+        attempt.record_return(turn, started_at)
         return turn
 
     started_at = time.perf_counter()

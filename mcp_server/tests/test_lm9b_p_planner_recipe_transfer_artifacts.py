@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import builtins
+import io
 import json
 import os
 import shutil
@@ -47,6 +48,66 @@ def test_sealed_archive_verification_recomputes_the_persisted_aggregate(
     )
     with pytest.raises(ValueError, match="sealed checkpoint archive"):
         ARTIFACTS.verify_sealed_planner_checkpoint_archive(archive)
+
+
+def test_complete_pre_freeze_process_audit_covers_import_and_low_level_reads() -> None:
+    code = f'''
+import builtins, io, os, subprocess, sys
+from pathlib import Path
+root = Path({str(ROOT)!r})
+forbidden = {{
+    (root / "scripts/lm9b_c_fixtures/input_manifest.json").resolve(),
+    (root / "scripts/lm9b_c_fixtures/r01_recipe.json").resolve(),
+    (root / "mcp_server/tests/fixtures/lm9b_p/non_r01_ready_recipe.json").resolve(),
+    (root / "mcp_server/tests/fixtures/lm9b_p/non_r01_blocked_recipe.json").resolve(),
+}}
+observed = set()
+def notice(value):
+    try:
+        resolved = Path(value).resolve(strict=False)
+    except (TypeError, ValueError, OSError):
+        return
+    if resolved in forbidden:
+        observed.add(str(resolved))
+path_read_bytes, path_open = Path.read_bytes, Path.open
+builtin_open, io_open, os_open = builtins.open, io.open, os.open
+def audited_read_bytes(path):
+    notice(path); return path_read_bytes(path)
+def audited_path_open(path, *args, **kwargs):
+    notice(path); return path_open(path, *args, **kwargs)
+def audited_builtin_open(path, *args, **kwargs):
+    notice(path); return builtin_open(path, *args, **kwargs)
+def audited_io_open(path, *args, **kwargs):
+    notice(path); return io_open(path, *args, **kwargs)
+def audited_os_open(path, *args, **kwargs):
+    notice(path); return os_open(path, *args, **kwargs)
+Path.read_bytes, Path.open = audited_read_bytes, audited_path_open
+builtins.open, io.open, os.open = audited_builtin_open, audited_io_open, audited_os_open
+sys.path[:0] = [str(root / "mcp_server/src"), str(root / "scripts")]
+import lm9b_p_planner_recipe_transfer_support as support
+import lm9b_p_planner_recipe_transfer_probe as probe
+class Provider:
+    def __init__(self): self.calls = 0
+    def __call__(self, request):
+        self.calls += 1
+        return support.ProviderTurn(b'{{}}', {{"role": "assistant", "tool_calls": []}}, {{}}, {{"model_identity": "planner", "profile_identity": "profile"}}, b'{{}}')
+head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+probe.run_planner_checkpoint(
+    fixture_dir=root / "scripts/lm9b_p_fixtures", planner_provider=Provider(), evaluator_provider=Provider(),
+    archive_destination=root / ".pytest-pre-freeze-archive",
+    archive_identity={{"git_commit_sha": head, "planner_model_identity": "planner", "evaluator_model_identity": "evaluator", "provider_profile_identity": "profile"}},
+)
+if observed: raise AssertionError(sorted(observed))
+'''
+    archive = ROOT / ".pytest-pre-freeze-archive"
+    try:
+        subprocess.run(
+            [sys.executable, "-c", code], cwd=ROOT,
+            env={**os.environ, "PYTHONPATH": str(ROOT / "mcp_server/src")}, check=True,
+        )
+    finally:
+        if archive.exists():
+            shutil.rmtree(archive)
 
 
 def _json(path: Path) -> dict[str, object]:
