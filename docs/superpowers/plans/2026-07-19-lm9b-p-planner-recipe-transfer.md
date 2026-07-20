@@ -58,9 +58,10 @@ Expected: `Python 3.12.12`. Use `py -3.10 -m py_compile` for Python 3.10 compati
 **Files:**
 - Create: `scripts/lm9b_p_fixtures/task_envelope.json`
 - Create: `scripts/lm9b_p_fixtures/environment_snapshot.json`
+- Create: `scripts/lm9b_p_fixtures/attempt_context.json`
 - Create: `scripts/lm9b_p_fixtures/planning_policy.json`
 - Create: `scripts/lm9b_p_fixtures/payload_schema_registry.json`
-- Create: `scripts/lm9b_p_fixtures/environment_capability_registry.json`
+- Create: `scripts/lm9b_p_fixtures/capability_registry.json`
 - Create: `scripts/lm9b_p_fixtures/semantic_authority_code_vocabulary.json`
 - Create: `scripts/lm9b_p_fixtures/semantic_capability_code_vocabulary.json`
 - Create: `scripts/lm9b_p_fixtures/worker_slot_code_vocabulary.json`
@@ -80,6 +81,8 @@ Expected: `Python 3.12.12`. Use `py -3.10 -m py_compile` for Python 3.10 compati
 - Artifacts produces `FrozenPlannerAuthority`, `Lm9bcHandoff`, `load_planner_authority_context()`, and `build_lm9bc_handoff()`.
 - The witness consumes public LM9B-C `load_frozen_inputs`, `render_compiler_request`, `run_probe`, `COMPILER_RENDERER_ID`, `ProviderTurn`, and `ProviderCallFailure`.
 - Task 1 production code cannot read `r01_recipe.json` or LM9B-C's `input_manifest.json`.
+- The fixed `evaluated_at`, deterministic clock source, and three session IDs
+  enter through `attempt_context.json`; ambient wall time is forbidden.
 
 - [ ] **Step 1: Add the failing vertical witness**
 
@@ -184,11 +187,22 @@ fingerprint matches one complete registry entry; task, environment, and
 registry fingerprints recompute exactly; and corrected task/environment bytes
 differ from the historical placeholder-bearing fixtures.
 
+Add deterministic admission tests proving the fixed probe time falls inside
+the environment, planning-policy, and capability-registry validity intervals;
+the task, environment, and capability sessions exactly match the attempt
+context; and stale or wrong-session mutations fail before handoff.
+
 - [ ] **Step 3: Add normalization-profile and strict-parser tests**
 
 The committed profile is the only row inventory. It contains exactly 32 recipe-side rows covering authority artifacts; all clause, nested clause, semantic-reference, policy-reference, goal-projection, clause-link, assumption, materiality, derived-fact, unresolved-authority, shape, capability, and worker-slot collections from the ratified ordering table. That explicitly includes `applies_to_clause_ids`, `inherited_support_from`, `affected_clause_ids`, both policy-reference paths, and both unresolved-authority lists.
 
 Tests assert the profile schema, ID, row count, and reviewed canonical fingerprint. They then parameterize directly over its rows. For every `ordered_set` row, the test rotates a populated valid collection, proves parsed-value identities differ, normalizes through the profile, and proves normalized recipes and ratified fingerprints match. `empty_only` worker rows receive zero-only tests. No Python test or production module contains a second path inventory.
+
+The probe schema uses the exact discriminated reference union.
+`assumption_refs` contains `{kind: assumption, assumption_id: ...}` records and
+`derived_fact_refs` contains `{kind: derived_fact, derived_fact_id: ...}`
+records. Both profile rows use `semantic_reference`, and a focused schema test
+rejects bare string IDs.
 
 Strict parser tests cover duplicate key, BOM, invalid UTF-8, depth 65, a 1,025-character integer token, `1e10000`, `1.5`, and `NaN`.
 
@@ -310,13 +324,15 @@ Create a hand-authored non-R01 ready recipe that uses the matched radial authori
 
 `build_lm9bc_handoff`:
 1. accepts final recipe bytes and checked fingerprint;
-2. reads corrected authority only from its explicit `planner_fixture_dir` and
+2. revalidates frozen-time freshness and session admission and binds the exact
+   attempt-context fingerprint into the generated handoff manifest;
+3. reads corrected authority only from its explicit `planner_fixture_dir` and
    copies corrected LM9B-P task, environment, and policy bytes plus unchanged
    LM9B-C implementation context, exclusion policy, and evaluation rubric;
-3. writes accepted bytes once and proves read-back equality;
-4. builds `rook.lm9b_c.input_manifest:v1` directly from those seven files, fixed roles, and exported `COMPILER_RENDERER_ID`;
-5. computes hashes from copied bytes;
-6. never opens or stats source `input_manifest.json` or `r01_recipe.json`.
+4. writes accepted bytes once and proves read-back equality;
+5. builds `rook.lm9b_c.input_manifest:v1` directly from those seven files, fixed roles, and exported `COMPILER_RENDERER_ID`;
+6. computes hashes from copied bytes;
+7. never opens or stats source `input_manifest.json` or `r01_recipe.json`.
 
 Add a read-audit test instrumenting `Path.read_bytes`, `Path.open`, and `Path.stat`.
 
@@ -423,6 +439,8 @@ git commit -m "feat(lm9b): complete planner recipe mechanical gate"
 **Interfaces:**
 - Produces `load_planner_inputs() -> FrozenPlannerInputs`, `render_planner_request() -> RenderedRequest`, and `render_planner_evaluator_request() -> RenderedRequest`.
 - Planner sees brief, exact trusted authority, authoring contract, and terminal schema.
+- Planner request identity includes the exact frozen attempt-context
+  fingerprint and renders its evaluation time and session bindings.
 - Planner evaluator sees brief, authority, final recipe, deterministic findings, and rubric.
 
 - [ ] **Step 1: Add visibility and whole-process read-isolation tests**

@@ -277,6 +277,15 @@ frozen scenario, `probe_candidate_blocked` is specifically reserved for honest
 unresolved intent because the supplied policy and capability context removes
 the other legitimate blocker classes.
 
+The attempt also binds one content-addressed probe context with a fixed
+`evaluated_at`, deterministic clock source, and exact task, environment, and
+capability-registry session IDs. Authority freshness and session agreement are
+mechanical input-admission checks against that context before any model call;
+ambient wall time is never consulted. The context fingerprint is part of the
+Planner request identity, checkpoint evidence, aggregate identity, and LM9B-C
+handoff manifest. This does not create an LM9A validation report or authorize
+compilation or execution.
+
 The scenario-specific semantic rubric is allowed and necessary. It may evaluate
 every authority-valid outcome. It must not require exact R01 structure or encode
 an expected implementation.
@@ -543,6 +552,7 @@ is not by itself evidence of a parallel architecture.
 The attempt preserves:
 
 - exact brief and authority-artifact bytes and hashes;
+- the exact frozen evaluation context, session bindings, and fingerprint;
 - complete rendered Planner requests and raw provider responses;
 - every visible Planner turn, tool submission, and mechanical response;
 - all deterministic diagnostics;
@@ -579,6 +589,8 @@ product authority surfaces.
 Implementation review must establish with recorded/fake providers that:
 
 - the gate accepts and rejects only the approved mechanical facts;
+- authority freshness and session bindings are evaluated against the frozen
+  probe clock before provider contact;
 - no mechanical finding claims policy authorization or semantic fidelity;
 - every submission and feedback turn is preserved;
 - the fingerprint sealing handshake returns only the computed fingerprint and
