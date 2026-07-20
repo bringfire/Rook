@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from types import MappingProxyType
-from typing import Mapping
+from typing import Mapping, Sequence
+from uuid import uuid4
 
 from jsonschema import Draft202012Validator
 from rook.validation_kernel.canonical_json import canonical_fingerprint, sha256_prefixed
@@ -18,6 +20,7 @@ from rook.validation_kernel.owned_json import own_trusted_json
 from lm9b_p_planner_recipe_transfer_support import (
     MechanicalGateResult,
     NormalizationProfile,
+    PLANNER_MAX_TURNS,
     evaluate_mechanical_gate,
     fingerprint,
     fingerprint_without,
@@ -136,6 +139,18 @@ class Lm9bcHandoff:
     archived_recipe_bytes: bytes
     compiler_renderer_id: str
     attempt_context_fingerprint: str
+
+
+@dataclass(frozen=True)
+class SealedPlannerCheckpointArchive:
+    archive_dir: Path
+    aggregate_identity: str
+    checksums_raw_sha256: str
+
+
+_CHECKPOINT_CHECKSUMS_SCHEMA = "rook.lm9b_p.checkpoint_checksums:v1"
+_CHECKPOINT_IDENTITY_SCHEMA = "rook.lm9b_p.checkpoint_identity:v1"
+_CHECKPOINT_CLASSIFICATION_SCHEMA = "rook.lm9b_p.checkpoint_classification:v1"
 
 
 def _object(path: Path) -> Mapping[str, object]:
@@ -904,15 +919,602 @@ def build_lm9bc_handoff(
     )
 
 
+def derive_checkpoint_classification(
+    planner_session: object, evaluator: object | None
+) -> str:
+    """Derive the sole Checkpoint 1 classification from captured outcomes."""
+
+    termination = getattr(planner_session, "termination", None)
+    if termination == "mechanically_rejected":
+        return "probe_mechanically_rejected"
+    if termination != "mechanically_accepted" or evaluator is None:
+        return "probe_inconclusive"
+    if getattr(evaluator, "termination", None) != "valid_recommendation":
+        return "probe_inconclusive"
+    classifications = {
+        "faithful_blocked": "probe_candidate_blocked",
+        "planner_failure": "probe_planner_failure",
+        "faithful_ready": "probe_candidate_ready",
+    }
+    recommendation = getattr(evaluator, "recommendation", None)
+    if recommendation not in classifications:
+        raise ValueError("invalid evaluator recommendation for checkpoint")
+    return classifications[recommendation]
+
+
+def _archive_json_bytes(value: object) -> bytes:
+    return (
+        json.dumps(_thaw_json(value), ensure_ascii=False, sort_keys=True, indent=2)
+        + "\n"
+    ).encode("utf-8")
+
+
+def _archive_write(
+    root: Path,
+    records: list[dict[str, object]],
+    *,
+    role: str,
+    relative_path: str,
+    raw: bytes,
+) -> bytes:
+    path = root / relative_path
+    if path.exists():
+        raise ValueError(f"duplicate sealed checkpoint archive path: {relative_path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(raw)
+    persisted = path.read_bytes()
+    if persisted != raw:
+        raise ValueError(f"sealed checkpoint archive write verification failed: {role}")
+    records.append(
+        {
+            "role": role,
+            "path": relative_path,
+            "raw_sha256": sha256_prefixed(persisted),
+            "byte_length": len(persisted),
+        }
+    )
+    return persisted
+
+
+def _gate_feedback(gate_result: object | None) -> Mapping[str, object]:
+    if gate_result is None:
+        return {
+            "schema": "rook.lm9b_p.planner_feedback:v1",
+            "status": "no_submission",
+            "diagnostics": [],
+            "recipe_value_fingerprint": None,
+            "ratified_recipe_fingerprint": None,
+            "historical_recipe_fingerprint": None,
+        }
+    diagnostics = []
+    for diagnostic in getattr(gate_result, "diagnostics", ()):
+        diagnostics.append(
+            {
+                "code": diagnostic.code,
+                "path": diagnostic.path,
+                "message": diagnostic.message,
+            }
+        )
+    return {
+        "schema": "rook.lm9b_p.planner_feedback:v1",
+        "status": getattr(gate_result, "status", None),
+        "diagnostics": diagnostics,
+        "recipe_value_fingerprint": getattr(
+            gate_result, "recipe_value_fingerprint", None
+        ),
+        "ratified_recipe_fingerprint": getattr(
+            gate_result, "ratified_recipe_fingerprint", None
+        ),
+        "historical_recipe_fingerprint": getattr(
+            gate_result, "historical_recipe_fingerprint", None
+        ),
+    }
+
+
+def _provider_identity(
+    turns: Sequence[object],
+    label: str,
+    *,
+    declared_model: str,
+    declared_profile: str,
+) -> tuple[str, str]:
+    if not turns:
+        return declared_model, declared_profile
+    models: set[str] = set()
+    profiles: set[str] = set()
+    for turn in turns:
+        metadata = getattr(turn, "provider_metadata", None)
+        if not isinstance(metadata, Mapping):
+            raise ValueError(f"{label} provider metadata is invalid")
+        model = metadata.get("model_identity")
+        profile = metadata.get("profile_identity")
+        if not isinstance(model, str) or not model:
+            raise ValueError(f"{label} model identity is required")
+        if not isinstance(profile, str) or not profile:
+            raise ValueError(f"{label} profile identity is required")
+        models.add(model)
+        profiles.add(profile)
+    if len(models) != 1 or len(profiles) != 1:
+        raise ValueError(f"{label} provider identity is not exact")
+    model = next(iter(models))
+    profile = next(iter(profiles))
+    if model != declared_model or profile != declared_profile:
+        raise ValueError(f"{label} provider identity does not match declared identity")
+    return model, profile
+
+
+def _verify_archive_checksums(archive_dir: Path) -> SealedPlannerCheckpointArchive:
+    checksums_path = archive_dir / "checksums.json"
+    try:
+        checksums_raw = checksums_path.read_bytes()
+        checksums = parse_strict_json(checksums_raw)
+    except (OSError, ValueError) as exc:
+        raise ValueError("sealed checkpoint archive checksums are unavailable") from exc
+    if not isinstance(checksums, dict) or set(checksums) != {
+        "schema",
+        "records",
+        "aggregate_identity",
+    } or checksums.get("schema") != _CHECKPOINT_CHECKSUMS_SCHEMA:
+        raise ValueError("sealed checkpoint archive checksum shape is invalid")
+    records = checksums.get("records")
+    aggregate_identity = checksums.get("aggregate_identity")
+    if not isinstance(records, list) or not isinstance(aggregate_identity, str):
+        raise ValueError("sealed checkpoint archive checksum values are invalid")
+    paths: list[str] = []
+    for record in records:
+        if not isinstance(record, dict) or set(record) != {
+            "role",
+            "path",
+            "raw_sha256",
+            "byte_length",
+        }:
+            raise ValueError("sealed checkpoint archive checksum record is invalid")
+        path_value = record["path"]
+        if (
+            not isinstance(path_value, str)
+            or not path_value
+            or Path(path_value).is_absolute()
+            or ".." in Path(path_value).parts
+        ):
+            raise ValueError("sealed checkpoint archive checksum path is invalid")
+        if not isinstance(record["role"], str) or not isinstance(
+            record["raw_sha256"], str
+        ) or not isinstance(record["byte_length"], int):
+            raise ValueError("sealed checkpoint archive checksum value is invalid")
+        paths.append(path_value)
+    if paths != sorted(paths) or len(set(paths)) != len(paths):
+        raise ValueError("sealed checkpoint archive checksum order is invalid")
+    expected_aggregate = canonical_fingerprint(
+        own_trusted_json(
+            {
+                "schema": _CHECKPOINT_CHECKSUMS_SCHEMA,
+                "records": records,
+            }
+        )
+    )
+    if aggregate_identity != expected_aggregate:
+        raise ValueError("sealed checkpoint archive aggregate identity is invalid")
+    expected_files = set(paths) | {"checksums.json"}
+    actual_files = {
+        path.relative_to(archive_dir).as_posix()
+        for path in archive_dir.rglob("*")
+        if path.is_file()
+    }
+    if actual_files != expected_files:
+        raise ValueError("sealed checkpoint archive file set is invalid")
+    for record in records:
+        persisted = (archive_dir / record["path"]).read_bytes()
+        if (
+            sha256_prefixed(persisted) != record["raw_sha256"]
+            or len(persisted) != record["byte_length"]
+        ):
+            raise ValueError(
+                f"sealed checkpoint archive checksum mismatch: {record['path']}"
+            )
+    return SealedPlannerCheckpointArchive(
+        archive_dir=archive_dir,
+        aggregate_identity=aggregate_identity,
+        checksums_raw_sha256=sha256_prefixed(checksums_raw),
+    )
+
+
+def verify_sealed_planner_checkpoint_archive(
+    archive_dir: Path,
+) -> SealedPlannerCheckpointArchive:
+    """Verify a published Checkpoint 1 seal without changing it."""
+
+    archive_dir = Path(archive_dir).resolve()
+    if not archive_dir.is_dir():
+        raise ValueError("sealed checkpoint archive directory is unavailable")
+    return _verify_archive_checksums(archive_dir)
+
+
+def seal_planner_checkpoint_archive(
+    *,
+    destination: Path,
+    inputs: FrozenPlannerInputs,
+    planner_request: RenderedRequest,
+    planner_session: object,
+    evaluator: object | None,
+    evaluator_request: RenderedRequest | None,
+    planner_provider_turns: Sequence[object],
+    evaluator_provider_turns: Sequence[object],
+    evaluator_elapsed_ms: int | None,
+    classification: str,
+    archive_identity: Mapping[str, object],
+) -> SealedPlannerCheckpointArchive:
+    """Persist complete Checkpoint 1 evidence through one no-overwrite rename."""
+
+    destination = Path(destination).resolve()
+    if destination.exists():
+        raise FileExistsError(f"sealed checkpoint archive already exists: {destination}")
+    _verify_frozen_planner_inputs(inputs)
+    if classification != derive_checkpoint_classification(planner_session, evaluator):
+        raise ValueError("checkpoint classification is not mechanically derived")
+    git_commit_sha = archive_identity.get("git_commit_sha")
+    if (
+        not isinstance(git_commit_sha, str)
+        or len(git_commit_sha) != 40
+        or any(character not in "0123456789abcdef" for character in git_commit_sha)
+    ):
+        raise ValueError("exact committed git SHA is required")
+    planner_model_identity = archive_identity.get("planner_model_identity")
+    evaluator_model_identity = archive_identity.get("evaluator_model_identity")
+    provider_profile_identity = archive_identity.get("provider_profile_identity")
+    if not all(
+        isinstance(value, str) and value
+        for value in (
+            planner_model_identity,
+            evaluator_model_identity,
+            provider_profile_identity,
+        )
+    ):
+        raise ValueError("exact model and profile identities are required")
+    assert isinstance(planner_model_identity, str)
+    assert isinstance(evaluator_model_identity, str)
+    assert isinstance(provider_profile_identity, str)
+    session_turns = tuple(getattr(planner_session, "turns", ()))
+    if len(session_turns) != len(planner_provider_turns):
+        raise ValueError("Planner turn archive is incomplete")
+    for session_turn, provider_turn in zip(session_turns, planner_provider_turns):
+        if (
+            getattr(session_turn, "raw_response", None)
+            != getattr(provider_turn, "raw_response", None)
+            or getattr(session_turn, "tool_arguments", None)
+            != _planner_tool_arguments(provider_turn)
+            or getattr(session_turn, "usage", None)
+            != getattr(provider_turn, "usage", None)
+        ):
+            raise ValueError("Planner turn archive does not match execution")
+    if evaluator is not None and len(evaluator_provider_turns) != 1:
+        raise ValueError("evaluator turn archive is incomplete")
+    if evaluator is None and evaluator_provider_turns:
+        raise ValueError("unexpected evaluator turn archive")
+    temporary = destination.parent / f".{destination.name}.tmp-{uuid4().hex}"
+    temporary.mkdir(parents=True, exist_ok=False)
+    records: list[dict[str, object]] = []
+    try:
+        input_records: list[dict[str, object]] = []
+        for record in inputs.records:
+            persisted = _archive_write(
+                temporary,
+                records,
+                role=f"input:{record.role}",
+                relative_path=f"inputs/{record.relative_path}",
+                raw=record.raw_bytes,
+            )
+            input_records.append(
+                {
+                    "role": record.role,
+                    "path": record.relative_path,
+                    "raw_sha256": sha256_prefixed(persisted),
+                    "canonical_fingerprint": record.canonical_fingerprint,
+                }
+            )
+        _archive_write(
+            temporary,
+            records,
+            role="inputs_manifest",
+            relative_path="inputs/manifest.json",
+            raw=_archive_json_bytes(
+                {
+                    "schema": "rook.lm9b_p.planner_input_manifest:v1",
+                    "records": input_records,
+                }
+            ),
+        )
+        _archive_write(
+            temporary,
+            records,
+            role="planner_request",
+            relative_path="planner/request.json",
+            raw=planner_request.raw_bytes,
+        )
+        for index, (session_turn, provider_turn) in enumerate(
+            zip(session_turns, planner_provider_turns)
+        ):
+            prefix = f"planner/turns/{index:03d}"
+            _archive_write(
+                temporary,
+                records,
+                role=f"planner_turn:{index}:raw_request",
+                relative_path=f"{prefix}/raw_request.bin",
+                raw=getattr(provider_turn, "raw_request"),
+            )
+            _archive_write(
+                temporary,
+                records,
+                role=f"planner_turn:{index}:raw_response",
+                relative_path=f"{prefix}/raw_response.bin",
+                raw=getattr(session_turn, "raw_response"),
+            )
+            tool_arguments = getattr(session_turn, "tool_arguments")
+            _archive_write(
+                temporary,
+                records,
+                role=f"planner_turn:{index}:tool_arguments",
+                relative_path=f"{prefix}/tool_arguments.bin",
+                raw=tool_arguments if tool_arguments is not None else b"",
+            )
+            _archive_write(
+                temporary,
+                records,
+                role=f"planner_turn:{index}:feedback",
+                relative_path=f"{prefix}/feedback.json",
+                raw=_archive_json_bytes(_gate_feedback(getattr(session_turn, "gate_result"))),
+            )
+            _archive_write(
+                temporary,
+                records,
+                role=f"planner_turn:{index}:usage",
+                relative_path=f"{prefix}/usage.json",
+                raw=_archive_json_bytes(getattr(session_turn, "usage")),
+            )
+            _archive_write(
+                temporary,
+                records,
+                role=f"planner_turn:{index}:timing",
+                relative_path=f"{prefix}/timing.json",
+                raw=_archive_json_bytes(
+                    {"elapsed_ms": getattr(session_turn, "elapsed_ms")}
+                ),
+            )
+        final_recipe_bytes = getattr(planner_session, "final_recipe_bytes", None)
+        if final_recipe_bytes is not None:
+            persisted_recipe = _archive_write(
+                temporary,
+                records,
+                role="planner_final_recipe",
+                relative_path="planner/final_recipe.json",
+                raw=final_recipe_bytes,
+            )
+            persisted_gate = evaluate_mechanical_gate(
+                recipe_bytes=persisted_recipe,
+                authority=inputs.authority,
+                recipe_schema=inputs.recipe_schema,
+                normalization_profile=inputs.authority.normalization_profile,
+                exclusion_policy=inputs.exclusion_policy,
+            )
+            _archive_write(
+                temporary,
+                records,
+                role="planner_final_recipe_identity",
+                relative_path="planner/final_recipe_identity.json",
+                raw=_archive_json_bytes(
+                    {
+                        "raw_sha256": sha256_prefixed(persisted_recipe),
+                        "mechanical_status": persisted_gate.status,
+                        "recipe_value_fingerprint": persisted_gate.recipe_value_fingerprint,
+                        "ratified_recipe_fingerprint": persisted_gate.ratified_recipe_fingerprint,
+                        "historical_recipe_fingerprint": persisted_gate.historical_recipe_fingerprint,
+                    }
+                ),
+            )
+        if evaluator_request is not None:
+            _archive_write(
+                temporary,
+                records,
+                role="evaluator_request",
+                relative_path="evaluator/request.json",
+                raw=evaluator_request.raw_bytes,
+            )
+        if evaluator is not None:
+            evaluator_turn = evaluator_provider_turns[0]
+            raw_response = getattr(evaluator, "raw_response", None)
+            if raw_response != getattr(evaluator_turn, "raw_response", None):
+                raise ValueError("evaluator response archive does not match execution")
+            if raw_response is not None:
+                _archive_write(
+                    temporary,
+                    records,
+                    role="evaluator_raw_response",
+                    relative_path="evaluator/raw_response.bin",
+                    raw=raw_response,
+                )
+            _archive_write(
+                temporary,
+                records,
+                role="evaluator_report",
+                relative_path="evaluator/report.json",
+                raw=_archive_json_bytes(
+                    {
+                        "termination": getattr(evaluator, "termination"),
+                        "recommendation": getattr(evaluator, "recommendation"),
+                        "evidence": getattr(evaluator, "evidence"),
+                        "raw_response_sha256": (
+                            sha256_prefixed(raw_response)
+                            if raw_response is not None
+                            else None
+                        ),
+                    }
+                ),
+            )
+            _archive_write(
+                temporary,
+                records,
+                role="evaluator_usage",
+                relative_path="evaluator/usage.json",
+                raw=_archive_json_bytes(
+                    getattr(evaluator, "usage", None) or {"available": False}
+                ),
+            )
+            _archive_write(
+                temporary,
+                records,
+                role="evaluator_timing",
+                relative_path="evaluator/timing.json",
+                raw=_archive_json_bytes(
+                    {
+                        "elapsed_ms": evaluator_elapsed_ms,
+                        "attempts": len(evaluator_provider_turns),
+                    }
+                ),
+            )
+        else:
+            _archive_write(
+                temporary,
+                records,
+                role="evaluator_not_run",
+                relative_path="evaluator/not_run.json",
+                raw=_archive_json_bytes({"status": "not_run"}),
+            )
+        _archive_write(
+            temporary,
+            records,
+            role="checkpoint_classification",
+            relative_path="checkpoint/classification.json",
+            raw=_archive_json_bytes(
+                {
+                    "schema": _CHECKPOINT_CLASSIFICATION_SCHEMA,
+                    "classification": classification,
+                    "checkpoint_2": "not_evaluated",
+                }
+            ),
+        )
+        planner_model, planner_profile = _provider_identity(
+            planner_provider_turns,
+            "Planner",
+            declared_model=planner_model_identity,
+            declared_profile=provider_profile_identity,
+        )
+        evaluator_model, evaluator_profile = _provider_identity(
+            evaluator_provider_turns,
+            "evaluator",
+            declared_model=evaluator_model_identity,
+            declared_profile=provider_profile_identity,
+        )
+        if planner_profile != evaluator_profile:
+            raise ValueError("provider profile identity mismatch")
+        _archive_write(
+            temporary,
+            records,
+            role="identity",
+            relative_path="identity.json",
+            raw=_archive_json_bytes(
+                {
+                    "schema": _CHECKPOINT_IDENTITY_SCHEMA,
+                    "git_commit_sha": git_commit_sha,
+                    "planner_model_identity": planner_model,
+                    "evaluator_model_identity": evaluator_model,
+                    "provider_profile_identity": planner_profile,
+                    "normalization_profile_identity": {
+                        "profile_id": inputs.authority.normalization_profile.profile_id,
+                        "profile_fingerprint": inputs.authority.normalization_profile.profile_fingerprint,
+                    },
+                    "bounds": {
+                        "planner_max_turns": PLANNER_MAX_TURNS,
+                        "evaluator_max_attempts": 1,
+                    },
+                    "execution_permitted": False,
+                }
+            ),
+        )
+        ordered_records = sorted(records, key=lambda record: record["path"])
+        checksums = {
+            "schema": _CHECKPOINT_CHECKSUMS_SCHEMA,
+            "records": ordered_records,
+            "aggregate_identity": canonical_fingerprint(
+                own_trusted_json(
+                    {
+                        "schema": _CHECKPOINT_CHECKSUMS_SCHEMA,
+                        "records": ordered_records,
+                    }
+                )
+            ),
+        }
+        checksums_path = temporary / "checksums.json"
+        checksums_path.write_bytes(_archive_json_bytes(checksums))
+        _verify_archive_checksums(temporary)
+        if destination.exists():
+            raise FileExistsError(
+                f"sealed checkpoint archive already exists: {destination}"
+            )
+        temporary.rename(destination)
+    except BaseException:
+        if temporary.exists():
+            shutil.rmtree(temporary)
+        raise
+    return verify_sealed_planner_checkpoint_archive(destination)
+
+
+def _planner_tool_arguments(provider_turn: object) -> bytes | None:
+    assistant_message = getattr(provider_turn, "assistant_message", None)
+    if not isinstance(assistant_message, Mapping):
+        return None
+    calls = assistant_message.get("tool_calls")
+    if not isinstance(calls, list) or not calls:
+        return None
+    first = calls[0]
+    if not isinstance(first, Mapping):
+        return None
+    function = first.get("function")
+    if not isinstance(function, Mapping):
+        return None
+    arguments = function.get("arguments")
+    return arguments.encode("utf-8") if isinstance(arguments, str) else None
+
+
+def compare_sealed_checkpoint_with_r01(
+    *,
+    archive_dir: Path,
+    sealed_aggregate_identity: str,
+    r01_recipe_path: Path,
+) -> Mapping[str, object]:
+    """Compare R01 only after independently verifying an immutable checkpoint seal."""
+
+    sealed = verify_sealed_planner_checkpoint_archive(archive_dir)
+    if sealed.aggregate_identity != sealed_aggregate_identity:
+        raise ValueError("sealed aggregate identity does not match verified archive")
+    recipe_path = sealed.archive_dir / "planner" / "final_recipe.json"
+    try:
+        persisted_recipe = recipe_path.read_bytes()
+    except OSError as exc:
+        raise ValueError("sealed checkpoint archive has no final recipe") from exc
+    r01_bytes = Path(r01_recipe_path).read_bytes()
+    return MappingProxyType(
+        {
+            "sealed_aggregate_identity": sealed.aggregate_identity,
+            "sealed_recipe_raw_sha256": sha256_prefixed(persisted_recipe),
+            "r01_raw_sha256": sha256_prefixed(r01_bytes),
+            "raw_bytes_match": persisted_recipe == r01_bytes,
+        }
+    )
+
+
 __all__ = (
     "FrozenPlannerAuthority",
     "FrozenPlannerInputs",
     "Lm9bcHandoff",
     "PlannerInputRecord",
     "RenderedRequest",
+    "SealedPlannerCheckpointArchive",
     "build_lm9bc_handoff",
+    "compare_sealed_checkpoint_with_r01",
+    "derive_checkpoint_classification",
     "load_planner_authority_context",
     "load_planner_inputs",
     "render_planner_evaluator_request",
     "render_planner_request",
+    "seal_planner_checkpoint_archive",
+    "verify_sealed_planner_checkpoint_archive",
 )

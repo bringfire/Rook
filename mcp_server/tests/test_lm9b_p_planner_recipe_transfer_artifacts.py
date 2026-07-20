@@ -32,6 +32,23 @@ SUPPORT = _load_script("lm9b_p_planner_recipe_transfer_support")
 ARTIFACTS = _load_script("lm9b_p_planner_recipe_transfer_artifacts")
 
 
+def test_sealed_archive_verification_recomputes_the_persisted_aggregate(
+    tmp_path: Path,
+) -> None:
+    archive = tmp_path / "checkpoint-1"
+    archive.mkdir()
+    checksums = {
+        "schema": "rook.lm9b_p.checkpoint_checksums:v1",
+        "records": [],
+        "aggregate_identity": "sha256:" + "0" * 64,
+    }
+    (archive / "checksums.json").write_text(
+        json.dumps(checksums), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="sealed checkpoint archive"):
+        ARTIFACTS.verify_sealed_planner_checkpoint_archive(archive)
+
+
 def _json(path: Path) -> dict[str, object]:
     return json.loads(path.read_bytes())
 
