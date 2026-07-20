@@ -14,6 +14,25 @@
 
 An honest `probe_candidate_blocked` supports neither counter-hypothesis. R01 is a matched historical control, not a strict single-variable control.
 
+## Execution Status
+
+All 39 implementation steps below were completed and verified. The
+implementation is complete at `e2d7ff5a`; the final local gate passed 358
+LM9B-P tests, 102 adjacent LM9B-C/kernel tests, Python 3.10/3.12 compilation,
+and diff/worktree checks.
+
+The single canonical experiment is separately recorded as
+`probe_inconclusive`: the Planner provider invocation failed for missing
+credentials before the first model turn. No recipe, evaluator call, compiler
+session, or execution occurred, and the attempt was not retried or repaired.
+See `docs/superpowers/probes/2026-07-20-lm9b-p-planner-recipe-transfer-result.md`.
+
+Execution included one reviewed exception to the original LM9B-C file-freeze
+constraint: the shared LiteLLM adapter now preserves an already serialized
+malformed provider response in an evidence-bearing failure. This changed no
+model profile, prompt, renderer, tool schema, budget, compiler session, or
+decision behavior.
+
 ## File Map
 
 | File | Responsibility |
@@ -141,7 +160,7 @@ Expected: `Python 3.12.12`. Use `py -3.10 -m py_compile` for Python 3.10 compati
 - The fixed `evaluated_at`, deterministic clock source, and three session IDs
   enter through `attempt_context.json`; ambient wall time is forbidden.
 
-- [ ] **Step 1: Add the failing vertical witness**
+- [x] **Step 1: Add the failing vertical witness**
 
 ```python
 def test_non_r01_ready_recipe_reaches_unchanged_fake_compiler_provider(
@@ -203,7 +222,7 @@ def test_non_r01_ready_recipe_reaches_unchanged_fake_compiler_provider(
 
 This proves provider contact after unchanged load/render. It does not claim compiler success.
 
-- [ ] **Step 2: Add exact-contract fixture tests**
+- [x] **Step 2: Add exact-contract fixture tests**
 
 Require these exact identities and complete v1 entries:
 
@@ -250,7 +269,7 @@ the environment, planning-policy, and capability-registry validity intervals;
 the task, environment, and capability sessions exactly match the attempt
 context; and stale or wrong-session mutations fail before handoff.
 
-- [ ] **Step 3: Add normalization-profile and strict-parser tests**
+- [x] **Step 3: Add normalization-profile and strict-parser tests**
 
 The committed profile is the only row inventory. It contains exactly 32 recipe-side rows covering authority artifacts; all clause, nested clause, semantic-reference, policy-reference, goal-projection, clause-link, assumption, materiality, derived-fact, unresolved-authority, shape, capability, and worker-slot collections from the ratified ordering table. That explicitly includes `applies_to_clause_ids`, `inherited_support_from`, `affected_clause_ids`, both policy-reference paths, and both unresolved-authority lists.
 
@@ -264,7 +283,7 @@ rejects bare string IDs.
 
 Strict parser tests cover duplicate key, BOM, invalid UTF-8, depth 65, a 1,025-character integer token, `1e10000`, `1.5`, and `NaN`.
 
-- [ ] **Step 4: Run and observe failure**
+- [x] **Step 4: Run and observe failure**
 
 ```powershell
 $RookPython = 'C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe'
@@ -273,7 +292,7 @@ $RookPython = 'C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe'
 
 Expected: import or fixture-not-found failure.
 
-- [ ] **Step 5: Create exact companions and the single profile**
+- [x] **Step 5: Create exact companions and the single profile**
 
 Create LM9B-P task and environment artifacts from the same payload facts,
 binding IDs, semantic keys, authority kinds, sessions, freshness, and issuer
@@ -322,7 +341,7 @@ sort kinds; `ordered_set` or `empty_only` admission; and
 collections use `required_container`. Nested and parent-optional collections
 use `zero_or_more`. Production Python contains no second path list.
 
-- [ ] **Step 6: Implement bounded parsing and profile-driven normalization**
+- [x] **Step 6: Implement bounded parsing and profile-driven normalization**
 
 ```python
 MAX_RECIPE_BYTES = 1_048_576
@@ -364,7 +383,7 @@ collection absent from the recipe.
 
 Ratified fingerprinting and canonical-normal-form checking use this normalizer. Historical compatibility uses `canonical_fingerprint(own_trusted_json(recipe_without_fingerprint))` without set sorting.
 
-- [ ] **Step 7: Create the schema and non-R01 fixture**
+- [x] **Step 7: Create the schema and non-R01 fixture**
 
 Create a closed Draft 2020-12 schema with `$id = rook.lm9b_p.planner_recipe_probe_schema:v1`, `schema = rook.planner_graph_recipe:v1`, complete admitted workerless structure, ratified references and vocabulary IDs, null confirmation refs, null worker links, and `worker_slots.entries.maxItems = 0`. The closed unresolved-intent and invariant contracts remain admitted; workerless admission does not mean R01-shaped empty collections.
 
@@ -380,7 +399,7 @@ Create a hand-authored non-R01 ready recipe that uses the matched radial authori
 
 Create a matched non-R01 blocked recipe by replacing only the spacing assumption and its support references with one closed `unresolved_intent` entry. Prove it passes the mechanical gate. Its real no-compiler routing proof belongs to Task 5, where `probe_candidate_blocked` first exists; Task 1/2 must not invent semantic classification inside the gate.
 
-- [ ] **Step 8: Implement the R01-free handoff**
+- [x] **Step 8: Implement the R01-free handoff**
 
 `build_lm9bc_handoff`:
 1. accepts the frozen Planner inputs and successful mechanical-gate result,
@@ -397,7 +416,7 @@ Create a matched non-R01 blocked recipe by replacing only the spacing assumption
 
 Add a read-audit test instrumenting `Path.read_bytes`, `Path.open`, and `Path.stat`.
 
-- [ ] **Step 9: Run the witness**
+- [x] **Step 9: Run the witness**
 
 ```powershell
 $RookPython = 'C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe'
@@ -406,7 +425,7 @@ $RookPython = 'C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe'
 
 Expected: all pass, including fake-provider contact through unchanged LM9B-C.
 
-- [ ] **Step 10: Commit and request mandatory review**
+- [x] **Step 10: Commit and request mandatory review**
 
 ```powershell
 git add scripts/lm9b_p_fixtures scripts/lm9b_p_planner_recipe_transfer_support.py scripts/lm9b_p_planner_recipe_transfer_artifacts.py mcp_server/tests/fixtures/lm9b_p mcp_server/tests/test_lm9b_p_constructive_witness.py mcp_server/tests/test_lm9b_p_planner_recipe_transfer_support.py mcp_server/tests/test_lm9b_p_planner_recipe_transfer_artifacts.py
@@ -431,7 +450,7 @@ Stop if this needs recipe translation, R01 metadata, approximated vocabularies, 
 - Consumes Task 1 parsing and normalization.
 - Produces `MechanicalDiagnostic`, `MechanicalGateResult`, and final mechanically accepted model-submitted bytes.
 
-- [ ] **Step 1: Add the rejection matrix**
+- [x] **Step 1: Add the rejection matrix**
 
 Add one named test for each: invalid UTF-8, invalid JSON, duplicate key, oversized integer, float overflow, ordinary non-integer number, non-finite constant, missing required field, unknown field, unknown artifact, missing pointer, artifact hash mismatch, vocabulary fingerprint mismatch, noncanonical collection, nonempty worker slots, forbidden marker, and claimed fingerprint mismatch. Add one finite typed symbol-table pass with one shared clause namespace and separate assumption, derived-fact, unresolved-intent, shape, capability, and worker-slot namespaces. It validates target kinds, unresolved affected-clause links, descriptor joins, exact policy-rule roots, machine grammar, and vocabulary membership without performing semantic LM9A validation.
 
@@ -457,11 +476,11 @@ class MechanicalGateResult:
     historical_recipe_fingerprint: str | None
 ```
 
-- [ ] **Step 2: Add handshake tests**
+- [x] **Step 2: Add handshake tests**
 
 Prove an incorrect claimed fingerprint returns the exact computed value; the model may resubmit in the same session; accepted bytes are model-submitted bytes; the gate never patches or serializes; semantic changes move the hash; and noncanonical ordering cannot be cleared by supplying a hash.
 
-- [ ] **Step 3: Implement the fixed gate order**
+- [x] **Step 3: Implement the fixed gate order**
 
 ```text
 byte bound
@@ -480,7 +499,7 @@ Canonical normal form constrains schema-designated set ordering and duplicate
 identity only. It does not require a particular object-key order, indentation,
 or insignificant-whitespace encoding.
 
-- [ ] **Step 4: Run and commit**
+- [x] **Step 4: Run and commit**
 
 ```powershell
 $RookPython = 'C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe'
@@ -511,7 +530,7 @@ git commit -m "feat(lm9b): complete planner recipe mechanical gate"
 - Planner evaluator sees brief, authority, the exact recipe and deterministic
   findings derived from a reauthenticated successful gate result, and rubric.
 
-- [ ] **Step 1: Add visibility and whole-process read-isolation tests**
+- [x] **Step 1: Add visibility and whole-process read-isolation tests**
 
 Assert planning policy remains byte-identical; task and environment payload
 facts remain semantically equal while corrected fingerprints differ from the
@@ -529,7 +548,7 @@ checks every authority/reference role they describe against the admitted-
 language closure ledger. Prose may explain the language but cannot admit a
 reference kind, code, or outcome absent from the executable gate.
 
-- [ ] **Step 2: Create frozen authoring inputs**
+- [x] **Step 2: Create frozen authoring inputs**
 
 `radial_brief.txt` contains exactly:
 
@@ -545,7 +564,7 @@ freezes scenario-specific fidelity, provenance, material-authority,
 unresolved-intent, and implementation-leakage checks without R01 or a solved
 recipe.
 
-- [ ] **Step 3: Implement fixed-role loading and rendering**
+- [x] **Step 3: Implement fixed-role loading and rendering**
 
 ```python
 @dataclass(frozen=True)
@@ -575,7 +594,7 @@ The Planner request and gate both bind the same verified exclusion-policy
 fingerprint. A policy object not loaded from the frozen input set cannot be
 substituted by a caller.
 
-- [ ] **Step 4: Run and commit**
+- [x] **Step 4: Run and commit**
 
 ```powershell
 $RookPython = 'C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe'
@@ -596,7 +615,7 @@ git commit -m "feat(lm9b): freeze planner authoring boundary"
 - Reuses public LM9B-C `ProviderTurn` and provider-call records.
 - Produces `PlannerSessionResult` containing every visible turn, submission, feedback item, usage record, and final accepted bytes.
 
-- [ ] **Step 1: Add protocol tests**
+- [x] **Step 1: Add protocol tests**
 
 Test exactly one `submit_planner_recipe` tool, at most one call per turn, mechanical feedback for unknown, duplicate, parallel, malformed, and absent calls, fingerprint resubmission, immediate valid termination, free-text rejection, normal turn-limit mechanical rejection, provider failure, timeout, and no post-terminal retry.
 
@@ -615,7 +634,7 @@ PLANNER_TOOL_PARAMETERS = {
 
 The adapter must preserve the exact UTF-8 argument string bytes. A provider representation that exposes only a reconstructed mapping is mechanically rejected.
 
-- [ ] **Step 2: Implement bounded records**
+- [x] **Step 2: Implement bounded records**
 
 ```python
 PLANNER_MAX_TURNS = 6
@@ -655,7 +674,7 @@ each response, not falsely described as pre-enforced hard caps. Maximum turns,
 per-call completion tokens, monotonic deadline, and provider timeout are
 pre-enforced.
 
-- [ ] **Step 3: Run and commit**
+- [x] **Step 3: Run and commit**
 
 ```powershell
 $RookPython = 'C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe'
@@ -679,7 +698,7 @@ git commit -m "feat(lm9b): add bounded planner authoring session"
 - Produces one evaluator recommendation and one mechanically derived Checkpoint 1 classification.
 - `probe_candidate_ready` permits experimental compiler entry only; it is not product authority.
 
-- [ ] **Step 1: Add evaluator and classification tests**
+- [x] **Step 1: Add evaluator and classification tests**
 
 Evaluator recommendations are `faithful_ready`, `faithful_blocked`, or `planner_failure`. Controller mapping is:
 
@@ -694,15 +713,15 @@ mechanically accepted + faithful_ready   -> probe_candidate_ready
 Assert the evaluator cannot issue public classifications and never feeds back to the Planner.
 Use the committed `non_r01_blocked_recipe.json` as the constructive blocked input. When its frozen evaluator recommendation is `faithful_blocked`, assert Checkpoint 1 derives `probe_candidate_blocked`, never calls `build_lm9bc_handoff`, never contacts a compiler provider, and records Checkpoint 2 as `not_evaluated`.
 
-- [ ] **Step 2: Implement one evaluator attempt**
+- [x] **Step 2: Implement one evaluator attempt**
 
 Expose only `submit_planner_evaluation` with a closed schema. The evaluator gets brief, exact authority, final recipe, deterministic findings, and rubric. It gets no Planner transcript, compiler input or output, R01, or expected answer. Provider failure, timeout, malformed output, or missing evidence yields `probe_inconclusive` without retry.
 
-- [ ] **Step 3: Implement Checkpoint 1**
+- [x] **Step 3: Implement Checkpoint 1**
 
 `run_planner_checkpoint` loads inputs, renders one request, runs one Planner session, conditionally runs zero or one evaluator, derives one classification, and retains final model-submitted bytes. Honest `probe_candidate_blocked` is legitimate and leaves Checkpoint 2 unevaluated.
 
-- [ ] **Step 4: Run and commit**
+- [x] **Step 4: Run and commit**
 
 ```powershell
 $RookPython = 'C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe'
@@ -725,19 +744,19 @@ git commit -m "feat(lm9b): score planner authorship checkpoint"
 - Produces a content-addressed Checkpoint 1 archive and sealed classification before any join.
 - Post-freeze R01 comparison requires the sealed aggregate identity.
 
-- [ ] **Step 1: Add archive completeness and tamper tests**
+- [x] **Step 1: Add archive completeness and tamper tests**
 
 Require original inputs and manifest, Planner request, every raw response, every tool argument, every feedback record, usage, timing, identity, final recipe bytes and hashes, evaluator request, response and report, Checkpoint 1 classification, and ordered checksum manifest. Delete and mutate each required file in parameterized tests and require verification failure.
 
-- [ ] **Step 2: Implement atomic evidence writing**
+- [x] **Step 2: Implement atomic evidence writing**
 
 Write to a temporary sibling, calculate and verify `checksums.json`, then rename once. Never overwrite. Record committed git SHA, exact model and profile identities, all bounds, and `execution_permitted = false`.
 
-- [ ] **Step 3: Enforce the pre-freeze read allowlist**
+- [x] **Step 3: Enforce the pre-freeze read allowlist**
 
 Instrument complete Checkpoint 1 and assert no access resolves to R01, LM9B-C's source manifest, or the non-R01 witness. Post-freeze comparison is a separate function requiring a sealed aggregate path and cannot rewrite prior evidence.
 
-- [ ] **Step 4: Run and commit**
+- [x] **Step 4: Run and commit**
 
 ```powershell
 $RookPython = 'C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe'
@@ -761,7 +780,7 @@ git commit -m "feat(lm9b): archive planner checkpoint evidence"
 - Reuses Task 1 `build_lm9bc_handoff`.
 - Produces Checkpoint 2 and aggregate outcomes without modifying LM9B-C.
 
-- [ ] **Step 1: Add joined attribution tests**
+- [x] **Step 1: Add joined attribution tests**
 
 ```text
 probe_candidate_ready + bounded_lowering_demonstrated
@@ -785,11 +804,11 @@ any non-ready Checkpoint 1 result
 
 `contract_gap_demonstrated` requires the explicit LM9B-C terminal variant and evaluator acceptance. It is never inferred from candidate failure.
 
-- [ ] **Step 2: Prove byte equality and compatibility**
+- [x] **Step 2: Prove byte equality and compatibility**
 
 Assert final Planner bytes equal handoff archive bytes and LM9B-C loaded `recipe_bytes`. Assert the join never parses or serializes. Disclose that compiler-visible input is unchanged LM9B-C's parsed projection plus legal-trace catalog and terminal schema. A reordered set-like input fails Checkpoint 1 rather than being rewritten.
 
-- [ ] **Step 3: Implement aggregate orchestration**
+- [x] **Step 3: Implement aggregate orchestration**
 
 After Checkpoint 1 sealing:
 1. publish `not_evaluated` when not ready;
@@ -800,7 +819,7 @@ After Checkpoint 1 sealing:
 6. derive aggregate from both checkpoints;
 7. seal aggregate before optional matched-control comparison.
 
-- [ ] **Step 4: Run and commit**
+- [x] **Step 4: Run and commit**
 
 ```powershell
 $RookPython = 'C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe'
@@ -823,7 +842,7 @@ git commit -m "feat(lm9b): join planner recipe into compiler probe"
 - CLI runs one campaign only after committed deterministic review.
 - Result separates observations, probe classifications, limitations, and non-claims.
 
-- [ ] **Step 1: Add CLI and scope guards**
+- [x] **Step 1: Add CLI and scope guards**
 
 Require `--transmit`, committed clean HEAD, exact model/profile arguments, one unused run root, and refusal to overwrite. Reject imports of `rook.agent.base_agent`, `Rhino`, `Grasshopper`, `gh_edit`, and private validation-kernel names. Reject production R01 references outside the post-freeze comparison function.
 
@@ -835,11 +854,11 @@ stop threshold, USD 10 cost stop threshold, and 8,192 evaluator completion
 tokens. Planner model/profile choices are recorded separately and cannot
 overwrite the compiler controls.
 
-- [ ] **Step 2: Implement pre-transmission summary**
+- [x] **Step 2: Implement pre-transmission summary**
 
 Print git SHA; all four model identities and bounds; Planner request bytes and hash; authority manifest fingerprint; normalization-profile fingerprint; compiler renderer identity; `R01 pre-freeze access = forbidden`; and `execution permitted = false`. Without `--transmit`, exit before provider contact.
 
-- [ ] **Step 3: Run deterministic verification**
+- [x] **Step 3: Run deterministic verification**
 
 ```powershell
 $RookPython = 'C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe'
@@ -852,7 +871,7 @@ git status --short
 
 Expected: tests and compile checks pass; only reviewed LM9B-P scope remains.
 
-- [ ] **Step 4: Commit before transmission**
+- [x] **Step 4: Commit before transmission**
 
 ```powershell
 git add scripts/lm9b_p_fixtures scripts/lm9b_p_planner_recipe_transfer_support.py scripts/lm9b_p_planner_recipe_transfer_artifacts.py scripts/lm9b_p_planner_recipe_transfer_probe.py mcp_server/tests/fixtures/lm9b_p mcp_server/tests/test_lm9b_p_constructive_witness.py mcp_server/tests/test_lm9b_p_planner_recipe_transfer_support.py mcp_server/tests/test_lm9b_p_planner_recipe_transfer_artifacts.py mcp_server/tests/test_lm9b_p_planner_recipe_transfer_probe.py
@@ -861,7 +880,7 @@ git commit -m "feat(lm9b): implement planner recipe transfer probe"
 
 Request independent review of the exact SHA. No transmission occurs before approval.
 
-- [ ] **Step 5: Run exactly one approved attempt**
+- [x] **Step 5: Run exactly one approved attempt**
 
 ```powershell
 $RookPython = 'C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe'
@@ -870,7 +889,7 @@ $RookPython = 'C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe'
 
 Do not retry, repair, edit, or rerun toward success.
 
-- [ ] **Step 6: Verify and commit the scientific record**
+- [x] **Step 6: Verify and commit the scientific record**
 
 Recompute all checksums, verify aggregate bindings, prove final Planner bytes equal LM9B-C input bytes when joined, and prove R01 comparison occurred only after aggregate sealing.
 
