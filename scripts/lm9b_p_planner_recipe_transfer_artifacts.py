@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from types import MappingProxyType
@@ -149,6 +149,30 @@ class SealedPlannerCheckpointArchive:
     archive_dir: Path
     aggregate_identity: str
     checksums_raw_sha256: str
+
+
+_JOIN_PROOF_TOKEN = object()
+
+
+@dataclass(frozen=True)
+class VerifiedPlannerCheckpointJoin:
+    checkpoint_archive: SealedPlannerCheckpointArchive
+    planner_inputs: FrozenPlannerInputs
+    gate_result: MechanicalGateResult
+    final_recipe_bytes: bytes
+    final_recipe_raw_sha256: str
+    recipe_value_fingerprint: str
+    ratified_recipe_fingerprint: str
+    historical_recipe_fingerprint: str
+    planner_records: tuple[PlannerInputRecord, ...]
+    record_identities: tuple[tuple[str, str, str, str], ...]
+    _verified_checkpoint_archive: SealedPlannerCheckpointArchive = field(
+        repr=False, compare=False
+    )
+    _verified_planner_inputs: FrozenPlannerInputs = field(repr=False, compare=False)
+    _verified_gate_result: MechanicalGateResult = field(repr=False, compare=False)
+    _verified_final_recipe_bytes: bytes = field(repr=False, compare=False)
+    _verification_token: object = field(repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -860,10 +884,204 @@ def _verify_frozen_planner_inputs(
     return MappingProxyType(records)
 
 
-def build_lm9bc_handoff(
+def verify_ready_checkpoint_for_join(
     *,
+    checkpoint_archive: SealedPlannerCheckpointArchive,
+    checkpoint_classification: str,
     planner_inputs: FrozenPlannerInputs,
     gate_result: MechanicalGateResult,
+    final_recipe_bytes: bytes,
+) -> VerifiedPlannerCheckpointJoin:
+    """Issue the proof carried from a retained, sealed ready Checkpoint 1."""
+
+    if type(checkpoint_archive) is not SealedPlannerCheckpointArchive:
+        raise TypeError("sealed Checkpoint 1 archive is required")
+    verified_archive = verify_sealed_planner_checkpoint_archive(
+        checkpoint_archive.archive_dir,
+        expected_aggregate_identity=checkpoint_archive.aggregate_identity,
+    )
+    if verified_archive != checkpoint_archive:
+        raise ValueError("retained Checkpoint 1 seal identity mismatch")
+    if checkpoint_classification != "probe_candidate_ready":
+        raise ValueError("only a ready Checkpoint 1 can produce a join proof")
+    if type(planner_inputs) is not FrozenPlannerInputs:
+        raise TypeError("exact frozen Planner inputs are required")
+    if type(gate_result) is not MechanicalGateResult:
+        raise ValueError("exact accepted gate result is required")
+    if (
+        gate_result.status != "mechanically_accepted"
+        or gate_result.diagnostics != ()
+        or type(final_recipe_bytes) is not bytes
+        or gate_result.final_recipe_bytes is not final_recipe_bytes
+        or not all(
+            isinstance(value, str) and value.startswith("sha256:")
+            for value in (
+                gate_result.recipe_value_fingerprint,
+                gate_result.ratified_recipe_fingerprint,
+                gate_result.historical_recipe_fingerprint,
+            )
+        )
+    ):
+        raise ValueError("exact accepted gate result is required")
+
+    classification = _archive_object(
+        verified_archive.archive_dir / "checkpoint/classification.json",
+        "classification",
+    )
+    if (
+        classification.get("classification") != checkpoint_classification
+        or classification.get("checkpoint_2") != "not_evaluated"
+    ):
+        raise ValueError("ready Checkpoint 1 classification is not bound to its seal")
+
+    records = _verify_frozen_planner_inputs(planner_inputs)
+    manifest = _archive_object(
+        verified_archive.archive_dir / "inputs/manifest.json",
+        "Planner input manifest",
+    )
+    expected_manifest_records = [
+        {
+            "role": record.role,
+            "path": record.relative_path,
+            "raw_sha256": record.raw_sha256,
+            "canonical_fingerprint": record.canonical_fingerprint,
+        }
+        for record in planner_inputs.records
+    ]
+    if (
+        manifest.get("schema") != "rook.lm9b_p.planner_input_manifest:v1"
+        or manifest.get("records") != expected_manifest_records
+    ):
+        raise ValueError("frozen Planner inputs are not bound to the retained seal")
+    for record in planner_inputs.records:
+        archived = (
+            verified_archive.archive_dir / "inputs" / record.relative_path
+        ).read_bytes()
+        if archived != record.raw_bytes:
+            raise ValueError(f"sealed Planner input byte mismatch: {record.role}")
+
+    archived_recipe = (
+        verified_archive.archive_dir / "planner/final_recipe.json"
+    ).read_bytes()
+    recipe_identity = _archive_object(
+        verified_archive.archive_dir / "planner/final_recipe_identity.json",
+        "final recipe identity",
+    )
+    expected_recipe_identity = {
+        "raw_sha256": sha256_prefixed(final_recipe_bytes),
+        "mechanical_status": gate_result.status,
+        "recipe_value_fingerprint": gate_result.recipe_value_fingerprint,
+        "ratified_recipe_fingerprint": gate_result.ratified_recipe_fingerprint,
+        "historical_recipe_fingerprint": gate_result.historical_recipe_fingerprint,
+    }
+    if archived_recipe != final_recipe_bytes or recipe_identity != expected_recipe_identity:
+        raise ValueError("accepted recipe authority is not bound to the retained seal")
+
+    ordered_records = tuple(records[role] for role, _, _ in _PLANNER_INPUT_FILES)
+    return VerifiedPlannerCheckpointJoin(
+        checkpoint_archive=verified_archive,
+        planner_inputs=planner_inputs,
+        gate_result=gate_result,
+        final_recipe_bytes=final_recipe_bytes,
+        final_recipe_raw_sha256=expected_recipe_identity["raw_sha256"],
+        recipe_value_fingerprint=gate_result.recipe_value_fingerprint,
+        ratified_recipe_fingerprint=gate_result.ratified_recipe_fingerprint,
+        historical_recipe_fingerprint=gate_result.historical_recipe_fingerprint,
+        planner_records=ordered_records,
+        record_identities=tuple(
+            (
+                record.role,
+                record.relative_path,
+                record.raw_sha256,
+                record.canonical_fingerprint,
+            )
+            for record in ordered_records
+        ),
+        _verified_checkpoint_archive=verified_archive,
+        _verified_planner_inputs=planner_inputs,
+        _verified_gate_result=gate_result,
+        _verified_final_recipe_bytes=final_recipe_bytes,
+        _verification_token=_JOIN_PROOF_TOKEN,
+    )
+
+
+def _checked_join_proof(
+    proof: VerifiedPlannerCheckpointJoin,
+) -> tuple[MechanicalGateResult, Mapping[str, PlannerInputRecord]]:
+    if (
+        type(proof) is not VerifiedPlannerCheckpointJoin
+        or proof._verification_token is not _JOIN_PROOF_TOKEN
+    ):
+        raise ValueError("verified ready Checkpoint 1 join proof is required")
+    if type(proof.checkpoint_archive) is not SealedPlannerCheckpointArchive:
+        raise ValueError("verified ready Checkpoint 1 join proof is invalid")
+    if proof.checkpoint_archive is not proof._verified_checkpoint_archive:
+        raise ValueError("verified ready Checkpoint 1 join proof is invalid")
+    gate = proof.gate_result
+    if (
+        type(gate) is not MechanicalGateResult
+        or gate.status != "mechanically_accepted"
+        or gate.diagnostics != ()
+        or proof.planner_inputs is not proof._verified_planner_inputs
+        or gate is not proof._verified_gate_result
+        or type(proof.final_recipe_bytes) is not bytes
+        or proof.final_recipe_bytes is not proof._verified_final_recipe_bytes
+        or gate.final_recipe_bytes is not proof.final_recipe_bytes
+        or proof.final_recipe_raw_sha256
+        != sha256_prefixed(proof.final_recipe_bytes)
+        or gate.recipe_value_fingerprint != proof.recipe_value_fingerprint
+        or gate.ratified_recipe_fingerprint
+        != proof.ratified_recipe_fingerprint
+        or gate.historical_recipe_fingerprint
+        != proof.historical_recipe_fingerprint
+    ):
+        raise ValueError("verified ready Checkpoint 1 join proof is invalid")
+    archived_recipe = (
+        proof.checkpoint_archive.archive_dir / "planner/final_recipe.json"
+    ).read_bytes()
+    if archived_recipe != proof.final_recipe_bytes:
+        raise ValueError("verified ready Checkpoint 1 recipe bytes changed")
+    if len(proof.planner_records) != len(proof.planner_inputs.records) or any(
+        proof_record is not input_record
+        for proof_record, input_record in zip(
+            proof.planner_records, proof.planner_inputs.records
+        )
+    ):
+        raise ValueError("verified ready Checkpoint 1 record identity changed")
+    identities = tuple(
+        (
+            record.role,
+            record.relative_path,
+            record.raw_sha256,
+            record.canonical_fingerprint,
+        )
+        for record in proof.planner_records
+    )
+    if identities != proof.record_identities:
+        raise ValueError("verified ready Checkpoint 1 record identity changed")
+    records: dict[str, PlannerInputRecord] = {}
+    for record in proof.planner_records:
+        if (
+            type(record) is not PlannerInputRecord
+            or record.role in records
+            or record.raw_sha256 != sha256_prefixed(record.raw_bytes)
+            or (
+                proof.checkpoint_archive.archive_dir
+                / "inputs"
+                / record.relative_path
+            ).read_bytes()
+            != record.raw_bytes
+        ):
+            raise ValueError("verified ready Checkpoint 1 record identity changed")
+        records[record.role] = record
+    if tuple(records) != tuple(role for role, _, _ in _PLANNER_INPUT_FILES):
+        raise ValueError("verified ready Checkpoint 1 record identity changed")
+    return gate, MappingProxyType(records)
+
+
+def build_lm9bc_handoff(
+    *,
+    join_proof: VerifiedPlannerCheckpointJoin,
     compiler_fixture_dir: Path,
     destination: Path,
 ) -> Lm9bcHandoff:
@@ -872,10 +1090,10 @@ def build_lm9bc_handoff(
     compiler_fixture_dir = Path(compiler_fixture_dir).resolve()
     destination = Path(destination).resolve()
 
-    accepted_result = _accepted_gate_result(planner_inputs, gate_result)
+    accepted_result, planner_records = _checked_join_proof(join_proof)
     accepted_recipe_bytes = accepted_result.final_recipe_bytes
     assert accepted_recipe_bytes is not None
-    planner_records = _verify_frozen_planner_inputs(planner_inputs)
+    planner_inputs = join_proof.planner_inputs
 
     task_record = planner_records["authority.task_envelope"]
     environment_record = planner_records["authority.environment_snapshot"]
@@ -1019,8 +1237,6 @@ def derive_joined_aggregate_outcome(
     if checkpoint_2_outcome == "candidate_failure":
         return "candidate_failure"
     if checkpoint_2_outcome == "inconclusive":
-        if terminal is not None and result_kind != "contract_insufficient":
-            return "candidate_failure"
         turns = getattr(compiler_session, "turns", ())
         if (
             getattr(compiler_session, "stop_reason", None) == "max_turns_exhausted"
@@ -1829,6 +2045,7 @@ __all__ = (
     "RenderedRequest",
     "SealedJoinedAggregate",
     "SealedPlannerCheckpointArchive",
+    "VerifiedPlannerCheckpointJoin",
     "build_lm9bc_handoff",
     "compare_sealed_checkpoint_with_r01",
     "derive_checkpoint_classification",
@@ -1840,4 +2057,5 @@ __all__ = (
     "seal_joined_aggregate",
     "seal_planner_checkpoint_archive",
     "verify_sealed_planner_checkpoint_archive",
+    "verify_ready_checkpoint_for_join",
 )

@@ -666,6 +666,138 @@ def test_compiler_control_failures_are_inconclusive_without_evaluator(
     assert result.lm9bc_result is not None
 
 
+@pytest.mark.parametrize(
+    ("control", "response"),
+    [
+        ("provider", RuntimeError("evaluator unavailable")),
+        ("timeout", TimeoutError("evaluator timed out")),
+        ("protocol", object()),
+        (
+            "malformed_report",
+            LM9B_C_SUPPORT.ProviderTurn(
+                raw_request=b'{"compiler_evaluator":"request"}',
+                raw_response=b'{"compiler_evaluator":"malformed"}',
+                assistant_message={"role": "assistant", "tool_calls": []},
+                usage={"total_tokens": 11},
+                provider_metadata={"provider": "fake", "model": "evaluator"},
+            ),
+        ),
+    ],
+)
+def test_compiler_evaluator_control_failures_remain_inconclusive(
+    tmp_path: Path,
+    sealed_checkpoint,
+    control: str,
+    response: object,
+) -> None:
+    checkpoint, _ = sealed_checkpoint
+    compiler = _Provider([_compiler_turn(_valid_compiler_candidate())])
+    evaluator = _Provider([response, AssertionError("evaluator retried")])
+
+    result = _run_joined(
+        tmp_path=tmp_path,
+        checkpoint=checkpoint,
+        compiler=compiler,
+        evaluator=evaluator,
+    )
+
+    assert result.checkpoint_2 == "inconclusive", control
+    assert result.aggregate_outcome == "inconclusive"
+    assert len(compiler.requests) == 1
+    assert len(evaluator.requests) == 1
+    assert result.lm9bc_result is not None
+    assert result.sealed_aggregate is not None
+
+
+def test_join_does_not_reparse_verified_checkpoint_recipe_bytes(
+    tmp_path: Path,
+    sealed_checkpoint,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checkpoint, _ = sealed_checkpoint
+    recipe_bytes = checkpoint.final_recipe_bytes
+    assert type(recipe_bytes) is bytes
+    parse_calls = 0
+    gate_calls = 0
+    original_parse = SUPPORT.parse_strict_json
+
+    def observed_parse(raw: bytes):
+        nonlocal parse_calls
+        if raw == recipe_bytes:
+            parse_calls += 1
+        return original_parse(raw)
+
+    def observed_gate(**kwargs):
+        nonlocal gate_calls
+        gate_calls += 1
+        raise AssertionError("the join adapter recomputed the mechanical gate")
+
+    monkeypatch.setattr(SUPPORT, "parse_strict_json", observed_parse)
+    monkeypatch.setattr(ARTIFACTS, "evaluate_mechanical_gate", observed_gate)
+    result = _run_joined(
+        tmp_path=tmp_path,
+        checkpoint=checkpoint,
+        compiler=_Provider([RuntimeError("compiler unavailable")]),
+        evaluator=_Provider([AssertionError("evaluator must not run")]),
+    )
+
+    assert result.checkpoint_2 == "inconclusive"
+    assert parse_calls == 0
+    assert gate_calls == 0
+
+
+@pytest.mark.parametrize(
+    ("compiler_response", "evaluator_response", "expected_evaluator_calls"),
+    [
+        (
+            _compiler_turn(_valid_compiler_candidate()),
+            _compiler_evaluator_turn(_candidate_evaluation()),
+            1,
+        ),
+        (RuntimeError("compiler unavailable"), AssertionError("must not run"), 0),
+    ],
+)
+def test_post_contact_lm9bc_evidence_failure_has_no_aggregate_or_retry(
+    tmp_path: Path,
+    sealed_checkpoint,
+    monkeypatch: pytest.MonkeyPatch,
+    compiler_response: object,
+    evaluator_response: object,
+    expected_evaluator_calls: int,
+) -> None:
+    checkpoint, _ = sealed_checkpoint
+    compiler = _Provider([compiler_response, AssertionError("compiler retried")])
+    evaluator = _Provider([evaluator_response, AssertionError("evaluator retried")])
+    monkeypatch.setattr(
+        LM9B_C_PROBE,
+        "write_probe_evidence",
+        lambda **kwargs: (_ for _ in ()).throw(OSError("evidence unavailable")),
+    )
+
+    result = _run_joined(
+        tmp_path=tmp_path,
+        checkpoint=checkpoint,
+        compiler=compiler,
+        evaluator=evaluator,
+    )
+
+    assert result.checkpoint_2 == "inconclusive"
+    assert result.aggregate_outcome == "inconclusive"
+    assert result.sealed_aggregate is None
+    assert not (tmp_path / "aggregate").exists()
+    assert len(compiler.requests) == 1
+    assert len(evaluator.requests) == expected_evaluator_calls
+    assert len(result.compiler_provider_attempts) == 1
+    assert result.compiler_provider_attempts[0].provider_request_bytes
+    if expected_evaluator_calls:
+        assert len(result.compiler_evaluator_provider_attempts) == 1
+        turn = result.compiler_evaluator_provider_attempts[0].provider_turn
+        assert turn.raw_response == b'{"compiler_evaluator":"response"}'
+    else:
+        assert result.compiler_evaluator_provider_attempts == ()
+    assert result.control_failure["locus"] == "lm9b_c_session_or_evidence"
+
+
 @pytest.mark.parametrize("failure_locus", ["load_or_index", "render"])
 def test_pre_session_failure_is_inconclusive_without_compiler_contact(
     tmp_path: Path,

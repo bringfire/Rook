@@ -4,6 +4,7 @@ import importlib.util
 import builtins
 import json
 import shutil
+import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -31,26 +32,128 @@ LM9B_C_ARTIFACTS = _load_script("lm9b_c_compiler_sufficiency_artifacts")
 LM9B_C_PROBE = _load_script("lm9b_c_compiler_sufficiency_probe")
 SUPPORT = _load_script("lm9b_p_planner_recipe_transfer_support")
 ARTIFACTS = _load_script("lm9b_p_planner_recipe_transfer_artifacts")
+PROBE = _load_script("lm9b_p_planner_recipe_transfer_probe")
+
+
+class _Provider:
+    def __init__(self, response: object) -> None:
+        self.response = response
+
+    def __call__(self, request: dict[str, object]) -> object:
+        return self.response
+
+
+def _planner_turn(recipe_bytes: bytes) -> object:
+    return SUPPORT.ProviderTurn(
+        raw_request=b'{"planner":"request"}',
+        raw_response=b'{"planner":"response"}',
+        assistant_message={
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "planner-call-1",
+                    "function": {
+                        "name": "submit_planner_recipe",
+                        "arguments": json.dumps(
+                            {"recipe_json": recipe_bytes.decode("utf-8")}
+                        ),
+                    },
+                }
+            ],
+        },
+        usage={},
+        provider_metadata={
+            "model_identity": "constructive-planner",
+            "profile_identity": "constructive-profile",
+        },
+    )
+
+
+def _evaluator_turn() -> object:
+    return SUPPORT.ProviderTurn(
+        raw_request=b'{"evaluator":"request"}',
+        raw_response=b'{"evaluator":"response"}',
+        assistant_message={
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "evaluator-call-1",
+                    "function": {
+                        "name": "submit_planner_evaluation",
+                        "arguments": json.dumps(
+                            {
+                                "evaluation_json": json.dumps(
+                                    {
+                                        "recommendation": "faithful_ready",
+                                        "evidence": [
+                                            {
+                                                "criterion_id": "brief_fidelity",
+                                                "finding": "Constructive witness is ready.",
+                                            }
+                                        ],
+                                    }
+                                )
+                            }
+                        ),
+                    },
+                }
+            ],
+        },
+        usage={},
+        provider_metadata={
+            "model_identity": "constructive-evaluator",
+            "profile_identity": "constructive-profile",
+        },
+    )
+
+
+def _ready_join_proof(
+    *, destination: Path, fixture_dir: Path = PLANNER_FIXTURES
+) -> tuple[object, object]:
+    recipe_bytes = NON_R01_RECIPE.read_bytes()
+    checkpoint = PROBE.run_planner_checkpoint(
+        fixture_dir=fixture_dir,
+        planner_provider=_Provider(_planner_turn(recipe_bytes)),
+        evaluator_provider=_Provider(_evaluator_turn()),
+        archive_destination=destination,
+        archive_identity={
+            "git_commit_sha": subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+            ).strip(),
+            "planner_model_identity": "constructive-planner",
+            "evaluator_model_identity": "constructive-evaluator",
+            "provider_profile_identity": "constructive-profile",
+        },
+    )
+    assert checkpoint.classification == "probe_candidate_ready"
+    assert checkpoint.sealed_archive is not None
+    assert checkpoint.planner_inputs is not None
+    assert checkpoint.gate_result is not None
+    assert checkpoint.final_recipe_bytes is not None
+    proof = ARTIFACTS.verify_ready_checkpoint_for_join(
+        checkpoint_archive=checkpoint.sealed_archive,
+        checkpoint_classification=checkpoint.classification,
+        planner_inputs=checkpoint.planner_inputs,
+        gate_result=checkpoint.gate_result,
+        final_recipe_bytes=checkpoint.final_recipe_bytes,
+    )
+    return checkpoint, proof
 
 
 def test_non_r01_recipe_reaches_unchanged_fake_compiler_provider(tmp_path: Path) -> None:
-    inputs = ARTIFACTS.load_planner_inputs(PLANNER_FIXTURES)
+    checkpoint, proof = _ready_join_proof(destination=tmp_path / "checkpoint-1")
+    inputs = checkpoint.planner_inputs
+    assert inputs is not None
     authority = inputs.authority
     recipe_bytes = NON_R01_RECIPE.read_bytes()
-    gate = SUPPORT.evaluate_mechanical_gate(
-        recipe_bytes=recipe_bytes,
-        authority=authority,
-        recipe_schema=authority.recipe_schema,
-        normalization_profile=authority.normalization_profile,
-        exclusion_policy=authority.exclusion_policy,
-    )
+    gate = checkpoint.gate_result
+    assert gate is not None
     assert gate.status == "mechanically_accepted"
     assert gate.final_recipe_bytes == recipe_bytes
     assert gate.ratified_recipe_fingerprint == gate.historical_recipe_fingerprint
 
     handoff = ARTIFACTS.build_lm9bc_handoff(
-        planner_inputs=inputs,
-        gate_result=gate,
+        join_proof=proof,
         compiler_fixture_dir=COMPILER_FIXTURES,
         destination=tmp_path / "handoff",
     )
@@ -130,10 +233,9 @@ def test_reordered_set_like_recipe_fails_checkpoint_1_without_rewrite(
         "recipe_not_canonical_normal_form"
     ]
     destination = tmp_path / "must-not-exist"
-    with pytest.raises(ValueError, match="accepted gate result"):
+    with pytest.raises(ValueError, match="join proof"):
         ARTIFACTS.build_lm9bc_handoff(
-            planner_inputs=inputs,
-            gate_result=gate,
+            join_proof=gate,
             compiler_fixture_dir=COMPILER_FIXTURES,
             destination=destination,
         )
@@ -183,19 +285,11 @@ def test_handoff_never_reads_r01_or_its_source_manifest(
     monkeypatch.setattr(Path, "stat", audited_stat)
     monkeypatch.setattr(builtins, "open", audited_open)
 
-    inputs = ARTIFACTS.load_planner_inputs(PLANNER_FIXTURES)
-    authority = inputs.authority
-    recipe_bytes = NON_R01_RECIPE.read_bytes()
-    gate = SUPPORT.evaluate_mechanical_gate(
-        recipe_bytes=recipe_bytes,
-        authority=authority,
-        recipe_schema=authority.recipe_schema,
-        normalization_profile=authority.normalization_profile,
-        exclusion_policy=authority.exclusion_policy,
+    _, proof = _ready_join_proof(
+        destination=tmp_path / "checkpoint-1",
     )
     ARTIFACTS.build_lm9bc_handoff(
-        planner_inputs=inputs,
-        gate_result=gate,
+        join_proof=proof,
         compiler_fixture_dir=COMPILER_FIXTURES,
         destination=tmp_path / "audited-handoff",
     )
@@ -215,15 +309,12 @@ def test_handoff_preserves_frozen_planner_authority_after_fixture_mutation(
 ) -> None:
     copied = tmp_path / "planner-fixtures"
     shutil.copytree(PLANNER_FIXTURES, copied)
-    inputs = ARTIFACTS.load_planner_inputs(copied)
-    recipe_bytes = NON_R01_RECIPE.read_bytes()
-    gate = SUPPORT.evaluate_mechanical_gate(
-        recipe_bytes=recipe_bytes,
-        authority=inputs.authority,
-        recipe_schema=inputs.recipe_schema,
-        normalization_profile=inputs.authority.normalization_profile,
-        exclusion_policy=inputs.exclusion_policy,
+    checkpoint, proof = _ready_join_proof(
+        destination=tmp_path / "checkpoint-1",
+        fixture_dir=copied,
     )
+    inputs = checkpoint.planner_inputs
+    assert inputs is not None
     frozen_record = next(
         record
         for record in inputs.records
@@ -233,8 +324,7 @@ def test_handoff_preserves_frozen_planner_authority_after_fixture_mutation(
     fixture_path.write_bytes(fixture_path.read_bytes() + b"  \n")
 
     handoff = ARTIFACTS.build_lm9bc_handoff(
-        planner_inputs=inputs,
-        gate_result=gate,
+        join_proof=proof,
         compiler_fixture_dir=COMPILER_FIXTURES,
         destination=tmp_path / "frozen-handoff",
     )
@@ -252,15 +342,9 @@ def test_handoff_preserves_frozen_planner_authority_after_fixture_mutation(
 def test_handoff_rejects_caller_forged_acceptance_before_writing(
     tmp_path: Path,
 ) -> None:
-    inputs = ARTIFACTS.load_planner_inputs(PLANNER_FIXTURES)
-    recipe_bytes = NON_R01_RECIPE.read_bytes()
-    accepted = SUPPORT.evaluate_mechanical_gate(
-        recipe_bytes=recipe_bytes,
-        authority=inputs.authority,
-        recipe_schema=inputs.recipe_schema,
-        normalization_profile=inputs.authority.normalization_profile,
-        exclusion_policy=inputs.exclusion_policy,
-    )
+    checkpoint, proof = _ready_join_proof(destination=tmp_path / "checkpoint-1")
+    accepted = checkpoint.gate_result
+    assert accepted is not None
     forged = replace(
         accepted,
         final_recipe_bytes=b"{}",
@@ -269,13 +353,12 @@ def test_handoff_rejects_caller_forged_acceptance_before_writing(
     destination = tmp_path / "forged-handoff"
     try:
         ARTIFACTS.build_lm9bc_handoff(
-            planner_inputs=inputs,
-            gate_result=forged,
+            join_proof=replace(proof, gate_result=forged),
             compiler_fixture_dir=COMPILER_FIXTURES,
             destination=destination,
         )
     except ValueError as exc:
-        assert "accepted gate result" in str(exc)
+        assert "join proof" in str(exc)
     else:
         raise AssertionError("forged acceptance reached the handoff")
     assert not destination.exists()
@@ -293,10 +376,9 @@ def test_handoff_rejects_caller_forged_acceptance_before_writing(
         historical_recipe_fingerprint=accepted.historical_recipe_fingerprint,
     )
     subclass_destination = tmp_path / "subclass-forged-handoff"
-    with pytest.raises(ValueError, match="accepted gate result"):
+    with pytest.raises(ValueError, match="join proof"):
         ARTIFACTS.build_lm9bc_handoff(
-            planner_inputs=inputs,
-            gate_result=subclass_forgery,
+            join_proof=replace(proof, gate_result=subclass_forgery),
             compiler_fixture_dir=COMPILER_FIXTURES,
             destination=subclass_destination,
         )
@@ -306,15 +388,7 @@ def test_handoff_rejects_caller_forged_acceptance_before_writing(
 def test_handoff_rejects_corrupted_persisted_bytes(
     tmp_path: Path, monkeypatch,
 ) -> None:
-    inputs = ARTIFACTS.load_planner_inputs(PLANNER_FIXTURES)
-    recipe_bytes = NON_R01_RECIPE.read_bytes()
-    accepted = SUPPORT.evaluate_mechanical_gate(
-        recipe_bytes=recipe_bytes,
-        authority=inputs.authority,
-        recipe_schema=inputs.recipe_schema,
-        normalization_profile=inputs.authority.normalization_profile,
-        exclusion_policy=inputs.exclusion_policy,
-    )
+    _, proof = _ready_join_proof(destination=tmp_path / "checkpoint-1")
 
     def short_write(path: Path, raw: bytes) -> None:
         path.write_bytes(raw[:-1])
@@ -322,8 +396,7 @@ def test_handoff_rejects_corrupted_persisted_bytes(
     monkeypatch.setattr(ARTIFACTS, "_write_bytes", short_write)
     with pytest.raises(ValueError, match="handoff write verification failed: recipe"):
         ARTIFACTS.build_lm9bc_handoff(
-            planner_inputs=inputs,
-            gate_result=accepted,
+            join_proof=proof,
             compiler_fixture_dir=COMPILER_FIXTURES,
             destination=tmp_path / "corrupted-handoff",
         )

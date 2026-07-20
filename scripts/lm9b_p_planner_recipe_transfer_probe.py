@@ -64,7 +64,12 @@ class JoinedProbeResult:
     handoff: ARTIFACTS.Lm9bcHandoff | None
     lm9bc_result: object | None
     pre_session_failure: Mapping[str, object] | None
-    sealed_aggregate: ARTIFACTS.SealedJoinedAggregate
+    sealed_aggregate: ARTIFACTS.SealedJoinedAggregate | None
+    compiler_provider_attempts: tuple[ARTIFACTS.ProviderAttemptEvidence, ...] = ()
+    compiler_evaluator_provider_attempts: tuple[
+        ARTIFACTS.ProviderAttemptEvidence, ...
+    ] = ()
+    control_failure: Mapping[str, object] | None = None
 
 
 def _checkpoint_classification(
@@ -265,6 +270,11 @@ def run_joined_probe(
     ):
         raise ValueError("Checkpoint 1 classification is not bound to its seal")
 
+    compiler_provider_attempts: list[ARTIFACTS.ProviderAttemptEvidence] = []
+    compiler_evaluator_provider_attempts: list[
+        ARTIFACTS.ProviderAttemptEvidence
+    ] = []
+
     def seal_result(
         *,
         checkpoint_2: str,
@@ -297,6 +307,10 @@ def run_joined_probe(
             lm9bc_result=lm9bc_result,
             pre_session_failure=pre_session_failure,
             sealed_aggregate=sealed_aggregate,
+            compiler_provider_attempts=tuple(compiler_provider_attempts),
+            compiler_evaluator_provider_attempts=tuple(
+                compiler_evaluator_provider_attempts
+            ),
         )
 
     if checkpoint_1.classification != "probe_candidate_ready":
@@ -319,11 +333,13 @@ def run_joined_probe(
         or gate_result.final_recipe_bytes is not final_recipe_bytes
     ):
         raise ValueError("ready Checkpoint 1 has no exact accepted gate transition")
-    sealed_recipe_bytes = (
-        sealed_checkpoint.archive_dir / "planner" / "final_recipe.json"
-    ).read_bytes()
-    if sealed_recipe_bytes != final_recipe_bytes:
-        raise ValueError("ready Checkpoint 1 recipe is not bound to its seal")
+    join_proof = ARTIFACTS.verify_ready_checkpoint_for_join(
+        checkpoint_archive=sealed_checkpoint,
+        checkpoint_classification=checkpoint_1.classification,
+        planner_inputs=planner_inputs,
+        gate_result=gate_result,
+        final_recipe_bytes=final_recipe_bytes,
+    )
 
     def finish_pre_session_failure(
         locus: str,
@@ -348,8 +364,7 @@ def run_joined_probe(
 
     try:
         handoff = ARTIFACTS.build_lm9bc_handoff(
-            planner_inputs=planner_inputs,
-            gate_result=gate_result,
+            join_proof=join_proof,
             compiler_fixture_dir=compiler_fixture_dir,
             destination=handoff_destination,
         )
@@ -379,57 +394,107 @@ def run_joined_probe(
             loaded_recipe_bytes=loaded_recipe_bytes,
         )
 
-    compiler_contacts = 0
+    def provider_request_bytes(request: dict[str, object]) -> bytes:
+        return json.dumps(
+            request, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
 
     def counted_compiler_provider(request: dict[str, object]) -> object:
-        nonlocal compiler_contacts
-        compiler_contacts += 1
-        return compiler_provider(request)
+        attempt = ARTIFACTS.ProviderAttemptEvidence(
+            provider_request_bytes=provider_request_bytes(request)
+        )
+        compiler_provider_attempts.append(attempt)
+        started_at = time.perf_counter()
+        try:
+            turn = compiler_provider(request)
+        except BaseException as exc:
+            attempt.record_exception(exc, started_at)
+            raise
+        attempt.record_return(turn, started_at)
+        return turn
+
+    def counted_evaluator_provider(request: dict[str, object]) -> object:
+        attempt = ARTIFACTS.ProviderAttemptEvidence(
+            provider_request_bytes=provider_request_bytes(request)
+        )
+        compiler_evaluator_provider_attempts.append(attempt)
+        started_at = time.perf_counter()
+        try:
+            turn = compiler_evaluator_provider(request)
+        except BaseException as exc:
+            attempt.record_exception(exc, started_at)
+            raise
+        attempt.record_return(turn, started_at)
+        return turn
+
+    def finish_post_contact_failure(
+        exc: Exception,
+        *,
+        lm9bc_result: object | None = None,
+    ) -> JoinedProbeResult:
+        failure = {
+            "locus": "lm9b_c_session_or_evidence",
+            "exception_type": type(exc).__name__,
+            "message": str(exc)[:2000],
+        }
+        return JoinedProbeResult(
+            checkpoint_1=checkpoint_1,
+            checkpoint_2="inconclusive",
+            aggregate_outcome="inconclusive",
+            handoff=handoff,
+            lm9bc_result=lm9bc_result,
+            pre_session_failure=None,
+            sealed_aggregate=None,
+            compiler_provider_attempts=tuple(compiler_provider_attempts),
+            compiler_evaluator_provider_attempts=tuple(
+                compiler_evaluator_provider_attempts
+            ),
+            control_failure=failure,
+        )
 
     try:
         lm9bc_result = lm9bc_probe.run_probe(
             run_root=compiler_run_root,
             fixture_dir=handoff.fixture_dir,
             compiler_provider=counted_compiler_provider,
-            evaluator_provider=compiler_evaluator_provider,
+            evaluator_provider=counted_evaluator_provider,
             compiler_identity=compiler_identity,
             evaluator_identity=compiler_evaluator_identity,
             git_sha=git_sha,
         )
     except Exception as exc:
-        if compiler_contacts == 0:
+        if not compiler_provider_attempts and not compiler_evaluator_provider_attempts:
             return finish_pre_session_failure(
                 "load_or_index_or_render",
                 exc,
                 handoff=handoff,
                 loaded_recipe_bytes=loaded_recipe_bytes,
             )
-        return seal_result(
-            checkpoint_2="inconclusive",
-            aggregate_outcome="inconclusive",
-            reason_codes=("compiler_session_or_evidence_failure",),
-            handoff=handoff,
-            loaded_recipe_bytes=loaded_recipe_bytes,
-        )
+        return finish_post_contact_failure(exc)
 
-    result_loaded_bytes = getattr(getattr(lm9bc_result, "inputs", None), "recipe_bytes", None)
-    if result_loaded_bytes != final_recipe_bytes:
-        raise ValueError("unchanged LM9B-C run loaded different recipe bytes")
-    checkpoint_2 = lm9bc_result.decision.outcome
-    aggregate_outcome = ARTIFACTS.derive_joined_aggregate_outcome(
-        checkpoint_1_classification=checkpoint_1.classification,
-        checkpoint_2_outcome=checkpoint_2,
-        compiler_session=lm9bc_result.compiler_session,
-        evaluator_result=lm9bc_result.evaluator_result,
-    )
-    return seal_result(
-        checkpoint_2=checkpoint_2,
-        aggregate_outcome=aggregate_outcome,
-        reason_codes=tuple(lm9bc_result.decision.reason_codes),
-        handoff=handoff,
-        loaded_recipe_bytes=result_loaded_bytes,
-        lm9bc_result=lm9bc_result,
-    )
+    try:
+        result_loaded_bytes = getattr(
+            getattr(lm9bc_result, "inputs", None), "recipe_bytes", None
+        )
+        if result_loaded_bytes != final_recipe_bytes:
+            raise ValueError("unchanged LM9B-C run loaded different recipe bytes")
+        checkpoint_2 = lm9bc_result.decision.outcome
+        aggregate_outcome = ARTIFACTS.derive_joined_aggregate_outcome(
+            checkpoint_1_classification=checkpoint_1.classification,
+            checkpoint_2_outcome=checkpoint_2,
+            compiler_session=lm9bc_result.compiler_session,
+            evaluator_result=lm9bc_result.evaluator_result,
+        )
+        return seal_result(
+            checkpoint_2=checkpoint_2,
+            aggregate_outcome=aggregate_outcome,
+            reason_codes=tuple(lm9bc_result.decision.reason_codes),
+            handoff=handoff,
+            loaded_recipe_bytes=result_loaded_bytes,
+            lm9bc_result=lm9bc_result,
+        )
+    except Exception as exc:
+        return finish_post_contact_failure(exc, lm9bc_result=lm9bc_result)
 
 
 __all__ = (
