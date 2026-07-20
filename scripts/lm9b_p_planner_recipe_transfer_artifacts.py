@@ -1,4 +1,4 @@
-"""Frozen authority loading and R01-free LM9B-C handoff for LM9B-P."""
+"""Frozen authority loading and matched-control-free LM9B-C handoff for LM9B-P."""
 
 from __future__ import annotations
 
@@ -1100,7 +1100,7 @@ def build_lm9bc_handoff(
     compiler_fixture_dir: Path,
     destination: Path,
 ) -> Lm9bcHandoff:
-    """Build the LM9B-C boundary without reading R01 or its source manifest."""
+    """Build the LM9B-C boundary without reading matched-control inputs."""
 
     compiler_fixture_dir = Path(compiler_fixture_dir).resolve()
     destination = Path(destination).resolve()

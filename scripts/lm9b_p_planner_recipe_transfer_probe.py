@@ -1,9 +1,13 @@
-"""Checkpoint 1 controller for the bounded LM9B-P Planner probe."""
+#!/usr/bin/env python
+"""Run the bounded LM9B-P Planner recipe-transfer probe."""
 
 from __future__ import annotations
 
+import argparse
+import ast
 import importlib
 import json
+import subprocess
 import sys
 import time
 from dataclasses import dataclass, replace
@@ -12,8 +16,11 @@ from typing import Callable, Literal, Mapping
 
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
-if str(_SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPTS_DIR))
+_REPO_ROOT = _SCRIPTS_DIR.parent
+_MCP_SRC = _REPO_ROOT / "mcp_server" / "src"
+for _import_path in (_SCRIPTS_DIR, _MCP_SRC):
+    if str(_import_path) not in sys.path:
+        sys.path.insert(0, str(_import_path))
 
 _PLANNER_EVALUATOR_SYSTEM_PROMPT = (
     "Evaluate the submitted Planner recipe only against the visible brief, exact "
@@ -24,12 +31,85 @@ _PLANNER_EVALUATOR_SYSTEM_PROMPT = (
 
 import lm9b_p_planner_recipe_transfer_artifacts as ARTIFACTS
 from lm9b_p_planner_recipe_transfer_support import (
+    PLANNER_COST_STOP_THRESHOLD_USD,
+    PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS,
+    PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S,
+    PLANNER_MAX_COMPLETION_TOKENS,
+    PLANNER_MAX_TURNS,
+    PLANNER_OVERALL_DEADLINE_S,
+    PLANNER_PROVIDER_TIMEOUT_S,
+    PLANNER_TOKEN_STOP_THRESHOLD,
     PlannerEvaluationResult,
     PlannerSessionResult,
     ProviderTurn,
+    fingerprint,
     run_planner_evaluation,
     run_planner_session,
+    sha256_prefixed,
 )
+
+
+_PLANNER_FIXTURES = _SCRIPTS_DIR / "lm9b_p_fixtures"
+_COMPILER_FIXTURES = _SCRIPTS_DIR / "lm9b_c_fixtures"
+_ARCHIVED_COMPILER_MODEL = "gemini/gemini-3.1-pro-preview"
+_FROZEN_TEMPERATURE = 0.0
+_PLANNER_PROVIDER_PROFILE_ID = "litellm.completion.tool_calling.no_parallel:v1"
+_COMPILER_CONTROL_FILES = (
+    "implementation_context.json",
+    "exclusion_policy.json",
+    "evaluation_rubric.json",
+)
+PRODUCTION_SCOPE_FILES = (
+    _SCRIPTS_DIR / "lm9b_p_planner_recipe_transfer_support.py",
+    _SCRIPTS_DIR / "lm9b_p_planner_recipe_transfer_artifacts.py",
+    Path(__file__).resolve(),
+)
+_FORBIDDEN_IMPORT_PREFIXES = (
+    "rook.agent.base_agent",
+    "Rhino",
+    "Grasshopper",
+    "gh" + "_" + "edit",
+)
+_MATCHED_CONTROL_TOKEN = "r" + "01"
+_FORBIDDEN_TOOL_TOKEN = "gh" + "_" + "edit"
+_POST_FREEZE_COMPARISON = "compare_sealed_checkpoint_with_" + _MATCHED_CONTROL_TOKEN
+
+
+@dataclass(frozen=True)
+class GitCheckoutState:
+    commit_sha: str
+    clean: bool
+
+
+@dataclass(frozen=True)
+class CliAttemptConfig:
+    planner_model: str
+    planner_evaluator_model: str
+    compiler_model: str
+    compiler_evaluator_model: str
+    planner_temperature: float
+    planner_evaluator_temperature: float
+    compiler_temperature: float
+    compiler_evaluator_temperature: float
+    run_root: Path
+    transmit: bool
+
+
+@dataclass(frozen=True)
+class CompilerControlRecord:
+    relative_path: str
+    raw_bytes: bytes
+    raw_sha256: str
+
+
+@dataclass(frozen=True)
+class PreparedTransmission:
+    config: CliAttemptConfig
+    git_sha: str
+    planner_inputs: ARTIFACTS.FrozenPlannerInputs
+    planner_request: ARTIFACTS.RenderedRequest
+    compiler_controls: tuple[CompilerControlRecord, ...]
+    summary: Mapping[str, object]
 
 
 @dataclass(frozen=True)
@@ -110,6 +190,8 @@ def run_planner_checkpoint(
     fixture_dir: Path,
     planner_provider: Callable[[dict[str, object]], ProviderTurn],
     evaluator_provider: Callable[[dict[str, object]], ProviderTurn],
+    frozen_inputs: ARTIFACTS.FrozenPlannerInputs | None = None,
+    frozen_planner_request: ARTIFACTS.RenderedRequest | None = None,
     archive_destination: Path | None = None,
     archive_identity: Mapping[str, object] | None = None,
 ) -> PlannerCheckpointResult:
@@ -119,8 +201,20 @@ def run_planner_checkpoint(
         raise ValueError("archive identity requires an archive destination")
     if archive_destination is not None and archive_identity is None:
         raise ValueError("checkpoint archive identity is required")
-    inputs = ARTIFACTS.load_planner_inputs(Path(fixture_dir))
-    planner_request = ARTIFACTS.render_planner_request(inputs)
+    if (frozen_inputs is None) != (frozen_planner_request is None):
+        raise ValueError("frozen Planner inputs and request must be supplied together")
+    if frozen_inputs is None:
+        inputs = ARTIFACTS.load_planner_inputs(Path(fixture_dir))
+        planner_request = ARTIFACTS.render_planner_request(inputs)
+    else:
+        if type(frozen_inputs) is not ARTIFACTS.FrozenPlannerInputs:
+            raise TypeError("FrozenPlannerInputs is required")
+        if type(frozen_planner_request) is not ARTIFACTS.RenderedRequest:
+            raise TypeError("RenderedRequest is required")
+        inputs = frozen_inputs
+        planner_request = frozen_planner_request
+        if ARTIFACTS.render_planner_request(inputs) != planner_request:
+            raise ValueError("frozen Planner request does not match frozen inputs")
     planner_provider_attempts: list[ARTIFACTS.ProviderAttemptEvidence] = []
     evaluator_provider_attempts: list[ARTIFACTS.ProviderAttemptEvidence] = []
     evaluator_request: ARTIFACTS.RenderedRequest | None = None
@@ -229,6 +323,334 @@ def _load_lm9bc_modules() -> tuple[object, object]:
     return (
         importlib.import_module("lm9b_c_compiler_sufficiency_artifacts"),
         importlib.import_module("lm9b_c_compiler_sufficiency_probe"),
+    )
+
+
+def assert_frozen_compiler_controls() -> None:
+    lm9bc_artifacts, lm9bc_probe = _load_lm9bc_modules()
+    expected = {
+        "MAX_TURNS": 6,
+        "MAX_COMPLETION_TOKENS": 16_384,
+        "PROVIDER_TIMEOUT_S": 180.0,
+        "OVERALL_DEADLINE_S": 600.0,
+        "TOKEN_STOP_THRESHOLD": 120_000,
+        "COST_STOP_THRESHOLD_USD": 10.0,
+        "EVALUATOR_MAX_COMPLETION_TOKENS": 8_192,
+        "TEMPERATURE": 0.0,
+    }
+    observed = {name: getattr(lm9bc_probe, name, None) for name in expected}
+    renderer = getattr(lm9bc_artifacts, "COMPILER_RENDERER_ID", None)
+    if observed != expected or renderer != "lm9b_c.compiler_request_renderer:v2":
+        raise RuntimeError("LM9B-C control drift from the archived compiler probe")
+
+
+def assert_frozen_planner_controls() -> None:
+    observed = {
+        "PLANNER_MAX_TURNS": PLANNER_MAX_TURNS,
+        "PLANNER_MAX_COMPLETION_TOKENS": PLANNER_MAX_COMPLETION_TOKENS,
+        "PLANNER_PROVIDER_TIMEOUT_S": PLANNER_PROVIDER_TIMEOUT_S,
+        "PLANNER_OVERALL_DEADLINE_S": PLANNER_OVERALL_DEADLINE_S,
+        "PLANNER_TOKEN_STOP_THRESHOLD": PLANNER_TOKEN_STOP_THRESHOLD,
+        "PLANNER_COST_STOP_THRESHOLD_USD": PLANNER_COST_STOP_THRESHOLD_USD,
+        "PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS": PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS,
+        "PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S": PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S,
+    }
+    expected = {
+        "PLANNER_MAX_TURNS": 6,
+        "PLANNER_MAX_COMPLETION_TOKENS": 16_384,
+        "PLANNER_PROVIDER_TIMEOUT_S": 180.0,
+        "PLANNER_OVERALL_DEADLINE_S": 600.0,
+        "PLANNER_TOKEN_STOP_THRESHOLD": 120_000,
+        "PLANNER_COST_STOP_THRESHOLD_USD": 10.0,
+        "PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS": 8_192,
+        "PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S": 180.0,
+    }
+    if observed != expected:
+        raise RuntimeError("Planner control drift from the frozen probe contract")
+
+
+class _ScopeVisitor(ast.NodeVisitor):
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.functions: list[str] = []
+
+    def _inside_post_freeze_comparison(self) -> bool:
+        return bool(self.functions and self.functions[-1] == _POST_FREEZE_COMPARISON)
+
+    def _check_import(self, name: str) -> None:
+        if any(name == prefix or name.startswith(prefix + ".") for prefix in _FORBIDDEN_IMPORT_PREFIXES):
+            raise ValueError(f"forbidden import in {self.path}: {name}")
+        if name.startswith("rook.validation_kernel."):
+            tail = name.removeprefix("rook.validation_kernel.")
+            if any(part.startswith("_") for part in tail.split(".")):
+                raise ValueError(f"forbidden private validation-kernel import in {self.path}: {name}")
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            self._check_import(alias.name)
+            for symbol in (alias.name, alias.asname or ""):
+                if _FORBIDDEN_TOOL_TOKEN in symbol.casefold():
+                    raise ValueError(f"forbidden imported symbol in {self.path}")
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        module = node.module or ""
+        self._check_import(module)
+        if module.startswith("rook.validation_kernel") and any(
+            alias.name.startswith("_") for alias in node.names
+        ):
+            raise ValueError(f"forbidden private validation-kernel name in {self.path}")
+        if any(
+            _FORBIDDEN_TOOL_TOKEN in symbol.casefold()
+            for alias in node.names
+            for symbol in (alias.name, alias.asname or "")
+        ):
+            raise ValueError(f"forbidden imported symbol in {self.path}")
+        self.generic_visit(node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self.functions.append(node.name)
+        self.generic_visit(node)
+        self.functions.pop()
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if (
+            _MATCHED_CONTROL_TOKEN in node.id.casefold()
+            and not self._inside_post_freeze_comparison()
+        ):
+            raise ValueError(
+                f"matched-control name outside post-freeze comparison in {self.path}"
+            )
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        if (
+            _MATCHED_CONTROL_TOKEN in node.attr.casefold()
+            and not self._inside_post_freeze_comparison()
+        ):
+            raise ValueError(
+                f"matched-control attribute outside post-freeze comparison in {self.path}"
+            )
+        self.generic_visit(node)
+
+    def visit_Constant(self, node: ast.Constant) -> None:
+        if not isinstance(node.value, str):
+            return
+        folded = node.value.casefold()
+        if _FORBIDDEN_TOOL_TOKEN in folded:
+            raise ValueError(f"forbidden tool reference in {self.path}")
+        if (
+            _MATCHED_CONTROL_TOKEN in folded
+            and node.value != _POST_FREEZE_COMPARISON
+            and not self._inside_post_freeze_comparison()
+        ):
+            raise ValueError(
+                f"matched-control reference outside post-freeze comparison in {self.path}"
+            )
+
+
+def verify_scope_guards(paths: tuple[Path, ...]) -> None:
+    for path in paths:
+        source = Path(path).read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+        _ScopeVisitor(Path(path)).visit(tree)
+
+
+def _git_checkout_state() -> GitCheckoutState:
+    head = subprocess.run(
+        ["git", "rev-parse", "--verify", "HEAD"],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    status = subprocess.run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    commit_sha = head.stdout.strip()
+    if head.returncode != 0 or len(commit_sha) != 40 or status.returncode != 0:
+        raise RuntimeError("LM9B-P requires a committed git HEAD")
+    return GitCheckoutState(commit_sha=commit_sha, clean=status.stdout == "")
+
+
+def parse_cli_args(argv: list[str] | None = None) -> CliAttemptConfig:
+    parser = argparse.ArgumentParser(
+        description="One bounded, inert LM9B-P Planner recipe-transfer probe."
+    )
+    parser.add_argument("--planner-model", required=True)
+    parser.add_argument("--planner-evaluator-model", required=True)
+    parser.add_argument("--compiler-model", required=True)
+    parser.add_argument("--compiler-evaluator-model", required=True)
+    parser.add_argument("--planner-temperature", type=float, required=True)
+    parser.add_argument("--planner-evaluator-temperature", type=float, required=True)
+    parser.add_argument("--compiler-temperature", type=float, required=True)
+    parser.add_argument("--compiler-evaluator-temperature", type=float, required=True)
+    parser.add_argument("--run-root", type=Path, required=True)
+    parser.add_argument("--transmit", action="store_true")
+    args = parser.parse_args(argv)
+    if args.compiler_model != _ARCHIVED_COMPILER_MODEL:
+        parser.error(f"--compiler-model must be {_ARCHIVED_COMPILER_MODEL}")
+    if args.compiler_evaluator_model != _ARCHIVED_COMPILER_MODEL:
+        parser.error(f"--compiler-evaluator-model must be {_ARCHIVED_COMPILER_MODEL}")
+    temperatures = (
+        args.planner_temperature,
+        args.planner_evaluator_temperature,
+        args.compiler_temperature,
+        args.compiler_evaluator_temperature,
+    )
+    if any(value != _FROZEN_TEMPERATURE for value in temperatures):
+        parser.error("all four temperatures must be exactly 0.0")
+    return CliAttemptConfig(
+        planner_model=args.planner_model,
+        planner_evaluator_model=args.planner_evaluator_model,
+        compiler_model=args.compiler_model,
+        compiler_evaluator_model=args.compiler_evaluator_model,
+        planner_temperature=args.planner_temperature,
+        planner_evaluator_temperature=args.planner_evaluator_temperature,
+        compiler_temperature=args.compiler_temperature,
+        compiler_evaluator_temperature=args.compiler_evaluator_temperature,
+        run_root=args.run_root.resolve(),
+        transmit=args.transmit,
+    )
+
+
+def _authority_manifest_fingerprint(
+    inputs: ARTIFACTS.FrozenPlannerInputs,
+) -> str:
+    return fingerprint(
+        {
+            "schema": "rook.lm9b_p.pretransmission_input_manifest:v1",
+            "records": [
+                {
+                    "role": record.role,
+                    "relative_path": record.relative_path,
+                    "raw_sha256": record.raw_sha256,
+                    "canonical_fingerprint": record.canonical_fingerprint,
+                }
+                for record in inputs.records
+            ],
+        }
+    )
+
+
+def _freeze_compiler_controls() -> tuple[CompilerControlRecord, ...]:
+    records = []
+    for relative_path in _COMPILER_CONTROL_FILES:
+        raw = (_COMPILER_FIXTURES / relative_path).read_bytes()
+        records.append(
+            CompilerControlRecord(
+                relative_path=relative_path,
+                raw_bytes=raw,
+                raw_sha256=sha256_prefixed(raw),
+            )
+        )
+    return tuple(records)
+
+
+def _bounds_summary() -> Mapping[str, object]:
+    return {
+        "planner": {
+            "max_turns": PLANNER_MAX_TURNS,
+            "max_completion_tokens_per_call": PLANNER_MAX_COMPLETION_TOKENS,
+            "provider_timeout_s": PLANNER_PROVIDER_TIMEOUT_S,
+            "overall_deadline_s": PLANNER_OVERALL_DEADLINE_S,
+            "cumulative_token_stop_threshold": PLANNER_TOKEN_STOP_THRESHOLD,
+            "cumulative_cost_stop_threshold_usd": PLANNER_COST_STOP_THRESHOLD_USD,
+        },
+        "planner_evaluator": {
+            "max_attempts": 1,
+            "max_completion_tokens": PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS,
+            "provider_timeout_s": PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S,
+        },
+        "compiler": {
+            "max_turns": 6,
+            "max_completion_tokens_per_call": 16_384,
+            "provider_timeout_s": 180.0,
+            "overall_deadline_s": 600.0,
+            "cumulative_token_stop_threshold": 120_000,
+            "cumulative_cost_stop_threshold_usd": 10.0,
+        },
+        "compiler_evaluator": {
+            "max_attempts": 1,
+            "max_completion_tokens": 8_192,
+            "provider_timeout_s": 180.0,
+        },
+    }
+
+
+def prepare_pretransmission(config: CliAttemptConfig) -> PreparedTransmission:
+    checkout = _git_checkout_state()
+    if not checkout.clean:
+        raise RuntimeError("LM9B-P requires a clean committed HEAD")
+    if config.run_root.exists():
+        raise FileExistsError(f"LM9B-P run root already exists: {config.run_root}")
+    verify_scope_guards(PRODUCTION_SCOPE_FILES)
+    assert_frozen_planner_controls()
+    assert_frozen_compiler_controls()
+    inputs = ARTIFACTS.load_planner_inputs(_PLANNER_FIXTURES)
+    planner_request = ARTIFACTS.render_planner_request(inputs)
+    compiler_controls = _freeze_compiler_controls()
+    lm9bc_artifacts, _ = _load_lm9bc_modules()
+    summary = {
+        "schema": "rook.lm9b_p.pretransmission_summary:v1",
+        "git_sha": checkout.commit_sha,
+        "models": {
+            "planner": {
+                "model": config.planner_model,
+                "temperature": config.planner_temperature,
+            },
+            "planner_evaluator": {
+                "model": config.planner_evaluator_model,
+                "temperature": config.planner_evaluator_temperature,
+            },
+            "compiler": {
+                "model": config.compiler_model,
+                "temperature": config.compiler_temperature,
+            },
+            "compiler_evaluator": {
+                "model": config.compiler_evaluator_model,
+                "temperature": config.compiler_evaluator_temperature,
+            },
+        },
+        "provider_profiles": {
+            "planner": _PLANNER_PROVIDER_PROFILE_ID,
+            "planner_evaluator": _PLANNER_PROVIDER_PROFILE_ID,
+            "compiler": "litellm.completion",
+            "compiler_evaluator": "litellm.completion",
+        },
+        "bounds": _bounds_summary(),
+        "planner_request": {
+            "byte_length": len(planner_request.raw_bytes),
+            "raw_sha256": planner_request.raw_sha256,
+        },
+        "authority_manifest_fingerprint": _authority_manifest_fingerprint(inputs),
+        "normalization_profile_fingerprint": inputs.authority.normalization_profile.profile_fingerprint,
+        "compiler_renderer_identity": lm9bc_artifacts.COMPILER_RENDERER_ID,
+        "compiler_control_records": [
+            {
+                "relative_path": record.relative_path,
+                "raw_sha256": record.raw_sha256,
+                "byte_length": len(record.raw_bytes),
+            }
+            for record in compiler_controls
+        ],
+        f"{_MATCHED_CONTROL_TOKEN}_pre_freeze_access": "forbidden",
+        "execution_permitted": False,
+        "transmission_requested": config.transmit,
+        "run_root": str(config.run_root),
+    }
+    return PreparedTransmission(
+        config=config,
+        git_sha=checkout.commit_sha,
+        planner_inputs=inputs,
+        planner_request=planner_request,
+        compiler_controls=compiler_controls,
+        summary=summary,
     )
 
 
@@ -497,9 +919,144 @@ def run_joined_probe(
         return finish_post_contact_failure(exc, lm9bc_result=lm9bc_result)
 
 
+class _PlannerProviderAdapter:
+    def __init__(self, *, model: str, temperature: float) -> None:
+        _, lm9bc_probe = _load_lm9bc_modules()
+        self._delegate = lm9bc_probe.LiteLLMProvider(
+            model=model, temperature=temperature
+        )
+        self.model = model
+        self.temperature = temperature
+
+    def __call__(self, request: dict[str, object]) -> ProviderTurn:
+        turn = self._delegate(request)
+        if type(turn) is not ProviderTurn:
+            raise RuntimeError("Planner provider returned an incompatible turn")
+        metadata = dict(turn.provider_metadata)
+        metadata.update(
+            {
+                "model_identity": self.model,
+                "profile_identity": _PLANNER_PROVIDER_PROFILE_ID,
+            }
+        )
+        return replace(turn, provider_metadata=metadata)
+
+
+def _build_provider(*, role: str, model: str, temperature: float) -> object:
+    if role in ("planner", "planner_evaluator"):
+        return _PlannerProviderAdapter(model=model, temperature=temperature)
+    _, lm9bc_probe = _load_lm9bc_modules()
+    return lm9bc_probe.LiteLLMProvider(model=model, temperature=temperature)
+
+
+def _execute_transmitted_attempt(prepared: PreparedTransmission) -> JoinedProbeResult:
+    config = prepared.config
+    checkout = _git_checkout_state()
+    if not checkout.clean or checkout.commit_sha != prepared.git_sha:
+        raise RuntimeError("checkout changed after pre-transmission review")
+    config.run_root.mkdir(parents=True, exist_ok=False)
+    compiler_control_dir = config.run_root / "compiler-controls"
+    compiler_control_dir.mkdir()
+    if tuple(record.relative_path for record in prepared.compiler_controls) != _COMPILER_CONTROL_FILES:
+        raise ValueError("prepared compiler control set is incomplete or out of order")
+    for record in prepared.compiler_controls:
+        if sha256_prefixed(record.raw_bytes) != record.raw_sha256:
+            raise ValueError("prepared compiler control fingerprint mismatch")
+        destination = compiler_control_dir / record.relative_path
+        destination.write_bytes(record.raw_bytes)
+        if destination.read_bytes() != record.raw_bytes:
+            raise ValueError("compiler control snapshot write verification failed")
+    planner_provider = _build_provider(
+        role="planner",
+        model=config.planner_model,
+        temperature=config.planner_temperature,
+    )
+    planner_evaluator_provider = _build_provider(
+        role="planner_evaluator",
+        model=config.planner_evaluator_model,
+        temperature=config.planner_evaluator_temperature,
+    )
+    compiler_provider = _build_provider(
+        role="compiler",
+        model=config.compiler_model,
+        temperature=config.compiler_temperature,
+    )
+    compiler_evaluator_provider = _build_provider(
+        role="compiler_evaluator",
+        model=config.compiler_evaluator_model,
+        temperature=config.compiler_evaluator_temperature,
+    )
+    checkpoint = run_planner_checkpoint(
+        fixture_dir=_PLANNER_FIXTURES,
+        frozen_inputs=prepared.planner_inputs,
+        frozen_planner_request=prepared.planner_request,
+        planner_provider=planner_provider,
+        evaluator_provider=planner_evaluator_provider,
+        archive_destination=config.run_root / "checkpoint-1",
+        archive_identity={
+            "git_commit_sha": prepared.git_sha,
+            "planner_model_identity": config.planner_model,
+            "evaluator_model_identity": config.planner_evaluator_model,
+            "provider_profile_identity": _PLANNER_PROVIDER_PROFILE_ID,
+        },
+    )
+    return run_joined_probe(
+        checkpoint_1=checkpoint,
+        compiler_fixture_dir=compiler_control_dir,
+        handoff_destination=config.run_root / "lm9b-c-handoff",
+        compiler_run_root=config.run_root / "lm9b-c-runs",
+        aggregate_destination=config.run_root / "joined-aggregate",
+        compiler_provider=compiler_provider,
+        compiler_evaluator_provider=compiler_evaluator_provider,
+        compiler_identity=compiler_provider.identity,
+        compiler_evaluator_identity=compiler_evaluator_provider.identity,
+        git_sha=prepared.git_sha,
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    config = parse_cli_args(argv)
+    prepared = prepare_pretransmission(config)
+    print(json.dumps(prepared.summary, indent=2, sort_keys=True))
+    if not config.transmit:
+        return 0
+    result = _execute_transmitted_attempt(prepared)
+    print(
+        json.dumps(
+            {
+                "checkpoint_1": result.checkpoint_1.classification,
+                "checkpoint_2": result.checkpoint_2,
+                "aggregate_outcome": result.aggregate_outcome,
+                "sealed_aggregate": (
+                    result.sealed_aggregate.aggregate_identity
+                    if result.sealed_aggregate is not None
+                    else None
+                ),
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 __all__ = (
+    "CliAttemptConfig",
+    "CompilerControlRecord",
+    "GitCheckoutState",
     "JoinedProbeResult",
     "PlannerCheckpointResult",
+    "PreparedTransmission",
+    "PRODUCTION_SCOPE_FILES",
+    "assert_frozen_compiler_controls",
+    "assert_frozen_planner_controls",
+    "main",
+    "parse_cli_args",
+    "prepare_pretransmission",
     "run_joined_probe",
     "run_planner_checkpoint",
+    "verify_scope_guards",
 )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

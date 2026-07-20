@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -1468,3 +1469,367 @@ def test_post_freeze_r01_comparison_requires_verified_sealed_aggregate_and_prese
     assert comparison["sealed_aggregate_identity"] == result.sealed_archive.aggregate_identity
     assert comparison["r01_raw_sha256"].startswith("sha256:")
     assert (archive_dir / "checksums.json").read_bytes() == before
+
+
+def _canonical_cli_args(run_root: Path, *, transmit: bool = False) -> list[str]:
+    args = [
+        "--planner-model",
+        "gpt-5.4",
+        "--planner-evaluator-model",
+        "gpt-5.4",
+        "--compiler-model",
+        "gemini/gemini-3.1-pro-preview",
+        "--compiler-evaluator-model",
+        "gemini/gemini-3.1-pro-preview",
+        "--planner-temperature",
+        "0.0",
+        "--planner-evaluator-temperature",
+        "0.0",
+        "--compiler-temperature",
+        "0.0",
+        "--compiler-evaluator-temperature",
+        "0.0",
+        "--run-root",
+        str(run_root),
+    ]
+    if transmit:
+        args.append("--transmit")
+    return args
+
+
+def test_direct_cli_entrypoint_loads_before_argument_processing() -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/lm9b_p_planner_recipe_transfer_probe.py"),
+            "--help",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "--transmit" in completed.stdout
+
+
+def test_cli_dry_run_prints_complete_pretransmission_summary_without_contact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    contacts: list[object] = []
+    monkeypatch.setattr(
+        PROBE,
+        "_git_checkout_state",
+        lambda: PROBE.GitCheckoutState("a" * 40, True),
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "_execute_transmitted_attempt",
+        lambda prepared: contacts.append(prepared),
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "_build_provider",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("provider contact")),
+    )
+
+    assert PROBE.main(_canonical_cli_args(tmp_path / "unused-run")) == 0
+
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["git_sha"] == "a" * 40
+    assert summary["models"] == {
+        "planner": {"model": "gpt-5.4", "temperature": 0.0},
+        "planner_evaluator": {"model": "gpt-5.4", "temperature": 0.0},
+        "compiler": {
+            "model": "gemini/gemini-3.1-pro-preview",
+            "temperature": 0.0,
+        },
+        "compiler_evaluator": {
+            "model": "gemini/gemini-3.1-pro-preview",
+            "temperature": 0.0,
+        },
+    }
+    assert summary["planner_request"]["byte_length"] > 0
+    assert summary["planner_request"]["raw_sha256"].startswith("sha256:")
+    assert summary["authority_manifest_fingerprint"].startswith("sha256:")
+    assert summary["normalization_profile_fingerprint"].startswith("sha256:")
+    assert summary["compiler_renderer_identity"] == LM9B_C_ARTIFACTS.COMPILER_RENDERER_ID
+    assert summary["r01_pre_freeze_access"] == "forbidden"
+    assert summary["execution_permitted"] is False
+    assert summary["transmission_requested"] is False
+    assert summary["bounds"]["compiler"] == {
+        "max_turns": 6,
+        "max_completion_tokens_per_call": 16_384,
+        "provider_timeout_s": 180.0,
+        "overall_deadline_s": 600.0,
+        "cumulative_token_stop_threshold": 120_000,
+        "cumulative_cost_stop_threshold_usd": 10.0,
+    }
+    assert summary["bounds"]["compiler_evaluator"] == {
+        "max_attempts": 1,
+        "max_completion_tokens": 8_192,
+        "provider_timeout_s": 180.0,
+    }
+    assert contacts == []
+    assert not (tmp_path / "unused-run").exists()
+
+
+@pytest.mark.parametrize(
+    ("flag", "value"),
+    [
+        ("--compiler-model", "different-model"),
+        ("--compiler-evaluator-model", "different-model"),
+        ("--compiler-temperature", "0.1"),
+        ("--compiler-evaluator-temperature", "0.1"),
+    ],
+)
+def test_cli_rejects_changes_to_archived_compiler_controls(
+    tmp_path: Path, flag: str, value: str
+) -> None:
+    args = _canonical_cli_args(tmp_path / "run")
+    args[args.index(flag) + 1] = value
+    with pytest.raises(SystemExit):
+        PROBE.parse_cli_args(args)
+
+
+def test_cli_rejects_dirty_checkout_before_provider_construction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    contacts: list[object] = []
+    monkeypatch.setattr(
+        PROBE,
+        "_git_checkout_state",
+        lambda: PROBE.GitCheckoutState("b" * 40, False),
+    )
+    monkeypatch.setattr(PROBE, "_build_provider", lambda **kwargs: contacts.append(kwargs))
+    with pytest.raises(RuntimeError, match="clean committed HEAD"):
+        PROBE.main(_canonical_cli_args(tmp_path / "run", transmit=True))
+    assert contacts == []
+
+
+def test_cli_rejects_existing_run_root_before_provider_construction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_root = tmp_path / "existing"
+    run_root.mkdir()
+    contacts: list[object] = []
+    monkeypatch.setattr(
+        PROBE,
+        "_git_checkout_state",
+        lambda: PROBE.GitCheckoutState("c" * 40, True),
+    )
+    monkeypatch.setattr(PROBE, "_build_provider", lambda **kwargs: contacts.append(kwargs))
+    with pytest.raises(FileExistsError, match="run root"):
+        PROBE.main(_canonical_cli_args(run_root, transmit=True))
+    assert contacts == []
+
+
+def test_transmit_path_uses_prepared_frozen_controls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    observed: list[object] = []
+    monkeypatch.setattr(
+        PROBE,
+        "_git_checkout_state",
+        lambda: PROBE.GitCheckoutState("d" * 40, True),
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "_execute_transmitted_attempt",
+        lambda prepared: (
+            observed.append(prepared)
+            or SimpleNamespace(
+                checkpoint_1=SimpleNamespace(classification="probe_candidate_ready"),
+                checkpoint_2="bounded_lowering_demonstrated",
+                aggregate_outcome="joined_transfer_demonstrated",
+                sealed_aggregate=SimpleNamespace(aggregate_identity="sha256:" + "e" * 64),
+            )
+        ),
+    )
+    assert PROBE.main(_canonical_cli_args(tmp_path / "run", transmit=True)) == 0
+    assert len(observed) == 1
+    prepared = observed[0]
+    assert prepared.git_sha == "d" * 40
+    assert prepared.config.transmit is True
+    assert prepared.config.compiler_model == "gemini/gemini-3.1-pro-preview"
+    assert prepared.config.compiler_evaluator_model == "gemini/gemini-3.1-pro-preview"
+    output = capsys.readouterr().out
+    assert '"transmission_requested": true' in output
+    assert '"aggregate_outcome": "joined_transfer_demonstrated"' in output
+
+
+def test_scope_guard_rejects_forbidden_imports_and_pre_freeze_r01_references(
+    tmp_path: Path,
+) -> None:
+    forbidden_import = tmp_path / "forbidden_import.py"
+    forbidden_import.write_text("from rook.agent.base_agent import RookAgent\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="forbidden import"):
+        PROBE.verify_scope_guards((forbidden_import,))
+
+    hidden_control = tmp_path / "hidden_control.py"
+    hidden_control.write_text("CONTROL = 'r01_recipe.json'\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="matched-control"):
+        PROBE.verify_scope_guards((hidden_control,))
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "TOOL_NAME = 'gh_edit'\n",
+        "r01_recipe_path = object()\n",
+        "from rook.validation_kernel._private import unsafe\n",
+    ],
+)
+def test_scope_guard_rejects_forbidden_tools_names_and_private_kernel_imports(
+    tmp_path: Path, source: str
+) -> None:
+    candidate = tmp_path / "candidate.py"
+    candidate.write_text(source, encoding="utf-8")
+    with pytest.raises(ValueError, match="forbidden|matched-control"):
+        PROBE.verify_scope_guards((candidate,))
+
+
+def test_scope_guard_rejects_a_forbidden_imported_symbol(tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate.py"
+    candidate.write_text("from tools import gh_edit\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="forbidden"):
+        PROBE.verify_scope_guards((candidate,))
+
+
+def test_scope_guard_accepts_current_production_probe_surface() -> None:
+    PROBE.verify_scope_guards(PROBE.PRODUCTION_SCOPE_FILES)
+
+
+def test_frozen_compiler_control_assertion_detects_lm9bc_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(LM9B_C_PROBE, "MAX_TURNS", 7)
+    monkeypatch.setattr(PROBE, "_load_lm9bc_modules", lambda: (LM9B_C_ARTIFACTS, LM9B_C_PROBE))
+    with pytest.raises(RuntimeError, match="LM9B-C control drift"):
+        PROBE.assert_frozen_compiler_controls()
+
+
+def test_frozen_planner_control_assertion_detects_local_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(PROBE, "PLANNER_MAX_TURNS", 7)
+    with pytest.raises(RuntimeError, match="Planner control drift"):
+        PROBE.assert_frozen_planner_controls()
+
+
+def test_checkpoint_consumes_the_pretransmission_snapshot_without_reloading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inputs = ARTIFACTS.load_planner_inputs(FIXTURES)
+    request = ARTIFACTS.render_planner_request(inputs)
+    monkeypatch.setattr(
+        ARTIFACTS,
+        "load_planner_inputs",
+        lambda path: (_ for _ in ()).throw(AssertionError("authority reread")),
+    )
+
+    result = PROBE.run_planner_checkpoint(
+        fixture_dir=FIXTURES,
+        frozen_inputs=inputs,
+        frozen_planner_request=request,
+        planner_provider=_Provider([_planner_turn_bytes(READY_RECIPE_BYTES)]),
+        evaluator_provider=_Provider([_evaluator_turn("faithful_ready")]),
+    )
+
+    assert result.classification == "probe_candidate_ready"
+    assert result.planner_inputs is inputs
+
+
+def test_execute_reauthenticates_head_and_passes_frozen_inputs_to_checkpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = PROBE.parse_cli_args(_canonical_cli_args(tmp_path / "run", transmit=True))
+    inputs = ARTIFACTS.load_planner_inputs(FIXTURES)
+    request = ARTIFACTS.render_planner_request(inputs)
+    prepared = PROBE.PreparedTransmission(
+        config=config,
+        git_sha="f" * 40,
+        planner_inputs=inputs,
+        planner_request=request,
+        compiler_controls=PROBE._freeze_compiler_controls(),
+        summary={},
+    )
+    contacts: list[object] = []
+    monkeypatch.setattr(
+        PROBE,
+        "_git_checkout_state",
+        lambda: PROBE.GitCheckoutState("e" * 40, True),
+    )
+    monkeypatch.setattr(PROBE, "_build_provider", lambda **kwargs: contacts.append(kwargs))
+    with pytest.raises(RuntimeError, match="changed after pre-transmission"):
+        PROBE._execute_transmitted_attempt(prepared)
+    assert contacts == []
+    assert not config.run_root.exists()
+
+    captured: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        PROBE,
+        "_git_checkout_state",
+        lambda: PROBE.GitCheckoutState("f" * 40, True),
+    )
+
+    class _FakeProvider:
+        identity = {"provider": "fake"}
+
+        def __call__(self, request):
+            raise AssertionError("fake provider must not be contacted by this test")
+
+    monkeypatch.setattr(PROBE, "_build_provider", lambda **kwargs: _FakeProvider())
+    monkeypatch.setattr(
+        PROBE,
+        "run_planner_checkpoint",
+        lambda **kwargs: captured.append(kwargs) or "checkpoint",
+    )
+    monkeypatch.setattr(PROBE, "run_joined_probe", lambda **kwargs: "joined")
+
+    assert PROBE._execute_transmitted_attempt(prepared) == "joined"
+    assert captured[0]["frozen_inputs"] is inputs
+    assert captured[0]["frozen_planner_request"] is request
+
+
+def test_compiler_controls_are_snapshotted_before_provider_contact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    compiler_fixtures = tmp_path / "compiler-fixtures"
+    compiler_fixtures.mkdir()
+    expected: dict[str, bytes] = {}
+    for name in ("implementation_context.json", "exclusion_policy.json", "evaluation_rubric.json"):
+        raw = (COMPILER_FIXTURES / name).read_bytes()
+        expected[name] = raw
+        (compiler_fixtures / name).write_bytes(raw)
+    monkeypatch.setattr(PROBE, "_COMPILER_FIXTURES", compiler_fixtures)
+    monkeypatch.setattr(
+        PROBE,
+        "_git_checkout_state",
+        lambda: PROBE.GitCheckoutState("a" * 40, True),
+    )
+    config = PROBE.parse_cli_args(_canonical_cli_args(tmp_path / "run", transmit=True))
+    prepared = PROBE.prepare_pretransmission(config)
+    (compiler_fixtures / "implementation_context.json").write_bytes(b"{}\n")
+
+    class _FakeProvider:
+        identity = {"provider": "fake"}
+
+        def __call__(self, request):
+            raise AssertionError("fake provider must not be contacted by this test")
+
+    monkeypatch.setattr(PROBE, "_build_provider", lambda **kwargs: _FakeProvider())
+    monkeypatch.setattr(PROBE, "run_planner_checkpoint", lambda **kwargs: "checkpoint")
+    observed: list[Path] = []
+
+    def joined(**kwargs):
+        observed.append(kwargs["compiler_fixture_dir"])
+        return "joined"
+
+    monkeypatch.setattr(PROBE, "run_joined_probe", joined)
+    assert PROBE._execute_transmitted_attempt(prepared) == "joined"
+    assert len(observed) == 1
+    assert {
+        name: (observed[0] / name).read_bytes()
+        for name in expected
+    } == expected
