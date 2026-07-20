@@ -1162,19 +1162,22 @@ def test_checkpoint_archive_rejects_reduced_records_even_after_recomputed_checks
         ("provider_profile_identity", "different-profile"),
     ],
 )
-def test_checkpoint_archive_rejects_successful_provider_metadata_mismatch(
+def test_checkpoint_archive_metadata_mismatch_is_post_contact_inconclusive(
     field: str, value: str, tmp_path: Path,
 ) -> None:
     identity = dict(ARCHIVE_IDENTITY)
     identity[field] = value
-    with pytest.raises(ValueError, match="provider identity"):
-        PROBE.run_planner_checkpoint(
-            fixture_dir=FIXTURES,
-            planner_provider=_Provider([_planner_turn_bytes(READY_RECIPE_BYTES)]),
-            evaluator_provider=_Provider([_evaluator_turn("faithful_ready")]),
-            archive_destination=tmp_path / "checkpoint-1",
-            archive_identity=identity,
-        )
+    result = PROBE.run_planner_checkpoint(
+        fixture_dir=FIXTURES,
+        planner_provider=_Provider([_planner_turn_bytes(READY_RECIPE_BYTES)]),
+        evaluator_provider=_Provider([_evaluator_turn("faithful_ready")]),
+        archive_destination=tmp_path / "checkpoint-1",
+        archive_identity=identity,
+    )
+    assert result.classification == "probe_inconclusive"
+    assert result.sealed_archive is None
+    assert result.control_failure["locus"] == "checkpoint_1_seal"
+    assert "provider identity" in result.control_failure["message"]
 
 
 def test_checkpoint_archive_rejects_coordinated_attempt_count_and_index_reduction(
@@ -1346,33 +1349,346 @@ def test_evaluator_failure_paths_still_seal_complete_inconclusive_evidence(
     )
 
 
-def test_checkpoint_archive_rejects_a_valid_but_non_head_git_sha(
+def test_provider_call_failure_archive_round_trips_transport_evidence(
+    tmp_path: Path,
+) -> None:
+    raw_request = b'{"sanitized":"request"}'
+    raw_error = b'{"sanitized":"provider error"}'
+    failure = LM9B_C_SUPPORT.ProviderCallFailure(
+        failure_type="BadRequestError",
+        message="provider rejected request",
+        raw_request=raw_request,
+        raw_error=raw_error,
+    )
+    archive_dir = tmp_path / "checkpoint-1"
+    result = PROBE.run_planner_checkpoint(
+        fixture_dir=FIXTURES,
+        planner_provider=_Provider([failure]),
+        evaluator_provider=_Provider([AssertionError("evaluator must not run")]),
+        archive_destination=archive_dir,
+        archive_identity=ARCHIVE_IDENTITY,
+    )
+
+    assert result.classification == "probe_inconclusive"
+    assert result.sealed_archive is not None
+    capture = json.loads(
+        (archive_dir / "planner/attempts/000/capture.json").read_bytes()
+    )
+    assert capture["outcome"] == "raised"
+    assert capture["exception_type"] == "ProviderCallFailure"
+    assert capture["failure_type"] == "BadRequestError"
+    assert capture["has_raw_request"] is True
+    assert capture["has_raw_error"] is True
+    assert capture["has_raw_response"] is False
+    assert (archive_dir / "planner/attempts/000/raw_request.bin").read_bytes() == raw_request
+    assert (archive_dir / "planner/attempts/000/raw_error.bin").read_bytes() == raw_error
+    assert ARTIFACTS.verify_sealed_planner_checkpoint_archive(
+        archive_dir,
+        expected_aggregate_identity=result.sealed_archive.aggregate_identity,
+    )
+
+
+def test_evaluator_provider_call_failure_archive_round_trips_transport_evidence(
+    tmp_path: Path,
+) -> None:
+    raw_request = b'{"sanitized":"evaluator request"}'
+    raw_error = b'{"sanitized":"evaluator error"}'
+    failure = LM9B_C_SUPPORT.ProviderCallFailure(
+        failure_type="TimeoutError",
+        message="evaluator timed out",
+        raw_request=raw_request,
+        raw_error=raw_error,
+    )
+    archive_dir = tmp_path / "checkpoint-1"
+    result = PROBE.run_planner_checkpoint(
+        fixture_dir=FIXTURES,
+        planner_provider=_Provider([_planner_turn_bytes(READY_RECIPE_BYTES)]),
+        evaluator_provider=_Provider([failure]),
+        archive_destination=archive_dir,
+        archive_identity=ARCHIVE_IDENTITY,
+    )
+
+    assert result.classification == "probe_inconclusive"
+    assert result.sealed_archive is not None
+    capture = json.loads(
+        (archive_dir / "evaluator/attempts/000/capture.json").read_bytes()
+    )
+    assert capture["failure_type"] == "TimeoutError"
+    assert (archive_dir / "evaluator/attempts/000/raw_request.bin").read_bytes() == raw_request
+    assert (archive_dir / "evaluator/attempts/000/raw_error.bin").read_bytes() == raw_error
+    assert ARTIFACTS.verify_sealed_planner_checkpoint_archive(
+        archive_dir,
+        expected_aggregate_identity=result.sealed_archive.aggregate_identity,
+    )
+
+
+def test_generic_provider_exception_archive_does_not_invent_transport_bytes(
+    tmp_path: Path,
+) -> None:
+    archive_dir = tmp_path / "checkpoint-1"
+    result = PROBE.run_planner_checkpoint(
+        fixture_dir=FIXTURES,
+        planner_provider=_Provider([RuntimeError("offline")]),
+        evaluator_provider=_Provider([AssertionError("evaluator must not run")]),
+        archive_destination=archive_dir,
+        archive_identity=ARCHIVE_IDENTITY,
+    )
+
+    assert result.sealed_archive is not None
+    capture = json.loads(
+        (archive_dir / "planner/attempts/000/capture.json").read_bytes()
+    )
+    assert capture["failure_type"] is None
+    assert capture["has_raw_request"] is False
+    assert capture["has_raw_error"] is False
+    assert not (archive_dir / "planner/attempts/000/raw_request.bin").exists()
+    assert not (archive_dir / "planner/attempts/000/raw_error.bin").exists()
+
+
+@pytest.mark.parametrize("contact_stage", ["planner", "evaluator"])
+def test_checkpoint_seal_failure_after_contact_is_in_memory_inconclusive(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    contact_stage: str,
+) -> None:
+    planner = _Provider(
+        [
+            RuntimeError("planner unavailable")
+            if contact_stage == "planner"
+            else _planner_turn_bytes(READY_RECIPE_BYTES)
+        ]
+    )
+    evaluator = _Provider(
+        [
+            AssertionError("evaluator must not run")
+            if contact_stage == "planner"
+            else _evaluator_turn("faithful_ready")
+        ]
+    )
+    monkeypatch.setattr(
+        ARTIFACTS,
+        "seal_planner_checkpoint_archive",
+        lambda **kwargs: (_ for _ in ()).throw(OSError("seal unavailable")),
+    )
+
+    result = PROBE.run_planner_checkpoint(
+        fixture_dir=FIXTURES,
+        planner_provider=planner,
+        evaluator_provider=evaluator,
+        archive_destination=tmp_path / "checkpoint-1",
+        archive_identity=ARCHIVE_IDENTITY,
+    )
+
+    assert result.classification == "probe_inconclusive"
+    assert result.sealed_archive is None
+    assert result.control_failure == {
+        "locus": "checkpoint_1_seal",
+        "exception_type": "OSError",
+        "message": "seal unavailable",
+    }
+    assert len(planner.requests) == 1
+    assert len(result.planner_provider_attempts) == 1
+    assert result.planner_provider_attempts[0].outcome == (
+        "raised" if contact_stage == "planner" else "returned"
+    )
+    expected_evaluator_calls = 0 if contact_stage == "planner" else 1
+    assert len(evaluator.requests) == expected_evaluator_calls
+    assert len(result.evaluator_provider_attempts) == expected_evaluator_calls
+    if contact_stage == "evaluator":
+        assert result.evaluator_provider_attempts[0].outcome == "returned"
+
+
+@pytest.mark.parametrize("contact_stage", ["planner", "evaluator"])
+def test_execute_stops_after_checkpoint_seal_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    contact_stage: str,
+) -> None:
+    config = PROBE.parse_cli_args(
+        _canonical_cli_args(tmp_path / f"run-{contact_stage}", transmit=True)
+    )
+    inputs = ARTIFACTS.load_planner_inputs(FIXTURES)
+    prepared = PROBE.PreparedTransmission(
+        config=config,
+        git_sha="a" * 40,
+        planner_inputs=inputs,
+        planner_request=ARTIFACTS.render_planner_request(inputs),
+        compiler_controls=PROBE._freeze_compiler_controls(),
+        summary={},
+    )
+    planner = _Provider(
+        [
+            RuntimeError("planner unavailable")
+            if contact_stage == "planner"
+            else _planner_turn_bytes(READY_RECIPE_BYTES)
+        ]
+    )
+    evaluator = _Provider(
+        [
+            AssertionError("evaluator must not run")
+            if contact_stage == "planner"
+            else _evaluator_turn("faithful_ready")
+        ]
+    )
+    built_roles: list[str] = []
+
+    def build_provider(**kwargs: object) -> object:
+        role = str(kwargs["role"])
+        built_roles.append(role)
+        if role == "planner":
+            return planner
+        if role == "planner_evaluator":
+            return evaluator
+        raise AssertionError("compiler provider must not be constructed")
+
+    monkeypatch.setattr(
+        PROBE, "_git_checkout_state", lambda: PROBE.GitCheckoutState("a" * 40, True)
+    )
+    monkeypatch.setattr(PROBE, "_build_provider", build_provider)
+    monkeypatch.setattr(
+        ARTIFACTS,
+        "seal_planner_checkpoint_archive",
+        lambda **kwargs: (_ for _ in ()).throw(OSError("seal unavailable")),
+    )
+    joined_calls: list[object] = []
+    monkeypatch.setattr(
+        PROBE,
+        "run_joined_probe",
+        lambda **kwargs: joined_calls.append(kwargs),
+    )
+
+    result = PROBE._execute_transmitted_attempt(prepared)
+
+    assert result.checkpoint_1.classification == "probe_inconclusive"
+    assert result.checkpoint_2 == "not_evaluated"
+    assert result.aggregate_outcome == "inconclusive"
+    assert result.sealed_aggregate is None
+    assert result.control_failure == result.checkpoint_1.control_failure
+    assert built_roles == ["planner", "planner_evaluator"]
+    assert len(planner.requests) == 1
+    assert len(evaluator.requests) == (0 if contact_stage == "planner" else 1)
+    assert joined_calls == []
+
+
+@pytest.mark.parametrize("tamper", ["raw_request", "raw_error", "failure_type"])
+def test_provider_call_failure_archive_rejects_reauthenticated_transport_tamper(
+    tmp_path: Path, tamper: str,
+) -> None:
+    failure = LM9B_C_SUPPORT.ProviderCallFailure(
+        failure_type="BadRequestError",
+        message="provider rejected request",
+        raw_request=b'{"sanitized":"request"}',
+        raw_error=b'{"sanitized":"error"}',
+    )
+    archive_dir = tmp_path / "checkpoint-1"
+    result = PROBE.run_planner_checkpoint(
+        fixture_dir=FIXTURES,
+        planner_provider=_Provider([failure]),
+        evaluator_provider=_Provider([AssertionError("evaluator must not run")]),
+        archive_destination=archive_dir,
+        archive_identity=ARCHIVE_IDENTITY,
+    )
+    assert result.sealed_archive is not None
+    relative_path = "planner/attempts/000/capture.json"
+    if tamper in {"raw_request", "raw_error"}:
+        relative_path = f"planner/attempts/000/{tamper}.bin"
+        (archive_dir / relative_path).write_bytes(b"tampered")
+    else:
+        capture_path = archive_dir / relative_path
+        capture = json.loads(capture_path.read_bytes())
+        capture["failure_type"] = None
+        capture_path.write_text(json.dumps(capture), encoding="utf-8")
+    original_identity = result.sealed_archive.aggregate_identity
+    if tamper in {"raw_request", "raw_error"}:
+        with pytest.raises(ValueError, match="sealed checkpoint archive"):
+            ARTIFACTS.verify_sealed_planner_checkpoint_archive(
+                archive_dir,
+                expected_aggregate_identity=original_identity,
+            )
+        return
+    checksums_path = archive_dir / "checksums.json"
+    checksums = json.loads(checksums_path.read_bytes())
+    for record in checksums["records"]:
+        if record["path"] == relative_path:
+            raw = (archive_dir / relative_path).read_bytes()
+            record["raw_sha256"] = SUPPORT.sha256_prefixed(raw)
+            record["byte_length"] = len(raw)
+    checksums["aggregate_identity"] = ARTIFACTS.canonical_fingerprint(
+        ARTIFACTS.own_trusted_json(
+            {"schema": checksums["schema"], "records": checksums["records"]}
+        )
+    )
+    checksums_path.write_text(json.dumps(checksums), encoding="utf-8")
+    with pytest.raises(ValueError, match="sealed checkpoint archive"):
+        ARTIFACTS.verify_sealed_planner_checkpoint_archive(
+            archive_dir,
+            expected_aggregate_identity=checksums["aggregate_identity"],
+        )
+
+
+def test_checkpoint_archive_rejects_reauthenticated_return_with_exception_fields(
+    sealed_checkpoint,
+) -> None:
+    result, archive_dir = sealed_checkpoint
+    capture_path = archive_dir / "planner/attempts/000/capture.json"
+    capture = json.loads(capture_path.read_bytes())
+    capture["exception_type"] = "RuntimeError"
+    capture["exception_message"] = "invented"
+    capture_path.write_text(json.dumps(capture), encoding="utf-8")
+    checksums_path = archive_dir / "checksums.json"
+    checksums = json.loads(checksums_path.read_bytes())
+    relative_path = "planner/attempts/000/capture.json"
+    for record in checksums["records"]:
+        if record["path"] == relative_path:
+            raw = capture_path.read_bytes()
+            record["raw_sha256"] = SUPPORT.sha256_prefixed(raw)
+            record["byte_length"] = len(raw)
+    checksums["aggregate_identity"] = ARTIFACTS.canonical_fingerprint(
+        ARTIFACTS.own_trusted_json(
+            {"schema": checksums["schema"], "records": checksums["records"]}
+        )
+    )
+    checksums_path.write_text(json.dumps(checksums), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="sealed checkpoint archive"):
+        ARTIFACTS.verify_sealed_planner_checkpoint_archive(
+            archive_dir,
+            expected_aggregate_identity=checksums["aggregate_identity"],
+        )
+
+
+def test_checkpoint_archive_non_head_git_sha_is_post_contact_inconclusive(
     tmp_path: Path,
 ) -> None:
     identity = dict(ARCHIVE_IDENTITY)
     identity["git_commit_sha"] = "f" * 40
-    with pytest.raises(ValueError, match="checked-out HEAD"):
-        PROBE.run_planner_checkpoint(
-            fixture_dir=FIXTURES,
-            planner_provider=_Provider([_planner_turn_bytes(READY_RECIPE_BYTES)]),
-            evaluator_provider=_Provider([_evaluator_turn("faithful_ready")]),
-            archive_destination=tmp_path / "checkpoint-1",
-            archive_identity=identity,
-        )
+    result = PROBE.run_planner_checkpoint(
+        fixture_dir=FIXTURES,
+        planner_provider=_Provider([_planner_turn_bytes(READY_RECIPE_BYTES)]),
+        evaluator_provider=_Provider([_evaluator_turn("faithful_ready")]),
+        archive_destination=tmp_path / "checkpoint-1",
+        archive_identity=identity,
+    )
+    assert result.classification == "probe_inconclusive"
+    assert result.sealed_archive is None
+    assert "checked-out HEAD" in result.control_failure["message"]
 
 
 def test_checkpoint_archive_never_overwrites_an_existing_seal(
     sealed_checkpoint,
 ) -> None:
     _, archive_dir = sealed_checkpoint
-    with pytest.raises(FileExistsError, match="already exists"):
-        PROBE.run_planner_checkpoint(
-            fixture_dir=FIXTURES,
-            planner_provider=_Provider([_planner_turn_bytes(READY_RECIPE_BYTES)]),
-            evaluator_provider=_Provider([_evaluator_turn("faithful_ready")]),
-            archive_destination=archive_dir,
-            archive_identity=ARCHIVE_IDENTITY,
-        )
+    result = PROBE.run_planner_checkpoint(
+        fixture_dir=FIXTURES,
+        planner_provider=_Provider([_planner_turn_bytes(READY_RECIPE_BYTES)]),
+        evaluator_provider=_Provider([_evaluator_turn("faithful_ready")]),
+        archive_destination=archive_dir,
+        archive_identity=ARCHIVE_IDENTITY,
+    )
+    assert result.classification == "probe_inconclusive"
+    assert result.sealed_archive is None
+    assert result.control_failure["exception_type"] == "FileExistsError"
+    assert "already exists" in result.control_failure["message"]
 
 
 def test_mechanically_rejected_checkpoint_seals_without_an_evaluator_call(
@@ -1643,6 +1959,7 @@ def test_transmit_path_uses_prepared_frozen_controls(
                 checkpoint_2="bounded_lowering_demonstrated",
                 aggregate_outcome="joined_transfer_demonstrated",
                 sealed_aggregate=SimpleNamespace(aggregate_identity="sha256:" + "e" * 64),
+                control_failure=None,
             )
         ),
     )
@@ -1656,6 +1973,39 @@ def test_transmit_path_uses_prepared_frozen_controls(
     output = capsys.readouterr().out
     assert '"transmission_requested": true' in output
     assert '"aggregate_outcome": "joined_transfer_demonstrated"' in output
+
+
+def test_cli_reports_unsealed_post_contact_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    failure = {
+        "locus": "checkpoint_1_seal",
+        "exception_type": "OSError",
+        "message": "seal unavailable",
+    }
+    monkeypatch.setattr(
+        PROBE,
+        "_git_checkout_state",
+        lambda: PROBE.GitCheckoutState("d" * 40, True),
+    )
+    monkeypatch.setattr(
+        PROBE,
+        "_execute_transmitted_attempt",
+        lambda prepared: SimpleNamespace(
+            checkpoint_1=SimpleNamespace(classification="probe_inconclusive"),
+            checkpoint_2="not_evaluated",
+            aggregate_outcome="inconclusive",
+            sealed_aggregate=None,
+            control_failure=failure,
+        ),
+    )
+
+    assert PROBE.main(_canonical_cli_args(tmp_path / "run", transmit=True)) == 0
+
+    output = capsys.readouterr().out
+    assert '"aggregate_outcome": "inconclusive"' in output
+    assert '"sealed_aggregate": null' in output
+    assert '"locus": "checkpoint_1_seal"' in output
 
 
 def test_scope_guard_rejects_forbidden_imports_and_pre_freeze_r01_references(

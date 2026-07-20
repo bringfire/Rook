@@ -128,6 +128,9 @@ class PlannerCheckpointResult:
     sealed_archive: ARTIFACTS.SealedPlannerCheckpointArchive | None = None
     planner_inputs: ARTIFACTS.FrozenPlannerInputs | None = None
     gate_result: ARTIFACTS.MechanicalGateResult | None = None
+    planner_provider_attempts: tuple[ARTIFACTS.ProviderAttemptEvidence, ...] = ()
+    evaluator_provider_attempts: tuple[ARTIFACTS.ProviderAttemptEvidence, ...] = ()
+    control_failure: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -245,23 +248,39 @@ def run_planner_checkpoint(
             result,
             planner_inputs=inputs,
             gate_result=checkpoint_gate,
+            planner_provider_attempts=tuple(planner_provider_attempts),
+            evaluator_provider_attempts=tuple(evaluator_provider_attempts),
         )
         if archive_destination is None:
             return result
         assert archive_identity is not None
-        sealed = ARTIFACTS.seal_planner_checkpoint_archive(
-            destination=archive_destination,
-            inputs=inputs,
-            planner_request=planner_request,
-            planner_session=result.planner_session,
-            evaluator=result.evaluator,
-            evaluator_request=evaluator_request,
-            planner_provider_attempts=planner_provider_attempts,
-            evaluator_provider_attempts=evaluator_provider_attempts,
-            evaluator_elapsed_ms=evaluator_elapsed_ms,
-            classification=result.classification,
-            archive_identity=archive_identity,
-        )
+        try:
+            sealed = ARTIFACTS.seal_planner_checkpoint_archive(
+                destination=archive_destination,
+                inputs=inputs,
+                planner_request=planner_request,
+                planner_session=result.planner_session,
+                evaluator=result.evaluator,
+                evaluator_request=evaluator_request,
+                planner_provider_attempts=planner_provider_attempts,
+                evaluator_provider_attempts=evaluator_provider_attempts,
+                evaluator_elapsed_ms=evaluator_elapsed_ms,
+                classification=result.classification,
+                archive_identity=archive_identity,
+            )
+        except Exception as exc:
+            if not planner_provider_attempts and not evaluator_provider_attempts:
+                raise
+            return replace(
+                result,
+                classification="probe_inconclusive",
+                sealed_archive=None,
+                control_failure={
+                    "locus": "checkpoint_1_seal",
+                    "exception_type": type(exc).__name__,
+                    "message": str(exc)[:2000],
+                },
+            )
         return replace(result, sealed_archive=sealed)
 
     planner_session = run_planner_session(
@@ -976,16 +995,6 @@ def _execute_transmitted_attempt(prepared: PreparedTransmission) -> JoinedProbeR
         model=config.planner_evaluator_model,
         temperature=config.planner_evaluator_temperature,
     )
-    compiler_provider = _build_provider(
-        role="compiler",
-        model=config.compiler_model,
-        temperature=config.compiler_temperature,
-    )
-    compiler_evaluator_provider = _build_provider(
-        role="compiler_evaluator",
-        model=config.compiler_evaluator_model,
-        temperature=config.compiler_evaluator_temperature,
-    )
     checkpoint = run_planner_checkpoint(
         fixture_dir=_PLANNER_FIXTURES,
         frozen_inputs=prepared.planner_inputs,
@@ -999,6 +1008,30 @@ def _execute_transmitted_attempt(prepared: PreparedTransmission) -> JoinedProbeR
             "evaluator_model_identity": config.planner_evaluator_model,
             "provider_profile_identity": _PLANNER_PROVIDER_PROFILE_ID,
         },
+    )
+    if (
+        type(checkpoint) is PlannerCheckpointResult
+        and checkpoint.control_failure is not None
+    ):
+        return JoinedProbeResult(
+            checkpoint_1=checkpoint,
+            checkpoint_2="not_evaluated",
+            aggregate_outcome="inconclusive",
+            handoff=None,
+            lm9bc_result=None,
+            pre_session_failure=None,
+            sealed_aggregate=None,
+            control_failure=checkpoint.control_failure,
+        )
+    compiler_provider = _build_provider(
+        role="compiler",
+        model=config.compiler_model,
+        temperature=config.compiler_temperature,
+    )
+    compiler_evaluator_provider = _build_provider(
+        role="compiler_evaluator",
+        model=config.compiler_evaluator_model,
+        temperature=config.compiler_evaluator_temperature,
     )
     return run_joined_probe(
         checkpoint_1=checkpoint,
@@ -1032,6 +1065,7 @@ def main(argv: list[str] | None = None) -> int:
                     if result.sealed_aggregate is not None
                     else None
                 ),
+                "control_failure": result.control_failure,
             },
             sort_keys=True,
         )

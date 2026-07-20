@@ -191,6 +191,7 @@ class ProviderAttemptEvidence:
     provider_turn: object | None = None
     exception_type: str | None = None
     exception_message: str | None = None
+    failure_type: str | None = None
     raw_request: bytes | None = None
     raw_error: bytes | None = None
     elapsed_ms: int | None = None
@@ -215,6 +216,7 @@ class ProviderAttemptEvidence:
             and type(transport_request) is bytes
             and type(transport_error) is bytes
         ):
+            self.failure_type = getattr(exception, "failure_type")
             self.raw_request = transport_request
             self.raw_error = transport_error
         self.elapsed_ms = max(0, int((time.perf_counter() - started_at) * 1000))
@@ -1516,8 +1518,11 @@ def _attempt_snapshot(attempt: ProviderAttemptEvidence) -> Mapping[str, object]:
     if outcome not in {"pending", "raised", "returned"}:
         raise ValueError("provider attempt outcome is invalid")
     turn = attempt.provider_turn if outcome == "returned" else None
-    raw_request = getattr(turn, "raw_request", None)
+    raw_request = (
+        attempt.raw_request if outcome == "raised" else getattr(turn, "raw_request", None)
+    )
     raw_response = getattr(turn, "raw_response", None)
+    raw_error = attempt.raw_error if outcome == "raised" else None
     usage = getattr(turn, "usage", None)
     provider_metadata = getattr(turn, "provider_metadata", None)
     message = getattr(turn, "assistant_message", None)
@@ -1543,6 +1548,7 @@ def _attempt_snapshot(attempt: ProviderAttemptEvidence) -> Mapping[str, object]:
             "provider_request_bytes": attempt.provider_request_bytes,
             "raw_request": raw_request if isinstance(raw_request, bytes) else None,
             "raw_response": raw_response if isinstance(raw_response, bytes) else None,
+            "raw_error": raw_error if isinstance(raw_error, bytes) else None,
             "usage": dict(usage) if isinstance(usage, Mapping) else None,
             "provider_metadata": (
                 _freeze_json(dict(provider_metadata))
@@ -1552,6 +1558,7 @@ def _attempt_snapshot(attempt: ProviderAttemptEvidence) -> Mapping[str, object]:
             "tool_arguments": tuple(arguments),
             "exception_type": attempt.exception_type,
             "exception_message": attempt.exception_message,
+            "failure_type": attempt.failure_type,
             "elapsed_ms": attempt.elapsed_ms,
             "provider_turn": turn,
         }
@@ -1576,8 +1583,10 @@ def _write_attempt(
         "elapsed_ms": snapshot["elapsed_ms"],
         "exception_type": snapshot["exception_type"],
         "exception_message": snapshot["exception_message"],
+        "failure_type": snapshot["failure_type"],
         "has_raw_request": snapshot["raw_request"] is not None,
         "has_raw_response": snapshot["raw_response"] is not None,
+        "has_raw_error": snapshot["raw_error"] is not None,
         "has_usage": snapshot["usage"] is not None,
         "provider_metadata": snapshot["provider_metadata"],
         "tool_argument_indexes": argument_indexes,
@@ -1591,7 +1600,11 @@ def _write_attempt(
         relative_path=f"{prefix}/provider_request.json",
         raw=snapshot["provider_request_bytes"],
     )
-    for field, filename in (("raw_request", "raw_request.bin"), ("raw_response", "raw_response.bin")):
+    for field, filename in (
+        ("raw_request", "raw_request.bin"),
+        ("raw_response", "raw_response.bin"),
+        ("raw_error", "raw_error.bin"),
+    ):
         raw = snapshot[field]
         if raw is not None:
             assert isinstance(raw, bytes)
@@ -1629,7 +1642,8 @@ def _expected_attempt_records(
     capture = _archive_object(archive_dir / f"{prefix}/capture.json", "attempt capture")
     required = {
         "schema", "outcome", "elapsed_ms", "exception_type", "exception_message",
-        "has_raw_request", "has_raw_response", "has_usage", "provider_metadata", "tool_argument_indexes",
+        "failure_type", "has_raw_request", "has_raw_response", "has_raw_error",
+        "has_usage", "provider_metadata", "tool_argument_indexes",
     }
     if set(capture) != required or capture["schema"] != "rook.lm9b_p.provider_attempt:v1":
         raise ValueError("sealed checkpoint archive attempt capture shape is invalid")
@@ -1642,11 +1656,21 @@ def _expected_attempt_records(
         or indexes != sorted(set(indexes))
     ):
         raise ValueError("sealed checkpoint archive tool argument order is invalid")
+    elapsed_ms = capture["elapsed_ms"]
+    if outcome == "pending":
+        if elapsed_ms is not None:
+            raise ValueError("sealed checkpoint archive pending attempt has timing evidence")
+    elif type(elapsed_ms) is not int or elapsed_ms < 0:
+        raise ValueError("sealed checkpoint archive completed attempt timing is invalid")
     expected = {
         f"{prefix}/capture.json": f"{phase}_attempt:{index}:capture",
         f"{prefix}/provider_request.json": f"{phase}_attempt:{index}:provider_request",
     }
-    for field, filename in (("has_raw_request", "raw_request.bin"), ("has_raw_response", "raw_response.bin")):
+    for field, filename in (
+        ("has_raw_request", "raw_request.bin"),
+        ("has_raw_response", "raw_response.bin"),
+        ("has_raw_error", "raw_error.bin"),
+    ):
         if type(capture[field]) is not bool:
             raise ValueError("sealed checkpoint archive attempt flag is invalid")
         if capture[field]:
@@ -1659,12 +1683,39 @@ def _expected_attempt_records(
         expected[f"{prefix}/tool_arguments/{tool_index:03d}.bin"] = (
             f"{phase}_attempt:{index}:tool_arguments:{tool_index}"
         )
-    if outcome == "raised" and not isinstance(capture["exception_type"], str):
+    if outcome == "raised" and (
+        not isinstance(capture["exception_type"], str)
+        or not isinstance(capture["exception_message"], str)
+    ):
         raise ValueError("sealed checkpoint archive raised attempt lacks exception evidence")
+    if outcome != "raised" and (
+        capture["exception_type"] is not None
+        or capture["exception_message"] is not None
+    ):
+        raise ValueError("sealed checkpoint archive non-failure has exception evidence")
     if outcome == "returned" and not isinstance(capture["provider_metadata"], dict):
         raise ValueError("sealed checkpoint archive returned attempt lacks provider metadata")
-    if outcome != "returned" and any(capture[field] for field in ("has_raw_request", "has_raw_response", "has_usage")):
-        raise ValueError("sealed checkpoint archive failed attempt has returned evidence")
+    if outcome == "raised":
+        has_transport_failure = capture["failure_type"] is not None
+        if has_transport_failure and (
+            not isinstance(capture["failure_type"], str)
+            or capture["exception_type"] != "ProviderCallFailure"
+            or not capture["has_raw_request"]
+            or not capture["has_raw_error"]
+        ):
+            raise ValueError("sealed checkpoint archive transport failure evidence is invalid")
+        if not has_transport_failure and (
+            capture["has_raw_request"] or capture["has_raw_error"]
+        ):
+            raise ValueError("sealed checkpoint archive generic failure has transport evidence")
+        if capture["has_raw_response"] or capture["has_usage"]:
+            raise ValueError("sealed checkpoint archive failed attempt has returned evidence")
+    elif capture["failure_type"] is not None or capture["has_raw_error"]:
+        raise ValueError("sealed checkpoint archive non-failure has transport failure evidence")
+    if outcome == "pending" and any(
+        capture[field] for field in ("has_raw_request", "has_raw_response", "has_raw_error", "has_usage")
+    ):
+        raise ValueError("sealed checkpoint archive pending attempt has provider evidence")
     if outcome != "returned" and capture["provider_metadata"] is not None:
         raise ValueError("sealed checkpoint archive failed attempt has returned metadata")
     return MappingProxyType(expected)
@@ -1678,7 +1729,11 @@ def _trusted_attempt_records(
         f"{prefix}/capture.json": f"{phase}_attempt:{index}:capture",
         f"{prefix}/provider_request.json": f"{phase}_attempt:{index}:provider_request",
     }
-    for field, filename in (("raw_request", "raw_request.bin"), ("raw_response", "raw_response.bin")):
+    for field, filename in (
+        ("raw_request", "raw_request.bin"),
+        ("raw_response", "raw_response.bin"),
+        ("raw_error", "raw_error.bin"),
+    ):
         if snapshot[field] is not None:
             expected[f"{prefix}/{filename}"] = f"{phase}_attempt:{index}:{field}"
     if snapshot["usage"] is not None:

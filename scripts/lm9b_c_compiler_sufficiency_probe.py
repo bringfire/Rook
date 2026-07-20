@@ -174,14 +174,23 @@ class LiteLLMProvider:
             ) from exc
         response_value = _plain(response)
         raw_response = _json_bytes(response_value)
+
+        def malformed_response(message: str) -> ProviderCallFailure:
+            return ProviderCallFailure(
+                failure_type="MalformedProviderResponse",
+                message=message,
+                raw_request=raw_request,
+                raw_error=raw_response,
+            )
+
         if not isinstance(response_value, dict):
-            raise RuntimeError("LiteLLM response is not an object")
+            raise malformed_response("LiteLLM response is not an object")
         choices = response_value.get("choices")
         if not isinstance(choices, list) or not choices:
-            raise RuntimeError("LiteLLM response has no choices")
+            raise malformed_response("LiteLLM response has no choices")
         choice = choices[0]
         if not isinstance(choice, dict) or not isinstance(choice.get("message"), dict):
-            raise RuntimeError("LiteLLM response has no assistant message")
+            raise malformed_response("LiteLLM response has no assistant message")
         source_message = choice["message"]
         assistant_message = {
             "role": "assistant",

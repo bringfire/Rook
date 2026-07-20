@@ -3,8 +3,11 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import types
 from datetime import datetime, timezone
 from pathlib import Path
+
+import pytest
 
 
 def _load_script(name: str):
@@ -161,6 +164,74 @@ def _mechanically_invalid_candidate(inputs: object) -> dict[str, object]:
             "unused_recipe_paths": [],
         },
     }
+
+
+@pytest.mark.parametrize(
+    ("response", "message"),
+    [
+        ({"choices": []}, "LiteLLM response has no choices"),
+        ({"choices": [{}]}, "LiteLLM response has no assistant message"),
+    ],
+)
+def test_litellm_malformed_response_retains_transport_evidence_and_classification(
+    monkeypatch: pytest.MonkeyPatch,
+    response: dict[str, object],
+    message: str,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def completion(**kwargs: object) -> dict[str, object]:
+        calls.append(dict(kwargs))
+        return response
+
+    monkeypatch.setitem(
+        sys.modules,
+        "litellm",
+        types.SimpleNamespace(completion=completion),
+    )
+    provider = PROBE.LiteLLMProvider(
+        model="gemini/gemini-3.1-pro-preview",
+        temperature=0.0,
+    )
+    request = {
+        "messages": [{"role": "user", "content": "bounded input"}],
+        "tools": [],
+        "tool_choice": "auto",
+        "max_completion_tokens": 128,
+        "provider_timeout_s": 5.0,
+    }
+
+    with pytest.raises(SUPPORT.ProviderCallFailure) as caught:
+        provider(request)
+
+    failure = caught.value
+    assert failure.failure_type == "MalformedProviderResponse"
+    assert failure.message == message
+    assert failure.raw_request == PROBE._json_bytes(calls[0])
+    assert failure.raw_error == PROBE._json_bytes(response)
+
+    session = SUPPORT.run_compiler_session(
+        provider=provider,
+        system_prompt="system",
+        user_prompt="user",
+        contract_index={},
+        limits=SUPPORT.SessionLimits(
+            max_turns=1,
+            max_completion_tokens_per_call=128,
+            provider_timeout_s=5.0,
+            overall_deadline_s=10.0,
+            cumulative_token_stop_threshold=1000,
+            cumulative_cost_stop_threshold_usd=1.0,
+        ),
+    )
+    decision = SUPPORT.classify_observation(session, None)
+    assert len(calls) == 2
+    assert session.stop_reason == "provider_failure"
+    assert session.control_error == "MalformedProviderResponse"
+    assert session.raw_control_request is not None
+    assert session.raw_control_error == failure.raw_error
+    assert decision.outcome == "inconclusive"
+    assert decision.reason_codes == ("compiler_provider_failure",)
 
 
 def test_cli_defaults_match_frozen_charter() -> None:
