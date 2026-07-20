@@ -225,3 +225,51 @@ git diff --check:       passed
   checkpoint, archive, joined aggregate, provider attempt, or seal.
 - The canonical attempt remains unrun. All provider activity in verification
   used deterministic fakes; no real provider was contacted.
+
+## Task 8 Step 6 Completion
+
+The one canonical attempt ran once at `9959650f` and was not rerun, repaired,
+or retransmitted. Its terminal observation was:
+
+```text
+Checkpoint 1: probe_inconclusive
+Checkpoint 2: not_evaluated
+aggregate: probe_inconclusive
+Planner attempts: 1
+Planner model turns: 0
+Planner evaluator attempts: 0
+compiler attempts: 0
+execution: false
+```
+
+LiteLLM rejected the Planner call with an evidence-bearing
+`InternalServerError` reporting missing OpenAI credentials. This environmental
+provider-configuration failure occurred before model inference, so neither the
+Planner-authorship nor joined-transfer counter-hypothesis was evaluated.
+
+Step 6 verified the complete checkpoint archive with the production verifier
+and independently recomputed the joined aggregate's exact file closure, record
+hash, canonical identity, and checkpoint binding:
+
+```text
+checkpoint aggregate:
+  sha256:ca782b786fe9f07072e50d07264623cfd0a825a05caf6794fb78be8bf39003cd
+joined aggregate:
+  sha256:8777701ebdd7a591f4d848964459c454f46a24821cf7cd04958edcff193b0acb
+LM9B-P: 358 passed
+LM9B-C/kernel adjacent: 102 passed
+Python 3.10 py_compile: passed
+git diff --check: passed
+```
+
+No final recipe existed, so R01 comparison was not applicable and was not
+performed. Neither the canonical path nor Step 6 read an R01 recipe artifact.
+
+The 33 evidence files and result report were committed without modifying the
+attempt as `ab026a66` (`docs(lm9b): record planner recipe transfer result`). A
+scoped repository transport attribute preserves exact evidence bytes across
+Git checkouts without entering either scientific seal.
+
+Task 8 is complete. Any subsequent Planner observation must use a new attempt
+identity, unused run root, and newly reviewed committed SHA; it is not a retry
+of this canonical attempt.
