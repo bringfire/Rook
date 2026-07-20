@@ -21,26 +21,40 @@ If any fail, the user needs to restart Rhino or run `/mcp` to reconnect.
 
 ### For Rhino Geometry
 
-**USE THIS:** `rhino_execute_intent`
+Rediscover the admitted Rhino tools, inspect the document, and call the exact
+typed operation:
+
 ```python
-rhino_execute_intent(intent="create a box from 0,0,0 to 10,10,0 with height 5")
-rhino_execute_intent(intent="create a sphere at origin with radius 5")
+rhino_create(type="BOX", origin=[0, 0, 0], width=10, depth=10, height=5)
+rhino_create(type="SPHERE", center=[0, 0, 0], radius=5)
+rhino_objects()  # verify the host result
 ```
 
-**Why:** It automatically queries learned knowledge, selects best syntax via DSPy/MAB, and executes correctly.
-
-**DO NOT use:** `rhino_command` directly (bypasses knowledge system, likely wrong syntax).
+Use `knowledge_query` before an unfamiliar scripted command. `rhino_command`
+must be fully scripted and preflighted; `rhino_execute` must be short and
+non-interactive. Both are fallbacks when no typed route fits.
 
 ### For Grasshopper Components
 
-**USE THIS:** `gh_execute_intent`
+Inspect, resolve, edit, verify:
+
 ```python
-gh_execute_intent(intent="create a sphere with radius slider")
+snap = gh_snapshot()
+gh_library(search="Sphere", exact=True)
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "type": "slider", "nick": "R", "min": 0, "max": 10, "value": 5, "pos": [100, 100]},
+        {"temp_id": "T2", "name": "Sphere", "pos": [400, 100]},
+    ],
+    connect=["T1.O0>T2.I1"],
+)
+gh_snapshot()
 ```
 
-**Why:** It looks up correct component GUIDs from knowledge and auto-wires inputs.
-
-**DO NOT use:** Direct component creation tools (they're hidden for a reason).
+Use `gh_knowledge_query` when the library name is unclear. Inspect
+`edit_summary.errors`, `gh_errors`, and the follow-up snapshot; undo or clean up
+before retrying a partially committed edit.
 
 ---
 
@@ -67,7 +81,7 @@ There are **three main knowledge systems**. Know which to query:
 | System | Purpose | Query Tool |
 |--------|---------|------------|
 | **Command Knowledge** | Rhino command syntax, modes, gotchas | `knowledge_query(intent="...")` |
-| **Unified Store** | A-MEM patterns, recipes, struggles | Queried automatically by `gh_execute_intent` |
+| **Unified Store** | A-MEM patterns, recipes, struggles | `gh_knowledge_query(intent="...")` |
 | **GH Knowledge** | Component GUIDs, wiring patterns | `gh_knowledge_query(intent="...")` |
 
 ### When to Query Knowledge
@@ -92,8 +106,8 @@ knowledge_query(intent="create cone", depth="errors")   # ~40 tokens
 
 ```
 Need to CREATE geometry?
-├─ Rhino → rhino_execute_intent(intent="...")
-└─ Grasshopper → gh_execute_intent(intent="...")
+├─ Rhino → inspect state, then use an explicit typed `rhino_*` route
+└─ Grasshopper → gh_snapshot → resolve component → gh_edit → gh_snapshot
 
 Need to QUERY objects?
 ├─ Document info → rhino_document()
@@ -103,7 +117,7 @@ Need to QUERY objects?
 
 Need to TRANSFORM?
 ├─ Simple → rhino_transform(ids=[...], operation="move", ...)
-├─ Complex → rhino_execute_intent(intent="move X by 10,0,0")
+├─ Complex → rediscover a matching typed transform route or use a bounded non-interactive script
 ├─ Interactive → rhino_gumball_activate() (persistent AI Gumball)
 └─ Delete → rhino_delete(ids=[...])
 
@@ -131,9 +145,9 @@ Something FAILED?
 
 ## Step 6: What NOT to Do
 
-1. **Never use `rhino_command` directly** - Bypasses knowledge system, likely wrong syntax
-2. **Never guess component GUIDs** - Use `gh_execute_intent` which looks them up
-3. **Never say "I can't"** - The tool exists, you just haven't found it yet
+1. **Never send an unverified interactive command** - Query knowledge and preflight a fully scripted form
+2. **Never guess component GUIDs** - Resolve them with `gh_library` or `gh_knowledge_query`
+3. **Never assume a tool exists** - Rediscover the admitted surface before selecting a route
 4. **Never record routine successes** - Only record when `correction_detected: true`
 5. **Never use curl/HTTP directly** - Always use MCP tools
 
@@ -152,8 +166,8 @@ Something FAILED?
 
 | Task | Tool | Example |
 |------|------|---------|
-| Create Rhino geometry | `rhino_execute_intent` | `intent="create sphere radius 5"` |
-| Create GH components | `gh_execute_intent` | `intent="sphere with slider"` |
+| Create Rhino geometry | `rhino_create` | `type="SPHERE", center=[0,0,0], radius=5` |
+| Create GH components | `gh_edit` | `epoch=..., create=[...], connect=[...]` |
 | Set GH Python script | `gh_set_script` | `guid="...", script="import Rhino..."` |
 | Query before unknown command | `knowledge_query` | `intent="...", depth="context"` |
 | Check document state | `rhino_document` | - |
@@ -170,7 +184,9 @@ Something FAILED?
 
 ## The Golden Rule
 
-**Use `rhino_execute_intent` and `gh_execute_intent` for everything.** They query knowledge, select best approaches, and execute correctly. Only drop to lower-level tools when these fail.
+**Rediscover, inspect, execute explicitly, and verify.** Prefer typed Rhino routes
+and bounded `gh_edit` batches. Use knowledge lookup before unfamiliar operations,
+and restore partial mutations before retrying.
 
 ---
 

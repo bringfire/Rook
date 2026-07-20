@@ -296,7 +296,7 @@ async def run_task(
             allowed_groups=READONLY_ALLOWED_GROUPS,
         )
     else:
-        # Full-access agents — agent_mode excludes gh_execute_intent from Tier 0
+        # Full-access agents use the explicit worker-oriented Tier 0 surface.
         registry = ToolRegistry(catalog=catalog or {}, agent_mode=True)
 
     config = AgentConfig(

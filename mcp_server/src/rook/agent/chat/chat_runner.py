@@ -46,6 +46,8 @@ from ..tool_registry import (
     load_catalog_from_cache,
 )
 from ..generation_params import sanitize_generation_params_for_model
+from ...tool_lifecycle import resolve_contained_tool
+from ...tool_lifecycle_runtime import DispatchOrigin, deny_if_contained
 
 logger = logging.getLogger(__name__)
 
@@ -206,7 +208,6 @@ _TOOL_DESCRIPTIONS: Dict[str, str] = {
     "rhino_boolean": "Boolean operations (union, difference, intersection) on solids",
     "rhino_extrude": "Extrude a curve to create a surface or solid",
     "rhino_text": "Create 3D text objects",
-    "rhino_execute_intent": "Execute a Rhino intent through the typed runtime. It prefers direct API routes and may use only known-safe fully scripted command substrates when safety metadata permits.",
     # Grasshopper
     "gh_status": "Get Grasshopper document status",
     "gh_snapshot": "Read the entire canvas as a structured graph document",
@@ -264,6 +265,8 @@ def _build_fallback_catalog() -> Dict[str, dict]:
         )
 
     for tool_name, desc in all_tools.items():
+        if resolve_contained_tool(tool_name) is not None:
+            continue
         if tool_name == "gh_errors":
             catalog[tool_name] = _GH_ERRORS_SCHEMA
             continue
@@ -272,9 +275,6 @@ def _build_fallback_catalog() -> Dict[str, dict]:
             continue
         if tool_name == "rhino_command":
             catalog[tool_name] = _RHINO_COMMAND_SCHEMA
-            continue
-        if tool_name == "rhino_execute_intent":
-            catalog[tool_name] = _RHINO_EXECUTE_INTENT_SCHEMA
             continue
         if tool_name == "rhino_create":
             catalog[tool_name] = _RHINO_CREATE_SCHEMA
@@ -468,25 +468,6 @@ _RHINO_COMMAND_SCHEMA: dict = {
                 },
             },
             "required": ["command"],
-            "additionalProperties": False,
-        },
-    },
-}
-
-_RHINO_EXECUTE_INTENT_SCHEMA: dict = {
-    "type": "function",
-    "function": {
-        "name": "rhino_execute_intent",
-        "description": _TOOL_DESCRIPTIONS["rhino_execute_intent"],
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "intent": {
-                    "type": "string",
-                    "description": "Natural language intent describing what to create or do.",
-                },
-            },
-            "required": ["intent"],
             "additionalProperties": False,
         },
     },
@@ -756,15 +737,14 @@ def _build_local_tool_catalog(local_tools: dict) -> Dict[str, dict]:
     """Build LiteLLM catalog entries for local Python tools."""
     catalog: Dict[str, dict] = {}
     for name in local_tools:
+        if resolve_contained_tool(name) is not None:
+            continue
         # Use the typed schema for ui_block instead of the generic fallback
         if name == "ui_block":
             catalog[name] = _UI_BLOCK_SCHEMA
             continue
         if name in _CHAT_MODEL_TOOL_SCHEMAS:
             catalog[name] = _CHAT_MODEL_TOOL_SCHEMAS[name]
-            continue
-        if name == "rhino_execute_intent":
-            catalog[name] = _RHINO_EXECUTE_INTENT_SCHEMA
             continue
         if name == "gh_update_script":
             catalog[name] = _GH_UPDATE_SCRIPT_SCHEMA
@@ -845,7 +825,7 @@ class ChatRunner:
             catalog = _build_fallback_catalog()
             logger.info(
                 f"No catalog cache found — using fallback ({len(catalog)} tools). "
-                f"Run spawn_agent once to generate full catalog with parameter schemas."
+                f"The MCP runtime will populate the full schema cache when available."
             )
         else:
             logger.info(f"Loaded cached catalog with {len(catalog)} tools (with parameter schemas)")
@@ -1179,6 +1159,15 @@ class ChatRunner:
                 meta_only_round = True
                 for tc in choice_tool_calls:
                     tool_name = tc.function.name
+                    denial = deny_if_contained(tool_name, DispatchOrigin.ROOK_CHAT)
+                    if denial is not None:
+                        meta_only_round = False
+                        conversation.messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": json.dumps(denial, separators=(",", ":")),
+                        })
+                        continue
                     try:
                         params = json.loads(tc.function.arguments) if tc.function.arguments else {}
                     except json.JSONDecodeError:

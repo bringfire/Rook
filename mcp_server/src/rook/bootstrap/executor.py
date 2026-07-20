@@ -13,6 +13,7 @@ import urllib.error
 from typing import Any, Callable
 
 from ..bridge import get_rhino_host
+from ..tool_lifecycle_runtime import DispatchOrigin, deny_if_contained
 
 logger = logging.getLogger("rook.bootstrap")
 
@@ -95,6 +96,10 @@ class HttpExecutor:
 
         Maps tool names to HTTP endpoints and methods.
         """
+        denial = deny_if_contained(tool_name, DispatchOrigin.INTERNAL_HANDLER)
+        if denial is not None:
+            return denial
+
         # Tool to endpoint mapping
         endpoint_map = {
             # Query tools (GET)
@@ -246,6 +251,9 @@ def create_mock_executor() -> Callable:
     Returns predictable results based on expected outcomes.
     """
     def mock_execute(tool_name: str, params: dict[str, Any]) -> dict[str, Any]:
+        denial = deny_if_contained(tool_name, DispatchOrigin.INTERNAL_HANDLER)
+        if denial is not None:
+            return denial
         # Simulate different outcomes based on tool/params
 
         # Query tools always succeed

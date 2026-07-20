@@ -23,6 +23,7 @@ from rook.agent.capability_record import CapabilityFinding, SurfaceSources, TIER
 from rook.agent.chat.tool_contracts import audit_visible_tool_dispatchability
 from rook.agent.execution_profile import ProfileFinding, ProfileResolution
 from rook.agent.tool_registry import ToolRegistry
+from rook.tool_lifecycle import resolve_contained_tool
 
 _TIER_FIELDS = frozenset(TIER_FIELDS)
 
@@ -83,7 +84,10 @@ def reconcile_profile(
         )
     )
 
-    intended = frozenset(resolution.tool_names)
+    intended = frozenset(
+        name for name in resolution.tool_names
+        if resolve_contained_tool(name) is None
+    )
     for name in sorted(intended - active_names):
         findings.append(
             CapabilityFinding(
@@ -108,7 +112,10 @@ def reconcile_profile(
     )
     return ProfileReconciliation(
         profile_name=definition.name,
-        intended_names=resolution.tool_names,
+        intended_names=tuple(
+            name for name in resolution.tool_names
+            if resolve_contained_tool(name) is None
+        ),
         active_names=tuple(sorted(active_names)),
         registry_findings=registry_findings,
         profile_findings=resolution.findings,

@@ -429,15 +429,14 @@ class TestExecuteIntentVerification:
         return d
 
     @pytest.mark.asyncio
-    async def test_known_command_substrate_gets_verified(self, dispatcher):
-        """rhino_execute_intent with known_command substrate should be verified."""
-        prompt_idle = {"success": True, "data": {"is_active": False, "prompt": ""}}
-
+    async def test_retired_intent_path_is_contained(self, dispatcher):
+        """The legacy semantic entry point never reaches verification or Rhino."""
         with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
-            mock_rhino.return_value = prompt_idle
             result = await dispatcher.dispatch("rhino_execute_intent", {"intent": "create a box"})
 
-        assert "verified" in result
+        assert result["success"] is False
+        assert result["data"]["code"] == "legacy_semantic_tool_contained"
+        mock_rhino.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_direct_api_substrate_not_verified(self):

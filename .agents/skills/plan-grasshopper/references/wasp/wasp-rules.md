@@ -58,28 +58,35 @@ to wall". Also used when Chirp authoring cascade generates connection rules.
 ```python
 # BATCH: Rule Generation
 
-# Step 1: Merge all parts into a single list
-gh_execute_intent(intent="create merge component", x=800, y=100)
-# → Record as $PARTS_MERGE
+# Steps 1-2: resolved Merge and RuleGenerator components
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "guid": "$GUID_MERGE_COMPONENT", "pos": [800, 100]},
+        {"temp_id": "T2", "guid": "$GUID_WASP_RULE_GENERATOR", "pos": [1000, 100]},
+    ],
+)
+# Record T1/T2 as $PARTS_MERGE/$RULE_GEN.
 # Wire: $PART_A → Merge.D1, $PART_B → Merge.D2, ...
-
-# Step 2: Create RuleGenerator
-gh_execute_intent(intent="create wasp rule generator", x=1000, y=100)
-# → Record as $RULE_GEN
 # Wire: $PARTS_MERGE → RuleGenerator.PART
 
 # Step 3 (Mode 1 — Typed): Set grammar mode
 # Connection types are already defined in wasp-parts via Connection components
 # RuleGenerator auto-filters by matching types — no extra wiring needed
 
-# Step 3 (Mode 2 — Grammar): Add grammar text
-gh_execute_intent(intent="create panel", x=800, y=250)
-# → Record as $GRAMMAR_PANEL
-# Set content: "floor > floor\nwall > wall\nceiling > ceiling"
+# Step 3 (Mode 2 — Grammar): Add grammar text panel
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[{"temp_id": "T1", "type": "panel", "content": "floor > floor\nwall > wall\nceiling > ceiling", "pos": [800, 250]}],
+)
+# Record T1 as $GRAMMAR_PANEL.
 # Wire: $GRAMMAR_PANEL → RuleGenerator.GRAMMAR
 
 # CHECKPOINT
-gh_solve(delay=500)
+# Bounded-poll gh_status until ready_for_edit is true, solverEnabled is true,
+# and solutionState is PostProcess; stop on timeout or disabled/unknown state.
 gh_errors()
 # → Expected: RuleGenerator produces a list of Rule objects
 ```
@@ -88,8 +95,12 @@ gh_errors()
 
 ```python
 # After RuleGenerator, add visualizer to inspect generated rules
-gh_execute_intent(intent="create wasp rules visualizer", x=1200, y=100)
-# → Record as $RULES_VIZ
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[{"temp_id": "T1", "guid": "$GUID_WASP_RULES_VISUALIZER", "pos": [1200, 100]}],
+)
+# Record T1 as $RULES_VIZ.
 # Wire: $RULE_GEN → RulesVisualizer.RULES
 # Wire: integer slider → RulesVisualizer.INDEX (to browse rules)
 ```

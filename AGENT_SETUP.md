@@ -271,21 +271,22 @@ Set these in `mcp_server/.env` or as system environment variables.
 | "Connection refused" | Plugin port not discovered | Check `%TEMP%\rook\` for discovery JSON files |
 | pip install fails | Python <3.10 or missing dependencies | Verify `python --version` is 3.10+ |
 | Tools timeout | Rhino showing a modal dialog | Dismiss any dialog in Rhino, then retry |
-| GH component not found | Wrong component name/GUID | Use `gh_execute_intent` — it resolves GUIDs from the knowledge store |
+| GH component not found | Wrong component name/GUID | Search `gh_library` or `gh_knowledge_query`, then pass the exact name/GUID to `gh_edit` |
 
 ## After Setup
 
-Once verified, the agent has access to nearly 400 tools. Key tools to start with:
+Once verified, the default full profile advertises 422 tools. Key tools to start with:
 
 | Tool | Purpose |
 |------|---------|
 | `rhino_ping` | Verify connection |
-| `rhino_execute_intent` | Create/modify Rhino geometry via natural language |
-| `gh_execute_intent` | Create Grasshopper components via natural language |
+| `rhino_create` | Create supported Rhino primitives through a typed route |
+| `rhino_transform` | Move, rotate, or scale explicit object IDs |
 | `gh_snapshot` | Read the current Grasshopper canvas state |
 | `gh_edit` | Modify the Grasshopper canvas atomically |
+| `gh_library` | Resolve exact Grasshopper component names and GUIDs |
 | `rhino_objects` | List objects in the Rhino document |
 | `knowledge_query` | Query the knowledge graph for commands/patterns |
 
-For full tool documentation, call `/mcp` in the AI client to list all nearly 400 tools
+For full tool documentation, call `/mcp` in the AI client to list the admitted tools
 with descriptions.

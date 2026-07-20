@@ -19,7 +19,9 @@ Document command-specific gotchas that are relevant to this skill.
 For the latest gotchas, query the knowledge system:
 
 ```python
-knowledge_query(tool="rhino_execute_intent", intent="your operation", depth="errors")
+knowledge_query(tool="<explicit admitted tool>", intent="your operation", depth="errors")
 ```
 
-This returns learned gotchas from `knowledge/commands/command_knowledge.json`.
+Use the result to select and preflight an explicit typed route or, only when no
+typed route fits, a fully scripted non-interactive command. Verify the host result
+after execution.

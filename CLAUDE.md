@@ -1,7 +1,7 @@
 # Rook — AI Agents for Rhino & Grasshopper
 
 > An agent platform that lets AI operate directly inside Rhino 3D
-> and Grasshopper. 428 MCP tools advertised by `list_tools()`. Works with any LLM provider.
+> and Grasshopper. 422 MCP tools advertised by default, or 425 with the interactive gate. Works with any LLM provider.
 
 ---
 
@@ -43,7 +43,7 @@ When `correction_detected: true` appears in tool output, call `knowledge_record`
 
 ## Primary Tools
 
-There are 428 MCP tools advertised by `list_tools()` (431 static defs minus 3 deprecated-interactive tools gated by default). Two paths matter most.
+There are 422 MCP tools advertised by `list_tools()` by default and 425 when deprecated interactive command learning is explicitly enabled. Two paths matter most.
 
 ### For Grasshopper: prefer the batch path — `gh_snapshot` → `gh_edit`
 
@@ -66,27 +66,22 @@ after the solve has settled.
 Use this by default for creating, wiring, and editing definitions. `gh_undo`
 reverses the last edit.
 
-**Viable alternative — `gh_execute_intent`:** natural-language component creation
-(`gh_execute_intent(intent="create a sphere with a radius slider")`). It works and
-is handy for quick one-offs, but it is **slower** (DSPy resolution + per-operation
-round trips + heuristic auto-wiring) and is **not the default**. Reach for it when
-you want NL convenience, not for real definition work. (Background worker agents
-don't get it at all — they use the batch path.)
+For an unfamiliar component, query `gh_library` or `gh_knowledge_query` first,
+then pass the exact name or GUID to `gh_edit`. Follow every mutation with
+`gh_snapshot` and `gh_errors`; use `gh_undo` or explicit cleanup when a partial
+edit committed.
 
-### For Rhino Geometry: prefer typed routes; `rhino_execute_intent` as NL convenience
+### For Rhino Geometry: rediscover, inspect, then use explicit routes
 
 Typed routes — `rhino_create`, `rhino_transform`, `rhino_boolean`, `rhino_extrude`,
 `rhino_loft`, `rhino_sweep`, … — are the preferred, validated, deterministic path.
 
-`rhino_execute_intent` is the natural-language convenience that resolves intent and
-routes to those typed routes automatically:
-
-```python
-rhino_execute_intent(intent="create a box from 0,0,0 to 10,10,0 with height 5")
-```
-
-It's viable and convenient, but **not the default** when you can call the typed
-route directly.
+When the operation is unfamiliar, rediscover the admitted tool surface and inspect
+the document before choosing a route. If no typed route fits, use only a sanctioned,
+fully scripted `rhino_command` after knowledge lookup and preflight, or a short
+non-interactive `rhino_execute` script as the last resort. Verify the result with
+the structured response plus `rhino_objects`, `rhino_geometry`, or the relevant
+query tool.
 
 ### Everything Else
 
@@ -164,7 +159,7 @@ Never use PowerShell SendKeys or wscript.shell. This triggers security alerts.
 
 Most geometry operations have dedicated typed endpoints (`rhino_create`, `rhino_transform`,
 `rhino_boolean`, `rhino_extrude`, `rhino_loft`, `rhino_sweep`, etc.) that are safe and
-return structured results. `rhino_execute_intent` routes to these automatically.
+return structured results. Rediscover the admitted surface and call the exact route directly.
 
 `rhino_execute` and `rhino_command` have built-in error handling (script wrapper with
 try/except, preflight validation, interactive detection with auto-cancel), so script
@@ -254,8 +249,8 @@ Invalid inputs. Check coordinates, units, required options.
 
 ### GH component not found
 Don't guess component names — GUIDs differ across installs. Look up the correct
-GUID with `gh_knowledge_query` and pass it to `gh_edit` (or use `gh_execute_intent`
-for a quick natural-language create).
+GUID with `gh_knowledge_query` or `gh_library`, pass it to `gh_edit`, and verify
+the solved graph with a follow-up `gh_snapshot`.
 
 ### Still stuck?
 File an issue at https://github.com/bringfire/Rook/issues

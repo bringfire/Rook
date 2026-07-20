@@ -167,18 +167,57 @@ rhino_layer_create(name="Wasp::Connections::PartA", color="80,80,200")
 ### Moving Geometry to Layers
 
 ```python
-# Move identified part geometry to organized layers
-rhino_execute_intent(intent="change layer of object <guid> to Wasp::Parts::PartA")
-# Or if creating from scratch:
-rhino_execute_intent(intent="create box 0,0,0 to 2,1,3 on layer Wasp::Parts::PartA")
+# Move one approved existing object without moving unrelated layer contents.
+rhino_execute(code="""
+import System
+import Rhino
+doc = Rhino.RhinoDoc.ActiveDoc
+obj = doc.Objects.FindId(System.Guid('<guid>'))
+layer_index = doc.Layers.FindByFullPath('Wasp::Parts::PartA', -1)
+if obj is None or layer_index < 0:
+    raise Exception('object or target layer not found')
+attrs = obj.Attributes.Duplicate()
+attrs.LayerIndex = layer_index
+if not doc.Objects.ModifyAttributes(obj, attrs, True):
+    raise Exception('failed to update object layer')
+doc.Views.Redraw()
+""")
+rhino_objects(layer="Wasp::Parts::PartA")
+
+# Or create typed geometry on the target layer from the start:
+rhino_create(
+    type="BOX",
+    origin=[0, 0, 0],
+    width=2,
+    depth=1,
+    height=3,
+    layer="Wasp::Parts::PartA",
+)
 ```
 
 ### Naming Objects
 
 ```python
 # Name objects for stable GH parameter references
-rhino_execute_intent(intent="rename object <guid> to PartA_geo")
-rhino_execute_intent(intent="rename object <guid> to PartB_geo")
+rhino_execute(code="""
+import System
+import Rhino
+doc = Rhino.RhinoDoc.ActiveDoc
+for raw_id, name in [
+    ('<part-a-guid>', 'PartA_geo'),
+    ('<part-b-guid>', 'PartB_geo'),
+]:
+    obj = doc.Objects.FindId(System.Guid(raw_id))
+    if obj is None:
+        raise Exception('object not found: ' + raw_id)
+    attrs = obj.Attributes.Duplicate()
+    attrs.Name = name
+    if not doc.Objects.ModifyAttributes(obj, attrs, True):
+        raise Exception('failed to rename: ' + raw_id)
+doc.Views.Redraw()
+""")
+rhino_objects(name="PartA_geo")
+rhino_objects(name="PartB_geo")
 ```
 
 ---
@@ -254,11 +293,13 @@ will use to define Wasp connections:
 ```python
 # For each approved connection:
 # Create a point at the face center on the Connections layer
-rhino_execute_intent(
-    intent="create point at 1,0.5,1.5 on layer Wasp::Connections::PartA"
+point = rhino_create(
+    type="POINT",
+    point=[1, 0.5, 1.5],
+    layer="Wasp::Connections::PartA",
+    name="PartA_conn_wall_front",
 )
-# Name it for reference
-rhino_execute_intent(intent="rename object <point_guid> to PartA_conn_wall_front")
+rhino_geometry(id=point["id"])
 
 # The direction vector comes from the face normal — recorded in the design doc,
 # used by GH's "Connection From Direction" component
@@ -281,9 +322,21 @@ Based on the decision tree results, create supporting geometry.
 ```python
 # If constraints are needed:
 rhino_layer_create(name="Wasp::Constraints::GroundPlane", color="180,180,180")
-rhino_execute_intent(
-    intent="create large planar surface at world XY origin on layer Wasp::Constraints::GroundPlane"
-)
+ground_result = rhino_execute(code="""
+import rhinoscriptsyntax as rs
+
+plane = rs.PlaneFromFrame((-50, -50, 0), (1, 0, 0), (0, 1, 0))
+surface_id = rs.AddPlaneSurface(plane, 100, 100)
+if not surface_id:
+    raise Exception("Failed to create GroundPlane support surface")
+rs.ObjectLayer(surface_id, "Wasp::Constraints::GroundPlane")
+rs.ObjectName(surface_id, "GroundPlane")
+print(str(surface_id))
+""")
+if ground_result.get("objectsCreated") != 1:
+    raise Exception("GroundPlane support surface was not created")
+ground_id = ground_result["objectIds"][0]
+rhino_geometry(id=ground_id)
 ```
 
 ### Attractor Points (for field-driven density)
@@ -293,9 +346,13 @@ rhino_execute_intent(
 rhino_layer_create(name="Wasp::Fields::Attractors", color="255,200,0")
 # Ask user where attractors should go, or propose from design intent:
 # "Dense near the entrance" → place attractor points near entrance coordinates
-rhino_execute_intent(
-    intent="create point at 10,0,0 on layer Wasp::Fields::Attractors"
+attractor = rhino_create(
+    type="POINT",
+    point=[10, 0, 0],
+    layer="Wasp::Fields::Attractors",
+    name="EntranceAttractor",
 )
+rhino_geometry(id=attractor["id"])
 ```
 
 ### Boundary Mesh (for containment)
@@ -317,25 +374,36 @@ If the user has NO geometry and wants Claude to create parts:
 
 ```python
 # Facade panel (rectangular box)
-rhino_execute_intent(
-    intent="create box from 0,0,0 to 2,0.1,3 on layer Wasp::Parts::Panel"
+panel = rhino_create(
+    type="BOX", origin=[0,0,0], width=2, depth=0.1, height=3,
+    layer="Wasp::Parts::Panel", name="Panel_geo",
 )
 
 # Column (tall, narrow)
-rhino_execute_intent(
-    intent="create cylinder at 0,0,0 radius 0.3 height 4 on layer Wasp::Parts::Column"
+column = rhino_create(
+    type="CYLINDER", center=[0,0,0], radius=0.3, height=4,
+    layer="Wasp::Parts::Column", name="Column_geo",
 )
 
 # Connector (small cube at joints)
-rhino_execute_intent(
-    intent="create box from 0,0,0 to 0.5,0.5,0.5 on layer Wasp::Parts::Connector"
+connector = rhino_create(
+    type="BOX", origin=[0,0,0], width=0.5, depth=0.5, height=0.5,
+    layer="Wasp::Parts::Connector", name="Connector_geo",
 )
 
-# L-bracket (via boolean or extrude)
-# More complex — may need multi-step creation
-rhino_execute_intent(
-    intent="create L-shaped bracket 1.5x1.5 with 0.3 thickness on layer Wasp::Parts::Bracket"
+# L-bracket from two explicit boxes and a typed boolean union
+arm_a = rhino_create(
+    type="BOX", origin=[0,0,0], width=1.5, depth=0.3, height=0.3,
+    layer="Wasp::Parts::Bracket",
 )
+arm_b = rhino_create(
+    type="BOX", origin=[0,0,0], width=0.3, depth=1.5, height=0.3,
+    layer="Wasp::Parts::Bracket",
+)
+bracket = rhino_boolean(operation="union", ids=[arm_a["id"], arm_b["id"]])
+bracket_id = bracket["resultIds"][0]
+rhino_geometry(id=bracket_id)
+rhino_objects(layer="Wasp::Parts::Bracket")
 ```
 
 ### Ask Before Creating
@@ -416,11 +484,17 @@ what connection directions to use, and what auxiliary geometry is available.
 
 The plan references organized Rhino layers instead of vague geometry:
 ```python
-# Instead of:
-gh_execute_intent(intent="create geometry pipeline for <geo_description>")
-
-# The plan uses:
-gh_execute_intent(intent="create geometry pipeline referencing layer Wasp::Parts::PanelWide")
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[{"temp_id": "T1", "guid": "$GUID_BREP_PARAMETER", "pos": [100, 200]}],
+)
+# Record T1 as $PANEL_WIDE_REF, then reference the approved Rhino object:
+gh_set_reference(
+    paramGuid=$PANEL_WIDE_REF,
+    rhinoObjectId=$PANEL_WIDE_RHINO_ID,
+)
+gh_get_reference(guid=$PANEL_WIDE_REF)
 ```
 
 ---

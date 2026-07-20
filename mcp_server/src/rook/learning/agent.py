@@ -43,6 +43,7 @@ from .session import LearningSession
 from .graph import KnowledgeGraphV2
 from .monitor import setup_logging, ProgressReporter
 from ..bridge import call_rhino
+from ..tool_lifecycle_runtime import DispatchOrigin, deny_if_contained
 
 logger = logging.getLogger("rook.learning.agent")
 
@@ -202,6 +203,9 @@ async def create_tool_executor():
     """
     async def execute_tool(tool_name: str, params: dict) -> dict:
         """Execute an MCP tool via HTTP."""
+        denial = deny_if_contained(tool_name, DispatchOrigin.INTERNAL_HANDLER)
+        if denial is not None:
+            return denial
         # Map tool name to HTTP endpoint
         endpoint_map = {
             "rhino_ping": ("GET", "/ping"),

@@ -79,6 +79,7 @@ from .graph import KnowledgeGraphV2
 from .schema import Pattern, Antipattern, Gap, Insight
 from .tool_schemas import get_tool_schema, generate_params_for_tool
 from .verifier import VisualVerifier, ViewportState
+from ..tool_lifecycle_runtime import DispatchOrigin, deny_if_contained
 
 logger = logging.getLogger("rook.learning.hybrid_investigator")
 
@@ -452,6 +453,14 @@ class HybridInvestigator:
         Returns:
             HybridInvestigationResult with all learnings
         """
+        denial = deny_if_contained(tool_name, DispatchOrigin.INTERNAL_HANDLER)
+        if denial is not None:
+            return HybridInvestigationResult(
+                tool=tool_name,
+                success=False,
+                resolution="legacy_semantic_tool_contained",
+                insights=[denial["recovery"]],
+            )
         start = time.time()
         result = HybridInvestigationResult(tool=tool_name, success=False)
 
@@ -811,6 +820,14 @@ class HybridInvestigator:
         Returns:
             HybridInvestigationResult
         """
+        denial = deny_if_contained(gap.tool, DispatchOrigin.INTERNAL_HANDLER)
+        if denial is not None:
+            return HybridInvestigationResult(
+                tool=gap.tool,
+                success=False,
+                resolution="legacy_semantic_tool_contained",
+                insights=[denial["recovery"]],
+            )
         result = HybridInvestigationResult(tool=gap.tool, success=False)
 
         # Use DSPy to generate hypotheses for the gap

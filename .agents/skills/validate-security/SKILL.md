@@ -141,8 +141,8 @@ do NOT block the Phase 1A/1C/2A security verdict.
 | G.1 | Check GH status | `gh_status` | Returns GH version and canvas info | — |
 | G.2 | Search library | `gh_library` search="sphere" | Returns component list | — |
 | G.3 | Read canvas | `gh_snapshot` | Returns canvas state | — |
-| G.4 | Create a slider | `gh_execute_intent` intent="create a number slider from 0 to 10" | Creates component, returns ID | Delete after |
-| G.5 | Delete the slider | `gh_edit` with delete action using ID from G.4 | Removed from canvas | — |
+| G.4 | Create a slider | Fresh `gh_snapshot`, then `gh_edit` with `create=[{"temp_id":"T1","type":"slider","min":0,"max":10,"value":5,"pos":[100,100]}]` | Creates component; capture committed ID from `edit_summary.temp_id_map` | Delete after |
+| G.5 | Delete the slider | Fresh `gh_snapshot`, then `gh_edit` with `delete=[<committed ID from G.4>]` | Removed from canvas; verify with another snapshot | — |
 
 ## Cleanup
 

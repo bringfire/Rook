@@ -14,16 +14,13 @@ from typing import Dict, List, Set
 # Tier 0: Always Active (~12 tools, ~1800 tokens)
 #
 # These tools are always visible to the agent. They provide:
-# - Intent execution (the primary entry points)
+# - Explicit inspection and mutation entry points
 # - Knowledge queries
 # - Object inspection
 # - Meta-tools for progressive disclosure
 # =============================================================================
 
 TIER_0: Set[str] = {
-    # Primary entry points
-    "rhino_execute_intent",
-    "gh_execute_intent",
     # Knowledge
     "knowledge_query",
     "rhino_knowledge_query",
@@ -52,12 +49,9 @@ LOCAL_TIER_0_DISPATCH_EXCLUSIONS: Set[str] = {
     "scene_stats",
 }
 
-# Agent Tier 0: excludes gh_execute_intent (556 lines, DSPy-entangled,
-# not dispatchable). Agents compose GH definitions using individual
-# gh_canvas tools instead. gh_snapshot gives agents full canvas awareness.
+# Agent Tier 0 composes GH definitions from explicit canvas and script tools.
 AGENT_TIER_0: Set[str] = (
     TIER_0
-    - {"gh_execute_intent"}
     - LOCAL_TIER_0_DISPATCH_EXCLUSIONS
 ) | {
     "gh_snapshot",
@@ -410,7 +404,7 @@ TOOL_GROUPS: Dict[str, List[str]] = {
 
     # --- GH Exploration ---
     "gh_exploration": [
-        "gh_explore_component", "gh_explore_workflow", "gh_explore_deep",
+        "gh_explore_component", "gh_explore_deep",
         "gh_start_exploration", "gh_end_exploration",
         "gh_investigate",
         "gh_preview", "gh_status",
@@ -419,7 +413,7 @@ TOOL_GROUPS: Dict[str, List[str]] = {
     # --- GH Patterns & Recipes ---
     "gh_patterns": [
         "gh_query_patterns", "gh_pattern_links", "gh_pattern_stats",
-        "gh_save_pattern", "gh_save_recipe", "gh_extract_recipe", "gh_replay_recipe",
+        "gh_save_pattern", "gh_save_recipe", "gh_extract_recipe",
         "gh_add_pattern", "gh_record_pattern_use",
         "gh_reflect", "gh_cluster", "gh_consolidate",
     ],
@@ -527,12 +521,10 @@ MCP_ONLY_GROUPS: Set[str] = {
 
 TOOL_GROUP_TRIGGERS: Dict[str, str] = {
     # Creating geometry -> need transform tools
-    "rhino_execute_intent": "rhino_geometry",
     "rhino_create": "rhino_transform",
     "rhino_extrude": "rhino_transform",
     "rhino_boolean": "rhino_transform",
     # GH intent -> need canvas tools
-    "gh_execute_intent": "gh_canvas",
     "gh_snapshot": "gh_canvas",
     # Materials -> UV mapping
     "rhino_material_ops": "materials",
@@ -547,14 +539,6 @@ TOOL_GROUP_TRIGGERS: Dict[str, str] = {
 # =============================================================================
 
 TOOL_TRANSITIONS: Dict[str, List[str]] = {
-    # Intent execution -> more creation or inspection
-    "rhino_execute_intent": [
-        "rhino_execute_intent", "rhino_transform", "rhino_objects",
-        "gh_execute_intent", "rhino_copy",
-    ],
-    "gh_execute_intent": [
-        "gh_execute_intent", "gh_snapshot", "gh_errors",
-    ],
     # GH canvas operations
     "gh_snapshot": ["gh_edit", "gh_undo"],
     "gh_edit": ["gh_snapshot", "gh_undo"],

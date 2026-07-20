@@ -31,6 +31,7 @@ from .hybrid_investigator import HybridInvestigator, HybridInvestigationResult
 from .verifier import VisualVerifier
 from .monitor import ProgressReporter, setup_logging
 from ..explorer.context import ExplorationContext
+from ..tool_lifecycle_runtime import DispatchOrigin, deny_if_contained
 
 logger = logging.getLogger("rook.learning.session")
 
@@ -282,6 +283,15 @@ class LearningSession:
         Returns:
             InvestigationResult/HybridInvestigationResult or None if target not found
         """
+        if type(target) is str and target.startswith("tool:"):
+            tool_name = target[5:]
+            denial = deny_if_contained(tool_name, DispatchOrigin.INTERNAL_HANDLER)
+            if denial is not None:
+                return InvestigationResult(
+                    tool=tool_name,
+                    resolution="legacy_semantic_tool_contained",
+                    insights=[denial["recovery"]],
+                )
         self.progress.current_investigation = target
         self.progress.investigations_completed += 1
 

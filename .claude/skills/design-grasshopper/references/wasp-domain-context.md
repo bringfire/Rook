@@ -352,8 +352,10 @@ Wasp-specific sections:
 
 ## Recipe Index (Concept → Recipe ID)
 
-Quick lookup for the plan phase. Recipe IDs are PatternStore pattern_ids,
-replayable via `gh_replay_recipe(pattern_id)`.
+Quick lookup for the plan phase. Recipe IDs are PatternStore evidence handles.
+Use them to retrieve and review a known pattern, then reconstruct only the
+approved operations as explicit `gh_edit` batches; do not treat a recipe ID as
+mutation authority.
 
 ### Series 0: Basics
 | Concept | Recipe ID | Components | Curriculum |

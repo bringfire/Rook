@@ -1180,7 +1180,7 @@ class AnalyzeStruggleSequence(dspy.Signature):
         failures_summary: "3 attempts to connect slider to SubCurve.D failed with
                           'microscopic geometry changes' symptom"
         success_summary: "Connected slider after scaling domain by radius"
-        action_type: "gh_execute_intent"
+        action_type: "gh_edit"
         intent: "create wedge shape from concentric circles"
         error_messages: ["microscopic slider changes", "geometry doesn't match"]
 
@@ -1201,10 +1201,10 @@ class AnalyzeStruggleSequence(dspy.Signature):
         desc="Summary of the successful attempt (what worked)"
     )
     action_type: str = dspy.InputField(
-        desc="The GH action/tool being used (e.g., 'gh_edit', 'gh_execute_intent')"
+        desc="The supported GH action/tool being used (e.g., 'gh_edit', 'gh_connect')"
     )
     intent: str = dspy.InputField(
-        desc="The intent if this was an execute_intent action (empty string otherwise)"
+        desc="The original user goal associated with the action (empty string if unavailable)"
     )
     error_messages: list[str] = dspy.InputField(
         desc="Unique error messages from the failures"

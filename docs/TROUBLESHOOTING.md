@@ -48,9 +48,9 @@ A Rhino command prompted for input via a modal dialog box. This typically happen
 
 ### Prevention
 
-- Use `rhino_execute_intent` instead of `rhino_command` — it routes through typed endpoints that don't trigger modal dialogs
-- Avoid `rhino_execute` and `rhino_command` with `RunScript` — syntax errors cause unrecoverable modal dialogs
-- If you must use commands directly, query `knowledge_query(intent="...", depth="context")` first for exact syntax
+- Rediscover the admitted Rhino tools, inspect document state, and prefer an explicit typed route
+- Avoid `rhino_execute` and `rhino_command` with interactive UI paths
+- If no typed route fits, query `knowledge_query(intent="...", depth="context")`, preflight a fully scripted command or short non-interactive script, and verify the host result
 
 ---
 
@@ -381,7 +381,7 @@ write-up in `docs/superpowers/2026-06-24-replay-live-gate-postmortem.md`.)
 
 **Symptoms:**
 - Installer shows knowledge warning
-- `rhino_execute_intent` doesn't work
+- Explicit command/component workflows cannot load expected syntax, GUID, or gotcha guidance
 
 **Solutions:**
 

@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  428 MCP tools &bull; Intent-based execution &bull; Self-improving knowledge graph &bull; Model-agnostic
+  422 MCP tools by default &bull; Explicit typed execution &bull; Self-improving knowledge graph &bull; Model-agnostic
 </p>
 
 <p align="center">
@@ -47,7 +47,7 @@ MCP Client (Claude Code, Claude Desktop, Codex CLI, Cursor, etc.)
        │
        │  MCP Protocol (stdio)
        ▼
-Rook MCP Server (Python)          ← 428 tools advertised by list_tools(), knowledge graph, agent system
+Rook MCP Server (Python)          ← 422 tools advertised by default, knowledge graph, chat runtime
        │
        │  HTTP (127.0.0.1, OS-assigned port via discovery)
        ▼
@@ -65,7 +65,7 @@ Rhino 3D / Grasshopper
 |-------|------|
 | **RookNative (C++)** | The sole Rhino plugin and sole HTTP server. 263 routes across 42 handlers covering geometry, documents, scene graph, gumball, export, blocks, analysis, curves, meshes, SubD, annotations, materials, vision/media, BIM, and more. OS-assigned port discovered via `%LOCALAPPDATA%/Rook/discovery` JSON files, with legacy `%TEMP%/rook` compatibility reads. |
 | **Managed Companion (C#)** | Loaded by RookNative. Grasshopper routes pass through a P/Invoke callback bridge — no separate HTTP server. Also hosts the embedded chat panel. |
-| **MCP Server (Python)** | Defines 431 static tools in `server.py` (428 advertised by default) and translates advertised MCP tool calls into HTTP requests. Houses the knowledge graph, DSPy-based intent runtime (plan → route → execute → reflect), session recording, and the multi-agent system. Works with any MCP client. |
+| **MCP Server (Python)** | Defines 431 static tools in `server.py`, advertises 422 by default (425 with the interactive gate), and translates admitted MCP tool calls into HTTP requests. Houses the knowledge graph, DSPy consolidation, session recording, and chat runtime. Works with any MCP client. |
 | **Knowledge Graph** | Self-improving store of 197 Rhino commands (543 observations) and 945 Grasshopper component notes (942 GUIDs, 1,533 intents) within ~1,230 total GH notes. Powers intent-based execution and correction detection. |
 | **Scene Graph** | Real-time spatial intelligence — shadow graph of all Rhino objects with shape classification, bounding-box metrics, and 8 spatial relationship types. Background thread with lock-free immutable snapshots. |
 
@@ -93,7 +93,7 @@ Full programmatic control over Rhino's geometry engine:
 
 Build and manipulate parametric definitions entirely through AI:
 
-- **Intent-based creation** — Describe what you want; Rook resolves component GUIDs from a catalog of 945 components and auto-wires inputs
+- **Explicit component authoring** — Inspect the canvas, resolve exact component names/GUIDs from the catalog, apply bounded `gh_edit` batches, and verify the solved graph
 - **Full canvas control** — Create, connect, disconnect, delete, move, align, distribute, group, cluster components
 - **Scripting** — Create and edit Python 3 and C# script components, set pins, manage source
 - **Value manipulation** — Set slider values, panel text, and parameter properties (flatten/graft/reverse)
@@ -153,18 +153,13 @@ Rook can both *see* and *generate* visual content:
 - **Video** — Render viewport/turntable video, manage generation jobs, and inspect status/estimate/cancel results
 - **Model-agnostic generation** — A provider framework routes image/video generation across backends rather than hard-coding a single model
 
-### Multi-Agent System
+### Agent and Chat Runtime
 
-Spawn background AI agents that operate Rhino and Grasshopper autonomously:
-
-| Tool | What it does |
-|------|-------------|
-| `spawn_agent` | Launch a worker agent for a specific task (runs in background) |
-| `plan_and_execute` | Planner decomposes complex requests into subtasks, workers execute in parallel |
-| `agent_status` | Monitor running agents (turn count, cost, active tools) |
-| `agent_abort` | Cancel a running agent |
-
-**Architecture:** Planner (a stronger model, e.g. Opus) decomposes → Workers (a faster model, e.g. Sonnet) execute → Guardian monitors for stuck loops / drift / budget → Conductor coordinates the fleet. Models are configurable per role via profiles or `ROOK_PLANNER_MODEL` / `ROOK_WORKER_MODEL`.
+The repository retains planner, worker, guardian, and conductor implementation
+modules, but autonomous multi-worker coordination is suspended from the public
+tool surface. Current clients rediscover the admitted catalog and have the
+connected model call explicit tools directly. The embedded RookChat runtime uses
+the same lifecycle-filtered schemas and verifies tool results before continuing.
 
 **Model-agnostic:** Agents use [litellm](https://github.com/BerriAI/litellm) — supports Anthropic, OpenAI, Ollama, LM Studio, and 100+ other providers.
 
@@ -303,8 +298,8 @@ Rook/
 │   └── UI/Chat/                 # Embedded chat panel (Eto)
 │
 ├── mcp_server/src/rook/         # Python MCP server
-│   ├── server.py                # 431 static tool definitions (428 advertised by default)
-│   ├── agent/                   # Multi-agent system (Planner/Worker/Guardian)
+│   ├── server.py                # 431 static definitions; 422 advertised by default
+│   ├── agent/                   # Chat runtime + retained agent implementation modules
 │   └── learning/                # Knowledge stores + DSPy evolution
 │
 ├── knowledge/                   # Persistent knowledge stores

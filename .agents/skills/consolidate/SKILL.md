@@ -18,7 +18,7 @@ and I/O patterns across components or commands. Uses the model set in `DSPY_MODE
 
 - After bulk cataloging new GH components (e.g., 10+ new entries)
 - After learning many new Rhino commands
-- When `gh_execute_intent` or `rhino_execute_intent` picks wrong targets (structure may be stale)
+- When explicit component/tool discovery repeatedly resolves the wrong target (structure may be stale)
 - On user request
 
 ## Quick Reference
@@ -37,7 +37,7 @@ To override for a single run, pass `model="..."` to the convenience functions.
 
 ```
 # mcp_server/.env
-DSPY_MODEL=Codex-opus-4-20250514   # Used by all consolidation paths
+DSPY_MODEL=<configured-model>       # Used by all consolidation paths
 ANTHROPIC_API_KEY=sk-ant-...        # Required
 ```
 
@@ -88,8 +88,9 @@ gh_structure_query(guid="<some-guid>")
 gh_structure_query(name="Sphere")
 gh_structure_query(stable_key="primitives|surfaces|sphere")
 
-# Test intent resolution still works
-gh_execute_intent(intent="create a circle with center and radius")
+# Verify discovery still resolves the expected component and guidance
+gh_library(search="Circle", exact=True)
+gh_knowledge_query(intent="circle with center and radius", depth="context")
 ```
 
 ### Step 4: Record in Memory

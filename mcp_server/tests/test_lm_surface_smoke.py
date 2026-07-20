@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.util
+import json
+import os
 from pathlib import Path
+
+import pytest
 
 
 def _load_script():
@@ -90,8 +95,6 @@ def test_build_parser_accepts_two_subcommands():
 
 
 def test_build_parser_rejects_unknown_subcommand():
-    import pytest
-
     parser = SMOKE.build_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(["nonsense"])
@@ -194,40 +197,391 @@ def test_progressive_gateway_metadata_validation_requires_aliases():
     assert "rook_tools_search missing gh_update_script" in SMOKE.progressive_gateway_metadata_failures(bad)
 
 
-def test_progressive_search_validation_requires_exact_records():
-    search_results = {
-        name: [{"name": name, "domain": "gh"}]
-        for name in SMOKE.DG009_GH_TOOL_NAMES
+def test_progressive_contract_pins_gateways_targets_and_realistic_queries():
+    assert SMOKE.PROGRESSIVE_GATEWAY_NAMES == (
+        "rook_tools_ls", "rook_tools_search", "rook_tools_read", "rook_tools_call"
+    )
+    assert SMOKE.PROGRESSIVE_ALIAS_GATEWAY_NAMES == (
+        "rook_tools_search", "rook_tools_read", "rook_tools_call"
+    )
+    assert SMOKE.PROGRESSIVE_DISCOVERY_TARGETS == (
+        "gh_update_script", "gh_set_script_pins", "gh_create_csharp_script",
+        "gh_status", "gh_snapshot", "agent_status",
+    )
+    assert SMOKE.PROGRESSIVE_HIDDEN_TARGETS == (
+        "gh_update_script", "gh_set_script_pins", "gh_create_csharp_script",
+        "gh_status", "agent_status",
+    )
+    assert [(row["query"], row["expected_tool"], row["limit"], row["max_rank"])
+            for row in SMOKE.PROGRESSIVE_INTENT_MATRIX] == [
+        ("edit a Grasshopper script", "gh_update_script", 10, 10),
+        ("change the inputs and outputs of a Grasshopper script", "gh_set_script_pins", 10, 10),
+        ("create a C# script component in Grasshopper", "gh_create_csharp_script", 10, 10),
+        ("check whether Grasshopper is ready", "gh_status", 10, 10),
+        ("take a snapshot of the Grasshopper canvas", "gh_snapshot", 10, 10),
+        ("check running agent status", "agent_status", 10, 1),
+    ]
+
+
+def test_progressive_intent_findings_report_rank_or_null():
+    results = {row["query"]: [] for row in SMOKE.PROGRESSIVE_INTENT_MATRIX}
+    results["check running agent status"] = [{"name": "agent_status"}]
+    findings = SMOKE.progressive_intent_findings(results)
+    assert len(findings) == 5
+    assert {finding["code"] for finding in findings} == {"intent_discovery_rank_failed"}
+    assert all(finding["observed_rank"] is None for finding in findings)
+    assert findings[0] == {
+        "record": "progressive_finding",
+        "code": "intent_discovery_rank_failed",
+        "query": "edit a Grasshopper script",
+        "expected_tool": "gh_update_script",
+        "limit": 10,
+        "max_rank": 10,
+        "observed_rank": None,
     }
-    assert SMOKE.progressive_search_failures(search_results) == []
-    bad = dict(search_results)
-    bad["gh_update_script"] = [{"name": "gh_set_script", "domain": "gh"}]
-    assert "rook_tools_search did not return gh_update_script" in SMOKE.progressive_search_failures(bad)
 
 
-def test_progressive_read_validation_requires_gh_object_schemas():
-    read_records = {
+def test_progressive_intent_findings_type_guard_without_renumbering_positions():
+    results = {
+        row["query"]: [None, "noise", 7, {"name": row["expected_tool"]}]
+        for row in SMOKE.PROGRESSIVE_INTENT_MATRIX
+    }
+    findings = SMOKE.progressive_intent_findings(results)
+    assert findings == [{
+        "record": "progressive_finding",
+        "code": "intent_discovery_rank_failed",
+        "query": "check running agent status",
+        "expected_tool": "agent_status",
+        "limit": 10,
+        "max_rank": 1,
+        "observed_rank": 4,
+    }]
+
+
+def test_progressive_read_findings_require_exact_dispatchable_object_schema():
+    records = {
+        name: {"name": name, "mcp_dispatchable": True, "input_schema": {"type": "object"}}
+        for name in SMOKE.PROGRESSIVE_DISCOVERY_TARGETS
+    }
+    assert SMOKE.progressive_read_findings(records) == []
+    records["agent_status"]["mcp_dispatchable"] = False
+    findings = SMOKE.progressive_read_findings(records)
+    assert findings == [{
+        "record": "progressive_finding",
+        "code": "schema_read_failed",
+        "target": "agent_status",
+        "reason": "mcp_dispatchable_not_true",
+    }]
+
+
+def test_progressive_evidence_orders_checks_counts_histogram_and_emits_summary_on_failure(capsys):
+    checks = [
+        SMOKE.progressive_check(name, "PASS", 1, 1)
+        for name in reversed(SMOKE.PROGRESSIVE_CHECK_ORDER)
+    ]
+    findings = [
+        SMOKE.progressive_finding("intent_discovery_rank_failed", query=str(index))
+        for index in range(5)
+    ]
+    rc = SMOKE.emit_progressive_evidence(checks, findings)
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert rc == 1
+    assert [record["check"] for record in records[:6]] == list(SMOKE.PROGRESSIVE_CHECK_ORDER)
+    assert records[-1]["record"] == "progressive_summary"
+    assert records[-1]["status"] == "FAIL"
+    assert records[-1]["finding_histogram"] == {"intent_discovery_rank_failed": 5}
+
+
+def test_progressive_summary_turns_missing_checks_into_blocked_records():
+    checks = [SMOKE.progressive_check("gateway_presence", "FAIL", 3, 4, missing=["rook_tools_search"])]
+    summary, ordered = SMOKE.progressive_summary(checks, [])
+    by_name = {record["check"]: record for record in ordered}
+    assert by_name["gateway_presence"]["status"] == "FAIL"
+    assert by_name["exact_name_resolution"]["status"] == "BLOCKED"
+    assert by_name["intent_discovery"]["status"] == "BLOCKED"
+    assert summary["status"] == "FAIL"
+
+
+def _wire(payload):
+    from types import SimpleNamespace
+
+    return [SimpleNamespace(text=json.dumps(payload))]
+
+
+def _progressive_catalog(include_search=True):
+    aliases = " ".join(SMOKE.DG009_GH_TOOL_NAMES)
+    names = ["rook_tools_ls", "rook_tools_read", "rook_tools_call", "gh_snapshot"]
+    if include_search:
+        names.insert(1, "rook_tools_search")
+    return {
         name: {
-            "name": name,
-            "domain": "gh",
-            "input_schema": {"type": "object", "properties": {}},
+            "function": {
+                "description": aliases
+                if name in SMOKE.PROGRESSIVE_ALIAS_GATEWAY_NAMES
+                else ""
+            }
         }
-        for name in SMOKE.DG009_GH_TOOL_NAMES
+        for name in names
     }
-    assert SMOKE.progressive_read_failures(read_records) == []
 
-    bad_name = dict(read_records)
-    bad_name["gh_update_script"] = {
-        "name": "gh_set_script",
-        "domain": "gh",
-        "input_schema": {"type": "object"},
-    }
-    assert "rook_tools_read returned wrong record for gh_update_script" in SMOKE.progressive_read_failures(bad_name)
 
-    bad_schema = dict(read_records)
-    bad_schema["gh_update_script"] = {
-        "name": "gh_update_script",
-        "domain": "gh",
-        "input_schema": {"type": "array"},
+def test_progressive_origin_contract_pins_every_deployed_module():
+    assert SMOKE._DEPLOYED_ORIGIN_MODULES == (
+        "rook",
+        "rook.server",
+        "rook.capability_index",
+        "rook.agent.capability_record",
+        "rook.agent.capability_inventory",
+        "rook.agent.execution_profile",
+        "rook.agent.profile_reconciliation",
+        "rook.agent.tool_registry",
+    )
+
+
+def test_collect_progressive_evidence_matches_expected_red_baseline():
+    async def fake_call(name, arguments):
+        if name == "rook_tools_search":
+            query = arguments["query"]
+            if query in SMOKE.PROGRESSIVE_DISCOVERY_TARGETS:
+                return _wire([{"name": query}])
+            if query == "check running agent status":
+                return _wire([{"name": "agent_status"}])
+            return _wire([{"name": "unrelated_tool"}])
+        if name == "rook_tools_read":
+            target = arguments["name"]
+            return _wire(
+                {
+                    "name": target,
+                    "mcp_dispatchable": True,
+                    "input_schema": {"type": "object"},
+                }
+            )
+        if name == "rook_tools_call":
+            return _wire({"count": 0, "agents": []})
+        raise AssertionError((name, arguments))
+
+    checks, findings = asyncio.run(
+        SMOKE.collect_progressive_evidence(_progressive_catalog(), fake_call)
+    )
+    by_name = {record["check"]: record for record in checks}
+    assert all(
+        by_name[name]["status"] == "PASS"
+        for name in (
+            "gateway_presence",
+            "lean_hiddenness",
+            "exact_name_resolution",
+            "schema_reads",
+            "agent_status_call",
+        )
+    )
+    assert by_name["intent_discovery"]["status"] == "FAIL"
+    assert by_name["intent_discovery"]["observed"] == 1
+    assert by_name["intent_discovery"]["expected"] == 6
+    assert [finding["code"] for finding in findings] == [
+        "intent_discovery_rank_failed"
+    ] * 5
+
+
+def test_missing_search_gateway_blocks_only_search_dependent_checks():
+    calls = []
+
+    async def fake_call(name, arguments):
+        calls.append((name, arguments))
+        if name == "rook_tools_read":
+            target = arguments["name"]
+            return _wire(
+                {
+                    "name": target,
+                    "mcp_dispatchable": True,
+                    "input_schema": {"type": "object"},
+                }
+            )
+        raise AssertionError((name, arguments))
+
+    checks, findings = asyncio.run(
+        SMOKE.collect_progressive_evidence(
+            _progressive_catalog(include_search=False), fake_call
+        )
+    )
+    by_name = {record["check"]: record for record in checks}
+    assert by_name["gateway_presence"]["status"] == "FAIL"
+    assert by_name["lean_hiddenness"]["status"] == "PASS"
+    assert by_name["exact_name_resolution"]["status"] == "BLOCKED"
+    assert by_name["schema_reads"]["status"] == "PASS"
+    assert by_name["agent_status_call"]["status"] == "BLOCKED"
+    assert by_name["intent_discovery"]["status"] == "BLOCKED"
+    assert all(name == "rook_tools_read" for name, _ in calls)
+    assert any(
+        finding["code"] == "gateway_presence_failed" for finding in findings
+    )
+
+
+def test_collect_progressive_evidence_tolerates_malformed_search_entries_and_emits_summary(
+    capsys,
+):
+    async def fake_call(name, arguments):
+        if name == "rook_tools_search":
+            query = arguments["query"]
+            if query in SMOKE.DG009_GH_TOOL_NAMES:
+                return _wire([None, "noise", 7, {"name": query}])
+            if query == "check running agent status":
+                return _wire([{"name": "agent_status"}, None, "noise", 7])
+            return _wire([None, "noise", 7])
+        if name == "rook_tools_read":
+            target = arguments["name"]
+            return _wire(
+                {
+                    "name": target,
+                    "mcp_dispatchable": True,
+                    "input_schema": {"type": "object"},
+                }
+            )
+        if name == "rook_tools_call":
+            return _wire({"count": 0, "agents": []})
+        raise AssertionError((name, arguments))
+
+    checks, findings = asyncio.run(
+        SMOKE.collect_progressive_evidence(_progressive_catalog(), fake_call)
+    )
+    rc = SMOKE.emit_progressive_evidence(checks, findings)
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert rc == 1
+    assert [finding["code"] for finding in findings] == [
+        "intent_discovery_rank_failed"
+    ] * 5
+    assert records[-1]["record"] == "progressive_summary"
+    assert records[-1]["finding_histogram"] == {
+        "intent_discovery_rank_failed": 5
     }
-    assert "rook_tools_read returned invalid input_schema for gh_update_script" in SMOKE.progressive_read_failures(bad_schema)
+
+
+@pytest.mark.parametrize(
+    ("failure_stage", "expected_gateway", "expected_hidden", "expected_code"),
+    (
+        ("runtime_import", "BLOCKED", "BLOCKED", "progressive_acquisition_failed"),
+        ("list_tools", "BLOCKED", "BLOCKED", "progressive_acquisition_failed"),
+        ("catalog", "BLOCKED", "BLOCKED", "progressive_acquisition_failed"),
+        ("collector", "PASS", "PASS", "progressive_collection_failed"),
+    ),
+)
+def test_run_progressive_converts_post_origin_exceptions_to_summary(
+    monkeypatch,
+    capsys,
+    failure_stage,
+    expected_gateway,
+    expected_hidden,
+    expected_code,
+):
+    import sys
+    from types import ModuleType
+
+    fake_server = ModuleType("rook.server")
+
+    async def fake_list_tools():
+        assert os.environ["ROOK_MCP_TOOL_PROFILE"] == "lean"
+        if failure_stage == "list_tools":
+            raise RuntimeError("list boom")
+        return []
+
+    async def unused_call_tool(_name, _arguments):
+        raise AssertionError("collector is replaced")
+
+    if failure_stage != "runtime_import":
+        fake_server.list_tools = fake_list_tools
+        fake_server.call_tool = unused_call_tool
+    fake_registry = ModuleType("rook.agent.tool_registry")
+
+    def fake_build_catalog(_tools):
+        if failure_stage == "catalog":
+            raise RuntimeError("catalog boom")
+        return _progressive_catalog()
+
+    fake_registry.build_catalog_from_mcp_tools = fake_build_catalog
+    monkeypatch.setitem(sys.modules, "rook.server", fake_server)
+    monkeypatch.setitem(sys.modules, "rook.agent.tool_registry", fake_registry)
+    monkeypatch.setattr(SMOKE, "_check_origins", lambda: 0)
+
+    async def fake_collect(_catalog, _call_tool):
+        raise RuntimeError("collector boom")
+
+    monkeypatch.setattr(SMOKE, "collect_progressive_evidence", fake_collect)
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "readonly")
+    rc = SMOKE.run_progressive()
+    records = [
+        json.loads(line)
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith("{")
+    ]
+    checks = [record for record in records if record["record"] == "progressive_check"]
+    findings = [
+        record for record in records if record["record"] == "progressive_finding"
+    ]
+    by_name = {record["check"]: record for record in checks}
+    assert rc == 1
+    assert len(checks) == 6
+    assert by_name["gateway_presence"]["status"] == expected_gateway
+    assert by_name["lean_hiddenness"]["status"] == expected_hidden
+    assert all(
+        by_name[name]["status"] == "BLOCKED"
+        for name in (
+            "exact_name_resolution",
+            "schema_reads",
+            "agent_status_call",
+            "intent_discovery",
+        )
+    )
+    assert findings[-1]["code"] == expected_code
+    assert findings[-1]["stage"] == failure_stage
+    assert records[-1]["record"] == "progressive_summary"
+    assert records[-1]["finding_histogram"] == {expected_code: 1}
+    assert os.environ["ROOK_MCP_TOOL_PROFILE"] == "readonly"
+
+
+def test_run_progressive_expected_red_emits_summary_last_and_restores_profile(
+    monkeypatch, capsys
+):
+    import sys
+    from types import ModuleType
+
+    fake_server = ModuleType("rook.server")
+
+    async def fake_list_tools():
+        assert os.environ["ROOK_MCP_TOOL_PROFILE"] == "lean"
+        return []
+
+    async def fake_call_tool(_name, _arguments):
+        raise AssertionError("collector is replaced in this runner test")
+
+    fake_server.list_tools = fake_list_tools
+    fake_server.call_tool = fake_call_tool
+    fake_registry = ModuleType("rook.agent.tool_registry")
+    fake_registry.build_catalog_from_mcp_tools = lambda _tools: {}
+    monkeypatch.setitem(sys.modules, "rook.server", fake_server)
+    monkeypatch.setitem(sys.modules, "rook.agent.tool_registry", fake_registry)
+    monkeypatch.setattr(SMOKE, "_check_origins", lambda: 0)
+
+    async def fake_collect(_catalog, _call_tool):
+        checks = [
+            SMOKE.progressive_check(
+                name, "PASS" if name != "intent_discovery" else "FAIL", 1, 1
+            )
+            for name in SMOKE.PROGRESSIVE_CHECK_ORDER
+        ]
+        findings = [
+            SMOKE.progressive_finding(
+                "intent_discovery_rank_failed", query=str(index)
+            )
+            for index in range(5)
+        ]
+        return checks, findings
+
+    monkeypatch.setattr(SMOKE, "collect_progressive_evidence", fake_collect)
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "readonly")
+    rc = SMOKE.run_progressive()
+    lines = capsys.readouterr().out.splitlines()
+    records = [json.loads(line) for line in lines if line.startswith("{")]
+    assert rc == 1
+    assert [record["record"] for record in records].count("progressive_check") == 6
+    assert [record["record"] for record in records].count("progressive_finding") == 5
+    assert records[-1]["record"] == "progressive_summary"
+    assert os.environ["ROOK_MCP_TOOL_PROFILE"] == "readonly"

@@ -10,18 +10,22 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 try:
     import tomllib
 except ModuleNotFoundError:  # Python 3.10 support floor.
     tomllib = None  # type: ignore[assignment]
 
-from .bridge import rhino_request_context
+from .bridge import call_rhino, rhino_request_context
 from .learning.command_knowledge_store import CommandKnowledgeStore
 from .preflight import preflight_rhino_command
 from . import runtime_paths as runtime_paths_module
 from .runtime_harness import CleanupStatus, run_rhino_runtime_harness
 from .runtime_paths import resolve_runtime_paths
+
+
+_CHIRP_CLEANUP_MAX_UNDO_ATTEMPTS = 8
 
 
 class ProofFailure(RuntimeError):
@@ -839,6 +843,100 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
     return await dispatch(name, arguments)
 
 
+async def _list_public_tools():
+    from .server import list_tools
+
+    return await list_tools()
+
+
+async def _call_public_tool(name: str, arguments: dict[str, Any]) -> Any:
+    from .server import call_tool
+
+    response = await call_tool(name, arguments)
+    if not response:
+        raise ProofFailure(
+            "progressive_discovery_failed", f"{name} returned no content"
+        )
+    text = str(response[0].text)
+    if text.startswith("Error:"):
+        raise ProofFailure(
+            "progressive_discovery_failed",
+            f"{name} failed",
+            {"tool": name, "wire": text},
+        )
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ProofFailure(
+            "progressive_discovery_failed",
+            f"{name} returned invalid JSON",
+            {"tool": name, "wire": text, "error": str(exc)},
+        ) from exc
+
+
+async def _run_live_progressive_gh_status(
+    args: dict[str, int],
+) -> dict[str, Any]:
+    tools = await _list_public_tools()
+    names = {tool.name for tool in tools}
+    gateways = (
+        "rook_tools_ls",
+        "rook_tools_search",
+        "rook_tools_read",
+        "rook_tools_call",
+    )
+    missing = [name for name in gateways if name not in names]
+    if missing or "gh_status" in names:
+        raise ProofFailure(
+            "progressive_discovery_failed",
+            "lean catalog contract failed",
+            {
+                "missing_gateways": missing,
+                "gh_status_directly_advertised": "gh_status" in names,
+            },
+        )
+
+    search = await _call_public_tool(
+        "rook_tools_search", {"query": "gh_status", "limit": 10}
+    )
+    if not isinstance(search, list) or not any(
+        item.get("name") == "gh_status" for item in search
+    ):
+        raise ProofFailure(
+            "progressive_discovery_failed",
+            "gh_status exact-name search failed",
+            {"search": search},
+        )
+
+    read = await _call_public_tool("rook_tools_read", {"name": "gh_status"})
+    read_ok = (
+        isinstance(read, dict)
+        and read.get("name") == "gh_status"
+        and read.get("mcp_dispatchable") is True
+        and isinstance(read.get("input_schema"), dict)
+        and read["input_schema"].get("type") == "object"
+    )
+    if not read_ok:
+        raise ProofFailure(
+            "progressive_discovery_failed",
+            "gh_status read contract failed",
+            {"read": read},
+        )
+
+    called = await _call_public_tool(
+        "rook_tools_call", {"name": "gh_status", "arguments": dict(args)}
+    )
+    return {
+        "profile": "lean",
+        "gateways": list(gateways),
+        "target": "gh_status",
+        "target_hidden": True,
+        "search": search,
+        "read": read,
+        "call": called,
+    }
+
+
 def _gh_ready(status: dict[str, Any]) -> bool:
     if not status.get("success"):
         return False
@@ -911,6 +1009,678 @@ async def _ensure_grasshopper_ready(args: dict[str, int]) -> dict[str, Any]:
     )
 
 
+def _dict_value_ci(mapping: dict[str, Any], *names: str) -> Any:
+    wanted = {name.casefold() for name in names}
+    for key, value in mapping.items():
+        if isinstance(key, str) and key.casefold() in wanted:
+            return value
+    return None
+
+
+def _canonical_instance_guid(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = UUID(value.strip())
+    except (ValueError, AttributeError):
+        return None
+    if parsed.int == 0:
+        return None
+    return str(parsed)
+
+
+def _failure_context(failure: ProofFailure) -> dict[str, Any]:
+    return {
+        "failure_label": failure.failure_label,
+        "message": str(failure),
+        "details": failure.details,
+    }
+
+
+def _cancellation_failure(
+    stage: str, cancellation: asyncio.CancelledError
+) -> ProofFailure:
+    return ProofFailure(
+        "operation_cancelled",
+        f"{stage} was cancelled",
+        {
+            "stage": stage,
+            "exception_type": type(cancellation).__name__,
+            "message": str(cancellation),
+        },
+    )
+
+
+def _cleanup_failure_details(
+    details: dict[str, Any],
+    *,
+    original_failure: ProofFailure | None,
+    interruptions: list[asyncio.CancelledError],
+    direct_cancellation: tuple[str, asyncio.CancelledError] | None = None,
+) -> dict[str, Any]:
+    result = dict(details)
+    cancellations = [
+        _failure_context(_cancellation_failure("cleanup_wait", interruption))
+        for interruption in interruptions
+    ]
+    if direct_cancellation is not None:
+        stage, cancellation = direct_cancellation
+        cancellations.append(
+            _failure_context(_cancellation_failure(stage, cancellation))
+        )
+
+    if original_failure is not None:
+        result["original_failure"] = _failure_context(original_failure)
+    elif cancellations:
+        result["original_failure"] = cancellations[0]
+    if cancellations:
+        result["cancellation_context"] = cancellations
+    return result
+
+
+async def _await_cleanup_shielded(
+    cleanup_awaitable: Any,
+    interruptions: list[asyncio.CancelledError],
+) -> dict[str, Any]:
+    cleanup_task = asyncio.create_task(cleanup_awaitable)
+    while True:
+        try:
+            return await asyncio.shield(cleanup_task)
+        except asyncio.CancelledError as exc:
+            interruptions.append(exc)
+            if cleanup_task.done():
+                return cleanup_task.result()
+
+
+async def _capture_chirp_cleanup_state(
+    args: dict[str, int],
+    *,
+    dispatch_fn: Any,
+    call_rhino_fn: Any,
+) -> dict[str, Any]:
+    try:
+        status = await dispatch_fn("gh_status", dict(args))
+    except Exception as exc:
+        raise ProofFailure(
+            "cleanup_failed",
+            "cleanup gh_status probe raised an exception",
+            {
+                "probe": "gh_status",
+                "exception_type": type(exc).__name__,
+                "message": str(exc),
+            },
+        ) from exc
+    if not isinstance(status, dict) or status.get("success") is not True:
+        raise ProofFailure(
+            "cleanup_failed",
+            "cleanup gh_status probe failed",
+            {"gh_status": status},
+        )
+    status_data = status.get("data")
+    object_count = (
+        _dict_value_ci(status_data, "object_count", "objectCount")
+        if isinstance(status_data, dict)
+        else None
+    )
+    if (
+        not isinstance(object_count, int)
+        or isinstance(object_count, bool)
+        or object_count < 0
+    ):
+        raise ProofFailure(
+            "cleanup_failed",
+            "cleanup gh_status object_count was malformed",
+            {"gh_status": status},
+        )
+
+    try:
+        inventory = await call_rhino_fn(
+            "/gh/errors",
+            "GET",
+            {"debug": True},
+            port=args.get("port"),
+            process_id=args.get("process_id"),
+        )
+    except Exception as exc:
+        raise ProofFailure(
+            "cleanup_failed",
+            "cleanup debug inventory probe raised an exception",
+            {
+                "probe": "gh_errors_debug_inventory",
+                "exception_type": type(exc).__name__,
+                "message": str(exc),
+            },
+        ) from exc
+    if not isinstance(inventory, dict) or inventory.get("success") is not True:
+        raise ProofFailure(
+            "cleanup_failed",
+            "cleanup debug inventory probe failed",
+            {"debug_inventory": inventory},
+        )
+    inventory_data = inventory.get("data")
+    if not isinstance(inventory_data, dict):
+        raise ProofFailure(
+            "cleanup_failed",
+            "cleanup debug inventory data was malformed",
+            {"debug_inventory": inventory},
+        )
+    debug_total = _dict_value_ci(
+        inventory_data, "totalComponents", "total_components"
+    )
+    entries = _dict_value_ci(inventory_data, "debugInfo", "debug_info")
+    if (
+        not isinstance(debug_total, int)
+        or isinstance(debug_total, bool)
+        or debug_total < 0
+        or not isinstance(entries, list)
+    ):
+        raise ProofFailure(
+            "cleanup_failed",
+            "cleanup debug inventory was malformed",
+            {"debug_inventory": inventory},
+        )
+
+    instance_guids: list[str] = []
+    for index, entry in enumerate(entries):
+        raw_guid = (
+            _dict_value_ci(entry, "Guid", "guid") if isinstance(entry, dict) else None
+        )
+        guid = _canonical_instance_guid(raw_guid)
+        if guid is None:
+            raise ProofFailure(
+                "cleanup_failed",
+                f"cleanup debug inventory entry {index} had a malformed instance GUID",
+                {"debug_inventory": inventory},
+            )
+        instance_guids.append(guid)
+
+    if len(set(instance_guids)) != len(instance_guids):
+        raise ProofFailure(
+            "cleanup_failed",
+            "cleanup debug inventory contained duplicate instance GUIDs",
+            {"debug_inventory": inventory},
+        )
+    if debug_total != len(instance_guids) or object_count != debug_total:
+        raise ProofFailure(
+            "cleanup_failed",
+            "cleanup gh_status and debug inventory counts were inconsistent",
+            {
+                "gh_status": status,
+                "debug_inventory": inventory,
+                "object_count": object_count,
+                "debug_total": debug_total,
+                "inventory_count": len(instance_guids),
+            },
+        )
+
+    return {
+        "instance_guids": sorted(instance_guids),
+        "object_count": object_count,
+        "debug_total": debug_total,
+        "gh_status": status,
+        "debug_inventory": inventory,
+    }
+
+
+def _chirp_cleanup_evidence(
+    *,
+    attempts: list[Any],
+    component_guid: str | None,
+    component_observed_after_attempt: bool | None,
+    baseline: dict[str, Any],
+    final: dict[str, Any] | None,
+) -> dict[str, Any]:
+    normalized_guid = _canonical_instance_guid(component_guid)
+    final_guids = final.get("instance_guids", []) if isinstance(final, dict) else []
+    return {
+        "attempts": attempts,
+        "attempt_count": len(attempts),
+        "component_guid": component_guid,
+        "component_observed_after_attempt": component_observed_after_attempt,
+        "component_removed": (
+            final is not None
+            and normalized_guid is not None
+            and component_observed_after_attempt is True
+            and normalized_guid not in set(final_guids)
+        ),
+        "baseline_object_count": baseline["object_count"],
+        "final_object_count": final.get("object_count") if final else None,
+        "baseline_instance_guids": baseline["instance_guids"],
+        "final_instance_guids": final_guids,
+        "baseline_state": baseline,
+        "final_state": final,
+    }
+
+
+def _cleanup_failure(
+    message: str,
+    *,
+    attempts: list[Any],
+    component_guid: str | None,
+    baseline: dict[str, Any],
+    final: dict[str, Any] | None,
+    component_observed_after_attempt: bool | None = None,
+    extra: dict[str, Any] | None = None,
+) -> ProofFailure:
+    details: dict[str, Any] = {
+        "gh_undo": _chirp_cleanup_evidence(
+            attempts=attempts,
+            component_guid=component_guid,
+            component_observed_after_attempt=component_observed_after_attempt,
+            baseline=baseline,
+            final=final,
+        )
+    }
+    if extra:
+        details.update(extra)
+    return ProofFailure("cleanup_failed", message, details)
+
+
+async def _restore_chirp_cleanup_state(
+    args: dict[str, int],
+    *,
+    baseline: dict[str, Any],
+    component_guid: str | None,
+    dispatch_fn: Any,
+    call_rhino_fn: Any,
+    attempt_log: list[Any] | None = None,
+) -> dict[str, Any]:
+    attempts = attempt_log if attempt_log is not None else []
+    try:
+        current = await _capture_chirp_cleanup_state(
+            args,
+            dispatch_fn=dispatch_fn,
+            call_rhino_fn=call_rhino_fn,
+        )
+    except ProofFailure as exc:
+        raise _cleanup_failure(
+            f"cleanup state probe failed: {exc}",
+            attempts=attempts,
+            component_guid=component_guid,
+            baseline=baseline,
+            final=None,
+            extra={"probe_failure": _failure_context(exc)},
+        ) from exc
+
+    baseline_guids = set(baseline["instance_guids"])
+    normalized_guid = _canonical_instance_guid(component_guid)
+    target_was_in_baseline = normalized_guid in baseline_guids if normalized_guid else False
+    component_observed_after_attempt = (
+        normalized_guid is not None
+        and not target_was_in_baseline
+        and normalized_guid in set(current["instance_guids"])
+    )
+
+    def fail(
+        message: str,
+        *,
+        extra: dict[str, Any] | None = None,
+    ) -> ProofFailure:
+        return _cleanup_failure(
+            message,
+            attempts=attempts,
+            component_guid=component_guid,
+            component_observed_after_attempt=component_observed_after_attempt,
+            baseline=baseline,
+            final=current,
+            extra=extra,
+        )
+
+    while True:
+        current_guids = set(current["instance_guids"])
+        if current_guids == baseline_guids:
+            if current["object_count"] != baseline["object_count"]:
+                raise fail(
+                    "cleanup instance inventory matched baseline but object count did not"
+                )
+            evidence = _chirp_cleanup_evidence(
+                attempts=attempts,
+                component_guid=component_guid,
+                component_observed_after_attempt=component_observed_after_attempt,
+                baseline=baseline,
+                final=current,
+            )
+            return evidence
+
+        missing_baseline = sorted(baseline_guids - current_guids)
+        if missing_baseline:
+            raise fail(
+                "cleanup state lost baseline instance GUIDs",
+                extra={"missing_baseline_instance_guids": missing_baseline},
+            )
+
+        new_guids = sorted(current_guids - baseline_guids)
+        if normalized_guid is None:
+            raise fail(
+                "cleanup cannot safely undo additions while the created target identity is unknown",
+                extra={"remaining_new_instance_guids": new_guids},
+            )
+        if target_was_in_baseline:
+            raise fail(
+                "created instance GUID was already present in baseline; cleanup cannot "
+                "safely identify post-attempt additions",
+                extra={"remaining_new_instance_guids": new_guids},
+            )
+        if set(new_guids) != {normalized_guid}:
+            raise fail(
+                "cleanup can undo only the created target; unrelated new instance GUIDs "
+                "make cleanup ambiguous",
+                extra={"remaining_new_instance_guids": new_guids},
+            )
+        if not new_guids or current["object_count"] <= baseline["object_count"]:
+            raise fail(
+                "cleanup reached the baseline count while new instance GUIDs remained",
+                extra={"remaining_new_instance_guids": new_guids},
+            )
+        if len(attempts) >= _CHIRP_CLEANUP_MAX_UNDO_ATTEMPTS:
+            raise fail("gh_undo cleanup exhausted its safe attempt bound")
+
+        try:
+            undo = await dispatch_fn("gh_undo", dict(args))
+        except asyncio.CancelledError as exc:
+            undo = {"exception_type": type(exc).__name__, "message": str(exc)}
+            attempts.append(undo)
+            raise fail("gh_undo cleanup dispatch was cancelled") from exc
+        except Exception as exc:
+            undo = {"exception_type": type(exc).__name__, "message": str(exc)}
+            attempts.append(undo)
+            raise fail("gh_undo cleanup dispatch raised an exception") from exc
+        attempts.append(undo)
+        if not isinstance(undo, dict):
+            raise fail("gh_undo cleanup returned a malformed response")
+        if undo.get("success") is not True:
+            raise fail("gh_undo cleanup failed")
+
+        try:
+            current = await _capture_chirp_cleanup_state(
+                args,
+                dispatch_fn=dispatch_fn,
+                call_rhino_fn=call_rhino_fn,
+            )
+        except ProofFailure as exc:
+            raise _cleanup_failure(
+                f"cleanup state probe failed after gh_undo: {exc}",
+                attempts=attempts,
+                component_guid=component_guid,
+                component_observed_after_attempt=component_observed_after_attempt,
+                baseline=baseline,
+                final=None,
+                extra={"probe_failure": _failure_context(exc)},
+            ) from exc
+
+
+def _chirp_validation_failure(
+    chirp: Any,
+) -> tuple[ProofFailure | None, str | None]:
+    if not isinstance(chirp, dict):
+        return (
+            ProofFailure(
+                "chirp_create_failed",
+                "chirp_create returned a malformed response",
+                {"chirp_create": chirp},
+            ),
+            None,
+        )
+    chirp_data = chirp.get("data")
+    raw_component_guid = (
+        chirp_data.get("component_guid") if isinstance(chirp_data, dict) else None
+    )
+    component_guid = _canonical_instance_guid(raw_component_guid)
+    if chirp.get("success") is not True:
+        return (
+            ProofFailure(
+                "chirp_create_failed",
+                "chirp_create failed",
+                {"chirp_create": chirp},
+            ),
+            component_guid,
+        )
+    if not isinstance(chirp_data, dict):
+        return (
+            ProofFailure(
+                "chirp_create_failed",
+                "chirp_create data was malformed",
+                {"chirp_create": chirp},
+            ),
+            component_guid,
+        )
+    if chirp_data.get("warning"):
+        return (
+            ProofFailure(
+                "chirp_component_warning",
+                "chirp_create warning",
+                {"chirp_create": chirp},
+            ),
+            component_guid,
+        )
+    if chirp_data.get("compilation_errors"):
+        return (
+            ProofFailure(
+                "chirp_component_compile_error",
+                "chirp_create compilation errors",
+                {"chirp_create": chirp},
+            ),
+            component_guid,
+        )
+    if component_guid is None:
+        return (
+            ProofFailure(
+                "chirp_create_failed",
+                "chirp_create did not return a valid component_guid",
+                {"chirp_create": chirp},
+            ),
+            None,
+        )
+    return None, component_guid
+
+
+def _gh_errors_validation_failure(
+    errors: Any, component_guid: str
+) -> ProofFailure | None:
+    if not isinstance(errors, dict) or errors.get("success") is not True:
+        return ProofFailure(
+            "gh_component_error",
+            "gh_errors failed",
+            {"gh_errors": errors},
+        )
+    data = errors.get("data")
+    entries = _dict_value_ci(data, "errors") if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        return ProofFailure(
+            "gh_component_error",
+            "gh_errors returned malformed data",
+            {"gh_errors": errors},
+        )
+    normalized_guid = _canonical_instance_guid(component_guid)
+    if normalized_guid is None:
+        return ProofFailure(
+            "gh_component_error",
+            "created component GUID was malformed",
+            {"gh_errors": errors},
+        )
+    for index, item in enumerate(entries):
+        raw_guid = _dict_value_ci(item, "guid") if isinstance(item, dict) else None
+        guid = _canonical_instance_guid(raw_guid)
+        messages = _dict_value_ci(item, "errors") if isinstance(item, dict) else None
+        if guid is None or not isinstance(messages, list):
+            return ProofFailure(
+                "gh_component_error",
+                f"gh_errors entry {index} was malformed",
+                {"gh_errors": errors},
+            )
+        if guid == normalized_guid and messages:
+            return ProofFailure(
+                "gh_component_error",
+                "created component has GH errors",
+                {"gh_errors": errors},
+            )
+    return None
+
+
+async def _run_chirp_smoke_mutation(
+    args: dict[str, int],
+    *,
+    component_name: str,
+    dispatch_fn: Any,
+    call_rhino_fn: Any,
+) -> dict[str, Any]:
+    baseline = await _capture_chirp_cleanup_state(
+        args,
+        dispatch_fn=dispatch_fn,
+        call_rhino_fn=call_rhino_fn,
+    )
+    chirp: Any = None
+    errors: Any = None
+    component_guid: str | None = None
+    original_failure: ProofFailure | None = None
+    pending_cancellation: asyncio.CancelledError | None = None
+
+    try:
+        chirp = await dispatch_fn(
+            "chirp_create",
+            {
+                **args,
+                "category": "classifier",
+                "name": component_name,
+                "pins_in": [{"name": "Input", "type": "string", "optional": True}],
+                "pins_out": [{"name": "Result", "type": "string"}],
+                "signature": "input -> result",
+                "deterministic_code": "Result = Input ?? string.Empty;",
+                "deterministic_only": True,
+                "x": 40,
+                "y": 40,
+            },
+        )
+    except asyncio.CancelledError as exc:
+        pending_cancellation = exc
+        original_failure = _cancellation_failure("chirp_create", exc)
+    except Exception as exc:
+        original_failure = ProofFailure(
+            "chirp_create_failed",
+            "chirp_create dispatch raised an exception",
+            {"exception_type": type(exc).__name__, "message": str(exc)},
+        )
+    else:
+        original_failure, component_guid = _chirp_validation_failure(chirp)
+
+    if component_guid is not None and component_guid in set(baseline["instance_guids"]):
+        details: dict[str, Any] = {"chirp_create": chirp}
+        if original_failure is not None:
+            details["prior_validation_failure"] = _failure_context(original_failure)
+        original_failure = ProofFailure(
+            "chirp_create_failed",
+            "chirp_create returned an instance GUID already present in the baseline",
+            details,
+        )
+
+    if original_failure is None and component_guid is not None:
+        try:
+            errors = await dispatch_fn("gh_errors", dict(args))
+        except asyncio.CancelledError as exc:
+            pending_cancellation = exc
+            original_failure = _cancellation_failure("gh_errors", exc)
+        except Exception as exc:
+            original_failure = ProofFailure(
+                "gh_component_error",
+                "gh_errors dispatch raised an exception",
+                {"exception_type": type(exc).__name__, "message": str(exc)},
+            )
+        else:
+            original_failure = _gh_errors_validation_failure(errors, component_guid)
+
+    cleanup_attempts: list[Any] = []
+    cleanup_interruptions: list[asyncio.CancelledError] = []
+    try:
+        cleanup = await _await_cleanup_shielded(
+            _restore_chirp_cleanup_state(
+                args,
+                baseline=baseline,
+                component_guid=component_guid,
+                dispatch_fn=dispatch_fn,
+                call_rhino_fn=call_rhino_fn,
+                attempt_log=cleanup_attempts,
+            ),
+            cleanup_interruptions,
+        )
+    except ProofFailure as cleanup_failure:
+        if original_failure is None and not cleanup_interruptions:
+            raise
+        details = _cleanup_failure_details(
+            cleanup_failure.details,
+            original_failure=original_failure,
+            interruptions=cleanup_interruptions,
+        )
+        raise ProofFailure("cleanup_failed", str(cleanup_failure), details) from cleanup_failure
+    except asyncio.CancelledError as exc:
+        cleanup_failure = _cleanup_failure(
+            "chirp cleanup task was cancelled",
+            attempts=cleanup_attempts,
+            component_guid=component_guid,
+            baseline=baseline,
+            final=None,
+            extra={
+                "restore_exception": {
+                    "exception_type": type(exc).__name__,
+                    "message": str(exc),
+                }
+            },
+        )
+        details = _cleanup_failure_details(
+            cleanup_failure.details,
+            original_failure=original_failure,
+            interruptions=cleanup_interruptions,
+            direct_cancellation=("cleanup", exc),
+        )
+        raise ProofFailure("cleanup_failed", str(cleanup_failure), details) from exc
+    except Exception as exc:
+        cleanup_failure = _cleanup_failure(
+            "chirp cleanup raised an unexpected exception",
+            attempts=cleanup_attempts,
+            component_guid=component_guid,
+            baseline=baseline,
+            final=None,
+            extra={
+                "restore_exception": {
+                    "exception_type": type(exc).__name__,
+                    "message": str(exc),
+                }
+            },
+        )
+        details = _cleanup_failure_details(
+            cleanup_failure.details,
+            original_failure=original_failure,
+            interruptions=cleanup_interruptions,
+        )
+        raise ProofFailure("cleanup_failed", str(cleanup_failure), details) from exc
+
+    if pending_cancellation is not None:
+        raise pending_cancellation
+    if cleanup_interruptions:
+        raise cleanup_interruptions[0]
+
+    if (
+        original_failure is None
+        and component_guid is not None
+        and cleanup.get("component_observed_after_attempt") is not True
+    ):
+        original_failure = ProofFailure(
+            "chirp_create_failed",
+            "successful chirp_create target was not observed after the attempt",
+            {"chirp_create": chirp},
+        )
+
+    if original_failure is not None:
+        details = dict(original_failure.details)
+        details["cleanup"] = cleanup
+        raise ProofFailure(
+            original_failure.failure_label,
+            str(original_failure),
+            details,
+        ) from original_failure
+
+    return {"chirp_create": chirp, "gh_errors": errors, "gh_undo": cleanup}
+
+
 async def run_live_smoke(
     *,
     port: int | None = None,
@@ -922,84 +1692,45 @@ async def run_live_smoke(
     if process_id:
         args["process_id"] = process_id
 
-    with rhino_request_context(port=port, process_id=process_id):
-        ping = await _call_tool_dispatch("rhino_ping", dict(args))
-        if not ping.get("success"):
-            raise ProofFailure("rhino_ping_failed", "rhino_ping failed", {"rhino_ping": ping})
-
-        gh_ready = await _ensure_grasshopper_ready(args)
-        status = gh_ready["status"]
-
-        chirp = await _call_tool_dispatch(
-            "chirp_create",
-            {
-                **args,
-                "category": "classifier",
-                "name": "Rook Release Readiness Smoke",
-                "pins_in": [{"name": "Input", "type": "string", "optional": True}],
-                "pins_out": [{"name": "Result", "type": "string"}],
-                "signature": "input -> result",
-                "deterministic_code": "Result = Input ?? string.Empty;",
-                "deterministic_only": True,
-                "x": 40,
-                "y": 40,
-            },
-        )
-        if not chirp.get("success"):
-            raise ProofFailure(
-                "chirp_create_failed",
-                "chirp_create failed",
-                {"chirp_create": chirp},
-            )
-        chirp_data = chirp.get("data") or {}
-        if chirp_data.get("warning"):
-            raise ProofFailure(
-                "chirp_component_warning",
-                "chirp_create warning",
-                {"chirp_create": chirp},
-            )
-        if chirp_data.get("compilation_errors"):
-            raise ProofFailure(
-                "chirp_component_compile_error",
-                "chirp_create compilation errors",
-                {"chirp_create": chirp},
-            )
-
-        component_guid = chirp_data.get("component_guid")
-        if not component_guid:
-            raise ProofFailure(
-                "chirp_create_failed",
-                "chirp_create did not return component_guid",
-                {"chirp_create": chirp},
-            )
-
-        errors = await _call_tool_dispatch("gh_errors", dict(args))
-        if not errors.get("success"):
-            raise ProofFailure(
-                "gh_component_error",
-                "gh_errors failed",
-                {"gh_errors": errors},
-            )
-        for item in (errors.get("data") or {}).get("errors", []):
-            if item.get("guid") == component_guid and item.get("errors"):
+    profile_was_set = "ROOK_MCP_TOOL_PROFILE" in os.environ
+    inherited_profile = os.environ.get("ROOK_MCP_TOOL_PROFILE")
+    os.environ["ROOK_MCP_TOOL_PROFILE"] = "lean"
+    try:
+        with rhino_request_context(port=port, process_id=process_id):
+            ping = await _call_tool_dispatch("rhino_ping", dict(args))
+            if not ping.get("success"):
                 raise ProofFailure(
-                    "gh_component_error",
-                    "created component has GH errors",
-                    {"gh_errors": errors},
+                    "rhino_ping_failed",
+                    "rhino_ping failed",
+                    {"rhino_ping": ping},
                 )
 
-        undo = await _call_tool_dispatch("gh_undo", dict(args))
-        if not undo.get("success"):
-            raise ProofFailure("cleanup_failed", "gh_undo failed", {"gh_undo": undo})
+            gh_ready = await _ensure_grasshopper_ready(args)
+            status = gh_ready["status"]
 
-    return {
-        "rhino_ping": ping,
-        "grasshopper_ready": gh_ready,
-        "gh_status": status,
-        "chirp_create": chirp,
-        "gh_errors": errors,
-        "gh_undo": undo,
-    }
+            progressive_discovery = await _run_live_progressive_gh_status(args)
+
+            mutation = await _run_chirp_smoke_mutation(
+                args,
+                component_name="Rook Release Readiness Smoke",
+                dispatch_fn=_call_tool_dispatch,
+                call_rhino_fn=call_rhino,
+            )
+
+        return {
+            "rhino_ping": ping,
+            "grasshopper_ready": gh_ready,
+            "gh_status": status,
+            "progressive_discovery": progressive_discovery,
+            "chirp_create": mutation["chirp_create"],
+            "gh_errors": mutation["gh_errors"],
+            "gh_undo": mutation["gh_undo"],
+        }
+    finally:
+        if profile_was_set:
+            os.environ["ROOK_MCP_TOOL_PROFILE"] = inherited_profile or ""
+        else:
+            os.environ.pop("ROOK_MCP_TOOL_PROFILE", None)
 
 
 def live_smoke_gate(
@@ -1053,6 +1784,17 @@ def _failure_label_from_smoke_output(output: str) -> str | None:
     return None
 
 
+def _live_smoke_envelope(output: str) -> dict[str, Any] | None:
+    for line in reversed(output.splitlines()):
+        try:
+            payload = json.loads(line.strip())
+        except (json.JSONDecodeError, AttributeError):
+            continue
+        if isinstance(payload, dict) and payload.get("gate") == "live_smoke":
+            return payload
+    return None
+
+
 def _harness_failure_label(harness_result: Any) -> str:
     if harness_result.cleanup_status != CleanupStatus.GRACEFUL_EXIT:
         return "cleanup_failed"
@@ -1103,7 +1845,27 @@ def owned_release_readiness_gate(
     )
     cleanup = _cleanup_payload(harness.cleanup_status.value)
     details = harness.to_manifest_dict()
+    smoke = getattr(harness, "smoke", None)
+    envelope = _live_smoke_envelope(getattr(smoke, "stdout", "") or "")
+    envelope_details = envelope.get("details") if isinstance(envelope, dict) else None
+    progressive_discovery = (
+        envelope_details.get("progressive_discovery")
+        if isinstance(envelope_details, dict)
+        else None
+    )
+    if isinstance(progressive_discovery, dict):
+        details["progressive_discovery"] = progressive_discovery
     if harness.success:
+        if not isinstance(progressive_discovery, dict):
+            return GateResult.failure(
+                gate="owned_release_readiness",
+                failure_label="progressive_discovery_failed",
+                command=command,
+                started_at=started,
+                ended_at=time.monotonic(),
+                details=details,
+                cleanup=cleanup,
+            )
         return GateResult.passed(
             gate="owned_release_readiness",
             command=command,

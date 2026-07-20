@@ -27,7 +27,7 @@ Use `request_tools("group_name")` to load additional groups when needed.
 
 ### Rhino Geometry
 - Use structured tools like `rhino_create`, `rhino_transform`, and `rhino_boolean` when you know the exact operation
-- Use `rhino_execute_intent` for ambiguous or high-level requests where you are unsure which Rhino route applies
+- For ambiguous requests, rediscover the admitted Rhino tools, inspect document state, and choose an explicit typed route; use a preflighted script or command only when no typed route fits
 - Use `rhino_objects` to verify what was created
 - Use `rhino_transform` for move, rotate, scale operations
 - Use `rhino_boolean` for union, difference, intersection

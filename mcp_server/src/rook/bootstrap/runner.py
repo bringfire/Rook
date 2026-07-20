@@ -18,6 +18,7 @@ from .test_matrix import TestCase, TestPhase, ExpectedOutcome, TOOL_TESTS
 # Import the production knowledge API
 from ..knowledge import record_knowledge, get_learning_summary
 from ..runtime_paths import resolve_writable_knowledge_path
+from ..tool_lifecycle_runtime import DispatchOrigin, deny_if_contained
 
 logger = logging.getLogger("rook.bootstrap")
 
@@ -143,6 +144,9 @@ class BootstrapRunner:
 
     def _mock_executor(self, tool_name: str, params: dict) -> dict:
         """Mock executor for testing the runner itself."""
+        denial = deny_if_contained(tool_name, DispatchOrigin.INTERNAL_HANDLER)
+        if denial is not None:
+            return denial
         logger.warning(f"Using mock executor for {tool_name}")
         return {"success": True, "data": {"mock": True}}
 
@@ -166,6 +170,19 @@ class BootstrapRunner:
 
     def run_test(self, test: TestCase) -> TestResult:
         """Run a single test case."""
+        denial = deny_if_contained(test.tool, DispatchOrigin.INTERNAL_HANDLER)
+        if denial is not None:
+            return TestResult(
+                test_id=test.id,
+                tool=test.tool,
+                params={},
+                expected=test.expected,
+                actual=TestOutcome.FAILURE,
+                response=denial,
+                error_message="legacy_semantic_tool_contained",
+                duration_ms=0,
+                timestamp=datetime.now().isoformat(),
+            )
         # Check dependencies
         if not self.check_dependencies(test):
             return TestResult(

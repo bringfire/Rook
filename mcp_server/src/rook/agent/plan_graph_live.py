@@ -36,6 +36,7 @@ from rook.learning.plan_graph_projection import (
     projection_role_for_node,
 )
 from rook.learning.plan_graph_runner import apply_producer_result
+from rook.tool_lifecycle_runtime import DispatchOrigin, deny_if_contained
 
 
 EXECUTION_PARAMS_KEY = "execution_params"
@@ -54,6 +55,7 @@ LiveProducerReason = Literal[
     "role_not_producer",
     "execution_ref_missing",
     "execution_ref_invalid",
+    "tool_lifecycle_denied",
     "execution_params_missing",
     "execution_params_invalid",
     "params_copy_failed",
@@ -156,6 +158,10 @@ async def apply_live_producer_node(
     tool_name, reason = _resolve_tool_name(node.execution_ref)
     if reason is not None:
         return _not_applied(graph, node_id, None, reason)
+
+    denial = deny_if_contained(tool_name, DispatchOrigin.PLAN_GRAPH)
+    if denial is not None:
+        return _not_applied(graph, node_id, tool_name, "tool_lifecycle_denied")
 
     params, reason = _resolve_params(node)
     if reason is not None:

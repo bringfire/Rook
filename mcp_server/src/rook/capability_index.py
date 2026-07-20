@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 from rook.agent.capability_record import CapabilityRecord  # type only; stdlib-only module
+from rook.tool_lifecycle import resolve_contained_tool
 
 
 @dataclass(frozen=True)
@@ -110,6 +111,8 @@ def build_index(tools, agent_records, dispatchable_names) -> CapabilityIndex:
     records = []
     for tool in tools:
         name = tool.name
+        if resolve_contained_tool(name) is not None:
+            continue
         domain = _domain_for(name)
         groups = _groups_for(name)
         head = f"/{domain}" + (f"/{groups[0]}" if groups else "")

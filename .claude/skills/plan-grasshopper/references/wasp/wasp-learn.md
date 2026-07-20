@@ -45,19 +45,23 @@ paradigm for discrete aggregation.
 ```python
 # BATCH: Rule Extraction
 
-# Step 1: Create Rules From Aggregation component
-gh_execute_intent(intent="create wasp rules from aggregation", x=1700, y=300)
-# → Record as $RULES_FROM_AGG
+# Steps 1-2: resolved rule extraction and optional visualizer
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "guid": "$GUID_WASP_RULES_FROM_AGGREGATION", "pos": [1700, 300]},
+        {"temp_id": "T2", "guid": "$GUID_WASP_RULES_VISUALIZER", "pos": [1900, 300]},
+    ],
+)
+# Record T1/T2 as $RULES_FROM_AGG/$RULES_VIZ.
 # Wire: $AGGREGATION → RulesFromAgg.AGG
-
-# Step 2 (optional): Visualize extracted rules
-gh_execute_intent(intent="create wasp rules visualizer", x=1900, y=300)
-# → Record as $RULES_VIZ
 # Wire: $RULES_FROM_AGG → RulesVisualizer.RULES
 # Wire: integer slider → RulesVisualizer.INDEX
 
 # CHECKPOINT
-gh_solve(delay=1000)
+# Bounded-poll gh_status until ready_for_edit is true, solverEnabled is true,
+# and solutionState is PostProcess; stop on timeout or disabled/unknown state.
 gh_errors()
 # → Expected: extracted rules list from RulesFromAgg output
 ```
@@ -69,16 +73,18 @@ gh_errors()
 
 # Step 1: Extract rules (Pattern A above)
 
-# Step 2: Modify extracted rules (e.g., scale base part)
-# Non-uniform scaling on base part transforms
-gh_execute_intent(intent="create scale component", x=1900, y=400)
-# → Record as $SCALE_MOD
+# Steps 2-3: resolved Scale and new Aggregation components
+snap = gh_snapshot()
+gh_edit(
+    epoch=snap["epoch"],
+    create=[
+        {"temp_id": "T1", "guid": "$GUID_SCALE_COMPONENT", "pos": [1900, 400]},
+        {"temp_id": "T2", "guid": "$GUID_WASP_AGGREGATION", "pos": [2100, 350]},
+    ],
+)
+# Record T1/T2 as $SCALE_MOD/$NEW_AGG.
 # Wire: base part geometry → Scale.G
 # Wire: scale factors → Scale.F
-
-# Step 3: New aggregation with modified rules
-gh_execute_intent(intent="create wasp aggregation", x=2100, y=350)
-# → Record as $NEW_AGG
 # Wire: parts → Aggregation.PART
 # Wire: $RULES_FROM_AGG → Aggregation.RULE  (extracted rules, not RuleGenerator)
 # Wire: count, seed, reset per wasp-aggregate pattern

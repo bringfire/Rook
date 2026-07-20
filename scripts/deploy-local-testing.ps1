@@ -1112,7 +1112,18 @@ function Test-LiveSmoke {
     $smoke = @"
 import asyncio
 import json
-from rook.server import _call_tool_dispatch
+from rook.bridge import call_rhino
+from rook.local_testing_proof import ProofFailure, _run_chirp_smoke_mutation
+from rook.server import _call_tool_dispatch, call_tool, list_tools
+
+async def public_call(name, arguments):
+    response = await call_tool(name, arguments)
+    if not response:
+        raise SystemExit(f"{name} returned no content")
+    text = str(response[0].text)
+    if text.startswith("Error:"):
+        raise SystemExit(f"{name} failed: {text}")
+    return json.loads(text)
 
 async def main():
     ping = await _call_tool_dispatch("rhino_ping", {})
@@ -1123,35 +1134,49 @@ async def main():
     if not status.get("success"):
         raise SystemExit(f"gh_status failed: {status}")
 
-    chirp = await _call_tool_dispatch("chirp_create", {
-        "category": "classifier",
-        "name": "Rook Local Deploy Smoke",
-        "pins_in": [{"name": "Input", "type": "string", "optional": True}],
-        "pins_out": [{"name": "Result", "type": "string"}],
-        "signature": "input -> result",
-        "deterministic_code": "Result = Input ?? string.Empty;",
-        "deterministic_only": True,
-        "x": 40,
-        "y": 40,
-    })
-    print(json.dumps({"rhino_ping": ping, "gh_status": status, "chirp_create": chirp}, default=str))
-    if not chirp.get("success"):
-        raise SystemExit(f"chirp_create failed: {chirp}")
-    chirp_data = chirp.get("data") or {}
-    if chirp_data.get("compilation_errors") or chirp_data.get("warning"):
-        raise SystemExit(f"chirp_create produced component warnings/errors: {chirp_data}")
+    tools = await list_tools()
+    names = {tool.name for tool in tools}
+    gateways = {"rook_tools_ls", "rook_tools_search", "rook_tools_read", "rook_tools_call"}
+    if not gateways <= names or "gh_status" in names:
+        raise SystemExit(f"lean progressive catalog failed: names={sorted(names)}")
+    search = await public_call("rook_tools_search", {"query": "gh_status", "limit": 10})
+    if not any(item.get("name") == "gh_status" for item in search):
+        raise SystemExit(f"gh_status exact-name search failed: {search}")
+    read = await public_call("rook_tools_read", {"name": "gh_status"})
+    if not (read.get("name") == "gh_status" and read.get("mcp_dispatchable") is True
+            and isinstance(read.get("input_schema"), dict)
+            and read["input_schema"].get("type") == "object"):
+        raise SystemExit(f"gh_status read contract failed: {read}")
+    called = await public_call("rook_tools_call", {"name": "gh_status", "arguments": {}})
+    progressive_discovery = {
+        "profile": "lean", "gateways": sorted(gateways), "target": "gh_status",
+        "target_hidden": True, "search": search, "read": read, "call": called,
+    }
 
-    component_guid = chirp_data.get("component_guid")
-    errors = await _call_tool_dispatch("gh_errors", {})
-    if not errors.get("success"):
-        raise SystemExit(f"gh_errors failed after chirp_create: {errors}")
-    for item in (errors.get("data") or {}).get("errors", []):
-        if item.get("guid") == component_guid and item.get("errors"):
-            raise SystemExit(f"created Chirp component has Grasshopper errors: {item}")
+    try:
+        mutation = await _run_chirp_smoke_mutation(
+            {},
+            component_name="Rook Local Deploy Smoke",
+            dispatch_fn=_call_tool_dispatch,
+            call_rhino_fn=call_rhino,
+        )
+    except ProofFailure as exc:
+        failure_payload = {
+            "failure_label": exc.failure_label,
+            "message": str(exc),
+            "details": exc.details,
+        }
+        raise SystemExit(json.dumps(failure_payload, default=str, sort_keys=True))
 
-    undo = await _call_tool_dispatch("gh_undo", {})
-    if not undo.get("success"):
-        raise SystemExit(f"gh_undo cleanup failed: {undo}")
+    live_evidence = {
+        "rhino_ping": ping,
+        "gh_status": status,
+        "progressive_discovery": progressive_discovery,
+        "chirp_create": mutation["chirp_create"],
+        "gh_errors": mutation["gh_errors"],
+        "gh_undo": mutation["gh_undo"],
+    }
+    print(json.dumps(live_evidence, default=str, sort_keys=True))
 
 asyncio.run(main())
 "@
@@ -1163,6 +1188,7 @@ asyncio.run(main())
         'ROOK_DATA_DIR',
         'CHIRP_HOME',
         'ROOK_PROJECT_ROOT',
+        'ROOK_MCP_TOOL_PROFILE',
         'PYTHONPATH'
     )
     $previousEnvironment = @{}
@@ -1181,6 +1207,8 @@ asyncio.run(main())
                 [Environment]::SetEnvironmentVariable($name, $null, 'Process')
             }
         }
+
+        [Environment]::SetEnvironmentVariable('ROOK_MCP_TOOL_PROFILE', 'lean', 'Process')
 
         Push-Location $Contract.WorkingDirectory
         $locationPushed = $true
