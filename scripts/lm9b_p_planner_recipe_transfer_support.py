@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping, NoReturn
+from typing import Literal, Mapping, NoReturn
 
 from jsonschema import Draft202012Validator
 from rook.validation_kernel.canonical_json import canonical_fingerprint, sha256_prefixed
@@ -16,6 +17,22 @@ from rook.validation_kernel.owned_json import own_trusted_json
 MAX_RECIPE_BYTES = 1_048_576
 MAX_JSON_DEPTH = 64
 MAX_INTEGER_TOKEN_CHARS = 1_024
+FORBIDDEN_RECIPE_MARKERS = (
+    "r01_recipe",
+    "lm9b_c_fixtures",
+)
+_MACHINE_IDENTIFIER = re.compile(r"^[a-z0-9]+(?:[._:-][a-z0-9]+)*$")
+_MACHINE_SCALAR_FIELDS = {
+    "artifact_kind",
+    "authority_code",
+    "capability_code",
+    "delegate_kind",
+    "kind",
+    "schema",
+    "semantic_key",
+    "value_schema",
+    "vocabulary_version",
+}
 
 
 class StrictJsonError(ValueError):
@@ -264,7 +281,11 @@ class MechanicalDiagnostic:
 
 @dataclass(frozen=True)
 class MechanicalGateResult:
-    status: str
+    status: Literal[
+        "probe_mechanically_rejected",
+        "fingerprint_resubmission_required",
+        "mechanically_accepted",
+    ]
     diagnostics: tuple[MechanicalDiagnostic, ...]
     final_recipe_bytes: bytes | None
     recipe_value_fingerprint: str | None
@@ -294,6 +315,336 @@ def _reject(code: str, path: str, message: str) -> MechanicalGateResult:
     )
 
 
+def _issue(code: str, path: str, message: str) -> MechanicalDiagnostic:
+    return MechanicalDiagnostic(code=code, path=path, message=message)
+
+
+def _machine_identifier_issue(recipe: Mapping[str, object]) -> MechanicalDiagnostic | None:
+    candidates: list[tuple[str, object]] = []
+    for path, current in _walk(recipe):
+        if not isinstance(current, dict):
+            continue
+        for key, value in current.items():
+            field_path = f"{path}/{key}"
+            if key.endswith("_id") or key in _MACHINE_SCALAR_FIELDS:
+                if value is not None:
+                    candidates.append((field_path, value))
+            elif key.endswith("_ids") or key == "affects":
+                if isinstance(value, list):
+                    candidates.extend(
+                        (f"{field_path}/{index}", item)
+                        for index, item in enumerate(value)
+                    )
+    for path, value in sorted(candidates, key=lambda item: item[0]):
+        if not isinstance(value, str) or _MACHINE_IDENTIFIER.fullmatch(value) is None:
+            return _issue(
+                "invalid_machine_identifier",
+                path,
+                "machine identifier does not match the ratified grammar",
+            )
+    return None
+
+
+def _structural_integrity_issue(
+    recipe: Mapping[str, object], authority: object
+) -> MechanicalDiagnostic | None:
+    machine_issue = _machine_identifier_issue(recipe)
+    if machine_issue is not None:
+        return machine_issue
+
+    symbols: dict[str, tuple[str, str]] = {}
+
+    def declare(identifier: str, kind: str, path: str) -> MechanicalDiagnostic | None:
+        prior = symbols.get(identifier)
+        if prior is not None:
+            return _issue(
+                "duplicate_identifier",
+                path,
+                f"identifier duplicates {prior[1]}",
+            )
+        symbols[identifier] = (kind, path)
+        return None
+
+    declarations: list[tuple[str, str, str]] = [
+        (recipe["goal"]["clause_id"], "goal", "/goal/clause_id")
+    ]
+    for collection, kind in (
+        ("requires", "requires"),
+        ("invariants", "invariants"),
+    ):
+        declarations.extend(
+            (item["clause_id"], kind, f"/{collection}/{index}/clause_id")
+            for index, item in enumerate(recipe[collection])
+        )
+    for index, maintained in enumerate(recipe["maintains"]):
+        declarations.append(
+            (
+                maintained["clause_id"],
+                "maintains",
+                f"/maintains/{index}/clause_id",
+            )
+        )
+        declarations.extend(
+            (
+                item["clause_id"],
+                "canonicalization",
+                f"/maintains/{index}/canonicalization/{nested}/clause_id",
+            )
+            for nested, item in enumerate(maintained["canonicalization"])
+        )
+        declarations.extend(
+            (
+                item["clause_id"],
+                "postcondition",
+                f"/maintains/{index}/postconditions/{nested}/clause_id",
+            )
+            for nested, item in enumerate(maintained["postconditions"])
+        )
+    for collection, id_field, kind in (
+        ("assumptions", "assumption_id", "assumption"),
+        ("derived_facts", "derived_fact_id", "derived_fact"),
+        ("unresolved_intent", "intent_id", "unresolved_intent"),
+    ):
+        declarations.extend(
+            (item[id_field], kind, f"/{collection}/{index}/{id_field}")
+            for index, item in enumerate(recipe[collection])
+        )
+    for section in ("self", "delegates", "prohibited"):
+        declarations.extend(
+            (
+                item["shape_id"],
+                "shape",
+                f"/shape/{section}/{index}/shape_id",
+            )
+            for index, item in enumerate(recipe["shape"][section])
+        )
+    declarations.extend(
+        (
+            item["capability_id"],
+            "capability",
+            f"/required_capabilities/entries/{index}/capability_id",
+        )
+        for index, item in enumerate(recipe["required_capabilities"]["entries"])
+    )
+    declarations.extend(
+        (
+            item["worker_slot_id"],
+            "worker_slot",
+            f"/worker_slots/entries/{index}/worker_slot_id",
+        )
+        for index, item in enumerate(recipe["worker_slots"]["entries"])
+    )
+    for identifier, kind, path in declarations:
+        duplicate = declare(identifier, kind, path)
+        if duplicate is not None:
+            return duplicate
+
+    descriptors = [recipe["source_task"], *recipe["authority_artifacts"]]
+    descriptor_by_id: dict[str, Mapping[str, object]] = {}
+    for index, descriptor in enumerate(descriptors):
+        artifact_id = descriptor["artifact_id"]
+        path = "/source_task" if index == 0 else f"/authority_artifacts/{index - 1}"
+        if artifact_id in descriptor_by_id:
+            return _issue(
+                "duplicate_identifier",
+                f"{path}/artifact_id",
+                "artifact descriptor identity is duplicated",
+            )
+        descriptor_by_id[artifact_id] = descriptor
+
+    local_reference_fields = {
+        "assumption": ("assumption_id", "assumption"),
+        "derived_fact": ("derived_fact_id", "derived_fact"),
+        "clause": ("clause_id", None),
+        "unresolved_intent": ("intent_id", "unresolved_intent"),
+        "shape": ("shape_id", "shape"),
+        "capability": ("capability_id", "capability"),
+        "worker_slot": ("worker_slot_id", "worker_slot"),
+    }
+    referenced_artifacts: set[str] = set()
+    for path, item in sorted(_walk(recipe), key=lambda pair: pair[0]):
+        if not isinstance(item, dict):
+            continue
+        kind = item.get("kind")
+        if kind in local_reference_fields:
+            id_field, expected_kind = local_reference_fields[kind]
+            target = symbols.get(item[id_field])
+            if target is None or (expected_kind is not None and target[0] != expected_kind):
+                return _issue(
+                    "dangling_local_reference",
+                    path,
+                    "local semantic reference does not resolve to its declared kind",
+                )
+        if kind not in ("artifact_value", "policy_rule"):
+            continue
+        artifact_id = item["artifact_id"]
+        descriptor = descriptor_by_id.get(artifact_id)
+        if descriptor is None:
+            code = (
+                "unknown_artifact"
+                if artifact_id not in authority.artifacts
+                else "authority_descriptor_unbound"
+            )
+            return _issue(
+                code,
+                path,
+                "external reference has no recipe-bound authority descriptor",
+            )
+        referenced_artifacts.add(artifact_id)
+        if kind == "policy_rule":
+            if descriptor["artifact_kind"] != "planning_policy":
+                return _issue(
+                    "authority_descriptor_kind_mismatch",
+                    path,
+                    "policy reference does not target a planning-policy descriptor",
+                )
+            pointer = item["json_pointer"]
+            if re.fullmatch(r"/rules/[a-z0-9]+(?:[._:-][a-z0-9]+)*", pointer) is None:
+                return _issue(
+                    "policy_pointer_outside_rules",
+                    f"{path}/json_pointer",
+                    "policy reference must target exactly one stable rule",
+                )
+            policy = authority.artifacts.get(artifact_id)
+            try:
+                rule = resolve_json_pointer(policy, pointer)
+            except (KeyError, TypeError, ValueError):
+                rule = None
+            if not isinstance(rule, dict) or rule.get("rule_id") != pointer.removeprefix(
+                "/rules/"
+            ):
+                return _issue(
+                    "policy_pointer_unbound",
+                    f"{path}/json_pointer",
+                    "policy reference does not resolve to its exact stable rule",
+                )
+        elif descriptor["artifact_kind"] not in (
+            "task_envelope",
+            "environment_snapshot",
+        ):
+            return _issue(
+                "authority_descriptor_kind_mismatch",
+                path,
+                "artifact-value reference targets an incompatible descriptor",
+            )
+
+    for index, descriptor in enumerate(recipe["authority_artifacts"]):
+        if descriptor["artifact_id"] not in referenced_artifacts:
+            return _issue(
+                "unreferenced_authority_descriptor",
+                f"/authority_artifacts/{index}",
+                "recipe-bound authority descriptor has no semantic reference",
+            )
+
+    def require_targets(
+        values: object, allowed_kinds: set[str], path: str
+    ) -> MechanicalDiagnostic | None:
+        for index, identifier in enumerate(values):
+            target = symbols.get(identifier)
+            if target is None or target[0] not in allowed_kinds:
+                return _issue(
+                    "dangling_local_reference",
+                    f"{path}/{index}",
+                    "schema-defined identity link does not resolve to an allowed kind",
+                )
+        return None
+
+    projection = recipe["goal"]["projected_into"]
+    links = (
+        (projection["maintains_clause_ids"], {"maintains"}, "/goal/projected_into/maintains_clause_ids"),
+        (projection["invariant_clause_ids"], {"invariants"}, "/goal/projected_into/invariant_clause_ids"),
+        (projection["unresolved_intent_ids"], {"unresolved_intent"}, "/goal/projected_into/unresolved_intent_ids"),
+    )
+    for values, kinds, path in links:
+        issue = require_targets(values, kinds, path)
+        if issue is not None:
+            return issue
+    for index, requirement in enumerate(recipe["requires"]):
+        issue = require_targets(
+            requirement["supports_clause_ids"],
+            {"maintains", "invariants"},
+            f"/requires/{index}/supports_clause_ids",
+        )
+        if issue is not None:
+            return issue
+    for index, maintained in enumerate(recipe["maintains"]):
+        for nested, item in enumerate(maintained["canonicalization"]):
+            issue = require_targets(
+                item["applies_to_clause_ids"],
+                {"maintains"},
+                f"/maintains/{index}/canonicalization/{nested}/applies_to_clause_ids",
+            )
+            if issue is not None:
+                return issue
+        for nested, item in enumerate(maintained["postconditions"]):
+            issue = require_targets(
+                item["inherited_support_from"],
+                {"maintains"},
+                f"/maintains/{index}/postconditions/{nested}/inherited_support_from",
+            )
+            if issue is not None:
+                return issue
+
+    authority_codes = {
+        item["code"]: item
+        for item in authority.vocabularies[
+            "semantic_authority_code_vocabulary"
+        ]["entries"]
+    }
+    for section in ("self", "delegates", "prohibited"):
+        for index, item in enumerate(recipe["shape"][section]):
+            entry = authority_codes.get(item["authority_code"])
+            path = f"/shape/{section}/{index}/authority_code"
+            if entry is None:
+                return _issue(
+                    "unknown_vocabulary_code", path, "unknown semantic authority code"
+                )
+            if section not in entry["allowed_shape_sections"]:
+                return _issue(
+                    "vocabulary_code_context_mismatch",
+                    path,
+                    "semantic authority code is not allowed in this shape section",
+                )
+            if section == "delegates" and item["delegate_kind"] not in entry[
+                "allowed_delegate_kinds"
+            ]:
+                return _issue(
+                    "vocabulary_code_context_mismatch",
+                    path,
+                    "semantic authority code does not permit this delegate kind",
+                )
+            if section == "delegates" and bool(item["worker_slot_id"]) != bool(
+                entry["requires_worker_slot"]
+            ):
+                return _issue(
+                    "vocabulary_code_context_mismatch",
+                    path,
+                    "semantic authority code worker-slot requirement is not satisfied",
+                )
+
+    capability_codes = {
+        item["code"]: item
+        for item in authority.vocabularies[
+            "semantic_capability_code_vocabulary"
+        ]["entries"]
+    }
+    for index, item in enumerate(recipe["required_capabilities"]["entries"]):
+        entry = capability_codes.get(item["capability_code"])
+        path = f"/required_capabilities/entries/{index}/capability_code"
+        if entry is None:
+            return _issue(
+                "unknown_vocabulary_code", path, "unknown semantic capability code"
+            )
+        issue = require_targets(
+            item["supports_clause_ids"],
+            set(entry["permitted_supporting_clause_kinds"]),
+            f"/required_capabilities/entries/{index}/supports_clause_ids",
+        )
+        if issue is not None:
+            return issue
+    return None
+
+
 def evaluate_mechanical_gate(
     *,
     recipe_bytes: bytes,
@@ -312,6 +663,14 @@ def evaluate_mechanical_gate(
         error = errors[0]
         path = "".join(f"/{item}" for item in error.path)
         return _reject("recipe_schema_failed", path, error.message)
+
+    structural_issue = _structural_integrity_issue(recipe, authority)
+    if structural_issue is not None:
+        return _reject(
+            structural_issue.code,
+            structural_issue.path,
+            structural_issue.message,
+        )
 
     artifacts = authority.artifacts
     descriptors = [recipe["source_task"], *recipe["authority_artifacts"]]
@@ -392,6 +751,15 @@ def evaluate_mechanical_gate(
         )
     if ratified != historical:
         return _reject("historical_fingerprint_mismatch", "", "recipe not compatible")
+    for path, item in _walk(recipe):
+        if isinstance(item, str):
+            folded = item.casefold()
+            if any(marker in folded for marker in FORBIDDEN_RECIPE_MARKERS):
+                return _reject(
+                    "forbidden_context_marker",
+                    path,
+                    "submitted recipe contains a forbidden control marker",
+                )
     return MechanicalGateResult(
         status="mechanically_accepted",
         diagnostics=(),

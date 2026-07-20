@@ -182,6 +182,12 @@ The Planner receives:
   guidance;
 - deterministic mechanical feedback generated within its one bounded session.
 
+One content-addressed probe exclusion policy is shared by request rendering and
+the mechanical gate. Its exact fingerprint participates in attempt identity;
+changing its closed forbidden-marker set changes both rendered-request identity
+and gate behavior. Production probe code contains no second hardcoded marker
+list.
+
 The Planner does not receive:
 
 - R01 or an expected recipe;

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
 import sys
@@ -23,6 +24,40 @@ def _load_script(name: str):
 
 
 SUPPORT = _load_script("lm9b_p_planner_recipe_transfer_support")
+ARTIFACTS = _load_script("lm9b_p_planner_recipe_transfer_artifacts")
+RECIPE_PATH = ROOT / "mcp_server/tests/fixtures/lm9b_p/non_r01_ready_recipe.json"
+
+
+def _authority():
+    return ARTIFACTS.load_planner_authority_context(FIXTURES)
+
+
+def _recipe() -> dict[str, object]:
+    return json.loads(RECIPE_PATH.read_bytes())
+
+
+def _bytes(value: object) -> bytes:
+    return (json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+
+
+def _seal(value: dict[str, object]) -> dict[str, object]:
+    value = copy.deepcopy(value)
+    projection = {key: item for key, item in value.items() if key != "recipe_fingerprint"}
+    normalized = SUPPORT.normalize_recipe(
+        projection, _authority().normalization_profile
+    )
+    value["recipe_fingerprint"] = SUPPORT.fingerprint(normalized)
+    return value
+
+
+def _gate(raw: bytes):
+    authority = _authority()
+    return SUPPORT.evaluate_mechanical_gate(
+        recipe_bytes=raw,
+        authority=authority,
+        recipe_schema=authority.recipe_schema,
+        normalization_profile=authority.normalization_profile,
+    )
 
 
 @pytest.mark.parametrize(
@@ -166,6 +201,230 @@ def test_probe_schema_rejects_bare_string_semantic_references(
     )
     recipe["maintains"][0][field] = [value]
     assert list(Draft202012Validator(schema).iter_errors(recipe))
+
+
+@pytest.mark.parametrize(
+    ("raw", "code"),
+    [
+        (b'{"schema":"\xff"}', "invalid_utf8"),
+        (b'{"schema":', "invalid_json"),
+        (b'{"schema":"a","schema":"b"}', "duplicate_key"),
+        (b'{"n":' + b"1" * 1025 + b"}", "integer_token_too_long"),
+        (b'{"n":1e10000}', "non_integer_json_number"),
+        (b'{"n":1.5}', "non_integer_json_number"),
+        (b'{"n":NaN}', "non_finite_json_number"),
+    ],
+)
+def test_gate_rejects_invalid_physical_json(raw: bytes, code: str) -> None:
+    result = _gate(raw)
+    assert result.status == "probe_mechanically_rejected"
+    assert [item.code for item in result.diagnostics] == [code]
+
+
+def test_gate_rejects_missing_required_field() -> None:
+    recipe = _recipe()
+    del recipe["goal"]
+    result = _gate(_bytes(recipe))
+    assert result.status == "probe_mechanically_rejected"
+    assert result.diagnostics[0].code == "recipe_schema_failed"
+
+
+def test_gate_rejects_unknown_field() -> None:
+    recipe = _recipe()
+    recipe["unknown_probe_field"] = True
+    result = _gate(_bytes(recipe))
+    assert result.status == "probe_mechanically_rejected"
+    assert result.diagnostics[0].code == "recipe_schema_failed"
+
+
+def test_gate_rejects_unknown_artifact_reference() -> None:
+    recipe = _recipe()
+    recipe["goal"]["source_refs"][0]["artifact_id"] = "unknown_artifact"
+    result = _gate(_bytes(recipe))
+    assert result.diagnostics[0].code == "unknown_artifact"
+
+
+def test_gate_rejects_missing_artifact_pointer() -> None:
+    recipe = _recipe()
+    recipe["goal"]["source_refs"][0]["json_pointer"] = "/facts/missing"
+    result = _gate(_bytes(recipe))
+    assert result.diagnostics[0].code == "artifact_pointer_unbound"
+
+
+def test_gate_rejects_recipe_descriptor_artifact_hash_mismatch() -> None:
+    recipe = _recipe()
+    recipe["source_task"]["fingerprint"] = "sha256:" + "0" * 64
+    result = _gate(_bytes(recipe))
+    assert result.diagnostics[0].code == "authority_binding_failed"
+
+
+def test_gate_rejects_vocabulary_fingerprint_mismatch() -> None:
+    recipe = _recipe()
+    recipe["shape"]["vocabulary_fingerprint"] = "sha256:" + "0" * 64
+    result = _gate(_bytes(recipe))
+    assert result.diagnostics[0].code == "vocabulary_binding_failed"
+
+
+def test_gate_rejects_noncanonical_collection_order() -> None:
+    recipe = _recipe()
+    recipe["goal"]["source_refs"] = list(reversed(recipe["goal"]["source_refs"]))
+    result = _gate(_bytes(recipe))
+    assert result.diagnostics[0].code == "recipe_not_canonical_normal_form"
+
+
+def test_gate_rejects_nonempty_worker_slots() -> None:
+    recipe = _recipe()
+    recipe["worker_slots"]["entries"] = [{"worker_slot_id": "worker.probe"}]
+    result = _gate(_bytes(recipe))
+    assert result.diagnostics[0].code == "recipe_schema_failed"
+
+
+def test_gate_rejects_forbidden_control_marker_after_valid_fingerprinting() -> None:
+    recipe = _recipe()
+    recipe["goal"]["statement"] += " r01_recipe.json"
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.diagnostics[0].code == "forbidden_context_marker"
+
+
+def test_fingerprint_mismatch_is_the_only_resubmission_handshake() -> None:
+    recipe = _recipe()
+    recipe["recipe_fingerprint"] = "sha256:" + "0" * 64
+    first = _gate(_bytes(recipe))
+    assert first.status == "fingerprint_resubmission_required"
+    assert first.diagnostics[0].path == "/recipe_fingerprint"
+    assert first.diagnostics[0].message == first.ratified_recipe_fingerprint
+
+    recipe["recipe_fingerprint"] = first.ratified_recipe_fingerprint
+    submitted = _bytes(recipe)
+    second = _gate(submitted)
+    assert second.status == "mechanically_accepted"
+    assert second.final_recipe_bytes == submitted
+
+
+def test_gate_preserves_nonsemantic_json_encoding_of_accepted_submission() -> None:
+    recipe = _recipe()
+    submitted = (json.dumps(recipe, separators=(",", ":")) + "\n\n").encode("utf-8")
+    result = _gate(submitted)
+    assert result.status == "mechanically_accepted"
+    assert result.final_recipe_bytes == submitted
+
+
+def test_semantic_change_moves_computed_fingerprint_without_repair() -> None:
+    recipe = _recipe()
+    prior = recipe["recipe_fingerprint"]
+    recipe["goal"]["statement"] += " Additional governed meaning."
+    recipe["recipe_fingerprint"] = "sha256:" + "0" * 64
+    result = _gate(_bytes(recipe))
+    assert result.status == "fingerprint_resubmission_required"
+    assert result.ratified_recipe_fingerprint != prior
+    assert result.final_recipe_bytes is None
+
+
+def test_noncanonical_order_cannot_be_cleared_by_supplying_normalized_hash() -> None:
+    recipe = _recipe()
+    recipe["goal"]["source_refs"] = list(reversed(recipe["goal"]["source_refs"]))
+    normalized = SUPPORT.normalize_recipe(
+        {key: item for key, item in recipe.items() if key != "recipe_fingerprint"},
+        _authority().normalization_profile,
+    )
+    recipe["recipe_fingerprint"] = SUPPORT.fingerprint(normalized)
+    result = _gate(_bytes(recipe))
+    assert result.status == "probe_mechanically_rejected"
+    assert result.diagnostics[0].code == "recipe_not_canonical_normal_form"
+
+
+def test_gate_rejects_dangling_local_assumption_reference() -> None:
+    recipe = _recipe()
+    recipe["maintains"][0]["assumption_refs"][0][
+        "assumption_id"
+    ] = "assumption.missing"
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.diagnostics[0].code == "dangling_local_reference"
+
+
+def test_gate_rejects_local_reference_to_wrong_symbol_kind() -> None:
+    recipe = _recipe()
+    recipe["maintains"][0]["assumption_refs"][0]["assumption_id"] = recipe[
+        "derived_facts"
+    ][0]["derived_fact_id"]
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.diagnostics[0].code == "dangling_local_reference"
+
+
+def test_gate_rejects_duplicate_global_clause_identity() -> None:
+    recipe = _recipe()
+    recipe["requires"][0]["clause_id"] = recipe["maintains"][0]["clause_id"]
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.diagnostics[0].code == "duplicate_identifier"
+
+
+def test_gate_rejects_non_machine_identifier() -> None:
+    recipe = _recipe()
+    recipe["goal"]["clause_id"] = "goal contains spaces"
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.diagnostics[0].code == "invalid_machine_identifier"
+
+
+@pytest.mark.parametrize(
+    ("section", "code_field"),
+    [
+        ("shape", "authority_code"),
+        ("required_capabilities", "capability_code"),
+    ],
+)
+def test_gate_rejects_unknown_vocabulary_entry(
+    section: str, code_field: str
+) -> None:
+    recipe = _recipe()
+    entries = (
+        recipe[section]["delegates"]
+        if section == "shape"
+        else recipe[section]["entries"]
+    )
+    entries[0][code_field] = "unknown_probe_code"
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.diagnostics[0].code == "unknown_vocabulary_code"
+
+
+def test_gate_rejects_policy_pointer_outside_rules_map() -> None:
+    recipe = _recipe()
+    recipe["assumptions"][0]["authorization_refs"]["policy_refs"][0][
+        "json_pointer"
+    ] = "/issuer/kind"
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.diagnostics[0].code == "policy_pointer_outside_rules"
+
+
+def test_gate_rejects_policy_pointer_below_rule_object() -> None:
+    recipe = _recipe()
+    pointer = recipe["assumptions"][0]["authorization_refs"]["policy_refs"][0][
+        "json_pointer"
+    ]
+    recipe["assumptions"][0]["authorization_refs"]["policy_refs"][0][
+        "json_pointer"
+    ] = pointer + "/effect"
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.diagnostics[0].code == "policy_pointer_outside_rules"
+
+
+def test_gate_rejects_reference_to_undeclared_authority_companion() -> None:
+    recipe = _recipe()
+    recipe["authority_artifacts"] = [
+        item
+        for item in recipe["authority_artifacts"]
+        if item["artifact_id"] != "planning_policy"
+    ]
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.diagnostics[0].code == "authority_descriptor_unbound"
+
+
+def test_gate_rejects_unused_authority_descriptor() -> None:
+    recipe = _recipe()
+    recipe["requires"] = []
+    for assumption in recipe["assumptions"]:
+        assumption["typed_value"]["unit_context_ref"] = None
+    result = _gate(_bytes(_seal(recipe)))
+    assert result.diagnostics[0].code == "unreferenced_authority_descriptor"
 
 
 def test_exact_vocabulary_companions_are_complete_and_fingerprinted() -> None:

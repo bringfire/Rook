@@ -433,7 +433,9 @@ git commit -m "feat(lm9b): complete planner recipe mechanical gate"
 - Create: `scripts/lm9b_p_fixtures/planner_authoring_contract.json`
 - Create: `scripts/lm9b_p_fixtures/planner_exclusion_policy.json`
 - Create: `scripts/lm9b_p_fixtures/planner_evaluation_rubric.json`
+- Modify: `scripts/lm9b_p_planner_recipe_transfer_support.py`
 - Modify: `scripts/lm9b_p_planner_recipe_transfer_artifacts.py`
+- Modify: `mcp_server/tests/test_lm9b_p_planner_recipe_transfer_support.py`
 - Modify: `mcp_server/tests/test_lm9b_p_planner_recipe_transfer_artifacts.py`
 
 **Interfaces:**
@@ -453,6 +455,9 @@ compiler context, expected recipe, C#, or compiler schema; evaluator sees no
 Planner transcript, compiler output, R01, or expected answer; pre-freeze reads
 exclude R01, LM9B-C's source manifest, and the non-R01 witness; and
 fresh-process hashes match under `PYTHONHASHSEED=1` and `8675309`.
+The exclusion-policy test passes the content-addressed policy into the
+mechanical gate, changes one forbidden marker, and proves both gate behavior
+and rendered request identity move. No hardcoded production marker remains.
 
 - [ ] **Step 2: Create frozen authoring inputs**
 
@@ -462,7 +467,13 @@ fresh-process hashes match under `PYTHONHASHSEED=1` and `8675309`.
 Create a 10 x 10 array of boxes whose heights are lowest near the center and rise with radial distance from the center.
 ```
 
-`planner_authoring_contract.json` explains the admitted production recipe grammar without an example recipe. `planner_exclusion_policy.json` freezes request exclusions. `planner_evaluation_rubric.json` freezes scenario-specific fidelity, provenance, material-authority, unresolved-intent, and implementation-leakage checks without R01 or a solved recipe.
+`planner_authoring_contract.json` explains the admitted production recipe grammar without an example recipe. `planner_exclusion_policy.json` is a closed,
+fingerprinted probe artifact containing the exact forbidden recipe markers and
+request exclusions. It becomes an explicit input to `evaluate_mechanical_gate`;
+Task 3 removes Task 2's temporary constant. `planner_evaluation_rubric.json`
+freezes scenario-specific fidelity, provenance, material-authority,
+unresolved-intent, and implementation-leakage checks without R01 or a solved
+recipe.
 
 - [ ] **Step 3: Implement fixed-role loading and rendering**
 
@@ -490,6 +501,9 @@ class FrozenPlannerInputs:
 ```
 
 Load a fixed filename-to-role tuple; do not discover files. Fingerprint original and rendered bytes.
+The Planner request and gate both bind the same verified exclusion-policy
+fingerprint. A policy object not loaded from the frozen input set cannot be
+substituted by a caller.
 
 - [ ] **Step 4: Run and commit**
 
