@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Mapping, NoReturn
@@ -17,10 +18,6 @@ from rook.validation_kernel.owned_json import own_trusted_json
 MAX_RECIPE_BYTES = 1_048_576
 MAX_JSON_DEPTH = 64
 MAX_INTEGER_TOKEN_CHARS = 1_024
-FORBIDDEN_RECIPE_MARKERS = (
-    "r01_recipe",
-    "lm9b_c_fixtures",
-)
 _MACHINE_IDENTIFIER = re.compile(r"^[a-z0-9]+(?:[._:-][a-z0-9]+)*$")
 _MACHINE_SCALAR_FIELDS = {
     "artifact_kind",
@@ -40,11 +37,62 @@ class StrictJsonError(ValueError):
 
 
 def fingerprint(value: object) -> str:
-    return canonical_fingerprint(own_trusted_json(value))
+    return canonical_fingerprint(own_trusted_json(_json_builtins(value)))
+
+
+def _json_builtins(value: object) -> object:
+    if isinstance(value, MappingABC):
+        return {key: _json_builtins(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_builtins(item) for item in value]
+    return value
 
 
 def fingerprint_without(value: Mapping[str, object], field: str) -> str:
     return fingerprint({key: item for key, item in value.items() if key != field})
+
+
+def validate_exclusion_policy(
+    value: Mapping[str, object],
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    expected_fields = {
+        "schema",
+        "policy_id",
+        "forbidden_recipe_markers",
+        "forbidden_request_markers",
+        "excluded_input_roles",
+        "policy_fingerprint",
+    }
+    if set(value) != expected_fields:
+        raise ValueError("invalid exclusion policy shape")
+    if value.get("schema") != "rook.lm9b_p.planner_exclusion_policy:v1":
+        raise ValueError("invalid exclusion policy schema")
+    if value.get("policy_id") != "lm9b_p.planner_exclusion_policy:v1":
+        raise ValueError("invalid exclusion policy ID")
+    if value.get("policy_fingerprint") != fingerprint_without(
+        value, "policy_fingerprint"
+    ):
+        raise ValueError("exclusion policy fingerprint mismatch")
+
+    collections: dict[str, tuple[str, ...]] = {}
+    for field in (
+        "forbidden_recipe_markers",
+        "forbidden_request_markers",
+        "excluded_input_roles",
+    ):
+        raw_items = value.get(field)
+        if not isinstance(raw_items, (list, tuple)) or not all(
+            isinstance(item, str) and item for item in raw_items
+        ):
+            raise ValueError(f"invalid exclusion policy {field}")
+        items = tuple(raw_items)
+        if len(set(items)) != len(items) or items != tuple(sorted(items)):
+            raise ValueError(f"noncanonical exclusion policy {field}")
+        collections[field] = items
+    return (
+        collections["forbidden_recipe_markers"],
+        collections["forbidden_request_markers"],
+    )
 
 
 def _parse_int(token: str) -> int:
@@ -119,9 +167,9 @@ def resolve_json_pointer(value: object, pointer: str) -> object:
     current = value
     for encoded in pointer[1:].split("/"):
         token = encoded.replace("~1", "/").replace("~0", "~")
-        if isinstance(current, dict) and token in current:
+        if isinstance(current, MappingABC) and token in current:
             current = current[token]
-        elif isinstance(current, list) and token.isdigit():
+        elif isinstance(current, (list, tuple)) and token.isdigit():
             index = int(token)
             if index >= len(current):
                 raise KeyError(pointer)
@@ -147,9 +195,10 @@ class NormalizationProfile:
     rows: tuple[NormalizationRow, ...]
 
 
-def load_normalization_profile(path: Path) -> NormalizationProfile:
-    value = parse_strict_json(Path(path).read_bytes())
-    if not isinstance(value, dict):
+def normalization_profile_from_value(
+    value: Mapping[str, object],
+) -> NormalizationProfile:
+    if not isinstance(value, Mapping):
         raise ValueError("normalization profile must be an object")
     if value.get("profile_fingerprint") != fingerprint_without(
         value, "profile_fingerprint"
@@ -170,6 +219,13 @@ def load_normalization_profile(path: Path) -> NormalizationProfile:
         profile_fingerprint=value["profile_fingerprint"],
         rows=rows,
     )
+
+
+def load_normalization_profile(path: Path) -> NormalizationProfile:
+    value = parse_strict_json(Path(path).read_bytes())
+    if not isinstance(value, dict):
+        raise ValueError("normalization profile must be an object")
+    return normalization_profile_from_value(value)
 
 
 def _pointer_parts(pointer: str) -> tuple[str, ...]:
@@ -570,7 +626,7 @@ def _structural_integrity_issue(
                 rule = resolve_json_pointer(policy, pointer)
             except (KeyError, TypeError, ValueError):
                 rule = None
-            if not isinstance(rule, dict) or rule.get("rule_id") != pointer.removeprefix(
+            if not isinstance(rule, MappingABC) or rule.get("rule_id") != pointer.removeprefix(
                 "/rules/"
             ):
                 return _issue(
@@ -729,7 +785,18 @@ def evaluate_mechanical_gate(
     authority: object,
     recipe_schema: Mapping[str, object],
     normalization_profile: NormalizationProfile,
+    exclusion_policy: Mapping[str, object],
 ) -> MechanicalGateResult:
+    try:
+        forbidden_recipe_markers, _ = validate_exclusion_policy(exclusion_policy)
+    except ValueError as exc:
+        return _reject("invalid_exclusion_policy", "/exclusion_policy", str(exc))
+    if exclusion_policy != getattr(authority, "exclusion_policy", None):
+        return _reject(
+            "invalid_exclusion_policy",
+            "/exclusion_policy",
+            "exclusion policy is not the frozen authority input",
+        )
     try:
         recipe = parse_strict_json(recipe_bytes)
     except StrictJsonError as exc:
@@ -839,7 +906,7 @@ def evaluate_mechanical_gate(
     for path, item in _walk(recipe):
         if isinstance(item, str):
             folded = item.casefold()
-            if any(marker in folded for marker in FORBIDDEN_RECIPE_MARKERS):
+            if any(marker.casefold() in folded for marker in forbidden_recipe_markers):
                 return _reject(
                     "forbidden_context_marker",
                     path,
@@ -865,8 +932,10 @@ __all__ = (
     "fingerprint",
     "fingerprint_without",
     "load_normalization_profile",
+    "normalization_profile_from_value",
     "normalize_recipe",
     "parse_strict_json",
     "resolve_json_pointer",
     "sha256_prefixed",
+    "validate_exclusion_policy",
 )

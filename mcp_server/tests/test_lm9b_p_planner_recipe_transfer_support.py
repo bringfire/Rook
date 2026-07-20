@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import shutil
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -60,6 +61,7 @@ def _gate(raw: bytes):
         authority=authority,
         recipe_schema=authority.recipe_schema,
         normalization_profile=authority.normalization_profile,
+        exclusion_policy=authority.exclusion_policy,
     )
 
 
@@ -834,6 +836,72 @@ def test_same_machine_identifier_is_allowed_in_distinct_symbol_namespaces() -> N
     canonical["recipe_fingerprint"] = SUPPORT.fingerprint(canonical)
     result = _gate(_bytes(canonical))
     assert result.status == "mechanically_accepted"
+
+
+def test_content_addressed_exclusion_policy_moves_gate_and_request(
+    tmp_path: Path,
+) -> None:
+    original_inputs = ARTIFACTS.load_planner_inputs(FIXTURES)
+    recipe_bytes = RECIPE_PATH.read_bytes()
+    original_gate = SUPPORT.evaluate_mechanical_gate(
+        recipe_bytes=recipe_bytes,
+        authority=original_inputs.authority,
+        recipe_schema=original_inputs.recipe_schema,
+        normalization_profile=original_inputs.authority.normalization_profile,
+        exclusion_policy=original_inputs.exclusion_policy,
+    )
+    assert original_gate.status == "mechanically_accepted"
+
+    copied = tmp_path / "fixtures"
+    shutil.copytree(FIXTURES, copied)
+    policy_path = copied / "planner_exclusion_policy.json"
+    policy = json.loads(policy_path.read_bytes())
+    policy["forbidden_recipe_markers"].append("probe.goal.radial_box_field")
+    policy["forbidden_recipe_markers"].sort()
+    policy["policy_fingerprint"] = SUPPORT.fingerprint_without(
+        policy, "policy_fingerprint"
+    )
+    policy_path.write_text(json.dumps(policy, indent=2) + "\n", encoding="utf-8")
+    changed_inputs = ARTIFACTS.load_planner_inputs(copied)
+    changed_gate = SUPPORT.evaluate_mechanical_gate(
+        recipe_bytes=recipe_bytes,
+        authority=changed_inputs.authority,
+        recipe_schema=changed_inputs.recipe_schema,
+        normalization_profile=changed_inputs.authority.normalization_profile,
+        exclusion_policy=changed_inputs.exclusion_policy,
+    )
+    assert changed_gate.diagnostics[0].code == "forbidden_context_marker"
+    assert (
+        ARTIFACTS.render_planner_request(original_inputs).raw_sha256
+        != ARTIFACTS.render_planner_request(changed_inputs).raw_sha256
+    )
+    assert not hasattr(SUPPORT, "FORBIDDEN_RECIPE_MARKERS")
+
+
+def test_unfingerprinted_exclusion_policy_cannot_replace_frozen_input() -> None:
+    inputs = ARTIFACTS.load_planner_inputs(FIXTURES)
+    substituted = dict(inputs.exclusion_policy)
+    substituted["forbidden_recipe_markers"] = []
+    result = SUPPORT.evaluate_mechanical_gate(
+        recipe_bytes=RECIPE_PATH.read_bytes(),
+        authority=inputs.authority,
+        recipe_schema=inputs.recipe_schema,
+        normalization_profile=inputs.authority.normalization_profile,
+        exclusion_policy=substituted,
+    )
+    assert result.diagnostics[0].code == "invalid_exclusion_policy"
+
+    substituted["policy_fingerprint"] = SUPPORT.fingerprint_without(
+        substituted, "policy_fingerprint"
+    )
+    result = SUPPORT.evaluate_mechanical_gate(
+        recipe_bytes=RECIPE_PATH.read_bytes(),
+        authority=inputs.authority,
+        recipe_schema=inputs.recipe_schema,
+        normalization_profile=inputs.authority.normalization_profile,
+        exclusion_policy=substituted,
+    )
+    assert result.diagnostics[0].code == "invalid_exclusion_policy"
 
 
 def test_exact_vocabulary_companions_are_complete_and_fingerprinted() -> None:

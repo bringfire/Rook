@@ -3,8 +3,12 @@ from __future__ import annotations
 import importlib.util
 import builtins
 import json
+import shutil
 import sys
+from dataclasses import replace
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -30,22 +34,23 @@ ARTIFACTS = _load_script("lm9b_p_planner_recipe_transfer_artifacts")
 
 
 def test_non_r01_recipe_reaches_unchanged_fake_compiler_provider(tmp_path: Path) -> None:
-    authority = ARTIFACTS.load_planner_authority_context(PLANNER_FIXTURES)
+    inputs = ARTIFACTS.load_planner_inputs(PLANNER_FIXTURES)
+    authority = inputs.authority
     recipe_bytes = NON_R01_RECIPE.read_bytes()
     gate = SUPPORT.evaluate_mechanical_gate(
         recipe_bytes=recipe_bytes,
         authority=authority,
         recipe_schema=authority.recipe_schema,
         normalization_profile=authority.normalization_profile,
+        exclusion_policy=authority.exclusion_policy,
     )
     assert gate.status == "mechanically_accepted"
     assert gate.final_recipe_bytes == recipe_bytes
     assert gate.ratified_recipe_fingerprint == gate.historical_recipe_fingerprint
 
     handoff = ARTIFACTS.build_lm9bc_handoff(
-        accepted_recipe_bytes=recipe_bytes,
-        accepted_recipe_fingerprint=gate.ratified_recipe_fingerprint,
-        planner_fixture_dir=PLANNER_FIXTURES,
+        planner_inputs=inputs,
+        gate_result=gate,
         compiler_fixture_dir=COMPILER_FIXTURES,
         destination=tmp_path / "handoff",
     )
@@ -56,6 +61,11 @@ def test_non_r01_recipe_reaches_unchanged_fake_compiler_provider(tmp_path: Path)
     ]
     assert handoff.manifest["probe_attempt_context"] == authority.attempt_context
     assert "r01_recipe" not in json.dumps(handoff.manifest).lower()
+    manifest_bytes = (handoff.fixture_dir / "input_manifest.json").read_bytes()
+    assert handoff.manifest_raw_sha256 == SUPPORT.sha256_prefixed(manifest_bytes)
+    assert handoff.manifest_canonical_fingerprint == SUPPORT.fingerprint(
+        json.loads(manifest_bytes)
+    )
 
     loaded = LM9B_C_ARTIFACTS.load_frozen_inputs(handoff.fixture_dir)
     rendered = LM9B_C_ARTIFACTS.render_compiler_request(loaded)
@@ -130,19 +140,147 @@ def test_handoff_never_reads_r01_or_its_source_manifest(
     monkeypatch.setattr(Path, "stat", audited_stat)
     monkeypatch.setattr(builtins, "open", audited_open)
 
-    authority = ARTIFACTS.load_planner_authority_context(PLANNER_FIXTURES)
+    inputs = ARTIFACTS.load_planner_inputs(PLANNER_FIXTURES)
+    authority = inputs.authority
     recipe_bytes = NON_R01_RECIPE.read_bytes()
     gate = SUPPORT.evaluate_mechanical_gate(
         recipe_bytes=recipe_bytes,
         authority=authority,
         recipe_schema=authority.recipe_schema,
         normalization_profile=authority.normalization_profile,
+        exclusion_policy=authority.exclusion_policy,
     )
     ARTIFACTS.build_lm9bc_handoff(
-        accepted_recipe_bytes=gate.final_recipe_bytes,
-        accepted_recipe_fingerprint=gate.ratified_recipe_fingerprint,
-        planner_fixture_dir=PLANNER_FIXTURES,
+        planner_inputs=inputs,
+        gate_result=gate,
         compiler_fixture_dir=COMPILER_FIXTURES,
         destination=tmp_path / "audited-handoff",
     )
     assert observed == set()
+
+
+@pytest.mark.parametrize(
+    ("role", "filename"),
+    (
+        ("authority.task_envelope", "task_envelope.json"),
+        ("authority.environment_snapshot", "environment_snapshot.json"),
+        ("authority.planning_policy", "planning_policy.json"),
+    ),
+)
+def test_handoff_preserves_frozen_planner_authority_after_fixture_mutation(
+    tmp_path: Path, role: str, filename: str,
+) -> None:
+    copied = tmp_path / "planner-fixtures"
+    shutil.copytree(PLANNER_FIXTURES, copied)
+    inputs = ARTIFACTS.load_planner_inputs(copied)
+    recipe_bytes = NON_R01_RECIPE.read_bytes()
+    gate = SUPPORT.evaluate_mechanical_gate(
+        recipe_bytes=recipe_bytes,
+        authority=inputs.authority,
+        recipe_schema=inputs.recipe_schema,
+        normalization_profile=inputs.authority.normalization_profile,
+        exclusion_policy=inputs.exclusion_policy,
+    )
+    frozen_record = next(
+        record
+        for record in inputs.records
+        if record.role == role
+    )
+    fixture_path = copied / filename
+    fixture_path.write_bytes(fixture_path.read_bytes() + b"  \n")
+
+    handoff = ARTIFACTS.build_lm9bc_handoff(
+        planner_inputs=inputs,
+        gate_result=gate,
+        compiler_fixture_dir=COMPILER_FIXTURES,
+        destination=tmp_path / "frozen-handoff",
+    )
+    handed_off = (handoff.fixture_dir / filename).read_bytes()
+    assert handed_off == frozen_record.raw_bytes
+    assert handed_off != fixture_path.read_bytes()
+    manifest_row = next(
+        row
+        for row in handoff.manifest["records"]
+        if row["role"] == role
+    )
+    assert manifest_row["raw_sha256"] == frozen_record.raw_sha256
+
+
+def test_handoff_rejects_caller_forged_acceptance_before_writing(
+    tmp_path: Path,
+) -> None:
+    inputs = ARTIFACTS.load_planner_inputs(PLANNER_FIXTURES)
+    recipe_bytes = NON_R01_RECIPE.read_bytes()
+    accepted = SUPPORT.evaluate_mechanical_gate(
+        recipe_bytes=recipe_bytes,
+        authority=inputs.authority,
+        recipe_schema=inputs.recipe_schema,
+        normalization_profile=inputs.authority.normalization_profile,
+        exclusion_policy=inputs.exclusion_policy,
+    )
+    forged = replace(
+        accepted,
+        final_recipe_bytes=b"{}",
+        recipe_value_fingerprint=SUPPORT.fingerprint({}),
+    )
+    destination = tmp_path / "forged-handoff"
+    try:
+        ARTIFACTS.build_lm9bc_handoff(
+            planner_inputs=inputs,
+            gate_result=forged,
+            compiler_fixture_dir=COMPILER_FIXTURES,
+            destination=destination,
+        )
+    except ValueError as exc:
+        assert "accepted gate result" in str(exc)
+    else:
+        raise AssertionError("forged acceptance reached the handoff")
+    assert not destination.exists()
+
+    class ForgedGateResult(SUPPORT.MechanicalGateResult):
+        def __eq__(self, other: object) -> bool:
+            return True
+
+    subclass_forgery = ForgedGateResult(
+        status="mechanically_accepted",
+        diagnostics=(),
+        final_recipe_bytes=b"{}",
+        recipe_value_fingerprint=SUPPORT.fingerprint({}),
+        ratified_recipe_fingerprint=accepted.ratified_recipe_fingerprint,
+        historical_recipe_fingerprint=accepted.historical_recipe_fingerprint,
+    )
+    subclass_destination = tmp_path / "subclass-forged-handoff"
+    with pytest.raises(ValueError, match="accepted gate result"):
+        ARTIFACTS.build_lm9bc_handoff(
+            planner_inputs=inputs,
+            gate_result=subclass_forgery,
+            compiler_fixture_dir=COMPILER_FIXTURES,
+            destination=subclass_destination,
+        )
+    assert not subclass_destination.exists()
+
+
+def test_handoff_rejects_corrupted_persisted_bytes(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    inputs = ARTIFACTS.load_planner_inputs(PLANNER_FIXTURES)
+    recipe_bytes = NON_R01_RECIPE.read_bytes()
+    accepted = SUPPORT.evaluate_mechanical_gate(
+        recipe_bytes=recipe_bytes,
+        authority=inputs.authority,
+        recipe_schema=inputs.recipe_schema,
+        normalization_profile=inputs.authority.normalization_profile,
+        exclusion_policy=inputs.exclusion_policy,
+    )
+
+    def short_write(path: Path, raw: bytes) -> None:
+        path.write_bytes(raw[:-1])
+
+    monkeypatch.setattr(ARTIFACTS, "_write_bytes", short_write)
+    with pytest.raises(ValueError, match="handoff write verification failed: recipe"):
+        ARTIFACTS.build_lm9bc_handoff(
+            planner_inputs=inputs,
+            gate_result=accepted,
+            compiler_fixture_dir=COMPILER_FIXTURES,
+            destination=tmp_path / "corrupted-handoff",
+        )

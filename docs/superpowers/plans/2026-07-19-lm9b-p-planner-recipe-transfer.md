@@ -147,22 +147,23 @@ Expected: `Python 3.12.12`. Use `py -3.10 -m py_compile` for Python 3.10 compati
 def test_non_r01_ready_recipe_reaches_unchanged_fake_compiler_provider(
     tmp_path: Path,
 ) -> None:
-    authority = ARTIFACTS.load_planner_authority_context(PLANNER_FIXTURES)
+    inputs = ARTIFACTS.load_planner_inputs(PLANNER_FIXTURES)
+    authority = inputs.authority
     recipe_bytes = NON_R01_READY_RECIPE.read_bytes()
     gate = SUPPORT.evaluate_mechanical_gate(
         recipe_bytes=recipe_bytes,
         authority=authority,
         recipe_schema=authority.recipe_schema,
         normalization_profile=authority.normalization_profile,
+        exclusion_policy=authority.exclusion_policy,
     )
     assert gate.status == "mechanically_accepted"
     assert gate.final_recipe_bytes == recipe_bytes
     assert gate.ratified_recipe_fingerprint == gate.historical_recipe_fingerprint
 
     handoff = ARTIFACTS.build_lm9bc_handoff(
-        accepted_recipe_bytes=recipe_bytes,
-        accepted_recipe_fingerprint=gate.ratified_recipe_fingerprint,
-        planner_fixture_dir=PLANNER_FIXTURES,
+        planner_inputs=inputs,
+        gate_result=gate,
         compiler_fixture_dir=LM9B_C_FIXTURES,
         destination=tmp_path / "handoff",
     )
@@ -382,11 +383,12 @@ Create a matched non-R01 blocked recipe by replacing only the spacing assumption
 - [ ] **Step 8: Implement the R01-free handoff**
 
 `build_lm9bc_handoff`:
-1. accepts final recipe bytes and checked fingerprint;
+1. accepts the frozen Planner inputs and successful mechanical-gate result,
+   then reauthenticates that result against those exact inputs;
 2. revalidates frozen-time freshness and session admission and binds the exact
    attempt-context fingerprint into the generated handoff manifest;
-3. reads corrected authority only from its explicit `planner_fixture_dir` and
-   copies corrected LM9B-P task, environment, and policy bytes plus unchanged
+3. copies corrected LM9B-P task, environment, and policy bytes only from the
+   content-addressed frozen Planner records, plus unchanged
    LM9B-C implementation context, exclusion policy, and evaluation rubric;
 4. writes accepted bytes once and proves read-back equality;
 5. builds `rook.lm9b_c.input_manifest:v1` directly from those seven files, fixed roles, and exported `COMPILER_RENDERER_ID`;
@@ -502,11 +504,12 @@ git commit -m "feat(lm9b): complete planner recipe mechanical gate"
 - Modify: `mcp_server/tests/test_lm9b_p_planner_recipe_transfer_artifacts.py`
 
 **Interfaces:**
-- Produces `load_planner_inputs() -> FrozenPlannerInputs`, `render_planner_request() -> RenderedRequest`, and `render_planner_evaluator_request() -> RenderedRequest`.
+- Produces `load_planner_inputs() -> FrozenPlannerInputs`, `render_planner_request() -> RenderedRequest`, and `render_planner_evaluator_request(inputs, gate_result) -> RenderedRequest`.
 - Planner sees brief, exact trusted authority, authoring contract, and terminal schema.
 - Planner request identity includes the exact frozen attempt-context
   fingerprint and renders its evaluation time and session bindings.
-- Planner evaluator sees brief, authority, final recipe, deterministic findings, and rubric.
+- Planner evaluator sees brief, authority, the exact recipe and deterministic
+  findings derived from a reauthenticated successful gate result, and rubric.
 
 - [ ] **Step 1: Add visibility and whole-process read-isolation tests**
 
