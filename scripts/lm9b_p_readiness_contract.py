@@ -250,6 +250,8 @@ def verify_launch_readiness(
     def fail(message: str) -> None:
         failures.append(message)
 
+    if record.get("schema_id") != SCHEMA_ID:
+        fail("schema_id mismatch")
     if record.get("reviewed_commit_sha") != head_sha:
         fail("commit sha mismatch")
     if record.get("route_manifest_fingerprint") != manifest.manifest_fingerprint:
