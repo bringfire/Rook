@@ -114,18 +114,43 @@ def test_no_authenticate_no_contact(tmp_path):
 
 
 def test_authenticate_contacts_each_route_once_and_orders_time(tmp_path):
-    seen = {}
+    manifest = C.derive_routes(
+        C.role_routes_from_models(C.CANONICAL_ROLE_MODELS), lambda m: None
+    )
+    contact_counts = {route.route_fingerprint: 0 for route in manifest.routes}
 
     def factory(route):
-        seen.setdefault(route.route_fingerprint, 0)
-        return _ok_provider(route)
+        base = _ok_provider(route)
+
+        def _counting(request):
+            contact_counts[route.route_fingerprint] += 1
+            return base(request)
+
+        return _counting
 
     rec = P.run_readiness(
         run_root=tmp_path / "r", head_sha="d" * 40, environ=FULL_ENV,
         authenticate=True, provider_factory=factory, clock=_Clock(),
     )
-    assert len(rec["routes"]) == 2
+    assert len(rec["routes"]) == len(manifest.routes)
+    # Exactly one actual provider invocation for every manifest route.
+    assert contact_counts == {route.route_fingerprint: 1 for route in manifest.routes}
     assert rec["completed_at"] >= max(row["observed_at"] for row in rec["routes"])
+
+
+def test_absent_assistant_message_records_absence(tmp_path):
+    route = _route0()
+
+    def _no_assistant(request):
+        return LM9BC.ProviderTurn(
+            raw_request=b"{}", raw_response=b'{"id":"x"}',
+            assistant_message=None, usage={}, provider_metadata={},
+        )
+
+    row = P.run_canary(route, _no_assistant, clock=_Clock())
+    assert row["outcome"]["kind"] == "model_response"
+    assert row["outcome"]["assistant_present"] is False  # observed, not authored
+    assert C.route_ready(row) is False
 
 
 def test_missing_credential_leaves_no_directory(tmp_path):

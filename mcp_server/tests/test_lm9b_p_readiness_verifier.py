@@ -127,6 +127,14 @@ def test_duplicate_route_refuses():
     assert _verify(_reseal(r)) is False
 
 
+def test_extra_route_refuses():
+    r = _fresh()
+    extra = copy.deepcopy(r["routes"][0])
+    extra["route_fingerprint"] = "sha256:not-in-manifest"
+    r["routes"] = r["routes"] + [extra]
+    assert _verify(_reseal(r)) is False
+
+
 def test_member_roles_mismatch_refuses():
     r = _fresh()
     r["routes"][0]["member_roles"] = ["planner"]

@@ -63,17 +63,21 @@ def run_canary(route, provider, *, clock) -> dict:
         }
         return base
     base["observed_at"] = clock()  # stamped AFTER the call resolves
-    message = turn.assistant_message or {}
+    message = turn.assistant_message
+    # Observed, not authored: an attributable assistant message must actually be
+    # present in the response.
+    assistant_present = isinstance(message, dict) and bool(message)
+    source = message if assistant_present else {}
     tool_calls = [
         {
             "name": (call.get("function") or {}).get("name"),
             "arguments": (call.get("function") or {}).get("arguments"),
         }
-        for call in (message.get("tool_calls") or [])
+        for call in (source.get("tool_calls") or [])
     ]
     base["outcome"] = {
         "kind": "model_response",
-        "assistant_present": True,
+        "assistant_present": assistant_present,
         "tool_calls": tool_calls,
         "raw_response_fingerprint": "sha256:"
         + hashlib.sha256(turn.raw_response).hexdigest(),

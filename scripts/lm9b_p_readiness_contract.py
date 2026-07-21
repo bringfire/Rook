@@ -59,6 +59,19 @@ ACK_TOOL = {
 }
 
 
+def _strict_json_object(text: str) -> object:
+    """Parse JSON, rejecting duplicate object keys (plain json.loads silently
+    keeps the last), so "strict JSON" in route_ready is actually strict."""
+
+    def reject_duplicates(pairs):
+        keys = [key for key, _ in pairs]
+        if len(keys) != len(set(keys)):
+            raise ValueError("duplicate object keys")
+        return dict(pairs)
+
+    return json.loads(text, object_pairs_hook=reject_duplicates)
+
+
 def canonical_fingerprint(value: object) -> str:
     payload = json.dumps(
         value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
@@ -210,11 +223,17 @@ def route_ready(row: dict) -> bool:
     if not isinstance(call, dict) or call.get("name") != "ack":
         return False
     arguments = call.get("arguments")
-    if not isinstance(arguments, str):
-        return False
-    try:
-        parsed = json.loads(arguments)
-    except (ValueError, TypeError):
+    # The frozen contract permits either the exact argument string or an
+    # already-parsed closed object; a string is parsed strictly (duplicate keys
+    # rejected). A fingerprint-only stand-in (neither str nor dict) is refused.
+    if isinstance(arguments, str):
+        try:
+            parsed = _strict_json_object(arguments)
+        except (ValueError, TypeError):
+            return False
+    elif isinstance(arguments, dict):
+        parsed = arguments
+    else:
         return False
     return parsed == {"ok": True}
 

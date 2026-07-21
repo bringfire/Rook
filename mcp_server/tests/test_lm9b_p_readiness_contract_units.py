@@ -39,6 +39,26 @@ def test_route_ready_accepts_conforming():
     assert C.route_ready(_ok_row()) is True
 
 
+def test_route_ready_accepts_parsed_closed_object():
+    row = _ok_row()
+    row["outcome"]["tool_calls"] = [{"name": "ack", "arguments": {"ok": True}}]
+    assert C.route_ready(row) is True
+
+
+def test_route_ready_rejects_duplicate_key_string():
+    row = _ok_row()
+    row["outcome"]["tool_calls"] = [
+        {"name": "ack", "arguments": '{"ok": true, "ok": true}'}
+    ]
+    assert C.route_ready(row) is False
+
+
+def test_route_ready_rejects_fingerprint_only_argument():
+    row = _ok_row()
+    row["outcome"]["tool_calls"] = [{"name": "ack", "arguments": 123}]
+    assert C.route_ready(row) is False
+
+
 @pytest.mark.parametrize(
     "mut",
     [

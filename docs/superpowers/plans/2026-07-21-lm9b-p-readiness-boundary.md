@@ -70,7 +70,7 @@ The contract implements the verifier from Task 1; this task adds the explicit re
 
 **Interfaces:** Consumes `verify_launch_readiness`, `derive_routes`, `record_fingerprint`, `request_fingerprint`, `canary_protocol_fingerprint`, `SCHEMA_ID`, `FROZEN_MAX_AGE_S`.
 
-- [ ] **Step 1: Write the matrix test** (prepend `_load_script`; one refusal per equation, including `schema_id`)
+- [x] **Step 1: Write the matrix test** (prepend `_load_script`; one refusal per equation, including `schema_id`)
 
 ```python
 import copy, pytest
@@ -157,12 +157,12 @@ def test_route_unready_refuses():
     r = _fresh(); r["routes"][0]["outcome"]["kind"] = "transport_failure"; assert _verify(_reseal(r)) is False
 ```
 
-- [ ] **Step 2: Run — the `schema_id` case fails, the rest pass**
+- [x] **Step 2: Run — the `schema_id` case fails, the rest pass**
 
 Run: `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_verifier.py -v`
 Expected: `test_schema_id_mismatch_refuses` FAILS (guard not yet present); all others PASS.
 
-- [ ] **Step 3: Add the `schema_id` guard**
+- [x] **Step 3: Add the `schema_id` guard**
 
 In `verify_launch_readiness`, alongside the other integrity checks (before the freshness block):
 
@@ -171,12 +171,12 @@ In `verify_launch_readiness`, alongside the other integrity checks (before the f
         fail("schema_id mismatch")
 ```
 
-- [ ] **Step 4: Run to verify all pass**
+- [x] **Step 4: Run to verify all pass**
 
 Run: `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_verifier.py -v`
 Expected: PASS (all).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/lm9b_p_readiness_contract.py mcp_server/tests/test_lm9b_p_readiness_verifier.py
@@ -194,7 +194,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 **Interfaces:** Consumes `route_ready`, `resolve_credential_source`, `derive_routes`, `CREDENTIAL_SOURCE_DECLARATIONS`, `RoleRoute`.
 
-- [ ] **Step 1: Write the tests**
+- [x] **Step 1: Write the tests**
 
 ```python
 import pytest
@@ -244,9 +244,9 @@ def test_unknown_route_fails_closed():
                         lambda m: None)
 ```
 
-- [ ] **Step 2: Run** — `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_contract_units.py -v` → PASS.
+- [x] **Step 2: Run** — `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_contract_units.py -v` → PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add mcp_server/tests/test_lm9b_p_readiness_contract_units.py
@@ -264,7 +264,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 **Interfaces:** Consumes probe `run_canary`, `run_readiness`, `credential_presence`, `assemble_record`; contract `route_ready`, `request_fingerprint`, `build_canary_request`; `lm9b_c_compiler_sufficiency_probe.ProviderTurn`/`ProviderCallFailure`.
 
-- [ ] **Step 1: Write the tests**
+- [x] **Step 1: Write the tests**
 
 ```python
 import json, pytest
@@ -336,9 +336,9 @@ def test_canary_request_excludes_experiment_content():
         assert f not in blob
 ```
 
-- [ ] **Step 2: Run** — `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_probe.py -v` → PASS.
+- [x] **Step 2: Run** — `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_probe.py -v` → PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add mcp_server/tests/test_lm9b_p_readiness_probe.py
@@ -351,7 +351,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ### Final verification
 
-- [ ] **Run the whole readiness + experiment surface green**
+- [x] **Run the whole readiness + experiment surface green**
 
 ```bash
 "$PY" -m pytest \
