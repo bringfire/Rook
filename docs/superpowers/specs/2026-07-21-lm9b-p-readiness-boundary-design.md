@@ -129,7 +129,9 @@ One contact per distinct route, no retry, only under explicit `--authenticate`.
 - One throwaway forced tool `ack(ok: boolean)`, `tool_choice` forcing it, to
   prove the tool-call round trip. Minimal completion tokens, bounded timeout,
   streaming off.
-- The fixed messages and tool schema are part of `canary_implementation_identity`.
+- The fixed messages, tool schema, and minimal request options constitute the
+  `canary_protocol_fingerprint` — defined in the pure contract module so both
+  the readiness probe and the launch verifier recompute it identically.
 - The canary uses its own minimal safe request parameters; it does not
   reproduce the experiment's temperature/token settings.
 - Sanitized outcome (existing `_API_KEY`/`_TOKEN` redaction) is written to a
@@ -145,8 +147,13 @@ verifier derives readiness rather than trusting a stored boolean. No top-level
 readiness_record (schema_id: lm9b_p.readiness_record:v1)
   reviewed_commit_sha
   route_manifest_fingerprint
-  canary_implementation_identity  fingerprint of canary controller +
-                                  fixed messages + throwaway tool schema
+  canary_protocol_fingerprint     fingerprint of the fixed messages, tool
+                                  schema, and minimal request options (all of
+                                  which live in the pure contract module and
+                                  are recomputable by both surfaces); the
+                                  reviewed commit SHA already binds the
+                                  controller implementation, so no second
+                                  controller-source fingerprint is recorded
   max_age_seconds                 echo of FROZEN_MAX_AGE (module constant is
                                   authority; verifier requires equality)
   completed_at                    controlled-host UTC, exact ISO-8601
@@ -158,8 +165,9 @@ readiness_record (schema_id: lm9b_p.readiness_record:v1)
     outcome (exactly one of):
       transport_failure:          classification, sanitized detail hash
       model_response:             assistant_present (bool),
-                                  tool_calls (name + strict-JSON arguments,
-                                  or arguments fingerprint),
+                                  tool_calls (each: name + exact argument
+                                  string or parsed closed object — never a
+                                  fingerprint-only stand-in),
                                   raw_response_fingerprint
   record_fingerprint              unkeyed; detects accidental mutation only
 ```
@@ -178,8 +186,10 @@ route_ready(row) ≜ outcome is model_response
                    AND arguments == {"ok": true}
 ```
 
-Exact argument-byte identity is not required; strict-JSON semantic validation
-against this closed shape is sufficient.
+The predicate parses and compares the actual arguments against `{"ok": true}`;
+a fingerprint-only argument row cannot satisfy it. Exact argument-byte identity
+is not required — strict-JSON semantic validation against this closed shape is
+sufficient — but the arguments themselves must be present to be parsed.
 
 ## 8. Three Launch Coordinates And Attribution
 
@@ -217,7 +227,15 @@ creation. It recomputes rather than trusting any serialized outcome:
 launch readiness ≜
   identity continuity   : current clean HEAD == reviewed_commit_sha
                           AND recomputed manifest fp == route_manifest_fingerprint
-  role coverage         : member_roles across routes cover all four roles
+  record integrity      : recomputed record_fingerprint == claimed
+                                                          record_fingerprint
+                          AND recomputed canary_protocol_fingerprint ==
+                              record canary_protocol_fingerprint
+  exact route coverage  : set(record route_fingerprints)
+                              == set(current manifest route_fingerprints)
+                          AND no duplicate route rows
+                          AND each row.member_roles
+                              == current manifest member_roles for that route
   temporal freshness    : (see 9.1)
   credential presence   : repeat the Section-3 non-contact presence check
                           for every route's credential-source name
@@ -255,8 +273,13 @@ All use deterministic fakes; no real provider is contacted.
 3. assistant, no ack call  -> fake returns a message without a conforming ack
                               call (or wrong name / bad args / ok != true);
                               route_ready = false; verifier refuses
-4. identity mismatch       -> record SHA != HEAD, or recomputed manifest fp !=
-                              record fp -> refuse before mkdir
+4. identity / closure      -> parameterized mutations, each refused before
+   mismatch                   mkdir: record SHA != HEAD; recomputed manifest fp
+                              != record fp; missing / duplicate / extra route
+                              row; altered member_roles; argument fingerprint
+                              without arguments; malformed or wrong `ack`
+                              arguments; canary_protocol_fingerprint mismatch;
+                              record_fingerprint mismatch
 5. staleness / future time -> observed_at or completed_at outside
                               [now - 600, now] (including future) -> refuse
 6. import isolation        -> importing the pure verifier does NOT import the
