@@ -95,12 +95,13 @@ authenticates and reaches a model at all:
 
 ```text
 route identity = (production-adapter construction path,
-                  provider, model, credential-source name)
+                  provider, model, credential-source declaration)
 ```
 
-Deliberately excluded from identity: temperature, completion-token limits,
-`tool_choice` mode, streaming, parallel-tool-calls flag, post-call wrapper
-identity, and all local timeout/cost/accounting controls.
+The credential-source declaration is defined in Section 5.1. Deliberately
+excluded from identity: temperature, completion-token limits, `tool_choice`
+mode, streaming, parallel-tool-calls flag, post-call wrapper identity, and all
+local timeout/cost/accounting controls.
 
 Deduplication is by exact route identity. Distinct routes are derived from the
 four experiment roles (`planner`, `planner_evaluator`, `compiler`,
@@ -115,6 +116,47 @@ route_manifest:
   routes                distinct route[] in canonical route_fingerprint order
   manifest_fingerprint  fingerprint(canonical routes set)
 ```
+
+### 5.1 Credential-Source Declaration
+
+The credential source must be the env var(s) the production adapter actually
+authenticates with — never an arbitrary operator- or runtime-supplied name. It
+is a tiny, reviewed, closed map in the pure contract module, keyed by exact
+provider/model route. For this slice it is exactly two entries, verified
+against the installed LiteLLM (1.89.4), names only, never values:
+
+```text
+openai / gpt-5.4                     -> ("OPENAI_API_KEY",)
+gemini / gemini-3.1-pro-preview      -> ("GOOGLE_API_KEY", "GEMINI_API_KEY")
+```
+
+The Gemini entry is an ordered set because LiteLLM's Gemini completion path
+resolves the key as `GOOGLE_API_KEY` then `GEMINI_API_KEY`; **presence is
+satisfied when at least one declared name is set**, and absence means all
+declared names are unset. OpenAI is confirmed both by LiteLLM and by the
+archived canonical failure message.
+
+Resolution rules:
+
+```text
+explicit reviewed declaration exists   -> use it
+canonical helper returns non-null      -> it must be a member of the
+  (api_key_env_for_model)                 declaration, else fail
+canonical helper returns null          -> declaration remains valid
+no declaration for the current route   -> fail closed
+runtime / CLI override of the name     -> forbidden
+```
+
+Under the current frozen models `api_key_env_for_model` returns null for both
+routes (bare `gpt-5.4`; `gemini/` outside its single-env set), so the
+declaration is authoritative and there is no helper conflict today; the
+member-of-declaration rule guards against future helper drift.
+
+The declaration participates in route-manifest identity, is recomputed by the
+launch verifier, and drives both the initial preflight and the launch-time
+presence checks. It contains names only and stays limited to the two frozen
+routes. `model_profiles.py` is not modified and the frozen model IDs are not
+changed.
 
 ## 6. Canary Shape
 
@@ -246,7 +288,8 @@ launch readiness ≜
                           the protocol fingerprint describes)
   temporal freshness    : (see 9.1)
   credential presence   : repeat the Section-3 non-contact presence check
-                          for every route's credential-source name
+                          for every route — at least one env var name in that
+                          route's credential-source declaration must be set
   route readiness       : route_ready(row) for every route (from evidence)
   age-constant binding  : max_age_seconds == FROZEN_MAX_AGE
 
@@ -275,7 +318,10 @@ operational assumption; no clock-authority subsystem is introduced.
 All use deterministic fakes; no real provider is contacted.
 
 ```text
-1. missing credential      -> local preflight fails; NO canary contact attempted
+1. missing credential      -> ALL names in a route's credential-source
+                              declaration unset -> local preflight fails; NO
+                              canary contact attempted (one declared name
+                              present is sufficient for presence)
 2. transport failure       -> fake adapter raises; row = transport_failure;
                               launch verifier refuses; run root never created
 3. assistant, no ack call  -> fake returns a message without a conforming ack
@@ -304,6 +350,12 @@ All use deterministic fakes; no real provider is contacted.
                               authority artifacts, R01 identifiers, rubric,
                               recipe schema, expected output, or forbidden
                               experiment markers
+10. unknown route          -> a route with no credential-source declaration
+                              fails closed (preflight and verifier both refuse)
+11. helper/declaration     -> when api_key_env_for_model returns a non-null name
+    disagreement              that is NOT a member of the route's declaration,
+                              resolution fails; when it returns null, the
+                              declaration stands
 ```
 
 Acceptance anchor (happy path): a fresh record whose every route is
