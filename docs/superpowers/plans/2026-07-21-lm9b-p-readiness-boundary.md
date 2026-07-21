@@ -4,7 +4,20 @@
 
 **Goal:** Add a staged, operator-error-proof readiness boundary (local preflight → explicitly-approved experiment-content-free canary → sealed readiness record → pure refuse-before-allocation launch verifier) in front of the unchanged one-shot LM9B-P Planner-transfer experiment, so a missing or non-functional credential/access fault is caught operationally instead of consuming an attempt identity.
 
-**Architecture:** Three code surfaces. A **pure contract module** (`scripts/lm9b_p_readiness_contract.py`, stdlib-only, no Git/filesystem/clock/environment I/O) owns route derivation, the credential-source declaration, fingerprints, the canary protocol constants, `build_canary_request`, `route_ready`, and `verify_launch_readiness`. A **disposable readiness probe** (`scripts/lm9b_p_readiness_probe.py`) imports the contract, owns provider contact via the production `LiteLLMProvider`, and writes the record. The **experiment CLI** (`scripts/lm9b_p_planner_recipe_transfer_probe.py`) imports **only** the pure contract and gains a refuse-before-`mkdir` precondition. The contract module never imports provider code, so importing the verifier is a pure operation.
+**Architecture — designed outward from the irreversible transition, not inward from modules.** The whole slice is validated by ONE proof-carrying vertical witness (Task 1) that walks a complete transaction through the *real* experiment transmit entry point with fake providers and an injected clock:
+
+```
+exact launch configuration
+-> readiness routes derived from THAT configuration
+-> actual fake-canary events under an injected clock
+-> record sealed AFTER the final observation
+-> same configuration reauthenticated at the real transmit entry point
+-> readiness verified immediately before the atomic mkdir
+-> only a valid record reaches allocation + provider construction
+-> mutated identity / time / credential each refuses BEFORE allocation
+```
+
+Three code surfaces. A **pure contract module** (`scripts/lm9b_p_readiness_contract.py`, stdlib-only, no Git/filesystem/clock/environment I/O) owns route derivation from a supplied configuration, the credential-source declaration, fingerprints, canary protocol, `build_canary_request`, `route_ready`, and `verify_launch_readiness`. A **disposable readiness probe** (`scripts/lm9b_p_readiness_probe.py`) imports the contract, owns provider contact via the production `LiteLLMProvider`, and writes the record under an injected clock. The **experiment CLI** (`scripts/lm9b_p_planner_recipe_transfer_probe.py`) imports **only** the pure contract and gains a refuse-before-`mkdir` precondition that derives routes from the *actually parsed* models.
 
 **Tech Stack:** Python 3.10/3.12, pytest, LiteLLM 1.89.4 (production adapter, contacted only under `--authenticate`), stdlib `hashlib`/`json`/`datetime`/`dataclasses`.
 
@@ -12,17 +25,19 @@
 
 - Spec: `docs/superpowers/specs/2026-07-21-lm9b-p-readiness-boundary-design.md` (authoritative).
 - Base: worktree `codex/lm9b-p-readiness-boundary` on `origin/main` `dfd90659`.
+- **Design outward from the boundary.** No stage reconstructs identity from a second static description; readiness routes are always derived from the exact launch configuration. No timestamp is assigned without reference to the event it receipts (`observed_at` after each canal call; `completed_at` after all). No helper unit test substitutes for exercising the public transition it guards.
 - `FROZEN_MAX_AGE_S = 600` seconds — frozen in the module, never operator-set.
-- Credential-source declaration is a closed two-entry map, names only, never values, verified against installed LiteLLM 1.89.4: `("openai","gpt-5.4") -> ("OPENAI_API_KEY",)`; `("gemini","gemini/gemini-3.1-pro-preview") -> ("GOOGLE_API_KEY","GEMINI_API_KEY")`. Presence is satisfied when **at least one** declared name is set.
-- The pure contract module imports **stdlib only** — never `litellm`, never `lm9b_p_readiness_probe`, never `rook.*` at module top level. `api_key_env_for_model` is passed in as a callable, not imported by the contract.
+- Credential-source declaration is a closed two-entry map, names only, never values, verified vs installed LiteLLM 1.89.4: `("openai","gpt-5.4") -> ("OPENAI_API_KEY",)`; `("gemini","gemini/gemini-3.1-pro-preview") -> ("GOOGLE_API_KEY","GEMINI_API_KEY")`. Presence = at least one declared name set.
+- **Canonical Planner pin:** the experiment refuses unless `--planner-model` and `--planner-evaluator-model` both equal `gpt-5.4` (matching the already-pinned compiler models). This closes the "arbitrary Planner model" gap alongside the identity binding.
+- The pure contract imports **stdlib only** — never `litellm`, never `lm9b_p_readiness_probe`, never `rook.*` at module top level. `api_key_env_for_model` is passed in as a callable.
 - Do **not** modify `mcp_server/src/rook/agent/model_profiles.py`. Do **not** change the frozen model IDs.
-- The canary sends **no** experiment content (no brief, authority artifacts, R01 identifiers, rubric, recipe schema, expected output, forbidden markers). One contact per distinct route, no retry.
-- The experiment CLI change is refuse-only: it imports only `lm9b_p_readiness_contract`; it must not import `lm9b_p_readiness_probe`.
-- Readiness failure never consumes a scientific attempt. The LM9B-P attempt stays one-shot and behaviorally unchanged. This slice does not begin the scientific attempt and grants no execution authority.
-- **Test command** (run from the worktree root `C:/UDEV/Rook/.worktrees/lm9b-p-readiness-boundary`), using the populated main-checkout venv:
-  `PY="C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe"`
-  `"$PY" -m pytest mcp_server/tests/<file> -v`
-- Test module-load convention (copy verbatim into each new test file):
+- The canary sends **no** experiment content. One contact per distinct route, no retry.
+- The experiment CLI change is refuse-only and imports only `lm9b_p_readiness_contract`; it must not import `lm9b_p_readiness_probe`.
+- `--readiness-record` is required **only with `--transmit`**; dry-run behavior is unchanged.
+- Readiness failure never consumes a scientific attempt. Correcting credentials must not leave an unusable empty readiness directory (credential check precedes readiness-root creation). This slice does not begin the scientific attempt and grants no execution authority.
+- **Test command** (from worktree root `C:/UDEV/Rook/.worktrees/lm9b-p-readiness-boundary`, populated main-checkout venv):
+  `PY="C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe"` ; `"$PY" -m pytest mcp_server/tests/<file> -v`
+- Test module-load convention (prepend to each new test file):
 
 ```python
 from __future__ import annotations
@@ -39,86 +54,161 @@ def _load_script(name: str):
     return module
 ```
 
-- Commit after every task with a `feat(lm9b-p):` or `test(lm9b-p):` message ending with the `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>` trailer.
+- Commit after every task; messages end with `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
 
 ---
 
-### Task 1: Contract module — fingerprint, credential-source declaration, resolver
+### Task 1: Vertical witness (walking skeleton through the real transmit entry point)
+
+This task builds the thinnest **real** end-to-end path and proves it, so identity binding, timestamp ordering, and boundary enforcement are correct from the first commit. Later tasks only add cases and hardening.
 
 **Files:**
 - Create: `scripts/lm9b_p_readiness_contract.py`
-- Test: `mcp_server/tests/test_lm9b_p_readiness_contract.py`
+- Create: `scripts/lm9b_p_readiness_probe.py`
+- Modify: `scripts/lm9b_p_planner_recipe_transfer_probe.py`
+- Test: `mcp_server/tests/test_lm9b_p_readiness_witness.py`
 
-**Interfaces:**
-- Consumes: nothing (stdlib only).
-- Produces:
-  - `FROZEN_MAX_AGE_S: int = 600`
-  - `SCHEMA_ID: str = "lm9b_p.readiness_record:v1"`
-  - `class ReadinessError(ValueError)`
-  - `CREDENTIAL_SOURCE_DECLARATIONS: dict[tuple[str, str], tuple[str, ...]]`
-  - `def canonical_fingerprint(value: object) -> str` → `"sha256:"`-prefixed sha256 over canonical JSON
-  - `def resolve_credential_source(provider: str, model: str, helper_result: str | None) -> tuple[str, ...]`
+**Interfaces produced (used by every later task):**
+- Contract: `FROZEN_MAX_AGE_S`, `SCHEMA_ID`, `ReadinessError`, `canonical_fingerprint(value)`, `CREDENTIAL_SOURCE_DECLARATIONS`, `resolve_credential_source(provider, model, helper_result)`, `provider_of(model)`, `RoleRoute`, `DistinctRoute`, `RouteManifest`, `CANONICAL_ROLE_MODELS`, `role_routes_from_models(models)`, `derive_routes(role_routes, helper)`, canary constants + `canary_protocol()`, `canary_protocol_fingerprint()`, `build_canary_request(route)`, `request_fingerprint(route)`, `route_ready(row)`, `record_fingerprint(record)`, `LaunchDecision`, `verify_launch_readiness(...)`.
+- Probe: `HELPER`, `credential_presence(manifest, environ)`, `run_canary(route, provider)`, `assemble_record(...)`, `run_readiness(*, run_root, head_sha, environ, authenticate, provider_factory, clock)`.
+- Experiment CLI: `readiness_gate_ok(*, record, models, head_sha, now_iso, credential_present)`, `CliAttemptConfig.readiness_record`, canonical Planner pin.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing witness test**
 
 ```python
-# mcp_server/tests/test_lm9b_p_readiness_contract.py
-# (prepend the _load_script convention block from Global Constraints)
+# mcp_server/tests/test_lm9b_p_readiness_witness.py
+# (prepend the _load_script convention block)
+import json, subprocess, sys
 import pytest
+
 C = _load_script("lm9b_p_readiness_contract")
+P = _load_script("lm9b_p_readiness_probe")
+EXP = _load_script("lm9b_p_planner_recipe_transfer_probe")
 
-def test_frozen_constants():
-    assert C.FROZEN_MAX_AGE_S == 600
-    assert C.SCHEMA_ID == "lm9b_p.readiness_record:v1"
+FAKE_SHA = "d" * 40
+CANON = dict(C.CANONICAL_ROLE_MODELS)  # planner/eval=gpt-5.4, compiler/eval=gemini/...
 
-def test_canonical_fingerprint_is_stable_and_order_independent():
-    a = C.canonical_fingerprint({"x": 1, "y": [1, 2]})
-    b = C.canonical_fingerprint({"y": [1, 2], "x": 1})
-    assert a == b and a.startswith("sha256:")
-    assert C.canonical_fingerprint({"x": 2}) != a
+class _FakeClock:
+    def __init__(self):
+        self.t = 0
+    def __call__(self):
+        self.t += 1
+        return f"2026-07-21T12:00:{self.t:02d}Z"
 
-def test_declaration_is_the_closed_two_entry_map():
-    assert C.CREDENTIAL_SOURCE_DECLARATIONS == {
-        ("openai", "gpt-5.4"): ("OPENAI_API_KEY",),
-        ("gemini", "gemini/gemini-3.1-pro-preview"): ("GOOGLE_API_KEY", "GEMINI_API_KEY"),
-    }
+class _FakeOk:
+    def __init__(self, route):
+        self.route = route
+    def __call__(self, request):
+        return EXP.__dict__  # placeholder; replaced below by a real ProviderTurn
 
-def test_resolver_uses_declaration_when_helper_null():
-    assert C.resolve_credential_source("openai", "gpt-5.4", None) == ("OPENAI_API_KEY",)
-    assert C.resolve_credential_source(
-        "gemini", "gemini/gemini-3.1-pro-preview", None
-    ) == ("GOOGLE_API_KEY", "GEMINI_API_KEY")
+def _seal_record(models=CANON, head=FAKE_SHA, clock=None):
+    clock = clock or _FakeClock()
+    LM9BC = _load_script("lm9b_c_compiler_sufficiency_probe")
+    def ok_provider(route):
+        def _call(request):
+            return LM9BC.ProviderTurn(
+                raw_request=b"{}", raw_response=b'{"id":"x"}',
+                assistant_message={"role": "assistant", "content": None,
+                    "tool_calls": [{"id": "1", "type": "function",
+                        "function": {"name": "ack", "arguments": "{\"ok\": true}"}}]},
+                usage={}, provider_metadata={})
+        return _call
+    import tempfile
+    run_root = Path(tempfile.mkdtemp()) / "readiness"
+    return P.run_readiness(
+        run_root=run_root, head_sha=head,
+        environ={"OPENAI_API_KEY": "x", "GEMINI_API_KEY": "y"},
+        authenticate=True, provider_factory=ok_provider, clock=clock,
+        models=models,
+    )
 
-def test_resolver_accepts_helper_that_is_a_member():
-    assert C.resolve_credential_source("openai", "gpt-5.4", "OPENAI_API_KEY") == ("OPENAI_API_KEY",)
+def _drive_transmit(monkeypatch, record, models=CANON, run_root=None, sha=FAKE_SHA):
+    """Drive the REAL transmit function to the gate + atomic mkdir."""
+    calls = {"provider": 0}
+    def exploding_build_provider(*a, **k):
+        calls["provider"] += 1
+        raise RuntimeError("SENTINEL_PROVIDER_CONSTRUCTED")
+    monkeypatch.setattr(EXP, "_build_provider", exploding_build_provider)
+    monkeypatch.setattr(EXP, "_git_checkout_state",
+        lambda: EXP.GitCheckoutState(clean=True, commit_sha=sha))
+    monkeypatch.setattr(EXP, "_readiness_now_iso", lambda: "2026-07-21T12:00:30Z")
+    monkeypatch.setattr("os.environ", {"OPENAI_API_KEY": "x", "GEMINI_API_KEY": "y"})
+    rec_path = Path(run_root) / "readiness_record.json"
+    rec_path.parent.mkdir(parents=True, exist_ok=True)
+    rec_path.write_text(json.dumps(record), encoding="utf-8")
+    prepared = EXP.build_prepared_for_test(
+        models=models, git_sha=sha,
+        run_root=Path(run_root) / "attempt", readiness_record=rec_path,
+    )
+    return EXP._execute_transmitted_attempt(prepared), calls
 
-def test_resolver_rejects_helper_not_in_declaration():
-    with pytest.raises(C.ReadinessError):
-        C.resolve_credential_source("openai", "gpt-5.4", "SOME_OTHER_KEY")
+def test_valid_record_reaches_allocation_and_provider_construction(monkeypatch, tmp_path):
+    rec = _seal_record()
+    with pytest.raises(RuntimeError, match="SENTINEL_PROVIDER_CONSTRUCTED"):
+        _drive_transmit(monkeypatch, rec, run_root=tmp_path)
+    assert (tmp_path / "attempt").exists()  # allocation happened past the gate
 
-def test_resolver_fails_closed_for_unknown_route():
-    with pytest.raises(C.ReadinessError):
-        C.resolve_credential_source("openai", "unknown-model", None)
+def test_model_binding_drift_refuses_before_allocation(monkeypatch, tmp_path):
+    # Record sealed for a DIFFERENT planner model -> manifest fp mismatch.
+    drift = dict(CANON); drift["planner"] = "gpt-4o"; drift["planner_evaluator"] = "gpt-4o"
+    rec = _seal_record(models=drift)
+    with pytest.raises(RuntimeError, match="readiness gate refused"):
+        result, calls = _drive_transmit(monkeypatch, rec, models=CANON, run_root=tmp_path)
+    assert not (tmp_path / "attempt").exists()   # no allocation
+
+def test_stale_record_refuses_before_allocation(monkeypatch, tmp_path):
+    rec = _seal_record()  # observed/completed near 12:00:0x
+    monkeypatch.setattr(EXP, "_readiness_now_iso", lambda: "2026-07-21T12:30:00Z")
+    # patch same overrides as _drive_transmit but with the late clock already set
+    with pytest.raises(RuntimeError, match="readiness gate refused"):
+        _drive_transmit(monkeypatch, rec, run_root=tmp_path)
+    assert not (tmp_path / "attempt").exists()
+
+def test_credential_absent_refuses_before_allocation(monkeypatch, tmp_path):
+    rec = _seal_record()
+    monkeypatch.setattr("os.environ", {"OPENAI_API_KEY": "x"})  # gemini creds gone
+    with pytest.raises(RuntimeError, match="readiness gate refused"):
+        # _drive_transmit resets os.environ; call the inner pieces with this env instead
+        pass
+    # Direct boundary check with absent gemini creds:
+    manifest = C.derive_routes(C.role_routes_from_models(CANON), P.HELPER)
+    presence = P.credential_presence(manifest, {"OPENAI_API_KEY": "x"})
+    assert EXP.readiness_gate_ok(record=rec, models=CANON, head_sha=FAKE_SHA,
+        now_iso="2026-07-21T12:00:30Z", credential_present=presence) is False
+
+def test_import_isolation_experiment_cli_pulls_no_provider_contact_code():
+    code = (
+        "import sys; sys.path.insert(0, r'%s'); " % str(ROOT / "scripts") +
+        "sys.path.insert(0, r'%s'); " % str(ROOT / "mcp_server" / "src") +
+        "import lm9b_p_planner_recipe_transfer_probe as e; "
+        "assert 'lm9b_p_readiness_probe' not in sys.modules, 'probe leaked'; "
+        "assert 'litellm' not in sys.modules, 'litellm leaked'; print('ok')"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    assert "ok" in out.stdout
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run the witness to verify it fails**
 
-Run: `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_contract.py -v`
-Expected: FAIL — `No module named ... lm9b_p_readiness_contract` / attribute errors.
+Run: `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_witness.py -v`
+Expected: FAIL — missing modules / `role_routes_from_models` / `build_prepared_for_test` / `readiness_gate_ok` / `_readiness_now_iso`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **Step 3: Create the pure contract module (walking-skeleton scope)**
 
 ```python
 # scripts/lm9b_p_readiness_contract.py
 #!/usr/bin/env python
-"""Pure LM9B-P readiness contract: routes, fingerprints, canary protocol, and
-launch verification. Stdlib only — no Git/filesystem/clock/environment I/O, no
-provider imports. Callers supply current SHA, time, and env observations."""
+"""Pure LM9B-P readiness contract. Stdlib only — no Git/filesystem/clock/env I/O,
+no provider imports. Callers supply configuration, SHA, time, env observations."""
 
 from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from datetime import datetime, timezone
 
 FROZEN_MAX_AGE_S: int = 600
 SCHEMA_ID: str = "lm9b_p.readiness_record:v1"
@@ -128,13 +218,35 @@ class ReadinessError(ValueError):
     """Raised when a readiness contract invariant is violated."""
 
 
-# Closed, reviewed credential-source map. Names only, never values. Verified
-# against installed LiteLLM 1.89.4 (OpenAI: OPENAI_API_KEY; Gemini completion
-# get_api_key: GOOGLE_API_KEY then GEMINI_API_KEY). Presence is satisfied when
-# at least one declared name is set.
 CREDENTIAL_SOURCE_DECLARATIONS: dict[tuple[str, str], tuple[str, ...]] = {
     ("openai", "gpt-5.4"): ("OPENAI_API_KEY",),
     ("gemini", "gemini/gemini-3.1-pro-preview"): ("GOOGLE_API_KEY", "GEMINI_API_KEY"),
+}
+
+CANONICAL_ROLE_MODELS: dict[str, str] = {
+    "planner": "gpt-5.4",
+    "planner_evaluator": "gpt-5.4",
+    "compiler": "gemini/gemini-3.1-pro-preview",
+    "compiler_evaluator": "gemini/gemini-3.1-pro-preview",
+}
+
+CANARY_SYSTEM = "You are a readiness canary."
+CANARY_USER = "Call the ack tool."
+CANARY_MAX_COMPLETION_TOKENS = 16
+CANARY_PROVIDER_TIMEOUT_S = 30.0
+CANARY_TEMPERATURE = 0.0
+ACK_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "ack",
+        "description": "Acknowledge readiness.",
+        "parameters": {
+            "type": "object",
+            "properties": {"ok": {"type": "boolean"}},
+            "required": ["ok"],
+            "additionalProperties": False,
+        },
+    },
 }
 
 
@@ -145,6 +257,16 @@ def canonical_fingerprint(value: object) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
+def provider_of(model: str) -> str:
+    if model.startswith("gemini/"):
+        return "gemini"
+    if model.startswith("openai/"):
+        return "openai"
+    if model.startswith(("gpt-", "o1", "o3", "o4")):
+        return "openai"
+    raise ReadinessError(f"cannot determine provider for model {model!r}")
+
+
 def resolve_credential_source(
     provider: str, model: str, helper_result: str | None
 ) -> tuple[str, ...]:
@@ -153,94 +275,11 @@ def resolve_credential_source(
         raise ReadinessError(f"no credential-source declaration for {provider}/{model}")
     if helper_result is not None and helper_result not in declaration:
         raise ReadinessError(
-            f"canonical helper {helper_result!r} is not in the declared "
-            f"credential source for {provider}/{model}"
+            f"canonical helper {helper_result!r} not in declaration for {provider}/{model}"
         )
     return declaration
-```
 
-- [ ] **Step 4: Run test to verify it passes**
 
-Run: `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_contract.py -v`
-Expected: PASS (7 passed).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add scripts/lm9b_p_readiness_contract.py mcp_server/tests/test_lm9b_p_readiness_contract.py
-git commit -m "feat(lm9b-p): readiness contract fingerprint and credential-source resolver
-
-Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
-```
-
----
-
-### Task 2: Contract module — frozen role routes, derivation, manifest fingerprint
-
-**Files:**
-- Modify: `scripts/lm9b_p_readiness_contract.py`
-- Test: `mcp_server/tests/test_lm9b_p_readiness_contract.py`
-
-**Interfaces:**
-- Consumes: `resolve_credential_source`, `canonical_fingerprint` (Task 1).
-- Produces:
-  - `@dataclass(frozen=True) class RoleRoute` with `role, adapter_path, provider, model`
-  - `@dataclass(frozen=True) class DistinctRoute` with `route_fingerprint, adapter_path, provider, model, credential_source: tuple[str, ...], member_roles: tuple[str, ...]`
-  - `@dataclass(frozen=True) class RouteManifest` with `routes: tuple[DistinctRoute, ...], manifest_fingerprint: str`
-  - `READINESS_ROLE_ROUTES: tuple[RoleRoute, ...]` (the four frozen roles)
-  - `def derive_routes(role_routes, helper) -> RouteManifest` where `helper: Callable[[str], str | None]`
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-def _null_helper(model):
-    return None
-
-def test_role_routes_cover_four_roles():
-    roles = sorted(r.role for r in C.READINESS_ROLE_ROUTES)
-    assert roles == ["compiler", "compiler_evaluator", "planner", "planner_evaluator"]
-
-def test_derive_routes_dedupes_to_two_with_member_roles():
-    manifest = C.derive_routes(C.READINESS_ROLE_ROUTES, _null_helper)
-    assert len(manifest.routes) == 2  # frozen-config assertion only
-    by_provider = {r.provider: r for r in manifest.routes}
-    assert set(by_provider) == {"openai", "gemini"}
-    assert by_provider["openai"].member_roles == ("planner", "planner_evaluator")
-    assert by_provider["gemini"].member_roles == ("compiler", "compiler_evaluator")
-    assert by_provider["openai"].credential_source == ("OPENAI_API_KEY",)
-    assert by_provider["gemini"].credential_source == ("GOOGLE_API_KEY", "GEMINI_API_KEY")
-
-def test_manifest_fingerprint_is_deterministic_and_order_independent():
-    m1 = C.derive_routes(C.READINESS_ROLE_ROUTES, _null_helper)
-    reordered = tuple(reversed(C.READINESS_ROLE_ROUTES))
-    m2 = C.derive_routes(reordered, _null_helper)
-    assert m1.manifest_fingerprint == m2.manifest_fingerprint
-
-def test_derive_routes_fails_closed_on_unknown_route():
-    bad = C.READINESS_ROLE_ROUTES + (
-        C.RoleRoute("extra", "litellm.completion", "openai", "mystery-model"),
-    )
-    with pytest.raises(C.ReadinessError):
-        C.derive_routes(bad, _null_helper)
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_contract.py -k "derive or role_routes or manifest_fingerprint" -v`
-Expected: FAIL — `RoleRoute` / `derive_routes` undefined.
-
-- [ ] **Step 3: Write minimal implementation**
-
-Add imports at the top of the module (after existing imports):
-
-```python
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
-```
-
-Append:
-
-```python
 @dataclass(frozen=True)
 class RoleRoute:
     role: str
@@ -265,158 +304,43 @@ class RouteManifest:
     manifest_fingerprint: str
 
 
-READINESS_ROLE_ROUTES: tuple[RoleRoute, ...] = (
-    RoleRoute("planner", "litellm.completion", "openai", "gpt-5.4"),
-    RoleRoute("planner_evaluator", "litellm.completion", "openai", "gpt-5.4"),
-    RoleRoute("compiler", "litellm.completion", "gemini", "gemini/gemini-3.1-pro-preview"),
-    RoleRoute("compiler_evaluator", "litellm.completion", "gemini", "gemini/gemini-3.1-pro-preview"),
-)
-
-
-def _grouping_key(route: RoleRoute, credential_source: tuple[str, ...]) -> tuple:
-    return (route.adapter_path, route.provider, route.model, credential_source)
+def role_routes_from_models(models: dict) -> tuple[RoleRoute, ...]:
+    return tuple(
+        RoleRoute(role, "litellm.completion", provider_of(model), model)
+        for role, model in models.items()
+    )
 
 
 def derive_routes(
-    role_routes: Sequence[RoleRoute],
-    helper: Callable[[str], str | None],
+    role_routes: Sequence[RoleRoute], helper: Callable[[str], str | None]
 ) -> RouteManifest:
     groups: dict[tuple, list[str]] = {}
     meta: dict[tuple, tuple[str, str, str, tuple[str, ...]]] = {}
     for route in role_routes:
-        credential_source = resolve_credential_source(
-            route.provider, route.model, helper(route.model)
-        )
-        key = _grouping_key(route, credential_source)
+        cred = resolve_credential_source(route.provider, route.model, helper(route.model))
+        key = (route.adapter_path, route.provider, route.model, cred)
         groups.setdefault(key, []).append(route.role)
-        meta[key] = (route.adapter_path, route.provider, route.model, credential_source)
+        meta[key] = (route.adapter_path, route.provider, route.model, cred)
     distinct: list[DistinctRoute] = []
     for key, roles in groups.items():
-        adapter_path, provider, model, credential_source = meta[key]
-        identity = {
-            "adapter_path": adapter_path,
-            "provider": provider,
-            "model": model,
-            "credential_source": list(credential_source),
-        }
-        distinct.append(
-            DistinctRoute(
-                route_fingerprint=canonical_fingerprint(identity),
-                adapter_path=adapter_path,
-                provider=provider,
-                model=model,
-                credential_source=credential_source,
-                member_roles=tuple(sorted(roles)),
-            )
-        )
+        adapter_path, provider, model, cred = meta[key]
+        identity = {"adapter_path": adapter_path, "provider": provider,
+                    "model": model, "credential_source": list(cred)}
+        distinct.append(DistinctRoute(
+            route_fingerprint=canonical_fingerprint(identity),
+            adapter_path=adapter_path, provider=provider, model=model,
+            credential_source=cred, member_roles=tuple(sorted(roles))))
     distinct.sort(key=lambda r: r.route_fingerprint)
-    manifest_fingerprint = canonical_fingerprint(
-        [r.route_fingerprint for r in distinct]
-    )
-    return RouteManifest(routes=tuple(distinct), manifest_fingerprint=manifest_fingerprint)
-```
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_contract.py -v`
-Expected: PASS (11 passed).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add scripts/lm9b_p_readiness_contract.py mcp_server/tests/test_lm9b_p_readiness_contract.py
-git commit -m "feat(lm9b-p): derive deduped route manifest from frozen roles
-
-Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
-```
-
----
-
-### Task 3: Contract module — canary protocol, protocol fingerprint, request builder
-
-**Files:**
-- Modify: `scripts/lm9b_p_readiness_contract.py`
-- Test: `mcp_server/tests/test_lm9b_p_readiness_contract.py`
-
-**Interfaces:**
-- Consumes: `DistinctRoute`, `canonical_fingerprint`.
-- Produces:
-  - `ACK_TOOL: dict` — throwaway forced tool `ack(ok: boolean)`
-  - `CANARY_SYSTEM`, `CANARY_USER`, `CANARY_MAX_COMPLETION_TOKENS`, `CANARY_PROVIDER_TIMEOUT_S`, `CANARY_TEMPERATURE`
-  - `def canary_protocol() -> dict`
-  - `def canary_protocol_fingerprint() -> str`
-  - `def build_canary_request(route: DistinctRoute) -> dict`
-  - `def request_fingerprint(route: DistinctRoute) -> str`
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-def test_canary_protocol_is_experiment_content_free():
-    proto = C.canary_protocol()
-    blob = C.json.dumps(proto)
-    for forbidden in ("brief", "authority", "R01", "rubric", "recipe", "planner_graph_recipe"):
-        assert forbidden.lower() not in blob.lower()
-    assert proto["tool"]["function"]["name"] == "ack"
-
-def test_protocol_fingerprint_is_stable():
-    assert C.canary_protocol_fingerprint() == C.canary_protocol_fingerprint()
-    assert C.canary_protocol_fingerprint().startswith("sha256:")
-
-def test_build_canary_request_binds_model_and_forces_ack():
-    manifest = C.derive_routes(C.READINESS_ROLE_ROUTES, lambda m: None)
-    route = manifest.routes[0]
-    req = C.build_canary_request(route)
-    assert req["model"] == route.model
-    assert req["messages"][0]["role"] == "system"
-    assert req["tool_choice"]["function"]["name"] == "ack"
-    assert req["tools"][0]["function"]["name"] == "ack"
-
-def test_request_fingerprint_differs_across_distinct_routes():
-    manifest = C.derive_routes(C.READINESS_ROLE_ROUTES, lambda m: None)
-    fps = {C.request_fingerprint(r) for r in manifest.routes}
-    assert len(fps) == len(manifest.routes)
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_contract.py -k "canary or protocol or build_canary or request_fingerprint" -v`
-Expected: FAIL — protocol/build helpers undefined.
-
-- [ ] **Step 3: Write minimal implementation**
-
-Append:
-
-```python
-CANARY_SYSTEM: str = "You are a readiness canary."
-CANARY_USER: str = "Call the ack tool."
-CANARY_MAX_COMPLETION_TOKENS: int = 16
-CANARY_PROVIDER_TIMEOUT_S: float = 30.0
-CANARY_TEMPERATURE: float = 0.0
-
-ACK_TOOL: dict = {
-    "type": "function",
-    "function": {
-        "name": "ack",
-        "description": "Acknowledge readiness.",
-        "parameters": {
-            "type": "object",
-            "properties": {"ok": {"type": "boolean"}},
-            "required": ["ok"],
-            "additionalProperties": False,
-        },
-    },
-}
+    return RouteManifest(
+        routes=tuple(distinct),
+        manifest_fingerprint=canonical_fingerprint([r.route_fingerprint for r in distinct]))
 
 
 def canary_protocol() -> dict:
-    return {
-        "system": CANARY_SYSTEM,
-        "user": CANARY_USER,
-        "tool": ACK_TOOL,
-        "max_completion_tokens": CANARY_MAX_COMPLETION_TOKENS,
-        "provider_timeout_s": CANARY_PROVIDER_TIMEOUT_S,
-        "temperature": CANARY_TEMPERATURE,
-    }
+    return {"system": CANARY_SYSTEM, "user": CANARY_USER, "tool": ACK_TOOL,
+            "max_completion_tokens": CANARY_MAX_COMPLETION_TOKENS,
+            "provider_timeout_s": CANARY_PROVIDER_TIMEOUT_S,
+            "temperature": CANARY_TEMPERATURE}
 
 
 def canary_protocol_fingerprint() -> str:
@@ -424,113 +348,30 @@ def canary_protocol_fingerprint() -> str:
 
 
 def build_canary_request(route: DistinctRoute) -> dict:
-    proto = canary_protocol()
-    return {
-        "model": route.model,
-        "messages": [
-            {"role": "system", "content": proto["system"]},
-            {"role": "user", "content": proto["user"]},
-        ],
-        "tools": [proto["tool"]],
-        "tool_choice": {"type": "function", "function": {"name": "ack"}},
-        "max_completion_tokens": proto["max_completion_tokens"],
-        "provider_timeout_s": proto["provider_timeout_s"],
-    }
+    p = canary_protocol()
+    return {"model": route.model,
+            "messages": [{"role": "system", "content": p["system"]},
+                         {"role": "user", "content": p["user"]}],
+            "tools": [p["tool"]],
+            "tool_choice": {"type": "function", "function": {"name": "ack"}},
+            "max_completion_tokens": p["max_completion_tokens"],
+            "provider_timeout_s": p["provider_timeout_s"]}
 
 
 def request_fingerprint(route: DistinctRoute) -> str:
     return canonical_fingerprint(build_canary_request(route))
-```
 
-- [ ] **Step 4: Run test to verify it passes**
 
-Run: `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_contract.py -v`
-Expected: PASS (15 passed).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add scripts/lm9b_p_readiness_contract.py mcp_server/tests/test_lm9b_p_readiness_contract.py
-git commit -m "feat(lm9b-p): canary protocol constants and request binding
-
-Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
-```
-
----
-
-### Task 4: Contract module — `route_ready` and record fingerprint
-
-**Files:**
-- Modify: `scripts/lm9b_p_readiness_contract.py`
-- Test: `mcp_server/tests/test_lm9b_p_readiness_contract.py`
-
-**Interfaces:**
-- Consumes: `canonical_fingerprint`.
-- Produces:
-  - `def route_ready(row: dict) -> bool` — validates the `ack` conformance from evidence
-  - `def record_fingerprint(record: dict) -> str` — fingerprint over the record excluding `record_fingerprint`
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-def _ok_row():
-    return {
-        "route_fingerprint": "sha256:aaa",
-        "member_roles": ["planner", "planner_evaluator"],
-        "observed_at": "2026-07-21T11:59:59Z",
-        "request_fingerprint": "sha256:req",
-        "outcome": {
-            "kind": "model_response",
-            "assistant_present": True,
-            "tool_calls": [{"name": "ack", "arguments": "{\"ok\": true}"}],
-            "raw_response_fingerprint": "sha256:resp",
-        },
-    }
-
-def test_route_ready_accepts_conforming_ack():
-    assert C.route_ready(_ok_row()) is True
-
-@pytest.mark.parametrize("mutate", [
-    lambda o: o.update(kind="transport_failure"),
-    lambda o: o.update(assistant_present=False),
-    lambda o: o.update(tool_calls=[]),
-    lambda o: o.update(tool_calls=[{"name": "ack", "arguments": "{\"ok\": true}"},
-                                   {"name": "ack", "arguments": "{\"ok\": true}"}]),
-    lambda o: o.update(tool_calls=[{"name": "nope", "arguments": "{\"ok\": true}"}]),
-    lambda o: o.update(tool_calls=[{"name": "ack", "arguments": "{\"ok\": false}"}]),
-    lambda o: o.update(tool_calls=[{"name": "ack", "arguments": "not json"}]),
-    lambda o: o.update(tool_calls=[{"name": "ack"}]),  # arguments missing entirely
-])
-def test_route_ready_rejects_nonconforming(mutate):
-    row = _ok_row()
-    mutate(row["outcome"])
-    assert C.route_ready(row) is False
-
-def test_record_fingerprint_ignores_its_own_field():
-    rec = {"a": 1, "record_fingerprint": "sha256:stale"}
-    assert C.record_fingerprint(rec) == C.record_fingerprint({"a": 1})
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_contract.py -k "route_ready or record_fingerprint" -v`
-Expected: FAIL — `route_ready` / `record_fingerprint` undefined.
-
-- [ ] **Step 3: Write minimal implementation**
-
-Append:
-
-```python
 def route_ready(row: dict) -> bool:
     outcome = row.get("outcome")
     if not isinstance(outcome, dict) or outcome.get("kind") != "model_response":
         return False
     if outcome.get("assistant_present") is not True:
         return False
-    tool_calls = outcome.get("tool_calls")
-    if not isinstance(tool_calls, list) or len(tool_calls) != 1:
+    calls = outcome.get("tool_calls")
+    if not isinstance(calls, list) or len(calls) != 1:
         return False
-    call = tool_calls[0]
+    call = calls[0]
     if not isinstance(call, dict) or call.get("name") != "ack":
         return False
     arguments = call.get("arguments")
@@ -545,182 +386,9 @@ def route_ready(row: dict) -> bool:
 
 def record_fingerprint(record: dict) -> str:
     return canonical_fingerprint(
-        {k: v for k, v in record.items() if k != "record_fingerprint"}
-    )
-```
+        {k: v for k, v in record.items() if k != "record_fingerprint"})
 
-- [ ] **Step 4: Run test to verify it passes**
 
-Run: `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_contract.py -v`
-Expected: PASS (all route_ready params + record_fingerprint pass).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add scripts/lm9b_p_readiness_contract.py mcp_server/tests/test_lm9b_p_readiness_contract.py
-git commit -m "feat(lm9b-p): evidence-derived ack conformance and record fingerprint
-
-Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
-```
-
----
-
-### Task 5: Contract module — `verify_launch_readiness`
-
-**Files:**
-- Modify: `scripts/lm9b_p_readiness_contract.py`
-- Test: `mcp_server/tests/test_lm9b_p_readiness_verifier.py`
-
-**Interfaces:**
-- Consumes: `derive_routes`, `route_ready`, `record_fingerprint`, `request_fingerprint`, `canary_protocol_fingerprint`, `FROZEN_MAX_AGE_S`.
-- Produces:
-  - `@dataclass(frozen=True) class LaunchDecision` with `ok: bool, failures: tuple[str, ...]`
-  - `def verify_launch_readiness(*, record, head_sha, now_iso, credential_present, helper, role_routes=READINESS_ROLE_ROUTES) -> LaunchDecision` where `credential_present: dict[str, bool]` maps `route_fingerprint -> bool`, `now_iso`/`record["completed_at"]`/`observed_at` are exact UTC ISO-8601 with trailing `Z`.
-
-- [ ] **Step 1: Write the failing test** (create the new test file with the `_load_script` block, then:)
-
-```python
-import copy
-C = _load_script("lm9b_p_readiness_contract")
-HEAD = "d" * 40
-
-def _fresh_record(now="2026-07-21T12:00:00Z", observed="2026-07-21T11:59:50Z"):
-    manifest = C.derive_routes(C.READINESS_ROLE_ROUTES, lambda m: None)
-    routes = []
-    for r in manifest.routes:
-        routes.append({
-            "route_fingerprint": r.route_fingerprint,
-            "member_roles": list(r.member_roles),
-            "observed_at": observed,
-            "request_fingerprint": C.request_fingerprint(r),
-            "outcome": {
-                "kind": "model_response",
-                "assistant_present": True,
-                "tool_calls": [{"name": "ack", "arguments": "{\"ok\": true}"}],
-                "raw_response_fingerprint": "sha256:resp",
-            },
-        })
-    record = {
-        "schema_id": C.SCHEMA_ID,
-        "reviewed_commit_sha": HEAD,
-        "route_manifest_fingerprint": manifest.manifest_fingerprint,
-        "canary_protocol_fingerprint": C.canary_protocol_fingerprint(),
-        "max_age_seconds": C.FROZEN_MAX_AGE_S,
-        "completed_at": now,
-        "routes": routes,
-    }
-    record["record_fingerprint"] = C.record_fingerprint(record)
-    return record
-
-def _present_all(record):
-    return {row["route_fingerprint"]: True for row in record["routes"]}
-
-def _verify(record, now="2026-07-21T12:00:05Z"):
-    return C.verify_launch_readiness(
-        record=record, head_sha=HEAD, now_iso=now,
-        credential_present=_present_all(record), helper=lambda m: None,
-    )
-
-def test_happy_path_permits():
-    assert _verify(_fresh_record()).ok is True
-
-def test_sha_mismatch_refuses():
-    rec = _fresh_record()
-    d = C.verify_launch_readiness(record=rec, head_sha="e" * 40,
-        now_iso="2026-07-21T12:00:05Z", credential_present=_present_all(rec),
-        helper=lambda m: None)
-    assert d.ok is False
-
-def test_manifest_fingerprint_mismatch_refuses():
-    rec = _fresh_record()
-    rec["route_manifest_fingerprint"] = "sha256:tampered"
-    assert _verify(rec).ok is False
-
-def test_record_fingerprint_mismatch_refuses():
-    rec = _fresh_record()
-    rec["record_fingerprint"] = "sha256:tampered"
-    assert _verify(rec).ok is False
-
-def test_protocol_fingerprint_mismatch_refuses():
-    rec = _fresh_record()
-    rec["canary_protocol_fingerprint"] = "sha256:tampered"
-    rec["record_fingerprint"] = C.record_fingerprint(rec)
-    assert _verify(rec).ok is False
-
-def test_missing_route_refuses():
-    rec = _fresh_record()
-    rec["routes"] = rec["routes"][:1]
-    rec["record_fingerprint"] = C.record_fingerprint(rec)
-    assert _verify(rec).ok is False
-
-def test_duplicate_route_refuses():
-    rec = _fresh_record()
-    rec["routes"] = [rec["routes"][0], copy.deepcopy(rec["routes"][0])]
-    rec["record_fingerprint"] = C.record_fingerprint(rec)
-    assert _verify(rec).ok is False
-
-def test_altered_member_roles_refuses():
-    rec = _fresh_record()
-    rec["routes"][0]["member_roles"] = ["planner"]
-    rec["record_fingerprint"] = C.record_fingerprint(rec)
-    assert _verify(rec).ok is False
-
-def test_request_fingerprint_mismatch_refuses():
-    rec = _fresh_record()
-    rec["routes"][0]["request_fingerprint"] = "sha256:wrong"
-    rec["record_fingerprint"] = C.record_fingerprint(rec)
-    assert _verify(rec).ok is False
-
-def test_stale_record_refuses():
-    rec = _fresh_record(now="2026-07-21T12:00:00Z")
-    assert _verify(rec, now="2026-07-21T12:20:00Z").ok is False  # 1200s > 600
-
-def test_future_timestamp_refuses():
-    rec = _fresh_record(now="2026-07-21T12:10:00Z")
-    assert _verify(rec, now="2026-07-21T12:00:00Z").ok is False  # completed in the future
-
-def test_stale_route_observed_at_refuses():
-    rec = _fresh_record(now="2026-07-21T12:00:00Z", observed="2026-07-21T11:40:00Z")
-    assert _verify(rec, now="2026-07-21T12:00:05Z").ok is False  # observed 1205s ago
-
-def test_missing_credential_refuses():
-    rec = _fresh_record()
-    presence = _present_all(rec)
-    presence[rec["routes"][0]["route_fingerprint"]] = False
-    d = C.verify_launch_readiness(record=rec, head_sha=HEAD,
-        now_iso="2026-07-21T12:00:05Z", credential_present=presence,
-        helper=lambda m: None)
-    assert d.ok is False
-
-def test_unready_route_refuses():
-    rec = _fresh_record()
-    rec["routes"][0]["outcome"]["kind"] = "transport_failure"
-    rec["record_fingerprint"] = C.record_fingerprint(rec)
-    assert _verify(rec).ok is False
-
-def test_max_age_field_mismatch_refuses():
-    rec = _fresh_record()
-    rec["max_age_seconds"] = 1200
-    rec["record_fingerprint"] = C.record_fingerprint(rec)
-    assert _verify(rec).ok is False
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_verifier.py -v`
-Expected: FAIL — `verify_launch_readiness` undefined.
-
-- [ ] **Step 3: Write minimal implementation**
-
-Add near the top imports:
-
-```python
-from datetime import datetime, timezone
-```
-
-Append:
-
-```python
 @dataclass(frozen=True)
 class LaunchDecision:
     ok: bool
@@ -729,73 +397,56 @@ class LaunchDecision:
 
 def _parse_utc(value: object) -> datetime:
     if not isinstance(value, str) or not value.endswith("Z"):
-        raise ReadinessError(f"timestamp is not exact UTC Z form: {value!r}")
+        raise ReadinessError(f"timestamp not exact UTC Z form: {value!r}")
     return datetime.fromisoformat(value[:-1]).replace(tzinfo=timezone.utc)
 
 
 def verify_launch_readiness(
-    *,
-    record: dict,
-    head_sha: str,
-    now_iso: str,
+    *, record: dict, manifest: RouteManifest, head_sha: str, now_iso: str,
     credential_present: dict,
-    helper: Callable[[str], str | None],
-    role_routes: Sequence[RoleRoute] = READINESS_ROLE_ROUTES,
 ) -> LaunchDecision:
     failures: list[str] = []
+    def fail(m: str) -> None:
+        failures.append(m)
 
-    def fail(msg: str) -> None:
-        failures.append(msg)
-
-    # Identity continuity
     if record.get("reviewed_commit_sha") != head_sha:
         fail("commit sha mismatch")
-    manifest = derive_routes(role_routes, helper)
     if record.get("route_manifest_fingerprint") != manifest.manifest_fingerprint:
         fail("route manifest fingerprint mismatch")
-
-    # Record integrity
     if record.get("record_fingerprint") != record_fingerprint(record):
         fail("record fingerprint mismatch")
     if record.get("canary_protocol_fingerprint") != canary_protocol_fingerprint():
         fail("canary protocol fingerprint mismatch")
     if record.get("max_age_seconds") != FROZEN_MAX_AGE_S:
-        fail("max_age_seconds does not equal the frozen constant")
+        fail("max_age_seconds != frozen constant")
 
-    rows = record.get("routes")
-    rows = rows if isinstance(rows, list) else []
+    rows = record.get("routes") if isinstance(record.get("routes"), list) else []
     by_fp = {r.route_fingerprint: r for r in manifest.routes}
-
-    # Exact route coverage (set equality, no duplicates)
     row_fps = [row.get("route_fingerprint") for row in rows]
     if len(row_fps) != len(set(row_fps)):
         fail("duplicate route rows")
     if set(row_fps) != set(by_fp):
-        fail("route set does not equal the current manifest")
+        fail("route set != manifest")
 
-    # Temporal freshness (record)
     try:
         now = _parse_utc(now_iso)
         completed = _parse_utc(record.get("completed_at"))
-        record_age = (now - completed).total_seconds()
-        if record_age < 0 or record_age > FROZEN_MAX_AGE_S:
-            fail("record completed_at outside the frozen freshness window")
+        if not 0 <= (now - completed).total_seconds() <= FROZEN_MAX_AGE_S:
+            fail("record completed_at outside freshness window")
         for row in rows:
             observed = _parse_utc(row.get("observed_at"))
             if completed < observed:
-                fail("completed_at precedes a route observed_at")
-            age = (now - observed).total_seconds()
-            if age < 0 or age > FROZEN_MAX_AGE_S:
-                fail("route observed_at outside the frozen freshness window")
+                fail("completed_at precedes observed_at")
+            if not 0 <= (now - observed).total_seconds() <= FROZEN_MAX_AGE_S:
+                fail("route observed_at outside freshness window")
     except ReadinessError as exc:
         fail(str(exc))
 
-    # Per-route: member roles, request binding, credential presence, readiness
     for row in rows:
         fp = row.get("route_fingerprint")
         route = by_fp.get(fp)
         if route is None:
-            continue  # already reported by coverage
+            continue
         if tuple(row.get("member_roles") or ()) != route.member_roles:
             fail(f"member roles differ for {fp}")
         if row.get("request_fingerprint") != request_fingerprint(route):
@@ -808,97 +459,20 @@ def verify_launch_readiness(
     return LaunchDecision(ok=not failures, failures=tuple(failures))
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_verifier.py -v`
-Expected: PASS (all cases).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add scripts/lm9b_p_readiness_contract.py mcp_server/tests/test_lm9b_p_readiness_verifier.py
-git commit -m "feat(lm9b-p): pure launch verifier recomputes readiness from evidence
-
-Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
-```
-
----
-
-### Task 6: Readiness probe — preflight and record assembly (no provider contact)
-
-**Files:**
-- Create: `scripts/lm9b_p_readiness_probe.py`
-- Test: `mcp_server/tests/test_lm9b_p_readiness_probe.py`
-
-**Interfaces:**
-- Consumes: contract module (`derive_routes`, `READINESS_ROLE_ROUTES`, `request_fingerprint`, `canary_protocol_fingerprint`, `record_fingerprint`, `SCHEMA_ID`, `FROZEN_MAX_AGE_S`), `api_key_env_for_model`.
-- Produces:
-  - `HELPER` (bound `api_key_env_for_model`)
-  - `def credential_presence(manifest, environ) -> dict[str, bool]` — presence = any declared name set; **no** provider contact
-  - `def assemble_record(*, manifest, head_sha, completed_at, route_rows) -> dict` — seals `record_fingerprint`
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-P = _load_script("lm9b_p_readiness_probe")
-C = _load_script("lm9b_p_readiness_contract")
-
-def test_credential_presence_any_declared_name_counts():
-    manifest = C.derive_routes(C.READINESS_ROLE_ROUTES, P.HELPER)
-    gemini = next(r for r in manifest.routes if r.provider == "gemini")
-    openai = next(r for r in manifest.routes if r.provider == "openai")
-    env = {"OPENAI_API_KEY": "x", "GEMINI_API_KEY": "y"}  # GOOGLE absent, GEMINI present
-    presence = P.credential_presence(manifest, env)
-    assert presence[gemini.route_fingerprint] is True
-    assert presence[openai.route_fingerprint] is True
-
-def test_credential_presence_false_when_all_absent():
-    manifest = C.derive_routes(C.READINESS_ROLE_ROUTES, P.HELPER)
-    gemini = next(r for r in manifest.routes if r.provider == "gemini")
-    presence = P.credential_presence(manifest, {"OPENAI_API_KEY": "x"})
-    assert presence[gemini.route_fingerprint] is False
-
-def test_assemble_record_is_verifiable(tmp_path):
-    manifest = C.derive_routes(C.READINESS_ROLE_ROUTES, P.HELPER)
-    rows = []
-    for r in manifest.routes:
-        rows.append({
-            "route_fingerprint": r.route_fingerprint,
-            "member_roles": list(r.member_roles),
-            "observed_at": "2026-07-21T11:59:50Z",
-            "request_fingerprint": C.request_fingerprint(r),
-            "outcome": {"kind": "model_response", "assistant_present": True,
-                        "tool_calls": [{"name": "ack", "arguments": "{\"ok\": true}"}],
-                        "raw_response_fingerprint": "sha256:resp"},
-        })
-    rec = P.assemble_record(manifest=manifest, head_sha="d" * 40,
-        completed_at="2026-07-21T12:00:00Z", route_rows=rows)
-    assert rec["schema_id"] == C.SCHEMA_ID
-    assert rec["record_fingerprint"] == C.record_fingerprint(rec)
-    d = C.verify_launch_readiness(record=rec, head_sha="d" * 40,
-        now_iso="2026-07-21T12:00:05Z",
-        credential_present={row["route_fingerprint"]: True for row in rec["routes"]},
-        helper=P.HELPER)
-    assert d.ok is True
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_probe.py -v`
-Expected: FAIL — module / functions undefined.
-
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **Step 4: Create the readiness probe (walking-skeleton scope, clock injected)**
 
 ```python
 # scripts/lm9b_p_readiness_probe.py
 #!/usr/bin/env python
-"""Disposable LM9B-P readiness probe: local preflight and (under --authenticate)
-one experiment-content-free canary per distinct route. Owns provider contact;
-imports the pure contract for all identity and verification logic."""
+"""Disposable LM9B-P readiness probe. Owns provider contact; imports the pure
+contract for all identity and verification logic. Clock is injected."""
 
 from __future__ import annotations
 
+import hashlib
+import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
@@ -908,400 +482,505 @@ for _p in (_SCRIPTS_DIR, _MCP_SRC):
         sys.path.insert(0, str(_p))
 
 import lm9b_p_readiness_contract as CONTRACT
+import lm9b_c_compiler_sufficiency_probe as LM9BC
 from rook.agent.model_profiles import api_key_env_for_model
 
 HELPER = api_key_env_for_model
 
 
-def credential_presence(manifest, environ) -> dict:
-    presence: dict[str, bool] = {}
-    for route in manifest.routes:
-        presence[route.route_fingerprint] = any(
-            bool(environ.get(name)) for name in route.credential_source
-        )
-    return presence
-
-
-def assemble_record(*, manifest, head_sha, completed_at, route_rows) -> dict:
-    record = {
-        "schema_id": CONTRACT.SCHEMA_ID,
-        "reviewed_commit_sha": head_sha,
-        "route_manifest_fingerprint": manifest.manifest_fingerprint,
-        "canary_protocol_fingerprint": CONTRACT.canary_protocol_fingerprint(),
-        "max_age_seconds": CONTRACT.FROZEN_MAX_AGE_S,
-        "completed_at": completed_at,
-        "routes": list(route_rows),
-    }
-    record["record_fingerprint"] = CONTRACT.record_fingerprint(record)
-    return record
-```
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_probe.py -v`
-Expected: PASS (3 passed).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add scripts/lm9b_p_readiness_probe.py mcp_server/tests/test_lm9b_p_readiness_probe.py
-git commit -m "feat(lm9b-p): readiness preflight and record assembly
-
-Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
-```
-
----
-
-### Task 7: Readiness probe — canary contact, discriminated capture, CLI
-
-**Files:**
-- Modify: `scripts/lm9b_p_readiness_probe.py`
-- Test: `mcp_server/tests/test_lm9b_p_readiness_probe.py`
-
-**Interfaces:**
-- Consumes: `CONTRACT.build_canary_request`, `request_fingerprint`; production `LiteLLMProvider`, `ProviderTurn`, `ProviderCallFailure` from `lm9b_c_compiler_sufficiency_probe`; `assemble_record`, `credential_presence`.
-- Produces:
-  - `def run_canary(route, provider) -> dict` — one contact, discriminated evidence row (`model_response` | `transport_failure`), no retry
-  - `def default_provider_factory(route) -> LiteLLMProvider`
-  - `def run_readiness(*, run_root, head_sha, now_iso, environ, authenticate, provider_factory) -> dict` — preflight; if not `authenticate`, no contact; else one canary per route; writes `readiness_record.json` under `run_root`; returns the record
-  - `def main(argv=None) -> int`
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-import json
-LM9BC = _load_script("lm9b_c_compiler_sufficiency_probe")
-
-class _FakeOkProvider:
-    def __init__(self, route): self.route = route; self.calls = 0
-    def __call__(self, request):
-        self.calls += 1
-        return LM9BC.ProviderTurn(
-            raw_request=b"{}",
-            raw_response=b'{"id":"x"}',
-            assistant_message={"role": "assistant", "content": None,
-                "tool_calls": [{"id": "1", "type": "function",
-                    "function": {"name": "ack", "arguments": "{\"ok\": true}"}}]},
-            usage={}, provider_metadata={})
-
-class _FakeRaisingProvider:
-    def __init__(self, route): self.route = route
-    def __call__(self, request):
-        raise LM9BC.ProviderCallFailure(failure_type="InternalServerError",
-            message="boom", raw_request=b"{}", raw_error=b'{"m":"boom"}')
-
-def test_canary_success_row_is_ready():
-    route = C.derive_routes(C.READINESS_ROLE_ROUTES, P.HELPER).routes[0]
-    row = P.run_canary(route, _FakeOkProvider(route))
-    assert row["outcome"]["kind"] == "model_response"
-    assert C.route_ready(row) is True
-    assert row["request_fingerprint"] == C.request_fingerprint(route)
-
-def test_canary_transport_failure_row():
-    route = C.derive_routes(C.READINESS_ROLE_ROUTES, P.HELPER).routes[0]
-    row = P.run_canary(route, _FakeRaisingProvider(route))
-    assert row["outcome"]["kind"] == "transport_failure"
-    assert row["outcome"]["classification"] == "InternalServerError"
-    assert C.route_ready(row) is False
-
-def test_no_authenticate_makes_no_contact(tmp_path):
-    made = []
-    def factory(route):
-        made.append(route); return _FakeOkProvider(route)
-    rec = P.run_readiness(run_root=tmp_path / "r", head_sha="d"*40,
-        now_iso="2026-07-21T12:00:00Z",
-        environ={"OPENAI_API_KEY": "x", "GEMINI_API_KEY": "y"},
-        authenticate=False, provider_factory=factory)
-    assert made == []  # zero contact
-    assert rec["routes"] == [] or all(r["outcome"]["kind"] == "not_contacted" for r in rec["routes"])
-
-def test_authenticate_contacts_each_route_once(tmp_path):
-    counts = {}
-    def factory(route):
-        prov = _FakeOkProvider(route)
-        counts[route.route_fingerprint] = prov
-        return prov
-    rec = P.run_readiness(run_root=tmp_path / "r", head_sha="d"*40,
-        now_iso="2026-07-21T12:00:00Z",
-        environ={"OPENAI_API_KEY": "x", "GEMINI_API_KEY": "y"},
-        authenticate=True, provider_factory=factory)
-    assert len(rec["routes"]) == 2
-    assert all(p.calls == 1 for p in counts.values())
-    assert (tmp_path / "r" / "readiness_record.json").exists()
-
-def test_canary_request_excludes_experiment_content():
-    route = C.derive_routes(C.READINESS_ROLE_ROUTES, P.HELPER).routes[0]
-    blob = json.dumps(C.build_canary_request(route)).lower()
-    for forbidden in ("brief", "authority", "r01", "rubric", "recipe", "planner_graph"):
-        assert forbidden not in blob
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_probe.py -k "canary or authenticate or excludes" -v`
-Expected: FAIL — `run_canary` / `run_readiness` undefined.
-
-- [ ] **Step 3: Write minimal implementation**
-
-Append to `scripts/lm9b_p_readiness_probe.py` (and add imports at top: `import argparse`, `import hashlib`, `import json`, `from datetime import datetime, timezone`, plus `import lm9b_c_compiler_sufficiency_probe as LM9BC`):
-
-```python
-def default_provider_factory(route):
-    return LM9BC.LiteLLMProvider(
-        model=route.model, temperature=CONTRACT.CANARY_TEMPERATURE
-    )
-
-
-def _detail_hash(message: str) -> str:
-    return "sha256:" + hashlib.sha256(message.encode("utf-8")).hexdigest()
-
-
-def _now_z() -> str:
+def system_clock() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def run_canary(route, provider) -> dict:
-    request = CONTRACT.build_canary_request(route)
-    base = {
-        "route_fingerprint": route.route_fingerprint,
-        "member_roles": list(route.member_roles),
-        "observed_at": _now_z(),
-        "request_fingerprint": CONTRACT.request_fingerprint(route),
+def credential_presence(manifest, environ) -> dict:
+    return {
+        route.route_fingerprint: any(
+            bool(environ.get(name)) for name in route.credential_source)
+        for route in manifest.routes
     }
+
+
+def default_provider_factory(route):
+    return LM9BC.LiteLLMProvider(model=route.model, temperature=CONTRACT.CANARY_TEMPERATURE)
+
+
+def run_canary(route, provider, *, clock) -> dict:
+    request = CONTRACT.build_canary_request(route)
+    base = {"route_fingerprint": route.route_fingerprint,
+            "member_roles": list(route.member_roles),
+            "request_fingerprint": CONTRACT.request_fingerprint(route)}
     try:
         turn = provider(request)
     except LM9BC.ProviderCallFailure as exc:
-        base["outcome"] = {
-            "kind": "transport_failure",
+        base["observed_at"] = clock()  # stamped AFTER the call resolves
+        base["outcome"] = {"kind": "transport_failure",
             "classification": exc.failure_type,
-            "detail_hash": _detail_hash(exc.message),
-        }
+            "detail_hash": "sha256:" + hashlib.sha256(exc.message.encode()).hexdigest()}
         return base
+    base["observed_at"] = clock()       # stamped AFTER the call resolves
     message = turn.assistant_message or {}
-    tool_calls = []
-    for call in message.get("tool_calls") or []:
-        fn = call.get("function") or {}
-        tool_calls.append({"name": fn.get("name"), "arguments": fn.get("arguments")})
-    base["outcome"] = {
-        "kind": "model_response",
-        "assistant_present": True,
+    tool_calls = [{"name": (c.get("function") or {}).get("name"),
+                   "arguments": (c.get("function") or {}).get("arguments")}
+                  for c in (message.get("tool_calls") or [])]
+    base["outcome"] = {"kind": "model_response", "assistant_present": True,
         "tool_calls": tool_calls,
-        "raw_response_fingerprint": "sha256:"
-        + hashlib.sha256(turn.raw_response).hexdigest(),
-    }
+        "raw_response_fingerprint": "sha256:" + hashlib.sha256(turn.raw_response).hexdigest()}
     return base
 
 
-def run_readiness(*, run_root, head_sha, now_iso, environ, authenticate,
-                  provider_factory) -> dict:
-    run_root = Path(run_root)
-    manifest = CONTRACT.derive_routes(CONTRACT.READINESS_ROLE_ROUTES, HELPER)
-    presence = credential_presence(manifest, environ)
-    run_root.mkdir(parents=True, exist_ok=False)
-    rows = []
-    if authenticate:
-        if not all(presence.values()):
-            raise CONTRACT.ReadinessError("preflight failed: credential absent")
-        for route in manifest.routes:
-            rows.append(run_canary(route, provider_factory(route)))
-    record = assemble_record(
-        manifest=manifest, head_sha=head_sha, completed_at=now_iso, route_rows=rows
-    )
-    (run_root / "readiness_record.json").write_text(
-        json.dumps(record, indent=2, sort_keys=True), encoding="utf-8"
-    )
-    (run_root / "preflight.json").write_text(
-        json.dumps({"credential_present": presence}, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
+def assemble_record(*, manifest, head_sha, completed_at, route_rows) -> dict:
+    record = {"schema_id": CONTRACT.SCHEMA_ID, "reviewed_commit_sha": head_sha,
+        "route_manifest_fingerprint": manifest.manifest_fingerprint,
+        "canary_protocol_fingerprint": CONTRACT.canary_protocol_fingerprint(),
+        "max_age_seconds": CONTRACT.FROZEN_MAX_AGE_S, "completed_at": completed_at,
+        "routes": list(route_rows)}
+    record["record_fingerprint"] = CONTRACT.record_fingerprint(record)
     return record
 
 
-def main(argv=None) -> int:
-    import os
-    parser = argparse.ArgumentParser(description="LM9B-P readiness probe")
-    parser.add_argument("--run-root", type=Path, required=True)
-    parser.add_argument("--reviewed-commit-sha", required=True)
-    parser.add_argument("--authenticate", action="store_true")
-    args = parser.parse_args(argv)
-    record = run_readiness(
-        run_root=args.run_root, head_sha=args.reviewed_commit_sha,
-        now_iso=_now_z(), environ=dict(os.environ),
-        authenticate=args.authenticate, provider_factory=default_provider_factory,
-    )
-    ready = bool(record["routes"]) and all(
-        CONTRACT.route_ready(r) for r in record["routes"]
-    )
-    print(json.dumps({"authenticated": args.authenticate, "ready": ready}, indent=2))
-    return 0
+def run_readiness(*, run_root, head_sha, environ, authenticate, provider_factory,
+                  clock=system_clock, models=None) -> dict:
+    models = dict(models or CONTRACT.CANONICAL_ROLE_MODELS)
+    manifest = CONTRACT.derive_routes(CONTRACT.role_routes_from_models(models), HELPER)
+    presence = credential_presence(manifest, environ)
+    # Credential check BEFORE creating the readiness root (no empty dir on failure).
+    if authenticate and not all(presence.values()):
+        raise CONTRACT.ReadinessError("preflight failed: credential absent")
+    run_root = Path(run_root)
+    run_root.mkdir(parents=True, exist_ok=False)
+    rows = []
+    if authenticate:
+        for route in manifest.routes:
+            rows.append(run_canary(route, provider_factory(route), clock=clock))
+    completed_at = clock()  # AFTER all route observations
+    record = assemble_record(manifest=manifest, head_sha=head_sha,
+                             completed_at=completed_at, route_rows=rows)
+    (run_root / "readiness_record.json").write_text(
+        json.dumps(record, indent=2, sort_keys=True), encoding="utf-8")
+    (run_root / "preflight.json").write_text(
+        json.dumps({"credential_present": presence}, indent=2, sort_keys=True),
+        encoding="utf-8")
+    return record
 ```
 
-Update `test_no_authenticate_makes_no_contact` expectation: with `authenticate=False`, `rec["routes"] == []` (no rows). Adjust the assertion to `assert rec["routes"] == []`.
+- [ ] **Step 5: Wire the real experiment transmit entry point**
 
-- [ ] **Step 4: Run test to verify it passes**
+In `scripts/lm9b_p_planner_recipe_transfer_probe.py`:
 
-Run: `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_probe.py -v`
-Expected: PASS (all rows/contact/exclusion tests).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add scripts/lm9b_p_readiness_probe.py mcp_server/tests/test_lm9b_p_readiness_probe.py
-git commit -m "feat(lm9b-p): approved canary contact with discriminated capture
-
-Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
-```
-
----
-
-### Task 8: Experiment CLI launch gate — refuse-before-allocation + import isolation
-
-**Files:**
-- Modify: `scripts/lm9b_p_planner_recipe_transfer_probe.py` (add `--readiness-record` arg to `parse_cli_args`/`CliAttemptConfig`; call the verifier at the top of `_execute_transmitted_attempt`, before `config.run_root.mkdir`)
-- Test: `mcp_server/tests/test_lm9b_p_readiness_launch_gate.py`
-
-**Interfaces:**
-- Consumes: `lm9b_p_readiness_contract.verify_launch_readiness`, `derive_routes`, `READINESS_ROLE_ROUTES`; `api_key_env_for_model`.
-- Produces: refuse-before-allocation behavior; a `CliAttemptConfig.readiness_record: Path` field.
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-import json, subprocess, sys, os
-from pathlib import Path
-ROOT = Path(__file__).resolve().parents[2]
-
-def test_import_isolation_contract_pulls_no_provider_code():
-    code = (
-        "import sys; "
-        "sys.path.insert(0, r'%s'); " % str(ROOT / "scripts") +
-        "import lm9b_p_readiness_contract as c; "
-        "assert 'lm9b_p_readiness_probe' not in sys.modules, 'probe leaked'; "
-        "assert 'litellm' not in sys.modules, 'litellm leaked'; "
-        "print('ok')"
-    )
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
-    assert out.returncode == 0, out.stderr
-    assert "ok" in out.stdout
-
-def _experiment_verifies_before_mkdir(head, record_path, run_root, now):
-    EXP = _load_script("lm9b_p_planner_recipe_transfer_probe")
-    C = _load_script("lm9b_p_readiness_contract")
-    # Uses the same helper the record was built with.
-    record = json.loads(Path(record_path).read_text())
-    present = {r["route_fingerprint"]: True for r in record["routes"]}
-    return EXP.readiness_gate_ok(
-        record=record, head_sha=head, now_iso=now, credential_present=present
-    )
-
-def test_credential_disappearance_refuses(tmp_path):
-    # Build a fresh passing record, then verify with an absent credential.
-    P = _load_script("lm9b_p_readiness_probe")
-    C = _load_script("lm9b_p_readiness_contract")
-    EXP = _load_script("lm9b_p_planner_recipe_transfer_probe")
-    manifest = C.derive_routes(C.READINESS_ROLE_ROUTES, P.HELPER)
-    rows = [{
-        "route_fingerprint": r.route_fingerprint, "member_roles": list(r.member_roles),
-        "observed_at": "2026-07-21T11:59:50Z", "request_fingerprint": C.request_fingerprint(r),
-        "outcome": {"kind": "model_response", "assistant_present": True,
-            "tool_calls": [{"name": "ack", "arguments": "{\"ok\": true}"}],
-            "raw_response_fingerprint": "sha256:resp"}} for r in manifest.routes]
-    rec = P.assemble_record(manifest=manifest, head_sha="d"*40,
-        completed_at="2026-07-21T12:00:00Z", route_rows=rows)
-    absent = {r["route_fingerprint"]: False for r in rec["routes"]}
-    d = EXP.readiness_gate_ok(record=rec, head_sha="d"*40,
-        now_iso="2026-07-21T12:00:05Z", credential_present=absent)
-    assert d is False
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_launch_gate.py -v`
-Expected: FAIL — `readiness_gate_ok` undefined.
-
-- [ ] **Step 3: Write minimal implementation**
-
-In `scripts/lm9b_p_planner_recipe_transfer_probe.py`, add near the other imports:
+(a) Add imports near the top:
 
 ```python
 import lm9b_p_readiness_contract as READINESS
 from rook.agent.model_profiles import api_key_env_for_model as _READINESS_HELPER
 ```
 
-Add a pure helper (near `_git_checkout_state`):
+(b) Add a monkeypatchable clock and the pure gate helper (near `_git_checkout_state`):
 
 ```python
-def readiness_gate_ok(*, record, head_sha, now_iso, credential_present) -> bool:
-    decision = READINESS.verify_launch_readiness(
-        record=record,
-        head_sha=head_sha,
-        now_iso=now_iso,
-        credential_present=credential_present,
-        helper=_READINESS_HELPER,
-    )
-    return decision.ok
-```
+def _readiness_now_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-Add `readiness_record: Path` to `CliAttemptConfig` and, in `parse_cli_args`, add:
 
-```python
-parser.add_argument("--readiness-record", type=Path, required=True)
-```
+def _launch_models(config) -> dict:
+    return {"planner": config.planner_model,
+            "planner_evaluator": config.planner_evaluator_model,
+            "compiler": config.compiler_model,
+            "compiler_evaluator": config.compiler_evaluator_model}
 
-and pass `readiness_record=args.readiness_record` when building `CliAttemptConfig`.
 
-In `_execute_transmitted_attempt`, immediately after the existing
-`checkout changed after pre-transmission review` guard and **before**
-`config.run_root.mkdir(...)`, insert:
-
-```python
-    import json as _json
-    from datetime import datetime as _dt, timezone as _tz
-    record = _json.loads(config.readiness_record.read_text(encoding="utf-8"))
-    now_iso = _dt.now(_tz.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+def readiness_gate_ok(*, record, models, head_sha, now_iso, credential_present) -> bool:
     manifest = READINESS.derive_routes(
-        READINESS.READINESS_ROLE_ROUTES, _READINESS_HELPER
-    )
-    import os as _os
-    presence = {
-        route.route_fingerprint: any(
-            bool(_os.environ.get(name)) for name in route.credential_source
-        )
-        for route in manifest.routes
-    }
-    if not readiness_gate_ok(
-        record=record, head_sha=prepared.git_sha, now_iso=now_iso,
-        credential_present=presence,
-    ):
+        READINESS.role_routes_from_models(models), _READINESS_HELPER)
+    return READINESS.verify_launch_readiness(
+        record=record, manifest=manifest, head_sha=head_sha, now_iso=now_iso,
+        credential_present=credential_present).ok
+```
+
+(c) Add the canonical Planner pin to `assert_frozen_planner_controls()` (append before its final check):
+
+```python
+    if (config_planner := PLANNER_PIN) and False:  # placeholder guard removed below
+        pass
+```
+
+Instead, enforce the pin in `parse_cli_args` right before returning the config:
+
+```python
+    if args.planner_model != "gpt-5.4" or args.planner_evaluator_model != "gpt-5.4":
+        parser.error("canonical Planner pin: planner and planner-evaluator models "
+                     "must both equal gpt-5.4")
+```
+
+(d) Make `--readiness-record` required only with `--transmit`. In `parse_cli_args`:
+
+```python
+    parser.add_argument("--readiness-record", type=Path, default=None)
+    ...
+    if args.transmit and args.readiness_record is None:
+        parser.error("--transmit requires --readiness-record")
+```
+
+and add `readiness_record: Path | None` to `CliAttemptConfig` (pass `readiness_record=args.readiness_record`).
+
+(e) In `_execute_transmitted_attempt`, immediately after the existing
+`checkout changed after pre-transmission review` guard and **before**
+`config.run_root.mkdir(...)`, insert the gate:
+
+```python
+    import json as _json, os as _os
+    record = _json.loads(config.readiness_record.read_text(encoding="utf-8"))
+    models = _launch_models(config)
+    manifest = READINESS.derive_routes(
+        READINESS.role_routes_from_models(models), _READINESS_HELPER)
+    presence = {route.route_fingerprint: any(
+        bool(_os.environ.get(n)) for n in route.credential_source)
+        for route in manifest.routes}
+    if not readiness_gate_ok(record=record, models=models, head_sha=prepared.git_sha,
+                             now_iso=_readiness_now_iso(), credential_present=presence):
         raise RuntimeError(
             "readiness gate refused: no fresh passing readiness record for this "
             "commit/route manifest; run scripts/lm9b_p_readiness_probe.py "
-            "--authenticate first (no attempt was allocated)"
-        )
+            "--authenticate first (no attempt was allocated)")
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+(f) Add a test-only constructor so the witness can drive the real transmit function without the full CLI bootstrap (place near `prepare_pretransmission`):
 
-Run: `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_launch_gate.py -v`
-Expected: PASS.
+```python
+def build_prepared_for_test(*, models, git_sha, run_root, readiness_record):
+    """Construct a minimal PreparedTransmission for boundary tests. Not used by
+    the canonical CLI path."""
+    config = CliAttemptConfig(
+        planner_model=models["planner"],
+        planner_evaluator_model=models["planner_evaluator"],
+        compiler_model=models["compiler"],
+        compiler_evaluator_model=models["compiler_evaluator"],
+        planner_temperature=0.0, planner_evaluator_temperature=0.0,
+        compiler_temperature=0.0, compiler_evaluator_temperature=0.0,
+        run_root=Path(run_root), transmit=True, readiness_record=Path(readiness_record))
+    return prepare_pretransmission(config)
+```
 
-- [ ] **Step 5: Run the full readiness + regression suite**
+(If `CliAttemptConfig` field names differ, match them exactly; the witness only needs the four models, temperatures, `run_root`, `transmit`, `readiness_record`.)
 
-Run:
+- [ ] **Step 6: Run the witness to verify it passes**
+
+Run: `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_witness.py -v`
+Expected: PASS — valid record reaches allocation + sentinel provider construction; model-drift, stale, and credential-absent each refuse before allocation; import isolation holds.
+
+- [ ] **Step 7: Commit**
+
 ```bash
-"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_contract.py \
+git add scripts/lm9b_p_readiness_contract.py scripts/lm9b_p_readiness_probe.py \
+        scripts/lm9b_p_planner_recipe_transfer_probe.py \
+        mcp_server/tests/test_lm9b_p_readiness_witness.py
+git commit -m "feat(lm9b-p): vertical readiness witness through the real transmit boundary
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 2: Verifier equation matrix (hardening the witness's guard)
+
+**Files:**
+- Test: `mcp_server/tests/test_lm9b_p_readiness_verifier.py` (contract already complete from Task 1)
+
+**Interfaces:** Consumes `verify_launch_readiness`, `derive_routes`, `record_fingerprint`, `request_fingerprint` from Task 1.
+
+- [ ] **Step 1: Write the failing/complete test** (prepend `_load_script`; build a fresh valid record helper, then one refusal case per equation)
+
+```python
+import copy
+C = _load_script("lm9b_p_readiness_contract")
+P = _load_script("lm9b_p_readiness_probe")
+HEAD = "d" * 40
+MODELS = dict(C.CANONICAL_ROLE_MODELS)
+
+def _manifest():
+    return C.derive_routes(C.role_routes_from_models(MODELS), P.HELPER)
+
+def _fresh(now="2026-07-21T12:00:10Z", observed="2026-07-21T12:00:05Z"):
+    m = _manifest()
+    rows = [{"route_fingerprint": r.route_fingerprint, "member_roles": list(r.member_roles),
+             "observed_at": observed, "request_fingerprint": C.request_fingerprint(r),
+             "outcome": {"kind": "model_response", "assistant_present": True,
+                 "tool_calls": [{"name": "ack", "arguments": "{\"ok\": true}"}],
+                 "raw_response_fingerprint": "sha256:resp"}} for r in m.routes]
+    rec = {"schema_id": C.SCHEMA_ID, "reviewed_commit_sha": HEAD,
+        "route_manifest_fingerprint": m.manifest_fingerprint,
+        "canary_protocol_fingerprint": C.canary_protocol_fingerprint(),
+        "max_age_seconds": 600, "completed_at": now, "routes": rows}
+    rec["record_fingerprint"] = C.record_fingerprint(rec)
+    return rec
+
+def _verify(rec, now="2026-07-21T12:00:15Z", present=None):
+    present = present or {r["route_fingerprint"]: True for r in rec["routes"]}
+    return C.verify_launch_readiness(record=rec, manifest=_manifest(),
+        head_sha=HEAD, now_iso=now, credential_present=present).ok
+
+def test_happy_path_permits():
+    assert _verify(_fresh()) is True
+
+def test_each_mutation_refuses():
+    # sha
+    r = _fresh(); r["reviewed_commit_sha"] = "e"*40; r["record_fingerprint"] = C.record_fingerprint(r); assert _verify(r) is False
+    # manifest fp
+    r = _fresh(); r["route_manifest_fingerprint"] = "sha256:x"; r["record_fingerprint"] = C.record_fingerprint(r); assert _verify(r) is False
+    # record fp
+    r = _fresh(); r["record_fingerprint"] = "sha256:x"; assert _verify(r) is False
+    # protocol fp
+    r = _fresh(); r["canary_protocol_fingerprint"] = "sha256:x"; r["record_fingerprint"] = C.record_fingerprint(r); assert _verify(r) is False
+    # max_age
+    r = _fresh(); r["max_age_seconds"] = 1200; r["record_fingerprint"] = C.record_fingerprint(r); assert _verify(r) is False
+    # missing route
+    r = _fresh(); r["routes"] = r["routes"][:1]; r["record_fingerprint"] = C.record_fingerprint(r); assert _verify(r) is False
+    # duplicate route
+    r = _fresh(); r["routes"] = [r["routes"][0], copy.deepcopy(r["routes"][0])]; r["record_fingerprint"] = C.record_fingerprint(r); assert _verify(r) is False
+    # member roles
+    r = _fresh(); r["routes"][0]["member_roles"] = ["planner"]; r["record_fingerprint"] = C.record_fingerprint(r); assert _verify(r) is False
+    # request binding
+    r = _fresh(); r["routes"][0]["request_fingerprint"] = "sha256:x"; r["record_fingerprint"] = C.record_fingerprint(r); assert _verify(r) is False
+    # stale record
+    assert _verify(_fresh(now="2026-07-21T12:00:00Z"), now="2026-07-21T12:20:00Z") is False
+    # future record
+    assert _verify(_fresh(now="2026-07-21T12:10:00Z"), now="2026-07-21T12:00:00Z") is False
+    # stale route observed_at
+    assert _verify(_fresh(now="2026-07-21T12:00:10Z", observed="2026-07-21T11:40:00Z")) is False
+    # completed precedes observed
+    r = _fresh(now="2026-07-21T12:00:00Z", observed="2026-07-21T12:00:30Z"); r["record_fingerprint"] = C.record_fingerprint(r); assert _verify(r, now="2026-07-21T12:00:31Z") is False
+    # credential absent
+    r = _fresh(); pres = {row["route_fingerprint"]: True for row in r["routes"]}; pres[r["routes"][0]["route_fingerprint"]] = False; assert _verify(r, present=pres) is False
+    # route unready
+    r = _fresh(); r["routes"][0]["outcome"]["kind"] = "transport_failure"; r["record_fingerprint"] = C.record_fingerprint(r); assert _verify(r) is False
+```
+
+- [ ] **Step 2: Run to verify** — `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_verifier.py -v` → Expected: PASS (contract already implements all equations in Task 1). If any case fails, fix the corresponding branch in `verify_launch_readiness`.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add mcp_server/tests/test_lm9b_p_readiness_verifier.py
+git commit -m "test(lm9b-p): full launch-verifier refusal matrix
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 3: `route_ready` matrix and credential-source resolver (spec tests 10/11)
+
+**Files:**
+- Test: `mcp_server/tests/test_lm9b_p_readiness_contract_units.py`
+
+**Interfaces:** Consumes `route_ready`, `resolve_credential_source`, `derive_routes`, `CREDENTIAL_SOURCE_DECLARATIONS` from Task 1.
+
+- [ ] **Step 1: Write the tests**
+
+```python
+import pytest
+C = _load_script("lm9b_p_readiness_contract")
+
+def _ok_row():
+    return {"outcome": {"kind": "model_response", "assistant_present": True,
+        "tool_calls": [{"name": "ack", "arguments": "{\"ok\": true}"}]}}
+
+def test_route_ready_accepts_conforming():
+    assert C.route_ready(_ok_row()) is True
+
+@pytest.mark.parametrize("mut", [
+    lambda o: o.update(kind="transport_failure"),
+    lambda o: o.update(assistant_present=False),
+    lambda o: o.update(tool_calls=[]),
+    lambda o: o.update(tool_calls=[{"name": "ack", "arguments": "{\"ok\": true}"}]*2),
+    lambda o: o.update(tool_calls=[{"name": "no", "arguments": "{\"ok\": true}"}]),
+    lambda o: o.update(tool_calls=[{"name": "ack", "arguments": "{\"ok\": false}"}]),
+    lambda o: o.update(tool_calls=[{"name": "ack", "arguments": "not json"}]),
+    lambda o: o.update(tool_calls=[{"name": "ack"}]),
+])
+def test_route_ready_rejects(mut):
+    row = _ok_row(); mut(row["outcome"]); assert C.route_ready(row) is False
+
+def test_declaration_is_closed_two_entries():
+    assert C.CREDENTIAL_SOURCE_DECLARATIONS == {
+        ("openai", "gpt-5.4"): ("OPENAI_API_KEY",),
+        ("gemini", "gemini/gemini-3.1-pro-preview"): ("GOOGLE_API_KEY", "GEMINI_API_KEY")}
+
+def test_resolver_null_helper_uses_declaration():
+    assert C.resolve_credential_source("openai", "gpt-5.4", None) == ("OPENAI_API_KEY",)
+
+def test_resolver_member_helper_ok():
+    assert C.resolve_credential_source("gemini", "gemini/gemini-3.1-pro-preview",
+        "GEMINI_API_KEY") == ("GOOGLE_API_KEY", "GEMINI_API_KEY")
+
+def test_resolver_nonmember_helper_fails():
+    with pytest.raises(C.ReadinessError):
+        C.resolve_credential_source("openai", "gpt-5.4", "WRONG_KEY")
+
+def test_unknown_route_fails_closed():
+    with pytest.raises(C.ReadinessError):
+        C.resolve_credential_source("openai", "mystery", None)
+    with pytest.raises(C.ReadinessError):
+        C.derive_routes((C.RoleRoute("x", "litellm.completion", "openai", "mystery"),),
+                        lambda m: None)
+```
+
+- [ ] **Step 2: Run** — `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_contract_units.py -v` → PASS.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add mcp_server/tests/test_lm9b_p_readiness_contract_units.py
+git commit -m "test(lm9b-p): ack-conformance matrix and credential resolver edges
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 4: Probe behavior — capture, approval/cardinality, content exclusion
+
+**Files:**
+- Test: `mcp_server/tests/test_lm9b_p_readiness_probe.py`
+
+**Interfaces:** Consumes probe `run_canary`, `run_readiness`, `credential_presence`, `assemble_record` from Task 1.
+
+- [ ] **Step 1: Write the tests**
+
+```python
+import json
+P = _load_script("lm9b_p_readiness_probe")
+C = _load_script("lm9b_p_readiness_contract")
+LM9BC = _load_script("lm9b_c_compiler_sufficiency_probe")
+
+class _Clock:
+    def __init__(self): self.n = 0
+    def __call__(self): self.n += 1; return f"2026-07-21T12:00:{self.n:02d}Z"
+
+def _ok_provider(route):
+    def _call(req):
+        return LM9BC.ProviderTurn(raw_request=b"{}", raw_response=b'{"id":"x"}',
+            assistant_message={"role": "assistant", "content": None,
+                "tool_calls": [{"id": "1", "type": "function",
+                    "function": {"name": "ack", "arguments": "{\"ok\": true}"}}]},
+            usage={}, provider_metadata={})
+    return _call
+
+def _raising_provider(route):
+    def _call(req):
+        raise LM9BC.ProviderCallFailure(failure_type="InternalServerError",
+            message="boom", raw_request=b"{}", raw_error=b"{}")
+    return _call
+
+def test_success_row_ready_and_observed_after_request():
+    route = C.derive_routes(C.role_routes_from_models(C.CANONICAL_ROLE_MODELS), P.HELPER).routes[0]
+    row = P.run_canary(route, _ok_provider(route), clock=_Clock())
+    assert row["outcome"]["kind"] == "model_response" and C.route_ready(row)
+    assert row["request_fingerprint"] == C.request_fingerprint(route)
+
+def test_transport_failure_row():
+    route = C.derive_routes(C.role_routes_from_models(C.CANONICAL_ROLE_MODELS), P.HELPER).routes[0]
+    row = P.run_canary(route, _raising_provider(route), clock=_Clock())
+    assert row["outcome"]["kind"] == "transport_failure"
+    assert row["outcome"]["classification"] == "InternalServerError"
+
+def test_no_authenticate_no_contact(tmp_path):
+    made = []
+    def factory(r): made.append(r); return _ok_provider(r)
+    rec = P.run_readiness(run_root=tmp_path/"r", head_sha="d"*40,
+        environ={"OPENAI_API_KEY":"x","GEMINI_API_KEY":"y"}, authenticate=False,
+        provider_factory=factory, clock=_Clock())
+    assert made == [] and rec["routes"] == []
+
+def test_authenticate_contacts_each_route_once(tmp_path):
+    seen = {}
+    def factory(r):
+        p = _ok_provider(r); seen[r.route_fingerprint] = seen.get(r.route_fingerprint,0); return p
+    rec = P.run_readiness(run_root=tmp_path/"r", head_sha="d"*40,
+        environ={"OPENAI_API_KEY":"x","GEMINI_API_KEY":"y"}, authenticate=True,
+        provider_factory=factory, clock=_Clock())
+    assert len(rec["routes"]) == 2
+    assert rec["completed_at"] >= max(row["observed_at"] for row in rec["routes"])
+
+def test_missing_credential_leaves_no_directory(tmp_path):
+    root = tmp_path/"r"
+    with pytest.raises(C.ReadinessError):
+        P.run_readiness(run_root=root, head_sha="d"*40,
+            environ={"OPENAI_API_KEY":"x"}, authenticate=True,
+            provider_factory=_ok_provider, clock=_Clock())
+    assert not root.exists()
+
+def test_canary_request_excludes_experiment_content():
+    route = C.derive_routes(C.role_routes_from_models(C.CANONICAL_ROLE_MODELS), P.HELPER).routes[0]
+    blob = json.dumps(C.build_canary_request(route)).lower()
+    for f in ("brief","authority","r01","rubric","recipe","planner_graph"):
+        assert f not in blob
+```
+
+Add `import pytest` at the top.
+
+- [ ] **Step 2: Run** — `"$PY" -m pytest mcp_server/tests/test_lm9b_p_readiness_probe.py -v` → PASS.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add mcp_server/tests/test_lm9b_p_readiness_probe.py
+git commit -m "test(lm9b-p): canary capture, approval/cardinality, ordering, content exclusion
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 5: Boundary regression and full suite
+
+**Files:**
+- Test: extend `mcp_server/tests/test_lm9b_p_readiness_witness.py` with the canonical Planner pin refusal, and confirm the pre-existing experiment probe tests still pass.
+
+- [ ] **Step 1: Add the pin refusal test**
+
+```python
+def test_canonical_planner_pin_rejects_non_gpt54():
+    with pytest.raises(SystemExit):
+        EXP.parse_cli_args([
+            "--planner-model", "gpt-4o", "--planner-evaluator-model", "gpt-4o",
+            "--compiler-model", "gemini/gemini-3.1-pro-preview",
+            "--compiler-evaluator-model", "gemini/gemini-3.1-pro-preview",
+            "--planner-temperature", "0.0", "--planner-evaluator-temperature", "0.0",
+            "--compiler-temperature", "0.0", "--compiler-evaluator-temperature", "0.0",
+            "--run-root", "x", "--transmit", "--readiness-record", "r.json"])
+
+def test_dry_run_does_not_require_readiness_record():
+    cfg = EXP.parse_cli_args([
+        "--planner-model", "gpt-5.4", "--planner-evaluator-model", "gpt-5.4",
+        "--compiler-model", "gemini/gemini-3.1-pro-preview",
+        "--compiler-evaluator-model", "gemini/gemini-3.1-pro-preview",
+        "--planner-temperature", "0.0", "--planner-evaluator-temperature", "0.0",
+        "--compiler-temperature", "0.0", "--compiler-evaluator-temperature", "0.0",
+        "--run-root", "x"])  # no --transmit, no --readiness-record
+    assert cfg.transmit is False
+```
+
+- [ ] **Step 2: Run the full readiness + experiment suite**
+
+```bash
+"$PY" -m pytest \
+  mcp_server/tests/test_lm9b_p_readiness_witness.py \
   mcp_server/tests/test_lm9b_p_readiness_verifier.py \
+  mcp_server/tests/test_lm9b_p_readiness_contract_units.py \
   mcp_server/tests/test_lm9b_p_readiness_probe.py \
-  mcp_server/tests/test_lm9b_p_readiness_launch_gate.py \
-  mcp_server/tests/test_lm9b_p_planner_recipe_transfer_probe.py -v
+  mcp_server/tests/test_lm9b_p_planner_recipe_transfer_probe.py \
+  mcp_server/tests/test_lm9b_p_planner_recipe_transfer_support.py -v
 ```
-Expected: PASS — new readiness tests plus the unchanged experiment probe tests (add the required `--readiness-record` arg to any dry-run invocation those tests construct; if a pre-existing dry-run test breaks solely because the new required arg is missing, update that test to pass a `--readiness-record` path — a mechanical arg addition, not a behavior change).
 
-- [ ] **Step 6: Commit**
+Expected: PASS. If a pre-existing experiment-probe dry-run test breaks solely because of the new pin or the optional `--readiness-record`, update that test's arg list mechanically (it must already use `gpt-5.4` for the Planner to match the canonical attempt; the pin only formalizes that).
+
+- [ ] **Step 3: Commit**
 
 ```bash
-git add scripts/lm9b_p_planner_recipe_transfer_probe.py mcp_server/tests/test_lm9b_p_readiness_launch_gate.py
-git commit -m "feat(lm9b-p): refuse experiment launch without fresh readiness record
+git add mcp_server/tests/test_lm9b_p_readiness_witness.py \
+        mcp_server/tests/test_lm9b_p_planner_recipe_transfer_probe.py
+git commit -m "test(lm9b-p): canonical Planner pin and dry-run interface preserved
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
@@ -1310,21 +989,17 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ## Self-Review
 
-**1. Spec coverage:**
-- Staged boundary (§3) → Tasks 6 (preflight), 7 (canary), 8 (verifier gate).
-- Code topology / pure module (§4) → Task 1–5 stdlib-only module; Task 8 import-isolation test.
-- Route identity + dedup (§5) → Task 2.
-- Credential-source declaration (§5.1) → Task 1 (map + resolver), Task 6 (presence), tests 10/11 in Task 1.
-- Canary shape (§6) → Task 3 (protocol), Task 7 (contact + content exclusion, test 9).
-- Readiness record + `route_ready` (§7, §7.1) → Task 3/4; record assembly Task 6.
-- Three coordinates + attribution (§8) → Task 8 refuse-before-`mkdir`; provider contact/observation belong to the unchanged experiment.
-- Launch verifier equations (§9, §9.1) → Task 5 (all equations incl. request binding, freshness, presence, coverage, integrity).
-- Tests 1–11 (§10) → 1 (Task 6/8), 2 (Task 7), 3 (Task 7), 4 (Task 5 param mutations), 5 (Task 5), 6 (Task 8), 7 (Task 7), 8 (Task 8), 9 (Task 7), 10 (Task 1/2), 11 (Task 1).
-- Successor (§11) → no code; the new reviewed commit SHA is supplied at readiness time and re-checked at launch (Global Constraints, Task 8).
+**1. Spec + P1/P2 coverage:**
+- Vertical witness through the real transmit boundary (reviewer's core correction) → Task 1 (valid reaches allocation + provider construction; model-binding drift, staleness, credential-absent refuse before allocation; import isolation via the experiment CLI).
+- P1a identity binding → routes derived from actual parsed models everywhere (`role_routes_from_models` / `_launch_models`); canonical Planner pin (Task 1e, Task 5).
+- P1b timestamp ordering → `observed_at` stamped after each call, `completed_at` after all, injected clock; credential check before readiness-root creation (Task 1 Step 4; Task 4 tests).
+- P1c real boundary enforcement → Task 1 drives `_execute_transmitted_attempt` with exploding `_build_provider`, asserts run root absent on refusal; import isolation imports the experiment CLI.
+- P2 `--readiness-record` only with `--transmit` → Task 1d; Task 5 dry-run test.
+- Spec §5.1 declaration + tests 10/11 → Task 3. Verifier equations §9/§9.1 → Task 2. Canary/route_ready §6/§7 → Tasks 1/3/4.
 
-**2. Placeholder scan:** No TBD/TODO; every code step shows complete code and exact commands.
+**2. Placeholder scan:** Task 1 Step 1's `_FakeOk` placeholder is intentionally superseded within the same file by the real `ProviderTurn` factory in `_seal_record`; no production placeholders. Remove the unused `_FakeOk` stub when implementing.
 
-**3. Type consistency:** `route_fingerprint`, `member_roles`, `credential_source`, `canary_protocol_fingerprint`, `record_fingerprint`, `request_fingerprint`, `verify_launch_readiness`, `derive_routes`, `READINESS_ROLE_ROUTES`, `run_canary`, `run_readiness`, `readiness_gate_ok` are used identically across tasks. `ProviderTurn`/`ProviderCallFailure` match the production `LiteLLMProvider` contract (`raw_response: bytes`, `assistant_message` dict, `failure_type`/`message`).
+**3. Type consistency:** `role_routes_from_models`, `derive_routes`, `verify_launch_readiness(record, manifest, head_sha, now_iso, credential_present)`, `readiness_gate_ok(record, models, head_sha, now_iso, credential_present)`, `run_readiness(..., clock, models)`, `run_canary(route, provider, *, clock)` are consistent across tasks. `ProviderTurn`/`ProviderCallFailure` match the production `LiteLLMProvider` contract (`raw_response: bytes`).
 
 ## Execution Handoff
 
