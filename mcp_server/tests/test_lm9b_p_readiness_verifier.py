@@ -175,3 +175,28 @@ def test_route_unready_refuses():
     r = _fresh()
     r["routes"][0]["outcome"]["kind"] = "transport_failure"
     assert _verify(_reseal(r)) is False
+
+
+_MALFORMED_TIMESTAMPS = [
+    "2026-07-21T12:00:00+03:00Z",  # embedded offset must not be reinterpreted as UTC
+    "2026-07-21Z",                 # date only, no time
+    "2026-07-21T12:00:00",         # no Z designator
+    "2026-07-21T12:00:00+00:00",   # offset form, not Z
+    "2026-07-21T12:00:00.5Z",      # fractional seconds
+    "not-a-timestamp",
+    12345,                          # non-string
+]
+
+
+@pytest.mark.parametrize("bad", _MALFORMED_TIMESTAMPS)
+def test_malformed_completed_at_refuses(bad):
+    r = _fresh()
+    r["completed_at"] = bad
+    assert _verify(_reseal(r)) is False
+
+
+@pytest.mark.parametrize("bad", _MALFORMED_TIMESTAMPS)
+def test_malformed_observed_at_refuses(bad):
+    r = _fresh()
+    r["routes"][0]["observed_at"] = bad
+    assert _verify(_reseal(r)) is False

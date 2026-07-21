@@ -251,9 +251,17 @@ class LaunchDecision:
 
 
 def _parse_utc(value: object) -> datetime:
-    if not isinstance(value, str) or not value.endswith("Z"):
-        raise ReadinessError(f"timestamp not exact UTC Z form: {value!r}")
-    return datetime.fromisoformat(value[:-1]).replace(tzinfo=timezone.utc)
+    # Require an exact `YYYY-MM-DDTHH:MM:SSZ` UTC datetime. strptime with a
+    # literal trailing `Z` rejects embedded offsets (e.g. `...+03:00Z`),
+    # date-only forms (e.g. `2026-07-21Z`), fractional seconds, and any other
+    # offset designator, so a malformed value can never be reinterpreted as UTC.
+    if not isinstance(value, str):
+        raise ReadinessError(f"timestamp is not a string: {value!r}")
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError as exc:
+        raise ReadinessError(f"timestamp not exact UTC Z form: {value!r}") from exc
+    return parsed.replace(tzinfo=timezone.utc)
 
 
 def verify_launch_readiness(
