@@ -236,6 +236,14 @@ launch readiness ≜
                           AND no duplicate route rows
                           AND each row.member_roles
                               == current manifest member_roles for that route
+  request binding       : for every route row:
+                          row.request_fingerprint == fingerprint(
+                              build_canary_request(current_route,
+                                                   current_protocol))
+                          (build_canary_request is the pure function over the
+                          route and protocol inputs the contract module already
+                          owns; this binds the recorded outcome to the request
+                          the protocol fingerprint describes)
   temporal freshness    : (see 9.1)
   credential presence   : repeat the Section-3 non-contact presence check
                           for every route's credential-source name
@@ -278,7 +286,9 @@ All use deterministic fakes; no real provider is contacted.
                               != record fp; missing / duplicate / extra route
                               row; altered member_roles; argument fingerprint
                               without arguments; malformed or wrong `ack`
-                              arguments; canary_protocol_fingerprint mismatch;
+                              arguments; request_fingerprint not matching the
+                              recomputed canary request;
+                              canary_protocol_fingerprint mismatch;
                               record_fingerprint mismatch
 5. staleness / future time -> observed_at or completed_at outside
                               [now - 600, now] (including future) -> refuse
