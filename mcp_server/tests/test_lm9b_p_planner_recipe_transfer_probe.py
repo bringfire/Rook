@@ -34,6 +34,7 @@ LM9B_C_ARTIFACTS = _load_script("lm9b_c_compiler_sufficiency_artifacts")
 LM9B_C_PROBE = _load_script("lm9b_c_compiler_sufficiency_probe")
 SUPPORT = _load_script("lm9b_p_planner_recipe_transfer_support")
 ARTIFACTS = _load_script("lm9b_p_planner_recipe_transfer_artifacts")
+RCONTRACT = _load_script("lm9b_p_readiness_contract")
 PROBE = _load_script("lm9b_p_planner_recipe_transfer_probe")
 
 
@@ -1504,8 +1505,13 @@ def test_execute_stops_after_checkpoint_seal_failure(
     monkeypatch: pytest.MonkeyPatch,
     contact_stage: str,
 ) -> None:
+    _record_path = _install_passing_readiness(monkeypatch, tmp_path, sha="a" * 40)
     config = PROBE.parse_cli_args(
-        _canonical_cli_args(tmp_path / f"run-{contact_stage}", transmit=True)
+        _canonical_cli_args(
+            tmp_path / f"run-{contact_stage}",
+            transmit=True,
+            readiness_record=_record_path,
+        )
     )
     inputs = ARTIFACTS.load_planner_inputs(FIXTURES)
     prepared = PROBE.PreparedTransmission(
@@ -1580,7 +1586,12 @@ def test_provider_constructor_failure_is_terminal_and_preserves_completed_work(
     failure_role: str,
 ) -> None:
     run_root = tmp_path / f"run-{failure_role}"
-    config = PROBE.parse_cli_args(_canonical_cli_args(run_root, transmit=True))
+    _record_path = _install_passing_readiness(
+        monkeypatch, tmp_path, sha=ARCHIVE_IDENTITY["git_commit_sha"]
+    )
+    config = PROBE.parse_cli_args(
+        _canonical_cli_args(run_root, transmit=True, readiness_record=_record_path)
+    )
     inputs = ARTIFACTS.load_planner_inputs(FIXTURES)
     prepared = PROBE.PreparedTransmission(
         config=config,
@@ -1955,7 +1966,12 @@ def test_post_freeze_r01_comparison_requires_verified_sealed_aggregate_and_prese
     assert (archive_dir / "checksums.json").read_bytes() == before
 
 
-def _canonical_cli_args(run_root: Path, *, transmit: bool = False) -> list[str]:
+def _canonical_cli_args(
+    run_root: Path,
+    *,
+    transmit: bool = False,
+    readiness_record: "Path | str | None" = None,
+) -> list[str]:
     args = [
         "--planner-model",
         "gpt-5.4",
@@ -1978,7 +1994,60 @@ def _canonical_cli_args(run_root: Path, *, transmit: bool = False) -> list[str]:
     ]
     if transmit:
         args.append("--transmit")
+        # --readiness-record is required with --transmit. Tests whose earlier
+        # guard (argparse, dirty checkout, existing run root) fires before the
+        # gate reads the record only need a placeholder path; downstream
+        # execution tests pass a real passing record via `readiness_record`.
+        record = readiness_record if readiness_record is not None else (
+            run_root.parent / "placeholder-readiness.json"
+        )
+        args += ["--readiness-record", str(record)]
     return args
+
+
+def _install_passing_readiness(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, sha: str
+) -> Path:
+    """Write an authentic passing readiness record bound to the test's checkout
+    SHA, set the launch clock and credential presence, and return its path for
+    `--readiness-record`. Derives routes from the exact canonical models; the
+    canonical helper returns None for both, so `lambda: None` derivation matches
+    the gate's real-helper derivation exactly."""
+    manifest = RCONTRACT.derive_routes(
+        RCONTRACT.role_routes_from_models(RCONTRACT.CANONICAL_ROLE_MODELS),
+        lambda _model: None,
+    )
+    rows = [
+        {
+            "route_fingerprint": route.route_fingerprint,
+            "member_roles": list(route.member_roles),
+            "observed_at": "2026-07-21T12:00:05Z",
+            "request_fingerprint": RCONTRACT.request_fingerprint(route),
+            "outcome": {
+                "kind": "model_response",
+                "assistant_present": True,
+                "tool_calls": [{"name": "ack", "arguments": '{"ok": true}'}],
+                "raw_response_fingerprint": "sha256:resp",
+            },
+        }
+        for route in manifest.routes
+    ]
+    record = {
+        "schema_id": RCONTRACT.SCHEMA_ID,
+        "reviewed_commit_sha": sha,
+        "route_manifest_fingerprint": manifest.manifest_fingerprint,
+        "canary_protocol_fingerprint": RCONTRACT.canary_protocol_fingerprint(),
+        "max_age_seconds": RCONTRACT.FROZEN_MAX_AGE_S,
+        "completed_at": "2026-07-21T12:00:06Z",
+        "routes": rows,
+    }
+    record["record_fingerprint"] = RCONTRACT.record_fingerprint(record)
+    path = tmp_path / "passing_readiness_record.json"
+    path.write_text(json.dumps(record), encoding="utf-8")
+    monkeypatch.setattr(PROBE, "_readiness_now_iso", lambda: "2026-07-21T12:00:30Z")
+    monkeypatch.setenv("OPENAI_API_KEY", "x")
+    monkeypatch.setenv("GEMINI_API_KEY", "y")
+    return path
 
 
 def test_direct_cli_entrypoint_loads_before_argument_processing() -> None:
@@ -2261,7 +2330,10 @@ def test_checkpoint_consumes_the_pretransmission_snapshot_without_reloading(
 def test_execute_reauthenticates_head_and_passes_frozen_inputs_to_checkpoint(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = PROBE.parse_cli_args(_canonical_cli_args(tmp_path / "run", transmit=True))
+    _record_path = _install_passing_readiness(monkeypatch, tmp_path, sha="f" * 40)
+    config = PROBE.parse_cli_args(
+        _canonical_cli_args(tmp_path / "run", transmit=True, readiness_record=_record_path)
+    )
     inputs = ARTIFACTS.load_planner_inputs(FIXTURES)
     request = ARTIFACTS.render_planner_request(inputs)
     prepared = PROBE.PreparedTransmission(
@@ -2326,7 +2398,10 @@ def test_compiler_controls_are_snapshotted_before_provider_contact(
         "_git_checkout_state",
         lambda: PROBE.GitCheckoutState("a" * 40, True),
     )
-    config = PROBE.parse_cli_args(_canonical_cli_args(tmp_path / "run", transmit=True))
+    _record_path = _install_passing_readiness(monkeypatch, tmp_path, sha="a" * 40)
+    config = PROBE.parse_cli_args(
+        _canonical_cli_args(tmp_path / "run", transmit=True, readiness_record=_record_path)
+    )
     prepared = PROBE.prepare_pretransmission(config)
     (compiler_fixtures / "implementation_context.json").write_bytes(b"{}\n")
 

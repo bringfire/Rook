@@ -7,6 +7,7 @@ import argparse
 import ast
 import importlib
 import json
+import os
 import subprocess
 import sys
 import time
@@ -29,6 +30,7 @@ _PLANNER_EVALUATOR_SYSTEM_PROMPT = (
     "exactly one evidence-backed recommendation through submit_planner_evaluation."
 )
 
+import lm9b_p_readiness_contract as READINESS
 import lm9b_p_planner_recipe_transfer_artifacts as ARTIFACTS
 from lm9b_p_planner_recipe_transfer_support import (
     PLANNER_COST_STOP_THRESHOLD_USD,
@@ -93,6 +95,7 @@ class CliAttemptConfig:
     compiler_evaluator_temperature: float
     run_root: Path
     transmit: bool
+    readiness_record: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -487,6 +490,45 @@ def verify_scope_guards(paths: tuple[Path, ...]) -> None:
         _ScopeVisitor(Path(path)).visit(tree)
 
 
+def _readiness_now_iso() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _launch_models(config: "CliAttemptConfig") -> dict:
+    return {
+        "planner": config.planner_model,
+        "planner_evaluator": config.planner_evaluator_model,
+        "compiler": config.compiler_model,
+        "compiler_evaluator": config.compiler_evaluator_model,
+    }
+
+
+def _readiness_manifest(models: dict):
+    # Deferred import keeps the experiment CLI module import light: importing
+    # this module pulls no provider/model_profiles code (only the pure
+    # readiness contract at top level).
+    from rook.agent.model_profiles import api_key_env_for_model
+
+    return READINESS.derive_routes(
+        READINESS.role_routes_from_models(models), api_key_env_for_model
+    )
+
+
+def readiness_gate_ok(
+    *, record, models, head_sha, now_iso, credential_present
+) -> bool:
+    manifest = _readiness_manifest(models)
+    return READINESS.verify_launch_readiness(
+        record=record,
+        manifest=manifest,
+        head_sha=head_sha,
+        now_iso=now_iso,
+        credential_present=credential_present,
+    ).ok
+
+
 def _git_checkout_state() -> GitCheckoutState:
     head = subprocess.run(
         ["git", "rev-parse", "--verify", "HEAD"],
@@ -522,11 +564,19 @@ def parse_cli_args(argv: list[str] | None = None) -> CliAttemptConfig:
     parser.add_argument("--compiler-evaluator-temperature", type=float, required=True)
     parser.add_argument("--run-root", type=Path, required=True)
     parser.add_argument("--transmit", action="store_true")
+    parser.add_argument("--readiness-record", type=Path, default=None)
     args = parser.parse_args(argv)
+    if args.planner_model != "gpt-5.4" or args.planner_evaluator_model != "gpt-5.4":
+        parser.error(
+            "canonical Planner pin: --planner-model and "
+            "--planner-evaluator-model must both be gpt-5.4"
+        )
     if args.compiler_model != _ARCHIVED_COMPILER_MODEL:
         parser.error(f"--compiler-model must be {_ARCHIVED_COMPILER_MODEL}")
     if args.compiler_evaluator_model != _ARCHIVED_COMPILER_MODEL:
         parser.error(f"--compiler-evaluator-model must be {_ARCHIVED_COMPILER_MODEL}")
+    if args.transmit and args.readiness_record is None:
+        parser.error("--transmit requires --readiness-record")
     temperatures = (
         args.planner_temperature,
         args.planner_evaluator_temperature,
@@ -546,6 +596,11 @@ def parse_cli_args(argv: list[str] | None = None) -> CliAttemptConfig:
         compiler_evaluator_temperature=args.compiler_evaluator_temperature,
         run_root=args.run_root.resolve(),
         transmit=args.transmit,
+        readiness_record=(
+            args.readiness_record.resolve()
+            if args.readiness_record is not None
+            else None
+        ),
     )
 
 
@@ -986,6 +1041,34 @@ def _execute_transmitted_attempt(
     checkout = _git_checkout_state()
     if not checkout.clean or checkout.commit_sha != prepared.git_sha:
         raise RuntimeError("checkout changed after pre-transmission review")
+    # Readiness gate: refuse before allocating an attempt identity if there is
+    # no fresh, passing readiness record bound to this commit and route
+    # manifest. This runs before mkdir, so a refusal consumes no attempt.
+    if config.readiness_record is None:
+        raise RuntimeError("readiness gate refused: no readiness record supplied")
+    _readiness_record = json.loads(
+        config.readiness_record.read_text(encoding="utf-8")
+    )
+    _readiness_models = _launch_models(config)
+    _readiness_manifest_value = _readiness_manifest(_readiness_models)
+    _readiness_presence = {
+        route.route_fingerprint: any(
+            bool(os.environ.get(name)) for name in route.credential_source
+        )
+        for route in _readiness_manifest_value.routes
+    }
+    if not READINESS.verify_launch_readiness(
+        record=_readiness_record,
+        manifest=_readiness_manifest_value,
+        head_sha=prepared.git_sha,
+        now_iso=_readiness_now_iso(),
+        credential_present=_readiness_presence,
+    ).ok:
+        raise RuntimeError(
+            "readiness gate refused: no fresh passing readiness record for this "
+            "commit/route manifest; run scripts/lm9b_p_readiness_probe.py "
+            "--authenticate first (no attempt was allocated)"
+        )
     config.run_root.mkdir(parents=True, exist_ok=False)
     compiler_control_dir = config.run_root / "compiler-controls"
     compiler_control_dir.mkdir()
