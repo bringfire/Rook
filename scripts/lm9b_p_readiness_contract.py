@@ -41,7 +41,10 @@ CANONICAL_ROLE_MODELS: dict[str, str] = {
 
 CANARY_SYSTEM = "You are a readiness canary."
 CANARY_USER = "Call the ack tool."
-CANARY_MAX_COMPLETION_TOKENS = 16
+# Generous ceiling (billed per actual token) so reasoning models — gpt-5.4 and
+# gemini-3.1-pro — can spend hidden thinking tokens and still emit the complete
+# forced ack tool call. The original 16 truncated the tool-call arguments.
+CANARY_MAX_COMPLETION_TOKENS = 2048
 CANARY_PROVIDER_TIMEOUT_S = 30.0
 CANARY_TEMPERATURE = 0.0
 ACK_TOOL = {
