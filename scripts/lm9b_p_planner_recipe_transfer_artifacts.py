@@ -29,6 +29,7 @@ from lm9b_p_planner_recipe_transfer_support import (
     fingerprint_without,
     load_normalization_profile,
     normalization_profile_from_value,
+    parse_archive_json,
     parse_strict_json,
     resolve_json_pointer,
     validate_exclusion_policy,
@@ -1266,8 +1267,17 @@ def derive_joined_aggregate_outcome(
 
 
 def _archive_json_bytes(value: object) -> bytes:
+    # allow_nan=False so the archive writer refuses to persist non-finite
+    # numbers; the archive readback (parse_archive_json) admits only finite
+    # floats, keeping the write and read contracts symmetric.
     return (
-        json.dumps(_thaw_json(value), ensure_ascii=False, sort_keys=True, indent=2)
+        json.dumps(
+            _thaw_json(value),
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+            allow_nan=False,
+        )
         + "\n"
     ).encode("utf-8")
 
@@ -1627,7 +1637,7 @@ def _write_attempt(
 
 def _archive_object(path: Path, label: str) -> Mapping[str, object]:
     try:
-        value = parse_strict_json(path.read_bytes())
+        value = parse_archive_json(path.read_bytes())
     except (OSError, ValueError) as exc:
         raise ValueError(f"sealed checkpoint archive {label} is unavailable") from exc
     if not isinstance(value, dict):
