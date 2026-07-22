@@ -1257,14 +1257,21 @@ def derive_probe_explicit_blockers(final_recipe_bytes: bytes) -> tuple[str, ...]
 
 
 def derive_checkpoint_classification(
-    planner_session: object, evaluator: object | None
+    planner_session: object,
+    evaluator: object | None,
+    *,
+    checkpoint_gate: object | None = None,
 ) -> str:
     """Derive the sole Checkpoint 1 classification from captured outcomes.
 
     Authority split: the evaluator model establishes semantic fidelity ONLY.
     Advancement (blocked vs ready) is derived deterministically from the
-    mechanically accepted artifact - bound to the accepted turn's recomputed
-    MechanicalGateResult - never from the model's recommendation.
+    mechanically accepted artifact - bound to ``checkpoint_gate``, the
+    checkpoint's INDEPENDENT reevaluation of the final bytes under the frozen
+    checkpoint inputs. This is the proof carrier: classification and sealing
+    must consume it, proving the archived result was accepted under the exact
+    frozen inputs being archived - never merely the session-loop result, and
+    never the model's recommendation.
     """
 
     termination = getattr(planner_session, "termination", None)
@@ -1274,6 +1281,21 @@ def derive_checkpoint_classification(
         return "probe_inconclusive"
     if getattr(evaluator, "termination", None) != "valid_recommendation":
         return "probe_inconclusive"
+    if type(checkpoint_gate) is not MechanicalGateResult:
+        raise ValueError(
+            "checkpoint gate result is required to classify an accepted session"
+        )
+    if checkpoint_gate.status != "mechanically_accepted":
+        raise ValueError("checkpoint gate result did not accept the final recipe")
+    gate_final_bytes = checkpoint_gate.final_recipe_bytes
+    if not isinstance(gate_final_bytes, bytes) or gate_final_bytes != getattr(
+        planner_session, "final_recipe_bytes", None
+    ):
+        # Integrity/control failure: the checkpoint gate's accepted bytes must
+        # be the session's final bytes. Never resolved as a classification.
+        raise ValueError(
+            "checkpoint gate bytes do not match the session final recipe"
+        )
     accepted_results = [
         gate_result
         for turn in getattr(planner_session, "turns", ())
@@ -1284,14 +1306,11 @@ def derive_checkpoint_classification(
         raise ValueError(
             "accepted session must retain exactly one accepted gate result"
         )
-    gate_final_bytes = accepted_results[0].final_recipe_bytes
-    if not isinstance(gate_final_bytes, bytes) or gate_final_bytes != getattr(
-        planner_session, "final_recipe_bytes", None
-    ):
-        # Integrity/control failure: the gate's accepted bytes must be the
-        # session's final bytes. Never resolved as a classification.
+    if checkpoint_gate != accepted_results[0]:
+        # The independent checkpoint reevaluation must agree exactly with the
+        # session's accepted gate result; divergence is a control failure.
         raise ValueError(
-            "accepted gate result bytes do not match the session final recipe"
+            "checkpoint gate result does not match the accepted turn gate result"
         )
     recommendation = getattr(evaluator, "recommendation", None)
     if recommendation == "semantically_unfaithful":
@@ -1874,12 +1893,15 @@ def _trusted_archive_records(
     classification: str,
     planner_attempts: Sequence[Mapping[str, object]],
     evaluator_attempts: Sequence[Mapping[str, object]],
+    checkpoint_gate: object | None = None,
 ) -> Mapping[str, str]:
     planner_termination = getattr(planner_session, "termination", None)
     session_turns = tuple(getattr(planner_session, "turns", ()))
     final_recipe = getattr(planner_session, "final_recipe_bytes", None)
     evaluator_termination = getattr(evaluator, "termination", "not_run")
-    if classification != derive_checkpoint_classification(planner_session, evaluator):
+    if classification != derive_checkpoint_classification(
+        planner_session, evaluator, checkpoint_gate=checkpoint_gate
+    ):
         raise ValueError("checkpoint classification is not mechanically derived")
     if len(session_turns) > len(planner_attempts):
         raise ValueError("Planner turn archive is incomplete")
@@ -2070,12 +2092,15 @@ def seal_planner_checkpoint_archive(
     planner_session: object, evaluator: object | None, evaluator_request: RenderedRequest | None,
     planner_provider_attempts: Sequence[ProviderAttemptEvidence], evaluator_provider_attempts: Sequence[ProviderAttemptEvidence],
     evaluator_elapsed_ms: int | None, classification: str, archive_identity: Mapping[str, object],
+    checkpoint_gate: object | None = None,
 ) -> SealedPlannerCheckpointArchive:
     destination = Path(destination).resolve()
     if destination.exists():
         raise FileExistsError(f"sealed checkpoint archive already exists: {destination}")
     _verify_frozen_planner_inputs(inputs)
-    if classification != derive_checkpoint_classification(planner_session, evaluator):
+    if classification != derive_checkpoint_classification(
+        planner_session, evaluator, checkpoint_gate=checkpoint_gate
+    ):
         raise ValueError("checkpoint classification is not mechanically derived")
     head = _checked_out_git_head()
     if archive_identity.get("git_commit_sha") != head:
@@ -2107,6 +2132,7 @@ def seal_planner_checkpoint_archive(
         classification=classification,
         planner_attempts=planner_attempts,
         evaluator_attempts=evaluator_attempts,
+        checkpoint_gate=checkpoint_gate,
     )
     session_turns = tuple(getattr(planner_session, "turns", ()))
     returned_planner = tuple(item for item in planner_attempts if item["raw_response"] is not None)
