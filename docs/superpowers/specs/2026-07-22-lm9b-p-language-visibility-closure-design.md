@@ -1,56 +1,61 @@
 # LM9B-P — Workerless Language-Visibility Closure (design amendment)
 
-**Status:** spec for review — no code yet.
+**Status:** spec (revised for reviewer round 3) — reviewer approved proceeding to TDD after these corrections; no further review gate before code.
 **Base:** `origin/main` `335bdadc`. **Branch:** `codex/lm9b-p-language-visibility-closure`.
-**Evidence basis:** the comparative diagnostic + complete closure audit in `C:/Users/bring/rook-lm9b-p-attempts/2026-07-22-COMPARISON-NOTE.md` (§9, ledger M1–M6). This is a compact amendment, not a new architecture cycle.
+**Evidence basis:** the comparative diagnostic + complete closure audit in `C:/Users/bring/rook-lm9b-p-attempts/2026-07-22-COMPARISON-NOTE.md` (§9, ledger M1–M6). Compact amendment, not a new architecture cycle.
 
 ## Objective
 
-Make the existing workerless accepted language **visible and internally consistent** to the Planner, so that every rule the mechanical gate enforces has a model-visible carrier (recipe schema, authoring-contract `language_boundary`/`relational_invariants`, a vocabulary fixture, or an already-available runtime hook).
+**Every reviewed recipe-language rule in M1–M6 has an exact model-visible carrier** (recipe schema, authoring-contract `language_boundary`/`relational_invariants`, a vocabulary fixture, or an already-available runtime hook). This is deliberately narrower than "every rule the gate enforces": the audit leaves strict-JSON serialization and the `MAX_RECIPE_BYTES` cap explicitly outside this slice.
 
 ## One experimental variable
 
 **Model-visible contract completeness.** Nothing else changes, so a later (separately authorized) rerun cleanly tests the single hypothesis: *does declaring the existing language suffice for the Planner to author an admissible recipe?* If site-by-site repair still fails with the language fully visible, feedback or typed incremental construction becomes the next, independently-testable intervention.
 
-## Honest statement of effect on acceptance (pin 1)
+## Honest statement of effect on acceptance (pin)
 
-This slice is **not** literally "no acceptance change." Three distinct kinds of change, labeled:
+Not literally "no acceptance change." Three labeled kinds:
 
 | Change | Kind | Effect |
 |---|---|---|
-| M2 `artifact_kind` closed vocab; M3 identifier grammar; M4 policy-pointer grammar; M1(a–c) reserved id + uniqueness | **existing gate rule made visible** | The *ultimately-accepted set is unchanged*; non-conforming recipes are rejected **earlier and more legibly** (at `recipe_schema_failed`/declared contract) instead of deep in `_structural_integrity_issue`. |
-| M1(d) `task_envelope` forbidden in `authority_artifacts` | **normative rule newly aligned with enforcement** | Currently the gate admits a `task_envelope` authority descriptor (support L756); LM9A forbids it. Declaring `authority_artifacts.artifact_kind ∈ {environment_snapshot, planning_policy}` **will reject** a recipe the old gate could have accepted. This is justified architectural alignment with LM9A, and must be stated plainly, not hidden under "visibility." |
-| Fingerprint assistance | **runtime feedback carrier already available** | On `recipe_fingerprint_mismatch` the gate returns `fingerprint_resubmission_required` with the **exact ratified fingerprint** (support L1014–1022). The model does not compute SHA-256 unaided; the audit records this as already-present, so no new "teach the hash" carrier is needed. |
+| M2 `artifact_kind` closed vocab; M3 identifier grammar; M4 policy-pointer grammar; M1 reserved `source_task.artifact_id` | **existing gate rule made visible** | Ultimately-accepted set unchanged; non-conforming recipes rejected **earlier and more legibly** (`recipe_schema_failed`) instead of deep in `_structural_integrity_issue`. |
+| M1 `task_envelope` reserved to `source_task` (forbidden as an `authority_artifacts` id); descriptor **kind/`schema` pairing** | **normative rule newly aligned with enforcement** | The gate currently admits a `task_envelope` authority descriptor (support L756) and never checks descriptor `schema` against its kind. Declaring `authority_artifacts.items.artifact_id != "task_envelope"` and a kind↔schema `oneOf` **will reject** recipes the old gate could have accepted. Justified alignment with LM9A; stated plainly, not hidden under "visibility." |
+| Fingerprint assistance | **runtime feedback carrier already available** | On `recipe_fingerprint_mismatch` the gate returns `fingerprint_resubmission_required` with the **exact ratified fingerprint** (support L1014–1022). No new carrier needed. |
 
-No **gate semantics** (acceptance predicate for a conforming recipe), prompt, feedback text, model, or budget changes. The only acceptance-set delta is the single M1(d) normative alignment above.
+No **gate semantics** for cross-object uniqueness / referential integrity change: those stay in `_structural_integrity_issue` unchanged (see M1/M5/M6 below). Prompt, feedback text, model, budget: unchanged.
 
-## In scope
+## In scope — carriers for M1–M6
 
-- **Carriers for M1–M6** placed at their designated model-visible homes:
-  - **M2 — descriptor kind/schema, contextual:** `planner_recipe_probe_schema.json` — `source_task.artifact_kind` → `const:"task_envelope"`; `authority_artifacts.items.artifact_kind` → `enum:["environment_snapshot","planning_policy"]`; keep each bare kind's `schema` pairing consistent with the normative contract. Mirror declaratively in `planner_authoring_contract.json.language_boundary` (`source_task_artifact_kind`, `authority_artifact_kinds`), matching the existing `worker_slots_max_entries` / `confirmation_receipts_admitted` style.
-  - **M1 — reserved source-task identity & placement / uniqueness:** schema `source_task.artifact_id` → `const:"task_envelope"`; express per-array `uniqueItems` where JSON Schema can; add declarative statements in `language_boundary`/`relational_invariants` for the **cross-collection** descriptor-id uniqueness and the single-occurrence / forbidden-reuse rules JSON Schema cannot express.
-  - **M3 — complete machine-identifier field coverage:** one shared schema `$def` applying `^[a-z0-9]+(?:[._:-][a-z0-9]+)*$` to **every** field the gate applies it to — all `*_id`, all `*_ids` items, `affects` items, `semantic_key`, and any scalar member of `_MACHINE_SCALAR_FIELDS` not already more-strictly bound (documenting where a stricter `const`/`enum`/registry carrier already exists).
-  - **M4 — policy-pointer grammar:** schema `pattern` `^/rules/[a-z0-9]+(?:[._:-][a-z0-9]+)*$` on the policy-reference `json_pointer`.
-  - **M5/M6 — descriptor-use + local-reference invariants:** declarative statements in `relational_invariants` ("every recipe-bound authority descriptor is referenced"; "every local reference resolves to a declared symbol of its declared kind").
-- **Required fixture/contract fingerprints and manifests:** recompute and update every fingerprint/manifest that pins the changed fixtures (e.g. `contract_fingerprint`, schema fingerprint, `manifest.json`, `payload_schema_registry`), so the frozen-input and identity checks remain internally consistent. Enumerate the exact dependents during planning.
-- **Deterministic positive and boundary tests** (see Testing).
+- **M2 — descriptor kind *and* kind/schema pairing (contextual).** In `planner_recipe_probe_schema.json`:
+  - `source_task` → contextual `oneOf`/`allOf` binding `artifact_kind:"task_envelope"` **with** `schema:"rook.planner_task_envelope:v1"`;
+  - `authority_artifacts.items` → contextual `oneOf`: `{artifact_kind:"environment_snapshot", schema:"rook.environment_snapshot:v1"}` | `{artifact_kind:"planning_policy", schema:"rook.planning_policy:v1"}`.
+  - Mirror declaratively in `planner_authoring_contract.json.language_boundary` (`source_task_artifact_kind`, `authority_artifact_kinds`, and the kind→schema map), in the existing `worker_slots_max_entries` / `confirmation_receipts_admitted` style.
+- **M1 — reserved identity & placement; uniqueness split by expressibility.**
+  - *Schema-expressible:* `source_task.artifact_id` → `const:"task_envelope"`; `authority_artifacts.items.artifact_id` → `not:{const:"task_envelope"}` (reserved id cannot appear in the authority collection). **No `uniqueItems`** — it compares whole objects, not `artifact_id`, so it neither expresses id-uniqueness nor helps here.
+  - *Not schema-expressible → authoring-contract declarative + unchanged gate:* global descriptor-id uniqueness across `source_task`+`authority_artifacts` and namespace-scoped id uniqueness are stated in `language_boundary`/`relational_invariants`; the gate continues to enforce them (`duplicate_identifier`, unchanged).
+- **M3 — complete machine-identifier field coverage.** One shared schema `$def` applying `^[a-z0-9]+(?:[._:-][a-z0-9]+)*$` to **every** field the gate applies it to — all `*_id`, all `*_ids` items, `affects` items, `semantic_key`, and any `_MACHINE_SCALAR_FIELDS` scalar not already more-strictly bound (documenting where a stricter `const`/`enum`/registry carrier already exists).
+- **M4 — policy-pointer grammar.** Schema `pattern` `^/rules/[a-z0-9]+(?:[._:-][a-z0-9]+)*$` on the policy-reference `json_pointer`.
+- **M5/M6 — descriptor-use + local-reference invariants (declarative only; gate unchanged).** `relational_invariants` gains: "every recipe-bound authority descriptor is referenced" (M5, `unreferenced_authority_descriptor`) and "every local reference resolves to a declared symbol of its declared kind" (M6, `dangling_local_reference`). The gate continues to enforce both.
+- **Required fixture/contract fingerprints and manifests.** Recompute and update every fingerprint/manifest that pins the changed fixtures (`contract_fingerprint`, schema fingerprint, `manifest.json`, `payload_schema_registry`, attempt-context/authority manifest), so frozen-input and identity checks stay internally consistent. Exact dependents enumerated in plan Task 0.
+- **Model-visibility-through-renderer test.** At least one assertion that the changed schema + authoring-contract reach the model — their bytes/fingerprints appear in `render_planner_request(inputs).raw_bytes` and/or the frozen pretransmission input manifest (`authority_manifest_fingerprint`) — not merely that the fixture file changed on disk.
 
 ## Out of scope
 
-Feedback changes; prompt/persona changes; model or budget changes; typed construction tools; new examples (no R01-derived content); semantic-policy expansion; **any model call**. The causal-feedback improvement (naming the descriptor + allowed set) is deferred to a *separate* slice so it does not co-vary with visibility.
+Feedback changes (causal-feedback correction is a **deferred, independent** slice so it does not co-vary with visibility); prompt/persona changes; model or budget changes; typed construction tools; new examples (no R01-derived content); semantic-policy expansion; strict-JSON/byte-cap carriers; **any model call**.
 
 ## Where changes land
 
-Source fixtures only: `scripts/lm9b_p_fixtures/planner_recipe_probe_schema.json` and `.../planner_authoring_contract.json` (+ dependent fingerprint/manifest fixtures). **No change to the gate validator** `scripts/lm9b_p_planner_recipe_transfer_support.py` — its `_MACHINE_SCALAR_FIELDS`, grammar, and acceptance predicate are unchanged; we are only making them declarable, plus the one M1(d) enum-driven alignment which is realized entirely in the schema, not in gate code.
+Source fixtures only: `scripts/lm9b_p_fixtures/planner_recipe_probe_schema.json`, `.../planner_authoring_contract.json`, plus the dependent fingerprint/manifest fixtures. **No change to the gate validator** `scripts/lm9b_p_planner_recipe_transfer_support.py`; its grammar, `_MACHINE_SCALAR_FIELDS`, uniqueness/referential checks, and acceptance predicate are untouched. The M1/M2 alignment deltas are realized entirely in the schema.
 
-## Testing
+## Testing (deterministic, no model)
 
-Deterministic, no model:
-- **Carrier-ledger tests (pin, not proof):** one test per M1–M6 asserting the specific schema/contract representation exists (e.g. `authority_artifacts.items.artifact_kind.enum == ["environment_snapshot","planning_policy"]`; the shared identifier `$def` is referenced by every applicable field). These **pin the reviewed ledger and fail on drift**; they do *not* claim to mathematically prove every future gate rule has a carrier.
-- **Positive:** a corrected R01-shaped-but-not-R01-derived synthetic descriptor set (bare `artifact_kind` tokens, unique ids, reserved `source_task`) passes schema validation.
-- **Boundary/negative:** qualified-schema-id `artifact_kind`, duplicate descriptor id, `task_envelope` in `authority_artifacts`, malformed identifier, policy pointer outside `/rules/` each fail **schema validation** with a legible message — demonstrating the failure now surfaces at the visible carrier.
+- **Carrier-ledger tests (pin, not proof):** one per M1–M6 asserting the exact schema/contract representation, and failing on drift. Not a claim that all future gate rules have carriers.
+- **Model-visibility-through-renderer:** assert the changed carriers appear in the rendered planner request / frozen input manifest.
+- **Schema-rejection boundary (failure moves to `recipe_schema_failed`):** wrong descriptor kind; wrong kind/schema pair; reserved `task_envelope` id in `authority_artifacts`; malformed identifier; malformed policy pointer.
+- **Unchanged-gate-rejection boundary:** duplicate descriptor IDs, unreferenced descriptor, dangling local reference — for each, prove **both** (1) the authoring contract visibly states the rule and (2) the **unchanged** mechanical gate still rejects it.
+- **Positive:** a corrected synthetic descriptor set (bare tokens, unique ids, reserved source_task, matching kind/schema — **not** R01-derived) passes schema validation.
 - **Consistency:** recomputed fingerprints/manifests match; existing LM9B-P suite stays green.
 
 ## Explicitly deferred (own later, independently-testable decisions)
 
-Causal-feedback correction; prompt/turn-budget revisiting; typed construction tools / larger authoring-hook substrate. Each requires its own authorization; **no rerun or model call** happens until this slice is reviewed and merged and a new experiment is separately authorized.
+Causal-feedback correction; prompt/turn-budget revisiting; typed construction tools / larger authoring-hook substrate. Each needs its own authorization; **no rerun or model call** until this slice is reviewed-diff'd and merged and a new experiment is separately authorized.
