@@ -38,9 +38,15 @@ PREFLIGHT_CHECKSUMS_SCHEMA_ID = (
 ALLOWED_DELTA_SCHEMA_ID = (
     "rook.lm9b_p.evaluator_continuation_allowed_delta_manifest:v1"
 )
+SOURCE_BINDING_SCHEMA_ID = (
+    "rook.lm9b_p.evaluator_continuation_source_binding:v1"
+)
 PROVIDER_PROFILE_ID = "litellm.completion.tool_calling.no_parallel:v1"
 EVALUATOR_MODEL = "gpt-5.4"
 EVALUATOR_TEMPERATURE = 0.0
+CORRECTED_RUBRIC_PATH = (
+    _SCRIPTS_DIR / "lm9b_p_fixtures" / "planner_evaluation_rubric.json"
+)
 ATTEMPT_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 _SHA256_PATTERN = re.compile(r"^[0-9A-Fa-f]{64}$")
 _PREFLIGHT_MEMBERS = {
@@ -162,7 +168,7 @@ class VerifiedHistoricalSource:
     original_classification_bytes: bytes
     final_recipe_bytes: bytes
     final_recipe_identity_bytes: bytes
-    input_manifest_bytes: bytes
+    input_manifest_bytes: bytes | None
     input_records: tuple[PLANNER_ARTIFACTS.PlannerInputRecord, ...]
     identity_value: Mapping[str, object]
 
@@ -364,6 +370,28 @@ def _require_keys(value: Mapping[str, object], keys: set[str], label: str) -> No
         raise ValueError(f"{label} shape is invalid")
 
 
+def _historical_source_identity(
+    pins: HistoricalSourcePins,
+) -> Mapping[str, object]:
+    return MappingProxyType(
+        {
+            "source_root": str(Path(pins.source_root).resolve()),
+            "root_manifest_raw_sha256": (
+                pins.root_manifest_raw_sha256.casefold()
+            ),
+            "checkpoint_aggregate_identity": pins.checkpoint_aggregate_identity,
+            "historical_commit_sha": pins.historical_commit_sha,
+            "historical_classification": pins.historical_classification,
+            "historical_checkpoint_2": pins.historical_checkpoint_2,
+            "recipe_raw_sha256": pins.recipe_raw_sha256,
+            "ratified_recipe_fingerprint": pins.ratified_recipe_fingerprint,
+            "historical_recipe_fingerprint": (
+                pins.historical_recipe_fingerprint
+            ),
+        }
+    )
+
+
 def _verify_historical_source(pins: HistoricalSourcePins) -> VerifiedHistoricalSource:
     root = Path(pins.source_root).resolve()
     if not root.is_dir():
@@ -481,19 +509,7 @@ def _verify_historical_source(pins: HistoricalSourcePins) -> VerifiedHistoricalS
     ):
         raise ValueError("historical joined aggregate boundary mismatch")
 
-    identity_value = MappingProxyType(
-        {
-            "source_root": str(root),
-            "root_manifest_raw_sha256": pins.root_manifest_raw_sha256.casefold(),
-            "checkpoint_aggregate_identity": pins.checkpoint_aggregate_identity,
-            "historical_commit_sha": pins.historical_commit_sha,
-            "historical_classification": pins.historical_classification,
-            "historical_checkpoint_2": pins.historical_checkpoint_2,
-            "recipe_raw_sha256": pins.recipe_raw_sha256,
-            "ratified_recipe_fingerprint": pins.ratified_recipe_fingerprint,
-            "historical_recipe_fingerprint": pins.historical_recipe_fingerprint,
-        }
-    )
+    identity_value = _historical_source_identity(pins)
     return VerifiedHistoricalSource(
         pins=pins,
         source_root=root,
@@ -512,6 +528,123 @@ def _verify_historical_source(pins: HistoricalSourcePins) -> VerifiedHistoricalS
 
 def verify_historical_source() -> VerifiedHistoricalSource:
     return _verify_historical_source(PRODUCTION_SOURCE_PINS)
+
+
+def _verified_historical_source_from_derivative(
+    archive: Path,
+) -> VerifiedHistoricalSource:
+    """Reconstruct the production-pinned source solely from derivative bytes."""
+
+    pins = PRODUCTION_SOURCE_PINS
+    expected_identity = _historical_source_identity(pins)
+    binding = _object(
+        (archive / "source/binding.json").read_bytes(),
+        "derivative source binding",
+    )
+    if (
+        binding.pop("schema", None) != SOURCE_BINDING_SCHEMA_ID
+        or binding != dict(expected_identity)
+    ):
+        raise ValueError("derivative source binding differs from production pins")
+
+    manifest_bytes = (archive / "source/SHA256-MANIFEST.txt").read_bytes()
+    if _sha256(manifest_bytes) != pins.root_manifest_raw_sha256.casefold():
+        raise ValueError("derivative source manifest differs from production pins")
+    manifest_rows = _parse_root_manifest(manifest_bytes)
+    root_rows = dict(manifest_rows)
+    source_copies = {
+        "checkpoint-1/checksums.json": "source/checkpoint-checksums.json",
+        "checkpoint-1/identity.json": "source/original-identity.json",
+        "checkpoint-1/checkpoint/classification.json": (
+            "source/original-classification.json"
+        ),
+        "checkpoint-1/planner/final_recipe.json": "source/final-recipe.json",
+        "checkpoint-1/planner/final_recipe_identity.json": (
+            "source/final-recipe-identity.json"
+        ),
+        **{
+            f"checkpoint-1/inputs/{relative}": f"source/inputs/{relative}"
+            for relative in _SOURCE_INPUT_PATHS
+        },
+    }
+    for historical_path, derivative_path in source_copies.items():
+        raw = (archive / derivative_path).read_bytes()
+        if _sha256(raw) != root_rows.get(historical_path):
+            raise ValueError(
+                f"derivative source differs from production: {historical_path}"
+            )
+
+    checkpoint_checksums_bytes = (
+        archive / "source/checkpoint-checksums.json"
+    ).read_bytes()
+    checkpoint_checksums = _object(
+        checkpoint_checksums_bytes,
+        "derivative source checkpoint checksums",
+    )
+    if checkpoint_checksums.get("aggregate_identity") != (
+        pins.checkpoint_aggregate_identity
+    ):
+        raise ValueError("derivative source checkpoint identity mismatch")
+    identity_bytes = (archive / "source/original-identity.json").read_bytes()
+    classification_bytes = (
+        archive / "source/original-classification.json"
+    ).read_bytes()
+    recipe_bytes = (archive / "source/final-recipe.json").read_bytes()
+    recipe_identity_bytes = (
+        archive / "source/final-recipe-identity.json"
+    ).read_bytes()
+    identity = _object(identity_bytes, "derivative historical identity")
+    classification = _object(
+        classification_bytes,
+        "derivative historical classification",
+    )
+    recipe_identity = _object(
+        recipe_identity_bytes,
+        "derivative historical recipe identity",
+    )
+    if identity.get("git_commit_sha") != pins.historical_commit_sha:
+        raise ValueError("derivative historical commit mismatch")
+    if (
+        classification.get("classification")
+        != pins.historical_classification
+        or classification.get("checkpoint_2")
+        != pins.historical_checkpoint_2
+    ):
+        raise ValueError("derivative historical classification mismatch")
+    if _sha256(recipe_bytes) != pins.recipe_raw_sha256:
+        raise ValueError("derivative historical recipe bytes mismatch")
+    if (
+        recipe_identity.get("raw_sha256") != pins.recipe_raw_sha256
+        or recipe_identity.get("mechanical_status")
+        != "mechanically_accepted"
+        or recipe_identity.get("ratified_recipe_fingerprint")
+        != pins.ratified_recipe_fingerprint
+        or recipe_identity.get("historical_recipe_fingerprint")
+        != pins.historical_recipe_fingerprint
+    ):
+        raise ValueError("derivative historical recipe identity mismatch")
+
+    input_bytes = {
+        relative: (archive / "source/inputs" / relative).read_bytes()
+        for relative in _SOURCE_INPUT_PATHS
+    }
+    input_records = PLANNER_ARTIFACTS.planner_input_records_from_bytes(
+        input_bytes
+    )
+    return VerifiedHistoricalSource(
+        pins=pins,
+        source_root=Path(pins.source_root).resolve(),
+        root_manifest_bytes=manifest_bytes,
+        root_manifest_rows=manifest_rows,
+        checkpoint_checksums_bytes=checkpoint_checksums_bytes,
+        original_identity_bytes=identity_bytes,
+        original_classification_bytes=classification_bytes,
+        final_recipe_bytes=recipe_bytes,
+        final_recipe_identity_bytes=recipe_identity_bytes,
+        input_manifest_bytes=None,
+        input_records=input_records,
+        identity_value=expected_identity,
+    )
 
 
 def _gate_value(gate: SUPPORT.MechanicalGateResult) -> dict[str, object]:
@@ -669,6 +802,36 @@ def assemble_continuation_instrument(
     )
 
 
+def _instrument_identity_value(
+    instrument: ContinuationInstrument,
+) -> dict[str, object]:
+    rubric_row = next(
+        row
+        for row in instrument.allowed_delta_rows
+        if row["role"] == "evaluation_rubric"
+    )
+    return {
+        "instrument_fingerprint": instrument.instrument_fingerprint,
+        "protocol_identity": dict(instrument.protocol_identity),
+        "historical_rubric_raw_sha256": rubric_row["source_raw_sha256"],
+        "historical_rubric_fingerprint": rubric_row[
+            "source_canonical_fingerprint"
+        ],
+        "corrected_rubric_raw_sha256": _sha256(
+            instrument.corrected_rubric_bytes
+        ),
+        "corrected_rubric_fingerprint": SUPPORT.fingerprint(
+            _object(instrument.corrected_rubric_bytes, "corrected rubric")
+        ),
+        "rendered_evaluator_request_raw_sha256": (
+            instrument.rendered_request.raw_sha256
+        ),
+        "provider_call_request_raw_sha256": _sha256(
+            instrument.provider_call_request_bytes
+        ),
+    }
+
+
 def bind_attempt(
     *,
     instrument_fingerprint: str,
@@ -761,7 +924,7 @@ def write_preflight_archive(
     output.mkdir(parents=False, exist_ok=False)
     source_binding = _json_bytes(
         {
-            "schema": "rook.lm9b_p.evaluator_continuation_source_binding:v1",
+            "schema": SOURCE_BINDING_SCHEMA_ID,
             **dict(instrument.source.identity_value),
         }
     )
@@ -784,28 +947,7 @@ def write_preflight_archive(
         for path, raw in sorted(sidecars.items())
     ]
     source_identity = dict(instrument.source.identity_value)
-    instrument_identity = {
-        "instrument_fingerprint": instrument.instrument_fingerprint,
-        "protocol_identity": dict(instrument.protocol_identity),
-        "historical_rubric_raw_sha256": next(
-            row["source_raw_sha256"]
-            for row in instrument.allowed_delta_rows
-            if row["role"] == "evaluation_rubric"
-        ),
-        "historical_rubric_fingerprint": next(
-            row["source_canonical_fingerprint"]
-            for row in instrument.allowed_delta_rows
-            if row["role"] == "evaluation_rubric"
-        ),
-        "corrected_rubric_raw_sha256": _sha256(instrument.corrected_rubric_bytes),
-        "corrected_rubric_fingerprint": SUPPORT.fingerprint(
-            _object(instrument.corrected_rubric_bytes, "corrected rubric")
-        ),
-        "rendered_evaluator_request_raw_sha256": instrument.rendered_request.raw_sha256,
-        "provider_call_request_raw_sha256": _sha256(
-            instrument.provider_call_request_bytes
-        ),
-    }
+    instrument_identity = _instrument_identity_value(instrument)
     attempt_identity = {
         "attempt_id": attempt.attempt_id,
         "attempt_fingerprint": attempt.attempt_fingerprint,
@@ -974,9 +1116,7 @@ def verify_preflight_archive(
         {"schema"} | _SOURCE_IDENTITY_KEYS,
         "preflight source binding",
     )
-    if source_binding.pop("schema") != (
-        "rook.lm9b_p.evaluator_continuation_source_binding:v1"
-    ):
+    if source_binding.pop("schema") != SOURCE_BINDING_SCHEMA_ID:
         raise ValueError("preflight source binding schema mismatch")
     if source_binding != source:
         raise ValueError("preflight source binding identity mismatch")
@@ -1116,7 +1256,7 @@ def write_static_derivative_snapshot(
     members: dict[str, bytes] = {
         "source/binding.json": _json_bytes(
             {
-                "schema": "rook.lm9b_p.evaluator_continuation_source_binding:v1",
+                "schema": SOURCE_BINDING_SCHEMA_ID,
                 **dict(source.identity_value),
             }
         ),
@@ -1353,11 +1493,13 @@ def seal_derivative_archive(
         staging,
         expected_derivative_identity=checksums["derivative_archive_identity"],
         require_canonical_destination=False,
+        code_owned_rubric_bytes=instrument.corrected_rubric_bytes,
     )
     return finalize_derivative_archive(
         staging,
         destination,
         expected_derivative_identity=verified_staging.derivative_archive_identity,
+        code_owned_rubric_bytes=instrument.corrected_rubric_bytes,
     )
 
 
@@ -1443,6 +1585,7 @@ def reconcile_derivative_rename(
     *,
     expected_derivative_identity: str,
     rename_exception: BaseException,
+    code_owned_rubric_bytes: bytes | None = None,
 ) -> SealedDerivative | PostDispatchUnsealed:
     staging = Path(staging).resolve(strict=False)
     destination = Path(destination).resolve(strict=False)
@@ -1450,9 +1593,11 @@ def reconcile_derivative_rename(
     destination_exists = destination.is_dir()
     if destination_exists and not staging_exists:
         try:
-            return verify_sealed_derivative_archive(
+            return _verify_sealed_derivative_archive(
                 destination,
                 expected_derivative_identity=expected_derivative_identity,
+                require_canonical_destination=True,
+                code_owned_rubric_bytes=code_owned_rubric_bytes,
             )
         except (OSError, ValueError):
             preflight, instrument, attempt_id, attempt = _attempt_identity_from_tree(
@@ -1499,6 +1644,7 @@ def finalize_derivative_archive(
     destination: Path,
     *,
     expected_derivative_identity: str,
+    code_owned_rubric_bytes: bytes | None = None,
 ) -> SealedDerivative | PostDispatchUnsealed:
     staging = Path(staging).resolve()
     destination = Path(destination).resolve(strict=False)
@@ -1508,14 +1654,17 @@ def finalize_derivative_archive(
         staging,
         expected_derivative_identity=expected_derivative_identity,
         require_canonical_destination=False,
+        code_owned_rubric_bytes=code_owned_rubric_bytes,
     )
     try:
         if destination.exists():
             raise FileExistsError(f"derivative destination exists: {destination}")
         staging.rename(destination)
-        return verify_sealed_derivative_archive(
+        return _verify_sealed_derivative_archive(
             destination,
             expected_derivative_identity=expected_derivative_identity,
+            require_canonical_destination=True,
+            code_owned_rubric_bytes=code_owned_rubric_bytes,
         )
     except BaseException as exc:
         return reconcile_derivative_rename(
@@ -1523,6 +1672,7 @@ def finalize_derivative_archive(
             destination,
             expected_derivative_identity=expected_derivative_identity,
             rename_exception=exc,
+            code_owned_rubric_bytes=code_owned_rubric_bytes,
         )
 
 
@@ -1531,6 +1681,7 @@ def _verify_sealed_derivative_archive(
     *,
     expected_derivative_identity: str | None = None,
     require_canonical_destination: bool,
+    code_owned_rubric_bytes: bytes | None,
 ) -> SealedDerivative:
     archive = Path(archive_dir).resolve()
     if not archive.is_dir() or (archive / "post_dispatch_unsealed.json").exists():
@@ -1660,62 +1811,18 @@ def _verify_sealed_derivative_archive(
         }
     ):
         raise ValueError("derivative preflight identity mismatch")
-    source_binding = _object(
-        (archive / "source/binding.json").read_bytes(),
-        "derivative source binding",
-    )
-    source_identity = dict(source_binding)
-    if source_identity.pop("schema", None) != (
-        "rook.lm9b_p.evaluator_continuation_source_binding:v1"
-    ) or source_identity != preflight_record.get("source"):
+    verified_source = _verified_historical_source_from_derivative(archive)
+    source_identity = dict(verified_source.identity_value)
+    if source_identity != preflight_record.get("source"):
         raise ValueError("derivative source identity mismatch")
-    root_manifest_bytes = (archive / "source/SHA256-MANIFEST.txt").read_bytes()
-    if _sha256(root_manifest_bytes) != source_identity.get(
-        "root_manifest_raw_sha256"
-    ):
-        raise ValueError("derivative source root manifest identity mismatch")
-    root_rows = dict(_parse_root_manifest(root_manifest_bytes))
-    source_copies = {
-        "checkpoint-1/checksums.json": "source/checkpoint-checksums.json",
-        "checkpoint-1/identity.json": "source/original-identity.json",
-        "checkpoint-1/checkpoint/classification.json": (
-            "source/original-classification.json"
-        ),
-        "checkpoint-1/planner/final_recipe.json": "source/final-recipe.json",
-        "checkpoint-1/planner/final_recipe_identity.json": (
-            "source/final-recipe-identity.json"
-        ),
-        **{
-            f"checkpoint-1/inputs/{relative}": f"source/inputs/{relative}"
-            for relative in _SOURCE_INPUT_PATHS
-        },
-    }
-    for historical_path, derivative_path in source_copies.items():
-        if _sha256((archive / derivative_path).read_bytes()) != root_rows.get(
-            historical_path
-        ):
-            raise ValueError(
-                f"derivative source copy differs from sealed source: {historical_path}"
-            )
-    recipe = (archive / "source/final-recipe.json").read_bytes()
-    if _sha256(recipe) != source_identity.get("recipe_raw_sha256"):
-        raise ValueError("derivative recipe byte identity mismatch")
+    recipe = verified_source.final_recipe_bytes
     protocol = _object(
         (archive / "instrument/protocol-identity.json").read_bytes(),
         "derivative protocol identity",
     )
     instrument_identity = preflight_record.get("instrument")
-    if not isinstance(instrument_identity, dict) or protocol != instrument_identity.get(
-        "protocol_identity"
-    ):
+    if not isinstance(instrument_identity, dict):
         raise ValueError("derivative instrument identity mismatch")
-    if capture["outcome"] == "returned" and (
-        capture["provider_metadata"].get("model_identity")
-        != protocol.get("model")
-        or capture["provider_metadata"].get("profile_identity")
-        != protocol.get("provider_profile")
-    ):
-        raise ValueError("evaluator attempt provider identity mismatch")
     preflight_file_rows = preflight_record.get("files")
     if not isinstance(preflight_file_rows, list):
         raise ValueError("derivative preflight file bindings are invalid")
@@ -1749,77 +1856,62 @@ def _verify_sealed_derivative_archive(
     corrected_rubric = (
         archive / "instrument/corrected-evaluator-rubric.json"
     ).read_bytes()
-    corrected_record = PLANNER_ARTIFACTS.planner_input_record_from_bytes(
-        role="evaluation_rubric",
-        relative_path="planner_evaluation_rubric.json",
-        raw_bytes=corrected_rubric,
-    )
-    if (
-        corrected_record.raw_sha256
-        != instrument_identity.get("corrected_rubric_raw_sha256")
-        or corrected_record.canonical_fingerprint
-        != instrument_identity.get("corrected_rubric_fingerprint")
-    ):
-        raise ValueError("derivative corrected rubric identity mismatch")
     allowed_delta = _object(
         (archive / "instrument/allowed-delta-manifest.json").read_bytes(),
         "derivative allowed delta",
     )
-    if (
-        set(allowed_delta) != {"schema", "rows"}
-        or allowed_delta["schema"] != ALLOWED_DELTA_SCHEMA_ID
-        or not isinstance(allowed_delta["rows"], list)
-    ):
-        raise ValueError("derivative allowed delta identity mismatch")
-    rubric_rows = [
-        row
-        for row in allowed_delta["rows"]
-        if isinstance(row, dict) and row.get("role") == "evaluation_rubric"
-    ]
-    if (
-        len(rubric_rows) != 1
-        or rubric_rows[0].get("source_raw_sha256")
-        != instrument_identity.get("historical_rubric_raw_sha256")
-        or rubric_rows[0].get("source_canonical_fingerprint")
-        != instrument_identity.get("historical_rubric_fingerprint")
-        or rubric_rows[0].get("instrument_raw_sha256")
-        != corrected_record.raw_sha256
-        or rubric_rows[0].get("instrument_canonical_fingerprint")
-        != corrected_record.canonical_fingerprint
-    ):
-        raise ValueError("derivative rubric delta identity mismatch")
     provider_request = (
         archive / "preflight/provider-call-request.json"
     ).read_bytes()
-    SUPPORT.materialize_planner_evaluator_provider_call_request(provider_request)
-    if (
-        _sha256(provider_request)
-        != instrument_identity.get("provider_call_request_raw_sha256")
-        or provider_request
-        != (archive / "evaluator/attempt/provider-call-request.json").read_bytes()
-    ):
-        raise ValueError("derivative provider request identity mismatch")
     rendered_request = (
         archive / "preflight/rendered-evaluator-request.json"
     ).read_bytes()
-    if _sha256(rendered_request) != instrument_identity.get(
-        "rendered_evaluator_request_raw_sha256"
-    ):
-        raise ValueError("derivative rendered request identity mismatch")
-    expected_instrument_fingerprint = SUPPORT.fingerprint(
-        {
-            "source": source_identity,
-            "allowed_delta": allowed_delta["rows"],
-            "protocol": protocol,
-            "reviewed_commit_sha": preflight_record.get("reviewed_commit_sha"),
-            "rendered_evaluator_request_raw_sha256": _sha256(rendered_request),
-            "provider_call_request_raw_sha256": _sha256(provider_request),
-        }
+
+    code_owned_rubric = (
+        CORRECTED_RUBRIC_PATH.read_bytes()
+        if code_owned_rubric_bytes is None
+        else code_owned_rubric_bytes
     )
-    if expected_instrument_fingerprint != instrument_identity.get(
-        "instrument_fingerprint"
+    if type(code_owned_rubric) is not bytes:
+        raise TypeError("code-owned corrected rubric bytes are required")
+    expected_instrument = assemble_continuation_instrument(
+        verified_source,
+        corrected_rubric_bytes=code_owned_rubric,
+        reviewed_commit_sha=preflight_record.get("reviewed_commit_sha"),
+    )
+    expected_delta = {
+        "schema": ALLOWED_DELTA_SCHEMA_ID,
+        "rows": [dict(row) for row in expected_instrument.allowed_delta_rows],
+    }
+    if corrected_rubric != code_owned_rubric:
+        raise ValueError("derivative corrected rubric differs from code-owned rubric")
+    if allowed_delta != expected_delta:
+        raise ValueError("derivative allowed delta is not constructively derived")
+    if _object(
+        (archive / "instrument/mechanical-gate.json").read_bytes(),
+        "derivative mechanical gate",
+    ) != _gate_value(expected_instrument.gate_result):
+        raise ValueError("derivative mechanical gate is not constructively derived")
+    if protocol != dict(expected_instrument.protocol_identity):
+        raise ValueError("derivative protocol differs from code-owned protocol")
+    if rendered_request != expected_instrument.rendered_request.raw_bytes:
+        raise ValueError("derivative rendered request is not constructively derived")
+    if provider_request != expected_instrument.provider_call_request_bytes:
+        raise ValueError("derivative provider request is not constructively derived")
+    if instrument_identity != _instrument_identity_value(expected_instrument):
+        raise ValueError("derivative instrument identity is not constructively derived")
+    SUPPORT.materialize_planner_evaluator_provider_call_request(provider_request)
+    if provider_request != (
+        archive / "evaluator/attempt/provider-call-request.json"
+    ).read_bytes():
+        raise ValueError("derivative evaluator request differs from instrument")
+    if capture["outcome"] == "returned" and (
+        capture["provider_metadata"].get("model_identity")
+        != protocol.get("model")
+        or capture["provider_metadata"].get("profile_identity")
+        != protocol.get("provider_profile")
     ):
-        raise ValueError("derivative instrument fingerprint mismatch")
+        raise ValueError("evaluator attempt provider identity mismatch")
 
     readiness_record = _object(
         (archive / "readiness/readiness-record.json").read_bytes(),
@@ -2148,6 +2240,7 @@ def verify_sealed_derivative_archive(
         archive_dir,
         expected_derivative_identity=expected_derivative_identity,
         require_canonical_destination=True,
+        code_owned_rubric_bytes=None,
     )
 
 

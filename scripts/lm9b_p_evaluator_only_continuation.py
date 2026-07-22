@@ -31,9 +31,7 @@ import lm9b_p_readiness_contract as READINESS
 from rook.agent.model_profiles import api_key_env_for_model
 
 
-CORRECTED_RUBRIC_PATH = (
-    _SCRIPTS_DIR / "lm9b_p_fixtures" / "planner_evaluation_rubric.json"
-)
+CORRECTED_RUBRIC_PATH = CONT_ARTIFACTS.CORRECTED_RUBRIC_PATH
 
 
 @dataclass(frozen=True)

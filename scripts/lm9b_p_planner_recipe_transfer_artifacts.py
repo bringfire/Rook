@@ -417,6 +417,26 @@ def planner_input_record_from_bytes(
     )
 
 
+def planner_input_records_from_bytes(
+    input_bytes_by_path: Mapping[str, bytes],
+) -> tuple[PlannerInputRecord, ...]:
+    """Reconstruct the complete code-owned Planner input record sequence."""
+
+    expected_paths = {
+        filename for _role, filename, _kind in _PLANNER_INPUT_FILES
+    }
+    if set(input_bytes_by_path) != expected_paths:
+        raise ValueError("Planner input byte set is incomplete or contains extras")
+    return tuple(
+        planner_input_record_from_bytes(
+            role=role,
+            relative_path=filename,
+            raw_bytes=input_bytes_by_path[filename],
+        )
+        for role, filename, _kind in _PLANNER_INPUT_FILES
+    )
+
+
 def _planner_input_record(
     fixture_dir: Path, role: str, filename: str, kind: str
 ) -> PlannerInputRecord:
@@ -2340,6 +2360,7 @@ __all__ = (
     "load_planner_authority_context",
     "load_planner_inputs",
     "planner_input_record_from_bytes",
+    "planner_input_records_from_bytes",
     "render_planner_evaluator_request",
     "render_planner_request",
     "seal_joined_aggregate",
