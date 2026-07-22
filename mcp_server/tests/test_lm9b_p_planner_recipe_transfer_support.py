@@ -1293,7 +1293,7 @@ def test_planner_evaluation_accepts_one_evidence_backed_recommendation_without_r
         [
             _planner_evaluation_turn(
                 {
-                    "recommendation": "faithful_ready",
+                    "recommendation": "semantically_faithful",
                     "evidence": [
                         {
                             "criterion_id": "brief_fidelity",
@@ -1311,7 +1311,7 @@ def test_planner_evaluation_accepts_one_evidence_backed_recommendation_without_r
         user_prompt="evaluator user",
     )
     assert result.termination == "valid_recommendation"
-    assert result.recommendation == "faithful_ready"
+    assert result.recommendation == "semantically_faithful"
     assert len(provider.requests) == 1
     request = provider.requests[0]
     assert request["tool_choice"]["function"]["name"] == "submit_planner_evaluation"
@@ -1323,7 +1323,7 @@ def test_planner_evaluation_accepts_one_evidence_backed_recommendation_without_r
     "response",
     [
         _planner_evaluation_turn(
-            {"recommendation": "faithful_ready", "evidence": []}
+            {"recommendation": "semantically_faithful", "evidence": []}
         ),
         _planner_evaluation_turn(
             {
@@ -1338,7 +1338,7 @@ def test_planner_evaluation_accepts_one_evidence_backed_recommendation_without_r
         ),
         _planner_evaluation_turn(
             {
-                "recommendation": "faithful_ready",
+                "recommendation": "semantically_faithful",
                 "evidence": [
                     {
                         "criterion_id": "not_a_rubric_criterion",

@@ -723,3 +723,32 @@ The strongest successful LM9B-P claim is:
 
 Any weaker result is recorded at its exact checkpoint without repair, retry, or
 promotion into a broader claim.
+
+---
+
+## Addendum (2026-07-22) — evaluator authority boundary
+
+Amended by `2026-07-22-lm9b-p-evaluator-authority-boundary-design.md` after the
+sealed visibility-intervention run. Governing invariant: **models propose and
+judge meaning; deterministic authority decides whether the system may advance.**
+
+The evaluator recommendation vocabulary is semantic-only:
+`semantically_faithful`, `semantically_unfaithful`, `evaluation_inconclusive`.
+The controller derives advancement deterministically, bound to the accepted
+turn's recomputed `MechanicalGateResult` (byte-equality integrity check against
+the session's final bytes; mismatch is a control failure, never a
+classification):
+
+```text
+mechanically admissible + semantically_faithful   + unresolved_intent_present -> probe_candidate_blocked
+mechanically admissible + semantically_faithful   + no explicit blocker       -> probe_candidate_ready
+mechanically admissible + semantically_unfaithful                             -> probe_planner_failure
+mechanically admissible + evaluation_inconclusive                             -> probe_inconclusive
+```
+
+`derive_probe_explicit_blockers` establishes only `unresolved_intent_present`;
+this probe does not establish the absence of policy/capability/selection/
+authorization blockers (LM9A-S territory). `probe_candidate_ready` remains
+eligibility for the inert compiler experiment only. The exact report schema and
+recommendation meanings are rendered into the evaluator request from the
+parser's single source of truth.

@@ -342,9 +342,9 @@ def test_authoring_contract_and_rubric_bind_the_closure_ledger() -> None:
         "recipe_schema": "rook.planner_graph_recipe:v1",
     }
     assert inputs.evaluation_rubric["recommendations"] == (
-        "faithful_blocked",
-        "faithful_ready",
-        "planner_failure",
+        "evaluation_inconclusive",
+        "semantically_faithful",
+        "semantically_unfaithful",
     )
 
 

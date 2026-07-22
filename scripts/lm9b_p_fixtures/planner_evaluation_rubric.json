@@ -34,9 +34,9 @@
     }
   ],
   "recommendations": [
-    "faithful_blocked",
-    "faithful_ready",
-    "planner_failure"
+    "evaluation_inconclusive",
+    "semantically_faithful",
+    "semantically_unfaithful"
   ],
   "forbidden_dependencies": [
     "compiler terminal result",
@@ -44,5 +44,5 @@
     "model-authored expected recipe",
     "visible Planner session record"
   ],
-  "rubric_fingerprint": "sha256:15515f283f08f822228eba26aa39a63729e43bd9494774fbac5625572bf4a334"
+  "rubric_fingerprint": "sha256:b2df2f5d0c1d4dd108bc5c649a558183ffac7c476be9f3bdb9eefee6fca0d0aa"
 }
