@@ -274,7 +274,9 @@ def test_mechanical_rejection_is_unchanged() -> None:
         termination="mechanically_rejected", final_recipe_bytes=None, turns=()
     )
     assert (
-        ARTIFACTS.derive_checkpoint_classification(session, None)
+        ARTIFACTS.derive_checkpoint_classification(
+            session, None, checkpoint_gate=None
+        )
         == "probe_mechanically_rejected"
     )
 
@@ -287,13 +289,29 @@ def test_legacy_recommendation_cannot_reach_the_controller_map() -> None:
         )
 
 
-def test_missing_checkpoint_gate_is_integrity_failure() -> None:
+@pytest.mark.parametrize(
+    "evaluator",
+    [
+        None,
+        SimpleNamespace(termination="malformed", recommendation=None),
+        SimpleNamespace(termination="provider_failure", recommendation=None),
+        SimpleNamespace(
+            termination="valid_recommendation",
+            recommendation="semantically_faithful",
+        ),
+    ],
+    ids=["absent", "malformed", "provider_failure", "valid"],
+)
+def test_missing_checkpoint_gate_is_integrity_failure(evaluator) -> None:
     # Classifying an accepted session WITHOUT the independent checkpoint
-    # reevaluation must refuse - sealing may never bypass the proof carrier.
+    # reevaluation must refuse for EVERY evaluator state - including absent,
+    # malformed, and provider-failure evaluators. Sealing calls the same
+    # function, so an accepted session with a failed evaluator can never be
+    # sealed without proving acceptance under the archived frozen inputs.
     session, _gate_result = _accepted_session(READY_RECIPE.read_bytes())
     with pytest.raises(ValueError):
         ARTIFACTS.derive_checkpoint_classification(
-            session, _evaluator("semantically_faithful")
+            session, evaluator, checkpoint_gate=None
         )
 
 

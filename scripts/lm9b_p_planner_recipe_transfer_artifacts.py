@@ -1260,7 +1260,7 @@ def derive_checkpoint_classification(
     planner_session: object,
     evaluator: object | None,
     *,
-    checkpoint_gate: object | None = None,
+    checkpoint_gate: object | None,
 ) -> str:
     """Derive the sole Checkpoint 1 classification from captured outcomes.
 
@@ -1271,16 +1271,19 @@ def derive_checkpoint_classification(
     checkpoint inputs. This is the proof carrier: classification and sealing
     must consume it, proving the archived result was accepted under the exact
     frozen inputs being archived - never merely the session-loop result, and
-    never the model's recommendation.
+    never the model's recommendation. The proof carrier is validated for EVERY
+    accepted session, before any evaluator branch, so an accepted session with
+    an absent, malformed, or failed evaluator can never be classified or
+    sealed without it. Callers pass ``checkpoint_gate=None`` explicitly for
+    non-accepted sessions.
     """
 
     termination = getattr(planner_session, "termination", None)
     if termination == "mechanically_rejected":
         return "probe_mechanically_rejected"
-    if termination != "mechanically_accepted" or evaluator is None:
+    if termination != "mechanically_accepted":
         return "probe_inconclusive"
-    if getattr(evaluator, "termination", None) != "valid_recommendation":
-        return "probe_inconclusive"
+    # Proof carrier FIRST - before any evaluator branch.
     if type(checkpoint_gate) is not MechanicalGateResult:
         raise ValueError(
             "checkpoint gate result is required to classify an accepted session"
@@ -1312,6 +1315,10 @@ def derive_checkpoint_classification(
         raise ValueError(
             "checkpoint gate result does not match the accepted turn gate result"
         )
+    if evaluator is None:
+        return "probe_inconclusive"
+    if getattr(evaluator, "termination", None) != "valid_recommendation":
+        return "probe_inconclusive"
     recommendation = getattr(evaluator, "recommendation", None)
     if recommendation == "semantically_unfaithful":
         return "probe_planner_failure"
@@ -1893,7 +1900,7 @@ def _trusted_archive_records(
     classification: str,
     planner_attempts: Sequence[Mapping[str, object]],
     evaluator_attempts: Sequence[Mapping[str, object]],
-    checkpoint_gate: object | None = None,
+    checkpoint_gate: object | None,
 ) -> Mapping[str, str]:
     planner_termination = getattr(planner_session, "termination", None)
     session_turns = tuple(getattr(planner_session, "turns", ()))
@@ -2092,7 +2099,7 @@ def seal_planner_checkpoint_archive(
     planner_session: object, evaluator: object | None, evaluator_request: RenderedRequest | None,
     planner_provider_attempts: Sequence[ProviderAttemptEvidence], evaluator_provider_attempts: Sequence[ProviderAttemptEvidence],
     evaluator_elapsed_ms: int | None, classification: str, archive_identity: Mapping[str, object],
-    checkpoint_gate: object | None = None,
+    checkpoint_gate: object | None,
 ) -> SealedPlannerCheckpointArchive:
     destination = Path(destination).resolve()
     if destination.exists():
