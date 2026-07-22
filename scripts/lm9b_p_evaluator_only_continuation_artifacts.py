@@ -202,8 +202,93 @@ class VerifiedContinuationPreflight:
     provider_call_request_bytes: bytes
 
 
+@dataclass(frozen=True)
+class SealedDerivative:
+    archive_dir: Path
+    derivative_archive_identity: str
+    classification: str
+    identity: Mapping[str, object]
+    state: str = "sealed"
+
+
+@dataclass(frozen=True)
+class PostDispatchUnsealed:
+    staging_dir: Path
+    attempt_id: str
+    attempt_fingerprint: str
+    failure_locus: str
+    classification: None = None
+    state: str = "post_dispatch_unsealed"
+
+
+_SOURCE_INPUT_PATHS = (
+    "attempt_context.json",
+    "radial_brief.txt",
+    "task_envelope.json",
+    "environment_snapshot.json",
+    "planning_policy.json",
+    "payload_schema_registry.json",
+    "capability_registry.json",
+    "semantic_authority_code_vocabulary.json",
+    "semantic_capability_code_vocabulary.json",
+    "worker_slot_code_vocabulary.json",
+    "semantic_materiality_code_vocabulary.json",
+    "semantic_value_schema_registry.json",
+    "planner_recipe_probe_schema.json",
+    "recipe_normalization_profile.json",
+    "planner_authoring_contract.json",
+    "planner_exclusion_policy.json",
+    "planner_evaluation_rubric.json",
+)
+_DERIVATIVE_REQUIRED_ROLES = {
+    "identity.json": "identity",
+    "source/binding.json": "source_binding",
+    "source/SHA256-MANIFEST.txt": "source_root_manifest",
+    "source/checkpoint-checksums.json": "source_checkpoint_checksums",
+    "source/original-identity.json": "source_original_identity",
+    "source/original-classification.json": "source_original_classification",
+    "source/final-recipe.json": "source_final_recipe",
+    "source/final-recipe-identity.json": "source_final_recipe_identity",
+    **{
+        f"source/inputs/{path}": f"source_input:{path}"
+        for path in _SOURCE_INPUT_PATHS
+    },
+    "instrument/allowed-delta-manifest.json": "instrument_allowed_delta",
+    "instrument/corrected-evaluator-rubric.json": "instrument_corrected_rubric",
+    "instrument/protocol-identity.json": "instrument_protocol_identity",
+    "instrument/mechanical-gate.json": "instrument_mechanical_gate",
+    "preflight/record.json": "preflight_record",
+    "preflight/rendered-evaluator-request.json": "preflight_rendered_request",
+    "preflight/provider-call-request.json": "preflight_provider_request",
+    "launch/invocation-binding.json": "launch_invocation_binding",
+    "readiness/readiness-record.json": "readiness_record",
+    "readiness/credential-preflight.json": "readiness_credential_preflight",
+    "dispatch/dispatch-started.json": "dispatch_started",
+    "evaluator/attempt/capture.json": "evaluator_attempt_capture",
+    "evaluator/attempt/provider-call-request.json": (
+        "evaluator_attempt_provider_request"
+    ),
+    "evaluator/result.json": "evaluator_result",
+    "decision/classification.json": "decision_classification",
+    "boundary.json": "boundary",
+}
+_DERIVATIVE_CHECKSUMS_SCHEMA_ID = (
+    "rook.lm9b_p.evaluator.continuation_derivative_checksums:v1"
+)
+
+
 def _json_bytes(value: object) -> bytes:
-    return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    return (json.dumps(_builtins(value), indent=2, sort_keys=True) + "\n").encode(
+        "utf-8"
+    )
+
+
+def _builtins(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _builtins(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_builtins(item) for item in value]
+    return value
 
 
 def _sha256(raw: bytes) -> str:
@@ -996,6 +1081,517 @@ def verify_preflight_archive(
     )
 
 
+def reserve_staging(attempt: AttemptBinding) -> Path:
+    """Atomically reserve the preflight-bound direct-child staging directory."""
+
+    if attempt.staging_path.parent != attempt.derivative_root:
+        raise ValueError("staging reservation escaped the derivative root")
+    if attempt.destination.exists():
+        raise FileExistsError(f"derivative destination exists: {attempt.destination}")
+    attempt.staging_path.mkdir(parents=False, exist_ok=False)
+    return attempt.staging_path
+
+
+def write_static_derivative_snapshot(
+    *,
+    staging: Path,
+    source: VerifiedHistoricalSource,
+    instrument: ContinuationInstrument,
+    preflight_record_bytes: bytes,
+    allowed_delta_bytes: bytes,
+    mechanical_gate_bytes: bytes,
+    rendered_request_bytes: bytes,
+    provider_request_bytes: bytes,
+    invocation_binding_bytes: bytes,
+    readiness_record_bytes: bytes,
+    credential_preflight_bytes: bytes,
+) -> None:
+    input_by_path = {record.relative_path: record.raw_bytes for record in source.input_records}
+    if set(input_by_path) != set(_SOURCE_INPUT_PATHS):
+        raise ValueError("continuation source input snapshot is incomplete")
+    members: dict[str, bytes] = {
+        "source/binding.json": _json_bytes(
+            {
+                "schema": "rook.lm9b_p.evaluator.continuation_source_binding:v1",
+                **dict(source.identity_value),
+            }
+        ),
+        "source/SHA256-MANIFEST.txt": source.root_manifest_bytes,
+        "source/checkpoint-checksums.json": source.checkpoint_checksums_bytes,
+        "source/original-identity.json": source.original_identity_bytes,
+        "source/original-classification.json": source.original_classification_bytes,
+        "source/final-recipe.json": source.final_recipe_bytes,
+        "source/final-recipe-identity.json": source.final_recipe_identity_bytes,
+        "instrument/allowed-delta-manifest.json": allowed_delta_bytes,
+        "instrument/corrected-evaluator-rubric.json": (
+            instrument.corrected_rubric_bytes
+        ),
+        "instrument/protocol-identity.json": _json_bytes(
+            dict(instrument.protocol_identity)
+        ),
+        "instrument/mechanical-gate.json": mechanical_gate_bytes,
+        "preflight/record.json": preflight_record_bytes,
+        "preflight/rendered-evaluator-request.json": rendered_request_bytes,
+        "preflight/provider-call-request.json": provider_request_bytes,
+        "launch/invocation-binding.json": invocation_binding_bytes,
+        "readiness/readiness-record.json": readiness_record_bytes,
+        "readiness/credential-preflight.json": credential_preflight_bytes,
+        "evaluator/attempt/provider-call-request.json": provider_request_bytes,
+    }
+    for relative, raw in input_by_path.items():
+        members[f"source/inputs/{relative}"] = raw
+    for relative, raw in members.items():
+        _write_exclusive(staging / relative, raw)
+    for relative, raw in members.items():
+        if (staging / relative).read_bytes() != raw:
+            raise OSError(f"staged snapshot readback mismatch: {relative}")
+
+
+def write_dispatch_started(
+    *,
+    staging: Path,
+    attempt_id: str,
+    attempt_fingerprint: str,
+    provider_call_request_bytes: bytes,
+) -> bytes:
+    raw = _json_bytes(
+        {
+            "schema": "rook.lm9b_p.evaluator.continuation_dispatch_started:v1",
+            "attempt_id": attempt_id,
+            "attempt_fingerprint": attempt_fingerprint,
+            "provider_call_request_raw_sha256": _sha256(
+                provider_call_request_bytes
+            ),
+        }
+    )
+    _write_exclusive(staging / "dispatch/dispatch-started.json", raw)
+    return raw
+
+
+def _attempt_members(
+    attempt: object,
+    *,
+    quiescent: bool,
+) -> tuple[dict[str, object], dict[str, bytes]]:
+    outcome = getattr(attempt, "outcome", None)
+    turn = getattr(attempt, "provider_turn", None)
+    adapter_request = getattr(turn, "raw_request", None)
+    response = getattr(turn, "raw_response", None)
+    usage = getattr(turn, "usage", None)
+    metadata = getattr(turn, "provider_metadata", None)
+    if adapter_request is None:
+        adapter_request = getattr(attempt, "raw_request", None)
+    error = getattr(attempt, "raw_error", None)
+    assistant = getattr(turn, "assistant_message", None)
+    tool_arguments: list[bytes] = []
+    if isinstance(assistant, Mapping):
+        calls = assistant.get("tool_calls")
+        if isinstance(calls, list):
+            for call in calls:
+                function = call.get("function") if isinstance(call, dict) else None
+                argument = function.get("arguments") if isinstance(function, dict) else None
+                if isinstance(argument, str):
+                    tool_arguments.append(argument.encode("utf-8"))
+    optional: dict[str, bytes] = {}
+    for relative, raw in (
+        ("evaluator/attempt/adapter-request.bin", adapter_request),
+        ("evaluator/attempt/response.bin", response),
+        ("evaluator/attempt/error.bin", error),
+    ):
+        if isinstance(raw, bytes):
+            optional[relative] = raw
+    if isinstance(usage, Mapping):
+        optional["evaluator/attempt/usage.json"] = _json_bytes(usage)
+    for index, raw in enumerate(tool_arguments):
+        optional[f"evaluator/attempt/tool-arguments/{index:03d}.bin"] = raw
+    capture = {
+        "schema": "rook.lm9b_p.evaluator.continuation_attempt_capture:v1",
+        "outcome": outcome,
+        "elapsed_ms": getattr(attempt, "elapsed_ms", None),
+        "exception_type": getattr(attempt, "exception_type", None),
+        "exception_message": getattr(attempt, "exception_message", None),
+        "failure_type": getattr(attempt, "failure_type", None),
+        "has_adapter_request": isinstance(adapter_request, bytes),
+        "has_response": isinstance(response, bytes),
+        "has_error": isinstance(error, bytes),
+        "has_usage": isinstance(usage, Mapping),
+        "provider_metadata": dict(metadata) if isinstance(metadata, Mapping) else None,
+        "tool_argument_indexes": list(range(len(tool_arguments))),
+        "quiescent": quiescent,
+    }
+    return capture, optional
+
+
+def _derivative_optional_roles(capture: Mapping[str, object]) -> dict[str, str]:
+    optional: dict[str, str] = {}
+    for field, relative, role in (
+        ("has_adapter_request", "evaluator/attempt/adapter-request.bin", "adapter_request"),
+        ("has_response", "evaluator/attempt/response.bin", "response"),
+        ("has_error", "evaluator/attempt/error.bin", "error"),
+        ("has_usage", "evaluator/attempt/usage.json", "usage"),
+    ):
+        if type(capture.get(field)) is not bool:
+            raise ValueError("derivative attempt capture flags are invalid")
+        if capture[field]:
+            optional[relative] = f"evaluator_attempt_{role}"
+    indexes = capture.get("tool_argument_indexes")
+    if (
+        not isinstance(indexes, list)
+        or indexes != list(range(len(indexes)))
+    ):
+        raise ValueError("derivative tool argument indexes are invalid")
+    for index in indexes:
+        optional[f"evaluator/attempt/tool-arguments/{index:03d}.bin"] = (
+            f"evaluator_attempt_tool_argument:{index}"
+        )
+    return optional
+
+
+def seal_derivative_archive(
+    *,
+    staging: Path,
+    destination: Path,
+    preflight: VerifiedContinuationPreflight,
+    instrument: ContinuationInstrument,
+    evaluator: SUPPORT.PlannerEvaluationResult,
+    attempt: object,
+    classification: str,
+) -> SealedDerivative:
+    if evaluator.quiescent is not True or getattr(attempt, "outcome", None) not in {
+        "returned",
+        "raised",
+    }:
+        raise ValueError("evaluator attempt is not complete and quiescent")
+    capture, optional = _attempt_members(attempt, quiescent=evaluator.quiescent)
+    result_value = {
+        "schema": "rook.lm9b_p.evaluator.continuation_evaluator_result:v1",
+        "termination": evaluator.termination,
+        "recommendation": evaluator.recommendation,
+        "evidence": list(evaluator.evidence),
+        "quiescent": evaluator.quiescent,
+    }
+    decision_value = {
+        "schema": "rook.lm9b_p.evaluator.continuation_classification:v1",
+        "classification": classification,
+        "semantic_recommendation": evaluator.recommendation,
+    }
+    boundary = {
+        "schema": "rook.lm9b_p.evaluator.continuation_boundary:v1",
+        "derivative_observation": True,
+        "replaces_historical_result": False,
+        "planner_entry": "absent",
+        "compiler_entry": "absent",
+        "checkpoint_2": "not_evaluated",
+        "execution_permitted": False,
+    }
+    identity_subject = {
+        "preflight_fingerprint": preflight.preflight_fingerprint,
+        "instrument_fingerprint": preflight.instrument_fingerprint,
+        "attempt_id": preflight.attempt_id,
+        "attempt_fingerprint": preflight.attempt_fingerprint,
+        "reviewed_commit_sha": preflight.record["reviewed_commit_sha"],
+        "model": instrument.protocol_identity["model"],
+        "provider_profile": instrument.protocol_identity["provider_profile"],
+        "canonical_destination": str(destination),
+        "evaluator_result": result_value,
+        "classification": decision_value,
+    }
+    identity = {
+        "schema_id": DERIVATIVE_SCHEMA_ID,
+        **{
+            key: value
+            for key, value in identity_subject.items()
+            if key not in {"evaluator_result", "classification"}
+        },
+        "derivative_subject_fingerprint": SUPPORT.fingerprint(identity_subject),
+    }
+    members = {
+        "identity.json": _json_bytes(identity),
+        "evaluator/attempt/capture.json": _json_bytes(capture),
+        **optional,
+        "evaluator/result.json": _json_bytes(result_value),
+        "decision/classification.json": _json_bytes(decision_value),
+        "boundary.json": _json_bytes(boundary),
+    }
+    for relative, raw in members.items():
+        _write_exclusive(staging / relative, raw)
+
+    expected_roles = {**_DERIVATIVE_REQUIRED_ROLES, **_derivative_optional_roles(capture)}
+    actual_before_checksums = {
+        path.relative_to(staging).as_posix()
+        for path in staging.rglob("*")
+        if path.is_file()
+    }
+    if actual_before_checksums != set(expected_roles):
+        raise ValueError("derivative staging membership is invalid")
+    checksum_rows = [
+        _file_row(relative, expected_roles[relative], (staging / relative).read_bytes())
+        for relative in sorted(expected_roles)
+    ]
+    checksums = {
+        "schema": _DERIVATIVE_CHECKSUMS_SCHEMA_ID,
+        "records": checksum_rows,
+    }
+    checksums["derivative_archive_identity"] = SUPPORT.fingerprint(checksums)
+    _write_exclusive(staging / "checksums.json", _json_bytes(checksums))
+    verified_staging = verify_sealed_derivative_archive(
+        staging,
+        expected_derivative_identity=checksums["derivative_archive_identity"],
+    )
+    if destination.exists():
+        raise FileExistsError(f"derivative destination exists: {destination}")
+    staging.rename(destination)
+    return verify_sealed_derivative_archive(
+        destination,
+        expected_derivative_identity=verified_staging.derivative_archive_identity,
+    )
+
+
+def retain_post_dispatch_unsealed(
+    *,
+    staging: Path,
+    preflight_fingerprint: str,
+    instrument_fingerprint: str,
+    attempt_id: str,
+    attempt_fingerprint: str,
+    failure_locus: str,
+    exception: BaseException | None = None,
+) -> PostDispatchUnsealed:
+    marker_path = staging / "post_dispatch_unsealed.json"
+    try:
+        partial = []
+        for path in sorted(item for item in staging.rglob("*") if item.is_file()):
+            if path == marker_path:
+                continue
+            relative = path.relative_to(staging).as_posix()
+            raw = path.read_bytes()
+            partial.append(
+                {
+                    "path": relative,
+                    "raw_sha256": _sha256(raw),
+                    "byte_length": len(raw),
+                }
+            )
+        marker = {
+            "schema_id": UNSEALED_SCHEMA_ID,
+            "attempt_id": attempt_id,
+            "attempt_fingerprint": attempt_fingerprint,
+            "preflight_fingerprint": preflight_fingerprint,
+            "instrument_fingerprint": instrument_fingerprint,
+            "dispatch_started": (
+                staging / "dispatch/dispatch-started.json"
+            ).is_file(),
+            "failure_locus": failure_locus,
+            "exception_type": type(exception).__name__ if exception else None,
+            "exception_message": str(exception)[:2000] if exception else None,
+            "partial_forensic_hashes": partial,
+            "checksum_closed": False,
+            "classification": None,
+        }
+        if not marker_path.exists():
+            _write_exclusive(marker_path, _json_bytes(marker))
+    except OSError:
+        pass
+    return PostDispatchUnsealed(
+        staging_dir=staging,
+        attempt_id=attempt_id,
+        attempt_fingerprint=attempt_fingerprint,
+        failure_locus=failure_locus,
+    )
+
+
+def verify_sealed_derivative_archive(
+    archive_dir: Path,
+    *,
+    expected_derivative_identity: str | None = None,
+) -> SealedDerivative:
+    archive = Path(archive_dir).resolve()
+    if not archive.is_dir() or (archive / "post_dispatch_unsealed.json").exists():
+        raise ValueError("sealed derivative archive is unavailable")
+    actual = {
+        path.relative_to(archive).as_posix()
+        for path in archive.rglob("*")
+        if path.is_file()
+    }
+    for relative in actual:
+        lowered = relative.casefold()
+        if (
+            "compiler" in lowered
+            or "handoff" in lowered
+            or "checkpoint-2" in lowered
+            or "successor-disposition" in lowered
+        ):
+            raise ValueError("sealed derivative contains forbidden boundary evidence")
+    checksums = _object((archive / "checksums.json").read_bytes(), "derivative checksums")
+    _require_keys(
+        checksums,
+        {"schema", "records", "derivative_archive_identity"},
+        "derivative checksums",
+    )
+    if checksums["schema"] != _DERIVATIVE_CHECKSUMS_SCHEMA_ID or not isinstance(
+        checksums["records"], list
+    ):
+        raise ValueError("derivative checksum schema is invalid")
+    rows = checksums["records"]
+    if checksums["derivative_archive_identity"] != SUPPORT.fingerprint(
+        {"schema": checksums["schema"], "records": rows}
+    ):
+        raise ValueError("derivative archive identity mismatch")
+    if (
+        expected_derivative_identity is not None
+        and checksums["derivative_archive_identity"] != expected_derivative_identity
+    ):
+        raise ValueError("unexpected derivative archive identity")
+    capture = _object(
+        (archive / "evaluator/attempt/capture.json").read_bytes(),
+        "derivative attempt capture",
+    )
+    expected_roles = {**_DERIVATIVE_REQUIRED_ROLES, **_derivative_optional_roles(capture)}
+    if actual != set(expected_roles) | {"checksums.json"}:
+        raise ValueError("sealed derivative archive file set is invalid")
+    if [row.get("path") for row in rows] != sorted(expected_roles):
+        raise ValueError("derivative checksum closure is invalid")
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {
+            "path",
+            "role",
+            "raw_sha256",
+            "byte_length",
+        }:
+            raise ValueError("derivative checksum row is invalid")
+        relative = row["path"]
+        raw = (archive / relative).read_bytes()
+        if (
+            row["role"] != expected_roles[relative]
+            or row["raw_sha256"] != _sha256(raw)
+            or row["byte_length"] != len(raw)
+        ):
+            raise ValueError(f"derivative checksum mismatch: {relative}")
+
+    identity = _object((archive / "identity.json").read_bytes(), "derivative identity")
+    if identity.get("schema_id") != DERIVATIVE_SCHEMA_ID:
+        raise ValueError("derivative identity schema mismatch")
+    preflight_record = _object(
+        (archive / "preflight/record.json").read_bytes(),
+        "derivative preflight record",
+    )
+    supplied_preflight = preflight_record.get("preflight_fingerprint")
+    if supplied_preflight != SUPPORT.fingerprint(
+        {
+            key: value
+            for key, value in preflight_record.items()
+            if key != "preflight_fingerprint"
+        }
+    ):
+        raise ValueError("derivative preflight identity mismatch")
+    source_binding = _object(
+        (archive / "source/binding.json").read_bytes(),
+        "derivative source binding",
+    )
+    source_identity = dict(source_binding)
+    if source_identity.pop("schema", None) != (
+        "rook.lm9b_p.evaluator.continuation_source_binding:v1"
+    ) or source_identity != preflight_record.get("source"):
+        raise ValueError("derivative source identity mismatch")
+    recipe = (archive / "source/final-recipe.json").read_bytes()
+    if _sha256(recipe) != source_identity.get("recipe_raw_sha256"):
+        raise ValueError("derivative recipe byte identity mismatch")
+    protocol = _object(
+        (archive / "instrument/protocol-identity.json").read_bytes(),
+        "derivative protocol identity",
+    )
+    instrument_identity = preflight_record.get("instrument")
+    if not isinstance(instrument_identity, dict) or protocol != instrument_identity.get(
+        "protocol_identity"
+    ):
+        raise ValueError("derivative instrument identity mismatch")
+    provider_request = (
+        archive / "preflight/provider-call-request.json"
+    ).read_bytes()
+    SUPPORT.materialize_planner_evaluator_provider_call_request(provider_request)
+    if (
+        _sha256(provider_request)
+        != instrument_identity.get("provider_call_request_raw_sha256")
+        or provider_request
+        != (archive / "evaluator/attempt/provider-call-request.json").read_bytes()
+    ):
+        raise ValueError("derivative provider request identity mismatch")
+    result = _object(
+        (archive / "evaluator/result.json").read_bytes(),
+        "derivative evaluator result",
+    )
+    _require_keys(
+        result,
+        {"schema", "termination", "recommendation", "evidence", "quiescent"},
+        "derivative evaluator result",
+    )
+    evaluator = SUPPORT.PlannerEvaluationResult(
+        termination=result["termination"],
+        recommendation=result["recommendation"],
+        evidence=tuple(result["evidence"]),
+        raw_response=None,
+        usage=None,
+        quiescent=result["quiescent"],
+    )
+    decision = _object(
+        (archive / "decision/classification.json").read_bytes(),
+        "derivative classification",
+    )
+    classification = PLANNER_ARTIFACTS.derive_evaluated_recipe_classification(
+        evaluator,
+        final_recipe_bytes=recipe,
+    )
+    if (
+        decision.get("classification") != classification
+        or decision.get("semantic_recommendation") != evaluator.recommendation
+    ):
+        raise ValueError("derivative classification is not mechanically derived")
+    expected_boundary = {
+        "schema": "rook.lm9b_p.evaluator.continuation_boundary:v1",
+        "derivative_observation": True,
+        "replaces_historical_result": False,
+        "planner_entry": "absent",
+        "compiler_entry": "absent",
+        "checkpoint_2": "not_evaluated",
+        "execution_permitted": False,
+    }
+    if _object((archive / "boundary.json").read_bytes(), "derivative boundary") != expected_boundary:
+        raise ValueError("derivative boundary is invalid")
+    identity_subject = {
+        "preflight_fingerprint": supplied_preflight,
+        "instrument_fingerprint": instrument_identity.get("instrument_fingerprint"),
+        "attempt_id": preflight_record.get("attempt", {}).get("attempt_id"),
+        "attempt_fingerprint": preflight_record.get("attempt", {}).get(
+            "attempt_fingerprint"
+        ),
+        "reviewed_commit_sha": preflight_record.get("reviewed_commit_sha"),
+        "model": protocol.get("model"),
+        "provider_profile": protocol.get("provider_profile"),
+        "canonical_destination": preflight_record.get("attempt", {}).get(
+            "canonical_destination"
+        ),
+        "evaluator_result": result,
+        "classification": decision,
+    }
+    expected_identity = {
+        "schema_id": DERIVATIVE_SCHEMA_ID,
+        **{
+            key: value
+            for key, value in identity_subject.items()
+            if key not in {"evaluator_result", "classification"}
+        },
+        "derivative_subject_fingerprint": SUPPORT.fingerprint(identity_subject),
+    }
+    if identity != expected_identity:
+        raise ValueError("derivative subject identity mismatch")
+    return SealedDerivative(
+        archive_dir=archive,
+        derivative_archive_identity=checksums["derivative_archive_identity"],
+        classification=classification,
+        identity=MappingProxyType(identity),
+    )
+
+
 __all__ = (
     "ALLOWED_DELTA_SCHEMA_ID",
     "ATTEMPT_ID_PATTERN",
@@ -1008,13 +1604,21 @@ __all__ = (
     "PREFLIGHT_SCHEMA_ID",
     "PRODUCTION_SOURCE_PINS",
     "PROVIDER_PROFILE_ID",
+    "PostDispatchUnsealed",
+    "SealedDerivative",
     "UNSEALED_SCHEMA_ID",
     "VerifiedContinuationPreflight",
     "VerifiedHistoricalSource",
     "_verify_historical_source",
     "assemble_continuation_instrument",
     "bind_attempt",
+    "reserve_staging",
+    "retain_post_dispatch_unsealed",
+    "seal_derivative_archive",
     "verify_historical_source",
     "verify_preflight_archive",
+    "verify_sealed_derivative_archive",
+    "write_dispatch_started",
     "write_preflight_archive",
+    "write_static_derivative_snapshot",
 )

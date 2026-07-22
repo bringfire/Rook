@@ -1295,12 +1295,24 @@ def run_planner_evaluation(
     *,
     provider: Callable[[dict[str, object]], ProviderTurn],
     provider_call_request_bytes: bytes,
+    materialized_request: dict[str, object] | None = None,
 ) -> PlannerEvaluationResult:
     """Run one independent Planner evaluator call with no feedback path."""
 
-    request = materialize_planner_evaluator_provider_call_request(
-        provider_call_request_bytes
-    )
+    if materialized_request is None:
+        request = materialize_planner_evaluator_provider_call_request(
+            provider_call_request_bytes
+        )
+    else:
+        canonical = json.dumps(
+            materialized_request,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        if canonical != provider_call_request_bytes:
+            raise ValueError("materialized provider request does not match canonical bytes")
+        request = materialized_request
     outcome = _bounded_provider_call(
         provider,
         request,

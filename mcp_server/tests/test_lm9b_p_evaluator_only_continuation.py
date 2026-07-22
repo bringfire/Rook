@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import importlib.util
 import json
-import shutil
 import subprocess
 import sys
-from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -31,8 +31,11 @@ def _load_script(name: str):
 
 SUPPORT = _load_script("lm9b_p_planner_recipe_transfer_support")
 PLANNER_ARTIFACTS = _load_script("lm9b_p_planner_recipe_transfer_artifacts")
+READINESS_CONTRACT = _load_script("lm9b_p_readiness_contract")
+READINESS_PROBE = _load_script("lm9b_p_readiness_probe")
 CONT_ARTIFACTS = _load_script("lm9b_p_evaluator_only_continuation_artifacts")
 CONTINUATION = _load_script("lm9b_p_evaluator_only_continuation")
+PLANNER_PROBE = CONTINUATION.PLANNER_PROBE
 
 
 def _json_bytes(value: object) -> bytes:
@@ -41,6 +44,194 @@ def _json_bytes(value: object) -> bytes:
 
 def _sha256(raw: bytes) -> str:
     return "sha256:" + hashlib.sha256(raw).hexdigest()
+
+
+def _tree_digest(root: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+        digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+class _ReadinessClock:
+    def __init__(self) -> None:
+        self.second = 0
+
+    def __call__(self) -> str:
+        self.second += 1
+        return f"2026-07-22T12:00:{self.second:02d}Z"
+
+
+def _readiness_provider(_route):
+    def call(_request):
+        return SUPPORT.ProviderTurn(
+            raw_request=b'{"canary":true}',
+            raw_response=b'{"canary":"ok"}',
+            assistant_message={
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "canary-1",
+                        "type": "function",
+                        "function": {
+                            "name": "ack",
+                            "arguments": '{"ok": true}',
+                        },
+                    }
+                ],
+            },
+            usage={},
+            provider_metadata={},
+        )
+
+    return call
+
+
+class _EvaluatorProvider:
+    def __init__(self, recommendation: str = "semantically_faithful") -> None:
+        self.model = "gpt-5.4"
+        self.temperature = 0.0
+        self.profile_identity = "litellm.completion.tool_calling.no_parallel:v1"
+        self.identity = {
+            "adapter_path": "litellm.completion",
+            "model": self.model,
+            "profile_identity": self.profile_identity,
+            "temperature": self.temperature,
+        }
+        self.calls = 0
+        self.received_canonical_bytes: bytes | None = None
+        self.recommendation = recommendation
+
+    def __call__(self, request: dict[str, object]):
+        self.calls += 1
+        self.received_canonical_bytes = json.dumps(
+            request,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        request["provider_mutation"] = True
+        report = {
+            "recommendation": self.recommendation,
+            "evidence": [
+                {
+                    "criterion_id": "brief_fidelity",
+                    "finding": "The submitted recipe preserves the visible brief.",
+                }
+            ],
+        }
+        arguments = json.dumps(
+            {"evaluation_json": json.dumps(report, separators=(",", ":"))},
+            separators=(",", ":"),
+        )
+        return SUPPORT.ProviderTurn(
+            raw_request=b'{"adapter":"request"}',
+            raw_response=b'{"provider":"response"}',
+            assistant_message={
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "evaluation-1",
+                        "type": "function",
+                        "function": {
+                            "name": "submit_planner_evaluation",
+                            "arguments": arguments,
+                        },
+                    }
+                ],
+            },
+            usage={"total_tokens": 37},
+            provider_metadata={
+                "model_identity": self.model,
+                "profile_identity": self.profile_identity,
+                "provider": "openai",
+            },
+        )
+
+
+class _RaisingEvaluatorProvider(_EvaluatorProvider):
+    def __init__(self, exception: BaseException) -> None:
+        super().__init__()
+        self.exception = exception
+
+    def __call__(self, request: dict[str, object]):
+        self.calls += 1
+        self.received_canonical_bytes = json.dumps(
+            request,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        raise self.exception
+
+
+class _MalformedEvaluatorProvider(_EvaluatorProvider):
+    def __call__(self, request: dict[str, object]):
+        self.calls += 1
+        self.received_canonical_bytes = json.dumps(
+            request,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return SUPPORT.ProviderTurn(
+            raw_request=b'{"adapter":"request"}',
+            raw_response=b'{"provider":"malformed"}',
+            assistant_message={"role": "assistant", "content": "no tool call"},
+            usage={"total_tokens": 9},
+            provider_metadata={
+                "model_identity": self.model,
+                "profile_identity": self.profile_identity,
+            },
+        )
+
+
+def _execution_fixture(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    provider: object,
+):
+    pins = _sealed_historical_source(tmp_path / "source")
+    source_digest = _tree_digest(pins.source_root)
+    head = "f" * 40
+    monkeypatch.setattr(CONT_ARTIFACTS, "PRODUCTION_SOURCE_PINS", pins)
+    monkeypatch.setattr(CONTINUATION, "_git_checkout_state", lambda: (head, True))
+    derivative_root = tmp_path / "derivatives"
+    derivative_root.mkdir()
+    destination = derivative_root / "evaluator-observation-01"
+    preflight = CONTINUATION.emit_no_contact_preflight(
+        CONTINUATION.PreflightConfig(
+            output_dir=tmp_path / "preflight",
+            reviewed_commit_sha=head,
+            attempt_id="evaluator-observation-01",
+            derivative_root=derivative_root,
+            destination=destination,
+            launch_eligibility="operator_review_candidate",
+        )
+    )
+    readiness_root = tmp_path / "readiness"
+    READINESS_PROBE.run_readiness(
+        run_root=readiness_root,
+        head_sha=head,
+        environ={"OPENAI_API_KEY": "present"},
+        authenticate=True,
+        provider_factory=_readiness_provider,
+        clock=_ReadinessClock(),
+        models={"planner_evaluator": "gpt-5.4"},
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "present")
+    monkeypatch.setattr(
+        CONTINUATION,
+        "_readiness_now_iso",
+        lambda: "2026-07-22T12:00:03Z",
+        raising=False,
+    )
+    monkeypatch.setattr(CONTINUATION, "_build_evaluator_provider", lambda: provider)
+    return pins, source_digest, preflight, readiness_root, destination
 
 
 def _rewrite_preflight_record(preflight: Path, mutate) -> str:
@@ -461,3 +652,436 @@ def test_preflight_verifier_rejects_reclosed_identity_drift(
             preflight.archive_dir,
             expected_preflight_fingerprint=changed_fingerprint,
         )
+
+
+def test_vertical_continuation_dispatches_once_and_never_enters_compiler(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    provider = _EvaluatorProvider()
+    pins, source_digest, preflight, readiness_root, destination = (
+        _execution_fixture(monkeypatch, tmp_path, provider)
+    )
+    original_preflight_provider_bytes = (
+        preflight.archive_dir / "provider-call-request.json"
+    ).read_bytes()
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("compiler-specific behavior was reached")
+
+    monkeypatch.setattr(PLANNER_PROBE, "run_joined_probe", forbidden)
+    monkeypatch.setattr(PLANNER_PROBE, "_freeze_compiler_controls", forbidden)
+    monkeypatch.setattr(PLANNER_ARTIFACTS, "build_lm9bc_handoff", forbidden)
+
+    assert CONTINUATION.main(
+        [
+            "execute",
+            "--preflight-dir",
+            str(preflight.archive_dir),
+            "--expected-preflight-fingerprint",
+            preflight.preflight_fingerprint,
+            "--readiness-record",
+            str(readiness_root / "readiness_record.json"),
+            "--credential-preflight",
+            str(readiness_root / "preflight.json"),
+            "--transmit",
+        ]
+    ) == 0
+
+    assert provider.calls == 1
+    assert provider.received_canonical_bytes == preflight.provider_call_request_bytes
+    assert preflight.provider_call_request_bytes == original_preflight_provider_bytes
+    assert (
+        preflight.archive_dir / "provider-call-request.json"
+    ).read_bytes() == original_preflight_provider_bytes
+    sealed = CONT_ARTIFACTS.verify_sealed_derivative_archive(destination)
+    assert sealed.classification == "probe_candidate_blocked"
+    assert sealed.identity["schema_id"] == CONT_ARTIFACTS.DERIVATIVE_SCHEMA_ID
+    assert sealed.identity["attempt_fingerprint"] == preflight.attempt_fingerprint
+    assert json.loads((destination / "boundary.json").read_bytes()) == {
+        "schema": "rook.lm9b_p.evaluator.continuation_boundary:v1",
+        "derivative_observation": True,
+        "replaces_historical_result": False,
+        "planner_entry": "absent",
+        "compiler_entry": "absent",
+        "checkpoint_2": "not_evaluated",
+        "execution_permitted": False,
+    }
+    assert not any(
+        "compiler" in path.relative_to(destination).as_posix().casefold()
+        for path in destination.rglob("*")
+    )
+    assert _tree_digest(pins.source_root) == source_digest
+
+
+@pytest.mark.parametrize(
+    ("fault", "expected_state", "expected_classification"),
+    [
+        ("provider_mutates", "sealed", "probe_candidate_blocked"),
+        ("provider_exception", "sealed", "probe_inconclusive"),
+        ("quiescent_timeout", "sealed", "probe_inconclusive"),
+        ("malformed_report", "sealed", "probe_inconclusive"),
+        ("evaluation_inconclusive", "sealed", "probe_inconclusive"),
+        ("semantically_unfaithful", "sealed", "probe_planner_failure"),
+        ("ambiguous_timeout", "post_dispatch_unsealed", None),
+        ("interrupt_after_dispatch_marker", "post_dispatch_unsealed", None),
+        ("evidence_corruption", "post_dispatch_unsealed", None),
+        ("snapshot_identity_mismatch", "post_dispatch_unsealed", None),
+        ("classification_failure", "post_dispatch_unsealed", None),
+        ("checksum_failure", "post_dispatch_unsealed", None),
+    ],
+)
+def test_post_dispatch_outcome_and_fault_matrix(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    fault: str,
+    expected_state: str,
+    expected_classification: str | None,
+) -> None:
+    if fault == "provider_exception":
+        provider = _RaisingEvaluatorProvider(RuntimeError("provider failed"))
+    elif fault == "quiescent_timeout":
+        provider = _RaisingEvaluatorProvider(TimeoutError("provider timed out"))
+    elif fault == "malformed_report":
+        provider = _MalformedEvaluatorProvider()
+    elif fault == "evaluation_inconclusive":
+        provider = _EvaluatorProvider("evaluation_inconclusive")
+    elif fault == "semantically_unfaithful":
+        provider = _EvaluatorProvider("semantically_unfaithful")
+    else:
+        provider = _EvaluatorProvider()
+    _pins, _source_digest, preflight, readiness_root, _destination = (
+        _execution_fixture(monkeypatch, tmp_path, provider)
+    )
+
+    if fault == "ambiguous_timeout":
+        monkeypatch.setattr(
+            SUPPORT,
+            "run_planner_evaluation",
+            lambda **_kwargs: SUPPORT.PlannerEvaluationResult(
+                "timeout", None, (), None, None, quiescent=False
+            ),
+        )
+    elif fault == "interrupt_after_dispatch_marker":
+        monkeypatch.setattr(
+            SUPPORT,
+            "run_planner_evaluation",
+            lambda **_kwargs: (_ for _ in ()).throw(
+                RuntimeError("interrupted after dispatch marker")
+            ),
+        )
+    elif fault == "evidence_corruption":
+        monkeypatch.setattr(
+            CONT_ARTIFACTS,
+            "_attempt_members",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                ValueError("captured evidence corrupted")
+            ),
+        )
+    elif fault == "snapshot_identity_mismatch":
+        monkeypatch.setattr(
+            CONT_ARTIFACTS,
+            "seal_derivative_archive",
+            lambda **_kwargs: (_ for _ in ()).throw(
+                ValueError("staged snapshot identity mismatch")
+            ),
+        )
+    elif fault == "classification_failure":
+        monkeypatch.setattr(
+            PLANNER_ARTIFACTS,
+            "derive_evaluated_recipe_classification",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                ValueError("classification derivation failed")
+            ),
+        )
+    elif fault == "checksum_failure":
+        original_write = CONT_ARTIFACTS._write_exclusive
+
+        def fail_checksum(path: Path, raw: bytes) -> None:
+            if path.name == "checksums.json":
+                raise OSError("checksum persistence failed")
+            original_write(path, raw)
+
+        monkeypatch.setattr(CONT_ARTIFACTS, "_write_exclusive", fail_checksum)
+
+    result = CONTINUATION.execute_continuation(
+        CONTINUATION.ExecutionConfig(
+            preflight_dir=preflight.archive_dir,
+            expected_preflight_fingerprint=preflight.preflight_fingerprint,
+            readiness_record=readiness_root / "readiness_record.json",
+            credential_preflight=readiness_root / "preflight.json",
+            transmit=True,
+        )
+    )
+    assert provider.calls <= 1
+    assert result.state == expected_state
+    if expected_state == "sealed":
+        sealed = CONT_ARTIFACTS.verify_sealed_derivative_archive(result.archive_dir)
+        assert sealed.classification == expected_classification
+    else:
+        marker = json.loads(
+            (result.staging_dir / "post_dispatch_unsealed.json").read_bytes()
+        )
+        assert marker["schema_id"] == CONT_ARTIFACTS.UNSEALED_SCHEMA_ID
+        assert marker["attempt_fingerprint"] == preflight.attempt_fingerprint
+        assert marker["classification"] is None
+        with pytest.raises(ValueError):
+            CONT_ARTIFACTS.verify_sealed_derivative_archive(result.staging_dir)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "source_manifest",
+        "source_file",
+        "checkpoint_seal",
+        "non_rubric_input",
+        "corrected_rubric",
+        "allowed_delta",
+        "system_prompt",
+        "renderer",
+        "report_schema",
+        "recommendation_meanings",
+        "tool_schema",
+        "limit",
+        "provider_builder",
+        "route",
+        "model",
+        "profile",
+        "commit",
+        "dirty",
+        "rendered_request",
+        "provider_request",
+        "destination_exists",
+        "destination_nested",
+        "destination_escape",
+        "reparse_root",
+    ],
+)
+def test_every_pre_contact_drift_refuses_before_evaluator_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    provider = _EvaluatorProvider()
+    pins, _source_digest, preflight, readiness_root, destination = (
+        _execution_fixture(monkeypatch, tmp_path, provider)
+    )
+    expected_fingerprint = preflight.preflight_fingerprint
+
+    if mutation == "source_manifest":
+        manifest = pins.source_root / "SHA256-MANIFEST.txt"
+        manifest.write_bytes(manifest.read_bytes() + b"x")
+    elif mutation == "source_file":
+        target = pins.source_root / "_launch-logs/2026-07-22-visibility.launch.out.txt"
+        if not target.exists():
+            target = next(
+                path
+                for path in pins.source_root.rglob("*")
+                if path.is_file() and path.name != "SHA256-MANIFEST.txt"
+            )
+        target.write_bytes(target.read_bytes() + b"x")
+    elif mutation == "checkpoint_seal":
+        target = pins.source_root / "checkpoint-1/checksums.json"
+        target.write_bytes(target.read_bytes() + b"x")
+    elif mutation == "non_rubric_input":
+        target = pins.source_root / "checkpoint-1/inputs/task_envelope.json"
+        target.write_bytes(target.read_bytes() + b"x")
+    elif mutation == "corrected_rubric":
+        changed = tmp_path / "changed-rubric.json"
+        value = json.loads(CONTINUATION.CORRECTED_RUBRIC_PATH.read_bytes())
+        value["rubric_id"] = "changed-rubric"
+        value["rubric_fingerprint"] = SUPPORT.fingerprint_without(
+            value, "rubric_fingerprint"
+        )
+        changed.write_bytes(_json_bytes(value))
+        monkeypatch.setattr(CONTINUATION, "CORRECTED_RUBRIC_PATH", changed)
+    elif mutation == "allowed_delta":
+        target = preflight.archive_dir / "allowed-delta-manifest.json"
+        target.write_bytes(target.read_bytes() + b"x")
+    elif mutation == "system_prompt":
+        monkeypatch.setattr(
+            SUPPORT,
+            "PLANNER_EVALUATOR_SYSTEM_PROMPT",
+            SUPPORT.PLANNER_EVALUATOR_SYSTEM_PROMPT + " drift",
+        )
+    elif mutation == "renderer":
+        monkeypatch.setattr(
+            PLANNER_ARTIFACTS,
+            "PLANNER_EVALUATOR_RENDERER_ID",
+            "lm9b_p.planner_evaluator_request_renderer:drift",
+        )
+    elif mutation == "report_schema":
+        changed = copy.deepcopy(SUPPORT.PLANNER_EVALUATION_REPORT_SCHEMA)
+        changed["title"] = "drift"
+        monkeypatch.setattr(SUPPORT, "PLANNER_EVALUATION_REPORT_SCHEMA", changed)
+    elif mutation == "recommendation_meanings":
+        changed = dict(SUPPORT.PLANNER_EVALUATION_RECOMMENDATION_MEANINGS)
+        changed["semantically_faithful"] += " drift"
+        monkeypatch.setattr(
+            SUPPORT, "PLANNER_EVALUATION_RECOMMENDATION_MEANINGS", changed
+        )
+    elif mutation == "tool_schema":
+        original = SUPPORT.planner_evaluator_tool_definition
+
+        def changed_tool():
+            value = original()
+            value["function"]["description"] += " drift"
+            return value
+
+        monkeypatch.setattr(SUPPORT, "planner_evaluator_tool_definition", changed_tool)
+    elif mutation == "limit":
+        monkeypatch.setattr(
+            SUPPORT,
+            "PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS",
+            SUPPORT.PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS + 1,
+        )
+    elif mutation == "provider_builder":
+        original = SUPPORT.build_planner_evaluator_provider_call_request
+
+        def changed_builder(**kwargs):
+            value = json.loads(original(**kwargs))
+            value["builder_drift"] = True
+            return json.dumps(
+                value, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+
+        monkeypatch.setattr(
+            SUPPORT, "build_planner_evaluator_provider_call_request", changed_builder
+        )
+    elif mutation == "route":
+        target = readiness_root / "readiness_record.json"
+        value = json.loads(target.read_bytes())
+        value["routes"][0]["member_roles"] = ["planner"]
+        value["record_fingerprint"] = READINESS_CONTRACT.record_fingerprint(value)
+        target.write_bytes(_json_bytes(value))
+    elif mutation == "model":
+        monkeypatch.setattr(CONT_ARTIFACTS, "EVALUATOR_MODEL", "gpt-5.5")
+    elif mutation == "profile":
+        provider.profile_identity = "profile-drift"
+        provider.identity["profile_identity"] = "profile-drift"
+    elif mutation == "commit":
+        monkeypatch.setattr(
+            CONTINUATION, "_git_checkout_state", lambda: ("0" * 40, True)
+        )
+    elif mutation == "dirty":
+        monkeypatch.setattr(
+            CONTINUATION, "_git_checkout_state", lambda: ("f" * 40, False)
+        )
+    elif mutation == "rendered_request":
+        target = preflight.archive_dir / "rendered-evaluator-request.json"
+        target.write_bytes(target.read_bytes() + b"x")
+    elif mutation == "provider_request":
+        target = preflight.archive_dir / "provider-call-request.json"
+        target.write_bytes(target.read_bytes() + b"x")
+    elif mutation == "destination_exists":
+        destination.mkdir()
+    elif mutation in {"destination_nested", "destination_escape"}:
+        replacement = (
+            preflight.derivative_root / "nested" / "observation"
+            if mutation == "destination_nested"
+            else tmp_path / "escaped-observation"
+        )
+
+        def change_destination(record: dict[str, object]) -> None:
+            record["attempt"]["canonical_destination"] = str(replacement)
+
+        expected_fingerprint = _rewrite_preflight_record(
+            preflight.archive_dir, change_destination
+        )
+    elif mutation == "reparse_root":
+        monkeypatch.setattr(
+            CONT_ARTIFACTS.os,
+            "lstat",
+            lambda _path: SimpleNamespace(st_file_attributes=0x400),
+        )
+    else:  # pragma: no cover - parameter vocabulary is closed above.
+        raise AssertionError(mutation)
+
+    with pytest.raises((ValueError, RuntimeError, FileExistsError, OSError)):
+        CONTINUATION._verify_pre_dispatch(
+            CONTINUATION.ExecutionConfig(
+                preflight_dir=preflight.archive_dir,
+                expected_preflight_fingerprint=expected_fingerprint,
+                readiness_record=readiness_root / "readiness_record.json",
+                credential_preflight=readiness_root / "preflight.json",
+                transmit=True,
+            )
+        )
+    assert provider.calls == 0
+    assert not (preflight.staging_path / "dispatch/dispatch-started.json").exists()
+
+
+def test_irreversible_boundary_operation_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    provider = _EvaluatorProvider()
+    _pins, _source_digest, preflight, readiness_root, _destination = (
+        _execution_fixture(monkeypatch, tmp_path, provider)
+    )
+    trace: list[str] = []
+
+    def wrap(module, name: str, label: str):
+        original = getattr(module, name)
+
+        def traced(*args, **kwargs):
+            trace.append(label)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(module, name, traced)
+
+    wrap(CONT_ARTIFACTS, "verify_preflight_archive", "verify_preflight")
+    wrap(CONTINUATION, "_git_checkout_state", "git_state")
+    wrap(CONT_ARTIFACTS, "verify_historical_source", "verify_source")
+    original_read = CONTINUATION._stable_read
+
+    def traced_read(path: Path, label: str):
+        if label == "corrected evaluator rubric":
+            trace.append("read_rubric")
+        elif label == "readiness record":
+            trace.append("read_readiness")
+        return original_read(path, label)
+
+    monkeypatch.setattr(CONTINUATION, "_stable_read", traced_read)
+    wrap(CONTINUATION, "_build_evaluator_provider", "build_provider")
+    wrap(CONT_ARTIFACTS, "reserve_staging", "reserve_staging")
+    wrap(CONT_ARTIFACTS, "write_static_derivative_snapshot", "persist_snapshot")
+    wrap(
+        SUPPORT,
+        "materialize_planner_evaluator_provider_call_request",
+        "materialize_request",
+    )
+    wrap(CONT_ARTIFACTS, "write_dispatch_started", "dispatch_marker")
+    wrap(SUPPORT, "run_planner_evaluation", "run_evaluator")
+
+    result = CONTINUATION.execute_continuation(
+        CONTINUATION.ExecutionConfig(
+            preflight_dir=preflight.archive_dir,
+            expected_preflight_fingerprint=preflight.preflight_fingerprint,
+            readiness_record=readiness_root / "readiness_record.json",
+            credential_preflight=readiness_root / "preflight.json",
+            transmit=True,
+        )
+    )
+    assert result.state == "sealed"
+    ordered = [
+        "verify_preflight",
+        "git_state",
+        "verify_source",
+        "read_rubric",
+        "read_readiness",
+        "build_provider",
+        "reserve_staging",
+        "persist_snapshot",
+        "materialize_request",
+        "dispatch_marker",
+        "run_evaluator",
+    ]
+    cursor = -1
+    for label in ordered:
+        next_index = trace.index(label, cursor + 1)
+        assert next_index > cursor, trace
+        cursor = next_index
+    assert trace.index("dispatch_marker") < trace.index("run_evaluator")
+    assert provider.calls == 1
