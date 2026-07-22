@@ -22,8 +22,8 @@ Map exactly where the evaluator request is rendered (support/artifacts/fixtures)
 
 ## Task 4 — Controller contract + equations (Closure 2c)
 - **Red:** amended `derive_checkpoint_classification` tests:
-  - contract now consumes the accepted turn's recomputed `MechanicalGateResult` (from `PlannerTurnRecord.gate_result`); blockers derived ONLY from `gate_result.final_recipe_bytes`;
-  - **integrity check:** `gate_result.final_recipe_bytes != planner_session.final_recipe_bytes` → integrity/control failure (raise), never a classification;
+  - contract consumes the independent post-session `checkpoint_gate` (recomputed from the final recipe under the frozen checkpoint inputs), a **required** keyword validated before any evaluator branch; blockers derived ONLY from `checkpoint_gate.final_recipe_bytes`;
+  - **integrity checks:** `checkpoint_gate.final_recipe_bytes != planner_session.final_recipe_bytes`, or `checkpoint_gate` ≠ the accepted turn's retained gate result, or a missing/non-accepted gate on an accepted session → integrity/control failure (raise), never a classification;
   - matrix: faithful+`unresolved_intent_present`→`probe_candidate_blocked`; faithful+no-explicit-blocker→`probe_candidate_ready`; unfaithful→`probe_planner_failure`; inconclusive→`probe_inconclusive`; malformed/absent evaluator→`probe_inconclusive` (unchanged); mechanical rejection unchanged.
 - **Green:** controller combines gate result + semantic verdict + explicit-blocker projection; recommendation can no longer directly select ready/blocked.
 

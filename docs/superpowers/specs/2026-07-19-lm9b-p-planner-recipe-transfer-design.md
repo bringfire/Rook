@@ -734,10 +734,13 @@ judge meaning; deterministic authority decides whether the system may advance.**
 
 The evaluator recommendation vocabulary is semantic-only:
 `semantically_faithful`, `semantically_unfaithful`, `evaluation_inconclusive`.
-The controller derives advancement deterministically, bound to the accepted
-turn's recomputed `MechanicalGateResult` (byte-equality integrity check against
-the session's final bytes; mismatch is a control failure, never a
-classification):
+The controller derives advancement deterministically, bound to the independent
+post-session `checkpoint_gate`: the `MechanicalGateResult` recomputed from the
+final recipe under the frozen checkpoint inputs, validated for every accepted
+session before any evaluator branch. It must exactly match the accepted turn's
+retained gate result and bind the same final bytes as the session (any
+mismatch is a control failure, never a classification); sealing rederives the
+classification through the same carrier:
 
 ```text
 mechanically admissible + semantically_faithful   + unresolved_intent_present -> probe_candidate_blocked
