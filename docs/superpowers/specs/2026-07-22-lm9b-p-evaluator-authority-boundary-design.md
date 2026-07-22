@@ -31,15 +31,17 @@ Restrict the evaluator to **semantic fidelity findings only** and make readiness
   - `semantically_faithful` — the recipe faithfully represents the brief under the authority context (regardless of blockers);
   - `semantically_unfaithful` — unauthorized, contradictory, invented, or unfaithful content;
   - `evaluation_inconclusive` — the evaluator cannot establish either.
-- **Deterministic blocker projection** (new pure function, controller-side): `recipe_blocked(recipe) = len(recipe["unresolved_intent"]) > 0` for this frozen workerless scenario. (Policy/capability/authorization blockers are structurally excluded by the frozen profile; the projection is written so additional blocker sources can be listed explicitly later — but only unresolved intent is in scope now.)
+- **Deterministic explicit-blocker projection, bound to the accepted artifact.** New pure function `derive_probe_explicit_blockers(final_recipe_bytes)`:
+  - **Input binding:** the controller contract is amended to consume the accepted turn's recomputed `MechanicalGateResult` (retained on `PlannerTurnRecord.gate_result`). Unresolved intent is derived **only** from `gate_result.final_recipe_bytes`, after proving those bytes equal `planner_session.final_recipe_bytes`. **A mismatch is an integrity/control failure, never a classification.**
+  - **Closed output:** the only blocker this probe can deterministically establish is `unresolved_intent_present`. The function's output vocabulary is closed to exactly that. This slice does **not** and cannot establish that policy, capability, selection, or authorization blockers are absent — that requires LM9A-S. Accordingly, `probe_candidate_ready` retains its existing meaning: **eligibility for the inert compiler experiment only, not product compile readiness.**
 - **Controller equations** (deterministic, replace the direct recommendation map):
   ```text
-  mechanically admissible + semantically_faithful   + blockers present -> probe_candidate_blocked
-  mechanically admissible + semantically_faithful   + no blockers      -> probe_candidate_ready
-  mechanically admissible + semantically_unfaithful                    -> probe_planner_failure
-  mechanically admissible + evaluation_inconclusive                    -> probe_inconclusive
+  mechanically admissible + semantically_faithful   + unresolved_intent_present -> probe_candidate_blocked
+  mechanically admissible + semantically_faithful   + no explicit blocker       -> probe_candidate_ready
+  mechanically admissible + semantically_unfaithful                             -> probe_planner_failure
+  mechanically admissible + evaluation_inconclusive                             -> probe_inconclusive
   ```
-- **Override impossibility:** no semantic recommendation can override explicit recipe state. A faithful recipe with nonempty `unresolved_intent` can never classify `probe_candidate_ready` and never contacts the compiler — proven by test.
+- **Override impossibility:** no semantic recommendation can override explicit recipe state. A faithful recipe with nonempty `unresolved_intent` can never classify `probe_candidate_ready`. The architectural guarantee for a blocked classification is: **no handoff, no compiler provider call, no compiler attempt evidence, checkpoint 2 = `not_evaluated`** — proven by test. (Compiler adapter *construction* in the transmit path is not forced lazy; construction has no demonstrated external side effect.)
 
 **Declared contract change (honest):** this replaces the evaluator recommendation enum (`faithful_ready|faithful_blocked|planner_failure` → the semantic-only triple). It is an intentional authority-boundary correction directed by the reviewer, superseding the earlier "keep the recommendation vocabulary" instruction. The `recommendation + evidence[{criterion_id, finding}]` report **shape** is retained; the rubric criteria, evaluator model, temperature, retry policy (one attempt), and semantic scoring approach are unchanged. We do **not** accept the model's earlier richer report shape merely because it was emitted.
 
@@ -47,18 +49,19 @@ Restrict the evaluator to **semantic fidelity findings only** and make readiness
 
 1. Single source of truth: one module-level report-schema object; the evaluator request renders it verbatim; the parser validates against the same object.
 2. Semantic-only recommendation enum + explicit meaning strings rendered with the schema (so the evaluator is told what each verdict means, including that readiness is **not** its decision).
-3. Deterministic blocker projection + controller equations in `derive_checkpoint_classification` (or an adjacent pure function it calls).
+3. `derive_probe_explicit_blockers` + amended controller contract (consumes the accepted turn's `MechanicalGateResult`; byte-equality integrity check; equations above) in/beside `derive_checkpoint_classification`.
 4. Vertical fake-provider test: the **rendered** evaluator-request schema equals the **accepted** parser schema (object identity/equality, not token match).
 5. Consistency tests:
-   - faithful + nonempty `unresolved_intent` → `probe_candidate_blocked`; compiler never contacted (assert no checkpoint-2 provider construction);
-   - faithful + empty `unresolved_intent` → `probe_candidate_ready`;
+   - faithful + nonempty `unresolved_intent` → `probe_candidate_blocked`; and the blocked path shows **no handoff, no compiler provider call, no compiler attempt evidence, checkpoint 2 `not_evaluated`**;
+   - faithful + empty `unresolved_intent` → `probe_candidate_ready` (eligibility for the inert experiment only);
    - unfaithful → `probe_planner_failure`; inconclusive → `probe_inconclusive`;
-   - a synthetic evaluator emitting a legacy/inconsistent recommendation is rejected (`malformed` or explicit invalid-recommendation), never classified ready.
+   - a synthetic evaluator emitting a legacy/inconsistent recommendation is rejected (`malformed` or explicit invalid-recommendation), never classified ready;
+   - gate-bytes vs session-bytes mismatch → integrity/control failure, never a classification.
 6. Doc note in the LM9B-P design doc recording the authority split and equations.
 
 ## Out of scope
 
-Full LM9A-S; rubric criteria changes; evaluator/compiler model, temperature, token budget, retry-policy changes; Planner-side anything; compiler-side anything; accepting the richer emitted report shape; **any model call**. The evaluator-only continuation on the sealed recipe bytes is a separate, later, explicitly-authorized run — its expected successful outcome for this artifact is **`probe_candidate_blocked`**, not compiler entry. The sealed visibility run remains permanently `probe_inconclusive`.
+Full LM9A-S; a general blocker framework; policy evaluation; capability authorization; receipt handling; forced-lazy compiler adapter construction; rubric criteria changes; evaluator/compiler model, temperature, token budget, retry-policy changes; Planner-side anything; compiler-side anything; accepting the richer emitted report shape; **any model call**. The evaluator-only continuation on the sealed recipe bytes is a separate, later, explicitly-authorized run. Its **falsifiable prediction** (a forecast, not a required success): *if the evaluator judges the sealed recipe semantically faithful, the deterministic unresolved-intent projection must classify it `probe_candidate_blocked`.* The continuation may instead validly yield `semantically_unfaithful` or `evaluation_inconclusive`. The sealed visibility run remains permanently `probe_inconclusive`.
 
 ## Where changes land
 

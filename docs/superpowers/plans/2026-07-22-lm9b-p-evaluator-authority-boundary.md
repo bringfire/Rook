@@ -16,23 +16,25 @@ Map exactly where the evaluator request is rendered (support/artifacts/fixtures)
 - **Red:** tests: parser accepts `semantically_faithful|semantically_unfaithful|evaluation_inconclusive`; rejects the legacy `faithful_ready|faithful_blocked|planner_failure` and any other value as malformed/invalid.
 - **Green:** replace `_PLANNER_EVALUATION_RECOMMENDATIONS`; update meaning strings ("readiness is derived by the system from recipe state; do not judge it").
 
-## Task 3 — Deterministic blocker projection (Closure 2b)
-- **Red:** pure-function tests: nonempty `unresolved_intent` → blocked (with blocker source listed); empty → unblocked; function consumes recipe mapping only (no evaluator input).
-- **Green:** implement `derive_recipe_blockers(recipe)` (name per existing conventions) beside the controller.
+## Task 3 — `derive_probe_explicit_blockers` (Closure 2b)
+- **Red:** pure-function tests: input is `final_recipe_bytes` (strict-parsed); nonempty `unresolved_intent` → output exactly `("unresolved_intent_present",)`; empty → `()`; output vocabulary closed — no other blocker kind exists or is representable; no evaluator input.
+- **Green:** implement `derive_probe_explicit_blockers(final_recipe_bytes)` beside the controller. Docstring states the authority limit: this probe establishes only `unresolved_intent_present`; absence of policy/capability/selection/authorization blockers is NOT established (needs LM9A-S); `probe_candidate_ready` = eligibility for the inert compiler experiment only.
 
-## Task 4 — Controller equations (Closure 2c)
-- **Red:** `derive_checkpoint_classification` matrix tests:
-  faithful+blocked→`probe_candidate_blocked`; faithful+unblocked→`probe_candidate_ready`; unfaithful→`probe_planner_failure`; inconclusive→`probe_inconclusive`; malformed/absent evaluator→`probe_inconclusive` (unchanged); mechanical rejection unchanged.
-- **Green:** controller combines gate result + semantic verdict + blocker projection; recommendation can no longer directly select ready/blocked.
+## Task 4 — Controller contract + equations (Closure 2c)
+- **Red:** amended `derive_checkpoint_classification` tests:
+  - contract now consumes the accepted turn's recomputed `MechanicalGateResult` (from `PlannerTurnRecord.gate_result`); blockers derived ONLY from `gate_result.final_recipe_bytes`;
+  - **integrity check:** `gate_result.final_recipe_bytes != planner_session.final_recipe_bytes` → integrity/control failure (raise), never a classification;
+  - matrix: faithful+`unresolved_intent_present`→`probe_candidate_blocked`; faithful+no-explicit-blocker→`probe_candidate_ready`; unfaithful→`probe_planner_failure`; inconclusive→`probe_inconclusive`; malformed/absent evaluator→`probe_inconclusive` (unchanged); mechanical rejection unchanged.
+- **Green:** controller combines gate result + semantic verdict + explicit-blocker projection; recommendation can no longer directly select ready/blocked.
 
 ## Task 5 — Override-impossibility + compiler-isolation proofs
-- **Red/Green:** vertical fake-provider tests through the real session path:
-  1. faithful verdict + recipe with nonempty `unresolved_intent` → aggregate `probe_candidate_blocked`, checkpoint-2 `not_evaluated`, and **no compiler provider is ever constructed** (fake compiler factory raises if called);
-  2. synthetic evaluator emitting any legacy/ready-style recommendation → never classifies ready, never touches compiler;
-  3. faithful + empty unresolved intent (synthetic recipe) → `probe_candidate_ready` (compiler entry permitted — not exercised).
+- **Red/Green:** vertical fake-provider tests through the real session/joined path:
+  1. faithful verdict + recipe with nonempty `unresolved_intent` → aggregate `probe_candidate_blocked` with the architectural guarantee: **no handoff, no compiler provider CALL (fake compiler provider callable raises if invoked), no compiler attempt evidence in the archive, checkpoint-2 `not_evaluated`**. (Adapter construction is not forced lazy — construction has no demonstrated external side effect.)
+  2. synthetic evaluator emitting any legacy/ready-style recommendation → rejected as malformed/invalid, never classifies ready, same compiler-isolation guarantee;
+  3. faithful + empty unresolved intent (synthetic recipe) → `probe_candidate_ready` (eligibility only — compiler not exercised).
 
 ## Task 6 — Sweep + full suite
 Update every test pinning the old enum (annotate each with the contract-change rationale); design-doc note recording the authority split; run full LM9B-P suite + `py_compile` + `git diff --check`. Must be green. Stop for review.
 
 ## Stop conditions
-No merge, no model call, no evaluator-only continuation without fresh explicit separate authorization. Expected continuation outcome for the sealed recipe under the corrected boundary: **`probe_candidate_blocked`** (faithful + 5 blockers), not compiler entry. Sealed visibility run stays `probe_inconclusive` forever.
+No merge, no model call, no evaluator-only continuation without fresh explicit separate authorization. **Falsifiable prediction for the continuation (a forecast, not a required success):** *if the evaluator judges the sealed recipe semantically faithful, the deterministic unresolved-intent projection must classify it `probe_candidate_blocked`.* The continuation may instead validly yield `semantically_unfaithful` or `evaluation_inconclusive`. No compiler entry for this recipe in any outcome. Sealed visibility run stays `probe_inconclusive` forever.
