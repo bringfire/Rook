@@ -78,6 +78,22 @@ def test_route_ready_rejects(mut):
     assert C.route_ready(row) is False
 
 
+def test_canary_budget_leaves_room_for_reasoning_models():
+    # gpt-5.4 and gemini-3.1-pro are reasoning models that spend completion
+    # tokens on hidden thinking before the forced tool call. A tiny budget (the
+    # original 16) truncated OpenAI's arguments to `{"ok":true` and left Gemini
+    # with an empty tool_calls list. max_completion_tokens is a ceiling billed
+    # per actual token, so a generous budget is near-free and removes truncation.
+    assert C.CANARY_MAX_COMPLETION_TOKENS >= 2048
+    route = C.derive_routes(
+        C.role_routes_from_models(C.CANONICAL_ROLE_MODELS), lambda m: None
+    ).routes[0]
+    assert (
+        C.build_canary_request(route)["max_completion_tokens"]
+        == C.CANARY_MAX_COMPLETION_TOKENS
+    )
+
+
 def test_declaration_is_closed_two_entries():
     assert C.CREDENTIAL_SOURCE_DECLARATIONS == {
         ("openai", "gpt-5.4"): ("OPENAI_API_KEY",),
