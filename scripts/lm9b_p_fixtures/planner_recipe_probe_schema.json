@@ -12,8 +12,7 @@
               "const": "artifact_value"
             },
             "artifact_id": {
-              "type": "string",
-              "minLength": 1
+              "$ref": "#/$defs/machine_identifier"
             },
             "json_pointer": {
               "type": "string"
@@ -33,11 +32,11 @@
               "const": "policy_rule"
             },
             "artifact_id": {
-              "type": "string",
-              "minLength": 1
+              "$ref": "#/$defs/machine_identifier"
             },
             "json_pointer": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^/rules/[a-z0-9]+(?:[._:-][a-z0-9]+)*$"
             }
           },
           "required": [
@@ -54,8 +53,7 @@
               "const": "clause"
             },
             "clause_id": {
-              "type": "string",
-              "minLength": 1
+              "$ref": "#/$defs/machine_identifier"
             }
           },
           "required": [
@@ -71,8 +69,7 @@
               "const": "assumption"
             },
             "assumption_id": {
-              "type": "string",
-              "minLength": 1
+              "$ref": "#/$defs/machine_identifier"
             }
           },
           "required": [
@@ -88,8 +85,7 @@
               "const": "derived_fact"
             },
             "derived_fact_id": {
-              "type": "string",
-              "minLength": 1
+              "$ref": "#/$defs/machine_identifier"
             }
           },
           "required": [
@@ -105,8 +101,7 @@
               "const": "unresolved_intent"
             },
             "intent_id": {
-              "type": "string",
-              "minLength": 1
+              "$ref": "#/$defs/machine_identifier"
             }
           },
           "required": [
@@ -122,8 +117,7 @@
               "const": "shape"
             },
             "shape_id": {
-              "type": "string",
-              "minLength": 1
+              "$ref": "#/$defs/machine_identifier"
             }
           },
           "required": [
@@ -139,8 +133,7 @@
               "const": "capability"
             },
             "capability_id": {
-              "type": "string",
-              "minLength": 1
+              "$ref": "#/$defs/machine_identifier"
             }
           },
           "required": [
@@ -156,8 +149,7 @@
               "const": "worker_slot"
             },
             "worker_slot_id": {
-              "type": "string",
-              "minLength": 1
+              "$ref": "#/$defs/machine_identifier"
             }
           },
           "required": [
@@ -166,6 +158,10 @@
           ]
         }
       ]
+    },
+    "machine_identifier": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[._:-][a-z0-9]+)*$"
     }
   },
   "type": "object",
@@ -179,16 +175,13 @@
       "additionalProperties": false,
       "properties": {
         "artifact_id": {
-          "type": "string",
-          "minLength": 1
+          "const": "task_envelope"
         },
         "artifact_kind": {
-          "type": "string",
-          "minLength": 1
+          "const": "task_envelope"
         },
         "schema": {
-          "type": "string",
-          "minLength": 1
+          "const": "rook.planner_task_envelope:v1"
         },
         "fingerprint": {
           "type": "string",
@@ -209,12 +202,22 @@
         "additionalProperties": false,
         "properties": {
           "artifact_id": {
-            "type": "string",
-            "minLength": 1
+            "allOf": [
+              {
+                "$ref": "#/$defs/machine_identifier"
+              },
+              {
+                "not": {
+                  "const": "task_envelope"
+                }
+              }
+            ]
           },
           "artifact_kind": {
-            "type": "string",
-            "minLength": 1
+            "enum": [
+              "environment_snapshot",
+              "planning_policy"
+            ]
           },
           "schema": {
             "type": "string",
@@ -230,6 +233,32 @@
           "artifact_kind",
           "schema",
           "fingerprint"
+        ],
+        "allOf": [
+          {
+            "oneOf": [
+              {
+                "properties": {
+                  "artifact_kind": {
+                    "const": "environment_snapshot"
+                  },
+                  "schema": {
+                    "const": "rook.environment_snapshot:v1"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "artifact_kind": {
+                    "const": "planning_policy"
+                  },
+                  "schema": {
+                    "const": "rook.planning_policy:v1"
+                  }
+                }
+              }
+            ]
+          }
         ]
       }
     },
@@ -238,8 +267,7 @@
       "additionalProperties": false,
       "properties": {
         "clause_id": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/machine_identifier"
         },
         "statement": {
           "type": "string",
@@ -255,8 +283,7 @@
                 "const": "artifact_value"
               },
               "artifact_id": {
-                "type": "string",
-                "minLength": 1
+                "$ref": "#/$defs/machine_identifier"
               },
               "json_pointer": {
                 "type": "string"
@@ -279,8 +306,7 @@
                 "const": "assumption"
               },
               "assumption_id": {
-                "type": "string",
-                "minLength": 1
+                "$ref": "#/$defs/machine_identifier"
               }
             },
             "required": [
@@ -299,8 +325,7 @@
                 "const": "derived_fact"
               },
               "derived_fact_id": {
-                "type": "string",
-                "minLength": 1
+                "$ref": "#/$defs/machine_identifier"
               }
             },
             "required": [
@@ -335,22 +360,19 @@
             "maintains_clause_ids": {
               "type": "array",
               "items": {
-                "type": "string",
-                "minLength": 1
+                "$ref": "#/$defs/machine_identifier"
               }
             },
             "invariant_clause_ids": {
               "type": "array",
               "items": {
-                "type": "string",
-                "minLength": 1
+                "$ref": "#/$defs/machine_identifier"
               }
             },
             "unresolved_intent_ids": {
               "type": "array",
               "items": {
-                "type": "string",
-                "minLength": 1
+                "$ref": "#/$defs/machine_identifier"
               }
             }
           },
@@ -378,8 +400,7 @@
         "additionalProperties": false,
         "properties": {
           "clause_id": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "#/$defs/machine_identifier"
           },
           "statement": {
             "type": "string",
@@ -395,8 +416,7 @@
                   "const": "artifact_value"
                 },
                 "artifact_id": {
-                  "type": "string",
-                  "minLength": 1
+                  "$ref": "#/$defs/machine_identifier"
                 },
                 "json_pointer": {
                   "type": "string"
@@ -419,8 +439,7 @@
                   "const": "assumption"
                 },
                 "assumption_id": {
-                  "type": "string",
-                  "minLength": 1
+                  "$ref": "#/$defs/machine_identifier"
                 }
               },
               "required": [
@@ -439,8 +458,7 @@
                   "const": "derived_fact"
                 },
                 "derived_fact_id": {
-                  "type": "string",
-                  "minLength": 1
+                  "$ref": "#/$defs/machine_identifier"
                 }
               },
               "required": [
@@ -471,8 +489,7 @@
           "supports_clause_ids": {
             "type": "array",
             "items": {
-              "type": "string",
-              "minLength": 1
+              "$ref": "#/$defs/machine_identifier"
             }
           },
           "evidence_requirement": {
@@ -480,8 +497,7 @@
             "additionalProperties": false,
             "properties": {
               "semantic_key": {
-                "type": "string",
-                "minLength": 1
+                "$ref": "#/$defs/machine_identifier"
               },
               "value_schema": {
                 "type": "string",
@@ -521,8 +537,7 @@
         "additionalProperties": false,
         "properties": {
           "clause_id": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "#/$defs/machine_identifier"
           },
           "statement": {
             "type": "string",
@@ -538,8 +553,7 @@
                   "const": "artifact_value"
                 },
                 "artifact_id": {
-                  "type": "string",
-                  "minLength": 1
+                  "$ref": "#/$defs/machine_identifier"
                 },
                 "json_pointer": {
                   "type": "string"
@@ -562,8 +576,7 @@
                   "const": "assumption"
                 },
                 "assumption_id": {
-                  "type": "string",
-                  "minLength": 1
+                  "$ref": "#/$defs/machine_identifier"
                 }
               },
               "required": [
@@ -582,8 +595,7 @@
                   "const": "derived_fact"
                 },
                 "derived_fact_id": {
-                  "type": "string",
-                  "minLength": 1
+                  "$ref": "#/$defs/machine_identifier"
                 }
               },
               "required": [
@@ -618,8 +630,7 @@
               "additionalProperties": false,
               "properties": {
                 "clause_id": {
-                  "type": "string",
-                  "minLength": 1
+                  "$ref": "#/$defs/machine_identifier"
                 },
                 "statement": {
                   "type": "string",
@@ -628,8 +639,7 @@
                 "applies_to_clause_ids": {
                   "type": "array",
                   "items": {
-                    "type": "string",
-                    "minLength": 1
+                    "$ref": "#/$defs/machine_identifier"
                   }
                 },
                 "source_refs": {
@@ -642,8 +652,7 @@
                         "const": "artifact_value"
                       },
                       "artifact_id": {
-                        "type": "string",
-                        "minLength": 1
+                        "$ref": "#/$defs/machine_identifier"
                       },
                       "json_pointer": {
                         "type": "string"
@@ -666,8 +675,7 @@
                         "const": "assumption"
                       },
                       "assumption_id": {
-                        "type": "string",
-                        "minLength": 1
+                        "$ref": "#/$defs/machine_identifier"
                       }
                     },
                     "required": [
@@ -721,8 +729,7 @@
               "additionalProperties": false,
               "properties": {
                 "clause_id": {
-                  "type": "string",
-                  "minLength": 1
+                  "$ref": "#/$defs/machine_identifier"
                 },
                 "statement": {
                   "type": "string",
@@ -738,8 +745,7 @@
                         "const": "artifact_value"
                       },
                       "artifact_id": {
-                        "type": "string",
-                        "minLength": 1
+                        "$ref": "#/$defs/machine_identifier"
                       },
                       "json_pointer": {
                         "type": "string"
@@ -762,8 +768,7 @@
                         "const": "assumption"
                       },
                       "assumption_id": {
-                        "type": "string",
-                        "minLength": 1
+                        "$ref": "#/$defs/machine_identifier"
                       }
                     },
                     "required": [
@@ -782,8 +787,7 @@
                         "const": "derived_fact"
                       },
                       "derived_fact_id": {
-                        "type": "string",
-                        "minLength": 1
+                        "$ref": "#/$defs/machine_identifier"
                       }
                     },
                     "required": [
@@ -850,12 +854,10 @@
         "additionalProperties": false,
         "properties": {
           "assumption_id": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "#/$defs/machine_identifier"
           },
           "semantic_key": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "#/$defs/machine_identifier"
           },
           "statement": {
             "type": "string",
@@ -889,8 +891,7 @@
                         "const": "artifact_value"
                       },
                       "artifact_id": {
-                        "type": "string",
-                        "minLength": 1
+                        "$ref": "#/$defs/machine_identifier"
                       },
                       "json_pointer": {
                         "type": "string"
@@ -915,8 +916,7 @@
           "affects": {
             "type": "array",
             "items": {
-              "type": "string",
-              "minLength": 1
+              "$ref": "#/$defs/machine_identifier"
             }
           },
           "basis_refs": {
@@ -939,11 +939,11 @@
                       "const": "policy_rule"
                     },
                     "artifact_id": {
-                      "type": "string",
-                      "minLength": 1
+                      "$ref": "#/$defs/machine_identifier"
                     },
                     "json_pointer": {
-                      "type": "string"
+                      "type": "string",
+                      "pattern": "^/rules/[a-z0-9]+(?:[._:-][a-z0-9]+)*$"
                     }
                   },
                   "required": [
@@ -981,8 +981,7 @@
         "additionalProperties": false,
         "properties": {
           "derived_fact_id": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "#/$defs/machine_identifier"
           },
           "typed_value": {
             "type": "object",
@@ -1016,8 +1015,7 @@
                       "const": "artifact_value"
                     },
                     "artifact_id": {
-                      "type": "string",
-                      "minLength": 1
+                      "$ref": "#/$defs/machine_identifier"
                     },
                     "json_pointer": {
                       "type": "string"
@@ -1051,12 +1049,10 @@
         "additionalProperties": false,
         "properties": {
           "intent_id": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "#/$defs/machine_identifier"
           },
           "semantic_key": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "#/$defs/machine_identifier"
           },
           "statement": {
             "type": "string",
@@ -1065,8 +1061,7 @@
           "affected_clause_ids": {
             "type": "array",
             "items": {
-              "type": "string",
-              "minLength": 1
+              "$ref": "#/$defs/machine_identifier"
             }
           },
           "value_schema": {
@@ -1117,11 +1112,11 @@
                       "const": "policy_rule"
                     },
                     "artifact_id": {
-                      "type": "string",
-                      "minLength": 1
+                      "$ref": "#/$defs/machine_identifier"
                     },
                     "json_pointer": {
-                      "type": "string"
+                      "type": "string",
+                      "pattern": "^/rules/[a-z0-9]+(?:[._:-][a-z0-9]+)*$"
                     }
                   },
                   "required": [
@@ -1141,8 +1136,7 @@
             "additionalProperties": false,
             "properties": {
               "artifact_id": {
-                "type": "string",
-                "minLength": 1
+                "$ref": "#/$defs/machine_identifier"
               },
               "json_pointer": {
                 "type": "string"
@@ -1166,8 +1160,7 @@
                     "const": "artifact_value"
                   },
                   "artifact_id": {
-                    "type": "string",
-                    "minLength": 1
+                    "$ref": "#/$defs/machine_identifier"
                   },
                   "json_pointer": {
                     "type": "string"
@@ -1202,8 +1195,7 @@
         "additionalProperties": false,
         "properties": {
           "clause_id": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "#/$defs/machine_identifier"
           },
           "statement": {
             "type": "string",
@@ -1219,8 +1211,7 @@
                   "const": "artifact_value"
                 },
                 "artifact_id": {
-                  "type": "string",
-                  "minLength": 1
+                  "$ref": "#/$defs/machine_identifier"
                 },
                 "json_pointer": {
                   "type": "string"
@@ -1243,8 +1234,7 @@
                   "const": "assumption"
                 },
                 "assumption_id": {
-                  "type": "string",
-                  "minLength": 1
+                  "$ref": "#/$defs/machine_identifier"
                 }
               },
               "required": [
@@ -1263,8 +1253,7 @@
                   "const": "derived_fact"
                 },
                 "derived_fact_id": {
-                  "type": "string",
-                  "minLength": 1
+                  "$ref": "#/$defs/machine_identifier"
                 }
               },
               "required": [
@@ -1321,8 +1310,7 @@
             "additionalProperties": false,
             "properties": {
               "shape_id": {
-                "type": "string",
-                "minLength": 1
+                "$ref": "#/$defs/machine_identifier"
               },
               "authority_code": {
                 "type": "string",
@@ -1347,8 +1335,7 @@
             "additionalProperties": false,
             "properties": {
               "shape_id": {
-                "type": "string",
-                "minLength": 1
+                "$ref": "#/$defs/machine_identifier"
               },
               "delegate_kind": {
                 "const": "compile_phase"
@@ -1381,8 +1368,7 @@
             "additionalProperties": false,
             "properties": {
               "shape_id": {
-                "type": "string",
-                "minLength": 1
+                "$ref": "#/$defs/machine_identifier"
               },
               "authority_code": {
                 "type": "string",
@@ -1427,8 +1413,7 @@
             "additionalProperties": false,
             "properties": {
               "capability_id": {
-                "type": "string",
-                "minLength": 1
+                "$ref": "#/$defs/machine_identifier"
               },
               "capability_code": {
                 "type": "string",
@@ -1441,8 +1426,7 @@
               "supports_clause_ids": {
                 "type": "array",
                 "items": {
-                  "type": "string",
-                  "minLength": 1
+                  "$ref": "#/$defs/machine_identifier"
                 }
               }
             },

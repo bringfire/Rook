@@ -3,7 +3,7 @@
   "rubric_id": "lm9b_p.radial_recipe_fidelity:v1",
   "authoring_contract_binding": {
     "contract_id": "lm9b_p.planner_authoring_contract:v1",
-    "contract_fingerprint": "sha256:986ef886a9e45e64d1f9419c4cf47face9973d0f360ca9e30aead121c270a8e0",
+    "contract_fingerprint": "sha256:ccf6c1702825c46b3987853abaff8720f40d1960a0aebc4542b10e2bdc162c20",
     "recipe_schema": "rook.planner_graph_recipe:v1"
   },
   "scenario_obligations": [
@@ -44,5 +44,5 @@
     "model-authored expected recipe",
     "visible Planner session record"
   ],
-  "rubric_fingerprint": "sha256:ae5dce98a752b28e4f5e3eeee7b68cc9ce6bd482e9a6c9d10f754e7eb3a3f4f1"
+  "rubric_fingerprint": "sha256:15515f283f08f822228eba26aa39a63729e43bd9494774fbac5625572bf4a334"
 }

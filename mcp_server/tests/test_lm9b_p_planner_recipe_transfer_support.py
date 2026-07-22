@@ -369,10 +369,14 @@ def test_gate_rejects_duplicate_global_clause_identity() -> None:
 
 
 def test_gate_rejects_non_machine_identifier() -> None:
+    # Language-visibility closure (M3): the identifier grammar is now a model-visible
+    # schema carrier ($defs/machine_identifier), so a malformed identifier is rejected
+    # earlier and more legibly at the schema. The gate's invalid_machine_identifier
+    # check remains unchanged as defense-in-depth.
     recipe = _recipe()
     recipe["goal"]["clause_id"] = "goal contains spaces"
     result = _gate(_bytes(_seal(recipe)))
-    assert result.diagnostics[0].code == "invalid_machine_identifier"
+    assert result.diagnostics[0].code == "recipe_schema_failed"
 
 
 @pytest.mark.parametrize(
@@ -397,15 +401,21 @@ def test_gate_rejects_unknown_vocabulary_entry(
 
 
 def test_gate_rejects_policy_pointer_outside_rules_map() -> None:
+    # Language-visibility closure (M4): the policy json_pointer grammar is now a
+    # model-visible schema carrier (pattern ^/rules/<id>$), so a pointer outside the
+    # rules map is rejected at the schema. The gate's policy_pointer_outside_rules
+    # check remains unchanged as defense-in-depth.
     recipe = _recipe()
     recipe["assumptions"][0]["authorization_refs"]["policy_refs"][0][
         "json_pointer"
     ] = "/issuer/kind"
     result = _gate(_bytes(_seal(recipe)))
-    assert result.diagnostics[0].code == "policy_pointer_outside_rules"
+    assert result.diagnostics[0].code == "recipe_schema_failed"
 
 
 def test_gate_rejects_policy_pointer_below_rule_object() -> None:
+    # Language-visibility closure (M4): a pointer that reaches below a rule object
+    # violates the model-visible ^/rules/<id>$ pattern and is rejected at the schema.
     recipe = _recipe()
     pointer = recipe["assumptions"][0]["authorization_refs"]["policy_refs"][0][
         "json_pointer"
@@ -414,7 +424,7 @@ def test_gate_rejects_policy_pointer_below_rule_object() -> None:
         "json_pointer"
     ] = pointer + "/effect"
     result = _gate(_bytes(_seal(recipe)))
-    assert result.diagnostics[0].code == "policy_pointer_outside_rules"
+    assert result.diagnostics[0].code == "recipe_schema_failed"
 
 
 def test_gate_rejects_reference_to_undeclared_authority_companion() -> None:

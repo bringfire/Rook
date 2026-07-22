@@ -482,9 +482,38 @@ def _verify_authoring_contract(value: Mapping[str, object]) -> None:
         "unresolved_unit_context_reference_kind": "artifact_value",
         "worker_slots_max_entries": 0,
         "confirmation_receipts_admitted": False,
+        # Descriptor-language visibility (LM9B-P closure M1/M2/M3/M4): the accepted
+        # descriptor kind vocabulary, kind->schema pairing, reserved source_task
+        # identity, and the identifier/policy-pointer grammars are declared here so
+        # the Planner receives them. Mirrored by the recipe schema; enforced by the
+        # unchanged mechanical gate.
+        "source_task_artifact_kind": "task_envelope",
+        "source_task_schema": "rook.planner_task_envelope:v1",
+        "authority_artifact_kinds": ["environment_snapshot", "planning_policy"],
+        "descriptor_kind_schema": {
+            "environment_snapshot": "rook.environment_snapshot:v1",
+            "planning_policy": "rook.planning_policy:v1",
+            "task_envelope": "rook.planner_task_envelope:v1",
+        },
+        "machine_identifier_pattern": "^[a-z0-9]+(?:[._:-][a-z0-9]+)*$",
+        "policy_pointer_pattern": "^/rules/[a-z0-9]+(?:[._:-][a-z0-9]+)*$",
     }
     if _thaw_json(value.get("language_boundary")) != expected_boundary:
         raise ValueError("authoring contract language boundary mismatch")
+    # Pin the complete relational-invariant statements too. M1/M5/M6 are carried
+    # here (not expressible in JSON Schema), so a self-consistent fingerprint must
+    # not be able to silently remove a model-visible rule.
+    expected_invariants = [
+        "Every clause has direct source, assumption, or permitted derived-fact support, or a non-null clause-appropriate synthesis.",
+        "Nested canonicalization applies only to its containing maintains clause.",
+        "Nested canonicalization and postconditions may inherit only from their containing maintains clause.",
+        "Descriptor artifact IDs are globally unique across source_task and authority_artifacts; identifiers are unique within each declaration namespace.",
+        "The reserved artifact ID task_envelope appears only as source_task and never in authority_artifacts.",
+        "Every recipe-bound authority descriptor is referenced by recipe content.",
+        "Every local semantic reference resolves to a declared symbol of its declared kind.",
+    ]
+    if _thaw_json(value.get("relational_invariants")) != expected_invariants:
+        raise ValueError("authoring contract relational invariants mismatch")
 
 
 def _verify_evaluation_rubric(
