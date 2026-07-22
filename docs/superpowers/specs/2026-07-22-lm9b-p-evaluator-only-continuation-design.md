@@ -420,7 +420,8 @@ derivative-archive/
 |  `- invocation-binding.json
 |- readiness/
 |  |- readiness-record.json
-|  `- credential-preflight.json
+|  |- credential-preflight.json
+|  `- verification.json              verification time and pure launch decision
 |- dispatch/
 |  `- dispatch-started.json
 |- evaluator/
@@ -431,6 +432,7 @@ derivative-archive/
 |  |  |- response.bin                 when available
 |  |  |- error.bin                    when available
 |  |  |- usage.json                   when available
+|  |  |- assistant-message.json       normalized adapter evidence when returned
 |  |  `- tool-arguments/              when available
 |  `- result.json
 |- decision/
@@ -457,11 +459,15 @@ The continuation preserves:
 - exact canonical provider-call request bytes before dispatch;
 - exact adapter-produced request capture when available, labeled as adapter/LiteLLM evidence rather than HTTP wire evidence;
 - raw response or error bytes when available;
+- normalized assistant-message evidence when the adapter returns;
 - evaluator tool arguments when available;
 - parsed evaluator termination, recommendation, and visible evidence;
 - usage, timing, model response identity, provider metadata, and profile identity when available;
 - readiness record and route identities;
+- the exact readiness verification time, supplied credential-presence evidence, and pure launch decision;
 - all deterministic gate, blocker, classification, and archive inputs.
+
+The sealed verifier reconstructs the evaluator result from the normalized assistant message and exact archived tool arguments through the same pure parser used by live evaluation. It reruns the readiness contract from the archived record, route, verification time, and credential-presence evidence; validates invocation and dispatch records against the preflight, attempt, request, and readiness identities; then derives classification from the reconstructed evaluator result and exact recipe bytes. A checksummed authored claim is never accepted as its own authority.
 
 No request asks for hidden chain-of-thought. Visible criterion findings are the semantic evidence contract.
 
@@ -489,13 +495,13 @@ Provider/evaluator failure is not sealing failure. Complete trustworthy failure 
 
 ## 14. Atomic finalization and rename reconciliation
 
-The final archive is checksum- and identity-verified in staging, then renamed on the same filesystem to the exact destination.
+The final archive is checksum- and identity-verified with a private staging verifier, then renamed on the same filesystem to the exact destination. The public official verifier additionally requires the runtime archive path to equal the preflight-bound canonical destination; a copied archive is not an official result.
 
 If rename reports an exception:
 
 1. Inspect the final destination.
 2. If it exists and verifies against the exact expected checksums and derivative identity, treat it as sealed.
-3. If staging remains and the destination is absent or invalid, retain staging as `post_dispatch_unsealed`.
+3. If staging remains and the destination is absent or invalid, retain staging as `post_dispatch_unsealed`. If only an invalid destination remains, best-effort write the unsealed marker there.
 4. If both exist or state remains ambiguous, retain all material and issue no result.
 
 The harness never deletes already-written post-dispatch evidence during cleanup. Filesystem-related retention remains best-effort, but absence of retention cannot be promoted into a classification.

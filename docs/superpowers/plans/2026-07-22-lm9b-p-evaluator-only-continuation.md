@@ -858,6 +858,7 @@ preflight/provider-call-request.json
 launch/invocation-binding.json
 readiness/readiness-record.json
 readiness/credential-preflight.json
+readiness/verification.json
 dispatch/dispatch-started.json
 evaluator/attempt/capture.json
 evaluator/attempt/provider-call-request.json
@@ -865,6 +866,7 @@ evaluator/attempt/adapter-request.bin               # when available
 evaluator/attempt/response.bin                      # when available
 evaluator/attempt/error.bin                         # when available
 evaluator/attempt/usage.json                        # when available
+evaluator/attempt/assistant-message.json             # normalized adapter evidence when returned
 evaluator/attempt/tool-arguments/000.bin            # first argument, when available; additional arguments use contiguous zero-padded indices
 evaluator/result.json
 decision/classification.json
@@ -874,9 +876,9 @@ checksums.json
 
 `identity.json` carries `DERIVATIVE_SCHEMA_ID`, preflight/instrument/attempt fingerprints, reviewed commit, model/profile, destination, and a noncircular `derivative_subject_fingerprint` over those facts plus the evaluator result and classification. `checksums.json` computes `derivative_archive_identity = fingerprint({"schema": checksum_schema, "records": records})` after every other file is final; that checksum aggregate is the official derivative archive identity returned by the verifier. Never embed the aggregate back into a checksummed member. `launch/invocation-binding.json` records only supplied launch values and `transmit: true`; do not claim authenticated human authorization. `decision/classification.json` carries classification plus semantic recommendation or null. `boundary.json` uses the exact vertical-witness value.
 
-Preserve returned response/error, usage, elapsed timing, provider metadata/model identity, adapter request bytes, and tool arguments when available. Label adapter bytes as adapter/LiteLLM evidence, never HTTP wire evidence. Store no hidden chain-of-thought and request none.
+Preserve returned response/error, usage, elapsed timing, provider metadata/model identity, adapter request bytes, normalized assistant-message evidence, and tool arguments when available. Preserve the readiness verification time and pure launch decision alongside the readiness record. Label adapter bytes as adapter/LiteLLM evidence, never HTTP wire evidence. Store no hidden chain-of-thought and request none.
 
-The verifier must derive the allowed optional evaluator files from `evaluator/attempt/capture.json`, require every checksummed path and role, reject every unchecksummed/extra file, reject all `compiler`, `handoff`, `checkpoint-2`, and successor-policy members, recompute classification from result plus staged recipe bytes, and recheck all source/instrument/preflight identities.
+The verifier must derive the allowed optional evaluator files from `evaluator/attempt/capture.json`, require every checksummed path and role, reject every unchecksummed/extra file, reject all `compiler`, `handoff`, `checkpoint-2`, and successor-policy members, reconstruct the evaluator result from normalized assistant evidence and exact tool arguments through the shared pure parser, rerun readiness from archived inputs and verification time, validate invocation and dispatch equations, recompute classification from that derived result plus staged recipe bytes, and recheck all source/instrument/preflight identities. The private staging verifier permits the identity-bound staging path only before rename; the public verifier requires the runtime archive path to equal the canonical destination.
 
 - [ ] **Step 11: Run readiness and execution tests and commit**
 

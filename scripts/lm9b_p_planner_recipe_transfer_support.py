@@ -1291,6 +1291,33 @@ def _planner_evaluation_from_message(
     )
 
 
+def derive_planner_evaluation_result(
+    *,
+    outcome: Literal["returned", "raised", "timeout"],
+    response: ProviderTurn | None = None,
+    exception_type: str | None = None,
+    failure_type: str | None = None,
+    quiescent: bool = True,
+) -> PlannerEvaluationResult:
+    """Purely derive evaluator meaning from terminal provider evidence."""
+
+    if outcome == "timeout":
+        return PlannerEvaluationResult(
+            "timeout", None, (), None, None, quiescent=quiescent
+        )
+    if outcome == "raised":
+        if exception_type == "TimeoutError" or (
+            exception_type == "ProviderCallFailure"
+            and isinstance(failure_type, str)
+            and "timeout" in failure_type.casefold()
+        ):
+            return PlannerEvaluationResult("timeout", None, (), None, None)
+        return PlannerEvaluationResult("provider_failure", None, (), None, None)
+    if type(response) is not ProviderTurn:
+        return PlannerEvaluationResult("provider_failure", None, (), None, None)
+    return _planner_evaluation_from_message(response)
+
+
 def run_planner_evaluation(
     *,
     provider: Callable[[dict[str, object]], ProviderTurn],
@@ -1319,18 +1346,22 @@ def run_planner_evaluation(
         timeout_s=PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S,
     )
     if outcome.timed_out:
-        return PlannerEvaluationResult(
-            "timeout", None, (), None, None, quiescent=outcome.quiescent
+        return derive_planner_evaluation_result(
+            outcome="timeout",
+            quiescent=outcome.quiescent,
         )
-    if isinstance(outcome.exception, TimeoutError):
-        return PlannerEvaluationResult("timeout", None, (), None, None)
-    if isinstance(outcome.exception, ProviderCallFailure):
-        if "timeout" in outcome.exception.failure_type.casefold():
-            return PlannerEvaluationResult("timeout", None, (), None, None)
-        return PlannerEvaluationResult("provider_failure", None, (), None, None)
-    if outcome.exception is not None or type(outcome.response) is not ProviderTurn:
-        return PlannerEvaluationResult("provider_failure", None, (), None, None)
-    return _planner_evaluation_from_message(outcome.response)
+    if outcome.exception is not None:
+        return derive_planner_evaluation_result(
+            outcome="raised",
+            exception_type=type(outcome.exception).__name__,
+            failure_type=getattr(outcome.exception, "failure_type", None),
+        )
+    return derive_planner_evaluation_result(
+        outcome="returned",
+        response=(
+            outcome.response if type(outcome.response) is ProviderTurn else None
+        ),
+    )
 
 
 def _planner_feedback_message(
@@ -1630,6 +1661,7 @@ __all__ = (
     "ProviderTurn",
     "StrictJsonError",
     "build_planner_evaluator_provider_call_request",
+    "derive_planner_evaluation_result",
     "evaluate_mechanical_gate",
     "fingerprint",
     "fingerprint_without",

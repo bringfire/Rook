@@ -282,6 +282,27 @@ def _reclose_derivative_checksums(archive: Path) -> str:
     return checksums["derivative_archive_identity"]
 
 
+def _rewrite_derivative_subject_identity(archive: Path) -> None:
+    identity_path = archive / "identity.json"
+    identity = json.loads(identity_path.read_bytes())
+    result = json.loads((archive / "evaluator/result.json").read_bytes())
+    decision = json.loads((archive / "decision/classification.json").read_bytes())
+    subject = {
+        "preflight_fingerprint": identity["preflight_fingerprint"],
+        "instrument_fingerprint": identity["instrument_fingerprint"],
+        "attempt_id": identity["attempt_id"],
+        "attempt_fingerprint": identity["attempt_fingerprint"],
+        "reviewed_commit_sha": identity["reviewed_commit_sha"],
+        "model": identity["model"],
+        "provider_profile": identity["provider_profile"],
+        "canonical_destination": identity["canonical_destination"],
+        "evaluator_result": result,
+        "classification": decision,
+    }
+    identity["derivative_subject_fingerprint"] = SUPPORT.fingerprint(subject)
+    identity_path.write_bytes(_json_bytes(identity))
+
+
 def _reclose_checkpoint(checkpoint: Path) -> str:
     checksums_path = checkpoint / "checksums.json"
     checksums = json.loads(checksums_path.read_bytes())
@@ -1184,6 +1205,8 @@ def test_atomic_rename_reconciliation(
     else:
         assert result.classification is None
         assert staging.exists() or destination.exists()
+        if rename_case == "invalid_destination_after_move":
+            assert (destination / "post_dispatch_unsealed.json").is_file()
         if rename_case in {
             "destination_appears_before_rename",
             "both_staging_and_destination",
@@ -1484,4 +1507,115 @@ def test_reclosed_derivative_rejects_source_or_instrument_byte_drift(
         CONT_ARTIFACTS.verify_sealed_derivative_archive(
             destination,
             expected_derivative_identity=changed_identity,
+        )
+
+
+@pytest.mark.parametrize(
+    "claim",
+    [
+        "evaluator_result",
+        "readiness_commit",
+        "invocation_transmit",
+        "dispatch_attempt",
+    ],
+)
+def test_reclosed_derivative_rejects_claim_without_authority_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    claim: str,
+) -> None:
+    provider = _EvaluatorProvider()
+    _pins, _source_digest, preflight, readiness_root, destination = (
+        _execution_fixture(monkeypatch, tmp_path, provider)
+    )
+    sealed = CONTINUATION.execute_continuation(
+        CONTINUATION.ExecutionConfig(
+            preflight_dir=preflight.archive_dir,
+            expected_preflight_fingerprint=preflight.preflight_fingerprint,
+            readiness_record=readiness_root / "readiness_record.json",
+            credential_preflight=readiness_root / "preflight.json",
+            transmit=True,
+        )
+    )
+    assert sealed.state == "sealed"
+
+    if claim == "evaluator_result":
+        result_path = destination / "evaluator/result.json"
+        result = json.loads(result_path.read_bytes())
+        result["recommendation"] = "semantically_unfaithful"
+        result_path.write_bytes(_json_bytes(result))
+        decision_path = destination / "decision/classification.json"
+        decision = json.loads(decision_path.read_bytes())
+        decision["classification"] = "probe_planner_failure"
+        decision["semantic_recommendation"] = "semantically_unfaithful"
+        decision_path.write_bytes(_json_bytes(decision))
+        _rewrite_derivative_subject_identity(destination)
+    elif claim == "readiness_commit":
+        readiness_path = destination / "readiness/readiness-record.json"
+        readiness = json.loads(readiness_path.read_bytes())
+        readiness["reviewed_commit_sha"] = "0" * 40
+        readiness["record_fingerprint"] = (
+            READINESS_CONTRACT.record_fingerprint(readiness)
+        )
+        readiness_path.write_bytes(_json_bytes(readiness))
+        invocation_path = destination / "launch/invocation-binding.json"
+        invocation = json.loads(invocation_path.read_bytes())
+        invocation["readiness_record_fingerprint"] = readiness[
+            "record_fingerprint"
+        ]
+        verification_path = destination / "readiness/verification.json"
+        verification = json.loads(verification_path.read_bytes())
+        verification["reviewed_commit_sha"] = "0" * 40
+        verification["readiness_record_fingerprint"] = readiness[
+            "record_fingerprint"
+        ]
+        verification_path.write_bytes(_json_bytes(verification))
+        invocation["readiness_verification_fingerprint"] = (
+            SUPPORT.fingerprint(verification)
+        )
+        invocation_path.write_bytes(_json_bytes(invocation))
+    elif claim == "invocation_transmit":
+        invocation_path = destination / "launch/invocation-binding.json"
+        invocation = json.loads(invocation_path.read_bytes())
+        invocation["transmit"] = False
+        invocation_path.write_bytes(_json_bytes(invocation))
+    elif claim == "dispatch_attempt":
+        dispatch_path = destination / "dispatch/dispatch-started.json"
+        dispatch = json.loads(dispatch_path.read_bytes())
+        dispatch["attempt_id"] = "different-attempt"
+        dispatch_path.write_bytes(_json_bytes(dispatch))
+    else:  # pragma: no cover - parameter vocabulary is closed above.
+        raise AssertionError(claim)
+
+    changed_identity = _reclose_derivative_checksums(destination)
+    with pytest.raises(ValueError, match="evaluator|readiness|invocation|dispatch"):
+        CONT_ARTIFACTS.verify_sealed_derivative_archive(
+            destination,
+            expected_derivative_identity=changed_identity,
+        )
+
+
+def test_public_derivative_verifier_rejects_copied_destination(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    provider = _EvaluatorProvider()
+    _pins, _source_digest, preflight, readiness_root, destination = (
+        _execution_fixture(monkeypatch, tmp_path, provider)
+    )
+    sealed = CONTINUATION.execute_continuation(
+        CONTINUATION.ExecutionConfig(
+            preflight_dir=preflight.archive_dir,
+            expected_preflight_fingerprint=preflight.preflight_fingerprint,
+            readiness_record=readiness_root / "readiness_record.json",
+            credential_preflight=readiness_root / "preflight.json",
+            transmit=True,
+        )
+    )
+    copied = preflight.derivative_root / "copied-derivative"
+    shutil.copytree(destination, copied)
+    with pytest.raises(ValueError, match="destination|location"):
+        CONT_ARTIFACTS.verify_sealed_derivative_archive(
+            copied,
+            expected_derivative_identity=sealed.derivative_archive_identity,
         )

@@ -71,6 +71,7 @@ class ExecutionSnapshot:
     provider_request_bytes: bytes
     readiness_record_bytes: bytes
     credential_preflight_bytes: bytes
+    readiness_verification_bytes: bytes
     invocation_binding_bytes: bytes
 
 
@@ -284,17 +285,35 @@ def _verify_pre_dispatch(config: ExecutionConfig) -> PreparedExecution:
     }
     if credential_preflight["credential_present"] != current_presence:
         raise RuntimeError("credential presence differs from readiness evidence")
+    readiness_verified_at = _readiness_now_iso()
     readiness_decision = READINESS.verify_launch_readiness(
         record=readiness_record,
         manifest=manifest,
         head_sha=head,
-        now_iso=_readiness_now_iso(),
+        now_iso=readiness_verified_at,
         credential_present=current_presence,
     )
     if not readiness_decision.ok:
         raise RuntimeError(
             "readiness gate refused: " + "; ".join(readiness_decision.failures)
         )
+    readiness_verification_value = {
+        "schema": (
+            "rook.lm9b_p.evaluator.continuation_readiness_verification:v1"
+        ),
+        "verified_at": readiness_verified_at,
+        "route_manifest_fingerprint": manifest.manifest_fingerprint,
+        "readiness_record_fingerprint": readiness_record.get(
+            "record_fingerprint"
+        ),
+        "reviewed_commit_sha": head,
+        "credential_present": current_presence,
+        "decision": {
+            "ok": readiness_decision.ok,
+            "failures": list(readiness_decision.failures),
+        },
+    }
+    readiness_verification_bytes = _json_bytes(readiness_verification_value)
 
     provider = _build_evaluator_provider()
     provider_identity = getattr(provider, "identity", None)
@@ -340,6 +359,9 @@ def _verify_pre_dispatch(config: ExecutionConfig) -> PreparedExecution:
             "readiness_record_fingerprint": readiness_record.get(
                 "record_fingerprint"
             ),
+            "readiness_verification_fingerprint": SUPPORT.fingerprint(
+                readiness_verification_value
+            ),
             "attempt_id": preflight.attempt_id,
             "attempt_fingerprint": preflight.attempt_fingerprint,
         }
@@ -356,6 +378,7 @@ def _verify_pre_dispatch(config: ExecutionConfig) -> PreparedExecution:
         provider_request_bytes=provider_request_bytes,
         readiness_record_bytes=readiness_record_bytes,
         credential_preflight_bytes=credential_preflight_bytes,
+        readiness_verification_bytes=readiness_verification_bytes,
         invocation_binding_bytes=invocation_binding,
     )
     return PreparedExecution(snapshot=snapshot, provider=provider)
@@ -405,6 +428,9 @@ def execute_continuation(
             invocation_binding_bytes=snapshot.invocation_binding_bytes,
             readiness_record_bytes=snapshot.readiness_record_bytes,
             credential_preflight_bytes=snapshot.credential_preflight_bytes,
+            readiness_verification_bytes=(
+                snapshot.readiness_verification_bytes
+            ),
         )
         staged_request_bytes = (
             staging / "preflight/provider-call-request.json"
