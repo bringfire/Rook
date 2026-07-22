@@ -28,7 +28,7 @@ semantically_faithful
 
 Other valid observations are `semantically_unfaithful` and `evaluation_inconclusive`. Provider failure, timeout, or malformed evaluator output may also produce a sealed `probe_inconclusive` when the attempt evidence is complete and trustworthy.
 
-There is no Planner call, compiler handoff, compiler provider call, compiler construction, checkpoint-2 attempt, or execution path in this continuation.
+There is no Planner call, compiler handoff, compiler provider call, compiler construction, checkpoint-2 attempt, or Rhino, Grasshopper, compiler, or mutation execution path in this continuation.
 
 ## 2. Governing invariant
 
@@ -48,6 +48,18 @@ evaluation instrument:
 attempt identity:
   one unique, destination-bound opportunity for conditional evaluator dispatch
 ```
+
+### 2.1 Serialized artifact identities
+
+Each top-level serialized state has one exact versioned `schema_id`:
+
+| Serialized state | Required `schema_id` |
+|---|---|
+| No-contact preflight record | `rook.lm9b_p.evaluator_continuation_preflight:v1` |
+| Official sealed derivative identity | `rook.lm9b_p.evaluator_continuation_derivative:v1` |
+| Retained forensic staging marker | `rook.lm9b_p.evaluator_continuation_post_dispatch_unsealed:v1` |
+
+Preflight, sealed-derivative, and forensic-staging verifiers require the corresponding `schema_id` in addition to their closed record shapes and file memberships. Directory shape alone never establishes artifact type or validity.
 
 ## 3. Historical source binding
 
@@ -348,7 +360,7 @@ no observation consumed
 no derivative result
 ```
 
-The content-free readiness canary may already have contacted its readiness route; this state says only that the evaluator observation was not dispatched. Staging may be removed. The attempt may remain unconsumed, but any later evaluator contact still requires exact invocation binding and fresh readiness.
+The content-free readiness canary may already have contacted its readiness route; this state says only that the evaluator observation was not dispatched. Staging may be removed. Before `dispatch_started`, the same preflight and attempt identity may be reused only with fresh explicit approval and fresh readiness, and only when neither the final destination nor staging residue exists. Once `dispatch_started` is durable, the attempt identity is permanently burned and any later evaluator contact requires a new attempt ID, destination, preflight identity, explicit approval, and fresh readiness.
 
 ### 10.2 `post_dispatch_unsealed`
 
@@ -547,7 +559,7 @@ After implementation is reviewed and merged:
 5. If and only if readiness passes, immediately reverify commit, checkout cleanliness, source, delta, gate, rendered request, provider-call request, readiness route/model/commit/freshness, independently verified provider profile, and destination.
 6. Atomically reserve staging, freeze and persist the execution snapshot, write `dispatch_started`, make at most one evaluator call, and seal or retain evidence according to the state machine.
 
-Any later evaluator contact requires a new attempt ID, destination, preflight identity, explicit authorization, and fresh readiness. There is no automatic retry or resume.
+Before `dispatch_started`, the same preflight and attempt identity may be reused only under the exact Section 10.1 conditions. After `dispatch_started`, any later evaluator contact requires a new attempt ID, destination, preflight identity, explicit authorization, and fresh readiness. There is no automatic retry or resume of a dispatched attempt.
 
 ## 18. Result interpretation outside the scientific archive
 
