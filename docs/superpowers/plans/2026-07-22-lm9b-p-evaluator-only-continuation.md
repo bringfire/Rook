@@ -379,11 +379,13 @@ def test_no_contact_preflight_binds_exact_source_delta_requests_and_commit(
             attempt_id="visibility-evaluator-01",
             derivative_root=derivative_root,
             destination=derivative_root / "visibility-evaluator-01",
+            launch_eligibility="development_non_operational",
         )
     )
     assert contacted is False
     assert preflight.record["schema_id"] == CONT_ARTIFACTS.PREFLIGHT_SCHEMA_ID
     assert preflight.record["reviewed_commit_sha"] == "a" * 40
+    assert preflight.record["launch_eligibility"] == "development_non_operational"
     assert preflight.record["source"]["recipe_raw_sha256"] == source_pins.recipe_raw_sha256
     delta = json.loads((preflight.archive_dir / "allowed-delta-manifest.json").read_bytes())
     rows = delta["rows"]
@@ -405,38 +407,7 @@ def test_no_contact_preflight_binds_exact_source_delta_requests_and_commit(
 
 Emit a second preflight at the same reviewed commit/source/instrument with a different valid attempt ID and destination. Assert equal `instrument_fingerprint` and unequal `attempt_fingerprint`. Rebuild at a different synthetic reviewed commit and assert both its instrument and attempt fingerprints change.
 
-- [ ] **Step 2: Write the failing pre-contact mutation table**
-
-Use one `@pytest.mark.parametrize("mutation", [...])` table. Each row first emits a valid preflight, then mutates exactly one of: root manifest/file byte, checkpoint seal, non-rubric input, corrected rubric, allowed-delta row, evaluator system prompt, renderer ID, parser report schema, recommendation meanings, tool schema, token limit, provider-call builder, readiness route/model, provider profile, reviewed commit/dirty state, rendered request bytes, canonical provider bytes, destination containment/existence, or reparse-point observation. Call the final pre-dispatch verifier with a fake provider counter and assert the counter remains zero.
-
-Use named mutators rather than separate fixtures:
-
-```python
-@pytest.mark.parametrize(
-    "mutation",
-    [
-        "source_manifest", "source_file", "checkpoint_seal", "non_rubric_input",
-        "corrected_rubric", "allowed_delta", "system_prompt", "renderer",
-        "report_schema", "recommendation_meanings", "tool_schema", "limit",
-        "provider_builder", "route", "model", "profile", "commit", "dirty",
-        "rendered_request", "provider_request", "destination_exists",
-        "destination_escape", "reparse_ancestor",
-    ],
-)
-def test_every_pre_contact_drift_refuses_before_evaluator_dispatch(
-    prepared_preflight,
-    mutation: str,
-) -> None:
-    calls = prepared_preflight.apply(mutation)
-    with pytest.raises((ValueError, RuntimeError, FileExistsError)):
-        prepared_preflight.execute()
-    assert calls.evaluator == 0
-    assert not prepared_preflight.dispatch_marker.exists()
-```
-
-The helper's `apply()` must contain a closed dictionary from each name to one concrete byte/object/path mutation; unknown names raise `AssertionError`.
-
-- [ ] **Step 3: Run the new tests and verify they fail before production modules exist**
+- [ ] **Step 2: Run the new tests and verify they fail before production modules exist**
 
 Run:
 
@@ -446,7 +417,7 @@ C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test
 
 Expected: FAIL while importing the two new continuation modules.
 
-- [ ] **Step 4: Implement exact historical-source verification and the frozen source snapshot**
+- [ ] **Step 3: Implement exact historical-source verification and the frozen source snapshot**
 
 In the new artifacts module, pin:
 
@@ -474,7 +445,7 @@ Define `HistoricalSourcePins` with source root, root-manifest digest, checkpoint
 
 The public `verify_historical_source()` takes no path or pin argument and delegates to `PRODUCTION_SOURCE_PINS`. The private pin-accepting function exists only for deterministic fixtures.
 
-- [ ] **Step 5: Implement the constructive rubric-only instrument and stable identities**
+- [ ] **Step 4: Implement the constructive rubric-only instrument and stable identities**
 
 `assemble_continuation_instrument()` accepts only the verified source snapshot, exact corrected-rubric bytes read by the caller, and reviewed commit. Build new input records by preserving every archived `raw_bytes` except `evaluation_rubric`, whose raw bytes are replaced. Delegate all semantic input checks to `frozen_planner_inputs_from_records()`.
 
@@ -513,9 +484,9 @@ instrument_fingerprint = fingerprint({
 
 Do not include attempt ID or destination in this value.
 
-- [ ] **Step 6: Implement canonical Windows destination checks and the closed preflight archive**
+- [ ] **Step 5: Implement canonical Windows destination checks and the closed preflight archive**
 
-Validate attempt IDs against the exact grammar and 1..64 length. Require derivative root and destination to be absolute canonical Windows paths; require destination strictly below the root with `os.path.commonpath`; require same drive/volume; reject unresolved traversal; walk every existing ancestor with `os.lstat()` and reject `stat.FILE_ATTRIBUTE_REPARSE_POINT`; require destination and deterministic staging path absent.
+Validate attempt IDs against the exact grammar and 1..64 length. Require derivative root and destination to be absolute canonical Windows paths and require `canonical_destination.parent == canonical_derivative_root`; nested destinations are invalid. Require same drive/volume; reject unresolved traversal; inspect the existing derivative root with `os.lstat()` and reject `stat.FILE_ATTRIBUTE_REPARSE_POINT`; require destination and deterministic staging path absent.
 
 Compute:
 
@@ -546,6 +517,7 @@ record_without_fingerprint = {
     "schema_id": PREFLIGHT_SCHEMA_ID,
     "reviewed_commit_sha": reviewed_commit_sha,
     "clean_checkout": True,
+    "launch_eligibility": launch_eligibility,
     "source": source_identity,
     "instrument": instrument_identity,
     "attempt": attempt_identity,
@@ -570,11 +542,11 @@ provider-call-request.json
 checksums.json
 ```
 
-`record.json` has exact top-level keys `schema_id`, `preflight_fingerprint`, `reviewed_commit_sha`, `clean_checkout`, `source`, `instrument`, `attempt`, and `files`. `checksums.json` contains sorted rows of `path`, `role`, `raw_sha256`, and `byte_length`, plus a canonical aggregate identity. Create the output directory with `exist_ok=False`, write exact bytes, reread each, verify closure and hashes, and never construct a provider.
+`record.json` has exact top-level keys `schema_id`, `preflight_fingerprint`, `reviewed_commit_sha`, `clean_checkout`, `launch_eligibility`, `source`, `instrument`, `attempt`, and `files`. The eligibility vocabulary is closed to `development_non_operational` and `operator_review_candidate`. Execution always refuses the development value. `checksums.json` contains sorted rows of `path`, `role`, `raw_sha256`, and `byte_length`, plus a canonical aggregate identity. Create the output directory with `exist_ok=False`, write exact bytes, reread each, verify closure and hashes, and never construct a provider.
 
 `verify_preflight_archive()` must reject missing/extra paths, duplicate checksum paths, wrong schema, self-inconsistent fingerprints, malformed identities, destination drift, or a directory-shaped derivative/staging artifact.
 
-- [ ] **Step 7: Implement the no-contact preflight orchestrator and CLI subcommand**
+- [ ] **Step 6: Implement the no-contact preflight orchestrator and CLI subcommands**
 
 Define:
 
@@ -586,6 +558,10 @@ class PreflightConfig:
     attempt_id: str
     derivative_root: Path
     destination: Path
+    launch_eligibility: Literal[
+        "development_non_operational",
+        "operator_review_candidate",
+    ]
 
 
 def emit_no_contact_preflight(config: PreflightConfig) -> VerifiedContinuationPreflight:
@@ -602,17 +578,17 @@ def emit_no_contact_preflight(config: PreflightConfig) -> VerifiedContinuationPr
     return CONT_ARTIFACTS.write_preflight_archive(config, instrument)
 ```
 
-Add `preflight` CLI arguments exactly matching `PreflightConfig`. Do not add source-root, source-pin, Planner, compiler, handoff, checkpoint-2, or provider arguments. Printing the resulting preflight fingerprint is allowed; contacting readiness or a provider is not.
+Add `preflight` CLI arguments exactly matching `PreflightConfig`, with a required mutually exclusive choice between `--development-witness` and `--operator-review-candidate`. Add a read-only `verify-preflight` subcommand accepting only the preflight directory and expected fingerprint. Do not add source-root, source-pin, Planner, compiler, handoff, checkpoint-2, or provider arguments. Printing the resulting preflight fingerprint is allowed; contacting readiness or a provider is not.
 
-- [ ] **Step 8: Run the source/preflight tests and commit**
+- [ ] **Step 7: Run the source/preflight tests and commit**
 
 Run:
 
 ```powershell
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_lm9b_p_evaluator_only_continuation.py -k "preflight or source or pre_contact" -q
+C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_lm9b_p_evaluator_only_continuation.py -k "preflight or source" -q
 ```
 
-Expected: PASS; fake provider construction/call count remains zero for preflight and all mutations.
+Expected: PASS; fake provider construction/call count remains zero for source assembly, preflight emission, and independent preflight verification. Task 2 is green without importing or calling Task 3 execution verification.
 
 Commit:
 
@@ -639,7 +615,38 @@ git commit -m "feat: add evaluator continuation preflight"
 
 In `test_lm9b_p_readiness_probe.py`, call `run_readiness()` with a fake provider and `models={"planner_evaluator": "gpt-5.4"}`. Assert one route, member roles exactly `("planner_evaluator",)`, the existing schema/protocol/freshness values, and one fake call only when `authenticate=True`. Add a CLI parse test proving `--role planner_evaluator` selects that same model mapping while omission retains all four canonical roles.
 
-- [ ] **Step 2: Add the failing vertical witness through the actual continuation entry point**
+- [ ] **Step 2: Add the failing pre-contact mutation table against the Task 3 execution verifier**
+
+Use one `@pytest.mark.parametrize("mutation", [...])` table. Each row first emits a valid `operator_review_candidate` preflight, then mutates exactly one of: root manifest/file byte, checkpoint seal, non-rubric input, corrected rubric, allowed-delta row, evaluator system prompt, renderer ID, parser report schema, recommendation meanings, tool schema, token limit, provider-call builder, readiness route/model, provider profile, reviewed commit/dirty state, rendered request bytes, canonical provider bytes, destination containment/existence, or reparse-point observation. Call the final pre-dispatch verifier delivered by this task with a fake provider counter and assert the counter remains zero.
+
+Use named mutators rather than separate fixtures:
+
+```python
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "source_manifest", "source_file", "checkpoint_seal", "non_rubric_input",
+        "corrected_rubric", "allowed_delta", "system_prompt", "renderer",
+        "report_schema", "recommendation_meanings", "tool_schema", "limit",
+        "provider_builder", "route", "model", "profile", "commit", "dirty",
+        "rendered_request", "provider_request", "destination_exists",
+        "destination_nested", "destination_escape", "reparse_root",
+    ],
+)
+def test_every_pre_contact_drift_refuses_before_evaluator_dispatch(
+    prepared_preflight,
+    mutation: str,
+) -> None:
+    calls = prepared_preflight.apply(mutation)
+    with pytest.raises((ValueError, RuntimeError, FileExistsError)):
+        prepared_preflight.execute()
+    assert calls.evaluator == 0
+    assert not prepared_preflight.dispatch_marker.exists()
+```
+
+The helper's `apply()` must contain a closed dictionary from each name to one concrete byte/object/path mutation; unknown names raise `AssertionError`.
+
+- [ ] **Step 3: Add the failing vertical witness through the actual continuation entry point**
 
 Use the verified source/preflight fixture and a real passing fake readiness record built by existing readiness helpers. Patch only `_build_evaluator_provider` to return a fake that captures and mutates its fresh request after constructing a valid `semantically_faithful` tool response. Patch actual compiler-specific behavior to raise:
 
@@ -676,7 +683,7 @@ assert _tree_digest(source_pins.source_root) == original_source_digest
 
 Also assert the retained preflight/provider request bytes did not change when the fake mutated its request object.
 
-- [ ] **Step 3: Add the failing post-dispatch fault-injection table**
+- [ ] **Step 4: Add the failing post-dispatch fault-injection table**
 
 Use one table with exact expected disposition:
 
@@ -719,17 +726,17 @@ def test_post_dispatch_outcome_and_fault_matrix(
 
 Implement fault selection only in test fakes/monkeypatches; do not add a production `fault` argument.
 
-- [ ] **Step 4: Run the focused tests and verify they fail before execution exists**
+- [ ] **Step 5: Run the focused tests and verify they fail before execution exists**
 
 Run:
 
 ```powershell
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_lm9b_p_readiness_probe.py mcp_server/tests/test_lm9b_p_evaluator_only_continuation.py -k "role or vertical or post_dispatch" -q
+C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_lm9b_p_readiness_probe.py mcp_server/tests/test_lm9b_p_evaluator_only_continuation.py -k "role or pre_contact or vertical or post_dispatch" -q
 ```
 
 Expected: FAIL because one-role CLI selection and the execution state machine are not implemented.
 
-- [ ] **Step 5: Add one-role selection to the existing readiness probe**
+- [ ] **Step 6: Add one-role selection to the existing readiness probe**
 
 Add repeatable `--role` choices from `CONTRACT.CANONICAL_ROLE_MODELS`. If omitted, retain the existing all-role dictionary. If supplied, build:
 
@@ -750,7 +757,7 @@ C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe scripts/lm9b_p_readiness_probe.
 
 Document this command only in CLI help/docstrings; do not execute it during implementation.
 
-- [ ] **Step 6: Implement final pre-dispatch verification and atomic reservation**
+- [ ] **Step 7: Implement final pre-dispatch verification and atomic reservation**
 
 Define `ExecutionConfig` with only `preflight_dir`, `expected_preflight_fingerprint`, `readiness_record`, `credential_preflight`, and `transmit`. The function signature is exactly:
 
@@ -762,7 +769,7 @@ def execute_continuation(
 
 Before constructing a provider or creating staging:
 
-1. Require `transmit is True` and exact supplied preflight fingerprint.
+1. Require `transmit is True`, `launch_eligibility == "operator_review_candidate"`, and exact supplied preflight fingerprint.
 2. Verify preflight closure, clean `HEAD`, source archive, corrected rubric, delta, independent gate, renderer, report schema/meanings, system prompt, limits, canonical provider request, model/profile/route, and absent destination/staging.
 3. Derive the readiness manifest from exactly `{"planner_evaluator": "gpt-5.4"}` and the existing credential helper; parse/reread the readiness record and credential preflight; call existing `verify_launch_readiness()` with the existing clock and environment-presence rules.
 4. Construct the existing evaluator adapter and independently require its model, temperature, and `profile_identity` to equal the instrument; readiness itself does not attest profile.
@@ -771,7 +778,26 @@ Before constructing a provider or creating staging:
 
 If any step before `dispatch_started` fails, never invoke the adapter. Remove only the exact reserved staging path after revalidating its containment and absence of a dispatch marker; if removal fails, residue blocks preflight reuse.
 
-- [ ] **Step 7: Implement dispatch, complete evaluator failures, and conservative unsealed retention**
+- [ ] **Step 8: Audit and implement the exact irreversible-boundary operation order**
+
+Immediately before writing code for dispatch, pin this literal API order in a test assertion over injected call tracers:
+
+1. `verify_preflight_archive()` reads and checksum-verifies the supplied preflight.
+2. `subprocess.run(["git", "rev-parse", "HEAD"], ...)` and `git status --porcelain` establish the clean reviewed checkout.
+3. `verify_historical_source()` stream-hashes the complete sealed root, parses only continuation source members, and returns frozen bytes.
+4. `Path.read_bytes()` reads the corrected rubric; instrument assembly recomputes delta, gate, rendered request, and provider-call request.
+5. `Path.read_bytes()` reads and rereads readiness/credential records; existing readiness verification checks route, model, commit, credential presence, and freshness.
+6. `build_planner_evaluator_provider()` constructs only the evaluator-role adapter; its model, temperature, and profile identity are checked independently.
+7. `Path.mkdir(exist_ok=False)` atomically reserves the direct-child staging path after destination and staging absence are rechecked.
+8. Each frozen snapshot/preflight/readiness/request file is created with exclusive mode, flushed with `os.fsync()`, closed, and reread from staging.
+9. External source and fixture reads are disabled; all remaining work consumes the in-memory snapshot or staged bytes.
+10. `materialize_planner_evaluator_provider_call_request()` creates and validates the fresh mutable request object.
+11. The dispatch marker is exclusively created, flushed/fsynced, closed, and reread.
+12. `run_planner_evaluation()` enters the evaluator adapter at most once.
+
+The trace test must cover a destination-created race before reservation, a crash after reservation but before the marker, a crash after the marker but before adapter entry, and adapter return/raise. No filesystem verb such as “persist,” “reserve,” or “rename” remains without its concrete Python/Windows operation.
+
+- [ ] **Step 9: Implement dispatch, complete evaluator failures, and conservative unsealed retention**
 
 Materialize and validate a fresh provider request from staged canonical bytes. Then write, flush/fsync, and reread these exact fields from the frozen snapshot:
 
@@ -792,7 +818,7 @@ For a valid recommendation, call the shared pure classifier with staged verified
 
 Catch `BaseException` only around the post-dispatch evidence lifecycle so process interruption retains staging; re-raise `KeyboardInterrupt`/`SystemExit` after best-effort marking if the CLI must preserve conventional termination.
 
-- [ ] **Step 8: Implement the exact derivative archive and closed verifier**
+- [ ] **Step 10: Implement the exact derivative archive and closed verifier**
 
 Write only this closed membership (the `when available` leaves are declared by `evaluator/attempt/capture.json` and still checksummed):
 
@@ -852,7 +878,7 @@ Preserve returned response/error, usage, elapsed timing, provider metadata/model
 
 The verifier must derive the allowed optional evaluator files from `evaluator/attempt/capture.json`, require every checksummed path and role, reject every unchecksummed/extra file, reject all `compiler`, `handoff`, `checkpoint-2`, and successor-policy members, recompute classification from result plus staged recipe bytes, and recheck all source/instrument/preflight identities.
 
-- [ ] **Step 9: Run readiness and execution tests and commit**
+- [ ] **Step 11: Run readiness and execution tests and commit**
 
 Run:
 
@@ -891,6 +917,7 @@ Use one parameterized table:
         ("success", "sealed"),
         ("success_then_exception", "sealed"),
         ("failure_before_move", "post_dispatch_unsealed"),
+        ("destination_appears_before_rename", "ambiguous_unsealed"),
         ("invalid_destination_after_move", "ambiguous_unsealed"),
         ("both_staging_and_destination", "ambiguous_unsealed"),
     ],
@@ -917,7 +944,7 @@ def test_atomic_rename_reconciliation(
         assert result.classification is None
 ```
 
-`success_then_exception` must perform the actual same-volume rename and then raise. `failure_before_move` leaves staging and no destination. `invalid_destination_after_move` corrupts the moved destination before raising. `both_staging_and_destination` copies rather than moves before raising. Preserve all material in ambiguous cases.
+`success_then_exception` must perform the actual same-volume rename and then raise. `failure_before_move` leaves staging and no destination. `destination_appears_before_rename` creates a distinct valid directory at the destination immediately before the no-clobber rename; assert `FileExistsError`, byte-identical competing destination contents, and intact staging. `invalid_destination_after_move` corrupts the moved destination before raising. `both_staging_and_destination` copies rather than moves before raising. Preserve all material in ambiguous cases.
 
 - [ ] **Step 2: Add failing structural and consumption tests**
 
@@ -947,7 +974,7 @@ Expected: FAIL on the unimplemented reconciliation/consumption assertions.
 
 - [ ] **Step 4: Implement rename reconciliation without deleting evidence**
 
-Finalize checksums and expected derivative identity entirely in staging, verify them there, and use one same-volume `Path.replace()` call. On exception:
+Finalize checksums and expected derivative identity entirely in staging, verify them there, recheck destination absence, and use one same-volume `Path.rename()` call. On this Windows-only repository, `Path.rename()` maps to the no-clobber rename behavior required here: an existing destination raises `FileExistsError` and leaves both source and destination intact. Never use `Path.replace()` for finalization. On exception:
 
 1. If destination exists, staging is absent, and destination verifies against the exact expected checksums/identity, return sealed.
 2. If staging exists and destination is absent, mark staging `post_dispatch_unsealed` with failure locus `atomic_rename`.
@@ -955,7 +982,7 @@ Finalize checksums and expected derivative identity entirely in staging, verify 
 4. If staging is absent and destination exists but does not verify, preserve destination and return an ambiguous unsealed result.
 5. Never delete already-written post-dispatch evidence, never issue a classification from an ambiguous state, and never relabel partial forensic hashes as checksum closure.
 
-Do not catch a successful verified destination as a failure merely because `Path.replace()` raised after the move.
+Do not catch a successful verified destination as a failure merely because `Path.rename()` raised after the move.
 
 - [ ] **Step 5: Implement permanent consumption and pre-dispatch reuse rules**
 
@@ -993,7 +1020,7 @@ git commit -m "test: close evaluator continuation lifecycle"
 
 **Interfaces:**
 - Consumes: all prior tasks.
-- Produces: a clean, reviewable implementation branch; no preflight against the production archive and no provider/readiness observation.
+- Produces: a clean, reviewable implementation branch plus one verified `development_non_operational` preflight over the exact pinned production archive; no readiness or provider observation.
 
 - [ ] **Step 1: Compile every touched Python module**
 
@@ -1005,7 +1032,36 @@ C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m py_compile scripts/lm9b_p_pl
 
 Expected: exit 0 and no output.
 
-- [ ] **Step 2: Run the focused authority, readiness, and continuation tests**
+- [ ] **Step 2: Walk the exact pinned production specimen through the complete reversible no-contact path**
+
+Run the completed production preflight entry point against its hard-coded sealed source. The witness is deliberately bound to the feature HEAD and marked non-operational, so execution refuses it even before the commit necessarily changes at merge:
+
+```powershell
+$featureHead = (git rev-parse HEAD).Trim()
+$witnessName = "rook-lm9b-p-development-preflight-$($featureHead.Substring(0,12))"
+$witnessRoot = Join-Path ([System.IO.Path]::GetTempPath()) $witnessName
+if (Test-Path -LiteralPath $witnessRoot) { throw "development witness path already exists: $witnessRoot" }
+$derivativeRoot = Join-Path $witnessRoot 'derivatives'
+$preflightDir = Join-Path $witnessRoot 'preflight'
+$attemptId = "development-$($featureHead.Substring(0,12))"
+$destination = Join-Path $derivativeRoot $attemptId
+New-Item -ItemType Directory -Path $witnessRoot | Out-Null
+New-Item -ItemType Directory -Path $derivativeRoot | Out-Null
+$preflightSummary = C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe scripts/lm9b_p_evaluator_only_continuation.py preflight --output-dir $preflightDir --reviewed-commit-sha $featureHead --attempt-id $attemptId --derivative-root $derivativeRoot --destination $destination --development-witness | ConvertFrom-Json
+C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe scripts/lm9b_p_evaluator_only_continuation.py verify-preflight --preflight-dir $preflightDir --expected-preflight-fingerprint $preflightSummary.preflight_fingerprint
+$record = Get-Content -Raw (Join-Path $preflightDir 'record.json') | ConvertFrom-Json
+if ($record.launch_eligibility -ne 'development_non_operational') { throw 'development witness is not non-operational' }
+if ($record.reviewed_commit_sha -ne $featureHead) { throw 'development witness commit mismatch' }
+if ($record.source.root_manifest_raw_sha256 -ne 'sha256:ac7716b7d5a61e2e6359bc0e01e145d7d17e0871ff03d1d5329710541d274c90') { throw 'production source manifest mismatch' }
+if ($record.source.recipe_raw_sha256 -ne 'sha256:5c5dba9def1ffc3002240f3154f02f36e60134019659d5e6a9d546b0317965af') { throw 'production recipe mismatch' }
+Write-Output "DEVELOPMENT_PREFLIGHT=$preflightDir"
+Write-Output "PREFLIGHT_FINGERPRINT=$($preflightSummary.preflight_fingerprint)"
+Write-Output "INSTRUMENT_FINGERPRINT=$($record.instrument.instrument_fingerprint)"
+```
+
+Expected: both commands exit 0; source verification walks the complete pinned root; exactly one rubric row is replaced; the exact recipe is mechanically accepted; rendered evaluator and provider-call request bytes verify; `launch_eligibility` is `development_non_operational`; no readiness record, provider adapter, dispatch marker, staging directory, or derivative archive is created. Retain this temporary preflight for independent review and report its absolute path and fingerprints.
+
+- [ ] **Step 3: Run the focused authority, readiness, and continuation tests**
 
 Run:
 
@@ -1015,7 +1071,7 @@ C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test
 
 Expected: PASS with no skipped continuation outcome/fault rows.
 
-- [ ] **Step 3: Run the complete LM9B-P test family**
+- [ ] **Step 4: Run the complete LM9B-P test family**
 
 Run:
 
@@ -1026,7 +1082,7 @@ C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest $lm9bPTests -q
 
 Expected: all LM9B-P tests pass. Do not claim a count until this command actually runs.
 
-- [ ] **Step 4: Prove scope, cleanliness, and absence of accidental provider operations**
+- [ ] **Step 5: Prove scope, cleanliness, and absence of accidental provider operations**
 
 Run:
 
@@ -1040,27 +1096,27 @@ rg -n "successor-disposition|authenticated authorization|hidden chain-of-thought
 
 Expected: `git diff --check` exits 0; only the File Map paths changed; continuation code contains only explicit boundary/non-claim uses of forbidden concepts and no compiler construction/call input; worktree is clean after the final commit.
 
-- [ ] **Step 5: Review the implementation against every design section**
+- [ ] **Step 6: Review the implementation against every design section**
 
 Use `docs/superpowers/specs/2026-07-22-lm9b-p-evaluator-only-continuation-design.md` as a checklist. Confirm source pins, constructive delta, shared equations, provider request, two fingerprints, destination/reparse handling, no-contact preflight, one-role readiness, frozen snapshot, dispatch boundary, three states, archive membership, evidence matrix, rename reconciliation, compiler behavior isolation, tests, post-merge sequence, and out-of-scope exclusions each map to concrete code and at least one deterministic assertion.
 
-- [ ] **Step 6: Commit any verification-only corrections and stop for review**
+- [ ] **Step 7: Commit any verification-only corrections and stop for review**
 
-If verification required changes, rerun the failed command plus the complete LM9B-P family, then commit only those corrections:
+If verification required changes, commit only those corrections, then rerun the failed command, the complete LM9B-P family, and Step 2 under the new feature HEAD so the retained development witness binds the code actually submitted for review:
 
 ```powershell
 git add scripts/lm9b_p_planner_recipe_transfer_support.py scripts/lm9b_p_planner_recipe_transfer_artifacts.py scripts/lm9b_p_planner_recipe_transfer_probe.py scripts/lm9b_p_readiness_probe.py scripts/lm9b_p_evaluator_only_continuation_artifacts.py scripts/lm9b_p_evaluator_only_continuation.py mcp_server/tests/test_lm9b_p_evaluator_authority_boundary.py mcp_server/tests/test_lm9b_p_planner_recipe_transfer_probe.py mcp_server/tests/test_lm9b_p_readiness_probe.py mcp_server/tests/test_lm9b_p_evaluator_only_continuation.py
 git commit -m "fix: close evaluator continuation verification gaps"
 ```
 
-If no corrections were required, create no empty commit. Stop with the branch, commit list, exact test results, and an explicit statement that no production preflight, readiness canary, or provider call was performed.
+If no corrections were required, create no empty commit. Stop with the branch, commit list, exact test results, the retained production-backed development-preflight path/fingerprints, and an explicit statement that no readiness canary or provider call was performed.
 
 ## Post-Merge Operator Sequence (Not Authorized by This Plan)
 
 After implementation review and merge, a separate explicit authorization must govern each operational step:
 
 1. Create a clean worktree at the reviewed merge SHA.
-2. Run only the `preflight` subcommand to emit the no-contact content-addressed preflight.
+2. Run only the `preflight --operator-review-candidate` subcommand to emit the no-contact content-addressed preflight.
 3. Obtain explicit user approval naming that exact preflight fingerprint.
 4. Run the existing readiness probe with `--role planner_evaluator --authenticate` into a fresh readiness directory.
 5. Invoke `execute --transmit` with the exact preflight fingerprint and readiness files.
