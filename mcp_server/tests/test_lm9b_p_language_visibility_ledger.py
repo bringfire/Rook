@@ -14,6 +14,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -191,6 +192,76 @@ def test_m3_every_applicable_field_refs_the_shared_def() -> None:
     assert gaps == [], f"identifier-grammar coverage gaps: {gaps}"
 
 
+# The remaining machine-scalar fields the gate applies the grammar to (support.py
+# _MACHINE_SCALAR_FIELDS, minus semantic_key which is covered by the shared $def above).
+_SCALAR_FIELDS = {
+    "artifact_kind",
+    "authority_code",
+    "capability_code",
+    "delegate_kind",
+    "kind",
+    "schema",
+    "value_schema",
+    "vocabulary_version",
+}
+
+
+def test_m3_machine_scalar_fields_have_visible_carriers_matching_grammar() -> None:
+    # Each remaining machine-scalar field must have a model-visible carrier
+    # (schema const/enum, or a vocabulary fixture), and every admitted value must
+    # itself satisfy the machine-identifier grammar the gate enforces.
+    schema = _schema()
+    grammar = re.compile(MID)
+    carriers: dict[str, set] = {}
+
+    def collect(node):
+        if isinstance(node, dict):
+            props = node.get("properties")
+            if isinstance(props, dict):
+                for k, v in props.items():
+                    if k in _SCALAR_FIELDS and isinstance(v, dict):
+                        if "const" in v:
+                            carriers.setdefault(k, set()).add(v["const"])
+                        elif "enum" in v:
+                            carriers.setdefault(k, set()).update(v["enum"])
+                for v in props.values():
+                    collect(v)
+            for kk, vv in node.items():
+                if kk != "properties":
+                    collect(vv)
+        elif isinstance(node, list):
+            for x in node:
+                collect(x)
+
+    collect(schema)
+
+    # Vocabulary-bound fields carry their admitted values in model-visible fixtures.
+    def _codes(fname: str, code_key: str) -> set:
+        entries = json.loads((FIXTURES / fname).read_text())["entries"]
+        return {e[code_key] for e in entries}
+
+    carriers.setdefault("authority_code", set()).update(
+        _codes("semantic_authority_code_vocabulary.json", "code")
+    )
+    carriers.setdefault("capability_code", set()).update(
+        _codes("semantic_capability_code_vocabulary.json", "code")
+    )
+    carriers.setdefault("value_schema", set()).update(
+        _codes("semantic_value_schema_registry.json", "schema")
+    )
+
+    missing = _SCALAR_FIELDS - set(carriers)
+    assert not missing, f"machine-scalar fields without a visible carrier: {missing}"
+
+    ungrammatical = {
+        (field, value)
+        for field, values in carriers.items()
+        for value in values
+        if not grammar.fullmatch(value)
+    }
+    assert not ungrammatical, f"admitted values violate the machine grammar: {ungrammatical}"
+
+
 # ============================ M4: policy pointer grammar ============================
 
 def test_m4_policy_reference_json_pointer_pattern() -> None:
@@ -229,17 +300,17 @@ def test_m5_m6_relational_invariants_declared() -> None:
 # ============================ visibility through the renderer ============================
 
 def test_carriers_reach_the_model_through_the_renderer() -> None:
+    # Assert the rendered payload carries the COMPLETE frozen recipe_schema and
+    # authoring_contract (with the contract's expected fingerprint) — not merely that
+    # some tokens appear, which stale or reconstructed content could satisfy.
     inputs = ARTIFACTS.load_planner_inputs(FIXTURES)
-    raw = ARTIFACTS.render_planner_request(inputs).raw_bytes.decode("utf-8")
-    for token in (
-        "machine_identifier",
-        "source_task_artifact_kind",
-        "authority_artifact_kinds",
-        "environment_snapshot",
-        "/rules/",
-        "globally unique",
-    ):
-        assert token in raw, f"carrier {token!r} not visible in the rendered Planner request"
+    payload = json.loads(ARTIFACTS.render_planner_request(inputs).raw_bytes)
+    assert payload["recipe_schema"] == _schema()
+    assert payload["authoring_contract"] == _contract()
+    assert (
+        payload["authoring_contract"]["contract_fingerprint"]
+        == _contract()["contract_fingerprint"]
+    )
 
 
 # ============================ fingerprint / manifest consistency ============================
@@ -294,25 +365,30 @@ def test_boundary_malformed_policy_pointer_fails_schema() -> None:
 # visibly states it, and (2) the unchanged gate still rejects it.
 
 def test_unchanged_gate_still_rejects_duplicate_descriptor_id() -> None:
+    # Cross-object descriptor-id uniqueness is not JSON-Schema-expressible; it stays
+    # gate-enforced. Duplicate an authority DESCRIPTOR (not a clause) and gate WITHOUT
+    # _seal, because normalization refuses duplicate identities before the gate runs.
     ri = _contract()["relational_invariants"]
     assert any("globally unique" in s for s in ri)
     recipe = _recipe()
-    recipe["requires"][0]["clause_id"] = recipe["maintains"][0]["clause_id"]
-    assert _gate(_seal(recipe)).diagnostics[0].code == "duplicate_identifier"
+    recipe["authority_artifacts"].append(copy.deepcopy(recipe["authority_artifacts"][0]))
+    diag = _gate(recipe).diagnostics[0]
+    assert diag.code == "duplicate_identifier"
+    assert diag.path == "/authority_artifacts/2/artifact_id"
 
 
 def test_unchanged_gate_still_rejects_unreferenced_authority_descriptor() -> None:
+    # Structural evaluation precedes fingerprint binding, so an unreferenced descriptor
+    # must produce exactly unreferenced_authority_descriptor at its path.
     ri = _contract()["relational_invariants"]
     assert any("referenced by recipe content" in s for s in ri)
     recipe = _recipe()
     extra = copy.deepcopy(recipe["authority_artifacts"][0])
     extra["artifact_id"] = "unreferenced.descriptor"
     recipe["authority_artifacts"].append(extra)
-    result = _gate(_seal(recipe))
-    assert result.diagnostics[0].code in {
-        "unreferenced_authority_descriptor",
-        "authority_binding_failed",  # a fabricated descriptor also fails its fingerprint bind
-    }
+    diag = _gate(recipe).diagnostics[0]
+    assert diag.code == "unreferenced_authority_descriptor"
+    assert diag.path == "/authority_artifacts/2"
 
 
 def test_unchanged_gate_still_rejects_dangling_local_reference() -> None:

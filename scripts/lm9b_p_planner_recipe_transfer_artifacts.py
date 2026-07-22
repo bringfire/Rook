@@ -500,6 +500,20 @@ def _verify_authoring_contract(value: Mapping[str, object]) -> None:
     }
     if _thaw_json(value.get("language_boundary")) != expected_boundary:
         raise ValueError("authoring contract language boundary mismatch")
+    # Pin the complete relational-invariant statements too. M1/M5/M6 are carried
+    # here (not expressible in JSON Schema), so a self-consistent fingerprint must
+    # not be able to silently remove a model-visible rule.
+    expected_invariants = [
+        "Every clause has direct source, assumption, or permitted derived-fact support, or a non-null clause-appropriate synthesis.",
+        "Nested canonicalization applies only to its containing maintains clause.",
+        "Nested canonicalization and postconditions may inherit only from their containing maintains clause.",
+        "Descriptor artifact IDs are globally unique across source_task and authority_artifacts; identifiers are unique within each declaration namespace.",
+        "The reserved artifact ID task_envelope appears only as source_task and never in authority_artifacts.",
+        "Every recipe-bound authority descriptor is referenced by recipe content.",
+        "Every local semantic reference resolves to a declared symbol of its declared kind.",
+    ]
+    if _thaw_json(value.get("relational_invariants")) != expected_invariants:
+        raise ValueError("authoring contract relational invariants mismatch")
 
 
 def _verify_evaluation_rubric(
