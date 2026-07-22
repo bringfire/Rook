@@ -1288,6 +1288,13 @@ def test_planner_evaluator_exposes_one_closed_recommendation_tool() -> None:
     assert "probe_candidate_blocked" not in json.dumps(definition)
 
 
+def _planner_evaluator_provider_request_bytes() -> bytes:
+    return SUPPORT.build_planner_evaluator_provider_call_request(
+        system_prompt="evaluator system",
+        user_prompt="evaluator user",
+    )
+
+
 def test_planner_evaluation_accepts_one_evidence_backed_recommendation_without_retry() -> None:
     provider = _PlannerProvider(
         [
@@ -1307,8 +1314,7 @@ def test_planner_evaluation_accepts_one_evidence_backed_recommendation_without_r
     )
     result = SUPPORT.run_planner_evaluation(
         provider=provider,
-        system_prompt="evaluator system",
-        user_prompt="evaluator user",
+        provider_call_request_bytes=_planner_evaluator_provider_request_bytes(),
     )
     assert result.termination == "valid_recommendation"
     assert result.recommendation == "semantically_faithful"
@@ -1355,8 +1361,7 @@ def test_planner_evaluation_malformed_or_missing_evidence_is_inconclusive_withou
     provider = _PlannerProvider([response, RuntimeError("must not be consumed")])
     result = SUPPORT.run_planner_evaluation(
         provider=provider,
-        system_prompt="evaluator system",
-        user_prompt="evaluator user",
+        provider_call_request_bytes=_planner_evaluator_provider_request_bytes(),
     )
     assert result.termination == "malformed"
     assert result.recommendation is None
@@ -1376,12 +1381,55 @@ def test_planner_evaluation_provider_failure_is_inconclusive_without_retry(
     provider = _PlannerProvider([failure])
     result = SUPPORT.run_planner_evaluation(
         provider=provider,
-        system_prompt="evaluator system",
-        user_prompt="evaluator user",
+        provider_call_request_bytes=_planner_evaluator_provider_request_bytes(),
     )
     assert result.termination == termination
     assert result.recommendation is None
     assert len(provider.requests) == 1
+
+
+def test_planner_evaluation_marks_a_still_live_timeout_nonquiescent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    release = threading.Event()
+    entered = threading.Event()
+
+    def blocking_provider(_request):
+        entered.set()
+        release.wait(1.0)
+        return _planner_evaluation_turn(
+            {
+                "recommendation": "evaluation_inconclusive",
+                "evidence": [
+                    {
+                        "criterion_id": "brief_fidelity",
+                        "finding": "late",
+                    }
+                ],
+            }
+        )
+
+    monkeypatch.setattr(SUPPORT, "PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S", 0.01)
+    try:
+        result = SUPPORT.run_planner_evaluation(
+            provider=blocking_provider,
+            provider_call_request_bytes=_planner_evaluator_provider_request_bytes(),
+        )
+        assert entered.is_set()
+        assert result.termination == "timeout"
+        assert result.quiescent is False
+    finally:
+        release.set()
+
+
+def test_planner_evaluation_marks_a_terminal_timeout_quiescent() -> None:
+    provider = _PlannerProvider([TimeoutError("provider timeout")])
+    result = SUPPORT.run_planner_evaluation(
+        provider=provider,
+        provider_call_request_bytes=_planner_evaluator_provider_request_bytes(),
+    )
+    assert result.termination == "timeout"
+    assert result.quiescent is True
 
 def test_exact_vocabulary_companions_are_complete_and_fingerprinted() -> None:
     expected = {

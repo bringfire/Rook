@@ -475,26 +475,25 @@ def test_loaded_inputs_and_rendered_payload_are_transitively_immutable() -> None
     assert rendered.raw_sha256 == SUPPORT.sha256_prefixed(original_raw)
 
 
-def test_second_read_cannot_diverge_from_content_addressed_records(
-    tmp_path: Path, monkeypatch
+def test_content_addressed_inputs_are_each_read_exactly_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     copied = tmp_path / "fixtures"
     shutil.copytree(PLANNER_FIXTURES, copied)
-    original_loader = ARTIFACTS.load_planner_authority_context
+    original_read_bytes = Path.read_bytes
+    reads: dict[str, int] = {}
 
-    def mutating_loader(fixture_dir: Path):
-        path = Path(fixture_dir) / "attempt_context.json"
-        value = json.loads(path.read_bytes())
-        value["attempt_id"] = "lm9b-p-mutated-between-reads"
-        value["context_fingerprint"] = SUPPORT.fingerprint_without(
-            value, "context_fingerprint"
-        )
-        path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
-        return original_loader(fixture_dir)
+    def counted_read_bytes(path: Path) -> bytes:
+        resolved = path.resolve()
+        if resolved.parent == copied.resolve():
+            reads[resolved.name] = reads.get(resolved.name, 0) + 1
+        return original_read_bytes(path)
 
-    monkeypatch.setattr(ARTIFACTS, "load_planner_authority_context", mutating_loader)
-    with pytest.raises(ValueError, match="snapshot mismatch"):
-        ARTIFACTS.load_planner_inputs(copied)
+    monkeypatch.setattr(Path, "read_bytes", counted_read_bytes)
+    inputs = ARTIFACTS.load_planner_inputs(copied)
+    assert len(inputs.records) == len(EXPECTED_PLANNER_INPUT_ROLES)
+    assert set(reads) == {record.relative_path for record in inputs.records}
+    assert set(reads.values()) == {1}
 
 
 def test_transition_revalidates_frozen_session_authority() -> None:

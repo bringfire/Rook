@@ -43,6 +43,12 @@ PLANNER_TOKEN_STOP_THRESHOLD = 120_000
 PLANNER_COST_STOP_THRESHOLD_USD = 10.0
 PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS = 8_192
 PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S = 180.0
+PLANNER_EVALUATOR_SYSTEM_PROMPT = (
+    "Evaluate the submitted Planner recipe only against the visible brief, exact "
+    "authority, deterministic findings, and frozen rubric. Do not infer compiler "
+    "behavior, use hidden context, repair the recipe, or classify the probe. Submit "
+    "exactly one evidence-backed recommendation through submit_planner_evaluation."
+)
 _PLANNER_RECIPE_ARGUMENT_SOURCE = ("recipe_json", 1, 1_048_576)
 _PLANNER_EVALUATION_ARGUMENT_SOURCE = ("evaluation_json", 1, 65_536)
 # Authority boundary: the evaluator model is authorized to establish semantic
@@ -1098,6 +1104,7 @@ class PlannerEvaluationResult:
     evidence: tuple[Mapping[str, object], ...]
     raw_response: bytes | None
     usage: Mapping[str, object] | None
+    quiescent: bool = True
 
 
 @dataclass(frozen=True)
@@ -1105,6 +1112,7 @@ class _BoundedProviderCall:
     response: object | None
     exception: BaseException | None
     timed_out: bool
+    quiescent: bool
 
 
 def _bounded_provider_call(
@@ -1127,7 +1135,12 @@ def _bounded_provider_call(
     worker.start()
     worker.join(timeout_s)
     if worker.is_alive():
-        return _BoundedProviderCall(response=None, exception=None, timed_out=True)
+        return _BoundedProviderCall(
+            response=None,
+            exception=None,
+            timed_out=True,
+            quiescent=False,
+        )
     kind, value = outcomes.get_nowait()
     if kind == "exception":
         assert isinstance(value, BaseException)
@@ -1135,8 +1148,14 @@ def _bounded_provider_call(
             response=None,
             exception=value,
             timed_out=False,
+            quiescent=True,
         )
-    return _BoundedProviderCall(response=value, exception=None, timed_out=False)
+    return _BoundedProviderCall(
+        response=value,
+        exception=None,
+        timed_out=False,
+        quiescent=True,
+    )
 
 
 def planner_tool_definition() -> dict[str, object]:
@@ -1166,6 +1185,53 @@ def planner_evaluator_tool_definition() -> dict[str, object]:
             "parameters": _planner_evaluation_parameters_from_source(),
         },
     }
+
+
+def build_planner_evaluator_provider_call_request(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+) -> bytes:
+    """Build the canonical evaluator request at Rook's provider boundary."""
+
+    request = {
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "tools": [planner_evaluator_tool_definition()],
+        "tool_choice": {
+            "type": "function",
+            "function": {"name": "submit_planner_evaluation"},
+        },
+        "max_completion_tokens": PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS,
+        "provider_timeout_s": PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S,
+    }
+    return json.dumps(
+        request,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def materialize_planner_evaluator_provider_call_request(
+    raw_bytes: bytes,
+) -> dict[str, object]:
+    """Validate canonical bytes and return one fresh mutable provider value."""
+
+    value = parse_archive_json(raw_bytes)
+    if type(value) is not dict:
+        raise ValueError("provider-call request must be an object")
+    canonical = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    if canonical != raw_bytes:
+        raise ValueError("provider-call request bytes are not canonical")
+    return value
 
 
 def _malformed_planner_evaluation(
@@ -1225,41 +1291,77 @@ def _planner_evaluation_from_message(
     )
 
 
+def derive_planner_evaluation_result(
+    *,
+    outcome: Literal["returned", "raised", "timeout"],
+    response: ProviderTurn | None = None,
+    exception_type: str | None = None,
+    failure_type: str | None = None,
+    quiescent: bool = True,
+) -> PlannerEvaluationResult:
+    """Purely derive evaluator meaning from terminal provider evidence."""
+
+    if outcome == "timeout":
+        return PlannerEvaluationResult(
+            "timeout", None, (), None, None, quiescent=quiescent
+        )
+    if outcome == "raised":
+        if exception_type == "TimeoutError" or (
+            exception_type == "ProviderCallFailure"
+            and isinstance(failure_type, str)
+            and "timeout" in failure_type.casefold()
+        ):
+            return PlannerEvaluationResult("timeout", None, (), None, None)
+        return PlannerEvaluationResult("provider_failure", None, (), None, None)
+    if type(response) is not ProviderTurn:
+        return PlannerEvaluationResult("provider_failure", None, (), None, None)
+    return _planner_evaluation_from_message(response)
+
+
 def run_planner_evaluation(
     *,
     provider: Callable[[dict[str, object]], ProviderTurn],
-    system_prompt: str,
-    user_prompt: str,
+    provider_call_request_bytes: bytes,
+    materialized_request: dict[str, object] | None = None,
 ) -> PlannerEvaluationResult:
     """Run one independent Planner evaluator call with no feedback path."""
 
-    request = {
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "tools": [planner_evaluator_tool_definition()],
-        "tool_choice": {
-            "type": "function",
-            "function": {"name": "submit_planner_evaluation"},
-        },
-        "max_completion_tokens": PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS,
-        "provider_timeout_s": PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S,
-    }
+    if materialized_request is None:
+        request = materialize_planner_evaluator_provider_call_request(
+            provider_call_request_bytes
+        )
+    else:
+        canonical = json.dumps(
+            materialized_request,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        if canonical != provider_call_request_bytes:
+            raise ValueError("materialized provider request does not match canonical bytes")
+        request = materialized_request
     outcome = _bounded_provider_call(
         provider,
         request,
         timeout_s=PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S,
     )
-    if outcome.timed_out or isinstance(outcome.exception, TimeoutError):
-        return PlannerEvaluationResult("timeout", None, (), None, None)
-    if isinstance(outcome.exception, ProviderCallFailure):
-        if "timeout" in outcome.exception.failure_type.casefold():
-            return PlannerEvaluationResult("timeout", None, (), None, None)
-        return PlannerEvaluationResult("provider_failure", None, (), None, None)
-    if outcome.exception is not None or type(outcome.response) is not ProviderTurn:
-        return PlannerEvaluationResult("provider_failure", None, (), None, None)
-    return _planner_evaluation_from_message(outcome.response)
+    if outcome.timed_out:
+        return derive_planner_evaluation_result(
+            outcome="timeout",
+            quiescent=outcome.quiescent,
+        )
+    if outcome.exception is not None:
+        return derive_planner_evaluation_result(
+            outcome="raised",
+            exception_type=type(outcome.exception).__name__,
+            failure_type=getattr(outcome.exception, "failure_type", None),
+        )
+    return derive_planner_evaluation_result(
+        outcome="returned",
+        response=(
+            outcome.response if type(outcome.response) is ProviderTurn else None
+        ),
+    )
 
 
 def _planner_feedback_message(
@@ -1544,6 +1646,7 @@ __all__ = (
     "PLANNER_COST_STOP_THRESHOLD_USD",
     "PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS",
     "PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S",
+    "PLANNER_EVALUATOR_SYSTEM_PROMPT",
     "PLANNER_EVALUATOR_TOOL_PARAMETERS",
     "PLANNER_MAX_COMPLETION_TOKENS",
     "PLANNER_MAX_TURNS",
@@ -1557,10 +1660,13 @@ __all__ = (
     "ProviderCallFailure",
     "ProviderTurn",
     "StrictJsonError",
+    "build_planner_evaluator_provider_call_request",
+    "derive_planner_evaluation_result",
     "evaluate_mechanical_gate",
     "fingerprint",
     "fingerprint_without",
     "load_normalization_profile",
+    "materialize_planner_evaluator_provider_call_request",
     "normalization_profile_from_value",
     "normalize_recipe",
     "parse_archive_json",

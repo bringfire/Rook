@@ -144,11 +144,31 @@ def run_readiness(
 def main(argv=None) -> int:
     import os
 
-    parser = argparse.ArgumentParser(description="LM9B-P readiness probe")
+    parser = argparse.ArgumentParser(
+        description="LM9B-P readiness probe",
+        epilog=(
+            "For the evaluator-only continuation, select exactly "
+            "--role planner_evaluator --authenticate."
+        ),
+    )
     parser.add_argument("--run-root", type=Path, required=True)
     parser.add_argument("--reviewed-commit-sha", required=True)
     parser.add_argument("--authenticate", action="store_true")
+    parser.add_argument(
+        "--role",
+        action="append",
+        choices=tuple(CONTRACT.CANONICAL_ROLE_MODELS),
+        help="limit readiness to a canonical member role; repeatable",
+    )
     args = parser.parse_args(argv)
+    selected_models = (
+        {
+            role: CONTRACT.CANONICAL_ROLE_MODELS[role]
+            for role in dict.fromkeys(args.role)
+        }
+        if args.role
+        else dict(CONTRACT.CANONICAL_ROLE_MODELS)
+    )
     record = run_readiness(
         run_root=args.run_root,
         head_sha=args.reviewed_commit_sha,
@@ -156,6 +176,7 @@ def main(argv=None) -> int:
         authenticate=args.authenticate,
         provider_factory=default_provider_factory,
         clock=system_clock,
+        models=selected_models,
     )
     ready = bool(record["routes"]) and all(
         CONTRACT.route_ready(row) for row in record["routes"]

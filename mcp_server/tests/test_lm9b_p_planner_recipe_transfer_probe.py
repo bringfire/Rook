@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ast
 import builtins
 import importlib.util
+import inspect
 import json
 import shutil
 import subprocess
@@ -94,6 +96,119 @@ ARCHIVE_RECORD_PATHS = (
     "identity.json",
     "checksums.json",
 )
+
+
+def _accepted_gate_for(recipe_bytes: bytes):
+    inputs = ARTIFACTS.load_planner_inputs(FIXTURES)
+    gate = SUPPORT.evaluate_mechanical_gate(
+        recipe_bytes=recipe_bytes,
+        authority=inputs.authority,
+        recipe_schema=inputs.recipe_schema,
+        normalization_profile=inputs.authority.normalization_profile,
+        exclusion_policy=inputs.exclusion_policy,
+    )
+    assert gate.status == "mechanically_accepted", gate.diagnostics
+    return inputs, gate
+
+
+def test_record_supplied_inputs_equal_fixture_loaded_inputs() -> None:
+    loaded = ARTIFACTS.load_planner_inputs(FIXTURES)
+    rebuilt_records = tuple(
+        ARTIFACTS.planner_input_record_from_bytes(
+            role=record.role,
+            relative_path=record.relative_path,
+            raw_bytes=record.raw_bytes,
+        )
+        for record in loaded.records
+    )
+    rebuilt = ARTIFACTS.frozen_planner_inputs_from_records(
+        rebuilt_records,
+        source_dir=FIXTURES,
+    )
+    assert rebuilt == loaded
+
+
+def test_provider_call_builder_is_canonical_pure_and_materializes_fresh_values() -> None:
+    inputs, gate = _accepted_gate_for(READY_RECIPE_BYTES)
+    rendered = ARTIFACTS.render_planner_evaluator_request(inputs, gate_result=gate)
+    kwargs = {
+        "system_prompt": SUPPORT.PLANNER_EVALUATOR_SYSTEM_PROMPT,
+        "user_prompt": rendered.raw_bytes.decode("utf-8"),
+    }
+    first = SUPPORT.build_planner_evaluator_provider_call_request(**kwargs)
+    second = SUPPORT.build_planner_evaluator_provider_call_request(**kwargs)
+    assert first == second
+    assert first == json.dumps(
+        json.loads(first), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    one = SUPPORT.materialize_planner_evaluator_provider_call_request(first)
+    two = SUPPORT.materialize_planner_evaluator_provider_call_request(first)
+    assert one == two
+    assert one is not two
+    assert one["tools"] is not two["tools"]
+
+    parsed = ast.parse(
+        inspect.getsource(SUPPORT.build_planner_evaluator_provider_call_request)
+    )
+    forbidden_roots = {"time", "datetime", "random", "uuid", "os", "provider"}
+    for node in ast.walk(parsed):
+        if isinstance(node, ast.Name):
+            assert node.id not in forbidden_roots
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            assert node.value.id not in forbidden_roots
+
+
+def test_provider_mutation_cannot_change_canonical_request_bytes() -> None:
+    inputs, gate = _accepted_gate_for(READY_RECIPE_BYTES)
+    rendered = ARTIFACTS.render_planner_evaluator_request(inputs, gate_result=gate)
+    canonical = SUPPORT.build_planner_evaluator_provider_call_request(
+        system_prompt=SUPPORT.PLANNER_EVALUATOR_SYSTEM_PROMPT,
+        user_prompt=rendered.raw_bytes.decode("utf-8"),
+    )
+    retained = bytes(canonical)
+    received: list[dict[str, object]] = []
+
+    def mutating_provider(request: dict[str, object]):
+        received.append(request)
+        request["tools"] = []
+        return _evaluator_turn("semantically_faithful")
+
+    result = SUPPORT.run_planner_evaluation(
+        provider=mutating_provider,
+        provider_call_request_bytes=canonical,
+    )
+    assert result.termination == "valid_recommendation"
+    assert len(received) == 1
+    assert canonical == retained
+    assert json.loads(canonical)["tools"]
+
+
+def test_existing_evaluator_adapter_factory_preserves_profile_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeDelegate:
+        def __init__(self, *, model: str, temperature: float) -> None:
+            self.model = model
+            self.temperature = temperature
+
+        def __call__(self, _request):
+            return _evaluator_turn("evaluation_inconclusive")
+
+    fake_probe = SimpleNamespace(LiteLLMProvider=FakeDelegate)
+    monkeypatch.setattr(PROBE, "_load_lm9bc_modules", lambda: (object(), fake_probe))
+    provider = PROBE.build_planner_evaluator_provider(
+        model="gpt-5.4",
+        temperature=0.0,
+    )
+    assert provider.model == "gpt-5.4"
+    assert provider.temperature == 0.0
+    assert provider.profile_identity == "litellm.completion.tool_calling.no_parallel:v1"
+    assert provider.identity == {
+        "adapter_path": "litellm.completion",
+        "model": "gpt-5.4",
+        "profile_identity": "litellm.completion.tool_calling.no_parallel:v1",
+        "temperature": 0.0,
+    }
 
 
 class _Provider:

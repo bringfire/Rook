@@ -167,3 +167,76 @@ def test_canary_request_excludes_experiment_content():
     blob = json.dumps(C.build_canary_request(_route0())).lower()
     for forbidden in ("brief", "authority", "r01", "rubric", "recipe", "planner_graph"):
         assert forbidden not in blob
+
+
+@pytest.mark.parametrize(("authenticate", "expected_calls"), [(False, 0), (True, 1)])
+def test_planner_evaluator_role_reuses_one_route_readiness(
+    tmp_path: Path,
+    authenticate: bool,
+    expected_calls: int,
+) -> None:
+    calls = 0
+
+    def factory(route):
+        base = _ok_provider(route)
+
+        def count(request):
+            nonlocal calls
+            calls += 1
+            return base(request)
+
+        return count
+
+    models = {"planner_evaluator": "gpt-5.4"}
+    manifest = C.derive_routes(C.role_routes_from_models(models), P.HELPER)
+    record = P.run_readiness(
+        run_root=tmp_path / f"readiness-{authenticate}",
+        head_sha="e" * 40,
+        environ={"OPENAI_API_KEY": "x"},
+        authenticate=authenticate,
+        provider_factory=factory,
+        clock=_Clock(),
+        models=models,
+    )
+    assert len(manifest.routes) == 1
+    assert manifest.routes[0].member_roles == ("planner_evaluator",)
+    assert record["schema_id"] == C.SCHEMA_ID
+    assert record["route_manifest_fingerprint"] == manifest.manifest_fingerprint
+    assert record["canary_protocol_fingerprint"] == C.canary_protocol_fingerprint()
+    assert record["max_age_seconds"] == C.FROZEN_MAX_AGE_S
+    assert calls == expected_calls
+
+
+def test_cli_role_selects_one_model_and_omission_retains_all_roles(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    selected: list[dict[str, str]] = []
+
+    def fake_run_readiness(**kwargs):
+        selected.append(dict(kwargs["models"]))
+        return {"routes": []}
+
+    monkeypatch.setattr(P, "run_readiness", fake_run_readiness)
+    assert P.main(
+        [
+            "--run-root",
+            str(tmp_path / "one"),
+            "--reviewed-commit-sha",
+            "f" * 40,
+            "--role",
+            "planner_evaluator",
+        ]
+    ) == 0
+    assert P.main(
+        [
+            "--run-root",
+            str(tmp_path / "all"),
+            "--reviewed-commit-sha",
+            "f" * 40,
+        ]
+    ) == 0
+    assert selected == [
+        {"planner_evaluator": "gpt-5.4"},
+        C.CANONICAL_ROLE_MODELS,
+    ]
