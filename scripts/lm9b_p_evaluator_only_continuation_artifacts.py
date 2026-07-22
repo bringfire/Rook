@@ -1112,7 +1112,7 @@ def write_static_derivative_snapshot(
     members: dict[str, bytes] = {
         "source/binding.json": _json_bytes(
             {
-                "schema": "rook.lm9b_p.evaluator.continuation_source_binding:v1",
+                "schema": "rook.lm9b_p.evaluator_continuation_source_binding:v1",
                 **dict(source.identity_value),
             }
         ),
@@ -1338,10 +1338,8 @@ def seal_derivative_archive(
         staging,
         expected_derivative_identity=checksums["derivative_archive_identity"],
     )
-    if destination.exists():
-        raise FileExistsError(f"derivative destination exists: {destination}")
-    staging.rename(destination)
-    return verify_sealed_derivative_archive(
+    return finalize_derivative_archive(
+        staging,
         destination,
         expected_derivative_identity=verified_staging.derivative_archive_identity,
     )
@@ -1356,6 +1354,7 @@ def retain_post_dispatch_unsealed(
     attempt_fingerprint: str,
     failure_locus: str,
     exception: BaseException | None = None,
+    state: str = "post_dispatch_unsealed",
 ) -> PostDispatchUnsealed:
     marker_path = staging / "post_dispatch_unsealed.json"
     try:
@@ -1382,6 +1381,7 @@ def retain_post_dispatch_unsealed(
                 staging / "dispatch/dispatch-started.json"
             ).is_file(),
             "failure_locus": failure_locus,
+            "state": state,
             "exception_type": type(exception).__name__ if exception else None,
             "exception_message": str(exception)[:2000] if exception else None,
             "partial_forensic_hashes": partial,
@@ -1397,7 +1397,113 @@ def retain_post_dispatch_unsealed(
         attempt_id=attempt_id,
         attempt_fingerprint=attempt_fingerprint,
         failure_locus=failure_locus,
+        state=state,
     )
+
+
+def _attempt_identity_from_tree(path: Path) -> tuple[str, str, str, str]:
+    record = _object(
+        (path / "preflight/record.json").read_bytes(),
+        "derivative preflight record",
+    )
+    attempt = record.get("attempt")
+    instrument = record.get("instrument")
+    if not isinstance(attempt, dict) or not isinstance(instrument, dict):
+        raise ValueError("derivative attempt identity is unavailable")
+    values = (
+        record.get("preflight_fingerprint"),
+        instrument.get("instrument_fingerprint"),
+        attempt.get("attempt_id"),
+        attempt.get("attempt_fingerprint"),
+    )
+    if not all(isinstance(value, str) and value for value in values):
+        raise ValueError("derivative attempt identity is invalid")
+    return values
+
+
+def reconcile_derivative_rename(
+    staging: Path,
+    destination: Path,
+    *,
+    expected_derivative_identity: str,
+    rename_exception: BaseException,
+) -> SealedDerivative | PostDispatchUnsealed:
+    staging = Path(staging).resolve(strict=False)
+    destination = Path(destination).resolve(strict=False)
+    staging_exists = staging.is_dir()
+    destination_exists = destination.is_dir()
+    if destination_exists and not staging_exists:
+        try:
+            return verify_sealed_derivative_archive(
+                destination,
+                expected_derivative_identity=expected_derivative_identity,
+            )
+        except (OSError, ValueError):
+            preflight, instrument, attempt_id, attempt = _attempt_identity_from_tree(
+                destination
+            )
+            return PostDispatchUnsealed(
+                staging_dir=destination,
+                attempt_id=attempt_id,
+                attempt_fingerprint=attempt,
+                failure_locus="atomic_rename_ambiguous_destination",
+                state="ambiguous_unsealed",
+            )
+    if staging_exists:
+        preflight, instrument, attempt_id, attempt = _attempt_identity_from_tree(
+            staging
+        )
+        state = "ambiguous_unsealed" if destination_exists else (
+            "post_dispatch_unsealed"
+        )
+        return retain_post_dispatch_unsealed(
+            staging=staging,
+            preflight_fingerprint=preflight,
+            instrument_fingerprint=instrument,
+            attempt_id=attempt_id,
+            attempt_fingerprint=attempt,
+            failure_locus=(
+                "atomic_rename_ambiguous_both"
+                if destination_exists
+                else "atomic_rename"
+            ),
+            exception=rename_exception,
+            state=state,
+        )
+    raise RuntimeError(
+        "atomic rename left neither staging nor destination available"
+    ) from rename_exception
+
+
+def finalize_derivative_archive(
+    staging: Path,
+    destination: Path,
+    *,
+    expected_derivative_identity: str,
+) -> SealedDerivative | PostDispatchUnsealed:
+    staging = Path(staging).resolve()
+    destination = Path(destination).resolve(strict=False)
+    if staging.parent != destination.parent:
+        raise ValueError("staging and destination must share one direct-child root")
+    verify_sealed_derivative_archive(
+        staging,
+        expected_derivative_identity=expected_derivative_identity,
+    )
+    try:
+        if destination.exists():
+            raise FileExistsError(f"derivative destination exists: {destination}")
+        staging.rename(destination)
+        return verify_sealed_derivative_archive(
+            destination,
+            expected_derivative_identity=expected_derivative_identity,
+        )
+    except BaseException as exc:
+        return reconcile_derivative_rename(
+            staging,
+            destination,
+            expected_derivative_identity=expected_derivative_identity,
+            rename_exception=exc,
+        )
 
 
 def verify_sealed_derivative_archive(
@@ -1446,6 +1552,52 @@ def verify_sealed_derivative_archive(
         (archive / "evaluator/attempt/capture.json").read_bytes(),
         "derivative attempt capture",
     )
+    _require_keys(
+        capture,
+        {
+            "schema",
+            "outcome",
+            "elapsed_ms",
+            "exception_type",
+            "exception_message",
+            "failure_type",
+            "has_adapter_request",
+            "has_response",
+            "has_error",
+            "has_usage",
+            "provider_metadata",
+            "tool_argument_indexes",
+            "quiescent",
+        },
+        "derivative attempt capture",
+    )
+    if (
+        capture["schema"]
+        != "rook.lm9b_p.evaluator.continuation_attempt_capture:v1"
+        or capture["outcome"] not in {"returned", "raised"}
+        or capture["quiescent"] is not True
+        or type(capture["elapsed_ms"]) is not int
+        or capture["elapsed_ms"] < 0
+    ):
+        raise ValueError("derivative attempt capture is not complete and quiescent")
+    if capture["outcome"] == "returned":
+        if (
+            capture["exception_type"] is not None
+            or capture["exception_message"] is not None
+            or capture["failure_type"] is not None
+            or not isinstance(capture["provider_metadata"], dict)
+            or capture["has_response"] is not True
+        ):
+            raise ValueError("returned evaluator attempt capture is invalid")
+    elif (
+        not isinstance(capture["exception_type"], str)
+        or not isinstance(capture["exception_message"], str)
+        or capture["provider_metadata"] is not None
+        or capture["has_response"] is not False
+        or capture["has_usage"] is not False
+        or capture["tool_argument_indexes"] != []
+    ):
+        raise ValueError("raised evaluator attempt capture is invalid")
     expected_roles = {**_DERIVATIVE_REQUIRED_ROLES, **_derivative_optional_roles(capture)}
     if actual != set(expected_roles) | {"checksums.json"}:
         raise ValueError("sealed derivative archive file set is invalid")
@@ -1490,9 +1642,37 @@ def verify_sealed_derivative_archive(
     )
     source_identity = dict(source_binding)
     if source_identity.pop("schema", None) != (
-        "rook.lm9b_p.evaluator.continuation_source_binding:v1"
+        "rook.lm9b_p.evaluator_continuation_source_binding:v1"
     ) or source_identity != preflight_record.get("source"):
         raise ValueError("derivative source identity mismatch")
+    root_manifest_bytes = (archive / "source/SHA256-MANIFEST.txt").read_bytes()
+    if _sha256(root_manifest_bytes) != source_identity.get(
+        "root_manifest_raw_sha256"
+    ):
+        raise ValueError("derivative source root manifest identity mismatch")
+    root_rows = dict(_parse_root_manifest(root_manifest_bytes))
+    source_copies = {
+        "checkpoint-1/checksums.json": "source/checkpoint-checksums.json",
+        "checkpoint-1/identity.json": "source/original-identity.json",
+        "checkpoint-1/checkpoint/classification.json": (
+            "source/original-classification.json"
+        ),
+        "checkpoint-1/planner/final_recipe.json": "source/final-recipe.json",
+        "checkpoint-1/planner/final_recipe_identity.json": (
+            "source/final-recipe-identity.json"
+        ),
+        **{
+            f"checkpoint-1/inputs/{relative}": f"source/inputs/{relative}"
+            for relative in _SOURCE_INPUT_PATHS
+        },
+    }
+    for historical_path, derivative_path in source_copies.items():
+        if _sha256((archive / derivative_path).read_bytes()) != root_rows.get(
+            historical_path
+        ):
+            raise ValueError(
+                f"derivative source copy differs from sealed source: {historical_path}"
+            )
     recipe = (archive / "source/final-recipe.json").read_bytes()
     if _sha256(recipe) != source_identity.get("recipe_raw_sha256"):
         raise ValueError("derivative recipe byte identity mismatch")
@@ -1505,6 +1685,85 @@ def verify_sealed_derivative_archive(
         "protocol_identity"
     ):
         raise ValueError("derivative instrument identity mismatch")
+    if capture["outcome"] == "returned" and (
+        capture["provider_metadata"].get("model_identity")
+        != protocol.get("model")
+        or capture["provider_metadata"].get("profile_identity")
+        != protocol.get("provider_profile")
+    ):
+        raise ValueError("evaluator attempt provider identity mismatch")
+    preflight_file_rows = preflight_record.get("files")
+    if not isinstance(preflight_file_rows, list):
+        raise ValueError("derivative preflight file bindings are invalid")
+    preflight_files = {
+        row.get("path"): row
+        for row in preflight_file_rows
+        if isinstance(row, dict) and isinstance(row.get("path"), str)
+    }
+    copied_preflight_files = {
+        "source-binding.json": "source/binding.json",
+        "allowed-delta-manifest.json": (
+            "instrument/allowed-delta-manifest.json"
+        ),
+        "mechanical-gate.json": "instrument/mechanical-gate.json",
+        "rendered-evaluator-request.json": (
+            "preflight/rendered-evaluator-request.json"
+        ),
+        "provider-call-request.json": "preflight/provider-call-request.json",
+    }
+    if set(preflight_files) != set(copied_preflight_files):
+        raise ValueError("derivative preflight file bindings are incomplete")
+    for source_path, derivative_path in copied_preflight_files.items():
+        raw = (archive / derivative_path).read_bytes()
+        row = preflight_files[source_path]
+        if (
+            row.get("raw_sha256") != _sha256(raw)
+            or row.get("byte_length") != len(raw)
+        ):
+            raise ValueError(f"derivative instrument copy drift: {source_path}")
+
+    corrected_rubric = (
+        archive / "instrument/corrected-evaluator-rubric.json"
+    ).read_bytes()
+    corrected_record = PLANNER_ARTIFACTS.planner_input_record_from_bytes(
+        role="evaluation_rubric",
+        relative_path="planner_evaluation_rubric.json",
+        raw_bytes=corrected_rubric,
+    )
+    if (
+        corrected_record.raw_sha256
+        != instrument_identity.get("corrected_rubric_raw_sha256")
+        or corrected_record.canonical_fingerprint
+        != instrument_identity.get("corrected_rubric_fingerprint")
+    ):
+        raise ValueError("derivative corrected rubric identity mismatch")
+    allowed_delta = _object(
+        (archive / "instrument/allowed-delta-manifest.json").read_bytes(),
+        "derivative allowed delta",
+    )
+    if (
+        set(allowed_delta) != {"schema", "rows"}
+        or allowed_delta["schema"] != ALLOWED_DELTA_SCHEMA_ID
+        or not isinstance(allowed_delta["rows"], list)
+    ):
+        raise ValueError("derivative allowed delta identity mismatch")
+    rubric_rows = [
+        row
+        for row in allowed_delta["rows"]
+        if isinstance(row, dict) and row.get("role") == "evaluation_rubric"
+    ]
+    if (
+        len(rubric_rows) != 1
+        or rubric_rows[0].get("source_raw_sha256")
+        != instrument_identity.get("historical_rubric_raw_sha256")
+        or rubric_rows[0].get("source_canonical_fingerprint")
+        != instrument_identity.get("historical_rubric_fingerprint")
+        or rubric_rows[0].get("instrument_raw_sha256")
+        != corrected_record.raw_sha256
+        or rubric_rows[0].get("instrument_canonical_fingerprint")
+        != corrected_record.canonical_fingerprint
+    ):
+        raise ValueError("derivative rubric delta identity mismatch")
     provider_request = (
         archive / "preflight/provider-call-request.json"
     ).read_bytes()
@@ -1516,6 +1775,27 @@ def verify_sealed_derivative_archive(
         != (archive / "evaluator/attempt/provider-call-request.json").read_bytes()
     ):
         raise ValueError("derivative provider request identity mismatch")
+    rendered_request = (
+        archive / "preflight/rendered-evaluator-request.json"
+    ).read_bytes()
+    if _sha256(rendered_request) != instrument_identity.get(
+        "rendered_evaluator_request_raw_sha256"
+    ):
+        raise ValueError("derivative rendered request identity mismatch")
+    expected_instrument_fingerprint = SUPPORT.fingerprint(
+        {
+            "source": source_identity,
+            "allowed_delta": allowed_delta["rows"],
+            "protocol": protocol,
+            "reviewed_commit_sha": preflight_record.get("reviewed_commit_sha"),
+            "rendered_evaluator_request_raw_sha256": _sha256(rendered_request),
+            "provider_call_request_raw_sha256": _sha256(provider_request),
+        }
+    )
+    if expected_instrument_fingerprint != instrument_identity.get(
+        "instrument_fingerprint"
+    ):
+        raise ValueError("derivative instrument fingerprint mismatch")
     result = _object(
         (archive / "evaluator/result.json").read_bytes(),
         "derivative evaluator result",
@@ -1525,6 +1805,45 @@ def verify_sealed_derivative_archive(
         {"schema", "termination", "recommendation", "evidence", "quiescent"},
         "derivative evaluator result",
     )
+    if (
+        result["schema"]
+        != "rook.lm9b_p.evaluator.continuation_evaluator_result:v1"
+        or result["termination"]
+        not in {"valid_recommendation", "provider_failure", "timeout", "malformed"}
+        or result["quiescent"] is not True
+        or not isinstance(result["evidence"], list)
+    ):
+        raise ValueError("derivative evaluator result values are invalid")
+    if result["termination"] == "valid_recommendation":
+        if (
+            result["recommendation"]
+            not in {
+                "semantically_faithful",
+                "semantically_unfaithful",
+                "evaluation_inconclusive",
+            }
+            or not result["evidence"]
+            or capture["outcome"] != "returned"
+        ):
+            raise ValueError("valid evaluator recommendation evidence is invalid")
+        criteria = {
+            "brief_fidelity",
+            "provenance_fidelity",
+            "material_authority",
+            "unresolved_intent_honesty",
+            "implementation_leakage",
+        }
+        if any(
+            not isinstance(row, dict)
+            or set(row) != {"criterion_id", "finding"}
+            or row["criterion_id"] not in criteria
+            or not isinstance(row["finding"], str)
+            or not row["finding"]
+            for row in result["evidence"]
+        ):
+            raise ValueError("evaluator recommendation evidence is malformed")
+    elif result["recommendation"] is not None or result["evidence"] != []:
+        raise ValueError("failed evaluator result carries a semantic recommendation")
     evaluator = SUPPORT.PlannerEvaluationResult(
         termination=result["termination"],
         recommendation=result["recommendation"],
@@ -1537,6 +1856,15 @@ def verify_sealed_derivative_archive(
         (archive / "decision/classification.json").read_bytes(),
         "derivative classification",
     )
+    _require_keys(
+        decision,
+        {"schema", "classification", "semantic_recommendation"},
+        "derivative classification",
+    )
+    if decision["schema"] != (
+        "rook.lm9b_p.evaluator.continuation_classification:v1"
+    ):
+        raise ValueError("derivative classification schema mismatch")
     classification = PLANNER_ARTIFACTS.derive_evaluated_recipe_classification(
         evaluator,
         final_recipe_bytes=recipe,
@@ -1612,6 +1940,8 @@ __all__ = (
     "_verify_historical_source",
     "assemble_continuation_instrument",
     "bind_attempt",
+    "finalize_derivative_archive",
+    "reconcile_derivative_rename",
     "reserve_staging",
     "retain_post_dispatch_unsealed",
     "seal_derivative_archive",

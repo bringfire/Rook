@@ -4,9 +4,12 @@ import copy
 import hashlib
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
+from dataclasses import fields
 from pathlib import Path
+from threading import Barrier, Thread
 from types import SimpleNamespace
 
 import pytest
@@ -260,6 +263,23 @@ def _rewrite_preflight_record(preflight: Path, mutate) -> str:
     )
     checksums_path.write_bytes(_json_bytes(checksums))
     return record["preflight_fingerprint"]
+
+
+def _reclose_derivative_checksums(archive: Path) -> str:
+    checksums_path = archive / "checksums.json"
+    checksums = json.loads(checksums_path.read_bytes())
+    for row in checksums["records"]:
+        raw = (archive / row["path"]).read_bytes()
+        row["raw_sha256"] = _sha256(raw)
+        row["byte_length"] = len(raw)
+    checksums["derivative_archive_identity"] = SUPPORT.fingerprint(
+        {
+            "schema": checksums["schema"],
+            "records": checksums["records"],
+        }
+    )
+    checksums_path.write_bytes(_json_bytes(checksums))
+    return checksums["derivative_archive_identity"]
 
 
 def _reclose_checkpoint(checkpoint: Path) -> str:
@@ -754,6 +774,13 @@ def test_post_dispatch_outcome_and_fault_matrix(
         _execution_fixture(monkeypatch, tmp_path, provider)
     )
 
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("compiler-specific behavior was reached")
+
+    monkeypatch.setattr(PLANNER_PROBE, "run_joined_probe", forbidden)
+    monkeypatch.setattr(PLANNER_PROBE, "_freeze_compiler_controls", forbidden)
+    monkeypatch.setattr(PLANNER_ARTIFACTS, "build_lm9bc_handoff", forbidden)
+
     if fault == "ambiguous_timeout":
         monkeypatch.setattr(
             SUPPORT,
@@ -1085,3 +1112,376 @@ def test_irreversible_boundary_operation_order(
         cursor = next_index
     assert trace.index("dispatch_marker") < trace.index("run_evaluator")
     assert provider.calls == 1
+
+
+@pytest.mark.parametrize(
+    ("rename_case", "expected"),
+    [
+        ("success", "sealed"),
+        ("success_then_exception", "sealed"),
+        ("failure_before_move", "post_dispatch_unsealed"),
+        ("destination_appears_before_rename", "ambiguous_unsealed"),
+        ("invalid_destination_after_move", "ambiguous_unsealed"),
+        ("both_staging_and_destination", "ambiguous_unsealed"),
+    ],
+)
+def test_atomic_rename_reconciliation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    rename_case: str,
+    expected: str,
+) -> None:
+    provider = _EvaluatorProvider()
+    _pins, _source_digest, preflight, readiness_root, destination = (
+        _execution_fixture(monkeypatch, tmp_path, provider)
+    )
+    sealed = CONTINUATION.execute_continuation(
+        CONTINUATION.ExecutionConfig(
+            preflight_dir=preflight.archive_dir,
+            expected_preflight_fingerprint=preflight.preflight_fingerprint,
+            readiness_record=readiness_root / "readiness_record.json",
+            credential_preflight=readiness_root / "preflight.json",
+            transmit=True,
+        )
+    )
+    staging = preflight.staging_path
+    destination.rename(staging)
+    expected_identity = sealed.derivative_archive_identity
+    original_rename = Path.rename
+
+    def rename_behavior(self: Path, target: Path):
+        if rename_case == "success_then_exception":
+            original_rename(self, target)
+            raise OSError("ambiguous success")
+        if rename_case == "failure_before_move":
+            raise OSError("move did not begin")
+        if rename_case == "destination_appears_before_rename":
+            shutil.copytree(self, target)
+            return original_rename(self, target)
+        if rename_case == "invalid_destination_after_move":
+            original_rename(self, target)
+            (target / "identity.json").write_bytes(b"corrupt")
+            raise OSError("move outcome invalid")
+        if rename_case == "both_staging_and_destination":
+            shutil.copytree(self, target)
+            raise OSError("copy happened instead of move")
+        return original_rename(self, target)
+
+    if rename_case != "success":
+        monkeypatch.setattr(Path, "rename", rename_behavior)
+    result = CONT_ARTIFACTS.finalize_derivative_archive(
+        staging,
+        destination,
+        expected_derivative_identity=expected_identity,
+    )
+    assert result.state == expected
+    if expected == "sealed":
+        verified = CONT_ARTIFACTS.verify_sealed_derivative_archive(
+            destination,
+            expected_derivative_identity=expected_identity,
+        )
+        assert verified.derivative_archive_identity == expected_identity
+    else:
+        assert result.classification is None
+        assert staging.exists() or destination.exists()
+        if rename_case in {
+            "destination_appears_before_rename",
+            "both_staging_and_destination",
+        }:
+            assert staging.exists() and destination.exists()
+            competing = CONT_ARTIFACTS.verify_sealed_derivative_archive(
+                destination,
+                expected_derivative_identity=expected_identity,
+            )
+            assert competing.derivative_archive_identity == expected_identity
+
+
+def test_continuation_surface_has_no_planner_or_compiler_inputs(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert [field.name for field in fields(CONTINUATION.ExecutionConfig)] == [
+        "preflight_dir",
+        "expected_preflight_fingerprint",
+        "readiness_record",
+        "credential_preflight",
+        "transmit",
+    ]
+    with pytest.raises(SystemExit) as stopped:
+        CONTINUATION.main(["execute", "--help"])
+    assert stopped.value.code == 0
+    help_text = capsys.readouterr().out.casefold()
+    for forbidden in (
+        "planner-provider",
+        "compiler-provider",
+        "compiler-fixture",
+        "compiler-identity",
+        "handoff",
+        "checkpoint-2",
+    ):
+        assert forbidden not in help_text
+
+
+def test_concurrent_reservation_has_exactly_one_winner(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    provider = _EvaluatorProvider()
+    _pins, _source_digest, preflight, _readiness_root, _destination = (
+        _execution_fixture(monkeypatch, tmp_path, provider)
+    )
+    attempt = CONT_ARTIFACTS.bind_attempt(
+        instrument_fingerprint=preflight.instrument_fingerprint,
+        attempt_id=preflight.attempt_id,
+        derivative_root=preflight.derivative_root,
+        destination=preflight.destination,
+    )
+    barrier = Barrier(2)
+    outcomes: list[str] = []
+
+    def reserve() -> None:
+        barrier.wait()
+        try:
+            CONT_ARTIFACTS.reserve_staging(attempt)
+        except FileExistsError:
+            outcomes.append("exists")
+        else:
+            outcomes.append("reserved")
+
+    threads = [Thread(target=reserve), Thread(target=reserve)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert sorted(outcomes) == ["exists", "reserved"]
+    assert attempt.staging_path.is_dir()
+
+
+def test_external_source_and_rubric_are_not_reread_after_reservation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    provider = _EvaluatorProvider()
+    pins, _source_digest, preflight, readiness_root, _destination = (
+        _execution_fixture(monkeypatch, tmp_path, provider)
+    )
+    reserved = False
+    external_reads: list[Path] = []
+    original_reserve = CONT_ARTIFACTS.reserve_staging
+    original_read = Path.read_bytes
+
+    def traced_reserve(attempt):
+        nonlocal reserved
+        result = original_reserve(attempt)
+        reserved = True
+        return result
+
+    def guarded_read(path: Path):
+        resolved = path.resolve()
+        if reserved and (
+            resolved.is_relative_to(pins.source_root.resolve())
+            or resolved == CONTINUATION.CORRECTED_RUBRIC_PATH.resolve()
+        ):
+            external_reads.append(resolved)
+            raise AssertionError("external source reread after reservation")
+        return original_read(path)
+
+    monkeypatch.setattr(CONT_ARTIFACTS, "reserve_staging", traced_reserve)
+    monkeypatch.setattr(Path, "read_bytes", guarded_read)
+    result = CONTINUATION.execute_continuation(
+        CONTINUATION.ExecutionConfig(
+            preflight_dir=preflight.archive_dir,
+            expected_preflight_fingerprint=preflight.preflight_fingerprint,
+            readiness_record=readiness_root / "readiness_record.json",
+            credential_preflight=readiness_root / "preflight.json",
+            transmit=True,
+        )
+    )
+    assert result.state == "sealed"
+    assert external_reads == []
+
+
+@pytest.mark.parametrize(
+    "member",
+    [
+        "compiler/unexpected.json",
+        "handoff/unexpected.json",
+        "checkpoint-2/unexpected.json",
+        "successor-disposition.json",
+        "unknown.json",
+    ],
+)
+def test_derivative_archive_rejects_forbidden_or_unknown_members(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    member: str,
+) -> None:
+    provider = _EvaluatorProvider()
+    _pins, _source_digest, preflight, readiness_root, destination = (
+        _execution_fixture(monkeypatch, tmp_path, provider)
+    )
+    result = CONTINUATION.execute_continuation(
+        CONTINUATION.ExecutionConfig(
+            preflight_dir=preflight.archive_dir,
+            expected_preflight_fingerprint=preflight.preflight_fingerprint,
+            readiness_record=readiness_root / "readiness_record.json",
+            credential_preflight=readiness_root / "preflight.json",
+            transmit=True,
+        )
+    )
+    assert result.state == "sealed"
+    injected = destination / member
+    injected.parent.mkdir(parents=True, exist_ok=True)
+    injected.write_bytes(b"{}")
+    with pytest.raises(ValueError):
+        CONT_ARTIFACTS.verify_sealed_derivative_archive(destination)
+
+
+@pytest.mark.parametrize(
+    "lifecycle",
+    [
+        "pre_dispatch_cleanup_reuse",
+        "pre_dispatch_residue",
+        "dispatch_started_consumed",
+        "sealed_consumed",
+    ],
+)
+def test_attempt_consumption_and_pre_dispatch_reuse_rules(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    lifecycle: str,
+) -> None:
+    provider = _EvaluatorProvider()
+    _pins, _source_digest, preflight, readiness_root, destination = (
+        _execution_fixture(monkeypatch, tmp_path, provider)
+    )
+
+    def config(root: Path) -> object:
+        return CONTINUATION.ExecutionConfig(
+            preflight_dir=preflight.archive_dir,
+            expected_preflight_fingerprint=preflight.preflight_fingerprint,
+            readiness_record=root / "readiness_record.json",
+            credential_preflight=root / "preflight.json",
+            transmit=True,
+        )
+
+    if lifecycle == "pre_dispatch_cleanup_reuse":
+        original_static = CONT_ARTIFACTS.write_static_derivative_snapshot
+        monkeypatch.setattr(
+            CONT_ARTIFACTS,
+            "write_static_derivative_snapshot",
+            lambda **_kwargs: (_ for _ in ()).throw(
+                OSError("pre-dispatch persistence failed")
+            ),
+        )
+        with pytest.raises(OSError):
+            CONTINUATION.execute_continuation(config(readiness_root))
+        assert not preflight.staging_path.exists()
+        assert not destination.exists()
+        monkeypatch.setattr(
+            CONT_ARTIFACTS,
+            "write_static_derivative_snapshot",
+            original_static,
+        )
+        fresh = tmp_path / "fresh-readiness"
+        READINESS_PROBE.run_readiness(
+            run_root=fresh,
+            head_sha="f" * 40,
+            environ={"OPENAI_API_KEY": "present"},
+            authenticate=True,
+            provider_factory=_readiness_provider,
+            clock=_ReadinessClock(),
+            models={"planner_evaluator": "gpt-5.4"},
+        )
+        result = CONTINUATION.execute_continuation(config(fresh))
+        assert result.state == "sealed"
+        assert provider.calls == 1
+        return
+
+    if lifecycle == "pre_dispatch_residue":
+        def leave_residue(**kwargs):
+            (kwargs["staging"] / "residue.bin").write_bytes(b"residue")
+            raise OSError("pre-dispatch persistence failed")
+
+        monkeypatch.setattr(
+            CONT_ARTIFACTS,
+            "write_static_derivative_snapshot",
+            leave_residue,
+        )
+        monkeypatch.setattr(
+            CONTINUATION,
+            "_cleanup_unconsumed_staging",
+            lambda _snapshot: (_ for _ in ()).throw(
+                OSError("cleanup failed")
+            ),
+        )
+        with pytest.raises(OSError, match="cleanup failed"):
+            CONTINUATION.execute_continuation(config(readiness_root))
+        assert preflight.staging_path.is_dir()
+    elif lifecycle == "dispatch_started_consumed":
+        monkeypatch.setattr(
+            SUPPORT,
+            "run_planner_evaluation",
+            lambda **_kwargs: SUPPORT.PlannerEvaluationResult(
+                "timeout", None, (), None, None, quiescent=False
+            ),
+        )
+        result = CONTINUATION.execute_continuation(config(readiness_root))
+        assert result.state == "post_dispatch_unsealed"
+        assert (
+            preflight.staging_path / "dispatch/dispatch-started.json"
+        ).is_file()
+    elif lifecycle == "sealed_consumed":
+        result = CONTINUATION.execute_continuation(config(readiness_root))
+        assert result.state == "sealed"
+        assert destination.is_dir()
+    else:  # pragma: no cover - parameter vocabulary is closed above.
+        raise AssertionError(lifecycle)
+
+    with pytest.raises((ValueError, RuntimeError, FileExistsError)):
+        CONTINUATION._verify_pre_dispatch(config(readiness_root))
+
+
+@pytest.mark.parametrize(
+    "member",
+    [
+        "source/inputs/task_envelope.json",
+        "instrument/corrected-evaluator-rubric.json",
+        "instrument/allowed-delta-manifest.json",
+        "evaluator/attempt/capture.json",
+    ],
+)
+def test_reclosed_derivative_rejects_source_or_instrument_byte_drift(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    member: str,
+) -> None:
+    provider = _EvaluatorProvider()
+    _pins, _source_digest, preflight, readiness_root, destination = (
+        _execution_fixture(monkeypatch, tmp_path, provider)
+    )
+    result = CONTINUATION.execute_continuation(
+        CONTINUATION.ExecutionConfig(
+            preflight_dir=preflight.archive_dir,
+            expected_preflight_fingerprint=preflight.preflight_fingerprint,
+            readiness_record=readiness_root / "readiness_record.json",
+            credential_preflight=readiness_root / "preflight.json",
+            transmit=True,
+        )
+    )
+    assert result.state == "sealed"
+    target = destination / member
+    if member == "evaluator/attempt/capture.json":
+        value = json.loads(target.read_bytes())
+        value["outcome"] = "pending"
+        target.write_bytes(_json_bytes(value))
+    else:
+        target.write_bytes(target.read_bytes() + b" ")
+    changed_identity = _reclose_derivative_checksums(destination)
+    with pytest.raises(
+        ValueError,
+        match="source|instrument|rubric|delta|evaluator|attempt|capture",
+    ):
+        CONT_ARTIFACTS.verify_sealed_derivative_archive(
+            destination,
+            expected_derivative_identity=changed_identity,
+        )
