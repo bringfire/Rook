@@ -45,11 +45,32 @@ PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS = 8_192
 PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S = 180.0
 _PLANNER_RECIPE_ARGUMENT_SOURCE = ("recipe_json", 1, 1_048_576)
 _PLANNER_EVALUATION_ARGUMENT_SOURCE = ("evaluation_json", 1, 65_536)
-_PLANNER_EVALUATION_RECOMMENDATIONS = (
-    "faithful_ready",
-    "faithful_blocked",
-    "planner_failure",
+# Authority boundary: the evaluator model is authorized to establish semantic
+# fidelity ONLY. Advancement (blocked vs ready) is a deterministic system state
+# derived by the controller from the mechanically accepted recipe's explicit
+# unresolved_intent - never from a model recommendation.
+PLANNER_EVALUATION_RECOMMENDATIONS = (
+    "semantically_faithful",
+    "semantically_unfaithful",
+    "evaluation_inconclusive",
 )
+PLANNER_EVALUATION_RECOMMENDATION_MEANINGS = {
+    "semantically_faithful": (
+        "The recipe faithfully represents the brief under the exact authority "
+        "context, without invention, contradiction, or unauthorized content. "
+        "This verdict says nothing about readiness: blocked-versus-ready is "
+        "derived deterministically by the system from the recipe's explicit "
+        "unresolved_intent state and is not the evaluator's decision."
+    ),
+    "semantically_unfaithful": (
+        "The recipe contains unauthorized, contradictory, invented, or "
+        "otherwise unfaithful content relative to the brief and authority."
+    ),
+    "evaluation_inconclusive": (
+        "The evaluator cannot establish semantic fidelity either way from the "
+        "visible evidence."
+    ),
+}
 _PLANNER_EVALUATION_CRITERIA = (
     "brief_fidelity",
     "provenance_fidelity",
@@ -87,11 +108,11 @@ def _planner_evaluation_parameters_from_source() -> dict[str, object]:
 
 
 PLANNER_EVALUATOR_TOOL_PARAMETERS = _planner_evaluation_parameters_from_source()
-_PLANNER_EVALUATION_REPORT_SCHEMA = {
+PLANNER_EVALUATION_REPORT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "recommendation": {"enum": list(_PLANNER_EVALUATION_RECOMMENDATIONS)},
+        "recommendation": {"enum": list(PLANNER_EVALUATION_RECOMMENDATIONS)},
         "evidence": {
             "type": "array",
             "minItems": 1,
@@ -109,7 +130,7 @@ _PLANNER_EVALUATION_REPORT_SCHEMA = {
     "required": ["recommendation", "evidence"],
 }
 _PLANNER_EVALUATION_REPORT_VALIDATOR = Draft202012Validator(
-    _PLANNER_EVALUATION_REPORT_SCHEMA
+    PLANNER_EVALUATION_REPORT_SCHEMA
 )
 _MACHINE_IDENTIFIER = re.compile(r"^[a-z0-9]+(?:[._:-][a-z0-9]+)*$")
 _MACHINE_SCALAR_FIELDS = {
@@ -1072,7 +1093,7 @@ class PlannerEvaluationResult:
         "malformed",
     ]
     recommendation: Literal[
-        "faithful_ready", "faithful_blocked", "planner_failure"
+        "semantically_faithful", "semantically_unfaithful", "evaluation_inconclusive"
     ] | None
     evidence: tuple[Mapping[str, object], ...]
     raw_response: bytes | None
@@ -1193,7 +1214,7 @@ def _planner_evaluation_from_message(
         return _malformed_planner_evaluation(response)
     recommendation = report["recommendation"]
     evidence = report["evidence"]
-    assert recommendation in _PLANNER_EVALUATION_RECOMMENDATIONS
+    assert recommendation in PLANNER_EVALUATION_RECOMMENDATIONS
     assert isinstance(evidence, list)
     return PlannerEvaluationResult(
         termination="valid_recommendation",

@@ -142,6 +142,12 @@ def _planner_turn_bytes(recipe_bytes: bytes) -> object:
 
 
 def _evaluator_turn(recommendation: str) -> object:
+    # Authority-split contract change (evaluator-authority-boundary slice):
+    # recommendations are semantic-only (semantically_faithful/unfaithful/
+    # evaluation_inconclusive). Blocked-vs-ready is now derived by the
+    # controller from the accepted recipe's unresolved_intent, so tests pair
+    # semantically_faithful with READY_RECIPE (0 unresolved -> ready) or
+    # BLOCKED_RECIPE (1 unresolved -> blocked).
     return SUPPORT.ProviderTurn(
         raw_request=b'{"evaluator":"request"}',
         raw_response=b'{"evaluator":"response"}',
@@ -420,8 +426,8 @@ def _recompute_checksums(archive_dir: Path) -> None:
 @pytest.mark.parametrize(
     ("recommendation", "classification"),
     [
-        ("faithful_ready", "probe_candidate_ready"),
-        ("planner_failure", "probe_planner_failure"),
+        ("semantically_faithful", "probe_candidate_ready"),
+        ("semantically_unfaithful", "probe_planner_failure"),
     ],
 )
 def test_checkpoint_derives_the_only_public_classification(
@@ -448,7 +454,7 @@ def test_blocked_witness_never_enters_checkpoint_2(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     planner = _Provider([_planner_turn(BLOCKED_RECIPE)])
-    evaluator = _Provider([_evaluator_turn("faithful_blocked")])
+    evaluator = _Provider([_evaluator_turn("semantically_faithful")])
     compiler_calls: list[object] = []
 
     def unexpected_handoff(*args, **kwargs):
@@ -523,7 +529,7 @@ def sealed_checkpoint(tmp_path: Path):
     result = PROBE.run_planner_checkpoint(
         fixture_dir=FIXTURES,
         planner_provider=_Provider([_planner_turn_bytes(READY_RECIPE_BYTES)]),
-        evaluator_provider=_Provider([_evaluator_turn("faithful_ready")]),
+        evaluator_provider=_Provider([_evaluator_turn("semantically_faithful")]),
         archive_destination=archive_dir,
         archive_identity=ARCHIVE_IDENTITY,
     )
@@ -934,12 +940,12 @@ def test_handoff_construction_failure_is_inconclusive_without_compiler_contact(
     [
         (
             [_planner_turn(BLOCKED_RECIPE)],
-            [_evaluator_turn("faithful_blocked")],
+            [_evaluator_turn("semantically_faithful")],
             "probe_candidate_blocked",
         ),
         (
             [_planner_turn(READY_RECIPE)],
-            [_evaluator_turn("planner_failure")],
+            [_evaluator_turn("semantically_unfaithful")],
             "probe_planner_failure",
         ),
         (
@@ -1171,7 +1177,7 @@ def test_checkpoint_archive_metadata_mismatch_is_post_contact_inconclusive(
     result = PROBE.run_planner_checkpoint(
         fixture_dir=FIXTURES,
         planner_provider=_Provider([_planner_turn_bytes(READY_RECIPE_BYTES)]),
-        evaluator_provider=_Provider([_evaluator_turn("faithful_ready")]),
+        evaluator_provider=_Provider([_evaluator_turn("semantically_faithful")]),
         archive_destination=tmp_path / "checkpoint-1",
         archive_identity=identity,
     )
@@ -1463,7 +1469,7 @@ def test_checkpoint_seal_failure_after_contact_is_in_memory_inconclusive(
         [
             AssertionError("evaluator must not run")
             if contact_stage == "planner"
-            else _evaluator_turn("faithful_ready")
+            else _evaluator_turn("semantically_faithful")
         ]
     )
     monkeypatch.setattr(
@@ -1533,7 +1539,7 @@ def test_execute_stops_after_checkpoint_seal_failure(
         [
             AssertionError("evaluator must not run")
             if contact_stage == "planner"
-            else _evaluator_turn("faithful_ready")
+            else _evaluator_turn("semantically_faithful")
         ]
     )
     built_roles: list[str] = []
@@ -1612,7 +1618,7 @@ def test_provider_constructor_failure_is_terminal_and_preserves_completed_work(
             "profile_identity": PROBE._PLANNER_PROVIDER_PROFILE_ID,
         },
     )
-    evaluator_turn = _evaluator_turn("faithful_ready")
+    evaluator_turn = _evaluator_turn("semantically_faithful")
     evaluator_turn = SUPPORT.ProviderTurn(
         raw_request=evaluator_turn.raw_request,
         raw_response=evaluator_turn.raw_response,
@@ -1844,7 +1850,7 @@ def test_checkpoint_archive_non_head_git_sha_is_post_contact_inconclusive(
     result = PROBE.run_planner_checkpoint(
         fixture_dir=FIXTURES,
         planner_provider=_Provider([_planner_turn_bytes(READY_RECIPE_BYTES)]),
-        evaluator_provider=_Provider([_evaluator_turn("faithful_ready")]),
+        evaluator_provider=_Provider([_evaluator_turn("semantically_faithful")]),
         archive_destination=tmp_path / "checkpoint-1",
         archive_identity=identity,
     )
@@ -1860,7 +1866,7 @@ def test_checkpoint_archive_never_overwrites_an_existing_seal(
     result = PROBE.run_planner_checkpoint(
         fixture_dir=FIXTURES,
         planner_provider=_Provider([_planner_turn_bytes(READY_RECIPE_BYTES)]),
-        evaluator_provider=_Provider([_evaluator_turn("faithful_ready")]),
+        evaluator_provider=_Provider([_evaluator_turn("semantically_faithful")]),
         archive_destination=archive_dir,
         archive_identity=ARCHIVE_IDENTITY,
     )
@@ -1938,7 +1944,7 @@ def test_pre_freeze_checkpoint_and_sealing_never_read_hidden_controls(
     PROBE.run_planner_checkpoint(
         fixture_dir=FIXTURES,
         planner_provider=_Provider([_planner_turn_bytes(READY_RECIPE_BYTES)]),
-        evaluator_provider=_Provider([_evaluator_turn("faithful_ready")]),
+        evaluator_provider=_Provider([_evaluator_turn("semantically_faithful")]),
         archive_destination=tmp_path / "checkpoint-1",
         archive_identity=ARCHIVE_IDENTITY,
     )
@@ -2320,7 +2326,7 @@ def test_checkpoint_consumes_the_pretransmission_snapshot_without_reloading(
         frozen_inputs=inputs,
         frozen_planner_request=request,
         planner_provider=_Provider([_planner_turn_bytes(READY_RECIPE_BYTES)]),
-        evaluator_provider=_Provider([_evaluator_turn("faithful_ready")]),
+        evaluator_provider=_Provider([_evaluator_turn("semantically_faithful")]),
     )
 
     assert result.classification == "probe_candidate_ready"

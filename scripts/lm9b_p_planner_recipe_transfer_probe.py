@@ -172,9 +172,10 @@ class TerminalControlFailureResult:
 def _checkpoint_classification(
     planner_session: PlannerSessionResult,
     evaluator: PlannerEvaluationResult | None,
+    checkpoint_gate: ARTIFACTS.MechanicalGateResult | None,
 ) -> PlannerCheckpointResult:
     classification = ARTIFACTS.derive_checkpoint_classification(
-        planner_session, evaluator
+        planner_session, evaluator, checkpoint_gate=checkpoint_gate
     )
     if classification == "probe_mechanically_rejected":
         return PlannerCheckpointResult(
@@ -281,6 +282,7 @@ def run_planner_checkpoint(
                 evaluator_elapsed_ms=evaluator_elapsed_ms,
                 classification=result.classification,
                 archive_identity=archive_identity,
+                checkpoint_gate=checkpoint_gate,
             )
         except Exception as exc:
             if not planner_provider_attempts and not evaluator_provider_attempts:
@@ -310,11 +312,11 @@ def run_planner_checkpoint(
         exclusion_policy=inputs.exclusion_policy,
     )
     if planner_session.termination != "mechanically_accepted":
-        return finish(_checkpoint_classification(planner_session, None))
+        return finish(_checkpoint_classification(planner_session, None, None))
 
     final_recipe_bytes = planner_session.final_recipe_bytes
     if final_recipe_bytes is None:
-        return finish(_checkpoint_classification(planner_session, None))
+        return finish(_checkpoint_classification(planner_session, None, None))
     gate_result = ARTIFACTS.evaluate_mechanical_gate(
         recipe_bytes=final_recipe_bytes,
         authority=inputs.authority,
@@ -324,7 +326,7 @@ def run_planner_checkpoint(
     )
     checkpoint_gate = gate_result
     if type(gate_result) is not ARTIFACTS.MechanicalGateResult:
-        return finish(_checkpoint_classification(planner_session, None))
+        return finish(_checkpoint_classification(planner_session, None, None))
     evaluator_request = ARTIFACTS.render_planner_evaluator_request(
         inputs, gate_result=gate_result
     )
@@ -349,7 +351,9 @@ def run_planner_checkpoint(
         user_prompt=evaluator_request.raw_bytes.decode("utf-8"),
     )
     evaluator_elapsed_ms = int((time.perf_counter() - started_at) * 1000)
-    return finish(_checkpoint_classification(planner_session, evaluator))
+    return finish(
+        _checkpoint_classification(planner_session, evaluator, checkpoint_gate)
+    )
 
 
 def _load_lm9bc_modules() -> tuple[object, object]:

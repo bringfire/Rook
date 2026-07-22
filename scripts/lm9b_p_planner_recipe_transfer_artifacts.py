@@ -22,6 +22,8 @@ from rook.validation_kernel.owned_json import own_trusted_json
 from lm9b_p_planner_recipe_transfer_support import (
     MechanicalGateResult,
     NormalizationProfile,
+    PLANNER_EVALUATION_RECOMMENDATION_MEANINGS,
+    PLANNER_EVALUATION_REPORT_SCHEMA,
     PLANNER_MAX_TURNS,
     ProviderTurn,
     evaluate_mechanical_gate,
@@ -540,10 +542,12 @@ def _verify_evaluation_rubric(
     }
     if _thaw_json(value.get("authoring_contract_binding")) != expected_binding:
         raise ValueError("evaluation rubric contract binding mismatch")
+    # Semantic-only vocabulary (authority split): the evaluator judges fidelity;
+    # blocked-vs-ready is derived deterministically from recipe state.
     if _thaw_json(value.get("recommendations")) != [
-        "faithful_blocked",
-        "faithful_ready",
-        "planner_failure",
+        "evaluation_inconclusive",
+        "semantically_faithful",
+        "semantically_unfaithful",
     ]:
         raise ValueError("invalid evaluation rubric recommendation vocabulary")
     criteria = _thaw_json(value.get("criteria"))
@@ -785,6 +789,15 @@ def render_planner_evaluator_request(
             ],
         },
         "evaluation_rubric": inputs.evaluation_rubric,
+        # Report-contract visibility: the exact closed schema the parser
+        # validates with, rendered from its single source of truth, plus the
+        # recommendation meanings (which state that readiness is derived by
+        # the system, not judged by the evaluator).
+        "evaluation_report_contract": {
+            "argument": "evaluation_json",
+            "report_schema": PLANNER_EVALUATION_REPORT_SCHEMA,
+            "recommendation_meanings": PLANNER_EVALUATION_RECOMMENDATION_MEANINGS,
+        },
     }
     return _render_request(PLANNER_EVALUATOR_RENDERER_ID, payload)
 
@@ -1220,27 +1233,101 @@ def build_lm9bc_handoff(
     )
 
 
+def derive_probe_explicit_blockers(final_recipe_bytes: bytes) -> tuple[str, ...]:
+    """Deterministic explicit-blocker projection for this workerless probe.
+
+    Authority limit: the only blocker this probe can deterministically
+    establish is ``unresolved_intent_present``, read from the mechanically
+    accepted recipe's explicit ``unresolved_intent`` collection. It does NOT
+    establish that policy, capability, selection, or authorization blockers
+    are absent - that requires LM9A-S. Accordingly ``probe_candidate_ready``
+    means eligibility for the inert compiler experiment only, never product
+    compile readiness. The output vocabulary is closed to this single value.
+    """
+
+    recipe = parse_strict_json(final_recipe_bytes)
+    if not isinstance(recipe, dict):
+        raise ValueError("accepted recipe bytes must decode to an object")
+    unresolved = recipe.get("unresolved_intent")
+    if not isinstance(unresolved, list):
+        raise ValueError(
+            "accepted recipe must carry an explicit unresolved_intent collection"
+        )
+    return ("unresolved_intent_present",) if unresolved else ()
+
+
 def derive_checkpoint_classification(
-    planner_session: object, evaluator: object | None
+    planner_session: object,
+    evaluator: object | None,
+    *,
+    checkpoint_gate: object | None,
 ) -> str:
-    """Derive the sole Checkpoint 1 classification from captured outcomes."""
+    """Derive the sole Checkpoint 1 classification from captured outcomes.
+
+    Authority split: the evaluator model establishes semantic fidelity ONLY.
+    Advancement (blocked vs ready) is derived deterministically from the
+    mechanically accepted artifact - bound to ``checkpoint_gate``, the
+    checkpoint's INDEPENDENT reevaluation of the final bytes under the frozen
+    checkpoint inputs. This is the proof carrier: classification and sealing
+    must consume it, proving the archived result was accepted under the exact
+    frozen inputs being archived - never merely the session-loop result, and
+    never the model's recommendation. The proof carrier is validated for EVERY
+    accepted session, before any evaluator branch, so an accepted session with
+    an absent, malformed, or failed evaluator can never be classified or
+    sealed without it. Callers pass ``checkpoint_gate=None`` explicitly for
+    non-accepted sessions.
+    """
 
     termination = getattr(planner_session, "termination", None)
     if termination == "mechanically_rejected":
         return "probe_mechanically_rejected"
-    if termination != "mechanically_accepted" or evaluator is None:
+    if termination != "mechanically_accepted":
+        return "probe_inconclusive"
+    # Proof carrier FIRST - before any evaluator branch.
+    if type(checkpoint_gate) is not MechanicalGateResult:
+        raise ValueError(
+            "checkpoint gate result is required to classify an accepted session"
+        )
+    if checkpoint_gate.status != "mechanically_accepted":
+        raise ValueError("checkpoint gate result did not accept the final recipe")
+    gate_final_bytes = checkpoint_gate.final_recipe_bytes
+    if not isinstance(gate_final_bytes, bytes) or gate_final_bytes != getattr(
+        planner_session, "final_recipe_bytes", None
+    ):
+        # Integrity/control failure: the checkpoint gate's accepted bytes must
+        # be the session's final bytes. Never resolved as a classification.
+        raise ValueError(
+            "checkpoint gate bytes do not match the session final recipe"
+        )
+    accepted_results = [
+        gate_result
+        for turn in getattr(planner_session, "turns", ())
+        if (gate_result := getattr(turn, "gate_result", None)) is not None
+        and getattr(gate_result, "status", None) == "mechanically_accepted"
+    ]
+    if len(accepted_results) != 1:
+        raise ValueError(
+            "accepted session must retain exactly one accepted gate result"
+        )
+    if checkpoint_gate != accepted_results[0]:
+        # The independent checkpoint reevaluation must agree exactly with the
+        # session's accepted gate result; divergence is a control failure.
+        raise ValueError(
+            "checkpoint gate result does not match the accepted turn gate result"
+        )
+    if evaluator is None:
         return "probe_inconclusive"
     if getattr(evaluator, "termination", None) != "valid_recommendation":
         return "probe_inconclusive"
-    classifications = {
-        "faithful_blocked": "probe_candidate_blocked",
-        "planner_failure": "probe_planner_failure",
-        "faithful_ready": "probe_candidate_ready",
-    }
     recommendation = getattr(evaluator, "recommendation", None)
-    if recommendation not in classifications:
+    if recommendation == "semantically_unfaithful":
+        return "probe_planner_failure"
+    if recommendation == "evaluation_inconclusive":
+        return "probe_inconclusive"
+    if recommendation != "semantically_faithful":
         raise ValueError("invalid evaluator recommendation for checkpoint")
-    return classifications[recommendation]
+    blockers = derive_probe_explicit_blockers(gate_final_bytes)
+    return "probe_candidate_blocked" if blockers else "probe_candidate_ready"
 
 
 def derive_joined_aggregate_outcome(
@@ -1813,12 +1900,15 @@ def _trusted_archive_records(
     classification: str,
     planner_attempts: Sequence[Mapping[str, object]],
     evaluator_attempts: Sequence[Mapping[str, object]],
+    checkpoint_gate: object | None,
 ) -> Mapping[str, str]:
     planner_termination = getattr(planner_session, "termination", None)
     session_turns = tuple(getattr(planner_session, "turns", ()))
     final_recipe = getattr(planner_session, "final_recipe_bytes", None)
     evaluator_termination = getattr(evaluator, "termination", "not_run")
-    if classification != derive_checkpoint_classification(planner_session, evaluator):
+    if classification != derive_checkpoint_classification(
+        planner_session, evaluator, checkpoint_gate=checkpoint_gate
+    ):
         raise ValueError("checkpoint classification is not mechanically derived")
     if len(session_turns) > len(planner_attempts):
         raise ValueError("Planner turn archive is incomplete")
@@ -2009,12 +2099,15 @@ def seal_planner_checkpoint_archive(
     planner_session: object, evaluator: object | None, evaluator_request: RenderedRequest | None,
     planner_provider_attempts: Sequence[ProviderAttemptEvidence], evaluator_provider_attempts: Sequence[ProviderAttemptEvidence],
     evaluator_elapsed_ms: int | None, classification: str, archive_identity: Mapping[str, object],
+    checkpoint_gate: object | None,
 ) -> SealedPlannerCheckpointArchive:
     destination = Path(destination).resolve()
     if destination.exists():
         raise FileExistsError(f"sealed checkpoint archive already exists: {destination}")
     _verify_frozen_planner_inputs(inputs)
-    if classification != derive_checkpoint_classification(planner_session, evaluator):
+    if classification != derive_checkpoint_classification(
+        planner_session, evaluator, checkpoint_gate=checkpoint_gate
+    ):
         raise ValueError("checkpoint classification is not mechanically derived")
     head = _checked_out_git_head()
     if archive_identity.get("git_commit_sha") != head:
@@ -2046,6 +2139,7 @@ def seal_planner_checkpoint_archive(
         classification=classification,
         planner_attempts=planner_attempts,
         evaluator_attempts=evaluator_attempts,
+        checkpoint_gate=checkpoint_gate,
     )
     session_turns = tuple(getattr(planner_session, "turns", ()))
     returned_planner = tuple(item for item in planner_attempts if item["raw_response"] is not None)
@@ -2158,6 +2252,7 @@ __all__ = (
     "build_lm9bc_handoff",
     "compare_sealed_checkpoint_with_r01",
     "derive_checkpoint_classification",
+    "derive_probe_explicit_blockers",
     "derive_joined_aggregate_outcome",
     "load_planner_authority_context",
     "load_planner_inputs",

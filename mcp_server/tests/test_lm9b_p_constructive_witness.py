@@ -84,7 +84,7 @@ def _evaluator_turn() -> object:
                             {
                                 "evaluation_json": json.dumps(
                                     {
-                                        "recommendation": "faithful_ready",
+                                        "recommendation": "semantically_faithful",
                                         "evidence": [
                                             {
                                                 "criterion_id": "brief_fidelity",
