@@ -372,47 +372,25 @@ def _validate_authority_components(
 
 
 def load_planner_authority_context(fixture_dir: Path) -> FrozenPlannerAuthority:
-    fixture_dir = Path(fixture_dir).resolve()
-    attempt_context = _object(fixture_dir / "attempt_context.json")
-    artifacts = {
-        artifact_id: _object(fixture_dir / filename)
-        for artifact_id, filename in _AUTHORITY_FILES.items()
-    }
-    vocabularies = {
-        name: _object(fixture_dir / filename)
-        for name, filename in _VOCABULARY_FILES.items()
-    }
-    payload_registry = _object(fixture_dir / "payload_schema_registry.json")
-    capability_registry = _object(fixture_dir / "capability_registry.json")
-    evaluated_at_text = _validate_authority_components(
-        attempt_context=attempt_context,
-        artifacts=artifacts,
-        vocabularies=vocabularies,
-        payload_registry=payload_registry,
-        capability_registry=capability_registry,
-    )
-    recipe_schema = _object(fixture_dir / "planner_recipe_probe_schema.json")
-    profile = load_normalization_profile(fixture_dir / "recipe_normalization_profile.json")
-    exclusion_policy = _object(fixture_dir / "planner_exclusion_policy.json")
-    validate_exclusion_policy(exclusion_policy)
-    return FrozenPlannerAuthority(
-        fixture_dir=fixture_dir,
-        artifacts=_freeze_json(artifacts),
-        vocabularies=_freeze_json(vocabularies),
-        payload_schema_registry=_freeze_json(payload_registry),
-        capability_registry=_freeze_json(capability_registry),
-        recipe_schema=_freeze_json(recipe_schema),
-        normalization_profile=profile,
-        attempt_context=_freeze_json(attempt_context),
-        exclusion_policy=_freeze_json(exclusion_policy),
-        evaluated_at=evaluated_at_text,
-    )
+    return load_planner_inputs(fixture_dir).authority
 
 
-def _planner_input_record(
-    fixture_dir: Path, role: str, filename: str, kind: str
+def planner_input_record_from_bytes(
+    *,
+    role: str,
+    relative_path: str,
+    raw_bytes: bytes,
 ) -> PlannerInputRecord:
-    raw = (fixture_dir / filename).read_bytes()
+    expected = {
+        expected_role: (filename, kind)
+        for expected_role, filename, kind in _PLANNER_INPUT_FILES
+    }
+    if role not in expected:
+        raise ValueError(f"unexpected Planner input role: {role}")
+    filename, kind = expected[role]
+    if relative_path != filename or type(raw_bytes) is not bytes:
+        raise ValueError(f"Planner input identity mismatch: {role}")
+    raw = raw_bytes
     if kind == "text":
         if raw.startswith(b"\xef\xbb\xbf"):
             raise ValueError(f"{filename} must not contain a UTF-8 BOM")
@@ -436,6 +414,17 @@ def _planner_input_record(
         canonical_fingerprint=fingerprint(value),
         raw_bytes=raw,
         value=_freeze_json(value),
+    )
+
+
+def _planner_input_record(
+    fixture_dir: Path, role: str, filename: str, kind: str
+) -> PlannerInputRecord:
+    del kind
+    return planner_input_record_from_bytes(
+        role=role,
+        relative_path=filename,
+        raw_bytes=(fixture_dir / filename).read_bytes(),
     )
 
 
@@ -585,16 +574,31 @@ def _planner_capability_evidence(
     }
 
 
-def load_planner_inputs(fixture_dir: Path) -> FrozenPlannerInputs:
-    fixture_dir = Path(fixture_dir).resolve()
-    records = tuple(
-        _planner_input_record(fixture_dir, role, filename, kind)
-        for role, filename, kind in _PLANNER_INPUT_FILES
+def frozen_planner_inputs_from_records(
+    records: Sequence[PlannerInputRecord],
+    *,
+    source_dir: Path,
+) -> FrozenPlannerInputs:
+    source_dir = Path(source_dir).resolve()
+    records = tuple(records)
+    expected_identities = tuple(
+        (role, filename) for role, filename, _kind in _PLANNER_INPUT_FILES
     )
+    if tuple((record.role, record.relative_path) for record in records) != expected_identities:
+        raise ValueError("Planner input record set is incomplete or out of order")
+    for record in records:
+        if type(record) is not PlannerInputRecord:
+            raise TypeError("PlannerInputRecord is required")
+        rebuilt = planner_input_record_from_bytes(
+            role=record.role,
+            relative_path=record.relative_path,
+            raw_bytes=record.raw_bytes,
+        )
+        if rebuilt != record:
+            raise ValueError(f"Planner input record identity mismatch: {record.role}")
     by_role = {record.role: record for record in records}
     if len(by_role) != len(records):
         raise ValueError("duplicate Planner input role")
-    authority = load_planner_authority_context(fixture_dir)
     contract = by_role["authoring_contract"].value
     exclusion_policy = by_role["exclusion_policy"].value
     rubric = by_role["evaluation_rubric"].value
@@ -605,13 +609,68 @@ def load_planner_inputs(fixture_dir: Path) -> FrozenPlannerInputs:
     assert isinstance(rubric, Mapping)
     assert isinstance(recipe_schema, Mapping)
     assert isinstance(normalization_profile, Mapping)
+    attempt_context = by_role["attempt_context"].value
+    payload_registry = by_role["registry.payload_schemas"].value
+    capability_registry = by_role["registry.capabilities"].value
+    artifacts = {
+        "task_envelope": by_role["authority.task_envelope"].value,
+        "environment_snapshot": by_role["authority.environment_snapshot"].value,
+        "planning_policy": by_role["authority.planning_policy"].value,
+    }
+    vocabularies = {
+        "semantic_authority_code_vocabulary": by_role[
+            "vocabulary.semantic_authority_codes"
+        ].value,
+        "semantic_capability_code_vocabulary": by_role[
+            "vocabulary.semantic_capability_codes"
+        ].value,
+        "worker_slot_code_vocabulary": by_role[
+            "vocabulary.worker_slot_codes"
+        ].value,
+        "semantic_materiality_code_vocabulary": by_role[
+            "vocabulary.semantic_materiality_codes"
+        ].value,
+        "semantic_value_schema_registry": by_role[
+            "vocabulary.semantic_value_schemas"
+        ].value,
+    }
+    if not isinstance(attempt_context, Mapping):
+        raise ValueError("attempt context must be an object")
+    if not isinstance(payload_registry, Mapping):
+        raise ValueError("payload schema registry must be an object")
+    if not isinstance(capability_registry, Mapping):
+        raise ValueError("capability registry must be an object")
+    if not all(isinstance(value, Mapping) for value in artifacts.values()):
+        raise ValueError("authority artifacts must be objects")
+    if not all(isinstance(value, Mapping) for value in vocabularies.values()):
+        raise ValueError("authority vocabularies must be objects")
+    evaluated_at_text = _validate_authority_components(
+        attempt_context=attempt_context,
+        artifacts=artifacts,
+        vocabularies=vocabularies,
+        payload_registry=payload_registry,
+        capability_registry=capability_registry,
+    )
+    profile = normalization_profile_from_value(normalization_profile)
     _verify_authoring_contract(contract)
     validate_exclusion_policy(exclusion_policy)
     _verify_evaluation_rubric(rubric, contract)
     if recipe_schema.get("$id") != "rook.lm9b_p.planner_recipe_probe_schema:v1":
         raise ValueError("invalid Planner recipe probe schema")
-    if normalization_profile.get("profile_id") != authority.normalization_profile.profile_id:
+    if normalization_profile.get("profile_id") != profile.profile_id:
         raise ValueError("normalization profile identity mismatch")
+    authority = FrozenPlannerAuthority(
+        fixture_dir=source_dir,
+        artifacts=_freeze_json(artifacts),
+        vocabularies=_freeze_json(vocabularies),
+        payload_schema_registry=_freeze_json(payload_registry),
+        capability_registry=_freeze_json(capability_registry),
+        recipe_schema=_freeze_json(recipe_schema),
+        normalization_profile=profile,
+        attempt_context=_freeze_json(attempt_context),
+        exclusion_policy=_freeze_json(exclusion_policy),
+        evaluated_at=evaluated_at_text,
+    )
     snapshot_bindings = {
         "attempt_context": authority.attempt_context,
         "authority.task_envelope": authority.artifacts["task_envelope"],
@@ -670,6 +729,15 @@ def load_planner_inputs(fixture_dir: Path) -> FrozenPlannerInputs:
         evaluation_rubric=rubric,
         attempt_context=authority.attempt_context,
     )
+
+
+def load_planner_inputs(fixture_dir: Path) -> FrozenPlannerInputs:
+    fixture_dir = Path(fixture_dir).resolve()
+    records = tuple(
+        _planner_input_record(fixture_dir, role, filename, kind)
+        for role, filename, kind in _PLANNER_INPUT_FILES
+    )
+    return frozen_planner_inputs_from_records(records, source_dir=fixture_dir)
 
 
 def _render_request(renderer_id: str, payload: Mapping[str, object]) -> RenderedRequest:
@@ -1256,6 +1324,28 @@ def derive_probe_explicit_blockers(final_recipe_bytes: bytes) -> tuple[str, ...]
     return ("unresolved_intent_present",) if unresolved else ()
 
 
+def derive_evaluated_recipe_classification(
+    evaluator: object | None,
+    *,
+    final_recipe_bytes: bytes,
+) -> str:
+    """Combine semantic evaluation with explicit accepted-recipe blockers."""
+
+    if type(final_recipe_bytes) is not bytes:
+        raise TypeError("verified final recipe bytes are required")
+    if evaluator is None or getattr(evaluator, "termination", None) != "valid_recommendation":
+        return "probe_inconclusive"
+    recommendation = getattr(evaluator, "recommendation", None)
+    if recommendation == "semantically_unfaithful":
+        return "probe_planner_failure"
+    if recommendation == "evaluation_inconclusive":
+        return "probe_inconclusive"
+    if recommendation != "semantically_faithful":
+        raise ValueError("invalid evaluator recommendation for checkpoint")
+    blockers = derive_probe_explicit_blockers(final_recipe_bytes)
+    return "probe_candidate_blocked" if blockers else "probe_candidate_ready"
+
+
 def derive_checkpoint_classification(
     planner_session: object,
     evaluator: object | None,
@@ -1315,19 +1405,10 @@ def derive_checkpoint_classification(
         raise ValueError(
             "checkpoint gate result does not match the accepted turn gate result"
         )
-    if evaluator is None:
-        return "probe_inconclusive"
-    if getattr(evaluator, "termination", None) != "valid_recommendation":
-        return "probe_inconclusive"
-    recommendation = getattr(evaluator, "recommendation", None)
-    if recommendation == "semantically_unfaithful":
-        return "probe_planner_failure"
-    if recommendation == "evaluation_inconclusive":
-        return "probe_inconclusive"
-    if recommendation != "semantically_faithful":
-        raise ValueError("invalid evaluator recommendation for checkpoint")
-    blockers = derive_probe_explicit_blockers(gate_final_bytes)
-    return "probe_candidate_blocked" if blockers else "probe_candidate_ready"
+    return derive_evaluated_recipe_classification(
+        evaluator,
+        final_recipe_bytes=gate_final_bytes,
+    )
 
 
 def derive_joined_aggregate_outcome(
@@ -2252,10 +2333,13 @@ __all__ = (
     "build_lm9bc_handoff",
     "compare_sealed_checkpoint_with_r01",
     "derive_checkpoint_classification",
+    "derive_evaluated_recipe_classification",
     "derive_probe_explicit_blockers",
     "derive_joined_aggregate_outcome",
+    "frozen_planner_inputs_from_records",
     "load_planner_authority_context",
     "load_planner_inputs",
+    "planner_input_record_from_bytes",
     "render_planner_evaluator_request",
     "render_planner_request",
     "seal_joined_aggregate",

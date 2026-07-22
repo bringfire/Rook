@@ -23,19 +23,13 @@ for _import_path in (_SCRIPTS_DIR, _MCP_SRC):
     if str(_import_path) not in sys.path:
         sys.path.insert(0, str(_import_path))
 
-_PLANNER_EVALUATOR_SYSTEM_PROMPT = (
-    "Evaluate the submitted Planner recipe only against the visible brief, exact "
-    "authority, deterministic findings, and frozen rubric. Do not infer compiler "
-    "behavior, use hidden context, repair the recipe, or classify the probe. Submit "
-    "exactly one evidence-backed recommendation through submit_planner_evaluation."
-)
-
 import lm9b_p_readiness_contract as READINESS
 import lm9b_p_planner_recipe_transfer_artifacts as ARTIFACTS
 from lm9b_p_planner_recipe_transfer_support import (
     PLANNER_COST_STOP_THRESHOLD_USD,
     PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS,
     PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S,
+    PLANNER_EVALUATOR_SYSTEM_PROMPT,
     PLANNER_MAX_COMPLETION_TOKENS,
     PLANNER_MAX_TURNS,
     PLANNER_OVERALL_DEADLINE_S,
@@ -44,6 +38,7 @@ from lm9b_p_planner_recipe_transfer_support import (
     PlannerEvaluationResult,
     PlannerSessionResult,
     ProviderTurn,
+    build_planner_evaluator_provider_call_request,
     fingerprint,
     run_planner_evaluation,
     run_planner_session,
@@ -330,9 +325,16 @@ def run_planner_checkpoint(
     evaluator_request = ARTIFACTS.render_planner_evaluator_request(
         inputs, gate_result=gate_result
     )
+    evaluator_provider_call_request_bytes = (
+        build_planner_evaluator_provider_call_request(
+            system_prompt=PLANNER_EVALUATOR_SYSTEM_PROMPT,
+            user_prompt=evaluator_request.raw_bytes.decode("utf-8"),
+        )
+    )
+
     def recorded_evaluator_provider(request: dict[str, object]) -> ProviderTurn:
         attempt = ARTIFACTS.ProviderAttemptEvidence(
-            provider_request_bytes=provider_request_bytes(request)
+            provider_request_bytes=evaluator_provider_call_request_bytes
         )
         evaluator_provider_attempts.append(attempt)
         started_at = time.perf_counter()
@@ -347,8 +349,7 @@ def run_planner_checkpoint(
     started_at = time.perf_counter()
     evaluator = run_planner_evaluation(
         provider=recorded_evaluator_provider,
-        system_prompt=_PLANNER_EVALUATOR_SYSTEM_PROMPT,
-        user_prompt=evaluator_request.raw_bytes.decode("utf-8"),
+        provider_call_request_bytes=evaluator_provider_call_request_bytes,
     )
     evaluator_elapsed_ms = int((time.perf_counter() - started_at) * 1000)
     return finish(
@@ -1016,6 +1017,13 @@ class _PlannerProviderAdapter:
         )
         self.model = model
         self.temperature = temperature
+        self.profile_identity = _PLANNER_PROVIDER_PROFILE_ID
+        self.identity = {
+            "adapter_path": "litellm.completion",
+            "model": model,
+            "profile_identity": self.profile_identity,
+            "temperature": temperature,
+        }
 
     def __call__(self, request: dict[str, object]) -> ProviderTurn:
         turn = self._delegate(request)
@@ -1032,10 +1040,19 @@ class _PlannerProviderAdapter:
 
 
 def _build_provider(*, role: str, model: str, temperature: float) -> object:
-    if role in ("planner", "planner_evaluator"):
+    if role == "planner_evaluator":
+        return build_planner_evaluator_provider(
+            model=model,
+            temperature=temperature,
+        )
+    if role == "planner":
         return _PlannerProviderAdapter(model=model, temperature=temperature)
     _, lm9bc_probe = _load_lm9bc_modules()
     return lm9bc_probe.LiteLLMProvider(model=model, temperature=temperature)
+
+
+def build_planner_evaluator_provider(*, model: str, temperature: float) -> object:
+    return _PlannerProviderAdapter(model=model, temperature=temperature)
 
 
 def _execute_transmitted_attempt(
@@ -1221,6 +1238,7 @@ __all__ = (
     "PRODUCTION_SCOPE_FILES",
     "assert_frozen_compiler_controls",
     "assert_frozen_planner_controls",
+    "build_planner_evaluator_provider",
     "main",
     "parse_cli_args",
     "prepare_pretransmission",

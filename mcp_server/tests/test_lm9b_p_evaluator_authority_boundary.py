@@ -211,6 +211,68 @@ def test_blockers_require_explicit_unresolved_intent_collection() -> None:
 # The controller consumes checkpoint_gate - the checkpoint's INDEPENDENT
 # reevaluation under the frozen inputs - as the proof carrier for advancement.
 
+
+@pytest.mark.parametrize(
+    ("recipe_path", "termination", "recommendation", "expected"),
+    [
+        (
+            BLOCKED_RECIPE,
+            "valid_recommendation",
+            "semantically_faithful",
+            "probe_candidate_blocked",
+        ),
+        (
+            READY_RECIPE,
+            "valid_recommendation",
+            "semantically_faithful",
+            "probe_candidate_ready",
+        ),
+        (
+            BLOCKED_RECIPE,
+            "valid_recommendation",
+            "semantically_unfaithful",
+            "probe_planner_failure",
+        ),
+        (
+            READY_RECIPE,
+            "valid_recommendation",
+            "semantically_unfaithful",
+            "probe_planner_failure",
+        ),
+        (
+            BLOCKED_RECIPE,
+            "valid_recommendation",
+            "evaluation_inconclusive",
+            "probe_inconclusive",
+        ),
+        (READY_RECIPE, None, None, "probe_inconclusive"),
+        (READY_RECIPE, "malformed", None, "probe_inconclusive"),
+        (READY_RECIPE, "provider_failure", None, "probe_inconclusive"),
+        (READY_RECIPE, "timeout", None, "probe_inconclusive"),
+    ],
+)
+def test_evaluated_recipe_classification_truth_table(
+    recipe_path: Path,
+    termination: str | None,
+    recommendation: str | None,
+    expected: str,
+) -> None:
+    evaluator = (
+        None
+        if termination is None
+        else SimpleNamespace(
+            termination=termination,
+            recommendation=recommendation,
+        )
+    )
+    assert (
+        ARTIFACTS.derive_evaluated_recipe_classification(
+            evaluator,
+            final_recipe_bytes=recipe_path.read_bytes(),
+        )
+        == expected
+    )
+
 def test_faithful_with_blockers_classifies_blocked() -> None:
     session, gate = _accepted_session(BLOCKED_RECIPE.read_bytes())
     assert (
