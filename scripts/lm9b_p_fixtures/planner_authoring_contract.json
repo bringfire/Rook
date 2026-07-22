@@ -36,12 +36,29 @@
     "unresolved_policy_reference_kind": "policy_rule",
     "unresolved_unit_context_reference_kind": "artifact_value",
     "worker_slots_max_entries": 0,
-    "confirmation_receipts_admitted": false
+    "confirmation_receipts_admitted": false,
+    "source_task_artifact_kind": "task_envelope",
+    "source_task_schema": "rook.planner_task_envelope:v1",
+    "authority_artifact_kinds": [
+      "environment_snapshot",
+      "planning_policy"
+    ],
+    "descriptor_kind_schema": {
+      "environment_snapshot": "rook.environment_snapshot:v1",
+      "planning_policy": "rook.planning_policy:v1",
+      "task_envelope": "rook.planner_task_envelope:v1"
+    },
+    "machine_identifier_pattern": "^[a-z0-9]+(?:[._:-][a-z0-9]+)*$",
+    "policy_pointer_pattern": "^/rules/[a-z0-9]+(?:[._:-][a-z0-9]+)*$"
   },
   "relational_invariants": [
     "Every clause has direct source, assumption, or permitted derived-fact support, or a non-null clause-appropriate synthesis.",
     "Nested canonicalization applies only to its containing maintains clause.",
-    "Nested canonicalization and postconditions may inherit only from their containing maintains clause."
+    "Nested canonicalization and postconditions may inherit only from their containing maintains clause.",
+    "Descriptor artifact IDs are globally unique across source_task and authority_artifacts; identifiers are unique within each declaration namespace.",
+    "The reserved artifact ID task_envelope appears only as source_task and never in authority_artifacts.",
+    "Every recipe-bound authority descriptor is referenced by recipe content.",
+    "Every local semantic reference resolves to a declared symbol of its declared kind."
   ],
   "authoring_rules": [
     "Author one complete rook.planner_graph_recipe:v1 value using only the supplied brief and authority context.",
@@ -55,5 +72,5 @@
     "Capability availability does not authorize compiled operations or execution.",
     "The recipe does not select an implementation representation."
   ],
-  "contract_fingerprint": "sha256:986ef886a9e45e64d1f9419c4cf47face9973d0f360ca9e30aead121c270a8e0"
+  "contract_fingerprint": "sha256:ccf6c1702825c46b3987853abaff8720f40d1960a0aebc4542b10e2bdc162c20"
 }

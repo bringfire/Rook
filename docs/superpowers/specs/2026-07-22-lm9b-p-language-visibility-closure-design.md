@@ -43,9 +43,13 @@ No **gate semantics** for cross-object uniqueness / referential integrity change
 
 Feedback changes (causal-feedback correction is a **deferred, independent** slice so it does not co-vary with visibility); prompt/persona changes; model or budget changes; typed construction tools; new examples (no R01-derived content); semantic-policy expansion; strict-JSON/byte-cap carriers; **any model call**.
 
-## Where changes land
+## Where changes land (as implemented)
 
-Source fixtures only: `scripts/lm9b_p_fixtures/planner_recipe_probe_schema.json`, `.../planner_authoring_contract.json`, plus the dependent fingerprint/manifest fixtures. **No change to the gate validator** `scripts/lm9b_p_planner_recipe_transfer_support.py`; its grammar, `_MACHINE_SCALAR_FIELDS`, uniqueness/referential checks, and acceptance predicate are untouched. The M1/M2 alignment deltas are realized entirely in the schema.
+- Source fixtures: `scripts/lm9b_p_fixtures/planner_recipe_probe_schema.json` (M1–M4 carriers), `planner_authoring_contract.json` (language_boundary mirror + relational_invariants, recomputed `contract_fingerprint`), `planner_evaluation_rubric.json` (propagated `authoring_contract_binding.contract_fingerprint` + recomputed `rubric_fingerprint`).
+- **Frozen-input verifier:** `scripts/lm9b_p_planner_recipe_transfer_artifacts.py :: _verify_authoring_contract` — its hardcoded `expected_boundary` is an equality check against the contract's `language_boundary`, so the six new keys are mirrored there in lockstep. This is **frozen-input verification, not gate acceptance semantics** (it asserts the model-visible contract matches the reviewed shape; it does not change which recipes are accepted).
+- **No change to the gate validator** `scripts/lm9b_p_planner_recipe_transfer_support.py`: its grammar, `_MACHINE_SCALAR_FIELDS`, uniqueness/referential checks, and acceptance predicate are untouched.
+
+**Implementation note (nullability):** the identifier grammar is applied only where a field is a plain `string`; null-pinned ids (`worker_slot_id` in the workerless profile, schema `{"type":"null"}`) are left as-is — matching the gate, which skips null values for the grammar (`support.py` L505). The dependency map (plan Task 0) resolved to: the schema document carries no stored fingerprint (runtime manifest recomputes from bytes); only the contract→rubric fingerprint chain needed recomputation.
 
 ## Testing (deterministic, no model)
 

@@ -482,6 +482,21 @@ def _verify_authoring_contract(value: Mapping[str, object]) -> None:
         "unresolved_unit_context_reference_kind": "artifact_value",
         "worker_slots_max_entries": 0,
         "confirmation_receipts_admitted": False,
+        # Descriptor-language visibility (LM9B-P closure M1/M2/M3/M4): the accepted
+        # descriptor kind vocabulary, kind->schema pairing, reserved source_task
+        # identity, and the identifier/policy-pointer grammars are declared here so
+        # the Planner receives them. Mirrored by the recipe schema; enforced by the
+        # unchanged mechanical gate.
+        "source_task_artifact_kind": "task_envelope",
+        "source_task_schema": "rook.planner_task_envelope:v1",
+        "authority_artifact_kinds": ["environment_snapshot", "planning_policy"],
+        "descriptor_kind_schema": {
+            "environment_snapshot": "rook.environment_snapshot:v1",
+            "planning_policy": "rook.planning_policy:v1",
+            "task_envelope": "rook.planner_task_envelope:v1",
+        },
+        "machine_identifier_pattern": "^[a-z0-9]+(?:[._:-][a-z0-9]+)*$",
+        "policy_pointer_pattern": "^/rules/[a-z0-9]+(?:[._:-][a-z0-9]+)*$",
     }
     if _thaw_json(value.get("language_boundary")) != expected_boundary:
         raise ValueError("authoring contract language boundary mismatch")
