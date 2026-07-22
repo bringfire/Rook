@@ -78,6 +78,29 @@ def test_route_ready_rejects(mut):
     assert C.route_ready(row) is False
 
 
+def test_canary_request_is_isolated_from_in_place_provider_mutation():
+    # Providers mutate tool schemas in place (Gemini strips additionalProperties),
+    # so build_canary_request / canary_protocol must hand out independent copies —
+    # otherwise a provider call corrupts the shared tool and every fingerprint
+    # computed afterward (breaking the launch gate that recomputes pristine).
+    manifest = C.derive_routes(
+        C.role_routes_from_models(C.CANONICAL_ROLE_MODELS), lambda m: None
+    )
+    other = manifest.routes[-1]
+    baseline_request_fp = C.request_fingerprint(other)
+    baseline_protocol_fp = C.canary_protocol_fingerprint()
+
+    handed_out = C.build_canary_request(manifest.routes[0])
+    # Simulate an in-place provider mutation of the tool schema it received.
+    handed_out["tools"][0]["function"]["parameters"].pop("additionalProperties", None)
+    handed_out["tools"][0]["function"]["name"] = "MUTATED"
+
+    assert C.request_fingerprint(other) == baseline_request_fp
+    assert C.canary_protocol_fingerprint() == baseline_protocol_fp
+    assert C.build_canary_request(manifest.routes[0])["tools"][0]["function"]["name"] == "ack"
+    assert C.ACK_TOOL["function"]["name"] == "ack"
+
+
 def test_canary_budget_leaves_room_for_reasoning_models():
     # gpt-5.4 and gemini-3.1-pro are reasoning models that spend completion
     # tokens on hidden thinking before the forced tool call. A tiny budget (the

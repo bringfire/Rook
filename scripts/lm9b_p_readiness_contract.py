@@ -9,6 +9,7 @@ operation."""
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from collections.abc import Callable, Sequence
@@ -180,10 +181,15 @@ def derive_routes(
 
 
 def canary_protocol() -> dict:
+    # Deep-copy the tool: build_canary_request hands the tool to a provider, and
+    # some providers (e.g. Gemini) mutate tool schemas in place. Sharing the
+    # module-level ACK_TOOL would let that mutation corrupt every fingerprint
+    # computed afterward and desynchronize the record from the launch gate's
+    # pristine recomputation. Each call returns an independent tool.
     return {
         "system": CANARY_SYSTEM,
         "user": CANARY_USER,
-        "tool": ACK_TOOL,
+        "tool": copy.deepcopy(ACK_TOOL),
         "max_completion_tokens": CANARY_MAX_COMPLETION_TOKENS,
         "provider_timeout_s": CANARY_PROVIDER_TIMEOUT_S,
         "temperature": CANARY_TEMPERATURE,
