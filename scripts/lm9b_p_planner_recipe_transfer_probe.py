@@ -763,7 +763,7 @@ def run_joined_probe(
         sealed_checkpoint.archive_dir,
         expected_aggregate_identity=sealed_checkpoint.aggregate_identity,
     )
-    persisted_classification = ARTIFACTS.parse_strict_json(
+    persisted_classification = ARTIFACTS.parse_archive_json(
         (
             sealed_checkpoint.archive_dir
             / "checkpoint"

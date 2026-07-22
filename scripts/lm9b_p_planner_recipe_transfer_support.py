@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import queue
 import re
 import sys
@@ -197,6 +198,16 @@ def _reject_float(_token: str) -> NoReturn:
     raise StrictJsonError("non_integer_json_number")
 
 
+def _finite_float(token: str) -> float:
+    # Archive evidence may carry provider-shaped finite floats (e.g. temperature,
+    # cost_usd). Accept finite floats but still reject non-finite values, including
+    # overflow literals like 1e999 that Python parses to inf.
+    value = float(token)
+    if not math.isfinite(value):
+        raise StrictJsonError("non_finite_json_number")
+    return value
+
+
 def _reject_constant(_token: str) -> NoReturn:
     raise StrictJsonError("non_finite_json_number")
 
@@ -223,7 +234,11 @@ def _json_depth(value: object) -> int:
     return maximum
 
 
-def parse_strict_json(raw: bytes) -> object:
+def _parse_bounded_json(raw: bytes, *, parse_float) -> object:
+    # Shared bounded JSON grammar. The strict recipe parser and the archive
+    # evidence parser differ ONLY in `parse_float`; every other bound (size,
+    # UTF-8, BOM, duplicate keys, integer-token length, non-finite constants,
+    # depth) is identical.
     if len(raw) > MAX_RECIPE_BYTES:
         raise StrictJsonError("recipe_input_bytes_exceeded")
     if raw.startswith(b"\xef\xbb\xbf"):
@@ -237,7 +252,7 @@ def parse_strict_json(raw: bytes) -> object:
             decoded,
             object_pairs_hook=_reject_duplicate_pairs,
             parse_int=_parse_int,
-            parse_float=_reject_float,
+            parse_float=parse_float,
             parse_constant=_reject_constant,
         )
     except StrictJsonError:
@@ -249,6 +264,18 @@ def parse_strict_json(raw: bytes) -> object:
     if _json_depth(value) > MAX_JSON_DEPTH:
         raise StrictJsonError("json_depth_exceeded")
     return value
+
+
+def parse_strict_json(raw: bytes) -> object:
+    # Planner-authored recipe ingress: rejects every float.
+    return _parse_bounded_json(raw, parse_float=_reject_float)
+
+
+def parse_archive_json(raw: bytes) -> object:
+    # Archive evidence readback: accepts finite floats (provider-shaped values
+    # such as temperature and cost_usd), still rejecting non-finite numbers,
+    # duplicate keys, and the other strict bounds.
+    return _parse_bounded_json(raw, parse_float=_finite_float)
 
 
 def resolve_json_pointer(value: object, pointer: str) -> object:
@@ -1515,6 +1542,7 @@ __all__ = (
     "load_normalization_profile",
     "normalization_profile_from_value",
     "normalize_recipe",
+    "parse_archive_json",
     "parse_strict_json",
     "planner_tool_definition",
     "planner_evaluator_tool_definition",
