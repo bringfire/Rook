@@ -53,7 +53,9 @@ explicitly records `replaces_historical_result=false`.
 ## Exact Recipe Binding
 
 The derivative consumed the exact archived `rook.planner_graph_recipe:v1`
-bytes without repair, normalization, translation, or reserialization:
+bytes without rewriting, repair, translation, or reserialization. Mechanical
+verification still applied the frozen semantic normalization profile
+internally; that verification value did not replace the archived recipe bytes:
 
 ```text
 mechanical status: mechanically_accepted
@@ -99,6 +101,21 @@ The evaluator terminated quiescently with one valid semantic recommendation:
 model: gpt-5.4
 termination: valid_recommendation
 recommendation: semantically_faithful
+```
+
+## Attempt Accounting
+
+The sealed attempt capture and usage records bind:
+
+```text
+evaluator dispatches: 1
+elapsed: 6,631 ms
+prompt tokens: 7,718
+completion tokens: 400
+total tokens: 8,118
+cost: $0.025295
+finish reason: tool_calls
+response model: gpt-5.4-2026-03-05
 ```
 
 The complete bounded evaluator evidence was:
