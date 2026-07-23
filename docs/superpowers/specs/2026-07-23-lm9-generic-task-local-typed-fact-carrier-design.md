@@ -254,14 +254,18 @@ Container schemas retain their occurrence-specific presence rules:
 
 - forward task facts require all four fields explicitly;
 - current assumption typed values retain their existing four-field requirement;
-- current derived-fact typed values may retain their existing `schema` and
-  `value`-only form;
+- current derived-fact typed values require exactly their existing `schema` and
+  `value`-only form; compatibility is limited to registered variants whose
+  schema documents admit that occurrence shape;
 - string, integer, and boolean registry documents require `schema` and `value`;
   if `unit` or `unit_context_ref` appears, it must be `null`;
 - scalar registry documents require all four fields.
 
 This preserves exact accepted recipe occurrences while making every forward
-task fact complete.
+task fact complete. The current closed recipe grammar cannot carry a scalar
+derived fact because it forbids the scalar contract's required `unit` and
+`unit_context_ref` fields. Scalar-derived support would require a separately
+reviewed recipe-contract change and is not part of this slice.
 
 ### 8.3 Forward user-fact variants
 
@@ -496,7 +500,7 @@ Expansion uses LM9A's structural-reachability calculation, restricted to the
 profile's finite schema tree. Child-schema edges are created for:
 
 - each schema-valued `properties` member;
-- schema-valued `additionalProperties`;
+- schema-valued `additionalProperties`, including Boolean schemas;
 - `propertyNames`;
 - `not`.
 
@@ -630,9 +634,16 @@ Construction verifies:
 - referenced `rook.semantic_unit_context:v1` schema;
 - referenced value fingerprint.
 
-The helper either builds the issued proof value itself or independently
-reconstructs and compares it. It cannot accept an arbitrary dictionary in its
-place.
+The helper issues an opaque, exact-class proof carrier whose entries and frozen
+source snapshot are immutable. Public construction and subclassing are
+forbidden. Copy operations return the same immutable carrier, replacement and
+serialization are forbidden, and consumers rederive the index and proof
+fingerprint from its retained frozen authority snapshot before every use. The
+private issuer installs a consumption capability closed over the issued
+object's identity; copying every slot to a different exact-class object still
+fails the identity check. A module-issued type marker alone is never
+sufficient. Manually allocated, altered, copied-as-new, or
+fingerprint-divergent carriers fail consumption.
 
 A scalar reference then requires exactly one matching proof entry. The scalar
 schema validates reference shape; the proof index establishes external
@@ -666,10 +677,13 @@ canonical_json(historical_typed_value)
 canonical_json(successor_typed_value)
 ```
 
-The adapter performs no default insertion, numeric coercion, unit conversion,
-or semantic normalization. Unitless historical values reconstruct with exact
-`unit: null` and `unit_context_ref: null` fields. Both reconstructed and
-successor objects validate independently before their canonical bytes are
+The adapter is bound to the exact production-pinned historical task-payload
+schema ID and fingerprint and to the raw string/integer fact shapes actually
+observed in that envelope. It performs no default insertion, numeric coercion,
+unit conversion, semantic normalization, or latent scalar reconstruction.
+Unitless historical values reconstruct with exact `unit: null` and
+`unit_context_ref: null` fields. Any unobserved shape fails. Both reconstructed
+and successor objects validate independently before their canonical bytes are
 compared.
 
 Therefore:
@@ -755,9 +769,11 @@ authority, and disposition do not.
 The outcome-neutral migration suite also binds the existing accepted control
 fixtures that contain assumption and derived-fact typed values. It proves their
 current occurrence-specific field-presence rules remain accepted through the
-same registry validator, including the two-field derived-value form. Those
-controls establish representation compatibility; only the exact sealed parent
-supports the unchanged blocked-disposition claim.
+same registry validator, including only registered string, integer, or Boolean
+variants in the exact two-field derived-value form. A scalar-derived occurrence
+is explicitly rejected by the current recipe schema and is not a compatibility
+claim. Those controls establish representation compatibility; only the exact
+sealed parent supports the unchanged blocked-disposition claim.
 
 ### 16.2 Radial forward-envelope witness
 
@@ -860,6 +876,10 @@ The test suite remains compact and parameterized.
 ### 17.4 Unit-context mutations
 
 - caller-authored dictionary in place of a proof value;
+- public exact-class construction or subclassing attempt;
+- manually allocated exact-class value;
+- copy-as-new, replacement, or serialization attempt;
+- altered immutable entry set, frozen source snapshot, or proof fingerprint;
 - wrong environment artifact or payload schema identity;
 - stale, wrong-session, or wrong-issuer context;
 - missing, duplicate, or wrong-schema environment binding;
@@ -867,6 +887,8 @@ The test suite remains compact and parameterized.
 
 ### 17.5 Migration and genericity mutations
 
+- historical payload-schema ID or fingerprint mismatch;
+- unobserved Boolean, scalar, object, array, or null historical fact shape;
 - changed retained value type or spelling;
 - changed retained unit or unit-context reference;
 - changed retained authority kind or provenance;
