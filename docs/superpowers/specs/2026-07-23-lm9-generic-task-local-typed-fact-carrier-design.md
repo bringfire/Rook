@@ -1,7 +1,7 @@
 # LM9 Generic Task-Local Typed-Fact Carrier Design
 
 - **Date:** 2026-07-23
-- **Status:** Approved brainstorming design captured for written-spec review; no implementation or provider contact authorized
+- **Status:** Approved for implementation planning; no implementation or provider contact authorized
 - **Main baseline:** `8a5013bd61b4954b92e4cb654da9cd99e61b551e`
 - **Architecture accounting:** `923e653375e3d0fab77d8d1d77f8e23b10ee3514`
 - **Scope:** One scientific-instrument prerequisite that proves an open task-local fact carrier over closed typed-value contracts before the governed-resolution Planner experiment
