@@ -27,9 +27,10 @@ names to the permanent payload contract.
 
 This prerequisite tests a more general hypothesis first:
 
-> Existing task-envelope authority can carry arbitrary task-local facts through
-> open semantic-key identities and closed registered typed-value shapes without
-> a global semantic-key catalog or scenario-specific validation code.
+> Existing task-envelope authority can carry schema-admitted task-local facts
+> across the four registered forward variants through open semantic-key
+> identities and closed typed-value shapes without a global semantic-key catalog
+> or scenario-specific validation code.
 
 This is a tactical change in work order, not a change to the governing
 architecture:
@@ -333,7 +334,7 @@ The payload schema requires:
 
 - exactly one top-level `facts` object;
 - 1..256 fact properties;
-- property names of length 1..256 matching the ratified machine-identifier
+- property names of length 1..245 matching the ratified machine-identifier
   grammar `^[a-z0-9]+(?:[._:-][a-z0-9]+)*$`;
 - one closed minimum typed-value shell per property;
 - all four typed-value fields explicitly present;
@@ -364,6 +365,10 @@ binding.json_pointer == "/facts/" + K
 binding.value_schema == V.schema
 binding.typed_value_fingerprint == sha256(canonical_json(V))
 ```
+
+The semantic-key limit is 245 because the fixed `task-value.` prefix is 11
+characters. The derived binding ID therefore remains within the ratified
+256-character machine-identifier limit for every admitted key.
 
 Bindings are sorted by `semantic_key` using the already-ratified UTF-16 ordering.
 
@@ -976,10 +981,11 @@ proves:
 
 If the qualification passes, the supported claim is:
 
-> The LM9 scientific instrument can carry arbitrary task-local user and task
-> facts through one open-key, closed-value, authority-bound task-envelope
-> contract, demonstrated by radial and unrelated fixtures without scenario
-> branches, while preserving the exact blocked parent as immutable evidence.
+> The LM9 scientific instrument can carry schema-admitted task-local user and
+> task facts across the four registered forward variants through one open-key,
+> closed-value, authority-bound task-envelope contract, demonstrated by radial
+> and unrelated fixtures without scenario branches, while preserving the exact
+> blocked parent as immutable evidence.
 
 It does not establish:
 
