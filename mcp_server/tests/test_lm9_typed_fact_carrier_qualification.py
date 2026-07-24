@@ -251,7 +251,7 @@ def test_task1_walks_real_transition_and_publicly_verifies(
         carrier.required_negative_case_ids()
     )
     assert all(
-        row["status"] == "task1_registered_not_hardened"
+        row["status"] == "deterministically_refused"
         for row in negatives["results"]
     )
     assert boundary["archived_evaluator_evidence_verified"] is True

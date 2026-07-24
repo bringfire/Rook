@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import copy
 import json
+import pickle
 import re
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import Mapping
@@ -94,6 +96,17 @@ def _record_by_role(
     return {record.role: record for record in source.input_records}
 
 
+def _require_exact_historical_source(
+    source: CONT_ARTIFACTS.VerifiedHistoricalSource,
+) -> CONT_ARTIFACTS.VerifiedHistoricalSource:
+    if type(source) is not CONT_ARTIFACTS.VerifiedHistoricalSource:
+        raise TypeError("exact verified historical source is required")
+    expected = CONT_ARTIFACTS.verify_historical_source()
+    if source != expected:
+        raise ValueError("historical source differs from production-pinned evidence")
+    return expected
+
+
 def frozen_gate_inputs(
     source: CONT_ARTIFACTS.VerifiedHistoricalSource,
 ) -> PLANNER_ARTIFACTS.FrozenPlannerInputs:
@@ -125,6 +138,11 @@ def frozen_gate_inputs(
 def _verified_registry(
     raw_bytes: bytes, runtime: TYPED_VALUES.RuntimeIdentity
 ) -> TYPED_VALUES.VerifiedSemanticValueRegistry:
+    if (
+        type(raw_bytes) is not bytes
+        or len(raw_bytes) > TYPED_VALUES.MAX_REGISTRY_BYTES
+    ):
+        raise ValueError("semantic-value registry byte limit exceeded")
     value = TYPED_VALUES.parse_strict_json(raw_bytes, label="semantic-value registry")
     if type(value) is not dict:
         raise ValueError("semantic-value registry must be an object")
@@ -367,8 +385,7 @@ def reconstruct_observed_historical_task_values(
     registry: TYPED_VALUES.VerifiedSemanticValueRegistry,
     unit_context_index: TYPED_VALUES.VerifiedUnitContextIndex,
 ) -> Mapping[str, TYPED_VALUES.VerifiedTypedValue]:
-    if type(source) is not CONT_ARTIFACTS.VerifiedHistoricalSource:
-        raise TypeError("exact verified historical source is required")
+    source = _require_exact_historical_source(source)
     records = _record_by_role(source)
     task = _plain(records["authority.task_envelope"].value)
     if type(task) is not dict or (
@@ -422,6 +439,7 @@ def reconstruct_observed_historical_task_values(
 def historical_task_bindings(
     source: CONT_ARTIFACTS.VerifiedHistoricalSource,
 ) -> Mapping[str, Mapping[str, object]]:
+    source = _require_exact_historical_source(source)
     task = _plain(_record_by_role(source)["authority.task_envelope"].value)
     assert type(task) is dict and type(task["value_bindings"]) is list
     return MappingProxyType(
@@ -612,18 +630,456 @@ def required_negative_case_ids() -> tuple[str, ...]:
 
 
 def run_required_negative_cases(**_inputs: object) -> tuple[NegativeCaseResult, ...]:
-    """Register the final refusal matrix; later tasks harden every mutation."""
+    """Execute the closed refusal manifest and retain one result per mutation."""
 
-    return tuple(
-        NegativeCaseResult(
-            case_id=case_id,
-            status="task1_registered_not_hardened",
-            evidence_fingerprint=TYPED_VALUES.fingerprint(
-                {"case_id": case_id, "stage": "task1_registered_not_hardened"}
-            ),
+    required = {
+        "runtime",
+        "registry_raw_bytes",
+        "payload_schema_raw_bytes",
+        "unit_context_index",
+        "parent_task_envelope",
+        "parent_recipe",
+        "radial_envelope_bytes",
+        "annotation_envelope_bytes",
+    }
+    if set(_inputs) != required:
+        raise ValueError("negative-case inputs are not closed")
+    runtime = _inputs["runtime"]
+    registry_raw = _inputs["registry_raw_bytes"]
+    payload_schema_raw = _inputs["payload_schema_raw_bytes"]
+    unit_index = _inputs["unit_context_index"]
+    if type(runtime) is not TYPED_VALUES.RuntimeIdentity:
+        raise TypeError("negative-case runtime is invalid")
+    if type(registry_raw) is not bytes or type(payload_schema_raw) is not bytes:
+        raise TypeError("negative-case contract bytes are invalid")
+    registry = _verified_registry(registry_raw, runtime)
+
+    def envelope(raw: bytes) -> VerifiedForwardTaskEnvelope:
+        return validate_forward_task_envelope(
+            raw,
+            payload_schema_raw_bytes=payload_schema_raw,
+            registry_raw_bytes=registry_raw,
+            unit_context_index=unit_index,
+            runtime=runtime,
         )
-        for case_id in _NEGATIVE_CASE_IDS
+
+    radial = TYPED_VALUES.parse_strict_json(
+        _inputs["radial_envelope_bytes"], label="radial negative fixture"
     )
+    annotation = TYPED_VALUES.parse_strict_json(
+        _inputs["annotation_envelope_bytes"], label="annotation negative fixture"
+    )
+    parent_task = _plain(_inputs["parent_task_envelope"])
+    parent_recipe = _plain(_inputs["parent_recipe"])
+    if not all(type(value) is dict for value in (radial, annotation, parent_task, parent_recipe)):
+        raise ValueError("negative-case fixture inputs are invalid")
+
+    class ObservedRefusal(ValueError):
+        pass
+
+    def reclose_envelope(value: dict[str, object]) -> bytes:
+        value["artifact_fingerprint"] = TYPED_VALUES.fingerprint_without(
+            value, "artifact_fingerprint"
+        )
+        return _json_bytes(value)
+
+    def reclose_registry(value: dict[str, object]) -> bytes:
+        entries = value.get("entries")
+        if type(entries) is list:
+            for row in entries:
+                if type(row) is dict and type(row.get("schema_document")) is dict:
+                    row["schema_fingerprint"] = TYPED_VALUES.fingerprint(
+                        row["schema_document"]
+                    )
+        value["registry_fingerprint"] = TYPED_VALUES.fingerprint_without(
+            value, "registry_fingerprint"
+        )
+        return _json_bytes(value)
+
+    def schema_row(value: dict[str, object], schema_id: str) -> dict[str, object]:
+        return next(row for row in value["entries"] if row["schema_id"] == schema_id)
+
+    def verified_typed(value: dict[str, object], *, index: object = unit_index) -> object:
+        return TYPED_VALUES.validate_typed_value(
+            value,
+            registry=registry,
+            unit_context_index=index,
+            required_presence="forward_fact",
+            aggregate_budget=TYPED_VALUES.EvaluationBudget(),
+            instance_path="/negative/value",
+        )
+
+    def first_binding(value: dict[str, object]) -> dict[str, object]:
+        return value["value_bindings"][0]
+
+    def reclose_fact_binding(value: dict[str, object], key: str) -> None:
+        fact = value["payload"]["facts"][key]
+        row = next(item for item in value["value_bindings"] if item["semantic_key"] == key)
+        row["value_schema"] = fact["schema"]
+        row["typed_value_fingerprint"] = TYPED_VALUES.fingerprint(fact)
+
+    def registry_action(case_id: str) -> None:
+        value = TYPED_VALUES.parse_strict_json(registry_raw, label="negative registry")
+        assert type(value) is dict
+        if case_id == "registry.duplicate_or_unknown_schema":
+            value["entries"].append(copy.deepcopy(value["entries"][0]))
+            raw = reclose_registry(value)
+        elif case_id == "registry.closed_shape_or_order":
+            value["entries"].reverse()
+            raw = reclose_registry(value)
+        elif case_id == "registry.fingerprint_mismatch":
+            value["registry_fingerprint"] = "sha256:" + "0" * 64
+            raw = _json_bytes(value)
+        elif case_id == "registry.dialect_or_id":
+            value["json_schema_dialect"] = "https://json-schema.org/draft/2019-09/schema"
+            raw = reclose_registry(value)
+        elif case_id == "registry.unlisted_keyword":
+            schema_row(value, "rook.semantic_string:v1")["schema_document"]["default"] = ""
+            raw = reclose_registry(value)
+        elif case_id == "registry.forbidden_reference":
+            schema_row(value, "rook.semantic_string:v1")["schema_document"]["$ref"] = "#"
+            raw = reclose_registry(value)
+        elif case_id == "registry.non_allowlisted_pattern":
+            schema_row(value, "rook.semantic_scalar:v1")["schema_document"]["properties"]["value"]["pattern"] = ".*"
+            raw = reclose_registry(value)
+        elif case_id == "registry.retrieval_or_format":
+            schema_row(value, "rook.semantic_string:v1")["schema_document"]["properties"]["value"]["format"] = "uri"
+            raw = reclose_registry(value)
+        elif case_id == "registry.budget_exhaustion":
+            TYPED_VALUES.verify_semantic_value_registry(
+                value,
+                raw_registry_byte_count=TYPED_VALUES.MAX_REGISTRY_BYTES + 1,
+                runtime=runtime,
+            )
+            return
+        else:
+            altered = dataclass_replace_runtime(runtime)
+            _verified_registry(registry_raw, altered)
+            return
+        _verified_registry(raw, runtime)
+
+    def dataclass_replace_runtime(value: TYPED_VALUES.RuntimeIdentity) -> TYPED_VALUES.RuntimeIdentity:
+        return replace(value, version=value.version + "-different")
+
+    scalar = {
+        "schema": "rook.semantic_scalar:v1",
+        "value": "2",
+        "unit": "model_unit",
+        "unit_context_ref": {
+            "kind": "artifact_value",
+            "artifact_id": "environment_snapshot",
+            "json_pointer": "/document/unit_context",
+        },
+    }
+
+    def typed_action(case_id: str) -> None:
+        if case_id == "typed.wrong_type":
+            value = {"schema": "rook.semantic_integer:v1", "value": "3", "unit": None, "unit_context_ref": None}
+        elif case_id == "typed.boolean_as_integer":
+            value = {"schema": "rook.semantic_integer:v1", "value": True, "unit": None, "unit_context_ref": None}
+        elif case_id == "typed.unsafe_integer":
+            value = {"schema": "rook.semantic_integer:v1", "value": 9007199254740992, "unit": None, "unit_context_ref": None}
+        elif case_id == "typed.noncanonical_scalar":
+            value = {**scalar, "value": "2.0"}
+        elif case_id == "typed.scalar_length":
+            value = {**scalar, "value": "1" * 1025}
+        elif case_id == "typed.missing_scalar_field":
+            value = dict(scalar)
+            del value["unit"]
+        elif case_id == "typed.inappropriate_unit":
+            value = {"schema": "rook.semantic_string:v1", "value": "x", "unit": "model_unit", "unit_context_ref": scalar["unit_context_ref"]}
+        elif case_id == "typed.invalid_unit_context":
+            value = {**scalar, "unit_context_ref": None}
+        elif case_id == "typed.extra_field":
+            value = {**scalar, "extra": True}
+        elif case_id == "typed.unknown_discriminator":
+            value = {"schema": "rook.semantic_unknown:v1", "value": "x", "unit": None, "unit_context_ref": None}
+        else:
+            changed = copy.deepcopy(annotation)
+            first_binding(changed)["typed_value_fingerprint"] = "sha256:" + "0" * 64
+            envelope(reclose_envelope(changed))
+            return
+        verified_typed(value)
+
+    def binding_action(case_id: str) -> None:
+        value = copy.deepcopy(annotation)
+        rows = value["value_bindings"]
+        if case_id == "binding.duplicate_fact_property":
+            envelope(b'{"payload":{"facts":{"x":1,"x":2}}}')
+            return
+        if case_id == "binding.invalid_semantic_key":
+            key = "BadKey"
+            payload_schema = TYPED_VALUES.parse_strict_json(payload_schema_raw, label="payload schema")
+            raw = issue_fixture_task_envelope(
+                task_session_id=value["task_session_id"],
+                facts={key: {"schema": "rook.semantic_string:v1", "value": "x", "unit": None, "unit_context_ref": None}},
+                authority_by_key={key: {"authority_kind": "user_fact", "provenance": {"issuer_kind": "deterministic_fixture", "issuer_id": "negative"}}},
+                payload_schema=payload_schema,
+            )
+            envelope(raw)
+            return
+        if case_id == "binding.coverage":
+            rows.pop()
+        elif case_id == "binding.duplicate_identity":
+            rows[1]["binding_id"] = rows[0]["binding_id"]
+        elif case_id == "binding.order":
+            rows.reverse()
+        elif case_id == "binding.id_formula":
+            rows[0]["binding_id"] = "task-value.other"
+        elif case_id == "binding.pointer":
+            rows[0]["json_pointer"] = "/facts/other"
+        elif case_id == "binding.value_schema":
+            rows[0]["value_schema"] = "rook.semantic_string:v1"
+        elif case_id == "binding.authority_or_provenance":
+            rows[0]["provenance"]["issuer_kind"] = "unknown"
+        elif case_id == "binding.unbound":
+            key = rows[-1]["semantic_key"]
+            del value["payload"]["facts"][key]
+        elif case_id == "binding.artifact_fingerprint":
+            value["artifact_fingerprint"] = "sha256:" + "0" * 64
+            envelope(_json_bytes(value))
+            return
+        else:
+            value["task_session_id"] = "different-task-session"
+        envelope(reclose_envelope(value))
+
+    def unit_context_inputs() -> dict[str, object]:
+        source = CONT_ARTIFACTS.verify_historical_source()
+        records = _record_by_role(source)
+        environment = _plain(records["authority.environment_snapshot"].value)
+        attempt = _plain(records["attempt_context"].value)
+        payload_registry = _plain(records["registry.payload_schemas"].value)
+        row = next(item for item in payload_registry["entries"] if item["schema_id"] == TYPED_VALUES.HISTORICAL_ENVIRONMENT_PAYLOAD_SCHEMA_ID)
+        return {
+            "environment_artifact_bytes": records["authority.environment_snapshot"].raw_bytes,
+            "environment_payload_schema_bytes": TYPED_VALUES.canonical_json_bytes(row["schema_document"]),
+            "attempt_context_bytes": records["attempt_context"].raw_bytes,
+            "expected_artifact_fingerprint": environment["artifact_fingerprint"],
+            "expected_issuer_id": environment["issuer"]["authority_id"],
+            "expected_environment_session_id": attempt["environment_session_id"],
+            "expected_task_session_id": attempt["task_session_id"],
+            "evaluated_at": attempt["evaluated_at"],
+        }
+
+    def fresh_unit_index() -> TYPED_VALUES.VerifiedUnitContextIndex:
+        return TYPED_VALUES.derive_verified_unit_context_index(**unit_context_inputs())
+
+    def mutate_unit_source(case_id: str) -> None:
+        inputs = unit_context_inputs()
+        environment = TYPED_VALUES.parse_strict_json(inputs["environment_artifact_bytes"], label="environment")
+        assert type(environment) is dict
+        if case_id == "unit_context.environment_identity":
+            environment["artifact_id"] = "other"
+        elif case_id == "unit_context.freshness_session_issuer":
+            environment["issuer"]["authority_id"] = "other"
+        elif case_id == "unit_context.binding_shape":
+            environment["value_bindings"] = []
+        else:
+            environment["value_bindings"][0]["typed_value_fingerprint"] = "sha256:" + "0" * 64
+        environment["artifact_fingerprint"] = TYPED_VALUES.fingerprint_without(environment, "artifact_fingerprint")
+        inputs["environment_artifact_bytes"] = _json_bytes(environment)
+        inputs["expected_artifact_fingerprint"] = environment["artifact_fingerprint"]
+        TYPED_VALUES.derive_verified_unit_context_index(**inputs)
+
+    def unit_action(case_id: str) -> None:
+        if case_id == "unit_context.unverified_mapping":
+            verified_typed(dict(scalar), index={})
+        elif case_id == "unit_context.exported_minter":
+            forbidden = ("_issue_unit_context_index", "AuthoritySeal", "_UnitContextAuthoritySeal", "_build_unit_context_authority_gate")
+            if any(hasattr(TYPED_VALUES, name) for name in forbidden):
+                return
+            raise ObservedRefusal("minting capability is structurally absent")
+        elif case_id == "unit_context.caller_seal":
+            TYPED_VALUES.derive_verified_unit_context_index(seal=object())
+        elif case_id == "unit_context.construction_or_subclass":
+            TYPED_VALUES.VerifiedUnitContextIndex()
+        elif case_id == "unit_context.manual_allocation":
+            verified_typed(dict(scalar), index=object.__new__(TYPED_VALUES.VerifiedUnitContextIndex))
+        elif case_id == "unit_context.copy_replace_serialize":
+            issued = fresh_unit_index()
+            if copy.copy(issued) is not issued or copy.deepcopy(issued) is not issued:
+                return
+            try:
+                replace(issued)
+            except TypeError:
+                pass
+            else:
+                return
+            try:
+                pickle.dumps(issued)
+            except TypeError:
+                raise ObservedRefusal(
+                    "copy, replacement, and serialization cannot create a proof carrier"
+                )
+        elif case_id == "unit_context.altered_projection":
+            issued = fresh_unit_index()
+            object.__setattr__(issued, "_VerifiedUnitContextIndex__snapshot", b"{}")
+            verified_typed(dict(scalar), index=issued)
+        elif case_id == "unit_context.reclosed_issued_object":
+            issued = fresh_unit_index()
+            alternate_inputs = unit_context_inputs()
+            attempt = TYPED_VALUES.parse_strict_json(alternate_inputs["attempt_context_bytes"], label="attempt")
+            attempt["attempt_id"] = "alternate-negative-attempt"
+            attempt["context_fingerprint"] = TYPED_VALUES.fingerprint_without(attempt, "context_fingerprint")
+            alternate_inputs["attempt_context_bytes"] = _json_bytes(attempt)
+            alternate = TYPED_VALUES.derive_verified_unit_context_index(**alternate_inputs)
+            for slot in ("__snapshot", "__entries", "__proof_fingerprint"):
+                object.__setattr__(issued, f"_VerifiedUnitContextIndex{slot}", object.__getattribute__(alternate, f"_VerifiedUnitContextIndex{slot}"))
+            verified_typed(dict(scalar), index=issued)
+        else:
+            mutate_unit_source(case_id)
+
+    def verified_successor(value: dict[str, object]) -> VerifiedForwardTaskEnvelope:
+        return envelope(reclose_envelope(value))
+
+    def migration_context(
+        successor: VerifiedForwardTaskEnvelope,
+        recipe: Mapping[str, object],
+    ):
+        source = CONT_ARTIFACTS.verify_historical_source()
+        parent_values = reconstruct_observed_historical_task_values(source, registry=registry, unit_context_index=unit_index)
+        bindings = historical_task_bindings(source)
+        partition = derive_authority_partition(parent_values=parent_values, parent_bindings=bindings, successor=successor, parent_recipe=recipe)
+        return parent_values, bindings, partition
+
+    def migration_action(case_id: str) -> None:
+        value = copy.deepcopy(radial)
+        recipe = copy.deepcopy(parent_recipe)
+        parent_keys = set(parent_task["payload"]["facts"])
+        successor_keys = set(value["payload"]["facts"])
+        retained_key = sorted(parent_keys, key=lambda item: item.encode("utf-16-be"))[0]
+        delta_key = sorted(successor_keys - parent_keys, key=lambda item: item.encode("utf-16-be"))[0]
+        if case_id == "migration.payload_schema_identity":
+            mutated = copy.deepcopy(parent_task)
+            mutated["payload_schema"] = "other"
+            source = CONT_ARTIFACTS.verify_historical_source()
+            records = list(source.input_records)
+            index = next(i for i, row in enumerate(records) if row.role == "authority.task_envelope")
+            records[index] = PLANNER_ARTIFACTS.planner_input_record_from_bytes(role=records[index].role, relative_path=records[index].relative_path, raw_bytes=_json_bytes(mutated))
+            reconstruct_observed_historical_task_values(replace(source, input_records=tuple(records)), registry=registry, unit_context_index=unit_index)
+            return
+        if case_id == "migration.unobserved_historical_shape":
+            mutated = copy.deepcopy(parent_task)
+            mutated["payload"]["facts"][retained_key] = True
+            source = CONT_ARTIFACTS.verify_historical_source()
+            records = list(source.input_records)
+            index = next(i for i, row in enumerate(records) if row.role == "authority.task_envelope")
+            records[index] = PLANNER_ARTIFACTS.planner_input_record_from_bytes(role=records[index].role, relative_path=records[index].relative_path, raw_bytes=_json_bytes(mutated))
+            reconstruct_observed_historical_task_values(replace(source, input_records=tuple(records)), registry=registry, unit_context_index=unit_index)
+            return
+        if case_id == "migration.retained_value":
+            value["payload"]["facts"][retained_key]["value"] = "changed" if type(value["payload"]["facts"][retained_key]["value"]) is str else 11
+            reclose_fact_binding(value, retained_key)
+        elif case_id == "migration.retained_unit_context":
+            value["payload"]["facts"][retained_key]["unit"] = "model_unit"
+        elif case_id == "migration.retained_authority":
+            next(row for row in value["value_bindings"] if row["semantic_key"] == retained_key)["provenance"]["issuer_id"] = "changed"
+        elif case_id == "migration.removed_parent_fact":
+            del value["payload"]["facts"][retained_key]
+            value["value_bindings"] = [row for row in value["value_bindings"] if row["semantic_key"] != retained_key]
+        elif case_id == "migration.extra_authority_key":
+            extra = "unrequested_negative_fact"
+            value["payload"]["facts"][extra] = {"schema": "rook.semantic_string:v1", "value": "x", "unit": None, "unit_context_ref": None}
+            value["value_bindings"].append({"binding_id": f"task-value.{extra}", "json_pointer": f"/facts/{extra}", "semantic_key": extra, "value_schema": "rook.semantic_string:v1", "typed_value_fingerprint": TYPED_VALUES.fingerprint(value["payload"]["facts"][extra]), "authority_kind": "user_fact", "provenance": {"issuer_kind": "deterministic_fixture", "issuer_id": "negative"}})
+            value["value_bindings"].sort(key=lambda row: row["semantic_key"].encode("utf-16-be"))
+        elif case_id == "migration.omitted_required_key":
+            del value["payload"]["facts"][delta_key]
+            value["value_bindings"] = [row for row in value["value_bindings"] if row["semantic_key"] != delta_key]
+        elif case_id == "migration.non_user_fact_delta":
+            next(row for row in value["value_bindings"] if row["semantic_key"] == delta_key)["authority_kind"] = "task_fact"
+        elif case_id.startswith("migration.unresolved_"):
+            unresolved = next(row for row in recipe["unresolved_intent"] if row["semantic_key"] == delta_key)
+            if case_id == "migration.unresolved_value_schema":
+                unresolved["value_schema"] = "rook.semantic_string:v1"
+            elif case_id == "migration.unresolved_source_location":
+                unresolved["expected_source_location"]["json_pointer"] = "/facts/other"
+            elif case_id == "migration.unresolved_authority_permission":
+                unresolved["resolution_authority"]["permitted_kinds"] = ["planner_assumption"]
+            else:
+                unresolved["unit_context_ref"] = None
+        elif case_id == "genericity.fixture_key_in_neutral_source":
+            fixture_keys = set(radial["payload"]["facts"]) | set(annotation["payload"]["facts"])
+            parent_names = set(parent_task["payload"]["facts"])
+            searched = fixture_keys - parent_names
+            sources = [Path(__file__), _SCRIPTS_DIR / "lm9_semantic_typed_values.py", *CONTRACTS_DIR.glob("*.json")]
+            if not any(key in path.read_text(encoding="utf-8") for path in sources for key in searched):
+                raise ObservedRefusal("fixture semantic keys are absent from neutral sources")
+            return
+        elif case_id == "genericity.annotation_key_branch":
+            envelope(_inputs["annotation_envelope_bytes"])
+            annotation_only = set(annotation["payload"]["facts"])
+            sources = [Path(__file__), _SCRIPTS_DIR / "lm9_semantic_typed_values.py", *CONTRACTS_DIR.glob("*.json")]
+            if not any(key in path.read_text(encoding="utf-8") for path in sources for key in annotation_only):
+                raise ObservedRefusal("annotation witness uses no key-specific branch")
+            return
+        successor = verified_successor(value)
+        parent_values, bindings, partition = migration_context(successor, recipe)
+        verify_exact_migration(parent_values=parent_values, parent_bindings=bindings, successor=successor, partition=partition)
+
+    def execute(case_id: str) -> NegativeCaseResult:
+        try:
+            if case_id.startswith("registry."):
+                registry_action(case_id)
+            elif case_id.startswith("typed."):
+                typed_action(case_id)
+            elif case_id.startswith("binding."):
+                binding_action(case_id)
+            elif case_id.startswith("unit_context."):
+                unit_action(case_id)
+            else:
+                migration_action(case_id)
+        except (ValueError, TypeError, ObservedRefusal) as exc:
+            expected_tokens = {
+                "registry.": ("registry", "schema", "profile", "runtime", "byte limit"),
+                "typed.": (
+                    "typed value",
+                    "schema",
+                    "unit context",
+                    "discriminator",
+                    "forward fact binding",
+                ),
+                "binding.": ("forward", "duplicate"),
+                "unit_context.": (
+                    "unit context",
+                    "VerifiedUnitContextIndex",
+                    "seal",
+                    "minting capability",
+                    "proof carrier",
+                    "module-issued",
+                    "environment",
+                    "attempt context",
+                ),
+                "migration.": (
+                    "historical source",
+                    "typed value",
+                    "retained",
+                    "partition",
+                    "unresolved contract",
+                ),
+                "genericity.": ("fixture semantic keys", "annotation witness"),
+            }
+            prefix = next(
+                key for key in expected_tokens if case_id.startswith(key)
+            )
+            failure = str(exc).replace("-", " ")
+            if not any(token in failure for token in expected_tokens[prefix]):
+                raise RuntimeError(
+                    f"negative case failed at an unexpected locus: {case_id}: {exc}"
+                ) from exc
+            evidence = {
+                "case_id": case_id,
+                "status": "deterministically_refused",
+                "exception_type": type(exc).__name__,
+                "failure": str(exc),
+            }
+            return NegativeCaseResult(
+                case_id=case_id,
+                status="deterministically_refused",
+                evidence_fingerprint=TYPED_VALUES.fingerprint(evidence),
+            )
+        raise ValueError(f"negative case did not refuse: {case_id}")
+
+    return tuple(execute(case_id) for case_id in _NEGATIVE_CASE_IDS)
 
 
 def _validate_parent_recipe_occurrences(
