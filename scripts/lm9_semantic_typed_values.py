@@ -892,6 +892,7 @@ def _validate_and_derive_unit_context_authority(
     environment_payload_schema_bytes: bytes,
     attempt_context_bytes: bytes,
     expected_artifact_fingerprint: str,
+    expected_issuer_id: str,
     expected_environment_session_id: str,
     expected_task_session_id: str,
     evaluated_at: str,
@@ -956,6 +957,10 @@ def _validate_and_derive_unit_context_authority(
         or not issuer["authority_id"]
     ):
         raise ValueError("environment issuer is not trusted")
+    if type(expected_issuer_id) is not str or not expected_issuer_id:
+        raise ValueError("expected environment issuer identity is invalid")
+    if issuer["authority_id"] != expected_issuer_id:
+        raise ValueError("environment issuer identity mismatch")
     errors = list(
         Draft202012Validator(payload_schema).iter_errors(environment.get("payload"))
     )
@@ -1011,6 +1016,7 @@ def _validate_and_derive_unit_context_authority(
         "environment_payload_schema_hex": environment_payload_schema_bytes.hex(),
         "attempt_context_hex": attempt_context_bytes.hex(),
         "expected_artifact_fingerprint": expected_artifact_fingerprint,
+        "expected_issuer_id": expected_issuer_id,
         "expected_environment_session_id": expected_environment_session_id,
         "expected_task_session_id": expected_task_session_id,
         "evaluated_at": evaluated_at,
@@ -1084,6 +1090,7 @@ def _build_unit_context_authority_gate():
                 expected_artifact_fingerprint=snapshot[
                     "expected_artifact_fingerprint"
                 ],
+                expected_issuer_id=snapshot["expected_issuer_id"],
                 expected_environment_session_id=snapshot[
                     "expected_environment_session_id"
                 ],
@@ -1104,6 +1111,7 @@ def _build_unit_context_authority_gate():
         environment_payload_schema_bytes: bytes,
         attempt_context_bytes: bytes,
         expected_artifact_fingerprint: str,
+        expected_issuer_id: str,
         expected_environment_session_id: str,
         expected_task_session_id: str,
         evaluated_at: str,
@@ -1114,6 +1122,7 @@ def _build_unit_context_authority_gate():
                 environment_payload_schema_bytes=environment_payload_schema_bytes,
                 attempt_context_bytes=attempt_context_bytes,
                 expected_artifact_fingerprint=expected_artifact_fingerprint,
+                expected_issuer_id=expected_issuer_id,
                 expected_environment_session_id=expected_environment_session_id,
                 expected_task_session_id=expected_task_session_id,
                 evaluated_at=evaluated_at,

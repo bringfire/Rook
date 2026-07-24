@@ -142,6 +142,12 @@ def _derive_transition(repo_root: Path) -> dict[str, object]:
     environment = records["authority.environment_snapshot"].value
     if not isinstance(attempt, Mapping) or not isinstance(environment, Mapping):
         raise ValueError("historical authority records are invalid")
+    issuer = environment.get("issuer")
+    if not isinstance(issuer, Mapping):
+        raise ValueError("historical environment issuer is invalid")
+    expected_issuer_id = issuer.get("authority_id")
+    if type(expected_issuer_id) is not str or not expected_issuer_id:
+        raise ValueError("historical environment issuer identity is invalid")
     unit_context_index = TYPED_VALUES.derive_verified_unit_context_index(
         environment_artifact_bytes=records[
             "authority.environment_snapshot"
@@ -149,6 +155,7 @@ def _derive_transition(repo_root: Path) -> dict[str, object]:
         environment_payload_schema_bytes=_environment_payload_schema_bytes(records),
         attempt_context_bytes=records["attempt_context"].raw_bytes,
         expected_artifact_fingerprint=environment["artifact_fingerprint"],
+        expected_issuer_id=expected_issuer_id,
         expected_environment_session_id=attempt["environment_session_id"],
         expected_task_session_id=attempt["task_session_id"],
         evaluated_at=attempt["evaluated_at"],

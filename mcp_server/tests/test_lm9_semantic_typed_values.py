@@ -866,6 +866,7 @@ def _valid_frozen_unit_context_inputs() -> dict[str, object]:
         "expected_artifact_fingerprint": environment[
             "artifact_fingerprint"
         ],
+        "expected_issuer_id": environment["issuer"]["authority_id"],
         "expected_environment_session_id": attempt[
             "environment_session_id"
         ],
@@ -1111,6 +1112,8 @@ def _mutated_unit_context_inputs(case: str) -> dict[str, object]:
         environment["issuer"]["kind"] = "untrusted_fixture"
     elif case == "empty_issuer_id":
         environment["issuer"]["authority_id"] = ""
+    elif case == "wrong_nonempty_issuer_id":
+        environment["issuer"]["authority_id"] = "alternate-environment-gateway"
     elif case == "extra_issuer_field":
         environment["issuer"]["extra"] = True
     elif case == "stale_observation":
@@ -1170,6 +1173,7 @@ def _mutated_unit_context_inputs(case: str) -> dict[str, object]:
         ("task_session", "attempt context authority"),
         ("issuer", "issuer"),
         ("empty_issuer_id", "issuer"),
+        ("wrong_nonempty_issuer_id", "issuer identity"),
         ("extra_issuer_field", "issuer"),
         ("stale_observation", "stale"),
         ("future_observation", "stale"),
