@@ -571,8 +571,8 @@ accepted as validation evidence.
 
 One neutral module, `scripts/lm9_semantic_typed_values.py`, owns deterministic
 scientific operations. Its value-validation and fingerprint operations are
-pure; its only process-local state is the closure-owned weak issuance registry
-needed to authenticate live proof carriers:
+pure; its only process-local state is the closure-owned, lifecycle-cleaned weak
+proof registry needed to authenticate live proof carriers:
 
 - verify the registry and schema-document fingerprints;
 - admit schema documents under the exact sealed profile;
@@ -643,21 +643,40 @@ Public construction and subclassing are forbidden. Copy operations return the
 same carrier; replacement and serialization are forbidden.
 
 Authority does not live in replaceable instance state. A module-private
-issuance/consumption closure owns a bounded weak identity registry from each
-live issued object to an immutable authoritative seal containing the frozen
-source snapshot, entries, and proof fingerprint. The registry is unreachable
-through the public carrier and releases entries when carriers are collected.
+derivation/consumption closure owns a lifecycle-cleaned weak identity registry
+from each live issued object to an immutable authoritative seal containing the
+frozen source snapshot, entries, and proof fingerprint. No numeric live-entry
+bound is claimed. The registry releases entries when carriers are collected.
 Every consumer requires exact object identity in that registry, compares every
 instance projection to the authoritative seal, then rederives entries and the
 proof fingerprint from the seal's frozen authority bytes. Qualification
-verification issues a new carrier from archived authority; it never persists
+verification derives a new carrier from archived authority; it never persists
 or trusts process-local registry state.
+
+The closure exposes only two callables: a validated derivation function and the
+consumer. The derivation function accepts exact frozen environment-artifact,
+payload-schema, and attempt-context bytes plus the expected artifact/session
+identities and `evaluated_at`. It strictly parses and performs all artifact,
+schema, binding, provenance, session, freshness, pointer, and fingerprint
+verification before it constructs the closure-local seal, allocates the
+carrier, or inserts into the registry. Raw allocation and insertion are inline
+operations, not a callable capability. The seal type, registry, and closure
+factory are not returned or bound as module attributes. No caller-accessible
+function accepts a prebuilt seal or unverified carrier for registration.
 
 A module-issued type marker or self-stored callable is never sufficient.
 Manually allocated, altered, fully reclosed in-place, copied-as-new, or
 fingerprint-divergent carriers fail consumption. The weak registry is the
 helper's sole internal state mutation and never changes caller/source values or
 scientific results.
+
+Python underscore naming alone carries no authority claim. The qualification
+audits the actual module callable surface and reviewed source: the validated
+derivation function is the sole carrier-returning entry, its signature has no
+seal or registration input, and the sole registry insertion occurs after full
+authority derivation. The exact reviewed module/runtime identity is part of the
+instrument boundary; this is not a sandbox against arbitrary hostile Python
+interpreter introspection or monkeypatching.
 
 A scalar reference then requires exactly one matching proof entry. The scalar
 schema validates reference shape; the proof index establishes external
@@ -897,6 +916,9 @@ The test suite remains compact and parameterized.
 ### 17.4 Unit-context mutations
 
 - caller-authored dictionary in place of a proof value;
+- exported raw issuer, seal type, closure factory, or alternate
+  carrier-registering callable;
+- caller-constructed seal supplied to the validated derivation function;
 - public exact-class construction or subclassing attempt;
 - manually allocated exact-class value;
 - copy-as-new, replacement, or serialization attempt;

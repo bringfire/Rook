@@ -4,9 +4,9 @@
 
 **Goal:** Qualify one generic, task-local typed-fact carrier that admits open machine-keyed facts across four closed value variants, binds every fact bijectively to authority evidence, preserves the exact blocked LM9B-P observation, and emits a checksum-closed no-contact scientific witness.
 
-**Architecture:** Add one neutral deterministic typed-value module under `scripts/` and one probe-owned composition module around it. The neutral module seals the JSON Schema profile, registry, type policy, budgets, typed-value equations, and proof-carrying unit-context index. Its value-validation functions are pure; its sole process-local state is the closure-owned weak issuance registry required to authenticate live proof carriers. The composition module owns strict byte loading, forward task-envelope validation, read-only historical reconstruction, migration/authority partitions, and deterministic fixtures. It validates recipe typed values before delegating unchanged recipe bytes to the existing mechanical gate; it does not replace or duplicate that gate. A separate qualification writer/verifier reconstructs every claim from code-owned contracts, production-pinned source evidence, the official derivative verifier, and deterministic witnesses. No product or validation-kernel code imports the scientific helper.
+**Architecture:** Add one neutral deterministic typed-value module under `scripts/` and one probe-owned composition module around it. The neutral module seals the JSON Schema profile, registry, type policy, budgets, typed-value equations, and proof-carrying unit-context index. Its value-validation functions are pure; its sole process-local state is the closure-owned, lifecycle-cleaned weak issuance registry required to authenticate live proof carriers. The composition module owns strict byte loading, forward task-envelope validation, read-only historical reconstruction, migration/authority partitions, and deterministic fixtures. It validates recipe typed values before delegating unchanged recipe bytes to the existing mechanical gate; it does not replace or duplicate that gate. A separate qualification writer/verifier reconstructs every claim from code-owned contracts, production-pinned source evidence, the official derivative verifier, and deterministic witnesses. No product or validation-kernel code imports the scientific helper.
 
-**Tech Stack:** Python 3.12.12 qualification environment, Python standard library (`argparse`, `dataclasses`, `hashlib`, `importlib.metadata`, `json`, `pathlib`, `platform`, `re`, `shutil`, `subprocess`, `sys`, `types`), `jsonschema==4.26.0` with `Draft202012Validator`, existing Rook canonical JSON and LM9B-P artifact/gate/verifier modules, pytest.
+**Tech Stack:** Python 3.12.12 qualification environment, Python standard library (`argparse`, `ast`, `dataclasses`, `hashlib`, `importlib.metadata`, `inspect`, `json`, `pathlib`, `platform`, `re`, `shutil`, `subprocess`, `sys`, `types`, `weakref`), `jsonschema==4.26.0` with `Draft202012Validator`, existing Rook canonical JSON and LM9B-P artifact/gate/verifier modules, pytest.
 
 ## Global Constraints
 
@@ -30,7 +30,7 @@
 
 ## File Map
 
-- Create `scripts/lm9_semantic_typed_values.py`: deterministic scientific profile, registry, evaluator, typed-value, fingerprint, budget, and verified unit-context mechanics; no I/O or environment access and no mutation except the closure-hidden bounded weak identity registry for live proof carriers.
+- Create `scripts/lm9_semantic_typed_values.py`: deterministic scientific profile, registry, evaluator, typed-value, fingerprint, budget, and verified unit-context mechanics; no I/O or environment access and no mutation except the closure-hidden, lifecycle-cleaned weak identity registry for live proof carriers.
 - Create `scripts/lm9_typed_fact_carrier_artifacts.py`: strict byte-loading composition, code-owned contract loading, forward envelope/binding validation, historical reconstruction, authority partitioning, and witness construction.
 - Create `scripts/lm9_typed_fact_carrier_qualification.py`: no-contact qualification staging, closed membership, checksum/identity sealing, independent verification, and CLI.
 - Create `scripts/lm9_typed_fact_carrier_contracts/semantic_value_schema_registry.json`: exact four-entry v2 registry with self-contained schema documents and computed fingerprints.
@@ -49,13 +49,42 @@ The new tests load scripts in this order using the established `_load_script()` 
 ```python
 SUPPORT = _load_script("lm9b_p_planner_recipe_transfer_support")
 PLANNER_ARTIFACTS = _load_script("lm9b_p_planner_recipe_transfer_artifacts")
-CONTINUATION = _load_script("lm9b_p_evaluator_only_continuation_artifacts")
+CONT_ARTIFACTS = _load_script("lm9b_p_evaluator_only_continuation_artifacts")
+CONTINUATION = _load_script("lm9b_p_evaluator_only_continuation")
 TYPED_VALUES = _load_script("lm9_semantic_typed_values")
 CARRIER = _load_script("lm9_typed_fact_carrier_artifacts")
 QUALIFICATION = _load_script("lm9_typed_fact_carrier_qualification")
 ```
 
 Existing modules do not import the new modules, so the current LM9B-P dynamic-loader order and provider path remain unchanged.
+
+---
+
+## Runtime Capability and Real-Symbol Ledger
+
+Every authority-bearing transition is designed from the actual callable graph,
+not a conceptual component name. Before implementing each task, confirm these
+symbols still exist at the named owners and stop if the repository has drifted:
+
+| Authority-bearing transition | Public authority entry | Internal derivation/operation | Re-verifying consumer | Forbidden alternate path |
+|---|---|---|---|---|
+| sealed derivative archive to archive-verified semantic result | `CONT_ARTIFACTS.verify_sealed_derivative_archive()` | `CONT_ARTIFACTS.SUPPORT.derive_planner_evaluation_result()` inside archive verification | shared classifier consuming returned `SealedDerivative.evaluator_result` | treating the parser alone as archive verification, CLI parsing, authored-result trust, second parser |
+| frozen unit-context authority to live proof carrier | `TYPED_VALUES.derive_verified_unit_context_index()` | closure-local seal construction, carrier allocation, and weak-registry insertion after full validation | closure-returned `_consume_unit_context_index()` plus frozen-byte reconstruction | exported issuer, exported seal, caller-supplied seal, direct registry insertion |
+| task-envelope bytes to verified forward facts | `CARRIER.validate_forward_task_envelope()` | binding/fingerprint joins | qualification verifier rerunning the same joins | trusted caller-authored authority map |
+| qualification tree to official no-contact result | `QUALIFICATION.verify_qualification_archive()` | checksum/identity reconstruction | public location-bound verifier | trusting authored result rows |
+
+Python underscore naming is not an authority boundary. For the unit-context
+carrier, no module-level or returned callable accepts a prebuilt seal or an
+unverified carrier for registration. The validated derivation function performs
+registry insertion inline only after reconstructing authority from its fixed
+frozen-input signature. The closure-local seal type and registry are not bound
+to module attributes or returned values. This instrument assumes its reviewed
+Python process and exact code identity; it does not claim a sandbox against
+arbitrary hostile interpreter introspection or monkeypatching.
+
+Each Task-1 red test must reach the intended existing owner first. An import,
+alias, or missing-verifier attribute failure is an invalid red and must be
+corrected before implementation proceeds.
 
 ---
 
@@ -127,7 +156,7 @@ derivative at its identity-bound destination and require:
 
 ```python
 derived = []
-derive = CONTINUATION.SUPPORT.derive_planner_evaluation_result
+derive = CONT_ARTIFACTS.SUPPORT.derive_planner_evaluation_result
 
 def capture_parser_result(**kwargs):
     result = derive(**kwargs)
@@ -135,22 +164,28 @@ def capture_parser_result(**kwargs):
     return result
 
 monkeypatch.setattr(
-    CONTINUATION.SUPPORT,
+    CONT_ARTIFACTS.SUPPORT,
     "derive_planner_evaluation_result",
     capture_parser_result,
 )
-sealed = CONTINUATION.verify_sealed_derivative_archive(
+sealed = CONT_ARTIFACTS.verify_sealed_derivative_archive(
     OFFICIAL_DERIVATIVE,
     expected_derivative_identity=OFFICIAL_DERIVATIVE_IDENTITY,
 )
 assert len(derived) == 1
 assert sealed.evaluator_result is derived[0]
-assert type(sealed.evaluator_result) is SUPPORT.PlannerEvaluationResult
+assert type(sealed.evaluator_result) is (
+    CONT_ARTIFACTS.SUPPORT.PlannerEvaluationResult
+)
 assert sealed.evaluator_result.termination == "valid_recommendation"
 assert sealed.evaluator_result.recommendation == "semantically_faithful"
-assert sealed.classification == ARTIFACTS.derive_evaluated_recipe_classification(
-    sealed.evaluator_result,
-    final_recipe_bytes=CONTINUATION.verify_historical_source().final_recipe_bytes,
+assert sealed.classification == (
+    PLANNER_ARTIFACTS.derive_evaluated_recipe_classification(
+        sealed.evaluator_result,
+        final_recipe_bytes=(
+            CONT_ARTIFACTS.verify_historical_source().final_recipe_bytes
+        ),
+    )
 )
 ```
 
@@ -168,6 +203,8 @@ $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
 ```
 
 Expected: FAIL because `SealedDerivative` does not expose `evaluator_result`.
+The verifier call itself must complete successfully first; an alias, import, or
+missing-verifier attribute error is not the intended red state.
 
 - [ ] **Step 3: Expose the exact reconstructed evaluator result read-only**
 
@@ -208,6 +245,39 @@ Assert the returned qualification binds:
   independently hardening each refusal;
 - false model/provider/readiness/evaluator-dispatch/compiler/Rhino/Grasshopper activity;
 - physical archive location and aggregate qualification identity.
+
+Before the walking witness consumes a scalar, audit the live module surface:
+
+```python
+assert not hasattr(TYPED_VALUES, "_issue_unit_context_index")
+assert not hasattr(TYPED_VALUES, "AuthoritySeal")
+assert not hasattr(TYPED_VALUES, "_UnitContextAuthoritySeal")
+assert not hasattr(TYPED_VALUES, "_build_unit_context_authority_gate")
+_assert_closed_unit_context_minting_surface(
+    TYPED_VALUES,
+    sole_minter="derive_verified_unit_context_index",
+    exact_consumer="_consume_unit_context_index",
+)
+_assert_single_post_validation_registry_insertion(
+    _neutral_module_source_path()
+)
+with pytest.raises(TypeError):
+    TYPED_VALUES.derive_verified_unit_context_index(
+        **_valid_frozen_unit_context_inputs(),
+        seal=object(),
+    )
+```
+
+The test also manually allocates an exact-class carrier and proves consumption
+refuses it. Inspect the module's callable signatures as a closed surface and
+fail if any callable other than the validated derivation and exact consumer
+accepts or returns `VerifiedUnitContextIndex`, or if any callable accepts a
+seal/registration parameter. The reviewed source audit separately
+parses the neutral module AST and confirms the sole weak-registry insertion
+occurs in the validated derivation function after
+`_validate_and_derive_unit_context_authority()` returns. This demonstrates that
+the only live minting route accepts frozen authority inputs, not a
+caller-constructed seal or carrier.
 
 Patch actual Planner/evaluator/provider/compiler entry points to raise. The test
 must still pass once implemented.
@@ -267,19 +337,74 @@ class VerifiedUnitContextIndex:
         raise TypeError("VerifiedUnitContextIndex is not serializable")
 ```
 
-Authority is held outside the instance. Build issuance and consumption
-functions in one module-private closure over a `weakref.WeakKeyDictionary`:
+Authority is held outside the instance. Build validated derivation and
+consumption functions in one module-private closure over a
+`weakref.WeakKeyDictionary`:
 
 ```python
 def _build_unit_context_authority_gate():
+    @dataclass(frozen=True)
+    class AuthoritySeal:
+        canonical_authority_snapshot: bytes
+        entries: tuple[VerifiedUnitContextEntry, ...]
+        proof_fingerprint: str
+
     issued: weakref.WeakKeyDictionary[
         VerifiedUnitContextIndex,
-        _UnitContextAuthoritySeal,
+        AuthoritySeal,
     ] = weakref.WeakKeyDictionary()
 
-    def issue(seal: _UnitContextAuthoritySeal) -> VerifiedUnitContextIndex:
+    def compare_projection_to_seal(
+        carrier: VerifiedUnitContextIndex,
+        seal: AuthoritySeal,
+    ) -> None:
+        ...
+
+    def rederive_and_compare_seal(seal: AuthoritySeal) -> None:
+        ...
+
+    def derive(
+        *,
+        environment_artifact_bytes: bytes,
+        environment_payload_schema_bytes: bytes,
+        attempt_context_bytes: bytes,
+        expected_artifact_fingerprint: str,
+        expected_environment_session_id: str,
+        expected_task_session_id: str,
+        evaluated_at: str,
+    ) -> VerifiedUnitContextIndex:
+        snapshot, entries, proof_fingerprint = (
+            _validate_and_derive_unit_context_authority(
+                environment_artifact_bytes=environment_artifact_bytes,
+                environment_payload_schema_bytes=(
+                    environment_payload_schema_bytes
+                ),
+                attempt_context_bytes=attempt_context_bytes,
+                expected_artifact_fingerprint=expected_artifact_fingerprint,
+                expected_environment_session_id=(
+                    expected_environment_session_id
+                ),
+                expected_task_session_id=expected_task_session_id,
+                evaluated_at=evaluated_at,
+            )
+        )
+        seal = AuthoritySeal(snapshot, entries, proof_fingerprint)
         carrier = object.__new__(VerifiedUnitContextIndex)
-        _set_carrier_projection(carrier, seal)
+        object.__setattr__(
+            carrier,
+            "_VerifiedUnitContextIndex__snapshot",
+            seal.canonical_authority_snapshot,
+        )
+        object.__setattr__(
+            carrier,
+            "_VerifiedUnitContextIndex__entries",
+            seal.entries,
+        )
+        object.__setattr__(
+            carrier,
+            "_VerifiedUnitContextIndex__proof_fingerprint",
+            seal.proof_fingerprint,
+        )
         issued[carrier] = seal
         return carrier
 
@@ -291,26 +416,31 @@ def _build_unit_context_authority_gate():
         seal = issued.get(carrier)
         if seal is None:
             raise ValueError("unit-context proof carrier was not issued")
-        _compare_carrier_projection_to_seal(carrier, seal)
-        _rederive_and_compare_unit_context_seal(seal)
+        compare_projection_to_seal(carrier, seal)
+        rederive_and_compare_seal(seal)
         return carrier
 
-    return issue, consume
+    return derive, consume
 
-_issue_unit_context_index, _consume_unit_context_index = (
+derive_verified_unit_context_index, _consume_unit_context_index = (
     _build_unit_context_authority_gate()
 )
+del _build_unit_context_authority_gate
 ```
 
-`_UnitContextAuthoritySeal` is a frozen module-private value containing the
-authoritative canonical source snapshot, immutable entries, and proof
-fingerprint. Instance slots are only a publicly read-only, consumption-checked
-projection. Every scalar consumer calls the closure-owned consumer, compares
-all projections to the
-seal, and rederives the seal from its authority bytes. A manual clone has no
-registry entry; mutating and fully reclosing the actual issued object's slots
-still disagrees with the external seal. The weak registry releases the seal
-when its carrier is collected and is never serialized as evidence.
+`AuthoritySeal`, raw carrier allocation, and registry insertion exist only
+inside the closure. No raw issuer is returned or bound at module scope. The
+sole caller-accessible minting route is `derive_verified_unit_context_index()`,
+whose fixed signature accepts frozen authority inputs and performs the full
+validation before constructing a seal or inserting a carrier. The seal contains
+the authoritative canonical source snapshot, immutable entries, and proof
+fingerprint. Instance slots are only a publicly read-only,
+consumption-checked projection. Every scalar consumer calls the closure-owned
+consumer, compares all projections to the seal, and rederives the seal from its
+authority bytes. A manual clone has no registry entry; mutating and fully
+reclosing the actual issued object's slots still disagrees with the external
+seal. The weak registry is lifecycle-cleaned when a carrier is collected and is
+never serialized as evidence; no numeric live-entry bound is claimed.
 
 - [ ] **Step 8: Implement the thin forward/historical/migration composition**
 
@@ -323,8 +453,9 @@ successor bindings, and parent unresolved rows.
 
 - [ ] **Step 9: Implement thin outcome and qualification write/read verification**
 
-Use `verify_historical_source()`, the unchanged mechanical gate, the official
-derivative verifier, and the shared classifier. Write the final closed
+Use `CONT_ARTIFACTS.verify_historical_source()`, the unchanged mechanical gate,
+`CONT_ARTIFACTS.verify_sealed_derivative_archive()`, and the shared classifier.
+Write the final closed
 qualification member names immediately; the public verifier independently
 reloads contracts and source evidence and reruns the same transition. Use
 sibling staging, checksum closure, location binding, and no-clobber
@@ -344,7 +475,15 @@ git diff --check
 
 Expected: one real-source, no-contact qualification write/read path passes.
 Inspect the test trace/call ledger and confirm every arrow in the Task-1
-transition is exercised.
+transition is exercised. Preserve for review:
+
+- the actual module/function owner resolved for each existing call;
+- the callable-surface inventory showing exactly one validated minter and one
+  exact consumer;
+- the AST evidence showing exactly one registry insertion ordered after
+  authority validation;
+- the red-test log showing the initial failure was the intended missing result
+  exposure or missing new carrier behavior, never an alias/import mistake.
 
 - [ ] **Step 11: Commit the vertical witness and stop at the mandatory review checkpoint**
 
@@ -625,9 +764,9 @@ class VerifiedTypedValue:
 
 def derive_verified_unit_context_index(
     *,
-    environment_artifact: Mapping[str, object],
-    registered_payload_schema: Mapping[str, object],
-    attempt_context: Mapping[str, object],
+    environment_artifact_bytes: bytes,
+    environment_payload_schema_bytes: bytes,
+    attempt_context_bytes: bytes,
     expected_artifact_fingerprint: str,
     expected_environment_session_id: str,
     expected_task_session_id: str,
@@ -711,6 +850,25 @@ def test_exact_slot_clone_has_no_module_authority_seal():
     with pytest.raises(ValueError, match="was not issued"):
         _validate(_scalar("2"), unit_context_index=cloned)
 
+def test_module_exposes_no_raw_unit_context_minting_capability():
+    assert not hasattr(TYPED_VALUES, "_issue_unit_context_index")
+    assert not hasattr(TYPED_VALUES, "AuthoritySeal")
+    assert not hasattr(TYPED_VALUES, "_UnitContextAuthoritySeal")
+    assert not hasattr(TYPED_VALUES, "_build_unit_context_authority_gate")
+    _assert_closed_unit_context_minting_surface(
+        TYPED_VALUES,
+        sole_minter="derive_verified_unit_context_index",
+        exact_consumer="_consume_unit_context_index",
+    )
+    _assert_single_post_validation_registry_insertion(
+        _neutral_module_source_path()
+    )
+    with pytest.raises(TypeError):
+        TYPED_VALUES.derive_verified_unit_context_index(
+            **_valid_frozen_unit_context_inputs(),
+            seal=object(),
+        )
+
 def test_fully_reclosed_actual_issued_object_disagrees_with_external_seal():
     issued = _unit_context_index()
     assert not hasattr(
@@ -767,8 +925,9 @@ Serialize only after validation. Do not fill nulls or normalize lexemes.
 Require exact artifact shape/fingerprint, registered environment payload
 schema/fingerprint, payload validation, frozen sessions, trusted issuer, and
 `observed_at <= evaluated_at < expires_at`. Resolve each binding pointer and
-recompute its value fingerprint. Issue `VerifiedUnitContextIndex` only through
-the private constructor described in Task 1.
+recompute its value fingerprint. Mint `VerifiedUnitContextIndex` only inside
+the validated derivation closure described in Task 1; expose no raw issuer or
+seal-accepting registration path.
 
 Every scalar consumption requires exact class, a closure-registry authority
 seal for that object identity, immutable mapping/entry projections equal to the
@@ -835,7 +994,7 @@ def issue_fixture_task_envelope(
 ) -> bytes: ...
 
 def reconstruct_observed_historical_task_values(
-    source: CONTINUATION.VerifiedHistoricalSource,
+    source: CONT_ARTIFACTS.VerifiedHistoricalSource,
     *,
     registry: TYPED_VALUES.VerifiedSemanticValueRegistry,
     unit_context_index: TYPED_VALUES.VerifiedUnitContextIndex,
@@ -1060,11 +1219,11 @@ def build_control_compatibility_witness(
 
 The test calls, in order:
 
-1. `CONTINUATION.verify_historical_source()`;
+1. `CONT_ARTIFACTS.verify_historical_source()`;
 2. strict parse of exact `final_recipe_bytes` without rewriting;
 3. registry-v2 validation of every assumption/derived occurrence and unresolved schema discriminator;
 4. unchanged `SUPPORT.evaluate_mechanical_gate()` using frozen historical inputs;
-5. `CONTINUATION.verify_sealed_derivative_archive()` at canonical destination and exact identity;
+5. `CONT_ARTIFACTS.verify_sealed_derivative_archive()` at canonical destination and exact identity;
 6. semantic evidence exposed by that public verifier;
 7. shared `derive_evaluated_recipe_classification()` over exact recipe bytes.
 
