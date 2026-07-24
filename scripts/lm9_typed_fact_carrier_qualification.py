@@ -91,25 +91,7 @@ def _record_map(
 def _environment_payload_schema_bytes(
     records: Mapping[str, PLANNER_ARTIFACTS.PlannerInputRecord],
 ) -> bytes:
-    registry = records["registry.payload_schemas"].value
-    entries = registry.get("entries") if isinstance(registry, Mapping) else None
-    if not isinstance(entries, (list, tuple)):
-        raise ValueError("historical payload registry is invalid")
-    matches = [
-        row
-        for row in entries
-        if isinstance(row, Mapping)
-        and row.get("schema_id") == "rook.lm9b_c.r01_environment_payload:v1"
-    ]
-    if len(matches) != 1:
-        raise ValueError("historical environment payload schema is not unique")
-    row = matches[0]
-    document = row.get("schema_document")
-    if not isinstance(document, Mapping) or row.get(
-        "schema_fingerprint"
-    ) != TYPED_VALUES.fingerprint(document):
-        raise ValueError("historical environment payload schema identity mismatch")
-    return TYPED_VALUES.canonical_json_bytes(document)
+    return CARRIER._environment_payload_schema_bytes(records)
 
 
 def _derive_transition(repo_root: Path) -> dict[str, object]:
@@ -117,16 +99,6 @@ def _derive_transition(repo_root: Path) -> dict[str, object]:
     profile = TYPED_VALUES.build_profile_identity(runtime)
     registry_raw = CARRIER.REGISTRY_PATH.read_bytes()
     payload_schema_raw = CARRIER.PAYLOAD_SCHEMA_PATH.read_bytes()
-    registry_value = TYPED_VALUES.parse_strict_json(
-        registry_raw, label="code-owned semantic-value registry"
-    )
-    if type(registry_value) is not dict:
-        raise ValueError("code-owned semantic-value registry is invalid")
-    registry = TYPED_VALUES.verify_semantic_value_registry(
-        registry_value,
-        raw_registry_byte_count=len(registry_raw),
-        runtime=runtime,
-    )
     payload_value = TYPED_VALUES.parse_strict_json(
         payload_schema_raw, label="code-owned forward task-payload schema"
     )
@@ -138,27 +110,9 @@ def _derive_transition(repo_root: Path) -> dict[str, object]:
 
     source = CONT_ARTIFACTS.verify_historical_source()
     records = _record_map(source)
-    attempt = records["attempt_context"].value
-    environment = records["authority.environment_snapshot"].value
-    if not isinstance(attempt, Mapping) or not isinstance(environment, Mapping):
-        raise ValueError("historical authority records are invalid")
-    issuer = environment.get("issuer")
-    if not isinstance(issuer, Mapping):
-        raise ValueError("historical environment issuer is invalid")
-    expected_issuer_id = issuer.get("authority_id")
-    if type(expected_issuer_id) is not str or not expected_issuer_id:
-        raise ValueError("historical environment issuer identity is invalid")
-    unit_context_index = TYPED_VALUES.derive_verified_unit_context_index(
-        environment_artifact_bytes=records[
-            "authority.environment_snapshot"
-        ].raw_bytes,
-        environment_payload_schema_bytes=_environment_payload_schema_bytes(records),
-        attempt_context_bytes=records["attempt_context"].raw_bytes,
-        expected_artifact_fingerprint=environment["artifact_fingerprint"],
-        expected_issuer_id=expected_issuer_id,
-        expected_environment_session_id=attempt["environment_session_id"],
-        expected_task_session_id=attempt["task_session_id"],
-        evaluated_at=attempt["evaluated_at"],
+    registry, unit_context_index = CARRIER._verified_parent_value_context(
+        source,
+        runtime=runtime,
     )
     parent_values = CARRIER.reconstruct_observed_historical_task_values(
         source,
@@ -200,8 +154,6 @@ def _derive_transition(repo_root: Path) -> dict[str, object]:
     parent_witness = CARRIER.build_outcome_neutral_parent_witness(
         derivative_archive=CARRIER.OFFICIAL_DERIVATIVE,
         runtime=runtime,
-        registry=registry,
-        unit_context_index=unit_context_index,
     )
     frozen_inputs = CARRIER.frozen_gate_inputs(source)
     control = CARRIER.build_control_compatibility_witness(
@@ -211,6 +163,7 @@ def _derive_transition(repo_root: Path) -> dict[str, object]:
         / "fixtures"
         / "lm9b_p"
         / "non_r01_ready_recipe.json",
+        acceptance_boundary="planner_mechanical_gate",
         frozen_inputs=frozen_inputs,
         registry=registry,
         unit_context_index=unit_context_index,

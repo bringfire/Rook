@@ -812,8 +812,12 @@ current occurrence-specific field-presence rules remain accepted through the
 same registry validator, including only registered string, integer, or Boolean
 variants in the exact two-field derived-value form. A scalar-derived occurrence
 is explicitly rejected by the current recipe schema and is not a compatibility
-claim. Those controls establish representation compatibility; only the exact
-sealed parent supports the unchanged blocked-disposition claim.
+claim. The hand-authored R01 control predates the current Planner occurrence
+schema, so its unchanged acceptance is re-established only at its real LM9B-C
+frozen-input manifest boundary. The accepted non-R01 control is re-evaluated by
+the current Planner mechanical gate. Those controls establish representation
+compatibility; only the exact sealed parent supports the unchanged
+blocked-disposition claim.
 
 ### 16.2 Radial forward-envelope witness
 

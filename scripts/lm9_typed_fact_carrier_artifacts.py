@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from types import MappingProxyType
-from typing import Mapping
+from typing import Literal, Mapping
 
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
@@ -22,6 +22,7 @@ for _import_path in (_SCRIPTS_DIR, _MCP_SRC):
         sys.path.insert(0, str(_import_path))
 
 import lm9_semantic_typed_values as TYPED_VALUES
+import lm9b_c_compiler_sufficiency_artifacts as COMPILER_ARTIFACTS
 import lm9b_p_evaluator_only_continuation_artifacts as CONT_ARTIFACTS
 import lm9b_p_planner_recipe_transfer_artifacts as PLANNER_ARTIFACTS
 import lm9b_p_planner_recipe_transfer_support as SUPPORT
@@ -219,7 +220,8 @@ class ControlCompatibilityWitness:
     recipe_raw_sha256: str
     assumption_count: int
     derived_fact_count: int
-    gate_status: str
+    acceptance_boundary: str
+    acceptance_status: str
     typed_value_validation_fingerprint: str
 
 
@@ -1135,17 +1137,87 @@ def _validate_parent_recipe_occurrences(
     return TYPED_VALUES.fingerprint(rows)
 
 
+def _environment_payload_schema_bytes(
+    records: Mapping[str, PLANNER_ARTIFACTS.PlannerInputRecord],
+) -> bytes:
+    payload_registry = records["registry.payload_schemas"].value
+    entries = (
+        payload_registry.get("entries")
+        if isinstance(payload_registry, Mapping)
+        else None
+    )
+    if not isinstance(entries, (list, tuple)):
+        raise ValueError("historical payload registry is invalid")
+    matches = [
+        row
+        for row in entries
+        if isinstance(row, Mapping)
+        and row.get("schema_id")
+        == "rook.lm9b_c.r01_environment_payload:v1"
+    ]
+    if len(matches) != 1:
+        raise ValueError("historical environment payload schema is not unique")
+    row = matches[0]
+    document = row.get("schema_document")
+    if not isinstance(document, Mapping) or row.get(
+        "schema_fingerprint"
+    ) != TYPED_VALUES.fingerprint(document):
+        raise ValueError("historical environment payload schema identity mismatch")
+    return TYPED_VALUES.canonical_json_bytes(document)
+
+
+def _verified_parent_value_context(
+    source: CONT_ARTIFACTS.VerifiedHistoricalSource,
+    *,
+    runtime: TYPED_VALUES.RuntimeIdentity,
+) -> tuple[
+    TYPED_VALUES.VerifiedSemanticValueRegistry,
+    TYPED_VALUES.VerifiedUnitContextIndex,
+]:
+    if type(source) is not CONT_ARTIFACTS.VerifiedHistoricalSource:
+        raise TypeError("verifier-returned historical source is required")
+    registry = _verified_registry(REGISTRY_PATH.read_bytes(), runtime)
+    records = _record_by_role(source)
+    attempt = records["attempt_context"].value
+    environment = records["authority.environment_snapshot"].value
+    if not isinstance(attempt, Mapping) or not isinstance(environment, Mapping):
+        raise ValueError("historical authority records are invalid")
+    issuer = environment.get("issuer")
+    if not isinstance(issuer, Mapping):
+        raise ValueError("historical environment issuer is invalid")
+    expected_issuer_id = issuer.get("authority_id")
+    if type(expected_issuer_id) is not str or not expected_issuer_id:
+        raise ValueError("historical environment issuer identity is invalid")
+    unit_context_index = TYPED_VALUES.derive_verified_unit_context_index(
+        environment_artifact_bytes=records[
+            "authority.environment_snapshot"
+        ].raw_bytes,
+        environment_payload_schema_bytes=(
+            _environment_payload_schema_bytes(records)
+        ),
+        attempt_context_bytes=records["attempt_context"].raw_bytes,
+        expected_artifact_fingerprint=environment["artifact_fingerprint"],
+        expected_issuer_id=expected_issuer_id,
+        expected_environment_session_id=attempt["environment_session_id"],
+        expected_task_session_id=attempt["task_session_id"],
+        evaluated_at=attempt["evaluated_at"],
+    )
+    return registry, unit_context_index
+
+
 def build_outcome_neutral_parent_witness(
     *,
     derivative_archive: Path,
     runtime: TYPED_VALUES.RuntimeIdentity,
-    registry: TYPED_VALUES.VerifiedSemanticValueRegistry,
-    unit_context_index: TYPED_VALUES.VerifiedUnitContextIndex,
 ) -> OutcomeNeutralParentWitness:
     source = CONT_ARTIFACTS.verify_historical_source()
     recipe = TYPED_VALUES.parse_strict_json(source.final_recipe_bytes, label="parent recipe")
     if type(recipe) is not dict:
         raise ValueError("parent recipe is not an object")
+    registry, unit_context_index = _verified_parent_value_context(
+        source,
+        runtime=runtime,
+    )
     typed_fingerprint = _validate_parent_recipe_occurrences(
         recipe, registry=registry, unit_context_index=unit_context_index
     )
@@ -1167,13 +1239,17 @@ def build_outcome_neutral_parent_witness(
         sealed.evaluator_result,
         final_recipe_bytes=source.final_recipe_bytes,
     )
+    if sealed.evaluator_result.recommendation != "semantically_faithful":
+        raise ValueError("parent evaluator recommendation changed")
+    if classification != "probe_candidate_blocked":
+        raise ValueError("parent classification changed")
     unresolved = tuple(
         sorted(
             (row["semantic_key"] for row in recipe["unresolved_intent"]),
             key=lambda item: item.encode("utf-16-be"),
         )
     )
-    value = {
+    evidence_value = {
         "source_manifest_raw_sha256": source.pins.root_manifest_raw_sha256,
         "recipe_raw_sha256": source.pins.recipe_raw_sha256,
         "recipe_fingerprint": source.pins.ratified_recipe_fingerprint,
@@ -1185,40 +1261,79 @@ def build_outcome_neutral_parent_witness(
         "classification": classification,
     }
     return OutcomeNeutralParentWitness(
-        **value,
-        witness_fingerprint=TYPED_VALUES.fingerprint(value),
+        source_manifest_raw_sha256=source.pins.root_manifest_raw_sha256,
+        recipe_raw_sha256=source.pins.recipe_raw_sha256,
+        recipe_fingerprint=source.pins.ratified_recipe_fingerprint,
+        typed_value_validation_fingerprint=typed_fingerprint,
+        mechanical_gate_status=gate.status,
+        unresolved_keys=unresolved,
+        derivative_archive_identity=sealed.derivative_archive_identity,
+        evaluator_recommendation=sealed.evaluator_result.recommendation,
+        classification=classification,
+        witness_fingerprint=TYPED_VALUES.fingerprint(evidence_value),
     )
 
 
 def build_control_compatibility_witness(
     recipe_path: Path,
     *,
-    frozen_inputs: PLANNER_ARTIFACTS.FrozenPlannerInputs,
+    acceptance_boundary: Literal[
+        "lm9b_c_frozen_input", "planner_mechanical_gate"
+    ],
+    frozen_inputs: PLANNER_ARTIFACTS.FrozenPlannerInputs | None,
     registry: TYPED_VALUES.VerifiedSemanticValueRegistry,
     unit_context_index: TYPED_VALUES.VerifiedUnitContextIndex,
 ) -> ControlCompatibilityWitness:
-    raw = Path(recipe_path).read_bytes()
+    recipe_path = Path(recipe_path).resolve()
+    raw = recipe_path.read_bytes()
     recipe = TYPED_VALUES.parse_strict_json(raw, label="control recipe")
     if type(recipe) is not dict:
         raise ValueError("control recipe must be an object")
     typed_fingerprint = _validate_parent_recipe_occurrences(
         recipe, registry=registry, unit_context_index=unit_context_index
     )
-    gate = SUPPORT.evaluate_mechanical_gate(
-        recipe_bytes=raw,
-        authority=frozen_inputs.authority,
-        recipe_schema=frozen_inputs.recipe_schema,
-        normalization_profile=frozen_inputs.authority.normalization_profile,
-        exclusion_policy=frozen_inputs.exclusion_policy,
-    )
-    if gate.status != "mechanically_accepted" or gate.final_recipe_bytes != raw:
-        raise ValueError("registry migration changed control recipe outcome")
+    if acceptance_boundary == "planner_mechanical_gate":
+        if type(frozen_inputs) is not PLANNER_ARTIFACTS.FrozenPlannerInputs:
+            raise TypeError("planner control requires exact frozen Planner inputs")
+        gate = SUPPORT.evaluate_mechanical_gate(
+            recipe_bytes=raw,
+            authority=frozen_inputs.authority,
+            recipe_schema=frozen_inputs.recipe_schema,
+            normalization_profile=frozen_inputs.authority.normalization_profile,
+            exclusion_policy=frozen_inputs.exclusion_policy,
+        )
+        if (
+            gate.status != "mechanically_accepted"
+            or gate.final_recipe_bytes != raw
+        ):
+            raise ValueError("registry migration changed control recipe outcome")
+        acceptance_status = gate.status
+    elif acceptance_boundary == "lm9b_c_frozen_input":
+        if frozen_inputs is not None:
+            raise ValueError("LM9B-C frozen-input control accepts no Planner inputs")
+        compiler_inputs = COMPILER_ARTIFACTS.load_frozen_inputs(recipe_path.parent)
+        manifest_recipes = tuple(
+            record for record in compiler_inputs.records if record.role == "recipe"
+        )
+        if len(manifest_recipes) != 1:
+            raise ValueError("LM9B-C frozen-input recipe role is not unique")
+        manifest_recipe = manifest_recipes[0]
+        if (
+            (compiler_inputs.fixture_dir / manifest_recipe.relative_path).resolve()
+            != recipe_path
+            or compiler_inputs.recipe_bytes != raw
+        ):
+            raise ValueError("LM9B-C frozen-input recipe binding changed")
+        acceptance_status = "frozen_inputs_accepted"
+    else:
+        raise ValueError("unknown control acceptance boundary")
     return ControlCompatibilityWitness(
-        fixture_path=str(Path(recipe_path).resolve()),
+        fixture_path=str(recipe_path),
         recipe_raw_sha256=TYPED_VALUES.sha256_prefixed(raw),
         assumption_count=len(recipe["assumptions"]),
         derived_fact_count=len(recipe["derived_facts"]),
-        gate_status=gate.status,
+        acceptance_boundary=acceptance_boundary,
+        acceptance_status=acceptance_status,
         typed_value_validation_fingerprint=typed_fingerprint,
     )
 

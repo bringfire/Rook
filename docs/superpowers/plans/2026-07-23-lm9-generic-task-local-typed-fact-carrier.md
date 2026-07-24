@@ -1183,7 +1183,9 @@ git commit -m "feat: qualify generic task-local facts"
 ### Task 5: Prove registry migration is outcome-neutral on exact evidence
 
 **Files:**
+- Modify: `docs/superpowers/specs/2026-07-23-lm9-generic-task-local-typed-fact-carrier-design.md` (control-boundary truthfulness correction)
 - Modify: `scripts/lm9_typed_fact_carrier_artifacts.py`
+- Modify: `scripts/lm9_typed_fact_carrier_qualification.py` (composition call-through and removal of duplicate authority construction)
 - Modify: `mcp_server/tests/test_lm9_typed_fact_carrier.py`
 
 **Interfaces:**
@@ -1208,7 +1210,8 @@ class ControlCompatibilityWitness:
     recipe_raw_sha256: str
     assumption_count: int
     derived_fact_count: int
-    gate_status: str
+    acceptance_boundary: str
+    acceptance_status: str
     typed_value_validation_fingerprint: str
 
 def build_outcome_neutral_parent_witness(
@@ -1220,7 +1223,10 @@ def build_outcome_neutral_parent_witness(
 def build_control_compatibility_witness(
     recipe_path: Path,
     *,
-    frozen_inputs: PLANNER_ARTIFACTS.FrozenPlannerInputs,
+    acceptance_boundary: Literal[
+        "lm9b_c_frozen_input", "planner_mechanical_gate"
+    ],
+    frozen_inputs: PLANNER_ARTIFACTS.FrozenPlannerInputs | None,
     registry: TYPED_VALUES.VerifiedSemanticValueRegistry,
     unit_context_index: TYPED_VALUES.VerifiedUnitContextIndex,
 ) -> ControlCompatibilityWitness: ...
@@ -1246,7 +1252,17 @@ archived classification, or modify the existing continuation module.
 
 - [ ] **Step 2: Add accepted assumption/derived-value control witnesses**
 
-Use `scripts/lm9b_c_fixtures/r01_recipe.json` plus one accepted non-R01 fixture containing derived facts. Assert every assumption uses `recipe_assumption`, every derived fact uses `recipe_derived`, historical two-field derived values remain admitted, and the existing gate disposition remains unchanged.
+Use `scripts/lm9b_c_fixtures/r01_recipe.json` plus one accepted non-R01
+fixture containing derived facts. Assert every assumption uses
+`recipe_assumption`, every derived fact uses `recipe_derived`, and historical
+two-field derived values remain admitted.
+
+Preserve each control's real existing acceptance boundary. R01 predates the
+current Planner occurrence schema, so it is constructively reloaded through
+the existing LM9B-C frozen-input manifest loader; do not counterfeit Planner
+mechanical acceptance for it. The non-R01 fixture is re-evaluated through the
+existing Planner mechanical gate and remains `mechanically_accepted` with
+byte-identical output. Record the boundary and status separately.
 
 These controls prove representation compatibility only.
 
@@ -1265,7 +1281,13 @@ Expected: new outcome-neutral witness tests FAIL.
 
 - [ ] **Step 5: Implement composition without changing or shadowing the gate**
 
-The carrier validates typed values and packages evidence, then delegates the full recipe decision to the existing gate. Do not copy recipe schema, authority binding, normalization, fingerprint, blocker, or classification equations. Require gate `final_recipe_bytes` byte-equal to source.
+The carrier validates typed values and packages evidence, then delegates the
+full recipe decision to the existing authoritative boundary: the Planner gate
+for the exact blocked parent and non-R01 control, and the LM9B-C frozen-input
+manifest loader for R01. Do not copy recipe schema, authority binding,
+normalization, fingerprint, blocker, compiler-input, or classification
+equations. Require Planner-gate `final_recipe_bytes` byte-equal to source and
+LM9B-C loaded recipe bytes byte-equal to the manifest-bound R01 bytes.
 
 The public derivative verifier remains the only semantic-result route. Consume
 only the Task-1 `evaluator_result` return value, whose focused test proves it is
@@ -1278,7 +1300,7 @@ verification equations complete.
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
 & 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe' -m pytest mcp_server/tests/test_lm9_semantic_typed_values.py mcp_server/tests/test_lm9_typed_fact_carrier.py mcp_server/tests/test_lm9b_p_evaluator_only_continuation.py -q
 git diff --check
-git add scripts/lm9_typed_fact_carrier_artifacts.py mcp_server/tests/test_lm9_typed_fact_carrier.py
+git add scripts/lm9_typed_fact_carrier_artifacts.py scripts/lm9_typed_fact_carrier_qualification.py mcp_server/tests/test_lm9_typed_fact_carrier.py docs/superpowers/specs/2026-07-23-lm9-generic-task-local-typed-fact-carrier-design.md docs/superpowers/plans/2026-07-23-lm9-generic-task-local-typed-fact-carrier.md
 git commit -m "test: prove typed-fact migration neutrality"
 ```
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -17,6 +18,7 @@ if str(SCRIPTS) not in sys.path:
 import lm9_semantic_typed_values as TYPED_VALUES
 import lm9_typed_fact_carrier_artifacts as CARRIER
 import lm9_typed_fact_carrier_qualification as QUALIFICATION
+import lm9b_p_evaluator_only_continuation as CONTINUATION
 import lm9b_p_planner_recipe_transfer_artifacts as PLANNER_ARTIFACTS
 
 
@@ -491,3 +493,307 @@ def test_required_negative_manifest_is_executable_and_closed() -> None:
     assert tuple(row.case_id for row in results) == CARRIER.required_negative_case_ids()
     assert all(row.status == "deterministically_refused" for row in results)
     assert len({row.evidence_fingerprint for row in results}) == len(results)
+
+
+def _boom(*_args: object, **_kwargs: object) -> object:
+    raise AssertionError("provider, Planner, evaluator, or compiler path was reached")
+
+
+def test_exact_production_parent_remains_faithful_and_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    order: list[str] = []
+    verify_source = CARRIER.CONT_ARTIFACTS.verify_historical_source
+    parse_strict = CARRIER.TYPED_VALUES.parse_strict_json
+    validate_occurrences = CARRIER._validate_parent_recipe_occurrences
+    evaluate_gate = CARRIER.SUPPORT.evaluate_mechanical_gate
+    verify_derivative = CARRIER.CONT_ARTIFACTS.verify_sealed_derivative_archive
+    classify = CARRIER.PLANNER_ARTIFACTS.derive_evaluated_recipe_classification
+
+    def recording_source(*args: object, **kwargs: object):
+        order.append("source")
+        return verify_source(*args, **kwargs)
+
+    def recording_parse(*args: object, **kwargs: object):
+        if kwargs.get("label") == "parent recipe":
+            order.append("parent_recipe")
+        return parse_strict(*args, **kwargs)
+
+    def recording_occurrences(*args: object, **kwargs: object):
+        order.append("typed_occurrences")
+        return validate_occurrences(*args, **kwargs)
+
+    def recording_gate(*args: object, **kwargs: object):
+        order.append("mechanical_gate")
+        return evaluate_gate(*args, **kwargs)
+
+    def recording_derivative(*args: object, **kwargs: object):
+        order.append("derivative")
+        return verify_derivative(*args, **kwargs)
+
+    def recording_classification(*args: object, **kwargs: object):
+        order.append("classification")
+        return classify(*args, **kwargs)
+
+    monkeypatch.setattr(
+        CARRIER.CONT_ARTIFACTS, "verify_historical_source", recording_source
+    )
+    monkeypatch.setattr(CARRIER.TYPED_VALUES, "parse_strict_json", recording_parse)
+    monkeypatch.setattr(
+        CARRIER, "_validate_parent_recipe_occurrences", recording_occurrences
+    )
+    monkeypatch.setattr(
+        CARRIER.SUPPORT, "evaluate_mechanical_gate", recording_gate
+    )
+    monkeypatch.setattr(
+        CARRIER.CONT_ARTIFACTS,
+        "verify_sealed_derivative_archive",
+        recording_derivative,
+    )
+    monkeypatch.setattr(
+        CARRIER.PLANNER_ARTIFACTS,
+        "derive_evaluated_recipe_classification",
+        recording_classification,
+    )
+    monkeypatch.setattr(CARRIER.SUPPORT, "run_planner_session", _boom)
+    monkeypatch.setattr(CARRIER.SUPPORT, "run_planner_evaluation", _boom)
+    monkeypatch.setattr(CARRIER.PLANNER_ARTIFACTS, "build_lm9bc_handoff", _boom)
+    monkeypatch.setattr(CONTINUATION, "_build_evaluator_provider", _boom)
+
+    witness = CARRIER.build_outcome_neutral_parent_witness(
+        derivative_archive=CARRIER.OFFICIAL_DERIVATIVE,
+        runtime=TYPED_VALUES.current_runtime_identity(),
+    )
+
+    assert witness.source_manifest_raw_sha256 == (
+        "sha256:ac7716b7d5a61e2e6359bc0e01e145d7d17e0871ff03d1d5329710541d274c90"
+    )
+    assert witness.recipe_raw_sha256 == (
+        "sha256:5c5dba9def1ffc3002240f3154f02f36e60134019659d5e6a9d546b0317965af"
+    )
+    assert witness.recipe_fingerprint == (
+        "sha256:eb70994fa9ead99fbe75f6f25e81327045258389d46e91474cc5b581befc068a"
+    )
+    assert witness.typed_value_validation_fingerprint == (
+        "sha256:a4538805f16778589c5c734d90243dc3f34da0bd9bf4674ac55b9087f1715190"
+    )
+    assert witness.mechanical_gate_status == "mechanically_accepted"
+    assert type(witness.unresolved_keys) is tuple
+    assert witness.unresolved_keys == tuple(
+        sorted(RADIAL_KEYS, key=lambda item: item.encode("utf-16-be"))
+    )
+    assert witness.derivative_archive_identity == CARRIER.OFFICIAL_DERIVATIVE_IDENTITY
+    assert witness.evaluator_recommendation == "semantically_faithful"
+    assert witness.classification == "probe_candidate_blocked"
+    assert witness.witness_fingerprint == (
+        "sha256:07a57f8566cdb4d331fe15a840bd3b73496187c638e6647d89f0a70a86fc58c8"
+    )
+    assert order[:5] == [
+        "source",
+        "parent_recipe",
+        "typed_occurrences",
+        "mechanical_gate",
+        "derivative",
+    ]
+    assert order[-1] == "classification"
+
+
+def test_accepted_controls_preserve_occurrence_shapes_and_real_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transition = _transition()
+    calls: list[str] = []
+    validate = CARRIER.TYPED_VALUES.validate_typed_value
+
+    def recording_validate(*args: object, **kwargs: object):
+        calls.append(kwargs["required_presence"])
+        return validate(*args, **kwargs)
+
+    monkeypatch.setattr(CARRIER.TYPED_VALUES, "validate_typed_value", recording_validate)
+    frozen = CARRIER.frozen_gate_inputs(transition["source"])
+    controls = (
+        (
+            ROOT / "scripts/lm9b_c_fixtures/r01_recipe.json",
+            "lm9b_c_frozen_input",
+            None,
+        ),
+        (
+            ROOT / "mcp_server/tests/fixtures/lm9b_p/non_r01_ready_recipe.json",
+            "planner_mechanical_gate",
+            frozen,
+        ),
+    )
+
+    witnesses = tuple(
+        CARRIER.build_control_compatibility_witness(
+            path,
+            acceptance_boundary=acceptance_boundary,
+            frozen_inputs=control_inputs,
+            registry=transition["registry"],
+            unit_context_index=transition["unit_context_index"],
+        )
+        for path, acceptance_boundary, control_inputs in controls
+    )
+
+    assert [row.recipe_raw_sha256 for row in witnesses] == [
+        "sha256:c2a504e7a089c37fc174d53eeb7cd409690a63e7709cfea8ea7ce7a3c13ddad2",
+        "sha256:d5fb1589b9d3b463fa16caf8c9c831f5b68fc73062ab831b091520aae9abe724",
+    ]
+    assert all(row.assumption_count == 9 for row in witnesses)
+    assert all(row.derived_fact_count == 1 for row in witnesses)
+    assert [row.acceptance_boundary for row in witnesses] == [
+        "lm9b_c_frozen_input",
+        "planner_mechanical_gate",
+    ]
+    assert [row.acceptance_status for row in witnesses] == [
+        "frozen_inputs_accepted",
+        "mechanically_accepted",
+    ]
+    assert {
+        row.typed_value_validation_fingerprint for row in witnesses
+    } == {
+        "sha256:5c027bd018b5cd5a48e5b02daab649e4a509a04bcc0690b18f5c52f1c2f68677"
+    }
+    assert calls == ["recipe_assumption"] * 9 + ["recipe_derived"] + (
+        ["recipe_assumption"] * 9 + ["recipe_derived"]
+    )
+
+
+def test_copied_mutated_historical_source_fails_production_pins(tmp_path: Path) -> None:
+    source = CARRIER.CONT_ARTIFACTS.verify_historical_source()
+    copied = tmp_path / "historical-source"
+    shutil.copytree(source.source_root, copied)
+    recipe_path = copied / "checkpoint-1/planner/final_recipe.json"
+    recipe = json.loads(recipe_path.read_bytes())
+    recipe["goal"]["statement"] = "mutated copied evidence"
+    recipe["recipe_fingerprint"] = TYPED_VALUES.fingerprint_without(
+        recipe, "recipe_fingerprint"
+    )
+    recipe_path.write_bytes(TYPED_VALUES.canonical_json_bytes(recipe) + b"\n")
+    copied_pins = dataclasses.replace(
+        CARRIER.CONT_ARTIFACTS.PRODUCTION_SOURCE_PINS,
+        source_root=copied,
+    )
+
+    with pytest.raises(ValueError):
+        CARRIER.CONT_ARTIFACTS._verify_historical_source(copied_pins)
+
+
+def test_copied_derivative_cannot_substitute_for_canonical_archive(
+    tmp_path: Path,
+) -> None:
+    copied = tmp_path / "copied-derivative"
+    shutil.copytree(CARRIER.OFFICIAL_DERIVATIVE, copied)
+
+    with pytest.raises(ValueError, match="destination|archive"):
+        CARRIER.CONT_ARTIFACTS.verify_sealed_derivative_archive(
+            copied,
+            expected_derivative_identity=CARRIER.OFFICIAL_DERIVATIVE_IDENTITY,
+        )
+
+
+def test_parent_witness_refuses_shared_classification_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        CARRIER.PLANNER_ARTIFACTS,
+        "derive_evaluated_recipe_classification",
+        lambda *_args, **_kwargs: "probe_candidate_ready",
+    )
+
+    with pytest.raises(ValueError, match="classification"):
+        CARRIER.build_outcome_neutral_parent_witness(
+            derivative_archive=CARRIER.OFFICIAL_DERIVATIVE,
+            runtime=TYPED_VALUES.current_runtime_identity(),
+        )
+
+
+def test_parent_witness_refuses_semantic_recommendation_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sealed = CARRIER.CONT_ARTIFACTS.verify_sealed_derivative_archive(
+        CARRIER.OFFICIAL_DERIVATIVE,
+        expected_derivative_identity=CARRIER.OFFICIAL_DERIVATIVE_IDENTITY,
+    )
+    altered_result = dataclasses.replace(
+        sealed.evaluator_result,
+        recommendation="semantically_unfaithful",
+    )
+    monkeypatch.setattr(
+        CARRIER.CONT_ARTIFACTS,
+        "verify_sealed_derivative_archive",
+        lambda *_args, **_kwargs: dataclasses.replace(
+            sealed,
+            evaluator_result=altered_result,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="recommendation"):
+        CARRIER.build_outcome_neutral_parent_witness(
+            derivative_archive=CARRIER.OFFICIAL_DERIVATIVE,
+            runtime=TYPED_VALUES.current_runtime_identity(),
+        )
+
+
+def test_r01_control_refuses_counterfeit_planner_acceptance() -> None:
+    transition = _transition()
+
+    with pytest.raises(ValueError, match="control recipe outcome"):
+        CARRIER.build_control_compatibility_witness(
+            ROOT / "scripts/lm9b_c_fixtures/r01_recipe.json",
+            acceptance_boundary="planner_mechanical_gate",
+            frozen_inputs=CARRIER.frozen_gate_inputs(transition["source"]),
+            registry=transition["registry"],
+            unit_context_index=transition["unit_context_index"],
+        )
+
+
+def test_r01_control_refuses_recipe_drift_at_manifest_boundary(
+    tmp_path: Path,
+) -> None:
+    transition = _transition()
+    copied = tmp_path / "lm9b-c-control"
+    shutil.copytree(ROOT / "scripts/lm9b_c_fixtures", copied)
+    recipe_path = copied / "r01_recipe.json"
+    recipe = json.loads(recipe_path.read_bytes())
+    integer = recipe["derived_facts"][0]
+    integer["typed_value"]["value"] += 1
+    recipe["recipe_fingerprint"] = TYPED_VALUES.fingerprint_without(
+        recipe, "recipe_fingerprint"
+    )
+    recipe_path.write_bytes(TYPED_VALUES.canonical_json_bytes(recipe) + b"\n")
+
+    with pytest.raises(ValueError, match="raw hash mismatch"):
+        CARRIER.build_control_compatibility_witness(
+            recipe_path,
+            acceptance_boundary="lm9b_c_frozen_input",
+            frozen_inputs=None,
+            registry=transition["registry"],
+            unit_context_index=transition["unit_context_index"],
+        )
+
+
+def test_control_witness_refuses_reclosed_invalid_typed_value(tmp_path: Path) -> None:
+    transition = _transition()
+    source_path = ROOT / "scripts/lm9b_c_fixtures/r01_recipe.json"
+    recipe = json.loads(source_path.read_bytes())
+    scalar = next(
+        row
+        for row in recipe["assumptions"]
+        if row["typed_value"]["schema"] == "rook.semantic_scalar:v1"
+    )
+    scalar["typed_value"]["value"] = "2.0"
+    recipe["recipe_fingerprint"] = TYPED_VALUES.fingerprint_without(
+        recipe, "recipe_fingerprint"
+    )
+    copied = tmp_path / "reclosed-invalid-control.json"
+    copied.write_bytes(TYPED_VALUES.canonical_json_bytes(recipe) + b"\n")
+
+    with pytest.raises(ValueError, match="typed value failed"):
+        CARRIER.build_control_compatibility_witness(
+            copied,
+            acceptance_boundary="lm9b_c_frozen_input",
+            frozen_inputs=None,
+            registry=transition["registry"],
+            unit_context_index=transition["unit_context_index"],
+        )
