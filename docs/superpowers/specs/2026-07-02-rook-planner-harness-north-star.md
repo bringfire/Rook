@@ -566,6 +566,39 @@ Extending the LM north-star's evaluation doctrine (its §11 / phase LM6) upward:
   to decomposition vs contract mechanics vs worker execution — never "the
   multi-agent system failed."
 
+### 9.1 Addendum: provisional DSPy Planner-program hypothesis (2026-07-23)
+
+The Planner box's artifact interface permits a future DSPy implementation
+without changing the three-box topology. DSPy would own an optimizable LM
+program behind the existing Planner input/output boundary; the deterministic
+validator would continue to own authority, blocked/ready state, and
+advancement.
+
+LM9 supplies the evidence substrate that earlier Rook DSPy usage lacked:
+frozen input artifacts, exact recipes, structured gate diagnostics, semantic
+fidelity judgments, compiler results, runtime receipts, and attributable
+failure loci. After authoritative LM9A semantics and a representative corpus
+exist, those records may support a controlled DSPy fitness experiment:
+
+```text
+Planner program + frozen corpus + explicit metric
+-> DSPy optimization
+-> fingerprinted compiled Planner program
+-> unchanged LM9 recipe and validation boundary
+```
+
+The comparison must include unoptimized frontier, unoptimized local, and
+optimized local arms on held-out scenarios. A compiled program may change the
+model-visible instructions or demonstrations, so it is a new explicit
+experimental identity, never an ambient hook. Model score cannot override an
+invalid recipe, explicit unresolved intent, or absent authority.
+
+This hypothesis does not endorse the existing Rook or Chirp DSPy wrappers as
+the implementation pattern. It is falsified if gains require fixture leakage,
+contract changes, semantic invention, or fail to transfer beyond the optimized
+examples. The full hypothesis and eligibility gates are recorded in
+`2026-07-23-rook-semantic-harness-architecture-accounting.md` section 7.9.
+
 ---
 
 ## 10. Anti-goals
@@ -663,6 +696,11 @@ Extending the LM north-star's evaluation doctrine (its §11 / phase LM6) upward:
   fixed compiler program delegates narrower representation and lowering
   judgments, then accepts only schema-valid, provenance-linked exact execution
   IR. Router policy remains deferred (2026-07-10 addendum).
+- **DSPy-guided Planner optimization is a strong provisional post-LM9A
+  hypothesis.** It may optimize the probabilistic Planner program against
+  frozen evidence, but never the authority, readiness, or advancement rules;
+  every compiled program is a separately fingerprinted intervention
+  (2026-07-23 addendum).
 
 ---
 
