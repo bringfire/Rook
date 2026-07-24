@@ -115,6 +115,32 @@ def _boom(*_args: object, **_kwargs: object) -> object:
     raise AssertionError("irreversible or provider path was reached")
 
 
+def _task1_transition():
+    typed_values = _load_script("lm9_semantic_typed_values")
+    carrier = _load_script("lm9_typed_fact_carrier_artifacts")
+    qualification = _load_script("lm9_typed_fact_carrier_qualification")
+    return typed_values, carrier, qualification._derive_transition(ROOT)
+
+
+def _reclosed_envelope_bytes(typed_values: object, envelope: dict[str, object]) -> bytes:
+    envelope["artifact_fingerprint"] = typed_values.fingerprint_without(
+        envelope, "artifact_fingerprint"
+    )
+    return typed_values.canonical_json_bytes(envelope) + b"\n"
+
+
+def _partition_inputs(carrier: object, transition: dict[str, object]):
+    source = transition["source"]
+    parent_values = carrier.reconstruct_observed_historical_task_values(
+        source,
+        registry=transition["registry"],
+        unit_context_index=transition["unit_context_index"],
+    )
+    parent_bindings = carrier.historical_task_bindings(source)
+    parent_recipe = json.loads(source.final_recipe_bytes)
+    return parent_values, parent_bindings, parent_recipe
+
+
 def test_task1_walks_real_transition_and_publicly_verifies(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -251,3 +277,116 @@ def test_task1_walks_real_transition_and_publicly_verifies(
     assert {
         name for name in sys.modules if name.startswith("lm9b_c_compiler")
     } == compiler_modules_before
+
+
+def test_forward_envelope_refuses_reclosed_cross_session_authority() -> None:
+    typed_values, carrier, transition = _task1_transition()
+    envelope = json.loads(carrier.RADIAL_FIXTURE_PATH.read_bytes())
+    envelope["task_session_id"] = "different-task-session"
+
+    with pytest.raises(ValueError, match="task session"):
+        carrier.validate_forward_task_envelope(
+            _reclosed_envelope_bytes(typed_values, envelope),
+            payload_schema_raw_bytes=transition["payload_schema_raw"],
+            registry_raw_bytes=transition["registry_raw"],
+            unit_context_index=transition["unit_context_index"],
+            runtime=transition["runtime"],
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "wrong_value_schema",
+        "wrong_source_artifact",
+        "wrong_source_pointer",
+        "user_fact_not_permitted",
+        "malformed_permission_container",
+        "wrong_unit_context",
+    ),
+)
+def test_partition_refuses_reclosed_delta_outside_parent_unresolved_contract(
+    mutation: str,
+) -> None:
+    typed_values, carrier, transition = _task1_transition()
+    parent_values, parent_bindings, parent_recipe = _partition_inputs(
+        carrier, transition
+    )
+    successor = transition["radial"]
+
+    if mutation == "wrong_value_schema":
+        envelope = json.loads(carrier.RADIAL_FIXTURE_PATH.read_bytes())
+        envelope["payload"]["facts"]["grid_spacing"] = {
+            "schema": "rook.semantic_string:v1",
+            "value": "2",
+            "unit": None,
+            "unit_context_ref": None,
+        }
+        binding = next(
+            row
+            for row in envelope["value_bindings"]
+            if row["semantic_key"] == "grid_spacing"
+        )
+        binding["value_schema"] = "rook.semantic_string:v1"
+        binding["typed_value_fingerprint"] = typed_values.fingerprint(
+            envelope["payload"]["facts"]["grid_spacing"]
+        )
+        successor = carrier.validate_forward_task_envelope(
+            _reclosed_envelope_bytes(typed_values, envelope),
+            payload_schema_raw_bytes=transition["payload_schema_raw"],
+            registry_raw_bytes=transition["registry_raw"],
+            unit_context_index=transition["unit_context_index"],
+            runtime=transition["runtime"],
+        )
+    else:
+        row = next(
+            item
+            for item in parent_recipe["unresolved_intent"]
+            if item["semantic_key"] == "grid_spacing"
+        )
+        if mutation == "wrong_source_artifact":
+            row["expected_source_location"]["artifact_id"] = (
+                "environment_snapshot"
+            )
+        elif mutation == "wrong_source_pointer":
+            row["expected_source_location"]["json_pointer"] = (
+                "/facts/other_spacing"
+            )
+        elif mutation == "user_fact_not_permitted":
+            row["resolution_authority"]["permitted_kinds"] = [
+                "planner_assumption"
+            ]
+        elif mutation == "malformed_permission_container":
+            row["resolution_authority"]["permitted_kinds"] = "user_fact"
+        elif mutation == "wrong_unit_context":
+            row["unit_context_ref"] = {
+                "kind": "artifact_value",
+                "artifact_id": "environment_snapshot",
+                "json_pointer": "/document/other_unit_context",
+            }
+        parent_recipe["recipe_fingerprint"] = typed_values.fingerprint(
+            {
+                key: value
+                for key, value in parent_recipe.items()
+                if key != "recipe_fingerprint"
+            }
+        )
+
+    with pytest.raises(ValueError, match="unresolved contract"):
+        carrier.derive_authority_partition(
+            parent_values=parent_values,
+            parent_bindings=parent_bindings,
+            successor=successor,
+            parent_recipe=parent_recipe,
+        )
+
+
+def test_relational_authority_mutations_are_registered_in_negative_manifest() -> None:
+    carrier = _load_script("lm9_typed_fact_carrier_artifacts")
+    assert {
+        "binding.task_session",
+        "migration.unresolved_value_schema",
+        "migration.unresolved_source_location",
+        "migration.unresolved_authority_permission",
+        "migration.unresolved_unit_context",
+    } <= set(carrier.required_negative_case_ids())

@@ -222,6 +222,7 @@ class VerifiedUnitContextEntry:
     canonical_value_bytes: bytes
     typed_value_fingerprint: str
     environment_session_id: str
+    task_session_id: str
     observed_at: str
     expires_at: str
 
@@ -606,6 +607,7 @@ def _unit_entry_value(entry: VerifiedUnitContextEntry) -> dict[str, object]:
         ),
         "typed_value_fingerprint": entry.typed_value_fingerprint,
         "environment_session_id": entry.environment_session_id,
+        "task_session_id": entry.task_session_id,
         "observed_at": entry.observed_at,
         "expires_at": entry.expires_at,
     }
@@ -710,6 +712,7 @@ def _validate_and_derive_unit_context_authority(
         canonical_value_bytes=canonical_json_bytes(resolved),
         typed_value_fingerprint=expected_typed_fingerprint,
         environment_session_id=expected_environment_session_id,
+        task_session_id=expected_task_session_id,
         observed_at=observed_at,
         expires_at=expires_at,
     )

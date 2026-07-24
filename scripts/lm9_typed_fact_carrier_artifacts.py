@@ -217,6 +217,14 @@ def validate_forward_task_envelope(
         or envelope["payload_schema"] != TYPED_VALUES.FORWARD_PAYLOAD_SCHEMA_ID
     ):
         raise ValueError("forward task-envelope identity is invalid")
+    verified_context = TYPED_VALUES._consume_unit_context_index(
+        unit_context_index
+    )
+    bound_task_sessions = {
+        entry.task_session_id for entry in verified_context.entries.values()
+    }
+    if bound_task_sessions != {envelope["task_session_id"]}:
+        raise ValueError("forward task session differs from verified authority")
     registry = _verified_registry(registry_raw_bytes, runtime)
     payload_schema = _admitted_payload_schema(payload_schema_raw_bytes, runtime)
     if envelope["payload_schema_fingerprint"] != payload_schema.schema_fingerprint:
@@ -442,17 +450,53 @@ def derive_authority_partition(
     unresolved = parent_recipe.get("unresolved_intent")
     if type(unresolved) is not list:
         raise ValueError("parent recipe unresolved intent is invalid")
+    unresolved_by_key = {
+        row.get("semantic_key"): row
+        for row in unresolved
+        if type(row) is dict and type(row.get("semantic_key")) is str
+    }
+    if len(unresolved_by_key) != len(unresolved):
+        raise ValueError("parent unresolved contract identities are invalid")
     required = tuple(
         sorted(
-            (row["semantic_key"] for row in unresolved if type(row) is dict),
+            unresolved_by_key,
             key=lambda item: item.encode("utf-16-be"),
         )
     )
     if migration_keys != parent_keys or delta_keys != required:
         raise ValueError("successor authority partition is not isolated")
     for key in delta_keys:
-        if successor.bindings[key]["authority_kind"] != "user_fact":
-            raise ValueError("successor authority delta is not user-fact-only")
+        fact = successor.facts[key]
+        binding = successor.bindings[key]
+        unresolved_row = unresolved_by_key[key]
+        expected_location = unresolved_row.get("expected_source_location")
+        resolution_authority = unresolved_row.get("resolution_authority")
+        permitted_kinds = (
+            resolution_authority.get("permitted_kinds")
+            if type(resolution_authority) is dict
+            else None
+        )
+        expected_unit_context = unresolved_row.get("unit_context_ref")
+        if (
+            unresolved_row.get("semantic_key") != key
+            or fact.schema.schema_id != unresolved_row.get("value_schema")
+            or binding["value_schema"] != unresolved_row.get("value_schema")
+            or binding["authority_kind"] != "user_fact"
+            or type(resolution_authority) is not dict
+            or type(permitted_kinds) is not list
+            or "user_fact" not in permitted_kinds
+            or type(expected_location) is not dict
+            or expected_location.get("artifact_id") != "task_envelope"
+            or expected_location.get("json_pointer") != binding["json_pointer"]
+            or (
+                expected_unit_context is not None
+                and _plain(fact.value.get("unit_context_ref"))
+                != _plain(expected_unit_context)
+            )
+        ):
+            raise ValueError(
+                "successor delta differs from parent unresolved contract"
+            )
     value = {
         "parent_keys": list(parent_keys),
         "successor_keys": list(successor_keys),
@@ -535,6 +579,7 @@ _NEGATIVE_CASE_IDS = (
     "binding.authority_or_provenance",
     "binding.unbound",
     "binding.artifact_fingerprint",
+    "binding.task_session",
     "unit_context.unverified_mapping",
     "unit_context.exported_minter",
     "unit_context.caller_seal",
@@ -556,6 +601,10 @@ _NEGATIVE_CASE_IDS = (
     "migration.extra_authority_key",
     "migration.omitted_required_key",
     "migration.non_user_fact_delta",
+    "migration.unresolved_value_schema",
+    "migration.unresolved_source_location",
+    "migration.unresolved_authority_permission",
+    "migration.unresolved_unit_context",
     "genericity.fixture_key_in_neutral_source",
     "genericity.annotation_key_branch",
 )
