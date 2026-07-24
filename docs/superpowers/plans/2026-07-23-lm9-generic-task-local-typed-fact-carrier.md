@@ -1371,10 +1371,13 @@ checksums.json
 Retain the Task-1 real entry-point/public-verifier test and add exact
 schema/membership, commit/clean checkout, runtime/`jsonschema`, helper/profile/
 registry/payload/source/derivative, parent, radial/annotation, complete negative
-case, and boundary assertions. Boundary facts are false for model, provider,
-readiness, evaluator dispatch, compiler, Rhino, Grasshopper, and product
-authority; archived evaluator evidence verification remains present and is not
-misreported as a dispatch.
+case, and boundary assertions. Persist both control rows: R01 through the
+authentic LM9B-C frozen-input manifest boundary and non-R01 through the
+authentic Planner mechanical gate. Boundary facts record
+`lm9b_c_manifest_verification: true` while remaining false for model, provider,
+readiness, evaluator dispatch, Planner dispatch, compiler dispatch, Rhino,
+Grasshopper, and product authority; archived evaluator evidence verification
+remains present and is not misreported as a dispatch.
 
 - [ ] **Step 2: Add the adversarial fully reclosed qualification table**
 
@@ -1430,7 +1433,7 @@ Never use `Path.replace()`. If destination appears before rename, retain staging
 
 - [ ] **Step 6: Implement constructive public verification**
 
-Require physical location equality, closed membership, checksum closure, actual checkout/runtime/helper identity, exact code-owned contracts, official source/derivative public verification, and complete reconstruction of parent/control/radial/annotation/migration/negative results. Compare every derived record byte-for-byte.
+Require physical location equality, closed membership, checksum closure, actual checkout/runtime/helper identity, exact code-owned contracts, official source/derivative public verification, and complete reconstruction of the parent, both controls, radial/annotation, migration, and negative results. Compare every derived record byte-for-byte.
 
 - [ ] **Step 7: Run all new focused tests green**
 
