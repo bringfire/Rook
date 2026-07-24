@@ -768,6 +768,7 @@ def derive_verified_unit_context_index(
     environment_payload_schema_bytes: bytes,
     attempt_context_bytes: bytes,
     expected_artifact_fingerprint: str,
+    expected_issuer_id: str,
     expected_environment_session_id: str,
     expected_task_session_id: str,
     evaluated_at: str,
@@ -783,6 +784,12 @@ def validate_typed_value(
     instance_path: str,
 ) -> VerifiedTypedValue: ...
 ```
+
+`expected_issuer_id` is projected from the historical environment artifact only
+after `CONT_ARTIFACTS.verify_historical_source()` succeeds. The derivation seals
+that independently verified expectation into the frozen authority snapshot and
+reapplies the exact issuer-identity comparison during every consumption-time
+reconstruction.
 
 - [ ] **Step 1: Add one positive typed-value table covering every occurrence profile**
 
