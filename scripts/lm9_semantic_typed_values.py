@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import json
+import math
 import re
 import sys
 import weakref
@@ -53,9 +54,18 @@ FORBIDDEN_REFERENCE_KEYWORDS = frozenset(
     }
 )
 ALLOWED_PATTERNS = frozenset({MACHINE_KEY_PATTERN, SCALAR_PATTERN})
+ALLOWED_INSTANCE_TYPES = frozenset(
+    {"array", "boolean", "integer", "null", "object", "string"}
+)
 REGISTRY_SCHEMA_ID = "rook.semantic_value_schema_registry:v2"
 REGISTRY_VERSION = "rook.semantic_value_schemas:v2"
 FORWARD_PAYLOAD_SCHEMA_ID = "rook.planner_task_typed_facts_payload:v1"
+FORWARD_PAYLOAD_SCHEMA_FINGERPRINT = (
+    "sha256:83d350bf82588b650b5ded99a7bb95b2f4548c214b2b2f10a9e73731cb356064"
+)
+SEMANTIC_VALUE_REGISTRY_FINGERPRINT = (
+    "sha256:da050bc62130c299e0007b87e43f428c1cab76e07e0748e32196c4a4d531848e"
+)
 MAX_SAFE_INTEGER = 9_007_199_254_740_991
 MAX_REGISTRY_BYTES = 4_194_304
 MAX_ENVELOPE_BYTES = 1_048_576
@@ -70,6 +80,10 @@ MAX_ISSUES = 1_024
 MAX_EXPANSION_UNITS = 32_768
 MAX_EVALUATION_SHAPE = 2_000_000
 MAX_AGGREGATE_SHAPE = 16_000_000
+
+
+class InstrumentFailure(ValueError, RuntimeError):
+    """The scientific instrument could not issue complete validity evidence."""
 
 
 def canonical_json_bytes(value: object) -> bytes:
@@ -201,9 +215,50 @@ class ValidationIssue:
     detail_fingerprint: str
 
 
-@dataclass(frozen=True)
 class EvaluationBudget:
-    limit: int = MAX_AGGREGATE_SHAPE
+    """Code-owned aggregate work ledger for one instrument operation."""
+
+    __slots__ = ("__used",)
+
+    def __init__(self) -> None:
+        object.__setattr__(self, "_EvaluationBudget__used", 0)
+
+    @property
+    def limit(self) -> int:
+        return MAX_AGGREGATE_SHAPE
+
+    @property
+    def used(self) -> int:
+        return object.__getattribute__(self, "_EvaluationBudget__used")
+
+
+def _reserve_evaluation_shape(
+    aggregate_budget: EvaluationBudget,
+    *,
+    schema_shape_units: int,
+    instance_nodes: int,
+) -> int:
+    if type(aggregate_budget) is not EvaluationBudget:
+        raise TypeError("exact evaluation budget is required")
+    if (
+        type(schema_shape_units) is not int
+        or schema_shape_units < 1
+        or type(instance_nodes) is not int
+        or instance_nodes < 1
+    ):
+        raise InstrumentFailure("evaluation shape inputs are invalid")
+    shape = schema_shape_units * instance_nodes
+    if shape > MAX_EVALUATION_SHAPE:
+        raise InstrumentFailure("per-evaluation shape limit exceeded")
+    next_used = aggregate_budget.used + shape
+    if next_used > MAX_AGGREGATE_SHAPE:
+        raise InstrumentFailure("aggregate evaluation shape limit exceeded")
+    object.__setattr__(
+        aggregate_budget,
+        "_EvaluationBudget__used",
+        next_used,
+    )
+    return shape
 
 
 @dataclass(frozen=True)
@@ -296,9 +351,19 @@ def build_profile_identity(runtime: RuntimeIdentity) -> ProfileIdentity:
         "evaluator": {
             "class": runtime.validator_class,
             "jsonschema_distribution_version": runtime.jsonschema_version,
+            "metaschema_id": DIALECT,
             "metaschema_fingerprint": fingerprint(Draft202012Validator.META_SCHEMA),
             "type_policy": "rook.json_python_exact_types:v1",
+            "python_type_checker": {
+                "array": "type(value) is list",
+                "boolean": "type(value) is bool",
+                "integer": "type(value) is int",
+                "null": "value is None",
+                "object": "type(value) is dict",
+                "string": "type(value) is str",
+            },
             "format_checker": None,
+            "resolver": None,
             "reference_retrieval": False,
         },
         "admission": {
@@ -346,38 +411,109 @@ def build_profile_identity(runtime: RuntimeIdentity) -> ProfileIdentity:
     return ProfileIdentity(_freeze_json(value), fingerprint(value))
 
 
-def _schema_children(schema: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:
-    children: list[Mapping[str, object]] = []
+def _schema_children(schema: Mapping[str, object]) -> tuple[object, ...]:
+    children: list[object] = []
     properties = schema.get("properties")
     if isinstance(properties, Mapping):
         children.extend(
-            item for item in properties.values() if isinstance(item, Mapping)
+            item
+            for item in properties.values()
+            if type(item) is dict or type(item) is bool
         )
     for key in ("additionalProperties", "propertyNames", "not"):
         item = schema.get(key)
-        if isinstance(item, Mapping):
+        if type(item) is dict or type(item) is bool:
             children.append(item)
     return tuple(children)
 
 
+def _validate_schema_keyword_shapes(schema: dict[str, object]) -> None:
+    dialect = schema.get("$schema")
+    if dialect is not None and (type(dialect) is not str or dialect != DIALECT):
+        raise ValueError("schema dialect mismatch")
+    schema_id = schema.get("$id")
+    if schema_id is not None and (type(schema_id) is not str or not schema_id):
+        raise ValueError("schema document identity is invalid")
+
+    instance_type = schema.get("type")
+    if instance_type is not None and (
+        type(instance_type) is not str
+        or instance_type not in ALLOWED_INSTANCE_TYPES
+    ):
+        raise ValueError("schema type is not admitted")
+
+    properties = schema.get("properties")
+    if properties is not None:
+        if type(properties) is not dict or any(
+            type(key) is not str
+            or (type(child) is not dict and type(child) is not bool)
+            for key, child in properties.items()
+        ):
+            raise ValueError("schema properties are invalid")
+
+    required = schema.get("required")
+    if required is not None and (
+        type(required) is not list
+        or any(type(item) is not str for item in required)
+        or len(required) != len(set(required))
+    ):
+        raise ValueError("schema required members are invalid")
+
+    for keyword in ("additionalProperties", "propertyNames", "not"):
+        child = schema.get(keyword)
+        if child is not None and type(child) is not dict and type(child) is not bool:
+            raise ValueError(f"schema {keyword} is invalid")
+
+    pattern = schema.get("pattern")
+    if pattern is not None and (
+        type(pattern) is not str or pattern not in ALLOWED_PATTERNS
+    ):
+        raise ValueError("schema pattern is not admitted")
+
+    for keyword in (
+        "minProperties",
+        "maxProperties",
+        "minLength",
+        "maxLength",
+    ):
+        bound = schema.get(keyword)
+        if bound is not None and (type(bound) is not int or bound < 0):
+            raise ValueError(f"schema {keyword} is invalid")
+
+    for keyword in ("minimum", "maximum"):
+        bound = schema.get(keyword)
+        if bound is not None and (
+            type(bound) not in (int, float)
+            or (type(bound) is float and not math.isfinite(bound))
+        ):
+            raise ValueError(f"schema {keyword} is invalid")
+
+    for minimum_key, maximum_key in (
+        ("minProperties", "maxProperties"),
+        ("minLength", "maxLength"),
+        ("minimum", "maximum"),
+    ):
+        minimum = schema.get(minimum_key)
+        maximum = schema.get(maximum_key)
+        if minimum is not None and maximum is not None and minimum > maximum:
+            raise ValueError("schema bounds are inverted")
+
+
 def _walk_schema(
-    schema: Mapping[str, object],
+    schema: object,
     *,
     depth: int = 1,
 ) -> tuple[int, int]:
     if depth > MAX_SCHEMA_DEPTH:
-        raise ValueError("schema depth exceeds profile")
+        raise InstrumentFailure("schema depth exceeds profile")
+    if type(schema) is bool:
+        return 1, 1
+    if type(schema) is not dict:
+        raise InstrumentFailure("schema child is not an object or Boolean")
     for key in schema:
         if key not in ALLOWED_KEYWORDS:
             raise ValueError(f"schema keyword is not admitted: {key}")
-    pattern = schema.get("pattern")
-    if pattern is not None and pattern not in ALLOWED_PATTERNS:
-        raise ValueError("schema pattern is not admitted")
-    for item in schema.values():
-        if isinstance(item, str) and len(item.encode("utf-8")) > MAX_STRING_BYTES:
-            raise ValueError("schema string exceeds profile")
-        if isinstance(item, (list, tuple, Mapping)) and len(item) > MAX_COLLECTION_SIZE:
-            raise ValueError("schema collection exceeds profile")
+    _validate_schema_keyword_shapes(schema)
     nodes = _json_node_count(schema)
     children = _schema_children(schema)
     expansion = max(
@@ -387,11 +523,27 @@ def _walk_schema(
     return nodes, min(expansion, MAX_EXPANSION_UNITS + 1)
 
 
+def _validate_schema_json_resources(value: object) -> None:
+    stack = [value]
+    while stack:
+        current = stack.pop()
+        if type(current) is str:
+            if len(current.encode("utf-8")) > MAX_STRING_BYTES:
+                raise InstrumentFailure("schema string exceeds profile")
+        elif type(current) is dict:
+            if len(current) > MAX_COLLECTION_SIZE:
+                raise InstrumentFailure("schema collection exceeds profile")
+            stack.extend(current.keys())
+            stack.extend(current.values())
+        elif type(current) is list:
+            if len(current) > MAX_COLLECTION_SIZE:
+                raise InstrumentFailure("schema collection exceeds profile")
+            stack.extend(current)
+
+
 def _json_node_count(value: object) -> int:
     if isinstance(value, Mapping):
-        return 1 + sum(
-            1 + _json_node_count(item) for item in value.values()
-        )
+        return 1 + sum(_json_node_count(item) for item in value.values())
     if isinstance(value, (list, tuple)):
         return 1 + sum(_json_node_count(item) for item in value)
     return 1
@@ -402,6 +554,8 @@ def admit_schema_document(
 ) -> AdmittedSchema:
     if type(profile) is not ProfileIdentity:
         raise TypeError("verified profile identity is required")
+    if profile != build_profile_identity(current_runtime_identity()):
+        raise ValueError("schema evaluator profile identity mismatch")
     plain = _thaw_json(value)
     if type(plain) is not dict:
         raise ValueError("schema document must be an object")
@@ -410,14 +564,33 @@ def admit_schema_document(
     schema_id = plain.get("$id")
     if type(schema_id) is not str or not schema_id:
         raise ValueError("schema document identity is invalid")
+    properties = plain.get("properties")
+    discriminator = (
+        properties.get("schema") if type(properties) is dict else None
+    )
+    if (
+        type(discriminator) is dict
+        and "const" in discriminator
+        and discriminator["const"] != schema_id
+    ):
+        raise ValueError("schema document identity differs from discriminator")
     if len(canonical_json_bytes(plain)) > MAX_SCHEMA_CANONICAL_BYTES:
-        raise ValueError("schema canonical bytes exceed profile")
+        raise InstrumentFailure("schema canonical bytes exceed profile")
+    _validate_schema_json_resources(plain)
     nodes, expansion = _walk_schema(plain)
-    if nodes > MAX_SCHEMA_NODES or expansion > MAX_EXPANSION_UNITS:
-        raise ValueError("schema structural budget exceeded")
+    if nodes > MAX_SCHEMA_NODES:
+        raise InstrumentFailure("schema node limit exceeded")
+    if expansion > MAX_EXPANSION_UNITS:
+        raise InstrumentFailure("schema expansion limit exceeded")
+    schema_fingerprint = fingerprint(plain)
+    if (
+        schema_id == FORWARD_PAYLOAD_SCHEMA_ID
+        and schema_fingerprint != FORWARD_PAYLOAD_SCHEMA_FINGERPRINT
+    ):
+        raise ValueError("code-owned schema fingerprint mismatch")
     return AdmittedSchema(
         schema_id=schema_id,
-        schema_fingerprint=fingerprint(plain),
+        schema_fingerprint=schema_fingerprint,
         schema_document=_freeze_json(plain),
         schema_nodes=nodes,
         expansion_units=expansion,
@@ -502,6 +675,8 @@ def verify_semantic_value_registry(
         plain, "registry_fingerprint"
     ):
         raise ValueError("semantic-value registry fingerprint mismatch")
+    if plain["registry_fingerprint"] != SEMANTIC_VALUE_REGISTRY_FINGERPRINT:
+        raise ValueError("code-owned registry fingerprint mismatch")
     return VerifiedSemanticValueRegistry(
         value=_freeze_json(plain),
         fingerprint=plain["registry_fingerprint"],
@@ -510,12 +685,52 @@ def verify_semantic_value_registry(
     )
 
 
-def _instance_depth(value: object, depth: int = 1) -> int:
-    if isinstance(value, Mapping):
-        return max([depth] + [_instance_depth(item, depth + 1) for item in value.values()])
-    if isinstance(value, (list, tuple)):
-        return max([depth] + [_instance_depth(item, depth + 1) for item in value])
-    return depth
+def _validate_instance_resources(value: object) -> int:
+    nodes = 0
+    stack: list[tuple[object, int]] = [(value, 1)]
+    while stack:
+        current, depth = stack.pop()
+        if depth > MAX_INSTANCE_DEPTH:
+            raise InstrumentFailure("instance depth exceeds profile")
+        nodes += 1
+        if type(current) is str:
+            if len(current.encode("utf-8")) > MAX_STRING_BYTES:
+                raise InstrumentFailure("instance string exceeds profile")
+        elif type(current) is dict:
+            if len(current) > MAX_COLLECTION_SIZE:
+                raise InstrumentFailure("instance collection exceeds profile")
+            for key, item in current.items():
+                if type(key) is not str:
+                    raise InstrumentFailure("instance object key is not a string")
+                if len(key.encode("utf-8")) > MAX_STRING_BYTES:
+                    raise InstrumentFailure("instance string exceeds profile")
+                stack.append((item, depth + 1))
+        elif type(current) is list:
+            if len(current) > MAX_COLLECTION_SIZE:
+                raise InstrumentFailure("instance collection exceeds profile")
+            stack.extend((item, depth + 1) for item in current)
+    return nodes
+
+
+def _json_pointer(tokens: object) -> str:
+    return "".join(
+        "/" + str(token).replace("~", "~0").replace("/", "~1")
+        for token in tokens
+    )
+
+
+def _project_validation_issue(
+    error: object,
+    *,
+    instance_path: str,
+) -> ValidationIssue:
+    message = str(error.message).encode("utf-8")
+    return ValidationIssue(
+        instance_path=instance_path + _json_pointer(error.path),
+        schema_path=_json_pointer(error.schema_path),
+        keyword=str(error.validator),
+        detail_fingerprint=sha256_prefixed(message),
+    )
 
 
 def validate_schema_instance(
@@ -526,27 +741,30 @@ def validate_schema_instance(
     instance_path: str,
 ) -> tuple[ValidationIssue, ...]:
     plain = _thaw_json(instance)
-    nodes = _json_node_count(plain)
-    if _instance_depth(plain) > MAX_INSTANCE_DEPTH:
-        raise ValueError("instance depth exceeds profile")
-    shape = max(schema.schema_nodes, schema.expansion_units) * nodes
-    if shape > MAX_EVALUATION_SHAPE or shape > aggregate_budget.limit:
-        raise ValueError("instance evaluation budget exceeded")
-    errors = sorted(
-        _SEALED_VALIDATOR(_thaw_json(schema.schema_document)).iter_errors(plain),
-        key=lambda error: (list(error.path), list(error.schema_path)),
+    nodes = _validate_instance_resources(plain)
+    _reserve_evaluation_shape(
+        aggregate_budget,
+        schema_shape_units=max(schema.schema_nodes, schema.expansion_units),
+        instance_nodes=nodes,
     )
-    if len(errors) > MAX_ISSUES:
-        raise ValueError("validation issue limit exceeded")
-    return tuple(
-        ValidationIssue(
-            instance_path=instance_path
-            + "".join(f"/{item}" for item in error.path),
-            schema_path="".join(f"/{item}" for item in error.schema_path),
-            keyword=str(error.validator),
-            detail_fingerprint=fingerprint({"message": error.message}),
+    projected: list[ValidationIssue] = []
+    validator = _SEALED_VALIDATOR(_thaw_json(schema.schema_document))
+    for error in validator.iter_errors(plain):
+        projected.append(
+            _project_validation_issue(error, instance_path=instance_path)
         )
-        for error in errors
+        if len(projected) > MAX_ISSUES:
+            raise InstrumentFailure("validation issue limit exceeded")
+    return tuple(
+        sorted(
+            projected,
+            key=lambda issue: (
+                issue.instance_path,
+                issue.schema_path,
+                issue.keyword,
+                issue.detail_fingerprint,
+            ),
+        )
     )
 
 
@@ -938,6 +1156,7 @@ __all__ = [
     "EvaluationBudget",
     "FORWARD_PAYLOAD_SCHEMA_ID",
     "HELPER_CONTRACT_ID",
+    "InstrumentFailure",
     "MACHINE_KEY_PATTERN",
     "PROFILE_ID",
     "ProfileIdentity",
