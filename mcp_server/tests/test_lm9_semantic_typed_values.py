@@ -208,6 +208,66 @@ def test_schema_admission_isolated_from_global_validator_registration() -> None:
     assert admitted.schema_id == "rook.semantic_string:v1"
 
 
+def _schema_with_null_keyword(
+    keyword: str, *, nested: bool = False
+) -> dict[str, object]:
+    schema: dict[str, object] = {
+        "$schema": TYPED_VALUES.DIALECT,
+        "$id": "rook.test:malformed-keyword",
+        "type": "object",
+    }
+    target = schema
+    if nested:
+        child: dict[str, object] = {}
+        schema["properties"] = {"child": child}
+        target = child
+    target[keyword] = None
+    return schema
+
+
+@pytest.mark.parametrize(
+    ("keyword", "nested", "expected"),
+    (
+        ("$schema", True, "dialect"),
+        ("$id", True, "identity"),
+        ("type", False, "type"),
+        ("properties", False, "properties"),
+        ("required", False, "required"),
+        ("additionalProperties", False, "additionalProperties"),
+        ("propertyNames", False, "propertyNames"),
+        ("pattern", False, "pattern"),
+        ("not", False, "not"),
+        ("minProperties", False, "minProperties"),
+        ("maxProperties", False, "maxProperties"),
+        ("minLength", False, "minLength"),
+        ("maxLength", False, "maxLength"),
+        ("minimum", False, "minimum"),
+        ("maximum", False, "maximum"),
+    ),
+)
+def test_schema_admission_refuses_explicit_null_keyword_values(
+    keyword: str,
+    nested: bool,
+    expected: str,
+) -> None:
+    with pytest.raises(ValueError, match=expected):
+        TYPED_VALUES.admit_schema_document(
+            _schema_with_null_keyword(keyword, nested=nested),
+            profile=_profile(),
+        )
+
+
+def test_schema_admission_preserves_valid_explicit_null_const() -> None:
+    schema = {
+        "$schema": TYPED_VALUES.DIALECT,
+        "$id": "rook.test:null-const",
+        "const": None,
+    }
+    admitted = TYPED_VALUES.admit_schema_document(schema, profile=_profile())
+
+    assert admitted.schema_id == "rook.test:null-const"
+
+
 def test_exact_boolean_is_not_an_integer() -> None:
     integer = TYPED_VALUES.admit_schema_document(
         _schema("rook.semantic_integer:v1"), profile=_profile()

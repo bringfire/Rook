@@ -428,22 +428,25 @@ def _schema_children(schema: Mapping[str, object]) -> tuple[object, ...]:
 
 
 def _validate_schema_keyword_shapes(schema: dict[str, object]) -> None:
-    dialect = schema.get("$schema")
-    if dialect is not None and (type(dialect) is not str or dialect != DIALECT):
-        raise ValueError("schema dialect mismatch")
-    schema_id = schema.get("$id")
-    if schema_id is not None and (type(schema_id) is not str or not schema_id):
-        raise ValueError("schema document identity is invalid")
+    if "$schema" in schema:
+        dialect = schema["$schema"]
+        if type(dialect) is not str or dialect != DIALECT:
+            raise ValueError("schema dialect mismatch")
+    if "$id" in schema:
+        schema_id = schema["$id"]
+        if type(schema_id) is not str or not schema_id:
+            raise ValueError("schema document identity is invalid")
 
-    instance_type = schema.get("type")
-    if instance_type is not None and (
-        type(instance_type) is not str
-        or instance_type not in ALLOWED_INSTANCE_TYPES
-    ):
-        raise ValueError("schema type is not admitted")
+    if "type" in schema:
+        instance_type = schema["type"]
+        if (
+            type(instance_type) is not str
+            or instance_type not in ALLOWED_INSTANCE_TYPES
+        ):
+            raise ValueError("schema type is not admitted")
 
-    properties = schema.get("properties")
-    if properties is not None:
+    if "properties" in schema:
+        properties = schema["properties"]
         if type(properties) is not dict or any(
             type(key) is not str
             or (type(child) is not dict and type(child) is not bool)
@@ -451,24 +454,25 @@ def _validate_schema_keyword_shapes(schema: dict[str, object]) -> None:
         ):
             raise ValueError("schema properties are invalid")
 
-    required = schema.get("required")
-    if required is not None and (
-        type(required) is not list
-        or any(type(item) is not str for item in required)
-        or len(required) != len(set(required))
-    ):
-        raise ValueError("schema required members are invalid")
+    if "required" in schema:
+        required = schema["required"]
+        if (
+            type(required) is not list
+            or any(type(item) is not str for item in required)
+            or len(required) != len(set(required))
+        ):
+            raise ValueError("schema required members are invalid")
 
     for keyword in ("additionalProperties", "propertyNames", "not"):
-        child = schema.get(keyword)
-        if child is not None and type(child) is not dict and type(child) is not bool:
-            raise ValueError(f"schema {keyword} is invalid")
+        if keyword in schema:
+            child = schema[keyword]
+            if type(child) is not dict and type(child) is not bool:
+                raise ValueError(f"schema {keyword} is invalid")
 
-    pattern = schema.get("pattern")
-    if pattern is not None and (
-        type(pattern) is not str or pattern not in ALLOWED_PATTERNS
-    ):
-        raise ValueError("schema pattern is not admitted")
+    if "pattern" in schema:
+        pattern = schema["pattern"]
+        if type(pattern) is not str or pattern not in ALLOWED_PATTERNS:
+            raise ValueError("schema pattern is not admitted")
 
     for keyword in (
         "minProperties",
@@ -476,27 +480,29 @@ def _validate_schema_keyword_shapes(schema: dict[str, object]) -> None:
         "minLength",
         "maxLength",
     ):
-        bound = schema.get(keyword)
-        if bound is not None and (type(bound) is not int or bound < 0):
-            raise ValueError(f"schema {keyword} is invalid")
+        if keyword in schema:
+            bound = schema[keyword]
+            if type(bound) is not int or bound < 0:
+                raise ValueError(f"schema {keyword} is invalid")
 
     for keyword in ("minimum", "maximum"):
-        bound = schema.get(keyword)
-        if bound is not None and (
-            type(bound) not in (int, float)
-            or (type(bound) is float and not math.isfinite(bound))
-        ):
-            raise ValueError(f"schema {keyword} is invalid")
+        if keyword in schema:
+            bound = schema[keyword]
+            if type(bound) not in (int, float) or (
+                type(bound) is float and not math.isfinite(bound)
+            ):
+                raise ValueError(f"schema {keyword} is invalid")
 
     for minimum_key, maximum_key in (
         ("minProperties", "maxProperties"),
         ("minLength", "maxLength"),
         ("minimum", "maximum"),
     ):
-        minimum = schema.get(minimum_key)
-        maximum = schema.get(maximum_key)
-        if minimum is not None and maximum is not None and minimum > maximum:
-            raise ValueError("schema bounds are inverted")
+        if minimum_key in schema and maximum_key in schema:
+            minimum = schema[minimum_key]
+            maximum = schema[maximum_key]
+            if minimum > maximum:
+                raise ValueError("schema bounds are inverted")
 
 
 def _walk_schema(
