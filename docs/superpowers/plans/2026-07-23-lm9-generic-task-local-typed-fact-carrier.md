@@ -4,7 +4,7 @@
 
 **Goal:** Qualify one generic, task-local typed-fact carrier that admits open machine-keyed facts across four closed value variants, binds every fact bijectively to authority evidence, preserves the exact blocked LM9B-P observation, and emits a checksum-closed no-contact scientific witness.
 
-**Architecture:** Add one pure neutral typed-value module under `scripts/` and one probe-owned composition module around it. The neutral module seals the JSON Schema profile, registry, type policy, budgets, typed-value equations, and proof-carrying unit-context index. The composition module owns strict byte loading, forward task-envelope validation, read-only historical reconstruction, migration/authority partitions, and deterministic fixtures. It validates recipe typed values before delegating unchanged recipe bytes to the existing mechanical gate; it does not replace or duplicate that gate. A separate qualification writer/verifier reconstructs every claim from code-owned contracts, production-pinned source evidence, the official derivative verifier, and deterministic witnesses. No product or validation-kernel code imports the scientific helper.
+**Architecture:** Add one neutral deterministic typed-value module under `scripts/` and one probe-owned composition module around it. The neutral module seals the JSON Schema profile, registry, type policy, budgets, typed-value equations, and proof-carrying unit-context index. Its value-validation functions are pure; its sole process-local state is the closure-owned weak issuance registry required to authenticate live proof carriers. The composition module owns strict byte loading, forward task-envelope validation, read-only historical reconstruction, migration/authority partitions, and deterministic fixtures. It validates recipe typed values before delegating unchanged recipe bytes to the existing mechanical gate; it does not replace or duplicate that gate. A separate qualification writer/verifier reconstructs every claim from code-owned contracts, production-pinned source evidence, the official derivative verifier, and deterministic witnesses. No product or validation-kernel code imports the scientific helper.
 
 **Tech Stack:** Python 3.12.12 qualification environment, Python standard library (`argparse`, `dataclasses`, `hashlib`, `importlib.metadata`, `json`, `pathlib`, `platform`, `re`, `shutil`, `subprocess`, `sys`, `types`), `jsonschema==4.26.0` with `Draft202012Validator`, existing Rook canonical JSON and LM9B-P artifact/gate/verifier modules, pytest.
 
@@ -24,13 +24,13 @@
 - Keep all radial and annotation keys/values in fixture/test sources. Neutral helper and forward contract sources must contain none of them.
 - The exact blocked-parent disposition is established only by the production-pinned source, official derivative verifier, unchanged mechanical gate, and shared classifier. Synthetic controls establish representation compatibility only.
 - The qualification is scientific evidence, not LM9A validity, product authority, compile readiness, product compatibility, or cross-runtime portability.
-- Do not modify `mcp_server/src/rook/validation_kernel/**`, `mcp_server/src/rook/**`, historical fixtures, or existing LM9B-P behavior. The sole permitted existing-script change is a tested read-only exposure of the recommendation already reconstructed by the public derivative verifier, and only if Task 5 proves its current return type cannot carry that evidence. Any broader change requires design review.
+- Do not modify `mcp_server/src/rook/validation_kernel/**`, `mcp_server/src/rook/**`, historical fixtures, or existing LM9B-P behavior. Task 1 makes the sole permitted existing-script change: a narrowly tested read-only exposure of the exact `PlannerEvaluationResult` already reconstructed by the public derivative verifier. Any broader change requires design review.
 
 ---
 
 ## File Map
 
-- Create `scripts/lm9_semantic_typed_values.py`: pure scientific profile, registry, evaluator, typed-value, fingerprint, budget, and verified unit-context mechanics; no I/O or environment access.
+- Create `scripts/lm9_semantic_typed_values.py`: deterministic scientific profile, registry, evaluator, typed-value, fingerprint, budget, and verified unit-context mechanics; no I/O or environment access and no mutation except the closure-hidden bounded weak identity registry for live proof carriers.
 - Create `scripts/lm9_typed_fact_carrier_artifacts.py`: strict byte-loading composition, code-owned contract loading, forward envelope/binding validation, historical reconstruction, authority partitioning, and witness construction.
 - Create `scripts/lm9_typed_fact_carrier_qualification.py`: no-contact qualification staging, closed membership, checksum/identity sealing, independent verification, and CLI.
 - Create `scripts/lm9_typed_fact_carrier_contracts/semantic_value_schema_registry.json`: exact four-entry v2 registry with self-contained schema documents and computed fingerprints.
@@ -40,7 +40,7 @@
 - Create `mcp_server/tests/test_lm9_semantic_typed_values.py`: compact profile/registry/evaluator/type/unit-proof suite.
 - Create `mcp_server/tests/test_lm9_typed_fact_carrier.py`: forward envelope, binding, migration, radial/annotation, source-neutrality, and outcome-neutral parent tests.
 - Create `mcp_server/tests/test_lm9_typed_fact_carrier_qualification.py`: qualification closure, adversarial reclosure, no-contact boundary, and CLI tests.
-- Conditionally modify `scripts/lm9b_p_evaluator_only_continuation_artifacts.py` and `mcp_server/tests/test_lm9b_p_evaluator_only_continuation.py` only to expose the parser-derived semantic recommendation already verified inside the public derivative verifier.
+- Modify `scripts/lm9b_p_evaluator_only_continuation_artifacts.py` and `mcp_server/tests/test_lm9b_p_evaluator_only_continuation.py` only to expose the parser-derived `PlannerEvaluationResult` already verified inside the public derivative verifier.
 
 ### Import boundary
 
@@ -84,6 +84,8 @@ Anything without a complete truthful row is out of scope. In particular:
 ### Task 1: Walk the smallest complete no-contact qualification transaction
 
 **Files:**
+- Modify: `scripts/lm9b_p_evaluator_only_continuation_artifacts.py`
+- Modify: `mcp_server/tests/test_lm9b_p_evaluator_only_continuation.py`
 - Create: `scripts/lm9_semantic_typed_values.py`
 - Create: `scripts/lm9_typed_fact_carrier_artifacts.py`
 - Create: `scripts/lm9_typed_fact_carrier_qualification.py`
@@ -96,6 +98,15 @@ Anything without a complete truthful row is out of scope. In particular:
 **Walking-witness interfaces:**
 
 ```python
+@dataclass(frozen=True)
+class SealedDerivative:
+    archive_dir: Path
+    derivative_archive_identity: str
+    classification: str
+    identity: Mapping[str, object]
+    evaluator_result: SUPPORT.PlannerEvaluationResult
+    state: str = "sealed"
+
 def derive_verified_unit_context_index(...) -> VerifiedUnitContextIndex: ...
 def validate_forward_task_envelope(...) -> VerifiedForwardTaskEnvelope: ...
 def reconstruct_observed_historical_task_values(...) -> Mapping[str, VerifiedTypedValue]: ...
@@ -109,7 +120,65 @@ def verify_qualification_archive(
 ) -> VerifiedQualification: ...
 ```
 
-- [ ] **Step 1: Write the failing Task-1 walking witness through the real public boundary**
+- [ ] **Step 1: Add a failing focused test for parser-derived evaluator-result exposure**
+
+In `test_lm9b_p_evaluator_only_continuation.py`, verify the official public
+derivative at its identity-bound destination and require:
+
+```python
+derived = []
+derive = CONTINUATION.SUPPORT.derive_planner_evaluation_result
+
+def capture_parser_result(**kwargs):
+    result = derive(**kwargs)
+    derived.append(result)
+    return result
+
+monkeypatch.setattr(
+    CONTINUATION.SUPPORT,
+    "derive_planner_evaluation_result",
+    capture_parser_result,
+)
+sealed = CONTINUATION.verify_sealed_derivative_archive(
+    OFFICIAL_DERIVATIVE,
+    expected_derivative_identity=OFFICIAL_DERIVATIVE_IDENTITY,
+)
+assert len(derived) == 1
+assert sealed.evaluator_result is derived[0]
+assert type(sealed.evaluator_result) is SUPPORT.PlannerEvaluationResult
+assert sealed.evaluator_result.termination == "valid_recommendation"
+assert sealed.evaluator_result.recommendation == "semantically_faithful"
+assert sealed.classification == ARTIFACTS.derive_evaluated_recipe_classification(
+    sealed.evaluator_result,
+    final_recipe_bytes=CONTINUATION.verify_historical_source().final_recipe_bytes,
+)
+```
+
+Retain the existing parameterized provenance-reclosure test's
+`claim == "evaluator_result"` row as the adversarial guard: it fully recloses
+the authored result/classification while captured tool evidence remains
+authoritative, and the public verifier must still refuse before returning an
+object.
+
+- [ ] **Step 2: Run the focused exposure test and capture red**
+
+```powershell
+$env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
+& 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe' -m pytest mcp_server/tests/test_lm9b_p_evaluator_only_continuation.py -k "parser_derived_evaluator_result_exposure" -q
+```
+
+Expected: FAIL because `SealedDerivative` does not expose `evaluator_result`.
+
+- [ ] **Step 3: Expose the exact reconstructed evaluator result read-only**
+
+Add `evaluator_result: SUPPORT.PlannerEvaluationResult` to `SealedDerivative`.
+In `_verify_sealed_derivative_archive()`, populate it only from the local
+`evaluator` object produced by `SUPPORT.derive_planner_evaluation_result()`
+after `result == expected_result` and every captured-evidence check succeeds.
+Never reconstruct it from `evaluator/result.json` and do not add another parser.
+Run the focused exposure test green before writing the carrier modules.
+
+- [ ] **Step 4: Write the failing Task-1 walking witness through the real public boundary**
 
 Create one test, `test_task1_walks_real_transition_and_publicly_verifies`, that
 uses the exact production-pinned source and official derivative. It must walk
@@ -150,7 +219,7 @@ public-verifier derivations. The temporary archive is discarded and makes no
 development/post-merge qualification claim. Task 6 later runs the same entry
 point against a real clean committed checkout.
 
-- [ ] **Step 2: Run the walking witness and capture the intended red state**
+- [ ] **Step 5: Run the walking witness and capture the intended red state**
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
@@ -159,7 +228,7 @@ $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
 
 Expected: FAIL because none of the walking-witness modules or artifacts exist.
 
-- [ ] **Step 3: Add the thinnest code-owned contracts that admit only the reviewed happy path**
+- [ ] **Step 6: Add the thinnest code-owned contracts that admit only the reviewed happy path**
 
 Create the exact v2 registry and forward payload schema with their final
 identities and fingerprints. Implement only enough sealed-profile admission to
@@ -167,13 +236,20 @@ verify those exact code-owned documents and enforce the final four forward
 value shapes. Do not add permissive fallback behavior that later tests must
 remove.
 
-- [ ] **Step 4: Implement opaque unit-context issuance and consumption-time verification first**
+- [ ] **Step 7: Implement opaque unit-context issuance and consumption-time verification first**
 
 `VerifiedUnitContextIndex` is a non-dataclass, final, slotted opaque class:
 
 ```python
 class VerifiedUnitContextIndex:
-    __slots__ = ("__snapshot", "__entries", "__proof_fingerprint", "__consume")
+    __slots__ = (
+        "__snapshot",
+        "__entries",
+        "__proof_fingerprint",
+        "__weakref__",
+    )
+    __hash__ = object.__hash__
+    __eq__ = object.__eq__
 
     def __new__(cls, *args, **kwargs):
         raise TypeError("VerifiedUnitContextIndex is module-issued only")
@@ -191,32 +267,52 @@ class VerifiedUnitContextIndex:
         raise TypeError("VerifiedUnitContextIndex is not serializable")
 ```
 
-The private issuer uses `object.__new__`, freezes canonical source snapshot
-bytes and entries, and installs a private consumption closure bound to that
-specific issued object's identity:
+Authority is held outside the instance. Build issuance and consumption
+functions in one module-private closure over a `weakref.WeakKeyDictionary`:
 
 ```python
-issued = object.__new__(VerifiedUnitContextIndex)
+def _build_unit_context_authority_gate():
+    issued: weakref.WeakKeyDictionary[
+        VerifiedUnitContextIndex,
+        _UnitContextAuthoritySeal,
+    ] = weakref.WeakKeyDictionary()
 
-def consume(
-    candidate: VerifiedUnitContextIndex,
-    _issued: VerifiedUnitContextIndex = issued,
-) -> VerifiedUnitContextIndex:
-    if candidate is not _issued:
-        raise ValueError("unit-context proof carrier was not issued")
-    return _rederive_and_compare_unit_context_index(candidate)
+    def issue(seal: _UnitContextAuthoritySeal) -> VerifiedUnitContextIndex:
+        carrier = object.__new__(VerifiedUnitContextIndex)
+        _set_carrier_projection(carrier, seal)
+        issued[carrier] = seal
+        return carrier
 
-object.__setattr__(issued, "_VerifiedUnitContextIndex__consume", consume)
+    def consume(
+        carrier: VerifiedUnitContextIndex,
+    ) -> VerifiedUnitContextIndex:
+        if type(carrier) is not VerifiedUnitContextIndex:
+            raise ValueError("unit-context proof carrier was not issued")
+        seal = issued.get(carrier)
+        if seal is None:
+            raise ValueError("unit-context proof carrier was not issued")
+        _compare_carrier_projection_to_seal(carrier, seal)
+        _rederive_and_compare_unit_context_seal(seal)
+        return carrier
+
+    return issue, consume
+
+_issue_unit_context_index, _consume_unit_context_index = (
+    _build_unit_context_authority_gate()
+)
 ```
 
-Every scalar consumer requires exact class and invokes that self-bound
-capability. It reconstructs entries from retained environment/payload-schema/
-attempt-context bytes, compares canonical entries, and recomputes the proof
-fingerprint. Copying every private slot to a different exact-class object
-retains a closure bound to the original and therefore fails. Neither a type
-marker nor a stored fingerprint is trusted alone.
+`_UnitContextAuthoritySeal` is a frozen module-private value containing the
+authoritative canonical source snapshot, immutable entries, and proof
+fingerprint. Instance slots are only a publicly read-only, consumption-checked
+projection. Every scalar consumer calls the closure-owned consumer, compares
+all projections to the
+seal, and rederives the seal from its authority bytes. A manual clone has no
+registry entry; mutating and fully reclosing the actual issued object's slots
+still disagrees with the external seal. The weak registry releases the seal
+when its carrier is collected and is never serialized as evidence.
 
-- [ ] **Step 5: Implement the thin forward/historical/migration composition**
+- [ ] **Step 8: Implement the thin forward/historical/migration composition**
 
 Validate the committed radial and annotation envelopes through the same real
 forward payload, registry, binding bijection, and opaque proof consumer. Bind historical
@@ -225,7 +321,7 @@ reject every raw type except the observed exact `str` and exact `int` shapes.
 Derive migration/delta keys mechanically from authenticated parent bindings,
 successor bindings, and parent unresolved rows.
 
-- [ ] **Step 6: Implement thin outcome and qualification write/read verification**
+- [ ] **Step 9: Implement thin outcome and qualification write/read verification**
 
 Use `verify_historical_source()`, the unchanged mechanical gate, the official
 derivative verifier, and the shared classifier. Write the final closed
@@ -238,7 +334,7 @@ harden those refusals. The initial public verifier reconstructs every recorded
 happy-path and negative-case result; it must never trust authored result
 fields.
 
-- [ ] **Step 7: Run the walking witness green and audit the actual call order**
+- [ ] **Step 10: Run the walking witness green and audit the actual call order**
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
@@ -250,10 +346,10 @@ Expected: one real-source, no-contact qualification write/read path passes.
 Inspect the test trace/call ledger and confirm every arrow in the Task-1
 transition is exercised.
 
-- [ ] **Step 8: Commit the vertical witness and stop at the mandatory review checkpoint**
+- [ ] **Step 11: Commit the vertical witness and stop at the mandatory review checkpoint**
 
 ```powershell
-git add scripts/lm9_semantic_typed_values.py scripts/lm9_typed_fact_carrier_artifacts.py scripts/lm9_typed_fact_carrier_qualification.py scripts/lm9_typed_fact_carrier_contracts scripts/lm9_typed_fact_carrier_fixtures mcp_server/tests/test_lm9_typed_fact_carrier_qualification.py
+git add scripts/lm9b_p_evaluator_only_continuation_artifacts.py mcp_server/tests/test_lm9b_p_evaluator_only_continuation.py scripts/lm9_semantic_typed_values.py scripts/lm9_typed_fact_carrier_artifacts.py scripts/lm9_typed_fact_carrier_qualification.py scripts/lm9_typed_fact_carrier_contracts scripts/lm9_typed_fact_carrier_fixtures mcp_server/tests/test_lm9_typed_fact_carrier_qualification.py
 git commit -m "feat: walk LM9 typed-fact qualification"
 git status --short --branch
 ```
@@ -610,10 +706,25 @@ def test_unit_context_carrier_is_final_and_copy_is_identity():
     with pytest.raises(TypeError):
         dataclasses.replace(issued)
 
-def test_exact_slot_clone_fails_self_bound_consumption_capability():
+def test_exact_slot_clone_has_no_module_authority_seal():
     cloned = _manually_allocate_exact_class_clone(_unit_context_index())
     with pytest.raises(ValueError, match="was not issued"):
         _validate(_scalar("2"), unit_context_index=cloned)
+
+def test_fully_reclosed_actual_issued_object_disagrees_with_external_seal():
+    issued = _unit_context_index()
+    assert not hasattr(
+        issued,
+        "_VerifiedUnitContextIndex__consume",
+    )
+    _force_reclose_actual_issued_object(
+        issued,
+        snapshot=_alternate_valid_snapshot(),
+        entries=_entries_for_alternate_snapshot(),
+        proof_fingerprint=_alternate_proof_fingerprint(),
+    )
+    with pytest.raises(ValueError, match="unit-context proof projection"):
+        _validate(_scalar("2"), unit_context_index=issued)
 
 @pytest.mark.parametrize("mutation", ["entries", "proof_fingerprint", "snapshot"])
 def test_consumption_rederives_opaque_carrier(mutation):
@@ -659,13 +770,13 @@ schema/fingerprint, payload validation, frozen sessions, trusted issuer, and
 recompute its value fingerprint. Issue `VerifiedUnitContextIndex` only through
 the private constructor described in Task 1.
 
-Every scalar consumption requires exact class, immutable mapping/entry types,
-the self-bound consumption capability, and full reconstruction from the retained canonical
-environment/payload-schema/attempt-context snapshot. It compares rebuilt
-entries and proof fingerprint before dereference. Manually allocated exact
-class instances, altered private slots, copied-as-new values, replacement, and
-serialization all fail or preserve object identity. The consumer never
-converts `model_unit` to `millimeter`.
+Every scalar consumption requires exact class, a closure-registry authority
+seal for that object identity, immutable mapping/entry projections equal to the
+seal, and full reconstruction from the seal's canonical environment/
+payload-schema/attempt-context snapshot. Manually allocated exact-class
+instances, altered private slots, a fully reclosed actual issued object,
+copied-as-new values, replacement, and serialization all fail or preserve
+object identity. The consumer never converts `model_unit` to `millimeter`.
 
 - [ ] **Step 7: Run Task 3 green and commit**
 
@@ -840,7 +951,7 @@ complete binding, migration, unrelated-witness, and negative-case matrix.
 
 - [ ] **Step 6: Implement strict byte loading and forward-envelope verification**
 
-Reject raw registry input above 4,194,304 bytes and raw envelope input above 1,048,576 bytes before strict parsing. Then use the existing bounded strict parser, including duplicate-key refusal, and pass parsed objects into the pure helper. Validate, in order:
+Reject raw registry input above 4,194,304 bytes and raw envelope input above 1,048,576 bytes before strict parsing. Then use the existing bounded strict parser, including duplicate-key refusal, and pass parsed objects into the deterministic helper. Validate, in order:
 
 1. exact `rook.planner_task_envelope:v1` closed envelope shape;
 2. reserved `artifact_id: task_envelope` and task session;
@@ -959,7 +1070,9 @@ The test calls, in order:
 
 Assert exact bytes/hash/fingerprint, `mechanically_accepted`, five unresolved rows, `semantically_faithful`, and `probe_candidate_blocked`. Patch provider constructors/entry points to raise and prove no provider behavior is reachable.
 
-If the current public derivative return type does not expose its already verified parser-derived recommendation, first add a failing focused test, then add `semantic_recommendation: str | None` to `SealedDerivative` and populate it from the exact `PlannerEvaluationResult` reconstructed from captured tool arguments inside `_verify_sealed_derivative_archive()`. Do not populate it from `evaluator/result.json` and do not build a second archive verifier. This is the sole condition under which an existing LM9B-P module may be touched, and it changes no provider or classification behavior.
+Consume `sealed.evaluator_result` exposed and tested in Task 1 directly in the
+shared classifier. Task 5 must not parse evaluator evidence again, trust the
+archived classification, or modify the existing continuation module.
 
 - [ ] **Step 2: Add accepted assumption/derived-value control witnesses**
 
@@ -984,7 +1097,10 @@ Expected: new outcome-neutral witness tests FAIL.
 
 The carrier validates typed values and packages evidence, then delegates the full recipe decision to the existing gate. Do not copy recipe schema, authority binding, normalization, fingerprint, blocker, or classification equations. Require gate `final_recipe_bytes` byte-equal to source.
 
-The public derivative verifier remains the only semantic-result route. Any tiny read-only result exposure is tested in `mcp_server/tests/test_lm9b_p_evaluator_only_continuation.py` and preserves archive verification equations exactly.
+The public derivative verifier remains the only semantic-result route. Consume
+only the Task-1 `evaluator_result` return value, whose focused test proves it is
+the same parser-derived object accepted by the verifier after its archive
+verification equations complete.
 
 - [ ] **Step 6: Run Task 5 green and commit**
 
@@ -993,11 +1109,8 @@ $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
 & 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe' -m pytest mcp_server/tests/test_lm9_semantic_typed_values.py mcp_server/tests/test_lm9_typed_fact_carrier.py mcp_server/tests/test_lm9b_p_evaluator_only_continuation.py -q
 git diff --check
 git add scripts/lm9_typed_fact_carrier_artifacts.py mcp_server/tests/test_lm9_typed_fact_carrier.py
-git add scripts/lm9b_p_evaluator_only_continuation_artifacts.py mcp_server/tests/test_lm9b_p_evaluator_only_continuation.py
 git commit -m "test: prove typed-fact migration neutrality"
 ```
-
-If the conditional public-return exposure was unnecessary, the second `git add` has no paths to stage and must be omitted.
 
 ---
 

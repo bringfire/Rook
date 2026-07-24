@@ -72,7 +72,7 @@ derivative does not replace it. Neither archive may be changed by this work.
 - one generic forward task-payload contract with open task-local fact keys;
 - one versioned semantic-value schema registry with closed schema documents;
 - one sealed scientific JSON Schema profile;
-- one pure shared typed-value helper under `scripts/`;
+- one neutral deterministic typed-value helper under `scripts/`;
 - exact task fact-to-binding bijection and fingerprint equations;
 - proof-carrying external unit-context resolution;
 - an outcome-neutral registry migration witness over the exact blocked recipe;
@@ -108,7 +108,7 @@ durable contracts:
   experimental findings
 
 disposable scientific machinery:
-  shared pure typed-value validator under scripts/
+  shared deterministic typed-value validator under scripts/
   historical comparison adapter
   radial and annotation fixtures
   probe-local evidence and isolation gates
@@ -567,10 +567,12 @@ bounded detail fingerprint
 More than 1,024 issues is an instrument failure. No truncated issue set is
 accepted as validation evidence.
 
-## 12. Pure scientific helper
+## 12. Deterministic scientific helper
 
-One neutral module, `scripts/lm9_semantic_typed_values.py`, owns only pure
-scientific operations:
+One neutral module, `scripts/lm9_semantic_typed_values.py`, owns deterministic
+scientific operations. Its value-validation and fingerprint operations are
+pure; its only process-local state is the closure-owned weak issuance registry
+needed to authenticate live proof carriers:
 
 - verify the registry and schema-document fingerprints;
 - admit schema documents under the exact sealed profile;
@@ -583,7 +585,8 @@ scientific operations:
 The module contains no:
 
 - file or environment reads;
-- mutation, repair, coercion, normalization, or default insertion;
+- mutation of caller/source values, repair, coercion, normalization, or default
+  insertion;
 - model, provider, report-policy, or product-routing behavior;
 - semantic-key interpretation;
 - radial or annotation names or values.
@@ -635,15 +638,26 @@ Construction verifies:
 - referenced value fingerprint.
 
 The helper issues an opaque, exact-class proof carrier whose entries and frozen
-source snapshot are immutable. Public construction and subclassing are
-forbidden. Copy operations return the same immutable carrier, replacement and
-serialization are forbidden, and consumers rederive the index and proof
-fingerprint from its retained frozen authority snapshot before every use. The
-private issuer installs a consumption capability closed over the issued
-object's identity; copying every slot to a different exact-class object still
-fails the identity check. A module-issued type marker alone is never
-sufficient. Manually allocated, altered, copied-as-new, or
-fingerprint-divergent carriers fail consumption.
+source snapshot are publicly read-only, consumption-checked projections.
+Public construction and subclassing are forbidden. Copy operations return the
+same carrier; replacement and serialization are forbidden.
+
+Authority does not live in replaceable instance state. A module-private
+issuance/consumption closure owns a bounded weak identity registry from each
+live issued object to an immutable authoritative seal containing the frozen
+source snapshot, entries, and proof fingerprint. The registry is unreachable
+through the public carrier and releases entries when carriers are collected.
+Every consumer requires exact object identity in that registry, compares every
+instance projection to the authoritative seal, then rederives entries and the
+proof fingerprint from the seal's frozen authority bytes. Qualification
+verification issues a new carrier from archived authority; it never persists
+or trusts process-local registry state.
+
+A module-issued type marker or self-stored callable is never sufficient.
+Manually allocated, altered, fully reclosed in-place, copied-as-new, or
+fingerprint-divergent carriers fail consumption. The weak registry is the
+helper's sole internal state mutation and never changes caller/source values or
+scientific results.
 
 A scalar reference then requires exactly one matching proof entry. The scalar
 schema validates reference shape; the proof index establishes external
@@ -766,6 +780,13 @@ The witness requires:
 The registry and instrument identities move. The recipe meaning, bytes,
 authority, and disposition do not.
 
+The outcome-neutral path consumes the exact `PlannerEvaluationResult` returned
+by the public derivative verifier. That verifier exposes its already
+parser-derived object only after captured model evidence, authored result,
+classification, identity, checksums, and canonical location all verify. The
+carrier instrument does not parse evaluator evidence a second time and does
+not trust either the archived result record or classification as authority.
+
 The outcome-neutral migration suite also binds the existing accepted control
 fixtures that contain assumption and derived-fact typed values. It proves their
 current occurrence-specific field-presence rules remain accepted through the
@@ -879,7 +900,9 @@ The test suite remains compact and parameterized.
 - public exact-class construction or subclassing attempt;
 - manually allocated exact-class value;
 - copy-as-new, replacement, or serialization attempt;
-- altered immutable entry set, frozen source snapshot, or proof fingerprint;
+- altered entry, source-snapshot, or proof-fingerprint projection;
+- actual issued object fully reclosed around an alternate internally
+  consistent projection;
 - wrong environment artifact or payload schema identity;
 - stale, wrong-session, or wrong-issuer context;
 - missing, duplicate, or wrong-schema environment binding;
