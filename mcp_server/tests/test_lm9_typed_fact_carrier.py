@@ -135,6 +135,33 @@ def test_raw_envelope_and_registry_limits_precede_strict_parsing() -> None:
 
 
 @pytest.mark.parametrize(
+    "issued_at",
+    (
+        {"unchecked": True},
+        "2026-07-23T12:00:00+00:00",
+        "2026-7-23T12:00:00Z",
+        "2026-02-30T12:00:00Z",
+        "2026-07-23T12:00:00.000Z",
+    ),
+)
+def test_forward_envelope_refuses_noncanonical_issued_at(issued_at: object) -> None:
+    envelope = _fixture(CARRIER.ANNOTATION_FIXTURE_PATH)
+    envelope["issued_at"] = issued_at
+
+    with pytest.raises(ValueError, match="issued_at"):
+        _validate(_reclose(envelope))
+
+
+def test_issued_at_is_format_only_and_grants_no_freshness_authority() -> None:
+    envelope = _fixture(CARRIER.ANNOTATION_FIXTURE_PATH)
+    envelope["issued_at"] = "2099-12-31T23:59:59Z"
+
+    verified = _validate(_reclose(envelope))
+
+    assert verified.envelope["issued_at"] == "2099-12-31T23:59:59Z"
+
+
+@pytest.mark.parametrize(
     "case",
     (
         "missing_binding",
@@ -290,7 +317,9 @@ def test_exact_parent_migration_and_authority_partition() -> None:
     "case",
     (
         "retained_value",
+        "retained_type",
         "retained_provenance",
+        "retained_authority_kind",
         "removed_parent",
         "extra_delta",
         "omitted_required",
@@ -304,8 +333,19 @@ def test_migration_and_partition_refuse_reclosed_nonisolated_successor(
     if case == "retained_value":
         envelope["payload"]["facts"]["element_kind"]["value"] = "sphere"
         raw = _reclose_fact(envelope, "element_kind")
+    elif case == "retained_type":
+        envelope["payload"]["facts"]["grid_count_x"] = {
+            "schema": "rook.semantic_string:v1",
+            "value": "10",
+            "unit": None,
+            "unit_context_ref": None,
+        }
+        raw = _reclose_fact(envelope, "grid_count_x")
     elif case == "retained_provenance":
         _binding(envelope, "element_kind")["provenance"]["issuer_id"] = "other"
+        raw = _reclose(envelope)
+    elif case == "retained_authority_kind":
+        _binding(envelope, "element_kind")["authority_kind"] = "task_fact"
         raw = _reclose(envelope)
     elif case in {"removed_parent", "omitted_required"}:
         key = "element_kind" if case == "removed_parent" else "grid_spacing"
@@ -345,7 +385,12 @@ def test_migration_and_partition_refuse_reclosed_nonisolated_successor(
         _binding(envelope, "grid_spacing")["authority_kind"] = "task_fact"
         raw = _reclose(envelope)
     successor = _validate(raw)
-    if case in {"retained_value", "retained_provenance"}:
+    if case in {
+        "retained_value",
+        "retained_type",
+        "retained_provenance",
+        "retained_authority_kind",
+    }:
         parent_bindings, partition = _partition_inputs(successor)
         with pytest.raises(ValueError, match="retained"):
             CARRIER.verify_exact_migration(

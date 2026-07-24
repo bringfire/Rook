@@ -8,6 +8,7 @@ import pickle
 import re
 import sys
 from dataclasses import asdict, dataclass, replace
+from datetime import datetime
 from pathlib import Path
 from types import MappingProxyType
 from typing import Mapping
@@ -68,6 +69,21 @@ _BINDING_FIELDS = {
 }
 _PROVENANCE_FIELDS = {"issuer_kind", "issuer_id"}
 _MACHINE_KEY = re.compile(TYPED_VALUES.MACHINE_KEY_PATTERN)
+_CANONICAL_UTC_INSTANT = re.compile(
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+)
+
+
+def _require_canonical_utc_instant(value: object, *, label: str) -> str:
+    if type(value) is not str or _CANONICAL_UTC_INSTANT.fullmatch(value) is None:
+        raise ValueError(f"{label} is not canonical UTC")
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError as exc:
+        raise ValueError(f"{label} is not canonical UTC") from exc
+    if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") != value:
+        raise ValueError(f"{label} is not canonical UTC")
+    return value
 
 
 def _freeze(value: object) -> object:
@@ -235,6 +251,9 @@ def validate_forward_task_envelope(
         or envelope["payload_schema"] != TYPED_VALUES.FORWARD_PAYLOAD_SCHEMA_ID
     ):
         raise ValueError("forward task-envelope identity is invalid")
+    # `issued_at` is syntax-only provenance. It grants no freshness or ordering
+    # authority in this scientific instrument.
+    _require_canonical_utc_instant(envelope["issued_at"], label="issued_at")
     verified_context = TYPED_VALUES._consume_unit_context_index(
         unit_context_index
     )

@@ -1127,6 +1127,10 @@ Reject raw registry input above 4,194,304 bytes and raw envelope input above 1,0
 6. exact binding bijection and UTF-16 order;
 7. artifact fingerprint excluding only `artifact_fingerprint`.
 
+`issued_at` is admitted only in canonical second-precision UTC form
+`YYYY-MM-DDTHH:MM:SSZ`. It is syntax-only provenance and supplies no freshness,
+ordering, or authority equation in this scientific instrument.
+
 `issue_fixture_task_envelope()` is probe-owned, accepts fully supplied facts/authority rows, selects nothing, and may issue only `deterministic_fixture` provenance. It never appears in the neutral helper.
 
 - [ ] **Step 7: Implement read-only historical reconstruction and exact partitions**
