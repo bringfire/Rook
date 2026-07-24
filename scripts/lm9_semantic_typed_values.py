@@ -66,6 +66,39 @@ FORWARD_PAYLOAD_SCHEMA_FINGERPRINT = (
 SEMANTIC_VALUE_REGISTRY_FINGERPRINT = (
     "sha256:da050bc62130c299e0007b87e43f428c1cab76e07e0748e32196c4a4d531848e"
 )
+HISTORICAL_ENVIRONMENT_PAYLOAD_SCHEMA_ID = (
+    "rook.lm9b_c.r01_environment_payload:v1"
+)
+HISTORICAL_ENVIRONMENT_PAYLOAD_SCHEMA_FINGERPRINT = (
+    "sha256:b63ab839f3fa55fb77450120b1b983a0e8986f03df188bbf0984b4aca2b254f1"
+)
+_ATTEMPT_CONTEXT_FIELDS = frozenset(
+    {
+        "attempt_id",
+        "capability_registry_session_id",
+        "context_fingerprint",
+        "environment_session_id",
+        "evaluated_at",
+        "schema",
+        "task_session_id",
+        "trusted_clock_source",
+    }
+)
+_ENVIRONMENT_ARTIFACT_FIELDS = frozenset(
+    {
+        "artifact_fingerprint",
+        "artifact_id",
+        "environment_session_id",
+        "expires_at",
+        "issuer",
+        "observed_at",
+        "payload",
+        "payload_schema",
+        "payload_schema_fingerprint",
+        "schema",
+        "value_bindings",
+    }
+)
 MAX_SAFE_INTEGER = 9_007_199_254_740_991
 MAX_REGISTRY_BYTES = 4_194_304
 MAX_ENVELOPE_BYTES = 1_048_576
@@ -808,6 +841,22 @@ class VerifiedUnitContextIndex:
             self, "_VerifiedUnitContextIndex__proof_fingerprint"
         )
 
+    @property
+    def evaluated_at(self) -> str:
+        verified = _consume_unit_context_index(self)
+        snapshot = parse_strict_json(
+            object.__getattribute__(
+                verified, "_VerifiedUnitContextIndex__snapshot"
+            ),
+            label="unit-context proof snapshot",
+        )
+        if (
+            type(snapshot) is not dict
+            or type(snapshot.get("evaluated_at")) is not str
+        ):
+            raise ValueError("unit-context proof evaluation time is invalid")
+        return snapshot["evaluated_at"]
+
 
 def _instant(value: object, label: str) -> datetime:
     if type(value) is not str or not value.endswith("Z"):
@@ -858,12 +907,22 @@ def _validate_and_derive_unit_context_authority(
         raise ValueError("environment authority objects are invalid")
     if type(attempt) is not dict:
         raise ValueError("attempt context is invalid")
+    if set(attempt) != _ATTEMPT_CONTEXT_FIELDS:
+        raise ValueError("attempt context shape is invalid")
+    if set(environment) != _ENVIRONMENT_ARTIFACT_FIELDS:
+        raise ValueError("environment artifact shape is invalid")
+    if (
+        fingerprint(payload_schema)
+        != HISTORICAL_ENVIRONMENT_PAYLOAD_SCHEMA_FINGERPRINT
+    ):
+        raise ValueError("environment payload schema identity mismatch")
     if attempt.get("context_fingerprint") != fingerprint_without(
         attempt, "context_fingerprint"
     ):
         raise ValueError("attempt context fingerprint mismatch")
     if (
-        attempt.get("trusted_clock_source") != "deterministic_fixture"
+        attempt.get("schema") != "rook.lm9b_p.probe_attempt_context:v1"
+        or attempt.get("trusted_clock_source") != "deterministic_fixture"
         or attempt.get("task_session_id") != expected_task_session_id
         or attempt.get("environment_session_id")
         != expected_environment_session_id
@@ -879,15 +938,22 @@ def _validate_and_derive_unit_context_authority(
         or environment.get("schema") != "rook.environment_snapshot:v1"
         or environment.get("environment_session_id")
         != expected_environment_session_id
-        or environment.get("payload_schema_fingerprint")
-        != fingerprint(payload_schema)
     ):
         raise ValueError("environment artifact identity mismatch")
+    if (
+        environment.get("payload_schema")
+        != HISTORICAL_ENVIRONMENT_PAYLOAD_SCHEMA_ID
+        or environment.get("payload_schema_fingerprint")
+        != HISTORICAL_ENVIRONMENT_PAYLOAD_SCHEMA_FINGERPRINT
+    ):
+        raise ValueError("environment payload schema identity mismatch")
     issuer = environment.get("issuer")
     if (
         type(issuer) is not dict
+        or set(issuer) != {"kind", "authority_id"}
         or issuer.get("kind") != "trusted_environment_gateway"
         or type(issuer.get("authority_id")) is not str
+        or not issuer["authority_id"]
     ):
         raise ValueError("environment issuer is not trusted")
     errors = list(
@@ -1140,6 +1206,10 @@ def validate_typed_value(
             raise ValueError("current recipe-derived occurrence cannot carry scalar")
         if unit_context_index is None:
             raise ValueError("scalar requires verified unit-context authority")
+        if type(unit_context_index) is not VerifiedUnitContextIndex:
+            raise TypeError(
+                "scalar unit_context_index must be a VerifiedUnitContextIndex"
+            )
         verified_index = _consume_unit_context_index(unit_context_index)
         reference = plain["unit_context_ref"]
         assert isinstance(reference, dict)
