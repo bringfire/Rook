@@ -21,6 +21,14 @@ FIXTURES = SCRIPTS / "lm9b_p_fixtures"
 BLOCKED_RECIPE = (
     ROOT / "mcp_server/tests/fixtures/lm9b_p/non_r01_blocked_recipe.json"
 )
+OFFICIAL_DERIVATIVE = Path(
+    r"C:\Users\bring\rook-lm9b-p-attempts"
+    r"\2026-07-22-evaluator-only-continuation"
+    r"\derivatives\visibility-evaluator-01"
+)
+OFFICIAL_DERIVATIVE_IDENTITY = (
+    "sha256:48bcdcb36fb3ccee49fe358335f577ffabcb83b0f74e9f84d96951d6b3950b94"
+)
 
 
 def _load_script(name: str):
@@ -627,6 +635,44 @@ def _sealed_historical_source(root: Path):
         historical_recipe_fingerprint=recipe_identity[
             "historical_recipe_fingerprint"
         ],
+    )
+
+
+def test_parser_derived_evaluator_result_exposure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    derived: list[object] = []
+    derive = CONT_ARTIFACTS.SUPPORT.derive_planner_evaluation_result
+
+    def capture_parser_result(**kwargs: object) -> object:
+        result = derive(**kwargs)
+        derived.append(result)
+        return result
+
+    monkeypatch.setattr(
+        CONT_ARTIFACTS.SUPPORT,
+        "derive_planner_evaluation_result",
+        capture_parser_result,
+    )
+    sealed = CONT_ARTIFACTS.verify_sealed_derivative_archive(
+        OFFICIAL_DERIVATIVE,
+        expected_derivative_identity=OFFICIAL_DERIVATIVE_IDENTITY,
+    )
+
+    assert len(derived) == 1
+    assert sealed.evaluator_result is derived[0]
+    assert type(sealed.evaluator_result) is (
+        CONT_ARTIFACTS.SUPPORT.PlannerEvaluationResult
+    )
+    assert sealed.evaluator_result.termination == "valid_recommendation"
+    assert sealed.evaluator_result.recommendation == "semantically_faithful"
+    assert sealed.classification == (
+        PLANNER_ARTIFACTS.derive_evaluated_recipe_classification(
+            sealed.evaluator_result,
+            final_recipe_bytes=(
+                CONT_ARTIFACTS.verify_historical_source().final_recipe_bytes
+            ),
+        )
     )
 
 
