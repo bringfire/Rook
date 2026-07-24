@@ -303,6 +303,7 @@ def test_forward_envelope_refuses_reclosed_cross_session_authority() -> None:
         "user_fact_not_permitted",
         "malformed_permission_container",
         "wrong_unit_context",
+        "null_unit_context",
     ),
 )
 def test_partition_refuses_reclosed_delta_outside_parent_unresolved_contract(
@@ -364,6 +365,8 @@ def test_partition_refuses_reclosed_delta_outside_parent_unresolved_contract(
                 "artifact_id": "environment_snapshot",
                 "json_pointer": "/document/other_unit_context",
             }
+        elif mutation == "null_unit_context":
+            row["unit_context_ref"] = None
         parent_recipe["recipe_fingerprint"] = typed_values.fingerprint(
             {
                 key: value

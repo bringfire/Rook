@@ -488,11 +488,8 @@ def derive_authority_partition(
             or type(expected_location) is not dict
             or expected_location.get("artifact_id") != "task_envelope"
             or expected_location.get("json_pointer") != binding["json_pointer"]
-            or (
-                expected_unit_context is not None
-                and _plain(fact.value.get("unit_context_ref"))
-                != _plain(expected_unit_context)
-            )
+            or _plain(fact.value.get("unit_context_ref"))
+            != _plain(expected_unit_context)
         ):
             raise ValueError(
                 "successor delta differs from parent unresolved contract"
