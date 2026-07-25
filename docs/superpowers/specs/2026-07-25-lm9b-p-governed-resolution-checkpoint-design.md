@@ -648,6 +648,26 @@ The no-contact preflight uses exact versioned top-level identities:
 | Sealed checkpoint | `rook.lm9b_p.governed_resolution_checkpoint:v1` |
 | Retained forensic marker | `rook.lm9b_p.governed_resolution_post_dispatch_unsealed:v1` |
 
+The instrument also assigns exact code-owned identities and recomputable
+fingerprints to every consequential advancement and evidence contract:
+
+| Contract | Required identity |
+|---|---|
+| Explicit blocker projection | `lm9b_p.explicit_blocker_projection:v1` |
+| Shared evaluated-recipe classifier | `lm9b_p.evaluated_recipe_classification:v1` |
+| Resolution outcome equations | `lm9b_p.governed_resolution_outcome_equations:v1` |
+| Archive membership and sealing/finalization | `lm9b_p.governed_resolution_archive_seal:v1` |
+| Public constructive verifier | `lm9b_p.governed_resolution_public_verifier:v1` |
+| Resolution-ready proof carrier | `lm9b_p.governed_resolution_ready_proof:v1` |
+| Readiness record schema | existing `lm9b_p.readiness_record:v1` |
+| Readiness launch verifier | `lm9b_p.readiness_launch_verifier:v1` over the existing verifier equations |
+
+An ID alone is insufficient. Each row binds its exact closed equations or
+schema, source-derived implementation fingerprint, and reviewed commit. The
+readiness identity additionally binds the existing canary-protocol fingerprint,
+exact role-derived route-manifest fingerprint, verifier equations, and frozen
+freshness window.
+
 Define:
 
 ```text
@@ -659,6 +679,13 @@ instrument_fingerprint =
   + Planner controller, request builder, feedback protocol, and bounds
   + isolation policy definition and instance
   + evaluator renderer, rubric, report contract, parser, and request builder
+  + explicit blocker projection and shared classifier contracts
+  + closed resolution outcome equations
+  + preflight/archive schemas, membership, sealing, finalization,
+    and public-verifier contracts
+  + resolution-ready proof-carrier contract
+  + readiness record schema, canary protocol, route manifest,
+    launch verifier, and freshness contract
   + model/profile/control identities
   + reviewed commit
 
@@ -694,6 +721,12 @@ rubric, report contract, provider-request builder, route/profile/model, and
 one-call limit. Its response-dependent request bytes are not knowable before a
 candidate exists.
 
+The preflight serializes every identity above as a closed instrument-contract
+manifest and recomputes `instrument_fingerprint` from that manifest. Execution
+must refuse before contact if any individual contract identity, fingerprint,
+route-manifest identity, or aggregate value differs; equality of the reviewed
+commit alone is never sufficient.
+
 Launch evidence records the supplied approved-preflight fingerprint, explicit
 transmit flag, reviewed commit, readiness identity, and attempt identity. It
 claims only that the harness was invoked with those values; it does not claim
@@ -710,7 +743,9 @@ After an invocation names the exact preflight:
    match; independently reverify provider-profile identity against preflight
    and constructed adapters.
 4. Reverify source, derivative, carrier qualification, successor authority,
-   carrier-support delta, initial request, policy instance, checkout
+   carrier-support delta, initial request, policy instance, the complete
+   instrument-contract manifest (including readiness, blocker, classifier,
+   outcome, archive, verifier, and ready-proof identities), checkout
    cleanliness, and absent output paths.
 5. Atomically create a direct-child staging/reservation directory with
    `exist_ok=False` under the approved resolution root.
@@ -857,7 +892,13 @@ story. It independently reconstructs:
   and isolation verdict;
 - evaluator request from current successor evidence only;
 - parser-derived evaluator recommendation;
+- explicit blocker projection, shared classifier, and closed resolution
+  outcome equations;
 - deterministic classification;
+- readiness record schema, canary-protocol fingerprint, exact role-derived
+  route manifest, launch-verifier equations, and freshness result;
+- archive membership, sealing/finalization, public-verifier, and
+  resolution-ready proof-carrier contracts;
 - invocation, attempt, checksum, identity, and physical destination equations.
 
 The complete call ledger must prove:
@@ -883,6 +924,12 @@ resolution-ready proof carrier containing:
 - exact authenticated successor semantic authority records;
 - mechanical and isolation proof identities;
 - sealed resolution-checkpoint identity.
+
+The carrier has the exact code-owned contract identity
+`lm9b_p.governed_resolution_ready_proof:v1`. Its closed fields, issuance
+predicate, reconstruction equations, and contract fingerprint participate in
+the instrument fingerprint and are independently reverified at issuance and
+consumption.
 
 It exposes no parent recipe, correspondence map, isolation report, evaluator
 report, repair information, or compiler suggestion to LM9B-C.
@@ -962,7 +1009,12 @@ references, new unresolved rows, and altered fingerprints.
 
 Cover system prompt, initial request, tool schema, feedback renderer,
 diagnostic vocabulary, model/profile, dynamic timeout, bounds, isolation
-policy, evaluator rubric/report contract, and response-dependent reconstruction.
+policy, evaluator rubric/report contract, blocker projection, classifier,
+outcome equations, readiness protocol/route manifest/verifier, archive
+membership/sealing/public verifier, ready-proof contract, and
+response-dependent reconstruction. Every drift case consistently recloses any
+authored subordinate value and still refuses because it differs from the
+preflight-bound code-owned instrument contract.
 
 Pre-dispatch cases additionally cover:
 
