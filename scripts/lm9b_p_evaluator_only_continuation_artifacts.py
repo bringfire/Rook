@@ -216,6 +216,7 @@ class SealedDerivative:
     derivative_archive_identity: str
     classification: str
     identity: Mapping[str, object]
+    evaluator_result: SUPPORT.PlannerEvaluationResult
     state: str = "sealed"
 
 
@@ -2226,6 +2227,7 @@ def _verify_sealed_derivative_archive(
         derivative_archive_identity=checksums["derivative_archive_identity"],
         classification=classification,
         identity=MappingProxyType(identity),
+        evaluator_result=evaluator,
     )
 
 
