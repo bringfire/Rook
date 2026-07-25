@@ -1327,8 +1327,14 @@ def build_control_compatibility_witness(
         acceptance_status = "frozen_inputs_accepted"
     else:
         raise ValueError("unknown control acceptance boundary")
+    try:
+        fixture_identity = recipe_path.relative_to(_REPO_ROOT.resolve()).as_posix()
+    except ValueError as exc:
+        raise ValueError(
+            "accepted control recipe is outside the active checkout"
+        ) from exc
     return ControlCompatibilityWitness(
-        fixture_path=str(recipe_path),
+        fixture_path=fixture_identity,
         recipe_raw_sha256=TYPED_VALUES.sha256_prefixed(raw),
         assumption_count=len(recipe["assumptions"]),
         derived_fact_count=len(recipe["derived_facts"]),

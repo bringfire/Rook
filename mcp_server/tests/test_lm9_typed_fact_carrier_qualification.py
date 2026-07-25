@@ -1108,3 +1108,91 @@ def test_copied_qualification_refuses_physical_location_substitution(
             copied,
             expected_identity=written.qualification_identity,
         )
+
+
+def test_qualification_verifies_from_second_checkout_root_at_same_commit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    qualification = _load_script("lm9_typed_fact_carrier_qualification")
+    carrier = qualification.CARRIER
+    commit = "same-commit-across-checkouts"
+    monkeypatch.setattr(
+        qualification,
+        "_checkout_state",
+        lambda _repo_root: (commit, True),
+    )
+    destination = tmp_path / "checkout-independent-qualification"
+    written = qualification.write_qualification_archive(
+        repo_root=ROOT,
+        destination=destination,
+    )
+
+    second_checkout = tmp_path / "second-checkout"
+    second_scripts = second_checkout / "scripts"
+    second_scripts.mkdir(parents=True)
+    shutil.copy2(
+        SCRIPTS / "lm9_semantic_typed_values.py",
+        second_scripts / "lm9_semantic_typed_values.py",
+    )
+    shutil.copytree(
+        SCRIPTS / "lm9_typed_fact_carrier_contracts",
+        second_scripts / "lm9_typed_fact_carrier_contracts",
+    )
+    shutil.copytree(
+        SCRIPTS / "lm9_typed_fact_carrier_fixtures",
+        second_scripts / "lm9_typed_fact_carrier_fixtures",
+    )
+    shutil.copytree(
+        SCRIPTS / "lm9b_c_fixtures",
+        second_scripts / "lm9b_c_fixtures",
+    )
+    second_non_r01 = (
+        second_checkout
+        / "mcp_server/tests/fixtures/lm9b_p/non_r01_ready_recipe.json"
+    )
+    second_non_r01.parent.mkdir(parents=True)
+    shutil.copy2(
+        ROOT / "mcp_server/tests/fixtures/lm9b_p/non_r01_ready_recipe.json",
+        second_non_r01,
+    )
+
+    monkeypatch.setattr(qualification, "_REPO_ROOT", second_checkout)
+    monkeypatch.setattr(qualification, "_SCRIPTS_DIR", second_scripts)
+    monkeypatch.setattr(carrier, "_REPO_ROOT", second_checkout)
+    monkeypatch.setattr(
+        carrier,
+        "REGISTRY_PATH",
+        second_scripts
+        / "lm9_typed_fact_carrier_contracts/semantic_value_schema_registry.json",
+    )
+    monkeypatch.setattr(
+        carrier,
+        "PAYLOAD_SCHEMA_PATH",
+        second_scripts
+        / "lm9_typed_fact_carrier_contracts/planner_task_typed_facts_payload_schema.json",
+    )
+    monkeypatch.setattr(
+        carrier,
+        "RADIAL_FIXTURE_PATH",
+        second_scripts
+        / "lm9_typed_fact_carrier_fixtures/radial_successor_task_envelope.json",
+    )
+    monkeypatch.setattr(
+        carrier,
+        "ANNOTATION_FIXTURE_PATH",
+        second_scripts
+        / "lm9_typed_fact_carrier_fixtures/annotation_task_envelope.json",
+    )
+
+    verified = qualification.verify_qualification_archive(
+        destination,
+        expected_identity=written.qualification_identity,
+    )
+
+    assert verified.qualification_identity == written.qualification_identity
+    controls = _json_file(destination / "results/control-compatibility.json")
+    assert [row["fixture_path"] for row in controls["controls"]] == [
+        "scripts/lm9b_c_fixtures/r01_recipe.json",
+        "mcp_server/tests/fixtures/lm9b_p/non_r01_ready_recipe.json",
+    ]

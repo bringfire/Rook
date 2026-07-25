@@ -149,7 +149,7 @@ def verify_qualification_archive(
 ) -> VerifiedQualification: ...
 ```
 
-- [ ] **Step 1: Add a failing focused test for parser-derived evaluator-result exposure**
+- [x] **Step 1: Add a failing focused test for parser-derived evaluator-result exposure**
 
 In `test_lm9b_p_evaluator_only_continuation.py`, verify the official public
 derivative at its identity-bound destination and require:
@@ -195,7 +195,7 @@ the authored result/classification while captured tool evidence remains
 authoritative, and the public verifier must still refuse before returning an
 object.
 
-- [ ] **Step 2: Run the focused exposure test and capture red**
+- [x] **Step 2: Run the focused exposure test and capture red**
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
@@ -206,7 +206,7 @@ Expected: FAIL because `SealedDerivative` does not expose `evaluator_result`.
 The verifier call itself must complete successfully first; an alias, import, or
 missing-verifier attribute error is not the intended red state.
 
-- [ ] **Step 3: Expose the exact reconstructed evaluator result read-only**
+- [x] **Step 3: Expose the exact reconstructed evaluator result read-only**
 
 Add `evaluator_result: SUPPORT.PlannerEvaluationResult` to `SealedDerivative`.
 In `_verify_sealed_derivative_archive()`, populate it only from the local
@@ -215,7 +215,7 @@ after `result == expected_result` and every captured-evidence check succeeds.
 Never reconstruct it from `evaluator/result.json` and do not add another parser.
 Run the focused exposure test green before writing the carrier modules.
 
-- [ ] **Step 4: Write the failing Task-1 walking witness through the real public boundary**
+- [x] **Step 4: Write the failing Task-1 walking witness through the real public boundary**
 
 Create one test, `test_task1_walks_real_transition_and_publicly_verifies`, that
 uses the exact production-pinned source and official derivative. It must walk
@@ -289,7 +289,7 @@ public-verifier derivations. The temporary archive is discarded and makes no
 development/post-merge qualification claim. Task 6 later runs the same entry
 point against a real clean committed checkout.
 
-- [ ] **Step 5: Run the walking witness and capture the intended red state**
+- [x] **Step 5: Run the walking witness and capture the intended red state**
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
@@ -298,7 +298,7 @@ $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
 
 Expected: FAIL because none of the walking-witness modules or artifacts exist.
 
-- [ ] **Step 6: Add the thinnest code-owned contracts that admit only the reviewed happy path**
+- [x] **Step 6: Add the thinnest code-owned contracts that admit only the reviewed happy path**
 
 Create the exact v2 registry and forward payload schema with their final
 identities and fingerprints. Implement only enough sealed-profile admission to
@@ -306,7 +306,7 @@ verify those exact code-owned documents and enforce the final four forward
 value shapes. Do not add permissive fallback behavior that later tests must
 remove.
 
-- [ ] **Step 7: Implement opaque unit-context issuance and consumption-time verification first**
+- [x] **Step 7: Implement opaque unit-context issuance and consumption-time verification first**
 
 `VerifiedUnitContextIndex` is a non-dataclass, final, slotted opaque class:
 
@@ -442,7 +442,7 @@ reclosing the actual issued object's slots still disagrees with the external
 seal. The weak registry is lifecycle-cleaned when a carrier is collected and is
 never serialized as evidence; no numeric live-entry bound is claimed.
 
-- [ ] **Step 8: Implement the thin forward/historical/migration composition**
+- [x] **Step 8: Implement the thin forward/historical/migration composition**
 
 Validate the committed radial and annotation envelopes through the same real
 forward payload, registry, binding bijection, and opaque proof consumer. Bind historical
@@ -451,7 +451,7 @@ reject every raw type except the observed exact `str` and exact `int` shapes.
 Derive migration/delta keys mechanically from authenticated parent bindings,
 successor bindings, and parent unresolved rows.
 
-- [ ] **Step 9: Implement thin outcome and qualification write/read verification**
+- [x] **Step 9: Implement thin outcome and qualification write/read verification**
 
 Use `CONT_ARTIFACTS.verify_historical_source()`, the unchanged mechanical gate,
 `CONT_ARTIFACTS.verify_sealed_derivative_archive()`, and the shared classifier.
@@ -465,7 +465,7 @@ harden those refusals. The initial public verifier reconstructs every recorded
 happy-path and negative-case result; it must never trust authored result
 fields.
 
-- [ ] **Step 10: Run the walking witness green and audit the actual call order**
+- [x] **Step 10: Run the walking witness green and audit the actual call order**
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
@@ -485,7 +485,7 @@ transition is exercised. Preserve for review:
 - the red-test log showing the initial failure was the intended missing result
   exposure or missing new carrier behavior, never an alias/import mistake.
 
-- [ ] **Step 11: Commit the vertical witness and stop at the mandatory review checkpoint**
+- [x] **Step 11: Commit the vertical witness and stop at the mandatory review checkpoint**
 
 ```powershell
 git add scripts/lm9b_p_evaluator_only_continuation_artifacts.py mcp_server/tests/test_lm9b_p_evaluator_only_continuation.py scripts/lm9_semantic_typed_values.py scripts/lm9_typed_fact_carrier_artifacts.py scripts/lm9_typed_fact_carrier_qualification.py scripts/lm9_typed_fact_carrier_contracts scripts/lm9_typed_fact_carrier_fixtures mcp_server/tests/test_lm9_typed_fact_carrier_qualification.py
@@ -569,7 +569,7 @@ def validate_schema_instance(
 ) -> tuple["ValidationIssue", ...]: ...
 ```
 
-- [ ] **Step 1: Add the failing profile identity and schema-admission table**
+- [x] **Step 1: Add the failing profile identity and schema-admission table**
 
 Write one parameterized table that starts from the four reviewed schema documents and mutates one admission condition at a time:
 
@@ -596,7 +596,7 @@ Add exact assertions for profile ID/dialect, keyword sets, both patterns, no for
 
 The profile manifest also pins the Draft 2020-12 metaschema fingerprint, exact structural-admission and expansion algorithm IDs, issue projection/order/truncation policy, every resource limit, `rook.schema_evaluation_shape:max_schema_or_expansion_times_instance:v1`, and the helper contract ID. No field is caller-selectable.
 
-- [ ] **Step 2: Add failing structural budget and expansion tests**
+- [x] **Step 2: Add failing structural budget and expansion tests**
 
 Construct schemas at and just over each relevant bound. Pin the child-edge calculation:
 
@@ -619,7 +619,7 @@ def test_expansion_counts_only_structural_child_schemas() -> None:
 
 Test schema depth 32/33, nodes 4,096/4,097, collection 256/257, schema string 65,536/65,537 UTF-8 bytes, canonical embedded schema bytes 65,536/65,537, expansion 32,768/32,769, per-evaluation shape 2,000,000/2,000,001, aggregate shape 16,000,000/16,000,001, and issue count 1,024/1,025. Budget exhaustion raises `InstrumentFailure`; it never returns truncated issues.
 
-- [ ] **Step 3: Add the failing registry identity and reclosure table**
+- [x] **Step 3: Add the failing registry identity and reclosure table**
 
 Load the code-owned registry as strict JSON and reconstruct each entry and the registry. Parameterize fully reclosed mutations for duplicate schema ID, unsorted entries, wrong schema fingerprint, wrong profile fingerprint, extra field, unknown fifth entry, and registry fingerprint drift. Recompute all caller-authored outer fingerprints so rejection depends on the code-owned contract rather than stale checksums.
 
@@ -634,7 +634,7 @@ Assert the entry set is exactly:
 }
 ```
 
-- [ ] **Step 4: Run the focused test and observe red**
+- [x] **Step 4: Run the focused test and observe red**
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
@@ -644,7 +644,7 @@ $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
 Expected: FAIL because the Task-1 walking implementation admits only the fixed
 happy path and does not yet enforce the complete mutation/budget matrix.
 
-- [ ] **Step 5: Implement sealed profile admission and work accounting**
+- [x] **Step 5: Implement sealed profile admission and work accounting**
 
 Implement exact constants rather than caller configuration:
 
@@ -677,7 +677,7 @@ def _expansion(node: Mapping[str, object]) -> int:
 
 `pattern` remains an ordinary JSON node and creates no child edge or synthetic expansion. Reserve `max(schema_nodes, expansion_units) * instance_nodes` before evaluator invocation.
 
-- [ ] **Step 6: Implement the exact evaluator/type/issue policy**
+- [x] **Step 6: Implement the exact evaluator/type/issue policy**
 
 Build an explicit validator class:
 
@@ -698,7 +698,7 @@ SEALED_VALIDATOR = validators.extend(
 
 Instantiate with no format checker and no resolver. Project issues to bounded code-owned records sorted by instance JSON Pointer, schema JSON Pointer, failed keyword, and bounded-detail fingerprint. Raise on issue 1,025.
 
-- [ ] **Step 7: Add exact registry and payload-schema contract files**
+- [x] **Step 7: Add exact registry and payload-schema contract files**
 
 The registry contains four self-contained closed Draft 2020-12 documents:
 
@@ -711,7 +711,7 @@ The forward payload schema requires one `facts` member, 1..256 properties, key l
 
 Compute entry, profile, registry, and payload-schema fingerprints through canonical JSON, paste exact values into code-owned JSON, and make the loader refuse mismatch instead of repairing it.
 
-- [ ] **Step 8: Run Task 2 green and commit**
+- [x] **Step 8: Run Task 2 green and commit**
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
@@ -791,7 +791,7 @@ that independently verified expectation into the frozen authority snapshot and
 reapplies the exact issuer-identity comparison during every consumption-time
 reconstruction.
 
-- [ ] **Step 1: Add one positive typed-value table covering every occurrence profile**
+- [x] **Step 1: Add one positive typed-value table covering every occurrence profile**
 
 Include forward string/integer/Boolean/scalar, recipe-assumption four-field
 string/scalar, and recipe-derived two-field string/integer/Boolean rows. Assert
@@ -804,7 +804,7 @@ never changes the supplied mapping. Add two explicit unreachable-form tests:
 
 No scalar-derived positive row exists.
 
-- [ ] **Step 2: Add one parameterized lexical/type/presence mutation table**
+- [x] **Step 2: Add one parameterized lexical/type/presence mutation table**
 
 Cover wrong type, `True` as integer, unsafe integer, unknown discriminator, extra field, inappropriate unit, missing forward fields, and:
 
@@ -820,7 +820,7 @@ def test_scalar_rejects_noncanonical_lexemes(lexeme):
 
 Add positive `0`, `2`, `-2`, `0.5`, `-0.5`, `2.5` and 1,024/1,025-character boundary cases.
 
-- [ ] **Step 3: Add the proof-carrying unit-context table**
+- [x] **Step 3: Add the proof-carrying unit-context table**
 
 Build the index from the frozen environment artifact, historical payload-schema registry entry, and attempt context. Parameterize wrong artifact fingerprint, payload schema ID/fingerprint, environment session, issuer, stale/future observation, duplicate/missing binding, wrong pointer/schema, and wrong typed-value fingerprint.
 
@@ -899,7 +899,7 @@ def test_consumption_rederives_opaque_carrier(mutation):
         _validate(_scalar("2"), unit_context_index=forged)
 ```
 
-- [ ] **Step 4: Run focused tests and observe red**
+- [x] **Step 4: Run focused tests and observe red**
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
@@ -908,7 +908,7 @@ $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
 
 Expected: new typed-value and unit-context tests FAIL.
 
-- [ ] **Step 5: Implement occurrence-aware validation without a second representation**
+- [x] **Step 5: Implement occurrence-aware validation without a second representation**
 
 Validate the exact object through its registry document, then apply only occurrence presence:
 
@@ -927,7 +927,7 @@ else:
 
 Serialize only after validation. Do not fill nulls or normalize lexemes.
 
-- [ ] **Step 6: Implement constructive unit-context proof derivation**
+- [x] **Step 6: Implement constructive unit-context proof derivation**
 
 Require exact artifact shape/fingerprint, registered environment payload
 schema/fingerprint, payload validation, frozen sessions, trusted issuer, and
@@ -944,7 +944,7 @@ instances, altered private slots, a fully reclosed actual issued object,
 copied-as-new values, replacement, and serialization all fail or preserve
 object identity. The consumer never converts `model_unit` to `millimeter`.
 
-- [ ] **Step 7: Run Task 3 green and commit**
+- [x] **Step 7: Run Task 3 green and commit**
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
@@ -1037,7 +1037,7 @@ def run_required_negative_cases(
 ) -> tuple["NegativeCaseResult", ...]: ...
 ```
 
-- [ ] **Step 1: Add failing forward payload and bijection tests**
+- [x] **Step 1: Add failing forward payload and bijection tests**
 
 Create a minimal fixture-envelope builder in the test file. Assert strict duplicate JSON fact properties fail before schema validation. Parameterize invalid/246-character keys, missing/extra/duplicate bindings, unsorted UTF-16 order, binding-ID/pointer/schema/fingerprint mismatch, invalid authority/provenance, unbound fact, extra envelope field, wrong payload-schema fingerprint, and artifact-fingerprint mismatch.
 
@@ -1057,7 +1057,7 @@ def test_maximum_fact_key_produces_valid_binding_id():
     assert len(binding["binding_id"]) == 256
 ```
 
-- [ ] **Step 2: Add failing radial and annotation positive witnesses**
+- [x] **Step 2: Add failing radial and annotation positive witnesses**
 
 The radial fixture retains every historical task fact in exact typed form and adds only:
 
@@ -1075,7 +1075,7 @@ Every delta binding uses `authority_kind: user_fact`, fixture provenance, and th
 
 The annotation fixture carries exact string, integer, Boolean, and scalar values. Assert both fixtures traverse the same `validate_forward_task_envelope()` and `validate_typed_value()` functions, and neither constructs a recipe, policy, Planner, evaluator, or provider object.
 
-- [ ] **Step 3: Add failing migration and authority-partition tests**
+- [x] **Step 3: Add failing migration and authority-partition tests**
 
 Reconstruct the seven parent task facts from exact historical raw values plus bindings. Assert unitless reconstructions explicitly contain null unit fields and every reconstruction validates through registry v2.
 
@@ -1095,7 +1095,7 @@ or null historical value. Reclose copied outer evidence in temp directories;
 the adapter must still refuse because its input must be the exact
 production-pinned `VerifiedHistoricalSource` and observed raw shapes.
 
-- [ ] **Step 4: Add the neutral-source scan and unrelated genericity check**
+- [x] **Step 4: Add the neutral-source scan and unrelated genericity check**
 
 Scan only:
 
@@ -1105,7 +1105,7 @@ Scan only:
 
 Reject every radial and annotation fixture key. Exclude fixtures/tests and do not scan product code. The annotation witness is the primary constructive proof; the scan is secondary.
 
-- [ ] **Step 5: Run the carrier test and observe red**
+- [x] **Step 5: Run the carrier test and observe red**
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
@@ -1115,7 +1115,7 @@ $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
 Expected: FAIL because the Task-1 walking composition does not yet enforce the
 complete binding, migration, unrelated-witness, and negative-case matrix.
 
-- [ ] **Step 6: Implement strict byte loading and forward-envelope verification**
+- [x] **Step 6: Implement strict byte loading and forward-envelope verification**
 
 Reject raw registry input above 4,194,304 bytes and raw envelope input above 1,048,576 bytes before strict parsing. Then use the existing bounded strict parser, including duplicate-key refusal, and pass parsed objects into the deterministic helper. Validate, in order:
 
@@ -1133,7 +1133,7 @@ ordering, or authority equation in this scientific instrument.
 
 `issue_fixture_task_envelope()` is probe-owned, accepts fully supplied facts/authority rows, selects nothing, and may issue only `deterministic_fixture` provenance. It never appears in the neutral helper.
 
-- [ ] **Step 7: Implement read-only historical reconstruction and exact partitions**
+- [x] **Step 7: Implement read-only historical reconstruction and exact partitions**
 
 The adapter takes a verified historical envelope and cannot write or return a successor. Reconstruct each unitless raw value:
 
@@ -1156,7 +1156,7 @@ authority/provenance separately.
 
 Compute parent keys from authenticated parent bindings, successor keys from the verified successor, and required delta keys from `parent_recipe["unresolved_intent"][*]["semantic_key"]`. Never encode five or fixture keys in module logic.
 
-- [ ] **Step 8: Harden the code-owned negative-case manifest**
+- [x] **Step 8: Harden the code-owned negative-case manifest**
 
 Retain the stable IDs and executable builders introduced by Task 1 for every
 row in Sections 17.1–17.5 of the approved design. Harden them with five
@@ -1166,7 +1166,7 @@ demonstrate deterministic refusal after caller-authored outer identities are
 reclosed. The qualification consumes this same manifest; it does not infer
 coverage from pytest names.
 
-- [ ] **Step 9: Materialize exact fixture JSON, run green, and commit**
+- [x] **Step 9: Materialize exact fixture JSON, run green, and commit**
 
 Generate fixture candidates through `issue_fixture_task_envelope()`, inspect the diff, and commit exact closed JSON. Tests load committed bytes; they do not regenerate silently.
 
@@ -1232,7 +1232,7 @@ def build_control_compatibility_witness(
 ) -> ControlCompatibilityWitness: ...
 ```
 
-- [ ] **Step 1: Add the failing exact-production parent witness**
+- [x] **Step 1: Add the failing exact-production parent witness**
 
 The test calls, in order:
 
@@ -1250,7 +1250,7 @@ Consume `sealed.evaluator_result` exposed and tested in Task 1 directly in the
 shared classifier. Task 5 must not parse evaluator evidence again, trust the
 archived classification, or modify the existing continuation module.
 
-- [ ] **Step 2: Add accepted assumption/derived-value control witnesses**
+- [x] **Step 2: Add accepted assumption/derived-value control witnesses**
 
 Use `scripts/lm9b_c_fixtures/r01_recipe.json` plus one accepted non-R01
 fixture containing derived facts. Assert every assumption uses
@@ -1266,11 +1266,11 @@ byte-identical output. Record the boundary and status separately.
 
 These controls prove representation compatibility only.
 
-- [ ] **Step 3: Add adversarial source/derivative/typed-value binding tests**
+- [x] **Step 3: Add adversarial source/derivative/typed-value binding tests**
 
 Use temp copies only. Mutate copied recipe/authority/control evidence and reclose caller-authored fingerprints. Assert refusal because public source pins, official destination binding, exact bytes, v2 validation, or shared classification derivation fails. Never write either production archive.
 
-- [ ] **Step 4: Run focused tests and observe red**
+- [x] **Step 4: Run focused tests and observe red**
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
@@ -1279,7 +1279,7 @@ $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
 
 Expected: new outcome-neutral witness tests FAIL.
 
-- [ ] **Step 5: Implement composition without changing or shadowing the gate**
+- [x] **Step 5: Implement composition without changing or shadowing the gate**
 
 The carrier validates typed values and packages evidence, then delegates the
 full recipe decision to the existing authoritative boundary: the Planner gate
@@ -1294,7 +1294,7 @@ only the Task-1 `evaluator_result` return value, whose focused test proves it is
 the same parser-derived object accepted by the verifier after its archive
 verification equations complete.
 
-- [ ] **Step 6: Run Task 5 green and commit**
+- [x] **Step 6: Run Task 5 green and commit**
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
@@ -1366,7 +1366,7 @@ boundary.json
 checksums.json
 ```
 
-- [ ] **Step 1: Extend the Task-1 walking witness with failing full-closure assertions**
+- [x] **Step 1: Extend the Task-1 walking witness with failing full-closure assertions**
 
 Retain the Task-1 real entry-point/public-verifier test and add exact
 schema/membership, commit/clean checkout, runtime/`jsonschema`, helper/profile/
@@ -1379,7 +1379,7 @@ readiness, evaluator dispatch, Planner dispatch, compiler dispatch, Rhino,
 Grasshopper, and product authority; archived evaluator evidence verification
 remains present and is not misreported as a dispatch.
 
-- [ ] **Step 2: Add the adversarial fully reclosed qualification table**
+- [x] **Step 2: Add the adversarial fully reclosed qualification table**
 
 For each mutation, recompute every affected record fingerprint, checksum, and aggregate identity, then require refusal:
 
@@ -1397,13 +1397,13 @@ For each mutation, recompute every affected record fingerprint, checksum, and ag
 
 The verifier reconstructs from code-owned/current-checkout sources and public evidence verifiers; it never accepts a self-consistent checksum story.
 
-- [ ] **Step 3: Add runtime drift, dirty-checkout, no-overwrite, and CLI tests**
+- [x] **Step 3: Add runtime drift, dirty-checkout, no-overwrite, and CLI tests**
 
 Patch runtime after snapshot and require pre-evaluation refusal. Patch `git status --porcelain` nonempty. Precreate destination and require `FileExistsError`. Assert CLI accepts only `qualify` and `verify` and exposes no model/provider/readiness/evaluator/Planner/compiler/handoff argument.
 
 Patch actual model/provider/compiler-specific entry points imported by LM9B-P to raise. Qualification remains green, proving behavioral isolation despite generic dependency locations.
 
-- [ ] **Step 4: Run qualification tests and observe red**
+- [x] **Step 4: Run qualification tests and observe red**
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
@@ -1414,7 +1414,7 @@ Expected: FAIL because the Task-1 qualification path does not yet enforce the
 complete adversarial reclosure, runtime-drift, membership, CLI, and fault
 matrix.
 
-- [ ] **Step 5: Implement frozen snapshot and no-clobber lifecycle**
+- [x] **Step 5: Implement frozen snapshot and no-clobber lifecycle**
 
 The exact operation order is:
 
@@ -1431,18 +1431,18 @@ The exact operation order is:
 
 Never use `Path.replace()`. If destination appears before rename, retain staging and fail. With no dispatch, pre-seal failure makes no scientific claim.
 
-- [ ] **Step 6: Implement constructive public verification**
+- [x] **Step 6: Implement constructive public verification**
 
 Require physical location equality, closed membership, checksum closure, actual checkout/runtime/helper identity, exact code-owned contracts, official source/derivative public verification, and complete reconstruction of the parent, both controls, radial/annotation, migration, and negative results. Compare every derived record byte-for-byte.
 
-- [ ] **Step 7: Run all new focused tests green**
+- [x] **Step 7: Run all new focused tests green**
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
 & 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe' -m pytest mcp_server/tests/test_lm9_semantic_typed_values.py mcp_server/tests/test_lm9_typed_fact_carrier.py mcp_server/tests/test_lm9_typed_fact_carrier_qualification.py -q
 ```
 
-- [ ] **Step 8: Run existing LM9B-P regression family**
+- [x] **Step 8: Run existing LM9B-P regression family**
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src')
@@ -1452,7 +1452,7 @@ $lm9bPTests = Get-ChildItem 'mcp_server/tests' -Filter 'test_lm9b_p_*.py' | ForE
 
 Expected: all existing tests pass unchanged.
 
-- [ ] **Step 9: Compile, inspect scope, and verify boundaries**
+- [x] **Step 9: Compile, inspect scope, and verify boundaries**
 
 ```powershell
 & 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe' -m py_compile scripts/lm9_semantic_typed_values.py scripts/lm9_typed_fact_carrier_artifacts.py scripts/lm9_typed_fact_carrier_qualification.py
@@ -1464,7 +1464,7 @@ git status --short
 
 Expected: compilation/diff pass; fixture-key scan has no matches; boundary-word matches are refusal/non-claim data only.
 
-- [ ] **Step 10: Commit the qualification implementation**
+- [x] **Step 10: Commit the qualification implementation**
 
 ```powershell
 git add scripts/lm9_typed_fact_carrier_qualification.py mcp_server/tests/test_lm9_typed_fact_carrier_qualification.py
@@ -1474,7 +1474,7 @@ git status --short --branch
 
 Expected: clean branch. The exact-production witness can now truthfully bind the committed feature `HEAD`.
 
-- [ ] **Step 11: Emit and verify one exact-production development qualification**
+- [x] **Step 11: Emit and verify one exact-production development qualification**
 
 Use an external development-only root and current feature `HEAD`:
 
@@ -1489,7 +1489,7 @@ $devDestination = Join-Path $devRoot (git rev-parse HEAD)
 
 Expected: one verified no-contact development qualification bound to exact production source/derivative evidence. Record identity in the PR description, not a product contract. If destination exists, use a new explicitly named development destination; never overwrite.
 
-- [ ] **Step 12: Stop for independent review**
+- [x] **Step 12: Stop for independent review**
 
 ```powershell
 git status --short --branch
