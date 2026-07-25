@@ -7,6 +7,7 @@ import importlib.util
 import inspect
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -47,6 +48,28 @@ FINAL_MEMBERS = {
     "boundary.json",
     "checksums.json",
 }
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    (
+        "scripts/lm9_semantic_typed_values.py",
+        "scripts/lm9_typed_fact_carrier_contracts/semantic_value_schema_registry.json",
+        "scripts/lm9_typed_fact_carrier_contracts/planner_task_typed_facts_payload_schema.json",
+    ),
+)
+def test_qualification_identity_sources_pin_lf_checkout_bytes(
+    relative_path: str,
+) -> None:
+    result = subprocess.run(
+        ["git", "check-attr", "eol", "--", relative_path],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.stdout.strip() == f"{relative_path}: eol: lf"
 
 
 def _load_script(name: str):
