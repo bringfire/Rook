@@ -185,7 +185,7 @@ namespace Rook.Handlers
                 return DispatchStandaloneStatus(diagnostics, control);
             }
 
-            RookBimModuleLoader.TryActivate();
+            RookBimModuleLoader.TryActivate(diagnostics);
             var runtime = RookBimRuntimeRegistry.Current;
             return op switch
             {
