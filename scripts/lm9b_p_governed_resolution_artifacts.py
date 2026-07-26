@@ -113,6 +113,91 @@ _CHECKPOINT_MEMBERS = frozenset(
         "checksums.json",
     }
 )
+RESOLUTION_ARCHIVE_MEMBERS = MappingProxyType(
+    {
+        "record.json": "identity",
+        "launch.json": "launch",
+        "source.json": "source",
+        "instrument.json": "instrument",
+        "authority.json": "authority",
+        "migration.json": "migration",
+        "correspondence.json": "correspondence",
+        "readiness.json": "readiness",
+        "call-ledger.json": "calls",
+        "planner-session.json": "planner",
+        "candidate-recipe.json": "candidate",
+        "checkpoint-gate.json": "candidate",
+        "isolation.json": "isolation",
+        "evaluator.json": "evaluator",
+        "classification.json": "outcome",
+        "boundary.json": "boundary",
+        "checksums.json": "checksums",
+    }
+)
+_ALWAYS_ARCHIVE_MEMBERS = frozenset(
+    path
+    for path, role in RESOLUTION_ARCHIVE_MEMBERS.items()
+    if role not in {"candidate", "isolation", "evaluator"}
+)
+_CALL_LEDGER_FIELDS = frozenset(
+    {
+        "schema",
+        "call_index",
+        "role",
+        "request_raw_sha256",
+        "preceding_transcript_fingerprint",
+        "provider_timeout_s",
+        "controller_deadline_state",
+        "role_contract_fingerprint",
+        "dispatch_marker_raw_sha256",
+        "canonical_request_json",
+        "provider_claimed_raw_request_b64",
+        "provider_claimed_raw_request_sha256",
+        "provider_raw_error_b64",
+        "provider_raw_error_sha256",
+        "raw_response_b64",
+        "raw_response_sha256",
+        "assistant_message",
+        "usage",
+        "provider_metadata",
+        "outcome",
+        "exception_type",
+        "failure_type",
+        "elapsed_ms",
+        "terminal",
+    }
+)
+
+
+def resolution_archive_member_paths(
+    *,
+    candidate_present: bool,
+    isolation_evaluated: bool,
+    evaluator_dispatched: bool,
+) -> frozenset[str]:
+    """Return the only closed archive membership for one reachable outcome."""
+
+    if any(
+        type(value) is not bool
+        for value in (
+            candidate_present,
+            isolation_evaluated,
+            evaluator_dispatched,
+        )
+    ):
+        raise TypeError("archive membership predicates must be Boolean")
+    if candidate_present != isolation_evaluated or (
+        evaluator_dispatched and not isolation_evaluated
+    ):
+        raise ValueError("archive membership profile is unreachable")
+    members = set(_ALWAYS_ARCHIVE_MEMBERS)
+    if candidate_present:
+        members.update({"candidate-recipe.json", "checkpoint-gate.json"})
+    if isolation_evaluated:
+        members.add("isolation.json")
+    if evaluator_dispatched:
+        members.add("evaluator.json")
+    return frozenset(members)
 
 
 @dataclass(frozen=True)
@@ -169,6 +254,25 @@ class SealedResolutionCheckpoint:
     classification: str
     exact_recipe_bytes: bytes | None
     state: str = "sealed"
+
+
+@dataclass(frozen=True)
+class PostDispatchUnsealed:
+    evidence_dir: Path
+    attempt_id: str
+    attempt_fingerprint: str
+    failure_locus: str
+
+
+@dataclass(frozen=True)
+class VerifiedResolutionReady:
+    checkpoint: SealedResolutionCheckpoint
+    exact_recipe_bytes: bytes
+    recipe_fingerprint: str
+    successor_authority_records: tuple[object, ...]
+    mechanical_gate_fingerprint: str
+    isolation_result_fingerprint: str
+    contract_fingerprint: str
 
 
 def _load_verified_resolution_sources_unsealed(
@@ -661,13 +765,13 @@ def assemble_task1_resolution_instrument(
         "archive": {
             "seal_contract_id": CONTRACT_IDS["archive_seal"],
             "seal_source_fingerprint": _callable_source_fingerprint(
-                seal_task1_resolution_checkpoint
+                seal_resolution_checkpoint
             ),
             "public_verifier_contract_id": CONTRACT_IDS["public_verifier"],
             "public_verifier_source_fingerprint": _callable_source_fingerprint(
                 verify_sealed_resolution_checkpoint
             ),
-            "closed_members": sorted(_CHECKPOINT_MEMBERS),
+            "closed_member_roles": dict(RESOLUTION_ARCHIVE_MEMBERS),
             "finalization_equation": "same_filesystem_no_clobber_path_rename:v1",
         },
         "launch_invocation": _launch_invocation_contract(),
@@ -678,7 +782,6 @@ def assemble_task1_resolution_instrument(
             "compiler": 0,
         },
         "reviewed_commit_sha": inputs.reviewed_commit_sha,
-        "task1_stage": "task1_vertical_unhardened",
     }
     return ResolutionInstrument(
         inputs=inputs,
@@ -1227,6 +1330,69 @@ def _verify_reservation_path_separation(
         raise ValueError("resolution staging and destination filesystem differ")
 
 
+def retain_post_dispatch_unsealed(
+    *,
+    evidence_dir: Path,
+    preflight: VerifiedResolutionPreflight,
+    failure_locus: str,
+) -> PostDispatchUnsealed:
+    """Best-effort close one consumed attempt as forensic, never scientific."""
+
+    if type(preflight) is not VerifiedResolutionPreflight:
+        raise TypeError("verified resolution preflight is required")
+    if type(failure_locus) is not str or not failure_locus:
+        raise ValueError("post-dispatch failure locus must be nonempty")
+    evidence = Path(evidence_dir).resolve()
+    allowed = {
+        preflight.attempt.staging_path.resolve(),
+        preflight.attempt.destination.resolve(),
+    }
+    if evidence not in allowed or not evidence.is_dir():
+        raise ValueError("post-dispatch evidence location differs from attempt")
+    marker_path = evidence / "post_dispatch_unsealed.json"
+    forensic_hashes: list[dict[str, object]] = []
+    for path in sorted(evidence.rglob("*"), key=lambda item: item.as_posix()):
+        if path == marker_path or not path.is_file():
+            continue
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            continue
+        forensic_hashes.append(
+            {
+                "path": path.relative_to(evidence).as_posix(),
+                "size": len(raw),
+                "sha256": _sha256(raw),
+            }
+        )
+    marker = {
+        "schema": (
+            "rook.lm9b_p.governed_resolution_post_dispatch_unsealed:v1"
+        ),
+        "attempt_id": preflight.attempt.attempt_id,
+        "attempt_fingerprint": preflight.attempt.attempt_fingerprint,
+        "preflight_fingerprint": preflight.preflight_fingerprint,
+        "instrument_fingerprint": preflight.instrument_fingerprint,
+        "failure_locus": failure_locus,
+        "forensic_hashes": forensic_hashes,
+    }
+    raw_marker = _json_bytes(marker)
+    if marker_path.exists():
+        if marker_path.read_bytes() != raw_marker:
+            raise FileExistsError("post-dispatch marker already differs")
+    else:
+        with marker_path.open("xb") as stream:
+            stream.write(raw_marker)
+        if marker_path.read_bytes() != raw_marker:
+            raise ValueError("post-dispatch marker reread differs")
+    return PostDispatchUnsealed(
+        evidence_dir=evidence,
+        attempt_id=preflight.attempt.attempt_id,
+        attempt_fingerprint=preflight.attempt.attempt_fingerprint,
+        failure_locus=failure_locus,
+    )
+
+
 def require_clean_reviewed_checkout(repo_root: Path, reviewed_commit_sha: str) -> None:
     repo = Path(repo_root).resolve()
     head = subprocess.run(
@@ -1249,11 +1415,12 @@ def require_clean_reviewed_checkout(repo_root: Path, reviewed_commit_sha: str) -
         raise ValueError("reviewed checkout is dirty")
 
 
-def verify_sealed_resolution_checkpoint(
+def _retired_task1_resolution_checkpoint_verifier(
     archive_dir: Path,
     *,
     expected_identity: str,
 ) -> SealedResolutionCheckpoint:
+    raise RuntimeError("the Task-1 checkpoint verifier is retired")
     archive = Path(archive_dir).resolve()
     members = {
         path.relative_to(archive).as_posix()
@@ -1277,6 +1444,21 @@ def verify_sealed_resolution_checkpoint(
         raise ValueError("resolution checkpoint checksum closure differs")
     record = _object_bytes(raw_members["record.json"], "checkpoint record")
     if (
+        set(record)
+        != {
+            "schema",
+            "canonical_destination",
+            "checkpoint_identity",
+            "classification",
+            "derived_stop_cause",
+            "preflight_fingerprint",
+            "instrument_fingerprint",
+            "attempt_id",
+            "attempt_fingerprint",
+            "reviewed_commit_sha",
+            "state",
+        }
+        or
         record.get("schema") != CHECKPOINT_SCHEMA_ID
         or Path(record.get("canonical_destination", "")).resolve() != archive
         or record.get("implementation_stage") != "task1_vertical_unhardened"
@@ -1428,7 +1610,7 @@ def verify_sealed_resolution_checkpoint(
     )
 
 
-def seal_task1_resolution_checkpoint(
+def _retired_task1_resolution_checkpoint_writer(
     *,
     preflight: VerifiedResolutionPreflight,
     readiness_record: Mapping[str, object],
@@ -1442,6 +1624,7 @@ def seal_task1_resolution_checkpoint(
     evaluator_result: PLANNER_SUPPORT.PlannerEvaluationResult,
     classification: str,
 ) -> SealedResolutionCheckpoint:
+    raise RuntimeError("the Task-1 checkpoint writer is retired")
     staging = preflight.attempt.staging_path
     if not staging.is_dir() or preflight.attempt.destination.exists():
         raise ValueError("reserved staging and absent destination are required")
@@ -1689,6 +1872,19 @@ def _verify_task1_planner_evidence(
             usage=call["usage"],
             provider_metadata=call["provider_metadata"],
         )
+        expected_adapter_request = (
+            PROVIDER_ADAPTER.build_litellm_completion_request_bytes(
+                model="gpt-5.4",
+                temperature=0.0,
+                provider_request=request_value,
+            )
+        )
+        if (
+            response.raw_request != expected_adapter_request
+            or call.get("provider_claimed_raw_request_sha256")
+            != _sha256(response.raw_request)
+        ):
+            raise ValueError("checkpoint call ledger provenance differs")
         if call.get("raw_response_sha256") != _sha256(response.raw_response):
             raise ValueError("Planner response hash differs from captured bytes")
         tool_arguments, recipe_bytes, protocol_rejection, tool_call_id = (
@@ -2400,11 +2596,1100 @@ def _preflight_record(
     return value
 
 
+def _resolution_source_record(inputs: SUPPORT.VerifiedResolutionInputs) -> dict[str, object]:
+    return {
+        "schema": "rook.lm9b_p.governed_resolution_source:v1",
+        "reviewed_commit_sha": inputs.reviewed_commit_sha,
+        "historical_source_root": str(
+            CONT_ARTIFACTS.PRODUCTION_SOURCE_PINS.source_root.resolve()
+        ),
+        "parent_derivative": {
+            "canonical_destination": str(OFFICIAL_DERIVATIVE.resolve()),
+            "identity": OFFICIAL_DERIVATIVE_IDENTITY,
+        },
+        "historical_qualification": {
+            "canonical_destination": str(HISTORICAL_CARRIER_QUALIFICATION.resolve()),
+            "identity": inputs.historical_qualification_identity,
+            "commit_sha": HISTORICAL_CARRIER_COMMIT,
+        },
+        "carrier_compatibility_fingerprint": (
+            inputs.carrier_compatibility_fingerprint
+        ),
+        "parent_recipe_raw_sha256": _sha256(inputs.parent_recipe_bytes),
+    }
+
+
+def _resolution_instrument_record(
+    preflight: VerifiedResolutionPreflight,
+) -> dict[str, object]:
+    return {
+        "schema": "rook.lm9b_p.governed_resolution_instrument:v1",
+        "preflight_record": dict(preflight.record),
+        "initial_request_b64": base64.b64encode(
+            preflight.instrument.initial_request.raw_bytes
+        ).decode("ascii"),
+        "contract_manifest": dict(preflight.instrument.contract_manifest),
+        "instrument_fingerprint": preflight.instrument_fingerprint,
+    }
+
+
+def _resolution_authority_record(
+    inputs: SUPPORT.VerifiedResolutionInputs,
+) -> dict[str, object]:
+    return {
+        "schema": "rook.lm9b_p.governed_resolution_successor_authority:v1",
+        "successor_envelope_b64": base64.b64encode(
+            inputs.successor_envelope_bytes
+        ).decode("ascii"),
+        "successor_envelope_raw_sha256": _sha256(
+            inputs.successor_envelope_bytes
+        ),
+        "successor_envelope_fingerprint": inputs.successor_envelope[
+            "artifact_fingerprint"
+        ],
+        "carrier_support_fingerprint": inputs.carrier_support_instrument[
+            "carrier_support_fingerprint"
+        ],
+        "inputs_fingerprint": inputs.inputs_fingerprint,
+    }
+
+
+def _resolution_migration_record(
+    inputs: SUPPORT.VerifiedResolutionInputs,
+) -> dict[str, object]:
+    rows = [PLANNER_SUPPORT._json_builtins(row) for row in inputs.migration_ledger]
+    return {
+        "schema": "rook.lm9b_p.governed_resolution_migration:v1",
+        "rows": rows,
+        "rows_fingerprint": PLANNER_SUPPORT.fingerprint(rows),
+    }
+
+
+def _resolution_correspondence_record(
+    inputs: SUPPORT.VerifiedResolutionInputs,
+) -> dict[str, object]:
+    rows = [PLANNER_SUPPORT._json_builtins(row) for row in inputs.correspondence]
+    return {
+        "schema": "rook.lm9b_p.governed_resolution_correspondence:v1",
+        "rows": rows,
+        "rows_fingerprint": PLANNER_SUPPORT.fingerprint(rows),
+    }
+
+
+def _planner_session_record(
+    session: PLANNER_SUPPORT.PlannerSessionResult,
+    planner_calls: list[Mapping[str, object]],
+) -> dict[str, object]:
+    return {
+        "schema": "rook.lm9b_p.governed_resolution_planner_session:v1",
+        "termination": session.termination,
+        "call_count": len(planner_calls),
+        "final_recipe_raw_sha256": (
+            None
+            if session.final_recipe_bytes is None
+            else _sha256(session.final_recipe_bytes)
+        ),
+        "calls": [PLANNER_SUPPORT._json_builtins(row) for row in planner_calls],
+        "turns": [
+            {
+                "turn_index": turn.turn_index,
+                "raw_response_sha256": _sha256(turn.raw_response),
+                "tool_arguments_sha256": (
+                    None
+                    if turn.tool_arguments is None
+                    else _sha256(turn.tool_arguments)
+                ),
+                "gate_status": (
+                    None if turn.gate_result is None else turn.gate_result.status
+                ),
+                "usage": PLANNER_SUPPORT._json_builtins(turn.usage),
+                # The durable claim is the adapter-bound call timing. The
+                # controller's surrounding turn timing is not independently
+                # reconstructible from the provider ledger.
+                "elapsed_ms": planner_calls[index]["elapsed_ms"],
+            }
+            for index, turn in enumerate(session.turns)
+        ],
+    }
+
+
+def _evaluator_record_from_ledger(
+    row: Mapping[str, object], result: PLANNER_SUPPORT.PlannerEvaluationResult
+) -> dict[str, object]:
+    return {
+        "schema": "rook.lm9b_p.governed_resolution_evaluator:v1",
+        "call_index": row["call_index"],
+        "dispatched_request_b64": base64.b64encode(
+            str(row["canonical_request_json"]).encode("utf-8")
+        ).decode("ascii"),
+        "provider_claimed_raw_request_b64": row.get(
+            "provider_claimed_raw_request_b64"
+        ),
+        "provider_raw_error_b64": row.get("provider_raw_error_b64"),
+        "raw_response_b64": row.get("raw_response_b64"),
+        "assistant_message": row.get("assistant_message"),
+        "usage": row.get("usage"),
+        "provider_metadata": row.get("provider_metadata"),
+        "termination": result.termination,
+        "recommendation": result.recommendation,
+        "evidence": [PLANNER_SUPPORT._json_builtins(item) for item in result.evidence],
+        "quiescent": result.quiescent,
+    }
+
+
+def _classification_record(
+    *,
+    classification: str,
+    derived_stop_cause: str,
+    candidate_recipe_bytes: bytes | None,
+) -> dict[str, object]:
+    blockers = (
+        []
+        if candidate_recipe_bytes is None
+        else list(
+            PLANNER_ARTIFACTS.derive_probe_explicit_blockers(
+                candidate_recipe_bytes
+            )
+        )
+    )
+    return {
+        "schema": "rook.lm9b_p.governed_resolution_classification:v1",
+        "classification": classification,
+        "derived_stop_cause": derived_stop_cause,
+        "explicit_blockers": blockers,
+        "checkpoint_2": "not_evaluated",
+    }
+
+
+def _boundary_record(
+    *, candidate_present: bool, isolation_evaluated: bool, evaluator_dispatched: bool
+) -> dict[str, object]:
+    return {
+        "schema": "rook.lm9b_p.governed_resolution_boundary:v1",
+        "candidate_present": candidate_present,
+        "isolation_evaluated": isolation_evaluated,
+        "evaluator_dispatched": evaluator_dispatched,
+        "compiler_dispatch_activity": False,
+        "compiler_handoff_present": False,
+        "checkpoint_2": "not_evaluated",
+    }
+
+
+def _attempt_from_preflight_record(
+    *, instrument: ResolutionInstrument, record: Mapping[str, object]
+) -> AttemptBinding:
+    value = record.get("attempt")
+    if type(value) is not dict:
+        raise ValueError("archived preflight attempt is malformed")
+    attempt_id = value.get("attempt_id")
+    root = Path(str(value.get("resolution_root", ""))).resolve()
+    destination = Path(str(value.get("canonical_destination", ""))).resolve()
+    staging = Path(str(value.get("staging_path", ""))).resolve()
+    if (
+        type(attempt_id) is not str
+        or ATTEMPT_ID_PATTERN.fullmatch(attempt_id) is None
+        or len(attempt_id) > ATTEMPT_ID_MAX_LENGTH
+        or destination.parent != root
+        or staging != root / f".{attempt_id}.staging"
+        or destination == staging
+    ):
+        raise ValueError("archived resolution attempt binding is invalid")
+    expected_fingerprint = PLANNER_SUPPORT.fingerprint(
+        {
+            "instrument_fingerprint": instrument.instrument_fingerprint,
+            "attempt_id": attempt_id,
+            "canonical_destination": str(destination),
+        }
+    )
+    if value.get("attempt_fingerprint") != expected_fingerprint:
+        raise ValueError("archived resolution attempt fingerprint differs")
+    return AttemptBinding(
+        attempt_id=attempt_id,
+        resolution_root=root,
+        destination=destination,
+        staging_path=staging,
+        attempt_fingerprint=expected_fingerprint,
+    )
+
+
+def _preflight_from_instrument_record(
+    value: Mapping[str, object],
+) -> VerifiedResolutionPreflight:
+    if set(value) != {
+        "schema",
+        "preflight_record",
+        "initial_request_b64",
+        "contract_manifest",
+        "instrument_fingerprint",
+    } or value.get("schema") != "rook.lm9b_p.governed_resolution_instrument:v1":
+        raise ValueError("archived resolution instrument shape differs")
+    preflight_record = value.get("preflight_record")
+    if type(preflight_record) is not dict:
+        raise ValueError("archived preflight record is malformed")
+    sources = _load_current_resolution_sources(
+        preflight_record.get("reviewed_commit_sha")
+    )
+    instrument = assemble_resolution_instrument(
+        sources=sources,
+        isolation_policy_path=ISOLATION_POLICY_PATH,
+        evaluation_rubric_path=EVALUATION_RUBRIC_PATH,
+    )
+    initial_raw = base64.b64decode(value["initial_request_b64"], validate=True)
+    if (
+        instrument.initial_request.raw_bytes != initial_raw
+        or dict(instrument.contract_manifest) != value.get("contract_manifest")
+        or instrument.instrument_fingerprint != value.get("instrument_fingerprint")
+    ):
+        raise ValueError("archived instrument differs from reconstruction")
+    attempt = _attempt_from_preflight_record(
+        instrument=instrument, record=preflight_record
+    )
+    preflight_destination = Path(
+        str(preflight_record.get("canonical_preflight_destination", ""))
+    ).resolve()
+    expected_record = _preflight_record(
+        instrument, attempt, preflight_destination
+    )
+    if expected_record != preflight_record:
+        raise ValueError("archived preflight differs from reconstruction")
+    return VerifiedResolutionPreflight(
+        archive_dir=preflight_destination,
+        record=MappingProxyType(preflight_record),
+        preflight_fingerprint=preflight_record["preflight_fingerprint"],
+        instrument_fingerprint=instrument.instrument_fingerprint,
+        attempt=attempt,
+        instrument=instrument,
+    )
+
+
+def _reconstruct_attempt_results(
+    *,
+    preflight: VerifiedResolutionPreflight,
+    call_ledger: tuple[Mapping[str, object], ...],
+    candidate_recipe_bytes: bytes | None,
+) -> tuple[
+    PLANNER_SUPPORT.PlannerSessionResult,
+    PLANNER_SUPPORT.MechanicalGateResult | None,
+    SUPPORT.IsolationGateResult | None,
+    PLANNER_SUPPORT.PlannerEvaluationResult | None,
+    str,
+    str,
+]:
+    calls = [dict(row) for row in call_ledger]
+    planner_rows = [row for row in calls if row.get("role") == "planner"]
+    evaluator_rows = [
+        row for row in calls if row.get("role") == "planner_evaluator"
+    ]
+    turns: list[PLANNER_SUPPORT.PlannerTurnRecord] = []
+    accepted: bytes | None = None
+    provider_terminal: str | None = None
+    total_tokens = 0
+    total_cost = 0.0
+    cost_complete = True
+    inputs = preflight.instrument.inputs
+    for row in planner_rows:
+        request_raw = _verify_dispatch_row(
+            row,
+            role="planner",
+            role_contract=preflight.record["instrument_contracts"]["planner"],
+            maximum_timeout=PLANNER_SUPPORT.PLANNER_PROVIDER_TIMEOUT_S,
+        )
+        request = PLANNER_SUPPORT.materialize_planner_provider_call_request(
+            request_raw
+        )
+        if row.get("outcome") == "raised":
+            _verify_provider_failure_from_call_row(
+                row,
+                role="Planner",
+                role_contract=preflight.record["instrument_contracts"]["planner"],
+                provider_request=request,
+            )
+            provider_terminal = (
+                "timeout"
+                if row.get("exception_type") == "TimeoutError"
+                or (
+                    row.get("exception_type") == "ProviderCallFailure"
+                    and isinstance(row.get("failure_type"), str)
+                    and "timeout" in row["failure_type"].casefold()
+                )
+                else "provider_failure"
+            )
+            break
+        response = _provider_turn_from_call_row(
+            row,
+            role="Planner",
+            role_contract=preflight.record["instrument_contracts"]["planner"],
+            provider_request=request,
+        )
+        if response is None:
+            provider_terminal = "provider_failure"
+            break
+        tool_arguments, recipe_bytes, rejection, _tool_call_id = (
+            PLANNER_SUPPORT.derive_planner_submission_from_message(
+                response.assistant_message
+            )
+        )
+        gate = rejection
+        if recipe_bytes is not None:
+            gate = PLANNER_SUPPORT.evaluate_mechanical_gate(
+                recipe_bytes=recipe_bytes,
+                authority=inputs.current_authority,
+                recipe_schema=inputs.recipe_schema,
+                normalization_profile=inputs.normalization_profile,
+                exclusion_policy=inputs.exclusion_policy,
+            )
+        if gate is None:
+            raise ValueError("Planner evidence produces no mechanical gate")
+        turn = PLANNER_SUPPORT.PlannerTurnRecord(
+            turn_index=len(turns) + 1,
+            raw_response=response.raw_response,
+            tool_arguments=tool_arguments,
+            gate_result=gate,
+            usage=response.usage,
+            elapsed_ms=row["elapsed_ms"],
+        )
+        turns.append(turn)
+        tokens, cost, complete = PLANNER_SUPPORT._planner_usage_values(turn.usage)
+        total_tokens += tokens
+        total_cost += cost
+        cost_complete = cost_complete and complete
+        if gate.status == "mechanically_accepted":
+            accepted = recipe_bytes
+            break
+    if provider_terminal is not None:
+        termination = provider_terminal
+    elif accepted is not None:
+        termination = "mechanically_accepted"
+    elif (
+        total_tokens >= PLANNER_SUPPORT.PLANNER_TOKEN_STOP_THRESHOLD
+        or (
+            cost_complete
+            and total_cost >= PLANNER_SUPPORT.PLANNER_COST_STOP_THRESHOLD_USD
+        )
+        or len(turns) == PLANNER_SUPPORT.PLANNER_MAX_TURNS
+    ):
+        termination = "mechanically_rejected"
+    else:
+        termination = "timeout"
+    planner_session = PLANNER_SUPPORT.PlannerSessionResult(
+        termination=termination,
+        turns=tuple(turns),
+        final_recipe_bytes=accepted,
+    )
+    if accepted != candidate_recipe_bytes:
+        raise ValueError("archived candidate differs from Planner submission")
+    checkpoint_gate = None
+    isolation = None
+    if candidate_recipe_bytes is not None:
+        checkpoint_gate = PLANNER_SUPPORT.evaluate_mechanical_gate(
+            recipe_bytes=candidate_recipe_bytes,
+            authority=inputs.current_authority,
+            recipe_schema=inputs.recipe_schema,
+            normalization_profile=inputs.normalization_profile,
+            exclusion_policy=inputs.exclusion_policy,
+        )
+        if checkpoint_gate.status != "mechanically_accepted":
+            raise ValueError("archived candidate fails independent gate")
+        isolation = SUPPORT.evaluate_resolution_isolation(
+            inputs=inputs,
+            candidate_recipe_bytes=candidate_recipe_bytes,
+        )
+    evaluator = None
+    if evaluator_rows:
+        if len(evaluator_rows) != 1 or candidate_recipe_bytes is None:
+            raise ValueError("archived evaluator call is unreachable")
+        row = evaluator_rows[0]
+        evaluator_raw = _verify_dispatch_row(
+            row,
+            role="planner_evaluator",
+            role_contract=preflight.record["instrument_contracts"]["evaluator"],
+            maximum_timeout=PLANNER_SUPPORT.PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S,
+        )
+        request = PLANNER_SUPPORT.parse_archive_json(evaluator_raw)
+        if row.get("outcome") == "returned":
+            response = _provider_turn_from_call_row(
+                row,
+                role="evaluator",
+                role_contract=preflight.record["instrument_contracts"]["evaluator"],
+                provider_request=request,
+            )
+            evaluator = PLANNER_SUPPORT.derive_planner_evaluation_result(
+                outcome="returned", response=response
+            )
+        elif row.get("outcome") == "raised":
+            _verify_provider_failure_from_call_row(
+                row,
+                role="evaluator",
+                role_contract=preflight.record["instrument_contracts"]["evaluator"],
+                provider_request=request,
+            )
+            evaluator = PLANNER_SUPPORT.derive_planner_evaluation_result(
+                outcome="raised",
+                exception_type=row.get("exception_type"),
+                failure_type=row.get("failure_type"),
+            )
+        else:
+            raise ValueError("archived evaluator call is incomplete")
+    if evaluator is not None:
+        classification = PLANNER_ARTIFACTS.derive_evaluated_recipe_classification(
+            evaluator, final_recipe_bytes=candidate_recipe_bytes
+        )
+        if classification == "probe_candidate_blocked":
+            raise ValueError("blocked classification is unreachable after isolation")
+        stop_cause = _derive_evaluator_ledger_stop_cause(evaluator)
+    else:
+        classification = _classification_without_evaluator(
+            planner_session=planner_session, isolation_result=isolation
+        )
+        stop_cause = _derive_planner_ledger_stop_cause(
+            planner_session,
+            total_tokens=total_tokens,
+            total_cost=total_cost,
+            cost_complete=cost_complete,
+        )
+        if classification == "probe_resolution_isolation_failure":
+            stop_cause = "isolation_rejected"
+    return (
+        planner_session,
+        checkpoint_gate,
+        isolation,
+        evaluator,
+        classification,
+        stop_cause,
+    )
+
+
+def _verify_staged_execution_snapshot(
+    *,
+    preflight: VerifiedResolutionPreflight,
+    invocation_binding: Mapping[str, object],
+    readiness_record: Mapping[str, object],
+    readiness_verified_at: str,
+    call_ledger: tuple[Mapping[str, object], ...],
+) -> Path:
+    runtime = preflight.attempt.staging_path / ".resolution-runtime"
+    calls_dir = runtime / "calls"
+    if not runtime.is_dir() or not calls_dir.is_dir():
+        raise ValueError("staged execution snapshot is absent")
+    expected_base = {
+        "preflight.json": _json_bytes(preflight.record),
+        "attempt.json": _json_bytes(
+            {
+                "schema": "rook.lm9b_p.governed_resolution_staged_attempt:v1",
+                "attempt_id": preflight.attempt.attempt_id,
+                "attempt_fingerprint": preflight.attempt.attempt_fingerprint,
+                "canonical_destination": str(preflight.attempt.destination),
+                "staging_path": str(preflight.attempt.staging_path),
+            }
+        ),
+        "invocation.json": _json_bytes(invocation_binding),
+        "readiness.json": _json_bytes(
+            {
+                "schema": "rook.lm9b_p.governed_resolution_staged_readiness:v1",
+                "record": PLANNER_SUPPORT._json_builtins(readiness_record),
+                "verified_at": readiness_verified_at,
+            }
+        ),
+        "initial-request.json": preflight.instrument.initial_request.raw_bytes,
+    }
+    for relative, expected in expected_base.items():
+        if (runtime / relative).read_bytes() != expected:
+            raise ValueError("staged execution snapshot differs from pre-dispatch bytes")
+    for row in call_ledger:
+        index = row["call_index"]
+        role = row["role"]
+        prefix = f"{index:02d}-{role}"
+        request_raw = str(row["canonical_request_json"]).encode("utf-8")
+        if (calls_dir / f"{prefix}-request.json").read_bytes() != request_raw:
+            raise ValueError("staged call request differs from call ledger")
+        marker = {
+            "schema": "rook.lm9b_p.governed_resolution_dispatch_started:v1",
+            "call_index": index,
+            "role": role,
+            "request_raw_sha256": _sha256(request_raw),
+            "preceding_transcript_fingerprint": row[
+                "preceding_transcript_fingerprint"
+            ],
+            "provider_timeout_s": row["provider_timeout_s"],
+            "controller_deadline_state": row["controller_deadline_state"],
+            "role_contract_fingerprint": row["role_contract_fingerprint"],
+        }
+        marker_raw = _json_bytes(marker)
+        if (
+            (calls_dir / f"{prefix}-dispatch_started.json").read_bytes()
+            != marker_raw
+            or row["dispatch_marker_raw_sha256"] != _sha256(marker_raw)
+        ):
+            raise ValueError("staged dispatch marker differs from call ledger")
+        if row.get("outcome") == "returned" and row.get("raw_response_b64") is not None:
+            adapter_request = base64.b64decode(
+                row["provider_claimed_raw_request_b64"], validate=True
+            )
+            adapter_response = base64.b64decode(
+                row["raw_response_b64"], validate=True
+            )
+            if (
+                (calls_dir / f"{prefix}-adapter-request.json").read_bytes()
+                != adapter_request
+                or (calls_dir / f"{prefix}-adapter-response.bin").read_bytes()
+                != adapter_response
+            ):
+                raise ValueError("staged adapter evidence differs from call ledger")
+    return runtime
+
+
+def _remove_verified_runtime(runtime: Path) -> None:
+    calls = runtime / "calls"
+    for path in sorted(calls.iterdir()):
+        if not path.is_file():
+            raise ValueError("staged call evidence contains a non-file member")
+        path.unlink()
+    calls.rmdir()
+    for relative in (
+        "attempt.json",
+        "initial-request.json",
+        "invocation.json",
+        "preflight.json",
+        "readiness.json",
+    ):
+        (runtime / relative).unlink()
+    runtime.rmdir()
+
+
+def seal_resolution_checkpoint(
+    *,
+    preflight: VerifiedResolutionPreflight,
+    invocation_binding: Mapping[str, object],
+    readiness_record: Mapping[str, object],
+    readiness_verified_at: str,
+    planner_session: PLANNER_SUPPORT.PlannerSessionResult,
+    evaluator_result: PLANNER_SUPPORT.PlannerEvaluationResult | None,
+    isolation_result: SUPPORT.IsolationGateResult | None,
+    checkpoint_gate: PLANNER_SUPPORT.MechanicalGateResult | None,
+    candidate_recipe_bytes: bytes | None,
+    call_ledger: tuple[Mapping[str, object], ...],
+    derived_stop_cause: str,
+    classification: str,
+) -> SealedResolutionCheckpoint | PostDispatchUnsealed:
+    """Seal one complete attempt without trusting its authored claims."""
+
+    if classification not in {
+        "probe_mechanically_rejected",
+        "probe_resolution_isolation_failure",
+        "probe_planner_failure",
+        "probe_candidate_ready",
+        "probe_inconclusive",
+    }:
+        raise ValueError("resolution classification is outside the closed vocabulary")
+    verify_resolution_call_ledger(
+        preflight=preflight,
+        planner_session=planner_session,
+        evaluator_result=evaluator_result,
+        isolation_result=isolation_result,
+        classification=classification,
+        candidate_recipe_bytes=candidate_recipe_bytes,
+        call_ledger=call_ledger,
+        derived_stop_cause=derived_stop_cause,
+    )
+    runtime = _verify_staged_execution_snapshot(
+        preflight=preflight,
+        invocation_binding=invocation_binding,
+        readiness_record=readiness_record,
+        readiness_verified_at=readiness_verified_at,
+        call_ledger=call_ledger,
+    )
+    expected_invocation = build_resolution_invocation_binding(
+        supplied_preflight_fingerprint=preflight.preflight_fingerprint,
+        transmit=True,
+        reviewed_commit_sha=preflight.record["reviewed_commit_sha"],
+        readiness_identity=readiness_record.get("record_fingerprint"),
+        attempt_id=preflight.attempt.attempt_id,
+        attempt_fingerprint=preflight.attempt.attempt_fingerprint,
+    )
+    invocation = verify_resolution_invocation_binding(
+        invocation_binding, expected=expected_invocation
+    )
+    candidate_present = candidate_recipe_bytes is not None
+    isolation_evaluated = isolation_result is not None
+    evaluator_dispatched = evaluator_result is not None
+    members = resolution_archive_member_paths(
+        candidate_present=candidate_present,
+        isolation_evaluated=isolation_evaluated,
+        evaluator_dispatched=evaluator_dispatched,
+    )
+    if candidate_present:
+        if checkpoint_gate is None or isolation_result is None:
+            raise ValueError("candidate archive lacks gate or isolation evidence")
+    elif checkpoint_gate is not None or isolation_result is not None:
+        raise ValueError("candidate-free archive carries unreachable gate evidence")
+    planner_calls = [row for row in call_ledger if row["role"] == "planner"]
+    inputs = preflight.instrument.inputs
+    raw_members: dict[str, bytes] = {
+        "launch.json": _json_bytes(
+            {
+                "schema": "rook.lm9b_p.governed_resolution_launch:v1",
+                "invocation_binding": dict(invocation),
+                "claim": "execution was invoked with these bindings only",
+                "non_claim": "does not authenticate human authorization",
+            }
+        ),
+        "source.json": _json_bytes(_resolution_source_record(inputs)),
+        "instrument.json": _json_bytes(_resolution_instrument_record(preflight)),
+        "authority.json": _json_bytes(_resolution_authority_record(inputs)),
+        "migration.json": _json_bytes(_resolution_migration_record(inputs)),
+        "correspondence.json": _json_bytes(
+            _resolution_correspondence_record(inputs)
+        ),
+        "readiness.json": _json_bytes(
+            {
+                "schema": "rook.lm9b_p.governed_resolution_readiness:v1",
+                "record": PLANNER_SUPPORT._json_builtins(readiness_record),
+                "verified_at": readiness_verified_at,
+                "route_identity_projection": preflight.record[
+                    "instrument_contracts"
+                ]["readiness"]["route_identity_projection"],
+            }
+        ),
+        "call-ledger.json": _json_bytes(
+            {
+                "schema": "rook.lm9b_p.governed_resolution_call_ledger:v1",
+                "calls": [PLANNER_SUPPORT._json_builtins(row) for row in call_ledger],
+            }
+        ),
+        "planner-session.json": _json_bytes(
+            _planner_session_record(planner_session, planner_calls)
+        ),
+        "classification.json": _json_bytes(
+            _classification_record(
+                classification=classification,
+                derived_stop_cause=derived_stop_cause,
+                candidate_recipe_bytes=candidate_recipe_bytes,
+            )
+        ),
+        "boundary.json": _json_bytes(
+            _boundary_record(
+                candidate_present=candidate_present,
+                isolation_evaluated=isolation_evaluated,
+                evaluator_dispatched=evaluator_dispatched,
+            )
+        ),
+    }
+    if candidate_recipe_bytes is not None:
+        raw_members["candidate-recipe.json"] = candidate_recipe_bytes
+        raw_members["checkpoint-gate.json"] = _json_bytes(
+            _gate_record(checkpoint_gate)
+        )
+        raw_members["isolation.json"] = _json_bytes(
+            _isolation_record(isolation_result)
+        )
+    if evaluator_result is not None:
+        evaluator_rows = [
+            row for row in call_ledger if row["role"] == "planner_evaluator"
+        ]
+        if len(evaluator_rows) != 1:
+            raise ValueError("evaluator result lacks one call-ledger row")
+        raw_members["evaluator.json"] = _json_bytes(
+            _evaluator_record_from_ledger(evaluator_rows[0], evaluator_result)
+        )
+    if set(raw_members) != members - {"record.json", "checksums.json"}:
+        raise ValueError("resolution archive writer membership differs")
+    identity_rows = [
+        {"path": path, "raw_sha256": _sha256(raw)}
+        for path, raw in sorted(raw_members.items())
+    ]
+    checkpoint_identity = PLANNER_SUPPORT.fingerprint(
+        {
+            "schema": CHECKPOINT_SCHEMA_ID,
+            "canonical_destination": str(preflight.attempt.destination),
+            "members": identity_rows,
+        }
+    )
+    record = {
+        "schema": CHECKPOINT_SCHEMA_ID,
+        "canonical_destination": str(preflight.attempt.destination),
+        "checkpoint_identity": checkpoint_identity,
+        "classification": classification,
+        "derived_stop_cause": derived_stop_cause,
+        "preflight_fingerprint": preflight.preflight_fingerprint,
+        "instrument_fingerprint": preflight.instrument_fingerprint,
+        "attempt_id": preflight.attempt.attempt_id,
+        "attempt_fingerprint": preflight.attempt.attempt_fingerprint,
+        "reviewed_commit_sha": preflight.record["reviewed_commit_sha"],
+        "state": "sealed",
+    }
+    raw_members["record.json"] = _json_bytes(record)
+    raw_members["checksums.json"] = _json_bytes(
+        _checksums(
+            "rook.lm9b_p.governed_resolution_checkpoint_checksums:v1",
+            raw_members,
+        )
+    )
+    _remove_verified_runtime(runtime)
+    staging = preflight.attempt.staging_path
+    if any(staging.iterdir()):
+        raise ValueError("reserved staging contains unexpected members")
+    for relative, raw in raw_members.items():
+        path = staging / relative
+        with path.open("xb") as stream:
+            stream.write(raw)
+        if path.read_bytes() != raw:
+            raise ValueError("resolution archive member reread differs")
+    _verify_resolution_checkpoint_archive(
+        staging,
+        expected_identity=checkpoint_identity,
+        enforce_public_location=False,
+        verified_preflight=preflight,
+    )
+    try:
+        staging.rename(preflight.attempt.destination)
+    except OSError:
+        return reconcile_resolution_rename(
+            staging_dir=staging,
+            destination=preflight.attempt.destination,
+            expected_identity=checkpoint_identity,
+            preflight=preflight,
+        )
+    return SealedResolutionCheckpoint(
+        archive_dir=preflight.attempt.destination,
+        checkpoint_identity=checkpoint_identity,
+        classification=classification,
+        exact_recipe_bytes=candidate_recipe_bytes,
+    )
+
+
+def _verify_resolution_checkpoint_archive(
+    archive_dir: Path,
+    *,
+    expected_identity: str,
+    enforce_public_location: bool,
+    verified_preflight: VerifiedResolutionPreflight | None = None,
+) -> SealedResolutionCheckpoint:
+    archive = Path(archive_dir).resolve()
+    files = {
+        path.relative_to(archive).as_posix()
+        for path in archive.rglob("*")
+        if path.is_file()
+    }
+    record = _object_bytes((archive / "record.json").read_bytes(), "checkpoint record")
+    boundary = _object_bytes((archive / "boundary.json").read_bytes(), "boundary")
+    expected_members = resolution_archive_member_paths(
+        candidate_present=boundary.get("candidate_present"),
+        isolation_evaluated=boundary.get("isolation_evaluated"),
+        evaluator_dispatched=boundary.get("evaluator_dispatched"),
+    )
+    if files != expected_members:
+        raise ValueError("resolution checkpoint membership is not closed")
+    destination = Path(str(record.get("canonical_destination", ""))).resolve()
+    if enforce_public_location and archive != destination:
+        raise ValueError("resolution checkpoint physical destination differs")
+    raw_members = {
+        relative: (archive / relative).read_bytes()
+        for relative in sorted(expected_members - {"checksums.json"})
+    }
+    checksums = _object_bytes(
+        (archive / "checksums.json").read_bytes(), "checkpoint checksums"
+    )
+    if checksums != _checksums(
+        "rook.lm9b_p.governed_resolution_checkpoint_checksums:v1", raw_members
+    ):
+        raise ValueError("resolution checkpoint checksum closure differs")
+    identity_rows = [
+        {"path": path, "raw_sha256": _sha256(raw)}
+        for path, raw in sorted(raw_members.items())
+        if path != "record.json"
+    ]
+    identity = PLANNER_SUPPORT.fingerprint(
+        {
+            "schema": CHECKPOINT_SCHEMA_ID,
+            "canonical_destination": str(destination),
+            "members": identity_rows,
+        }
+    )
+    if (
+        record.get("schema") != CHECKPOINT_SCHEMA_ID
+        or record.get("checkpoint_identity") != identity
+        or expected_identity != identity
+        or record.get("state") != "sealed"
+    ):
+        raise ValueError("resolution checkpoint identity differs")
+    instrument_row = _object_bytes(raw_members["instrument.json"], "instrument")
+    if verified_preflight is None:
+        preflight = _preflight_from_instrument_record(instrument_row)
+    else:
+        if type(verified_preflight) is not VerifiedResolutionPreflight:
+            raise TypeError("private staging verification requires frozen preflight")
+        preflight = verified_preflight
+        if instrument_row != _resolution_instrument_record(preflight):
+            raise ValueError("staged instrument differs from frozen preflight")
+    inputs = preflight.instrument.inputs
+    if (
+        record.get("preflight_fingerprint") != preflight.preflight_fingerprint
+        or record.get("instrument_fingerprint") != preflight.instrument_fingerprint
+        or record.get("attempt_id") != preflight.attempt.attempt_id
+        or record.get("attempt_fingerprint") != preflight.attempt.attempt_fingerprint
+        or destination != preflight.attempt.destination
+        or record.get("reviewed_commit_sha") != inputs.reviewed_commit_sha
+    ):
+        raise ValueError("resolution checkpoint root bindings differ")
+    expected_roots = {
+        "source.json": _resolution_source_record(inputs),
+        "authority.json": _resolution_authority_record(inputs),
+        "migration.json": _resolution_migration_record(inputs),
+        "correspondence.json": _resolution_correspondence_record(inputs),
+    }
+    for relative, expected in expected_roots.items():
+        if _object_bytes(raw_members[relative], relative) != expected:
+            raise ValueError(f"resolution checkpoint {relative} provenance differs")
+    readiness = _object_bytes(raw_members["readiness.json"], "readiness")
+    if set(readiness) != {
+        "schema",
+        "record",
+        "verified_at",
+        "route_identity_projection",
+    } or readiness.get("schema") != "rook.lm9b_p.governed_resolution_readiness:v1":
+        raise ValueError("archived readiness shape differs")
+    manifest = READINESS.derive_routes(
+        READINESS.role_routes_from_models(
+            {"planner": "gpt-5.4", "planner_evaluator": "gpt-5.4"}
+        ),
+        lambda _model: "OPENAI_API_KEY",
+    )
+    if (
+        readiness_route_identity_projection(manifest)
+        != readiness["route_identity_projection"]
+        or readiness["route_identity_projection"]
+        != preflight.record["instrument_contracts"]["readiness"][
+            "route_identity_projection"
+        ]
+    ):
+        raise ValueError("archived readiness route identity differs")
+    decision = READINESS.verify_launch_readiness(
+        record=readiness["record"],
+        manifest=manifest,
+        head_sha=inputs.reviewed_commit_sha,
+        now_iso=readiness["verified_at"],
+        credential_present={route.route_fingerprint: True for route in manifest.routes},
+    )
+    if not decision.ok:
+        raise ValueError("archived readiness does not verify")
+    launch = _object_bytes(raw_members["launch.json"], "launch")
+    expected_invocation = build_resolution_invocation_binding(
+        supplied_preflight_fingerprint=preflight.preflight_fingerprint,
+        transmit=True,
+        reviewed_commit_sha=inputs.reviewed_commit_sha,
+        readiness_identity=readiness["record"].get("record_fingerprint"),
+        attempt_id=preflight.attempt.attempt_id,
+        attempt_fingerprint=preflight.attempt.attempt_fingerprint,
+    )
+    if set(launch) != {"schema", "invocation_binding", "claim", "non_claim"}:
+        raise ValueError("archived launch record is not closed")
+    verify_resolution_invocation_binding(
+        launch.get("invocation_binding"), expected=expected_invocation
+    )
+    if launch != {
+        "schema": "rook.lm9b_p.governed_resolution_launch:v1",
+        "invocation_binding": dict(expected_invocation),
+        "claim": "execution was invoked with these bindings only",
+        "non_claim": "does not authenticate human authorization",
+    }:
+        raise ValueError("archived launch record differs")
+    ledger = _object_bytes(raw_members["call-ledger.json"], "call ledger")
+    if set(ledger) != {"schema", "calls"} or ledger.get("schema") != (
+        "rook.lm9b_p.governed_resolution_call_ledger:v1"
+    ) or type(ledger.get("calls")) is not list:
+        raise ValueError("archived call ledger shape differs")
+    call_ledger = tuple(ledger["calls"])
+    if any(
+        type(row) is not dict or set(row) != _CALL_LEDGER_FIELDS
+        for row in call_ledger
+    ):
+        raise ValueError("archived call ledger rows are not closed")
+    candidate_raw = raw_members.get("candidate-recipe.json")
+    (
+        planner_session,
+        checkpoint_gate,
+        isolation,
+        evaluator,
+        classification,
+        stop_cause,
+    ) = _reconstruct_attempt_results(
+        preflight=preflight,
+        call_ledger=call_ledger,
+        candidate_recipe_bytes=candidate_raw,
+    )
+    verify_resolution_call_ledger(
+        preflight=preflight,
+        planner_session=planner_session,
+        evaluator_result=evaluator,
+        isolation_result=isolation,
+        classification=classification,
+        candidate_recipe_bytes=candidate_raw,
+        call_ledger=call_ledger,
+        derived_stop_cause=stop_cause,
+    )
+    planner_calls = [row for row in call_ledger if row["role"] == "planner"]
+    if _object_bytes(raw_members["planner-session.json"], "planner") != (
+        _planner_session_record(planner_session, planner_calls)
+    ):
+        raise ValueError("archived Planner result differs from call evidence")
+    if candidate_raw is not None:
+        if _object_bytes(raw_members["checkpoint-gate.json"], "gate") != _gate_record(
+            checkpoint_gate
+        ):
+            raise ValueError("archived mechanical gate differs")
+        if _object_bytes(raw_members["isolation.json"], "isolation") != _isolation_record(
+            isolation
+        ):
+            raise ValueError("archived isolation result differs")
+    if evaluator is not None:
+        evaluator_row = [
+            row for row in call_ledger if row["role"] == "planner_evaluator"
+        ][0]
+        if _object_bytes(raw_members["evaluator.json"], "evaluator") != (
+            _evaluator_record_from_ledger(evaluator_row, evaluator)
+        ):
+            raise ValueError("archived evaluator result differs")
+    classification_record = _classification_record(
+        classification=classification,
+        derived_stop_cause=stop_cause,
+        candidate_recipe_bytes=candidate_raw,
+    )
+    if (
+        _object_bytes(raw_members["classification.json"], "classification")
+        != classification_record
+        or record.get("classification") != classification
+        or record.get("derived_stop_cause") != stop_cause
+    ):
+        raise ValueError("archived classification differs from evidence")
+    expected_boundary = _boundary_record(
+        candidate_present=candidate_raw is not None,
+        isolation_evaluated=isolation is not None,
+        evaluator_dispatched=evaluator is not None,
+    )
+    if boundary != expected_boundary:
+        raise ValueError("archived boundary facts differ")
+    return SealedResolutionCheckpoint(
+        archive_dir=archive,
+        checkpoint_identity=identity,
+        classification=classification,
+        exact_recipe_bytes=candidate_raw,
+    )
+
+
+def verify_sealed_resolution_checkpoint(
+    archive_dir: Path, *, expected_identity: str
+) -> SealedResolutionCheckpoint:
+    """Publicly reconstruct one official checkpoint at its bound destination."""
+
+    return _verify_resolution_checkpoint_archive(
+        archive_dir,
+        expected_identity=expected_identity,
+        enforce_public_location=True,
+        verified_preflight=None,
+    )
+
+
+def reconcile_resolution_rename(
+    *,
+    staging_dir: Path,
+    destination: Path,
+    expected_identity: str,
+    preflight: VerifiedResolutionPreflight,
+) -> SealedResolutionCheckpoint | PostDispatchUnsealed:
+    staging = Path(staging_dir).resolve()
+    final = Path(destination).resolve()
+    staging_exists = staging.is_dir()
+    destination_exists = final.is_dir()
+    if destination_exists and not staging_exists:
+        try:
+            return _verify_resolution_checkpoint_archive(
+                final,
+                expected_identity=expected_identity,
+                enforce_public_location=True,
+                verified_preflight=preflight,
+            )
+        except (OSError, ValueError, TypeError):
+            pass
+    if staging_exists and destination_exists:
+        for evidence in (staging, final):
+            try:
+                retain_post_dispatch_unsealed(
+                    evidence_dir=evidence,
+                    preflight=preflight,
+                    failure_locus="ambiguous_rename_both_exist",
+                )
+            except (OSError, ValueError, FileExistsError):
+                pass
+        return PostDispatchUnsealed(
+            evidence_dir=staging,
+            attempt_id=preflight.attempt.attempt_id,
+            attempt_fingerprint=preflight.attempt.attempt_fingerprint,
+            failure_locus="ambiguous_rename_both_exist",
+        )
+    evidence = staging if staging_exists else final
+    locus = (
+        "rename_failed_staging_retained"
+        if staging_exists
+        else "rename_failed_invalid_destination_only"
+    )
+    return retain_post_dispatch_unsealed(
+        evidence_dir=evidence,
+        preflight=preflight,
+        failure_locus=locus,
+    )
+
+
+def issue_resolution_ready_proof(
+    sealed_checkpoint: SealedResolutionCheckpoint,
+) -> VerifiedResolutionReady:
+    if type(sealed_checkpoint) is not SealedResolutionCheckpoint:
+        raise TypeError("sealed resolution checkpoint is required")
+    verified = verify_sealed_resolution_checkpoint(
+        sealed_checkpoint.archive_dir,
+        expected_identity=sealed_checkpoint.checkpoint_identity,
+    )
+    if verified.classification != "probe_candidate_ready" or type(
+        verified.exact_recipe_bytes
+    ) is not bytes:
+        raise ValueError("only a publicly verified ready checkpoint can issue proof")
+    recipe = PLANNER_SUPPORT.parse_archive_json(verified.exact_recipe_bytes)
+    authority = _object_bytes(
+        (verified.archive_dir / "authority.json").read_bytes(), "authority"
+    )
+    gate = _object_bytes(
+        (verified.archive_dir / "checkpoint-gate.json").read_bytes(), "gate"
+    )
+    isolation = _object_bytes(
+        (verified.archive_dir / "isolation.json").read_bytes(), "isolation"
+    )
+    return VerifiedResolutionReady(
+        checkpoint=verified,
+        exact_recipe_bytes=verified.exact_recipe_bytes,
+        recipe_fingerprint=recipe["recipe_fingerprint"],
+        successor_authority_records=(MappingProxyType(authority),),
+        mechanical_gate_fingerprint=PLANNER_SUPPORT.fingerprint(gate),
+        isolation_result_fingerprint=isolation["result_fingerprint"],
+        contract_fingerprint=READY_PROOF_CONTRACT["contract_fingerprint"],
+    )
+
+
+def consume_resolution_ready_proof(proof: object) -> VerifiedResolutionReady:
+    if type(proof) is not VerifiedResolutionReady:
+        raise TypeError("resolution-ready proof has the wrong type")
+    rebuilt = issue_resolution_ready_proof(proof.checkpoint)
+    if proof != rebuilt:
+        raise ValueError("resolution-ready proof differs from public reconstruction")
+    return rebuilt
+
+
 __all__ = (
     "AttemptBinding",
+    "PostDispatchUnsealed",
+    "RESOLUTION_ARCHIVE_MEMBERS",
     "ResolutionInstrument",
     "SealedResolutionCheckpoint",
     "VerifiedCarrierQualificationCompatibility",
+    "VerifiedResolutionReady",
     "VerifiedResolutionPreflight",
     "VerifiedResolutionSources",
     "assemble_resolution_instrument",
@@ -2417,11 +3702,16 @@ __all__ = (
     "reserve_resolution_staging",
     "require_clean_reviewed_checkout",
     "readiness_route_identity_projection",
-    "seal_task1_resolution_checkpoint",
+    "reconcile_resolution_rename",
+    "resolution_archive_member_paths",
+    "retain_post_dispatch_unsealed",
+    "seal_resolution_checkpoint",
     "verify_historical_carrier_qualification_compatibility",
     "verify_resolution_preflight",
     "verify_resolution_invocation_binding",
     "verify_resolution_call_ledger",
     "verify_sealed_resolution_checkpoint",
+    "issue_resolution_ready_proof",
+    "consume_resolution_ready_proof",
     "write_resolution_preflight",
 )

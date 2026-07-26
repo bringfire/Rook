@@ -757,7 +757,7 @@ def test_task1_two_turn_vertical_witness_publicly_verifies(
         _canonical_bytes(changed_session)
     )
     planner_tamper_identity = _reclose_task1_checkpoint(planner_tamper)
-    with pytest.raises(ValueError, match="accepted Planner tool bytes differ"):
+    with pytest.raises(ValueError, match="root bindings differ"):
         RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
             planner_tamper,
             expected_identity=planner_tamper_identity,
@@ -775,7 +775,7 @@ def test_task1_two_turn_vertical_witness_publicly_verifies(
         _canonical_bytes(changed_evaluator)
     )
     evaluator_tamper_identity = _reclose_task1_checkpoint(evaluator_tamper)
-    with pytest.raises(ValueError, match="evaluator dispatch differs"):
+    with pytest.raises(ValueError, match="root bindings differ"):
         RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
             evaluator_tamper,
             expected_identity=evaluator_tamper_identity,
@@ -807,7 +807,7 @@ def test_task1_two_turn_vertical_witness_publicly_verifies(
         claim[field] = changed
         (claim_tamper / member).write_bytes(_canonical_bytes(claim))
         claim_tamper_identity = _reclose_task1_checkpoint(claim_tamper)
-        with pytest.raises(ValueError, match=expected_error):
+        with pytest.raises(ValueError, match="root bindings differ"):
             RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
                 claim_tamper,
                 expected_identity=claim_tamper_identity,
@@ -1222,6 +1222,13 @@ def test_task4_complete_outcome_table_stops_at_first_terminal_boundary(
     )
 
     assert result.classification == expected_classification
+    assert result.state == "sealed"
+    assert result.sealed_checkpoint is not None
+    verified = RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
+        result.sealed_checkpoint.archive_dir,
+        expected_identity=result.sealed_checkpoint.checkpoint_identity,
+    )
+    assert verified.classification == expected_classification
     assert len(evaluator.requests) == expected_evaluator_calls
     assert not planner.responses
     assert not evaluator.responses
@@ -1290,7 +1297,7 @@ def test_task4_provider_call_failure_retains_reconstructible_adapter_evidence(
         tmp_path=tmp_path,
     )
 
-    assert result.state == "terminal_evidence_complete"
+    assert result.state == "sealed"
     assert result.classification == "probe_inconclusive"
     request = json.loads(row["canonical_request_json"])
     raw_request = base64.b64decode(
@@ -1750,30 +1757,20 @@ def test_task4_terminal_evidence_retains_exact_staged_execution_snapshot(
         evaluator_provider=evaluator,
     )
 
-    assert result.state == "terminal_evidence_complete"
-    runtime = preflight.attempt.staging_path / ".resolution-runtime"
-    assert (runtime / "preflight.json").read_bytes() == (
-        preflight.archive_dir / "record.json"
-    ).read_bytes()
-    assert (runtime / "initial-request.json").read_bytes() == (
-        preflight.archive_dir / "initial-request.json"
-    ).read_bytes()
-    attempt = json.loads((runtime / "attempt.json").read_bytes())
-    assert attempt == {
-        "schema": "rook.lm9b_p.governed_resolution_staged_attempt:v1",
-        "attempt_id": preflight.attempt.attempt_id,
-        "attempt_fingerprint": preflight.attempt.attempt_fingerprint,
-        "canonical_destination": str(preflight.attempt.destination),
-        "staging_path": str(preflight.attempt.staging_path),
-    }
-    archived_readiness = json.loads((runtime / "readiness.json").read_bytes())
-    assert archived_readiness == {
-        "schema": "rook.lm9b_p.governed_resolution_staged_readiness:v1",
-        "record": readiness,
-        "verified_at": "2026-07-25T20:00:06Z",
-    }
-    assert len(list((runtime / "calls").glob("*-request.json"))) == 2
-    assert len(list((runtime / "calls").glob("*-dispatch_started.json"))) == 2
+    assert result.state == "sealed"
+    assert result.sealed_checkpoint is not None
+    archive = result.sealed_checkpoint.archive_dir
+    archived_readiness = json.loads((archive / "readiness.json").read_bytes())
+    assert archived_readiness["record"] == readiness
+    assert archived_readiness["verified_at"] == "2026-07-25T20:00:06Z"
+    ledger = json.loads((archive / "call-ledger.json").read_bytes())
+    assert len(ledger["calls"]) == 2
+    assert all(row["terminal"] is True for row in ledger["calls"])
+    instrument = json.loads((archive / "instrument.json").read_bytes())
+    assert instrument["preflight_record"] == preflight.record
+    assert base64.b64decode(instrument["initial_request_b64"]) == (
+        preflight.instrument.initial_request.raw_bytes
+    )
 
 
 def test_task4_execution_uses_only_frozen_snapshot_after_reservation(
@@ -2154,3 +2151,350 @@ def test_task4_terminal_row_is_not_published_before_evidence_capture_and_join(
     assert result.classification is None
     assert result.call_ledger[-1]["terminal"] is False
     assert result.call_ledger[-1]["provider_metadata"] is None
+
+
+def test_task5_response_capture_failure_retains_unsealed_forensic_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight = _task2_preflight(tmp_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+
+    class FailingAssistantMessage(dict):
+        def items(self):
+            raise RuntimeError("injected assistant-message capture failure")
+
+    ordinary = _planner_turn(
+        recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
+        call_id="planner-1",
+    )
+    planner = _FakeProvider(
+        [
+            replace(
+                ordinary,
+                assistant_message=FailingAssistantMessage(
+                    dict(ordinary.assistant_message)
+                ),
+            )
+        ],
+        staging_path=preflight.attempt.staging_path,
+    )
+    evaluator = _FakeProvider([], staging_path=preflight.attempt.staging_path)
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+
+    result = _run_resolution_attempt(
+        monkeypatch=monkeypatch,
+        preflight=preflight,
+        invocation_binding=_invocation(preflight, readiness),
+        readiness_record=readiness,
+        readiness_manifest=manifest,
+        head_sha=head_sha,
+        now_iso="2026-07-25T20:00:06Z",
+        credential_present={route.route_fingerprint: True},
+        planner_provider=planner,
+        evaluator_provider=evaluator,
+    )
+
+    assert result.state == "post_dispatch_unsealed"
+    assert result.classification is None
+    assert result.derived_stop_cause == "planner_response_capture_failure"
+    assert len(planner.requests) == 1
+    assert not evaluator.requests
+    assert len(result.call_ledger) == 1
+    assert result.call_ledger[0]["outcome"] == "dispatch_started"
+    assert result.call_ledger[0]["terminal"] is False
+
+    staging = preflight.attempt.staging_path
+    runtime_calls = staging / ".resolution-runtime" / "calls"
+    assert (runtime_calls / "00-planner-request.json").is_file()
+    assert (runtime_calls / "00-planner-dispatch_started.json").is_file()
+    adapter_request = runtime_calls / "00-planner-adapter-request.json"
+    assert adapter_request.read_bytes() == _expected_litellm_request_bytes(
+        json.loads(result.call_ledger[0]["canonical_request_json"])
+    )
+    assert not list(runtime_calls.glob("*-terminal.json"))
+
+    marker = json.loads((staging / "post_dispatch_unsealed.json").read_bytes())
+    assert marker["schema"] == (
+        "rook.lm9b_p.governed_resolution_post_dispatch_unsealed:v1"
+    )
+    assert marker["attempt_id"] == preflight.attempt.attempt_id
+    assert marker["attempt_fingerprint"] == preflight.attempt.attempt_fingerprint
+    assert marker["preflight_fingerprint"] == preflight.preflight_fingerprint
+    assert marker["instrument_fingerprint"] == preflight.instrument_fingerprint
+    assert marker["failure_locus"] == "planner_response_capture_failure"
+    assert "classification" not in marker
+    assert "checkpoint_identity" not in marker
+    assert marker["forensic_hashes"]
+
+
+def _task5_ready_result(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    expect_sealed: bool = True,
+) -> tuple[object, object]:
+    preflight = _task2_preflight(tmp_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+    planner = _FakeProvider(
+        [
+            _planner_turn(recipe_bytes=b"{}", call_id="planner-1"),
+            _planner_turn(
+                recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
+                call_id="planner-2",
+            ),
+        ],
+        staging_path=preflight.attempt.staging_path,
+    )
+    evaluator = _FakeProvider(
+        [_evaluator_turn()], staging_path=preflight.attempt.staging_path
+    )
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+    result = _run_resolution_attempt(
+        monkeypatch=monkeypatch,
+        preflight=preflight,
+        invocation_binding=_invocation(preflight, readiness),
+        readiness_record=readiness,
+        readiness_manifest=manifest,
+        head_sha=head_sha,
+        now_iso="2026-07-25T20:00:06Z",
+        credential_present={route.route_fingerprint: True},
+        planner_provider=planner,
+        evaluator_provider=evaluator,
+    )
+    if expect_sealed:
+        assert result.sealed_checkpoint is not None
+    return preflight, result
+
+
+def test_task5_reclosed_planner_adapter_request_is_rejected_by_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _preflight, result = _task5_ready_result(monkeypatch, tmp_path)
+    archive = result.sealed_checkpoint.archive_dir
+    planner_path = archive / "planner-session.json"
+    planner = json.loads(planner_path.read_bytes())
+    contradictory = b'{"wrong":"adapter-request"}\n'
+    planner["calls"][0]["provider_claimed_raw_request_b64"] = base64.b64encode(
+        contradictory
+    ).decode("ascii")
+    planner["calls"][0]["provider_claimed_raw_request_sha256"] = (
+        PLANNER_SUPPORT.sha256_prefixed(contradictory)
+    )
+    planner_path.write_bytes(_canonical_bytes(planner))
+    ledger_path = archive / "call-ledger.json"
+    ledger = json.loads(ledger_path.read_bytes())
+    ledger["calls"][0]["provider_claimed_raw_request_b64"] = base64.b64encode(
+        contradictory
+    ).decode("ascii")
+    ledger["calls"][0]["provider_claimed_raw_request_sha256"] = (
+        PLANNER_SUPPORT.sha256_prefixed(contradictory)
+    )
+    ledger_path.write_bytes(_canonical_bytes(ledger))
+    changed_identity = _reclose_task1_checkpoint(archive)
+
+    with pytest.raises(ValueError, match="LiteLLM request differs"):
+        RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
+            archive,
+            expected_identity=changed_identity,
+        )
+
+
+@pytest.mark.parametrize(
+    "substitution",
+    (
+        "successor_authority",
+        "initial_revision_request",
+        "planner_tool_arguments",
+        "mechanical_gate",
+        "isolation_verdict",
+        "evaluator_tool_arguments",
+        "blocker_projection",
+        "classification",
+        "readiness_contract",
+        "archive_contract",
+        "ready_proof_contract",
+        "call_order",
+        "physical_destination",
+    ),
+)
+def test_task5_fully_reclosed_provenance_substitution_is_rejected(
+    substitution: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _preflight, result = _task5_ready_result(monkeypatch, tmp_path)
+    archive = result.sealed_checkpoint.archive_dir
+    target = archive
+    if substitution == "physical_destination":
+        target = tmp_path / "copied-checkpoint"
+        shutil.copytree(archive, target)
+    elif substitution == "successor_authority":
+        path = target / "authority.json"
+        value = json.loads(path.read_bytes())
+        value["successor_envelope_fingerprint"] = "sha256:" + "1" * 64
+        path.write_bytes(_canonical_bytes(value))
+    elif substitution == "initial_revision_request":
+        path = target / "instrument.json"
+        value = json.loads(path.read_bytes())
+        value["initial_request_b64"] = base64.b64encode(b"{}").decode("ascii")
+        path.write_bytes(_canonical_bytes(value))
+    elif substitution == "planner_tool_arguments":
+        ledger_path = target / "call-ledger.json"
+        ledger = json.loads(ledger_path.read_bytes())
+        ledger["calls"][-2]["assistant_message"]["tool_calls"][0]["function"][
+            "arguments"
+        ] = '{"recipe_json":"{}"}'
+        ledger_path.write_bytes(_canonical_bytes(ledger))
+        planner_path = target / "planner-session.json"
+        planner = json.loads(planner_path.read_bytes())
+        planner["calls"] = ledger["calls"][:-1]
+        planner_path.write_bytes(_canonical_bytes(planner))
+    elif substitution == "mechanical_gate":
+        path = target / "checkpoint-gate.json"
+        value = json.loads(path.read_bytes())
+        value["recipe_value_fingerprint"] = "sha256:" + "2" * 64
+        path.write_bytes(_canonical_bytes(value))
+    elif substitution == "isolation_verdict":
+        path = target / "isolation.json"
+        value = json.loads(path.read_bytes())
+        value["status"] = "isolation_rejected"
+        path.write_bytes(_canonical_bytes(value))
+    elif substitution == "evaluator_tool_arguments":
+        ledger_path = target / "call-ledger.json"
+        ledger = json.loads(ledger_path.read_bytes())
+        ledger["calls"][-1]["assistant_message"]["tool_calls"][0]["function"][
+            "arguments"
+        ] = '{"evaluation_json":"{\\"recommendation\\":\\"semantically_unfaithful\\",\\"evidence\\":[]}"}'
+        ledger_path.write_bytes(_canonical_bytes(ledger))
+    elif substitution == "blocker_projection":
+        path = target / "classification.json"
+        value = json.loads(path.read_bytes())
+        value["explicit_blockers"] = ["unresolved_intent_present"]
+        path.write_bytes(_canonical_bytes(value))
+    elif substitution == "classification":
+        path = target / "classification.json"
+        value = json.loads(path.read_bytes())
+        value["classification"] = "probe_planner_failure"
+        path.write_bytes(_canonical_bytes(value))
+        record_path = target / "record.json"
+        record = json.loads(record_path.read_bytes())
+        record["classification"] = "probe_planner_failure"
+        record_path.write_bytes(_canonical_bytes(record))
+    elif substitution == "readiness_contract":
+        path = target / "readiness.json"
+        value = json.loads(path.read_bytes())
+        value["route_identity_projection"][0]["model"] = "gpt-5.3"
+        path.write_bytes(_canonical_bytes(value))
+    elif substitution in {"archive_contract", "ready_proof_contract"}:
+        path = target / "instrument.json"
+        value = json.loads(path.read_bytes())
+        key = "archive" if substitution == "archive_contract" else "ready_proof"
+        value["contract_manifest"][key]["contract_fingerprint"] = (
+            "sha256:" + "3" * 64
+        )
+        path.write_bytes(_canonical_bytes(value))
+    elif substitution == "call_order":
+        path = target / "call-ledger.json"
+        value = json.loads(path.read_bytes())
+        value["calls"][0]["call_index"] = 1
+        value["calls"][1]["call_index"] = 0
+        path.write_bytes(_canonical_bytes(value))
+    changed_identity = _reclose_task1_checkpoint(target)
+
+    with pytest.raises((ValueError, TypeError, KeyError)):
+        RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
+            target, expected_identity=changed_identity
+        )
+
+
+@pytest.mark.parametrize(
+    ("rename_case", "expected_state"),
+    (
+        ("destination_appears_before_rename", "post_dispatch_unsealed"),
+        ("rename_succeeds_then_raises", "sealed"),
+        ("invalid_destination_only", "post_dispatch_unsealed"),
+        ("staging_only", "post_dispatch_unsealed"),
+        ("both_exist", "post_dispatch_unsealed"),
+    ),
+)
+def test_task5_rename_reconciliation_never_overwrites_or_invents_result(
+    rename_case: str,
+    expected_state: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    original_rename = Path.rename
+
+    def injected_rename(source: Path, destination: Path) -> Path:
+        if rename_case == "destination_appears_before_rename":
+            destination.mkdir()
+            raise FileExistsError("destination raced")
+        if rename_case == "rename_succeeds_then_raises":
+            original_rename(source, destination)
+            raise OSError("ambiguous success")
+        if rename_case == "invalid_destination_only":
+            original_rename(source, destination)
+            (destination / "classification.json").write_bytes(b"{}")
+            raise OSError("invalid destination retained")
+        if rename_case == "both_exist":
+            shutil.copytree(source, destination)
+            raise OSError("both retained")
+        raise OSError("staging retained")
+
+    monkeypatch.setattr(Path, "rename", injected_rename)
+    _preflight, result = _task5_ready_result(
+        monkeypatch, tmp_path, expect_sealed=(expected_state == "sealed")
+    )
+    assert result.state == expected_state
+    if expected_state == "sealed":
+        assert result.sealed_checkpoint is not None
+        RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
+            result.sealed_checkpoint.archive_dir,
+            expected_identity=result.sealed_checkpoint.checkpoint_identity,
+        )
+    else:
+        assert result.classification is None
+        assert result.sealed_checkpoint is None
+        assert all(row.get("terminal") is True for row in result.call_ledger)
+        retained_dirs = [
+            path
+            for path in _preflight.attempt.resolution_root.iterdir()
+            if path.is_dir()
+        ]
+        marked = [
+            path
+            for path in retained_dirs
+            if (path / "post_dispatch_unsealed.json").is_file()
+        ]
+        assert marked
+        if rename_case in {"destination_appears_before_rename", "both_exist"}:
+            assert set(marked) == {
+                _preflight.attempt.staging_path,
+                _preflight.attempt.destination,
+            }
+        if rename_case == "invalid_destination_only":
+            assert marked == [_preflight.attempt.destination]
+
+
+def test_task5_ready_proof_is_reconstructed_and_forgery_refused(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _preflight, result = _task5_ready_result(monkeypatch, tmp_path)
+    proof = RESOLUTION_ARTIFACTS.issue_resolution_ready_proof(
+        result.sealed_checkpoint
+    )
+    consumed = RESOLUTION_ARTIFACTS.consume_resolution_ready_proof(proof)
+    assert consumed.exact_recipe_bytes == ISOLATED_SUCCESSOR_RECIPE.read_bytes()
+    assert consumed.checkpoint.classification == "probe_candidate_ready"
+    forged = replace(proof, recipe_fingerprint="sha256:" + "4" * 64)
+    with pytest.raises(ValueError, match="differs from public reconstruction"):
+        RESOLUTION_ARTIFACTS.consume_resolution_ready_proof(forged)

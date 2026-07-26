@@ -122,7 +122,6 @@ def test_task2_instrument_assembles_only_from_verified_sources() -> None:
         "ready_proof",
         "role_call_budgets",
         "reviewed_commit_sha",
-        "task1_stage",
     }
     planner = instrument.contract_manifest["planner"]
     evaluator = instrument.contract_manifest["evaluator"]
@@ -443,3 +442,87 @@ def test_task2_invocation_binding_is_closed_and_fingerprint_bound() -> None:
     changed["transmit"] = False
     with pytest.raises(ValueError, match="invocation"):
         ARTIFACTS.verify_resolution_invocation_binding(changed, expected=value)
+
+
+@pytest.mark.parametrize(
+    ("candidate_present", "isolation_evaluated", "evaluator_dispatched", "optional"),
+    (
+        (False, False, False, frozenset()),
+        (
+            True,
+            True,
+            False,
+            frozenset(
+                {
+                    "candidate-recipe.json",
+                    "checkpoint-gate.json",
+                    "isolation.json",
+                }
+            ),
+        ),
+        (
+            True,
+            True,
+            True,
+            frozenset(
+                {
+                    "candidate-recipe.json",
+                    "checkpoint-gate.json",
+                    "isolation.json",
+                    "evaluator.json",
+                }
+            ),
+        ),
+    ),
+)
+def test_task5_archive_membership_profile_is_closed(
+    candidate_present: bool,
+    isolation_evaluated: bool,
+    evaluator_dispatched: bool,
+    optional: frozenset[str],
+) -> None:
+    always = frozenset(
+        {
+            "record.json",
+            "launch.json",
+            "source.json",
+            "instrument.json",
+            "authority.json",
+            "migration.json",
+            "correspondence.json",
+            "readiness.json",
+            "call-ledger.json",
+            "planner-session.json",
+            "classification.json",
+            "boundary.json",
+            "checksums.json",
+        }
+    )
+    assert ARTIFACTS.resolution_archive_member_paths(
+        candidate_present=candidate_present,
+        isolation_evaluated=isolation_evaluated,
+        evaluator_dispatched=evaluator_dispatched,
+    ) == always | optional
+    assert set(ARTIFACTS.RESOLUTION_ARCHIVE_MEMBERS) == always | {
+        "candidate-recipe.json",
+        "checkpoint-gate.json",
+        "isolation.json",
+        "evaluator.json",
+    }
+
+
+@pytest.mark.parametrize(
+    ("candidate_present", "isolation_evaluated", "evaluator_dispatched"),
+    ((False, True, False), (False, False, True), (True, False, True)),
+)
+def test_task5_archive_membership_refuses_unreachable_profiles(
+    candidate_present: bool,
+    isolation_evaluated: bool,
+    evaluator_dispatched: bool,
+) -> None:
+    with pytest.raises(ValueError, match="archive membership profile"):
+        ARTIFACTS.resolution_archive_member_paths(
+            candidate_present=candidate_present,
+            isolation_evaluated=isolation_evaluated,
+            evaluator_dispatched=evaluator_dispatched,
+        )

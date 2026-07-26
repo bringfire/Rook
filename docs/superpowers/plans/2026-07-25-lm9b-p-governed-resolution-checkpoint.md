@@ -1222,7 +1222,7 @@ historical identity tokens preserved.
   - `issue_resolution_ready_proof(sealed_checkpoint) -> VerifiedResolutionReady`
   - `consume_resolution_ready_proof(proof) -> VerifiedResolutionReady`
 
-- [ ] **Step 1: Write the response-capture failure forensic-retention test**
+- [x] **Step 1: Write the response-capture failure forensic-retention test**
 
 Have a provider return, then inject failure while serializing its response
 evidence before terminal publication. Require retained
@@ -1231,7 +1231,7 @@ request, any captured LiteLLM request bytes, a precise capture failure locus,
 no terminal row, no classification, and no automatic retry. This is the first
 Task-5 red test; do not begin archive sealing over an escaping exception.
 
-- [ ] **Step 2: Define the exact closed archive membership in one constant**
+- [x] **Step 2: Define the exact closed archive membership in one constant**
 
 Create `RESOLUTION_ARCHIVE_MEMBERS` with explicit role/path pairs for identity,
 launch, source, instrument, authority, migration, correspondence, readiness,
@@ -1242,7 +1242,7 @@ closed classification/dispatch predicate; arbitrary missing/extra files fail.
 Use top-level schema `rook.lm9b_p.governed_resolution_checkpoint:v1` and
 unsealed marker `rook.lm9b_p.governed_resolution_post_dispatch_unsealed:v1`.
 
-- [ ] **Step 3: Write fully reclosed provenance-substitution tests**
+- [x] **Step 3: Write fully reclosed provenance-substitution tests**
 
 For each case, alter authority evidence, consistently update every authored
 downstream fingerprint/checksum/identity, and require public refusal:
@@ -1267,7 +1267,7 @@ PROVENANCE_SUBSTITUTIONS = (
 
 Expected: current thin verifier accepts at least one case before hardening.
 
-- [ ] **Step 4: Implement writer/reread/checksum closure**
+- [x] **Step 4: Implement writer/reread/checksum closure**
 
 Before finalization, reread every staged file and prove source, execution
 snapshot, preflight, instrument manifest, attempt, request, readiness,
@@ -1277,7 +1277,7 @@ the official checkpoint identity from the closed sorted checksum aggregate.
 The writer never trusts authored evaluator result, isolation verdict,
 classification, launch record, or dispatch record without reconstructing it.
 
-- [ ] **Step 5: Implement public constructive verification**
+- [x] **Step 5: Implement public constructive verification**
 
 The public verifier must reload production-pinned source and code-owned
 contracts, then rederive the complete graph specified in Design Section 19.
@@ -1285,7 +1285,7 @@ Require `archive.resolve() == canonical_destination` for official verification.
 Use a private staging verifier before rename; never weaken the public location
 contract.
 
-- [ ] **Step 6: Implement post-dispatch forensic retention**
+- [x] **Step 6: Implement post-dispatch forensic retention**
 
 Retain attempt/preflight identities, readiness bytes, dispatch markers,
 canonical requests, returned evidence, failure locus, and best-effort hashes.
@@ -1295,7 +1295,7 @@ already-written post-dispatch evidence during cleanup.
 If only an invalid final destination remains, best-effort write the unsealed
 marker there.
 
-- [ ] **Step 7: Implement no-clobber rename and reconciliation**
+- [x] **Step 7: Implement no-clobber rename and reconciliation**
 
 Use `Path.rename()` on the same filesystem. Do not use `Path.replace()`.
 Parameterize:
@@ -1314,7 +1314,7 @@ After an exception, verify the final destination against exact expected
 identity/checksums before declaring success. Ambiguous material remains
 unsealed with no result.
 
-- [ ] **Step 8: Implement the reconstructible resolution-ready proof carrier**
+- [x] **Step 8: Implement the reconstructible resolution-ready proof carrier**
 
 Define:
 
@@ -1338,7 +1338,7 @@ dataclass carries no authority: `consume_resolution_ready_proof()` must rerun
 the public archive verifier at the identity-bound physical destination and
 compare every field before returning. No raw unchecked issuer is exported.
 
-- [ ] **Step 9: Run Task-5 suites**
+- [x] **Step 9: Run Task-5 suites**
 
 Run:
 
@@ -1350,7 +1350,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 10: Commit Task 5**
+- [x] **Step 10: Commit Task 5**
 
 ```powershell
 git add scripts/lm9b_p_governed_resolution_artifacts.py `

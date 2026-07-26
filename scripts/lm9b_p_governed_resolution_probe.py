@@ -185,6 +185,7 @@ class _StagedCallLedger:
         self,
         *,
         preflight: ARTIFACTS.VerifiedResolutionPreflight,
+        invocation_binding: Mapping[str, object],
         readiness_record: Mapping[str, object],
         readiness_verified_at: str,
     ) -> None:
@@ -198,6 +199,7 @@ class _StagedCallLedger:
         self._pending_terminal_rows: dict[int, Mapping[str, object]] = {}
         self._adapter_identity_failures: set[int] = set()
         self._adapter_evidence_failures: dict[int, str] = {}
+        self._response_capture_failures: dict[int, str] = {}
         self._planner_call_plans: list[
             PLANNER_SUPPORT.PlannerProviderCallPlan
         ] = []
@@ -221,6 +223,10 @@ class _StagedCallLedger:
         )
         self._persist_and_reread(
             self._runtime / "attempt.json", _canonical_bytes(attempt)
+        )
+        self._persist_and_reread(
+            self._runtime / "invocation.json",
+            _canonical_bytes(invocation_binding),
         )
         self._persist_and_reread(
             self._runtime / "readiness.json", _canonical_bytes(readiness)
@@ -249,6 +255,17 @@ class _StagedCallLedger:
             ]
             if len(failures) > 1:
                 raise ValueError("multiple adapter evidence failures were recorded")
+            return None if not failures else failures[0]
+
+    def response_capture_failure_for_role(self, role: str) -> str | None:
+        with self._dispatch_lock:
+            failures = [
+                failure
+                for index, failure in self._response_capture_failures.items()
+                if self._rows[index]["role"] == role
+            ]
+            if len(failures) > 1:
+                raise ValueError("multiple response capture failures were recorded")
             return None if not failures else failures[0]
 
     def role_dispatch_complete(self, role: str) -> bool:
@@ -287,6 +304,9 @@ class _StagedCallLedger:
             call_index = active[0]
             terminal = self._pending_terminal_rows.pop(call_index, None)
             if terminal is None:
+                if call_index in self._response_capture_failures:
+                    self._active_calls.remove(call_index)
+                    return
                 raise ValueError("provider call completed before evidence capture")
             self._rows[call_index] = terminal
             self._active_calls.remove(call_index)
@@ -450,8 +470,16 @@ class _StagedCallLedger:
                 "terminal": True,
             }
             if type(response) is PLANNER_SUPPORT.ProviderTurn:
-                terminal.update(
-                    {
+                try:
+                    self._persist_and_reread(
+                        self._calls / f"{prefix}-adapter-request.json",
+                        response.raw_request,
+                    )
+                    self._persist_and_reread(
+                        self._calls / f"{prefix}-adapter-response.bin",
+                        response.raw_response,
+                    )
+                    captured = {
                         "provider_claimed_raw_request_b64": base64.b64encode(
                             response.raw_request
                         ).decode("ascii"),
@@ -472,7 +500,16 @@ class _StagedCallLedger:
                             response.provider_metadata
                         ),
                     }
-                )
+                except BaseException:
+                    failure_locus = (
+                        "planner_response_capture_failure"
+                        if role == "planner"
+                        else "evaluator_response_capture_failure"
+                    )
+                    with self._dispatch_lock:
+                        self._response_capture_failures[call_index] = failure_locus
+                    raise
+                terminal.update(captured)
                 metadata = response.provider_metadata
                 if (
                     not isinstance(metadata, Mapping)
@@ -509,19 +546,6 @@ class _StagedCallLedger:
             return tuple(
                 PLANNER_SUPPORT._json_builtins(row) for row in self._rows
             )
-
-    def remove_runtime_after_capture(self) -> None:
-        for path in sorted(self._calls.iterdir()):
-            path.unlink()
-        self._calls.rmdir()
-        for name in (
-            "attempt.json",
-            "initial-request.json",
-            "preflight.json",
-            "readiness.json",
-        ):
-            (self._runtime / name).unlink()
-        self._runtime.rmdir()
 
     @staticmethod
     def _persist_and_reread(path: Path, raw: bytes) -> None:
@@ -612,6 +636,7 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
     ARTIFACTS.reserve_resolution_staging(preflight)
     ledger = _StagedCallLedger(
         preflight=preflight,
+        invocation_binding=expected_invocation,
         readiness_record=readiness_record,
         readiness_verified_at=_kwargs["now_iso"],
     )
@@ -648,6 +673,20 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
             candidate_recipe_bytes=None,
             call_ledger=ledger.frozen_rows(),
             derived_stop_cause="planner_adapter_identity_mismatch",
+            state="post_dispatch_unsealed",
+        )
+    planner_capture_failure = ledger.response_capture_failure_for_role("planner")
+    if planner_capture_failure is not None:
+        return _attempt_result(
+            preflight=preflight,
+            classification=None,
+            planner_session=planner_session,
+            evaluator_result=None,
+            isolation_result=None,
+            checkpoint_gate=None,
+            candidate_recipe_bytes=None,
+            call_ledger=ledger.frozen_rows(),
+            derived_stop_cause=planner_capture_failure,
             state="post_dispatch_unsealed",
         )
     planner_evidence_failure = ledger.adapter_evidence_failure_for_role("planner")
@@ -757,13 +796,8 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
             user_prompt=rendered_evaluator.raw_bytes.decode("utf-8"),
         )
     )
-    evaluator_responses: list[PLANNER_SUPPORT.ProviderTurn] = []
-
     def evaluator_provider(request: dict[str, object]) -> object:
-        response = evaluator_adapter(request)
-        if type(response) is PLANNER_SUPPORT.ProviderTurn:
-            evaluator_responses.append(response)
-        return response
+        return evaluator_adapter(request)
 
     staged_evaluator_provider = ledger.wrap(
         evaluator_provider,
@@ -792,6 +826,22 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
             candidate_recipe_bytes=candidate_raw,
             call_ledger=ledger.frozen_rows(),
             derived_stop_cause="evaluator_adapter_identity_mismatch",
+            state="post_dispatch_unsealed",
+        )
+    evaluator_capture_failure = ledger.response_capture_failure_for_role(
+        "planner_evaluator"
+    )
+    if evaluator_capture_failure is not None:
+        return _attempt_result(
+            preflight=preflight,
+            classification=None,
+            planner_session=planner_session,
+            evaluator_result=evaluator_result,
+            isolation_result=isolation,
+            checkpoint_gate=checkpoint_gate,
+            candidate_recipe_bytes=candidate_raw,
+            call_ledger=ledger.frozen_rows(),
+            derived_stop_cause=evaluator_capture_failure,
             state="post_dispatch_unsealed",
         )
     evaluator_evidence_failure = ledger.adapter_evidence_failure_for_role(
@@ -841,36 +891,6 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
         raise ValueError("shared classifier returned an invalid resolution outcome")
     stop_cause = _evaluator_stop_cause(evaluator_result)
     call_ledger = ledger.frozen_rows()
-    if classification != "probe_candidate_ready":
-        return _attempt_result(
-            preflight=preflight,
-            classification=classification,
-            planner_session=planner_session,
-            evaluator_result=evaluator_result,
-            isolation_result=isolation,
-            checkpoint_gate=checkpoint_gate,
-            candidate_recipe_bytes=candidate_raw,
-            call_ledger=call_ledger,
-            derived_stop_cause=stop_cause,
-        )
-    if len(evaluator_responses) != 1:
-        raise ValueError("ready evaluator evidence is incomplete")
-    ledger.remove_runtime_after_capture()
-    sealed = ARTIFACTS.seal_task1_resolution_checkpoint(
-        preflight=preflight,
-        readiness_record=readiness_record,
-        readiness_verified_at=_kwargs["now_iso"],
-        planner_session=planner_session,
-        planner_call_records=[
-            row for row in call_ledger if row["role"] == "planner"
-        ],
-        checkpoint_gate=checkpoint_gate,
-        isolation_result=isolation,
-        evaluator_turn=evaluator_responses[0],
-        evaluator_request_bytes=evaluator_request_bytes,
-        evaluator_result=evaluator_result,
-        classification=classification,
-    )
     return _attempt_result(
         preflight=preflight,
         classification=classification,
@@ -881,8 +901,6 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
         candidate_recipe_bytes=candidate_raw,
         call_ledger=call_ledger,
         derived_stop_cause=stop_cause,
-        sealed_checkpoint=sealed,
-        state="sealed",
     )
 
 
@@ -900,18 +918,6 @@ def _attempt_result(
     state: str = "terminal_evidence_complete",
     sealed_checkpoint: ARTIFACTS.SealedResolutionCheckpoint | None = None,
 ) -> ResolutionAttemptResult:
-    result = ResolutionAttemptResult(
-        classification=classification,
-        planner_session=planner_session,
-        evaluator_result=evaluator_result,
-        isolation_result=isolation_result,
-        sealed_checkpoint=sealed_checkpoint,
-        checkpoint_gate=checkpoint_gate,
-        candidate_recipe_bytes=candidate_recipe_bytes,
-        call_ledger=call_ledger,
-        derived_stop_cause=derived_stop_cause,
-        state=state,
-    )
     if state != "post_dispatch_unsealed":
         ARTIFACTS.verify_resolution_call_ledger(
             preflight=preflight,
@@ -923,7 +929,76 @@ def _attempt_result(
             call_ledger=call_ledger,
             derived_stop_cause=derived_stop_cause,
         )
-    return result
+        runtime = preflight.attempt.staging_path / ".resolution-runtime"
+        invocation_binding = json.loads((runtime / "invocation.json").read_bytes())
+        readiness = json.loads((runtime / "readiness.json").read_bytes())
+        try:
+            finalized = ARTIFACTS.seal_resolution_checkpoint(
+                preflight=preflight,
+                invocation_binding=invocation_binding,
+                readiness_record=readiness["record"],
+                readiness_verified_at=readiness["verified_at"],
+                planner_session=planner_session,
+                evaluator_result=evaluator_result,
+                isolation_result=isolation_result,
+                checkpoint_gate=checkpoint_gate,
+                candidate_recipe_bytes=candidate_recipe_bytes,
+                call_ledger=call_ledger,
+                derived_stop_cause=derived_stop_cause,
+                classification=classification,
+            )
+        except (OSError, ValueError, TypeError, KeyError, UnicodeError) as exc:
+            locus = f"checkpoint_seal_failure:{type(exc).__name__}"
+            ARTIFACTS.retain_post_dispatch_unsealed(
+                evidence_dir=preflight.attempt.staging_path,
+                preflight=preflight,
+                failure_locus=locus,
+            )
+            return ResolutionAttemptResult(
+                classification=None,
+                planner_session=planner_session,
+                evaluator_result=evaluator_result,
+                isolation_result=isolation_result,
+                sealed_checkpoint=None,
+                checkpoint_gate=checkpoint_gate,
+                candidate_recipe_bytes=candidate_recipe_bytes,
+                call_ledger=call_ledger,
+                derived_stop_cause=locus,
+                state="post_dispatch_unsealed",
+            )
+        if type(finalized) is ARTIFACTS.PostDispatchUnsealed:
+            return ResolutionAttemptResult(
+                classification=None,
+                planner_session=planner_session,
+                evaluator_result=evaluator_result,
+                isolation_result=isolation_result,
+                sealed_checkpoint=None,
+                checkpoint_gate=checkpoint_gate,
+                candidate_recipe_bytes=candidate_recipe_bytes,
+                call_ledger=call_ledger,
+                derived_stop_cause=finalized.failure_locus,
+                state="post_dispatch_unsealed",
+            )
+        sealed_checkpoint = finalized
+        state = "sealed"
+    else:
+        ARTIFACTS.retain_post_dispatch_unsealed(
+            evidence_dir=preflight.attempt.staging_path,
+            preflight=preflight,
+            failure_locus=derived_stop_cause,
+        )
+    return ResolutionAttemptResult(
+        classification=classification,
+        planner_session=planner_session,
+        evaluator_result=evaluator_result,
+        isolation_result=isolation_result,
+        sealed_checkpoint=sealed_checkpoint,
+        checkpoint_gate=checkpoint_gate,
+        candidate_recipe_bytes=candidate_recipe_bytes,
+        call_ledger=call_ledger,
+        derived_stop_cause=derived_stop_cause,
+        state=state,
+    )
 
 
 def _planner_stop_cause(
