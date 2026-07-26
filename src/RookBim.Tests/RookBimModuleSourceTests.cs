@@ -619,6 +619,164 @@ Assert.Contains(""required"", member);";
                 "diagnostics");
         }
 
+        [Theory]
+        [InlineData(
+            "BimDiagnosticContext.Disabled",
+            "diagnostics",
+            "BimDiagnosticContext.Disabled")]
+        [InlineData(
+            "diagnostics",
+            "BimDiagnosticContext.Disabled",
+            "diagnostics")]
+        public void SourceInvocationAudit_Task9ActualQueryElementsSnapshotsCopiedContextOrigin(
+            string initialOrigin,
+            string reassignedOrigin,
+            string expectedCopiedOrigin)
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var queryElements = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)");
+            var mutated = InsertBeforeFinalClosingBrace(
+                queryElements,
+                "BimDiagnosticContext sourceContext = " + initialOrigin + ";\n" +
+                "var copiedContext = (sourceContext);\n" +
+                "sourceContext = " + reassignedOrigin + ";\n" +
+                "query.Query(document, view, request, copiedContext);");
+            var code = Lex(mutated).CodeMask;
+            var invocations = FindInvocationArguments(code, "query.Query");
+
+            Assert.Equal(2, invocations.Count);
+            Assert.Equal(4, invocations[0].Arguments.Count);
+            Assert.Equal(4, invocations[1].Arguments.Count);
+            Assert.Equal(
+                "diagnostics",
+                ResolveInvocationArgument(
+                    invocations[0].Arguments[3],
+                    DirectLocalAliases(code, invocations[0].Start)));
+            Assert.Equal(
+                expectedCopiedOrigin,
+                ResolveInvocationArgument(
+                    invocations[1].Arguments[3],
+                    DirectLocalAliases(code, invocations[1].Start)));
+            Assert.ThrowsAny<Exception>(() =>
+                AssertTask9QueryElementsCallContract(mutated));
+        }
+
+        [Fact]
+        public void SourceInvocationAudit_Task9ActualBuildResultSnapshotsCopiedWrongDocumentOrigin()
+        {
+            var service = Read("src/RookBim/Revit/RevitQueryService.cs");
+            var buildResult = ExtractExecutableMember(
+                service,
+                QueryServiceType,
+                "private static BimQueryElementsResult BuildResult(Document document, View? activeView, BimQueryElementsRequest request, IReadOnlyCollection<Element> elements, bool truncated, Dictionary<string, int> missingCounts, BimCategoryResolution? categoryResolution)");
+            var mutated = InsertBeforeFinalClosingBrace(
+                buildResult,
+                "Document sourceDocument = otherDocument;\n" +
+                "var copiedDocument = sourceDocument;\n" +
+                "sourceDocument = document;\n" +
+                "RevitIdentitySerializer.DocumentIdentity(copiedDocument);");
+            var code = Lex(mutated).CodeMask;
+            var invocations = FindInvocationArguments(
+                code,
+                "RevitIdentitySerializer.DocumentIdentity");
+
+            Assert.Equal(2, invocations.Count);
+            Assert.Single(invocations[0].Arguments);
+            Assert.Single(invocations[1].Arguments);
+            Assert.Equal(
+                "document",
+                ResolveInvocationArgument(
+                    invocations[0].Arguments[0],
+                    DirectLocalAliases(code, invocations[0].Start)));
+            Assert.Equal(
+                "otherDocument",
+                ResolveInvocationArgument(
+                    invocations[1].Arguments[0],
+                    DirectLocalAliases(code, invocations[1].Start)));
+            Assert.ThrowsAny<Exception>(() =>
+                AssertTask9BuildResultIdentityCallContract(mutated));
+        }
+
+        [Fact]
+        public void SourceInvocationAudit_Task9ActualCategoryListSnapshotsCopiedWrongDetailedIdentityDocumentOrigin()
+        {
+            var resolver = Read("src/RookBim/Revit/RevitCategoryResolver.cs");
+            var list = ExtractExecutableMember(
+                resolver,
+                CategoryResolverType,
+                "public BimListCategoriesResult List(Document document, BimDiagnosticContext diagnostics)");
+            var mutated = InsertBeforeFinalClosingBrace(
+                list,
+                "Document sourceDocument = otherDocument;\n" +
+                "var copiedDocument = (sourceDocument);\n" +
+                "sourceDocument = document;\n" +
+                "RevitIdentitySerializer.DocumentIdentity(" +
+                "copiedDocument, diagnostics, includeAuxiliaryState: false);");
+            var code = Lex(mutated).CodeMask;
+            var invocations = FindInvocationArguments(
+                code,
+                "RevitIdentitySerializer.DocumentIdentity");
+
+            Assert.Equal(2, invocations.Count);
+            Assert.Equal(3, invocations[0].Arguments.Count);
+            Assert.Equal(3, invocations[1].Arguments.Count);
+            Assert.Equal(
+                "document",
+                ResolveInvocationArgument(
+                    invocations[0].Arguments[0],
+                    DirectLocalAliases(code, invocations[0].Start)));
+            Assert.Equal(
+                "otherDocument",
+                ResolveInvocationArgument(
+                    invocations[1].Arguments[0],
+                    DirectLocalAliases(code, invocations[1].Start)));
+            Assert.Equal(
+                "diagnostics",
+                ResolveInvocationArgument(
+                    invocations[1].Arguments[1],
+                    DirectLocalAliases(code, invocations[1].Start)));
+            Assert.Equal(
+                "includeAuxiliaryState:false",
+                ResolveInvocationArgument(
+                    invocations[1].Arguments[2],
+                    DirectLocalAliases(code, invocations[1].Start)));
+            Assert.ThrowsAny<Exception>(() =>
+                AssertSingleInvocationArguments(
+                    mutated,
+                    "RevitIdentitySerializer.DocumentIdentity",
+                    "document",
+                    "diagnostics",
+                    "includeAuxiliaryState:false"));
+        }
+
+        [Theory]
+        [InlineData(
+            "var sourceContext = BuildContext();\n" +
+            "var copiedContext = sourceContext;\n" +
+            "sourceContext = diagnostics;")]
+        [InlineData(
+            "var sourceContext = copiedContext;\n" +
+            "var copiedContext = sourceContext;\n" +
+            "sourceContext = diagnostics;")]
+        public void SourceInvocationAudit_Task9TaintsCopiedUnknownOrComplexOrigins(
+            string aliasSetup)
+        {
+            var member = aliasSetup + "\n" +
+                "query.Query(document, view, request, copiedContext);";
+
+            Assert.ThrowsAny<Exception>(() =>
+                AssertSingleInvocationArguments(
+                    member,
+                    "query.Query",
+                    "document",
+                    "view",
+                    "request",
+                    "diagnostics"));
+        }
+
         [Fact]
         public void SourceContracts_Task8PositivesBindExactMembers()
         {
@@ -3439,46 +3597,82 @@ Assert.Contains(""required"", member);";
             return arguments;
         }
 
-        private static IReadOnlyDictionary<string, string> DirectLocalAliases(
+        private static IReadOnlyDictionary<string, string?> DirectLocalAliases(
             string code,
             int end)
         {
-            var aliases = new Dictionary<string, string>(StringComparer.Ordinal);
-            var tainted = new HashSet<string>(StringComparer.Ordinal);
             var assignments = Regex.Matches(
                 code.Substring(0, end),
                 @"(?<![A-Za-z0-9_.])" +
                 @"(?:(?<declaration>var|@?[A-Z][A-Za-z0-9_]*" +
                 @"(?:\.@?[A-Za-z_][A-Za-z0-9_]*)*(?:\?)?(?:\[\])?)\s+)?" +
-                @"(?<target>@?[A-Za-z_][A-Za-z0-9_]*)\s*=\s*" +
+                @"(?<target>@?[A-Za-z_][A-Za-z0-9_]*)\s*=(?!=)\s*" +
                 @"(?<expression>[^;]*);",
                 RegexOptions.CultureInvariant);
+            var aliases = new Dictionary<string, string?>(
+                StringComparer.Ordinal);
+            // Null is an opaque local origin: direct uses keep the local name,
+            // while copies remain opaque instead of following later assignments.
+            var declaredLocals = new HashSet<string>(
+                assignments
+                    .Cast<Match>()
+                    .Where(assignment =>
+                        assignment.Groups["declaration"].Success)
+                    .Select(assignment => NormalizeIdentifier(
+                        assignment.Groups["target"].Value)),
+                StringComparer.Ordinal);
             foreach (Match assignment in assignments)
             {
                 var target = NormalizeIdentifier(
                     assignment.Groups["target"].Value);
                 var isDeclaration = assignment.Groups["declaration"].Success;
                 if (!isDeclaration &&
-                    !aliases.ContainsKey(target) &&
-                    !tainted.Contains(target))
+                    !aliases.ContainsKey(target))
                 {
                     continue;
                 }
 
                 var expression = StripOuterParentheses(RemoveWhitespace(
                     assignment.Groups["expression"].Value));
-                if (!IsDirectAliasExpression(expression))
-                {
-                    aliases.Remove(target);
-                    tainted.Add(target);
-                    continue;
-                }
-
-                aliases[target] = expression;
-                tainted.Remove(target);
+                aliases[target] = SnapshotDirectAliasOrigin(
+                    expression,
+                    aliases,
+                    declaredLocals);
             }
 
             return aliases;
+        }
+
+        private static string? SnapshotDirectAliasOrigin(
+            string expression,
+            IReadOnlyDictionary<string, string?> aliases,
+            ISet<string> declaredLocals)
+        {
+            if (!IsDirectAliasExpression(expression))
+            {
+                return null;
+            }
+
+            var memberSeparator = expression.IndexOf('.');
+            if (memberSeparator >= 0)
+            {
+                var root = NormalizeIdentifier(expression.Substring(
+                    0,
+                    memberSeparator));
+                return declaredLocals.Contains(root)
+                    ? null
+                    : expression;
+            }
+
+            var identifier = NormalizeIdentifier(expression);
+            if (aliases.TryGetValue(identifier, out var origin))
+            {
+                return origin;
+            }
+
+            return declaredLocals.Contains(identifier)
+                ? null
+                : identifier;
         }
 
         private sealed class SourceInvocation
@@ -3507,26 +3701,29 @@ Assert.Contains(""required"", member);";
 
         private static string ResolveInvocationArgument(
             string argument,
-            IReadOnlyDictionary<string, string> aliases)
+            IReadOnlyDictionary<string, string?> aliases)
         {
             var expression = StripOuterParentheses(RemoveWhitespace(argument));
-            var visited = new HashSet<string>(StringComparer.Ordinal);
-            while (Regex.IsMatch(
-                       expression,
-                       @"^@?[A-Za-z_][A-Za-z0-9_]*$",
-                       RegexOptions.CultureInvariant))
+            if (!Regex.IsMatch(
+                    expression,
+                    @"^@?[A-Za-z_][A-Za-z0-9_]*$",
+                    RegexOptions.CultureInvariant))
             {
-                var identifier = NormalizeIdentifier(expression);
-                if (!visited.Add(identifier) ||
-                    !aliases.TryGetValue(identifier, out expression))
-                {
-                    return identifier;
-                }
-
-                expression = StripOuterParentheses(expression);
+                return expression;
             }
 
-            return expression;
+            var identifier = NormalizeIdentifier(expression);
+            if (!aliases.TryGetValue(identifier, out var origin))
+            {
+                return identifier;
+            }
+
+            if (origin == null)
+            {
+                return identifier;
+            }
+
+            return origin;
         }
 
         private static string ExecutableCode(string source)
