@@ -20,6 +20,10 @@ namespace RookBim.Tests
             "public sealed class RevitRookBimRuntime : IRookBimRuntime";
         private const string IdentitySerializerType =
             "public static class RevitIdentitySerializer";
+        private const string CategoryResolverType =
+            "internal sealed class RevitCategoryResolver";
+        private const string QueryServiceType =
+            "internal sealed class RevitQueryService";
         private static readonly string RepoRoot = FindRepoRoot();
 
         [Fact]
@@ -1169,7 +1173,7 @@ Assert.Contains(""required"", member);";
                 "effectiveRequest.EffectiveScope, diagnostics",
                 StringComparison.Ordinal);
             var queryIndex = queryElements.IndexOf(
-                "query.Query(document, view, effectiveRequest)",
+                "query.Query(document, view, effectiveRequest, diagnostics)",
                 StringComparison.Ordinal);
 
             Assert.True(defaultIndex >= 0 && defaultIndex < viewIndex && viewIndex < queryIndex);
@@ -1385,9 +1389,15 @@ Assert.Contains(""required"", member);";
         public void RevitCategoryResolver_UsesLiveDocumentCategoryTableAsAuthority()
         {
             var resolver = Read("src/RookBim/Revit/RevitCategoryResolver.cs");
+            var liveCategories = ExtractExecutableMember(
+                resolver,
+                CategoryResolverType,
+                "private static LiveCategoryTable LiveCategories(Document document, BimDiagnosticContext diagnostics)");
 
-            Assert.Contains("internal sealed class RevitCategoryResolver", resolver);
-            Assert.Contains("document.Settings.Categories", resolver);
+            Assert.Contains("BimDiagnosticEnumerator.ForEach<Category>", liveCategories);
+            Assert.Contains("TryBuildCategoryEntry", liveCategories);
+            Assert.Contains("SkippedCount", liveCategories);
+            Assert.Contains("DegradedCount", liveCategories);
             Assert.Contains("BimCategoryResolution", resolver);
             Assert.Contains("BimCategoryResolutionStrategy.BuiltInExact", resolver);
             Assert.Contains("BimCategoryResolutionStrategy.CategoryIdExact", resolver);
@@ -1403,17 +1413,14 @@ Assert.Contains(""required"", member);";
             Assert.Contains("private static int EditDistance(", resolver);
             Assert.Contains("OrderBy(candidate => candidate.Rank)", resolver);
             Assert.Contains("TryGetBuiltInCategory", resolver);
-            Assert.Contains("TryBuildCategoryEntry", resolver);
             Assert.Contains("SafeCategoryId", resolver);
             Assert.Contains("SafeCategoryName", resolver);
             Assert.Contains("SafeCategoryType", resolver);
             Assert.Contains("catch (Autodesk.Revit.Exceptions.InternalException)", resolver);
             Assert.Contains("catch (Autodesk.Revit.Exceptions.InvalidOperationException)", resolver);
-            Assert.Contains("SkippedCount", resolver);
-            Assert.Contains("DegradedCount", resolver);
             Assert.Contains("Diagnostics", resolver);
-            Assert.Contains("RecordSkip", resolver);
-            Assert.Contains("RecordDegradation", resolver);
+            Assert.Contains("RecordSkip", liveCategories);
+            Assert.Contains("RecordDegradation", liveCategories);
             Assert.Contains("SafeBuiltInCategory", resolver);
             Assert.Contains("ResolveBuiltIn(document, builtIn)", resolver);
             Assert.DoesNotContain("BuiltInsByCategoryId", resolver);
@@ -1423,13 +1430,168 @@ Assert.Contains(""required"", member);";
         }
 
         [Fact]
+        public void RevitCategoryResolver_ProbesCategoryMapAndDelegatesAllTraversal()
+        {
+            var resolver = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitCategoryResolver.cs"));
+            var liveCategories = ExtractExecutableMember(
+                resolver,
+                CategoryResolverType,
+                "private static LiveCategoryTable LiveCategories(Document document, BimDiagnosticContext diagnostics)");
+
+            Assert.Contains("var settings = diagnostics.Enabled", liveCategories);
+            Assert.Contains("BimDiagnosticStage.RevitCategoriesSettings", liveCategories);
+            Assert.Contains("() => document.Settings", liveCategories);
+            Assert.Contains(": document.Settings;", liveCategories);
+            Assert.Equal(2, CountOccurrences(liveCategories, "document.Settings"));
+            Assert.Equal(1, CountOccurrences(liveCategories, "() => document.Settings"));
+
+            Assert.Contains("var categoryMap = diagnostics.Enabled", liveCategories);
+            Assert.Contains("BimDiagnosticStage.RevitCategoriesCollection", liveCategories);
+            Assert.Contains("() => settings.Categories", liveCategories);
+            Assert.Contains(": settings.Categories;", liveCategories);
+            Assert.Equal(2, CountOccurrences(liveCategories, "settings.Categories"));
+            Assert.Equal(1, CountOccurrences(liveCategories, "() => settings.Categories"));
+            Assert.Equal(2, CountOccurrences(liveCategories, "BimDiagnosticFields.None"));
+
+            Assert.Contains(
+                "BimDiagnosticEnumerator.ForEach<Category>(",
+                liveCategories);
+            Assert.Contains("diagnostics,", liveCategories);
+            Assert.Contains("categoryMap,", liveCategories);
+            Assert.Contains("(category, itemIndex) =>", liveCategories);
+            Assert.Contains(
+                "TryBuildCategoryEntry(category, diagnostics, itemIndex, out var entry)",
+                liveCategories);
+            Assert.DoesNotContain("foreach", liveCategories);
+            Assert.DoesNotContain("GetEnumerator", liveCategories);
+            Assert.DoesNotContain("MoveNext", liveCategories);
+            Assert.DoesNotContain("Dispose", liveCategories);
+            Assert.DoesNotContain("finally", liveCategories);
+            Assert.DoesNotContain("catch", liveCategories);
+        }
+
+        [Fact]
+        public void RevitCategoryResolver_IsolatesEachCategoryPropertyWithOnlyTheItemIndex()
+        {
+            var resolver = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitCategoryResolver.cs"));
+            var buildEntry = ExtractExecutableMember(
+                resolver,
+                CategoryResolverType,
+                "private static bool TryBuildCategoryEntry(Category category, BimDiagnosticContext diagnostics, long itemIndex, out CategoryEntry entry)");
+            var safeId = ExtractExecutableMember(
+                resolver,
+                CategoryResolverType,
+                "private static int? SafeCategoryId(Category category, BimDiagnosticContext diagnostics, long itemIndex)");
+            var safeName = ExtractExecutableMember(
+                resolver,
+                CategoryResolverType,
+                "private static string? SafeCategoryName(Category category, BimDiagnosticContext diagnostics, long itemIndex)");
+            var safeBuiltIn = ExtractExecutableMember(
+                resolver,
+                CategoryResolverType,
+                "private static string? SafeBuiltInCategory(Category category, BimDiagnosticContext diagnostics, long itemIndex)");
+            var safeType = ExtractExecutableMember(
+                resolver,
+                CategoryResolverType,
+                "private static string? SafeCategoryType(Category category, BimDiagnosticContext diagnostics, long itemIndex)");
+
+            Assert.Contains("SafeCategoryId(category, diagnostics, itemIndex)", buildEntry);
+            Assert.Contains("SafeCategoryName(category, diagnostics, itemIndex)", buildEntry);
+            Assert.Contains("SafeBuiltInCategory(category, diagnostics, itemIndex)", buildEntry);
+            Assert.Contains("SafeCategoryType(category, diagnostics, itemIndex)", buildEntry);
+
+            AssertCategoryPropertyProbe(
+                safeId,
+                "BimDiagnosticStage.RevitCategoryId",
+                "() => ToInt32OrNull(category.Id)",
+                "ToInt32OrNull(category.Id)");
+            AssertCategoryPropertyProbe(
+                safeName,
+                "BimDiagnosticStage.RevitCategoryName",
+                "() => category.Name",
+                "category.Name");
+            AssertCategoryPropertyProbe(
+                safeBuiltIn,
+                "BimDiagnosticStage.RevitCategoryBuiltIn",
+                "() => category.BuiltInCategory",
+                "category.BuiltInCategory");
+            AssertCategoryPropertyProbe(
+                safeType,
+                "BimDiagnosticStage.RevitCategoryType",
+                "() => category.CategoryType.ToString()",
+                "category.CategoryType.ToString()");
+        }
+
+        [Fact]
+        public void RevitCategoryResolver_ThreadsContextAndLimitsDetailedIdentityToCategoryResults()
+        {
+            var resolver = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitCategoryResolver.cs"));
+            var runtime = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitRookBimRuntime.cs"));
+            var service = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitQueryService.cs"));
+            var list = ExtractExecutableMember(
+                resolver,
+                CategoryResolverType,
+                "public BimListCategoriesResult List(Document document, BimDiagnosticContext diagnostics)");
+            var resolve = ExtractExecutableMember(
+                resolver,
+                CategoryResolverType,
+                "public BimCategoryResolution Resolve(Document document, string? input, BimDiagnosticContext diagnostics)");
+            var listCategories = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ListCategories(BimDiagnosticContext diagnostics)");
+            var queryElements = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)");
+            var query = ExtractExecutableMember(
+                service,
+                QueryServiceType,
+                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request, BimDiagnosticContext diagnostics)");
+            var untracedQuery = ExtractExecutableMember(
+                service,
+                QueryServiceType,
+                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request)");
+            var buildResult = ExtractExecutableMember(
+                service,
+                QueryServiceType,
+                "private static BimQueryElementsResult BuildResult(Document document, View? activeView, BimQueryElementsRequest request, IReadOnlyCollection<Element> elements, bool truncated, Dictionary<string, int> missingCounts, BimCategoryResolution? categoryResolution)");
+
+            Assert.Contains("LiveCategories(document, diagnostics)", list);
+            Assert.Contains("LiveCategories(document, diagnostics)", resolve);
+            Assert.Contains(
+                RemoveWhitespace(
+                    "RevitIdentitySerializer.DocumentIdentity(document, diagnostics, includeAuxiliaryState: false)"),
+                RemoveWhitespace(list));
+            Assert.Contains(
+                RemoveWhitespace(
+                    "RevitIdentitySerializer.DocumentIdentity(document, diagnostics, includeAuxiliaryState: false)"),
+                RemoveWhitespace(resolve));
+            Assert.Contains("categories.List(document, diagnostics)", listCategories);
+            Assert.Contains("query.Query(document, view, effectiveRequest, diagnostics)", queryElements);
+            Assert.Contains("categories.Resolve(document, categoryName, diagnostics)", query);
+            Assert.Contains(
+                "return Query(document, activeView, request, BimDiagnosticContext.Disabled);",
+                untracedQuery);
+            Assert.Contains(
+                "Document = RevitIdentitySerializer.DocumentIdentity(document)",
+                buildResult);
+            Assert.DoesNotContain("diagnostics", buildResult);
+        }
+
+        [Fact]
         public void RevitCategoryResolver_TreatsInvalidBuiltInAsUnavailable()
         {
             var resolver = Read("src/RookBim/Revit/RevitCategoryResolver.cs");
             var safeBuiltIn = ExtractExecutableMember(
                 resolver,
                 "internal sealed class RevitCategoryResolver",
-                "private static string? SafeBuiltInCategory(Category category)");
+                "private static string? SafeBuiltInCategory(Category category, BimDiagnosticContext diagnostics, long itemIndex)");
 
             Assert.Contains("builtIn == BuiltInCategory.INVALID", safeBuiltIn);
             Assert.Contains("return null;", safeBuiltIn);
@@ -1475,7 +1637,7 @@ Assert.Contains(""required"", member);";
             Assert.Contains("return ExecuteInDocumentContext", listCategories);
             Assert.Contains("AcquireActiveUiDocument(uiapp, diagnostics)", documentContext);
             Assert.Contains("BimErrorCode.NoActiveDocument", documentContext);
-            Assert.Contains("categories.List(document)", listCategories);
+            Assert.Contains("categories.List(document, diagnostics)", listCategories);
             Assert.DoesNotContain("BimErrorCode.NotRhinoInside", listCategories);
             Assert.Contains("BimErrorCode.InternalError", documentContext);
         }
@@ -1487,10 +1649,10 @@ Assert.Contains(""required"", member);";
             var query = ExtractExecutableMember(
                 service,
                 "internal sealed class RevitQueryService",
-                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request)");
+                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request, BimDiagnosticContext diagnostics)");
 
             Assert.Contains("private readonly RevitCategoryResolver categories", service);
-            Assert.Contains("categories.Resolve(document, categoryName)", query);
+            Assert.Contains("categories.Resolve(document, categoryName, diagnostics)", query);
             Assert.Contains("BimErrorCode.AmbiguousCategory", query);
             Assert.Contains("BimErrorCode.CategoryNotQueryable", query);
             Assert.Contains("Data = new { resolution = resolution }", service);
@@ -1600,7 +1762,7 @@ Assert.Contains(""required"", member);";
             Assert.Contains("return ExecuteInDocumentContext", queryElements);
             Assert.Contains("AcquireActiveUiDocument(uiapp, diagnostics)", documentContext);
             Assert.Contains("BimErrorCode.NoActiveDocument", documentContext);
-            Assert.Contains("query.Query(document, view, effectiveRequest)", queryElements);
+            Assert.Contains("query.Query(document, view, effectiveRequest, diagnostics)", queryElements);
             Assert.DoesNotContain("LaterToolUnavailable", queryElements);
         }
 
@@ -1611,7 +1773,7 @@ Assert.Contains(""required"", member);";
             var query = ExtractExecutableMember(
                 service,
                 "internal sealed class RevitQueryService",
-                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request)");
+                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request, BimDiagnosticContext diagnostics)");
             var validationIndex = query.IndexOf("var validation = request.Validate();", StringComparison.Ordinal);
             var collectorIndex = query.IndexOf("new FilteredElementCollector", StringComparison.Ordinal);
 
@@ -1636,7 +1798,7 @@ Assert.Contains(""required"", member);";
             var query = ExtractExecutableMember(
                 service,
                 "internal sealed class RevitQueryService",
-                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request)");
+                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request, BimDiagnosticContext diagnostics)");
             var preflightIndex = query.IndexOf("PreflightFilterParameterAmbiguity(document, candidates, filters)", StringComparison.Ordinal);
             var filterIndex = query.IndexOf("MatchesAllFilters(element, document, filters, missingCounts)", StringComparison.Ordinal);
 
@@ -1659,7 +1821,7 @@ Assert.Contains(""required"", member);";
             var query = ExtractExecutableMember(
                 service,
                 "internal sealed class RevitQueryService",
-                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request)");
+                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request, BimDiagnosticContext diagnostics)");
             var collect = ExtractExecutableMember(
                 service,
                 "internal sealed class RevitQueryService",
@@ -1693,8 +1855,12 @@ Assert.Contains(""required"", member);";
         public void RevitTask8_QueryServiceAcceptsDisplayNamePluralCategories()
         {
             var service = Read("src/RookBim/Revit/RevitQueryService.cs");
+            var query = ExtractExecutableMember(
+                service,
+                QueryServiceType,
+                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request, BimDiagnosticContext diagnostics)");
 
-            Assert.Contains("categories.Resolve(document, categoryName)", service);
+            Assert.Contains("categories.Resolve(document, categoryName, diagnostics)", query);
             Assert.DoesNotContain("NormalizeCategoryCandidate", service);
             Assert.DoesNotContain("TrimTrailingPluralS", service);
             Assert.DoesNotContain("ResolveBuiltInCategory", service);
@@ -1817,6 +1983,35 @@ Assert.Contains(""required"", member);";
             Assert.Contains(": " + directExpression + ";", source);
             Assert.Equal(2, CountOccurrences(source, directExpression));
             Assert.Equal(1, CountOccurrences(source, enabledExpression));
+        }
+
+        private static void AssertCategoryPropertyProbe(
+            string source,
+            string stage,
+            string enabledExpression,
+            string directExpression)
+        {
+            var compact = RemoveWhitespace(source);
+            var fields = RemoveWhitespace(
+                "new BimDiagnosticFields(BimDiagnosticDetailCode.None, itemIndex, " +
+                "BimDiagnosticFailureImpact.Production)");
+
+            Assert.Contains("diagnostics.Enabled", source);
+            Assert.Contains("BimDiagnosticProbe.Production(", source);
+            Assert.Contains(stage, source);
+            Assert.Contains(enabledExpression, source);
+            Assert.Contains(": " + directExpression + ";", source);
+            Assert.Equal(2, CountOccurrences(source, directExpression));
+            Assert.Equal(1, CountOccurrences(source, enabledExpression));
+            Assert.Equal(1, CountOccurrences(compact, fields));
+            Assert.Equal(1, CountOccurrences(compact, "newBimDiagnosticFields("));
+            Assert.DoesNotContain("BimDiagnosticFields.None", source);
+            Assert.DoesNotContain("Parent", source);
+            Assert.Equal(2, CountOccurrences(source, "catch ("));
+            Assert.Contains(
+                "catch (Autodesk.Revit.Exceptions.InvalidOperationException)",
+                source);
+            Assert.Contains("catch (InvalidOperationException)", source);
         }
 
         private static void AssertNoLegacySourceMatchingIdentifiers(string source)

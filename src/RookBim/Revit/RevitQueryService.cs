@@ -12,6 +12,15 @@ namespace RookBim.Revit
 
         public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request)
         {
+            return Query(document, activeView, request, BimDiagnosticContext.Disabled);
+        }
+
+        public BimApiResponse Query(
+            Document document,
+            View? activeView,
+            BimQueryElementsRequest request,
+            BimDiagnosticContext diagnostics)
+        {
             if (document == null)
             {
                 return BimApiResponse.Fail(
@@ -61,7 +70,7 @@ namespace RookBim.Revit
             if (!string.IsNullOrWhiteSpace(request.Category))
             {
                 var categoryName = request.Category!;
-                var resolution = categories.Resolve(document, categoryName);
+                var resolution = categories.Resolve(document, categoryName, diagnostics);
                 categoryResolution = resolution;
                 if (resolution.Status == BimCategoryResolutionStatus.Ambiguous)
                 {

@@ -14,7 +14,11 @@ namespace RookBim.Revit
     {
         private readonly RevitQueryService query = new RevitQueryService();
 
-        public RevitPresetResolution Resolve(Document document, View? activeView, BimExportPresetRequest request)
+        public RevitPresetResolution Resolve(
+            Document document,
+            View? activeView,
+            BimExportPresetRequest request,
+            BimDiagnosticContext diagnostics)
         {
             if (!BimPresetCatalog.TryGet(request.Preset, out var definition))
             {
@@ -72,7 +76,7 @@ namespace RookBim.Revit
                     Limit = limitPerCategory,
                 };
 
-                var response = query.Query(document, activeView, selector);
+                var response = query.Query(document, activeView, selector, diagnostics);
                 if (!response.Success || !(response.Data is BimQueryElementsResult result))
                 {
                     // Unknown/unqueryable category in THIS model degrades to a warning, not a failure.

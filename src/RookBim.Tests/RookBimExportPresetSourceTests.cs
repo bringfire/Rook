@@ -68,6 +68,50 @@ namespace RookBim.Tests
         }
 
         [Fact]
+        public void PresetResolver_ThreadsTheRequestDiagnosticContextThroughEveryCategoryQuery()
+        {
+            var preset = Read("src/RookBim/Revit/RevitPresetResolver.cs");
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+
+            Assert.Contains(
+                CollapseWhitespace(
+                    "public RevitPresetResolution Resolve(Document document, View? activeView, " +
+                    "BimExportPresetRequest request, BimDiagnosticContext diagnostics)"),
+                CollapseWhitespace(preset));
+            Assert.Contains(
+                "query.Query(document, activeView, selector, diagnostics)",
+                preset);
+            Assert.DoesNotContain(
+                "query.Query(document, activeView, selector);",
+                preset);
+            Assert.Contains(
+                CollapseWhitespace(
+                    "presetResolver.Resolve(document, view, request, diagnostics)"),
+                CollapseWhitespace(runtime));
+        }
+
+        [Fact]
+        public void QueryAndPresetExportIdentityPathsRemainUntraced()
+        {
+            var query = Read("src/RookBim/Revit/RevitQueryService.cs");
+            var preset = Read("src/RookBim/Revit/RevitPresetResolver.cs");
+            var export = Read("src/RookBim/Revit/RevitExportService.cs");
+
+            Assert.Contains(
+                "Document = RevitIdentitySerializer.DocumentIdentity(document)",
+                query);
+            Assert.Contains(
+                "RevitIdentitySerializer.DocumentIdentity(document).Guid",
+                preset);
+            Assert.Contains(
+                "RevitIdentitySerializer.DocumentIdentity(document)",
+                export);
+            Assert.DoesNotContain("DocumentIdentity(document, diagnostics", query);
+            Assert.DoesNotContain("DocumentIdentity(document, diagnostics", preset);
+            Assert.DoesNotContain("DocumentIdentity(document, diagnostics", export);
+        }
+
+        [Fact]
         public void ExportService_FailsRoomsDrivenPresetWhenNoRoomsExported()
         {
             var src = Read("src/RookBim/Revit/RevitExportService.cs");
@@ -130,6 +174,15 @@ namespace RookBim.Tests
             Assert.Contains("RevitPresetResolver", src);
             Assert.Contains("ExportResolved", src);
             Assert.Contains("ExportDispatchTimeout", src);
+            Assert.Contains(
+                CollapseWhitespace(
+                    "presetResolver.Resolve(document, view, request, diagnostics)"),
+                CollapseWhitespace(src));
+        }
+
+        private static string CollapseWhitespace(string value)
+        {
+            return string.Concat(value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
         }
 
         internal static string Read(string relativePath)
