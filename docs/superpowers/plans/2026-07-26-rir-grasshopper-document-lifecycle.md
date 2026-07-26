@@ -8,29 +8,42 @@
 
 **Tech Stack:** C# targeting `net8.0;net7.0;net48`, reflection over the loaded Grasshopper 8 assembly, RhinoCommon's existing UI callback bridge, xUnit 2.9.2 on `net48`, and Windows PowerShell for build/deployment.
 
-**Execution model:** Execute Tasks 1-3 sequentially in a dedicated implementation worktree. Tasks 1 and 2 are preparatory, behavior-neutral commits and must not be deployed. Task 3 is the one atomic production behavior commit and must include the route cutover, solver-policy cutover, removal of every RiR `Enabled` writer, obsolete-test replacement, and doctrine supersession. Execute Task 4 inline with the operator because it stops host processes, deploys, and drives live Rhino/Revit/Grasshopper state.
+**Execution model:** After the temporary RookBIM CreationGUID probe plan has been executed, rolled back, and reviewed to an identity decision, execute Tasks 1-3 sequentially in a dedicated Grasshopper implementation worktree. Tasks 1 and 2 are preparatory, behavior-neutral commits and must not be deployed. Task 3 is the one atomic production behavior commit and must include the route cutover, solver-policy cutover, removal of every RiR `Enabled` writer, obsolete-test replacement, and doctrine supersession. Execute Task 4 inline with the operator because it stops host processes, deploys, and drives live Rhino/Revit/Grasshopper state. This order prevents the probe rollback from replacing an accepted Grasshopper build.
 
-Before Task 1, use `superpowers:using-git-worktrees` and create the implementation branch from the reviewed two-plan documentation commit. The documentation commit must directly follow the final approved spec commit and change only the two plan files:
+Before Task 1, use `superpowers:using-git-worktrees` and create the implementation branch from the reviewed plan amendment. The initial two-plan commit must directly follow the final approved spec commit; the amendment must directly follow that initial commit; both commits must change only the two plan files:
 
 ```powershell
 Set-Location 'C:\Users\aryan\source\repos\Rook'
 $specBaseline = '761a42af1d5c083dd69ee0908531c7d36a7b9995'
+$initialPlanCommit = '2e224695783a712506286bac9943ebccfbccb572'
 $ghPlan = 'docs/superpowers/plans/2026-07-26-rir-grasshopper-document-lifecycle.md'
 $bimPlan = 'docs/superpowers/plans/2026-07-26-rookbim-creation-guid-probe.md'
 $planCommit = (git log -1 --format=%H -- $ghPlan).Trim()
 
-if ((git rev-parse "$planCommit^").Trim() -ne $specBaseline) {
-    throw 'Reviewed plan commit does not directly follow 761a42af'
+if ((git rev-parse "$initialPlanCommit^").Trim() -ne $specBaseline) {
+    throw 'Initial two-plan commit does not directly follow 761a42af'
+}
+$initialChanged = @(git diff-tree --no-commit-id --name-only -r $initialPlanCommit)
+$expected = @($bimPlan, $ghPlan) | Sort-Object
+if ((Compare-Object ($initialChanged | Sort-Object) $expected)) {
+    throw 'Initial plan commit changed files outside the two implementation plans'
+}
+if ((git rev-parse "$planCommit^").Trim() -ne $initialPlanCommit) {
+    throw 'Reviewed plan amendment does not directly follow 2e224695'
 }
 $changed = @(git diff-tree --no-commit-id --name-only -r $planCommit)
-$expected = @($bimPlan, $ghPlan) | Sort-Object
 if ((Compare-Object ($changed | Sort-Object) $expected)) {
-    throw 'Reviewed plan commit changed files outside the two implementation plans'
+    throw 'Reviewed plan amendment changed files outside the two implementation plans'
 }
 
 git worktree add .worktrees/rir-gh-document-lifecycle -b codex/rir-gh-document-lifecycle $planCommit
 if (git -C .worktrees/rir-gh-document-lifecycle status --porcelain) {
     throw 'Grasshopper implementation worktree is not clean'
+}
+Set-Location (Resolve-Path '.worktrees/rir-gh-document-lifecycle')
+dotnet restore src\Rook.Tests\Rook.Tests.csproj
+if ($LASTEXITCODE -ne 0) {
+    throw 'Grasshopper implementation worktree restore failed'
 }
 ```
 
@@ -45,7 +58,7 @@ The two pre-existing FFmpeg modifications remain only in the original checkout. 
 - Run the complete document transaction on the existing Rhino UI callback. Capture one `ActiveCanvas` reference and verify that exact reference immediately before and after every mutating boundary.
 - Compare server snapshots and candidates by `ReferenceEquals`; paths locate candidates but never establish transaction ownership.
 - Define commit as the candidate being both registered and active on the captured canvas by reference.
-- Restore the previous canvas before removing a newly registered candidate. Never remove a preexisting document and never dispose a document active on any discoverable canvas.
+- Restore the captured previous canvas document before removing a newly registered candidate. A captured `null` document is real empty-canvas state and must be assigned and verified, not skipped. Never remove a preexisting document and never dispose a document active on any discoverable canvas.
 - After commit, readiness attachment, ID reset, refresh, object counting, and telemetry failures become bounded warnings on a successful response.
 - Context lookup is observational. It never creates, registers, activates, removes, closes, or disposes a document.
 - Inside RiR, Rook performs no `Enabled` or global `EnableSolutions` write. Standalone Rhino retains temporary instance suspension only during mutation.
@@ -188,6 +201,7 @@ Cover all ownership branches:
 - returned, registered, and active references conflict, which cannot commit;
 - ambiguous post-call additions cannot commit;
 - rollback restores the previous canvas before `RemoveDocument`;
+- rollback from a captured empty canvas assigns `null`, verifies the canvas is empty by reference, and only then removes a now-inactive candidate;
 - a preexisting or duplicate-path document is never removed or disposed;
 - a newly registered inactive candidate is removed through `RemoveDocument`, never directly disposed;
 - a never-registered inactive new candidate is directly disposed;
@@ -195,7 +209,7 @@ Cover all ownership branches:
 - inability to enumerate supported canvases preserves the candidate and reports incomplete rollback;
 - callback-driven canvas replacement after restore stops destructive cleanup and reports actual final state.
 
-Use event-order assertions, not only final booleans:
+Include a case that captures `CanvasDocument == null`, activates the candidate, then fails commit verification. Assert rollback calls `SetCanvasDocument(capturedCanvas, null)`, observes the candidate inactive, and removes it only after the empty canvas is restored. Use event-order assertions, not only final booleans:
 
 ```csharp
 Assert.True(host.Events.IndexOf("restore_previous_canvas") >= 0);
@@ -270,17 +284,19 @@ Use one static `int` guard acquired with `Interlocked.CompareExchange(ref active
 Rollback follows this executable order:
 
 ```csharp
-if (previousDocument != null && ReferenceEquals(host.GetActiveCanvas(), capturedCanvas))
+if (ReferenceEquals(host.GetActiveCanvas(), capturedCanvas))
     host.SetCanvasDocument(capturedCanvas, previousDocument);
 
+var previousRestored = ReferenceEquals(host.GetActiveCanvas(), capturedCanvas)
+    && ReferenceEquals(host.GetCanvasDocument(capturedCanvas), previousDocument);
 var candidateStillActive = host.IsActiveOnAnySupportedCanvas(candidate, capturedCanvas);
-if (registeredByThisCall && candidateStillActive == false)
+if (previousRestored && registeredByThisCall && candidateStillActive == false)
     host.RemoveDocument(candidate);
-else if (createdDocument && !everRegistered && candidateStillActive == false)
+else if (previousRestored && createdDocument && !everRegistered && candidateStillActive == false)
     host.DisposeDocument(candidate);
 ```
 
-If canvas sameness, canvas enumeration, inactivity, or ownership cannot be proven, skip removal/disposal and set `RollbackIncomplete` with the observed final state.
+The assignment occurs even when `previousDocument` is `null`. Reinspect the active canvas and its document immediately after that mutation. If restoration, canvas sameness, canvas enumeration, inactivity, or ownership cannot be proven, skip removal/disposal and set `RollbackIncomplete` with the observed final state.
 
 - [ ] **Step 6: Run lifecycle tests and the full managed suite**
 
@@ -637,12 +653,12 @@ Add a prominent notice at the top of `2026-06-13-rir-gh-solver-enabled-race-desi
 ```powershell
 dotnet test src\Rook.Tests\Rook.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~GhDocumentLifecycle|FullyQualifiedName~GhPostMutation|FullyQualifiedName~GhSchedule|FullyQualifiedName~GhMutationSolveSuspension|FullyQualifiedName~GhEditSolvePath|FullyQualifiedName~GrasshopperDocumentLifecycle|FullyQualifiedName~GrasshopperHandlerReadiness|FullyQualifiedName~GhSolverState|FullyQualifiedName~NoSyncExpire" --verbosity minimal
 dotnet test src\Rook.Tests\Rook.Tests.csproj --configuration Release --no-restore --verbosity minimal
-rg -n "RequestDeferredPostMutationSolve|postEditScheduleDispatchDelayMs|GhSolveReadinessCoordinator|MarkRookManagedDocument|PrepareForPostMutationSolve" src/Rook src/Rook.Tests
+rg -n "RequestDeferredPostMutationSolve|postEditScheduleDispatchDelayMs|GhSolveReadinessCoordinator|MarkRookManagedDocument|PrepareForPostMutationSolve" src/Rook/Handlers src/Rook/InternalBridge
 rg -n "scheduleClassification|scheduleAcceptance|scheduleFailureCode|solveScheduled" src/Rook/Handlers/GrasshopperHandler.cs
 git diff --check
 ```
 
-Expected: tests pass; both `rg` commands return no executable/response matches (historical spec text is allowed only in its superseded notice); `git diff --check` is clean.
+Expected: tests pass; both `rg` commands return no executable/response matches. The obsolete-name scan intentionally excludes `src/Rook.Tests`, whose replacement source-contract tests contain the forbidden literals as assertions. Historical spec text is allowed only in its superseded notice; `git diff --check` is clean.
 
 - [ ] **Step 10: Commit the indivisible behavior change**
 
@@ -753,6 +769,7 @@ Approve release only when every live gate passes or is explicitly marked unavail
 - [ ] Canvas identity is checked before and after every mutation; one static guard blocks callback reentry across instances.
 - [ ] Commit is exactly registered plus active; post-commit auxiliary failures cannot create false route failure.
 - [ ] Rollback restores before removal and cannot dispose an active, preexisting, duplicate, or uncertain document.
+- [ ] Rollback treats a captured `null` canvas document as real state, assigns/verifies `null`, and removes a new inactive candidate only after restoration.
 - [ ] Both implicit creation branches, manual `GH_DocumentIO` open, coordinator, delayed scheduler, and obsolete tests are removed.
 - [ ] RiR has zero Rook `Enabled` writers; standalone restoration is one-shot, precedes scheduling, and reports failure.
 - [ ] Policy permission, invocation attempt, and acceptance are separate closed states.
@@ -762,3 +779,4 @@ Approve release only when every live gate passes or is explicitly marked unavail
 - [ ] No synchronous solution, delay zero, `Task.Run`, second UI dispatch, or second scheduler remains.
 - [ ] June 13 doctrine is explicitly superseded in the atomic behavior commit.
 - [ ] Full tests/build pass before deploy; live output, not event counts, closes acceptance.
+- [ ] The temporary CreationGUID probe was completed, rolled back, and reviewed before this Grasshopper deployment began.

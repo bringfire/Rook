@@ -4,34 +4,49 @@
 
 **Goal:** Build and run a diagnostics-gated, privacy-safe Revit 2024 probe that determines whether `Document.CreationGUID` can participate in the proposed versioned document identity keys, without changing production identity or matching behavior.
 
-**Architecture:** A small managed-only probe operation uses the existing `BimHandler`/`IRookBimRuntime`/Revit-idling context, but is callable only through explicit operator invocation and only when the read-once `ROOK_BIM_DIAGNOSTICS=1` gate is active. Revit-specific collection remains in `src/RookBim`; one process-local report session owned by the installed runtime spans the operator's capture requests, keeps raw GUID/path equality inputs only in memory, and returns report-local aliases. The live matrix produces a durable redacted report and a proposed spec decision, then stops for reviewer approval before any production resolver, key, wire, or matching change.
+**Architecture:** A small managed-only probe operation uses the existing `BimHandler`/`IRookBimRuntime`/Revit-idling context, but is callable only through an explicit probe-specific asynchronous start/poll facade and only when the read-once `ROOK_BIM_DIAGNOSTICS=1` gate is active. The facade releases Rhino's UI command before a background worker waits on Revit Idling, retains at most one bounded safe result, and exposes no arbitrary handler surface. Revit-specific collection remains in `src/RookBim`; one process-local report session owned by the installed runtime spans the operator's capture requests, keeps raw GUID/path equality inputs only in memory, and returns report-local aliases. The live matrix produces a durable redacted report and a proposed spec decision, then stops for reviewer approval before any production resolver, key, wire, or matching change.
 
-**Tech Stack:** C# `net48` RookBIM module with Autodesk Revit 2024 API, multi-target core `Rook` contracts, existing request-correlated BIM diagnostics, xUnit 2.9.2, source-contract tests for the optional module, Rhino `rhino_execute` Python for operator-only managed dispatch, and Windows PowerShell for deployment.
+**Tech Stack:** C# `net48` RookBIM module with Autodesk Revit 2024 API, multi-target core `Rook` contracts, existing request-correlated BIM diagnostics, a probe-specific `Task`-backed single-slot start/poll facade, xUnit 2.9.2, source-contract tests for the optional module, Rhino `rhino_execute` Python for operator-only start/poll calls, and Windows PowerShell for deployment.
 
-**Execution model:** Execute Tasks 1-3 sequentially in a dedicated worktree. Task 4 is an inline operator-assisted Revit matrix. Task 5 records only the probe report and proposed decision, then stops for review. No task in this plan may implement `documentKey`, modify `DocumentMatches`, add a production identity resolver, or deploy a production identity policy.
+**Execution model:** Execute this temporary probe before the Grasshopper lifecycle plan. Run Tasks 1-3 sequentially in a dedicated worktree, Task 4 as an inline operator-assisted Revit matrix, and Task 5 to record the probe report, obtain the identity decision, and roll the probe deployment back before any Grasshopper build is deployed. No task in this plan may implement `documentKey`, modify `DocumentMatches`, add a production identity resolver, or deploy a production identity policy.
 
 Before Task 1, use `superpowers:using-git-worktrees` and create a separate probe branch from the reviewed two-plan documentation commit:
 
 ```powershell
 Set-Location 'C:\Users\aryan\source\repos\Rook'
 $specBaseline = '761a42af1d5c083dd69ee0908531c7d36a7b9995'
+$initialPlanCommit = '2e224695783a712506286bac9943ebccfbccb572'
 $ghPlan = 'docs/superpowers/plans/2026-07-26-rir-grasshopper-document-lifecycle.md'
 $bimPlan = 'docs/superpowers/plans/2026-07-26-rookbim-creation-guid-probe.md'
 $planCommit = (git log -1 --format=%H -- $bimPlan).Trim()
 
-if ((git rev-parse "$planCommit^").Trim() -ne $specBaseline) {
-    throw 'Reviewed plan commit does not directly follow 761a42af'
+if ((git rev-parse "$initialPlanCommit^").Trim() -ne $specBaseline) {
+    throw 'Initial two-plan commit does not directly follow 761a42af'
+}
+$initialChanged = @(git diff-tree --no-commit-id --name-only -r $initialPlanCommit)
+$expected = @($bimPlan, $ghPlan) | Sort-Object
+if ((Compare-Object ($initialChanged | Sort-Object) $expected)) {
+    throw 'Initial plan commit changed files outside the two implementation plans'
+}
+if ((git rev-parse "$planCommit^").Trim() -ne $initialPlanCommit) {
+    throw 'Reviewed plan amendment does not directly follow 2e224695'
 }
 $changed = @(git diff-tree --no-commit-id --name-only -r $planCommit)
-$expected = @($bimPlan, $ghPlan) | Sort-Object
 if ((Compare-Object ($changed | Sort-Object) $expected)) {
-    throw 'Reviewed plan commit changed files outside the two implementation plans'
+    throw 'Reviewed plan amendment changed files outside the two implementation plans'
 }
 
 git worktree add .worktrees/rookbim-creation-guid-probe -b codex/rookbim-creation-guid-probe $planCommit
 if (git -C .worktrees/rookbim-creation-guid-probe status --porcelain) {
     throw 'RookBIM probe worktree is not clean'
 }
+Set-Location (Resolve-Path '.worktrees/rookbim-creation-guid-probe')
+dotnet restore src\Rook.Tests\Rook.Tests.csproj
+if ($LASTEXITCODE -ne 0) { throw 'Rook.Tests restore failed' }
+dotnet restore src\RookBim\RookBim.csproj -p:RevitInstallDir="C:\Program Files\Autodesk\Revit 2024"
+if ($LASTEXITCODE -ne 0) { throw 'RookBim restore failed' }
+dotnet restore src\RookBim.Tests\RookBim.Tests.csproj -p:RevitInstallDir="C:\Program Files\Autodesk\Revit 2024"
+if ($LASTEXITCODE -ne 0) { throw 'RookBim.Tests restore failed' }
 ```
 
 The Grasshopper implementation plan being present in the same documentation commit creates no runtime dependency. This branch must contain no Grasshopper lifecycle implementation commits.
@@ -51,6 +66,8 @@ The two pre-existing FFmpeg modifications remain only in the original checkout. 
 - Never read or record document title, model/family filename, category/element name, request identity, or arbitrary exception message.
 - A completion request with missing required cases fails without clearing the session; explicit abort always clears it.
 - The probe operation is managed-only and operator-invoked. Do not add a public native `/bim/*` route or MCP tool for it.
+- Never invoke `BimHandler.Dispatch` directly from `rhino_execute`. Each UI command may call only `BimCreationGuidProbeAsyncFacade.Start` or `Poll` and must return without waiting; polling occurs in a later `rhino_execute` command after Revit has had an Idling opportunity.
+- Keep the asynchronous bridge BIM-probe-specific and single-slot. It accepts only the closed action/case vocabulary, retains no raw `Exception`/`ApiResponse`/Revit object, exposes only a bounded safe snapshot, and must not become a repository-wide job framework.
 - Do not add `DocumentKey`, `DocumentKeySource`, a key hash, a production canonicalizer call, a resolver, comparison logic, or a `RevitIdentitySerializer` branch.
 - Do not change `WorksharingCentralGUID`, cloud/server classification, `DocumentMatches`, selection, export, or current producer behavior in this plan.
 - Build `src/Rook/Rook.csproj` before `src/RookBim/RookBim.csproj`.
@@ -79,11 +96,13 @@ Managed integration files:
 - `src/Rook/Bim/IRookBimRuntime.cs`
 - `src/Rook/Bim/RookBimUnavailableRuntime.cs`
 - `src/Rook/Handlers/BimHandler.cs`
+- `src/Rook/Handlers/BimCreationGuidProbeAsyncFacade.cs`: public operator-only start/poll entry points plus an internal single-slot coordinator that runs synchronous BIM dispatch off Rhino's UI command thread.
 - every core test fake implementing `IRookBimRuntime` in `ManagedCapabilityDomainStatusTests.cs`, `BimHandlerDiagnosticsTests.cs`, `BimHandlerTests.cs`, and `CompanionRuntimeStatusTests.cs`.
 - `src/RookBim/Revit/RevitCreationGuidProbe.cs`: independent Revit reads, class derivation, raw-to-alias handoff, one active session, and provenance.
 - `src/RookBim/Revit/RevitRookBimRuntime.cs`
 - `src/RookBim.Tests/RookBimModuleSourceTests.cs`
 - `src/Rook.Tests/Handlers/BimCreationGuidProbeHandlerTests.cs`
+- `src/Rook.Tests/Handlers/BimCreationGuidProbeAsyncFacadeTests.cs`
 
 Created after the live run:
 
@@ -236,11 +255,13 @@ Do not deploy this unused preparatory commit.
 - Modify: `src/Rook/Bim/IRookBimRuntime.cs`
 - Modify: `src/Rook/Bim/RookBimUnavailableRuntime.cs`
 - Modify: `src/Rook/Handlers/BimHandler.cs`
+- Create: `src/Rook/Handlers/BimCreationGuidProbeAsyncFacade.cs`
 - Modify: `src/Rook.Tests/Capabilities/ManagedCapabilityDomainStatusTests.cs`
 - Modify: `src/Rook.Tests/Handlers/BimHandlerDiagnosticsTests.cs`
 - Modify: `src/Rook.Tests/Handlers/BimHandlerTests.cs`
 - Modify: `src/Rook.Tests/Plugin/CompanionRuntimeStatusTests.cs`
 - Create: `src/Rook.Tests/Handlers/BimCreationGuidProbeHandlerTests.cs`
+- Create: `src/Rook.Tests/Handlers/BimCreationGuidProbeAsyncFacadeTests.cs`
 - Create: `src/RookBim/Revit/RevitCreationGuidProbe.cs`
 - Modify: `src/RookBim/Revit/RevitRookBimRuntime.cs`
 - Modify: `src/RookBim.Tests/RookBimModuleSourceTests.cs`
@@ -248,10 +269,28 @@ Do not deploy this unused preparatory commit.
 **Interfaces:**
 - Adds `BimApiResponse CreationGuidProbe(BimDiagnosticContext diagnostics, BimCreationGuidProbeRequest request)` to `IRookBimRuntime` and every implementation/fake.
 - Adds managed dispatch op `creation_guid_probe`; no native handler, HTTP route, or MCP tool is added.
+- Adds public operator-only `BimCreationGuidProbeAsyncStart BimCreationGuidProbeAsyncFacade.Start(string action, string? caseId)` and `BimCreationGuidProbeAsyncPoll BimCreationGuidProbeAsyncFacade.Poll(string operationId)`. `Start` schedules the synchronous `BimHandler.Dispatch` call on a background worker and returns before it completes; `Poll` only inspects bounded state and never waits.
+- Adds an internal injectable `BimCreationGuidProbeAsyncCoordinator` used by the public static facade and tests. It owns exactly one process-wide slot, validates the closed probe action/case strings, constructs the request body internally, and projects an `ApiResponse` immediately into a safe immutable poll result.
 - `RevitCreationGuidProbe.Execute(UIApplication, Document?, BimDiagnosticContext, BimCreationGuidProbeRequest)` owns one in-memory session per installed runtime instance.
 - Produces only Task 1 safe DTOs across the optional-module boundary.
 
-- [ ] **Step 1: Write the disabled-gate and dispatch integration tests first**
+The facade vocabulary and bounds are exact:
+
+```text
+start state: accepted | busy | invalid
+poll state: pending | completed | worker_failed | timed_out | not_found
+failure code: none | probe_busy | probe_request_invalid | probe_worker_failed |
+              probe_worker_timed_out | probe_poll_not_found |
+              probe_response_shape_invalid | probe_response_too_large
+maximum outstanding operations: 1
+facade watchdog: 10 seconds (the existing Revit runtime dispatch abandons at 5 seconds)
+maximum retained dataJson: 256 KiB of UTF-8
+maximum retained exceptionType: 256 characters
+```
+
+The public `BimCreationGuidProbeAsyncStart` contains only `OperationId`, `State`, and nullable `FailureCode`. The public `BimCreationGuidProbeAsyncPoll` contains only `OperationId`, `State`, nullable `Success`, nullable `HttpStatus`, nullable safe `DataJson`, nullable `FailureCode`, and bounded worker `ExceptionType`/`HResult`. The slot never stores a raw `Exception`, `ApiResponse`, request body, diagnostic context, `Document`, delegate, title, path, or GUID. A successful handler response may publish only the already-safe probe DTO JSON. A failed handler response drops message/details/diagnostics and publishes only a reconstructed object containing an allowlisted `errorCode` (`capability_unavailable`, `invalid_scope`, `no_active_document`, `not_rhino_inside`, or `internal_error`; every other value becomes `internal_error`). A response is projected before publication; the first poll of `completed` or `worker_failed` returns its immutable snapshot and atomically clears the slot. A pending call that reaches the watchdog becomes `timed_out`, retains the single occupied slot, ignores late completion, and requires closing the disposable probe process; do not retry in that process.
+
+- [ ] **Step 1: Write the disabled-gate, asynchronous facade, and dispatch integration tests first**
 
 Install a recording fake runtime and call `BimHandler.Dispatch` with:
 
@@ -262,6 +301,31 @@ Install a recording fake runtime and call `BimHandler.Dispatch` with:
 With a disabled diagnostic session, assert HTTP-equivalent failure uses `CapabilityUnavailable`, the runtime call count remains zero, and no Revit delegate can be constructed. With an enabled test session, assert the request reaches the runtime once, action/case enums bind from exact snake-case values, the safe result passes through `SerializeForWire`, and `CompleteRequest` still occurs exactly once on success/failure.
 
 Place handler tests in the existing `RookBimRuntimeRegistryCollection` so registry/session replacement cannot race other BIM handler suites.
+
+In `BimCreationGuidProbeAsyncFacadeTests`, inject a dispatch delegate blocked on a `ManualResetEventSlim`. Prove `Start` returns `accepted` before release, `Poll` returns `pending` without blocking, a second start returns `busy`, and release produces one `completed` poll followed by `not_found`. Add the vertical tests with an actual `BimHandler` around the recording runtime:
+
+```csharp
+var start = coordinator.Start("begin", null);
+Assert.Equal("accepted", start.State);
+Assert.Equal("pending", coordinator.Poll(start.OperationId).State);
+
+release.Set();
+BimCreationGuidProbeAsyncPoll? completed = null;
+Assert.True(SpinWait.SpinUntil(
+    () =>
+    {
+        var current = coordinator.Poll(start.OperationId);
+        if (current.State == "pending") return false;
+        completed = current;
+        return true;
+    },
+    TimeSpan.FromSeconds(2)));
+
+Assert.Equal("completed", completed!.State);
+Assert.Equal("not_found", coordinator.Poll(start.OperationId).State);
+```
+
+For disabled diagnostics, the terminal poll must contain only `{"errorCode":"capability_unavailable"}` while the runtime count stays zero. For enabled diagnostics, it must contain the alias-only fake result and runtime count one. Return a failed `ApiResponse` whose message/details/diagnostic contain a model title/path/GUID and assert the facade drops all three, retaining only the allowlisted error code; assert an unknown error code becomes `internal_error`. Make the facade's private slot type visible through reflection in the test and assert none of its instance fields is assignable to `Exception`, `ApiResponse`, `Delegate`, or `Task<ApiResponse>`. Throw a fixture exception whose message contains the same sensitive values and assert the terminal `worker_failed` result contains only its type/HResult, never the message. Return a fixture larger than 256 KiB UTF-8 and assert `probe_response_too_large` with no retained payload. Advance the fake clock beyond ten seconds and assert `timed_out`, no second start, no retry, and ignored late completion.
 
 Add a source assertion that `RookServer.cpp` and `GrasshopperProxyHandler.cpp/.h` contain no creation-guid route/op string.
 
@@ -291,7 +355,7 @@ The source test must assert each delegate is a separate call, every diagnostic-o
 - [ ] **Step 3: Run handler/source tests red**
 
 ```powershell
-dotnet test src\Rook.Tests\Rook.Tests.csproj --configuration Release --no-restore --filter FullyQualifiedName~BimCreationGuidProbeHandlerTests --verbosity minimal
+dotnet test src\Rook.Tests\Rook.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~BimCreationGuidProbeHandlerTests|FullyQualifiedName~BimCreationGuidProbeAsyncFacadeTests" --verbosity minimal
 dotnet test src\RookBim.Tests\RookBim.Tests.csproj --configuration Release --no-restore --filter FullyQualifiedName~CreationGuidProbe --verbosity minimal
 ```
 
@@ -299,11 +363,21 @@ Expected: the first fails on the missing runtime operation; the second fails its
 
 - [ ] **Step 4: Add the managed-only operation with an exact disabled fast path**
 
-Add `creation_guid_probe` to `BimHandler.ExpectedBimOps` and dispatch it through `DeserializeRequest<BimCreationGuidProbeRequest>`. Before reading `RookBimRuntimeRegistry.Current` for this branch, require `diagnostics.Enabled`; otherwise return a bounded capability-unavailable response. The disabled branch must not call the runtime, allocate an observation, or create a delegate.
+Add `creation_guid_probe` to `BimHandler.ExpectedBimOps` and dispatch it through `DeserializeRequest<BimCreationGuidProbeRequest>`. In `DispatchAcceptedRequest`, put the probe's `!diagnostics.Enabled` fast path before `RookBimModuleLoader.TryActivate`, before reading `RookBimRuntimeRegistry.Current`, and before request deserialization can construct any runtime/Revit work delegate. Return a bounded capability-unavailable response. The disabled branch must not activate/load the optional module, call the runtime, allocate an observation, or create a delegate.
 
 Add the runtime method to the interface/unavailable implementation and all four test fake files in the file map. The unavailable implementation returns its existing unavailable response. Do not add an overload or compatibility default that bypasses diagnostics.
 
-- [ ] **Step 5: Implement independent Revit reads and safe class derivation**
+- [ ] **Step 5: Implement the single-slot asynchronous start/poll facade**
+
+Put the public static facade and the internal coordinator in `BimCreationGuidProbeAsyncFacade.cs`; do not reuse the video/image job systems or expose arbitrary BIM request bodies. The public facade owns one coordinator initialized with `body => new BimHandler().Dispatch(body)`, `Task.Run`, and `DateTime.UtcNow`. The coordinator validates `begin`, `capture`, `complete`, and `abort`, requires `caseId` only for `capture`, and accepts only the exact Task 1 case wire values. It constructs the JSON request internally.
+
+`Start` acquires the slot under a private lock, creates a random operation ID, publishes `pending`, launches exactly one worker, and returns immediately without calling `Wait`, `.Result`, `GetAwaiter().GetResult()`, sleeping, or polling. The worker may call synchronous `BimHandler.Dispatch` because it is not Rhino's UI command thread. For success, it converts `ApiResponse.Data` to JSON only when it is the expected safe `JsonNode`. For failure, it never copies `Data` wholesale: it extracts only `errorCode`, applies the five-value allowlist above, and constructs a new one-field `JsonObject`; message, details, `ApiResponse.Diagnostic`, and unexpected fields are discarded. Reject a retained UTF-8 representation larger than 256 KiB as `probe_response_too_large` and treat any unexpected success shape as `probe_response_shape_invalid`. Then discard the `ApiResponse`. Catch worker exceptions only when they are not `OutOfMemoryException`, `StackOverflowException`, `AccessViolationException`, `AppDomainUnloadedException`, `BadImageFormatException`, `CannotUnloadAppDomainException`, or `System.Threading.ThreadAbortException`; copy only type/HResult into the terminal snapshot, truncate the type name to 256 characters, and never retain or return the exception/message/stack.
+
+`Poll` takes the operation ID, inspects once under the lock, and returns immediately. Pending work remains pending until completion or the ten-second watchdog. Completion returns and clears the slot atomically. A watchdog transition is sticky, leaves the slot occupied, ignores late worker publication, and instructs the operator to close Revit. No facade method cancels, retries, starts a second worker, calls Revit, or changes `BimHandler` exception behavior.
+
+Add a facade source-contract assertion that production contains exactly one `Task.Run` invocation, no arbitrary-body public overload, and no `Wait`, `.Result`, `GetAwaiter().GetResult()`, `Thread.Sleep`, or polling loop. This `Task.Run` is probe-specific and must not be confused with the separately forbidden Grasshopper scheduler.
+
+- [ ] **Step 6: Implement independent Revit reads and safe class derivation**
 
 In `RevitCreationGuidProbe`, use a closed `ProbeValue<T>` that contains success/status/value for internal use and only exception type/HResult for safe projection. Its wrapper is diagnostic-only:
 
@@ -328,7 +402,7 @@ Read `CreationGUID` twice independently and report whether both nonempty success
 
 Derive one closed class from successful evidence only: `FileWorksharedCentral`, `FileWorksharedLocal`, `FileWorksharedUnknownRole`, `RevitServer`, `CloudWorkshared`, `SavedNonWorksharedProject`, `SavedFamily`, `UnsavedProject`, `UnsavedFamily`, `Detached`, or `Unknown`. Detached wins and remains descriptive only.
 
-- [ ] **Step 6: Integrate one active report session and exact provenance**
+- [ ] **Step 7: Integrate one active report session and exact provenance**
 
 `RevitCreationGuidProbe` owns one `BimCreationGuidProbeSession?` under a private lock. Actions behave as follows:
 
@@ -339,7 +413,7 @@ Derive one closed class from successful evidence only: `FileWorksharedCentral`, 
 
 Do not retain `Document`, `ModelPath`, `BasicFileInfo`, delegate, raw exception, or diagnostic context in the session.
 
-- [ ] **Step 7: Run tests and prove production identity files are untouched**
+- [ ] **Step 8: Run tests and prove production identity files are untouched**
 
 ```powershell
 dotnet test src\Rook.Tests\Rook.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~BimCreationGuidProbe|FullyQualifiedName~BimHandlerDiagnostics|FullyQualifiedName~BimHandlerTests" --verbosity minimal
@@ -352,23 +426,23 @@ git diff --check
 
 Expected: tests pass; protected production files have no diff; the forbidden identity/resolver scan returns no matches; diff check passes.
 
-- [ ] **Step 8: Commit the complete probe build before deployment**
+- [ ] **Step 9: Commit the complete probe build before deployment**
 
 ```powershell
-git add -- src/Rook/Bim/IRookBimRuntime.cs src/Rook/Bim/RookBimUnavailableRuntime.cs src/Rook/Handlers/BimHandler.cs src/Rook.Tests/Capabilities/ManagedCapabilityDomainStatusTests.cs src/Rook.Tests/Handlers/BimHandlerDiagnosticsTests.cs src/Rook.Tests/Handlers/BimHandlerTests.cs src/Rook.Tests/Plugin/CompanionRuntimeStatusTests.cs src/Rook.Tests/Handlers/BimCreationGuidProbeHandlerTests.cs src/RookBim/Revit/RevitCreationGuidProbe.cs src/RookBim/Revit/RevitRookBimRuntime.cs src/RookBim.Tests/RookBimModuleSourceTests.cs
+git add -- src/Rook/Bim/IRookBimRuntime.cs src/Rook/Bim/RookBimUnavailableRuntime.cs src/Rook/Handlers/BimHandler.cs src/Rook/Handlers/BimCreationGuidProbeAsyncFacade.cs src/Rook.Tests/Capabilities/ManagedCapabilityDomainStatusTests.cs src/Rook.Tests/Handlers/BimHandlerDiagnosticsTests.cs src/Rook.Tests/Handlers/BimHandlerTests.cs src/Rook.Tests/Plugin/CompanionRuntimeStatusTests.cs src/Rook.Tests/Handlers/BimCreationGuidProbeHandlerTests.cs src/Rook.Tests/Handlers/BimCreationGuidProbeAsyncFacadeTests.cs src/RookBim/Revit/RevitCreationGuidProbe.cs src/RookBim/Revit/RevitRookBimRuntime.cs src/RookBim.Tests/RookBimModuleSourceTests.cs
 git commit -m "feat(rookbim): add gated CreationGUID probe"
 ```
 
 ---
 
-### Task 3: Build, deploy, and validate the probe boundary
+### Task 3: Build, deploy, and validate the asynchronous probe boundary
 
 **Files:**
 - No source files unless a build/test defect is found; any correction repeats Task 2's test and review gate before recommit.
 
 **Interfaces:**
 - Consumes the committed Task 1-2 probe implementation.
-- Produces an exact deployed probe commit with diagnostics enabled only in the new Revit process.
+- Produces an exact deployed probe commit, first validates it in a fresh diagnostics-disabled process, then enables diagnostics only in a second fresh Revit process.
 - Does not begin the document matrix until status provenance and disabled-mode containment pass.
 
 - [ ] **Step 1: Verify clean committed source and build order**
@@ -380,13 +454,12 @@ dotnet test src\Rook.Tests\Rook.Tests.csproj --configuration Release --no-restor
 dotnet test src\RookBim.Tests\RookBim.Tests.csproj --configuration Release --no-restore --verbosity minimal
 dotnet build src\Rook\Rook.csproj --configuration Release --framework net48 --no-restore
 dotnet build src\RookBim\RookBim.csproj --configuration Release --no-restore -p:RevitInstallDir="C:\Program Files\Autodesk\Revit 2024"
+rg -n "^from Rook\.Handlers import BimHandler$|^[a-z_]+ = BimHandler\(\)\.Dispatch" docs/superpowers/plans/2026-07-26-rookbim-creation-guid-probe.md
 ```
 
-- [ ] **Step 2: Verify disabled behavior before enabling diagnostics**
+Expected: tests/builds pass and the final `rg` command returns no operator-script match.
 
-With a fresh Revit/Rhino.Inside process that does not inherit `ROOK_BIM_DIAGNOSTICS=1`, invoke the managed probe op through `rhino_execute`. It must return capability unavailable, and the runtime/source tests must show no Revit delegate was constructed. Close Revit afterward.
-
-- [ ] **Step 3: Stop host processes and run the normal local deployment**
+- [ ] **Step 2: Stop host processes and run the normal local deployment**
 
 Ask the operator to save and close Revit, Rhino, Grasshopper, and Rook MCP. Resolve exact remaining process PIDs before terminating anything. Run:
 
@@ -396,7 +469,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing
 
 Record installed roots and build outcomes. This must build/copy `Rook` before `RookBim`.
 
-- [ ] **Step 4: Launch one diagnostics-enabled Revit process with a nonpersistent environment**
+- [ ] **Step 3: Validate the deployed disabled gate in a fresh process**
+
+Launch a fresh Revit/Rhino.Inside process from an environment in which `ROOK_BIM_DIAGNOSTICS` is absent. Confirm `/bim/status` reports the deployed `$probeCommit` for both core and module and `diagnosticsEnabled == false`; this provenance check proves the process did not load the previously installed DLL.
+
+Use one `rhino_execute` command to call `BimCreationGuidProbeAsyncFacade.Start("begin", null)` and return the operation ID immediately. After that command has returned and Revit has had an Idling opportunity, use a separate `rhino_execute` command to call `Poll(operationId)`. The terminal result must be `completed` with capability-unavailable data, and the runtime/source tests must prove no Revit delegate was constructed. Never call `BimHandler.Dispatch`, wait, sleep, or poll in a loop inside either UI command. Close Revit afterward; do not reuse this process for enabled testing.
+
+- [ ] **Step 4: Launch a separate diagnostics-enabled Revit process with a nonpersistent environment**
 
 ```powershell
 $env:ROOK_BIM_DIAGNOSTICS = '1'
@@ -408,7 +487,7 @@ Do not use `setx`. Open Rhino.Inside and wait for Rook to load. Call `/bim/statu
 
 - [ ] **Step 5: Prove the public native route surface did not grow**
 
-Capture the registered `/bim/*` route list/capability status and verify there is no creation-guid probe route or MCP tool. The only invocation path is an explicit operator `BimHandler.Dispatch` call within the loaded process.
+Capture the registered `/bim/*` route list/capability status and verify there is no creation-guid probe route or MCP tool. The only invocation path is the probe-specific managed `BimCreationGuidProbeAsyncFacade.Start`/`Poll` pair within the loaded process.
 
 ---
 
@@ -422,43 +501,50 @@ Capture the registered `/bim/*` route list/capability status and verify there is
 - Produces one alias-only completed `BimCreationGuidProbeReport` held in the operator transcript/work buffer.
 - This task must run inline with the operator; do not delegate model creation/open/close/save choices.
 
-- [ ] **Step 1: Begin the report session through managed dispatch**
+- [ ] **Step 1: Begin the report session through two nonblocking managed calls**
 
-Invoke `rhino_execute` with this Python, which returns aliases/provenance only:
+Invoke `rhino_execute` once with this Python. It starts the background dispatch and returns without waiting for Revit Idling:
 
 ```python
 import clr
-import json
 clr.AddReference("Rook")
-from Rook.Handlers import BimHandler
+from Rook.Handlers import BimCreationGuidProbeAsyncFacade
 
-result = BimHandler().Dispatch(json.dumps({
-    "op": "creation_guid_probe",
-    "action": "begin"
-}))
-print(result.Data.ToJsonString())
+started = BimCreationGuidProbeAsyncFacade.Start("begin", None)
+print(started.State)
+print(started.OperationId)
 ```
 
-Confirm the response contains the probe commit, PID, UTC start, and exact Revit/Rhino/Grasshopper/Rhino.Inside versions, with no title/path/GUID.
+Copy the returned operation ID. After the command returns, invoke `rhino_execute` again with the ID substituted exactly:
+
+```python
+import clr
+clr.AddReference("Rook")
+from Rook.Handlers import BimCreationGuidProbeAsyncFacade
+
+polled = BimCreationGuidProbeAsyncFacade.Poll("<operation-id>")
+print(polled.State)
+print(polled.DataJson if polled.DataJson is not None else "")
+```
+
+If it is still `pending`, return from that command and issue a later, separate poll command. Never sleep or loop in one `rhino_execute` call. Stop after ten wall-clock seconds; `timed_out` requires closing the process without retry. Confirm the completed response contains the probe commit, PID, UTC start, and exact Revit/Rhino/Grasshopper/Rhino.Inside versions, with no title/path/GUID.
 
 - [ ] **Step 2: Use one closed capture command for every active fixture**
 
-For each case below, substitute only the exact safe case ID in this operator command:
+For each case below, issue one start command, let it return, and then issue one or more separate nonblocking poll commands using the returned operation ID:
 
 ```python
 import clr
-import json
 clr.AddReference("Rook")
-from Rook.Handlers import BimHandler
+from Rook.Handlers import BimCreationGuidProbeAsyncFacade
 
 case_id = "saved_project_initial"
-result = BimHandler().Dispatch(json.dumps({
-    "op": "creation_guid_probe",
-    "action": "capture",
-    "caseId": case_id
-}))
-print(result.Data.ToJsonString())
+started = BimCreationGuidProbeAsyncFacade.Start("capture", case_id)
+print(started.State)
+print(started.OperationId)
 ```
+
+Poll only with the separate Step 1 poll command. Do not start the next capture until the current operation returns `completed` and its alias-only output has been inspected.
 
 The case IDs are exactly:
 
@@ -508,16 +594,15 @@ Close the original disposable saved non-workshared document. Create a different 
 
 ```python
 import clr
-import json
 clr.AddReference("Rook")
-from Rook.Handlers import BimHandler
+from Rook.Handlers import BimCreationGuidProbeAsyncFacade
 
-result = BimHandler().Dispatch(json.dumps({
-    "op": "creation_guid_probe",
-    "action": "complete"
-}))
-print(result.Data.ToJsonString())
+started = BimCreationGuidProbeAsyncFacade.Start("complete", None)
+print(started.State)
+print(started.OperationId)
 ```
+
+After this command returns, use the separate Step 1 poll command to obtain the completed safe report.
 
 Completion must refuse if a required case is missing. On success, verify:
 
@@ -528,7 +613,7 @@ Completion must refuse if a required case is missing. On success, verify:
 - no model/family title, filename, `.rvt`/`.rfa` path, raw GUID, deterministic 64-hex path/GUID hash, newline-bearing exception, or message appears;
 - the session reports raw state cleared.
 
-If the matrix cannot safely finish, invoke the same command with `"action":"abort"`; confirm raw-state clearing and restart the complete probe later.
+If the matrix cannot safely finish, use `Start("abort", None)`, return from that UI command, and poll from a later command; confirm raw-state clearing and restart the complete probe later.
 
 ---
 
@@ -599,6 +684,9 @@ Hand off the report and amended spec. Do not write or execute a production ident
 - [ ] This plan is separate from the Grasshopper implementation and creates its own worktree/branch.
 - [ ] Every task is probe-only; no `documentKey`, resolver, comparator, or production identity branch is implemented.
 - [ ] Exact diagnostics gating occurs before runtime/delegate invocation and is tested disabled.
+- [ ] The probe build is deployed before a fresh disabled process validates the gate; the enabled matrix uses a second fresh process.
+- [ ] `rhino_execute` calls only the single-slot `Start`/`Poll` facade, returns before waiting, and never directly calls synchronous `BimHandler.Dispatch`.
+- [ ] The facade retains at most one 256 KiB safe result, retains no raw exception/response/Revit state, and a timed-out slot cannot be retried in-process.
 - [ ] No native route or MCP tool exposes the probe.
 - [ ] Revit objects remain in `src/RookBim` and one API operation; the session stores only raw scalar equality inputs temporarily.
 - [ ] Each property read is independent, locally caught, and behavior-neutral.
@@ -612,3 +700,4 @@ Hand off the report and amended spec. Do not write or execute a production ident
 - [ ] `Rook` builds before `RookBim`; the probe commit is recorded before deployment.
 - [ ] The live matrix is the decision evidence; source tests cannot approve a key.
 - [ ] The final spec amendment remains proposed and blocks production implementation until reviewer approval.
+- [ ] The temporary probe deployment is rolled back and the identity decision is reviewed before Grasshopper lifecycle deployment starts.
