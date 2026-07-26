@@ -11,12 +11,17 @@ namespace RookBim.Revit
     {
         private const int MaxSuggestions = 5;
 
-        public BimListCategoriesResult List(Document document)
+        public BimListCategoriesResult List(
+            Document document,
+            BimDiagnosticContext diagnostics)
         {
-            var table = LiveCategories(document);
+            var table = LiveCategories(document, diagnostics);
             return new BimListCategoriesResult
             {
-                Document = RevitIdentitySerializer.DocumentIdentity(document),
+                Document = RevitIdentitySerializer.DocumentIdentity(
+                    document,
+                    diagnostics,
+                    includeAuxiliaryState: false),
                 SkippedCount = table.SkippedCount,
                 DegradedCount = table.DegradedCount,
                 Diagnostics = table.Diagnostics,
@@ -27,14 +32,20 @@ namespace RookBim.Revit
             };
         }
 
-        public BimCategoryResolution Resolve(Document document, string? input)
+        public BimCategoryResolution Resolve(
+            Document document,
+            string? input,
+            BimDiagnosticContext diagnostics)
         {
-            var entries = LiveCategories(document).Entries;
+            var entries = LiveCategories(document, diagnostics).Entries;
             var resolution = new BimCategoryResolution
             {
                 Input = input,
                 NormalizedInput = Normalize(input),
-                Document = RevitIdentitySerializer.DocumentIdentity(document)
+                Document = RevitIdentitySerializer.DocumentIdentity(
+                    document,
+                    diagnostics,
+                    includeAuxiliaryState: false)
             };
 
             if (string.IsNullOrWhiteSpace(input))
@@ -252,43 +263,70 @@ namespace RookBim.Revit
                 });
         }
 
-        private static LiveCategoryTable LiveCategories(Document document)
+        private static LiveCategoryTable LiveCategories(
+            Document document,
+            BimDiagnosticContext diagnostics)
         {
             var entries = new List<CategoryEntry>();
-            var diagnostics = new CategoryTableDiagnosticsBuilder();
-            foreach (Category category in document.Settings.Categories)
-            {
-                if (TryBuildCategoryEntry(category, diagnostics, out var entry))
+            var tableDiagnostics = new CategoryTableDiagnosticsBuilder();
+            var settings = diagnostics.Enabled
+                ? BimDiagnosticProbe.Production(
+                    diagnostics,
+                    BimDiagnosticStage.RevitCategoriesSettings,
+                    () => document.Settings,
+                    BimDiagnosticFields.None)
+                : document.Settings;
+            var categoryMap = diagnostics.Enabled
+                ? BimDiagnosticProbe.Production(
+                    diagnostics,
+                    BimDiagnosticStage.RevitCategoriesCollection,
+                    () => settings.Categories,
+                    BimDiagnosticFields.None)
+                : settings.Categories;
+            BimDiagnosticEnumerator.ForEach<Category>(
+                diagnostics,
+                categoryMap,
+                (category, itemIndex) =>
                 {
+                    if (!TryBuildCategoryEntry(category, diagnostics, itemIndex, out var entry))
+                    {
+                        tableDiagnostics.RecordSkip(
+                            "missing_id",
+                            "Category id could not be read.");
+                        return;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(entry.Name))
+                    {
+                        tableDiagnostics.RecordDegradation(
+                            "missing_name",
+                            $"Category {entry.Id} name could not be read.");
+                    }
+
                     entries.Add(entry);
-                }
-            }
+                });
 
             return new LiveCategoryTable(
                 entries,
-                diagnostics.Build(),
-                diagnostics.SkippedCount,
-                diagnostics.DegradedCount);
+                tableDiagnostics.Build(),
+                tableDiagnostics.SkippedCount,
+                tableDiagnostics.DegradedCount);
         }
 
         private static bool TryBuildCategoryEntry(
             Category category,
-            CategoryTableDiagnosticsBuilder diagnostics,
+            BimDiagnosticContext diagnostics,
+            long itemIndex,
             out CategoryEntry entry)
         {
             entry = default;
-            var id = SafeCategoryId(category);
+            var id = SafeCategoryId(category, diagnostics, itemIndex);
             if (!id.HasValue)
             {
-                diagnostics.RecordSkip("missing_id", "Category id could not be read.");
                 return false;
             }
 
-            var name = SafeCategoryName(category) ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                diagnostics.RecordDegradation("missing_name", $"Category {id.Value} name could not be read.");
-            }
+            var name = SafeCategoryName(category, diagnostics, itemIndex) ?? string.Empty;
 
             entry = new CategoryEntry(
                 id.Value,
@@ -297,8 +335,8 @@ namespace RookBim.Revit
                 {
                     Id = id,
                     Name = NullIfWhiteSpace(name),
-                    BuiltIn = SafeBuiltInCategory(category),
-                    CategoryType = SafeCategoryType(category),
+                    BuiltIn = SafeBuiltInCategory(category, diagnostics, itemIndex),
+                    CategoryType = SafeCategoryType(category, diagnostics, itemIndex),
                     Parent = null
                 });
             return true;
@@ -342,11 +380,23 @@ namespace RookBim.Revit
             }
         }
 
-        private static string? SafeBuiltInCategory(Category category)
+        private static string? SafeBuiltInCategory(
+            Category category,
+            BimDiagnosticContext diagnostics,
+            long itemIndex)
         {
             try
             {
-                var builtIn = category.BuiltInCategory;
+                var builtIn = diagnostics.Enabled
+                    ? BimDiagnosticProbe.Production(
+                        diagnostics,
+                        BimDiagnosticStage.RevitCategoryBuiltIn,
+                        () => category.BuiltInCategory,
+                        new BimDiagnosticFields(
+                            BimDiagnosticDetailCode.None,
+                            itemIndex,
+                            BimDiagnosticFailureImpact.Production))
+                    : category.BuiltInCategory;
                 if (builtIn == BuiltInCategory.INVALID || !Enum.IsDefined(typeof(BuiltInCategory), builtIn))
                 {
                     return null;
@@ -364,11 +414,23 @@ namespace RookBim.Revit
             }
         }
 
-        private static string? SafeCategoryName(Category category)
+        private static string? SafeCategoryName(
+            Category category,
+            BimDiagnosticContext diagnostics,
+            long itemIndex)
         {
             try
             {
-                return category.Name;
+                return diagnostics.Enabled
+                    ? BimDiagnosticProbe.Production(
+                        diagnostics,
+                        BimDiagnosticStage.RevitCategoryName,
+                        () => category.Name,
+                        new BimDiagnosticFields(
+                            BimDiagnosticDetailCode.None,
+                            itemIndex,
+                            BimDiagnosticFailureImpact.Production))
+                    : category.Name;
             }
             catch (Autodesk.Revit.Exceptions.InvalidOperationException)
             {
@@ -380,11 +442,23 @@ namespace RookBim.Revit
             }
         }
 
-        private static string? SafeCategoryType(Category category)
+        private static string? SafeCategoryType(
+            Category category,
+            BimDiagnosticContext diagnostics,
+            long itemIndex)
         {
             try
             {
-                return category.CategoryType.ToString();
+                return diagnostics.Enabled
+                    ? BimDiagnosticProbe.Production(
+                        diagnostics,
+                        BimDiagnosticStage.RevitCategoryType,
+                        () => category.CategoryType.ToString(),
+                        new BimDiagnosticFields(
+                            BimDiagnosticDetailCode.None,
+                            itemIndex,
+                            BimDiagnosticFailureImpact.Production))
+                    : category.CategoryType.ToString();
             }
             catch (Autodesk.Revit.Exceptions.InvalidOperationException)
             {
@@ -401,6 +475,34 @@ namespace RookBim.Revit
             try
             {
                 return ToInt32OrNull(category.Id);
+            }
+            catch (Autodesk.Revit.Exceptions.InvalidOperationException)
+            {
+                return null;
+            }
+            catch (InvalidOperationException)
+            {
+                return null;
+            }
+        }
+
+        private static int? SafeCategoryId(
+            Category category,
+            BimDiagnosticContext diagnostics,
+            long itemIndex)
+        {
+            try
+            {
+                return diagnostics.Enabled
+                    ? BimDiagnosticProbe.Production(
+                        diagnostics,
+                        BimDiagnosticStage.RevitCategoryId,
+                        () => ToInt32OrNull(category.Id),
+                        new BimDiagnosticFields(
+                            BimDiagnosticDetailCode.None,
+                            itemIndex,
+                            BimDiagnosticFailureImpact.Production))
+                    : ToInt32OrNull(category.Id);
             }
             catch (Autodesk.Revit.Exceptions.InvalidOperationException)
             {

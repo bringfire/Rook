@@ -103,7 +103,7 @@ namespace RookBim.Revit
                 {
                     var view = ResolveActiveGraphicalView(
                         uidoc, request.EffectiveScope, diagnostics);
-                    return query.Query(document, view, request);
+                    return query.Query(document, view, request, diagnostics);
                 });
         }
 
@@ -112,7 +112,7 @@ namespace RookBim.Revit
             return ExecuteInDocumentContext(
                 diagnostics,
                 "list_categories",
-                (_uidoc, document) => BimApiResponse.Ok(categories.List(document)));
+                (_uidoc, document) => BimApiResponse.Ok(categories.List(document, diagnostics)));
         }
 
         public BimApiResponse ElementInfo(BimDiagnosticContext diagnostics, BimElementRequest request)
@@ -276,7 +276,11 @@ namespace RookBim.Revit
                     {
                         var view = ResolveActiveGraphicalView(
                             uidoc, request.EffectiveScope, diagnostics);
-                        var resolution = presetResolver.Resolve(document, view, request);
+                        var resolution = presetResolver.Resolve(
+                            document,
+                            view,
+                            request,
+                            diagnostics);
                         if (resolution.Failure != null)
                         {
                             return resolution.Failure;
