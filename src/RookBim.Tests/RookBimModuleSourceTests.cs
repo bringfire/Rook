@@ -218,6 +218,70 @@ internal sealed class Fixture
         }
 
         [Fact]
+        public void SourceContracts_HaveNoLegacyPrefixExtractor()
+        {
+            var source = Read(
+                "src/RookBim.Tests/RookBimModuleSourceTests.cs");
+
+            Assert.DoesNotContain(
+                "ExtractMethod(",
+                ExecutableCode(source));
+        }
+
+        [Fact]
+        public void SourceContracts_ActiveDocumentResultDoesNotSearchWholeRuntime()
+        {
+            var source = Read(
+                "src/RookBim.Tests/RookBimModuleSourceTests.cs");
+            var contract = ExtractExecutableMember(
+                source,
+                "public class RookBimModuleSourceTests",
+                "public void RevitTask7_ActiveDocumentResultUsesViewPropertyForCamelCaseContract()");
+
+            Assert.DoesNotContain(", runtime);", contract);
+        }
+
+        [Fact]
+        public void SourceContracts_DispatchTimeoutDoesNotSearchWholeSourceFiles()
+        {
+            var source = Read(
+                "src/RookBim.Tests/RookBimModuleSourceTests.cs");
+            var contract = ExtractExecutableMember(
+                source,
+                "public class RookBimModuleSourceTests",
+                "public void RevitTask7_DispatchTimeoutAbandonsPendingWork()");
+
+            Assert.DoesNotContain(", dispatcher);", contract);
+            Assert.DoesNotContain(", runtime);", contract);
+        }
+
+        [Fact]
+        public void SourceContracts_SelectionWiringDoesNotUsePrefixExtraction()
+        {
+            var source = Read(
+                "src/RookBim.Tests/RookBimModuleSourceTests.cs");
+            var contract = ExtractExecutableMember(
+                source,
+                "public class RookBimModuleSourceTests",
+                "public void RevitTask10_RuntimeWiresSelectionThroughDispatcher()");
+
+            Assert.DoesNotContain("ExtractMethod(", contract);
+        }
+
+        [Fact]
+        public void SourceContracts_ElementWiringDoesNotUsePrefixExtraction()
+        {
+            var source = Read(
+                "src/RookBim.Tests/RookBimModuleSourceTests.cs");
+            var contract = ExtractExecutableMember(
+                source,
+                "public class RookBimModuleSourceTests",
+                "public void RevitTask9_RuntimeWiresElementInfoAndParametersThroughDispatcher()");
+
+            Assert.DoesNotContain("ExtractMethod(", contract);
+        }
+
+        [Fact]
         public void RookBimProject_TargetsNet48AndReferencesRevitApisPrivately()
         {
             var project = LoadProject("src/RookBim/RookBim.csproj");
@@ -428,11 +492,27 @@ internal sealed class Fixture
         public void RevitTask7_ActiveDocumentResultUsesViewPropertyForCamelCaseContract()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var activeDocument = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics)");
+            var viewProperty = ExtractExecutableDirectMember(
+                runtime,
+                "private sealed class ActiveDocumentResult",
+                "public BimViewIdentity? View { get; set; }");
 
-            Assert.Contains("View = SerializeActiveView(uidoc, diagnostics)", runtime);
-            Assert.Contains("public BimViewIdentity? View { get; set; }", runtime);
-            Assert.DoesNotContain("ActiveView = SerializeActiveView(uidoc)", runtime);
-            Assert.DoesNotContain("public BimViewIdentity? ActiveView { get; set; }", runtime);
+            Assert.Contains(
+                "View = SerializeActiveView(uidoc, diagnostics)",
+                activeDocument);
+            Assert.Equal(
+                RemoveWhitespace("public BimViewIdentity? View { get; set; }"),
+                RemoveWhitespace(viewProperty));
+            Assert.DoesNotContain(
+                "ActiveView = SerializeActiveView(uidoc)",
+                activeDocument);
+            Assert.DoesNotContain(
+                "public BimViewIdentity? ActiveView { get; set; }",
+                ExecutableCode(runtime));
         }
 
         [Fact]
@@ -860,20 +940,39 @@ internal sealed class Fixture
         {
             var dispatcher = Read("src/RookBim/Revit/RevitApiDispatcher.cs");
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var invokeAbandonable = ExtractExecutableMember(
+                dispatcher,
+                DispatcherType,
+                "internal RevitApiDispatch<T> InvokeAbandonable<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)");
+            var abandon = ExtractExecutableMember(
+                dispatcher,
+                "internal sealed class RevitApiDispatch<T>",
+                "public bool Abandon()");
+            var execute = ExtractExecutableMember(
+                dispatcher,
+                WorkItemType,
+                "public void Execute()");
+            var tryAbandon = ExtractExecutableMember(
+                dispatcher,
+                WorkItemType,
+                "public bool TryAbandon()");
+            var dispatchWithTimeout = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private T DispatchWithTimeout<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work, TimeSpan timeout)");
 
-            Assert.Contains("InvokeAbandonable", dispatcher);
-            Assert.Contains("public bool Abandon()", dispatcher);
-            Assert.Contains("TryAbandon()", dispatcher);
-            Assert.Contains("CompareExchange(ref state, Running, Pending)", dispatcher);
-            Assert.Contains("CompareExchange(ref state, Abandoned, Pending)", dispatcher);
-            Assert.Contains("TrySetCanceled", dispatcher);
             Assert.Contains(
                 "var dispatch = dispatcher.InvokeAbandonable(capturedDiagnostics, work);",
-                runtime);
-            Assert.Contains("dispatch.Abandon();", runtime);
-            Assert.Contains("throw new TimeoutException", runtime);
-            Assert.Contains("Timed out waiting for RhinoInside Revit idling-queue execution.", runtime);
-            Assert.DoesNotContain("Timed out waiting for Revit ExternalEvent execution.", runtime);
+                dispatchWithTimeout);
+            Assert.Contains("new RevitApiWorkItem<T>(diagnostics, work)", invokeAbandonable);
+            Assert.Contains("item.TryAbandon", invokeAbandonable);
+            Assert.Contains("return abandon();", abandon);
+            Assert.Contains("CompareExchange(ref state, Running, Pending)", execute);
+            Assert.Contains("CompareExchange(ref state, Abandoned, Pending)", tryAbandon);
+            Assert.Contains("completion.TrySetCanceled();", tryAbandon);
+            Assert.Contains("dispatch.Abandon();", dispatchWithTimeout);
+            Assert.Contains("throw new TimeoutException(", dispatchWithTimeout);
+            Assert.DoesNotContain("ExternalEvent", ExecutableCode(runtime));
         }
 
         [Fact]
@@ -918,10 +1017,15 @@ internal sealed class Fixture
         public void RevitTask10_SelectionServiceUsesResolvedIdentitiesAndUiSelectionOnly()
         {
             var service = Read("src/RookBim/Revit/RevitSelectionService.cs");
-            var select = ExtractMethod(service, "public BimApiResponse Select(");
-            var clear = ExtractMethod(service, "public BimApiResponse Clear(");
+            var select = ExtractExecutableMember(
+                service,
+                "internal sealed class RevitSelectionService",
+                "public BimApiResponse Select(UIDocument uiDocument, BimSelectElementsRequest? request)");
+            var clear = ExtractExecutableMember(
+                service,
+                "internal sealed class RevitSelectionService",
+                "public BimApiResponse Clear(UIDocument uiDocument)");
 
-            Assert.Contains("internal sealed class RevitSelectionService", service);
             Assert.Contains("if (request == null || request.Identities == null || request.Identities.Count == 0)", select);
             Assert.Contains("BimErrorCode.InvalidScope", select);
             Assert.True(
@@ -937,20 +1041,36 @@ internal sealed class Fixture
             Assert.Contains("document = RevitIdentitySerializer.DocumentIdentity(uiDocument.Document)", select);
             Assert.Contains("uiDocument.Selection.SetElementIds(new List<ElementId>())", clear);
             Assert.Contains("selectedCount = 0", clear);
-            Assert.DoesNotContain("Transaction", service);
-            Assert.DoesNotContain("OverrideGraphicSettings", service);
-            Assert.DoesNotContain("TemporaryView", service);
+            Assert.DoesNotContain("Transaction", ExecutableCode(service));
+            Assert.DoesNotContain("OverrideGraphicSettings", ExecutableCode(service));
+            Assert.DoesNotContain("TemporaryView", ExecutableCode(service));
         }
 
         [Fact]
         public void RevitTask10_RuntimeWiresSelectionThroughDispatcher()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
-            var select = ExtractMethod(runtime, "public BimApiResponse SelectElements(");
-            var clear = ExtractMethod(runtime, "public BimApiResponse ClearSelection(");
+            var selectionField = ExtractExecutableDirectMember(
+                runtime,
+                RuntimeType,
+                "private readonly RevitSelectionService selection;");
+            var constructor = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "internal RevitRookBimRuntime(RevitApiDispatcher dispatcher)");
+            var select = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse SelectElements(BimDiagnosticContext diagnostics, BimSelectElementsRequest request)");
+            var clear = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ClearSelection(BimDiagnosticContext diagnostics)");
 
-            Assert.Contains("private readonly RevitSelectionService selection;", runtime);
-            Assert.Contains("this.selection = new RevitSelectionService();", runtime);
+            Assert.Equal(
+                RemoveWhitespace("private readonly RevitSelectionService selection;"),
+                RemoveWhitespace(selectionField));
+            Assert.Contains("this.selection = new RevitSelectionService();", constructor);
             Assert.Contains("return Dispatch(diagnostics, uiapp =>", select);
             Assert.Contains("return Dispatch(diagnostics, uiapp =>", clear);
             Assert.Contains("AcquireActiveUiDocument(uiapp, diagnostics)", select);
@@ -1008,7 +1128,10 @@ internal sealed class Fixture
         public void RevitCategoryResolver_TreatsInvalidBuiltInAsUnavailable()
         {
             var resolver = Read("src/RookBim/Revit/RevitCategoryResolver.cs");
-            var safeBuiltIn = ExtractMethod(resolver, "private static string? SafeBuiltInCategory(");
+            var safeBuiltIn = ExtractExecutableMember(
+                resolver,
+                "internal sealed class RevitCategoryResolver",
+                "private static string? SafeBuiltInCategory(Category category)");
 
             Assert.Contains("builtIn == BuiltInCategory.INVALID", safeBuiltIn);
             Assert.Contains("return null;", safeBuiltIn);
@@ -1018,7 +1141,10 @@ internal sealed class Fixture
         public void RevitCategoryResolver_CatchesRevitInvalidOperationDuringExplicitBuiltInLookup()
         {
             var resolver = Read("src/RookBim/Revit/RevitCategoryResolver.cs");
-            var tryGetBuiltIn = ExtractMethod(resolver, "private static bool TryGetBuiltInCategory(");
+            var tryGetBuiltIn = ExtractExecutableMember(
+                resolver,
+                "internal sealed class RevitCategoryResolver",
+                "private static bool TryGetBuiltInCategory(Document document, BuiltInCategory builtIn, out Category category)");
 
             Assert.Contains("catch (Autodesk.Revit.Exceptions.InvalidOperationException)", tryGetBuiltIn);
         }
@@ -1027,23 +1153,43 @@ internal sealed class Fixture
         public void RevitRuntime_WiresListCategoriesThroughDispatcher()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
-            var listCategories = ExtractMethod(runtime, "public BimApiResponse ListCategories(");
+            var categoriesField = ExtractExecutableDirectMember(
+                runtime,
+                RuntimeType,
+                "private readonly RevitCategoryResolver categories;");
+            var constructor = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "internal RevitRookBimRuntime(RevitApiDispatcher dispatcher)");
+            var listCategories = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ListCategories(BimDiagnosticContext diagnostics)");
+            var documentContext = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, BimApiResponse> work)");
 
-            Assert.Contains("private readonly RevitCategoryResolver categories;", runtime);
-            Assert.Contains("this.categories = new RevitCategoryResolver();", runtime);
+            Assert.Equal(
+                RemoveWhitespace("private readonly RevitCategoryResolver categories;"),
+                RemoveWhitespace(categoriesField));
+            Assert.Contains("this.categories = new RevitCategoryResolver();", constructor);
             Assert.Contains("return ExecuteInDocumentContext", listCategories);
-            Assert.Contains("RevitContext.ActiveUiDocument(uiapp)", runtime);
-            Assert.Contains("BimErrorCode.NoActiveDocument", runtime);
-            Assert.Contains("categories.List(document)", runtime);
+            Assert.Contains("AcquireActiveUiDocument(uiapp, diagnostics)", documentContext);
+            Assert.Contains("BimErrorCode.NoActiveDocument", documentContext);
+            Assert.Contains("categories.List(document)", listCategories);
             Assert.DoesNotContain("BimErrorCode.NotRhinoInside", listCategories);
-            Assert.Contains("BimErrorCode.InternalError", runtime);
+            Assert.Contains("BimErrorCode.InternalError", documentContext);
         }
 
         [Fact]
         public void RevitQueryService_UsesCategoryResolverAndReturnsResolutionEvidence()
         {
             var service = Read("src/RookBim/Revit/RevitQueryService.cs");
-            var query = ExtractMethod(service, "public BimApiResponse Query(");
+            var query = ExtractExecutableMember(
+                service,
+                "internal sealed class RevitQueryService",
+                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request)");
 
             Assert.Contains("private readonly RevitCategoryResolver categories", service);
             Assert.Contains("categories.Resolve(document, categoryName)", query);
@@ -1061,8 +1207,14 @@ internal sealed class Fixture
         public void RevitTask9_RuntimeWiresElementInfoAndParametersThroughDispatcher()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
-            var elementInfo = ExtractMethod(runtime, "public BimApiResponse ElementInfo(");
-            var elementParameters = ExtractMethod(runtime, "public BimApiResponse ElementParameters(");
+            var elementInfo = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ElementInfo(BimDiagnosticContext diagnostics, BimElementRequest request)");
+            var elementParameters = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ElementParameters(BimDiagnosticContext diagnostics, BimElementRequest request)");
 
             Assert.Contains("return Dispatch(diagnostics, uiapp =>", elementInfo);
             Assert.Contains("return Dispatch(diagnostics, uiapp =>", elementParameters);
@@ -1126,13 +1278,30 @@ internal sealed class Fixture
         public void RevitTask8_RuntimeWiresOnlyQueryElementsThroughDispatcher()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
-            var queryElements = ExtractMethod(runtime, "public BimApiResponse QueryElements(");
+            var queryField = ExtractExecutableDirectMember(
+                runtime,
+                RuntimeType,
+                "private readonly RevitQueryService query;");
+            var constructor = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "internal RevitRookBimRuntime(RevitApiDispatcher dispatcher)");
+            var queryElements = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)");
+            var documentContext = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, BimApiResponse> work)");
 
-            Assert.Contains("private readonly RevitQueryService query;", runtime);
-            Assert.Contains("this.query = new RevitQueryService();", runtime);
+            Assert.Equal(
+                RemoveWhitespace("private readonly RevitQueryService query;"),
+                RemoveWhitespace(queryField));
+            Assert.Contains("this.query = new RevitQueryService();", constructor);
             Assert.Contains("return ExecuteInDocumentContext", queryElements);
-            Assert.Contains("RevitContext.ActiveUiDocument(uiapp)", runtime);
-            Assert.Contains("BimErrorCode.NoActiveDocument", runtime);
+            Assert.Contains("AcquireActiveUiDocument(uiapp, diagnostics)", documentContext);
+            Assert.Contains("BimErrorCode.NoActiveDocument", documentContext);
             Assert.Contains("query.Query(document, view, effectiveRequest)", queryElements);
             Assert.DoesNotContain("LaterToolUnavailable", queryElements);
         }
@@ -1141,7 +1310,10 @@ internal sealed class Fixture
         public void RevitTask8_QueryServiceUsesBoundedCollectorsAndEffectiveFilters()
         {
             var service = Read("src/RookBim/Revit/RevitQueryService.cs");
-            var query = ExtractMethod(service, "public BimApiResponse Query(");
+            var query = ExtractExecutableMember(
+                service,
+                "internal sealed class RevitQueryService",
+                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request)");
             var validationIndex = query.IndexOf("var validation = request.Validate();", StringComparison.Ordinal);
             var collectorIndex = query.IndexOf("new FilteredElementCollector", StringComparison.Ordinal);
 
@@ -1163,7 +1335,10 @@ internal sealed class Fixture
         public void RevitTask8_QueryServicePreflightsAmbiguousParametersAcrossCandidateSet()
         {
             var service = Read("src/RookBim/Revit/RevitQueryService.cs");
-            var query = ExtractMethod(service, "public BimApiResponse Query(");
+            var query = ExtractExecutableMember(
+                service,
+                "internal sealed class RevitQueryService",
+                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request)");
             var preflightIndex = query.IndexOf("PreflightFilterParameterAmbiguity(document, candidates, filters)", StringComparison.Ordinal);
             var filterIndex = query.IndexOf("MatchesAllFilters(element, document, filters, missingCounts)", StringComparison.Ordinal);
 
@@ -1183,13 +1358,20 @@ internal sealed class Fixture
         public void RevitTask8_QueryServiceCapsUnfilteredCollectionBeforeFullMaterialization()
         {
             var service = Read("src/RookBim/Revit/RevitQueryService.cs");
-            var query = ExtractMethod(service, "public BimApiResponse Query(");
+            var query = ExtractExecutableMember(
+                service,
+                "internal sealed class RevitQueryService",
+                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request)");
+            var collect = ExtractExecutableMember(
+                service,
+                "internal sealed class RevitQueryService",
+                "private static CappedElementCollection CollectUnfilteredResults(FilteredElementCollector collector, int limit)");
 
             Assert.Contains("if (filters.Count == 0)", query);
             Assert.Contains("CollectUnfilteredResults(collector, request.EffectiveLimit)", query);
             Assert.Contains("return BimApiResponse.Ok(BuildResult(", query);
             Assert.Contains("limit + 1", service);
-            Assert.Contains("break;", ExtractMethod(service, "private static CappedElementCollection CollectUnfilteredResults("));
+            Assert.Contains("break;", collect);
         }
 
         [Fact]
@@ -1361,6 +1543,67 @@ internal sealed class Fixture
             return code.Substring(
                 member.DeclarationStart,
                 member.BodyEnd - member.DeclarationStart + 1);
+        }
+
+        private static string ExtractExecutableDirectMember(
+            string source,
+            string typeDeclaration,
+            string memberDeclaration)
+        {
+            var code = Lex(source).CodeMask;
+            var type = FindUniqueBlockDeclaration(
+                code,
+                typeDeclaration,
+                0,
+                code.Length,
+                containingBodyStart: null);
+            var significantDeclaration = new string(memberDeclaration
+                .Where(character => !char.IsWhiteSpace(character))
+                .ToArray());
+            if (significantDeclaration.Length == 0)
+            {
+                throw new ArgumentException(
+                    "Declaration must contain a non-whitespace character.",
+                    nameof(memberDeclaration));
+            }
+
+            var matches = new List<SourceSpan>();
+            for (var candidate = type.BodyStart + 1;
+                 candidate < type.BodyEnd;
+                 candidate++)
+            {
+                if (char.IsWhiteSpace(code[candidate]) ||
+                    code[candidate] != significantDeclaration[0] ||
+                    HasIdentifierPrefix(
+                        code,
+                        candidate,
+                        significantDeclaration[0]) ||
+                    BraceDepth(code, type.BodyStart + 1, candidate) != 0)
+                {
+                    continue;
+                }
+
+                if (TryMatchIgnoringWhitespace(
+                        code,
+                        candidate,
+                        type.BodyEnd,
+                        significantDeclaration,
+                        out var declarationEnd))
+                {
+                    matches.Add(new SourceSpan(candidate, declarationEnd));
+                }
+            }
+
+            if (matches.Count != 1)
+            {
+                throw new InvalidOperationException(
+                    "Expected exactly one direct member declaration for '" +
+                    memberDeclaration + "' but found " + matches.Count + ".");
+            }
+
+            return code.Substring(
+                matches[0].Start,
+                matches[0].End - matches[0].Start);
         }
 
         private static SourceBlock FindUniqueBlockDeclaration(
@@ -1552,39 +1795,6 @@ internal sealed class Fixture
                 "Brace did not close at index " + bodyStart + ".");
         }
 
-        private static string ExtractMethod(string source, string declaration)
-        {
-            var lexed = Lex(source);
-            var declarationStart = FindIgnoringWhitespace(
-                lexed.CodeMask, declaration);
-            if (declarationStart < 0)
-            {
-                throw new InvalidOperationException(
-                    "Method not found: " + declaration);
-            }
-
-            var bodyStart = lexed.CodeMask.IndexOf(
-                '{', declarationStart);
-            if (bodyStart < 0)
-            {
-                throw new InvalidOperationException(
-                    "Method body not found: " + declaration);
-            }
-
-            var declarationTerminator = lexed.CodeMask.IndexOf(
-                ';', declarationStart, bodyStart - declarationStart);
-            if (declarationTerminator >= 0)
-            {
-                throw new InvalidOperationException(
-                    "Declaration has no block body: " + declaration);
-            }
-
-            var bodyEnd = FindMatchingBrace(source, bodyStart);
-            return lexed.WithoutComments.Substring(
-                declarationStart,
-                bodyEnd - declarationStart + 1);
-        }
-
         private static Tuple<string, string> ExtractTryCatchAfter(string source, string precedingText)
         {
             var precedingIndex = source.IndexOf(precedingText, StringComparison.Ordinal);
@@ -1633,7 +1843,6 @@ internal sealed class Fixture
 
             throw new InvalidOperationException("Brace did not close at index " + bodyStart);
         }
-
         private static string FirstExecutableStatement(string method)
         {
             var lexed = Lex(method);
@@ -1707,57 +1916,6 @@ internal sealed class Fixture
         private static string ExecutableCode(string source)
         {
             return Lex(source).CodeMask;
-        }
-
-        private static int FindIgnoringWhitespace(
-            string source,
-            string pattern)
-        {
-            var significantPattern = new string(pattern
-                .Where(character => !char.IsWhiteSpace(character))
-                .ToArray());
-            if (significantPattern.Length == 0)
-            {
-                throw new ArgumentException(
-                    "Declaration must contain a non-whitespace character.",
-                    nameof(pattern));
-            }
-
-            for (var candidate = 0; candidate < source.Length; candidate++)
-            {
-                if (char.IsWhiteSpace(source[candidate]) ||
-                    source[candidate] != significantPattern[0])
-                {
-                    continue;
-                }
-
-                var sourceIndex = candidate;
-                var patternIndex = 0;
-                while (sourceIndex < source.Length &&
-                       patternIndex < significantPattern.Length)
-                {
-                    if (char.IsWhiteSpace(source[sourceIndex]))
-                    {
-                        sourceIndex++;
-                        continue;
-                    }
-
-                    if (source[sourceIndex] != significantPattern[patternIndex])
-                    {
-                        break;
-                    }
-
-                    sourceIndex++;
-                    patternIndex++;
-                }
-
-                if (patternIndex == significantPattern.Length)
-                {
-                    return candidate;
-                }
-            }
-
-            return -1;
         }
 
         private static LexedSource Lex(string source)
@@ -1995,6 +2153,19 @@ internal sealed class Fixture
             public int BodyStart { get; }
 
             public int BodyEnd { get; }
+        }
+
+        private sealed class SourceSpan
+        {
+            public SourceSpan(int start, int end)
+            {
+                Start = start;
+                End = end;
+            }
+
+            public int Start { get; }
+
+            public int End { get; }
         }
 
         private static string FindRepoRoot()
