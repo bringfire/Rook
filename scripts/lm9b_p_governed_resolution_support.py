@@ -524,6 +524,7 @@ def evaluate_resolution_isolation(
     clause_ownership_ok = True
     affected_clause_residual_ok = True
     reference_ok = True
+    equation_owned_clause_pointers: set[str] = set()
     for row in inputs.policy_instance.value["affected_clauses"]:
         clause_id = row["clause_id"]
         parent_matches = parent_occurrences.get(clause_id, [])
@@ -536,6 +537,7 @@ def evaluate_resolution_isolation(
         ):
             clause_ownership_ok = False
             continue
+        equation_owned_clause_pointers.add(row["pointer"])
         parent_clause = parent_matches[0][2]
         candidate_clause = candidate_matches[0][2]
         expected_refs = _ordered_unique_references(
@@ -593,6 +595,8 @@ def evaluate_resolution_isolation(
     parent_residual["goal"]["projected_into"]["unresolved_intent_ids"] = []
     candidate_residual["goal"]["projected_into"]["unresolved_intent_ids"] = []
     for row in inputs.policy_instance.value["affected_clauses"]:
+        if row["pointer"] not in equation_owned_clause_pointers:
+            continue
         _clause_at_pointer(parent_residual, row["pointer"])["source_refs"] = []
         _clause_at_pointer(candidate_residual, row["pointer"])["source_refs"] = []
     parent_residual_bytes = _canonical_bytes(parent_residual)

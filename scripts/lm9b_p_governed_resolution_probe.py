@@ -66,12 +66,19 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
     expected_manifest_fingerprint = preflight.record["instrument_contracts"][
         "readiness"
     ]["route_manifest_fingerprint"]
+    expected_route_roles = preflight.record["instrument_contracts"]["readiness"][
+        "route_role_projection"
+    ]
     if (
         type(readiness_manifest) is not READINESS.RouteManifest
         or readiness_manifest.manifest_fingerprint
         != expected_manifest_fingerprint
+        or ARTIFACTS.readiness_route_role_projection(readiness_manifest)
+        != expected_route_roles
     ):
-        raise ValueError("resolution readiness route manifest differs from preflight")
+        raise ValueError(
+            "resolution readiness route or role membership differs from preflight"
+        )
     decision = READINESS.verify_launch_readiness(
         record=readiness_record,
         manifest=readiness_manifest,

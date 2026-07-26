@@ -216,6 +216,59 @@ def test_task2_attempt_binding_refuses_ambiguous_filesystem(
     assert dispatches == {"planner": 0, "planner_evaluator": 0}
 
 
+def test_task2_attempt_binding_rejects_destination_equal_to_staging(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    with pytest.raises(ValueError, match="staging.*destination|destination.*staging"):
+        ARTIFACTS.bind_resolution_attempt(
+            instrument=_instrument(),
+            attempt_id="attempt-01",
+            resolution_root=root,
+            destination=root / ".attempt-01.staging",
+        )
+
+
+@pytest.mark.parametrize("mutation", ("derivative_path", "derivative_identity"))
+def test_task2_physical_loader_pins_official_derivative_before_verification(
+    mutation: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    called = False
+
+    def unexpected_verifier(*_args: object, **_kwargs: object) -> object:
+        nonlocal called
+        called = True
+        raise AssertionError("derivative verifier reached before production pin")
+
+    monkeypatch.setattr(
+        ARTIFACTS.CONT_ARTIFACTS,
+        "verify_sealed_derivative_archive",
+        unexpected_verifier,
+    )
+    derivative = DERIVATIVE_ARCHIVE
+    identity = ARTIFACTS.OFFICIAL_DERIVATIVE_IDENTITY
+    if mutation == "derivative_path":
+        derivative = tmp_path / "replacement-derivative"
+    else:
+        identity = "sha256:" + "0" * 64
+    with pytest.raises(ValueError, match="official derivative"):
+        ARTIFACTS.load_verified_resolution_sources(
+            historical_source_dir=HISTORICAL_SOURCE,
+            derivative_archive=derivative,
+            derivative_identity=identity,
+            carrier_qualification_archive=CARRIER_QUALIFICATION,
+            carrier_qualification_identity=(
+                ARTIFACTS.HISTORICAL_CARRIER_QUALIFICATION_IDENTITY
+            ),
+            repo_root=ROOT,
+            successor_envelope_path=ARTIFACTS.SUCCESSOR_ENVELOPE_PATH,
+        )
+    assert called is False
+
+
 def test_task2_preflight_reconstructs_every_contract_and_refuses_future_proof(
     tmp_path: Path,
 ) -> None:

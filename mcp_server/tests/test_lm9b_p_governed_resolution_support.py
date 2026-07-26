@@ -19,6 +19,8 @@ for entry in (SCRIPTS, MCP_SRC):
 
 import lm9_semantic_typed_values as TYPED_VALUES
 import lm9b_p_governed_resolution_artifacts as ARTIFACTS
+import lm9b_p_governed_resolution_support as SUPPORT
+import lm9b_p_planner_recipe_transfer_support as PLANNER_SUPPORT
 import lm9_typed_fact_carrier_artifacts as CARRIER
 
 
@@ -34,6 +36,11 @@ CARRIER_QUALIFICATION = Path(
     r"C:\Users\bring\rook-lm9b-p-attempts"
     r"\2026-07-23-typed-fact-carrier-post-merge"
     r"\d6330a61a21d56abf16af6ba3b8f1678ede2c3ec"
+)
+ISOLATED_SUCCESSOR_RECIPE = (
+    SCRIPTS
+    / "lm9b_p_governed_resolution_fixtures"
+    / "radial_isolated_successor_recipe.json"
 )
 
 
@@ -82,6 +89,36 @@ def _load_with_successor(
         repo_root=ROOT,
         successor_envelope_path=successor,
     )
+
+
+def _resolution_inputs():
+    sources = ARTIFACTS.load_verified_resolution_sources(
+        historical_source_dir=HISTORICAL_SOURCE,
+        derivative_archive=DERIVATIVE_ARCHIVE,
+        derivative_identity=ARTIFACTS.OFFICIAL_DERIVATIVE_IDENTITY,
+        carrier_qualification_archive=CARRIER_QUALIFICATION,
+        carrier_qualification_identity=(
+            ARTIFACTS.HISTORICAL_CARRIER_QUALIFICATION_IDENTITY
+        ),
+        repo_root=ROOT,
+        successor_envelope_path=ARTIFACTS.SUCCESSOR_ENVELOPE_PATH,
+    )
+    return ARTIFACTS.assemble_resolution_instrument(
+        sources=sources,
+        isolation_policy_path=ARTIFACTS.ISOLATION_POLICY_PATH,
+        evaluation_rubric_path=ARTIFACTS.EVALUATION_RUBRIC_PATH,
+    ).inputs
+
+
+def _reclose_recipe(value: dict[str, object], inputs: object) -> bytes:
+    projection = {
+        key: item for key, item in value.items() if key != "recipe_fingerprint"
+    }
+    normalized = PLANNER_SUPPORT.normalize_recipe(
+        copy.deepcopy(projection), inputs.normalization_profile
+    )
+    value["recipe_fingerprint"] = PLANNER_SUPPORT.fingerprint(normalized)
+    return _canonical_bytes(value)
 
 
 AUTHORITY_MUTATIONS = (
@@ -322,3 +359,26 @@ def test_task2_authority_mutation_rejects_carrier_instrument_drift(
             repo_root=ROOT,
             successor_envelope_path=ARTIFACTS.SUCCESSOR_ENVELOPE_PATH,
         )
+
+
+def test_task3_missing_affected_clause_is_total_isolation_rejection() -> None:
+    inputs = _resolution_inputs()
+    candidate = json.loads(ISOLATED_SUCCESSOR_RECIPE.read_bytes())
+    affected = inputs.policy_instance.value["affected_clauses"][0]
+    category = affected["category"]
+    clause_id = affected["clause_id"]
+    candidate[category] = [
+        row for row in candidate[category] if row["clause_id"] != clause_id
+    ]
+    raw = _reclose_recipe(candidate, inputs)
+    try:
+        result = SUPPORT.evaluate_resolution_isolation(
+            inputs=inputs,
+            candidate_recipe_bytes=raw,
+        )
+    except KeyError as exc:
+        pytest.fail(f"isolation gate is not total for a missing clause: {exc}")
+    assert result.status == "isolation_rejected"
+    assert "clause_ownership" in {
+        row["equation_id"] for row in result.bounded_differences
+    }

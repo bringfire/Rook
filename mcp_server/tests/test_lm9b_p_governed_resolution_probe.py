@@ -637,6 +637,38 @@ def test_task1_two_turn_vertical_witness_publicly_verifies(
             expected_identity=evaluator_tamper_identity,
         )
 
+    for member, field, changed, expected_error in (
+        (
+            "planner-session.json",
+            "schema",
+            "rook.lm9b_p.governed_resolution_planner_session:altered",
+            "Planner ledger",
+        ),
+        (
+            "evaluator.json",
+            "schema",
+            "rook.lm9b_p.governed_resolution_evaluator:altered",
+            "evaluator evidence",
+        ),
+        (
+            "evaluator.json",
+            "termination",
+            "evaluation_inconclusive",
+            "evaluator evidence",
+        ),
+    ):
+        claim_tamper = tmp_path / f"claim-tamper-{field}-{member.split('.')[0]}"
+        shutil.copytree(result.sealed_checkpoint.archive_dir, claim_tamper)
+        claim = json.loads((claim_tamper / member).read_bytes())
+        claim[field] = changed
+        (claim_tamper / member).write_bytes(_canonical_bytes(claim))
+        claim_tamper_identity = _reclose_task1_checkpoint(claim_tamper)
+        with pytest.raises(ValueError, match=expected_error):
+            RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
+                claim_tamper,
+                expected_identity=claim_tamper_identity,
+            )
+
 
 @pytest.mark.parametrize(
     "mutation",
@@ -652,6 +684,7 @@ def test_task1_two_turn_vertical_witness_publicly_verifies(
         "missing_credential",
         "invocation_fingerprint",
         "dirty_checkout",
+        "role_membership_substitution",
     ),
 )
 def test_task2_precontact_refusal_has_zero_dispatch(
@@ -688,6 +721,13 @@ def test_task2_precontact_refusal_has_zero_dispatch(
         record["reviewed_commit_sha"] = "0" * 40
     elif mutation == "missing_credential":
         credential_present[route.route_fingerprint] = False
+    elif mutation == "role_membership_substitution":
+        changed_route = replace(route, member_roles=("compiler",))
+        manifest = READINESS.RouteManifest(
+            routes=(changed_route,),
+            manifest_fingerprint=manifest.manifest_fingerprint,
+        )
+        record["routes"][0]["member_roles"] = ["compiler"]
     if mutation in {
         "missing_route",
         "extra_role",
@@ -695,6 +735,7 @@ def test_task2_precontact_refusal_has_zero_dispatch(
         "wrong_canary_protocol",
         "wrong_manifest",
         "wrong_commit",
+        "role_membership_substitution",
     }:
         record["record_fingerprint"] = READINESS.record_fingerprint(record)
     invocation = _invocation(preflight, record)

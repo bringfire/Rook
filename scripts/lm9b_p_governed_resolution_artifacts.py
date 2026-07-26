@@ -190,6 +190,11 @@ def _load_verified_resolution_sources_unsealed(
     successor_path = Path(_kwargs["successor_envelope_path"]).resolve()
     if historical_dir != CONT_ARTIFACTS.PRODUCTION_SOURCE_PINS.source_root.resolve():
         raise ValueError("historical source location differs from production pin")
+    if (
+        derivative_archive != OFFICIAL_DERIVATIVE.resolve()
+        or _kwargs["derivative_identity"] != OFFICIAL_DERIVATIVE_IDENTITY
+    ):
+        raise ValueError("official derivative path or identity differs from pin")
     if successor_path != SUCCESSOR_ENVELOPE_PATH.resolve():
         raise ValueError("successor envelope location differs from reviewed fixture")
     reviewed_commit = subprocess.run(
@@ -406,6 +411,7 @@ def assemble_task1_resolution_instrument(
         ),
         lambda _model: "OPENAI_API_KEY",
     )
+    readiness_route_roles = readiness_route_role_projection(readiness_manifest)
     outcome_table = {
         "mechanically_rejected": "probe_mechanically_rejected",
         "isolation_rejected": "probe_resolution_isolation_failure",
@@ -575,6 +581,13 @@ def assemble_task1_resolution_instrument(
             ),
             "canary_protocol_fingerprint": READINESS.canary_protocol_fingerprint(),
             "route_manifest_fingerprint": readiness_manifest.manifest_fingerprint,
+            "route_role_projection": readiness_route_roles,
+            "route_role_projection_fingerprint": PLANNER_SUPPORT.fingerprint(
+                readiness_route_roles
+            ),
+            "route_role_projection_source_fingerprint": (
+                _callable_source_fingerprint(readiness_route_role_projection)
+            ),
             "freshness_window_s": READINESS.FROZEN_MAX_AGE_S,
         },
         "preflight": {
@@ -882,6 +895,8 @@ def bind_resolution_attempt(
     if not _paths_share_filesystem(root, final.parent):
         raise ValueError("resolution staging and destination filesystem differ")
     staging = root / f".{attempt_id}.staging"
+    if final == staging:
+        raise ValueError("resolution destination must differ from staging")
     if final.exists() or staging.exists():
         raise FileExistsError("resolution destination or staging already exists")
     value = {
@@ -927,6 +942,20 @@ def build_resolution_invocation_binding(
         raise TypeError("resolution invocation fields have invalid types")
     value["invocation_fingerprint"] = PLANNER_SUPPORT.fingerprint(value)
     return MappingProxyType(value)
+
+
+def readiness_route_role_projection(
+    manifest: READINESS.RouteManifest,
+) -> list[dict[str, object]]:
+    if type(manifest) is not READINESS.RouteManifest:
+        raise TypeError("readiness route manifest is required")
+    return [
+        {
+            "route_fingerprint": route.route_fingerprint,
+            "member_roles": list(route.member_roles),
+        }
+        for route in manifest.routes
+    ]
 
 
 def _launch_invocation_contract() -> dict[str, object]:
@@ -1072,6 +1101,10 @@ def verify_resolution_preflight(
 def reserve_resolution_staging(preflight: VerifiedResolutionPreflight) -> Path:
     if type(preflight) is not VerifiedResolutionPreflight:
         raise TypeError("verified resolution preflight is required")
+    if preflight.attempt.destination == preflight.attempt.staging_path:
+        raise ValueError("resolution staging must differ from destination")
+    if preflight.attempt.destination.exists():
+        raise FileExistsError("resolution destination already exists")
     preflight.attempt.staging_path.mkdir(parents=False, exist_ok=False)
     return preflight.attempt.staging_path
 
@@ -1212,6 +1245,22 @@ def verify_sealed_resolution_checkpoint(
         raise ValueError("sealed ready checkpoint did not pass isolation")
 
     evaluator_row = _object_bytes(raw_members["evaluator.json"], "evaluator")
+    if (
+        set(evaluator_row)
+        != {
+            "schema",
+            "dispatched_request_b64",
+            "provider_claimed_raw_request_b64",
+            "raw_response_b64",
+            "assistant_message",
+            "usage",
+            "provider_metadata",
+            "termination",
+        }
+        or evaluator_row.get("schema")
+        != "rook.lm9b_p.governed_resolution_evaluator:v1"
+    ):
+        raise ValueError("checkpoint evaluator evidence shape differs")
     rendered_evaluator = SUPPORT.render_planner_revision_evaluation_request(
         inputs,
         candidate_recipe_bytes=candidate_raw,
@@ -1231,6 +1280,8 @@ def verify_sealed_resolution_checkpoint(
     evaluator = PLANNER_SUPPORT.derive_planner_evaluation_result(
         outcome="returned", response=provider_turn
     )
+    if evaluator_row.get("termination") != evaluator.termination:
+        raise ValueError("checkpoint evaluator evidence termination differs")
     classification = PLANNER_ARTIFACTS.derive_evaluated_recipe_classification(
         evaluator,
         final_recipe_bytes=candidate_raw,
@@ -1452,7 +1503,18 @@ def _verify_task1_planner_evidence(
     calls = planner.get("calls")
     turns = planner.get("turns")
     if (
-        planner.get("termination") != "mechanically_accepted"
+        set(planner)
+        != {
+            "schema",
+            "termination",
+            "call_count",
+            "final_recipe_raw_sha256",
+            "calls",
+            "turns",
+        }
+        or planner.get("schema")
+        != "rook.lm9b_p.governed_resolution_planner_session:v1"
+        or planner.get("termination") != "mechanically_accepted"
         or planner.get("final_recipe_raw_sha256") != _sha256(candidate_raw)
         or planner.get("call_count") != 2
         or type(calls) is not list
@@ -1686,6 +1748,7 @@ __all__ = (
     "load_verified_resolution_sources",
     "reserve_resolution_staging",
     "require_clean_reviewed_checkout",
+    "readiness_route_role_projection",
     "seal_task1_resolution_checkpoint",
     "verify_historical_carrier_qualification_compatibility",
     "verify_resolution_preflight",
