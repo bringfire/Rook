@@ -128,8 +128,8 @@ def _resolution_role_adapter_api() -> tuple[Callable[..., object], Callable[...,
             providers[role] = provider
             expected_response_identities[role] = MappingProxyType(
                 {
-                    "model_identity": route.model,
-                    "profile_identity": contract["provider_profile"],
+                    "requested_model": route.model,
+                    "requested_profile": contract["provider_profile"],
                 }
             )
             provider_snapshots[role] = MappingProxyType(
@@ -422,10 +422,10 @@ class _StagedCallLedger:
                 metadata = response.provider_metadata
                 if (
                     not isinstance(metadata, Mapping)
-                    or metadata.get("model_identity")
-                    != expected_response_identity["model_identity"]
-                    or metadata.get("profile_identity")
-                    != expected_response_identity["profile_identity"]
+                    or metadata.get("requested_model")
+                    != expected_response_identity["requested_model"]
+                    or metadata.get("requested_profile")
+                    != expected_response_identity["requested_profile"]
                 ):
                     terminal.update(
                         {
@@ -440,7 +440,7 @@ class _StagedCallLedger:
                             copy.deepcopy(terminal)
                         )
                     raise _AdapterIdentityMismatch(
-                        "returned provider identity differs from authorized role"
+                        "adapter-authored requested identity differs from authorized role"
                     )
             with self._dispatch_lock:
                 self._pending_terminal_rows[call_index] = MappingProxyType(

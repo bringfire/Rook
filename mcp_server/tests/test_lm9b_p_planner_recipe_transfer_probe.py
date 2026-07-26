@@ -8,6 +8,7 @@ import json
 import shutil
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -192,7 +193,13 @@ def test_existing_evaluator_adapter_factory_preserves_profile_identity(
             self.temperature = temperature
 
         def __call__(self, _request):
-            return _evaluator_turn("evaluation_inconclusive")
+            return replace(
+                _evaluator_turn("evaluation_inconclusive"),
+                provider_metadata={
+                    "response_model": "gpt-5.4-2026-07-25",
+                    "system_fingerprint": "provider-system-fingerprint",
+                },
+            )
 
     fake_probe = SimpleNamespace(LiteLLMProvider=FakeDelegate)
     monkeypatch.setattr(PROBE, "_load_lm9bc_modules", lambda: (object(), fake_probe))
@@ -209,6 +216,15 @@ def test_existing_evaluator_adapter_factory_preserves_profile_identity(
         "profile_identity": "litellm.completion.tool_calling.no_parallel:v1",
         "temperature": 0.0,
     }
+    turn = provider({})
+    assert turn.provider_metadata["requested_model"] == "gpt-5.4"
+    assert turn.provider_metadata["requested_profile"] == (
+        "litellm.completion.tool_calling.no_parallel:v1"
+    )
+    assert turn.provider_metadata["response_model"] == "gpt-5.4-2026-07-25"
+    assert turn.provider_metadata["system_fingerprint"] == (
+        "provider-system-fingerprint"
+    )
 
 
 class _Provider:

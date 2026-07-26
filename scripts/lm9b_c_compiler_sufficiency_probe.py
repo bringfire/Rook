@@ -120,6 +120,34 @@ def _json_bytes(value: object) -> bytes:
     ).encode("utf-8")
 
 
+def build_litellm_completion_request_bytes(
+    *,
+    model: str,
+    temperature: float,
+    provider_request: Mapping[str, object],
+) -> bytes:
+    """Project one Rook provider request to exact LiteLLM call kwargs."""
+
+    if type(model) is not str or not model:
+        raise ValueError("LiteLLM request model must be nonempty")
+    if type(temperature) not in {int, float} or isinstance(temperature, bool):
+        raise TypeError("LiteLLM request temperature must be numeric")
+    if not isinstance(provider_request, Mapping):
+        raise TypeError("Rook provider request must be a mapping")
+    kwargs = {
+        "model": model,
+        "messages": provider_request["messages"],
+        "tools": provider_request["tools"],
+        "tool_choice": provider_request["tool_choice"],
+        "parallel_tool_calls": False,
+        "max_tokens": provider_request["max_completion_tokens"],
+        "temperature": float(temperature),
+        "timeout": provider_request["provider_timeout_s"],
+        "stream": False,
+    }
+    return _json_bytes(kwargs)
+
+
 def _sanitized_provider_error(exc: Exception) -> str:
     message = str(exc)
     for name, value in os.environ.items():
@@ -147,18 +175,12 @@ class LiteLLMProvider:
     def __call__(self, request: dict[str, object]) -> ProviderTurn:
         import litellm
 
-        kwargs = {
-            "model": self.model,
-            "messages": request["messages"],
-            "tools": request["tools"],
-            "tool_choice": request["tool_choice"],
-            "parallel_tool_calls": False,
-            "max_tokens": request["max_completion_tokens"],
-            "temperature": self.temperature,
-            "timeout": request["provider_timeout_s"],
-            "stream": False,
-        }
-        raw_request = _json_bytes(kwargs)
+        raw_request = build_litellm_completion_request_bytes(
+            model=self.model,
+            temperature=self.temperature,
+            provider_request=request,
+        )
+        kwargs = json.loads(raw_request)
         try:
             response = litellm.completion(**kwargs)
         except Exception as exc:

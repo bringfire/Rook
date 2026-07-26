@@ -864,8 +864,17 @@ For each Planner turn and the conditional evaluator call:
 
 Arbitrary caller-supplied callables are not dispatch capabilities. Before
 reservation, adapter construction must match the authorized adapter path,
-model, profile, temperature, and route. Returned model/profile metadata must
-also match the authorized role or the attempt becomes post-dispatch unsealed.
+model, profile, temperature, and route. One pure instrument-bound projection
+derives the exact LiteLLM invocation bytes from that configuration and the
+canonical Rook request; the adapter and public verifier share it and require
+the captured `raw_request` to match exactly.
+
+Adapter-authored `requested_model` and `requested_profile` fields must match
+the authorized role. Provider-originated `response_model`, response ID, system
+fingerprint, finish reason, and related metadata are preserved exactly without
+claiming equality with the requested model or profile. Historical
+`model_identity`/`profile_identity` aliases remain compatibility fields only;
+the resolution verifier does not treat them as provider-returned authority.
 
 These bytes freeze the request at Rook's provider-adapter boundary. LiteLLM or
 the upstream provider may transform it internally; the archive does not claim
@@ -1006,8 +1015,12 @@ The complete call ledger must prove:
 - every dispatch marker binds its request and preceding transcript/gate state;
 - each Planner timeout reconstructs from the captured preceding deadline
   state through the shared call-plan and request builders;
-- every concrete adapter and returned model/profile identity matches the
-  authorized readiness route and role contract;
+- every concrete adapter and adapter-authored requested model/profile identity
+  matches the authorized readiness route and role contract;
+- every captured LiteLLM `raw_request` equals the pure projection of model,
+  temperature, timeout, messages, tools, tool choice, and fixed call options;
+- provider-returned identity metadata is preserved under the explicit
+  no-requested-model-equality policy;
 - aggregate usage remains within all attempt budgets;
 - no unregistered role or compiler call exists.
 

@@ -30,6 +30,7 @@ import lm9b_p_planner_recipe_transfer_artifacts as PLANNER_ARTIFACTS
 import lm9b_p_planner_recipe_transfer_support as PLANNER_SUPPORT
 import lm9b_p_evaluator_only_continuation_artifacts as CONT_ARTIFACTS
 import lm9b_p_readiness_contract as READINESS
+import lm9b_c_compiler_sufficiency_probe as PROVIDER_ADAPTER
 import lm9_semantic_typed_values as TYPED_VALUES
 import lm9_typed_fact_carrier_artifacts as CARRIER
 import lm9_typed_fact_carrier_qualification as QUALIFICATION
@@ -615,10 +616,29 @@ def assemble_task1_resolution_instrument(
                     "profile_identity",
                     "temperature",
                 ],
-                "returned_identity_fields": [
-                    "model_identity",
-                    "profile_identity",
+                "requested_identity_fields": [
+                    "requested_model",
+                    "requested_profile",
                 ],
+                "provider_returned_metadata_policy": (
+                    "preserve_exactly_without_requested-model-equality_claim"
+                ),
+                "litellm_request_projection_contract_id": (
+                    "lm9b.generic_litellm_request_projection:v1"
+                ),
+                "litellm_provider_module_raw_sha256": _sha256(
+                    Path(PROVIDER_ADAPTER.__file__).read_bytes()
+                ),
+                "litellm_request_projection_source_fingerprint": (
+                    _callable_source_fingerprint(
+                        PROVIDER_ADAPTER.build_litellm_completion_request_bytes
+                    )
+                ),
+                "litellm_adapter_call_source_fingerprint": (
+                    _callable_source_fingerprint(
+                        PROVIDER_ADAPTER.LiteLLMProvider.__call__
+                    )
+                ),
             },
             "route_identity_projection_source_fingerprint": (
                 _callable_source_fingerprint(readiness_route_identity_projection)
@@ -1853,6 +1873,7 @@ def verify_resolution_call_ledger(
             row,
             role="Planner",
             role_contract=preflight.record["instrument_contracts"]["planner"],
+            provider_request=request,
         )
         if response is None:
             if row is not typed_calls[planner_count - 1]:
@@ -1995,6 +2016,9 @@ def verify_resolution_call_ledger(
                 evaluator_row,
                 role="evaluator",
                 role_contract=preflight.record["instrument_contracts"]["evaluator"],
+                provider_request=(
+                    PLANNER_SUPPORT.parse_archive_json(evaluator_raw)
+                ),
             )
             reconstructed_evaluator = PLANNER_SUPPORT.derive_planner_evaluation_result(
                 outcome="returned", response=response
@@ -2084,6 +2108,7 @@ def _provider_turn_from_call_row(
     *,
     role: str,
     role_contract: Mapping[str, object],
+    provider_request: Mapping[str, object],
 ) -> PLANNER_SUPPORT.ProviderTurn | None:
     evidence = (
         row.get("provider_claimed_raw_request_b64"),
@@ -2105,13 +2130,22 @@ def _provider_turn_from_call_row(
     )
     if row.get("raw_response_sha256") != _sha256(response.raw_response):
         raise ValueError(f"{role} ledger response hash differs")
+    expected_adapter_request = (
+        PROVIDER_ADAPTER.build_litellm_completion_request_bytes(
+            model=role_contract["model"],
+            temperature=role_contract["temperature"],
+            provider_request=provider_request,
+        )
+    )
+    if response.raw_request != expected_adapter_request:
+        raise ValueError(f"{role} ledger LiteLLM request differs from dispatch")
     if (
-        response.provider_metadata.get("model_identity")
+        response.provider_metadata.get("requested_model")
         != role_contract.get("model")
-        or response.provider_metadata.get("profile_identity")
+        or response.provider_metadata.get("requested_profile")
         != role_contract.get("provider_profile")
     ):
-        raise ValueError(f"{role} ledger returned provider identity differs")
+        raise ValueError(f"{role} ledger requested provider identity differs")
     return response
 
 

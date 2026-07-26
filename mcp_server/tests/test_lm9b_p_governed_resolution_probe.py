@@ -79,6 +79,26 @@ def _canonical_bytes(value: object) -> bytes:
     ).encode("utf-8")
 
 
+def _expected_litellm_request_bytes(
+    request: dict[str, object],
+    *,
+    model: str = "gpt-5.4",
+    temperature: float = 0.0,
+) -> bytes:
+    value = {
+        "model": model,
+        "messages": request["messages"],
+        "tools": request["tools"],
+        "tool_choice": request["tool_choice"],
+        "parallel_tool_calls": False,
+        "max_tokens": request["max_completion_tokens"],
+        "temperature": temperature,
+        "timeout": request["provider_timeout_s"],
+        "stream": False,
+    }
+    return _canonical_bytes(value) + b"\n"
+
+
 def _planner_turn(
     *,
     recipe_bytes: bytes,
@@ -192,32 +212,51 @@ def _install_role_providers(
     planner: object,
     evaluator: object,
 ) -> None:
-    providers = {"planner": planner, "planner_evaluator": evaluator}
-    for provider in providers.values():
-        setattr(provider, "model", "gpt-5.4")
-        setattr(provider, "temperature", 0.0)
-        setattr(
-            provider,
-            "profile_identity",
-            "litellm.completion.tool_calling.no_parallel:v1",
-        )
-        setattr(
-            provider,
-            "identity",
-            {
+    delegates = {"planner": planner, "planner_evaluator": evaluator}
+
+    class BoundFakeAdapter:
+        def __init__(self, delegate: object) -> None:
+            self.delegate = delegate
+            self.model = "gpt-5.4"
+            self.temperature = 0.0
+            self.profile_identity = (
+                "litellm.completion.tool_calling.no_parallel:v1"
+            )
+            self.identity = {
                 "adapter_path": "litellm.completion",
-                "model": "gpt-5.4",
-                "profile_identity": (
-                    "litellm.completion.tool_calling.no_parallel:v1"
-                ),
-                "temperature": 0.0,
-            },
-        )
+                "model": self.model,
+                "profile_identity": self.profile_identity,
+                "temperature": self.temperature,
+            }
+
+        def __call__(self, request: dict[str, object]) -> object:
+            raw_request = COMPILER_PROBE.build_litellm_completion_request_bytes(
+                model=self.model,
+                temperature=self.temperature,
+                provider_request=request,
+            )
+            response = self.delegate(request)
+            if type(response) is not PLANNER_SUPPORT.ProviderTurn:
+                return response
+            metadata = dict(response.provider_metadata)
+            metadata.update(
+                {
+                    "model_identity": self.model,
+                    "profile_identity": self.profile_identity,
+                    "requested_model": self.model,
+                    "requested_profile": self.profile_identity,
+                }
+            )
+            return replace(
+                response,
+                raw_request=raw_request,
+                provider_metadata=metadata,
+            )
 
     def construct(*, role: str, model: str, temperature: float) -> object:
         assert model == "gpt-5.4"
         assert temperature == 0.0
-        return providers[role]
+        return BoundFakeAdapter(delegates[role])
 
     monkeypatch.setattr(
         RESOLUTION_PROBE,
@@ -1322,7 +1361,7 @@ def test_task4_constructed_adapter_identity_is_bound_before_reservation(
 
 
 @pytest.mark.parametrize("role", ("planner", "planner_evaluator"))
-def test_task4_returned_role_identity_mismatch_is_post_dispatch_unsealed(
+def test_task4_provider_returned_model_is_preserved_without_equality_claim(
     role: str,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1340,7 +1379,7 @@ def test_task4_returned_role_identity_mismatch_is_post_dispatch_unsealed(
             planner_turn,
             provider_metadata={
                 **planner_turn.provider_metadata,
-                "model_identity": "gpt-5.3",
+                "response_model": "gpt-5.4-planner-hosted-revision",
             },
         )
     else:
@@ -1348,7 +1387,7 @@ def test_task4_returned_role_identity_mismatch_is_post_dispatch_unsealed(
             evaluator_turn,
             provider_metadata={
                 **evaluator_turn.provider_metadata,
-                "profile_identity": "altered.profile:v1",
+                "response_model": "gpt-5.4-evaluator-hosted-revision",
             },
         )
     planner = _FakeProvider(
@@ -1372,9 +1411,18 @@ def test_task4_returned_role_identity_mismatch_is_post_dispatch_unsealed(
         planner_provider=planner,
         evaluator_provider=evaluator,
     )
-    assert result.state == "post_dispatch_unsealed"
-    assert result.classification is None
-    assert result.call_ledger[-1]["failure_type"] == "AdapterIdentityMismatch"
+    assert result.state == "sealed"
+    assert result.classification == "probe_candidate_ready"
+    row = next(item for item in result.call_ledger if item["role"] == role)
+    assert row["provider_metadata"]["requested_model"] == "gpt-5.4"
+    assert row["provider_metadata"]["requested_profile"] == (
+        "litellm.completion.tool_calling.no_parallel:v1"
+    )
+    assert row["provider_metadata"]["response_model"] == (
+        "gpt-5.4-planner-hosted-revision"
+        if role == "planner"
+        else "gpt-5.4-evaluator-hosted-revision"
+    )
 
 
 @pytest.mark.parametrize(
@@ -1493,6 +1541,11 @@ def test_task4_provider_mutation_cannot_change_staged_or_ledger_request_bytes(
     )
     PLANNER_SUPPORT.materialize_planner_provider_call_request(planner_raw)
     PLANNER_SUPPORT.materialize_planner_evaluator_provider_call_request(evaluator_raw)
+    for row in result.call_ledger:
+        request = json.loads(row["canonical_request_json"])
+        assert base64.b64decode(
+            row["provider_claimed_raw_request_b64"], validate=True
+        ) == _expected_litellm_request_bytes(request)
 
 
 def test_task4_terminal_evidence_retains_exact_staged_execution_snapshot(
@@ -1619,11 +1672,12 @@ def test_task4_execution_uses_only_frozen_snapshot_after_reservation(
         "call_index",
         "role",
         "dynamic_timeout",
+        "adapter_dispatch_reclosure",
         "request",
         "usage",
         "elapsed",
         "stop_cause",
-        "returned_identity",
+        "requested_identity",
     ),
 )
 def test_task4_public_call_ledger_reconstruction_rejects_reclosed_claims(
@@ -1692,6 +1746,37 @@ def test_task4_public_call_ledger_reconstruction_rejects_reclosed_claims(
         ledger[0]["dispatch_marker_raw_sha256"] = (
             PLANNER_SUPPORT.sha256_prefixed(_canonical_bytes(marker))
         )
+    elif mutation == "adapter_dispatch_reclosure":
+        request = json.loads(ledger[0]["canonical_request_json"])
+        request["provider_timeout_s"] = 179.0
+        ledger[0]["canonical_request_json"] = _canonical_bytes(request).decode()
+        ledger[0]["request_raw_sha256"] = PLANNER_SUPPORT.sha256_prefixed(
+            ledger[0]["canonical_request_json"].encode()
+        )
+        ledger[0]["provider_timeout_s"] = 179.0
+        state = ledger[0]["controller_deadline_state"]
+        state["call_started_monotonic_s"] = (
+            state["session_started_monotonic_s"] + 421.0
+        )
+        state["elapsed_before_call_s"] = 421.0
+        state["remaining_before_call_s"] = 179.0
+        marker = {
+            "schema": ledger[0]["schema"],
+            "call_index": ledger[0]["call_index"],
+            "role": ledger[0]["role"],
+            "request_raw_sha256": ledger[0]["request_raw_sha256"],
+            "preceding_transcript_fingerprint": ledger[0][
+                "preceding_transcript_fingerprint"
+            ],
+            "provider_timeout_s": ledger[0]["provider_timeout_s"],
+            "controller_deadline_state": state,
+            "role_contract_fingerprint": ledger[0][
+                "role_contract_fingerprint"
+            ],
+        }
+        ledger[0]["dispatch_marker_raw_sha256"] = (
+            PLANNER_SUPPORT.sha256_prefixed(_canonical_bytes(marker))
+        )
     elif mutation == "request":
         ledger[0]["preceding_transcript_fingerprint"] = "sha256:" + "8" * 64
     elif mutation == "usage":
@@ -1704,8 +1789,8 @@ def test_task4_public_call_ledger_reconstruction_rejects_reclosed_claims(
         )
     elif mutation == "stop_cause":
         stop_cause = "max_turns"
-    elif mutation == "returned_identity":
-        ledger[0]["provider_metadata"]["model_identity"] = "gpt-5.3"
+    elif mutation == "requested_identity":
+        ledger[0]["provider_metadata"]["requested_model"] = "gpt-5.3"
 
     with pytest.raises(
         ValueError, match="ledger|request|timeout|usage|stop|identity"
@@ -1861,25 +1946,19 @@ def test_task4_terminal_row_is_not_published_before_evidence_capture_and_join(
 
     monkeypatch.setattr(PLANNER_SUPPORT, "_bounded_provider_call", short_bounded_call)
 
-    class BlockingMetadata(dict):
+    class BlockingEvidence(dict):
         def items(self):
             capture_entered.set()
             release_capture.wait(5)
             return super().items()
 
+    ordinary_turn = _planner_turn(
+        recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
+        call_id="planner-1",
+    )
     planner_turn = replace(
-        _planner_turn(
-            recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
-            call_id="planner-1",
-        ),
-        provider_metadata=BlockingMetadata(
-            {
-                "model_identity": "gpt-5.4",
-                "profile_identity": (
-                    "litellm.completion.tool_calling.no_parallel:v1"
-                ),
-            }
-        ),
+        ordinary_turn,
+        assistant_message=BlockingEvidence(dict(ordinary_turn.assistant_message)),
     )
     planner = _FakeProvider(
         [planner_turn], staging_path=preflight.attempt.staging_path
