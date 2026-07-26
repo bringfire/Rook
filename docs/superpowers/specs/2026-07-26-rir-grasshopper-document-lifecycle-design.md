@@ -64,6 +64,7 @@ This design will:
 - define commit, rollback, ownership, and partial-failure semantics;
 - prevent reentrant lifecycle mutations;
 - make RiR registration state an explicit solve-policy input;
+- make scheduling capability and invocation failure explicit solve outcomes;
 - let RiR own `GH_Document.Enabled` inside Revit;
 - preserve the standalone Rhino suspension and solver policy;
 - preserve the global solver's unavailable state without calling it a proven user lock;
@@ -144,7 +145,7 @@ Host callbacks raised by `DocumentAdded`, `DocumentRemoved`, and canvas assignme
 
 ### Reentrancy guard
 
-Lifecycle operations use a process-local, UI-thread reentrancy guard. A nested Rook lifecycle call fails with `gh_document_lifecycle_reentrant` before performing any mutation.
+Lifecycle operations use one process-wide, UI-thread reentrancy guard shared by every `GhDocumentLifecycle` and handler instance. The guard is static process state, not an instance field. A nested Rook lifecycle call through the same or a different helper/handler instance fails with `gh_document_lifecycle_reentrant` before performing any mutation.
 
 The guard is not a general cross-thread lock and must not block the Rhino UI thread waiting for another lifecycle call. Existing route marshaling serializes normal entry; the guard protects synchronous callback reentry. It is always released in `finally`, including rollback and exception paths.
 
@@ -288,6 +289,7 @@ It does not collapse the global and instance flags before applying host policy.
 | RiR, registered, global false | Do not schedule; allow later host restoration to remain authoritative | `global_solver_unavailable`; verification deferred |
 | RiR, registered, global true, instance false | Schedule asynchronously without changing `Enabled` | `rir_mediated_schedule_requested`; verification deferred |
 | RiR, registered, global true, instance true | Schedule asynchronously | `async_schedule_requested`; verification deferred until observed |
+| RiR, registered, global true, instance unknown | Request one safe asynchronous schedule without changing either solver flag | `rir_instance_solver_state_unknown`; verification deferred |
 | RiR, registered, global unknown | Request one safe asynchronous schedule without changing either solver flag | `global_solver_state_unknown`; verification deferred |
 | Standalone, global false | Do not schedule | `global_solver_unavailable` |
 | Standalone, global true, instance false | Do not schedule | `document_solver_disabled` |
@@ -295,6 +297,16 @@ It does not collapse the global and instance flags before applying host policy.
 | Standalone, global unknown, instance false | Do not schedule | `document_solver_disabled` |
 | Standalone, global unknown, instance true or unknown | Preserve current safe asynchronous fail-open behavior | `solver_state_unknown`; verification deferred |
 | Standalone, global true, instance unknown | Preserve current safe asynchronous fail-open behavior | `solver_state_unknown`; verification deferred |
+| Any host, state otherwise permits scheduling, scheduling API absent | Do not schedule | `schedule_api_unavailable`; `solveScheduled = false` |
+| Any host, scheduling adapter rejects or invocation throws | No schedule was accepted | `schedule_request_failed`; `solveScheduled = false` |
+
+The table first decides whether host and solver state permit a schedule attempt. Scheduling capability is then applied only to rows which would schedule:
+
+- if the reflected `ScheduleSolution(int)` API is absent, do not invoke anything and return `schedule_api_unavailable` with `solveScheduled = false`;
+- if the scheduling adapter rejects the request or invocation throws, return `schedule_request_failed` with `solveScheduled = false` and a bounded warning;
+- if invocation returns without rejection or exception, `solveScheduled = true` means only that Grasshopper accepted the asynchronous scheduling call. It never means that a solution completed or that RiR deferred/replayed it.
+
+API-unavailable and invocation-failure outcomes are conclusive about Rook's attempt and do not set verification-deferred merely because a schedule did not occur. The bounded failure result may contain the exception type already allowed by route conventions, but never a raw exception, stack trace, arbitrary message, path, or document content. A missing scheduling API or failed invocation never causes an `Enabled` write or a synchronous fallback.
 
 `global_solver_unavailable` is deliberately neutral. The public getter returns false when Grasshopper cannot solve as well as when its underlying global flag is disabled, and RiR temporarily disables that flag during document registration. Rook must not label every false result a user lock.
 
@@ -390,6 +402,7 @@ Tests must prove:
 - active-canvas change is detected before and after every mutating boundary;
 - disposal/removal is withheld when any discoverable canvas still owns the candidate or canvas enumeration is uncertain;
 - synchronous callback reentry is rejected;
+- nested entry through two different lifecycle-helper or handler instances is rejected by the same process-wide guard;
 - the reentrancy guard is released on every exit;
 - incomplete rollback reports actual final state;
 - auxiliary post-commit failures return success with warnings;
@@ -404,6 +417,10 @@ Tests must cover every policy row, including:
 - RiR's temporary global disable followed by gate restoration does not trigger a repair write;
 - unregistered RiR does not pretend scheduling is useful;
 - unknown registration cannot be reported as registered;
+- registered RiR with known-global/unknown-instance state makes one safe asynchronous request without flag writes and reports `rir_instance_solver_state_unknown`;
+- a missing scheduling method reports `schedule_api_unavailable` and `solveScheduled = false`;
+- a scheduling adapter rejection or thrown invocation reports `schedule_request_failed` and `solveScheduled = false` without synchronous fallback;
+- `solveScheduled = true` proves only accepted asynchronous invocation, never completed computation;
 - `rir_mediated_schedule_requested` remains verification-deferred;
 - no response claims actual RiR deferral without a later proving event;
 - standalone combined-state and suspension behavior remains unchanged;

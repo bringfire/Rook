@@ -51,6 +51,9 @@ This design will:
 - define identity behavior for every supported Revit document class;
 - use distinct typed key sources for Revit Server, cloud, and file/path-based documents;
 - centralize Revit document classification, evidence acquisition, normalization, key derivation, diagnostics, and comparison;
+- acquire immutable document evidence once per operation and reuse it for every identity;
+- degrade expected identity-property failures to unavailable evidence without failing producer routes;
+- define byte-exact Windows path and key encoding;
 - remove the incorrect cloud-to-`WorksharingCentralGUID` branch;
 - replace boolean/fail-open matching with a closed comparison result;
 - prevent a strong-key mismatch or verification failure from downgrading to legacy evidence;
@@ -84,7 +87,7 @@ The installed documentation describes `CreationGUID`, but it does not establish 
 
 ### Required cases
 
-The probe uses disposable test models and records only bounded/hash evidence. It must cover:
+The probe uses disposable test models and records only bounded alias/equality evidence. It must cover:
 
 1. A newly created saved non-workshared project.
 2. The same project after close and reopen.
@@ -104,10 +107,12 @@ For each case, record:
 - whether `CreationGUID` is non-empty;
 - equality relationships to the central, local, copy, reopen, and replacement cases;
 - `IsWorkshared`, `IsDetached`, `IsModelInCloud`, central/local classification, and ModelPath kind;
-- hashed canonical path evidence, never raw paths in the report;
+- per-report opaque equality aliases for canonical path and GUID evidence, never raw values or deterministic path hashes in the report;
 - Revit version, Rook/RookBIM commit, process ID, and UTC timestamps.
 
 The probe must read each Revit property independently so one exception cannot hide later evidence. It runs in a valid Revit API context. Diagnostic-only reads catch locally and do not alter route behavior.
+
+The probe maintains an in-memory alias table scoped to one report. The first distinct canonical path becomes `path-001`, the first distinct creation GUID becomes `creation-001`, and so on; equal values within that report reuse the same alias. Only aliases and explicit same/different relationships are persisted. The alias-to-value table is destroyed when the report closes and is never written. Aliases are not compared across reports, and the report contains no deterministic unsalted hash from which a guessed path or GUID can be confirmed.
 
 ### Composite-key suitability criteria
 
@@ -129,7 +134,7 @@ The reviewed probe report selects one of these outcomes:
 
 1. **Composite approved:** implement the preferred composite key for every document class whose criteria pass.
 2. **Class-limited composite:** implement it only for passing classes and explicitly fail closed for the others.
-3. **Composite rejected:** do not implement path-only durable matching; retain diagnostic path hashes and fail closed for affected classes while a new design is reviewed.
+3. **Composite rejected:** do not implement path-only durable matching; retain only report-local diagnostic aliases/equality results and fail closed for affected classes while a new design is reviewed.
 
 Path-only authorization is not an outcome. A future process-scoped random document-instance key could safely authorize only the exact open `Document`, but that additional state owner is not part of this design and requires separate approval if needed.
 
@@ -182,6 +187,8 @@ Payloads use a fixed ASCII domain/version label, NUL separators, lowercase `D`-f
 
 For a Revit Server document, the legacy GUID may continue to be the actual `WorksharingCentralGUID`. Cloud and other document classes do not call `WorksharingCentralGUID`. The new resolver emits no legacy `Guid`/`DocumentGuid` projection for cloud documents; their authoritative identity is the typed cloud document key. Existing cloud payloads that contain a legacy GUID are accepted only under the no-strong-key legacy rules and therefore fail closed as incomparable.
 
+`CreationGUID` is key material only. It is never projected into legacy `Guid` or `DocumentGuid` for file-workshared, saved-project, or saved-family sources. Those legacy fields are `null` unless the selected source has an explicitly approved legacy projection; in this design, only Revit Server's actual `WorksharingCentralGUID` has one.
+
 ### Raw paths
 
 Existing `Path` and `DocumentPath` fields remain in the current wire version for compatibility. This is intentional retention, not an identity fallback.
@@ -218,6 +225,24 @@ The resolver owns:
 
 No caller directly reads these GUID/path properties for identity. The current `GetWorksharingCentralGUID`, `SupportsWorksharingCentralGuid`, and boolean `DocumentMatches` branches are deleted after replacement coverage exists.
 
+### Operation-scoped evidence ownership
+
+Each Revit work item resolves one immutable `RevitDocumentIdentityEvidence` snapshot inside the valid Revit API context before producing or consuming identities. The snapshot contains the owning `Document` reference as a non-serialized scope token, document classification, selected key/source or unavailable reason, approved legacy projection, and already-read DTO display fields. It contains no lazy Revit getters, delegates, raw exceptions, or cross-request mutable state.
+
+The operation passes that snapshot explicitly to document and element identity projection. Every element identity in a query/list/export response reuses the same snapshot; projection never calls back into document classification, GUID, ModelPath, normalization, or hashing. Element projection verifies by reference that `element.Document` is the snapshot's owner before copying document evidence.
+
+Identity-consuming operations likewise resolve the active-document snapshot once, compare every incoming identity against that same snapshot, and complete all document-identity validation before any selection, mutation, export, `UniqueId`, or `ElementId` lookup. A batch never recomputes active-document evidence per identity and never partially acts on identities before a later document-evidence failure.
+
+The snapshot lifetime is exactly one operation. It is not stored in static state, `AsyncLocal`, a global dictionary, a `Document`-keyed cache, or a handler field, and it is not reused by a later request. Cross-request or document-lifecycle caching requires a separate invalidation design and is outside this specification.
+
+### Identity-read failure containment
+
+The resolver reads each classification, GUID, ModelPath, conversion, and normalization stage independently. A closed availability wrapper converts expected data/applicability failures into unavailable evidence. Its Revit exception allowlist includes `InapplicableDataException`, `InvalidOperationException`, `InternalException`, `InvalidObjectException`, and the Revit argument/null exceptions documented by an invoked conversion API. Path/key construction also treats `System.ArgumentException`, `NotSupportedException`, `PathTooLongException`, `System.Security.SecurityException`, `System.Text.EncoderFallbackException`, and `System.Security.Cryptography.CryptographicException` as unavailable evidence. The resolver does not catch `Exception` indiscriminately; programming defects and process-fatal exceptions remain subject to the operation-level error boundary.
+
+If a required identity input fails with an expected exception, the snapshot records a bounded unavailable reason, emits `DocumentKey = null`/`DocumentKeySource = unavailable`, and retains no exception object. Other independent DTO evidence may still be read. Diagnostics observe the exact failed stage and bounded exception facts but do not change the returned snapshot.
+
+Identity-producing routes—including `active_document`, `list_categories`, and query/list responses—continue their otherwise successful work and return HTTP 200 with `documentKey: null` when trustworthy identity evidence is unavailable. Element identities produced by that operation also carry a null document key. Identity-consuming routes fail closed with `document_identity_unavailable` before element lookup or side effects. Thus failure of `CreationGUID`, ModelPath, a host-specific GUID, conversion, normalization, or hashing cannot recreate the original route-wide `list_categories` failure.
+
 ## Document-class matrix
 
 | Document class | Required evidence | Preferred authoritative key | Unsupported/failure behavior |
@@ -240,16 +265,19 @@ The matrix makes functional changes explicit: identity-based operations on unsav
 
 ### File central path
 
-For file-workshared central/local documents, the resolver obtains `GetWorksharingCentralModelPath()` only after workshared, non-detached, non-cloud, non-server classification. It rejects null, relative, server, cloud, or unconvertible paths.
+For file-workshared central/local documents, the resolver obtains `GetWorksharingCentralModelPath()` only after workshared, non-detached, non-cloud, non-server classification. It rejects null, server, cloud, or unconvertible ModelPaths. A qualifying file ModelPath is converted exactly once with `ModelPathUtils.ConvertModelPathToUserVisiblePath(modelPath)` and then passed to the shared Windows canonicalizer below.
 
-The file path is converted with Revit's supported ModelPath conversion, then normalized using Windows semantics:
+The Windows canonicalizer is byte-contract code and executes this exact sequence for both converted central paths and saved `Document.PathName` values:
 
-- absolute path required;
-- directory separators normalized;
-- redundant segments collapsed;
-- trailing separators removed without changing a root;
-- ordinal case-insensitive equivalence encoded through one invariant casing rule;
-- no filesystem existence lookup, symlink resolution, network access, or mapped-drive-to-UNC guessing.
+1. Reject null, empty, whitespace-only, or embedded-NUL input. Do not trim the input.
+2. Replace every `/` (U+002F) with `\` (U+005C).
+3. Reject device/NT namespace prefixes `\\?\`, `\\.\`, and `\??\` using ordinal-ignore-case comparison.
+4. Accept only a drive-absolute form beginning with `[A-Za-z]:\`, or a UNC form beginning with `\\` and containing non-empty server and share segments. Reject relative, root-relative, drive-relative, URI, and incomplete UNC forms before calling `Path.GetFullPath`.
+5. Call `System.IO.Path.GetFullPath` exactly once to collapse `.`/`..` segments and redundant separators. Replace any `/` in its result with `\` and repeat the device/absolute-form validation.
+6. Obtain `Path.GetPathRoot`. Reject a null/empty root. If the full path is longer than the root, remove all trailing `\`; otherwise preserve the drive root (`C:\`) or UNC share root (`\\SERVER\SHARE\`) including its final separator.
+7. Apply `ToUpperInvariant()` to the entire resulting string. Apply no Unicode normalization and perform no trimming.
+
+The canonical output therefore always uses `\`, has an uppercase invariant representation, and preserves an absolute Windows root. The resolver performs no filesystem existence lookup, symlink/junction resolution, 8.3-name expansion, network access, or mapped-drive-to-UNC conversion.
 
 Mapped-drive and UNC representations can therefore produce a safe false negative. They can never authorize a different model because the key also requires the probe-approved `CreationGUID`.
 
@@ -269,7 +297,7 @@ rookbim:saved-project:v1\0<creation-guid>\0<normalized-document-path>
 rookbim:saved-family:v1\0<creation-guid>\0<normalized-document-path>
 ```
 
-The final wire key is a source prefix plus SHA-256 of the UTF-8 payload. Raw payloads are not persisted in diagnostics.
+GUID payload values use lowercase `D` format. Each `\0` above is one NUL byte (`0x00`) between fields. The complete payload string is encoded with strict UTF-8 without a BOM; invalid UTF-16 input is rejected rather than replacement-encoded. SHA-256 runs over those exact bytes, and the final wire key is the source prefix plus exactly 64 lowercase ASCII hexadecimal characters. Raw payloads are not persisted in diagnostics.
 
 ## Matching and downgrade prevention
 
@@ -305,9 +333,9 @@ Legacy comparison is allowed only when no stronger key was supplied.
 
 ### Error mapping
 
-- `Mismatch` → existing `document_mismatch`.
-- `Unavailable` → new `document_identity_unavailable`.
-- `InvalidEvidence` → new `document_identity_invalid`.
+- `Mismatch` → existing `document_mismatch`, HTTP 409.
+- `Unavailable` → new `document_identity_unavailable`, HTTP 409. The request is syntactically valid but conflicts with the active document's inability to establish trustworthy comparable identity.
+- `InvalidEvidence` → new `document_identity_invalid`, HTTP 400. Malformed, unknown-version, source/prefix-inconsistent, or conflicting incoming evidence is a bad request.
 
 These failures occur before `document.GetElement(identity.UniqueId)` or ElementId fallback. No element lookup may turn unavailable document evidence into an implicit match.
 
@@ -333,7 +361,7 @@ Diagnostics record stage, outcome, detail code, exception type, and HResult unde
 - titles or filenames;
 - request identities.
 
-Path/GUID reads that define production identity retain production exception semantics chosen by the resolver. Optional classification evidence catches locally only where explicitly auxiliary. The diagnostic flag must not select a different key or matching result.
+Expected identity-read exceptions follow the failure-containment contract above whether diagnostics are enabled or disabled: producing routes continue with unavailable evidence, and consuming routes fail closed. Optional diagnostic-only probes catch locally and never affect the snapshot. The diagnostic flag must not select a different key, matching result, HTTP status, or route-success outcome.
 
 ## Cleanup and doctrine
 
@@ -377,7 +405,8 @@ The probe harness/report must prove:
 - every required document class was attempted or explicitly marked unavailable with reason;
 - properties were read independently;
 - no raw model title, filename, path, or GUID appears in the durable report;
-- equality relationships are recorded through bounded aliases/hashes;
+- equality relationships are recorded through report-local opaque aliases and explicit booleans;
+- no deterministic path or GUID hash is persisted;
 - exact Revit and build provenance is present;
 - detached values are never promoted to identity evidence.
 
@@ -387,10 +416,13 @@ Tests must cover:
 
 - all document-key source values and wire names;
 - GUID fields reject/non-emit hashes;
+- `CreationGUID` is never projected into legacy `Guid`/`DocumentGuid` for file or saved-document sources;
 - key prefix/source/version validation;
-- deterministic canonical payloads and hashes;
-- Windows case and separator normalization;
-- root-safe trailing-separator handling;
+- golden byte/hash vectors for every source payload;
+- byte-exact Windows case and separator normalization for drive and UNC paths;
+- drive-root and UNC-share-root preservation plus non-root trailing-separator removal;
+- rejection of empty, relative, drive-relative, root-relative, URI, incomplete UNC, embedded-NUL, and device-namespace paths;
+- strict UTF-8 without BOM and lowercase 64-character SHA-256 output;
 - mapped/UNC differences produce non-match, not normalization guesses;
 - server code calls only server GUID APIs;
 - cloud code calls only cloud GUID APIs and never `WorksharingCentralGUID`;
@@ -405,6 +437,12 @@ Tests must cover:
 - legacy GUID comparison runs only when no document key is supplied;
 - raw path/title never participates in authorization;
 - element `UniqueId` and `ElementId` lookups occur only after `Match`;
+- expected Revit identity exceptions, including `InternalException`, produce unavailable snapshots rather than route-wide producer failures;
+- `active_document`, `list_categories`, and query/list producers remain HTTP 200 with null document keys when evidence is unavailable;
+- consumers return HTTP 409 `document_identity_unavailable` or HTTP 400 `document_identity_invalid` as specified, before lookup or side effects;
+- for an applicable document class, one operation producing 1,000 element identities reads each required `CreationGUID`, host GUID, and central ModelPath exactly once, performs one conversion/normalization/key derivation, and performs zero inapplicable host-property reads;
+- one batch of 1,000 incoming identities resolves active-document evidence exactly once and performs no per-identity document-property reads;
+- a later request receives a new snapshot rather than cached evidence;
 - diagnostic enabled/disabled paths choose identical identity results;
 - diagnostics do not persist keys, paths, GUIDs, titles, or filenames;
 - deprecated `BimDocumentGuidSource.PathFallback` is never emitted by the resolver.
