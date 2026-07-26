@@ -396,9 +396,13 @@ namespace Rook.Bim
 
         private void DisposeSignalOnce()
         {
-            if (Interlocked.Exchange(ref signalDisposed, 1) == 0)
+            lock (sync)
             {
-                signal.Dispose();
+                if (signalDisposed == 0)
+                {
+                    signalDisposed = 1;
+                    signal.Dispose();
+                }
             }
         }
 
@@ -650,10 +654,7 @@ namespace Rook.Bim
 
         private static bool IsSingleJsonLine(string value)
         {
-            if (value.Length < 3 ||
-                value[0] != '{' ||
-                value[value.Length - 2] != '}' ||
-                value[value.Length - 1] != '\n')
+            if (value.Length < 3 || value[value.Length - 1] != '\n')
             {
                 return false;
             }

@@ -194,6 +194,12 @@ namespace Rook.Bim
                     try
                     {
                         sink = sinkFactory(provenance);
+                        if (sink == null)
+                        {
+                            sink = new FailedBimDiagnosticSink(
+                                BimDiagnosticSinkFailureCode.FileOpenFailure);
+                            sinkFactoryFailed = true;
+                        }
                     }
                     catch (Exception)
                     {
