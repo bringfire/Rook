@@ -2,6 +2,22 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Execution model:** Before Task 1, use `superpowers:using-git-worktrees` to create a clean `.worktrees/rookbim-gated-diagnostics` checkout on branch `codex/rookbim-gated-diagnostics`. The corrected plan commit must be a documentation-only direct descendant of reviewed base `262d3691`; branch from that corrected commit so the executable plan is present while the implementation source baseline remains `262d3691`. Execute Tasks 1-9 sequentially with `superpowers:subagent-driven-development`, completing each task's implementation review and quality gate before the next task. Do not parallelize tasks. Execute Task 10 inline with the operator because it closes host processes, deploys locally, launches Revit, and requires the original model.
+
+From the original checkout, create and verify the implementation worktree with:
+
+```powershell
+$planCommit = (git rev-parse HEAD).Trim()
+git merge-base --is-ancestor 262d3691 $planCommit
+if ($LASTEXITCODE -ne 0) { throw "Corrected plan commit does not descend from 262d3691" }
+git worktree add .worktrees/rookbim-gated-diagnostics -b codex/rookbim-gated-diagnostics $planCommit
+if (git -C .worktrees/rookbim-gated-diagnostics status --porcelain) {
+    throw "Implementation worktree is not clean"
+}
+```
+
+The two pre-existing FFmpeg modifications remain only in `C:\Users\aryan\source\repos\Rook`; they must not appear in the implementation worktree or any implementation commit.
+
 **Goal:** Implement an opt-in, request-correlated RookBIM trace that pinpoints the original Revit 2024.3 workshared-model failure without changing route behavior or persisting sensitive model data.
 
 **Architecture:** The managed `Rook` assembly owns exact environment gating, request-local observations, sparse persistence, provenance, manual JSONL encoding, and a BIM-specific bounded writer. The optional `RookBim` assembly receives an immutable context explicitly through `IRookBimRuntime`, carries it through the Rhino.Inside idling queue, and wraps only the existing Revit reads named in the approved design. Every probe updates request-local state; only failures, fixed coarse milestones, and one terminal summary reach persistence.
@@ -31,7 +47,7 @@
 - Keep `feec425e`, `a4b84d3a`, diagnostic implementation, later hardening, and later taxonomy cleanup independently reviewable.
 - Preserve the existing unstaged `third_party/ffmpeg/ffmpeg-provenance.json` and `third_party/ffmpeg/ffmpeg.exe`; stage explicit paths only.
 - Commit implementation before deploy so assembly provenance identifies the live-tested commit.
-- Source-contract tests are insufficient for acceptance; Task 8 must reproduce against the original workshared model.
+- Source-contract tests are insufficient for acceptance; Task 10 must reproduce against the original workshared model.
 
 ---
 
@@ -51,7 +67,7 @@ All production diagnostic types use namespace `Rook.Bim` even though focused fil
 - `BimDiagnosticJsonEncoder.cs`: fixed-order dependency-free JSONL encoding.
 - `BimDiagnosticSink.cs`: one bounded FIFO queue, terminal admission, background writer, limits, and sink state.
 
-New tests under `src/Rook.Tests/Bim/Diagnostics/`: outcome, probe, enumerator, persistence-policy, encoding, privacy, sink, and configuration suites. Add `BimDiagnosticTestHarness.cs` there for a fake envelope sink plus enabled-context/snapshot factories shared by those tests. Add `src/Rook.Tests/Handlers/BimHandlerDiagnosticsTests.cs` for handler lifecycle and serialization.
+New tests under `src/Rook.Tests/Bim/Diagnostics/`: outcome, probe, enumerator, persistence-policy, encoding, privacy, sink, and configuration suites. Add `BimDiagnosticTestHarness.cs` there for a fake envelope sink plus enabled-context/snapshot factories shared by those tests. Add `src/Rook.Tests/Handlers/BimHandlerDiagnosticsTests.cs` for handler lifecycle and serialization, and `src/Rook.Tests/Bim/RookBimModuleLoaderDiagnosticsTests.cs` for activation outcomes.
 
 Modify core files: `BimContracts.cs`, `IRookBimRuntime.cs`, `RookBimUnavailableRuntime.cs`, `RookBimModuleLoader.cs`, `BimHandler.cs`, all runtime fakes/direct callers, and BIM handler export source assertions.
 
@@ -132,6 +148,25 @@ SinkWriter
 ```
 
 Define outcomes `Start/Success/Failure`, record kinds `Milestone/Failure/Terminal`, impacts `None/Production/Auxiliary`, and detail codes `None`, `True`, `False`, `Null`, `NotApplicable`, `NotWorkshared`, `AlreadyInitialized`, `NoActiveView`, `Unsaved`, `File`, `Server`, `Cloud`, `Detached`, `Unknown`, `ProbeFailure`, `NotDisposable`, `Truncated`, `SerializationFailure`, `ExceptionCaptureFailed`.
+
+`BimDiagnosticSinkFailureCode` is also closed. Define every member and its exact wire value together; no caller-selected string is permitted:
+
+| Member | Wire value |
+|---|---|
+| `None` | `none` |
+| `QueueFull` | `queue_full` |
+| `QueueContention` | `queue_contention` |
+| `PriorityEviction` | `priority_eviction` |
+| `RecordInvalid` | `record_invalid` |
+| `RecordOversize` | `record_oversize` |
+| `FileLimitReached` | `file_limit_reached` |
+| `DirectoryCreateFailure` | `directory_create_failure` |
+| `FileOpenFailure` | `file_open_failure` |
+| `FileWriteFailure` | `file_write_failure` |
+| `FileFlushFailure` | `file_flush_failure` |
+| `EncoderFailure` | `encoder_failure` |
+
+Task 3 adds a theory covering every member/wire pair in this table. Fail closed on undefined numeric enum values so the encoder cannot invent new failure vocabulary.
 
 Validate operation to at most 128 characters before context construction; reject arbitrary enum values during record creation/encoding. Bound version/commit strings to 128 and exception type names to 512 characters without using message text.
 
@@ -305,6 +340,8 @@ coreVersion, coreCommit, moduleVersion, moduleCommit,
 exceptionType, exceptionHResult, exceptionStack, innerExceptions, truncated
 ```
 
+Add exhaustive theories for every closed enum mapping, including every `BimDiagnosticSinkFailureCode` member/wire pair declared in Task 1. Assert undefined numeric values are rejected rather than serialized with `ToString()`.
+
 - [ ] **Step 2: Write failing privacy/bounds tests**
 
 Use a hostile exception whose overridden `Message` and `ToString()` throw. Its hidden text includes `Snowdon Towers`, `Walls`, `.rvt`, GUIDs, and newlines. Assert capture/encoding succeed and those literals are absent.
@@ -398,7 +435,8 @@ With capacity 2, cover:
 - terminal admission atomically evicts the oldest milestone/failure and accounts global/owning-request drops;
 - a terminal never evicts another terminal;
 - zero-timeout monitor contention rejects immediately and counts a drop;
-- encoder/open/write/flush failures set closed state/code and both applicable drop counts;
+- encoder, record-invalid, record-oversize, file-limit, directory-create, open, write, and flush failures set the exact closed state/code and both applicable drop counts;
+- queue-full, zero-timeout contention, and priority eviction use `QueueFull`, `QueueContention`, and `PriorityEviction` respectively;
 - a writer-time terminal snapshot sees delayed failures of preceding FIFO envelopes;
 - envelope accumulator references are explicitly released after write/drop;
 - output is UTF-8 without BOM, records are at most 16 KiB, and writing stops without rotation at 16 MiB.
@@ -438,7 +476,7 @@ Use production capacity 1,024. Signal one background `Thread` using `AutoResetEv
 
 - [ ] **Step 6: Implement bounded file lifecycle**
 
-On the writer thread only, create `%LOCALAPPDATA%\Rook\diagnostics`, open `rookbim-<UTC-start>-<process-id>.jsonl`, write UTF-8 without BOM, and flush. Never rotate. Expose states `disabled`, `starting`, `ready`, `degraded`, `file_limit_reached`, `failed`, `stopped`; retain only the first closed failure code. Process exit signals completion and joins at most 250 ms.
+On the writer thread only, create `%LOCALAPPDATA%\Rook\diagnostics`, open `rookbim-<UTC-start>-<process-id>.jsonl`, write UTF-8 without BOM, and flush. Never rotate. Expose states `disabled`, `starting`, `ready`, `degraded`, `file_limit_reached`, `failed`, `stopped`; retain only the first `BimDiagnosticSinkFailureCode` from Task 1. Map each queue, validation, size, file-limit, directory, open, write, flush, and encoder failure to its declared code—never to exception text. Process exit signals completion and joins at most 250 ms.
 
 - [ ] **Step 7: Implement behavior-neutral process facade**
 
@@ -457,67 +495,43 @@ git commit -m "feat(rookbim): add gated bounded diagnostic sink"
 
 ---
 
-### Task 5: Handler lifecycle, module activation, serialization, and HTTP evidence
+### Task 5: Runtime interface migration, fakes, and source contracts
 
 **Files:**
-- Modify: `src/Rook/Bim/BimContracts.cs:160-173`
 - Modify: `src/Rook/Bim/IRookBimRuntime.cs:3-25`
 - Modify: `src/Rook/Bim/RookBimUnavailableRuntime.cs:3-67`
-- Modify: `src/Rook/Bim/RookBimModuleLoader.cs:9-111`
-- Modify: `src/Rook/Handlers/BimHandler.cs:10-472`
-- Modify mechanically for the interface: `src/RookBim/Revit/RevitRookBimRuntime.cs:37-360`
-- Modify runtime fakes/direct callers in `RookBimUnavailableRuntimeTests.cs`, `RookBimUnavailableExportTests.cs`, `RookBimUnavailablePresetTests.cs`, `BimHandlerTests.cs`, `ManagedCapabilityDomainStatusTests.cs`, and `CompanionRuntimeStatusTests.cs`.
+- Modify: `src/Rook/Handlers/BimHandler.cs:10-472` only for the temporary disabled-context migration scaffold and context-bearing runtime calls.
+- Modify mechanically: `src/RookBim/Revit/RevitRookBimRuntime.cs:37-360`
+- Modify: `src/Rook.Tests/Bim/RookBimUnavailableRuntimeTests.cs`
+- Modify: `src/Rook.Tests/Bim/RookBimUnavailableExportTests.cs`
+- Modify: `src/Rook.Tests/Bim/RookBimUnavailablePresetTests.cs`
+- Modify: `src/Rook.Tests/Handlers/BimHandlerTests.cs`
+- Modify: `src/Rook.Tests/Capabilities/ManagedCapabilityDomainStatusTests.cs`
+- Modify: `src/Rook.Tests/Plugin/CompanionRuntimeStatusTests.cs`
 - Modify: `src/Rook.Tests/Handlers/BimHandlerExportSourceTests.cs`
 - Modify: `src/Rook.Tests/Handlers/BimHandlerExportPresetSourceTests.cs`
-- Create: `src/Rook.Tests/Handlers/BimHandlerDiagnosticsTests.cs`
+- Modify: `src/RookBim.Tests/RookBimExportSourceTests.cs`
+- Modify: `src/RookBim.Tests/RookBimExportPresetSourceTests.cs`
 
 **Interfaces:**
-- Consumes Task 4 `BimDiagnostics`.
-- Produces context-bearing `IRookBimRuntime`, `RookBimModuleLoader.TryActivate(BimDiagnosticContext)`, and instance `SerializeForWire(context,value)` used by every `ToWireData` path.
-- Preserves `NativeGhBridgeRegistrar.SerializeBimDispatchEnvelope` unchanged/out of scope.
+- Consumes Task 1 `BimDiagnosticContext`.
+- Produces a context-bearing `IRookBimRuntime` and matching implementations/callers with no compatibility overloads.
+- Deliberately leaves request-context creation, completion, serialization, and HTTP evidence for Task 6.
 
-- [ ] **Step 1: Write failing lifecycle/concurrency tests**
+- [ ] **Step 1: Write the failing interface/source contracts**
 
-Test success, runtime exception, typed-request failure after context creation, standalone status, serializer exception, and fallback. Each accepted operation creates one context and one terminal. Dispatch two barrier-controlled runtime requests concurrently; runtime-received correlation IDs must be distinct and each terminal must match its request.
+Update all runtime fakes and direct callers to require/pass `BimDiagnosticContext`. Update both exact optional-module assertions at `RookBimExportSourceTests.cs:127` and `RookBimExportPresetSourceTests.cs:127` to require the new public signatures. Update core handler source assertions to require the context argument at export call sites.
 
-Add a source assertion that accepted-request control flow contains exactly one `CompleteRequest(` call and that the call is inside the outer `finally`, never in route helpers.
-
-All test fakes adopt signatures such as:
-
-```csharp
-public BimApiResponse ListCategories(BimDiagnosticContext diagnostics)
-{
-    SeenContexts.Add(diagnostics);
-    barrier.SignalAndWait();
-    return BimApiResponse.Ok(new BimListCategoriesResult());
-}
-```
-
-- [ ] **Step 2: Write failing serializer-entry tests**
-
-Add an internal handler constructor accepting `Func<object?, JsonNode?> wireSerializer`. Inject a post-entry throw and assert one `handler.serialize/failure` record (type/HResult, no message), correct first production failure, existing `internal_error` fallback, no recursive serializer call, and one terminal. Source-extract `BimHandler.cs` and assert `ToWireData(` is called only inside `SerializeForWire`.
-
-Do not test/claim coverage for static `JsonOptions`, binding/type initialization, or the outer bridge envelope.
-
-- [ ] **Step 3: Write failing status/HTTP tests**
-
-Standalone and in-host status data always contain `coreVersion`, `coreCommit`, `moduleVersion`, `moduleCommit`, `diagnosticsEnabled`, `sinkState`, `droppedCount`, `sinkFailureCode`.
-
-While enabled, merge `correlationId`, `lastStage`, `lastOutcome`, `lastItemIndex`, `firstFailureStage`, `firstFailureExceptionType`, `firstFailureHResult`, `requestDroppedCount`, `traceComplete`, sink state, and global drops into the existing diagnostic object. Existing `reasonCode`, `failureKind`, and `diagnosticRoute` must survive. Disabled responses contain none of the request fields and keep current shape.
-
-- [ ] **Step 4: Write failing loader tests**
-
-Introduce an internal injectable core accepting candidate resolver, `File.Exists` predicate, and activation delegate. Simulate not-found, load failure, activation failure, success, and already initialized. Assert initializer precedes resolution, exact stages are captured, no path/message enters records, and current registry outcomes remain.
-
-- [ ] **Step 5: Verify the red state**
+- [ ] **Step 2: Verify the red state includes both exact assertions**
 
 ```powershell
-dotnet test src\Rook.Tests\Rook.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~BimHandlerDiagnosticsTests|FullyQualifiedName~BimHandlerTests|FullyQualifiedName~RookBimUnavailable" --verbosity minimal
+dotnet test src\Rook.Tests\Rook.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~BimHandlerTests|FullyQualifiedName~RookBimUnavailable|FullyQualifiedName~ManagedCapabilityDomainStatusTests|FullyQualifiedName~CompanionRuntimeStatusTests|FullyQualifiedName~BimHandlerExportSourceTests|FullyQualifiedName~BimHandlerExportPresetSourceTests" --verbosity minimal
+dotnet test src\RookBim.Tests\RookBim.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~RookBimExportSourceTests|FullyQualifiedName~RookBimExportPresetSourceTests" --verbosity minimal
 ```
 
-Expected: compile failure on new interface/signatures.
+Expected: interface/fake compilation fails and both exact `RevitRookBimRuntime` signature assertions fail before production changes.
 
-- [ ] **Step 6: Change the runtime interface atomically**
+- [ ] **Step 3: Change the runtime interface atomically**
 
 Use exactly:
 
@@ -534,9 +548,79 @@ BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElement
 BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request);
 ```
 
-Update unavailable runtime, all fakes/direct tests (pass `BimDiagnosticContext.Disabled`), handler calls, export source assertions, and public `RevitRookBimRuntime` signatures together. Do not add compatibility overloads that omit context.
+- [ ] **Step 4: Migrate implementations and every caller**
 
-- [ ] **Step 7: Give `Dispatch` one completion `finally`**
+Update unavailable runtime, all fakes/direct tests, and public `RevitRookBimRuntime` signatures together. Direct non-handler callers pass `BimDiagnosticContext.Disabled`. In `BimHandler`, introduce one clearly marked Task 5 migration local set to `BimDiagnosticContext.Disabled` and pass it to all ten runtime calls; Task 6 must remove this scaffold when it creates the accepted request context. Do not create a compatibility overload that omits context.
+
+- [ ] **Step 5: Run the complete migration gate**
+
+```powershell
+dotnet test src\Rook.Tests\Rook.Tests.csproj --configuration Release --no-restore --verbosity minimal
+dotnet test src\RookBim.Tests\RookBim.Tests.csproj --configuration Release --no-restore --verbosity minimal
+dotnet build src\RookBim\RookBim.csproj --configuration Release --no-restore --verbosity minimal
+```
+
+Expected: all existing tests, both exact export assertions, and the optional module build pass with the new mandatory interface.
+
+- [ ] **Step 6: Commit the interface migration**
+
+```powershell
+git add -- src/Rook/Bim/IRookBimRuntime.cs src/Rook/Bim/RookBimUnavailableRuntime.cs src/Rook/Handlers/BimHandler.cs src/RookBim/Revit/RevitRookBimRuntime.cs src/Rook.Tests/Bim/RookBimUnavailableRuntimeTests.cs src/Rook.Tests/Bim/RookBimUnavailableExportTests.cs src/Rook.Tests/Bim/RookBimUnavailablePresetTests.cs src/Rook.Tests/Handlers/BimHandlerTests.cs src/Rook.Tests/Capabilities/ManagedCapabilityDomainStatusTests.cs src/Rook.Tests/Plugin/CompanionRuntimeStatusTests.cs src/Rook.Tests/Handlers/BimHandlerExportSourceTests.cs src/Rook.Tests/Handlers/BimHandlerExportPresetSourceTests.cs src/RookBim.Tests/RookBimExportSourceTests.cs src/RookBim.Tests/RookBimExportPresetSourceTests.cs
+git diff --cached --name-only
+git commit -m "refactor(rookbim): require diagnostics context at runtime boundary"
+```
+
+---
+
+### Task 6: Handler lifecycle, serialization, terminal completion, and HTTP evidence
+
+**Files:**
+- Modify: `src/Rook/Bim/BimContracts.cs:160-173`
+- Modify: `src/Rook/Handlers/BimHandler.cs:10-472`
+- Modify: `src/Rook.Tests/Handlers/BimHandlerTests.cs`
+- Create: `src/Rook.Tests/Handlers/BimHandlerDiagnosticsTests.cs`
+
+**Interfaces:**
+- Consumes Task 4 `BimDiagnostics` and Task 5's context-bearing runtime.
+- Produces one accepted-request context/terminal lifecycle and instance `SerializeForWire(context,value)` used by every `ToWireData` path.
+- Preserves `NativeGhBridgeRegistrar.SerializeBimDispatchEnvelope` unchanged/out of scope.
+
+- [ ] **Step 1: Write failing lifecycle/concurrency tests under shared-state isolation**
+
+Declare the new static-diagnostics suite exactly as:
+
+```csharp
+using Rook.Tests.Bim;
+
+[Collection(RookBimRuntimeRegistryCollection.Name)]
+public sealed class BimHandlerDiagnosticsTests
+```
+
+Test success, runtime exception, typed-request failure after context creation, standalone status, serializer exception, and minimal fallback. Each accepted operation creates one context and one terminal. Dispatch two barrier-controlled runtime requests concurrently; runtime-received correlation IDs must be distinct and each terminal must match its request. The collection prevents these static facade/registry tests from racing other RookBIM tests while retaining concurrency inside the test itself.
+
+Add a source assertion that accepted-request control flow contains exactly one `CompleteRequest(` call, that it is in the outer `finally`, and that route helpers contain none. Assert the Task 5 disabled-context scaffold is gone.
+
+- [ ] **Step 2: Write failing serializer-entry tests**
+
+Add an internal handler constructor accepting `Func<object?, JsonNode?> wireSerializer`. Inject a post-entry throw and assert one `handler.serialize/failure` record (type/HResult, no message), correct first production failure, existing `internal_error` fallback, no recursive serializer call, and one terminal. Source-extract `BimHandler.cs` and assert `ToWireData(` is called only inside `SerializeForWire`.
+
+Do not test or claim coverage for static `JsonOptions`, binding/type initialization, or the outer bridge envelope.
+
+- [ ] **Step 3: Write failing status/HTTP tests**
+
+Standalone and in-host status data always contain `coreVersion`, `coreCommit`, `moduleVersion`, `moduleCommit`, `diagnosticsEnabled`, `sinkState`, `droppedCount`, `sinkFailureCode`.
+
+While enabled, merge `correlationId`, `lastStage`, `lastOutcome`, `lastItemIndex`, `firstFailureStage`, `firstFailureExceptionType`, `firstFailureHResult`, `requestDroppedCount`, `traceComplete`, sink state, and global drops into the existing diagnostic object. Existing `reasonCode`, `failureKind`, and `diagnosticRoute` must survive. Disabled responses contain none of the request fields and keep current shape.
+
+- [ ] **Step 4: Verify the red state**
+
+```powershell
+dotnet test src\Rook.Tests\Rook.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~BimHandlerDiagnosticsTests|FullyQualifiedName~BimHandlerTests" --verbosity minimal
+```
+
+Expected: the new lifecycle, serialization, provenance, and HTTP assertions fail.
+
+- [ ] **Step 5: Give `Dispatch` one completion `finally`**
 
 Required shape:
 
@@ -578,11 +662,11 @@ public ApiResponse Dispatch(string? body)
 }
 ```
 
-Create context after valid op and before standalone status/module activation. Observe deserialize/runtime milestones. Pass context through standalone/status, typed deserialization, runtime, `FromBimResponse`, `Ok`, and `Fail`.
+Create context after a valid operation discriminator and before standalone status or module activation. Observe deserialize/runtime milestones. Pass the same context through standalone/status, typed deserialization, runtime, `FromBimResponse`, `Ok`, and `Fail`.
 
 Before a valid discriminator exists, use `CreateUncorrelatedContext("unparsed")` around `ParseObjectBody` and primitive fallback serialization. It carries no correlation ID/terminal but can persist a bounded `handler.deserialize` failure after initialization. Once the discriminator is accepted, discard that context and use only the request context.
 
-- [ ] **Step 8: Centralize serialization**
+- [ ] **Step 6: Centralize serialization**
 
 Make helper methods instance/context-aware. The only `ToWireData` caller is:
 
@@ -610,37 +694,70 @@ private JsonNode? SerializeForWire(BimDiagnosticContext diagnostics, object? val
 
 `BuildMinimalInternalError` constructs fixed `JsonObject` primitives and merges bounded diagnostic fields; it never calls `ToWireData`, `SerializeForWire`, or `Fail(details)`.
 
-- [ ] **Step 9: Instrument loader without changing outcomes**
-
-`TryActivate(diagnostics)` begins with defensive initialization. Its injectable core takes candidate resolver, file-exists predicate, assembly loader, and reflected activation delegate so load and activation failures remain distinct stages. Wrap candidate resolution/load/reflection activation with production probes and leave existing catches/registry installs. Already installed/attempted observes `AlreadyInitialized`. Never record candidate/module paths or messages.
-
-- [ ] **Step 10: Add status provenance and bounded HTTP merge**
+- [ ] **Step 7: Add status provenance and bounded HTTP merge**
 
 Extend `BimStatusResponse` with the eight unconditional fields and populate before status serialization from `SnapshotStatus()`. Build request fields from `SnapshotRequest(diagnostics)` only while enabled and merge into—not replace—the Phase 2 diagnostic `JsonObject`.
 
-- [ ] **Step 11: Run verification**
+- [ ] **Step 8: Run verification and commit**
 
 ```powershell
 dotnet test src\Rook.Tests\Rook.Tests.csproj --configuration Release --no-restore --verbosity minimal
 dotnet test src\RookBim.Tests\RookBim.Tests.csproj --configuration Release --no-restore --verbosity minimal
 dotnet build src\RookBim\RookBim.csproj --configuration Release --no-restore --verbosity minimal
+git add -- src/Rook/Bim/BimContracts.cs src/Rook/Handlers/BimHandler.cs src/Rook.Tests/Handlers/BimHandlerTests.cs src/Rook.Tests/Handlers/BimHandlerDiagnosticsTests.cs
+git diff --cached --name-only
+git commit -m "feat(rookbim): correlate handler diagnostics"
 ```
 
-Expected: core/source tests pass and optional module compiles with the new interface.
+Expected: core/source tests and the optional module build pass; every accepted context completes once.
 
-- [ ] **Step 12: Commit the managed boundary**
+---
 
-Stage only task files, verify `git diff --cached --name-only`, then:
+### Task 7: Module-loader instrumentation and activation outcomes
+
+**Files:**
+- Modify: `src/Rook/Bim/RookBimModuleLoader.cs:9-111`
+- Modify: `src/Rook/Handlers/BimHandler.cs:10-472`
+- Create: `src/Rook.Tests/Bim/RookBimModuleLoaderDiagnosticsTests.cs`
+
+**Interfaces:**
+- Consumes Task 6's accepted-request context.
+- Produces `RookBimModuleLoader.TryActivate(BimDiagnosticContext)` and distinct resolve/load/activate outcomes without changing registry behavior.
+
+- [ ] **Step 1: Write failing activation-outcome tests under shared-state isolation**
+
+Put `RookBimModuleLoaderDiagnosticsTests` in `[Collection(RookBimRuntimeRegistryCollection.Name)]`. Introduce test seams for candidate resolution, `File.Exists`, assembly loading, and reflected activation. Simulate not-found, load failure, activation failure, success, and already initialized. Assert initialization precedes resolution, every outcome has its exact stage/detail, no path/message enters evidence, and current registry outcomes remain unchanged.
+
+- [ ] **Step 2: Verify the red state**
 
 ```powershell
-git add -- src/Rook/Bim/BimContracts.cs src/Rook/Bim/IRookBimRuntime.cs src/Rook/Bim/RookBimUnavailableRuntime.cs src/Rook/Bim/RookBimModuleLoader.cs src/Rook/Handlers/BimHandler.cs src/RookBim/Revit/RevitRookBimRuntime.cs src/Rook.Tests/Bim/RookBimUnavailableRuntimeTests.cs src/Rook.Tests/Bim/RookBimUnavailableExportTests.cs src/Rook.Tests/Bim/RookBimUnavailablePresetTests.cs src/Rook.Tests/Handlers/BimHandlerTests.cs src/Rook.Tests/Capabilities/ManagedCapabilityDomainStatusTests.cs src/Rook.Tests/Plugin/CompanionRuntimeStatusTests.cs src/Rook.Tests/Handlers/BimHandlerExportSourceTests.cs src/Rook.Tests/Handlers/BimHandlerExportPresetSourceTests.cs src/Rook.Tests/Handlers/BimHandlerDiagnosticsTests.cs
+dotnet test src\Rook.Tests\Rook.Tests.csproj --configuration Release --no-restore --filter FullyQualifiedName~RookBimModuleLoaderDiagnosticsTests --verbosity minimal
+```
+
+Expected: missing injectable core and context-bearing activation fail.
+
+- [ ] **Step 3: Instrument loader without changing outcomes**
+
+`TryActivate(diagnostics)` begins with defensive `BimDiagnostics.InitializeFromEnvironment()`. Its internal injectable core takes candidate resolver, file-exists predicate, assembly loader, and reflected activation delegate so resolution, load, and activation failures remain distinct stages. Wrap the existing production work with probes, preserve existing catches/registry installs, and observe `AlreadyInitialized` when already installed/attempted. Never record candidate/module paths or messages.
+
+- [ ] **Step 4: Pass the accepted context from the handler**
+
+Change the Task 6 call to `RookBimModuleLoader.TryActivate(diagnostics)`. Keep initialization at the first executable line of `Dispatch`; the loader's defensive call must be read-once/idempotent. Do not create another context or terminal in the loader.
+
+- [ ] **Step 5: Run verification and commit**
+
+```powershell
+dotnet test src\Rook.Tests\Rook.Tests.csproj --configuration Release --no-restore --verbosity minimal
+dotnet test src\RookBim.Tests\RookBim.Tests.csproj --configuration Release --no-restore --verbosity minimal
+dotnet build src\RookBim\RookBim.csproj --configuration Release --no-restore --verbosity minimal
+git add -- src/Rook/Bim/RookBimModuleLoader.cs src/Rook/Handlers/BimHandler.cs src/Rook.Tests/Bim/RookBimModuleLoaderDiagnosticsTests.cs
 git diff --cached --name-only
-git commit -m "feat(rookbim): correlate handler and module diagnostics"
+git commit -m "feat(rookbim): trace optional module activation"
 ```
 
 ---
 
-### Task 6: Revit-thread propagation, view, and document identity/state
+### Task 8: Revit-thread propagation, view, and document identity/state
 
 **Files:**
 - Modify: `src/RookBim/RookBimModule.cs:8-34`
@@ -650,7 +767,7 @@ git commit -m "feat(rookbim): correlate handler and module diagnostics"
 - Modify: `src/RookBim.Tests/RookBimModuleSourceTests.cs`
 
 **Interfaces:**
-- Consumes Task 5 context-bearing runtime and Task 2 probes.
+- Consumes Task 5's context-bearing runtime, Task 6's request lifecycle, Task 7's activation boundary, and Task 2's probes.
 - Produces `InvokeAbandonable<T>(BimDiagnosticContext, Func<UIApplication,T>)`, detailed `DocumentIdentity(document,diagnostics,includeAuxiliaryState)`, and context-aware active graphical view resolution.
 - Preserves the untraced one-argument identity method for element/result paths.
 
@@ -726,7 +843,7 @@ Expected: source/core tests and Revit 2024 compilation pass; this is not live ac
 
 ---
 
-### Task 7: Category traversal and per-property failure isolation
+### Task 9: Category traversal and per-property failure isolation
 
 **Files:**
 - Modify: `src/RookBim/Revit/RevitCategoryResolver.cs:10-500`
@@ -737,7 +854,7 @@ Expected: source/core tests and Revit 2024 compilation pass; this is not live ac
 - Modify: `src/RookBim.Tests/RookBimExportPresetSourceTests.cs`
 
 **Interfaces:**
-- Consumes Task 2 enumerator and Task 6 identity overload.
+- Consumes Task 2's enumerator and Task 8's identity overload.
 - Produces context-bearing `RevitCategoryResolver.List/Resolve`, `RevitQueryService.Query`, and `RevitPresetResolver.Resolve` chains.
 - Preserves current safe-property catches, degradation counts, sorting, and loud iterator failure.
 
@@ -813,28 +930,35 @@ Confirm no native, FFmpeg, result-contract, taxonomy, or generic logging files c
 
 ---
 
-### Task 8: Full verification, committed deploy, and live Revit gate
+### Task 10: Full verification, committed deploy, and live Revit gate
 
 **Files:**
-- Verify: all Tasks 1-7 files.
+- Verify: all Tasks 1-9 files from the clean implementation worktree.
 - Do not commit HTTP captures or JSONL; normal route payloads may legitimately contain model data even though diagnostic records are redacted.
 
 **Interfaces:**
 - Consumes committed implementation and `scripts/deploy-local-testing.ps1`.
 - Produces live evidence from the original workshared model, or a precise blocker report if host/model access is unavailable.
+- Runs inline/operator-assisted from `.worktrees/rookbim-gated-diagnostics`; do not delegate this task to a subagent.
 
 - [ ] **Step 1: Run final static scope/privacy checks**
 
 ```powershell
+$implementationRoot = (Resolve-Path .).Path
+if ($implementationRoot -notlike '*\.worktrees\rookbim-gated-diagnostics') {
+    throw "Task 10 must run from the dedicated implementation worktree"
+}
 git status --short --branch
+if (git status --porcelain) { throw "Implementation worktree must be clean" }
 git diff --check
 git log --oneline --decorate -8
+git -C C:\Users\aryan\source\repos\Rook status --short
 rg -n "File\.AppendAllText|AsyncLocal|ThreadStatic|setx|Exception\.Message|Exception\.ToString" src/Rook/Bim/Diagnostics
 rg -n "File\.AppendAllText|AsyncLocal|ThreadStatic|CurrentCorrelation" src/RookBim/Revit/RevitApiDispatcher.cs src/RookBim/Revit/RevitRookBimRuntime.cs src/RookBim/Revit/RevitIdentitySerializer.cs src/RookBim/Revit/RevitCategoryResolver.cs
 rg -n "\.ActiveView|ActiveGraphicalView" src/RookBim/Revit/RevitRookBimRuntime.cs
 ```
 
-Expected: diagnostics contain no forbidden I/O/correlation/message patterns; Revit view code contains `ActiveGraphicalView` and no legacy accessor. Only the pre-existing two FFmpeg worktree changes remain unrelated.
+Expected: the implementation worktree is clean; diagnostics contain no forbidden I/O/correlation/message patterns; Revit view code contains `ActiveGraphicalView` and no legacy accessor. The separate original checkout reports only its pre-existing two FFmpeg modifications.
 
 - [ ] **Step 2: Run the complete managed matrix**
 
@@ -855,17 +979,25 @@ git status --porcelain
 Write-Output $implementationCommit
 ```
 
-Expected: diagnostic implementation is committed; only pre-existing FFmpeg files appear. Never deploy uncommitted diagnostic assemblies.
+Expected: diagnostic implementation is committed and `git status --porcelain` emits nothing in the implementation worktree. Never deploy uncommitted diagnostic assemblies. The FFmpeg files remain visible only in the separately checked original workspace.
 
 - [ ] **Step 4: Close host processes and deploy through the repository workflow**
 
 After the user closes Revit, Rhino, and the Rook MCP process:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -Configuration Release
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -Configuration Release
 ```
 
-Expected: native/managed build and deploy succeed; the workflow builds `Rook` before `RookBim` and deploys the net48 module beside the companion.
+Expected: the prescribed workflow builds native `RookNative`, then managed `Rook`, then `RookBim`, and deploys the net48 module beside the companion. With no `-SkipChirpInstall`, it syncs/installs and verifies Chirp. With no `-LiveSmoke`, it must report that live Rhino/Grasshopper/Chirp smoke did not run.
+
+Capture the workflow's final report and retain these bounded operator facts for handoff:
+
+- implementation repository/worktree path;
+- `InstallRoot`, `DataRoot`, `PluginDir`, `ChirpRoot`, and Python runtime path printed by the script;
+- whether native, `Rook`, and `RookBim` builds ran and succeeded;
+- whether Chirp installation/verification ran;
+- whether `-LiveSmoke` ran (expected `false` for the command above).
 
 - [ ] **Step 5: Launch Revit with exact process-scoped gating**
 
@@ -919,19 +1051,24 @@ If a category property fails, record evidence but do not harden it here. Iterato
 
 - [ ] **Step 10: Hand off evidence without claiming the second fix**
 
-Report: implementation commit, exact test/build counts, deploy result, status provenance/sink state, private capture location, correlation IDs, first failure, last stage/index, drop/completeness state, and live-gate result. State that category hardening and taxonomy cleanup remain separate future changes.
+Report: implementation commit, implementation worktree path, exact test/build counts, deploy result, installed `InstallRoot`/`DataRoot`/`PluginDir`/`ChirpRoot`/Python paths, which native/managed builds ran, whether Chirp installation ran, whether `-LiveSmoke` ran, status provenance/sink state, private capture location, correlation IDs, first failure, last stage/index, drop/completeness state, and live-gate result. State that category hardening and taxonomy cleanup remain separate future changes.
 
 ---
 
 ## Plan Self-Review Checklist
 
+- [ ] Implementation starts from the corrected documentation-only descendant of `262d3691` in clean `codex/rookbim-gated-diagnostics`; original-workspace FFmpeg changes never enter it.
+- [ ] Tasks 1-9 execute sequentially with per-task review gates; Task 10 remains inline/operator-assisted.
 - [ ] Every approved stage/detail/outcome/kind has one type owner and encoder mapping.
+- [ ] Every declared sink failure member has one exact wire value and exhaustive encoder coverage.
 - [ ] Every enabled probe updates request state; per-item category success does not enqueue.
 - [ ] Every failure is offered once; every accepted request offers exactly one terminal.
 - [ ] FIFO terminal admission, release, and delayed drops have behavioral tests.
 - [ ] Exact/read-once initialization precedes standalone status and module activation.
 - [ ] Version/commit is unconditional in status and present in every persisted record.
 - [ ] Every `ToWireData` route uses `SerializeForWire`; coverage claims begin after entry only.
+- [ ] Runtime interface migration updates both exact RookBIM export assertions in Task 5 and passes before handler instrumentation begins.
+- [ ] Static handler and loader diagnostic suites use `RookBimRuntimeRegistryCollection` isolation.
 - [ ] Context is explicit through all runtime methods and actual queued work item; concurrency is tested.
 - [ ] Production/auxiliary wrappers and disabled call-site fast paths are distinct/tested.
 - [ ] Identity preserves both `IsWorkshared` reads/current catches; auxiliary state never feeds output.
@@ -940,4 +1077,5 @@ Report: implementation commit, exact test/build counts, deploy result, status pr
 - [ ] Revit-thread code performs no file I/O or blocking queue call.
 - [ ] No native, taxonomy, hardening, FFmpeg, or generic logging change is included.
 - [ ] Full tests/build pass and implementation is committed before deploy.
+- [ ] Deploy uses `powershell -NoProfile` and reports installed paths, builds, Chirp installation, and `-LiveSmoke` status.
 - [ ] Original workshared-model reproduction is the acceptance gate.
