@@ -330,18 +330,53 @@ Assert.Contains(""required"", member);";
                 AssertNoWholeSourcePositiveContains(source, "runtime"));
         }
 
-        [Fact]
-        public void SourceContracts_Task8GuardNamesCurrentWholeSourceVariables()
+        [Theory]
+        [InlineData(
+            "var alias = runtime;\n" +
+            "Assert.Contains(\"required\", alias);")]
+        [InlineData(
+            "var first = (runtime);\n" +
+            "var alias = first;\n" +
+            "Assert.Contains(\"required\", NormalizeLineEndings((alias)));")]
+        [InlineData(
+            "var alias = (NormalizeLineEndings(runtime));\n" +
+            "Assert.Contains(\"required\", alias);")]
+        public void SourceContractAudit_RejectsDirectWholeSourceAliasChains(
+            string source)
         {
-            var source = Read(
-                "src/RookBim.Tests/RookBimModuleSourceTests.cs");
-            var guard = ExtractSourceMember(
-                source,
-                "public class RookBimModuleSourceTests",
-                "public void SourceContracts_Task8PositivesBindExactMembers()");
+            Assert.ThrowsAny<Exception>(() =>
+                AssertNoWholeSourcePositiveContains(source, "runtime"));
+        }
 
-            Assert.Contains("\"module\"", guard);
-            Assert.DoesNotContain("\"text\"", guard);
+        [Theory]
+        [InlineData(
+            "var sourceText = Read(\"src/RookBim/Revit/RevitRookBimRuntime.cs\");\n" +
+            "Assert.Contains(\"required\", sourceText);")]
+        [InlineData(
+            "var sourceText = Read(\"src/RookBim/Revit/RevitRookBimRuntime.cs\");\n" +
+            "var alias = (sourceText);\n" +
+            "Assert.Contains(\"required\", NormalizeLineEndings((alias)));")]
+        [InlineData(
+            "var sourceText = (Read(\"src/RookBim/Revit/RevitRookBimRuntime.cs\"));\n" +
+            "Assert.Contains(\"required\", sourceText);")]
+        public void SourceContractAudit_RejectsRenamedProductionSourceReads(
+            string source)
+        {
+            Assert.ThrowsAny<Exception>(() =>
+                AssertNoWholeSourcePositiveContains(source));
+        }
+
+        [Fact]
+        public void SourceContractAudit_IgnoresAliasAndReadOriginsInCommentsAndLiterals()
+        {
+            var source =
+                "var literal = \"var sourceText = Read(" +
+                "\\\"src/RookBim/Revit/RevitRookBimRuntime.cs\\\");\";\n" +
+                "// var alias = runtime;\n" +
+                "var interpolation = $\"var alias = runtime; {member}\";\n" +
+                "Assert.Contains(\"required\", member);";
+
+            AssertNoWholeSourcePositiveContains(source, "runtime");
         }
 
         [Fact]
@@ -351,19 +386,19 @@ Assert.Contains(""required"", member);";
                 "src/RookBim.Tests/RookBimModuleSourceTests.cs");
 
             AssertNoWholeSourcePositiveContains(
-                ExtractExecutableMember(
+                ExtractSourceMember(
                     source,
                     "public class RookBimModuleSourceTests",
                     "public void RookBimModuleActivate_InstallsRevitRuntimeFromOptionalAssembly()"),
                 "module");
             AssertNoWholeSourcePositiveContains(
-                ExtractExecutableMember(
+                ExtractSourceMember(
                     source,
                     "public class RookBimModuleSourceTests",
                     "public void RevitTask7_UsesRhinoInsideHostContextDispatcherWithoutTransactions()"),
                 "dispatcher");
             AssertNoWholeSourcePositiveContains(
-                ExtractExecutableMember(
+                ExtractSourceMember(
                     source,
                     "public class RookBimModuleSourceTests",
                     "public void RevitTask7_RuntimeUsesDispatcherForStatusAndActiveDocument()"),
@@ -371,19 +406,19 @@ Assert.Contains(""required"", member);";
                 "context",
                 "serializer");
             AssertNoWholeSourcePositiveContains(
-                ExtractExecutableMember(
+                ExtractSourceMember(
                     source,
                     "public class RookBimModuleSourceTests",
                     "public void RevitTask7_ElementIdSerializationUsesBoundedNullableConversion()"),
                 "serializer");
             AssertNoWholeSourcePositiveContains(
-                ExtractExecutableMember(
+                ExtractSourceMember(
                     source,
                     "public class RookBimModuleSourceTests",
                     "public void RevitTask7_DispatchDoesNotMaskFaultedTasksWithAggregateException()"),
                 "runtime");
             AssertNoWholeSourcePositiveContains(
-                ExtractExecutableMember(
+                ExtractSourceMember(
                     source,
                     "public class RookBimModuleSourceTests",
                     "public void RevitTask7_StatusDispatchFailureKeepsRookBimRuntime()"),
@@ -2029,22 +2064,181 @@ Assert.Contains(""required"", member);";
             string source,
             params string[] wholeSourceIdentifiers)
         {
-            var code = ExecutableCode(source);
-            foreach (var identifier in wholeSourceIdentifiers)
+            var lexed = Lex(source);
+            var identifiers = new HashSet<string>(
+                wholeSourceIdentifiers.Select(NormalizeIdentifier),
+                StringComparer.Ordinal);
+            AddProductionSourceOrigins(lexed, identifiers);
+
+            foreach (var identifier in identifiers)
             {
                 var pattern =
-                    @"\bAssert\s*\.\s*Contains\s*\([^;]*\b" +
+                    @"\bAssert\s*\.\s*Contains\s*\([^;]*" +
+                    @"(?<![A-Za-z0-9_])@?" +
                     Regex.Escape(identifier) +
-                    @"\b[^;]*\)\s*;";
+                    @"(?![A-Za-z0-9_])[^;]*\)\s*;";
                 Assert.False(
                     Regex.IsMatch(
-                        code,
+                        lexed.CodeMask,
                         pattern,
                         RegexOptions.CultureInvariant |
                         RegexOptions.Singleline),
                     "Positive Assert.Contains references whole-source identifier '" +
                     identifier + "'.");
             }
+        }
+
+        private static void AddProductionSourceOrigins(
+            LexedSource source,
+            ISet<string> identifiers)
+        {
+            var assignments = Regex.Matches(
+                source.CodeMask,
+                @"(?<![A-Za-z0-9_])var\s+" +
+                @"(?<target>@?[A-Za-z_][A-Za-z0-9_]*)\s*=\s*" +
+                @"(?<expression>[^;]*);",
+                RegexOptions.CultureInvariant);
+
+            foreach (Match assignment in assignments)
+            {
+                var expression = assignment.Groups["expression"];
+                if (IsProductionSourceRead(
+                        source.WithoutComments.Substring(
+                            expression.Index,
+                            expression.Length),
+                        expression.Value))
+                {
+                    identifiers.Add(NormalizeIdentifier(
+                        assignment.Groups["target"].Value));
+                }
+            }
+
+            var addedAlias = true;
+            while (addedAlias)
+            {
+                addedAlias = false;
+                foreach (Match assignment in assignments)
+                {
+                    if (TryGetDirectSourceIdentifier(
+                            assignment.Groups["expression"].Value,
+                            out var sourceIdentifier) &&
+                        identifiers.Contains(sourceIdentifier))
+                    {
+                        addedAlias |= identifiers.Add(NormalizeIdentifier(
+                            assignment.Groups["target"].Value));
+                    }
+                }
+            }
+        }
+
+        private static bool IsProductionSourceRead(
+            string sourceExpression,
+            string codeExpression)
+        {
+            var expression = StripOuterParentheses(
+                RemoveWhitespace(codeExpression));
+            const string normalizePrefix = "NormalizeLineEndings(";
+            if (expression.StartsWith(
+                    normalizePrefix,
+                    StringComparison.Ordinal) &&
+                expression.EndsWith(")", StringComparison.Ordinal))
+            {
+                expression = StripOuterParentheses(expression.Substring(
+                    normalizePrefix.Length,
+                    expression.Length - normalizePrefix.Length - 1));
+            }
+
+            if (expression != "Read()")
+            {
+                return false;
+            }
+
+            var paths = Regex.Matches(
+                sourceExpression,
+                "\"(?<path>[^\"]+)\"",
+                RegexOptions.CultureInvariant);
+            if (paths.Count != 1)
+            {
+                return false;
+            }
+
+            var path = paths[0]
+                .Groups["path"]
+                .Value
+                .Replace('\\', '/');
+            return path.StartsWith(
+                    "src/RookBim/",
+                    StringComparison.OrdinalIgnoreCase) &&
+                path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool TryGetDirectSourceIdentifier(
+            string codeExpression,
+            out string identifier)
+        {
+            var expression = StripOuterParentheses(
+                RemoveWhitespace(codeExpression));
+            const string normalizePrefix = "NormalizeLineEndings(";
+            if (expression.StartsWith(
+                    normalizePrefix,
+                    StringComparison.Ordinal) &&
+                expression.EndsWith(")", StringComparison.Ordinal))
+            {
+                expression = StripOuterParentheses(expression.Substring(
+                    normalizePrefix.Length,
+                    expression.Length - normalizePrefix.Length - 1));
+            }
+
+            if (!Regex.IsMatch(
+                    expression,
+                    @"^@?[A-Za-z_][A-Za-z0-9_]*$",
+                    RegexOptions.CultureInvariant))
+            {
+                identifier = string.Empty;
+                return false;
+            }
+
+            identifier = NormalizeIdentifier(expression);
+            return true;
+        }
+
+        private static string StripOuterParentheses(string expression)
+        {
+            while (expression.Length >= 2 && expression[0] == '(')
+            {
+                var depth = 0;
+                var closingParenthesis = -1;
+                for (var index = 0; index < expression.Length; index++)
+                {
+                    if (expression[index] == '(')
+                    {
+                        depth++;
+                    }
+                    else if (expression[index] == ')' && --depth == 0)
+                    {
+                        closingParenthesis = index;
+                        break;
+                    }
+                }
+
+                if (closingParenthesis != expression.Length - 1)
+                {
+                    break;
+                }
+
+                expression = expression.Substring(
+                    1,
+                    expression.Length - 2);
+            }
+
+            return expression;
+        }
+
+        private static string NormalizeIdentifier(string identifier)
+        {
+            return identifier.Length > 0 && identifier[0] == '@'
+                ? identifier.Substring(1)
+                : identifier;
         }
 
         private static string ExtractSourceMember(
