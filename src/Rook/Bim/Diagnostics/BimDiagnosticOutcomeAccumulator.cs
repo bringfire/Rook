@@ -1,9 +1,52 @@
+using System;
+using System.Threading;
+
 namespace Rook.Bim
 {
+    internal sealed class BimDiagnosticObservationAdmission : IDisposable
+    {
+        private BimDiagnosticOutcomeAccumulator? owner;
+        private bool observed;
+
+        internal BimDiagnosticObservationAdmission(
+            BimDiagnosticOutcomeAccumulator owner)
+        {
+            this.owner = owner;
+        }
+
+        internal void Observe(BimDiagnosticObservation observation)
+        {
+            if (observation == null)
+            {
+                throw new ArgumentNullException(nameof(observation));
+            }
+
+            var current = owner;
+            if (current == null || observed)
+            {
+                throw new InvalidOperationException(
+                    "The diagnostic observation admission is no longer active.");
+            }
+
+            current.ObserveAdmitted(observation);
+            observed = true;
+        }
+
+        public void Dispose()
+        {
+            var current = Interlocked.Exchange(ref owner, null);
+            if (current != null)
+            {
+                current.ReleaseObservationAdmission();
+            }
+        }
+    }
+
     internal sealed class BimDiagnosticOutcomeAccumulator
     {
         private readonly object gate = new object();
         private bool sealedForObservations;
+        private int activeObservationAdmissions;
         private bool hasLastObservation;
         private long lastObservationSequence;
         private BimDiagnosticStage lastStage;
@@ -32,34 +75,48 @@ namespace Rook.Bim
                     return false;
                 }
 
-                if (!hasLastObservation || observation.Sequence > lastObservationSequence)
-                {
-                    hasLastObservation = true;
-                    lastObservationSequence = observation.Sequence;
-                    lastStage = observation.Stage;
-                    lastOutcome = observation.Outcome;
-                }
-
-                if (observation.Fields.ItemIndex.HasValue &&
-                    (!hasLastIndexedObservation || observation.Sequence > lastIndexedObservationSequence))
-                {
-                    hasLastIndexedObservation = true;
-                    lastIndexedObservationSequence = observation.Sequence;
-                    lastItemIndex = observation.Fields.ItemIndex;
-                }
-
-                if (observation.Outcome == BimDiagnosticOutcome.Failure &&
-                    observation.Fields.FailureImpact == BimDiagnosticFailureImpact.Production &&
-                    (!hasFirstProductionFailure || observation.Sequence < firstProductionFailureSequence))
-                {
-                    hasFirstProductionFailure = true;
-                    firstProductionFailureSequence = observation.Sequence;
-                    firstFailureStage = observation.Stage;
-                    firstFailureExceptionType = BimDiagnosticContracts.BoundExceptionTypeName(observation.ExceptionTypeName);
-                    firstFailureHResult = observation.ExceptionHResult;
-                }
-
+                ApplyObservation(observation);
                 return true;
+            }
+        }
+
+        internal BimDiagnosticObservationAdmission? TryBeginObservation()
+        {
+            lock (gate)
+            {
+                if (sealedForObservations)
+                {
+                    return null;
+                }
+
+                var admission = new BimDiagnosticObservationAdmission(this);
+                activeObservationAdmissions++;
+                return admission;
+            }
+        }
+
+        internal void ObserveAdmitted(BimDiagnosticObservation observation)
+        {
+            lock (gate)
+            {
+                ApplyObservation(observation);
+            }
+        }
+
+        internal void ReleaseObservationAdmission()
+        {
+            lock (gate)
+            {
+                if (activeObservationAdmissions <= 0)
+                {
+                    return;
+                }
+
+                activeObservationAdmissions--;
+                if (activeObservationAdmissions == 0)
+                {
+                    Monitor.PulseAll(gate);
+                }
             }
         }
 
@@ -73,6 +130,11 @@ namespace Rook.Bim
                 }
 
                 sealedForObservations = true;
+                while (activeObservationAdmissions > 0)
+                {
+                    Monitor.Wait(gate);
+                }
+
                 return true;
             }
         }
@@ -108,7 +170,42 @@ namespace Rook.Bim
                     hasFirstProductionFailure ? firstFailureStage : (BimDiagnosticStage?)null,
                     hasFirstProductionFailure ? firstFailureExceptionType : null,
                     hasFirstProductionFailure ? firstFailureHResult : null,
-                    requestDroppedCount);
+                requestDroppedCount);
+            }
+        }
+
+        private void ApplyObservation(BimDiagnosticObservation observation)
+        {
+            if (!hasLastObservation || observation.Sequence > lastObservationSequence)
+            {
+                hasLastObservation = true;
+                lastObservationSequence = observation.Sequence;
+                lastStage = observation.Stage;
+                lastOutcome = observation.Outcome;
+            }
+
+            if (observation.Fields.ItemIndex.HasValue &&
+                (!hasLastIndexedObservation ||
+                 observation.Sequence > lastIndexedObservationSequence))
+            {
+                hasLastIndexedObservation = true;
+                lastIndexedObservationSequence = observation.Sequence;
+                lastItemIndex = observation.Fields.ItemIndex;
+            }
+
+            if (observation.Outcome == BimDiagnosticOutcome.Failure &&
+                observation.Fields.FailureImpact ==
+                    BimDiagnosticFailureImpact.Production &&
+                (!hasFirstProductionFailure ||
+                 observation.Sequence < firstProductionFailureSequence))
+            {
+                hasFirstProductionFailure = true;
+                firstProductionFailureSequence = observation.Sequence;
+                firstFailureStage = observation.Stage;
+                firstFailureExceptionType =
+                    BimDiagnosticContracts.BoundExceptionTypeName(
+                        observation.ExceptionTypeName);
+                firstFailureHResult = observation.ExceptionHResult;
             }
         }
     }

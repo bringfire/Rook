@@ -46,7 +46,7 @@ namespace Rook.Bim
             MatchTimeout);
 
         private static readonly Regex UriPath = new Regex(
-            @"\b[A-Za-z][A-Za-z0-9+.-]*://[^\s]+",
+            @"\b[A-Za-z][A-Za-z0-9+.-]*://[^\r\n""<>|]+",
             RegexOptions.CultureInvariant,
             MatchTimeout);
 

@@ -228,31 +228,36 @@ namespace Rook.Bim
                 return;
             }
 
-            var capture = BimDiagnosticExceptionCapture.Capture(exception);
-            var root = capture.Root;
-            var effectiveFields = capture.DetailCode ==
-                BimDiagnosticDetailCode.ExceptionCaptureFailed
-                ? new BimDiagnosticFields(
-                    BimDiagnosticDetailCode.ExceptionCaptureFailed,
-                    fields.ItemIndex,
-                    fields.FailureImpact)
-                : fields;
-            var sequence = NextSequence();
-            var timestampUtc = DateTime.UtcNow;
-            var observation = new BimDiagnosticObservation(
-                sequence,
-                stage,
-                BimDiagnosticOutcome.Failure,
-                effectiveFields,
-                root?.TypeName,
-                root == null ? (int?)null : root.HResult);
-            if (!accumulator.Observe(observation))
+            using (var admission = accumulator.TryBeginObservation())
             {
-                return;
-            }
+                if (admission == null)
+                {
+                    return;
+                }
 
-            Enqueue(context, accumulator, BimDiagnosticRecordKind.Failure,
-                observation, timestampUtc, root);
+                var capture = BimDiagnosticExceptionCapture.Capture(exception);
+                var root = capture.Root;
+                var effectiveFields = capture.DetailCode ==
+                    BimDiagnosticDetailCode.ExceptionCaptureFailed
+                    ? new BimDiagnosticFields(
+                        BimDiagnosticDetailCode.ExceptionCaptureFailed,
+                        fields.ItemIndex,
+                        fields.FailureImpact)
+                    : fields;
+                var sequence = NextSequence();
+                var timestampUtc = DateTime.UtcNow;
+                var observation = new BimDiagnosticObservation(
+                    sequence,
+                    stage,
+                    BimDiagnosticOutcome.Failure,
+                    effectiveFields,
+                    root?.TypeName,
+                    root == null ? (int?)null : root.HResult);
+                admission.Observe(observation);
+
+                Enqueue(context, accumulator, BimDiagnosticRecordKind.Failure,
+                    observation, timestampUtc, root);
+            }
         }
 
         internal void CompleteRequest(

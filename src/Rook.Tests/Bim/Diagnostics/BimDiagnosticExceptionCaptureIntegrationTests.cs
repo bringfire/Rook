@@ -2,6 +2,9 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using Rook.Bim;
 using Rook.Tests.Bim;
 using Xunit;
@@ -40,6 +43,7 @@ namespace Rook.Tests.Bim.Diagnostics
             AssertNoRawExceptionMembers(typeof(BimDiagnosticObservation));
             AssertNoRawExceptionMembers(typeof(BimDiagnosticExceptionInfo));
             AssertNoRawExceptionMembers(typeof(BimDiagnosticExceptionCaptureResult));
+            AssertNoRawExceptionMembers(typeof(BimDiagnosticObservationAdmission));
         }
 
         [Fact]
@@ -64,6 +68,80 @@ namespace Rook.Tests.Bim.Diagnostics
             Assert.Equal(typeof(ThrowingStackException).FullName,
                 TestDiagnostics.Snapshot(scope.Context)
                     .FirstFailureExceptionType);
+        }
+
+        [Fact]
+        public void ObserveException_AlreadySealedNeverTouchesStackTrace()
+        {
+            using var scope = TestDiagnostics.EnabledScope("list_categories");
+            var exception = new CountingThrowingStackException();
+            scope.Session.CompleteRequest(
+                scope.Context, BimDiagnosticOutcome.Success);
+
+            scope.Session.ObserveException(
+                scope.Context,
+                BimDiagnosticStage.RevitCategoryName,
+                exception,
+                BimDiagnosticFields.None);
+
+            Assert.Equal(0, exception.StackTraceReads);
+            Assert.Single(scope.Sink.Envelopes);
+            Assert.Equal(BimDiagnosticRecordKind.Terminal,
+                scope.Sink.Envelopes[0].Kind);
+        }
+
+        [Fact]
+        public async Task ObserveException_AdmittedCaptureCompletesBeforeConcurrentSeal()
+        {
+            using var scope = TestDiagnostics.EnabledScope("list_categories");
+            using var captureEntered = new ManualResetEventSlim(false);
+            using var releaseCapture = new ManualResetEventSlim(false);
+            var exception = new BlockingStackException(
+                captureEntered, releaseCapture);
+
+            var observation = Task.Run(() => scope.Session.ObserveException(
+                scope.Context,
+                BimDiagnosticStage.RevitCategoryName,
+                exception,
+                new BimDiagnosticFields(
+                    BimDiagnosticDetailCode.None,
+                    3,
+                    BimDiagnosticFailureImpact.Production)));
+            Assert.True(captureEntered.Wait(TimeSpan.FromSeconds(5)));
+
+            var completion = Task.Run(() => scope.Session.CompleteRequest(
+                scope.Context, BimDiagnosticOutcome.Failure));
+            var accumulator = Assert.IsType<BimDiagnosticOutcomeAccumulator>(
+                scope.Context.Accumulator);
+            var sealingStarted = SpinWait.SpinUntil(() =>
+            {
+                var competingAdmission = accumulator.TryBeginObservation();
+                if (competingAdmission == null)
+                {
+                    return true;
+                }
+
+                competingAdmission.Dispose();
+                return false;
+            }, TimeSpan.FromSeconds(5));
+            Assert.True(sealingStarted);
+            Assert.False(completion.IsCompleted);
+
+            releaseCapture.Set();
+            await Task.WhenAll(observation, completion);
+
+            Assert.Equal(1, exception.StackTraceReads);
+            Assert.Collection(
+                scope.Sink.Envelopes,
+                envelope => Assert.Equal(
+                    BimDiagnosticRecordKind.Failure, envelope.Kind),
+                envelope => Assert.Equal(
+                    BimDiagnosticRecordKind.Terminal, envelope.Kind));
+            var snapshot = TestDiagnostics.Snapshot(scope.Context);
+            Assert.Equal(BimDiagnosticStage.RevitCategoryName,
+                snapshot.FirstFailureStage);
+            Assert.Equal(BimDiagnosticStage.RevitCategoryName,
+                snapshot.LastStage);
         }
 
         [Fact]
@@ -106,13 +184,42 @@ namespace Rook.Tests.Bim.Diagnostics
 
             var captureIndex = method.IndexOf(CaptureCall,
                 StringComparison.Ordinal);
+            var rootIndex = method.IndexOf("var root = capture.Root",
+                StringComparison.Ordinal);
             var enqueueIndex = method.IndexOf("Enqueue(",
                 StringComparison.Ordinal);
 
             Assert.True(captureIndex >= 0);
             Assert.Equal(captureIndex, method.LastIndexOf(CaptureCall,
                 StringComparison.Ordinal));
-            Assert.True(enqueueIndex > captureIndex);
+            Assert.True(rootIndex > captureIndex);
+            Assert.True(enqueueIndex > rootIndex);
+            Assert.Matches(
+                @"var\s+capture\s*=\s*BimDiagnosticExceptionCapture\.Capture\(exception\)\s*;\s*var\s+root\s*=\s*capture\.Root\s*;",
+                method);
+            Assert.Single(Regex.Matches(method, @"\broot\s*=(?!=)")
+                .Cast<Match>());
+            Assert.DoesNotContain("new BimDiagnosticExceptionInfo", method);
+            Assert.Contains("root?.TypeName", method);
+            Assert.Contains("root == null ? (int?)null : root.HResult", method);
+            Assert.Matches(
+                @"Enqueue\s*\([\s\S]*?observation\s*,\s*timestampUtc\s*,\s*root\s*\)",
+                method);
+
+            var enqueue = Extract(
+                source,
+                "private void Enqueue(",
+                "private void Offer(");
+            Assert.Contains("BimDiagnosticExceptionInfo? exceptionInfo", enqueue);
+            Assert.Matches(
+                @"new BimDiagnosticEnvelope\s*\([\s\S]*?observation\.Fields\s*,\s*exceptionInfo\s*,\s*accumulator\s*\)",
+                enqueue);
+
+            var envelopeConstructor = Extract(
+                source,
+                "internal BimDiagnosticEnvelope(",
+                "internal BimDiagnosticRecordKind Kind");
+            Assert.Contains("ExceptionInfo = exceptionInfo", envelopeConstructor);
 
             var constructor = Extract(
                 source,
@@ -139,6 +246,55 @@ namespace Rook.Tests.Bim.Diagnostics
         {
             public override string? StackTrace =>
                 throw new InvalidOperationException("stack access failed");
+        }
+
+        private sealed class CountingThrowingStackException : Exception
+        {
+            private int stackTraceReads;
+
+            internal int StackTraceReads => Volatile.Read(ref stackTraceReads);
+
+            public override string? StackTrace
+            {
+                get
+                {
+                    Interlocked.Increment(ref stackTraceReads);
+                    throw new InvalidOperationException(
+                        "sealed observations must not capture");
+                }
+            }
+        }
+
+        private sealed class BlockingStackException : Exception
+        {
+            private readonly ManualResetEventSlim entered;
+            private readonly ManualResetEventSlim release;
+            private int stackTraceReads;
+
+            internal BlockingStackException(
+                ManualResetEventSlim entered,
+                ManualResetEventSlim release)
+            {
+                this.entered = entered;
+                this.release = release;
+            }
+
+            internal int StackTraceReads => Volatile.Read(ref stackTraceReads);
+
+            public override string StackTrace
+            {
+                get
+                {
+                    Interlocked.Increment(ref stackTraceReads);
+                    entered.Set();
+                    if (!release.Wait(TimeSpan.FromSeconds(5)))
+                    {
+                        throw new TimeoutException("capture was not released");
+                    }
+
+                    return "at Example.Type.Read()";
+                }
+            }
         }
 
         private static void AssertNoRawExceptionMembers(Type type)
