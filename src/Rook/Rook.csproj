@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Rook.Tests" />
+    <InternalsVisibleTo Include="RookBim" />
   </ItemGroup>
 
   <ItemGroup>
