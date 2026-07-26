@@ -18,7 +18,11 @@ $specBaseline = '761a42af1d5c083dd69ee0908531c7d36a7b9995'
 $initialPlanCommit = '2e224695783a712506286bac9943ebccfbccb572'
 $ghPlan = 'docs/superpowers/plans/2026-07-26-rir-grasshopper-document-lifecycle.md'
 $bimPlan = 'docs/superpowers/plans/2026-07-26-rookbim-creation-guid-probe.md'
-$planCommit = (git log -1 --format=%H -- $ghPlan).Trim()
+$planCommit = '247ceec2b0b35f01bfcf3cf6b05475047630c561'
+git cat-file -e "$planCommit^{commit}"
+if ($LASTEXITCODE -ne 0) {
+    throw 'Reviewed plan commit is unavailable'
+}
 
 if ((git rev-parse "$initialPlanCommit^").Trim() -ne $specBaseline) {
     throw 'Initial two-plan commit does not directly follow 761a42af'
