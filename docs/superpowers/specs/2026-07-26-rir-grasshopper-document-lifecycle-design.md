@@ -281,7 +281,7 @@ It does not collapse the global and instance flags before applying host policy.
 
 ### Policy matrix
 
-| Host and state | Decision | `scheduleClassification` |
+| Host and state | Decision | Internal `ScheduleClassification` |
 |---|---|---|
 | Solve not requested | Do not schedule | `solve_not_requested` |
 | RiR, registration known false | Do not schedule | `rir_document_unregistered` |
@@ -298,13 +298,13 @@ It does not collapse the global and instance flags before applying host policy.
 | Standalone, global unknown, instance true or unknown | Preserve current safe asynchronous fail-open behavior | `solver_state_unknown`; verification deferred |
 | Standalone, global true, instance unknown | Preserve current safe asynchronous fail-open behavior | `solver_state_unknown`; verification deferred |
 
-`scheduleClassification` records the host/policy decision above. It does not claim that reflection succeeded or that Grasshopper solved.
+Internal `ScheduleClassification` records the host/policy decision above. It does not claim that reflection succeeded or that Grasshopper solved.
 
 ### Acceptance matrix
 
-Scheduling capability is evaluated only when policy permits an attempt. `scheduleAcceptance` is a separate authoritative closed value:
+Scheduling capability is evaluated only when policy permits an attempt. Internal `ScheduleAcceptance` is a separate authoritative closed value:
 
-| Invocation state | `scheduleAcceptance` | `scheduleFailureCode` | Required behavior |
+| Invocation state | Internal `ScheduleAcceptance` | Internal `ScheduleFailureCode` | Required behavior |
 |---|---|---|---|
 | Policy does not permit an attempt | `not_attempted` | `null` | Do not inspect or invoke the scheduling API |
 | Standalone suspension restoration fails | `not_attempted` | `standalone_solver_restore_failed` | Preserve the committed mutation result; do not invoke or retry |
@@ -313,9 +313,9 @@ Scheduling capability is evaluated only when policy permits an attempt. `schedul
 | `ScheduleSolution(delay)` returns | `accepted` | `null` | Mark completion verification deferred |
 | `MethodInfo.Invoke` begins and throws | `unknown` | `schedule_acceptance_unknown` | Mark verification deferred and never retry |
 
-The existing `solveScheduled` boolean remains temporarily for compatibility and is derived only as `scheduleAcceptance == accepted`. It is not authoritative. In particular, `solveScheduled = false` does not prove that Grasshopper has no pending schedule when acceptance is `unknown`.
+The existing internal `SolveScheduled` boolean remains temporarily for compatibility and is derived only as `ScheduleAcceptance == accepted`. It is not authoritative. In particular, `SolveScheduled = false` does not prove that Grasshopper has no pending schedule when acceptance is `unknown`.
 
-Method absence and a rejection proven to occur before invocation are conclusive. A thrown target invocation is not: Grasshopper writes `m_scheduleDelay` before `StartSchedule`, so an exception can leave partially accepted scheduling state. That path records a bounded exception type, sets `scheduleAcceptance = unknown`, leaves verification deferred, and never retries. No path includes a raw exception, stack trace, arbitrary message, path, or document content.
+Method absence and a rejection proven to occur before invocation are conclusive. A thrown target invocation is not: Grasshopper writes `m_scheduleDelay` before `StartSchedule`, so an exception can leave partially accepted scheduling state. That path records a bounded exception type, sets `ScheduleAcceptance = unknown`, leaves verification deferred, and never retries. No path includes a raw exception, stack trace, arbitrary message, path, or document content.
 
 The reflection adapter classifies a `TargetInvocationException` as target-entry evidence and therefore `unknown`. A reflection/validation failure may be `not_attempted` only when its type and call position prove that the target method was not entered. Any ambiguity resolves to `unknown`; exception-message parsing never decides acceptance.
 
@@ -332,12 +332,12 @@ perform mutations
 → restore standalone document suspension
 → inspect the post-restoration schedule preconditions
 → invoke ScheduleSolution(delay >= 1) exactly once
-→ project scheduleAcceptance and build the response
+→ project ScheduleAcceptance and build the response
 ```
 
 Other mutation routes follow the same ordering relative to their own committed readback or snapshot: expiration and response evidence precede the one scheduling invocation, and invocation precedes callback return. A positive Grasshopper delay only arms its timer; the actual solution is marshalled to the editor UI later. Rook never calls `NewSolution`, never uses delay zero, never waits for solution completion, and never falls back to synchronous solving.
 
-Inside RiR, batch suspension is a no-op, so there is no restoration step and no Rook `Enabled` write. In standalone Rhino, restoration is attempted on every exit path. On the successful path it completes before scheduling. If restoration fails, Rook does not invoke `ScheduleSolution`; it retains the mutation's actual success or failure, reports `scheduleFailureCode = standalone_solver_restore_failed` with `scheduleAcceptance = not_attempted`, includes the observed final solver state when available, and performs no retry. Cleanup/finally paths cannot silently swallow restoration failure.
+Inside RiR, batch suspension is a no-op, so there is no restoration step and no Rook `Enabled` write. In standalone Rhino, restoration is attempted on every exit path. On the successful path it completes before scheduling. If restoration fails, Rook does not invoke `ScheduleSolution`; it retains the mutation's actual success or failure, reports `ScheduleFailureCode = standalone_solver_restore_failed` with `ScheduleAcceptance = not_attempted`, includes the observed final solver state when available, and performs no retry. Cleanup/finally paths cannot silently swallow restoration failure.
 
 `global_solver_unavailable` is deliberately neutral. The public getter returns false when Grasshopper cannot solve as well as when its underlying global flag is disabled, and RiR temporarily disables that flag during document registration. Rook must not label every false result a user lock.
 
@@ -376,7 +376,16 @@ New/open success data includes bounded evidence equivalent to:
 
 Post-mutation responses add a neutral schedule classification and registration-known/registered evidence. They retain existing fields unless removal is separately versioned.
 
-`scheduleClassification`, `scheduleAcceptance`, and nullable `scheduleFailureCode` are additive closed fields. `scheduleClassification` explains the host/policy decision; `scheduleAcceptance` authoritatively describes invocation acceptance; `scheduleFailureCode` records the bounded execution failure when present. `solveScheduled` is retained as a deprecated compatibility projection which is true only for `accepted`. Consumers must use `scheduleAcceptance` to distinguish `not_attempted`, `unavailable`, and `unknown`; they must not interpret a false boolean as proof that Grasshopper scheduled nothing.
+Internal result members and exact public wire keys are distinct and normative:
+
+| Internal C# member | Exact wire key | Contract |
+|---|---|---|
+| `ScheduleClassification` | `schedule_classification` | Closed host/policy decision |
+| `ScheduleAcceptance` | `schedule_acceptance` | Authoritative closed invocation-acceptance state |
+| `ScheduleFailureCode` | `schedule_failure_code` | Nullable bounded execution-failure code |
+| retained `SolveScheduled` | retained `solve_scheduled` | Deprecated compatibility projection; true only for `accepted` |
+
+Post-mutation payloads that carry solve evidence emit no camelCase variants. Consumers must use `schedule_acceptance` to distinguish `not_attempted`, `unavailable`, and `unknown`; they must not interpret a false `solve_scheduled` value as proof that Grasshopper scheduled nothing.
 
 The result shape must not expose internal document objects, raw filesystem paths beyond the route's existing response, arbitrary callback data, or exception objects.
 
@@ -453,15 +462,16 @@ Tests must cover every policy row, including:
 - unregistered RiR does not pretend scheduling is useful;
 - unknown registration cannot be reported as registered;
 - registered RiR with known-global/unknown-instance state makes one safe asynchronous request without flag writes and reports `rir_instance_solver_state_unknown`;
-- a missing scheduling method reports `scheduleFailureCode = schedule_api_unavailable`, `scheduleAcceptance = unavailable`, and `solveScheduled = false`;
-- pre-invocation rejection reports `scheduleFailureCode = schedule_precondition_rejected`, `scheduleAcceptance = not_attempted`, and performs no invocation;
-- a returning invocation reports `scheduleAcceptance = accepted`, makes the compatibility boolean true, and keeps completion verification deferred until a later proving event;
-- a fake target which mutates schedule state and then throws reports `scheduleFailureCode = schedule_acceptance_unknown`, sets `scheduleAcceptance = unknown`, remains verification-deferred, and is never retried;
-- a false `solveScheduled` value with unknown acceptance is never interpreted as proof of no pending Grasshopper schedule;
+- a missing scheduling method reports internal `ScheduleFailureCode = schedule_api_unavailable`, internal `ScheduleAcceptance = unavailable`, and retained `SolveScheduled = false`;
+- pre-invocation rejection reports internal `ScheduleFailureCode = schedule_precondition_rejected`, internal `ScheduleAcceptance = not_attempted`, and performs no invocation;
+- a returning invocation reports internal `ScheduleAcceptance = accepted`, makes the compatibility boolean true, and keeps completion verification deferred until a later proving event;
+- a fake target which mutates schedule state and then throws reports internal `ScheduleFailureCode = schedule_acceptance_unknown`, sets internal `ScheduleAcceptance = unknown`, remains verification-deferred, and is never retried;
+- a false retained `SolveScheduled` value with unknown acceptance is never interpreted as proof of no pending Grasshopper schedule;
+- every post-mutation response carrying solve evidence emits exact keys `schedule_classification`, `schedule_acceptance`, `schedule_failure_code`, and retained `solve_scheduled`, with no camelCase duplicates;
 - the five-second dispatch constant, `Task.Run` handoff, and second UI dispatch are absent;
 - `/gh/edit` orders dirty expiration, structural snapshot, standalone restoration, one positive-delay invocation, and response construction exactly as specified;
 - the schedule method is invoked exactly once before callback return while the actual solution callback does not begin synchronously;
-- standalone restoration precedes invocation, runs on every success/failure exit, and a failed restore reports `scheduleFailureCode = standalone_solver_restore_failed` without scheduling;
+- standalone restoration precedes invocation, runs on every success/failure exit, and a failed restore reports internal `ScheduleFailureCode = standalone_solver_restore_failed` without scheduling;
 - `rir_mediated_schedule_requested` remains verification-deferred;
 - no response claims actual RiR deferral without a later proving event;
 - standalone combined-state policy and mutation-time suspension remain intact, with restoration moved to the specified pre-invocation boundary;
