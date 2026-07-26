@@ -384,6 +384,44 @@ Assert.Contains(""required"", member);";
         }
 
         [Fact]
+        public void SourceContractAudit_RejectsTask9WholeSourcePositiveChecksThatCouldMatchCommentsOrLiterals()
+        {
+            const string requiredCall =
+                "query.Query(document, activeView, selector, diagnostics)";
+            var decoyProductionSource =
+                "// query.Query(document, activeView, selector, diagnostics)\n" +
+                "var literal = \"query.Query(document, activeView, selector, diagnostics)\";";
+            var weakContract =
+                "var preset = Read(\"src/RookBim/Revit/RevitPresetResolver.cs\");\n" +
+                "Assert.Contains(\"query.Query(document, activeView, selector, diagnostics)\", preset);";
+
+            Assert.Contains(requiredCall, decoyProductionSource);
+            Assert.ThrowsAny<Exception>(() =>
+                AssertNoWholeSourceAssertions(weakContract));
+        }
+
+        [Theory]
+        [InlineData(
+            "var preset = Read(\"src/RookBim/Revit/RevitPresetResolver.cs\");\n" +
+            "Assert.DoesNotContain(\n" +
+            "    \"query.Query(document, activeView, selector);\",\n" +
+            "    preset);")]
+        [InlineData(
+            "var export = Read(\"src/RookBim/Revit/RevitExportService.cs\");\n" +
+            "Assert.DoesNotContain(\"DocumentIdentity(document, diagnostics\", " +
+            "NormalizeLineEndings((export)));")]
+        [InlineData(
+            "var query = Read(\"src/RookBim/Revit/RevitQueryService.cs\");\n" +
+            "var alias = (query);\n" +
+            "Assert.DoesNotContain(\"DocumentIdentity(document, diagnostics\", alias);")]
+        public void SourceContractAudit_RejectsTask9MultilineWrappedAndAliasedWholeSourceNegatives(
+            string weakContract)
+        {
+            Assert.ThrowsAny<Exception>(() =>
+                AssertNoWholeSourceAssertions(weakContract));
+        }
+
+        [Fact]
         public void SourceContracts_Task8PositivesBindExactMembers()
         {
             var source = Read(
@@ -427,6 +465,29 @@ Assert.Contains(""required"", member);";
                     "public class RookBimModuleSourceTests",
                     "public void RevitTask7_StatusDispatchFailureKeepsRookBimRuntime()"),
                 "runtime");
+        }
+
+        [Fact]
+        public void SourceContracts_Task9PresetDiagnosticsBindExactExecutableMembers()
+        {
+            var source = Read(
+                "src/RookBim.Tests/RookBimExportPresetSourceTests.cs");
+
+            AssertNoWholeSourceAssertions(
+                ExtractSourceMember(
+                    source,
+                    "public class RookBimExportPresetSourceTests",
+                    "public void PresetResolver_ThreadsTheRequestDiagnosticContextThroughEveryCategoryQuery()"));
+            AssertNoWholeSourceAssertions(
+                ExtractSourceMember(
+                    source,
+                    "public class RookBimExportPresetSourceTests",
+                    "public void QueryAndPresetExportIdentityPathsRemainUntraced()"));
+            AssertNoWholeSourceAssertions(
+                ExtractSourceMember(
+                    source,
+                    "public class RookBimExportPresetSourceTests",
+                    "public void Runtime_WiresExportPresetThroughResolverAndExportTimeout()"));
         }
 
         [Fact]
@@ -2287,6 +2348,35 @@ Assert.Contains(""required"", member);";
             string source,
             params string[] wholeSourceIdentifiers)
         {
+            AssertNoWholeSourceAssertion(
+                source,
+                "Contains",
+                "Positive Assert.Contains",
+                wholeSourceIdentifiers);
+        }
+
+        private static void AssertNoWholeSourceAssertions(
+            string source,
+            params string[] wholeSourceIdentifiers)
+        {
+            AssertNoWholeSourceAssertion(
+                source,
+                "Contains",
+                "Positive Assert.Contains",
+                wholeSourceIdentifiers);
+            AssertNoWholeSourceAssertion(
+                source,
+                "DoesNotContain",
+                "Negative Assert.DoesNotContain",
+                wholeSourceIdentifiers);
+        }
+
+        private static void AssertNoWholeSourceAssertion(
+            string source,
+            string assertionName,
+            string description,
+            params string[] wholeSourceIdentifiers)
+        {
             var lexed = Lex(source);
             var identifiers = new HashSet<string>(
                 wholeSourceIdentifiers.Select(NormalizeIdentifier),
@@ -2296,7 +2386,9 @@ Assert.Contains(""required"", member);";
             foreach (var identifier in identifiers)
             {
                 var pattern =
-                    @"\bAssert\s*\.\s*Contains\s*\([^;]*" +
+                    @"\bAssert\s*\.\s*" +
+                    Regex.Escape(assertionName) +
+                    @"\s*\([^;]*" +
                     @"(?<![A-Za-z0-9_])@?" +
                     Regex.Escape(identifier) +
                     @"(?![A-Za-z0-9_])[^;]*\)\s*;";
@@ -2306,7 +2398,7 @@ Assert.Contains(""required"", member);";
                         pattern,
                         RegexOptions.CultureInvariant |
                         RegexOptions.Singleline),
-                    "Positive Assert.Contains references whole-source identifier '" +
+                    description + " references whole-source identifier '" +
                     identifier + "'.");
             }
         }
@@ -2488,7 +2580,7 @@ Assert.Contains(""required"", member);";
                 member.BodyEnd - member.DeclarationStart + 1);
         }
 
-        private static string ExtractExecutableMember(
+        internal static string ExtractExecutableMember(
             string source,
             string typeDeclaration,
             string memberDeclaration)
@@ -2916,7 +3008,7 @@ Assert.Contains(""required"", member);";
                 "First executable statement did not terminate.");
         }
 
-        private static string RemoveWhitespace(string value)
+        internal static string RemoveWhitespace(string value)
         {
             return new string(value
                 .Where(character => !char.IsWhiteSpace(character))
