@@ -234,7 +234,6 @@ namespace Rook.Bim
                 return;
             }
 
-            BimDiagnosticOutcome? deferredRouteOutcome = null;
             try
             {
                 var capture = BimDiagnosticExceptionCapture.Capture(exception);
@@ -262,13 +261,12 @@ namespace Rook.Bim
             }
             finally
             {
-                deferredRouteOutcome = admission.Release();
-            }
-
-            if (deferredRouteOutcome.HasValue)
-            {
-                EnqueueTerminal(
-                    context, accumulator, deferredRouteOutcome.Value);
+                var deferredRouteOutcome = admission.Release();
+                if (deferredRouteOutcome.HasValue)
+                {
+                    EnqueueTerminal(
+                        context, accumulator, deferredRouteOutcome.Value);
+                }
             }
         }
 
@@ -358,7 +356,20 @@ namespace Rook.Bim
             BimDiagnosticEnvelope envelope,
             BimDiagnosticOutcomeAccumulator accumulator)
         {
-            if (sink == null || !sink.TryEnqueue(envelope))
+            if (sink == null)
+            {
+                accumulator.RecordDrop();
+                return;
+            }
+
+            try
+            {
+                if (!sink.TryEnqueue(envelope))
+                {
+                    accumulator.RecordDrop();
+                }
+            }
+            catch (Exception)
             {
                 accumulator.RecordDrop();
             }
