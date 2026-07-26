@@ -234,6 +234,60 @@ namespace Rook.Tests.Bim.Diagnostics
         }
 
         [Fact]
+        public void ObserveException_UncorrelatedReentrantCompletionNeverEmitsTerminal()
+        {
+            var sink = new InMemoryBimDiagnosticEnvelopeSink();
+            var session = new BimDiagnosticSession(true, sink);
+            var context = session.CreateUncorrelatedContext("initialize");
+            var exception = new ReentrantCompletionStackException(
+                session, context);
+
+            session.ObserveException(
+                context,
+                BimDiagnosticStage.CoreInitialize,
+                exception,
+                BimDiagnosticFields.None);
+
+            var envelope = Assert.Single(sink.Envelopes);
+            Assert.Equal(BimDiagnosticRecordKind.Failure, envelope.Kind);
+            Assert.Null(envelope.CorrelationId);
+            Assert.Equal(1, exception.StackTraceReads);
+        }
+
+        [Fact]
+        public async Task ObserveException_UncorrelatedConcurrentCompletionNeverEmitsTerminal()
+        {
+            var sink = new InMemoryBimDiagnosticEnvelopeSink();
+            var session = new BimDiagnosticSession(true, sink);
+            var context = session.CreateUncorrelatedContext("initialize");
+            using var captureEntered = new ManualResetEventSlim(false);
+            using var releaseCapture = new ManualResetEventSlim(false);
+            var exception = new BlockingStackException(
+                captureEntered, releaseCapture);
+            var observation = Task.Run(() => session.ObserveException(
+                context,
+                BimDiagnosticStage.CoreInitialize,
+                exception,
+                BimDiagnosticFields.None));
+
+            try
+            {
+                Assert.True(captureEntered.Wait(TimeSpan.FromSeconds(5)));
+                session.CompleteRequest(context, BimDiagnosticOutcome.Failure);
+            }
+            finally
+            {
+                releaseCapture.Set();
+                await observation;
+            }
+
+            var envelope = Assert.Single(sink.Envelopes);
+            Assert.Equal(BimDiagnosticRecordKind.Failure, envelope.Kind);
+            Assert.Null(envelope.CorrelationId);
+            Assert.Equal(1, exception.StackTraceReads);
+        }
+
+        [Fact]
         public void ObserveException_ReentrantCompletionFromSynchronousSinkDefersTerminal()
         {
             var sink = new ReentrantCompletionSink();
